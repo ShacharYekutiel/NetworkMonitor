@@ -305,16 +305,36 @@ Backend, frontend and QA can implement in parallel against those two files.
   through an `asyncio.Semaphore(NETMON_DISCOVERY_CONCURRENCY)`, starting at most `NETMON_DISCOVERY_RATE` hosts
   per second. It uses **its own semaphore**, not the poller's, so monitoring keeps running; the SNMP engine
   is shared.
-- Per host (hard timeout 30 s): ping (icmplib, `count=1`, the same privileged/unprivileged/system-binary
+- Per host: ping (icmplib, `count=1`, the same privileged/unprivileged/system-binary
   fallback as the ping sensor), the TCP probes (all ports concurrently, open = connect succeeded; refused =
-  closed) and the SNMP credential loop run **concurrently**. Reverse DNS (dnspython async resolver, PTR,
+  closed) and the SNMP stage run **concurrently**.
+  - **SNMP budget:** the SNMP stage (credential loop + identity GET + subtree GETNEXT + FreeBSD `ifDescr` walk)
+    has a **25 s** budget across all credential attempts. When it runs out, the stage stops: if a credential
+    already answered, the identity values gathered so far are kept (subtree probes / `pf` that did not finish
+    count as not present); otherwise `snmp_ok = false`.
+  - **Partial results are always kept.** The SNMP budget never discards the ping/TCP results: a host that
+    answered ping or has an open port is always recorded as found. (An outer safety timeout of 30 s per host
+    may exist for bugs, but it must also keep the ping/TCP results gathered so far.)
+  - **TCP connect cap:** all TCP probes of a scan share one global semaphore of **256** concurrent connects
+    (on top of the host concurrency), so a default scan (64 hosts × 11 ports) never opens more than 256
+    sockets at once.
+  - **File descriptors:** at startup, on POSIX, the process raises its soft `RLIMIT_NOFILE` to the hard limit
+    (capped at 65536; best effort, logged at debug when it fails). Windows needs nothing (the Proactor loop has
+    no `select()` limit; in dev reload mode uvicorn uses a selector loop, and the 256 cap keeps it under 512).
+  - Reverse DNS (dnspython async resolver, PTR,
   lifetime 2 s, system resolver) runs only for found hosts. MAC: on Linux read `/proc/net/arp` after the
   probes (entry with flags `0x2`); elsewhere `null`. In Docker the container sees only its own L2 neighbours,
   so MACs are usually `null`; this is expected.
 - Each found host is classified, inserted, and published as `discovery.result`. Progress is flushed/published
   at most once per second.
 - **Cancel** sets a flag and cancels in-flight host tasks; found results stay; status `cancelled`. Cancelled
-  scans also update known hosts.
+  scans also update known hosts. `POST .../cancel` waits for the scan task at most **5 s** and always answers
+  `200` with `status: "cancelled"`: if the task has not ended by then, the endpoint writes the final state
+  itself (`status = 'cancelled'`, `finished_at`) and the task finishes in the background (its later finish
+  must not overwrite the status).
+- **Hostname targets resolving to an address already found** (through another target): the result row is
+  de-duplicated per `(scan_id, ip)` — the **first writer wins**, so `hostname` may be the PTR name of the
+  IP-target row rather than the target name. The host still counts once in `scanned_hosts` per target.
 - **Failure** (unexpected exception) → `failed` with the error text, published as `discovery.finished`. A
   scheduled scan that fails writes a `discovery` event.
 - After finishing: upsert known hosts, compute `new_hosts`, write the `discovery` event / send notifications for
@@ -323,6 +343,9 @@ Backend, frontend and QA can implement in parallel against those two files.
   running scan (it ends `cancelled`) before closing the DB.
 
 ### 9.3 Templates and apply
+- **Serialized per device:** apply-template and the import of a device hold a per-device `asyncio.Lock`
+  (keyed by device id) from reading the existing sensors until the commit, so concurrent applies (double
+  submit, apply during an import) never create duplicate sensors; the second one reports `exists`.
 - Templates are code (`netmon/templates/builtin.py`), never stored in the DB, and exposed read-only by
   `GET /api/device-templates`. Adding a template = a code change.
 - `apply_template` is idempotent: identities per [data-model.md](data-model.md#idempotency-apply-adds-only-what-is-missing).
@@ -338,8 +361,13 @@ Backend, frontend and QA can implement in parallel against those two files.
   route discovery, no following of hostnames found in SNMP). It never sends anything but ICMP echo,
   TCP connect (closed immediately, no payload), SNMP GET/GETNEXT/GETBULK of the listed OIDs, and PTR lookups.
 - Limits: ≤ 4096 hosts per scan, ≤ 64 target strings, one running scan, `NETMON_DISCOVERY_CONCURRENCY` and
-  `NETMON_DISCOVERY_RATE`, ≤ 9 SNMP credential attempts per host with `retries = 0`, ≤ 32 TCP ports. Multicast,
-  `0.0.0.0/8` and `240.0.0.0/4` targets are rejected.
+  `NETMON_DISCOVERY_RATE`, ≤ 9 SNMP credential attempts per host with `retries = 0` (25 s SNMP budget), ≤ 32
+  TCP ports, ≤ 256 concurrent TCP connects per process. Multicast, `0.0.0.0/8` and `240.0.0.0/4` targets are
+  rejected, and so are IPv6 scope ids (`fe80::1%eth0`) and IPv4-mapped IPv6 (`::ffff:a.b.c.d`), both as
+  literal targets and as the result of hostname resolution.
+- Unexpected errors never echo internals: import item errors use the fixed message `Internal error`
+  (SQLAlchemy errors embed statement parameters, which can include SNMP secrets); the details go only to the
+  log, which must not include statement parameters either (`hide_parameters=True` on the engine).
 - Secrets: discovery extra communities/v3 keys and the Telegram bot token are write-only in the API, never
   logged (Telegram error texts are scrubbed of the token; `httpx`/`httpcore` loggers at WARNING), and the
   per-scan credential snapshot (`discovery_scans.credentials`) is never serialized. It is deleted together

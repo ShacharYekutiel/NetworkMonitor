@@ -640,6 +640,8 @@ the `snmp_disk` picker. Timeout/auth failure → `502 snmp_error`.
 - `type`: `ram` (.2), `virtual_memory` (.3), `fixed_disk` (.4), `removable_disk` (.5), `network_disk` (.10),
   `flash` (.9), `other` (anything else). Sorted by `index`. The UI preselects `fixed_disk` rows and hides
   `ram`/`virtual_memory`.
+- `size_bytes` / `used_bytes`: `number | null` — null when the agent does not report `hrStorageSize` /
+  `hrStorageUsed` / `hrStorageAllocationUnits` for the row. The UI shows "—" and no usage bar then.
 - `existing_sensor_id`: an `snmp_disk` sensor of this device whose `config.storage_descr` equals `descr`, or null.
 
 ### Notification channels: `telegram`
@@ -693,7 +695,9 @@ Response (`NotificationChannel`):
 ### Discovery notification payload [2a]
 When a scheduled scan of a profile with `notify_new_hosts = true` finishes (`completed`), has `new_hosts > 0`
 and is not the profile's baseline run, the backend sends one notification per channel in
-`notify_channel_ids` (enabled channels only). Failures write a `notification` event. Webhook body:
+`notify_channel_ids` (enabled channels only). Failures write a `notification` event.
+The `discovery` event itself is written for **every** completed, non-baseline scheduled scan with
+`new_hosts > 0`, also when `notify_new_hosts = false`; only the notifications are opt-in. Webhook body:
 
 ```json
 { "event": "discovery.new_hosts", "event_id": 1203, "time": "2026-11-04T03:00:12Z",
@@ -751,6 +755,8 @@ Apply semantics ([data-model.md § Device templates](data-model.md#device-templa
 - Created sensors get `interval_s` = the entry's value or `settings.default_interval_s`, are scheduled
   (`scheduler.upsert`), and use names in the caller's language.
 - Works on disabled devices too (sensors are created, and stay `paused`); probes are still attempted.
+- **Serialized per device:** apply-template and discovery import take a per-device lock, so two concurrent
+  applies on one device never create duplicates (the later one reports `exists` for what the first created).
 - One `config.changed {"entity":"device","id":<id>,"action":"updated"}` is broadcast (no per-sensor messages).
 - Example response:
 
@@ -798,7 +804,8 @@ Create request:
 - Targets are validated and the host count checked (`422 validation_error` / `422 too_many_hosts`) on create
   and on PATCH of `targets`.
 - `notify_channel_ids`: each id must exist (422). `notify_new_hosts: true` with an empty list is allowed
-  (event only).
+  (no notifications are sent). The `discovery` event does not depend on these fields: it is written for every
+  completed, non-baseline scheduled scan with new hosts (see below).
 - Profile mutations broadcast `config.changed` with `entity: "discovery_profile"`.
 
 #### Scans
@@ -808,9 +815,9 @@ Create request:
 | `POST /api/discovery/scans` | `{"targets": [...], "group_id": 1, "options": {...}}` (`options` optional) | `202 DiscoveryScan` with `status: "running"`, `profile_id: null`. `409 scan_running` (details `[{"scan_id": n}]`), `422 too_many_hosts`, `422 validation_error`. |
 | `GET /api/discovery/scans` | Query: `profile_id` | Page of `DiscoveryScan`, sorted by `id` desc |
 | `GET /api/discovery/scans/{id}` | — | `DiscoveryScan` (use it for polling, e.g. every 2 s, when the WS is down) |
-| `POST /api/discovery/scans/{id}/cancel` | — (no body) | `200 DiscoveryScan` with `status: "cancelled"`. The call returns after in-flight probes stopped (≤ 5 s). `409 scan_not_running` otherwise. |
+| `POST /api/discovery/scans/{id}/cancel` | — (no body) | `200 DiscoveryScan` with `status: "cancelled"` (and `finished_at` set), always within **5 s**: if in-flight probes have not stopped by then, the server records the scan as `cancelled` anyway and lets the task wind down in the background (results it still writes stay). `409 scan_not_running` otherwise. |
 | `DELETE /api/discovery/scans/{id}` | — | `204` (results cascade). `409 scan_running` while it runs. |
-| `GET /api/discovery/scans/{id}/results` | Query: `only_new` (bool), `hide_existing` (bool), `device_class` (csv), `q` (ILIKE on ip text / hostname / sys_name) | Page of `DiscoveryResult`, sorted by `ip` ascending (inet order). Allowed while running (partial). |
+| `GET /api/discovery/scans/{id}/results` | Query: `only_new` (bool), `hide_existing` (bool), `device_class` (csv), `q` (case-insensitive **literal** substring of ip text / hostname / sys_name: `%`, `_` and `\` in `q` are escaped, so they match themselves) | Page of `DiscoveryResult`, sorted by `ip` ascending (inet order). Allowed while running (partial). |
 | `POST /api/discovery/scans/{id}/import` | see below | `200` import result. `409 scan_running` while the scan runs. |
 
 Scan example response:
@@ -854,15 +861,22 @@ Request:
 - `group_id` optional → the scan's `group_id` (422 when both are null or the group does not exist).
 - `items`: 1–256 entries, unique `result_id`. `template_id` must be a known template (whole request → 422).
   `name` optional (1–128 chars).
+- **Time budget:** the whole import has a **90 s** budget. Each item's template apply gets
+  `min(120 s, time left)`; items not started before the budget runs out are not attempted and return
+  `errors[]` entries with code `internal_error`, message `Import time budget exceeded; retry the remaining hosts`
+  (`device_id: null`). The response is still `200`.
 - For each item (processed with concurrency 8; the order of `created`/`errors` follows `items`):
   - The result must belong to this scan, else item error `not_found`.
   - If `existing_device_id` (computed now) is not null → item error `device_exists` (with `device_id`).
   - Create the device: `host` = the IP text, `name` = `name` or `sys_name` or `hostname` or the IP (trimmed,
     cut to 128), `description` = `sys_descr` (first 500 chars) or `""`, `enabled: true`.
-  - **SNMP credentials:** if `snmp_ok` and the answering credential is index 0 and the scan had no
-    `snmp_port` override (or it equals the target group's current effective port) → `snmp_credentials = null`
-    (inherit). Otherwise, when `snmp_ok`, the device gets its own credentials = the stored credential object,
-    with `timeout_s = 2`, `retries = 1`. When SNMP did not answer → `null`.
+  - **SNMP credentials** (when SNMP did not answer → `null`). Let `C` = the stored credential that answered
+    (`discovery_scans.credentials[index]`) and `G` = the **import group's** current effective credentials
+    (group chain → built-in default). If `C` is index 0 **and** `C` equals `G` comparing every field except
+    `timeout_s` and `retries` (**`port` included**, as are version, community and all v3 fields) →
+    `snmp_credentials = null` (inherit). Otherwise the device gets its own copy of `C` with `timeout_s = 2`,
+    `retries = 1`. So importing into a different group than the scan's, or after the group's credentials
+    changed, or with an `snmp_port` override, gives the device its own (working) credentials.
   - Apply the template (same code as apply-template; ping is never probed).
   - Set `discovery_results.imported_device_id`.
   - Broadcast one `config.changed` `{"entity":"device","action":"created"}` per device.
@@ -879,6 +893,15 @@ Response `200`:
 ```
 
 `errors[].code` ∈ `not_found`, `device_exists`, `internal_error`; `device_id` is null except for `device_exists`.
+For an unexpected failure the `message` is the fixed text `Internal error` (details only in the server log);
+the only other `internal_error` message is the time-budget one above.
+
+**Client recovery** (the request may outlive a reverse proxy's timeout, e.g. a `504` after 60 s, while the
+server keeps importing): on a `5xx`/network error from `POST .../import`, the client does **not** retry blindly.
+It refetches `GET /api/discovery/scans/{id}/results` (and the tree): rows with `imported_device_id` set were
+imported (show them as done, linking to the device); rows still without it and without `existing_device_id`
+stay selected so the user can import them again. Re-importing an already-imported row is harmless — it
+returns `device_exists`.
 
 #### Discovery WebSocket messages
 Sent to admin sockets only.

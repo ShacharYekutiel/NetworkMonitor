@@ -169,7 +169,9 @@ Indexes: `(time DESC)`, `(sensor_id, time DESC)`, `(device_id, time DESC)`.
 - `notification`: a failed notification. The `message` holds the channel name and the error.
 - `system`: e.g. "NetworkMonitor started", "TimescaleDB not available — using plain PostgreSQL".
 - **[2a]** `discovery`: a scheduled discovery scan found new hosts, or a scheduled scan failed. All
-  sensor/device/group columns are NULL. Example message: `Discovery "LAN": 2 new hosts: 10.0.0.5 (printer, brother), 10.0.0.9`.
+  sensor/device/group columns are NULL. The new-hosts event is written for **every** completed, non-baseline
+  scheduled scan with `new_hosts > 0`, **whether or not** the profile has `notify_new_hosts`; only the
+  notifications (email/webhook/Telegram) are opt-in. Example message: `Discovery "LAN": 2 new hosts: 10.0.0.5 (printer, brother), 10.0.0.9`.
 
 ### `notification_channels`
 | Column | Type | Constraints |
@@ -625,7 +627,7 @@ One row per **found** host (a host is found when ping answered, SNMP answered, o
 | id | integer | PK |
 | scan_id | integer | NOT NULL, FK `discovery_scans.id` ON DELETE CASCADE |
 | ip | inet | NOT NULL. UNIQUE `(scan_id, ip)`. |
-| hostname | varchar(255) | NULL. Reverse DNS (PTR, trailing dot stripped), or the target name when the target was a hostname. |
+| hostname | varchar(255) | NULL. Reverse DNS (PTR, trailing dot stripped), or the target name when the target was a hostname. When a hostname target resolves to an address another target already found, the first row written wins (UNIQUE `(scan_id, ip)`), so `hostname` may be the PTR name. |
 | mac | varchar(17) | NULL. Best effort, lower-case `aa:bb:cc:dd:ee:ff` (see architecture). |
 | ping_ok | boolean | NOT NULL |
 | ping_rtt_ms | double precision | NULL |
@@ -673,8 +675,11 @@ Each entry of `targets` is one of:
 | Hostname | `nas.lan` | RFC 1123, ≤ 253 chars. Resolved at scan time (first A, else AAAA). Not resolvable → not found (counts as scanned). |
 
 - Rejected addresses (whole request → `422 validation_error`, loc `["body","targets",i]`): multicast
-  (`224.0.0.0/4`, `ff00::/8`), `0.0.0.0/8`, `240.0.0.0/4` (includes `255.255.255.255`), unspecified `::`.
-  Loopback **is allowed** (QA simulators use `127.0.0.x`).
+  (`224.0.0.0/4`, `ff00::/8`), `0.0.0.0/8`, `240.0.0.0/4` (includes `255.255.255.255`), unspecified `::`,
+  IPv6 with a **scope id** (`fe80::1%eth0`), and **IPv4-mapped IPv6** (`::ffff:0:0/96`, e.g.
+  `::ffff:10.0.0.1` — give the IPv4 address instead). Loopback **is allowed** (QA simulators use `127.0.0.x`).
+- A hostname target whose resolved address falls in any rejected class above (including a scope id or an
+  IPv4-mapped address) is treated as not resolvable: not found, counts as scanned.
 - Duplicates across entries are removed. **Total after expansion ≤ 4096**, else `422 too_many_hosts`
   (details `[{"count": 65534, "max": 4096}]`). A `/20` (4094 hosts) fits.
 - Hosts are scanned in ascending address order (hostnames last, in given order).
@@ -701,7 +706,8 @@ At least one of `ping`, `snmp`, `tcp` must be true (422 otherwise).
 
 **Credential order** (stops at the first that answers): 1) the target group's effective credentials (device →
 group chain → built-in default, see SNMP credentials), 2) each `extra_communities` entry as v2c, 3) each
-`extra_v3` entry. All use `snmp_port` when set, `timeout_s = snmp_timeout_s`, `retries = 0`. Max 9 attempts per host.
+`extra_v3` entry. All use `snmp_port` when set, `timeout_s = snmp_timeout_s`, `retries = 0`. Max 9 attempts per host, all within the **25 s SNMP budget** per host (attempts not started
+within the budget are skipped). Ping and TCP results are kept regardless ([architecture.md § 9.2](architecture.md#92-scan-execution)).
 
 ## Classification
 Inputs per host: `sys_object_id`, `sys_descr`, `sys_name`, open ports, and up to three **subtree probes**.
