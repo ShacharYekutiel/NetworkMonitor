@@ -16,7 +16,16 @@ export type StatusCounts = {
 
 export type Page<T> = { items: T[]; total: number; page: number; page_size: number };
 
-export type ApiErrorDetail = { loc?: (string | number)[]; msg?: string; field?: string };
+export type ApiErrorDetail = {
+  loc?: (string | number)[];
+  msg?: string;
+  field?: string;
+  /** [2a] scan_running */
+  scan_id?: number;
+  /** [2a] too_many_hosts */
+  count?: number;
+  max?: number;
+};
 export type ApiErrorEnvelope = {
   error: { code: string; message: string; details: ApiErrorDetail[] | null };
 };
@@ -105,7 +114,9 @@ export type SensorType =
   | 'snmp_interface'
   | 'http'
   | 'tcp_port'
-  | 'dns';
+  | 'dns'
+  | 'snmp_custom' // [2a]
+  | 'snmp_disk'; // [2a]
 
 export const SENSOR_TYPES: SensorType[] = [
   'ping',
@@ -116,6 +127,8 @@ export const SENSOR_TYPES: SensorType[] = [
   'http',
   'tcp_port',
   'dns',
+  'snmp_custom',
+  'snmp_disk',
 ];
 
 export type Channel = {
@@ -158,7 +171,8 @@ export type Sensor = {
   updated_at: string;
 };
 
-export type EventKind = 'status_change' | 'notification' | 'system';
+export type EventKind = 'status_change' | 'notification' | 'system' | 'discovery';
+export const EVENT_KINDS: EventKind[] = ['status_change', 'notification', 'system', 'discovery'];
 
 export type NmEvent = {
   id: number;
@@ -228,7 +242,15 @@ export type Tree = { groups: TreeGroup[] };
 
 // Sensor type definitions
 export type ConfigFieldType =
-  'int' | 'str' | 'bool' | 'enum' | 'int_list' | 'str_nullable' | 'int_nullable' | 'headers';
+  | 'int'
+  | 'str'
+  | 'bool'
+  | 'enum'
+  | 'int_list'
+  | 'str_nullable'
+  | 'int_nullable'
+  | 'headers'
+  | 'float'; // [2a]
 
 export type ConfigField = {
   key: string;
@@ -295,12 +317,29 @@ export type WebhookChannelConfig = {
   verify_tls: boolean;
   timeout_s: number;
 };
+/** [2a] */
+export type TelegramChannelConfig = {
+  bot_token: null;
+  bot_token_set: boolean;
+  chat_id: string;
+  parse_mode: 'HTML' | null;
+  disable_notification: boolean;
+};
+/** Request form: bot_token is a real string (or omitted/null = keep). */
+export type TelegramChannelConfigInput = {
+  bot_token?: string | null;
+  chat_id: string;
+  parse_mode: 'HTML' | null;
+  disable_notification: boolean;
+};
+export type NotificationType = 'email' | 'webhook' | 'telegram';
+export const NOTIFICATION_TYPES: NotificationType[] = ['email', 'webhook', 'telegram'];
 export type NotificationChannel = {
   id: number;
   name: string;
-  type: 'email' | 'webhook';
+  type: NotificationType;
   enabled: boolean;
-  config: EmailChannelConfig | WebhookChannelConfig;
+  config: EmailChannelConfig | WebhookChannelConfig | TelegramChannelConfig;
   created_at: string;
   updated_at: string;
 };
@@ -374,9 +413,254 @@ export type WsMessage =
       type: 'config.changed';
       ts: string;
       data: {
-        entity: 'group' | 'device' | 'sensor' | 'alert_rule' | 'notification_channel';
+        entity:
+          | 'group'
+          | 'device'
+          | 'sensor'
+          | 'alert_rule'
+          | 'notification_channel'
+          | 'discovery_profile';
         id: number;
         action: 'created' | 'updated' | 'deleted';
       };
     }
+  | { type: 'discovery.progress'; ts: string; data: DiscoveryProgress }
+  | { type: 'discovery.result'; ts: string; data: { scan_id: number; result: DiscoveryResult } }
+  | { type: 'discovery.finished'; ts: string; data: DiscoveryFinished }
   | { type: 'pong'; ts: string; data: Record<string, never> };
+
+// ---------------------------------------------------------------------------
+// [2a] Discovery, device templates, snmp storage
+
+export type DeviceClass =
+  'router' | 'switch' | 'access_point' | 'printer' | 'nas' | 'server' | 'workstation' | 'unknown';
+export const DEVICE_CLASSES: DeviceClass[] = [
+  'router',
+  'switch',
+  'access_point',
+  'printer',
+  'nas',
+  'server',
+  'workstation',
+  'unknown',
+];
+export type ScanStatus = 'running' | 'completed' | 'cancelled' | 'failed';
+export type L10n = { en: string; he: string };
+
+export type ExtraV3Out = {
+  v3_username: string;
+  v3_security_level: SnmpSecurityLevel;
+  v3_auth_protocol: SnmpAuthProtocol | null;
+  v3_auth_key: null;
+  v3_auth_key_set: boolean;
+  v3_priv_protocol: SnmpPrivProtocol | null;
+  v3_priv_key: null;
+  v3_priv_key_set: boolean;
+};
+
+export type ScanOptions = {
+  ping: boolean;
+  ping_timeout_ms: number;
+  snmp: boolean;
+  snmp_port: number | null;
+  snmp_timeout_s: number;
+  extra_communities: null; // write-only list
+  extra_communities_count: number;
+  extra_v3: ExtraV3Out[];
+  extra_v3_count: number;
+  tcp: boolean;
+  tcp_ports: number[];
+  tcp_timeout_ms: number;
+  dns: boolean;
+};
+
+/** Request form: every key optional; secrets are real values. */
+export type ExtraV3Input = {
+  v3_username: string;
+  v3_security_level: SnmpSecurityLevel;
+  v3_auth_protocol: SnmpAuthProtocol | null;
+  v3_auth_key: string | null;
+  v3_priv_protocol: SnmpPrivProtocol | null;
+  v3_priv_key: string | null;
+};
+export type ScanOptionsInput = Partial<{
+  ping: boolean;
+  ping_timeout_ms: number;
+  snmp: boolean;
+  snmp_port: number | null;
+  snmp_timeout_s: number;
+  extra_communities: string[] | null;
+  extra_v3: ExtraV3Input[] | null;
+  tcp: boolean;
+  tcp_ports: number[];
+  tcp_timeout_ms: number;
+  dns: boolean;
+}>;
+
+export type DiscoveryProfile = {
+  id: number;
+  name: string;
+  targets: string[];
+  group_id: number;
+  options: ScanOptions;
+  schedule_enabled: boolean;
+  schedule_every_hours: number;
+  notify_new_hosts: boolean;
+  notify_channel_ids: number[];
+  last_run_at: string | null;
+  next_run_at: string | null;
+  last_scan_id: number | null;
+  created_at: string;
+  updated_at: string;
+};
+
+export type DiscoveryScan = {
+  id: number;
+  profile_id: number | null;
+  profile_name: string | null;
+  trigger: 'manual' | 'scheduled';
+  status: ScanStatus;
+  group_id: number | null;
+  targets: string[];
+  options: ScanOptions;
+  total_hosts: number;
+  scanned_hosts: number;
+  found_hosts: number;
+  new_hosts: number;
+  error: string | null;
+  created_by: string | null;
+  started_at: string;
+  finished_at: string | null;
+};
+
+export type DiscoveryResult = {
+  id: number;
+  scan_id: number;
+  ip: string;
+  hostname: string | null;
+  mac: string | null;
+  ping_ok: boolean;
+  ping_rtt_ms: number | null;
+  snmp_ok: boolean;
+  snmp_version: SnmpVersion | null;
+  snmp_credential: 'group' | 'extra' | null;
+  sys_name: string | null;
+  sys_descr: string | null;
+  sys_object_id: string | null;
+  open_ports: number[];
+  device_class: DeviceClass;
+  vendor: string | null;
+  suggested_template: string;
+  existing_device_id: number | null;
+  is_new: boolean;
+  imported_device_id: number | null;
+};
+
+export type DiscoveryProgress = {
+  scan_id: number;
+  status: ScanStatus;
+  total_hosts: number;
+  scanned_hosts: number;
+  found_hosts: number;
+  new_hosts: number;
+};
+export type DiscoveryFinished = DiscoveryProgress & { error: string | null };
+
+export type ChannelOverride = {
+  key: string;
+  warning_min?: number | null;
+  warning_max?: number | null;
+  down_min?: number | null;
+  down_max?: number | null;
+};
+
+export type TemplateEntry =
+  | {
+      kind: 'sensor';
+      type: SensorType;
+      name: L10n;
+      config: Record<string, unknown>;
+      channels: ChannelOverride[];
+      interval_s: number | null;
+      probe: boolean;
+    }
+  | {
+      kind: 'snmp_interfaces';
+      oper_up_only: boolean;
+      exclude_if_types: number[];
+      include_name_regex: string | null;
+      exclude_name_regex: string | null;
+      max: number;
+      channels: ChannelOverride[];
+    }
+  | {
+      kind: 'snmp_table';
+      walk_oid: string;
+      label_oid: string | null;
+      label2_oid: string | null;
+      percent_of_column: string | null;
+      name: L10n;
+      config: Record<string, unknown>;
+      channels: ChannelOverride[];
+      max: number;
+    };
+
+export type TemplateMatchRule = {
+  device_classes: DeviceClass[] | null;
+  vendors: string[] | null;
+  requires_snmp: boolean;
+  any_open_ports: number[] | null;
+};
+
+export type DeviceTemplate = {
+  id: string;
+  name: L10n;
+  description: L10n;
+  requires_snmp: boolean;
+  priority: number;
+  match: TemplateMatchRule[];
+  entries: TemplateEntry[];
+};
+
+export type SkipReason = 'exists' | 'probe_failed' | 'snmp_error' | 'max_reached' | 'no_rows';
+export const SKIP_REASONS: SkipReason[] = [
+  'exists',
+  'probe_failed',
+  'snmp_error',
+  'max_reached',
+  'no_rows',
+];
+export type SkippedSensor = { name: string; type: SensorType; reason: SkipReason; message: string };
+
+export type ApplyTemplateResult = {
+  device_id: number;
+  template_id: string;
+  created: { sensor_id: number; name: string; type: SensorType }[];
+  skipped: SkippedSensor[];
+};
+
+export type ImportItem = { result_id: number; template_id: string; name?: string | null };
+export type ImportRequest = { group_id?: number | null; items: ImportItem[] };
+export type ImportErrorCode = 'not_found' | 'device_exists' | 'internal_error';
+export type ImportResponse = {
+  created: {
+    result_id: number;
+    device_id: number;
+    device_name: string;
+    template_id: string;
+    sensors_created: number;
+    sensors_skipped: SkippedSensor[];
+  }[];
+  errors: { result_id: number; code: ImportErrorCode; message: string; device_id: number | null }[];
+};
+
+export type StorageType =
+  'ram' | 'virtual_memory' | 'fixed_disk' | 'removable_disk' | 'network_disk' | 'flash' | 'other';
+export type SnmpStorage = {
+  index: number;
+  descr: string;
+  type: StorageType;
+  size_bytes: number;
+  used_bytes: number;
+  existing_sensor_id: number | null;
+};

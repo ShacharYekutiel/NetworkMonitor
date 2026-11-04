@@ -2,6 +2,7 @@ import { useSearchParams } from 'react-router-dom';
 import { keepPreviousData, useQuery } from '@tanstack/react-query';
 import { useTranslation } from 'react-i18next';
 import { endpoints, qk, type EventQuery } from '../api/endpoints';
+import { EVENT_KINDS } from '../api/types';
 import { EventsTable } from '../components/EventList';
 import { Pagination } from '../components/Pagination';
 import {
@@ -68,7 +69,7 @@ export function EventsPage() {
           <Field label={t('events.kind')}>
             <Select value={get('kind')} onChange={(e) => set('kind', e.target.value)}>
               <option value="">{t('common.all')}</option>
-              {(['status_change', 'notification', 'system'] as const).map((k) => (
+              {EVENT_KINDS.map((k) => (
                 <option key={k} value={k}>
                   {t(`eventKind.${k}`)}
                 </option>

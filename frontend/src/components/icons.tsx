@@ -154,3 +154,73 @@ export const GlobeIcon = (p: P) => (
     <path d="M2 12h20M12 2a15 15 0 010 20M12 2a15 15 0 000 20" />
   </Svg>
 );
+
+// [2a] discovery / device classes
+export const RadarIcon = (p: P) => (
+  <Svg {...p}>
+    <circle cx="12" cy="12" r="9" />
+    <circle cx="12" cy="12" r="5" />
+    <path d="M12 12l6-6" />
+    <circle cx="12" cy="12" r="1" fill="currentColor" />
+  </Svg>
+);
+export const LayersIcon = (p: P) => (
+  <Svg {...p}>
+    <path d="M12 3l9 5-9 5-9-5 9-5z" />
+    <path d="M3 13l9 5 9-5" />
+  </Svg>
+);
+export const RouterIcon = (p: P) => (
+  <Svg {...p}>
+    <rect x="3" y="13" width="18" height="7" rx="2" />
+    <path d="M7 16.5h.01M11 16.5h.01M17 13V9M14 7a4 4 0 016 0M12 5a7 7 0 0110 0" />
+  </Svg>
+);
+export const SwitchIcon = (p: P) => (
+  <Svg {...p}>
+    <rect x="2" y="7" width="20" height="10" rx="2" />
+    <path d="M6 11h2v2H6zM10 11h2v2h-2zM14 11h2v2h-2zM18 11h.01" />
+  </Svg>
+);
+export const WifiIcon = (p: P) => (
+  <Svg {...p}>
+    <path d="M2 9a15 15 0 0120 0M5 12.5a10 10 0 0114 0M8.5 16a5 5 0 017 0" />
+    <circle cx="12" cy="19" r="1" fill="currentColor" />
+  </Svg>
+);
+export const PrinterIcon = (p: P) => (
+  <Svg {...p}>
+    <path d="M6 9V3h12v6" />
+    <rect x="3" y="9" width="18" height="8" rx="2" />
+    <path d="M6 14h12v7H6z" />
+  </Svg>
+);
+export const NasIcon = (p: P) => (
+  <Svg {...p}>
+    <rect x="5" y="3" width="14" height="18" rx="2" />
+    <path d="M8 7h8M8 11h8M8 15h8" />
+    <circle cx="12" cy="18.5" r=".5" fill="currentColor" />
+  </Svg>
+);
+export const DesktopIcon = (p: P) => (
+  <Svg {...p}>
+    <rect x="3" y="4" width="18" height="12" rx="2" />
+    <path d="M8 20h8M12 16v4" />
+  </Svg>
+);
+export const QuestionIcon = (p: P) => (
+  <Svg {...p}>
+    <circle cx="12" cy="12" r="9" />
+    <path d="M9.5 9.5a2.5 2.5 0 015 .5c0 1.5-2.5 2-2.5 3.5M12 17h.01" />
+  </Svg>
+);
+export const CheckIcon = (p: P) => (
+  <Svg {...p}>
+    <path d="M5 12l5 5L20 7" />
+  </Svg>
+);
+export const StopIcon = (p: P) => (
+  <Svg {...p}>
+    <rect x="6" y="6" width="12" height="12" rx="1" />
+  </Svg>
+);

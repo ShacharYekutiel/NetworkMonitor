@@ -4,7 +4,7 @@ import { useTranslation } from 'react-i18next';
 import { endpoints, qk } from '../api/endpoints';
 import type { Channel, ChannelThresholdInput, Sensor } from '../api/types';
 import { useToast } from './toast';
-import { Button, ErrorBox, Input, Ltr, Table, td, th } from './ui';
+import { Button, ErrorBox, Input, Table, td, th } from './ui';
 
 const KEYS = ['warning_min', 'warning_max', 'down_min', 'down_max'] as const;
 type Key = (typeof KEYS)[number];
@@ -101,9 +101,11 @@ export function ThresholdEditor({ sensor, readOnly }: { sensor: Sensor; readOnly
             <tr key={c.key}>
               <td className={td}>
                 {t(`channel.${c.key}`, { defaultValue: c.key })}{' '}
-                <span className="text-xs text-slate-500">
-                  (<Ltr>{c.unit}</Ltr>)
-                </span>
+                {c.unit && (
+                  <span className="text-xs text-slate-500">
+                    (<bdi dir="auto">{c.unit}</bdi>)
+                  </span>
+                )}
               </td>
               {KEYS.map((k) => (
                 <td key={k} className={td}>

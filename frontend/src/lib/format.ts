@@ -42,8 +42,25 @@ export function formatValue(v: number | null | undefined, unit: string): string 
     case 'd':
       return `${formatNumber(v, 1)} ${i18n.t('units.days')}`;
     default:
-      return `${formatNumber(v)} ${unit}`;
+      // snmp_custom units are free text ("", "clients", "°C"); no trailing space when empty.
+      return unit ? `${formatNumber(v)} ${unit}` : formatNumber(v);
   }
+}
+
+/**
+ * Text of a sensor channel value. `snmp_custom` in string mode stores 1 for a match, so it
+ * shows a word instead of the number.
+ */
+export function sensorValueText(
+  s: { type: string; config: Record<string, unknown> },
+  key: string,
+  value: number | null | undefined,
+  unit: string,
+): string {
+  if (s.type === 'snmp_custom' && s.config.value_type === 'string' && key === 'value') {
+    return value === null || value === undefined ? '—' : i18n.t('sensors.textOk');
+  }
+  return formatValue(value, unit);
 }
 
 /**

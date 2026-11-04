@@ -57,6 +57,15 @@ export const Button = forwardRef<
   );
 });
 
+/** Classes of a Button, for router <Link>s that look like buttons (never nest <button> in <a>). */
+export function buttonClass(variant: Variant = 'secondary', size: 'sm' | 'md' = 'md'): string {
+  return cx(
+    'inline-flex items-center justify-center gap-1.5 rounded-md font-medium transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-sky-500',
+    size === 'sm' ? 'px-2 py-1 text-xs' : 'px-3 py-1.5 text-sm',
+    VARIANTS[variant],
+  );
+}
+
 const inputBase =
   'block w-full rounded-md border-0 bg-white px-2.5 py-1.5 text-sm text-slate-900 ring-1 ring-inset ring-slate-300 placeholder:text-slate-400 focus:ring-2 focus:ring-inset focus:ring-sky-500 disabled:bg-slate-100 disabled:text-slate-500 dark:bg-slate-900 dark:text-slate-100 dark:ring-slate-700 dark:disabled:bg-slate-800';
 
@@ -183,7 +192,8 @@ export function Card({
           {actions && <div className="flex items-center gap-2">{actions}</div>}
         </header>
       )}
-      <div className={cx('p-4', bodyClassName)}>{children}</div>
+      {/* bodyClassName replaces the default padding ("p-4 p-0" would keep p-4: later in the CSS). */}
+      <div className={bodyClassName ?? 'p-4'}>{children}</div>
     </section>
   );
 }
@@ -457,5 +467,25 @@ export function Value({ text, className }: { text: string; className?: string })
     <bdi dir={textDir(text)} className={className}>
       {text}
     </bdi>
+  );
+}
+
+/**
+ * A single LTR line (IPs, OIDs, sysDescr, target lists) truncated with an ellipsis at its
+ * logical end, also inside RTL pages, aligned to the page's start edge.
+ */
+export function TruncLtr({
+  children,
+  className,
+  title,
+}: {
+  children: ReactNode;
+  className?: string;
+  title?: string;
+}) {
+  return (
+    <div dir="ltr" title={title} className={cx('truncate text-left rtl:text-right', className)}>
+      {children}
+    </div>
   );
 }

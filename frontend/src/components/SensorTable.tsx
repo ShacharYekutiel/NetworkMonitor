@@ -1,7 +1,7 @@
 import { Link } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import type { Sensor } from '../api/types';
-import { formatRelative, formatValue } from '../lib/format';
+import { formatRelative, sensorValueText } from '../lib/format';
 import { StatusBadge } from './Status';
 import { Empty, Table, td, th, Value } from './ui';
 
@@ -61,7 +61,7 @@ export function SensorTable({
                 {t(`sensorType.${s.type}`)}
               </td>
               <td className={`${td} whitespace-nowrap tabular-nums`}>
-                {pc ? <Value text={formatValue(pc.last_value, pc.unit)} /> : '—'}
+                {pc ? <Value text={sensorValueText(s, pc.key, pc.last_value, pc.unit)} /> : '—'}
               </td>
               <td
                 dir="auto"

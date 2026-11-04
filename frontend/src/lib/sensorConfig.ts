@@ -82,6 +82,22 @@ export function configFromRaw(
         else config[f.key] = n;
         break;
       }
+      case 'float': {
+        const s = String(v ?? '').trim();
+        if (!s) {
+          if (f.required) errors[f.key] = 'validation.required';
+          else if (f.default !== undefined && f.default !== null) config[f.key] = f.default;
+          break;
+        }
+        const n = Number(s);
+        if (!/^[-+]?(\d+\.?\d*|\.\d+)([eE][-+]?\d+)?$/.test(s) || !Number.isFinite(n)) {
+          errors[f.key] = 'validation.number';
+          break;
+        }
+        if (checkRange(f, n)) errors[f.key] = 'validation.range';
+        else config[f.key] = n;
+        break;
+      }
       case 'int_list': {
         const s = String(v ?? '').trim();
         if (!s) {
@@ -117,4 +133,47 @@ export function configFromRaw(
     }
   }
   return { config, errors };
+}
+
+/**
+ * Which config fields the form shows (architecture.md § 9.5):
+ * `snmp_custom` shows `percent_of_oid` only for gauge, `expected`/`match` only for string;
+ * `snmp_disk` hides the informational `storage_index` (the backend fills it in).
+ */
+export function visibleConfigFields(
+  type: string,
+  fields: ConfigField[],
+  raw: RawConfig,
+): ConfigField[] {
+  if (type === 'snmp_custom') {
+    const vt = String(raw.value_type ?? 'gauge');
+    return fields.filter((f) => {
+      if (f.key === 'percent_of_oid') return vt === 'gauge';
+      if (f.key === 'expected' || f.key === 'match') return vt === 'string';
+      return true;
+    });
+  }
+  if (type === 'snmp_disk') return fields.filter((f) => f.key !== 'storage_index');
+  return fields;
+}
+
+/**
+ * Builds the config from the visible fields only, and resets type-specific keys that no
+ * longer apply (`percent_of_oid` is rejected by the API for non-gauge custom sensors).
+ */
+export function buildSensorConfig(
+  type: string,
+  fields: ConfigField[],
+  raw: RawConfig,
+): { config: Record<string, unknown>; errors: ConfigErrors } {
+  const visible = visibleConfigFields(type, fields, raw);
+  const res = configFromRaw(visible, raw);
+  if (type === 'snmp_custom') {
+    const vt = res.config.value_type ?? 'gauge';
+    if (vt !== 'gauge' && fields.some((f) => f.key === 'percent_of_oid'))
+      res.config.percent_of_oid = null;
+    if (vt !== 'string' && fields.some((f) => f.key === 'expected')) res.config.expected = null;
+    if (typeof res.config.oid === 'string') res.config.oid = res.config.oid.trim();
+  }
+  return res;
 }

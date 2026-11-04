@@ -10,7 +10,7 @@ import { SnmpEditor } from './SnmpEditor';
 import { useToast } from './toast';
 import { Button, Checkbox, ErrorBox, Field, Input, Modal, Select, Textarea } from './ui';
 
-function GroupSelect({
+export function GroupSelect({
   value,
   onChange,
   exclude = [],

@@ -61,7 +61,9 @@
     "tree": "Devices",
     "sidebar": "Navigation",
     "toggleSidebar": "Toggle sidebar",
-    "breadcrumbs": "Breadcrumbs"
+    "breadcrumbs": "Breadcrumbs",
+    "discovery": "Discovery",
+    "templates": "Templates"
   },
   "tree": {
     "search": "Search groups, devices, sensors",
@@ -200,7 +202,9 @@
     "events": "Events",
     "deleteTitle": "Delete sensor",
     "deleteConfirm": "Delete sensor \"{{name}}\" and its history? This cannot be undone.",
-    "runPausedHint": "The sensor is paused. Resume it (or its device) to run a check."
+    "runPausedHint": "The sensor is paused. Resume it (or its device) to run a check.",
+    "diskName": "Disk {{descr}}",
+    "textOk": "Matches"
   },
   "iface": {
     "name": "Interface",
@@ -255,7 +259,8 @@
   "eventKind": {
     "status_change": "Status change",
     "notification": "Notification",
-    "system": "System"
+    "system": "System",
+    "discovery": "Discovery"
   },
   "pagination": {
     "range": "{{from}}–{{to}} of {{total}}",
@@ -283,7 +288,10 @@
     "test": "Send test",
     "testOk": "test sent",
     "none": "No notification channels yet.",
-    "deleteTitle": "Delete channel"
+    "deleteTitle": "Delete channel",
+    "telegram": "Telegram",
+    "testSent": "Test message sent.",
+    "testSavedHint": "Sends a test with the saved settings — save first."
   },
   "rules": {
     "title": "Alert rules",
@@ -395,7 +403,13 @@
     "webhook_error": "Calling the webhook failed",
     "internal_error": "Something went wrong on the server.",
     "network_error": "Cannot reach the server.",
-    "sensor_paused": "Paused sensors cannot be checked — resume the sensor or its device first."
+    "sensor_paused": "Paused sensors cannot be checked — resume the sensor or its device first.",
+    "scan_running": "A discovery scan is already running.",
+    "scan_not_running": "This scan is not running any more.",
+    "too_many_hosts": "The targets expand to too many hosts.",
+    "too_many_hosts_count": "The targets expand to {{hosts}} hosts; the limit is {{max}}.",
+    "telegram_error": "Sending the Telegram message failed",
+    "device_exists": "A device with this address already exists."
   },
   "sensorType": {
     "ping": "Ping",
@@ -405,7 +419,9 @@
     "snmp_interface": "SNMP Interface",
     "http": "HTTP(S)",
     "tcp_port": "TCP Port",
-    "dns": "DNS"
+    "dns": "DNS",
+    "snmp_custom": "Custom SNMP OID",
+    "snmp_disk": "Disk usage"
   },
   "channel": {
     "latency_ms": "Latency",
@@ -426,7 +442,12 @@
     "status_code": "Status code",
     "ssl_days_left": "Certificate days left",
     "connect_time_ms": "Connect time",
-    "resolve_time_ms": "Resolve time"
+    "resolve_time_ms": "Resolve time",
+    "value": "Value",
+    "disk_used_pct": "Disk used",
+    "disk_used_bytes": "Used space",
+    "disk_free_bytes": "Free space",
+    "disk_total_bytes": "Disk size"
   },
   "sensorConfig": {
     "ping": {
@@ -465,6 +486,20 @@
       "port": "Port",
       "timeout_s": "Timeout (s)",
       "expected": "Expected answer"
+    },
+    "snmp_custom": {
+      "oid": "OID",
+      "value_type": "Value type",
+      "unit": "Unit",
+      "multiplier": "Multiplier",
+      "label": "Label",
+      "percent_of_oid": "Percent of OID (divisor)",
+      "expected": "Expected text",
+      "match": "Match"
+    },
+    "snmp_disk": {
+      "storage_descr": "Storage (description)",
+      "storage_index": "Storage index"
     }
   },
   "sensorConfigHint": {
@@ -483,6 +518,267 @@
     "dns": {
       "server": "Empty = use the device host as the DNS server",
       "expected": "Optional; at least one answer must equal it"
+    },
+    "snmp_custom": {
+      "oid": "Numeric dotted OID, e.g. 1.3.6.1.2.1.1.3.0 (MIB names are not accepted)",
+      "unit": "Shown next to the value, e.g. °C, clients, pages (max 16 characters)",
+      "multiplier": "Applied to the raw value (gauge) or the rate (counter), e.g. 8 for octets → bit/s, 0.1 for tenths",
+      "label": "Optional; shown in the status message",
+      "percent_of_oid": "Optional; value = raw ÷ this OID × 100 (the multiplier is ignored)",
+      "expected": "Empty = any text is OK; otherwise the value must match"
+    },
+    "snmp_disk": {
+      "storage_descr": "Exactly as reported by the device, e.g. / or C:\\"
     }
+  },
+  "deviceClass": {
+    "router": "Router / firewall",
+    "switch": "Switch",
+    "access_point": "Access point",
+    "printer": "Printer",
+    "nas": "NAS",
+    "server": "Server",
+    "workstation": "Workstation",
+    "unknown": "Unknown"
+  },
+  "sensorConfigOption": {
+    "snmp_custom": {
+      "value_type": {
+        "gauge": "Gauge (number)",
+        "counter": "Counter (rate per second)",
+        "string": "Text match"
+      },
+      "match": {
+        "equals": "Equals",
+        "contains": "Contains"
+      }
+    }
+  },
+  "sensorConfigPlaceholder": {
+    "snmp_custom": {
+      "oid": "1.3.6.1.4.1.…"
+    }
+  },
+  "storage": {
+    "pick": "Pick from device",
+    "title": "Storage reported by the device",
+    "none": "The device reported no disks.",
+    "descr": "Description",
+    "type": "Type",
+    "size": "Size",
+    "used": "Used",
+    "use": "Use",
+    "added": "Disk sensors added: {{ok}}, failed: {{failed}}",
+    "manualHint": "Or enter the storage description below.",
+    "types": {
+      "ram": "RAM",
+      "virtual_memory": "Virtual memory",
+      "fixed_disk": "Fixed disk",
+      "removable_disk": "Removable disk",
+      "network_disk": "Network disk",
+      "flash": "Flash",
+      "other": "Other"
+    }
+  },
+  "telegram": {
+    "helpTitle": "How do I get a bot token and chat ID?",
+    "help1": "In Telegram, open <c>@BotFather</c>, send <c>/newbot</c> and follow the steps. BotFather replies with the bot token (e.g. <c>123456789:AAE…</c>). Keep it secret.",
+    "help2": "Private chat: open your bot and press Start. Group: add the bot to the group and send a message there. Channel: add the bot as an administrator.",
+    "help3": "Then open the following address in a browser and copy the number after <c>\"id\"</c> in the <c>\"chat\"</c> section:",
+    "help4": "Group and channel IDs are negative (supergroups start with <c>-100</c>). For a public channel you can also use <c>@channelname</c>.",
+    "botToken": "Bot token",
+    "botTokenHint": "From <c>@BotFather</c>. Write-only: it is never shown again.",
+    "tokenInvalid": "Expected digits, a colon and the key, e.g. 123456789:AAE…",
+    "chatId": "Chat ID",
+    "chatIdHint": "<c>-100…</c> for groups/channels, a number for a private chat, or <c>@channelname</c>",
+    "chatIdInvalid": "Enter a numeric ID (e.g. -1001234567890) or @channelname.",
+    "parseMode": "Message format",
+    "parseHtml": "Formatted (HTML)",
+    "parsePlain": "Plain text",
+    "silent": "Silent (no notification sound)"
+  },
+  "templates": {
+    "title": "Device templates",
+    "subtitle": "Built-in sets of sensors. Applying a template adds only what is missing.",
+    "none": "No templates.",
+    "template": "Template",
+    "suggested": "suggested",
+    "apply": "Apply template",
+    "applyButton": "Apply",
+    "applyHint": "Sensors that already exist are skipped. Entries marked “if available” are checked on the device first.",
+    "applying": "Checking the device… this can take up to two minutes.",
+    "resultTitle": "Template applied to {{name}}",
+    "applySummary": "Created: {{created}} · skipped: {{skipped}} · already present: {{existing}}",
+    "createdTitle": "Created sensors",
+    "skippedTitle": "Not created",
+    "creates": "Creates",
+    "matches": "Suggested for",
+    "priority": "priority {{priority}}",
+    "ifAvailable": "if available",
+    "entryInterfaces": "Interface sensors (max {{max}})",
+    "entryInterfacesUp": "Interfaces that are up (max {{max}})",
+    "matching": "names matching {{re}}",
+    "entryTable": "{{name}} for each table row (max {{max}})",
+    "matchNone": "Never suggested automatically",
+    "matchSnmp": "answers SNMP",
+    "matchPorts": "port {{ports}} open",
+    "matchAny": "any device",
+    "or": "; or ",
+    "skip": {
+      "exists": "Already exists",
+      "probe_failed": "Not available on the device",
+      "snmp_error": "SNMP query failed",
+      "max_reached": "Limit reached",
+      "no_rows": "Nothing found on the device",
+      "other": "Skipped"
+    }
+  },
+  "discovery": {
+    "title": "Discovery",
+    "subtitle": "Scan address ranges, recognise devices and add them with a template.",
+    "tab": {
+      "scans": "Scans",
+      "profiles": "Saved profiles"
+    },
+    "newScan": "New scan",
+    "targets": "Targets",
+    "targetsHint": "One per line: CIDR (<c>192.168.1.0/24</c>), range (<c>192.168.1.10-50</c> or <c>10.0.0.1-10.0.1.20</c>), IPv4/IPv6 address or hostname. Up to 64 entries and 4096 hosts.",
+    "targetsCount_one": "{{count}} target",
+    "targetsCount_other": "{{count}} targets",
+    "hostsCount_one": "{{count}} host",
+    "hostsCount_other": "{{count}} hosts",
+    "tooManyHosts": "more than the limit of {{max}}",
+    "tooManyTargets": "At most {{max}} entries.",
+    "targetError": {
+      "invalid": "not an address, range, CIDR or hostname",
+      "rejected": "multicast, 0.0.0.0/8 and 240.0.0.0/4 cannot be scanned",
+      "prefix": "the prefix must be /8 to /32",
+      "order": "the range ends before it starts"
+    },
+    "moreErrors_one": "and {{count}} more error",
+    "moreErrors_other": "and {{count}} more errors",
+    "targetGroup": "Target group",
+    "targetGroupHint": "Its SNMP credentials are tried first; imported devices go here by default.",
+    "probes": "Probes",
+    "optPing": "Ping (ICMP)",
+    "optSnmp": "SNMP",
+    "optTcp": "TCP ports",
+    "optDns": "Reverse DNS",
+    "tcpPorts": "TCP ports",
+    "tcpPortsHint": "Up to 32 ports, comma-separated.",
+    "extraCreds": "Additional SNMP credentials",
+    "extraCredsHint": "Tried after the target group's credentials. Write-only: never shown again after saving.",
+    "storedSecrets": "Stored: {{communities}} communities, {{v3}} v3 users.",
+    "replaceSecrets": "Replace the stored credentials",
+    "extraCommunities": "Extra communities (v2c)",
+    "extraCommunitiesHint": "One per line, up to 5.",
+    "addV3": "Add v3 user",
+    "advanced": "Advanced",
+    "snmpPort": "SNMP port",
+    "snmpPortHint": "Empty = the group's port",
+    "snmpTimeout": "SNMP timeout (s)",
+    "pingTimeout": "Ping timeout (ms)",
+    "tcpTimeout": "TCP timeout (ms)",
+    "err": {
+      "probes": "Enable at least one of Ping, SNMP or TCP.",
+      "pingTimeout": "Between 100 and 5000 ms.",
+      "port": "A port between 1 and 65535.",
+      "snmpTimeout": "Between 1 and 10 seconds.",
+      "tcpTimeout": "Between 100 and 5000 ms.",
+      "ports": "1–32 ports between 1 and 65535.",
+      "communities": "Up to 5 communities of at most 64 characters.",
+      "v3": "Up to 3 v3 users, each with a username.",
+      "hours": "Between 1 and 720 hours."
+    },
+    "saveAsProfile": "Save as profile",
+    "profileName": "Profile name",
+    "scopeNote": "Only the listed addresses are probed (ping, TCP connect, SNMP read, reverse DNS).",
+    "startScan": "Start scan",
+    "openRunning": "Open the running scan #{{id}}",
+    "history": "Scan history",
+    "noScans": "No scans yet.",
+    "started": "Started",
+    "finished": "Finished",
+    "source": "Source",
+    "found": "Found",
+    "new": "New",
+    "total": "Hosts",
+    "manual": "Ad-hoc scan",
+    "trigger": {
+      "manual": "manual",
+      "scheduled": "scheduled"
+    },
+    "open": "Open",
+    "deleteRunningHint": "A running scan cannot be deleted.",
+    "deleteScanTitle": "Delete scan",
+    "deleteScanConfirm": "Delete scan #{{id}} and its results?",
+    "profiles": "Saved profiles",
+    "noProfiles": "No saved profiles yet.",
+    "addProfile": "Add profile",
+    "editProfile": "Edit profile",
+    "schedule": "Schedule",
+    "runs": "Runs",
+    "scheduleHint": "Off by default. The first scheduled run only records a baseline.",
+    "scheduleChoice": {
+      "off": "Off (manual only)",
+      "daily": "Daily",
+      "weekly": "Weekly",
+      "hours": "Every N hours"
+    },
+    "everyHours": "Every (hours)",
+    "everyNHours_one": "Every hour",
+    "everyNHours_other": "Every {{count}} hours",
+    "notifyNew": "Notify on new hosts",
+    "notifyChannels": "Notification channels",
+    "notifyHint": "Without channels only an event is written.",
+    "lastRun": "Last run",
+    "nextRun": "Next",
+    "notify": "New-host alerts",
+    "eventOnly": "Event only",
+    "runNow": "Run now",
+    "deleteProfileTitle": "Delete profile",
+    "deleteProfileConfirm": "Delete profile \"{{name}}\"? Its past scans are kept.",
+    "status": {
+      "running": "Running",
+      "completed": "Completed",
+      "cancelled": "Cancelled",
+      "failed": "Failed"
+    },
+    "extraCredential": "Answered with an additional credential",
+    "scanTitle": "Scan #{{id}}",
+    "scanned": "Scanned {{scanned}} of {{total}}",
+    "polling": "Live updates unavailable — refreshing every 2 s",
+    "progress": "Scan progress",
+    "cancel": "Cancel scan",
+    "cancelTitle": "Cancel scan",
+    "cancelConfirm": "Stop the scan now? Hosts found so far are kept.",
+    "results": "Results ({{count}})",
+    "waitingResults": "Scanning… found hosts appear here as they answer.",
+    "noResults": "No hosts answered.",
+    "noMatch": "No results match the filters.",
+    "searchResults": "Search IP, hostname, sysName",
+    "onlyNew": "Only new",
+    "hideExisting": "Hide existing devices",
+    "class": "Class",
+    "vendor": "Vendor",
+    "ip": "IP address",
+    "reachability": "Answers",
+    "imported": "Imported",
+    "exists": "Exists",
+    "newBadge": "New",
+    "seenBefore": "Seen before",
+    "selectHost": "Select {{ip}}",
+    "deviceName": "Device name for {{ip}}",
+    "templateFor": "Template for {{ip}}",
+    "importGroup": "Import into group",
+    "importAfterScan": "Import is available when the scan has finished.",
+    "importSelected": "Import selected ({{count}})",
+    "importResult": "Import result",
+    "importSummary": "Devices created: {{created}} · not imported: {{failed}}",
+    "sensorsCreated_one": "{{count}} sensor created",
+    "sensorsCreated_other": "{{count}} sensors created",
+    "openDevice": "Open device",
+    "classVendor": "Class / vendor",
+    "openPorts": "Open TCP ports"
   }
 }

@@ -3,7 +3,13 @@ import { join, resolve } from 'node:path';
 import { describe, expect, it } from 'vitest';
 import en from './locales/en.json';
 import he from './locales/he.json';
-import { SENSOR_TYPES } from '../api/types';
+import {
+  DEVICE_CLASSES,
+  EVENT_KINDS,
+  NOTIFICATION_TYPES,
+  SENSOR_TYPES,
+  SKIP_REASONS,
+} from '../api/types';
 import { STATUSES } from '../lib/status';
 
 type Tree = { [k: string]: string | Tree };
@@ -107,8 +113,61 @@ describe('i18n', () => {
       'webhook_error',
       'internal_error',
       'sensor_paused',
+      // [2a]
+      'telegram_error',
+      'scan_running',
+      'scan_not_running',
+      'too_many_hosts',
+      'device_exists',
     ];
-    for (const c of codes) expect(enFlat[`errors.${c}`], c).toBeTruthy();
+    for (const c of codes) {
+      expect(enFlat[`errors.${c}`], c).toBeTruthy();
+      expect(heFlat[`errors.${c}`], c).toBeTruthy();
+    }
+  });
+
+  it('covers the Phase 2a enums in both languages', () => {
+    const keys = [
+      ...DEVICE_CLASSES.map((c) => `deviceClass.${c}`),
+      ...SKIP_REASONS.map((r) => `templates.skip.${r}`),
+      ...EVENT_KINDS.map((k) => `eventKind.${k}`),
+      ...NOTIFICATION_TYPES.map((n) => `channels.${n}`),
+      ...['running', 'completed', 'cancelled', 'failed'].map((s) => `discovery.status.${s}`),
+      ...['manual', 'scheduled'].map((s) => `discovery.trigger.${s}`),
+      ...['invalid', 'rejected', 'prefix', 'order'].map((e) => `discovery.targetError.${e}`),
+      ...[
+        'ram',
+        'virtual_memory',
+        'fixed_disk',
+        'removable_disk',
+        'network_disk',
+        'flash',
+        'other',
+      ].map((x) => `storage.types.${x}`),
+      ...['value', 'disk_used_pct', 'disk_used_bytes', 'disk_free_bytes', 'disk_total_bytes'].map(
+        (c) => `channel.${c}`,
+      ),
+      ...[
+        'oid',
+        'value_type',
+        'unit',
+        'multiplier',
+        'label',
+        'percent_of_oid',
+        'expected',
+        'match',
+      ].map((k) => `sensorConfig.snmp_custom.${k}`),
+      'sensorConfig.snmp_disk.storage_descr',
+    ];
+    for (const k of keys) {
+      expect(enFlat[k], `en:${k}`).toBeTruthy();
+      expect(heFlat[k], `he:${k}`).toBeTruthy();
+    }
+    // The Hebrew class names given by the contract (api.md § discovery notification payload).
+    expect(heFlat['deviceClass.router']).toBe('נתב/חומת אש');
+    expect(heFlat['deviceClass.access_point']).toBe('נקודת גישה');
+    expect(heFlat['sensorType.snmp_custom']).toBe('OID SNMP מותאם');
+    expect(heFlat['sensorType.snmp_disk']).toBe('שימוש בדיסק');
   });
 
   it('defines every static key used in the source', () => {
@@ -117,6 +176,9 @@ describe('i18n', () => {
     for (const file of sourceFiles(root)) {
       const text = readFileSync(file, 'utf8');
       for (const m of text.matchAll(/\bt\(\s*'([a-zA-Z0-9_.]+)'/g)) {
+        if (!hasKey(enFlat, m[1])) missing.push(`${file}: ${m[1]}`);
+      }
+      for (const m of text.matchAll(/\b(?:i18nKey|k)="([a-zA-Z0-9_.]+)"/g)) {
         if (!hasKey(enFlat, m[1])) missing.push(`${file}: ${m[1]}`);
       }
       for (const m of text.matchAll(/'(validation\.[a-zA-Z]+)'/g)) {

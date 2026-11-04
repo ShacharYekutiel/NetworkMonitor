@@ -1,13 +1,18 @@
 import { useEffect, useState, type FormEvent } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { useTranslation } from 'react-i18next';
+import { Trans, useTranslation } from 'react-i18next';
 import { endpoints, qk, type AlertRuleInput, type ChannelInput } from '../api/endpoints';
 import type {
   AlertRule,
   EmailChannelConfig,
   NotificationChannel,
-  WebhookChannelConfig,
+  NotificationType,
+  TelegramChannelConfig,
+  TelegramChannelConfigInput,
+  TestResult,
 } from '../api/types';
+import { NOTIFICATION_TYPES } from '../api/types';
+import type { WebhookChannelConfig } from '../api/types';
 import { EditIcon, PlusIcon, TrashIcon } from '../components/icons';
 import { StatusBadge } from '../components/Status';
 import { useToast } from '../components/toast';
@@ -24,6 +29,7 @@ import {
   Loading,
   Ltr,
   Modal,
+  Notice,
   PageHeader,
   Select,
   Table,
@@ -33,10 +39,49 @@ import {
 } from '../components/ui';
 import { errorMessage } from '../lib/errors';
 import { headersToText, textToHeaders } from '../lib/sensorConfig';
+import { isTelegramChatId, isTelegramToken } from '../lib/telegram';
 
 function channelTarget(c: NotificationChannel): string {
   if (c.type === 'email') return (c.config as EmailChannelConfig).to?.join(', ') ?? '';
+  if (c.type === 'telegram') return (c.config as TelegramChannelConfig).chat_id ?? '';
   return (c.config as WebhookChannelConfig).url ?? '';
+}
+
+/** LTR isolate for tokens (@BotFather, /newbot, -100…) inside translated sentences. */
+const CODE = <bdi dir="ltr" className="font-mono text-[0.95em]" />;
+
+function Tx({ k }: { k: string }) {
+  return <Trans i18nKey={k} components={{ c: CODE }} />;
+}
+
+/** Short how-to for the Telegram fields (architecture.md § 9.7). */
+function TelegramHelp() {
+  const { t } = useTranslation();
+  return (
+    <details className="rounded-md bg-slate-50 px-3 py-2 text-xs text-slate-600 ring-1 ring-inset ring-slate-200 dark:bg-slate-800/60 dark:text-slate-300 dark:ring-slate-700">
+      <summary className="cursor-pointer select-none font-medium text-slate-700 dark:text-slate-200">
+        {t('telegram.helpTitle')}
+      </summary>
+      <ol className="mt-2 list-decimal space-y-1 ps-5">
+        <li>
+          <Tx k="telegram.help1" />
+        </li>
+        <li>{t('telegram.help2')}</li>
+        <li>
+          <Tx k="telegram.help3" />
+          <code
+            dir="ltr"
+            className="mt-1 block break-all rounded bg-white px-1.5 py-0.5 text-left dark:bg-slate-900"
+          >
+            https://api.telegram.org/bot&lt;TOKEN&gt;/getUpdates
+          </code>
+        </li>
+        <li>
+          <Tx k="telegram.help4" />
+        </li>
+      </ol>
+    </details>
+  );
 }
 
 function ChannelModal({
@@ -52,13 +97,19 @@ function ChannelModal({
   const qc = useQueryClient();
   const toast = useToast();
   const [name, setName] = useState('');
-  const [type, setType] = useState<'email' | 'webhook'>('email');
+  const [type, setType] = useState<NotificationType>('email');
   const [enabled, setEnabled] = useState(true);
   const [to, setTo] = useState('');
   const [url, setUrl] = useState('');
   const [headers, setHeaders] = useState('');
   const [verifyTls, setVerifyTls] = useState(true);
   const [timeout, setTimeoutS] = useState('10');
+  const [botToken, setBotToken] = useState('');
+  const [chatId, setChatId] = useState('');
+  const [parseMode, setParseMode] = useState<'HTML' | ''>('HTML');
+  const [silent, setSilent] = useState(false);
+  const [touched, setTouched] = useState(false);
+  const [testResult, setTestResult] = useState<TestResult | null>(null);
 
   useEffect(() => {
     if (!open) return;
@@ -72,7 +123,43 @@ function ChannelModal({
     setHeaders(headersToText(wc?.headers ?? {}));
     setVerifyTls(wc?.verify_tls ?? true);
     setTimeoutS(String(wc?.timeout_s ?? 10));
+    const tc = channel?.type === 'telegram' ? (channel.config as TelegramChannelConfig) : null;
+    setBotToken('');
+    setChatId(tc?.chat_id ?? '');
+    setParseMode(tc ? (tc.parse_mode ?? '') : 'HTML');
+    setSilent(tc?.disable_notification ?? false);
+    setTouched(false);
+    setTestResult(null);
+    test.reset();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open, channel]);
+
+  const tokenSet =
+    channel?.type === 'telegram' && (channel.config as TelegramChannelConfig).bot_token_set;
+  const tokenErr =
+    type !== 'telegram'
+      ? null
+      : botToken.trim()
+        ? isTelegramToken(botToken.trim())
+          ? null
+          : t('telegram.tokenInvalid')
+        : tokenSet
+          ? null
+          : t('validation.required');
+  const chatErr =
+    type !== 'telegram'
+      ? null
+      : !chatId.trim()
+        ? t('validation.required')
+        : isTelegramChatId(chatId.trim())
+          ? null
+          : t('telegram.chatIdInvalid');
+
+  const test = useMutation({
+    mutationFn: () => endpoints.testChannel(channel!.id),
+    onSuccess: setTestResult,
+    onMutate: () => setTestResult(null),
+  });
 
   const m = useMutation({
     mutationFn: (body: ChannelInput) =>
@@ -86,20 +173,31 @@ function ChannelModal({
 
   const submit = (e: FormEvent) => {
     e.preventDefault();
+    setTouched(true);
+    if (tokenErr || chatErr) return;
+    const telegram: TelegramChannelConfigInput = {
+      chat_id: chatId.trim(),
+      parse_mode: parseMode || null,
+      disable_notification: silent,
+    };
+    // Write-only secret: omitted keeps the stored token on PATCH (api.md § telegram).
+    if (botToken.trim()) telegram.bot_token = botToken.trim();
     const config =
-      type === 'email'
-        ? {
-            to: to
-              .split(/[\s,;]+/)
-              .map((x) => x.trim())
-              .filter(Boolean),
-          }
-        : {
-            url: url.trim(),
-            headers: textToHeaders(headers),
-            verify_tls: verifyTls,
-            timeout_s: Number(timeout) || 10,
-          };
+      type === 'telegram'
+        ? telegram
+        : type === 'email'
+          ? {
+              to: to
+                .split(/[\s,;]+/)
+                .map((x) => x.trim())
+                .filter(Boolean),
+            }
+          : {
+              url: url.trim(),
+              headers: textToHeaders(headers),
+              verify_tls: verifyTls,
+              timeout_s: Number(timeout) || 10,
+            };
     const body: ChannelInput = { name: name.trim(), enabled, config };
     if (!channel) body.type = type;
     m.mutate(body);
@@ -121,13 +219,76 @@ function ChannelModal({
           <Select
             value={type}
             disabled={!!channel}
-            onChange={(e) => setType(e.target.value as 'email' | 'webhook')}
+            onChange={(e) => setType(e.target.value as NotificationType)}
           >
-            <option value="email">{t('channels.email')}</option>
-            <option value="webhook">{t('channels.webhook')}</option>
+            {NOTIFICATION_TYPES.map((nt) => (
+              <option key={nt} value={nt}>
+                {t(`channels.${nt}`)}
+              </option>
+            ))}
           </Select>
         </Field>
-        {type === 'email' ? (
+        {type === 'telegram' ? (
+          <>
+            <TelegramHelp />
+            <Field
+              label={t('telegram.botToken')}
+              required={!tokenSet}
+              hint={
+                touched && tokenErr ? (
+                  <span className="text-red-600">{tokenErr}</span>
+                ) : tokenSet ? (
+                  t('secret.keepHint')
+                ) : (
+                  <Tx k="telegram.botTokenHint" />
+                )
+              }
+            >
+              <Input
+                type="password"
+                autoComplete="new-password"
+                value={botToken}
+                placeholder={tokenSet ? t('secret.stored') : '123456789:AAE…'}
+                onChange={(e) => setBotToken(e.target.value)}
+                dir="ltr"
+                aria-invalid={touched && !!tokenErr}
+              />
+            </Field>
+            <Field
+              label={t('telegram.chatId')}
+              required
+              hint={
+                touched && chatErr ? (
+                  <span className="text-red-600">{chatErr}</span>
+                ) : (
+                  <Tx k="telegram.chatIdHint" />
+                )
+              }
+            >
+              <Input
+                value={chatId}
+                placeholder="-1001234567890"
+                onChange={(e) => setChatId(e.target.value)}
+                dir="ltr"
+                aria-invalid={touched && !!chatErr}
+              />
+            </Field>
+            <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+              <Field label={t('telegram.parseMode')}>
+                <Select
+                  value={parseMode}
+                  onChange={(e) => setParseMode(e.target.value as 'HTML' | '')}
+                >
+                  <option value="HTML">{t('telegram.parseHtml')}</option>
+                  <option value="">{t('telegram.parsePlain')}</option>
+                </Select>
+              </Field>
+              <div className="flex items-end pb-1.5">
+                <Checkbox label={t('telegram.silent')} checked={silent} onChange={setSilent} />
+              </div>
+            </div>
+          </>
+        ) : type === 'email' ? (
           <Field label={t('channels.recipients')} hint={t('channels.recipientsHint')} required>
             <Textarea
               rows={3}
@@ -180,7 +341,23 @@ function ChannelModal({
         )}
         <Checkbox label={t('common.enabled')} checked={enabled} onChange={setEnabled} />
         <ErrorBox error={m.error} />
-        <div className="flex justify-end gap-2">
+        <ErrorBox error={test.error} />
+        {testResult && (
+          <Notice tone={testResult.ok ? 'success' : 'info'}>
+            {testResult.ok ? t('channels.testSent') : testResult.message}
+          </Notice>
+        )}
+        <div className="flex flex-wrap justify-end gap-2">
+          {channel && (
+            <Button
+              className="me-auto"
+              busy={test.isPending}
+              title={t('channels.testSavedHint')}
+              onClick={() => test.mutate()}
+            >
+              {t('channels.test')}
+            </Button>
+          )}
           <Button onClick={onClose}>{t('common.cancel')}</Button>
           <Button type="submit" variant="primary" busy={m.isPending}>
             {t('common.save')}

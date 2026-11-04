@@ -20,6 +20,10 @@ export function LiveProvider({ children }: { children: ReactNode }) {
         onReconnect: () => {
           void qc.invalidateQueries({ queryKey: qk.tree });
           void qc.invalidateQueries({ queryKey: qk.dashboard });
+          // Discovery frames may have been missed while disconnected (api.md).
+          void qc.invalidateQueries({ queryKey: ['discoveryScan'] });
+          void qc.invalidateQueries({ queryKey: ['discoveryResults'] });
+          void qc.invalidateQueries({ queryKey: ['discoveryScans'] });
         },
       }),
     // eslint-disable-next-line react-hooks/exhaustive-deps

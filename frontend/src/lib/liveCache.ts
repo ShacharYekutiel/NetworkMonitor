@@ -1,6 +1,17 @@
 import type { QueryClient, QueryKey } from '@tanstack/react-query';
 import { qk } from '../api/endpoints';
-import type { Dashboard, Device, Group, Page, Sensor, Tree, WsMessage } from '../api/types';
+import type {
+  Dashboard,
+  Device,
+  DiscoveryResult,
+  DiscoveryScan,
+  Group,
+  Page,
+  Sensor,
+  Tree,
+  WsMessage,
+} from '../api/types';
+import { applyScanProgress, applyScanProgressToPage, mergeResult } from './discovery';
 import { patchTreeDevice, patchTreeGroup, patchTreeSensor } from './tree';
 
 /** Collects invalidations and flushes them in one batch, so bursts of WS messages stay cheap. */
@@ -157,7 +168,45 @@ export function applyLiveMessage(
         case 'notification_channel':
           batch.add(qk.channels);
           break;
+        case 'discovery_profile':
+          batch.add(qk.discoveryProfiles);
+          break;
       }
+      break;
+    }
+    case 'discovery.progress': {
+      const d = msg.data;
+      const known = qc.getQueryData<DiscoveryScan>(qk.discoveryScan(d.scan_id));
+      qc.setQueryData<DiscoveryScan>(qk.discoveryScan(d.scan_id), (old) =>
+        applyScanProgress(old, d, msg.ts),
+      );
+      qc.setQueriesData<Page<DiscoveryScan>>({ queryKey: ['discoveryScans'] }, (old) =>
+        applyScanProgressToPage(old, d, msg.ts),
+      );
+      // A scan we have not seen yet (e.g. started by a schedule or another admin).
+      if (!known) batch.add(['discoveryScans']);
+      break;
+    }
+    case 'discovery.result': {
+      const { scan_id, result } = msg.data;
+      qc.setQueryData<DiscoveryResult[]>(qk.discoveryResults(scan_id), (old) =>
+        old ? mergeResult(old, result) : old,
+      );
+      break;
+    }
+    case 'discovery.finished': {
+      const d = msg.data;
+      qc.setQueryData<DiscoveryScan>(qk.discoveryScan(d.scan_id), (old) =>
+        applyScanProgress(old, d, msg.ts),
+      );
+      qc.setQueriesData<Page<DiscoveryScan>>({ queryKey: ['discoveryScans'] }, (old) =>
+        applyScanProgressToPage(old, d, msg.ts),
+      );
+      // Per api.md: refetch the scan and its results after discovery.finished.
+      batch.add(qk.discoveryScan(d.scan_id));
+      batch.add(qk.discoveryResults(d.scan_id));
+      batch.add(['discoveryScans']);
+      batch.add(qk.discoveryProfiles);
       break;
     }
     default:
