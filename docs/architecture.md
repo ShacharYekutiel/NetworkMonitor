@@ -414,7 +414,8 @@ Backend, frontend and QA can implement in parallel against those two files.
     `401 {"ok":false,"error_code":401,"description":"Unauthorized"}`. `chat_id` `"-1001"` or `"@netmon_test"`
     → `200 {"ok":true,"result":{"message_id":N,...}}`; `"404"` → `400 {"ok":false,"error_code":400,"description":"Bad Request: chat not found"}`;
     `"429"` → `429 {"ok":false,"error_code":429,"description":"Too Many Requests: retry after 5","parameters":{"retry_after":5}}`;
-    `"slow"` → sleeps 15 s (timeout path).
+    `"-1009"` → sleeps 15 s (timeout path; a numeric id, because a chat id like `"slow"` fails `chat_id`
+    validation before any request is sent).
   - `GET /_messages` returns the received requests (token, JSON body) for assertions; `DELETE /_messages` clears.
 - **What QA should assert (non-exhaustive):** target parsing (cap 4096 → `too_many_hosts`, `/20` accepted,
   multicast rejected), one-scan-at-a-time 409, cancel, WS `discovery.*` reach admins but not viewers,
