@@ -153,6 +153,10 @@ export type ImportRow =
       code: string;
       message: string;
       device_id: number | null;
+      /** Not imported for a transient reason (internal_error, incl. the 90 s budget): retry it. */
+      retry: boolean;
+      /** The backend's import time budget ran out before this host was processed. */
+      timedOut: boolean;
     }
   | { kind: 'missing'; result_id: number; ip: string };
 
@@ -175,7 +179,16 @@ export function importRows(
         code: e.code,
         message: e.message,
         device_id: e.device_id,
+        retry: e.code === 'internal_error',
+        timedOut: e.code === 'internal_error' && /time budget/i.test(e.message),
       };
     return { kind: 'missing', result_id: it.result_id, ip: ipOf(it.result_id) };
   });
+}
+
+/** Result ids worth retrying after an import response (transient errors and unanswered items). */
+export function retryIds(rows: ImportRow[]): number[] {
+  return rows
+    .filter((r) => r.kind === 'missing' || (r.kind === 'error' && r.retry))
+    .map((r) => r.result_id);
 }

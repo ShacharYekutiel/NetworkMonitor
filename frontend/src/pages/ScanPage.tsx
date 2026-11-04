@@ -50,11 +50,12 @@ import {
   NO_FILTERS,
   progressPct,
   resultDisplayName,
+  withBuffered,
   type ResultFilters,
 } from '../lib/discovery';
 import { errorMessage } from '../lib/errors';
 import { formatDateTime, formatNumber, formatRelative } from '../lib/format';
-import { importRows, templateName, type ImportRow } from '../lib/templates';
+import { importRows, retryIds, templateName, type ImportRow } from '../lib/templates';
 
 const POLL_MS = 2000;
 
@@ -417,6 +418,9 @@ function ImportSummary({
       <Notice tone={created ? 'success' : 'info'}>
         {t('discovery.importSummary', { created, failed: rows.length - created })}
       </Notice>
+      {retryIds(rows).length > 0 && (
+        <p className="text-sm text-amber-700 dark:text-amber-400">{t('discovery.retrySelected')}</p>
+      )}
       <ul className="divide-y divide-slate-100 dark:divide-slate-800">
         {rows.map((row) => (
           <li key={row.result_id} className="flex gap-2 py-2">
@@ -444,7 +448,14 @@ function ImportSummary({
                     </span>
                   </>
                 )}
-                {row.kind === 'error' && (
+                {row.kind === 'error' && row.retry && (
+                  <span className="text-amber-700 dark:text-amber-400">
+                    {t('discovery.notImportedRetry')}
+                    {' — '}
+                    {row.timedOut ? t('discovery.importBudget') : t('errors.internal_error')}
+                  </span>
+                )}
+                {row.kind === 'error' && !row.retry && (
                   <span className="text-red-700 dark:text-red-400">
                     {t(`errors.${row.code}`, { defaultValue: row.message || row.code })}
                     {row.device_id !== null && (
@@ -461,7 +472,9 @@ function ImportSummary({
                   </span>
                 )}
                 {row.kind === 'missing' && (
-                  <span className="text-slate-500">{t('errors.internal_error')}</span>
+                  <span className="text-amber-700 dark:text-amber-400">
+                    {t('discovery.notImportedRetry')}
+                  </span>
                 )}
               </div>
               {row.kind === 'created' && row.sensors_skipped.length > 0 && (
@@ -494,7 +507,7 @@ export function ScanPage() {
   const running = scan.data?.status === 'running';
   const results = useQuery({
     queryKey: qk.discoveryResults(id),
-    queryFn: () => endpoints.discoveryResults(id),
+    queryFn: async () => withBuffered(id, await endpoints.discoveryResults(id)),
     enabled: !!scan.data,
     refetchInterval: running && ws !== 'open' ? POLL_MS : false,
   });
@@ -504,6 +517,7 @@ export function ScanPage() {
   const [edits, setEdits] = useState<Record<number, RowEdit>>({});
   const [groupId, setGroupId] = useState<number | null>(null);
   const [summary, setSummary] = useState<ImportRow[] | null>(null);
+  const [importFailed, setImportFailed] = useState<unknown>(null);
   const [cancelAsk, setCancelAsk] = useState(false);
   const [deleteAsk, setDeleteAsk] = useState(false);
 
@@ -552,14 +566,26 @@ export function ScanPage() {
       const res = await endpoints.importResults(id, { group_id: groupId, items });
       return importRows(items, res, all);
     },
+    onMutate: () => setImportFailed(null),
     onSuccess: (rows) => {
       setSummary(rows);
-      setSelected(new Set());
-      setEdits({});
+      // Keep only the hosts worth retrying selected (with their edits).
+      const again = new Set(retryIds(rows));
+      setSelected(again);
+      setEdits((e) => Object.fromEntries(Object.entries(e).filter(([k]) => again.has(Number(k)))));
       void qc.invalidateQueries({ queryKey: qk.discoveryResults(id) });
       void qc.invalidateQueries({ queryKey: qk.tree });
       void qc.invalidateQueries({ queryKey: ['devices'] });
       void qc.invalidateQueries({ queryKey: qk.dashboard });
+    },
+    // The request itself failed (network, proxy 502/504, timeout): the backend may still have
+    // imported some hosts. Refetch the results; rows that became existing drop out of the
+    // selection automatically (`chosen` skips them), the rest stay selected for a retry.
+    onError: (e) => {
+      setImportFailed(e);
+      void qc.invalidateQueries({ queryKey: qk.discoveryResults(id) });
+      void qc.invalidateQueries({ queryKey: qk.tree });
+      void qc.invalidateQueries({ queryKey: ['devices'] });
     },
   });
 
@@ -740,7 +766,14 @@ export function ScanPage() {
                 {t('discovery.importSelected', { count: chosen.length })}
               </Button>
             </div>
-            <ErrorBox error={doImport.error} className="w-full" />
+            {importFailed ? (
+              <div className="w-full space-y-1" role="alert">
+                <ErrorBox error={importFailed} />
+                <p className="text-sm text-amber-700 dark:text-amber-400">
+                  {t('discovery.importMaybePartial')}
+                </p>
+              </div>
+            ) : null}
           </div>
         )}
       </Card>

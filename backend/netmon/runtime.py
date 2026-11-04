@@ -31,6 +31,26 @@ log = logging.getLogger("netmon.runtime")
 ADVISORY_LOCK_ID = 727001
 
 
+def raise_nofile_limit(target: int = 65536) -> tuple[int, int] | None:
+    """POSIX: raise the soft RLIMIT_NOFILE to min(hard, target), best effort (discovery opens
+    many sockets). Returns (old_soft, new_soft), or None when not applicable."""
+    try:
+        import resource
+    except ImportError:  # Windows
+        return None
+    try:
+        soft, hard = resource.getrlimit(resource.RLIMIT_NOFILE)
+        want = target if hard == resource.RLIM_INFINITY else min(hard, target)
+        if soft != resource.RLIM_INFINITY and soft < want:
+            resource.setrlimit(resource.RLIMIT_NOFILE, (want, hard))
+            log.info("Raised the open-file limit from %d to %d", soft, want)
+            return soft, want
+        return soft, soft
+    except (ValueError, OSError) as exc:
+        log.info("Cannot raise the open-file limit: %s", exc)
+        return None
+
+
 class LockHeldError(RuntimeError):
     pass
 
@@ -73,6 +93,7 @@ class Runtime:
         maintenance: bool = True,
     ) -> None:
         s = self.settings
+        raise_nofile_limit()
         s.data_dir.mkdir(parents=True, exist_ok=True)
         self.secret_key = load_or_create_secret(s.data_dir)
         self.engine = make_engine(s.async_database_url)

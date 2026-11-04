@@ -32,7 +32,20 @@ SYS_DESCR = "1.3.6.1.2.1.1.1.0"
 SYS_OBJECT_ID = "1.3.6.1.2.1.1.2.0"
 SYS_NAME = "1.3.6.1.2.1.1.5.0"
 IF_DESCR = "1.3.6.1.2.1.2.2.1.2"
-HOST_TIMEOUT_S = 30.0
+HOST_TIMEOUT_S = 30.0  # runner backstop per host (partial results are kept)
+SNMP_DEADLINE_S = 25.0  # all credential attempts + GETNEXT + ifDescr walk
+TCP_CONNECT_LIMIT = 256  # concurrent discovery TCP connects (file descriptors)
+_tcp_sem: asyncio.Semaphore | None = None
+_tcp_sem_loop: asyncio.AbstractEventLoop | None = None
+
+
+def _tcp_semaphore() -> asyncio.Semaphore:
+    global _tcp_sem, _tcp_sem_loop
+    loop = asyncio.get_running_loop()
+    if _tcp_sem is None or _tcp_sem_loop is not loop:
+        _tcp_sem = asyncio.Semaphore(TCP_CONNECT_LIMIT)
+        _tcp_sem_loop = loop
+    return _tcp_sem
 MAX_CREDENTIAL_ATTEMPTS = 9
 
 
@@ -59,17 +72,19 @@ class ProbeResult:
 
 
 async def tcp_probe(ip: str, port: int, timeout_s: float) -> bool:
-    """True when a TCP connect succeeds. The connection is closed immediately."""
-    try:
-        _, writer = await asyncio.wait_for(asyncio.open_connection(ip, port), timeout_s)
-    except (TimeoutError, OSError):
-        return False
-    except Exception:  # noqa: BLE001
-        return False
-    writer.close()
-    with contextlib.suppress(Exception):
-        await asyncio.wait_for(writer.wait_closed(), 1.0)
-    return True
+    """True when a TCP connect succeeds. The connection is closed immediately. A global
+    semaphore bounds the concurrent connects (file descriptors)."""
+    async with _tcp_semaphore():
+        try:
+            _, writer = await asyncio.wait_for(asyncio.open_connection(ip, port), timeout_s)
+        except (TimeoutError, OSError):
+            return False
+        except Exception:  # noqa: BLE001
+            return False
+        writer.close()
+        with contextlib.suppress(Exception):
+            await asyncio.wait_for(writer.wait_closed(), 1.0)
+        return True
 
 
 async def tcp_probes(ip: str, ports: list[int], timeout_ms: int) -> list[int]:
@@ -150,7 +165,7 @@ async def resolve_hostname(name: str) -> str | None:
         for info in infos:
             addr = info[4][0]
             if isinstance(addr, str):
-                return addr.split("%")[0]
+                return addr  # a scope id (%eth0) is rejected by the caller
     return None
 
 
@@ -186,10 +201,20 @@ async def probe_host(
     options: dict[str, Any],
     credentials: list[dict[str, Any]],
     hostname: str | None = None,
+    result: ProbeResult | None = None,
 ) -> ProbeResult:
     """Probe one address. Ping, TCP and SNMP run concurrently; reverse DNS and the MAC lookup
-    only for found hosts."""
-    result = ProbeResult(ip=ip, hostname=hostname)
+    only for found hosts. `result` (optional) is filled in place, so a caller that times out
+    still sees what was found. SNMP has its own deadline (SNMP_DEADLINE_S); hitting it keeps
+    whatever SNMP already answered."""
+    if result is None:
+        result = ProbeResult(ip=ip, hostname=hostname)
+
+    async def do_snmp() -> None:
+        try:
+            await asyncio.wait_for(snmp_identity(ip, credentials, result), SNMP_DEADLINE_S)
+        except TimeoutError:
+            log.debug("SNMP probe of %s hit its %ss deadline", ip, SNMP_DEADLINE_S)
 
     async def do_ping() -> None:
         rtt = await ping_once(ip, int(options.get("ping_timeout_ms", 1000)))
@@ -208,7 +233,7 @@ async def probe_host(
     if options.get("tcp", True) and options.get("tcp_ports"):
         jobs.append(do_tcp())
     if options.get("snmp", True) and credentials:
-        jobs.append(snmp_identity(ip, credentials, result))
+        jobs.append(do_snmp())
     await asyncio.gather(*jobs)
     if not result.found:
         return result

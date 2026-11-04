@@ -680,7 +680,7 @@
     "storedSecrets": "שמורים: {{communities}} קהילות, {{v3}} משתמשי v3.",
     "replaceSecrets": "החלפת הפרטים השמורים",
     "extraCommunities": "קהילות נוספות (v2c)",
-    "extraCommunitiesHint": "אחת בכל שורה, עד 5.",
+    "extraCommunitiesHint": "עד 5, נוסות כ-v2c.",
     "addV3": "הוספת משתמש v3",
     "advanced": "מתקדם",
     "snmpPort": "פורט SNMP",
@@ -790,6 +790,14 @@
     "sensorsCreated_other": "נוצרו {{count}} חיישנים",
     "openDevice": "פתיחת ההתקן",
     "classVendor": "סוג / יצרן",
-    "openPorts": "פורטי TCP פתוחים"
+    "openPorts": "פורטי TCP פתוחים",
+    "addCommunity": "הוספת קהילה",
+    "removeCommunity": "הסרת קהילה {{n}}",
+    "showSecret": "הצגה",
+    "hideSecret": "הסתרה",
+    "importMaybePartial": "ייתכן שהייבוא הושלם חלקית. הרשימה רועננה: מארחים שיובאו מסומנים כ\"יובא\"; השאר עדיין נבחרים, כך שאפשר לנסות שוב רק אותם.",
+    "notImportedRetry": "לא יובא — נסו שוב",
+    "importBudget": "זמן הייבוא הסתיים לפני שהגיע למארח הזה",
+    "retrySelected": "המארחים לניסיון חוזר עדיין נבחרים."
   }
 }

@@ -29,6 +29,11 @@ from netmon.templates.builtin import TEMPLATE_IDS
 
 router = APIRouter()
 
+
+def like_escape(value: str) -> str:
+    """Escape LIKE wildcards so `q` matches literally (used with ESCAPE '\\')."""
+    return value.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
+
 DEVICE_CLASSES = (
     "router",
     "switch",
@@ -356,8 +361,11 @@ async def list_results(
         where.append("r.device_class = ANY(:classes)")
         params["classes"] = classes
     if q:
-        where.append("(host(r.ip) ILIKE :q OR r.hostname ILIKE :q OR r.sys_name ILIKE :q)")
-        params["q"] = f"%{q}%"
+        where.append(
+            "(host(r.ip) ILIKE :q ESCAPE '\\' OR r.hostname ILIKE :q ESCAPE '\\' "
+            "OR r.sys_name ILIKE :q ESCAPE '\\')"
+        )
+        params["q"] = f"%{like_escape(q)}%"
     cond = " AND ".join(where)
     total = (
         await session.execute(

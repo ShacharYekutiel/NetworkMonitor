@@ -95,7 +95,11 @@ class DiscoveryScheduler:
     async def _set_next(self, profile_id: int, when: datetime) -> None:
         async with self.rt.sessionmaker() as session:
             await session.execute(
-                text("UPDATE discovery_profiles SET next_run_at = :t WHERE id = :id"),
+                text(
+                    "UPDATE discovery_profiles SET next_run_at = "
+                    "CASE WHEN schedule_enabled THEN CAST(:t AS timestamptz) ELSE NULL END "
+                    "WHERE id = :id"
+                ),
                 {"t": when, "id": profile_id},
             )
             await session.commit()

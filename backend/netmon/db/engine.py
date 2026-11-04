@@ -18,7 +18,10 @@ log = logging.getLogger("netmon.db")
 
 
 def make_engine(url: str) -> AsyncEngine:
-    return create_async_engine(url, pool_size=10, max_overflow=20, pool_pre_ping=True)
+    # hide_parameters: SQL errors never echo bound values (communities, keys) into messages/logs
+    return create_async_engine(
+        url, pool_size=10, max_overflow=20, pool_pre_ping=True, hide_parameters=True
+    )
 
 
 def make_sessionmaker(engine: AsyncEngine) -> async_sessionmaker[AsyncSession]:

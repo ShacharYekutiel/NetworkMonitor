@@ -342,7 +342,7 @@ describe('discovery live reducers', () => {
 describe('scan options form', () => {
   it('builds a request with defaults and secrets for a new scan', () => {
     const f = scanOptionsForm();
-    f.extra_communities = 'printers\n\n monitor ';
+    f.extra_communities = ['printers', '', ' monitor '];
     f.snmp_port = '1161';
     const { options, errors } = scanOptionsToInput(f);
     expect(errors).toEqual({});
@@ -357,7 +357,7 @@ describe('scan options form', () => {
   it('keeps stored secrets when editing a profile unless replaced', () => {
     const f = scanOptionsForm(opts);
     expect(f.stored_communities).toBe(1);
-    expect(f.extra_communities).toBe('');
+    expect(f.extra_communities).toEqual(['']);
     const { options } = scanOptionsToInput(f);
     expect('extra_communities' in options).toBe(false);
     expect('extra_v3' in options).toBe(false);

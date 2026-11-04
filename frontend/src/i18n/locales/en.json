@@ -671,7 +671,7 @@
     "storedSecrets": "Stored: {{communities}} communities, {{v3}} v3 users.",
     "replaceSecrets": "Replace the stored credentials",
     "extraCommunities": "Extra communities (v2c)",
-    "extraCommunitiesHint": "One per line, up to 5.",
+    "extraCommunitiesHint": "Up to 5, tried as v2c.",
     "addV3": "Add v3 user",
     "advanced": "Advanced",
     "snmpPort": "SNMP port",
@@ -779,6 +779,14 @@
     "sensorsCreated_other": "{{count}} sensors created",
     "openDevice": "Open device",
     "classVendor": "Class / vendor",
-    "openPorts": "Open TCP ports"
+    "openPorts": "Open TCP ports",
+    "addCommunity": "Add community",
+    "removeCommunity": "Remove community {{n}}",
+    "showSecret": "Show",
+    "hideSecret": "Hide",
+    "importMaybePartial": "The import may have partly completed. The list was refreshed: hosts that were imported now show as Imported; the rest are still selected, so you can retry just those.",
+    "notImportedRetry": "Not imported — retry",
+    "importBudget": "the import ran out of time before this host",
+    "retrySelected": "Hosts to retry are still selected."
   }
 }

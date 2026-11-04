@@ -34,6 +34,7 @@ if TYPE_CHECKING:
 log = logging.getLogger("netmon.discovery")
 
 KEEP_SCANS = 20
+CANCEL_WAIT_S = 5.0
 MAX_NOTIFY_HOSTS = 50
 EXISTING_DEVICE_SQL = (
     "(SELECT min(d.id) FROM devices d WHERE d.host = host({ip}) "
@@ -208,7 +209,9 @@ class ScanRunner:
             return scan.id
 
     # ------------------------------------------------------------------ cancel / shutdown
-    async def cancel(self, scan_id: int, wait_s: float = 10.0) -> bool:
+    async def cancel(self, scan_id: int, wait_s: float = CANCEL_WAIT_S) -> bool:
+        """Stop the running scan. Waits at most `wait_s` for the task; if it is still
+        finishing, the row is marked `cancelled` here (the runner's final write keeps it)."""
         cur = self._current
         if cur is None or cur.id != scan_id or cur.task is None or cur.task.done():
             return False
@@ -218,6 +221,17 @@ class ScanRunner:
             for t in list(cur.probes):
                 t.cancel()
             await asyncio.wait({cur.task}, timeout=0.1)
+        if not cur.task.done():
+            async with self.rt.sessionmaker() as session:
+                await session.execute(
+                    text(
+                        "UPDATE discovery_scans SET status = 'cancelled', "
+                        "finished_at = COALESCE(finished_at, now()) "
+                        "WHERE id = :id AND status = 'running'"
+                    ),
+                    {"id": scan_id},
+                )
+                await session.commit()
         return True
 
     async def shutdown(self) -> None:
@@ -288,7 +302,9 @@ class ScanRunner:
                     t.cancel()
                 await asyncio.gather(*list(tasks), return_exceptions=True)
 
-    async def _probe_target(self, scan: _Scan, host: HostTarget) -> ProbeResult | None:
+    async def _probe_target(
+        self, scan: _Scan, host: HostTarget, holder: dict[str, ProbeResult]
+    ) -> ProbeResult | None:
         ip = host.address
         if ip is None:
             assert host.hostname is not None
@@ -300,15 +316,22 @@ class ScanRunner:
                     return None
             except ValueError:
                 return None
-        return await probe_host(ip, scan.options, scan.credentials, hostname=host.hostname)
+        # the result object is shared with the caller, so a backstop timeout keeps what the
+        # probes already found (ping / TCP / SNMP identity)
+        holder["res"] = ProbeResult(ip=ip, hostname=host.hostname)
+        return await probe_host(
+            ip, scan.options, scan.credentials, hostname=host.hostname, result=holder["res"]
+        )
 
     async def _one_host(self, scan: _Scan, host: HostTarget) -> None:
         if scan.cancel:
             return
+        holder: dict[str, ProbeResult] = {}
         probe = asyncio.create_task(
-            asyncio.wait_for(self._probe_target(scan, host), self.host_timeout_s)
+            asyncio.wait_for(self._probe_target(scan, host, holder), self.host_timeout_s)
         )
         scan.probes.add(probe)
+        res: ProbeResult | None
         try:
             res = await probe
         except asyncio.CancelledError:
@@ -317,10 +340,11 @@ class ScanRunner:
                 raise
             return  # the scan was cancelled: this host did not finish
         except TimeoutError:
-            res = None
+            res = holder.get("res")  # backstop hit: keep the partial result
+            log.info("Probe of %s hit the %ss backstop", host.label, self.host_timeout_s)
         except Exception as exc:  # noqa: BLE001
-            log.warning("Probe of %s failed: %s", host.label, exc)
-            res = None
+            log.warning("Probe of %s failed: %s", host.label, type(exc).__name__)
+            res = holder.get("res")
         finally:
             scan.probes.discard(probe)
         scan.scanned += 1
@@ -449,6 +473,8 @@ class ScanRunner:
 
     # ------------------------------------------------------------------ finish
     async def _finish(self, scan: _Scan, status: str, error: str | None) -> None:
+        if scan.cancel:
+            status, error = "cancelled", None  # a cancel always wins
         async with self.rt.sessionmaker() as session:
             new_count = (
                 await session.execute(
@@ -462,7 +488,10 @@ class ScanRunner:
             scan.new, scan.found = int(new_count[0]), int(new_count[1])
             await session.execute(
                 text(
-                    "UPDATE discovery_scans SET status = :st, error = :err, finished_at = now(), "
+                    "UPDATE discovery_scans SET "
+                    "status = CASE WHEN status = 'cancelled' THEN 'cancelled' ELSE :st END, "
+                    "error = CASE WHEN status = 'cancelled' THEN NULL ELSE :err END, "
+                    "finished_at = now(), "
                     "scanned_hosts = :s, found_hosts = :f, new_hosts = :n WHERE id = :id"
                 ),
                 {

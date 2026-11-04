@@ -86,6 +86,31 @@ export function mergeResult(list: DiscoveryResult[], r: DiscoveryResult): Discov
   return out;
 }
 
+// Results that arrive over the WS while the results query has no data yet (first load, reload
+// during a running scan) or while a fetch is in flight. They are merged into the next fetch.
+const pendingResults = new Map<number, Map<number, DiscoveryResult>>();
+const MAX_PENDING = 4096;
+
+export function bufferResult(r: DiscoveryResult): void {
+  let m = pendingResults.get(r.scan_id);
+  if (!m) pendingResults.set(r.scan_id, (m = new Map()));
+  if (m.size < MAX_PENDING || m.has(r.id)) m.set(r.id, r);
+}
+
+/** Adds buffered live rows the fetched list does not have yet (fetched rows win; no duplicates). */
+export function withBuffered(scanId: number, fetched: DiscoveryResult[]): DiscoveryResult[] {
+  const m = pendingResults.get(scanId);
+  if (!m?.size) return fetched;
+  const ids = new Set(fetched.map((r) => r.id));
+  let out = fetched;
+  for (const r of m.values()) if (!ids.has(r.id)) out = mergeResult(out, r);
+  return out;
+}
+
+export function clearBuffered(scanId: number): void {
+  pendingResults.delete(scanId);
+}
+
 export function progressPct(scan: Pick<DiscoveryScan, 'total_hosts' | 'scanned_hosts'>): number {
   if (!scan.total_hosts) return 0;
   return Math.min(100, Math.round((scan.scanned_hosts / scan.total_hosts) * 100));
@@ -133,6 +158,8 @@ export function resultDisplayName(r: DiscoveryResult): string {
 // ---------------------------------------------------------------------------
 // Scan options form
 
+export const MAX_EXTRA_COMMUNITIES = 5;
+
 export const DEFAULT_TCP_PORTS = [22, 23, 53, 80, 443, 445, 631, 3389, 8080, 8443, 9100];
 
 export type ExtraV3Form = {
@@ -150,8 +177,8 @@ export type ScanOptionsForm = {
   snmp: boolean;
   snmp_port: string;
   snmp_timeout_s: string;
-  /** One community per line. Write-only: empty + `replaceSecrets=false` keeps the stored list. */
-  extra_communities: string;
+  /** One community per row (max 5). Write-only: never prefilled; kept unless `replace_secrets`. */
+  extra_communities: string[];
   extra_v3: ExtraV3Form[];
   /** Counts of stored secrets (from the API), shown as hints when editing a profile. */
   stored_communities: number;
@@ -182,7 +209,7 @@ export function scanOptionsForm(o?: ScanOptions | null): ScanOptionsForm {
     snmp: o?.snmp ?? true,
     snmp_port: o?.snmp_port != null ? String(o.snmp_port) : '',
     snmp_timeout_s: String(o?.snmp_timeout_s ?? 1),
-    extra_communities: '',
+    extra_communities: [''],
     extra_v3: [],
     stored_communities: o?.extra_communities_count ?? 0,
     stored_v3: o?.extra_v3_count ?? 0,
@@ -266,10 +293,7 @@ export function scanOptionsToInput(f: ScanOptionsForm): {
   } else options.tcp_ports = ports;
 
   if (f.replace_secrets) {
-    const communities = f.extra_communities
-      .split('\n')
-      .map((x) => x.trim())
-      .filter(Boolean);
+    const communities = f.extra_communities.map((x) => x.trim()).filter(Boolean);
     if (communities.length > 5 || communities.some((c) => c.length > 64))
       errors.extra_communities = 'discovery.err.communities';
     else options.extra_communities = communities;

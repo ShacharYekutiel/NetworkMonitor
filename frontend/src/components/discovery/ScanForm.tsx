@@ -3,6 +3,7 @@ import { Trans, useTranslation } from 'react-i18next';
 import type { SnmpAuthProtocol, SnmpPrivProtocol, SnmpSecurityLevel } from '../../api/types';
 import {
   DEFAULT_TCP_PORTS,
+  MAX_EXTRA_COMMUNITIES,
   newExtraV3,
   type OptionsErrors,
   type ScanOptionsForm,
@@ -110,6 +111,91 @@ function Err({ k }: { k?: string }) {
   return k ? <span className="text-red-600">{t(k)}</span> : null;
 }
 
+function EyeIcon({ off }: { off: boolean }) {
+  return (
+    <svg
+      width="14"
+      height="14"
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth={2}
+      aria-hidden="true"
+    >
+      <path d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7S2 12 2 12z" />
+      <circle cx="12" cy="12" r="3" />
+      {off && <path d="M4 4l16 16" />}
+    </svg>
+  );
+}
+
+/** Write-only extra communities: one real password input per row (max 5), show/hide per row. */
+function ExtraCommunities({
+  values,
+  onChange,
+  error,
+}: {
+  values: string[];
+  onChange: (v: string[]) => void;
+  error?: string;
+}) {
+  const { t } = useTranslation();
+  const [shown, setShown] = useState<boolean[]>([]);
+  const label = t('discovery.extraCommunities');
+  return (
+    <FieldGroup
+      label={label}
+      hint={error ? <Err k={error} /> : t('discovery.extraCommunitiesHint')}
+    >
+      <div className="space-y-1.5">
+        {values.map((v, i) => (
+          <div key={i} className="flex items-center gap-1.5">
+            <Input
+              type={shown[i] ? 'text' : 'password'}
+              autoComplete="off"
+              spellCheck={false}
+              value={v}
+              onChange={(e) => onChange(values.map((x, j) => (j === i ? e.target.value : x)))}
+              dir="ltr"
+              maxLength={64}
+              className="font-mono"
+              aria-label={`${label} ${i + 1}`}
+            />
+            <Button
+              size="sm"
+              variant="ghost"
+              className="shrink-0"
+              aria-label={shown[i] ? t('discovery.hideSecret') : t('discovery.showSecret')}
+              aria-pressed={!!shown[i]}
+              title={shown[i] ? t('discovery.hideSecret') : t('discovery.showSecret')}
+              onClick={() => setShown((s) => values.map((_, j) => (j === i ? !s[j] : !!s[j])))}
+            >
+              <EyeIcon off={!!shown[i]} />
+            </Button>
+            <Button
+              size="sm"
+              variant="ghost"
+              className="shrink-0"
+              aria-label={t('discovery.removeCommunity', { n: i + 1 })}
+              onClick={() => {
+                onChange(values.length > 1 ? values.filter((_, j) => j !== i) : ['']);
+                setShown((s) => s.filter((_, j) => j !== i));
+              }}
+            >
+              <TrashIcon size={14} />
+            </Button>
+          </div>
+        ))}
+        {values.length < MAX_EXTRA_COMMUNITIES && (
+          <Button size="sm" onClick={() => onChange([...values, ''])}>
+            <PlusIcon size={14} /> {t('discovery.addCommunity')}
+          </Button>
+        )}
+      </div>
+    </FieldGroup>
+  );
+}
+
 /** Scan options (shared by the New scan form and the profile form). */
 export function ScanOptionsEditor({
   value,
@@ -212,27 +298,11 @@ export function ScanOptionsEditor({
           )}
           {secretsEditable && (
             <div className="space-y-3">
-              <Field
-                label={t('discovery.extraCommunities')}
-                hint={
-                  errors.extra_communities ? (
-                    <Err k={errors.extra_communities} />
-                  ) : (
-                    t('discovery.extraCommunitiesHint')
-                  )
-                }
-              >
-                {/* Write-only secrets: masked text, never prefilled from the server. */}
-                <Textarea
-                  rows={2}
-                  value={value.extra_communities}
-                  onChange={(e) => set('extra_communities', e.target.value)}
-                  dir="ltr"
-                  autoComplete="off"
-                  spellCheck={false}
-                  className="font-mono [-webkit-text-security:disc]"
-                />
-              </Field>
+              <ExtraCommunities
+                values={value.extra_communities}
+                onChange={(v) => set('extra_communities', v)}
+                error={errors.extra_communities}
+              />
               <div className="space-y-2">
                 {value.extra_v3.map((v, i) => {
                   const auth = v.v3_security_level !== 'noAuthNoPriv';

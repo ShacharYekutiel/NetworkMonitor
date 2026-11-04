@@ -11,7 +11,13 @@ import type {
   Tree,
   WsMessage,
 } from '../api/types';
-import { applyScanProgress, applyScanProgressToPage, mergeResult } from './discovery';
+import {
+  applyScanProgress,
+  applyScanProgressToPage,
+  bufferResult,
+  clearBuffered,
+  mergeResult,
+} from './discovery';
 import { patchTreeDevice, patchTreeGroup, patchTreeSensor } from './tree';
 
 /** Collects invalidations and flushes them in one batch, so bursts of WS messages stay cheap. */
@@ -189,6 +195,9 @@ export function applyLiveMessage(
     }
     case 'discovery.result': {
       const { scan_id, result } = msg.data;
+      // Always buffer: if the results query has no data yet or a fetch is in flight, the row is
+      // merged into that fetch (withBuffered) instead of being lost.
+      bufferResult(result);
       qc.setQueryData<DiscoveryResult[]>(qk.discoveryResults(scan_id), (old) =>
         old ? mergeResult(old, result) : old,
       );
@@ -202,7 +211,9 @@ export function applyLiveMessage(
       qc.setQueriesData<Page<DiscoveryScan>>({ queryKey: ['discoveryScans'] }, (old) =>
         applyScanProgressToPage(old, d, msg.ts),
       );
-      // Per api.md: refetch the scan and its results after discovery.finished.
+      // Per api.md: refetch the scan and its results after discovery.finished (the refetch has
+      // every row, so the live buffer is no longer needed).
+      clearBuffered(d.scan_id);
       batch.add(qk.discoveryScan(d.scan_id));
       batch.add(qk.discoveryResults(d.scan_id));
       batch.add(['discoveryScans']);

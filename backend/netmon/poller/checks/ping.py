@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import errno
 import logging
 import re
 import shutil
@@ -37,6 +38,14 @@ def result_from_rtts(rtts: list[float], sent: int) -> CheckResult:
     return CheckResult(True, "", {"latency_ms": round(avg, 3), "packet_loss_pct": round(loss, 2)})
 
 
+def is_fd_exhaustion(exc: BaseException) -> bool:
+    """EMFILE / ENFILE, also when icmplib wraps it in ICMPSocketError (message only)."""
+    if isinstance(exc, OSError) and exc.errno in (errno.EMFILE, errno.ENFILE):
+        return True
+    text = str(exc)
+    return "Too many open files" in text or "[Errno 24]" in text or "[Errno 23]" in text
+
+
 class _ResolveError(Exception):
     pass
 
@@ -69,6 +78,9 @@ async def _ping(host: str, count: int, timeout_ms: int, size: int) -> tuple[list
         except icmplib.NameLookupError as exc:
             raise _ResolveError(str(exc)) from exc
         except (icmplib.ICMPSocketError, PermissionError, OSError) as exc:
+            if is_fd_exhaustion(exc):
+                # transient (too many open files): never switch / remember another mode
+                raise
             last_exc = exc
             if _mode == mode:
                 _mode = None  # re-probe next time

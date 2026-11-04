@@ -57,6 +57,10 @@ def rejected_reason(addr: ipaddress.IPv4Address | ipaddress.IPv6Address) -> str 
                     return "multicast addresses are not allowed"
                 return "this address range is not allowed"
         return None
+    if addr.scope_id:
+        return "IPv6 scope ids (%zone) are not allowed"
+    if addr.ipv4_mapped is not None:
+        return "IPv4-mapped IPv6 addresses are not allowed; use the IPv4 address"
     if addr.is_multicast:
         return "multicast addresses are not allowed"
     if addr.is_unspecified:
