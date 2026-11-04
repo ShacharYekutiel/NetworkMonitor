@@ -131,13 +131,13 @@ export function Layout() {
       <div className="relative flex min-h-0 flex-1">
         {mobileOpen && (
           <div
-            className="fixed inset-0 top-12 z-20 bg-slate-900/40 lg:hidden"
+            className="fixed inset-0 top-12 z-20 bg-slate-900/60 lg:hidden"
             onClick={() => setMobileOpen(false)}
           />
         )}
         <aside
           className={cx(
-            'z-30 flex w-72 shrink-0 flex-col border-e border-slate-200 bg-slate-100 dark:border-slate-800 dark:bg-slate-900/60',
+            'z-30 flex w-72 shrink-0 flex-col border-e border-slate-200 bg-slate-100 shadow-xl dark:border-slate-800 dark:bg-slate-900 lg:shadow-none lg:dark:bg-slate-900/60',
             'fixed bottom-0 top-12 start-0 transition-transform lg:static lg:translate-x-0 lg:rtl:translate-x-0',
             mobileOpen ? 'translate-x-0' : '-translate-x-full rtl:translate-x-full',
             collapsed && 'lg:hidden',
