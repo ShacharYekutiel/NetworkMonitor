@@ -10,7 +10,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from netmon.api.errors import ApiError
 from netmon.schemas import SnmpIn
 
-SECRET_SNMP = ("v3_auth_key", "v3_priv_key")
+SECRET_SNMP = ("community", "v3_auth_key", "v3_priv_key")
 
 
 def merge_secret(incoming: str | None, stored: str | None) -> str | None:
@@ -27,6 +27,8 @@ def merge_snmp(incoming: SnmpIn, stored: dict[str, Any] | None) -> dict[str, Any
     stored = stored or {}
     for key in SECRET_SNMP:
         data[key] = merge_secret(data.get(key), stored.get(key))
+    if data.get("community") is None and incoming.community is None and not stored:
+        data["community"] = "public"  # new credentials object: data-model default
     if data["version"] == "v3":
         errors = []
         if not data.get("v3_username"):

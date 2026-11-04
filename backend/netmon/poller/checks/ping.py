@@ -6,6 +6,7 @@ import asyncio
 import logging
 import re
 import shutil
+import subprocess
 import sys
 
 from netmon.poller.types import CheckContext, CheckResult
@@ -76,13 +77,22 @@ async def _ping(host: str, count: int, timeout_ms: int, size: int) -> tuple[list
     raise RuntimeError(str(last_exc) if last_exc else "no ping method available")
 
 
-_RTT_RE = re.compile(r"(?:time|Zeit|temps|tiempo)[=<]\s*([\d.,]+)\s*ms", re.IGNORECASE)
+_TTL_RE = re.compile(r"ttl=", re.IGNORECASE)
+_MS_RE = re.compile(r"(\d+(?:[.,]\d+)?)\s*ms", re.IGNORECASE)
 
 
 def parse_ping_output(output: str) -> list[float]:
-    """Parse RTTs from Linux / Windows ping output."""
+    """Parse RTTs from Linux / Windows ping output, independent of the UI language.
+
+    A reply line is any line containing "TTL=" (Windows: "TTL=64", Linux: "ttl=64"); its RTT is
+    the number in front of "ms" ("time=0.045 ms", "Zeit=3ms", "זמן<1ms" -> 1)."""
     rtts = []
-    for m in _RTT_RE.finditer(output):
+    for line in output.splitlines():
+        if not _TTL_RE.search(line):
+            continue
+        m = _MS_RE.search(line)
+        if m is None:
+            continue
         try:
             rtts.append(float(m.group(1).replace(",", ".")))
         except ValueError:
@@ -103,18 +113,32 @@ async def _ping_binary(
     else:
         wait_s = max(1, round(timeout_ms / 1000))
         args = [exe, "-n", "-c", str(count), "-W", str(wait_s), "-i", "0.2", "-s", str(size), host]
-    proc = await asyncio.create_subprocess_exec(
-        *args, stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.STDOUT
-    )
+    limit = count * (timeout_ms / 1000 + 0.3) + 5
     try:
-        out, _ = await asyncio.wait_for(
-            proc.communicate(), timeout=count * (timeout_ms / 1000 + 0.3) + 5
+        proc = await asyncio.create_subprocess_exec(
+            *args, stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.STDOUT
         )
-    except TimeoutError:
-        proc.kill()
-        raise
+    except NotImplementedError:
+        # e.g. a SelectorEventLoop on Windows (uvicorn --reload): run it in a worker thread
+        out = await asyncio.to_thread(_run_blocking, args, limit)
+    else:
+        try:
+            out, _ = await asyncio.wait_for(proc.communicate(), timeout=limit)
+        except TimeoutError:
+            proc.kill()
+            raise
     text = out.decode(errors="replace")
     rtts = parse_ping_output(text)
     if not rtts and ("unknown host" in text.lower() or "could not find host" in text.lower()):
         raise _ResolveError(host)
     return rtts, count
+
+
+def _run_blocking(args: list[str], timeout: float) -> bytes:
+    try:
+        res = subprocess.run(
+            args, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, timeout=timeout, check=False
+        )
+    except subprocess.TimeoutExpired as exc:
+        raise TimeoutError("ping timed out") from exc
+    return res.stdout or b""

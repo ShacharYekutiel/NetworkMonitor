@@ -23,9 +23,11 @@ log = logging.getLogger("netmon.alerts")
 
 
 def should_fire(old_status: str | None, new_status: str | None) -> bool:
+    """Whether a transition can fire at all. An `up` additionally needs a previously *sent*
+    down/warning notification of the same rule for the sensor (checked per rule)."""
     if new_status not in ("down", "warning", "up"):
         return False
-    if new_status == "up" and old_status not in ("down", "warning"):
+    if new_status == old_status:
         return False
     return True
 
@@ -150,6 +152,8 @@ class AlertEngine:
         except Exception:  # noqa: BLE001
             log.exception("Cannot load alert rules")
             return
+        if event["new_status"] == "up":
+            rows = [r for r in rows if r.id in await self._notified_rules(event["sensor_id"])]
         immediate: list[tuple[dict[str, Any], list[int]]] = []
         for r in rows:
             rule = {"id": r.id, "name": r.name}
@@ -172,9 +176,67 @@ class AlertEngine:
                     text("SELECT status FROM sensors WHERE id = :id"), {"id": event["sensor_id"]}
                 )
             ).scalar_one_or_none()
+            # the rule may have been disabled, deleted or changed while we waited
+            current = (
+                await session.execute(
+                    text(
+                        """
+                        SELECT r.enabled, r.on_statuses, r.sensor_id,
+                               COALESCE(array_agg(rc.channel_id ORDER BY rc.channel_id)
+                                   FILTER (WHERE rc.channel_id IS NOT NULL), '{}') AS chans
+                        FROM alert_rules r
+                        LEFT JOIN alert_rule_channels rc ON rc.rule_id = r.id
+                        WHERE r.id = :id GROUP BY r.id
+                        """
+                    ),
+                    {"id": rule["id"]},
+                )
+            ).first()
         if status != event["new_status"]:
             return
-        await self._fire(event, rule, chans)
+        if (
+            current is None
+            or not current.enabled
+            or event["new_status"] not in current.on_statuses
+            or current.sensor_id not in (None, event["sensor_id"])
+        ):
+            return
+        if event["new_status"] == "up" and rule["id"] not in await self._notified_rules(
+            event["sensor_id"]
+        ):
+            return
+        await self._fire(event, rule, list(current.chans))
+
+    async def _notified_rules(self, sensor_id: int) -> set[int]:
+        async with self.rt.sessionmaker() as session:
+            rows = await session.execute(
+                text("SELECT rule_id FROM alert_notified WHERE sensor_id = :s"), {"s": sensor_id}
+            )
+            return {r.rule_id for r in rows}
+
+    async def _record_sent(self, rule_id: int, event: dict[str, Any]) -> None:
+        try:
+            async with self.rt.sessionmaker() as session:
+                if event["new_status"] == "up":
+                    await session.execute(
+                        text("DELETE FROM alert_notified WHERE rule_id = :r AND sensor_id = :s"),
+                        {"r": rule_id, "s": event["sensor_id"]},
+                    )
+                else:
+                    await session.execute(
+                        text(
+                            """
+                            INSERT INTO alert_notified (rule_id, sensor_id, status, time)
+                            VALUES (:r, :s, :st, now())
+                            ON CONFLICT (rule_id, sensor_id)
+                            DO UPDATE SET status = EXCLUDED.status, time = now()
+                            """
+                        ),
+                        {"r": rule_id, "s": event["sensor_id"], "st": event["new_status"]},
+                    )
+                await session.commit()
+        except Exception as exc:  # noqa: BLE001 - e.g. sensor or rule deleted meanwhile
+            log.debug("Cannot record notification state: %s", exc)
 
     async def _fire(self, event: dict[str, Any], rule: dict[str, Any], chans: list[int]) -> None:
         todo = []
@@ -187,6 +249,8 @@ class AlertEngine:
         while len(self._sent) > 20000:
             self._sent.popitem(last=False)
         if not todo:
+            # the channels were already served by another rule for this event
+            await self._record_sent(rule["id"], event)
             return
         async with self.rt.sessionmaker() as session:
             ctx = (
@@ -222,10 +286,12 @@ class AlertEngine:
             device = {"id": ctx.did, "name": ctx.dname, "host": ctx.dhost}
             group = {"id": ctx.gid, "name": ctx.gname}
         payload = build_payload(event, sensor, device, group, rule, cfg["public_base_url"])
+        sent_any = False
         for ch in channels:
             channel = {"id": ch.id, "name": ch.name, "type": ch.type, "config": ch.config}
             try:
                 await self.sender(channel, payload, cfg["smtp"], cfg["default_language"])
+                sent_any = True
             except (SmtpError, WebhookError, Exception) as exc:  # noqa: BLE001
                 log.warning("Notification via %s failed: %s", ch.name, exc)
                 await events_svc.write_notification_event(
@@ -237,3 +303,5 @@ class AlertEngine:
                     sensor_name=event.get("sensor_name"),
                     device_name=event.get("device_name"),
                 )
+        if sent_any:
+            await self._record_sent(rule["id"], event)

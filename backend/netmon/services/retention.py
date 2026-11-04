@@ -8,6 +8,7 @@ from typing import TYPE_CHECKING
 
 from sqlalchemy import text
 
+from netmon.db import timescale
 from netmon.services import settings as settings_svc
 from netmon.services.events import delete_old_events
 
@@ -45,6 +46,15 @@ async def run_once(rt: Runtime) -> dict[str, int]:
         cfg = await settings_svc.get_all(session)
     removed_m = 0
     if not rt.timescale_enabled:
+        removed_m = await delete_old_measurements(rt, cfg["retention_days"])
+    elif not rt.retention_policy_ok:
+        # Timescale without the retention-policy API (Apache-only build): prune manually
+        try:
+            assert rt.engine is not None
+            await timescale.drop_old_chunks(rt.engine, cfg["retention_days"])
+        except Exception as exc:  # noqa: BLE001
+            log.warning("drop_chunks failed (%s); deleting old rows instead", exc)
+        # rows in chunks that straddle the cutoff (and everything when drop_chunks failed)
         removed_m = await delete_old_measurements(rt, cfg["retention_days"])
     async with rt.sessionmaker() as session:
         removed_e = await delete_old_events(session, cfg["event_retention_days"])

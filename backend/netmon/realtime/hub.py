@@ -20,8 +20,9 @@ def make_message(type_: str, data: dict[str, Any]) -> str:
 
 
 class _Client:
-    def __init__(self, ws: WebSocket) -> None:
+    def __init__(self, ws: WebSocket, user_id: int | None = None) -> None:
         self.ws = ws
+        self.user_id = user_id
         self.queue: asyncio.Queue[str | None] = asyncio.Queue(maxsize=1000)
         self.task: asyncio.Task[None] | None = None
 
@@ -45,8 +46,10 @@ class Hub:
     def count(self) -> int:
         return len(self._clients)
 
-    def register(self, ws: WebSocket, first: str | None = None) -> _Client:
-        client = _Client(ws)
+    def register(
+        self, ws: WebSocket, first: str | None = None, user_id: int | None = None
+    ) -> _Client:
+        client = _Client(ws, user_id)
         if first is not None:
             client.queue.put_nowait(first)
         client.task = asyncio.create_task(client.sender())
@@ -75,6 +78,14 @@ class Hub:
                 log.warning("Dropping slow WebSocket client")
                 self._clients.discard(client)
                 asyncio.ensure_future(_close(client.ws, 1008))
+
+    async def close_user(self, user_id: int, code: int = 4401) -> int:
+        """Close every socket of a user (session revoked). Returns the number closed."""
+        victims = [c for c in self._clients if c.user_id == user_id]
+        for client in victims:
+            self._clients.discard(client)
+            await _close(client.ws, code)
+        return len(victims)
 
     async def close_all(self, code: int = 1001) -> None:
         for client in list(self._clients):

@@ -92,7 +92,7 @@ class SnmpIn(_In):
     port: int = Field(default=161, ge=1, le=65535)
     timeout_s: int = Field(default=2, ge=1, le=30)
     retries: int = Field(default=1, ge=0, le=5)
-    community: str | None = Field(default="public", max_length=255)
+    community: str | None = Field(default=None, max_length=255)  # write-only secret
     v3_username: str | None = Field(default=None, max_length=64)
     v3_security_level: Literal["noAuthNoPriv", "authNoPriv", "authPriv"] | None = None
     v3_auth_protocol: Literal["MD5", "SHA", "SHA224", "SHA256", "SHA384", "SHA512"] | None = None
@@ -125,6 +125,26 @@ class GroupPatch(_In):
     description: str | None = Field(default=None, max_length=10000)
     snmp_credentials: SnmpIn | None = None
     sort_order: int | None = None
+
+
+def validate_http_url(v: str) -> str:
+    """An absolute http(s) URL with a host and a valid port, parseable by httpx."""
+    from urllib.parse import urlsplit
+
+    import httpx
+
+    v = v.strip()
+    if not re.match(r"^https?://\S+$", v, re.IGNORECASE):
+        raise ValueError("must start with http:// or https://")
+    try:
+        parts = urlsplit(v)
+        _ = parts.port  # raises on a bad port
+        httpx.URL(v)
+    except (ValueError, httpx.InvalidURL) as exc:
+        raise ValueError(f"invalid URL: {exc}") from exc
+    if not parts.hostname:
+        raise ValueError("the URL has no host")
+    return v
 
 
 HOST_RE = re.compile(r"^[A-Za-z0-9._:%\-\[\]]+$")
@@ -242,9 +262,7 @@ class WebhookConfig(BaseModel):
     @field_validator("url")
     @classmethod
     def _url(cls, v: str) -> str:
-        if not re.match(r"^https?://\S+$", v, re.IGNORECASE):
-            raise ValueError("must start with http:// or https://")
-        return v
+        return validate_http_url(v)
 
 
 class AlertRuleCreate(_In):

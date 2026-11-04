@@ -27,6 +27,16 @@ def cmd_serve(args: argparse.Namespace) -> int:
     _setup_logging(settings.netmon_log_level)
     host = args.host or settings.netmon_host
     port = args.port or settings.netmon_port
+    try:
+        free = asyncio.run(lock_available(settings.async_database_url))
+    except Exception:  # noqa: BLE001 - DB not up yet: the app's startup retry handles it
+        free = True
+    if not free:
+        print(
+            "error: another NetworkMonitor instance is already running against this database",
+            file=sys.stderr,
+        )
+        return 3
     if settings.netmon_dev:
         uvicorn.run(
             "netmon.app:create_app",
@@ -50,8 +60,9 @@ def cmd_serve(args: argparse.Namespace) -> int:
         log_level=settings.netmon_log_level,
         ws_ping_interval=30,
         ws_ping_timeout=30,
-        proxy_headers=settings.netmon_trust_proxy,
-        forwarded_allow_ips="*" if settings.netmon_trust_proxy else None,
+        # X-Forwarded-* is interpreted by the app itself (NETMON_TRUST_PROXY); uvicorn's
+        # rewriting would trust the spoofable leftmost X-Forwarded-For entry.
+        proxy_headers=False,
         workers=1,
     )
     server = uvicorn.Server(config)
@@ -60,6 +71,30 @@ def cmd_serve(args: argparse.Namespace) -> int:
     if not server.started:
         return 3
     return 0
+
+
+async def lock_available(url: str) -> bool:
+    """Pre-flight check of the single-instance advisory lock (clean exit message, no traceback).
+    The real lock is taken during startup."""
+    from sqlalchemy import text
+
+    from netmon.db.engine import make_engine
+    from netmon.runtime import ADVISORY_LOCK_ID
+
+    engine = make_engine(url)
+    try:
+        async with engine.connect() as conn:
+            got = (
+                await conn.execute(
+                    text("SELECT pg_try_advisory_lock(:id)"), {"id": ADVISORY_LOCK_ID}
+                )
+            ).scalar()
+            if got:
+                await conn.execute(text("SELECT pg_advisory_unlock(:id)"), {"id": ADVISORY_LOCK_ID})
+            await conn.commit()
+            return bool(got)
+    finally:
+        await engine.dispose()
 
 
 async def _migrate() -> int:

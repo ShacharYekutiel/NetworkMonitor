@@ -25,16 +25,25 @@ from netmon.services.serialize import now_utc, page, user_out
 
 router = APIRouter()
 
+WS_SESSION_RENEWED = 4000  # WebSocket close code: session re-issued, reconnect
+
 
 def _secure(request: Request, rt: RT) -> bool:
     return cookie_secure(request, rt.settings.netmon_cookie_secure, rt.settings.netmon_trust_proxy)
 
 
 def _client_ip(request: Request, rt: RT) -> str:
+    """Peer address used for login throttling.
+
+    uvicorn runs without proxy-header rewriting; when the proxy is trusted we take the
+    *rightmost* X-Forwarded-For entry (the one our proxy appended), never the client-supplied
+    leftmost one."""
     if rt.settings.netmon_trust_proxy:
         fwd = request.headers.get("x-forwarded-for")
         if fwd:
-            return fwd.split(",")[0].strip()
+            last = fwd.split(",")[-1].strip()
+            if last:
+                return last
     return request.client.host if request.client else "unknown"
 
 
@@ -145,6 +154,8 @@ async def change_password(
     user.password_hash = await hash_password(body.new_password)
     user.token_version += 1
     await session.commit()
+    # this browser gets a new cookie: its sockets reconnect (4000); other sessions get 4401
+    await rt.hub.close_user(user.id, WS_SESSION_RENEWED)
     request.state.renew_token = None
     resp = Response(status_code=204)
     set_session_cookie(
@@ -240,6 +251,8 @@ async def patch_user(
         user.token_version += 1
     await session.commit()
     await session.refresh(user)
+    if bump:
+        await rt.hub.close_user(user.id, WS_SESSION_RENEWED if user.id == me_.id else 4401)
     resp = JSONResponse(user_out(user))
     if bump and user.id == me_.id:
         request.state.renew_token = None
@@ -252,7 +265,7 @@ async def patch_user(
 
 
 @router.delete("/api/users/{user_id}", status_code=204)
-async def delete_user(user_id: int, me_: Admin, session: DB) -> Response:
+async def delete_user(user_id: int, me_: Admin, rt: RT, session: DB) -> Response:
     user = await session.get(User, user_id)
     if user is None:
         raise not_found("User")
@@ -262,4 +275,5 @@ async def delete_user(user_id: int, me_: Admin, session: DB) -> Response:
         raise ApiError(409, "last_admin", "Cannot delete the last admin")
     await session.delete(user)
     await session.commit()
+    await rt.hub.close_user(user_id, 4401)
     return Response(status_code=204)

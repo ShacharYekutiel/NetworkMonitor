@@ -343,7 +343,22 @@ def validate_channel_overrides(type_: str, channels: Any) -> dict[str, dict[str,
     return result
 
 
+DEFAULT_NAMES = {
+    "ping": "Ping",
+    "snmp_system": "System",
+    "snmp_cpu": "CPU Load",
+    "snmp_memory": "Memory",
+    "snmp_interface": "Interface",
+    "http": "HTTP",
+    "tcp_port": "TCP Port",
+    "dns": "DNS",
+}
+
+
 def default_sensor_name(type_: str, config: dict[str, Any]) -> str:
+    """English display name used when the client sends no name (and for auto_sensors)."""
     if type_ == "snmp_interface" and config.get("if_name"):
         return str(config["if_name"])[:128]
-    return type_
+    if type_ == "tcp_port" and config.get("port"):
+        return f"TCP {config['port']}"
+    return DEFAULT_NAMES.get(type_, type_)

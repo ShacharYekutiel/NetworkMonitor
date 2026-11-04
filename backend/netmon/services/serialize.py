@@ -56,7 +56,8 @@ def snmp_out(creds: dict[str, Any] | None) -> dict[str, Any] | None:
         "port": creds.get("port", 161),
         "timeout_s": creds.get("timeout_s", 2),
         "retries": creds.get("retries", 1),
-        "community": creds.get("community"),
+        "community": None,
+        "community_set": bool(creds.get("community")),
         "v3_username": creds.get("v3_username"),
         "v3_security_level": creds.get("v3_security_level"),
         "v3_auth_protocol": creds.get("v3_auth_protocol"),
@@ -124,7 +125,21 @@ def ordered_channels(sensor: Any) -> list[Any]:
     return sorted(sensor.channels, key=lambda c: order.get(c.key, 999))
 
 
-def sensor_out(s: Any, device_name: str, group_id: int) -> dict[str, Any]:
+MASK = "********"
+
+
+def public_config(type_: str, config: dict[str, Any], reveal_secrets: bool) -> dict[str, Any]:
+    """Sensor config as shown to a user. HTTP header values (tokens, basic auth) are masked for
+    non-admins; the header names stay visible."""
+    out = dict(config)
+    if not reveal_secrets and type_ == "http" and isinstance(out.get("headers"), dict):
+        out["headers"] = {k: MASK for k in out["headers"]}
+    return out
+
+
+def sensor_out(
+    s: Any, device_name: str, group_id: int, reveal_secrets: bool = True
+) -> dict[str, Any]:
     tdef = SENSOR_TYPES.get(s.type)
     return {
         "id": s.id,
@@ -133,7 +148,7 @@ def sensor_out(s: Any, device_name: str, group_id: int) -> dict[str, Any]:
         "group_id": group_id,
         "name": s.name,
         "type": s.type,
-        "config": dict(s.config),
+        "config": public_config(s.type, s.config, reveal_secrets),
         "interval_s": s.interval_s,
         "enabled": s.enabled,
         "status": s.status,

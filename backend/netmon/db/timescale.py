@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+from dataclasses import dataclass
 
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncConnection, AsyncEngine
@@ -10,10 +11,26 @@ from sqlalchemy.ext.asyncio import AsyncConnection, AsyncEngine
 log = logging.getLogger("netmon.db.timescale")
 
 
+@dataclass
+class TimescaleStatus:
+    enabled: bool = False
+    # False when add_retention_policy is unavailable (e.g. Apache-only TimescaleDB builds):
+    # the maintenance loop then prunes with drop_chunks / DELETE.
+    retention_policy: bool = False
+
+
 async def bootstrap(engine: AsyncEngine, retention_days: int, disabled: bool = False) -> bool:
     """Returns True when TimescaleDB is enabled for `measurements`."""
+    return (await bootstrap_status(engine, retention_days, disabled)).enabled
+
+
+async def bootstrap_status(
+    engine: AsyncEngine, retention_days: int, disabled: bool = False
+) -> TimescaleStatus:
+    status = TimescaleStatus()
     async with engine.connect() as conn:
-        enabled = await _try_enable(conn, retention_days, disabled)
+        enabled = await _try_enable(conn, retention_days, disabled, status)
+        status.enabled = enabled
         if not enabled:
             await conn.execute(
                 text(
@@ -22,10 +39,12 @@ async def bootstrap(engine: AsyncEngine, retention_days: int, disabled: bool = F
                 )
             )
         await conn.commit()
-    return enabled
+    return status
 
 
-async def _try_enable(conn: AsyncConnection, retention_days: int, disabled: bool) -> bool:
+async def _try_enable(
+    conn: AsyncConnection, retention_days: int, disabled: bool, status: TimescaleStatus
+) -> bool:
     if disabled:
         log.info("TimescaleDB disabled by NETMON_DISABLE_TIMESCALE; using plain PostgreSQL")
         return False
@@ -56,8 +75,13 @@ async def _try_enable(conn: AsyncConnection, retention_days: int, disabled: bool
     try:
         async with conn.begin_nested():
             await apply_retention_policy(conn, retention_days)
+        status.retention_policy = True
     except Exception as exc:  # noqa: BLE001
-        log.warning("Cannot set Timescale retention policy: %s", _short(exc))
+        log.warning(
+            "Cannot set Timescale retention policy (%s); the maintenance loop will prune "
+            "old chunks instead",
+            _short(exc),
+        )
     try:
         async with conn.begin_nested():
             await conn.execute(
@@ -84,13 +108,26 @@ async def apply_retention_policy(conn: AsyncConnection, retention_days: int) -> 
     await conn.execute(text(f"SELECT add_retention_policy('measurements', INTERVAL '{days} days')"))
 
 
-async def reapply_retention(engine: AsyncEngine, retention_days: int) -> None:
+async def reapply_retention(engine: AsyncEngine, retention_days: int) -> bool:
+    """Returns True when the retention policy is in place."""
     async with engine.connect() as conn:
         try:
             await apply_retention_policy(conn, retention_days)
             await conn.commit()
+            return True
         except Exception as exc:  # noqa: BLE001
             log.warning("Cannot re-apply Timescale retention policy: %s", _short(exc))
+            return False
+
+
+async def drop_old_chunks(engine: AsyncEngine, retention_days: int) -> None:
+    """Manual retention for Timescale without the policy API (drop_chunks is Apache-licensed)."""
+    days = int(retention_days)
+    async with engine.connect() as conn:
+        await conn.execute(
+            text(f"SELECT drop_chunks('measurements', older_than => INTERVAL '{days} days')")
+        )
+        await conn.commit()
 
 
 def _short(exc: Exception) -> str:

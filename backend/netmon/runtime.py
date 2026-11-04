@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 import contextlib
 import logging
+import os
 import time
 from typing import Any
 
@@ -42,6 +43,7 @@ class Runtime:
         self.engine: AsyncEngine | None = None
         self.sessionmaker: async_sessionmaker[AsyncSession] = None  # type: ignore[assignment]
         self.timescale_enabled = False
+        self.retention_policy_ok = False
         self.hub = Hub()
         self.scheduler: Scheduler | None = None
         self.alerts: AlertEngine | None = None
@@ -54,6 +56,7 @@ class Runtime:
         self._rollup_snapshot: dict[tuple[str, int], tuple[str, tuple[int, ...]]] | None = None
         self._bg: set[asyncio.Task[Any]] = set()
         self.started = False
+        self.on_lock_lost: Any = self._on_lock_lost
 
     # ------------------------------------------------------------------ lifecycle
     async def start(
@@ -72,13 +75,16 @@ class Runtime:
         await wait_for_db(self.engine)
         if take_lock:
             await self._acquire_lock()
+            self._tasks.append(asyncio.create_task(self._lock_watch_loop(), name="netmon-lock"))
         if migrate:
             await run_migrations(self.engine)
         async with self.sessionmaker() as session:
             retention_days = await settings_svc.get(session, "retention_days")
-        self.timescale_enabled = await timescale.bootstrap(
+        ts = await timescale.bootstrap_status(
             self.engine, int(retention_days), disabled=s.netmon_disable_timescale
         )
+        self.timescale_enabled = ts.enabled
+        self.retention_policy_ok = ts.retention_policy
         await self._mark_stale_sensors()
         self.alerts = AlertEngine(self)
         self._tasks.append(asyncio.create_task(self._rollup_loop(), name="netmon-rollup"))
@@ -135,6 +141,63 @@ class Runtime:
             )
         self._lock_conn = conn
 
+    def _on_lock_lost(self) -> None:
+        """Another instance took over the database: stop hard (exit code 3)."""
+        logging.shutdown()
+        os._exit(3)
+
+    async def check_lock(self) -> bool:
+        """Verify we still hold the advisory lock (it is lost when PostgreSQL restarts);
+        re-acquire it, or exit when another instance has taken it."""
+        held = False
+        if self._lock_conn is not None:
+            try:
+                held = bool(
+                    (
+                        await self._lock_conn.execute(
+                            text(
+                                "SELECT count(*) FROM pg_locks WHERE locktype = 'advisory' "
+                                "AND classid = 0 AND objid = :id AND objsubid = 1 "
+                                "AND pid = pg_backend_pid() AND granted"
+                            ),
+                            {"id": ADVISORY_LOCK_ID},
+                        )
+                    ).scalar()
+                )
+                await self._lock_conn.commit()
+            except Exception:  # noqa: BLE001
+                held = False
+        if held:
+            return True
+        log.error("Lost the single-instance advisory lock (database restart?); re-acquiring")
+        if self._lock_conn is not None:
+            with contextlib.suppress(Exception):
+                await self._lock_conn.close()
+            self._lock_conn = None
+        try:
+            await self._acquire_lock()
+        except LockHeldError:
+            log.critical(
+                "Another NetworkMonitor instance now holds the database lock; shutting down"
+            )
+            self.on_lock_lost()
+            return False
+        except Exception as exc:  # noqa: BLE001
+            log.error("Cannot re-acquire the advisory lock yet: %s", exc)
+            return False
+        log.warning("Advisory lock re-acquired")
+        return True
+
+    async def _lock_watch_loop(self, interval_s: float = 30.0) -> None:
+        while True:
+            await asyncio.sleep(interval_s)
+            try:
+                await self.check_lock()
+            except asyncio.CancelledError:
+                raise
+            except Exception:  # noqa: BLE001
+                log.exception("Lock check failed")
+
     async def _mark_stale_sensors(self) -> None:
         from sqlalchemy import select
 
@@ -149,7 +212,9 @@ class Runtime:
                     .where(
                         Sensor.enabled.is_(True),
                         Device.enabled.is_(True),
-                        Sensor.status != "unknown",
+                        # down/warning keep their status so alerting stays consistent
+                        # (no repeated DOWN, and a later recovery still sends UP)
+                        Sensor.status == "up",
                         text(
                             "(sensors.last_check_at IS NULL OR sensors.last_check_at < "
                             "now() - make_interval(secs => sensors.interval_s * 3))"

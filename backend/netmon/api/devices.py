@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from fastapi import APIRouter, Query, Response
-from sqlalchemy import or_, select
+from sqlalchemy import or_, select, update
 
 from netmon.api.common import commit_or_conflict, csv_list, merge_snmp
 from netmon.api.deps import DB, RT, Admin, Page, Viewer
@@ -122,8 +122,14 @@ async def patch_device(device_id: int, body: DevicePatch, _: Admin, rt: RT, sess
         d.group_id = body.group_id
     if "name" in fields and body.name:
         d.name = body.name.strip()
-    if "host" in fields and body.host:
+    if "host" in fields and body.host and body.host != d.host:
         d.host = body.host
+        # another host: stored interface counters are no longer comparable
+        await session.execute(
+            update(Sensor)
+            .where(Sensor.device_id == d.id, Sensor.type == "snmp_interface")
+            .values(state={})
+        )
     if "description" in fields and body.description is not None:
         d.description = body.description
     if "sort_order" in fields and body.sort_order is not None:

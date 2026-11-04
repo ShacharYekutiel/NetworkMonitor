@@ -51,7 +51,7 @@ async def put_settings(body: SettingsPut, _: Admin, rt: RT, session: DB) -> dict
     await session.commit()
     values = await settings_svc.get_all(session)
     if retention_changed and rt.timescale_enabled and rt.engine is not None:
-        await reapply_retention(rt.engine, int(values["retention_days"]))
+        rt.retention_policy_ok = await reapply_retention(rt.engine, int(values["retention_days"]))
     return settings_svc.settings_out(values)
 
 

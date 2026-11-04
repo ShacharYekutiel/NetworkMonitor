@@ -72,9 +72,9 @@ def channel_status(value: float | None, t: dict[str, float | None]) -> str:
 
 
 def _fmt(v: float) -> str:
-    if float(v).is_integer():
+    if float(v).is_integer() and abs(v) < 1e15:
         return str(int(v))
-    return f"{v:.2f}".rstrip("0").rstrip(".")
+    return f"{v:.6g}"
 
 
 def breach_message(key: str, value: float, t: dict[str, float | None], status: str) -> str:

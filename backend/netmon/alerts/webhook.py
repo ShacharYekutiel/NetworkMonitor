@@ -27,5 +27,7 @@ async def send_webhook(config: dict[str, Any], payload: dict[str, Any]) -> None:
         raise WebhookError("Webhook request timed out") from exc
     except httpx.HTTPError as exc:
         raise WebhookError(str(exc) or type(exc).__name__) from exc
+    except (httpx.InvalidURL, ValueError, KeyError, TypeError) as exc:
+        raise WebhookError(f"Invalid webhook URL: {exc}") from exc
     if not (200 <= resp.status_code < 300):
         raise WebhookError(f"Webhook returned HTTP {resp.status_code}")

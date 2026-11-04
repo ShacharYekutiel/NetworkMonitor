@@ -57,13 +57,13 @@ async def _sensor_full(session: DB, sensor_id: int) -> tuple[Sensor, Device]:
     return s, d
 
 
-def _out(s: Sensor, d: Device) -> dict:
-    return sensor_out(s, d.name, d.group_id)
+def _out(s: Sensor, d: Device, reveal: bool = True) -> dict:
+    return sensor_out(s, d.name, d.group_id, reveal_secrets=reveal)
 
 
 @router.get("/api/sensors")
 async def list_sensors(
-    _: Viewer,
+    user: Viewer,
     session: DB,
     pg: Page,
     device_id: int | None = None,
@@ -81,6 +81,7 @@ async def list_sensors(
         status=csv_list(status),
         types=csv_list(type),
         q=q,
+        reveal=user.role == "admin",
     )
 
 
@@ -94,6 +95,7 @@ async def sensors_page(
     status: list[str] | None = None,
     types: list[str] | None = None,
     q: str | None = None,
+    reveal: bool = True,
 ) -> dict:
     stmt = select(Sensor, Device).join(Device, Device.id == Sensor.device_id)
     if device_id is not None:
@@ -120,7 +122,7 @@ async def sensors_page(
     else:
         stmt = stmt.order_by(Device.name, Sensor.sort_order, Sensor.name, Sensor.id)
     rows = (await session.execute(stmt.offset((page_no - 1) * page_size).limit(page_size))).all()
-    return page([_out(s, d) for s, d in rows], total, page_no, page_size)
+    return page([_out(s, d, reveal) for s, d in rows], total, page_no, page_size)
 
 
 @router.post("/api/sensors", status_code=201)
@@ -155,9 +157,9 @@ async def create_sensor(body: SensorCreate, _: Admin, rt: RT, session: DB) -> di
 
 
 @router.get("/api/sensors/{sensor_id}")
-async def get_sensor(sensor_id: int, _: Viewer, session: DB) -> dict:
+async def get_sensor(sensor_id: int, user: Viewer, session: DB) -> dict:
     s, d = await _sensor_full(session, sensor_id)
-    return _out(s, d)
+    return _out(s, d, user.role == "admin")
 
 
 @router.patch("/api/sensors/{sensor_id}")
@@ -167,9 +169,10 @@ async def patch_sensor(sensor_id: int, body: SensorPatch, _: Admin, rt: RT, sess
     if "type" in fields and body.type is not None and body.type != s.type:
         raise ApiError(400, "invalid_sensor_type", "The sensor type cannot be changed")
     if "config" in fields and body.config is not None:
+        old_index = s.config.get("if_index")
         s.config = validate_config(s.type, body.config, base=dict(s.config))
-        if s.type == "snmp_interface":
-            s.state = {}
+        if s.type == "snmp_interface" and s.config.get("if_index") != old_index:
+            s.state = {}  # different interface: counters are no longer comparable
     if "channels" in fields and body.channels is not None:
         apply_channel_overrides(s, validate_channel_overrides(s.type, body.channels))
     if "name" in fields and body.name:
@@ -246,6 +249,10 @@ async def test_sensor(body: SensorTestIn, _: Admin, rt: RT, session: DB) -> dict
 @router.post("/api/sensors/{sensor_id}/run")
 async def run_sensor(sensor_id: int, _: Admin, rt: RT, session: DB) -> dict:
     s, d = await _sensor_full(session, sensor_id)
+    if not (s.enabled and d.enabled):
+        raise ApiError(
+            409, "sensor_paused", "The sensor or its device is paused; resume it to run a check"
+        )
     ctx = await build_context(session, s, d)
     await session.close()
     raw, duration, checked_at = await execute_check(ctx, rt.semaphore)

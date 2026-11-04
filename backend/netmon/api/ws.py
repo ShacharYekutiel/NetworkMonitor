@@ -46,7 +46,7 @@ async def websocket(ws: WebSocket) -> None:
         "hello",
         {"user": user_out(user), "version": rt.version, "timescale": rt.timescale_enabled},
     )
-    client = rt.hub.register(ws, first=hello)
+    client = rt.hub.register(ws, first=hello, user_id=user.id)
     try:
         while True:
             raw = await ws.receive_text()

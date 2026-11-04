@@ -25,7 +25,8 @@ WARN = CheckResult(True, "", {"latency_ms": 150.0, "packet_loss_pct": 0.0})
 def test_should_fire() -> None:
     assert should_fire("up", "down") and should_fire("unknown", "down")
     assert should_fire("down", "up") and should_fire("warning", "up")
-    assert not should_fire("unknown", "up") and not should_fire("paused", "up")
+    # an up is a candidate from any status; it is sent only after a problem notification
+    assert should_fire("unknown", "up") and not should_fire("up", "up")
     assert not should_fire("down", "paused") and not should_fire("up", "unknown")
 
 

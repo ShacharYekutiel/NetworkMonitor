@@ -12,7 +12,7 @@ router = APIRouter()
 
 
 @router.get("/api/dashboard")
-async def dashboard(_: Viewer, session: DB) -> dict:
+async def dashboard(user: Viewer, session: DB) -> dict:
     inv = await load_inventory(session)
     sensor_counts = empty_counts()
     for s in inv.sensors.values():
@@ -45,5 +45,8 @@ async def dashboard(_: Viewer, session: DB) -> dict:
         "device_counts": device_counts,
         "group_count": len(inv.groups),
         "recent_events": [event_out(e) for e in events],
-        "problem_sensors": [sensor_out(s, d.name, d.group_id) for s, d in problems],
+        "problem_sensors": [
+            sensor_out(s, d.name, d.group_id, reveal_secrets=user.role == "admin")
+            for s, d in problems
+        ],
     }
