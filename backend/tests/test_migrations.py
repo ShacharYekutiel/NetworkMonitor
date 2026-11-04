@@ -143,7 +143,9 @@ async def test_extension_failure_falls_back(tmp_path) -> None:  # type: ignore[n
     admin = await asyncpg.connect(_plain(TEST_DATABASE_URL))
     try:
         await admin.execute(f"CREATE ROLE {role} LOGIN PASSWORD 'pw' NOSUPERUSER")
-        await admin.execute(f'CREATE DATABASE "{db}"')
+        # template0: some images (e.g. timescale/timescaledb) preinstall the extension in template1,
+        # which would make this database Timescale-enabled before the limited role ever connects.
+        await admin.execute(f'CREATE DATABASE "{db}" TEMPLATE template0')
         await admin.execute(f'REVOKE CREATE ON DATABASE "{db}" FROM PUBLIC')
         dbconn = await asyncpg.connect(_plain(db_url_for(db)))
         try:
