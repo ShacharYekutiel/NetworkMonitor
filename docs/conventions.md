@@ -1,0 +1,112 @@
+# NetworkMonitor — Conventions
+
+## General
+- The contract lives in `docs/`, and you change the docs **before** or **together with** the code. If you find
+  the contract wrong while implementing, report it to the architect instead of diverging silently.
+- Language: code, comments, logs, API `message` strings and commits are in English. User-facing text belongs only
+  in the frontend locale files (`en.json`, `he.json`) and in the backend notification templates (en/he).
+- Commits: imperative mood, `area: summary` (e.g. `poller: add snmp_interface counter wrap handling`).
+
+## Backend (Python, `backend/`)
+- Python 3.12+. Formatting and linting with **ruff** (`ruff format`, `ruff check`), line length 100. Type hints
+  everywhere. `mypy --strict netmon` should pass for new modules (it is not CI-blocking in Phase 1).
+- Async only on request and poller paths. Never call blocking I/O on the loop. Use `asyncio.to_thread` for
+  unavoidable sync code.
+- Layering:
+  - `api/` routers are thin. They validate through `schemas/`, then call `services/`.
+  - The ORM lives in `models/`.
+  - Pydantic models in `schemas/` mirror [api.md](api.md) one to one, with the same field names.
+- DB access: SQLAlchemy 2 async sessions, one session per request (a dependency) and one short session per poll
+  result. Raw SQL is allowed for the time-series queries (`services/history.py`).
+- Migrations: Alembic (`backend/netmon/migrations`), plain PostgreSQL DDL only. Timescale calls belong only in
+  `db/timescale.py`.
+- Errors: raise `netmon.api.errors.ApiError(status, code, message, details=None)`. The global handlers render the
+  [error envelope](api.md#error-format), including for `RequestValidationError` and `HTTPException`.
+- Logging: the stdlib `logging` module with a `netmon.<module>` logger. Never log secrets (community strings, keys,
+  passwords, the JWT).
+- Sensor plugins: `netmon/poller/checks/<type>.py` exposes `async def run(ctx: CheckContext) -> CheckResult`.
+  A plugin never raises for an expected failure. It returns `ok=False` with a message.
+- Tests: pytest + pytest-asyncio + httpx `AsyncClient` (ASGI transport), under `backend/tests/`.
+  - Tests that need the DB use `TEST_DATABASE_URL`, and are skipped if it is unset.
+  - Each test session creates a fresh database `netmon_test_<random>`.
+  - CI runs the suite twice: against `timescale/timescaledb:latest-pg16`, and against `postgres:16`, which
+    covers fallback mode.
+  - Network checks are tested against local fakes: an aiohttp/httpx test server, a local TCP listener, a dnslib
+    fake, and snmpsim from `tests/sim/`.
+
+```bash
+cd backend
+python -m venv .venv && . .venv/bin/activate          # Windows: .venv\Scripts\Activate.ps1
+pip install -e ".[dev]"
+ruff format --check . && ruff check .
+TEST_DATABASE_URL=postgresql://netmon:netmon@localhost:5432/postgres pytest -q
+```
+
+## Frontend (TypeScript, `frontend/`)
+- React 18 + TypeScript `strict`, Vite, Tailwind CSS, React Router, TanStack Query, ECharts, i18next.
+  Use ESLint + Prettier (2 spaces, single quotes, trailing commas).
+- API layer:
+  - `src/api/types.ts` is a hand-written mirror of the [api.md](api.md) types.
+  - `src/api/client.ts` wraps `fetch`: relative `/api` URLs, `credentials: 'same-origin'`, and the JSON header.
+    It throws `ApiError {status, code, message, details}` parsed from the error envelope.
+  - `src/api/ws.ts` is a single shared WebSocket connection. It handles reconnect, and `config.changed` /
+    `event.created` invalidate TanStack queries.
+- i18n:
+  - Every visible string goes through `t()`. Keys are dotted (`devices.addTitle`).
+  - Error codes map to `errors.<code>`, channels to `channel.<key>`, sensor types to `sensorType.<type>`,
+    statuses to `status.<status>`.
+  - `he` sets `<html dir="rtl" lang="he">`, and `en` sets `dir="ltr"`.
+- RTL:
+  - Use only logical utilities/properties (`ms-*`, `me-*`, `ps-*`, `pe-*`, `start-*`, `end-*`,
+    `text-start`), never `ml-/mr-/left-/right-`. Directional icons flip with `rtl:rotate-180`.
+  - Numbers, IPs and hostnames are wrapped in `<bdi>` / `dir="ltr"` spans.
+  - ECharts time axes stay left-to-right in both languages.
+- Status colors (Tailwind): up `green-600`, warning `amber-500`, down `red-600`, paused `gray-400`, unknown `slate-500`.
+- Language choice: use the logged-in `user.language`. Before login, use `localStorage['netmon.lang']`, then
+  `GET /api/settings/public`'s `default_language`.
+- Tests: Vitest + Testing Library, colocated as `*.test.tsx`. `npm run build` must finish with **zero** TS errors.
+
+```bash
+cd frontend
+npm install
+npm run lint && npm test -- --run && npm run build      # build → frontend/dist
+```
+
+## Local development
+
+1. Start a database (TimescaleDB, on port 5432, user/password/db `netmon`/`netmon`/`netmon`):
+   ```bash
+   docker compose -f deploy/docker-compose.dev.yml up -d
+   ```
+   Plain PostgreSQL ≥ 14 with the same credentials works too, in fallback mode.
+2. Start the backend on port 8080, with auto-reload:
+   ```bash
+   cd backend && . .venv/bin/activate
+   export DATABASE_URL=postgresql://netmon:netmon@localhost:5432/netmon NETMON_DATA_DIR=../.devdata NETMON_DEV=1
+   netmon serve            # runs migrations, then serves http://localhost:8080
+   ```
+3. Start the frontend dev server on port 5173. `vite.config.ts` proxies the API and the WebSocket to the
+   backend:
+   ```ts
+   server: { port: 5173, proxy: {
+     '/api': { target: 'http://localhost:8080', changeOrigin: false },
+     '/ws':  { target: 'ws://localhost:8080', ws: true },
+   } }
+   ```
+   ```bash
+   cd frontend && npm run dev   # open http://localhost:5173
+   ```
+   Keep `changeOrigin: false`. The proxy then forwards the browser's `Host`, so it matches `Origin`, and the CSRF
+   origin check passes.
+4. Full production-like run: `cd frontend && npm run build`, then `netmon serve` serves the SPA from
+   `frontend/dist` at http://localhost:8080.
+
+## E2E / integration (QA, `tests/`)
+- `tests/e2e`: Playwright, with `BASE_URL` defaulting to `http://localhost:8080`. Run with
+  `npx playwright test`.
+- `tests/integration`: pytest against a running instance (`BASE_URL`, `DATABASE_URL`).
+- `tests/sim`: snmpsim recordings (`.snmprec`) and helper targets (HTTP, TCP, DNS).
+
+## Definition of done (per change)
+Lint is clean and the tests pass. The contract docs are updated if the behaviour changed. The change works in
+both Timescale mode and fallback mode, and on Windows paths (no POSIX-only calls without a fallback).
