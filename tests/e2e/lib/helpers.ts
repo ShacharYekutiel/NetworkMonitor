@@ -170,3 +170,18 @@ export async function expandTreeDevice(page: Page, deviceId: number): Promise<vo
 export function card(page: Page, title: string | RegExp) {
   return page.locator('section').filter({ has: page.getByRole('heading', { level: 2, name: title }) });
 }
+
+/**
+ * A checkbox by its own visible label text. (Some forms nest checkbox <label>s inside a field
+ * <label>, which pollutes the accessible name of the first checkbox - see 08-ui-checks.spec.ts.)
+ */
+export function checkboxByText(scope: ReturnType<Page['locator']>, text: string | RegExp) {
+  const re = typeof text === 'string' ? new RegExp(`^${text.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}$`) : text;
+  return scope
+    .locator('label')
+    .filter({ has: scope.page().locator('input[type=checkbox]') })
+    .filter({ has: scope.page().locator('span', { hasText: re }) })
+    .last()
+    .locator('input[type=checkbox]')
+    .last();
+}
