@@ -148,8 +148,19 @@ jobs:
           # The SPA is served at / and as the fallback for client-side routes.
           curl -fsS http://localhost:8080/ | grep -qi '<div id="root"'
           curl -fsS http://localhost:8080/some/client/route | grep -qi '<div id="root"'
+          # Complete the setup wizard through the API (creates the first admin, sets the cookie).
+          curl -fsS -c cookies.txt -X POST -H 'Content-Type: application/json' \
+            -d '{"username":"admin","password":"ci-Secret-123","email":null,"language":"en"}' \
+            http://localhost:8080/api/setup; echo
+          curl -fsS http://localhost:8080/api/setup/status | grep -q '"setup_required":false'
           # Unknown API paths return the JSON error envelope, never index.html.
-          test "$(curl -s -o /dev/null -w '%{http_code}' http://localhost:8080/api/does-not-exist)" = 404
+          test "$(curl -s -o err.json -w '%{http_code}' -b cookies.txt http://localhost:8080/api/does-not-exist)" = 404
+          grep -q '"code":"not_found"' err.json
+          # ICMP works from the unprivileged container (ping_group_range sysctl).
+          curl -fsS -b cookies.txt -X POST -H 'Content-Type: application/json' \
+            -d '{"host":"127.0.0.1","type":"ping","config":{}}' \
+            http://localhost:8080/api/sensors/test | tee ping.json; echo
+          python3 -c 'import json; r = json.load(open("ping.json")); assert r["ok"] is True, r'
           # Container health check reports healthy.
           for _ in $(seq 1 30); do
             s="$(docker inspect -f '{{.State.Health.Status}}' "$($COMPOSE ps -q netmon)")"
@@ -162,6 +173,8 @@ jobs:
           $COMPOSE down
           $COMPOSE up -d --wait
           curl -fsS --retry 30 --retry-delay 2 --retry-all-errors http://localhost:8080/api/health
+          # Same DB password (init keeps it) and the admin created above still exists.
+          curl -fsS http://localhost:8080/api/setup/status | grep -q '"setup_required":false'
 
       - name: Logs
         if: always()

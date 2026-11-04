@@ -128,13 +128,18 @@ apt_install() {
   DEBIAN_FRONTEND=noninteractive apt-get install -y -q --no-install-recommends "$@"
 }
 dnf_install() { dnf install -y -q "$@"; }
-pkg_install() { if [ "$FAMILY" = debian ]; then apt_install "$@"; else dnf_install "$@"; fi; }
 
 log "Installing base tools"
 if [ "$FAMILY" = debian ]; then
   apt_install ca-certificates curl gnupg tar gzip
 else
-  dnf_install ca-certificates curl tar gzip findutils
+  # Only what is missing: EL9 images ship curl-minimal, which conflicts with the curl package.
+  RHEL_BASE=(ca-certificates)
+  have curl || RHEL_BASE+=(curl)
+  have tar || RHEL_BASE+=(tar)
+  have gzip || RHEL_BASE+=(gzip)
+  have find || RHEL_BASE+=(findutils)
+  dnf_install "${RHEL_BASE[@]}"
 fi
 
 # ============================================================================= PostgreSQL
@@ -238,6 +243,9 @@ install_postgres_rhel() {
       m="$PG_WANTED_MAJOR"
     else
       warn "PGDG repository unavailable; falling back to the distribution PostgreSQL (no TimescaleDB)."
+      warn "(On an outdated point release, 'dnf upgrade' and re-running install.sh usually fixes this.)"
+      # A half-working PGDG repo would break every following dnf call: remove it again.
+      dnf remove -y -q pgdg-redhat-repo pgdg-fedora-repo >/dev/null 2>&1 || true
       dnf -qy module reset postgresql >/dev/null 2>&1 || true
       dnf -qy module enable "postgresql:${PG_WANTED_MAJOR}" >/dev/null 2>&1 || true
       dnf_install postgresql-server postgresql-contrib
