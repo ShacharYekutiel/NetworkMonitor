@@ -80,3 +80,8 @@ export function countStatuses(statuses: Status[]): StatusCounts {
   }
   return c;
 }
+
+/** "Run now" is refused (409 sensor_paused) for a paused sensor or a sensor of a paused device. */
+export function canRun(s: { enabled: boolean; status: Status }): boolean {
+  return s.enabled && s.status !== 'paused';
+}

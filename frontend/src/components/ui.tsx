@@ -1,12 +1,15 @@
 import {
   forwardRef,
   useEffect,
+  useId,
+  useRef,
   type ButtonHTMLAttributes,
   type InputHTMLAttributes,
   type ReactNode,
   type SelectHTMLAttributes,
   type TextareaHTMLAttributes,
 } from 'react';
+import { createPortal } from 'react-dom';
 import { useTranslation } from 'react-i18next';
 import { XIcon } from './icons';
 import { errorMessage } from '../lib/errors';
@@ -89,7 +92,7 @@ export function Field({
   required?: boolean;
 }) {
   return (
-    <label className={cx('block', className)}>
+    <label className={cx('block min-w-0', className)}>
       <span className="mb-1 block text-xs font-medium text-slate-600 dark:text-slate-400">
         {label}
         {required && <span className="ms-0.5 text-red-600">*</span>}
@@ -97,6 +100,33 @@ export function Field({
       {children}
       {hint && <span className="mt-1 block text-xs text-slate-500">{hint}</span>}
     </label>
+  );
+}
+
+/** A labelled group of controls (e.g. checkboxes) — never nest <label>s. */
+export function FieldGroup({
+  label,
+  hint,
+  children,
+  className,
+  required,
+}: {
+  label: ReactNode;
+  hint?: ReactNode;
+  children: ReactNode;
+  className?: string;
+  required?: boolean;
+}) {
+  const id = useId();
+  return (
+    <div role="group" aria-labelledby={id} className={cx('block min-w-0', className)}>
+      <span id={id} className="mb-1 block text-xs font-medium text-slate-600 dark:text-slate-400">
+        {label}
+        {required && <span className="ms-0.5 text-red-600">*</span>}
+      </span>
+      {children}
+      {hint && <span className="mt-1 block text-xs text-slate-500">{hint}</span>}
+    </div>
   );
 }
 
@@ -141,7 +171,9 @@ export function Card({
   return (
     <section
       className={cx(
-        'rounded-lg bg-white shadow-sm ring-1 ring-slate-200 dark:bg-slate-900 dark:ring-slate-800',
+        // min-w-0: as a grid/flex item the card must not grow to its table's width;
+        // wide tables scroll inside the card instead.
+        'min-w-0 rounded-lg bg-white shadow-sm ring-1 ring-slate-200 dark:bg-slate-900 dark:ring-slate-800',
         className,
       )}
     >
@@ -227,6 +259,9 @@ export function Empty({ children }: { children: ReactNode }) {
   return <div className="p-6 text-center text-sm text-slate-500">{children}</div>;
 }
 
+const FOCUSABLE =
+  'a[href], button:not([disabled]), input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])';
+
 export function Modal({
   open,
   title,
@@ -243,25 +278,67 @@ export function Modal({
   wide?: boolean;
 }) {
   const { t } = useTranslation();
+  const titleId = useId();
+  const dialogRef = useRef<HTMLDivElement>(null);
+  const onCloseRef = useRef(onClose);
+  onCloseRef.current = onClose;
+
   useEffect(() => {
     if (!open) return;
-    const h = (e: KeyboardEvent) => e.key === 'Escape' && onClose();
-    window.addEventListener('keydown', h);
-    return () => window.removeEventListener('keydown', h);
-  }, [open, onClose]);
+    const previous = document.activeElement as HTMLElement | null;
+    const dialog = dialogRef.current;
+    // Focus the first field (or keep an autoFocus'ed one), so keyboard users land inside the dialog.
+    if (dialog && !dialog.contains(document.activeElement)) {
+      const body = dialog.querySelector<HTMLElement>(`[data-modal-body] :is(${FOCUSABLE})`);
+      (body ?? dialog).focus();
+    }
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') {
+        e.stopPropagation();
+        onCloseRef.current();
+        return;
+      }
+      if (e.key !== 'Tab' || !dialogRef.current) return;
+      const items = Array.from(dialogRef.current.querySelectorAll<HTMLElement>(FOCUSABLE)).filter(
+        (el) => el.offsetParent !== null,
+      );
+      if (!items.length) return;
+      const first = items[0];
+      const last = items[items.length - 1];
+      if (e.shiftKey && document.activeElement === first) {
+        e.preventDefault();
+        last.focus();
+      } else if (!e.shiftKey && document.activeElement === last) {
+        e.preventDefault();
+        first.focus();
+      }
+    };
+    document.addEventListener('keydown', onKey);
+    return () => {
+      document.removeEventListener('keydown', onKey);
+      if (previous && document.contains(previous)) previous.focus();
+    };
+  }, [open]);
+
   if (!open) return null;
-  return (
-    <div className="fixed inset-0 z-50 flex items-start justify-center overflow-y-auto bg-slate-900/50 p-4 pt-16">
+  // Rendered into <body> so the fixed overlay is not affected by the parent's layout (e.g. space-y margins).
+  return createPortal(
+    <div className="fixed inset-0 z-50 m-0 flex items-start justify-center overflow-y-auto bg-slate-900/50 p-4 pt-16">
       <div
+        ref={dialogRef}
         role="dialog"
         aria-modal="true"
+        aria-labelledby={titleId}
+        tabIndex={-1}
         className={cx(
-          'w-full rounded-lg bg-white shadow-xl ring-1 ring-slate-200 dark:bg-slate-900 dark:ring-slate-700',
+          'w-full rounded-lg bg-white shadow-xl ring-1 ring-slate-200 focus:outline-none dark:bg-slate-900 dark:ring-slate-700',
           wide ? 'max-w-3xl' : 'max-w-lg',
         )}
       >
         <header className="flex items-center justify-between border-b border-slate-200 px-4 py-3 dark:border-slate-800">
-          <h3 className="text-base font-semibold">{title}</h3>
+          <h3 id={titleId} className="text-base font-semibold">
+            {title}
+          </h3>
           <button
             type="button"
             onClick={onClose}
@@ -271,14 +348,17 @@ export function Modal({
             <XIcon />
           </button>
         </header>
-        <div className="max-h-[70vh] overflow-y-auto p-4">{children}</div>
+        <div data-modal-body className="max-h-[70vh] overflow-y-auto p-4">
+          {children}
+        </div>
         {footer && (
           <footer className="flex justify-end gap-2 border-t border-slate-200 px-4 py-3 dark:border-slate-800">
             {footer}
           </footer>
         )}
       </div>
-    </div>
+    </div>,
+    document.body,
   );
 }
 
@@ -362,6 +442,20 @@ export function Ltr({ children, className }: { children: ReactNode; className?: 
   return (
     <bdi dir="ltr" className={className}>
       {children}
+    </bdi>
+  );
+}
+
+/** Text direction for a formatted value: RTL when it contains Hebrew (e.g. a duration), else LTR. */
+export function textDir(text: string): 'rtl' | 'ltr' {
+  return /[\u0590-\u05FF]/.test(text) ? 'rtl' : 'ltr';
+}
+
+/** A formatted measurement, isolated so numbers/units read correctly in both directions. */
+export function Value({ text, className }: { text: string; className?: string }) {
+  return (
+    <bdi dir={textDir(text)} className={className}>
+      {text}
     </bdi>
   );
 }

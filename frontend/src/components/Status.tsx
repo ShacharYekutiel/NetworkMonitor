@@ -23,7 +23,7 @@ export function StatusBadge({ status }: { status: Status | string }) {
   return (
     <span
       className={cx(
-        'inline-flex items-center rounded px-1.5 py-0.5 text-xs font-medium',
+        'inline-flex items-center whitespace-nowrap rounded px-1.5 py-0.5 text-xs font-medium',
         statusClass(status, STATUS_BADGE),
       )}
     >
@@ -44,7 +44,7 @@ export function StatusCountPills({ counts }: { counts: StatusCounts }) {
           key={s}
           title={t(`status.${s}`)}
           className={cx(
-            'rounded px-1.5 text-xs font-medium tabular-nums',
+            'whitespace-nowrap rounded px-1.5 text-xs font-medium tabular-nums',
             statusClass(s, STATUS_BADGE),
           )}
         >

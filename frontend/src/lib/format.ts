@@ -46,15 +46,25 @@ export function formatValue(v: number | null | undefined, unit: string): string 
   }
 }
 
+/**
+ * Human duration with the two most significant units, e.g. "3d 4h" / "3 ימים 4 שע׳".
+ * Units are i18n plurals (`units.durD|durH|durM`), so Hebrew reads naturally in RTL.
+ */
 export function formatDuration(totalSeconds: number): string {
   const s = Math.max(0, Math.floor(totalSeconds));
   const d = Math.floor(s / 86400);
   const h = Math.floor((s % 86400) / 3600);
   const m = Math.floor((s % 3600) / 60);
   const parts: string[] = [];
-  if (d) parts.push(`${d}${i18n.t('units.dShort')}`);
-  if (h || d) parts.push(`${h}${i18n.t('units.hShort')}`);
-  parts.push(`${m}${i18n.t('units.mShort')}`);
+  if (d) {
+    parts.push(i18n.t('units.durD', { count: d }));
+    if (h) parts.push(i18n.t('units.durH', { count: h }));
+  } else if (h) {
+    parts.push(i18n.t('units.durH', { count: h }));
+    if (m) parts.push(i18n.t('units.durM', { count: m }));
+  } else {
+    parts.push(i18n.t('units.durM', { count: m }));
+  }
   return parts.join(' ');
 }
 

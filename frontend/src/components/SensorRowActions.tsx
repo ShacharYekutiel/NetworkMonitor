@@ -3,6 +3,7 @@ import { useTranslation } from 'react-i18next';
 import { endpoints, qk } from '../api/endpoints';
 import type { Sensor } from '../api/types';
 import { errorMessage } from '../lib/errors';
+import { canRun } from '../lib/status';
 import { PauseIcon, PlayIcon, RefreshIcon } from './icons';
 import { useSensorActions } from './SensorForms';
 import { useToast } from './toast';
@@ -35,10 +36,10 @@ export function SensorRowActions({ sensor }: { sensor: Sensor }) {
       <Button
         size="sm"
         variant="ghost"
-        title={t('sensors.runNow')}
+        title={canRun(sensor) ? t('sensors.runNow') : t('sensors.runPausedHint')}
         aria-label={t('sensors.runNow')}
         busy={run.isPending && run.variables?.id === sensor.id}
-        disabled={!sensor.enabled}
+        disabled={!canRun(sensor)}
         onClick={() => run.mutate(sensor)}
       >
         <RefreshIcon size={14} />

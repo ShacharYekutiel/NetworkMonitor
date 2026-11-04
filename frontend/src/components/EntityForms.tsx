@@ -102,7 +102,7 @@ export function GroupFormModal({
   return (
     <Modal open={open} onClose={onClose} title={group ? t('groups.edit') : t('groups.add')} wide>
       <form onSubmit={submit} className="space-y-4">
-        <div className="grid gap-3 sm:grid-cols-2">
+        <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
           <Field label={t('common.name')} required>
             <Input
               value={name}
@@ -223,7 +223,7 @@ export function DeviceFormModal({
   return (
     <Modal open={open} onClose={onClose} title={device ? t('devices.edit') : t('devices.add')} wide>
       <form onSubmit={submit} className="space-y-4">
-        <div className="grid gap-3 sm:grid-cols-2">
+        <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
           <Field label={t('common.name')} required>
             <Input
               value={name}

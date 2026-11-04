@@ -68,13 +68,16 @@ export function SnmpEditor({
             />
           </Field>
           {value.version !== 'v3' ? (
-            <Field label={t('snmp.community')} className="col-span-2">
-              <Input
-                value={value.community}
-                onChange={(e) => set('community', e.target.value)}
-                dir="ltr"
-              />
-            </Field>
+            <SecretField
+              label={t('snmp.community')}
+              className="col-span-2"
+              value={value.community}
+              isSet={value.community_set}
+              clear={value.community_clear}
+              onValue={(v) => set('community', v)}
+              onClear={(v) => set('community_clear', v)}
+              emptyHint={t('snmp.communityDefaultHint')}
+            />
           ) : (
             <>
               <Field label={t('snmp.v3Username')} className="col-span-2">
@@ -160,6 +163,7 @@ export function SecretField({
   onValue,
   onClear,
   className,
+  emptyHint,
 }: {
   label: string;
   value: string;
@@ -168,24 +172,28 @@ export function SecretField({
   onValue: (v: string) => void;
   onClear: (v: boolean) => void;
   className?: string;
+  /** Hint when nothing is stored yet. */
+  emptyHint?: string;
 }) {
   const { t } = useTranslation();
   return (
-    <Field label={label} className={className} hint={isSet ? t('secret.keepHint') : undefined}>
-      <Input
-        type="password"
-        autoComplete="new-password"
-        value={value}
-        disabled={clear}
-        placeholder={isSet ? t('secret.stored') : ''}
-        onChange={(e) => onValue(e.target.value)}
-        dir="ltr"
-      />
+    <div className={className}>
+      <Field label={label} hint={isSet ? t('secret.keepHint') : emptyHint}>
+        <Input
+          type="password"
+          autoComplete="new-password"
+          value={value}
+          disabled={clear}
+          placeholder={isSet ? t('secret.stored') : ''}
+          onChange={(e) => onValue(e.target.value)}
+          dir="ltr"
+        />
+      </Field>
       {isSet && (
         <span className="mt-1 block">
           <Checkbox label={t('secret.clear')} checked={clear} onChange={onClear} />
         </span>
       )}
-    </Field>
+    </div>
   );
 }

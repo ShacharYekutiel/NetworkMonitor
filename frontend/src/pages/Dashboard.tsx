@@ -64,9 +64,9 @@ export function DashboardPage() {
       <PageHeader
         title={t('dashboard.title')}
         subtitle={t('dashboard.summary', {
-          groups: data.group_count,
-          devices: data.device_counts.total,
-          sensors: data.sensor_counts.total,
+          groups: t('dashboard.groupCount', { count: data.group_count }),
+          devices: t('dashboard.deviceCount', { count: data.device_counts.total }),
+          sensors: t('dashboard.sensorCount', { count: data.sensor_counts.total }),
         })}
         actions={
           isAdmin && (
@@ -102,7 +102,7 @@ export function DashboardPage() {
         </h2>
         <CountsRow counts={data.device_counts} />
       </section>
-      <div className="grid gap-6 2xl:grid-cols-2">
+      <div className="grid grid-cols-1 gap-6 2xl:grid-cols-2">
         <Card title={t('dashboard.problems')} bodyClassName="p-0">
           {data.problem_sensors.length ? (
             <SensorTable sensors={data.problem_sensors} showDevice />

@@ -42,7 +42,8 @@ export type SnmpCredentials = {
   port: number;
   timeout_s: number;
   retries: number;
-  community: string | null;
+  community: null; // write-only (see Secret fields)
+  community_set: boolean;
   v3_username: string | null;
   v3_security_level: SnmpSecurityLevel | null;
   v3_auth_protocol: SnmpAuthProtocol | null;
@@ -55,8 +56,16 @@ export type SnmpCredentials = {
 
 /** Request form of SNMP credentials: secrets may be strings; *_set keys are not sent. */
 export type SnmpCredentialsInput = Partial<
-  Omit<SnmpCredentials, 'v3_auth_key' | 'v3_priv_key' | 'v3_auth_key_set' | 'v3_priv_key_set'>
-> & { v3_auth_key?: string | null; v3_priv_key?: string | null };
+  Omit<
+    SnmpCredentials,
+    | 'community'
+    | 'v3_auth_key'
+    | 'v3_priv_key'
+    | 'community_set'
+    | 'v3_auth_key_set'
+    | 'v3_priv_key_set'
+  >
+> & { community?: string | null; v3_auth_key?: string | null; v3_priv_key?: string | null };
 
 export type Group = {
   id: number;

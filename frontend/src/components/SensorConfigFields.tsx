@@ -22,7 +22,7 @@ export function SensorConfigFields({
   if (!fields.length) return <p className="text-sm text-slate-500">{t('sensors.noConfig')}</p>;
   const set = (k: string, v: string | boolean) => onChange({ ...raw, [k]: v });
   return (
-    <div className="grid gap-3 sm:grid-cols-2">
+    <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
       {fields.map((f) => {
         const label = t(`sensorConfig.${type}.${f.key}`, { defaultValue: f.key });
         const range =

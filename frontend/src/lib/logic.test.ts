@@ -8,7 +8,10 @@ import { configFromRaw, rawFromConfig } from './sensorConfig';
 import { snmpFormFrom, snmpFormToInput } from './snmp';
 import { groupPath } from './tree';
 import { diffThresholds } from '../components/ThresholdEditor';
-import { formatValue } from './format';
+import { formatDuration, formatValue } from './format';
+import i18n from '../i18n';
+import { textDir } from '../components/ui';
+import { canRun } from './status';
 
 const counts = { up: 1, warning: 0, down: 0, paused: 0, unknown: 0, total: 1 };
 const tree: Tree = {
@@ -210,7 +213,8 @@ describe('snmp form', () => {
     expect(snmpFormToInput(snmpFormFrom(null))).toBeNull();
     const f = { ...snmpFormFrom(null), inherit: false, version: 'v3' as const, v3_username: 'u' };
     const out = snmpFormToInput(f)!;
-    expect(out.community).toBeNull();
+    expect('community' in out).toBe(false);
+    expect(snmpFormToInput({ ...f, community_set: true })!.community).toBe('');
     expect('v3_auth_key' in out).toBe(false);
     expect(snmpFormToInput({ ...f, v3_auth_key_clear: true })!.v3_auth_key).toBe('');
     expect(snmpFormToInput({ ...f, v3_priv_key: 'secret123' })!.v3_priv_key).toBe('secret123');
@@ -254,5 +258,42 @@ describe('formatValue', () => {
     expect(formatValue(1_500_000, 'bit/s')).toBe('1.5 Mbit/s');
     expect(formatValue(2048, 'B')).toBe('2 KiB');
     expect(formatValue(null, 'ms')).toBe('—');
+  });
+});
+
+describe('snmp community (write-only)', () => {
+  const v2 = { ...snmpFormFrom(null), inherit: false };
+  it('defaults to public when nothing is stored, keeps a stored one when empty', () => {
+    expect(snmpFormToInput(v2)!.community).toBe('public');
+    expect('community' in snmpFormToInput({ ...v2, community_set: true })!).toBe(false);
+    expect(snmpFormToInput({ ...v2, community_set: true, community: 'private' })!.community).toBe(
+      'private',
+    );
+    expect(snmpFormToInput({ ...v2, community_set: true, community_clear: true })!.community).toBe(
+      '',
+    );
+  });
+});
+
+describe('durations', () => {
+  it('reads naturally in both languages and gets an RTL direction in Hebrew', async () => {
+    await i18n.changeLanguage('en');
+    expect(formatValue(3 * 86400 + 4 * 3600 + 28 * 60, 's')).toBe('3d 4h');
+    expect(formatDuration(5 * 3600 + 7 * 60)).toBe('5h 7m');
+    expect(textDir(formatDuration(86400))).toBe('ltr');
+    await i18n.changeLanguage('he');
+    expect(formatDuration(3 * 86400 + 4 * 3600)).toBe('3 ימים 4 שע׳');
+    expect(formatDuration(2 * 86400 + 3600)).toBe('יומיים שעה');
+    expect(textDir(formatDuration(86400))).toBe('rtl');
+    expect(textDir(formatValue(1.8, 'ms'))).toBe('ltr');
+    await i18n.changeLanguage('en');
+  });
+});
+
+describe('canRun', () => {
+  it('refuses paused sensors and sensors of paused devices', () => {
+    expect(canRun({ enabled: true, status: 'up' })).toBe(true);
+    expect(canRun({ enabled: false, status: 'paused' })).toBe(false);
+    expect(canRun({ enabled: true, status: 'paused' })).toBe(false);
   });
 });

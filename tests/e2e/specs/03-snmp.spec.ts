@@ -54,7 +54,7 @@ test('add an SNMP v2c device with device-level credentials', async ({ page }) =>
   await expect(page.getByText(/SNMP: set on the device \(v2c\)/)).toBeVisible();
   const d = await api.get(`/api/devices/${deviceId}`);
   expect(d.effective_snmp_source).toBe('device');
-  expect(d.snmp_credentials).toMatchObject({ version: 'v2c', port: SNMP_PORT, community: 'public' });
+  expect(d.snmp_credentials).toMatchObject({ version: 'v2c', port: SNMP_PORT, community: null, community_set: true });
 });
 
 test('add SNMP CPU and memory sensors (with a test run first)', async ({ page }) => {

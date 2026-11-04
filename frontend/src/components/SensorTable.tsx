@@ -3,7 +3,7 @@ import { useTranslation } from 'react-i18next';
 import type { Sensor } from '../api/types';
 import { formatRelative, formatValue } from '../lib/format';
 import { StatusBadge } from './Status';
-import { Empty, Ltr, Table, td, th } from './ui';
+import { Empty, Table, td, th, Value } from './ui';
 
 export function primaryChannel(s: Sensor) {
   return s.channels.find((c) => c.key === s.primary_channel) ?? s.channels[0];
@@ -61,9 +61,13 @@ export function SensorTable({
                 {t(`sensorType.${s.type}`)}
               </td>
               <td className={`${td} whitespace-nowrap tabular-nums`}>
-                {pc ? <Ltr>{formatValue(pc.last_value, pc.unit)}</Ltr> : '—'}
+                {pc ? <Value text={formatValue(pc.last_value, pc.unit)} /> : '—'}
               </td>
-              <td className={`${td} max-w-xs truncate text-slate-500`} title={s.status_message}>
+              <td
+                dir="auto"
+                className={`${td} max-w-xs truncate text-slate-500`}
+                title={s.status_message}
+              >
                 {s.status_message}
               </td>
               <td className={`${td} whitespace-nowrap text-slate-500`}>

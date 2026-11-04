@@ -23,12 +23,13 @@ import {
   Ltr,
   PageHeader,
   cx,
+  Value,
 } from '../components/ui';
 import { useAuth } from '../hooks/auth';
 import { useLocalState } from '../hooks/useLocalState';
 import { errorMessage } from '../lib/errors';
 import { formatDateTime, formatRelative, formatValue } from '../lib/format';
-import { STATUS_TEXT, statusClass } from '../lib/status';
+import { canRun, STATUS_TEXT, statusClass } from '../lib/status';
 
 const RANGES: HistoryRange[] = ['1h', '24h', '7d', '30d'];
 
@@ -112,7 +113,8 @@ export function SensorPage() {
               <Button
                 variant="primary"
                 busy={run.isPending}
-                disabled={!s.enabled}
+                disabled={!canRun(s)}
+                title={canRun(s) ? undefined : t('sensors.runPausedHint')}
                 onClick={() => run.mutate()}
               >
                 <RefreshIcon size={14} /> {t('sensors.runNow')}
@@ -140,7 +142,9 @@ export function SensorPage() {
         <div className="flex flex-wrap items-center gap-x-6 gap-y-2 text-sm">
           <StatusBadge status={s.status} />
           {s.status_message && (
-            <span className="text-slate-600 dark:text-slate-300">{s.status_message}</span>
+            <bdi dir="auto" className="text-slate-600 dark:text-slate-300">
+              {s.status_message}
+            </bdi>
           )}
           <span className="text-slate-500">
             {t('sensors.lastCheck')}:{' '}
@@ -183,7 +187,7 @@ export function SensorPage() {
                 statusClass(c.status, STATUS_TEXT),
               )}
             >
-              <Ltr>{formatValue(c.last_value, c.unit)}</Ltr>
+              <Value text={formatValue(c.last_value, c.unit)} />
             </div>
           </button>
         ))}
@@ -235,7 +239,7 @@ export function SensorPage() {
       </Card>
 
       <Card title={t('sensors.settings')}>
-        <dl className="grid gap-x-6 gap-y-2 text-sm sm:grid-cols-2 lg:grid-cols-3">
+        <dl className="grid grid-cols-1 gap-x-6 gap-y-2 text-sm sm:grid-cols-2 lg:grid-cols-3">
           {Object.entries(s.config).map(([k, v]) => (
             <div key={k} className="flex gap-2">
               <dt className="text-slate-500">

@@ -92,14 +92,20 @@
   },
   "dashboard": {
     "title": "Dashboard",
-    "summary": "{{groups}} groups · {{devices}} devices · {{sensors}} sensors",
+    "summary": "{{groups}} · {{devices}} · {{sensors}}",
     "sensors": "Sensors",
     "devices": "Devices",
     "total": "Total",
     "problems": "Down and warning sensors",
     "allGood": "All sensors are OK.",
     "recentEvents": "Recent events",
-    "allEvents": "All events"
+    "allEvents": "All events",
+    "groupCount_one": "{{count}} group",
+    "groupCount_other": "{{count}} groups",
+    "deviceCount_one": "{{count}} device",
+    "deviceCount_other": "{{count}} devices",
+    "sensorCount_one": "{{count}} sensor",
+    "sensorCount_other": "{{count}} sensors"
   },
   "groups": {
     "add": "Add group",
@@ -112,7 +118,7 @@
     "sensors": "Sensors",
     "sensorCount": "Sensors: {{count}}",
     "deleteTitle": "Delete group",
-    "deleteConfirm": "Delete group \"{{name}}\" together with all of its subgroups, devices and sensors ({{count}} sensors)? This cannot be undone."
+    "deleteConfirm": "Delete group \"{{name}}\" together with all of its subgroups, devices and sensors? Sensors affected: {{count}}. This cannot be undone."
   },
   "devices": {
     "add": "Add device",
@@ -152,7 +158,8 @@
       "device": "set on the device",
       "group": "inherited from a group",
       "default": "built-in default (v2c, public)"
-    }
+    },
+    "communityDefaultHint": "Empty = \"public\""
   },
   "secret": {
     "stored": "•••••• (stored)",
@@ -192,7 +199,8 @@
     "settings": "Sensor settings",
     "events": "Events",
     "deleteTitle": "Delete sensor",
-    "deleteConfirm": "Delete sensor \"{{name}}\" and its history? This cannot be undone."
+    "deleteConfirm": "Delete sensor \"{{name}}\" and its history? This cannot be undone.",
+    "runPausedHint": "The sensor is paused. Resume it (or its device) to run a check."
   },
   "iface": {
     "name": "Interface",
@@ -316,7 +324,7 @@
     "smtpTest": "Send test email",
     "smtpTestHint": "Uses the saved settings — save first.",
     "smtpTestOk": "Test email sent.",
-    "healthLine": "Version {{version}} · database {{db}} · {{mode}} · poller {{poller}} · {{count}} sensors scheduled",
+    "healthLine": "Version {{version}} · database {{db}} · {{mode}} · poller {{poller}} · sensors scheduled: {{count}}",
     "security": {
       "none": "None"
     }
@@ -360,9 +368,12 @@
   },
   "units": {
     "days": "days",
-    "dShort": "d",
-    "hShort": "h",
-    "mShort": "m"
+    "durD_one": "{{count}}d",
+    "durD_other": "{{count}}d",
+    "durH_one": "{{count}}h",
+    "durH_other": "{{count}}h",
+    "durM_one": "{{count}}m",
+    "durM_other": "{{count}}m"
   },
   "errors": {
     "bad_request": "The request was invalid.",
@@ -383,7 +394,8 @@
     "smtp_error": "Sending the email failed",
     "webhook_error": "Calling the webhook failed",
     "internal_error": "Something went wrong on the server.",
-    "network_error": "Cannot reach the server."
+    "network_error": "Cannot reach the server.",
+    "sensor_paused": "Paused sensors cannot be checked — resume the sensor or its device first."
   },
   "sensorType": {
     "ping": "Ping",

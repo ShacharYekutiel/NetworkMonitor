@@ -92,14 +92,23 @@
   },
   "dashboard": {
     "title": "לוח בקרה",
-    "summary": "{{groups}} קבוצות · {{devices}} התקנים · {{sensors}} חיישנים",
+    "summary": "{{groups}} · {{devices}} · {{sensors}}",
     "sensors": "חיישנים",
     "devices": "התקנים",
     "total": "סה\"כ",
     "problems": "חיישנים בתקלה ובאזהרה",
     "allGood": "כל החיישנים תקינים.",
     "recentEvents": "אירועים אחרונים",
-    "allEvents": "כל האירועים"
+    "allEvents": "כל האירועים",
+    "groupCount_one": "קבוצה אחת",
+    "groupCount_two": "2 קבוצות",
+    "groupCount_other": "{{count}} קבוצות",
+    "deviceCount_one": "התקן אחד",
+    "deviceCount_two": "2 התקנים",
+    "deviceCount_other": "{{count}} התקנים",
+    "sensorCount_one": "חיישן אחד",
+    "sensorCount_two": "2 חיישנים",
+    "sensorCount_other": "{{count}} חיישנים"
   },
   "groups": {
     "add": "הוספת קבוצה",
@@ -112,7 +121,7 @@
     "sensors": "חיישנים",
     "sensorCount": "חיישנים: {{count}}",
     "deleteTitle": "מחיקת קבוצה",
-    "deleteConfirm": "למחוק את הקבוצה \"{{name}}\" יחד עם כל תת-הקבוצות, ההתקנים והחיישנים שלה ({{count}} חיישנים)? לא ניתן לבטל פעולה זו."
+    "deleteConfirm": "למחוק את הקבוצה \"{{name}}\" יחד עם כל תת-הקבוצות, ההתקנים והחיישנים שלה? חיישנים מושפעים: {{count}}. לא ניתן לבטל פעולה זו."
   },
   "devices": {
     "add": "הוספת התקן",
@@ -152,7 +161,8 @@
       "device": "מוגדר בהתקן",
       "group": "בירושה מקבוצה",
       "default": "ברירת המחדל המובנית (v2c, public)"
-    }
+    },
+    "communityDefaultHint": "ריק = \"public\""
   },
   "secret": {
     "stored": "•••••• (שמור)",
@@ -192,7 +202,8 @@
     "settings": "הגדרות החיישן",
     "events": "אירועים",
     "deleteTitle": "מחיקת חיישן",
-    "deleteConfirm": "למחוק את החיישן \"{{name}}\" ואת ההיסטוריה שלו? לא ניתן לבטל פעולה זו."
+    "deleteConfirm": "למחוק את החיישן \"{{name}}\" ואת ההיסטוריה שלו? לא ניתן לבטל פעולה זו.",
+    "runPausedHint": "החיישן מושהה. יש לחדש אותו (או את ההתקן שלו) כדי להריץ בדיקה."
   },
   "iface": {
     "name": "ממשק",
@@ -316,7 +327,7 @@
     "smtpTest": "שליחת דוא\"ל בדיקה",
     "smtpTestHint": "משתמש בהגדרות השמורות — שמרו קודם.",
     "smtpTestOk": "דוא\"ל הבדיקה נשלח.",
-    "healthLine": "גרסה {{version}} · מסד נתונים {{db}} · {{mode}} · מנוע דגימה {{poller}} · {{count}} חיישנים מתוזמנים",
+    "healthLine": "גרסה {{version}} · מסד נתונים {{db}} · {{mode}} · מנוע דגימה {{poller}} · חיישנים מתוזמנים: {{count}}",
     "security": {
       "none": "ללא"
     }
@@ -360,9 +371,15 @@
   },
   "units": {
     "days": "ימים",
-    "dShort": "י׳",
-    "hShort": "ש׳",
-    "mShort": "ד׳"
+    "durD_one": "יום",
+    "durD_two": "יומיים",
+    "durD_other": "{{count}} ימים",
+    "durH_one": "שעה",
+    "durH_two": "שעתיים",
+    "durH_other": "{{count}} שע׳",
+    "durM_one": "דקה",
+    "durM_two": "2 דק׳",
+    "durM_other": "{{count}} דק׳"
   },
   "errors": {
     "bad_request": "הבקשה אינה תקינה.",
@@ -383,7 +400,8 @@
     "smtp_error": "שליחת הדוא\"ל נכשלה",
     "webhook_error": "הקריאה ל-Webhook נכשלה",
     "internal_error": "אירעה שגיאה בשרת.",
-    "network_error": "אין חיבור לשרת."
+    "network_error": "אין חיבור לשרת.",
+    "sensor_paused": "אי אפשר לבדוק חיישן מושהה — יש לחדש קודם את החיישן או את ההתקן."
   },
   "sensorType": {
     "ping": "Ping",

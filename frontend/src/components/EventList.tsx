@@ -63,7 +63,9 @@ export function EventsTable({
             <td className={td}>
               <StatusTransition ev={ev} />
             </td>
-            <td className={`${td} min-w-48 text-slate-600 dark:text-slate-300`}>{ev.message}</td>
+            <td dir="auto" className={`${td} min-w-48 text-slate-600 dark:text-slate-300`}>
+              {ev.message}
+            </td>
           </tr>
         ))}
       </tbody>

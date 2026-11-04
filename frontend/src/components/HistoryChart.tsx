@@ -95,7 +95,21 @@ export function HistoryChart({
           min: Date.parse(from),
           max: Date.parse(to),
           axisLine: { lineStyle: { color: grid } },
-          axisLabel: { color: text, hideOverlap: true },
+          axisLabel: {
+            color: text,
+            hideOverlap: true,
+            // Day boundaries show a date ("4/11"), never a bare day number.
+            formatter: {
+              year: '{yyyy}',
+              month: '{d}/{M}',
+              day: '{d}/{M}',
+              hour: '{HH}:{mm}',
+              minute: '{HH}:{mm}',
+              second: '{HH}:{mm}:{ss}',
+              millisecond: '{HH}:{mm}:{ss}',
+              none: '{d}/{M} {HH}:{mm}',
+            },
+          },
           splitLine: { show: false },
         },
         yAxis: {

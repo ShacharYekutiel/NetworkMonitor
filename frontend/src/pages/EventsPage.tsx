@@ -64,7 +64,7 @@ export function EventsPage() {
     <div className="space-y-4">
       <PageHeader title={t('events.title')} />
       <Card>
-        <div className="grid gap-3 sm:grid-cols-3 lg:grid-cols-6">
+        <div className="grid grid-cols-1 gap-3 sm:grid-cols-3 lg:grid-cols-6">
           <Field label={t('events.kind')}>
             <Select value={get('kind')} onChange={(e) => set('kind', e.target.value)}>
               <option value="">{t('common.all')}</option>

@@ -7,7 +7,7 @@ import { useLocalState } from '../hooks/useLocalState';
 import { formatValue } from '../lib/format';
 import { ChevronIcon, FolderIcon, SearchIcon, ServerIcon } from './icons';
 import { StatusDot } from './Status';
-import { cx, ErrorBox, Input, Spinner, Ltr } from './ui';
+import { cx, ErrorBox, Input, Spinner, Value } from './ui';
 
 type Expanded = Record<string, boolean>;
 
@@ -82,7 +82,7 @@ function SensorRow({ s, depth }: { s: TreeSensor; depth: number }) {
       <StatusDot status={s.status} />
       <span className="min-w-0 flex-1 truncate">{s.name}</span>
       <span className="shrink-0 text-xs tabular-nums text-slate-500">
-        <Ltr>{formatValue(s.primary_value, s.primary_unit)}</Ltr>
+        <Value text={formatValue(s.primary_value, s.primary_unit)} />
       </span>
     </NavLink>
   );

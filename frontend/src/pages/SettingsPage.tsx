@@ -76,7 +76,7 @@ function SmtpCard({ settings }: { settings: Settings }) {
   return (
     <Card title={t('settings.smtp')}>
       <form onSubmit={submit} className="space-y-4">
-        <div className="grid gap-3 sm:grid-cols-3">
+        <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
           <Field label={t('settings.smtpHost')} className="sm:col-span-2">
             <Input value={host} onChange={(e) => setHost(e.target.value)} dir="ltr" />
           </Field>
@@ -206,7 +206,7 @@ function GeneralCard({ settings }: { settings: Settings }) {
   return (
     <Card title={t('settings.general')}>
       <form onSubmit={submit} className="space-y-4">
-        <div className="grid gap-3 sm:grid-cols-3">
+        <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
           <Field label={t('settings.retentionDays')} hint={t('settings.retentionHint')}>
             <Input
               type="number"

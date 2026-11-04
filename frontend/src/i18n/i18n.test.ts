@@ -21,6 +21,25 @@ function flatten(obj: Tree, prefix = ''): Record<string, string> {
 const enFlat = flatten(en as Tree);
 const heFlat = flatten(he as Tree);
 
+const PLURAL_RE = /_(zero|one|two|few|many|other)$/;
+/** Key set with i18next plural suffixes folded into their base key. */
+function baseKeys(flat: Record<string, string>): string[] {
+  return [...new Set(Object.keys(flat).map((k) => k.replace(PLURAL_RE, '')))].sort();
+}
+function pluralBases(flat: Record<string, string>): string[] {
+  return [
+    ...new Set(
+      Object.keys(flat)
+        .filter((k) => PLURAL_RE.test(k))
+        .map((k) => k.replace(PLURAL_RE, '')),
+    ),
+  ];
+}
+/** A key exists either as a plain key or as plural forms. */
+function hasKey(flat: Record<string, string>, key: string): boolean {
+  return key in flat || `${key}_other` in flat;
+}
+
 function sourceFiles(dir: string): string[] {
   return readdirSync(dir).flatMap((f) => {
     const p = join(dir, f);
@@ -30,8 +49,21 @@ function sourceFiles(dir: string): string[] {
 }
 
 describe('i18n', () => {
-  it('he and en have identical keys', () => {
-    expect(Object.keys(heFlat).sort()).toEqual(Object.keys(enFlat).sort());
+  it('he and en have identical keys (plural forms folded)', () => {
+    expect(baseKeys(heFlat)).toEqual(baseKeys(enFlat));
+  });
+
+  it('plural keys define every plural category of their language', () => {
+    for (const [lang, flat] of [
+      ['en', enFlat],
+      ['he', heFlat],
+    ] as const) {
+      const cats = new Intl.PluralRules(lang).resolvedOptions().pluralCategories;
+      for (const base of pluralBases(flat)) {
+        expect(base in flat, `${lang}:${base} must not also exist as a plain key`).toBe(false);
+        for (const c of cats) expect(flat[`${base}_${c}`], `${lang}:${base}_${c}`).toBeTruthy();
+      }
+    }
   });
 
   it('has no empty translations', () => {
@@ -42,7 +74,14 @@ describe('i18n', () => {
   it('uses the same interpolation variables in both languages', () => {
     const vars = (s: string) =>
       (s.match(/\{\{\s*\w+\s*\}\}/g) ?? []).map((x) => x.replace(/\s/g, '')).sort();
-    for (const k of Object.keys(enFlat)) expect(vars(heFlat[k] ?? ''), k).toEqual(vars(enFlat[k]));
+    for (const k of Object.keys(enFlat)) {
+      if (PLURAL_RE.test(k)) continue;
+      expect(vars(heFlat[k] ?? ''), k).toEqual(vars(enFlat[k]));
+    }
+    // Plural forms may drop {{count}} (e.g. Hebrew "יומיים"), but never add other variables.
+    for (const flat of [enFlat, heFlat])
+      for (const k of Object.keys(flat).filter((x) => PLURAL_RE.test(x)))
+        for (const v of vars(flat[k])) expect(v, k).toBe('{{count}}');
   });
 
   it('covers every status, sensor type and API error code', () => {
@@ -67,6 +106,7 @@ describe('i18n', () => {
       'smtp_error',
       'webhook_error',
       'internal_error',
+      'sensor_paused',
     ];
     for (const c of codes) expect(enFlat[`errors.${c}`], c).toBeTruthy();
   });
@@ -77,7 +117,7 @@ describe('i18n', () => {
     for (const file of sourceFiles(root)) {
       const text = readFileSync(file, 'utf8');
       for (const m of text.matchAll(/\bt\(\s*'([a-zA-Z0-9_.]+)'/g)) {
-        if (!(m[1] in enFlat)) missing.push(`${file}: ${m[1]}`);
+        if (!hasKey(enFlat, m[1])) missing.push(`${file}: ${m[1]}`);
       }
       for (const m of text.matchAll(/'(validation\.[a-zA-Z]+)'/g)) {
         if (!(m[1] in enFlat)) missing.push(`${file}: ${m[1]}`);

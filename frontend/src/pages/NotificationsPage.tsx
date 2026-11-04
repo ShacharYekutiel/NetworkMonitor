@@ -19,6 +19,7 @@ import {
   Empty,
   ErrorBox,
   Field,
+  FieldGroup,
   Input,
   Loading,
   Ltr,
@@ -277,7 +278,7 @@ function RuleModal({
             ))}
           </Select>
         </Field>
-        <Field label={t('rules.onStatuses')} hint={t('rules.onStatusesHint')}>
+        <FieldGroup label={t('rules.onStatuses')} hint={t('rules.onStatusesHint')}>
           <div className="flex gap-4">
             {RULE_STATUSES.map((s) => (
               <Checkbox
@@ -288,7 +289,7 @@ function RuleModal({
               />
             ))}
           </div>
-        </Field>
+        </FieldGroup>
         <Field label={t('rules.delay')} hint={t('rules.delayHint')}>
           <Input
             type="number"
@@ -299,7 +300,7 @@ function RuleModal({
             dir="ltr"
           />
         </Field>
-        <Field label={t('rules.channels')} required>
+        <FieldGroup label={t('rules.channels')} required>
           {channels.length ? (
             <div className="flex flex-col gap-1">
               {channels.map((c) => (
@@ -316,7 +317,7 @@ function RuleModal({
           ) : (
             <p className="text-sm text-slate-500">{t('rules.noChannels')}</p>
           )}
-        </Field>
+        </FieldGroup>
         <Checkbox label={t('common.enabled')} checked={enabled} onChange={setEnabled} />
         <ErrorBox error={m.error} />
         <div className="flex justify-end gap-2">

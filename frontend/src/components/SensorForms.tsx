@@ -29,6 +29,7 @@ import {
   Table,
   td,
   th,
+  Value,
 } from './ui';
 
 function parseInterval(s: string): number | undefined | 'invalid' {
@@ -131,7 +132,7 @@ export function AddSensorModal({
       <ErrorBox error={types.error} />
       {def && (
         <div className="space-y-4">
-          <div className="grid gap-3 sm:grid-cols-3">
+          <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
             <Field label={t('sensors.type')}>
               <Select value={type} onChange={(e) => setType(e.target.value as SensorType)}>
                 {available.map((x) => (
@@ -142,37 +143,34 @@ export function AddSensorModal({
               </Select>
             </Field>
             {type !== 'snmp_interface' && (
-              <>
-                <Field label={t('common.name')}>
-                  <Input
-                    value={name}
-                    maxLength={128}
-                    onChange={(e) => {
-                      setName(e.target.value);
-                      setNameTouched(true);
-                    }}
-                  />
-                </Field>
-                <Field
-                  label={t('sensors.interval')}
-                  hint={
-                    intervalVal === 'invalid'
-                      ? t('validation.interval')
-                      : t('sensors.intervalDefault')
-                  }
-                >
-                  <Input
-                    type="number"
-                    min={10}
-                    max={86400}
-                    value={interval}
-                    placeholder={t('common.default')}
-                    onChange={(e) => setInterval(e.target.value)}
-                    dir="ltr"
-                  />
-                </Field>
-              </>
+              <Field label={t('common.name')}>
+                <Input
+                  value={name}
+                  maxLength={128}
+                  onChange={(e) => {
+                    setName(e.target.value);
+                    setNameTouched(true);
+                  }}
+                />
+              </Field>
             )}
+            {/* Shown for every type: interface sensors created by the picker use it too. */}
+            <Field
+              label={t('sensors.interval')}
+              hint={
+                intervalVal === 'invalid' ? t('validation.interval') : t('sensors.intervalDefault')
+              }
+            >
+              <Input
+                type="number"
+                min={10}
+                max={86400}
+                value={interval}
+                placeholder={t('common.default')}
+                onChange={(e) => setInterval(e.target.value)}
+                dir="ltr"
+              />
+            </Field>
           </div>
           {def.requires_snmp && (
             <p className="text-xs text-slate-500">
@@ -346,7 +344,7 @@ function InterfacePicker({
                   </td>
                   <td className={td}>{i.alias}</td>
                   <td className={`${td} whitespace-nowrap`}>
-                    <Ltr>{formatValue(i.speed_bps, 'bit/s')}</Ltr>
+                    <Value text={formatValue(i.speed_bps, 'bit/s')} />
                   </td>
                   <td className={`${td} whitespace-nowrap text-xs`}>
                     <span className={i.oper_status === 'up' ? 'text-green-600' : 'text-slate-500'}>
@@ -441,7 +439,7 @@ export function EditSensorModal({
         <Loading />
       ) : (
         <form onSubmit={submit} className="space-y-4">
-          <div className="grid gap-3 sm:grid-cols-3">
+          <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
             <Field label={t('common.name')} required>
               <Input
                 value={name}

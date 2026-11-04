@@ -2,7 +2,7 @@ import { useTranslation } from 'react-i18next';
 import type { CheckResult } from '../api/types';
 import { formatNumber, formatValue } from '../lib/format';
 import { StatusBadge, StatusDot } from './Status';
-import { Ltr } from './ui';
+import { Ltr, Value } from './ui';
 
 export function CheckResultView({ result }: { result: CheckResult }) {
   const { t } = useTranslation();
@@ -15,9 +15,13 @@ export function CheckResultView({ result }: { result: CheckResult }) {
           <Ltr>{formatNumber(result.duration_ms, 0)} ms</Ltr>
         </span>
       </div>
-      {result.message && <div className="text-slate-600 dark:text-slate-300">{result.message}</div>}
+      {result.message && (
+        <div dir="auto" className="text-slate-600 dark:text-slate-300">
+          {result.message}
+        </div>
+      )}
       {result.channels.length > 0 && (
-        <ul className="grid gap-1 sm:grid-cols-2">
+        <ul className="grid grid-cols-1 gap-1 sm:grid-cols-2">
           {result.channels.map((c) => (
             <li key={c.key} className="flex items-center gap-2">
               <StatusDot status={c.status} />
@@ -25,7 +29,7 @@ export function CheckResultView({ result }: { result: CheckResult }) {
                 {t(`channel.${c.key}`, { defaultValue: c.key })}:
               </span>
               <span className="tabular-nums">
-                <Ltr>{formatValue(c.value, c.unit)}</Ltr>
+                <Value text={formatValue(c.value, c.unit)} />
               </span>
             </li>
           ))}
