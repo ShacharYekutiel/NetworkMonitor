@@ -158,7 +158,8 @@ async def test_snmp_credentials_inheritance_and_secrets(admin: httpx.AsyncClient
         f"/api/devices/{dev['id']}", json={"snmp_credentials": {"community": "private"}}
     )
     assert r.json()["effective_snmp_source"] == "device"
-    assert r.json()["snmp_credentials"]["community"] == "private"
+    assert r.json()["snmp_credentials"]["community"] is None  # write-only
+    assert r.json()["snmp_credentials"]["community_set"] is True
     assert r.json()["snmp_credentials"]["version"] == "v2c"
     r = await admin.patch(f"/api/groups/{root}", json={"snmp_credentials": None})
     assert r.json()["snmp_credentials"] is None

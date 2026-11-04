@@ -189,6 +189,17 @@ Indexes: `(time DESC)`, `(sensor_id, time DESC)`, `(device_id, time DESC)`.
 | enabled | boolean | NOT NULL DEFAULT true |
 | created_at, updated_at | timestamptz | |
 
+### `alert_notified`
+| Column | Type | Constraints |
+|---|---|---|
+| rule_id | integer | FK `alert_rules.id` ON DELETE CASCADE |
+| sensor_id | integer | FK `sensors.id` ON DELETE CASCADE |
+| status | text | NOT NULL CHECK in (`down`,`warning`): the problem status last notified |
+| time | timestamptz | NOT NULL DEFAULT now() |
+| | | PK `(rule_id, sensor_id)` |
+
+A row is written when a rule sent a `down`/`warning` notification and deleted when it sent the `up`.
+
 ### `alert_rule_channels`
 | Column | Type | Constraints |
 |---|---|---|
@@ -202,10 +213,14 @@ Indexes: `(time DESC)`, `(sensor_id, time DESC)`, `(device_id, time DESC)`.
   - the rule is enabled;
   - the rule's `sensor_id` is NULL or equal to the event's sensor;
   - S is in `on_statuses`.
-- A transition to `up` only fires when the previous status was `down` or `warning`.
+- A transition to `up` fires for a rule only when that rule actually **sent** a `down`/`warning` notification
+  for this sensor before (at least one channel succeeded). This is persisted in `alert_notified`, so it
+  survives restarts, pauses and `unknown` in between, and a delayed rule whose problem recovered within the
+  delay sends no orphan `up`.
 - Transitions to `paused` or `unknown` never fire.
 - With `delay_s > 0`, the engine schedules an in-memory timer. When it expires, the engine sends only if the
-  sensor's current status is still S and nothing else changed the status in between. Pending timers are lost on
+  sensor's current status is still S, nothing else changed the status in between, and the rule still exists,
+  is enabled and still matches (its current channels are used). Pending timers are lost on
   restart, which is acceptable for the MVP.
 - One notification is sent per (rule, channel). If a global rule and a sensor rule both target the same channel
   for the same event, the engine sends it once.
@@ -256,7 +271,7 @@ missing row means the default applies.
 - **Resolution:** use the device's credentials. If they are NULL, walk up the group chain and use the first
   non-null `snmp_credentials`. If none is found, use the built-in default:
   `{"version":"v2c","port":161,"timeout_s":2,"retries":1,"community":"public"}`.
-- **Secret fields** (`v3_auth_key`, `v3_priv_key`, and `settings.smtp.password`) are write-only in the API (see
+- **Secret fields** (`community`, `v3_auth_key`, `v3_priv_key`, and `settings.smtp.password`) are write-only in the API (see
   [api.md § Secret fields](api.md#secret-fields)). Phase 1 stores them in plaintext in the DB. The DB is not
   exposed outside the host or container network.
 

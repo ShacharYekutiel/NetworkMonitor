@@ -57,6 +57,7 @@ fallback.
 | 409 | `conflict` | A unique name already exists (`details`: `[{"field":"name"}]`) |
 | 409 | `setup_already_done` | `POST /api/setup` when users exist |
 | 405 | `method_not_allowed` | The path exists but not with this method |
+| 409 | `sensor_paused` | `POST /api/sensors/{id}/run` on a sensor that is paused (or whose device is disabled) |
 | 409 | `last_admin` | You may not delete, demote or deactivate the last active admin, or yourself |
 | 415 | `unsupported_media_type` | |
 | 422 | `validation_error` | Pydantic validation. `details` is a list of `{loc, msg}`. |
@@ -66,9 +67,11 @@ fallback.
 | 500 | `internal_error` | |
 
 ### Secret fields
-`snmp_credentials.v3_auth_key`, `snmp_credentials.v3_priv_key` and `smtp.password` are **write-only**.
+`snmp_credentials.community`, `snmp_credentials.v3_auth_key`, `snmp_credentials.v3_priv_key` and
+`smtp.password` are **write-only** (for every role, admins included).
 
 - **Responses:** the field is always `null`, and a sibling boolean reports whether a value is stored:
+  - `community_set`
   - `v3_auth_key_set`
   - `v3_priv_key_set`
   - `password_set`
@@ -77,6 +80,10 @@ fallback.
   - `""` → clear it;
   - any other string → replace it.
 - The `*_set` keys are ignored on input.
+- A new credentials object (create, or switching from inherit) without `community` gets the default
+  `"public"`.
+- **HTTP sensor headers:** `config.headers` of `http` sensors is returned with real values to admins only.
+  Viewers get the header names with every value replaced by `"********"`.
 
 ## Auth flow
 
@@ -115,7 +122,8 @@ type User = { id: number; username: string; email: string | null; role: "admin" 
   language: "en" | "he"; is_active: boolean; last_login_at: string | null; created_at: string };
 
 type SnmpCredentials = { version: "v1" | "v2c" | "v3"; port: number; timeout_s: number; retries: number;
-  community: string | null; v3_username: string | null;
+  community: null; community_set: boolean;               // write-only (see Secret fields)
+  v3_username: string | null;
   v3_security_level: "noAuthNoPriv" | "authNoPriv" | "authPriv" | null;
   v3_auth_protocol: "MD5" | "SHA" | "SHA224" | "SHA256" | "SHA384" | "SHA512" | null;
   v3_auth_key: null; v3_auth_key_set: boolean;            // write-only (see Secret fields)
@@ -320,7 +328,7 @@ Create request:
 | `GET /api/sensors/{id}` | viewer | — | `Sensor` |
 | `PATCH /api/sensors/{id}` | admin | Subset of `{name, config, interval_s, enabled, sort_order, channels}`. `type` cannot change. `config` is merged over the stored config. | `Sensor` |
 | `DELETE /api/sensors/{id}` | admin | — | `204` |
-| `POST /api/sensors/{id}/run` | admin | — (no body) | `200 CheckResult`. Runs the check now and persists it (measurements, status, events, WS) like a scheduled run. Does not move the schedule. |
+| `POST /api/sensors/{id}/run` | admin | — (no body) | `200 CheckResult`. Runs the check now and persists it (measurements, status, events, WS) like a scheduled run. Does not move the schedule. A paused sensor (or disabled device) → `409 sensor_paused`. |
 | `POST /api/sensors/test` | admin | `{"device_id":3,"type":"http","config":{...}}`. You may send `"host"` instead of `device_id`; a test against an unsaved device then uses `"snmp_credentials"` from the body. | `200 CheckResult`. Persists **nothing**. |
 | `GET /api/sensors/{id}/history` | viewer | Query: `range` = `1h`\|`24h`\|`7d`\|`30d` (default `24h`), **or** `from` + `to` (ISO). Optional `channels=latency_ms,packet_loss_pct`. | See below |
 
@@ -334,8 +342,9 @@ Create request:
 ```
 
 - `interval_s` defaults to `settings.default_interval_s`.
-- `name` defaults to the localized type name, sent by the frontend. If it is missing, the backend uses the type
-  key, or `"<if_name>"` for interfaces.
+- `name` defaults to the localized type name, sent by the frontend. If it is missing (and for `auto_sensors`),
+  the backend uses an English default: `Ping`, `System`, `CPU Load`, `Memory`, `HTTP`, `DNS`, `TCP <port>`, and
+  `"<if_name>"` (or `Interface`) for interfaces.
 
 **Channels in requests** hold threshold overrides only:
 
@@ -476,6 +485,9 @@ The `Settings` shape:
 - **Connecting:** the client connects to `ws(s)://<host>/ws`, and the cookie authenticates it.
   - With no valid session, the server accepts and then closes immediately with code **4401**.
   - During setup, it closes with **4403**.
+  - An open socket is closed with **4401** when its user's session is revoked (deactivated, deleted, role or
+    password changed by an admin). After the user's own password change (the browser already holds the new
+    cookie), it is closed with **4000**: the client just reconnects.
   - If an `Origin` header is present and does not match `Host` (same rule as the CSRF check), it closes
     with **1008**.
 - **Who receives what:** every authenticated client receives every message (no subscriptions in Phase 1). Both

@@ -26,8 +26,11 @@ async def delete_old_measurements(rt: Runtime, days: int, batch: int = BATCH) ->
             res = await session.execute(
                 text(
                     """
-                    DELETE FROM measurements WHERE ctid IN (
-                        SELECT ctid FROM measurements
+                    -- (tableoid, ctid): ctid alone is not unique across hypertable chunks
+                    DELETE FROM measurements
+                    WHERE time < now() - make_interval(days => :d)
+                      AND (tableoid, ctid) IN (
+                        SELECT tableoid, ctid FROM measurements
                         WHERE time < now() - make_interval(days => :d) LIMIT :n)
                     """
                 ),

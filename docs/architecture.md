@@ -42,7 +42,7 @@ Related contracts: [data-model.md](data-model.md), [api.md](api.md), [convention
 | ResultProcessor | `netmon.poller.processor` | Evaluates thresholds, writes `measurements`, updates `sensors` / `sensor_channels`, and emits a status change when the status differs. |
 | EventWriter | `netmon.services.events` | Inserts into `events`, publishes `event.created`, and recomputes the device/group rollup → `device.status` / `group.status` WS messages. |
 | AlertEngine | `netmon.alerts.engine` | Matches status-change events to `alert_rules`, applies `delay_s`, and sends to notification channels. |
-| Maintenance | `netmon.services.retention` | Runs hourly. Deletes old measurements (fallback mode only) and old events. |
+| Maintenance | `netmon.services.retention` | Runs hourly. Deletes old measurements (fallback mode, or Timescale without a working retention policy, see §6) and old events. |
 
 ### Libraries (fixed)
 FastAPI, uvicorn, SQLAlchemy 2 (async) + asyncpg, Alembic, pydantic v2 + pydantic-settings, PyJWT, argon2-cffi,
@@ -61,10 +61,18 @@ Frontend: React 18, TypeScript, Vite, Tailwind CSS, React Router, TanStack Query
   3. Connect to the DB (retry for 60 s with backoff, so DB containers have time to start). Take the advisory lock.
   4. Run Alembic migrations (`upgrade head`).
   5. Timescale bootstrap (§6).
-  6. Set every enabled sensor's `status` to `unknown` **only if** its `last_check_at` is older than 3× its interval.
-     Otherwise keep the status.
+  6. Set every enabled `up` sensor's `status` to `unknown` **only if** its `last_check_at` is older than 3× its
+     interval. Otherwise keep the status. `down`/`warning` sensors keep their status, so a still-failing
+     sensor does not alert DOWN again and a recovery still alerts UP.
   7. Start the scheduler. Each sensor's first run gets a random jitter in `[0, min(interval_s, 30))` seconds.
   8. Start the alert engine, the maintenance loop and the WS heartbeat.
+- **Lock watchdog:** every 30 s the app checks that it still holds the advisory lock (a PostgreSQL restart
+  drops it). It re-acquires it. When another instance has taken it meanwhile, it logs a critical error and
+  exits with code 3. `netmon serve` checks the lock before starting and exits with code 3 and a one-line
+  message when another instance holds it.
+- **Proxy headers:** uvicorn does not rewrite the client address. With `NETMON_TRUST_PROXY=1` the app reads
+  `X-Forwarded-Proto`/`X-Forwarded-Host`, and the login throttle uses the **rightmost** `X-Forwarded-For`
+  entry.
 - Shutdown: stop the scheduler (in-flight checks may run for up to 5 s), cancel pending delayed alerts, close
   the WebSockets with code 1001, and release the lock.
 - **Config changes reach the scheduler directly.** The API layer calls `scheduler.upsert(sensor_id)` /
@@ -187,7 +195,10 @@ schema in **plain SQL only**. `measurements` is created as an ordinary table. Ti
 3. `SELECT create_hypertable('measurements', 'time', chunk_time_interval => INTERVAL '1 day', if_not_exists => TRUE, migrate_data => TRUE)`.
 4. Retention: `remove_retention_policy('measurements', if_exists => TRUE)`, then
    `add_retention_policy('measurements', INTERVAL '<retention_days> days')`. The app re-applies this when
-   `retention_days` changes through `PUT /api/settings`.
+   `retention_days` changes through `PUT /api/settings`. If the policy API fails (e.g. an Apache-only
+   TimescaleDB build), the app remembers that and the hourly maintenance loop prunes instead:
+   `drop_chunks('measurements', older_than => ...)`, then the batched `DELETE` for the rest (or for
+   everything when `drop_chunks` fails too).
 5. Optional: enable compression on chunks older than 7 days (`segmentby = 'sensor_id, channel'`). If that fails,
    the app ignores it.
 
