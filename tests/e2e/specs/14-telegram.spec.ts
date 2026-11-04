@@ -131,6 +131,15 @@ test('wrong token -> test shows the Telegram error (502 telegram_error)', async 
   const rl = await raw(api, 'POST', `/api/notification-channels/${badId}/test`);
   expect(rl.body.error).toMatchObject({ code: 'telegram_error', message: 'Too Many Requests: retry after 5' });
   for (const x of [nf, rl]) expect(x.text).not.toContain(TG_VALID_TOKEN);
+  // Timeout path: the mock sleeps 15 s for chat "-1009" (alias of the doc's "slow", which the chat_id
+  // validation rejects); the client gives up after 10 s.
+  await api.patch(`/api/notification-channels/${badId}`, { config: { chat_id: '-1009', parse_mode: 'HTML', disable_notification: false } });
+  const t0 = Date.now();
+  const slow = await raw(api, 'POST', `/api/notification-channels/${badId}/test`);
+  expect(slow.status).toBe(502);
+  expect(slow.body.error).toMatchObject({ code: 'telegram_error', message: 'Telegram request timed out' });
+  expect(Date.now() - t0).toBeLessThan(14_000);
+  expect(slow.text).not.toContain(TG_VALID_TOKEN);
 });
 
 test('plain-text parse mode omits parse_mode', async () => {
@@ -166,7 +175,9 @@ test('validation: token required and well-formed, chat_id must be a string', asy
 
 test('alert rule with Telegram: HTTP target down -> message; recovery -> message', async () => {
   const port = new URL(HTTP_TARGET_URL).port;
-  const d = await api.post('/api/devices', { group_id: await defaultGroupId(api), name: uid('tg-web'), host: '127.0.0.1', auto_sensors: [] });
+  // "<R&D>" in the device name: the HTML message must escape it (the mock rejects unparsable HTML).
+  const devName = `${uid('tg-web')} <R&D>`;
+  const d = await api.post('/api/devices', { group_id: await defaultGroupId(api), name: devName, host: '127.0.0.1', auto_sensors: [] });
   const s = await api.post('/api/sensors', {
     device_id: d.id,
     name: 'Web via Telegram',
@@ -193,6 +204,7 @@ test('alert rule with Telegram: HTTP target down -> message; recovery -> message
   expect(down.body.parse_mode).toBe('HTML');
   expect(down.body.text).toMatch(/^<b>\[NetworkMonitor\] DOWN: .*Web via Telegram<\/b>/);
   expect(down.body.text).toContain('503');
+  expect(down.body.text).toContain('&lt;R&amp;D&gt;');
 
   await httpTarget('ok');
   await waitForSensor(api, s.id, (x) => x.status === 'up', 45_000, 'http up again');

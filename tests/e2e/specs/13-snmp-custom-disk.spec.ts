@@ -164,7 +164,9 @@ test('storage picker: pick "/" -> snmp_disk sensor with usage values', async ({ 
   await loginViaApi(page, undefined, `/devices/${deviceId}`);
   const dlg = await openAddSensor(page, 'snmp_disk');
   await expect(dlg.getByRole('combobox', { name: 'Type', exact: true }).locator('option:checked')).toHaveText('Disk usage');
-  await dlg.getByRole('button', { name: 'Pick from device' }).click();
+  // The add form opens the storage list right away ("Pick from device" only when collapsed).
+  const pick = dlg.getByRole('button', { name: 'Pick from device' });
+  if (await pick.isVisible().catch(() => false)) await pick.click();
   const picker = dlg.getByRole('table');
   await expect(picker.getByRole('row').filter({ hasText: '/boot/efi' })).toBeVisible();
   // RAM / virtual memory rows are hidden; fixed disks are preselected.

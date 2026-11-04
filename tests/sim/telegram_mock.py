@@ -9,7 +9,8 @@ POST /bot<token>/sendMessage  (JSON body; form-encoded is accepted too)
     chat_id "-1001" | "@netmon_test"  -> 200 {"ok":true,"result":{"message_id":N,...}}
             "404"                     -> 400 Bad Request: chat not found   (also any other chat id)
             "429"                     -> 429 Too Many Requests: retry after 5
-            "slow"                    -> sleeps 15 s, then 200 (client timeout path)
+            "slow" | "-1009"          -> sleeps 15 s, then 200 (client timeout path; "-1009" because the
+                                         API's chat_id validation does not accept "slow")
     Like the real API it also rejects: an empty text (400), a text > 4096 characters (400), and with
     parse_mode "HTML" a text Telegram could not parse (unsupported tag, unbalanced tags, a bare "<" or
     "&") -> 400 "Bad Request: can't parse entities: ...". This catches missing HTML escaping.
@@ -33,6 +34,7 @@ from urllib.parse import parse_qsl
 
 VALID_TOKEN = "123456:TEST_TOKEN_valid_0123456789abcdef"
 OK_CHATS = {"-1001", "@netmon_test"}
+SLOW_CHATS = {"slow", "-1009"}
 SLOW_S = 15.0
 MESSAGES: list[dict] = []
 LOCK = threading.Lock()
@@ -191,7 +193,7 @@ class Handler(BaseHTTPRequestHandler):
             return tg_error(400, "Bad Request: chat_id is empty")
         if chat == "429":
             return tg_error(429, "Too Many Requests: retry after 5", parameters={"retry_after": 5})
-        if chat == "slow":
+        if chat in SLOW_CHATS:
             time.sleep(SLOW_S)
         elif chat not in OK_CHATS:
             return tg_error(400, "Bad Request: chat not found")

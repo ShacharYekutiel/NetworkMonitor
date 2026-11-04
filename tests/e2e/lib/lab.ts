@@ -47,14 +47,17 @@ export function snmpCreds(community = 'public', port = DISCOVERY_SNMP_PORT) {
 export type TgRecord = { time: number; token: string; method_name: string; body: any; status: number; response: any };
 export async function telegramMessages(): Promise<TgRecord[]> {
   const r = await fetch(`${TELEGRAM_MOCK_URL}/_messages`);
-  return (await r.json()) as TgRecord[];
+  return ((await r.json()) as TgRecord[]).filter((m) => !['-1009', 'slow'].includes(String(m.body?.chat_id)));
 }
 export async function clearTelegram(): Promise<void> {
   await fetch(`${TELEGRAM_MOCK_URL}/_messages`, { method: 'DELETE' });
 }
 /** Successfully delivered sendMessage calls. */
 export async function telegramDelivered(): Promise<TgRecord[]> {
-  return (await telegramMessages()).filter((m) => m.method_name === 'sendMessage' && m.status === 200);
+  // Slow-chat requests ("-1009"/"slow") land late (after the client timed out); they are never deliveries.
+  return (await telegramMessages()).filter(
+    (m) => m.method_name === 'sendMessage' && m.status === 200 && !['-1009', 'slow'].includes(String(m.body?.chat_id)),
+  );
 }
 
 // ---------------------------------------------------------------- discovery API

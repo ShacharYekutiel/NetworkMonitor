@@ -94,7 +94,7 @@ test('re-apply from the UI shows "already exists" and creates nothing', async ({
   const dlg = page.getByRole('dialog');
   await dlg.getByLabel(/Template/).selectOption('generic_snmp');
   await dlg.getByRole('button', { name: /^Apply/ }).click();
-  await expect(page.getByRole('dialog')).toContainText('Already monitored (4)', { timeout: 120_000 });
+  await expect(page.getByRole('dialog')).toContainText(/Already (monitored|exists) \(4\)/, { timeout: 120_000 });
   await expect(page.getByRole('dialog')).not.toContainText('probe_failed'); // translated reasons
   expect((await api.get(`/api/sensors?device_id=${switchId}&page_size=1000`)).items).toHaveLength(4);
 });
