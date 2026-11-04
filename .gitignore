@@ -1,0 +1,50 @@
+# --- OS / editors
+.DS_Store
+Thumbs.db
+*.swp
+.idea/
+.vscode/
+
+# --- Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+.coverage
+htmlcov/
+
+# --- Node
+node_modules/
+coverage/
+
+# --- Build output
+frontend/dist/
+backend/build/
+backend/dist/
+dist/
+# Built SPA copied into the package for packaging (docs/architecture.md §7)
+backend/netmon/static/*
+!backend/netmon/static/.gitkeep
+
+# --- Local data / secrets (never commit)
+.devdata/
+data/
+deploy/.env
+*.secret
+secret.key
+netmon.env
+
+# --- Release artefacts
+netmon-*.tar.gz
+netmon-*.zip
+*.whl
+SHA256SUMS
+
+# --- E2E / test reports
+playwright-report/
+test-results/
+blob-report/

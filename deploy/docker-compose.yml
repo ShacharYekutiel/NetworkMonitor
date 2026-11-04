@@ -1,0 +1,108 @@
+# NetworkMonitor — production stack (TimescaleDB + app).
+#
+# The only step (from the repository root):
+#
+#   docker compose -f deploy/docker-compose.yml up -d
+#
+# then open http://<server>:8080 and complete the setup wizard.
+# After a `git pull`, update with: docker compose -f deploy/docker-compose.yml up -d --build
+#
+# Nothing has to be edited. The DB password is generated on the first `up` by the
+# one-shot `init` service and stored in the `netmon-data` volume (/data/db_password).
+# Optional overrides (port, image names) go in deploy/.env — see deploy/.env.example.
+
+name: netmon
+
+services:
+  # One-shot: create the shared data volume layout and a random DB password if absent.
+  init:
+    image: ${NETMON_INIT_IMAGE:-busybox:1.37}
+    restart: "no"
+    network_mode: none
+    volumes:
+      - netmon-data:/data
+    environment:
+      # Must match the image's runtime user (Dockerfile NETMON_UID/NETMON_GID) and the
+      # postgres user of the timescale image (uid/gid 70 on the Alpine-based images).
+      APP_UID: "10001"
+      PG_GID: "70"
+    command:
+      - sh
+      - -euc
+      - |
+        umask 077
+        if [ ! -s /data/db_password ]; then
+          tr -dc 'A-Za-z0-9' < /dev/urandom | head -c 40 > /data/db_password.tmp
+          [ "$$(wc -c < /data/db_password.tmp)" -eq 40 ]
+          mv /data/db_password.tmp /data/db_password
+          echo "init: generated a new database password"
+        else
+          echo "init: database password already present"
+        fi
+        # /data belongs to the app user; postgres may only read db_password (group).
+        chown "$$APP_UID:$$PG_GID" /data /data/db_password
+        chmod 0750 /data
+        chmod 0640 /data/db_password
+
+  db:
+    image: ${NETMON_DB_IMAGE:-timescale/timescaledb:2.31.0-pg16}
+    restart: unless-stopped
+    depends_on:
+      init:
+        condition: service_completed_successfully
+    environment:
+      POSTGRES_USER: netmon
+      POSTGRES_DB: netmon
+      POSTGRES_PASSWORD_FILE: /run/netmon/db_password
+      TIMESCALEDB_TELEMETRY: "off"
+    volumes:
+      - netmon-db:/var/lib/postgresql/data
+      - netmon-data:/run/netmon:ro
+    # Not published to the host on purpose (only the app talks to it).
+    healthcheck:
+      # TCP check: during first-time init the server only listens on the unix socket,
+      # so this does not report healthy before initialization has finished.
+      test: ["CMD-SHELL", "pg_isready -q -h 127.0.0.1 -U netmon -d netmon"]
+      interval: 5s
+      timeout: 5s
+      retries: 30
+      start_period: 30s
+    shm_size: 256mb
+
+  netmon:
+    build:
+      context: ..
+      dockerfile: Dockerfile
+      args:
+        NODE_IMAGE: ${NETMON_NODE_IMAGE:-node:22-slim}
+        PYTHON_IMAGE: ${NETMON_PYTHON_IMAGE:-python:3.12-slim}
+    image: ${NETMON_IMAGE:-networkmonitor:local}
+    restart: unless-stopped
+    depends_on:
+      init:
+        condition: service_completed_successfully
+      db:
+        condition: service_healthy
+    environment:
+      DATABASE_URL: postgresql://netmon@db:5432/netmon
+      NETMON_DB_PASSWORD_FILE: /data/db_password
+      NETMON_DATA_DIR: /data
+      NETMON_PORT: "8080"
+      TZ: ${TZ:-UTC}
+    volumes:
+      - netmon-data:/data
+    ports:
+      - "${NETMON_HTTP_PORT:-8080}:8080"
+    # Unprivileged ICMP (ping) for every GID inside the container.
+    sysctls:
+      net.ipv4.ping_group_range: "0 2147483647"
+    stop_grace_period: 20s
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "5"
+
+volumes:
+  netmon-db:
+  netmon-data:

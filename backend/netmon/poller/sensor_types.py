@@ -1,0 +1,349 @@
+"""Sensor type definitions: config schemas and channels. Source of truth in code; must match
+docs/data-model.md "Sensor types: config and channels"."""
+
+from __future__ import annotations
+
+import re
+from dataclasses import asdict, dataclass, field
+from typing import Any
+
+from netmon.api.errors import ApiError
+
+SENSOR_TYPES_ORDER = [
+    "ping",
+    "snmp_system",
+    "snmp_cpu",
+    "snmp_memory",
+    "snmp_interface",
+    "http",
+    "tcp_port",
+    "dns",
+]
+AUTO_SENSOR_TYPES = {"ping", "snmp_system", "snmp_cpu", "snmp_memory"}
+
+
+@dataclass(frozen=True)
+class ConfigField:
+    key: str
+    type: str  # int | str | bool | enum | int_list | str_nullable | int_nullable | headers
+    required: bool = False
+    default: Any = None
+    min: int | None = None
+    max: int | None = None
+    options: list[str] | None = None
+
+
+@dataclass(frozen=True)
+class ChannelDef:
+    key: str
+    unit: str
+    warning_min: float | None = None
+    warning_max: float | None = None
+    down_min: float | None = None
+    down_max: float | None = None
+
+
+@dataclass(frozen=True)
+class SensorTypeDef:
+    type: str
+    requires_snmp: bool
+    primary_channel: str
+    config_fields: list[ConfigField] = field(default_factory=list)
+    channels: list[ChannelDef] = field(default_factory=list)
+
+    def channel(self, key: str) -> ChannelDef | None:
+        for ch in self.channels:
+            if ch.key == key:
+                return ch
+        return None
+
+    def to_api(self) -> dict[str, Any]:
+        return {
+            "type": self.type,
+            "requires_snmp": self.requires_snmp,
+            "primary_channel": self.primary_channel,
+            "config_fields": [asdict(f) for f in self.config_fields],
+            "channels": [asdict(c) for c in self.channels],
+        }
+
+
+SENSOR_TYPES: dict[str, SensorTypeDef] = {
+    "ping": SensorTypeDef(
+        "ping",
+        False,
+        "latency_ms",
+        [
+            ConfigField("count", "int", default=4, min=1, max=20),
+            ConfigField("timeout_ms", "int", default=1000, min=100, max=10000),
+            ConfigField("packet_size", "int", default=56, min=16, max=1472),
+        ],
+        [
+            ChannelDef("latency_ms", "ms", warning_max=100, down_max=500),
+            ChannelDef("packet_loss_pct", "%", warning_max=10, down_max=50),
+        ],
+    ),
+    "snmp_system": SensorTypeDef(
+        "snmp_system", True, "uptime_s", [], [ChannelDef("uptime_s", "s")]
+    ),
+    "snmp_cpu": SensorTypeDef(
+        "snmp_cpu",
+        True,
+        "cpu_load_pct",
+        [],
+        [ChannelDef("cpu_load_pct", "%", warning_max=80, down_max=95)],
+    ),
+    "snmp_memory": SensorTypeDef(
+        "snmp_memory",
+        True,
+        "mem_used_pct",
+        [
+            ConfigField("storage_index", "int_nullable", default=None, min=1),
+            ConfigField("storage_descr", "str", default=""),
+        ],
+        [
+            ChannelDef("mem_used_pct", "%", warning_max=85, down_max=95),
+            ChannelDef("mem_used_bytes", "B"),
+            ChannelDef("mem_total_bytes", "B"),
+        ],
+    ),
+    "snmp_interface": SensorTypeDef(
+        "snmp_interface",
+        True,
+        "in_bps",
+        [
+            ConfigField("if_index", "int", required=True, min=1),
+            ConfigField("if_name", "str", default=""),
+            ConfigField("speed_bps_override", "int_nullable", default=None, min=1),
+        ],
+        [
+            ChannelDef("in_bps", "bit/s"),
+            ChannelDef("out_bps", "bit/s"),
+            ChannelDef("in_util_pct", "%"),
+            ChannelDef("out_util_pct", "%"),
+            ChannelDef("oper_status", "code", down_max=1),
+            ChannelDef("in_errors_ps", "/s"),
+            ChannelDef("out_errors_ps", "/s"),
+        ],
+    ),
+    "http": SensorTypeDef(
+        "http",
+        False,
+        "response_time_ms",
+        [
+            ConfigField("url", "str", required=True),
+            ConfigField("method", "enum", default="GET", options=["GET", "HEAD"]),
+            ConfigField("timeout_s", "int", default=10, min=1, max=60),
+            ConfigField("expected_status", "int_list", default=None, min=100, max=599),
+            ConfigField("keyword", "str_nullable", default=None),
+            ConfigField("keyword_must_exist", "bool", default=True),
+            ConfigField("verify_tls", "bool", default=True),
+            ConfigField("follow_redirects", "bool", default=True),
+            ConfigField("headers", "headers", default={}),
+        ],
+        [
+            ChannelDef("response_time_ms", "ms", warning_max=1000, down_max=5000),
+            ChannelDef("status_code", "code"),
+            ChannelDef("ssl_days_left", "d", warning_min=14, down_min=3),
+        ],
+    ),
+    "tcp_port": SensorTypeDef(
+        "tcp_port",
+        False,
+        "connect_time_ms",
+        [
+            ConfigField("port", "int", required=True, min=1, max=65535),
+            ConfigField("timeout_s", "int", default=5, min=1, max=60),
+        ],
+        [ChannelDef("connect_time_ms", "ms", warning_max=500, down_max=2000)],
+    ),
+    "dns": SensorTypeDef(
+        "dns",
+        False,
+        "resolve_time_ms",
+        [
+            ConfigField("query_name", "str", required=True),
+            ConfigField(
+                "record_type",
+                "enum",
+                default="A",
+                options=["A", "AAAA", "CNAME", "MX", "NS", "TXT", "PTR"],
+            ),
+            ConfigField("server", "str_nullable", default=None),
+            ConfigField("port", "int", default=53, min=1, max=65535),
+            ConfigField("timeout_s", "int", default=5, min=1, max=30),
+            ConfigField("expected", "str_nullable", default=None),
+        ],
+        [ChannelDef("resolve_time_ms", "ms", warning_max=200, down_max=1000)],
+    ),
+}
+
+
+def get_type(type_: str) -> SensorTypeDef:
+    t = SENSOR_TYPES.get(type_)
+    if t is None:
+        raise ApiError(400, "invalid_sensor_type", f"Unsupported sensor type: {type_!r}")
+    return t
+
+
+def _is_int(v: Any) -> bool:
+    return isinstance(v, int) and not isinstance(v, bool)
+
+
+def _check_range(f: ConfigField, v: int, loc: list, errors: list) -> None:
+    if f.min is not None and v < f.min:
+        errors.append({"loc": loc, "msg": f"must be >= {f.min}"})
+    if f.max is not None and v > f.max:
+        errors.append({"loc": loc, "msg": f"must be <= {f.max}"})
+
+
+_HTTP_URL = re.compile(r"^https?://\S+$", re.IGNORECASE)
+
+
+def validate_config(
+    type_: str, config: Any, base: dict[str, Any] | None = None, loc_prefix: str = "config"
+) -> dict[str, Any]:
+    """Validate a config dict (optionally merged over `base`) and return the complete config.
+
+    Raises ApiError(422) listing every problem.
+    """
+    tdef = get_type(type_)
+    if config is None:
+        config = {}
+    if not isinstance(config, dict):
+        raise ApiError(
+            422,
+            "validation_error",
+            "config must be an object",
+            [{"loc": ["body", loc_prefix], "msg": "must be an object"}],
+        )
+    known = {f.key: f for f in tdef.config_fields}
+    errors: list[dict[str, Any]] = []
+    for key in config:
+        if key not in known:
+            errors.append({"loc": ["body", loc_prefix, key], "msg": "unknown config key"})
+    merged: dict[str, Any] = dict(base or {})
+    merged.update(config)
+    out: dict[str, Any] = {}
+    for f in tdef.config_fields:
+        loc = ["body", loc_prefix, f.key]
+        if f.key not in merged or (merged[f.key] is None and f.required):
+            if f.required:
+                errors.append({"loc": loc, "msg": "field required"})
+                continue
+            out[f.key] = _copy_default(f.default)
+            continue
+        v = merged[f.key]
+        if f.type == "int":
+            if not _is_int(v):
+                errors.append({"loc": loc, "msg": "must be an integer"})
+                continue
+            _check_range(f, v, loc, errors)
+        elif f.type == "int_nullable":
+            if v is not None:
+                if not _is_int(v):
+                    errors.append({"loc": loc, "msg": "must be an integer or null"})
+                    continue
+                _check_range(f, v, loc, errors)
+        elif f.type == "str":
+            if not isinstance(v, str):
+                errors.append({"loc": loc, "msg": "must be a string"})
+                continue
+            if f.required and not v.strip():
+                errors.append({"loc": loc, "msg": "must not be empty"})
+                continue
+            if len(v) > 2048:
+                errors.append({"loc": loc, "msg": "too long"})
+        elif f.type == "str_nullable":
+            if v is not None and not isinstance(v, str):
+                errors.append({"loc": loc, "msg": "must be a string or null"})
+                continue
+            if isinstance(v, str) and v == "":
+                v = None
+        elif f.type == "bool":
+            if not isinstance(v, bool):
+                errors.append({"loc": loc, "msg": "must be a boolean"})
+                continue
+        elif f.type == "enum":
+            if v not in (f.options or []):
+                errors.append({"loc": loc, "msg": f"must be one of {f.options}"})
+                continue
+        elif f.type == "int_list":
+            if v is not None:
+                if not isinstance(v, list) or not v or not all(_is_int(x) for x in v):
+                    errors.append({"loc": loc, "msg": "must be a non-empty list of integers"})
+                    continue
+                for x in v:
+                    _check_range(f, x, loc, errors)
+        elif f.type == "headers":
+            if not isinstance(v, dict) or not all(
+                isinstance(k, str) and isinstance(x, str) for k, x in v.items()
+            ):
+                errors.append({"loc": loc, "msg": "must be an object of string to string"})
+                continue
+        out[f.key] = v
+    # type specific checks
+    if type_ == "http" and isinstance(out.get("url"), str):
+        if not _HTTP_URL.match(out["url"]):
+            errors.append({"loc": ["body", loc_prefix, "url"], "msg": "must start with http(s)://"})
+    if type_ == "dns" and isinstance(out.get("query_name"), str) and len(out["query_name"]) > 255:
+        errors.append({"loc": ["body", loc_prefix, "query_name"], "msg": "too long"})
+    if errors:
+        raise ApiError(422, "validation_error", "Invalid sensor config", errors)
+    return out
+
+
+def _copy_default(v: Any) -> Any:
+    if isinstance(v, dict):
+        return dict(v)
+    if isinstance(v, list):
+        return list(v)
+    return v
+
+
+THRESHOLD_KEYS = ("warning_min", "warning_max", "down_min", "down_max")
+
+
+def validate_channel_overrides(type_: str, channels: Any) -> dict[str, dict[str, float | None]]:
+    """Returns {key: {threshold_key: value}} containing only keys that were present."""
+    tdef = get_type(type_)
+    if channels is None:
+        return {}
+    errors: list[dict[str, Any]] = []
+    result: dict[str, dict[str, float | None]] = {}
+    if not isinstance(channels, list):
+        raise ApiError(
+            422,
+            "validation_error",
+            "channels must be a list",
+            [{"loc": ["body", "channels"], "msg": "must be a list"}],
+        )
+    for i, entry in enumerate(channels):
+        loc: list[Any] = ["body", "channels", i]
+        if not isinstance(entry, dict) or not isinstance(entry.get("key"), str):
+            errors.append({"loc": loc, "msg": "must be an object with a key"})
+            continue
+        key = entry["key"]
+        if tdef.channel(key) is None:
+            errors.append({"loc": [*loc, "key"], "msg": f"unknown channel {key!r}"})
+            continue
+        overrides: dict[str, float | None] = {}
+        for k, v in entry.items():
+            if k == "key":
+                continue
+            if k not in THRESHOLD_KEYS:
+                errors.append({"loc": [*loc, k], "msg": "unknown field"})
+                continue
+            if v is not None and (isinstance(v, bool) or not isinstance(v, (int, float))):
+                errors.append({"loc": [*loc, k], "msg": "must be a number or null"})
+                continue
+            overrides[k] = float(v) if v is not None else None
+        result.setdefault(key, {}).update(overrides)
+    if errors:
+        raise ApiError(422, "validation_error", "Invalid channel thresholds", errors)
+    return result
+
+
+def default_sensor_name(type_: str, config: dict[str, Any]) -> str:
+    if type_ == "snmp_interface" and config.get("if_name"):
+        return str(config["if_name"])[:128]
+    return type_

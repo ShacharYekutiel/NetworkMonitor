@@ -1,0 +1,48 @@
+[Unit]
+Description=NetworkMonitor (network monitoring web application)
+Wants=network-online.target
+After=network-online.target
+# install.sh adds a drop-in (netmon.service.d/10-postgresql.conf) that orders this unit
+# after the local PostgreSQL service. The app itself retries the DB for 60 s.
+
+[Service]
+Type=simple
+User=netmon
+Group=netmon
+Environment=NETMON_DATA_DIR=/var/lib/netmon
+Environment=PYTHONUNBUFFERED=1
+WorkingDirectory=/var/lib/netmon
+ExecStart=/opt/netmon/venv/bin/netmon serve
+Restart=on-failure
+RestartSec=5
+# Exit code 3 = another instance holds the advisory lock; do not restart-loop on it.
+RestartPreventExitStatus=3
+TimeoutStopSec=20
+
+# Privileged ICMP fallback (raw sockets) without running as root.
+AmbientCapabilities=CAP_NET_RAW
+CapabilityBoundingSet=CAP_NET_RAW
+NoNewPrivileges=true
+
+# Hardening
+ProtectSystem=strict
+ReadWritePaths=/var/lib/netmon
+ProtectHome=true
+PrivateTmp=true
+PrivateDevices=true
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectKernelLogs=true
+ProtectControlGroups=true
+ProtectClock=true
+ProtectHostname=true
+RestrictSUIDSGID=true
+RestrictRealtime=true
+RestrictNamespaces=true
+LockPersonality=true
+RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX AF_NETLINK
+UMask=0027
+LimitNOFILE=65536
+
+[Install]
+WantedBy=multi-user.target
