@@ -1,4 +1,7 @@
-# NetworkMonitor — API Contract (Phase 1)
+# NetworkMonitor — API Contract (Phase 1 + Phase 2a)
+
+Items marked **[2a]** are the Phase 2a contract (discovery, device templates, `snmp_custom`/`snmp_disk`,
+Telegram). The Phase 2a endpoints are specified in [§ Phase 2a](#2a-phase-2a-endpoints).
 
 This file is the contract between the backend (`backend/netmon/schemas`) and the frontend
 (`frontend/src/api/types.ts`). **Field names are exact.** For the table semantics see
@@ -64,17 +67,25 @@ fallback.
 | 429 | `rate_limited` | Login throttling: 10 failures per 5 minutes per (IP, username) |
 | 502 | `snmp_error` | An SNMP enumeration or test against the device failed (`message` gives the reason) |
 | 502 | `smtp_error` / `webhook_error` | A test notification failed |
+| 502 | **[2a]** `telegram_error` | A Telegram test send failed. `message` = Telegram's `description` (e.g. `Bad Request: chat not found`), or the transport error. The bot token never appears in it. |
+| 409 | **[2a]** `scan_running` | A discovery scan is already running (`details`: `[{"scan_id": 12}]`), or the action needs a finished scan |
+| 409 | **[2a]** `scan_not_running` | Cancel on a scan that is not running |
+| 422 | **[2a]** `too_many_hosts` | Discovery targets expand to more than 4096 hosts (`details`: `[{"count": 65534, "max": 4096}]`) |
 | 500 | `internal_error` | |
 
 ### Secret fields
-`snmp_credentials.community`, `snmp_credentials.v3_auth_key`, `snmp_credentials.v3_priv_key` and
-`smtp.password` are **write-only** (for every role, admins included).
+`snmp_credentials.community`, `snmp_credentials.v3_auth_key`, `snmp_credentials.v3_priv_key`,
+`smtp.password`, **[2a]** telegram `config.bot_token`, and discovery `options.extra_communities` /
+`options.extra_v3[].v3_auth_key` / `options.extra_v3[].v3_priv_key` are **write-only** (for every role, admins
+included).
 
 - **Responses:** the field is always `null`, and a sibling boolean reports whether a value is stored:
   - `community_set`
   - `v3_auth_key_set`
   - `v3_priv_key_set`
   - `password_set`
+  - **[2a]** `bot_token_set`
+  - **[2a]** discovery options: see [Scan options in the API](#scan-options-in-the-api).
 - **Requests:**
   - omitted, or `null` → keep the stored value;
   - `""` → clear it;
@@ -153,9 +164,10 @@ type Sensor = { id: number; device_id: number; device_name: string; group_id: nu
   primary_channel: string; channels: Channel[]; sort_order: number;
   created_at: string; updated_at: string };
 
-type SensorType = "ping" | "snmp_system" | "snmp_cpu" | "snmp_memory" | "snmp_interface" | "http" | "tcp_port" | "dns";
+type SensorType = "ping" | "snmp_system" | "snmp_cpu" | "snmp_memory" | "snmp_interface" | "http" | "tcp_port" | "dns"
+  | "snmp_custom" | "snmp_disk";                         // [2a]
 
-type Event = { id: number; time: string; kind: "status_change" | "notification" | "system";
+type Event = { id: number; time: string; kind: "status_change" | "notification" | "system" | "discovery"; // [2a] discovery
   sensor_id: number | null; device_id: number | null; group_id: number | null;
   sensor_name: string | null; device_name: string | null;
   old_status: Status | null; new_status: Status | null; message: string };
@@ -316,7 +328,11 @@ Create request:
 ```
 
 - `config_fields[].type` is one of `int`, `str`, `bool`, `enum` (with `options: [..]`), `int_list`,
-  `str_nullable`, `int_nullable`, `headers` (an object of string to string).
+  `str_nullable`, `int_nullable`, `headers` (an object of string to string), **[2a]** `float` (`min`/`max` may
+  be fractional).
+- **[2a]** The list also contains `snmp_custom` and `snmp_disk` ([data-model.md](data-model.md)). For
+  `snmp_custom` the listed channel `value` has `unit: ""`; the real unit is the sensor's `config.unit`, and
+  `Sensor.channels[].unit` already carries it.
 - The frontend translates field labels with the i18n key `sensorConfig.<type>.<key>`.
 
 ### Sensors
@@ -409,7 +425,7 @@ Create request:
 | `GET /api/notification-channels/{id}` | — | `NotificationChannel` |
 | `PATCH /api/notification-channels/{id}` | Subset (`type` cannot change). `config` is replaced as a whole. | `NotificationChannel` |
 | `DELETE /api/notification-channels/{id}` | — | `204` |
-| `POST /api/notification-channels/{id}/test` | — | `200 {"ok": true, "message": "sent"}`. On failure: `502 smtp_error` / `webhook_error`. |
+| `POST /api/notification-channels/{id}/test` | — | `200 {"ok": true, "message": "sent"}`. On failure: `502 smtp_error` / `webhook_error` / **[2a]** `telegram_error`. |
 
 The `NotificationChannel` shape:
 
@@ -491,7 +507,8 @@ The `Settings` shape:
   - If an `Origin` header is present and does not match `Host` (same rule as the CSRF check), it closes
     with **1008**.
 - **Who receives what:** every authenticated client receives every message (no subscriptions in Phase 1). Both
-  viewers and admins receive messages.
+  viewers and admins receive messages. **[2a] Exception:** `discovery.*` messages go only to sockets whose user
+  had role `admin` at connect time (a role change closes the socket with 4401, so this stays correct).
 - **Frames:** text frames carrying JSON `{"type": string, "ts": ISO, "data": object}`.
 
 **Server → client messages:**
@@ -503,7 +520,10 @@ The `Settings` shape:
 | `event.created` | `Event` | After an event is written |
 | `device.status` | `{"id":3,"status":"down","status_counts":StatusCounts}` | The device's rollup status or counts changed |
 | `group.status` | `{"id":1,"status":"down","status_counts":StatusCounts}` | Sent for every ancestor group whose rollup changed |
-| `config.changed` | `{"entity":"group"\|"device"\|"sensor"\|"alert_rule"\|"notification_channel","id":7,"action":"created"\|"updated"\|"deleted"}` | After any successful mutation through the API. The client should invalidate its queries (e.g. `/api/tree`). |
+| `config.changed` | `{"entity":"group"\|"device"\|"sensor"\|"alert_rule"\|"notification_channel"\|"discovery_profile","id":7,"action":"created"\|"updated"\|"deleted"}` | After any successful mutation through the API. The client should invalidate its queries (e.g. `/api/tree`). **[2a]** adds `discovery_profile`. |
+| **[2a]** `discovery.progress` | see [Discovery WS messages](#discovery-websocket-messages) | **Admins only** |
+| **[2a]** `discovery.result` | see below | **Admins only** |
+| **[2a]** `discovery.finished` | see below | **Admins only** |
 | `pong` | `{}` | Reply to the client's `ping` |
 
 **Client → server:** `{"type":"ping"}`. Anything else is ignored.
