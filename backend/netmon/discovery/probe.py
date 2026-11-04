@@ -46,6 +46,8 @@ def _tcp_semaphore() -> asyncio.Semaphore:
         _tcp_sem = asyncio.Semaphore(TCP_CONNECT_LIMIT)
         _tcp_sem_loop = loop
     return _tcp_sem
+
+
 MAX_CREDENTIAL_ATTEMPTS = 9
 
 

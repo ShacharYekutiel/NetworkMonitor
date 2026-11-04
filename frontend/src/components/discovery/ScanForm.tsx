@@ -143,10 +143,12 @@ function ExtraCommunities({
   const [shown, setShown] = useState<boolean[]>([]);
   const label = t('discovery.extraCommunities');
   return (
-    <FieldGroup
-      label={label}
-      hint={error ? <Err k={error} /> : t('discovery.extraCommunitiesHint')}
-    >
+    // Not a labelled group on purpose: each input carries the full label ("… 1", "… 2"), so
+    // getByLabel / screen readers resolve to the inputs themselves.
+    <div className="min-w-0">
+      <span className="mb-1 block text-xs font-medium text-slate-600 dark:text-slate-400">
+        {label}
+      </span>
       <div className="space-y-1.5">
         {values.map((v, i) => (
           <div key={i} className="flex items-center gap-1.5">
@@ -192,7 +194,10 @@ function ExtraCommunities({
           </Button>
         )}
       </div>
-    </FieldGroup>
+      <span className="mt-1 block text-xs text-slate-500">
+        {error ? <Err k={error} /> : t('discovery.extraCommunitiesHint')}
+      </span>
+    </div>
   );
 }
 

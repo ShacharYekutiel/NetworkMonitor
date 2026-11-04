@@ -32,8 +32,8 @@ ADVISORY_LOCK_ID = 727001
 
 
 def raise_nofile_limit(target: int = 65536) -> tuple[int, int] | None:
-    """POSIX: raise the soft RLIMIT_NOFILE to min(hard, target), best effort (discovery opens
-    many sockets). Returns (old_soft, new_soft), or None when not applicable."""
+    """POSIX: raise the soft RLIMIT_NOFILE to the hard limit capped at `target`, best effort
+    (discovery opens many sockets). Returns (old_soft, new_soft), or None when not applicable."""
     try:
         import resource
     except ImportError:  # Windows
@@ -47,7 +47,7 @@ def raise_nofile_limit(target: int = 65536) -> tuple[int, int] | None:
             return soft, want
         return soft, soft
     except (ValueError, OSError) as exc:
-        log.info("Cannot raise the open-file limit: %s", exc)
+        log.debug("Cannot raise the open-file limit: %s", exc)
         return None
 
 

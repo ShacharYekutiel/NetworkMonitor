@@ -38,7 +38,9 @@ import {
 } from './templates';
 import { errorMessage } from './errors';
 import { ApiError } from '../api/client';
-import { sensorValueText } from './format';
+import { sensorValueText, storageUsedPct } from './format';
+import { bufferResult, clearBuffered, withBuffered } from './discovery';
+import { retryIds } from './templates';
 
 const opts: ScanOptions = {
   ping: true,
@@ -724,5 +726,102 @@ describe('telegram + new errors', () => {
     expect(he('discovery.hostsCount', { count: 2 })).toBe('שני מארחים');
     expect(he('discovery.hostsCount', { count: 254 })).toBe('254 מארחים');
     expect(i18n.getFixedT('en')('discovery.sensorsCreated', { count: 1 })).toBe('1 sensor created');
+  });
+});
+
+describe('fix round', () => {
+  it('buffers live results that arrive before the results query has data', () => {
+    const qc = new QueryClient();
+    const batch = new InvalidationBatcher(qc, 10_000);
+    const r1 = result({ id: 901, scan_id: 77, ip: '10.9.0.5' });
+    const r2 = result({ id: 902, scan_id: 77, ip: '10.9.0.2' });
+    // No cached list yet (reload during a running scan): nothing is dropped.
+    applyLiveMessage(
+      qc,
+      { type: 'discovery.result', ts: 'x', data: { scan_id: 77, result: r1 } },
+      batch,
+    );
+    applyLiveMessage(
+      qc,
+      { type: 'discovery.result', ts: 'x', data: { scan_id: 77, result: r2 } },
+      batch,
+    );
+    expect(qc.getQueryData(qk.discoveryResults(77))).toBeUndefined();
+    // The fetch lands with r1 (newer copy) and another row: merged by id, fetched rows win.
+    const fetched = [
+      { ...r1, imported_device_id: 5 },
+      result({ id: 903, scan_id: 77, ip: '10.9.0.9' }),
+    ];
+    const merged = withBuffered(77, fetched);
+    expect(merged.map((r) => r.id)).toEqual([902, 901, 903]);
+    expect(merged.find((r) => r.id === 901)?.imported_device_id).toBe(5);
+    expect(withBuffered(77, merged)).toHaveLength(3); // idempotent, no duplicates
+    applyLiveMessage(
+      qc,
+      {
+        type: 'discovery.finished',
+        ts: 'x',
+        data: {
+          scan_id: 77,
+          status: 'completed',
+          total_hosts: 1,
+          scanned_hosts: 1,
+          found_hosts: 3,
+          new_hosts: 0,
+          error: null,
+        },
+      },
+      batch,
+    );
+    expect(withBuffered(77, [])).toEqual([]);
+    bufferResult(r1);
+    clearBuffered(77);
+    batch.dispose();
+  });
+
+  it('marks time-budget and internal import errors as retryable', () => {
+    const items = [
+      { result_id: 1, template_id: 'generic_ping' },
+      { result_id: 2, template_id: 'generic_ping' },
+      { result_id: 3, template_id: 'generic_ping' },
+      { result_id: 4, template_id: 'generic_ping' },
+    ];
+    const rows = importRows(
+      items,
+      {
+        created: [],
+        errors: [
+          {
+            result_id: 1,
+            code: 'internal_error',
+            message: 'Import time budget exceeded; retry the remaining hosts',
+            device_id: null,
+          },
+          { result_id: 2, code: 'internal_error', message: 'Internal error', device_id: null },
+          { result_id: 3, code: 'device_exists', message: 'x', device_id: 9 },
+        ],
+      },
+      [],
+    );
+    expect(rows[0]).toMatchObject({ kind: 'error', retry: true, timedOut: true });
+    expect(rows[1]).toMatchObject({ kind: 'error', retry: true, timedOut: false });
+    expect(rows[2]).toMatchObject({ kind: 'error', retry: false });
+    expect(retryIds(rows)).toEqual([1, 2, 4]);
+    expect(i18n.getFixedT('he')('discovery.notImportedRetry')).toBe('לא יובא — נסו שוב');
+  });
+
+  it('extra communities are a list of rows', () => {
+    const f = scanOptionsForm();
+    expect(f.extra_communities).toEqual(['']);
+    expect(scanOptionsToInput(f).options.extra_communities).toEqual([]);
+    const six = { ...f, extra_communities: ['a', 'b', 'c', 'd', 'e', 'f'] };
+    expect(scanOptionsToInput(six).errors.extra_communities).toBe('discovery.err.communities');
+  });
+
+  it('storage usage with unknown sizes', () => {
+    expect(storageUsedPct({ size_bytes: 200, used_bytes: 50 })).toBe(25);
+    expect(storageUsedPct({ size_bytes: null, used_bytes: 50 })).toBeNull();
+    expect(storageUsedPct({ size_bytes: 100, used_bytes: null })).toBeNull();
+    expect(storageUsedPct({ size_bytes: 0, used_bytes: 0 })).toBeNull();
   });
 });

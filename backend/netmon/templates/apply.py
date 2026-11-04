@@ -276,6 +276,9 @@ async def _run_probe(rt: Runtime, ctx: _Ctx, cand: _Candidate) -> None:
         cand.config = {**cand.config, **raw.config_update}
 
 
+_device_locks: dict[int, tuple[asyncio.Lock, int]] = {}
+
+
 async def apply_template(
     rt: Runtime,
     device_id: int,
@@ -285,7 +288,34 @@ async def apply_template(
     budget_s: float = BUDGET_S,
     broadcast: bool = True,
 ) -> dict[str, Any]:
-    """Create the template's missing sensors on a device. Returns ApplyTemplateResult."""
+    """Create the template's missing sensors on a device. Returns ApplyTemplateResult.
+
+    Applies to the same device are serialized (per-device lock), so concurrent apply-template /
+    import calls cannot create duplicate sensors."""
+    lock, users = _device_locks.get(device_id, (asyncio.Lock(), 0))
+    _device_locks[device_id] = (lock, users + 1)
+    try:
+        async with lock:
+            return await _apply_template(
+                rt, device_id, template, lang, budget_s=budget_s, broadcast=broadcast
+            )
+    finally:
+        lock, users = _device_locks[device_id]
+        if users <= 1:
+            del _device_locks[device_id]
+        else:
+            _device_locks[device_id] = (lock, users - 1)
+
+
+async def _apply_template(
+    rt: Runtime,
+    device_id: int,
+    template: dict[str, Any],
+    lang: str,
+    *,
+    budget_s: float,
+    broadcast: bool,
+) -> dict[str, Any]:
     loop = asyncio.get_running_loop()
     async with rt.sessionmaker() as session:
         device = await session.get(Device, device_id)

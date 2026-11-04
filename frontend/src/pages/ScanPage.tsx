@@ -540,7 +540,10 @@ export function ScanPage() {
   const cancel = useMutation({
     mutationFn: () => endpoints.cancelScan(id),
     onSuccess: (s) => {
-      qc.setQueryData(qk.discoveryScan(id), s);
+      // Authoritative only when it reports the end state; a "running" answer must never
+      // overwrite the cache (discovery.finished or the refetch below settles it).
+      if (s.status !== 'running') qc.setQueryData(qk.discoveryScan(id), s);
+      else void qc.invalidateQueries({ queryKey: qk.discoveryScan(id) });
       void qc.invalidateQueries({ queryKey: qk.discoveryResults(id) });
       void qc.invalidateQueries({ queryKey: ['discoveryScans'] });
       setCancelAsk(false);

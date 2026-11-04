@@ -34,6 +34,7 @@ def like_escape(value: str) -> str:
     """Escape LIKE wildcards so `q` matches literally (used with ESCAPE '\\')."""
     return value.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
 
+
 DEVICE_CLASSES = (
     "router",
     "switch",

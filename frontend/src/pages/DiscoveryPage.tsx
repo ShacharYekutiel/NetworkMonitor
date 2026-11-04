@@ -30,6 +30,7 @@ import {
   Loading,
   Ltr,
   Modal,
+  Notice,
   PageHeader,
   Select,
   Table,
@@ -45,6 +46,7 @@ import {
   scanOptionsToInput,
   scheduleChoice,
   scheduleFromChoice,
+  withBuffered,
   type OptionsErrors,
   type ScanOptionsForm,
   type ScheduleChoice,
@@ -77,6 +79,49 @@ function ScanErrorBox({ error }: { error: unknown }) {
   );
 }
 
+/** "Profile saved; a scan is already running" with Run now (L6). */
+function SavedProfileNotice({ profile, error }: { profile: DiscoveryProfile; error: unknown }) {
+  const { t } = useTranslation();
+  const navigate = useNavigate();
+  const qc = useQueryClient();
+  const runningId =
+    isApiError(error) && error.code === 'scan_running' ? error.details?.[0]?.scan_id : undefined;
+  const run = useMutation({
+    mutationFn: () => endpoints.runDiscoveryProfile(profile.id),
+    onSuccess: (scan) => {
+      qc.setQueryData(qk.discoveryScan(scan.id), scan);
+      qc.setQueryData(qk.discoveryResults(scan.id), withBuffered(scan.id, []));
+      void qc.invalidateQueries({ queryKey: ['discoveryScans'] });
+      void qc.invalidateQueries({ queryKey: qk.discoveryProfiles });
+      navigate(`/discovery/scans/${scan.id}`);
+    },
+  });
+  return (
+    <div role="status" className="space-y-2">
+      <Notice>
+        <bdi dir="auto">{t('discovery.profileSavedBusy', { name: profile.name })}</bdi>
+      </Notice>
+      <div className="flex flex-wrap items-center gap-2">
+        <Button size="sm" busy={run.isPending} onClick={() => run.mutate()}>
+          <PlayIcon size={12} className="rtl:rotate-180" /> {t('discovery.runNow')}
+        </Button>
+        <Link to="/discovery?tab=profiles" className={buttonClass('ghost', 'sm')}>
+          {t('discovery.openProfiles')}
+        </Link>
+        {runningId !== undefined && (
+          <Link
+            to={`/discovery/scans/${runningId}`}
+            className="text-sm text-sky-700 hover:underline dark:text-sky-400"
+          >
+            {t('discovery.openRunning', { id: runningId })}
+          </Link>
+        )}
+      </div>
+      <ScanErrorBox error={run.error} />
+    </div>
+  );
+}
+
 function useGroupName() {
   const tree = useTree();
   return (id: number | null) => {
@@ -97,6 +142,8 @@ function NewScanCard() {
   const [saveProfile, setSaveProfile] = useState(false);
   const [profileName, setProfileName] = useState('');
   const [submitted, setSubmitted] = useState(false);
+  /** Set when "Save as profile" created the profile but /run answered 409 scan_running. */
+  const [savedProfile, setSavedProfile] = useState<DiscoveryProfile | null>(null);
   const summary = useTargetsSummary(targets);
 
   useEffect(() => {
@@ -115,13 +162,22 @@ function NewScanCard() {
           options,
         });
         void qc.invalidateQueries({ queryKey: qk.discoveryProfiles });
-        return endpoints.runDiscoveryProfile(p.id);
+        try {
+          return await endpoints.runDiscoveryProfile(p.id);
+        } catch (e) {
+          // The profile exists now: a retry must not create it again (409 conflict on the name).
+          setSaveProfile(false);
+          setProfileName('');
+          if (isApiError(e) && e.code === 'scan_running') setSavedProfile(p);
+          throw e;
+        }
       }
       return endpoints.startScan({ targets: list, group_id: groupId!, options });
     },
+    onMutate: () => setSavedProfile(null),
     onSuccess: (scan) => {
       qc.setQueryData(qk.discoveryScan(scan.id), scan);
-      qc.setQueryData(qk.discoveryResults(scan.id), []);
+      qc.setQueryData(qk.discoveryResults(scan.id), withBuffered(scan.id, []));
       void qc.invalidateQueries({ queryKey: ['discoveryScans'] });
       navigate(`/discovery/scans/${scan.id}`);
     },
@@ -173,7 +229,11 @@ function NewScanCard() {
             />
           )}
         </div>
-        <ScanErrorBox error={start.error} />
+        {savedProfile ? (
+          <SavedProfileNotice profile={savedProfile} error={start.error} />
+        ) : (
+          <ScanErrorBox error={start.error} />
+        )}
         <div className="flex flex-wrap items-center justify-end gap-3">
           <p className="me-auto text-xs text-slate-500">{t('discovery.scopeNote')}</p>
           <Button
@@ -541,7 +601,7 @@ function ProfilesCard() {
     onMutate: () => setRunError(null),
     onSuccess: (scan) => {
       qc.setQueryData(qk.discoveryScan(scan.id), scan);
-      qc.setQueryData(qk.discoveryResults(scan.id), []);
+      qc.setQueryData(qk.discoveryResults(scan.id), withBuffered(scan.id, []));
       void qc.invalidateQueries({ queryKey: ['discoveryScans'] });
       void qc.invalidateQueries({ queryKey: qk.discoveryProfiles });
       navigate(`/discovery/scans/${scan.id}`);

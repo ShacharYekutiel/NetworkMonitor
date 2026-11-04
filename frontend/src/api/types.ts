@@ -660,7 +660,7 @@ export type SnmpStorage = {
   index: number;
   descr: string;
   type: StorageType;
-  size_bytes: number;
-  used_bytes: number;
+  size_bytes: number | null;
+  used_bytes: number | null;
   existing_sensor_id: number | null;
 };

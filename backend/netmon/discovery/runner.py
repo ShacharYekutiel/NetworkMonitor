@@ -34,7 +34,7 @@ if TYPE_CHECKING:
 log = logging.getLogger("netmon.discovery")
 
 KEEP_SCANS = 20
-CANCEL_WAIT_S = 5.0
+CANCEL_WAIT_S = 4.5  # the API answers within 5 s
 MAX_NOTIFY_HOSTS = 50
 EXISTING_DEVICE_SQL = (
     "(SELECT min(d.id) FROM devices d WHERE d.host = host({ip}) "
@@ -209,13 +209,14 @@ class ScanRunner:
             return scan.id
 
     # ------------------------------------------------------------------ cancel / shutdown
-    async def cancel(self, scan_id: int, wait_s: float = CANCEL_WAIT_S) -> bool:
+    async def cancel(self, scan_id: int, wait_s: float | None = None) -> bool:
         """Stop the running scan. Waits at most `wait_s` for the task; if it is still
         finishing, the row is marked `cancelled` here (the runner's final write keeps it)."""
         cur = self._current
         if cur is None or cur.id != scan_id or cur.task is None or cur.task.done():
             return False
         cur.cancel = True
+        wait_s = CANCEL_WAIT_S if wait_s is None else wait_s
         deadline = asyncio.get_running_loop().time() + wait_s
         while not cur.task.done() and asyncio.get_running_loop().time() < deadline:
             for t in list(cur.probes):

@@ -19,7 +19,7 @@ import {
   type ConfigErrors,
   type RawConfig,
 } from '../lib/sensorConfig';
-import { formatValue } from '../lib/format';
+import { formatValue, storageUsedPct } from '../lib/format';
 import { errorMessage } from '../lib/errors';
 import { CheckResultView } from './CheckResultView';
 import { SensorConfigFields } from './SensorConfigFields';
@@ -662,7 +662,7 @@ function StoragePicker({
             <tbody>
               {rows.map((r) => {
                 const exists = r.existing_sensor_id !== null;
-                const pct = r.size_bytes ? (r.used_bytes / r.size_bytes) * 100 : null;
+                const pct = storageUsedPct(r);
                 return (
                   <tr key={r.index} className={cx(exists && mode === 'multi' && 'opacity-50')}>
                     {mode === 'multi' && (

@@ -104,3 +104,12 @@ export function formatRelative(iso: string | null | undefined, now: number = Dat
   if (abs < 86400) return rtf.format(Math.round(diff / 3600), 'hour');
   return rtf.format(Math.round(diff / 86400), 'day');
 }
+
+/** Used % of an hrStorage row; null (shown as "—") when size or used is unknown or size is 0. */
+export function storageUsedPct(r: {
+  size_bytes: number | null;
+  used_bytes: number | null;
+}): number | null {
+  if (r.size_bytes === null || r.used_bytes === null || r.size_bytes <= 0) return null;
+  return (r.used_bytes / r.size_bytes) * 100;
+}
