@@ -98,7 +98,8 @@ STATEMENTS = [
         channel varchar(64) NOT NULL,
         value double precision NOT NULL
     )""",
-    "CREATE INDEX ix_measurements_sensor_channel_time ON measurements (sensor_id, channel, time DESC)",
+    "CREATE INDEX ix_measurements_sensor_channel_time "
+    "ON measurements (sensor_id, channel, time DESC)",
     f"""
     CREATE TABLE events (
         id bigint GENERATED ALWAYS AS IDENTITY PRIMARY KEY,

@@ -8,6 +8,7 @@ Timescale used when available unless NETMON_DISABLE_TIMESCALE=1) and `netmon_tes
 
 from __future__ import annotations
 
+import asyncio
 import os
 import secrets
 from collections.abc import AsyncIterator
@@ -98,9 +99,17 @@ async def app(rt: Runtime) -> Any:
 
 @pytest.fixture
 async def clean(rt: Runtime, app: Any) -> AsyncIterator[None]:
+    await rt.drain()
     conn = await asyncpg.connect(_plain(rt.settings.database_url))
     try:
-        await conn.execute(f"TRUNCATE {TABLES} RESTART IDENTITY CASCADE")
+        for attempt in range(5):
+            try:
+                await conn.execute(f"TRUNCATE {TABLES} RESTART IDENTITY CASCADE")
+                break
+            except asyncpg.exceptions.DeadlockDetectedError:
+                if attempt == 4:
+                    raise
+                await asyncio.sleep(0.2)
     finally:
         await conn.close()
     rt._has_users = False  # noqa: SLF001
@@ -150,15 +159,20 @@ async def default_group_id(c: httpx.AsyncClient) -> int:
 
 
 async def make_device(c: httpx.AsyncClient, **kw: Any) -> dict[str, Any]:
-    body = {"group_id": kw.pop("group_id", None) or await default_group_id(c),
-            "name": kw.pop("name", "dev1"), "host": kw.pop("host", "127.0.0.1"), **kw}
+    body = {
+        "group_id": kw.pop("group_id", None) or await default_group_id(c),
+        "name": kw.pop("name", "dev1"),
+        "host": kw.pop("host", "127.0.0.1"),
+        **kw,
+    }
     r = await c.post("/api/devices", json=body)
     assert r.status_code == 201, r.text
     return r.json()
 
 
-async def make_sensor(c: httpx.AsyncClient, device_id: int, type_: str, config: dict | None = None,
-                      **kw: Any) -> dict[str, Any]:
+async def make_sensor(
+    c: httpx.AsyncClient, device_id: int, type_: str, config: dict | None = None, **kw: Any
+) -> dict[str, Any]:
     r = await c.post(
         "/api/sensors", json={"device_id": device_id, "type": type_, "config": config or {}, **kw}
     )

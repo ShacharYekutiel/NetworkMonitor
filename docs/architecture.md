@@ -157,6 +157,7 @@ native installers) → defaults. **The end user never edits any of these.** Inst
 | `NETMON_COOKIE_SECURE` | `auto` | `auto` = Secure flag set when the request scheme is https (honours `X-Forwarded-Proto` when `NETMON_TRUST_PROXY=1`). Also accepts `true`/`false`. |
 | `NETMON_TRUST_PROXY` | `0` | Trust `X-Forwarded-*` headers |
 | `NETMON_DEV` | `0` | `1` enables uvicorn reload and verbose errors. It never disables auth. |
+| `NETMON_DISABLE_TIMESCALE` | `0` | `1` skips the Timescale bootstrap and forces fallback mode even when the extension is available (used by tests and CI to cover fallback mode on a Timescale server). |
 
 Runtime settings (SMTP, retention, default interval, default language) live in the DB `settings` table and are
 edited in the UI. They are **not** env vars.

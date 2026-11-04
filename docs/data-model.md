@@ -430,4 +430,6 @@ These results → `down`: NXDOMAIN, no answer, a timeout, or an expected-answer 
   - else the highest-severity status among its non-paused sensors.
 - **Group status:** the highest-severity status over its direct devices and its child groups, with paused
   members excluded. A group with no members, or only paused members → `unknown` or `paused` respectively.
+  A child group that has no members at all (no devices anywhere below it) is not counted as a member, so an
+  empty sub-group does not turn its parent `unknown`.
 - `status_counts` (in the API) for a device or group counts the **sensors** beneath it, recursively, by status.

@@ -52,10 +52,11 @@ fallback.
 | 401 | `unauthenticated` | No cookie, or the token is invalid or expired |
 | 401 | `invalid_credentials` | Login failed |
 | 403 | `forbidden` | Role too low, or a cross-origin mutating request |
-| 403 | `setup_required` | Any endpoint except `/api/setup/*`, `/api/health`, `/api/settings/public` and `/api/auth/*` while there are no users |
+| 403 | `setup_required` | Any endpoint except `/api/setup/*`, `/api/health`, `/api/settings/public` and `/api/auth/*` while there are no users (this check runs before routing, so it also answers unknown `/api` paths) |
 | 404 | `not_found` | |
 | 409 | `conflict` | A unique name already exists (`details`: `[{"field":"name"}]`) |
 | 409 | `setup_already_done` | `POST /api/setup` when users exist |
+| 405 | `method_not_allowed` | The path exists but not with this method |
 | 409 | `last_admin` | You may not delete, demote or deactivate the last active admin, or yourself |
 | 415 | `unsupported_media_type` | |
 | 422 | `validation_error` | Pydantic validation. `details` is a list of `{loc, msg}`. |
@@ -475,6 +476,8 @@ The `Settings` shape:
 - **Connecting:** the client connects to `ws(s)://<host>/ws`, and the cookie authenticates it.
   - With no valid session, the server accepts and then closes immediately with code **4401**.
   - During setup, it closes with **4403**.
+  - If an `Origin` header is present and does not match `Host` (same rule as the CSRF check), it closes
+    with **1008**.
 - **Who receives what:** every authenticated client receives every message (no subscriptions in Phase 1). Both
   viewers and admins receive messages.
 - **Frames:** text frames carrying JSON `{"type": string, "ts": ISO, "data": object}`.

@@ -50,7 +50,7 @@ async def query_history(
     if keys:
         sql = text(
             f"""
-            SELECT {bucket_expr(timescale)} AS t, channel,
+            SELECT {bucket_expr(timescale)} AS bucket, channel,
                    avg(value) AS avg, min(value) AS min, max(value) AS max
             FROM measurements
             WHERE sensor_id = :sid AND channel = ANY(:chans) AND time >= :start AND time <= :end
@@ -62,7 +62,7 @@ async def query_history(
         )
         for r in rows:
             points[r.channel].append(
-                {"t": iso(r.t), "avg": float(r.avg), "min": float(r.min), "max": float(r.max)}
+                {"t": iso(r.bucket), "avg": float(r.avg), "min": float(r.min), "max": float(r.max)}
             )
     return {
         "sensor_id": sensor_id,

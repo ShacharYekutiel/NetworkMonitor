@@ -172,6 +172,13 @@ class Runtime:
         self._bg.add(task)
         task.add_done_callback(self._bg.discard)
 
+    async def drain(self) -> None:
+        """Wait for background work (tests / shutdown)."""
+        while self._bg:
+            await asyncio.gather(*list(self._bg), return_exceptions=True)
+        if self.alerts is not None:
+            await self.alerts.idle()
+
     async def has_users(self) -> bool:
         if self._has_users:
             return True

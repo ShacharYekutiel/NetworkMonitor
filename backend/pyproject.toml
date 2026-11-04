@@ -33,6 +33,7 @@ dev = [
     "dnslib>=0.9",
     "aiosmtpd>=1.4",
     "snmpsim>=1.1",
+    "pysmi>=1.5",
 ]
 
 [project.scripts]
@@ -45,7 +46,7 @@ version = { attr = "netmon.__version__" }
 include = ["netmon*"]
 
 [tool.setuptools.package-data]
-netmon = ["static/**/*", "migrations/*.py", "migrations/versions/*.py", "alembic.ini", "alerts/templates/*"]
+netmon = ["static/*", "static/**/*", "migrations/*.py", "migrations/*.mako", "migrations/versions/*.py"]
 
 [tool.ruff]
 line-length = 100

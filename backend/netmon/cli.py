@@ -17,6 +17,7 @@ def _setup_logging(level: str) -> None:
         level=getattr(logging, level.upper(), logging.INFO),
         format="%(asctime)s %(levelname)s %(name)s: %(message)s",
     )
+    logging.getLogger("alembic.runtime.plugins").setLevel(logging.WARNING)
 
 
 def cmd_serve(args: argparse.Namespace) -> int:
@@ -114,6 +115,17 @@ async def _reset_password(username: str) -> int:
     return 0
 
 
+def _run_cli(coro) -> int:  # type: ignore[no-untyped-def]
+    try:
+        return int(asyncio.run(coro))
+    except KeyboardInterrupt:
+        return 130
+    except Exception as exc:  # noqa: BLE001
+        first = str(exc).splitlines()[0] if str(exc) else type(exc).__name__
+        print(f"error: {first}", file=sys.stderr)
+        return 1
+
+
 def main(argv: list[str] | None = None) -> None:
     parser = argparse.ArgumentParser(prog="netmon", description="NetworkMonitor")
     parser.add_argument("--version", action="version", version=f"netmon {__version__}")
@@ -129,9 +141,9 @@ def main(argv: list[str] | None = None) -> None:
         sys.exit(cmd_serve(args))
     if args.command == "migrate":
         _setup_logging("info")
-        sys.exit(asyncio.run(_migrate()))
+        sys.exit(_run_cli(_migrate()))
     if args.command == "reset-password":
-        _setup_logging("warning")
-        sys.exit(asyncio.run(_reset_password(args.username)))
+        _setup_logging("error")
+        sys.exit(_run_cli(_reset_password(args.username)))
     parser.print_help()
     sys.exit(2)

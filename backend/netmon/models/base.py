@@ -11,6 +11,9 @@ class Base(DeclarativeBase):
 
 
 class TimestampMixin:
+    # fetch server-generated created_at/updated_at with RETURNING (no lazy IO after flush)
+    __mapper_args__ = {"eager_defaults": True}
+
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), nullable=False, server_default=func.now()
     )

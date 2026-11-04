@@ -27,8 +27,16 @@ async def test_setup_flow(client: httpx.AsyncClient) -> None:
     r = await client.post("/api/setup", json={**ADMIN, "language": "he"})
     assert r.status_code == 201, r.text
     user = r.json()["user"]
-    assert set(user) == {"id", "username", "email", "role", "language", "is_active",
-                         "last_login_at", "created_at"}
+    assert set(user) == {
+        "id",
+        "username",
+        "email",
+        "role",
+        "language",
+        "is_active",
+        "last_login_at",
+        "created_at",
+    }
     assert user["role"] == "admin" and user["language"] == "he"
     assert "netmon_session" in r.cookies
     cookie = r.headers["set-cookie"].lower()
@@ -60,7 +68,9 @@ async def test_login_logout_me(admin: httpx.AsyncClient) -> None:
     assert (await admin.get("/api/auth/me")).status_code == 401
     r = await admin.post("/api/auth/login", json={"username": "ADMIN", "password": "wrong-pass"})
     assert r.status_code == 401 and r.json()["error"]["code"] == "invalid_credentials"
-    r = await admin.post("/api/auth/login", json={"username": "Admin", "password": ADMIN["password"]})
+    r = await admin.post(
+        "/api/auth/login", json={"username": "Admin", "password": ADMIN["password"]}
+    )
     assert r.status_code == 200
     me = (await admin.get("/api/auth/me")).json()["user"]
     assert me["username"] == "admin" and me["last_login_at"] is not None
@@ -73,7 +83,9 @@ async def test_login_rate_limit(admin: httpx.AsyncClient) -> None:
     for _ in range(10):
         r = await admin.post("/api/auth/login", json={"username": "admin", "password": "nopenope"})
         assert r.status_code == 401
-    r = await admin.post("/api/auth/login", json={"username": "admin", "password": ADMIN["password"]})
+    r = await admin.post(
+        "/api/auth/login", json={"username": "admin", "password": ADMIN["password"]}
+    )
     assert r.status_code == 429 and r.json()["error"]["code"] == "rate_limited"
     # other usernames from the same IP are unaffected
     r = await admin.post("/api/auth/login", json={"username": "other", "password": "nopenope"})
@@ -105,10 +117,14 @@ async def test_csrf_origin_and_content_type(admin: httpx.AsyncClient) -> None:
     r = await admin.post("/api/groups", json={"name": "X"}, headers={"Origin": "http://testserver"})
     assert r.status_code == 201
     r = await admin.post(
-        "/api/groups", content=b"name=Y", headers={"Content-Type": "application/x-www-form-urlencoded"}
+        "/api/groups",
+        content=b"name=Y",
+        headers={"Content-Type": "application/x-www-form-urlencoded"},
     )
     assert r.status_code == 415 and r.json()["error"]["code"] == "unsupported_media_type"
-    r = await admin.post("/api/groups", content=b"{bad json", headers={"Content-Type": "application/json"})
+    r = await admin.post(
+        "/api/groups", content=b"{bad json", headers={"Content-Type": "application/json"}
+    )
     assert r.status_code == 400 and r.json()["error"]["code"] == "bad_request"
 
 
@@ -121,12 +137,14 @@ async def test_viewer_role(viewer: httpx.AsyncClient) -> None:
 
 
 async def test_users_crud_and_last_admin(admin: httpx.AsyncClient) -> None:
-    r = await admin.post("/api/users", json={"username": "bob", "password": "bob-pass1",
-                                             "role": "viewer"})
+    r = await admin.post(
+        "/api/users", json={"username": "bob", "password": "bob-pass1", "role": "viewer"}
+    )
     assert r.status_code == 201
     bob = r.json()
-    r = await admin.post("/api/users", json={"username": "BOB", "password": "bob-pass1",
-                                             "role": "viewer"})
+    r = await admin.post(
+        "/api/users", json={"username": "BOB", "password": "bob-pass1", "role": "viewer"}
+    )
     assert r.status_code == 409 and r.json()["error"]["details"] == [{"field": "username"}]
     r = await admin.get("/api/users")
     assert [u["username"] for u in r.json()["items"]] == ["admin", "bob"]
@@ -145,8 +163,9 @@ async def test_users_crud_and_last_admin(admin: httpx.AsyncClient) -> None:
 
 
 async def test_deactivated_user_session_invalid(app, admin: httpx.AsyncClient) -> None:  # type: ignore[no-untyped-def]
-    await admin.post("/api/users", json={"username": "carol", "password": "carol-pass",
-                                         "role": "viewer"})
+    await admin.post(
+        "/api/users", json={"username": "carol", "password": "carol-pass", "role": "viewer"}
+    )
     transport = httpx.ASGITransport(app=app)
     async with httpx.AsyncClient(transport=transport, base_url="http://testserver") as c:
         await c.post("/api/auth/login", json={"username": "carol", "password": "carol-pass"})
