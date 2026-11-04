@@ -597,7 +597,7 @@ Scheduling:
 | status | text | NOT NULL CHECK in scan_status |
 | group_id | integer | NULL, FK `groups.id` ON DELETE SET NULL |
 | targets | text[] | NOT NULL |
-| options | jsonb | NOT NULL. The options used, **with secrets removed** (`extra_communities` → `[]`, v3 keys → null), plus `extra_communities_count`, `extra_v3_count`. |
+| options | jsonb | NOT NULL. The options used, **with secrets removed** (`extra_communities` → `[]`, v3 keys → null, each `extra_v3` entry keeps `v3_auth_key_set` / `v3_priv_key_set` so the API can report them), plus `extra_communities_count`, `extra_v3_count`. |
 | credentials | jsonb | NOT NULL DEFAULT '[]'. **Internal, never returned by the API.** The ordered list of full SNMP credential objects tried (index 0 = the group's effective credentials, with the `snmp_port` override applied). Used by import. |
 | total_hosts | integer | NOT NULL |
 | scanned_hosts | integer | NOT NULL DEFAULT 0 |

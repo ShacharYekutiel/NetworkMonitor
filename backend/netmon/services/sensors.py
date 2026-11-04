@@ -8,7 +8,7 @@ from sqlalchemy import select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from netmon.models import Device, Event, Sensor, SensorChannel
-from netmon.poller.sensor_types import THRESHOLD_KEYS, get_type
+from netmon.poller.sensor_types import THRESHOLD_KEYS, channel_unit, get_type
 from netmon.poller.snmp_client import resolve_credentials
 from netmon.poller.types import CheckContext
 from netmon.services import events as events_svc
@@ -16,15 +16,30 @@ from netmon.services.serialize import now_utc
 
 
 def build_channels(
-    type_: str, overrides: dict[str, dict[str, float | None]]
+    type_: str,
+    overrides: dict[str, dict[str, float | None]],
+    config: dict[str, Any] | None = None,
 ) -> list[SensorChannel]:
     tdef = get_type(type_)
     out = []
     for ch in tdef.channels:
         t = {k: getattr(ch, k) for k in THRESHOLD_KEYS}
         t.update(overrides.get(ch.key, {}))
-        out.append(SensorChannel(key=ch.key, unit=ch.unit, status="unknown", last_value=None, **t))
+        unit = channel_unit(type_, ch, config)
+        out.append(SensorChannel(key=ch.key, unit=unit, status="unknown", last_value=None, **t))
     return out
+
+
+def sync_channel_units(sensor: Sensor) -> None:
+    """snmp_custom: keep the `value` channel unit equal to config.unit."""
+    tdef = get_type(sensor.type)
+    by_key = {c.key: c for c in sensor.channels}
+    for ch in tdef.channels:
+        row = by_key.get(ch.key)
+        if row is not None:
+            unit = channel_unit(sensor.type, ch, sensor.config)
+            if row.unit != unit:
+                row.unit = unit
 
 
 def apply_channel_overrides(sensor: Sensor, overrides: dict[str, dict[str, float | None]]) -> None:
@@ -52,7 +67,9 @@ def channel_thresholds(sensor: Sensor) -> list[tuple[str, str, dict[str, float |
 
 
 def default_thresholds(
-    type_: str, overrides: dict[str, dict[str, float | None]] | None = None
+    type_: str,
+    overrides: dict[str, dict[str, float | None]] | None = None,
+    config: dict[str, Any] | None = None,
 ) -> list[tuple[str, str, dict[str, float | None]]]:
     tdef = get_type(type_)
     out = []
@@ -60,7 +77,7 @@ def default_thresholds(
         t = {k: getattr(ch, k) for k in THRESHOLD_KEYS}
         if overrides:
             t.update(overrides.get(ch.key, {}))
-        out.append((ch.key, ch.unit, t))
+        out.append((ch.key, channel_unit(type_, ch, config), t))
     return out
 
 

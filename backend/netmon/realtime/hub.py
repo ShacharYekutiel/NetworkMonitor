@@ -20,9 +20,10 @@ def make_message(type_: str, data: dict[str, Any]) -> str:
 
 
 class _Client:
-    def __init__(self, ws: WebSocket, user_id: int | None = None) -> None:
+    def __init__(self, ws: WebSocket, user_id: int | None = None, is_admin: bool = False) -> None:
         self.ws = ws
         self.user_id = user_id
+        self.is_admin = is_admin
         self.queue: asyncio.Queue[str | None] = asyncio.Queue(maxsize=1000)
         self.task: asyncio.Task[None] | None = None
 
@@ -47,9 +48,13 @@ class Hub:
         return len(self._clients)
 
     def register(
-        self, ws: WebSocket, first: str | None = None, user_id: int | None = None
+        self,
+        ws: WebSocket,
+        first: str | None = None,
+        user_id: int | None = None,
+        is_admin: bool = False,
     ) -> _Client:
-        client = _Client(ws, user_id)
+        client = _Client(ws, user_id, is_admin)
         if first is not None:
             client.queue.put_nowait(first)
         client.task = asyncio.create_task(client.sender())
@@ -64,14 +69,18 @@ class Hub:
             with contextlib.suppress(Exception):
                 await asyncio.wait_for(client.task, 2)
 
-    def broadcast(self, type_: str, data: dict[str, Any]) -> None:
+    def broadcast(self, type_: str, data: dict[str, Any], admin_only: bool = False) -> None:
+        """Send to every socket; `admin_only` messages (discovery.*) only to admin sockets
+        (the role at connect time; a role change closes the socket)."""
         for q in self.listeners:
             with contextlib.suppress(asyncio.QueueFull):
-                q.put_nowait({"type": type_, "data": data})
+                q.put_nowait({"type": type_, "data": data, "admin_only": admin_only})
         if not self._clients:
             return
         msg = make_message(type_, data)
         for client in list(self._clients):
+            if admin_only and not client.is_admin:
+                continue
             try:
                 client.queue.put_nowait(msg)
             except asyncio.QueueFull:

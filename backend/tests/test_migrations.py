@@ -169,3 +169,117 @@ async def test_extension_failure_falls_back(tmp_path) -> None:  # type: ignore[n
         await admin.execute(f'DROP DATABASE IF EXISTS "{db}" WITH (FORCE)')
         await admin.execute(f"DROP ROLE IF EXISTS {role}")
         await admin.close()
+
+
+# ------------------------------------------------------------------ [2a] migration 0003
+DISCOVERY_TABLES = {
+    "discovery_profiles",
+    "discovery_scans",
+    "discovery_results",
+    "discovery_known_hosts",
+}
+
+
+def _alembic(engine_conn, action: str, rev: str) -> None:  # type: ignore[no-untyped-def]
+    from alembic import command
+
+    from netmon.db.migrate import _alembic_config
+
+    cfg = _alembic_config()
+    cfg.attributes["connection"] = engine_conn
+    getattr(command, action)(cfg, rev)
+
+
+@pytest.mark.parametrize("mode", ["timescale", "fallback"])
+async def test_migration_0003_up_down(mode: str, rt) -> None:  # type: ignore[no-untyped-def]
+    assert TEST_DATABASE_URL
+    if mode == "timescale" and rt.settings.netmon_disable_timescale:
+        pytest.skip("suite runs in forced fallback mode")
+    name = f"netmon_test_m3_{secrets.token_hex(3)}"
+    admin = await asyncpg.connect(_plain(TEST_DATABASE_URL))
+    await admin.execute(f'CREATE DATABASE "{name}"')
+    engine = make_engine(db_url_for(name).replace("postgresql://", "postgresql+asyncpg://"))
+    try:
+        await run_migrations(engine)
+        enabled = await timescale.bootstrap(engine, 90, disabled=(mode == "fallback"))
+        if mode == "timescale" and not enabled:
+            pytest.skip("TimescaleDB not available")
+        assert enabled is (mode == "timescale")
+        url = db_url_for(name)
+        assert DISCOVERY_TABLES <= await _tables(url)
+        conn = await asyncpg.connect(_plain(url))
+        try:
+            idx = {
+                r["indexname"]
+                for r in await conn.fetch(
+                    "SELECT indexname FROM pg_indexes WHERE tablename LIKE 'discovery_%'"
+                )
+            }
+            assert {
+                "ux_discovery_profiles_name_lower",
+                "ix_discovery_scans_started_at",
+                "ux_discovery_scans_running",
+                "ix_discovery_results_scan_id",
+            } <= idx
+            gid = await conn.fetchval("INSERT INTO groups (name) VALUES ('g') RETURNING id")
+            did = await conn.fetchval(
+                "INSERT INTO devices (group_id, name, host) VALUES ($1, 'd', 'h') RETURNING id", gid
+            )
+            for t in ("snmp_custom", "snmp_disk", "ping"):
+                await conn.execute(
+                    "INSERT INTO sensors (device_id, name, type, config) VALUES ($1, $2, $3, '{}')",
+                    did,
+                    t,
+                    t,
+                )
+            await conn.execute(
+                "INSERT INTO notification_channels (name, type, config) "
+                "VALUES ('t', 'telegram', '{}'), ('w', 'webhook', '{}')"
+            )
+            await conn.execute(
+                "INSERT INTO events (kind, message) VALUES ('discovery', 'x'), ('system', 'y')"
+            )
+            await conn.execute(
+                "INSERT INTO measurements (time, sensor_id, channel, value) "
+                "VALUES (now(), 1, 'value', 1)"
+            )
+        finally:
+            await conn.close()
+        async with engine.connect() as c:
+            await c.run_sync(lambda sc: _alembic(sc, "downgrade", "0002"))
+            await c.commit()
+        assert not (DISCOVERY_TABLES & await _tables(url))
+        conn = await asyncpg.connect(_plain(url))
+        try:
+            assert await conn.fetchval("SELECT version_num FROM alembic_version") == "0002"
+            assert [r["type"] for r in await conn.fetch("SELECT type FROM sensors")] == ["ping"]
+            assert await conn.fetchval("SELECT count(*) FROM notification_channels") == 1
+            assert await conn.fetchval("SELECT count(*) FROM events") == 1
+            with pytest.raises(asyncpg.CheckViolationError):
+                await conn.execute(
+                    "INSERT INTO sensors (device_id, name, type, config) "
+                    "VALUES ($1, 'x', 'snmp_custom', '{}')",
+                    did,
+                )
+            with pytest.raises(asyncpg.CheckViolationError):
+                await conn.execute("INSERT INTO events (kind) VALUES ('discovery')")
+            # measurements (a hypertable in Timescale mode) are untouched
+            assert await conn.fetchval("SELECT count(*) FROM measurements") == 1
+        finally:
+            await conn.close()
+        await run_migrations(engine)  # upgrade again
+        assert DISCOVERY_TABLES <= await _tables(url)
+        conn = await asyncpg.connect(_plain(url))
+        try:
+            assert await conn.fetchval("SELECT version_num FROM alembic_version") == "0003"
+            await conn.execute(
+                "INSERT INTO sensors (device_id, name, type, config) "
+                "VALUES ($1, 'x', 'snmp_disk', '{}')",
+                did,
+            )
+        finally:
+            await conn.close()
+    finally:
+        await engine.dispose()
+        await admin.execute(f'DROP DATABASE IF EXISTS "{name}" WITH (FORCE)')
+        await admin.close()

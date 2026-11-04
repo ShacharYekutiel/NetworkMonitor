@@ -38,6 +38,9 @@ class LockHeldError(RuntimeError):
 class Runtime:
     def __init__(self, settings: Settings) -> None:
         self.settings = settings
+        from netmon.alerts import telegram
+
+        telegram.configure(settings.netmon_telegram_api_base)
         self.version = __version__
         self.secret_key: str = ""
         self.engine: AsyncEngine | None = None
@@ -47,6 +50,8 @@ class Runtime:
         self.hub = Hub()
         self.scheduler: Scheduler | None = None
         self.alerts: AlertEngine | None = None
+        self.discovery: Any = None  # netmon.discovery.runner.ScanRunner
+        self.discovery_scheduler: Any = None
         self.semaphore = asyncio.Semaphore(max(1, settings.netmon_max_concurrent_checks))
         self.started_monotonic = time.monotonic()
         self._lock_conn: AsyncConnection | None = None
@@ -87,6 +92,16 @@ class Runtime:
         self.retention_policy_ok = ts.retention_policy
         await self._mark_stale_sensors()
         self.alerts = AlertEngine(self)
+        from netmon.discovery.runner import ScanRunner
+        from netmon.discovery.scheduler import DiscoveryScheduler
+
+        self.discovery = ScanRunner(self)
+        n = await self.discovery.mark_interrupted()
+        if n:
+            log.warning("Marked %d interrupted discovery scan(s) as failed", n)
+        if maintenance:
+            self.discovery_scheduler = DiscoveryScheduler(self)
+            self.discovery_scheduler.start()
         self._tasks.append(asyncio.create_task(self._rollup_loop(), name="netmon-rollup"))
         if maintenance:
             self._tasks.append(asyncio.create_task(retention.loop(self), name="netmon-retention"))
@@ -102,6 +117,12 @@ class Runtime:
         log.info("NetworkMonitor %s started (timescale=%s)", self.version, self.timescale_enabled)
 
     async def stop(self) -> None:
+        if self.discovery_scheduler is not None:
+            await self.discovery_scheduler.stop()
+            self.discovery_scheduler = None
+        if self.discovery is not None:
+            with contextlib.suppress(Exception):
+                await self.discovery.shutdown()
         if self.scheduler:
             await self.scheduler.stop()
         if self.alerts:

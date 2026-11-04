@@ -9,6 +9,8 @@ from netmon.poller.checks import (
     http,
     ping,
     snmp_cpu,
+    snmp_custom,
+    snmp_disk,
     snmp_interface,
     snmp_memory,
     snmp_system,
@@ -25,4 +27,6 @@ PLUGINS: dict[str, Callable[[CheckContext], Awaitable[CheckResult]]] = {
     "http": http.run,
     "tcp_port": tcp_port.run,
     "dns": dns.run,
+    "snmp_custom": snmp_custom.run,
+    "snmp_disk": snmp_disk.run,
 }

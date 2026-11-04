@@ -142,3 +142,13 @@ def _run_blocking(args: list[str], timeout: float) -> bytes:
     except subprocess.TimeoutExpired as exc:
         raise TimeoutError("ping timed out") from exc
     return res.stdout or b""
+
+
+async def ping_once(host: str, timeout_ms: int) -> float | None:
+    """One echo request with the same privileged/unprivileged/binary fallback as the sensor.
+    Returns the RTT in ms, or None when there was no reply (or ping is unavailable)."""
+    try:
+        rtts, _ = await _ping(host, 1, timeout_ms, 56)
+    except Exception:  # noqa: BLE001
+        return None
+    return round(rtts[0], 3) if rtts else None

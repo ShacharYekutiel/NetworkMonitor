@@ -18,6 +18,8 @@ SENSOR_TYPES_ORDER = [
     "http",
     "tcp_port",
     "dns",
+    "snmp_custom",
+    "snmp_disk",
 ]
 AUTO_SENSOR_TYPES = {"ping", "snmp_system", "snmp_cpu", "snmp_memory"}
 
@@ -25,11 +27,12 @@ AUTO_SENSOR_TYPES = {"ping", "snmp_system", "snmp_cpu", "snmp_memory"}
 @dataclass(frozen=True)
 class ConfigField:
     key: str
-    type: str  # int | str | bool | enum | int_list | str_nullable | int_nullable | headers
+    # int | str | bool | enum | int_list | str_nullable | int_nullable | headers | float
+    type: str
     required: bool = False
     default: Any = None
-    min: int | None = None
-    max: int | None = None
+    min: float | None = None
+    max: float | None = None
     options: list[str] | None = None
 
 
@@ -175,7 +178,46 @@ SENSOR_TYPES: dict[str, SensorTypeDef] = {
         ],
         [ChannelDef("resolve_time_ms", "ms", warning_max=200, down_max=1000)],
     ),
+    "snmp_custom": SensorTypeDef(
+        "snmp_custom",
+        True,
+        "value",
+        [
+            ConfigField("oid", "str", required=True),
+            ConfigField(
+                "value_type", "enum", default="gauge", options=["gauge", "counter", "string"]
+            ),
+            ConfigField("unit", "str", default=""),
+            ConfigField("multiplier", "float", default=1.0, min=-1e12, max=1e12),
+            ConfigField("label", "str", default=""),
+            ConfigField("percent_of_oid", "str_nullable", default=None),
+            ConfigField("expected", "str_nullable", default=None),
+            ConfigField("match", "enum", default="equals", options=["equals", "contains"]),
+        ],
+        [ChannelDef("value", "")],
+    ),
+    "snmp_disk": SensorTypeDef(
+        "snmp_disk",
+        True,
+        "disk_used_pct",
+        [
+            ConfigField("storage_descr", "str", required=True),
+            ConfigField("storage_index", "int_nullable", default=None, min=1),
+        ],
+        [
+            ChannelDef("disk_used_pct", "%", warning_max=85, down_max=95),
+            ChannelDef("disk_used_bytes", "B"),
+            ChannelDef("disk_free_bytes", "B"),
+            ChannelDef("disk_total_bytes", "B"),
+        ],
+    ),
 }
+
+OID_RE = re.compile(r"^\.?[0-2](\.\d+){1,127}$")
+
+
+def normalize_oid(v: str) -> str:
+    return v.strip().lstrip(".")
 
 
 def get_type(type_: str) -> SensorTypeDef:
@@ -189,11 +231,15 @@ def _is_int(v: Any) -> bool:
     return isinstance(v, int) and not isinstance(v, bool)
 
 
-def _check_range(f: ConfigField, v: int, loc: list, errors: list) -> None:
+def _num(v: float) -> str:
+    return str(int(v)) if float(v).is_integer() and abs(v) < 1e15 else f"{v:g}"
+
+
+def _check_range(f: ConfigField, v: float, loc: list, errors: list) -> None:
     if f.min is not None and v < f.min:
-        errors.append({"loc": loc, "msg": f"must be >= {f.min}"})
+        errors.append({"loc": loc, "msg": f"must be >= {_num(f.min)}"})
     if f.max is not None and v > f.max:
-        errors.append({"loc": loc, "msg": f"must be <= {f.max}"})
+        errors.append({"loc": loc, "msg": f"must be <= {_num(f.max)}"})
 
 
 _HTTP_URL = re.compile(r"^https?://\S+$", re.IGNORECASE)
@@ -237,6 +283,12 @@ def validate_config(
             if not _is_int(v):
                 errors.append({"loc": loc, "msg": "must be an integer"})
                 continue
+            _check_range(f, v, loc, errors)
+        elif f.type == "float":
+            if isinstance(v, bool) or not isinstance(v, (int, float)):
+                errors.append({"loc": loc, "msg": "must be a number"})
+                continue
+            v = float(v)
             _check_range(f, v, loc, errors)
         elif f.type == "int_nullable":
             if v is not None:
@@ -287,9 +339,42 @@ def validate_config(
             errors.append({"loc": ["body", loc_prefix, "url"], "msg": "must start with http(s)://"})
     if type_ == "dns" and isinstance(out.get("query_name"), str) and len(out["query_name"]) > 255:
         errors.append({"loc": ["body", loc_prefix, "query_name"], "msg": "too long"})
+    if type_ == "snmp_custom":
+        _validate_snmp_custom(out, loc_prefix, errors)
+    if type_ == "snmp_disk" and isinstance(out.get("storage_descr"), str):
+        if len(out["storage_descr"]) > 255:
+            errors.append(
+                {"loc": ["body", loc_prefix, "storage_descr"], "msg": "must be 1-255 characters"}
+            )
     if errors:
         raise ApiError(422, "validation_error", "Invalid sensor config", errors)
     return out
+
+
+def _validate_snmp_custom(out: dict[str, Any], loc_prefix: str, errors: list) -> None:
+    for key in ("oid", "percent_of_oid"):
+        v = out.get(key)
+        if not isinstance(v, str):
+            continue
+        if not OID_RE.match(v.strip()):
+            errors.append(
+                {"loc": ["body", loc_prefix, key], "msg": "must be a numeric OID like 1.3.6.1..."}
+            )
+        else:
+            out[key] = normalize_oid(v)
+    if isinstance(out.get("unit"), str) and len(out["unit"]) > 16:
+        errors.append({"loc": ["body", loc_prefix, "unit"], "msg": "must be 0-16 characters"})
+    if isinstance(out.get("label"), str) and len(out["label"]) > 64:
+        errors.append({"loc": ["body", loc_prefix, "label"], "msg": "must be 0-64 characters"})
+    if out.get("multiplier") == 0:
+        errors.append({"loc": ["body", loc_prefix, "multiplier"], "msg": "must not be 0"})
+    if out.get("percent_of_oid") is not None and out.get("value_type") != "gauge":
+        errors.append(
+            {
+                "loc": ["body", loc_prefix, "percent_of_oid"],
+                "msg": "only allowed when value_type is gauge",
+            }
+        )
 
 
 def _copy_default(v: Any) -> Any:
@@ -301,6 +386,13 @@ def _copy_default(v: Any) -> Any:
 
 
 THRESHOLD_KEYS = ("warning_min", "warning_max", "down_min", "down_max")
+
+
+def channel_unit(type_: str, ch: ChannelDef, config: dict[str, Any] | None) -> str:
+    """The unit stored on a sensor channel: snmp_custom takes it from config.unit."""
+    if type_ == "snmp_custom" and ch.key == "value" and config is not None:
+        return str(config.get("unit") or "")[:16]
+    return ch.unit
 
 
 def validate_channel_overrides(type_: str, channels: Any) -> dict[str, dict[str, float | None]]:
@@ -352,6 +444,8 @@ DEFAULT_NAMES = {
     "http": "HTTP",
     "tcp_port": "TCP Port",
     "dns": "DNS",
+    "snmp_custom": "SNMP",
+    "snmp_disk": "Disk",
 }
 
 
@@ -361,4 +455,10 @@ def default_sensor_name(type_: str, config: dict[str, Any]) -> str:
         return str(config["if_name"])[:128]
     if type_ == "tcp_port" and config.get("port"):
         return f"TCP {config['port']}"
+    if type_ == "snmp_custom":
+        if config.get("label"):
+            return str(config["label"])[:128]
+        return f"SNMP {config.get('oid', '')}"[:128]
+    if type_ == "snmp_disk" and config.get("storage_descr"):
+        return f"Disk {config['storage_descr']}"[:128]
     return DEFAULT_NAMES.get(type_, type_)

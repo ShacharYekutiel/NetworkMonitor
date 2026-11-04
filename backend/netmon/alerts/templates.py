@@ -35,6 +35,8 @@ LABELS = {
         "link": "Open in NetworkMonitor",
         "test_subject": "[NetworkMonitor] Test notification",
         "test_body": "This is a test notification from NetworkMonitor.",
+        "new_hosts_subject": "[NetworkMonitor] New hosts discovered: {name} ({count})",
+        "more": "+{n} more",
     },
     "he": {
         "sensor": "חיישן",
@@ -48,8 +50,36 @@ LABELS = {
         "link": "פתיחה ב-NetworkMonitor",
         "test_subject": "[NetworkMonitor] הודעת בדיקה",
         "test_body": "זוהי הודעת בדיקה מ-NetworkMonitor.",
+        "new_hosts_subject": "[NetworkMonitor] התגלו מארחים חדשים: {name} ({count})",
+        "more": "ועוד {n}",
     },
 }
+
+
+DEVICE_CLASS_NAMES = {
+    "en": {
+        "router": "router",
+        "switch": "switch",
+        "access_point": "access point",
+        "printer": "printer",
+        "nas": "NAS",
+        "server": "server",
+        "workstation": "workstation",
+        "unknown": "unknown",
+    },
+    "he": {
+        "router": "נתב/חומת אש",
+        "switch": "מתג",
+        "access_point": "נקודת גישה",
+        "printer": "מדפסת",
+        "nas": "NAS",
+        "server": "שרת",
+        "workstation": "תחנת עבודה",
+        "unknown": "לא ידוע",
+    },
+}
+
+TELEGRAM_LIMIT = 4096
 
 
 def _lang(lang: str) -> str:
@@ -60,6 +90,11 @@ def subject(payload: dict[str, Any], lang: str) -> str:
     lang = _lang(lang)
     if payload.get("event") == "test":
         return LABELS[lang]["test_subject"]
+    if payload.get("event") == "discovery.new_hosts":
+        return LABELS[lang]["new_hosts_subject"].format(
+            name=(payload.get("profile") or {}).get("name", "?"),
+            count=new_hosts_count(payload),
+        )
     status = STATUS_NAMES[lang].get(payload.get("new_status") or "", payload.get("new_status"))
     device = (payload.get("device") or {}).get("name", "?")
     sensor = (payload.get("sensor") or {}).get("name", "?")
@@ -87,8 +122,40 @@ def _rows(payload: dict[str, Any], lang: str) -> list[tuple[str, str]]:
     return rows
 
 
+def new_hosts_count(payload: dict[str, Any]) -> int:
+    """Full new-host count: `hosts` is capped at 50, the message always has the total."""
+    import re
+
+    m = re.search(r"(\d+) new host", str(payload.get("message") or ""))
+    if m:
+        return int(m.group(1))
+    return len(payload.get("hosts") or [])
+
+
+def host_lines(payload: dict[str, Any], lang: str) -> list[str]:
+    """`10.0.0.5 — brn3c2af4.lan — printer — brother` (missing parts omitted), then `+N more`."""
+    names = DEVICE_CLASS_NAMES[lang]
+    lines = []
+    hosts = payload.get("hosts") or []
+    for h in hosts:
+        parts = [h.get("ip"), h.get("hostname")]
+        cls = h.get("device_class")
+        parts.append(names.get(cls, cls) if cls else None)
+        parts.append(h.get("vendor"))
+        lines.append(" — ".join(str(p) for p in parts if p))
+    extra = new_hosts_count(payload) - len(hosts)
+    if extra > 0:
+        lines.append(LABELS[lang]["more"].format(n=extra))
+    return lines
+
+
 def text_body(payload: dict[str, Any], lang: str) -> str:
     lang = _lang(lang)
+    if payload.get("event") == "discovery.new_hosts":
+        lines = host_lines(payload, lang)
+        if payload.get("url"):
+            lines.append(f"{LABELS[lang]['link']}: {payload['url']}")
+        return "\n".join(lines) + "\n"
     lines = []
     if payload.get("event") == "test":
         lines.append(LABELS[lang]["test_body"])
@@ -104,6 +171,16 @@ def html_body(payload: dict[str, Any], lang: str) -> str:
     intro = ""
     if payload.get("event") == "test":
         intro = f"<p>{html.escape(LABELS[lang]['test_body'])}</p>"
+    if payload.get("event") == "discovery.new_hosts":
+        items = "".join(f"<li>{html.escape(x)}</li>" for x in host_lines(payload, lang))
+        link = ""
+        if payload.get("url"):
+            url = html.escape(payload["url"])
+            link = f'<p><a href="{url}">{html.escape(LABELS[lang]["link"])}</a></p>'
+        return (
+            f'<!doctype html><html lang="{lang}" dir="{direction}"><body '
+            f'style="font-family:sans-serif"><ul>{items}</ul>{link}</body></html>'
+        )
     rows = "".join(
         f'<tr><th style="text-align:start;padding:4px 12px">{html.escape(k)}</th>'
         f'<td style="padding:4px 12px">{html.escape(str(v))}</td></tr>'
@@ -117,3 +194,36 @@ def html_body(payload: dict[str, Any], lang: str) -> str:
         f'<!doctype html><html lang="{lang}" dir="{direction}"><body '
         f'style="font-family:sans-serif">{intro}<table>{rows}</table>{link}</body></html>'
     )
+
+
+def truncate_telegram(text: str, limit: int = TELEGRAM_LIMIT) -> str:
+    """Cut to Telegram's limit on a line boundary, with an ellipsis appended."""
+    if len(text) <= limit:
+        return text
+    cut = text[: limit - 1]
+    nl = cut.rfind("\n")
+    if nl > 0:
+        cut = cut[:nl]
+    return cut + "…"
+
+
+def telegram_text(payload: dict[str, Any], lang: str, parse_mode: str | None) -> str:
+    lang = _lang(lang)
+    subj = subject(payload, lang)
+    if parse_mode != "HTML":
+        return truncate_telegram(f"{subj}\n\n" + text_body(payload, lang).rstrip("\n"))
+
+    def esc(v: Any) -> str:
+        return html.escape(str(v), quote=False)
+
+    lines = [f"<b>{esc(subj)}</b>"]
+    if payload.get("event") == "test":
+        lines.append(esc(LABELS[lang]["test_body"]))
+    elif payload.get("event") == "discovery.new_hosts":
+        lines += [esc(x) for x in host_lines(payload, lang)]
+    else:
+        lines += [f"<b>{esc(k)}:</b> {esc(v)}" for k, v in _rows(payload, lang)]
+    if payload.get("url"):
+        url = html.escape(payload["url"], quote=True)
+        lines.append(f'<a href="{url}">{esc(LABELS[lang]["link"])}</a>')
+    return truncate_telegram("\n".join(lines))

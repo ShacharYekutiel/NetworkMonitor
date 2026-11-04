@@ -10,6 +10,7 @@ from sqlalchemy import delete, func, select
 
 from netmon.alerts.email import SmtpError
 from netmon.alerts.engine import build_payload, send_to_channel
+from netmon.alerts.telegram import TelegramError
 from netmon.alerts.webhook import WebhookError
 from netmon.api.common import commit_or_conflict
 from netmon.api.deps import DB, RT, Admin, Page
@@ -21,6 +22,7 @@ from netmon.schemas import (
     EmailConfig,
     NotificationChannelCreate,
     NotificationChannelPatch,
+    TelegramConfig,
     WebhookConfig,
 )
 from netmon.services import settings as settings_svc
@@ -29,10 +31,14 @@ from netmon.services.serialize import iso, notification_channel_out, now_utc, pa
 router = APIRouter()
 
 
-def validate_channel_config(type_: str, config: Any) -> dict[str, Any]:
-    model = EmailConfig if type_ == "email" else WebhookConfig
+def validate_channel_config(
+    type_: str, config: Any, stored: dict[str, Any] | None = None
+) -> dict[str, Any]:
+    """Validate a channel config. For telegram, `bot_token` follows the secret rules against
+    `stored` (omitted/null keep, a new string replaces, "" is rejected)."""
+    model: Any = {"email": EmailConfig, "webhook": WebhookConfig, "telegram": TelegramConfig}[type_]
     try:
-        return model.model_validate(config).model_dump()
+        out = model.model_validate(config).model_dump()
     except ValidationError as exc:
         details = [
             {
@@ -42,6 +48,15 @@ def validate_channel_config(type_: str, config: Any) -> dict[str, Any]:
             for e in exc.errors()
         ]
         raise ApiError(422, "validation_error", "Invalid channel config", details) from exc
+    if type_ == "telegram":
+        out.pop("bot_token_set", None)
+        token = out.get("bot_token")
+        if token is None and stored is not None:
+            token = stored.get("bot_token")
+        if not token:
+            raise validation_error(["body", "config", "bot_token"], "a bot token is required")
+        out["bot_token"] = token
+    return out
 
 
 async def _unique_channel_name(session: DB, name: str, exclude: int | None = None) -> None:
@@ -106,7 +121,7 @@ async def patch_channel(
     if "enabled" in fields and body.enabled is not None:
         ch.enabled = body.enabled
     if "config" in fields and body.config is not None:
-        ch.config = validate_channel_config(ch.type, body.config)
+        ch.config = validate_channel_config(ch.type, body.config, stored=dict(ch.config))
     await commit_or_conflict(session)
     await session.refresh(ch)
     rt.config_changed("notification_channel", ch.id, "updated")
@@ -140,6 +155,8 @@ async def test_channel(channel_id: int, _: Admin, rt: RT, session: DB) -> dict:
         raise ApiError(502, "smtp_error", str(exc)) from exc
     except WebhookError as exc:
         raise ApiError(502, "webhook_error", str(exc)) from exc
+    except TelegramError as exc:
+        raise ApiError(502, "telegram_error", str(exc)) from None
     return {"ok": True, "message": "sent"}
 
 
