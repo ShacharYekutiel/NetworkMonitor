@@ -1,0 +1,476 @@
+{
+  "common": {
+    "loading": "Loading…",
+    "save": "Save",
+    "saved": "Saved",
+    "cancel": "Cancel",
+    "close": "Close",
+    "delete": "Delete",
+    "deleted": "Deleted",
+    "deleteConfirm": "Delete \"{{name}}\"? This cannot be undone.",
+    "edit": "Edit",
+    "name": "Name",
+    "description": "Description",
+    "status": "Status",
+    "enabled": "Enabled",
+    "sortOrder": "Sort order",
+    "yes": "Yes",
+    "no": "No",
+    "all": "All",
+    "back": "Back",
+    "next": "Next",
+    "retry": "Retry",
+    "reset": "Reset",
+    "filter": "Filter…",
+    "clearFilters": "Clear filters",
+    "default": "Default",
+    "optional": "Optional",
+    "selectAll": "Select all",
+    "language": "Language"
+  },
+  "status": {
+    "up": "Up",
+    "warning": "Warning",
+    "down": "Down",
+    "paused": "Paused",
+    "unknown": "Unknown"
+  },
+  "role": {
+    "admin": "Administrator",
+    "viewer": "Viewer"
+  },
+  "theme": {
+    "label": "Theme",
+    "system": "System",
+    "light": "Light",
+    "dark": "Dark"
+  },
+  "live": {
+    "open": "Live",
+    "connecting": "Connecting…",
+    "closed": "Offline"
+  },
+  "nav": {
+    "dashboard": "Dashboard",
+    "events": "Events",
+    "notifications": "Notifications",
+    "settings": "Settings",
+    "users": "Users",
+    "account": "My account",
+    "logout": "Sign out",
+    "tree": "Devices",
+    "sidebar": "Navigation",
+    "toggleSidebar": "Toggle sidebar",
+    "breadcrumbs": "Breadcrumbs"
+  },
+  "tree": {
+    "search": "Search groups, devices, sensors",
+    "empty": "No groups yet.",
+    "noMatch": "Nothing matches.",
+    "expand": "Expand",
+    "collapse": "Collapse"
+  },
+  "login": {
+    "title": "Sign in",
+    "subtitle": "Sign in to monitor your network.",
+    "username": "Username",
+    "password": "Password",
+    "submit": "Sign in"
+  },
+  "setup": {
+    "title": "Welcome to NetworkMonitor",
+    "subtitle": "Let's create the administrator account.",
+    "stepLanguage": "Language",
+    "stepAdmin": "Administrator",
+    "language": "Interface and notification language",
+    "languageHint": "This becomes the default language for the login page and for notifications.",
+    "username": "Administrator username",
+    "email": "Email (optional)",
+    "password": "Password",
+    "confirmPassword": "Confirm password",
+    "submit": "Create administrator"
+  },
+  "dashboard": {
+    "title": "Dashboard",
+    "summary": "{{groups}} groups · {{devices}} devices · {{sensors}} sensors",
+    "sensors": "Sensors",
+    "devices": "Devices",
+    "total": "Total",
+    "problems": "Down and warning sensors",
+    "allGood": "All sensors are OK.",
+    "recentEvents": "Recent events",
+    "allEvents": "All events"
+  },
+  "groups": {
+    "add": "Add group",
+    "addSub": "Add subgroup",
+    "edit": "Edit group",
+    "parent": "Parent group",
+    "noParent": "(none — top level)",
+    "subgroups": "Subgroups",
+    "devices": "Devices",
+    "sensors": "Sensors",
+    "sensorCount": "Sensors: {{count}}",
+    "deleteTitle": "Delete group",
+    "deleteConfirm": "Delete group \"{{name}}\" together with all of its subgroups, devices and sensors ({{count}} sensors)? This cannot be undone."
+  },
+  "devices": {
+    "add": "Add device",
+    "edit": "Edit device",
+    "host": "Host",
+    "hostHint": "Hostname, IPv4 or IPv6 address",
+    "group": "Group",
+    "enabled": "Enabled (monitoring active)",
+    "autoSensors": "Create these sensors right away",
+    "none": "No devices in this group.",
+    "sensors": "Sensors",
+    "recentEvents": "Recent events",
+    "pause": "Pause device",
+    "resume": "Resume device",
+    "disabledNote": "The device is paused, so all of its sensors are paused.",
+    "deleteTitle": "Delete device",
+    "deleteConfirm": "Delete device \"{{name}}\" and all of its sensors? This cannot be undone."
+  },
+  "snmp": {
+    "title": "SNMP credentials",
+    "label": "SNMP",
+    "inheritParent": "Inherit from the parent group",
+    "inheritGroup": "Inherit from the group",
+    "inherited": "inherited",
+    "version": "Version",
+    "port": "Port",
+    "timeout": "Timeout (s)",
+    "retries": "Retries",
+    "community": "Community",
+    "v3Username": "Username",
+    "securityLevel": "Security level",
+    "authProtocol": "Auth protocol",
+    "authKey": "Auth key",
+    "privProtocol": "Privacy protocol",
+    "privKey": "Privacy key",
+    "source": {
+      "device": "set on the device",
+      "group": "inherited from a group",
+      "default": "built-in default (v2c, public)"
+    }
+  },
+  "secret": {
+    "stored": "•••••• (stored)",
+    "keepHint": "Leave empty to keep the stored value.",
+    "clear": "Clear the stored value"
+  },
+  "sensors": {
+    "add": "Add sensor",
+    "edit": "Edit sensor",
+    "create": "Create sensor",
+    "created": "Sensor \"{{name}}\" created",
+    "test": "Test",
+    "type": "Type",
+    "name": "Name",
+    "status": "Status",
+    "device": "Device",
+    "value": "Value",
+    "message": "Message",
+    "lastCheck": "Last check",
+    "since": "In this status since",
+    "interval": "Interval (s)",
+    "intervalDefault": "Empty = the default interval from Settings",
+    "none": "No sensors.",
+    "noConfig": "This sensor type has no settings.",
+    "noData": "No data in this time range.",
+    "noInterfaces": "The device reported no interfaces.",
+    "requiresSnmp": "This sensor uses SNMP. Credentials: {{source}}.",
+    "interfacesAdded": "Interface sensors added: {{ok}}, failed: {{failed}}",
+    "headersHint": "One header per line: Name: value",
+    "runNow": "Run now",
+    "pause": "Pause",
+    "resume": "Resume",
+    "paused": "Sensor paused",
+    "resumed": "Sensor resumed",
+    "history": "History",
+    "channel": "Channel",
+    "settings": "Sensor settings",
+    "events": "Events",
+    "deleteTitle": "Delete sensor",
+    "deleteConfirm": "Delete sensor \"{{name}}\" and its history? This cannot be undone."
+  },
+  "iface": {
+    "name": "Interface",
+    "alias": "Alias",
+    "speed": "Speed",
+    "status": "Admin/Oper",
+    "exists": "already monitored",
+    "selected": "Selected: {{count}}",
+    "add": "Add selected ({{count}})"
+  },
+  "check": {
+    "ok": "Check succeeded",
+    "failed": "Check failed"
+  },
+  "chart": {
+    "avg": "Average",
+    "min": "Min",
+    "max": "Max",
+    "minMax": "Min–max"
+  },
+  "range": {
+    "1h": "1 hour",
+    "24h": "24 hours",
+    "7d": "7 days",
+    "30d": "30 days"
+  },
+  "thresholds": {
+    "title": "Thresholds",
+    "warning_min": "Warning below",
+    "warning_max": "Warning above",
+    "down_min": "Down below",
+    "down_max": "Down above",
+    "help": "Empty = no limit. A value above \"Down above\" or below \"Down below\" sets the channel to Down; otherwise the warning limits apply.",
+    "save": "Save thresholds"
+  },
+  "events": {
+    "title": "Events",
+    "time": "Time",
+    "kind": "Kind",
+    "source": "Source",
+    "status": "Status",
+    "newStatus": "New status",
+    "message": "Message",
+    "group": "Group",
+    "since": "From",
+    "until": "To",
+    "none": "No events.",
+    "system": "System",
+    "filteredDevice": "Filtered by device #{{id}}.",
+    "filteredSensor": "Filtered by sensor #{{id}}."
+  },
+  "eventKind": {
+    "status_change": "Status change",
+    "notification": "Notification",
+    "system": "System"
+  },
+  "pagination": {
+    "range": "{{from}}–{{to}} of {{total}}",
+    "page": "Page {{page}} of {{pages}}",
+    "prev": "Previous page",
+    "next": "Next page"
+  },
+  "notifications": {
+    "title": "Notifications"
+  },
+  "channels": {
+    "title": "Notification channels",
+    "add": "Add channel",
+    "edit": "Edit channel",
+    "type": "Type",
+    "email": "Email",
+    "webhook": "Webhook",
+    "target": "Target",
+    "recipients": "Recipients",
+    "recipientsHint": "1–20 addresses, one per line or comma-separated. The SMTP server is set in Settings.",
+    "url": "URL",
+    "headers": "Headers",
+    "timeout": "Timeout (s)",
+    "verifyTls": "Verify TLS certificate",
+    "test": "Send test",
+    "testOk": "test sent",
+    "none": "No notification channels yet.",
+    "deleteTitle": "Delete channel"
+  },
+  "rules": {
+    "title": "Alert rules",
+    "add": "Add rule",
+    "edit": "Edit rule",
+    "scope": "Applies to",
+    "global": "All sensors",
+    "onStatuses": "Notify on",
+    "onStatusesHint": "\"Up\" only fires on recovery from Down or Warning.",
+    "delay": "Delay (s)",
+    "delayHint": "Send only if the status still holds after this delay.",
+    "channels": "Channels",
+    "noChannels": "Create a notification channel first.",
+    "none": "No alert rules yet.",
+    "deleteTitle": "Delete rule"
+  },
+  "settings": {
+    "title": "Settings",
+    "general": "General",
+    "retentionDays": "Measurement retention (days)",
+    "retentionHint": "History older than this is deleted.",
+    "eventRetentionDays": "Event retention (days)",
+    "defaultInterval": "Default sensor interval (s)",
+    "defaultIntervalHint": "Used for new sensors without an interval.",
+    "defaultLanguage": "Default language",
+    "defaultLanguageHint": "For the login page and notifications.",
+    "publicBaseUrl": "Public base URL",
+    "publicBaseUrlHint": "Used for links in notifications. Empty = no links.",
+    "smtp": "Email (SMTP)",
+    "smtpHost": "SMTP server",
+    "smtpPort": "Port",
+    "smtpSecurity": "Security",
+    "smtpUsername": "Username",
+    "smtpPassword": "Password",
+    "fromAddress": "From address",
+    "fromName": "From name",
+    "smtpTestTo": "Send a test email to",
+    "smtpTest": "Send test email",
+    "smtpTestHint": "Uses the saved settings — save first.",
+    "smtpTestOk": "Test email sent.",
+    "healthLine": "Version {{version}} · database {{db}} · {{mode}} · poller {{poller}} · {{count}} sensors scheduled",
+    "security": {
+      "none": "None"
+    }
+  },
+  "users": {
+    "title": "Users",
+    "add": "Add user",
+    "edit": "Edit user",
+    "username": "Username",
+    "email": "Email",
+    "role": "Role",
+    "language": "Language",
+    "active": "Active",
+    "lastLogin": "Last login",
+    "password": "Password",
+    "newPassword": "New password",
+    "passwordKeepHint": "Leave empty to keep the current password.",
+    "you": "you",
+    "deleteTitle": "Delete user"
+  },
+  "account": {
+    "title": "My account",
+    "profile": "Profile",
+    "languageHint": "Your interface language is saved automatically when you change it in the top bar.",
+    "changePassword": "Change password",
+    "currentPassword": "Current password",
+    "newPassword": "New password",
+    "confirmPassword": "Confirm new password",
+    "passwordChanged": "Password changed."
+  },
+  "validation": {
+    "required": "Required.",
+    "integer": "Enter a whole number.",
+    "number": "Enter a valid number.",
+    "range": "Must be between {{min}} and {{max}}.",
+    "intList": "Enter numbers separated by commas.",
+    "interval": "Between 10 and 86400 seconds.",
+    "username": "3–64 characters: letters, digits, dot, underscore, hyphen.",
+    "passwordLength": "8–128 characters.",
+    "passwordMismatch": "The passwords do not match."
+  },
+  "units": {
+    "days": "days",
+    "dShort": "d",
+    "hShort": "h",
+    "mShort": "m"
+  },
+  "errors": {
+    "bad_request": "The request was invalid.",
+    "group_cycle": "A group cannot be moved under itself or one of its subgroups.",
+    "invalid_sensor_type": "This sensor type is not supported.",
+    "unauthenticated": "Your session has expired. Please sign in again.",
+    "invalid_credentials": "Wrong username or password.",
+    "forbidden": "You do not have permission for this action.",
+    "setup_required": "Setup has not been completed yet.",
+    "not_found": "Not found.",
+    "conflict": "That name already exists.",
+    "setup_already_done": "Setup has already been completed.",
+    "last_admin": "You cannot delete, demote or deactivate the last active administrator or yourself.",
+    "unsupported_media_type": "Unsupported request format.",
+    "validation_error": "Some values are invalid.",
+    "rate_limited": "Too many failed sign-in attempts. Try again in a few minutes.",
+    "snmp_error": "SNMP request failed",
+    "smtp_error": "Sending the email failed",
+    "webhook_error": "Calling the webhook failed",
+    "internal_error": "Something went wrong on the server.",
+    "network_error": "Cannot reach the server."
+  },
+  "sensorType": {
+    "ping": "Ping",
+    "snmp_system": "SNMP System",
+    "snmp_cpu": "SNMP CPU",
+    "snmp_memory": "SNMP Memory",
+    "snmp_interface": "SNMP Interface",
+    "http": "HTTP(S)",
+    "tcp_port": "TCP Port",
+    "dns": "DNS"
+  },
+  "channel": {
+    "latency_ms": "Latency",
+    "packet_loss_pct": "Packet loss",
+    "uptime_s": "Uptime",
+    "cpu_load_pct": "CPU load",
+    "mem_used_pct": "Memory used",
+    "mem_used_bytes": "Memory used (bytes)",
+    "mem_total_bytes": "Memory total",
+    "in_bps": "Traffic in",
+    "out_bps": "Traffic out",
+    "in_util_pct": "Utilization in",
+    "out_util_pct": "Utilization out",
+    "oper_status": "Operational status",
+    "in_errors_ps": "Errors in",
+    "out_errors_ps": "Errors out",
+    "response_time_ms": "Response time",
+    "status_code": "Status code",
+    "ssl_days_left": "Certificate days left",
+    "connect_time_ms": "Connect time",
+    "resolve_time_ms": "Resolve time"
+  },
+  "sensorConfig": {
+    "ping": {
+      "count": "Packets",
+      "timeout_ms": "Timeout per packet (ms)",
+      "packet_size": "Packet size (bytes)"
+    },
+    "snmp_memory": {
+      "storage_index": "Storage index",
+      "storage_descr": "Storage description"
+    },
+    "snmp_interface": {
+      "if_index": "Interface index",
+      "if_name": "Interface name",
+      "speed_bps_override": "Speed override (bit/s)"
+    },
+    "http": {
+      "url": "URL",
+      "method": "Method",
+      "timeout_s": "Timeout (s)",
+      "expected_status": "Expected status codes",
+      "keyword": "Keyword",
+      "keyword_must_exist": "Keyword must be present",
+      "verify_tls": "Verify TLS certificate",
+      "follow_redirects": "Follow redirects",
+      "headers": "Request headers"
+    },
+    "tcp_port": {
+      "port": "Port",
+      "timeout_s": "Timeout (s)"
+    },
+    "dns": {
+      "query_name": "Query name",
+      "record_type": "Record type",
+      "server": "DNS server",
+      "port": "Port",
+      "timeout_s": "Timeout (s)",
+      "expected": "Expected answer"
+    }
+  },
+  "sensorConfigHint": {
+    "snmp_memory": {
+      "storage_index": "Empty = the first RAM entry",
+      "storage_descr": "Filled in automatically"
+    },
+    "snmp_interface": {
+      "speed_bps_override": "Empty = the speed reported by the device"
+    },
+    "http": {
+      "url": "{host} is replaced with the device host",
+      "expected_status": "Comma-separated, e.g. 200, 301. Empty = any 2xx/3xx",
+      "keyword": "Optional text to look for in the response"
+    },
+    "dns": {
+      "server": "Empty = use the device host as the DNS server",
+      "expected": "Optional; at least one answer must equal it"
+    }
+  }
+}

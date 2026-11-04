@@ -1,0 +1,122 @@
+import { useState, type FormEvent } from 'react';
+import { useMutation } from '@tanstack/react-query';
+import { useTranslation } from 'react-i18next';
+import { endpoints } from '../api/endpoints';
+import { useToast } from '../components/toast';
+import { Button, Card, ErrorBox, Field, Input, PageHeader } from '../components/ui';
+import { useAuth } from '../hooks/auth';
+
+export function AccountPage() {
+  const { t } = useTranslation();
+  const toast = useToast();
+  const { user, setUser } = useAuth();
+  const [email, setEmail] = useState(user?.email ?? '');
+  const [current, setCurrent] = useState('');
+  const [next, setNext] = useState('');
+  const [confirm, setConfirm] = useState('');
+
+  const profile = useMutation({
+    mutationFn: () => endpoints.updateMe({ email: email.trim() || null }),
+    onSuccess: (r) => {
+      setUser(r.user);
+      toast.push('success', t('common.saved'));
+    },
+  });
+  const pw = useMutation({
+    mutationFn: () => endpoints.changePassword(current, next),
+    onSuccess: () => {
+      setCurrent('');
+      setNext('');
+      setConfirm('');
+      toast.push('success', t('account.passwordChanged'));
+    },
+  });
+
+  const pwOk = next.length >= 8 && next.length <= 128 && next === confirm && current.length > 0;
+
+  const submitPw = (e: FormEvent) => {
+    e.preventDefault();
+    if (pwOk) pw.mutate();
+  };
+
+  if (!user) return null;
+  return (
+    <div className="max-w-xl space-y-6">
+      <PageHeader
+        title={t('account.title')}
+        subtitle={`${user.username} · ${t(`role.${user.role}`)}`}
+      />
+      <Card title={t('account.profile')}>
+        <form
+          onSubmit={(e) => {
+            e.preventDefault();
+            profile.mutate();
+          }}
+          className="space-y-3"
+        >
+          <Field label={t('users.email')}>
+            <Input
+              type="email"
+              value={email}
+              onChange={(e) => setEmail(e.target.value)}
+              dir="ltr"
+            />
+          </Field>
+          <p className="text-xs text-slate-500">{t('account.languageHint')}</p>
+          <ErrorBox error={profile.error} />
+          <div className="flex justify-end">
+            <Button type="submit" variant="primary" busy={profile.isPending}>
+              {t('common.save')}
+            </Button>
+          </div>
+        </form>
+      </Card>
+      <Card title={t('account.changePassword')}>
+        <form onSubmit={submitPw} className="space-y-3">
+          <Field label={t('account.currentPassword')} required>
+            <Input
+              type="password"
+              autoComplete="current-password"
+              value={current}
+              onChange={(e) => setCurrent(e.target.value)}
+              dir="ltr"
+              required
+            />
+          </Field>
+          <Field label={t('account.newPassword')} hint={t('validation.passwordLength')} required>
+            <Input
+              type="password"
+              autoComplete="new-password"
+              value={next}
+              onChange={(e) => setNext(e.target.value)}
+              dir="ltr"
+              required
+              minLength={8}
+              maxLength={128}
+            />
+          </Field>
+          <Field
+            label={t('account.confirmPassword')}
+            hint={confirm && confirm !== next ? t('validation.passwordMismatch') : undefined}
+            required
+          >
+            <Input
+              type="password"
+              autoComplete="new-password"
+              value={confirm}
+              onChange={(e) => setConfirm(e.target.value)}
+              dir="ltr"
+              required
+            />
+          </Field>
+          <ErrorBox error={pw.error} />
+          <div className="flex justify-end">
+            <Button type="submit" variant="primary" busy={pw.isPending} disabled={!pwOk}>
+              {t('account.changePassword')}
+            </Button>
+          </div>
+        </form>
+      </Card>
+    </div>
+  );
+}
