@@ -19,7 +19,8 @@ test('switch to Hebrew in the top bar', async ({ page }) => {
   const meSaved = page.waitForResponse(
     (r) => r.url().endsWith('/api/auth/me') && r.request().method() === 'PATCH',
   );
-  await page.getByRole('combobox', { name: 'Language' }).selectOption('he');
+  await page.getByRole('button', { name: /^Language:/ }).click();
+  await page.getByRole('listbox').getByRole('option', { name: 'עברית' }).click();
   expect((await meSaved).status()).toBe(200);
 
   await expect(page.locator('html')).toHaveAttribute('dir', 'rtl');
@@ -77,7 +78,8 @@ test('Hebrew sensor/device pages keep numbers and hosts LTR', async ({ page }) =
 
 test('switch back to English', async ({ page }) => {
   await loginViaApi(page);
-  await page.getByRole('combobox', { name: /Language|שפה/ }).selectOption('en');
+  await page.getByRole('button', { name: /^(Language|שפה):/ }).click();
+  await page.getByRole('listbox').getByRole('option', { name: 'English' }).click();
   await expect(page.locator('html')).toHaveAttribute('dir', 'ltr');
   await expect(page.getByRole('heading', { level: 1, name: 'Dashboard' })).toBeVisible();
   await expect
