@@ -393,7 +393,9 @@ EOF
 
 find_python() {
   local c
-  for c in python3.13 python3.12 python3 /usr/local/bin/python3.13 /usr/local/bin/python3.12; do
+  # The standalone build from an earlier run (install_python_uv) is reused on upgrades.
+  for c in python3.13 python3.12 python3 /usr/local/bin/python3.13 /usr/local/bin/python3.12 \
+    "${INSTALL_DIR}"/python/cpython-3.12-linux-*/bin/python3.12; do
     if have "$c" && python_ok "$(command -v "$c")"; then
       PYTHON="$(command -v "$c")"
       return 0
@@ -495,6 +497,19 @@ else
 
   # --- web UI: build it when Node.js >= 18 is available, else use a prebuilt copy.
   node_ok() { have node && have npm && [ "$(node -p 'process.versions.node.split(".")[0]' 2>/dev/null || echo 0)" -ge 18 ]; }
+  prebuilt_spa() { [ -f "${SRC_ROOT}/frontend/dist/index.html" ] || [ -f "${SRC_ROOT}/backend/netmon/static/index.html" ]; }
+  if [ -f "${SRC_ROOT}/frontend/package.json" ] && ! node_ok && ! prebuilt_spa; then
+    # A fresh git clone has no built UI (frontend/dist is not committed): try the
+    # distribution's Node.js (>= 18 on Debian 12, Ubuntu 22.04+, EL8/9 AppStream).
+    log "Installing Node.js from the distribution to build the web UI"
+    if [ "$FAMILY" = debian ]; then
+      apt_install nodejs npm >/dev/null 2>&1 || true
+    else
+      dnf -qy module enable nodejs:20 >/dev/null 2>&1 || true
+      dnf_install nodejs npm >/dev/null 2>&1 || true
+    fi
+    node_ok || warn "No Node.js >= 18 available from the distribution."
+  fi
   if [ -f "${SRC_ROOT}/frontend/package.json" ] && node_ok; then
     log "Building the web UI with Node.js $(node -v)"
     mkdir -p "${STAGE}/frontend"

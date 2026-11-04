@@ -418,6 +418,19 @@ try {
         $frontend = Join-Path $SourceDir 'frontend'
         $npm = Get-Command npm.cmd -ErrorAction SilentlyContinue
         $node = Get-Command node.exe -ErrorAction SilentlyContinue
+        $prebuilt = (Test-Path (Join-Path $frontend 'dist\index.html')) -or
+                    (Test-Path (Join-Path $SourceDir 'backend\netmon\static\index.html'))
+        if ((Test-Path (Join-Path $frontend 'package.json')) -and -not ($npm -and $node) -and -not $prebuilt) {
+            # A fresh git clone has no built UI (frontend\dist is not committed): get Node.js LTS.
+            Write-Step 'Installing Node.js LTS with winget (to build the web UI)'
+            try {
+                Install-WingetPackage 'OpenJS.NodeJS.LTS'
+                $npm = Get-Command npm.cmd -ErrorAction SilentlyContinue
+                $node = Get-Command node.exe -ErrorAction SilentlyContinue
+            } catch {
+                Write-Warn2 "Node.js could not be installed: $($_.Exception.Message)"
+            }
+        }
         if ((Test-Path (Join-Path $frontend 'package.json')) -and $npm -and $node) {
             $nodeMajor = [int]((& $node.Source -p "process.versions.node.split('.')[0]") | Out-String).Trim()
             if ($nodeMajor -ge 18) {

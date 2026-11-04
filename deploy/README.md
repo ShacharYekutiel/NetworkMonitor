@@ -46,7 +46,7 @@ docker compose -f deploy/docker-compose.yml up -d
 Supported: Debian 11+, Ubuntu 22.04+, RHEL / Rocky / Alma / CentOS Stream 8+, Fedora. Run as root:
 
 ```bash
-sudo ./deploy/linux/install.sh                     # from a git checkout (builds the UI if Node.js >= 18 is present)
+sudo ./deploy/linux/install.sh                     # from a git checkout (builds the UI; installs distro Node.js if needed)
 sudo ./install.sh                                  # from an extracted release tarball (wheel included)
 sudo ./deploy/linux/install.sh --tarball https://github.com/<owner>/<repo>/releases/download/v0.1.0/netmon-0.1.0.tar.gz
 ```
@@ -68,7 +68,8 @@ Requirements: Windows 10/11 or Server 2019+ (64-bit), an elevated PowerShell, an
 powershell -ExecutionPolicy Bypass -File .\deploy\windows\install.ps1
 ```
 
-The script installs Python 3.12 and PostgreSQL 16 with winget if they are missing, and tries TimescaleDB. It creates
+The script installs Python 3.12 and PostgreSQL 16 with winget if they are missing, and tries TimescaleDB. From a git checkout it
+builds the web UI, and installs Node.js LTS with winget if needed. It creates
 the venv in `%ProgramFiles%\NetworkMonitor` and the data directory `%ProgramData%\NetworkMonitor` (restricted to
 SYSTEM and Administrators), and writes `netmon.env`. It registers the `NetworkMonitor` service through NSSM. NSSM is
 taken from `deploy\windows\nssm.exe` if you put one there; otherwise it is downloaded. The service runs as
@@ -123,7 +124,9 @@ $env:PGPASSWORD = '<password from netmon.env>'
 # as in the Linux steps (connect as postgres), then Start-Service NetworkMonitor
 ```
 
-Restore into the same major version of TimescaleDB, or a newer one. A dump taken in plain PostgreSQL mode restores
+With TimescaleDB, `pg_dump` prints a warning about circular foreign keys in `continuous_agg`. That warning is
+harmless: the custom-format dump restores cleanly with the steps above. Restore into the same major version of
+TimescaleDB, or a newer one. A dump taken in plain PostgreSQL mode restores
 into either mode.
 
 ### Files
