@@ -518,7 +518,7 @@ Config:
 
 | Key | Type | Default | Meaning |
 |---|---|---|---|
-| `storage_descr` | str | **required** | 1–255 characters. Matched against `hrStorageDescr` (1.3.6.1.2.1.25.2.3.1.3): first an **exact** match, else the first row whose description **starts with** it (Windows reports `C:\ Label:...  Serial Number ...`, so `C:\` works). Rows of type RAM / virtual memory are never matched. |
+| `storage_descr` | str | **required** | 1–255 characters. Matched against `hrStorageDescr` (1.3.6.1.2.1.25.2.3.1.3): first an **exact** match; only when `storage_descr` is a Windows drive (`^[A-Za-z]:\\?$`, e.g. `C:\`) and there is no exact match, the first row whose description **starts with** it (Windows reports `C:\ Label:...  Serial Number ...`). No other prefix matching, so `/` never matches `/boot`. Rows of type RAM / virtual memory are never matched. |
 | `storage_index` | int_nullable | null | Informational. The backend writes the matched index through `config_update`. |
 
 Channels (primary: `disk_used_pct`):
@@ -720,22 +720,23 @@ For FreeBSD agents (sysObjectID `1.3.6.1.4.1.8072.3.2.8`, or sysDescr starting w
 also walks `ifDescr` (1.3.6.1.2.1.2.2.1.2, max 200 rows) and sets `pf = true` when a row equals `pflog0`.
 
 `enterprise` = the arc right after `1.3.6.1.4.1.` in `sys_object_id`. Regexes are case-insensitive.
-**Rules are evaluated in order; the first match sets class and vendor.**
+**Rules are evaluated in order; the first match sets class and vendor.** Inside the table, `\|` is a regex `|` escaped for
+Markdown. Vendor slugs outside the vendor table that rules can produce: `opnsense`, `pfsense`, `freebsd`, `linux`, `apple`.
 
 | # | Condition | device_class | vendor |
 |---|---|---|---|
 | 1 | `/opnsense/` in sysDescr or sysName, or (sysDescr starts with `FreeBSD` and matches `/stable\/\d{2}\.\d/`) | router | opnsense |
 | 2 | `/pfsense/` in sysDescr or sysName, or enterprise = 12325 | router | pfsense |
-| 3 | probe `unifi_vap`, or sysDescr `/\b(UAP|U6|U7|UAL|UAE)[-\w]*/` (case-sensitive) or `/unifi.*(ap\b|access point)/` | access_point | ubiquiti |
-| 4 | enterprise 41112 or sysDescr `/\bUSW|\bUS-\d|unifi.*switch/` → if sysDescr `/\bUSW|\bUS-\d|switch/`: switch; elif `/EdgeOS|EdgeRouter|UDM|UXG|USG|UniFiOS/`: router; else unknown | (as stated) | ubiquiti |
+| 3 | probe `unifi_vap`, or sysDescr `/\b(UAP\|U6\|U7\|UAL\|UAE)[-\w]*/` (case-sensitive) or `/unifi.*(ap\b\|access point)/` | access_point | ubiquiti |
+| 4 | enterprise 41112 or sysDescr `/\bUSW\|\bUS-\d\|unifi.*switch/` → if sysDescr `/\bUSW\|\bUS-\d\|switch/`: switch; elif `/EdgeOS\|EdgeRouter\|UDM\|UXG\|USG\|UniFiOS/`: router; else unknown | (as stated) | ubiquiti |
 | 5 | probe `printer_mib`, or enterprise ∈ {2435, 1602, 1248, 253, 367, 1347, 641}, or sys_object_id starts with `1.3.6.1.4.1.11.2.3.9.` | printer | from vendor table (HP → hp) |
-| 6 | probe `synology` or enterprise 6574 or sysDescr `/synology|diskstation/` | nas | synology |
+| 6 | probe `synology` or enterprise 6574 or sysDescr `/synology\|diskstation/` | nas | synology |
 | 7 | probe `qnap` or enterprise 24681 | nas | qnap |
 | 8 | enterprise 311 (Microsoft) | sysDescr `/server/` → server, else workstation | microsoft |
 | 9 | FreeBSD with `pf = true` | router | freebsd |
-| 10 | enterprise ∈ network vendors (vendor table, column "default class" not empty) | sysDescr `/switch|catalyst|procurve|nexus|jetstream|\bCRS\d|\bEX\d{4}|\bC(2|3|9)\d{3}\b|\b(GS|SG|XS)\d{3}/` → switch; `/\b(access point|aironet)\b|\bAP\d/` → access_point; else the vendor's default class | from table |
+| 10 | enterprise in the vendor table with a plain (not parenthesised) default class | sysDescr `/switch\|catalyst\|procurve\|nexus\|jetstream\|\bCRS\d\|\bEX\d{4}\|\bC(2\|3\|9)\d{3}\|\b(GS\|SG\|XS)\d{3}/` → switch; `/\b(access point\|aironet)\b\|\bAP\d/` → access_point; else the vendor's default class | from table |
 | 11 | sys_object_id starts with `1.3.6.1.4.1.8072.3.2.` (net-snmp): `.10` → server/linux, `.8` → server/freebsd, `.13` → workstation/microsoft, `.16` → workstation/apple, other → server/null | (as stated) | (as stated) |
-| 12 | any other SNMP answer: sysDescr `/switch/` → switch, `/router|routeros|gateway/` → router, `/printer|jetdirect/` → printer, `/linux|unix|bsd/` → server, `/windows/` → workstation; else unknown | (as stated) | vendor table by enterprise, else null |
+| 12 | any other SNMP answer: sysDescr `/switch/` → switch, `/router\|routeros\|gateway/` → router, `/printer\|jetdirect/` → printer, `/linux\|unix\|bsd/` → server, `/windows/` → workstation; else unknown | (as stated) | vendor table by enterprise, else null |
 | 13 | no SNMP, ports: 9100 or 631 open → printer | printer | null |
 | 14 | no SNMP: 3389 open → workstation (server if 53 also open) | workstation/server | null |
 | 15 | no SNMP: 53 open and (80 or 443 open) → router | router | null |
@@ -756,10 +757,10 @@ as the architect knows; **medium** = believed correct, verify with a real device
 | 171 | d-link | switch | high | |
 | 253 | xerox | (printer) | high | |
 | 311 | microsoft | (rule 8) | high | |
-| 318 | apc | — (unknown) | high | UPS / PDU |
+| 318 | apc | unknown | high | UPS / PDU |
 | 367 | ricoh | (printer) | high | |
 | 641 | lexmark | (printer) | high | |
-| 674 | dell | — (server) | high | Dell servers/switches; default class `server` |
+| 674 | dell | server | high | Dell servers/switches |
 | 890 | zyxel | switch | high | |
 | 1248 | epson | (printer) | high | |
 | 1347 | kyocera | (printer) | medium | |

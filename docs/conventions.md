@@ -112,6 +112,21 @@ npm run lint && npm test -- --run && npm run build      # build → frontend/dis
 - `tests/integration`: pytest against a running instance (`BASE_URL`, `DATABASE_URL`).
 - `tests/sim`: snmpsim recordings (`.snmprec`) and helper targets (HTTP, TCP, DNS).
 
+## Phase 2a notes
+- Backend: keep `netmon.discovery.targets`, `netmon.discovery.classify` and `netmon.templates.builtin` pure
+  (no I/O) so they are unit-tested exhaustively (every classification rule and every target form has a test).
+  Network I/O lives in `probe.py`, `runner.py`, `templates/apply.py`, `alerts/telegram.py`.
+- Backend: `schemas/` gets pydantic models for every Phase 2a request/response in api.md, with the same names
+  (`DiscoveryProfile*`, `DiscoveryScan*`, `DiscoveryResult`, `ImportRequest`, `ApplyTemplateRequest`,
+  `TelegramConfig`). `extra="forbid"` for scan options and the telegram config (unknown keys → 422).
+- Backend tests: discovery tests start one snmpsim process per simulated device (see
+  [architecture.md §9.6](architecture.md#96-qa-simulators-and-test-setup-testssim)); Telegram tests use the mock via
+  `NETMON_TELEGRAM_API_BASE`. Never call the real Telegram API in tests.
+- Frontend: extend `src/api/types.ts` with the Phase 2a types exactly as written in api.md, add the endpoints to
+  `endpoints.ts`, and handle `discovery.*` in `ws.ts` (forward to subscribers; invalidate the scan query on
+  `discovery.finished`, and `/api/tree` on `config.changed` as today).
+- New user-visible strings need both `en` and `he` entries.
+
 ## Definition of done (per change)
 Lint is clean and the tests pass. The contract docs are updated if the behaviour changed. The change works in
 both Timescale mode and fallback mode, and on Windows paths (no POSIX-only calls without a fallback).

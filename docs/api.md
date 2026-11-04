@@ -534,3 +534,360 @@ The `Settings` shape:
 - On close the client reconnects with backoff (1 s, 2 s, 5 s, then 10 s max), except after 4401, which sends it
   to login.
 - After a reconnect the client refetches `/api/tree` and `/api/dashboard`.
+
+---
+
+## [2a] Phase 2a endpoints
+
+All shapes follow the Phase 1 conventions (always-present keys, `null` for no value, error envelope, pagination
+envelope where stated). New TypeScript types:
+
+```ts
+type DeviceClass = "router" | "switch" | "access_point" | "printer" | "nas" | "server" | "workstation" | "unknown";
+type ScanStatus = "running" | "completed" | "cancelled" | "failed";
+type L10n = { en: string; he: string };
+
+type ScanOptions = {
+  ping: boolean; ping_timeout_ms: number;
+  snmp: boolean; snmp_port: number | null; snmp_timeout_s: number;
+  extra_communities: null; extra_communities_count: number;        // write-only list
+  extra_v3: ExtraV3Out[]; extra_v3_count: number;
+  tcp: boolean; tcp_ports: number[]; tcp_timeout_ms: number;
+  dns: boolean };
+type ExtraV3Out = { v3_username: string;
+  v3_security_level: "noAuthNoPriv" | "authNoPriv" | "authPriv";
+  v3_auth_protocol: "MD5" | "SHA" | "SHA224" | "SHA256" | "SHA384" | "SHA512" | null;
+  v3_auth_key: null; v3_auth_key_set: boolean;
+  v3_priv_protocol: "DES" | "AES128" | "AES192" | "AES256" | null;
+  v3_priv_key: null; v3_priv_key_set: boolean };
+
+type DiscoveryProfile = { id: number; name: string; targets: string[]; group_id: number; options: ScanOptions;
+  schedule_enabled: boolean; schedule_every_hours: number;
+  notify_new_hosts: boolean; notify_channel_ids: number[];
+  last_run_at: string | null; next_run_at: string | null; last_scan_id: number | null;
+  created_at: string; updated_at: string };
+
+type DiscoveryScan = { id: number; profile_id: number | null; profile_name: string | null;
+  trigger: "manual" | "scheduled"; status: ScanStatus;
+  group_id: number | null; targets: string[]; options: ScanOptions;   // secrets removed
+  total_hosts: number; scanned_hosts: number; found_hosts: number; new_hosts: number;
+  error: string | null; created_by: string | null;                  // username
+  started_at: string; finished_at: string | null };
+
+type DiscoveryResult = { id: number; scan_id: number; ip: string; hostname: string | null; mac: string | null;
+  ping_ok: boolean; ping_rtt_ms: number | null;
+  snmp_ok: boolean; snmp_version: "v1" | "v2c" | "v3" | null;
+  snmp_credential: "group" | "extra" | null;                       // which credential answered
+  sys_name: string | null; sys_descr: string | null; sys_object_id: string | null;
+  open_ports: number[]; device_class: DeviceClass; vendor: string | null;
+  suggested_template: string; existing_device_id: number | null; is_new: boolean;
+  imported_device_id: number | null };
+
+type DeviceTemplate = { id: string; name: L10n; description: L10n; requires_snmp: boolean; priority: number;
+  match: { device_classes: DeviceClass[] | null; vendors: string[] | null; requires_snmp: boolean;
+           any_open_ports: number[] | null }[];
+  entries: TemplateEntry[] };
+type TemplateEntry =
+  | { kind: "sensor"; type: SensorType; name: L10n; config: Record<string, unknown>;
+      channels: ChannelOverride[]; interval_s: number | null; probe: boolean }
+  | { kind: "snmp_interfaces"; oper_up_only: boolean; exclude_if_types: number[];
+      include_name_regex: string | null; exclude_name_regex: string | null; max: number; channels: ChannelOverride[] }
+  | { kind: "snmp_table"; walk_oid: string; label_oid: string | null; label2_oid: string | null;
+      percent_of_column: string | null; name: L10n; config: Record<string, unknown>;
+      channels: ChannelOverride[]; max: number };
+type ChannelOverride = { key: string; warning_min?: number | null; warning_max?: number | null;
+  down_min?: number | null; down_max?: number | null };
+
+type ApplyTemplateResult = { device_id: number; template_id: string;
+  created: { sensor_id: number; name: string; type: SensorType }[];
+  skipped: { name: string; type: SensorType;
+             reason: "exists" | "probe_failed" | "snmp_error" | "max_reached" | "no_rows"; message: string }[] };
+
+type TelegramChannelConfig = { bot_token: null; bot_token_set: boolean; chat_id: string;
+  parse_mode: "HTML" | null; disable_notification: boolean };
+```
+
+`NotificationChannel.type` becomes `"email" | "webhook" | "telegram"`.
+
+### Sensors: new types
+
+`POST /api/sensors` examples:
+
+```json
+{ "device_id": 3, "name": "Clients HomeWiFi (na)", "type": "snmp_custom",
+  "config": { "oid": "1.3.6.1.4.1.41112.1.6.1.2.1.8.2", "value_type": "gauge", "unit": "clients",
+              "multiplier": 1, "label": "HomeWiFi (na)", "percent_of_oid": null, "expected": null, "match": "equals" },
+  "channels": [ { "key": "value", "warning_max": 40 } ] }
+```
+
+```json
+{ "device_id": 5, "type": "snmp_disk", "config": { "storage_descr": "/" } }
+```
+
+- Default names when `name` is missing: `snmp_custom` → `label`, else `SNMP <oid>` (cut to 128);
+  `snmp_disk` → `Disk <storage_descr>`.
+- `POST /api/sensors/test` works for both types (it is what the form's "Test" button uses).
+
+**`GET /api/devices/{id}/snmp/storage`** (admin): walks `hrStorageTable` with the effective credentials, for
+the `snmp_disk` picker. Timeout/auth failure → `502 snmp_error`.
+
+```json
+{ "items": [
+  { "index": 31, "descr": "/", "type": "fixed_disk", "size_bytes": 115964116992, "used_bytes": 6512238592,
+    "existing_sensor_id": null } ] }
+```
+
+- `type`: `ram` (.2), `virtual_memory` (.3), `fixed_disk` (.4), `removable_disk` (.5), `network_disk` (.10),
+  `flash` (.9), `other` (anything else). Sorted by `index`. The UI preselects `fixed_disk` rows and hides
+  `ram`/`virtual_memory`.
+- `existing_sensor_id`: an `snmp_disk` sensor of this device whose `config.storage_descr` equals `descr`, or null.
+
+### Notification channels: `telegram`
+
+Create:
+
+```json
+{ "name": "Ops Telegram", "type": "telegram", "enabled": true,
+  "config": { "bot_token": "123456789:AAEhBP0av28rmzBYNkKz3x2ZxM9qO9vLdIo", "chat_id": "-1001234567890",
+              "parse_mode": "HTML", "disable_notification": false } }
+```
+
+Response (`NotificationChannel`):
+
+```json
+{ "id": 4, "name": "Ops Telegram", "type": "telegram", "enabled": true,
+  "config": { "bot_token": null, "bot_token_set": true, "chat_id": "-1001234567890",
+              "parse_mode": "HTML", "disable_notification": false },
+  "created_at": "...", "updated_at": "..." }
+```
+
+- Create without `bot_token` (or with `""`) → `422` (loc `["body","config","bot_token"]`).
+- **PATCH:** for `telegram`, `config` is still replaced as a whole **except `bot_token`**, which follows the
+  secret rules: omitted or `null` → keep, a new string → replace. `""` → 422 (a telegram channel always needs a
+  token). `bot_token_set` on input is ignored.
+- `chat_id` must be a string (a JSON number → 422, so negative ids never lose precision).
+
+#### Telegram messages [2a]
+- Request: `POST {NETMON_TELEGRAM_API_BASE}/bot{bot_token}/sendMessage` with JSON
+  `{"chat_id": "...", "text": "...", "parse_mode": "HTML", "disable_web_page_preview": true, "disable_notification": false}`
+  (`parse_mode` key omitted when null). Timeout 10 s. `NETMON_TELEGRAM_API_BASE` defaults to
+  `https://api.telegram.org`.
+- Success: HTTP 200 and body `{"ok": true, ...}`.
+- Failure → `TelegramError(message)`:
+  - Telegram answered `{"ok": false, "error_code": 400, "description": "Bad Request: chat not found"}` (any
+    status) → message = `description` (e.g. `Unauthorized`, `Forbidden: bot was blocked by the user`,
+    `Too Many Requests: retry after 5`).
+  - Non-JSON response → `Telegram returned HTTP <status>`.
+  - Timeout → `Telegram request timed out`. Other transport errors → their text.
+  - Every message is passed through a scrubber that replaces the bot token with `***` (httpx errors include
+    the URL). The `httpx`/`httpcore` loggers must not log request URLs at INFO (set them to WARNING), so the
+    token never reaches the log.
+- Test endpoint: `502 telegram_error` with that message. Alert sends: a `notification` event as for other channels.
+- **Text** (language = `settings.default_language`, same labels as the email templates):
+  - `parse_mode = "HTML"`: first line `<b>{subject}</b>`, then one line per row `<b>{label}:</b> {value}`
+    (values HTML-escaped with `html.escape(v, quote=False)`), then `<a href="{url}">{link label}</a>` when
+    `url` is set. Test: `<b>[NetworkMonitor] Test notification</b>` + the test body line.
+  - `parse_mode = null`: `{subject}\n\n` + `text_body(...)` of the email template.
+  - Truncated to 4096 characters (Telegram's limit) on a line boundary, with `…` appended.
+
+### Discovery notification payload [2a]
+When a scheduled scan of a profile with `notify_new_hosts = true` finishes (`completed`), has `new_hosts > 0`
+and is not the profile's baseline run, the backend sends one notification per channel in
+`notify_channel_ids` (enabled channels only). Failures write a `notification` event. Webhook body:
+
+```json
+{ "event": "discovery.new_hosts", "event_id": 1203, "time": "2026-11-04T03:00:12Z",
+  "old_status": null, "new_status": null,
+  "message": "Discovery \"LAN\": 2 new hosts",
+  "sensor": null, "device": null, "group": { "id": 1, "name": "Default" }, "rule": null,
+  "profile": { "id": 2, "name": "LAN" }, "scan_id": 57,
+  "hosts": [ { "ip": "10.0.0.5", "hostname": "brn3c2af4.lan", "device_class": "printer", "vendor": "brother" },
+             { "ip": "10.0.0.9", "hostname": null, "device_class": "unknown", "vendor": null } ],
+  "url": "http://netmon.local:8080/discovery/scans/57" }
+```
+
+- `event_id` is the id of the `discovery` event written for this scan. `hosts` lists at most 50 hosts (by IP);
+  `message` always has the full count. `url` is null without `public_base_url`.
+- For `status_change` payloads the new keys `profile`, `scan_id`, `hosts` are **not** added (Phase 1 payload
+  unchanged).
+- Email/Telegram subject: en `[NetworkMonitor] New hosts discovered: LAN (2)`, he
+  `[NetworkMonitor] התגלו מארחים חדשים: LAN (2)`. Body: one line per host
+  `10.0.0.5 — brn3c2af4.lan — printer — brother` (missing parts omitted), then `+N more` / `ועוד N` when
+  truncated, then the link. Class names in he: router נתב/חומת אש, switch מתג, access_point נקודת גישה,
+  printer מדפסת, nas NAS, server שרת, workstation תחנת עבודה, unknown לא ידוע.
+
+### Device templates [2a]
+
+| Method & path | Role | Response |
+|---|---|---|
+| `GET /api/device-templates` | viewer | `{"items": DeviceTemplate[]}`, sorted by `priority` desc. Not paginated. |
+| `GET /api/device-templates/{id}` | viewer | `DeviceTemplate`. Unknown id → `404 not_found`. |
+| `POST /api/devices/{id}/apply-template` | admin | Body `{"template_id": "opnsense"}`. `200 ApplyTemplateResult`. Unknown template → `422` (loc `["body","template_id"]`). |
+
+Example item:
+
+```json
+{ "id": "unifi_ap", "name": { "en": "UniFi access point", "he": "נקודת גישה UniFi" },
+  "description": { "en": "Ping, system, CPU, memory, uplink port and clients per SSID/radio",
+                   "he": "פינג, מערכת, מעבד, זיכרון, פורט Uplink ולקוחות לכל SSID/רדיו" },
+  "requires_snmp": true, "priority": 80,
+  "match": [ { "device_classes": ["access_point"], "vendors": ["ubiquiti"], "requires_snmp": true, "any_open_ports": null } ],
+  "entries": [
+    { "kind": "sensor", "type": "ping", "name": { "en": "Ping", "he": "פינג" }, "config": {}, "channels": [],
+      "interval_s": null, "probe": false },
+    { "kind": "snmp_interfaces", "oper_up_only": true, "exclude_if_types": [24], "include_name_regex": "^eth0$",
+      "exclude_name_regex": null, "max": 1, "channels": [] },
+    { "kind": "snmp_table", "walk_oid": "1.3.6.1.4.1.41112.1.6.1.2.1.8", "label_oid": "1.3.6.1.4.1.41112.1.6.1.2.1.6",
+      "label2_oid": "1.3.6.1.4.1.41112.1.6.1.2.1.9", "percent_of_column": null,
+      "name": { "en": "Clients {label}", "he": "לקוחות {label}" },
+      "config": { "value_type": "gauge", "unit": "clients" }, "channels": [], "max": 16 } ] }
+```
+
+Apply semantics ([data-model.md § Device templates](data-model.md#device-templates-built-in-code)):
+
+- Entries are processed in order. Probes run with the device's effective SNMP credentials, through the
+  poller semaphore, up to 4 at a time per device. The whole call has a 120 s budget; entries not reached in
+  time are skipped with reason `probe_failed`, message `Timed out`.
+- Created sensors get `interval_s` = the entry's value or `settings.default_interval_s`, are scheduled
+  (`scheduler.upsert`), and use names in the caller's language.
+- Works on disabled devices too (sensors are created, and stay `paused`); probes are still attempted.
+- One `config.changed {"entity":"device","id":<id>,"action":"updated"}` is broadcast (no per-sensor messages).
+- Example response:
+
+```json
+{ "device_id": 9, "template_id": "opnsense",
+  "created": [ { "sensor_id": 101, "name": "CPU Load", "type": "snmp_cpu" },
+               { "sensor_id": 102, "name": "igb0", "type": "snmp_interface" } ],
+  "skipped": [ { "name": "Ping", "type": "ping", "reason": "exists", "message": "" },
+               { "name": "Interfaces", "type": "snmp_interface", "reason": "max_reached", "message": "3 more interfaces not added (max 16)" } ] }
+```
+
+### Discovery [2a] (all endpoints: admin)
+
+#### Scan options in the API
+- Responses (`ScanOptions`): `extra_communities` is always `null` with `extra_communities_count`;
+  each `extra_v3` entry has its keys `null` with `*_set` booleans; `extra_v3_count` = its length.
+- Requests: every option key is optional (defaults in [data-model.md § Scan options](data-model.md#scan-options)).
+  `extra_communities`: a list of strings. `extra_v3`: a list of objects with the real keys.
+  `extra_communities_count`, `extra_v3_count` and `*_set` are ignored on input.
+- **Profile PATCH** of `options` is a field-by-field merge over the stored options. For the two secret lists:
+  key omitted or `null` → keep the stored list; a list (also `[]`) → replace the whole list (v3 keys must be
+  given again).
+
+#### Profiles
+
+| Method & path | Request | Response |
+|---|---|---|
+| `GET /api/discovery/profiles` | — | Page of `DiscoveryProfile`, sorted by name |
+| `POST /api/discovery/profiles` | see below | `201 DiscoveryProfile`. Duplicate name → `409 conflict`. |
+| `GET /api/discovery/profiles/{id}` | — | `DiscoveryProfile` |
+| `PATCH /api/discovery/profiles/{id}` | subset of the create fields | `DiscoveryProfile` |
+| `DELETE /api/discovery/profiles/{id}` | — | `204`. Its scans stay (`profile_id` → null). A running scan of it keeps running. |
+| `POST /api/discovery/profiles/{id}/run` | — (no body) | `202 DiscoveryScan` (`trigger: "manual"`). `409 scan_running` if any scan runs. |
+
+Create request:
+
+```json
+{ "name": "LAN", "targets": ["192.168.1.0/24", "192.168.10.1-30"], "group_id": 1,
+  "options": { "snmp_port": null, "extra_communities": ["monitor"], "tcp_ports": [22, 80, 443, 9100] },
+  "schedule_enabled": true, "schedule_every_hours": 24,
+  "notify_new_hosts": true, "notify_channel_ids": [4] }
+```
+
+- Only `name`, `targets`, `group_id` are required. `group_id` must exist (422).
+- Targets are validated and the host count checked (`422 validation_error` / `422 too_many_hosts`) on create
+  and on PATCH of `targets`.
+- `notify_channel_ids`: each id must exist (422). `notify_new_hosts: true` with an empty list is allowed
+  (event only).
+- Profile mutations broadcast `config.changed` with `entity: "discovery_profile"`.
+
+#### Scans
+
+| Method & path | Request | Response |
+|---|---|---|
+| `POST /api/discovery/scans` | `{"targets": [...], "group_id": 1, "options": {...}}` (`options` optional) | `202 DiscoveryScan` with `status: "running"`, `profile_id: null`. `409 scan_running` (details `[{"scan_id": n}]`), `422 too_many_hosts`, `422 validation_error`. |
+| `GET /api/discovery/scans` | Query: `profile_id` | Page of `DiscoveryScan`, sorted by `id` desc |
+| `GET /api/discovery/scans/{id}` | — | `DiscoveryScan` (use it for polling, e.g. every 2 s, when the WS is down) |
+| `POST /api/discovery/scans/{id}/cancel` | — (no body) | `200 DiscoveryScan` with `status: "cancelled"`. The call returns after in-flight probes stopped (≤ 5 s). `409 scan_not_running` otherwise. |
+| `DELETE /api/discovery/scans/{id}` | — | `204` (results cascade). `409 scan_running` while it runs. |
+| `GET /api/discovery/scans/{id}/results` | Query: `only_new` (bool), `hide_existing` (bool), `device_class` (csv), `q` (ILIKE on ip text / hostname / sys_name) | Page of `DiscoveryResult`, sorted by `ip` ascending (inet order). Allowed while running (partial). |
+| `POST /api/discovery/scans/{id}/import` | see below | `200` import result. `409 scan_running` while the scan runs. |
+
+Scan example response:
+
+```json
+{ "id": 57, "profile_id": null, "profile_name": null, "trigger": "manual", "status": "running",
+  "group_id": 1, "targets": ["192.168.1.0/24"],
+  "options": { "ping": true, "ping_timeout_ms": 1000, "snmp": true, "snmp_port": null, "snmp_timeout_s": 1,
+               "extra_communities": null, "extra_communities_count": 1, "extra_v3": [], "extra_v3_count": 0,
+               "tcp": true, "tcp_ports": [22, 23, 53, 80, 443, 445, 631, 3389, 8080, 8443, 9100],
+               "tcp_timeout_ms": 1000, "dns": true },
+  "total_hosts": 254, "scanned_hosts": 31, "found_hosts": 6, "new_hosts": 2,
+  "error": null, "created_by": "admin", "started_at": "2026-11-04T12:00:00Z", "finished_at": null }
+```
+
+Result example:
+
+```json
+{ "id": 812, "scan_id": 57, "ip": "192.168.1.1", "hostname": "OPNsense.localdomain", "mac": null,
+  "ping_ok": true, "ping_rtt_ms": 0.42, "snmp_ok": true, "snmp_version": "v2c", "snmp_credential": "group",
+  "sys_name": "OPNsense.localdomain",
+  "sys_descr": "FreeBSD OPNsense.localdomain 14.1-RELEASE-p5 FreeBSD 14.1-RELEASE-p5 stable/24.7-n267758-... amd64",
+  "sys_object_id": "1.3.6.1.4.1.8072.3.2.8", "open_ports": [22, 53, 80, 443],
+  "device_class": "router", "vendor": "opnsense", "suggested_template": "opnsense",
+  "existing_device_id": null, "is_new": true, "imported_device_id": null }
+```
+
+`snmp_credential`: `"group"` when credential index 0 answered, `"extra"` for any extra community / v3 entry,
+null when SNMP did not answer.
+
+#### Import
+
+Request:
+
+```json
+{ "group_id": 1,
+  "items": [ { "result_id": 812, "template_id": "opnsense", "name": null },
+             { "result_id": 815, "template_id": "unifi_ap", "name": "AP Office" } ] }
+```
+
+- `group_id` optional → the scan's `group_id` (422 when both are null or the group does not exist).
+- `items`: 1–256 entries, unique `result_id`. `template_id` must be a known template (whole request → 422).
+  `name` optional (1–128 chars).
+- For each item (processed with concurrency 8; the order of `created`/`errors` follows `items`):
+  - The result must belong to this scan, else item error `not_found`.
+  - If `existing_device_id` (computed now) is not null → item error `device_exists` (with `device_id`).
+  - Create the device: `host` = the IP text, `name` = `name` or `sys_name` or `hostname` or the IP (trimmed,
+    cut to 128), `description` = `sys_descr` (first 500 chars) or `""`, `enabled: true`.
+  - **SNMP credentials:** if `snmp_ok` and the answering credential is index 0 and the scan had no
+    `snmp_port` override (or it equals the target group's current effective port) → `snmp_credentials = null`
+    (inherit). Otherwise, when `snmp_ok`, the device gets its own credentials = the stored credential object,
+    with `timeout_s = 2`, `retries = 1`. When SNMP did not answer → `null`.
+  - Apply the template (same code as apply-template; ping is never probed).
+  - Set `discovery_results.imported_device_id`.
+  - Broadcast one `config.changed` `{"entity":"device","action":"created"}` per device.
+
+Response `200`:
+
+```json
+{ "created": [ { "result_id": 812, "device_id": 21, "device_name": "OPNsense.localdomain", "template_id": "opnsense",
+                 "sensors_created": 9,
+                 "sensors_skipped": [ { "name": "Disk /volume1", "type": "snmp_disk", "reason": "probe_failed",
+                                        "message": "Storage '/volume1' not found" } ] } ],
+  "errors": [ { "result_id": 815, "code": "device_exists", "message": "A device with this host already exists",
+                "device_id": 4 } ] }
+```
+
+`errors[].code` ∈ `not_found`, `device_exists`, `internal_error`; `device_id` is null except for `device_exists`.
+
+#### Discovery WebSocket messages
+Sent to admin sockets only.
+
+| type | data | When |
+|---|---|---|
+| `discovery.progress` | `{"scan_id":57,"status":"running","total_hosts":254,"scanned_hosts":31,"found_hosts":6,"new_hosts":2}` | Right after a scan starts, then at most once per second while counters change |
+| `discovery.result` | `{"scan_id":57,"result": DiscoveryResult}` | Each time a host is found (row written) |
+| `discovery.finished` | `{"scan_id":57,"status":"completed"\|"cancelled"\|"failed","total_hosts":254,"scanned_hosts":254,"found_hosts":11,"new_hosts":3,"error":null}` | Once, when the scan ends |
+
+The client should refetch `GET /api/discovery/scans/{id}` and the results after a reconnect or after
+`discovery.finished`.
