@@ -1,0 +1,29 @@
+# Development database only (TimescaleDB on localhost:5432, netmon/netmon/netmon).
+#
+#   docker compose -f deploy/docker-compose.dev.yml up -d
+#
+# See docs/conventions.md "Local development". Never use these credentials in production.
+
+name: netmon-dev
+
+services:
+  db:
+    image: ${NETMON_DB_IMAGE:-timescale/timescaledb:2.31.0-pg16}
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: netmon
+      POSTGRES_PASSWORD: netmon
+      POSTGRES_DB: netmon
+      TIMESCALEDB_TELEMETRY: "off"
+    ports:
+      - "${NETMON_DEV_DB_PORT:-5432}:5432"
+    volumes:
+      - netmon-dev-db:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -q -h 127.0.0.1 -U netmon -d netmon"]
+      interval: 5s
+      timeout: 5s
+      retries: 30
+
+volumes:
+  netmon-dev-db:

@@ -1,0 +1,494 @@
+{
+  "common": {
+    "loading": "טוען…",
+    "save": "שמירה",
+    "saved": "נשמר",
+    "cancel": "ביטול",
+    "close": "סגירה",
+    "delete": "מחיקה",
+    "deleted": "נמחק",
+    "deleteConfirm": "למחוק את \"{{name}}\"? לא ניתן לבטל פעולה זו.",
+    "edit": "עריכה",
+    "name": "שם",
+    "description": "תיאור",
+    "status": "סטטוס",
+    "enabled": "פעיל",
+    "sortOrder": "סדר מיון",
+    "yes": "כן",
+    "no": "לא",
+    "all": "הכול",
+    "back": "חזרה",
+    "next": "הבא",
+    "retry": "ניסיון חוזר",
+    "reset": "איפוס",
+    "filter": "סינון…",
+    "clearFilters": "ניקוי מסננים",
+    "default": "ברירת מחדל",
+    "optional": "רשות",
+    "selectAll": "בחירת הכול",
+    "language": "שפה"
+  },
+  "status": {
+    "up": "תקין",
+    "warning": "אזהרה",
+    "down": "תקלה",
+    "paused": "מושהה",
+    "unknown": "לא ידוע"
+  },
+  "role": {
+    "admin": "מנהל מערכת",
+    "viewer": "צופה"
+  },
+  "theme": {
+    "label": "ערכת נושא",
+    "system": "לפי המערכת",
+    "light": "בהירה",
+    "dark": "כהה"
+  },
+  "live": {
+    "open": "מחובר",
+    "connecting": "מתחבר…",
+    "closed": "מנותק"
+  },
+  "nav": {
+    "dashboard": "לוח בקרה",
+    "events": "אירועים",
+    "notifications": "התראות",
+    "settings": "הגדרות",
+    "users": "משתמשים",
+    "account": "החשבון שלי",
+    "logout": "התנתקות",
+    "tree": "התקנים",
+    "sidebar": "ניווט",
+    "toggleSidebar": "הצגה/הסתרה של סרגל הצד",
+    "breadcrumbs": "נתיב ניווט"
+  },
+  "tree": {
+    "search": "חיפוש קבוצות, התקנים וחיישנים",
+    "empty": "אין עדיין קבוצות.",
+    "noMatch": "לא נמצאו תוצאות.",
+    "expand": "הרחבה",
+    "collapse": "כיווץ"
+  },
+  "login": {
+    "title": "כניסה",
+    "subtitle": "התחברו כדי לנטר את הרשת שלכם.",
+    "username": "שם משתמש",
+    "password": "סיסמה",
+    "submit": "כניסה"
+  },
+  "setup": {
+    "title": "ברוכים הבאים ל-NetworkMonitor",
+    "subtitle": "ניצור עכשיו את חשבון מנהל המערכת.",
+    "stepLanguage": "שפה",
+    "stepAdmin": "מנהל מערכת",
+    "language": "שפת הממשק וההתראות",
+    "languageHint": "זו תהיה שפת ברירת המחדל של דף הכניסה ושל ההתראות.",
+    "username": "שם המשתמש של המנהל",
+    "email": "דוא\"ל (רשות)",
+    "password": "סיסמה",
+    "confirmPassword": "אימות סיסמה",
+    "submit": "יצירת מנהל מערכת"
+  },
+  "dashboard": {
+    "title": "לוח בקרה",
+    "summary": "{{groups}} · {{devices}} · {{sensors}}",
+    "sensors": "חיישנים",
+    "devices": "התקנים",
+    "total": "סה\"כ",
+    "problems": "חיישנים בתקלה ובאזהרה",
+    "allGood": "כל החיישנים תקינים.",
+    "recentEvents": "אירועים אחרונים",
+    "allEvents": "כל האירועים",
+    "groupCount_one": "קבוצה אחת",
+    "groupCount_two": "2 קבוצות",
+    "groupCount_other": "{{count}} קבוצות",
+    "deviceCount_one": "התקן אחד",
+    "deviceCount_two": "2 התקנים",
+    "deviceCount_other": "{{count}} התקנים",
+    "sensorCount_one": "חיישן אחד",
+    "sensorCount_two": "2 חיישנים",
+    "sensorCount_other": "{{count}} חיישנים"
+  },
+  "groups": {
+    "add": "הוספת קבוצה",
+    "addSub": "הוספת תת-קבוצה",
+    "edit": "עריכת קבוצה",
+    "parent": "קבוצת אב",
+    "noParent": "(ללא — רמה עליונה)",
+    "subgroups": "תת-קבוצות",
+    "devices": "התקנים",
+    "sensors": "חיישנים",
+    "sensorCount": "חיישנים: {{count}}",
+    "deleteTitle": "מחיקת קבוצה",
+    "deleteConfirm": "למחוק את הקבוצה \"{{name}}\" יחד עם כל תת-הקבוצות, ההתקנים והחיישנים שלה? חיישנים מושפעים: {{count}}. לא ניתן לבטל פעולה זו."
+  },
+  "devices": {
+    "add": "הוספת התקן",
+    "edit": "עריכת התקן",
+    "host": "כתובת",
+    "hostHint": "שם מארח, כתובת IPv4 או IPv6",
+    "group": "קבוצה",
+    "enabled": "פעיל (הניטור מופעל)",
+    "autoSensors": "יצירת החיישנים האלה מיד",
+    "none": "אין התקנים בקבוצה זו.",
+    "sensors": "חיישנים",
+    "recentEvents": "אירועים אחרונים",
+    "pause": "השהיית ההתקן",
+    "resume": "חידוש ההתקן",
+    "disabledNote": "ההתקן מושהה, ולכן כל החיישנים שלו מושהים.",
+    "deleteTitle": "מחיקת התקן",
+    "deleteConfirm": "למחוק את ההתקן \"{{name}}\" ואת כל החיישנים שלו? לא ניתן לבטל פעולה זו."
+  },
+  "snmp": {
+    "title": "פרטי התחברות SNMP",
+    "label": "SNMP",
+    "inheritParent": "ירושה מקבוצת האב",
+    "inheritGroup": "ירושה מהקבוצה",
+    "inherited": "בירושה",
+    "version": "גרסה",
+    "port": "פורט",
+    "timeout": "זמן קצוב (שניות)",
+    "retries": "ניסיונות חוזרים",
+    "community": "Community",
+    "v3Username": "שם משתמש",
+    "securityLevel": "רמת אבטחה",
+    "authProtocol": "פרוטוקול אימות",
+    "authKey": "מפתח אימות",
+    "privProtocol": "פרוטוקול הצפנה",
+    "privKey": "מפתח הצפנה",
+    "source": {
+      "device": "מוגדר בהתקן",
+      "group": "בירושה מקבוצה",
+      "default": "ברירת המחדל המובנית (v2c, public)"
+    },
+    "communityDefaultHint": "ריק = \"public\""
+  },
+  "secret": {
+    "stored": "•••••• (שמור)",
+    "keepHint": "השאירו ריק כדי לשמור על הערך הקיים.",
+    "clear": "מחיקת הערך השמור"
+  },
+  "sensors": {
+    "add": "הוספת חיישן",
+    "edit": "עריכת חיישן",
+    "create": "יצירת חיישן",
+    "created": "החיישן \"{{name}}\" נוצר",
+    "test": "בדיקה",
+    "type": "סוג",
+    "name": "שם",
+    "status": "סטטוס",
+    "device": "התקן",
+    "value": "ערך",
+    "message": "הודעה",
+    "lastCheck": "בדיקה אחרונה",
+    "since": "בסטטוס הנוכחי מאז",
+    "interval": "מרווח (שניות)",
+    "intervalDefault": "ריק = מרווח ברירת המחדל מההגדרות",
+    "none": "אין חיישנים.",
+    "noConfig": "לסוג חיישן זה אין הגדרות.",
+    "noData": "אין נתונים בטווח הזמן הזה.",
+    "noInterfaces": "ההתקן לא דיווח על ממשקים.",
+    "requiresSnmp": "חיישן זה משתמש ב-SNMP. פרטי התחברות: {{source}}.",
+    "interfacesAdded": "נוספו חיישני ממשק: {{ok}}, נכשלו: {{failed}}",
+    "headersHint": "כותרת אחת בכל שורה: Name: value",
+    "runNow": "הרצה עכשיו",
+    "pause": "השהיה",
+    "resume": "חידוש",
+    "paused": "החיישן הושהה",
+    "resumed": "החיישן חודש",
+    "history": "היסטוריה",
+    "channel": "ערוץ",
+    "settings": "הגדרות החיישן",
+    "events": "אירועים",
+    "deleteTitle": "מחיקת חיישן",
+    "deleteConfirm": "למחוק את החיישן \"{{name}}\" ואת ההיסטוריה שלו? לא ניתן לבטל פעולה זו.",
+    "runPausedHint": "החיישן מושהה. יש לחדש אותו (או את ההתקן שלו) כדי להריץ בדיקה."
+  },
+  "iface": {
+    "name": "ממשק",
+    "alias": "כינוי",
+    "speed": "מהירות",
+    "status": "ניהולי/תפעולי",
+    "exists": "כבר מנוטר",
+    "selected": "נבחרו: {{count}}",
+    "add": "הוספת הנבחרים ({{count}})"
+  },
+  "check": {
+    "ok": "הבדיקה הצליחה",
+    "failed": "הבדיקה נכשלה"
+  },
+  "chart": {
+    "avg": "ממוצע",
+    "min": "מינימום",
+    "max": "מקסימום",
+    "minMax": "מינימום–מקסימום"
+  },
+  "range": {
+    "1h": "שעה",
+    "24h": "24 שעות",
+    "7d": "7 ימים",
+    "30d": "30 יום"
+  },
+  "thresholds": {
+    "title": "ספים",
+    "warning_min": "אזהרה מתחת",
+    "warning_max": "אזהרה מעל",
+    "down_min": "תקלה מתחת",
+    "down_max": "תקלה מעל",
+    "help": "ריק = ללא סף. ערך מעל \"תקלה מעל\" או מתחת ל\"תקלה מתחת\" מעביר את הערוץ לתקלה; אחרת חלים ספי האזהרה.",
+    "save": "שמירת הספים"
+  },
+  "events": {
+    "title": "אירועים",
+    "time": "זמן",
+    "kind": "סוג",
+    "source": "מקור",
+    "status": "סטטוס",
+    "newStatus": "סטטוס חדש",
+    "message": "הודעה",
+    "group": "קבוצה",
+    "since": "מתאריך",
+    "until": "עד תאריך",
+    "none": "אין אירועים.",
+    "system": "מערכת",
+    "filteredDevice": "מסונן לפי התקן #{{id}}.",
+    "filteredSensor": "מסונן לפי חיישן #{{id}}."
+  },
+  "eventKind": {
+    "status_change": "שינוי סטטוס",
+    "notification": "התראה",
+    "system": "מערכת"
+  },
+  "pagination": {
+    "range": "{{from}}–{{to}} מתוך {{total}}",
+    "page": "עמוד {{page}} מתוך {{pages}}",
+    "prev": "העמוד הקודם",
+    "next": "העמוד הבא"
+  },
+  "notifications": {
+    "title": "התראות"
+  },
+  "channels": {
+    "title": "ערוצי התראה",
+    "add": "הוספת ערוץ",
+    "edit": "עריכת ערוץ",
+    "type": "סוג",
+    "email": "דוא\"ל",
+    "webhook": "Webhook",
+    "target": "יעד",
+    "recipients": "נמענים",
+    "recipientsHint": "1–20 כתובות, אחת בכל שורה או מופרדות בפסיקים. שרת ה-SMTP מוגדר בהגדרות.",
+    "url": "כתובת URL",
+    "headers": "כותרות",
+    "timeout": "זמן קצוב (שניות)",
+    "verifyTls": "אימות תעודת TLS",
+    "test": "שליחת בדיקה",
+    "testOk": "הבדיקה נשלחה",
+    "none": "אין עדיין ערוצי התראה.",
+    "deleteTitle": "מחיקת ערוץ"
+  },
+  "rules": {
+    "title": "כללי התראה",
+    "add": "הוספת כלל",
+    "edit": "עריכת כלל",
+    "scope": "חל על",
+    "global": "כל החיישנים",
+    "onStatuses": "התראה במעבר ל",
+    "onStatusesHint": "\"תקין\" נשלח רק בחזרה מתקלה או מאזהרה.",
+    "delay": "השהיה (שניות)",
+    "delayHint": "נשלח רק אם הסטטוס עדיין נשמר אחרי ההשהיה.",
+    "channels": "ערוצים",
+    "noChannels": "צרו קודם ערוץ התראה.",
+    "none": "אין עדיין כללי התראה.",
+    "deleteTitle": "מחיקת כלל"
+  },
+  "settings": {
+    "title": "הגדרות",
+    "general": "כללי",
+    "retentionDays": "שמירת מדידות (ימים)",
+    "retentionHint": "היסטוריה ישנה יותר נמחקת.",
+    "eventRetentionDays": "שמירת אירועים (ימים)",
+    "defaultInterval": "מרווח ברירת מחדל לחיישן (שניות)",
+    "defaultIntervalHint": "משמש לחיישנים חדשים ללא מרווח.",
+    "defaultLanguage": "שפת ברירת מחדל",
+    "defaultLanguageHint": "לדף הכניסה ולהתראות.",
+    "publicBaseUrl": "כתובת בסיס ציבורית",
+    "publicBaseUrlHint": "משמשת לקישורים בהתראות. ריק = ללא קישורים.",
+    "smtp": "דוא\"ל (SMTP)",
+    "smtpHost": "שרת SMTP",
+    "smtpPort": "פורט",
+    "smtpSecurity": "אבטחה",
+    "smtpUsername": "שם משתמש",
+    "smtpPassword": "סיסמה",
+    "fromAddress": "כתובת השולח",
+    "fromName": "שם השולח",
+    "smtpTestTo": "שליחת דוא\"ל בדיקה אל",
+    "smtpTest": "שליחת דוא\"ל בדיקה",
+    "smtpTestHint": "משתמש בהגדרות השמורות — שמרו קודם.",
+    "smtpTestOk": "דוא\"ל הבדיקה נשלח.",
+    "healthLine": "גרסה {{version}} · מסד נתונים {{db}} · {{mode}} · מנוע דגימה {{poller}} · חיישנים מתוזמנים: {{count}}",
+    "security": {
+      "none": "ללא"
+    }
+  },
+  "users": {
+    "title": "משתמשים",
+    "add": "הוספת משתמש",
+    "edit": "עריכת משתמש",
+    "username": "שם משתמש",
+    "email": "דוא\"ל",
+    "role": "תפקיד",
+    "language": "שפה",
+    "active": "פעיל",
+    "lastLogin": "כניסה אחרונה",
+    "password": "סיסמה",
+    "newPassword": "סיסמה חדשה",
+    "passwordKeepHint": "השאירו ריק כדי לשמור על הסיסמה הנוכחית.",
+    "you": "את/ה",
+    "deleteTitle": "מחיקת משתמש"
+  },
+  "account": {
+    "title": "החשבון שלי",
+    "profile": "פרופיל",
+    "languageHint": "שפת הממשק נשמרת אוטומטית כשמשנים אותה בסרגל העליון.",
+    "changePassword": "שינוי סיסמה",
+    "currentPassword": "הסיסמה הנוכחית",
+    "newPassword": "סיסמה חדשה",
+    "confirmPassword": "אימות הסיסמה החדשה",
+    "passwordChanged": "הסיסמה שונתה."
+  },
+  "validation": {
+    "required": "שדה חובה.",
+    "integer": "יש להזין מספר שלם.",
+    "number": "יש להזין מספר תקין.",
+    "range": "הערך חייב להיות בין {{min}} ל-{{max}}.",
+    "intList": "יש להזין מספרים מופרדים בפסיקים.",
+    "interval": "בין 10 ל-86400 שניות.",
+    "username": "3–64 תווים: אותיות לטיניות, ספרות, נקודה, קו תחתון ומקף.",
+    "passwordLength": "8–128 תווים.",
+    "passwordMismatch": "הסיסמאות אינן תואמות."
+  },
+  "units": {
+    "days": "ימים",
+    "durD_one": "יום",
+    "durD_two": "יומיים",
+    "durD_other": "{{count}} ימים",
+    "durH_one": "שעה",
+    "durH_two": "שעתיים",
+    "durH_other": "{{count}} שע׳",
+    "durM_one": "דקה",
+    "durM_two": "2 דק׳",
+    "durM_other": "{{count}} דק׳"
+  },
+  "errors": {
+    "bad_request": "הבקשה אינה תקינה.",
+    "group_cycle": "אי אפשר להעביר קבוצה אל מתחת לעצמה או לאחת מתת-הקבוצות שלה.",
+    "invalid_sensor_type": "סוג החיישן אינו נתמך.",
+    "unauthenticated": "פג תוקף ההתחברות. יש להתחבר מחדש.",
+    "invalid_credentials": "שם המשתמש או הסיסמה שגויים.",
+    "forbidden": "אין לך הרשאה לפעולה זו.",
+    "setup_required": "ההתקנה הראשונית עדיין לא הושלמה.",
+    "not_found": "לא נמצא.",
+    "conflict": "השם הזה כבר קיים.",
+    "setup_already_done": "ההתקנה הראשונית כבר הושלמה.",
+    "last_admin": "אי אפשר למחוק, להוריד בדרגה או להשבית את מנהל המערכת הפעיל האחרון או את עצמך.",
+    "unsupported_media_type": "פורמט הבקשה אינו נתמך.",
+    "validation_error": "חלק מהערכים אינם תקינים.",
+    "rate_limited": "יותר מדי ניסיונות כניסה כושלים. נסו שוב בעוד כמה דקות.",
+    "snmp_error": "בקשת ה-SNMP נכשלה",
+    "smtp_error": "שליחת הדוא\"ל נכשלה",
+    "webhook_error": "הקריאה ל-Webhook נכשלה",
+    "internal_error": "אירעה שגיאה בשרת.",
+    "network_error": "אין חיבור לשרת.",
+    "sensor_paused": "אי אפשר לבדוק חיישן מושהה — יש לחדש קודם את החיישן או את ההתקן."
+  },
+  "sensorType": {
+    "ping": "Ping",
+    "snmp_system": "SNMP מערכת",
+    "snmp_cpu": "SNMP מעבד",
+    "snmp_memory": "SNMP זיכרון",
+    "snmp_interface": "SNMP ממשק",
+    "http": "HTTP(S)",
+    "tcp_port": "פורט TCP",
+    "dns": "DNS"
+  },
+  "channel": {
+    "latency_ms": "זמן תגובה",
+    "packet_loss_pct": "איבוד חבילות",
+    "uptime_s": "זמן פעילות",
+    "cpu_load_pct": "עומס מעבד",
+    "mem_used_pct": "ניצול זיכרון",
+    "mem_used_bytes": "זיכרון בשימוש (בתים)",
+    "mem_total_bytes": "סך הזיכרון",
+    "in_bps": "תעבורה נכנסת",
+    "out_bps": "תעבורה יוצאת",
+    "in_util_pct": "ניצולת נכנסת",
+    "out_util_pct": "ניצולת יוצאת",
+    "oper_status": "מצב תפעולי",
+    "in_errors_ps": "שגיאות נכנסות",
+    "out_errors_ps": "שגיאות יוצאות",
+    "response_time_ms": "זמן תגובה",
+    "status_code": "קוד סטטוס",
+    "ssl_days_left": "ימים לתפוגת התעודה",
+    "connect_time_ms": "זמן התחברות",
+    "resolve_time_ms": "זמן פענוח"
+  },
+  "sensorConfig": {
+    "ping": {
+      "count": "מספר חבילות",
+      "timeout_ms": "זמן קצוב לחבילה (מ\"ש)",
+      "packet_size": "גודל חבילה (בתים)"
+    },
+    "snmp_memory": {
+      "storage_index": "אינדקס אחסון",
+      "storage_descr": "תיאור האחסון"
+    },
+    "snmp_interface": {
+      "if_index": "אינדקס ממשק",
+      "if_name": "שם הממשק",
+      "speed_bps_override": "מהירות ידנית (ביט/שנייה)"
+    },
+    "http": {
+      "url": "כתובת URL",
+      "method": "שיטה",
+      "timeout_s": "זמן קצוב (שניות)",
+      "expected_status": "קודי סטטוס צפויים",
+      "keyword": "מילת מפתח",
+      "keyword_must_exist": "מילת המפתח חייבת להופיע",
+      "verify_tls": "אימות תעודת TLS",
+      "follow_redirects": "מעקב אחר הפניות",
+      "headers": "כותרות הבקשה"
+    },
+    "tcp_port": {
+      "port": "פורט",
+      "timeout_s": "זמן קצוב (שניות)"
+    },
+    "dns": {
+      "query_name": "שם לשאילתה",
+      "record_type": "סוג רשומה",
+      "server": "שרת DNS",
+      "port": "פורט",
+      "timeout_s": "זמן קצוב (שניות)",
+      "expected": "תשובה צפויה"
+    }
+  },
+  "sensorConfigHint": {
+    "snmp_memory": {
+      "storage_index": "ריק = רשומת ה-RAM הראשונה",
+      "storage_descr": "מתמלא אוטומטית"
+    },
+    "snmp_interface": {
+      "speed_bps_override": "ריק = המהירות שההתקן מדווח"
+    },
+    "http": {
+      "url": "{host} מוחלף בכתובת ההתקן",
+      "expected_status": "מופרדים בפסיקים, למשל 200, 301. ריק = כל 2xx/3xx",
+      "keyword": "טקסט אופציונלי שיש לחפש בתגובה"
+    },
+    "dns": {
+      "server": "ריק = שימוש בכתובת ההתקן כשרת ה-DNS",
+      "expected": "רשות; לפחות תשובה אחת חייבת להיות שווה לו"
+    }
+  }
+}

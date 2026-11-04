@@ -1,0 +1,209 @@
+name: CI
+
+on:
+  push:
+    branches: ["**"]
+    tags-ignore: ["**"]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  # ---------------------------------------------------------------------------
+  # Backend: lint + pytest, against TimescaleDB and against plain PostgreSQL
+  # (fallback mode), as required by docs/conventions.md.
+  # ---------------------------------------------------------------------------
+  backend:
+    name: backend (${{ matrix.db.name }})
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        db:
+          - name: timescaledb
+            image: timescale/timescaledb:latest-pg16
+          - name: postgres
+            image: postgres:16
+    services:
+      postgres:
+        image: ${{ matrix.db.image }}
+        env:
+          POSTGRES_USER: netmon
+          POSTGRES_PASSWORD: netmon
+          POSTGRES_DB: netmon
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -h 127.0.0.1 -U netmon -d netmon"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 30
+    env:
+      TEST_DATABASE_URL: postgresql://netmon:netmon@localhost:5432/postgres
+      NETMON_DATA_DIR: ${{ github.workspace }}/.devdata
+    defaults:
+      run:
+        working-directory: backend
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: backend/pyproject.toml
+
+      - name: Install
+        run: |
+          python -m pip install --upgrade pip
+          pip install -e ".[dev]"
+
+      - name: Lint (ruff)
+        run: |
+          ruff format --check .
+          ruff check .
+
+      - name: Test (pytest)
+        run: pytest -q
+
+  # ---------------------------------------------------------------------------
+  # Frontend: lint, unit tests, production build
+  # ---------------------------------------------------------------------------
+  frontend:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    defaults:
+      run:
+        working-directory: frontend
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+
+      - run: npm ci
+      - run: npm run lint --if-present
+      - run: npm test -- --run
+      - run: npm run build
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: frontend-dist
+          path: frontend/dist
+          retention-days: 7
+
+  # ---------------------------------------------------------------------------
+  # Docker: build the image and run the real compose stack end to end
+  # ---------------------------------------------------------------------------
+  docker:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      COMPOSE: docker compose -p netmon-ci -f deploy/docker-compose.yml
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Validate compose file
+        run: $COMPOSE config -q
+
+      - name: Build image
+        run: $COMPOSE build --pull
+
+      - name: Start stack (the documented single step)
+        run: $COMPOSE up -d
+
+      - name: Wait for /api/health
+        run: |
+          for _ in $(seq 1 90); do
+            if curl -fsS http://localhost:8080/api/health -o health.json; then
+              cat health.json; echo
+              python3 - <<'EOF'
+          import json
+          h = json.load(open("health.json"))
+          assert h["database"] == "ok", h
+          assert h["timescale"] is True, h
+          print("health ok:", h["status"], "version", h["version"])
+          EOF
+              exit 0
+            fi
+            sleep 2
+          done
+          echo "netmon did not become healthy" >&2
+          exit 1
+
+      - name: Smoke test
+        run: |
+          curl -fsS http://localhost:8080/api/setup/status | tee setup.json; echo
+          python3 -c 'import json; assert json.load(open("setup.json"))["setup_required"] is True'
+          # The SPA is served at / and as the fallback for client-side routes.
+          curl -fsS http://localhost:8080/ | grep -qi '<div id="root"'
+          curl -fsS http://localhost:8080/some/client/route | grep -qi '<div id="root"'
+          # Complete the setup wizard through the API (creates the first admin, sets the cookie).
+          curl -fsS -c cookies.txt -X POST -H 'Content-Type: application/json' \
+            -d '{"username":"admin","password":"ci-Secret-123","email":null,"language":"en"}' \
+            http://localhost:8080/api/setup; echo
+          curl -fsS http://localhost:8080/api/setup/status | grep -q '"setup_required":false'
+          # Unknown API paths return the JSON error envelope, never index.html.
+          test "$(curl -s -o err.json -w '%{http_code}' -b cookies.txt http://localhost:8080/api/does-not-exist)" = 404
+          grep -q '"code":"not_found"' err.json
+          # ICMP works from the unprivileged container (ping_group_range sysctl).
+          curl -fsS -b cookies.txt -X POST -H 'Content-Type: application/json' \
+            -d '{"host":"127.0.0.1","type":"ping","config":{}}' \
+            http://localhost:8080/api/sensors/test | tee ping.json; echo
+          python3 -c 'import json; r = json.load(open("ping.json")); assert r["ok"] is True, r'
+          # Container health check reports healthy.
+          for _ in $(seq 1 30); do
+            s="$(docker inspect -f '{{.State.Health.Status}}' "$($COMPOSE ps -q netmon)")"
+            echo "container health: $s"; [ "$s" = healthy ] && break; sleep 5
+          done
+          [ "$s" = healthy ]
+
+      - name: Restart keeps data and password
+        run: |
+          $COMPOSE down
+          $COMPOSE up -d --wait
+          curl -fsS --retry 30 --retry-delay 2 --retry-all-errors http://localhost:8080/api/health
+          # Same DB password (init keeps it) and the admin created above still exists.
+          curl -fsS http://localhost:8080/api/setup/status | grep -q '"setup_required":false'
+
+      - name: Logs
+        if: always()
+        run: $COMPOSE logs --no-color --timestamps
+
+      - name: Tear down
+        if: always()
+        run: $COMPOSE down -v
+
+  # ---------------------------------------------------------------------------
+  # Installer scripts: static checks
+  # ---------------------------------------------------------------------------
+  scripts:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - name: shellcheck
+        run: shellcheck -x deploy/linux/*.sh
+      - name: PowerShell parse + PSScriptAnalyzer
+        shell: pwsh
+        run: |
+          $errors = 0
+          foreach ($f in Get-ChildItem deploy/windows -Filter *.ps1) {
+            $tokens = $null; $parseErrors = $null
+            [System.Management.Automation.Language.Parser]::ParseFile($f.FullName, [ref]$tokens, [ref]$parseErrors) | Out-Null
+            $parseErrors | ForEach-Object { Write-Host "::error file=$($f.Name),line=$($_.Extent.StartLineNumber)::$($_.Message)"; $errors++ }
+          }
+          Install-Module PSScriptAnalyzer -Force -Scope CurrentUser
+          $issues = Invoke-ScriptAnalyzer -Path deploy/windows -Severity Error
+          $issues | Format-Table -AutoSize | Out-String | Write-Host
+          if ($errors -or $issues) { exit 1 }

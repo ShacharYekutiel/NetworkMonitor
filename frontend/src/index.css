@@ -1,0 +1,18 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  html {
+    -webkit-font-smoothing: antialiased;
+  }
+  html[dir='rtl'] body {
+    font-family: 'Segoe UI', Arial, 'Noto Sans Hebrew', system-ui, sans-serif;
+  }
+  :root {
+    color-scheme: light;
+  }
+  :root.dark {
+    color-scheme: dark;
+  }
+}

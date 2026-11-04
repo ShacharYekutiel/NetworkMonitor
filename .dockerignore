@@ -1,0 +1,38 @@
+# Keep the build context small and reproducible.
+.git
+.github
+.claude
+**/.DS_Store
+**/*.log
+
+# Python artefacts
+**/__pycache__
+**/*.py[cod]
+**/.venv
+**/venv
+**/*.egg-info
+**/.pytest_cache
+**/.ruff_cache
+**/.mypy_cache
+**/.coverage
+**/htmlcov
+backend/build
+backend/dist
+# Built SPA is produced inside the image; never use a stale local copy.
+backend/netmon/static
+
+# Node artefacts
+**/node_modules
+frontend/dist
+frontend/coverage
+
+# Local data / dev state
+.devdata
+data
+deploy/.env
+**/.env
+
+# Not needed in the image
+docs
+tests
+deploy/windows

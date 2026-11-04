@@ -1,0 +1,107 @@
+name: Release
+
+# Push a tag like v0.1.0 to publish:
+#   - the container image ghcr.io/<owner>/<repo>:<version> (+ :latest)
+#   - a GitHub release with netmon-<version>.tar.gz / .zip for the native installers
+#     (wheel with the web UI bundled + deploy/ scripts).
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  packages: write
+
+jobs:
+  image:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: docker/setup-qemu-action@v3
+      - uses: docker/setup-buildx-action@v3
+
+      - uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ghcr.io/${{ github.repository }}
+          tags: |
+            type=semver,pattern={{version}}
+            type=semver,pattern={{major}}.{{minor}}
+            type=raw,value=latest,enable=${{ startsWith(github.ref, 'refs/tags/v') }}
+            type=sha
+
+      - uses: docker/build-push-action@v6
+        with:
+          context: .
+          platforms: linux/amd64,linux/arm64
+          push: true
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+  bundle:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Build the web UI
+        working-directory: frontend
+        run: npm ci && npm run build
+
+      - name: Build the wheel (web UI bundled)
+        run: |
+          rm -rf backend/netmon/static
+          cp -a frontend/dist backend/netmon/static
+          python -m pip install --upgrade build
+          python -m build --wheel --outdir dist backend
+          python - <<'EOF'
+          import glob, zipfile
+          whl = glob.glob("dist/netmon-*.whl")[0]
+          names = zipfile.ZipFile(whl).namelist()
+          assert "netmon/static/index.html" in names, "web UI missing from the wheel"
+          print(whl, len(names), "files")
+          EOF
+
+      - name: Assemble tarball and zip
+        run: |
+          VERSION="$(python -c 'import glob,re; print(re.match(r"dist/netmon-([^-]+)-", glob.glob("dist/netmon-*.whl")[0]).group(1))')"
+          NAME="netmon-${VERSION}"
+          mkdir -p "out/${NAME}/deploy"
+          cp dist/netmon-*.whl "out/${NAME}/"
+          cp README.md "out/${NAME}/"
+          cp -a deploy/linux deploy/windows deploy/README.md "out/${NAME}/deploy/"
+          tar -C out -czf "${NAME}.tar.gz" "${NAME}"
+          (cd out && zip -qr "../${NAME}.zip" "${NAME}")
+          sha256sum "${NAME}.tar.gz" "${NAME}.zip" dist/netmon-*.whl > SHA256SUMS
+          cat SHA256SUMS
+
+      - uses: softprops/action-gh-release@v2
+        if: startsWith(github.ref, 'refs/tags/v')
+        with:
+          generate_release_notes: true
+          files: |
+            netmon-*.tar.gz
+            netmon-*.zip
+            dist/netmon-*.whl
+            SHA256SUMS

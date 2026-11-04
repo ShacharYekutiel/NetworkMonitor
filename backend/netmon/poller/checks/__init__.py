@@ -1,0 +1,28 @@
+"""Check plugins: one module per sensor type exposing `async def run(ctx) -> CheckResult`."""
+
+from __future__ import annotations
+
+from collections.abc import Awaitable, Callable
+
+from netmon.poller.checks import (
+    dns,
+    http,
+    ping,
+    snmp_cpu,
+    snmp_interface,
+    snmp_memory,
+    snmp_system,
+    tcp_port,
+)
+from netmon.poller.types import CheckContext, CheckResult
+
+PLUGINS: dict[str, Callable[[CheckContext], Awaitable[CheckResult]]] = {
+    "ping": ping.run,
+    "snmp_system": snmp_system.run,
+    "snmp_cpu": snmp_cpu.run,
+    "snmp_memory": snmp_memory.run,
+    "snmp_interface": snmp_interface.run,
+    "http": http.run,
+    "tcp_port": tcp_port.run,
+    "dns": dns.run,
+}
