@@ -155,7 +155,7 @@ import_corporate_cas() {
   sh "$CA_IMPORT" "$CA_SRC_DIR" "$dest" | sed 's/^/  /'
   after="$(find "$dest" -maxdepth 1 -name 'netmon-*.crt' 2>/dev/null | wc -l || true)"
   if [ "$before" -gt 0 ] || [ "$after" -gt 0 ]; then
-    $update >/dev/null
+    $update >/dev/null 2>&1 || warn "\"${update}\" failed; corporate CA certificates may not be trusted"
   fi
   if [ "$after" -gt 0 ] && [ -s "$bundle" ]; then
     export NODE_EXTRA_CA_CERTS="$bundle" SSL_CERT_FILE="$bundle" PIP_CERT="$bundle" UV_NATIVE_TLS=1

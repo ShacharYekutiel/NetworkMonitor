@@ -20,6 +20,11 @@
          (LocalSystem, automatic start).
       5. Opens TCP 8080 inbound in Windows Firewall, starts the service and prints the URL.
 
+    Corporate TLS inspection: the app trusts the Windows certificate store, so a root CA
+    deployed by IT (group policy) works with no action. Certificates copied into
+    deploy\certs (see deploy\certs\README.md) are trusted in addition by the web UI build
+    (npm), pip and the service.
+
     The script is idempotent: re-running it upgrades the app and keeps the data,
     the database and the generated passwords.
 
@@ -88,6 +93,8 @@ $SidSystem     = '*S-1-5-18'       # NT AUTHORITY\SYSTEM (SIDs: independent of t
 $SidAdmins     = '*S-1-5-32-544'   # BUILTIN\Administrators
 $Utf8NoBom     = New-Object System.Text.UTF8Encoding($false)
 $RepoRoot      = (Resolve-Path (Join-Path $PSScriptRoot '..\..')).Path
+$CertsDir      = Join-Path $PSScriptRoot '..\certs'        # deploy\certs (corporate CAs, optional)
+$CorpCaFile    = Join-Path $DataDir 'corporate-ca.pem'      # NETMON_EXTRA_CA_FILE of the service
 $WorkDir       = Join-Path $env:TEMP ("netmon-install-" + [guid]::NewGuid().ToString('N').Substring(0, 8))
 
 # ----------------------------------------------------------------------------- helpers
@@ -150,6 +157,41 @@ function Install-WingetPackage([string]$Id, [string]$Override = '') {
     Sync-SessionPath
 }
 
+function ConvertTo-Pem([System.Security.Cryptography.X509Certificates.X509Certificate2]$Cert) {
+    $b64 = [Convert]::ToBase64String($Cert.RawData)
+    $lines = for ($i = 0; $i -lt $b64.Length; $i += 64) { $b64.Substring($i, [Math]::Min(64, $b64.Length - $i)) }
+    return "-----BEGIN CERTIFICATE-----`n" + ($lines -join "`n") + "`n-----END CERTIFICATE-----`n"
+}
+
+function Read-CorporateCa([string]$Dir) {
+    # Certificates from deploy\certs\*.crt|*.pem|*.cer, PEM (Base-64, one or more per file)
+    # or DER. Returns X509Certificate2 objects; unreadable files are skipped with a warning.
+    $certs = New-Object System.Collections.Generic.List[System.Security.Cryptography.X509Certificates.X509Certificate2]
+    if (-not (Test-Path $Dir)) { return ,$certs }
+    $files = Get-ChildItem -Path $Dir -File -ErrorAction SilentlyContinue |
+             Where-Object { @('.crt', '.pem', '.cer') -contains $_.Extension.ToLowerInvariant() }
+    foreach ($f in $files) {
+        $before = $certs.Count
+        try {
+            $bytes = [System.IO.File]::ReadAllBytes($f.FullName)
+            $text = [System.Text.Encoding]::ASCII.GetString($bytes)
+            $blocks = [regex]::Matches($text, '-----BEGIN CERTIFICATE-----([A-Za-z0-9+/=\s]+?)-----END CERTIFICATE-----')
+            if ($blocks.Count -gt 0) {
+                foreach ($b in $blocks) {
+                    $der = [Convert]::FromBase64String(($b.Groups[1].Value -replace '\s', ''))
+                    $certs.Add((New-Object System.Security.Cryptography.X509Certificates.X509Certificate2(, $der)))
+                }
+            } else {
+                $certs.Add((New-Object System.Security.Cryptography.X509Certificates.X509Certificate2(, $bytes)))
+            }
+        } catch {
+            Write-Warn2 "Skipping $($f.Name): not a PEM/DER certificate ($($_.Exception.Message))"
+        }
+        for ($i = $before; $i -lt $certs.Count; $i++) { Write-Ok "Corporate CA: $($f.Name) -> $($certs[$i].Subject)" }
+    }
+    return ,$certs
+}
+
 function Get-EnvFileValue([string]$Key) {
     if (-not (Test-Path $EnvFile)) { return $null }
     foreach ($line in [System.IO.File]::ReadAllLines($EnvFile)) {
@@ -167,6 +209,22 @@ try {
     Write-Step "Installing NetworkMonitor (data: $DataDir, program: $InstallDir)"
     if (-not [Environment]::Is64BitOperatingSystem) { throw 'A 64-bit Windows is required.' }
     Protect-Path $DataDir
+
+    # ========================================================================= corporate CA
+    # A TLS-inspecting firewall re-signs HTTPS with a corporate root CA. The app uses the
+    # Windows certificate store (truststore), so a CA deployed by IT is trusted as is.
+    # Certificates dropped into deploy\certs are trusted in addition: by npm (web UI build),
+    # pip and the service (NETMON_EXTRA_CA_FILE). See deploy\certs\README.md.
+    $corpCerts = Read-CorporateCa $CertsDir
+    $useCorpCa = $corpCerts.Count -gt 0
+    if ($useCorpCa) {
+        Write-Step "Trusting $($corpCerts.Count) corporate CA certificate(s) from deploy\certs"
+        $pem = ($corpCerts | ForEach-Object { ConvertTo-Pem $_ }) -join ''
+        Write-TextFile $CorpCaFile $pem
+        $env:NODE_EXTRA_CA_CERTS = $CorpCaFile
+    } elseif (Test-Path $CorpCaFile) {
+        Remove-Item -Force $CorpCaFile   # certificates were removed from deploy\certs
+    }
 
     # ========================================================================= Python
     function Find-Python {
@@ -486,6 +544,15 @@ try {
     if (-not (Test-Path $venvPython)) { Invoke-Native $python @('-m', 'venv', $VenvDir) }
     $env:PIP_DISABLE_PIP_VERSION_CHECK = '1'
     $env:PIP_NO_CACHE_DIR = '1'
+    if ($useCorpCa) {
+        # pip: its own Mozilla bundle (certifi, vendored in pip) + the corporate CAs.
+        $pipCertifi = (& $venvPython -c 'from pip._vendor import certifi; print(certifi.where())' | Out-String).Trim()
+        if ($pipCertifi -and (Test-Path $pipCertifi)) {
+            $pipBundle = Join-Path $WorkDir 'pip-ca-bundle.pem'
+            Write-TextFile $pipBundle (([System.IO.File]::ReadAllText($pipCertifi)) + "`n" + ([System.IO.File]::ReadAllText($CorpCaFile)))
+            $env:PIP_CERT = $pipBundle
+        }
+    }
     Invoke-Native $venvPython @('-m', 'pip', 'install', '-q', '--upgrade', 'pip', 'setuptools', 'wheel')
     Invoke-Native $venvPython @('-m', 'pip', 'install', '-q', '--upgrade', $pkg)
     Invoke-Native $venvPython @('-m', 'pip', 'install', '-q', '--no-deps', '--force-reinstall', $pkg)
@@ -545,7 +612,8 @@ try {
         @('Application', $netmonExe),
         @('AppParameters', 'serve'),
         @('AppDirectory', $DataDir),
-        @('AppEnvironmentExtra', "NETMON_DATA_DIR=$DataDir", 'PYTHONUNBUFFERED=1', 'PYTHONIOENCODING=utf-8'),
+        (@('AppEnvironmentExtra', "NETMON_DATA_DIR=$DataDir", 'PYTHONUNBUFFERED=1', 'PYTHONIOENCODING=utf-8') +
+         @(if ($useCorpCa) { "NETMON_EXTRA_CA_FILE=$CorpCaFile" })),
         @('DisplayName', 'NetworkMonitor'),
         @('Description', "NetworkMonitor - network monitoring web application (http://localhost:$Port)"),
         @('Start', 'SERVICE_AUTO_START'),

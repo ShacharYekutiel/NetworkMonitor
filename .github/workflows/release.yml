@@ -90,7 +90,7 @@ jobs:
           mkdir -p "out/${NAME}/deploy"
           cp dist/netmon-*.whl "out/${NAME}/"
           cp README.md "out/${NAME}/"
-          cp -a deploy/linux deploy/windows deploy/README.md "out/${NAME}/deploy/"
+          cp -a deploy/linux deploy/windows deploy/certs deploy/import-ca-certs.sh deploy/README.md "out/${NAME}/deploy/"
           tar -C out -czf "${NAME}.tar.gz" "${NAME}"
           (cd out && zip -qr "../${NAME}.zip" "${NAME}")
           sha256sum "${NAME}.tar.gz" "${NAME}.zip" dist/netmon-*.whl > SHA256SUMS
