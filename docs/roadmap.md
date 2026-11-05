@@ -17,7 +17,40 @@ office network (Windows + Docker Desktop, HPE / Aruba / Check Point equipment) b
 6. HPE switch templates (ArubaOS-Switch, Comware): CPU, memory, fans, PSUs, temperature, PoE.
 7. Topology: LLDP/CDP link discovery, manual links, interactive map, dependency suggestions.
 
-## Phase 2b-2: vendor template library
+## Phase 2b-2: switch ports view (first item), then the vendor template library
+
+### Switch ports view (Portnox-style)
+Owner decisions: both layouts with a toggle; details only on click, in a modal; part of 2b-2.
+
+- On a switch's device page, **all** ports are shown, not only those with a sensor. A toggle
+  switches between:
+  - **Faceplate:** port squares laid out like the physical front panel (odd ports on top, even
+    below, uplink/SFP ports grouped separately). Colour by state: up, no link, admin-down,
+    errors. Small markers for speed (100M / 1G / 10G), PoE in use and uplink (LLDP neighbour
+    is a managed device).
+  - **List:** one row per port with the same state, searchable (e.g. find a MAC or an IP).
+- **Clicking a port opens a modal**, closed with X or by clicking outside it. It holds all the
+  details:
+  - port name / alias, admin and oper state, speed, duplex, VLAN (PVID);
+  - traffic and errors (chart if an interface sensor exists, otherwise "Start monitoring");
+  - PoE draw;
+  - what is connected:
+    - the LLDP/CDP neighbour (linked to its device);
+    - learned MACs with vendor (OUI), IP and hostname.
+- Data behind it:
+  - periodic read of the full ifTable/ifXTable;
+  - VLAN from Q-BRIDGE-MIB;
+  - the MAC table (BRIDGE-MIB / Q-BRIDGE-MIB dot1qTpFdbTable);
+  - ARP from routers/firewalls (ipNetToMediaTable / ipNetToPhysicalTable) for MAC → IP;
+  - reverse DNS for names;
+  - the 2b-1 topology for neighbours.
+  - Uplink ports, which learn many MACs, show a count and the neighbour, not every MAC.
+- Not included: the logged-in user per port (Portnox gets it from 802.1X/RADIUS, which this
+  product does not have).
+- References for typical port views (no official Portnox docs found): Juniper Mist switch front
+  panel, Ruckus One switch ports, Meter switch ports.
+
+### Vendor template library
 - Templates move from code to **data files**, so new vendors can be added without a release
   (later: a template editor in the UI).
 - Every OID carries a confidence level. A template is marked **verified** only after it was
