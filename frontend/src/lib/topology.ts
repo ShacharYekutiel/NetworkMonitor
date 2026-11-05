@@ -198,7 +198,7 @@ export function buildGraph(
         ghost: false,
         inFilter: n.in_filter,
         symbol: deviceSymbol(n.status, n.device_class, n.in_maintenance, dark),
-        symbolSize: 40,
+        symbolSize: 46,
         itemStyle: { opacity: n.in_filter ? 1 : 0.45 },
         label: { color: text },
       };
@@ -210,7 +210,7 @@ export function buildGraph(
       ghost: true,
       inFilter: true,
       symbol: ghostSymbol(dark),
-      symbolSize: 32,
+      symbolSize: 36,
       itemStyle: { opacity: 0.9 },
       label: { color: dark ? '#94a3b8' : '#64748b' },
     };

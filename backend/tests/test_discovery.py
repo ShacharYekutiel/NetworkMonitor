@@ -263,6 +263,10 @@ async def test_scan_import_end_to_end(rt, admin: httpx.AsyncClient, lab: Lab) ->
         "existing_device_id",
         "is_new",
         "imported_device_id",
+        "fingerprint",
+        "model",
+        "classified_by",
+        "confidence",
     }
     # filters
     assert [i["ip"] for i in await results(admin, scan["id"], device_class="printer,router")] == [

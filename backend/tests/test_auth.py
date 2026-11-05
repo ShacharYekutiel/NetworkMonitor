@@ -20,7 +20,10 @@ async def test_setup_flow(client: httpx.AsyncClient) -> None:
     assert r.json()["error"]["code"] == "setup_required"
     # exempt endpoints
     assert (await client.get("/api/health")).status_code == 200
-    assert (await client.get("/api/settings/public")).json() == {"default_language": "en"}
+    assert (await client.get("/api/settings/public")).json() == {
+        "default_language": "en",
+        "timezone": (await client.get("/api/settings/public")).json()["timezone"],
+    }
     r = await client.get("/api/auth/me")
     assert r.status_code == 401
 

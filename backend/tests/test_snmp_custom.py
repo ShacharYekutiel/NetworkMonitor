@@ -116,6 +116,8 @@ def test_snmp_custom_validation() -> None:
         "percent_of_oid": None,
         "expected": None,
         "match": "equals",
+        "value_map": {},
+        "value_map_default": "warning",
     }
     for bad in (
         {"oid": "sysUpTime.0"},

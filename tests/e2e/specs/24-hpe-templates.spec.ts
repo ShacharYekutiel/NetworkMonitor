@@ -44,8 +44,7 @@ test.beforeAll(async () => {
 test('classification + auto-selected template per sysObjectID enterprise', async () => {
   expect(R['127.0.0.51']).toMatchObject({ device_class: 'switch', vendor: 'hp', suggested_template: 'hpe_arubaos_switch', classified_by: 'snmp', confidence: 'high', sys_object_id: '1.3.6.1.4.1.11.2.3.7.11.181' });
   expect(R['127.0.0.52']).toMatchObject({ device_class: 'switch', vendor: 'h3c', suggested_template: 'hpe_comware', classified_by: 'snmp', confidence: 'high', sys_object_id: '1.3.6.1.4.1.25506.11.1.177' });
-  const t = (await api.get('/api/templates')).items ?? (await api.get('/api/templates'));
-  const ids = (Array.isArray(t) ? t : t.items).map((x: any) => x.id);
+  const ids = (await api.get('/api/device-templates')).items.map((x: any) => x.id);
   expect(ids).toEqual(expect.arrayContaining(['hpe_arubaos_switch', 'hpe_comware']));
 });
 

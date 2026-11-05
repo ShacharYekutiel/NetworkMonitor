@@ -566,7 +566,7 @@ function RuleModal({
                         value={esc.escalation_after_min}
                         onChange={(e) => setE('escalation_after_min', e.target.value)}
                         dir="ltr"
-                        className="w-28"
+                        className="!w-28"
                         aria-invalid={!!escErrors.escalation_after}
                       />
                       <span className="text-sm text-slate-500">{t('escalation.minutes')}</span>
@@ -629,7 +629,7 @@ function RuleModal({
                         value={esc.repeat_every_min}
                         onChange={(e) => setE('repeat_every_min', e.target.value)}
                         dir="ltr"
-                        className="w-28"
+                        className="!w-28"
                         aria-invalid={!!escErrors.repeat_every}
                       />
                       <span className="text-sm text-slate-500">{t('escalation.minutes')}</span>

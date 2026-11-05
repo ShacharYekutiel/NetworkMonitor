@@ -169,7 +169,7 @@ export function DevicePage() {
         </div>
         <p className="mt-3 text-xs text-slate-600 dark:text-slate-300">
           <span className="font-medium text-slate-500">{t('dependency.parent')}:</span>{' '}
-          <EffectiveDependencyText effective={d.effective_dependency ?? null} />
+          <EffectiveDependencyText effective={d.effective_dependency ?? null} bare />
         </p>
       </Card>
       {(identity || identify.isPending) && (

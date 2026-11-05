@@ -212,6 +212,12 @@ class MaintenanceTracker:
         """Re-evaluate soon (device/group changes)."""
         self._wake.set()
 
+    def reset_state(self) -> None:
+        """Forget the previous evaluation (tests, after the tables were truncated)."""
+        self._active, self._covered, self._names = {}, {}, {}
+        self.windows = []
+        self._initialized = False
+
     async def reload(self) -> None:
         """Reload windows and the time zone, then re-evaluate (after every mutation)."""
         from netmon.services import settings as settings_svc

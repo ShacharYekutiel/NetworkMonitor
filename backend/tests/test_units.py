@@ -197,6 +197,7 @@ def test_rollup_rules() -> None:
         "down": 1,
         "paused": 1,
         "unknown": 0,
+        "unreachable": 0,
         "total": 4,
     }
     assert inv.ancestors(3) == [3, 2, 1]

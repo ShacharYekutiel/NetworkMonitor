@@ -29,8 +29,10 @@ requires_db = pytest.mark.skipif(not TEST_DATABASE_URL, reason="TEST_DATABASE_UR
 
 TABLES = (
     "discovery_results, discovery_scans, discovery_profiles, discovery_known_hosts, "
-    "alert_notified, alert_rule_channels, alert_rules, notification_channels, events, "
-    "measurements, sensor_channels, sensors, devices, groups, users, settings"
+    "alert_state, alert_rule_channels, alert_rules, notification_channels, events, "
+    "measurements, sensor_channels, sensors, devices, groups, users, settings, "
+    "maintenance_windows, topology_links, topology_neighbors, topology_layout, "
+    "topology_refreshes"
 )
 
 
@@ -119,8 +121,11 @@ async def clean(rt: Runtime, app: Any) -> AsyncIterator[None]:
     rt.hub.listeners.clear()
     if rt.alerts is not None:
         rt.alerts.sender = __import__("netmon.alerts.engine", fromlist=["x"]).send_to_channel
-        rt.alerts._last_change.clear()  # noqa: SLF001
         rt.alerts._sent.clear()  # noqa: SLF001
+    rt.clock.set_offset(0)
+    if rt.maintenance is not None:
+        rt.maintenance.reset_state()
+        await rt.maintenance.reload()
     yield
 
 

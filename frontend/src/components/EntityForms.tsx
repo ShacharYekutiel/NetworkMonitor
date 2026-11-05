@@ -21,11 +21,14 @@ export function GroupSelect({
   onChange,
   exclude = [],
   allowRoot,
+  rootLabel,
 }: {
   value: number | null;
   onChange: (v: number | null) => void;
   exclude?: number[];
   allowRoot?: boolean;
+  /** label of the empty option (default: "none — top level") */
+  rootLabel?: string;
 }) {
   const { t } = useTranslation();
   const { data } = useTree();
@@ -35,7 +38,7 @@ export function GroupSelect({
       value={value === null ? '' : String(value)}
       onChange={(e) => onChange(e.target.value === '' ? null : Number(e.target.value))}
     >
-      {allowRoot && <option value="">{t('groups.noParent')}</option>}
+      {allowRoot && <option value="">{rootLabel ?? t('groups.noParent')}</option>}
       {opts.map(({ group, depth }) => (
         <option key={group.id} value={group.id}>
           {'  '.repeat(depth)}

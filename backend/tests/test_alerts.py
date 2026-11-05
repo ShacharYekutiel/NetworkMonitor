@@ -222,6 +222,9 @@ async def test_alert_rules_api_and_firing(
         "delay_s": 0,
         "enabled": True,
         "channel_ids": sorted([hook["id"], mail["id"]]),
+        "escalation_after_s": None,
+        "escalation_channel_ids": [],
+        "repeat_every_s": None,
         "created_at": rule["created_at"],
         "updated_at": rule["updated_at"],
     }
@@ -275,8 +278,13 @@ async def test_alert_rules_api_and_firing(
     assert p["group"]["name"] == "Default"
     assert p["rule"]["name"] == "Ping warn"  # sensor-specific rule wins the dedupe
     assert p["url"] == f"http://netmon.local:8080/sensors/{s['id']}"
+    assert p["stage"] == "problem" and p["after_maintenance"] is False
+    assert p["problem_since"] == p["time"]
     assert set(p) == {
         "event",
+        "stage",
+        "after_maintenance",
+        "problem_since",
         "event_id",
         "time",
         "old_status",
@@ -355,7 +363,15 @@ async def test_alert_delay(rt, admin: httpx.AsyncClient) -> None:  # type: ignor
 
     await run(UP)
     await run(DOWN)
-    assert sent == [] and rt.alerts.pending_timers == 1
+    async with rt.sessionmaker() as session:
+        pending = (
+            await session.execute(
+                __import__("sqlalchemy").text(
+                    "SELECT count(*) FROM alert_state WHERE due_at IS NOT NULL"
+                )
+            )
+        ).scalar()
+    assert sent == [] and pending == 1  # [2b-1] the delay is persisted in alert_state
     await run(UP)  # recovered before the delay expired -> no send
     await asyncio.sleep(1.3)
     assert sent == []

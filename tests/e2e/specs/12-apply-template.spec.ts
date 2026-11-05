@@ -29,6 +29,8 @@ test('API: built-in templates, sorted by priority', async () => {
     'opnsense',
     'unifi_ap',
     'printer',
+    'hpe_arubaos_switch', // [2b-1] priority 50
+    'hpe_comware', // [2b-1] priority 50
     'nas_server',
     'generic_snmp',
     'http_server',

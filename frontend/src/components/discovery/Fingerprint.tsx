@@ -68,11 +68,11 @@ export function FingerprintView({ fp }: { fp: Fingerprint }) {
           key={`${h.scheme}${h.port}`}
           className="min-w-0 rounded bg-slate-50 p-2 ring-1 ring-inset ring-slate-200 dark:bg-slate-800/60 dark:ring-slate-700"
         >
-          <div className="flex flex-wrap items-center gap-x-2 gap-y-0.5 font-mono">
-            <Ltr className="font-semibold">
+          <div className="flex flex-wrap items-center gap-x-2 gap-y-0.5">
+            <Ltr className="font-mono font-semibold">
               {h.scheme}:{h.port}
             </Ltr>
-            {h.status !== null && <Ltr className="text-slate-500">HTTP {h.status}</Ltr>}
+            {h.status !== null && <Ltr className="font-mono text-slate-500">HTTP {h.status}</Ltr>}
             {h.redirects > 0 && (
               <span className="text-slate-500">
                 {t('fingerprint.redirects', { count: h.redirects })}
@@ -84,8 +84,8 @@ export function FingerprintView({ fp }: { fp: Fingerprint }) {
             {h.title && (
               <>
                 <dt className="text-slate-500">{t('fingerprint.title')}</dt>
-                <dd dir="auto" className="break-words">
-                  {h.title}
+                <dd className="min-w-0 break-words">
+                  <bdi dir="auto">{h.title}</bdi>
                 </dd>
               </>
             )}

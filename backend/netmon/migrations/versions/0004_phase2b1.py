@@ -124,7 +124,7 @@ UPGRADE = [
         CONSTRAINT maintenance_windows_scope_ids_check CHECK (
             (scope = 'group') = (group_id IS NOT NULL)
             AND (scope = 'device') = (device_id IS NOT NULL)),
-        CONSTRAINT maintenance_windows_kind_check CHECK (
+        CONSTRAINT maintenance_windows_kind_fields_check CHECK (
             (kind = 'once' AND starts_at IS NOT NULL AND ends_at IS NOT NULL
              AND ends_at > starts_at AND weekdays IS NULL AND start_time IS NULL
              AND duration_min IS NULL)

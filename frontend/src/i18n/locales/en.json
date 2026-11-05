@@ -1089,6 +1089,7 @@
     "applySelected_one": "Apply {{count}} selected",
     "applySelected_other": "Apply {{count}} selected",
     "applied_one": "Dependency set on {{count}} device.",
-    "applied_other": "Dependency set on {{count}} devices."
+    "applied_other": "Dependency set on {{count}} devices.",
+    "allGroups": "All groups"
   }
 }

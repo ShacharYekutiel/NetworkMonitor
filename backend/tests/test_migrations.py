@@ -271,7 +271,7 @@ async def test_migration_0003_up_down(mode: str, rt) -> None:  # type: ignore[no
         assert DISCOVERY_TABLES <= await _tables(url)
         conn = await asyncpg.connect(_plain(url))
         try:
-            assert await conn.fetchval("SELECT version_num FROM alembic_version") == "0003"
+            assert await conn.fetchval("SELECT version_num FROM alembic_version") == "0004"
             await conn.execute(
                 "INSERT INTO sensors (device_id, name, type, config) "
                 "VALUES ($1, 'x', 'snmp_disk', '{}')",

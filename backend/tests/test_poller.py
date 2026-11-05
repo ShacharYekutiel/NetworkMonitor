@@ -49,6 +49,7 @@ async def test_processor_status_events_and_rollup(rt, admin: httpx.AsyncClient) 
         "status_message": "",
         "last_check_at": s1["last_check_at"],
         "status_changed": True,
+        "acknowledged": False,
         "channels": [
             {"key": "latency_ms", "value": 1.8, "status": "up"},
             {"key": "packet_loss_pct", "value": 0, "status": "up"},

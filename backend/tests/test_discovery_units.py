@@ -356,6 +356,8 @@ def test_templates_data() -> None:
         "opnsense",
         "unifi_ap",
         "printer",
+        "hpe_arubaos_switch",
+        "hpe_comware",
         "nas_server",
         "generic_snmp",
         "http_server",
@@ -373,7 +375,13 @@ def test_templates_data() -> None:
         }
         assert set(t["name"]) == {"en", "he"} and set(t["description"]) == {"en", "he"}
         for rule in t["match"]:
-            assert set(rule) == {"device_classes", "vendors", "requires_snmp", "any_open_ports"}
+            assert set(rule) == {
+                "device_classes",
+                "vendors",
+                "requires_snmp",
+                "any_open_ports",
+                "enterprises",
+            }
         for e in t["entries"]:
             keys = {
                 "sensor": {"kind", "type", "name", "config", "channels", "interval_s", "probe"},
@@ -396,6 +404,9 @@ def test_templates_data() -> None:
                     "config",
                     "channels",
                     "max",
+                    "skip_zero",
+                    "filters",
+                    "interval_s",
                 },
             }[e["kind"]]
             assert set(e) == keys

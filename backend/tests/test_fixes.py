@@ -350,7 +350,7 @@ async def test_up_after_restart_and_pause(rt, admin: httpx.AsyncClient) -> None:
         await session.execute(text("UPDATE sensors SET last_check_at = now() - interval '1 day'"))
         await session.commit()
     await rt._mark_stale_sensors()  # noqa: SLF001
-    rt.alerts._last_change.clear()  # noqa: SLF001 - in-memory state is lost on restart
+    rt.alerts._sent.clear()  # noqa: SLF001 - in-memory de-duplication is lost on restart
     assert (await admin.get(f"/api/sensors/{s['id']}")).json()["status"] == "down"
     assert (await admin.get(f"/api/sensors/{ok['id']}")).json()["status"] == "unknown"
     await _run(rt, s["id"], DOWN)  # still down: no repeated DOWN

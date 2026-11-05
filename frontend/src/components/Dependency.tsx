@@ -179,17 +179,24 @@ export function DependencyEditor({
 }
 
 /** "Effective: depends on branch-gw (from group Branch)" / "Effective: no parent". */
-export function EffectiveDependencyText({ effective }: { effective: EffectiveDependency | null }) {
+export function EffectiveDependencyText({
+  effective,
+  bare,
+}: {
+  effective: EffectiveDependency | null;
+  /** without the "Effective:" wording (e.g. after a "Parent:" label) */
+  bare?: boolean;
+}) {
   const { t } = useTranslation();
   const { data: tree } = useTree();
-  if (!effective) return <>{t('dependency.effectiveNone')}</>;
+  if (!effective) return <>{bare ? t('dependency.modes.none') : t('dependency.effectiveNone')}</>;
   const groupName =
     effective.source === 'group' && effective.group_id !== null && tree
       ? (findGroup(tree.groups, effective.group_id)?.name ?? `#${effective.group_id}`)
       : null;
   return (
     <>
-      {t('dependency.effective')}{' '}
+      {!bare && <>{t('dependency.effective')} </>}
       <Link
         className="font-medium text-sky-700 hover:underline dark:text-sky-400"
         to={`/devices/${effective.device_id}`}

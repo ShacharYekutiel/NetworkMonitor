@@ -20,16 +20,16 @@ const TILE_ORDER: Status[] = ['down', 'warning', 'unreachable', 'up', 'paused', 
 function Tile({ status, value, to }: { status: Status | 'total'; value: number; to?: string }) {
   const { t } = useTranslation();
   const body = (
-    <div className="flex items-center gap-3 rounded-lg bg-white p-3 shadow-sm ring-1 ring-slate-200 transition hover:ring-sky-400 dark:bg-slate-900 dark:ring-slate-800">
+    <div className="flex items-center gap-2 rounded-lg bg-white p-2.5 shadow-sm ring-1 ring-slate-200 transition hover:ring-sky-400 dark:bg-slate-900 dark:ring-slate-800 sm:gap-3 sm:p-3">
       <span
         className={cx(
-          'h-10 w-1.5 rounded-full',
+          'h-10 w-1.5 shrink-0 rounded-full',
           status === 'total' ? 'bg-sky-600' : STATUS_DOT[status],
         )}
       />
-      <div>
+      <div className="min-w-0">
         <div className="text-2xl font-semibold tabular-nums">{value}</div>
-        <div className="text-xs text-slate-500">
+        <div className="truncate text-xs text-slate-500">
           {status === 'total' ? t('dashboard.total') : t(`status.${status}`)}
         </div>
       </div>
@@ -40,7 +40,7 @@ function Tile({ status, value, to }: { status: Status | 'total'; value: number; 
 
 function CountsRow({ counts }: { counts: StatusCounts }) {
   return (
-    <div className="grid grid-cols-2 gap-3 sm:grid-cols-4 xl:grid-cols-7">
+    <div className="grid grid-cols-3 gap-2 sm:grid-cols-4 sm:gap-3 xl:grid-cols-7">
       {TILE_ORDER.map((s) => (
         <Tile key={s} status={s} value={counts[s] ?? 0} />
       ))}

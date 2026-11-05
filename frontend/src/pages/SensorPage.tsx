@@ -193,32 +193,39 @@ export function SensorPage() {
       </Card>
 
       <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-6">
-        {s.channels.map((c) => (
-          <button
-            key={c.key}
-            type="button"
-            onClick={() => setChannel(c.key)}
-            className={cx(
-              'rounded-lg bg-white p-3 text-start shadow-sm ring-1 transition dark:bg-slate-900',
-              c.key === activeChannel
-                ? 'ring-2 ring-sky-500'
-                : 'ring-slate-200 hover:ring-sky-300 dark:ring-slate-800',
-            )}
-          >
-            <div className="flex items-center gap-1.5 text-xs text-slate-500">
-              <StatusDot status={c.status} />
-              <span className="truncate">{t(`channel.${c.key}`, { defaultValue: c.key })}</span>
-            </div>
-            <div
+        {s.channels.map((c) => {
+          // [2b-1] enum: the tile shows the mapped status (the channel itself stays "up").
+          const cs =
+            (s.type === 'snmp_custom' && c.key === 'value'
+              ? mapEnumValue(s.config, c.last_value)?.status
+              : undefined) ?? c.status;
+          return (
+            <button
+              key={c.key}
+              type="button"
+              onClick={() => setChannel(c.key)}
               className={cx(
-                'mt-1 text-lg font-semibold tabular-nums',
-                statusClass(c.status, STATUS_TEXT),
+                'rounded-lg bg-white p-3 text-start shadow-sm ring-1 transition dark:bg-slate-900',
+                c.key === activeChannel
+                  ? 'ring-2 ring-sky-500'
+                  : 'ring-slate-200 hover:ring-sky-300 dark:ring-slate-800',
               )}
             >
-              <Value text={sensorValueText(s, c.key, c.last_value, c.unit)} />
-            </div>
-          </button>
-        ))}
+              <div className="flex items-center gap-1.5 text-xs text-slate-500">
+                <StatusDot status={cs} />
+                <span className="truncate">{t(`channel.${c.key}`, { defaultValue: c.key })}</span>
+              </div>
+              <div
+                className={cx(
+                  'mt-1 text-lg font-semibold tabular-nums',
+                  statusClass(cs, STATUS_TEXT),
+                )}
+              >
+                <Value text={sensorValueText(s, c.key, c.last_value, c.unit)} />
+              </div>
+            </button>
+          );
+        })}
       </div>
 
       <Card
@@ -270,7 +277,13 @@ export function SensorPage() {
       <Card title={t('sensors.settings')}>
         <dl className="grid grid-cols-1 gap-x-6 gap-y-2 text-sm sm:grid-cols-2 lg:grid-cols-3">
           {Object.entries(s.config)
-            .filter(([k]) => !(k === 'value_map' && s.config.value_type === 'enum'))
+            .filter(
+              ([k]) =>
+                !(
+                  (k === 'value_map' || k === 'value_map_default') &&
+                  s.config.value_type === 'enum'
+                ),
+            )
             .map(([k, v]) => (
               <div key={k} className="flex gap-2">
                 <dt className="text-slate-500">

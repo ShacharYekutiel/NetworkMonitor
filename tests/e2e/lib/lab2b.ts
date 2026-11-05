@@ -69,9 +69,20 @@ export async function createWebhook(api: Api, path: string, name = uid('qa2b-hoo
 }
 
 // ---------------------------------------------------------------- fixtures
+/** Flattens GET /api/tree (groups are nested: children[] / devices[] / sensors[]). */
+export function flattenTree(tree: any): { groups: any[]; devices: any[] } {
+  const groups: any[] = [];
+  const devices: any[] = [];
+  const walk = (g: any) => {
+    groups.push(g);
+    for (const d of g.devices ?? []) devices.push(d);
+    for (const c of g.children ?? []) walk(c);
+  };
+  for (const g of tree.groups ?? []) walk(g);
+  return { groups, devices };
+}
 export async function ensureChildGroup(api: Api, name: string, parentId: number | null, extra: Record<string, unknown> = {}): Promise<number> {
-  const tree = await api.get<{ groups: { id: number; name: string; parent_id: number | null }[] }>('/api/tree');
-  const g = tree.groups.find((x) => x.name === name && x.parent_id === parentId);
+  const g = flattenTree(await api.get('/api/tree')).groups.find((x) => x.name === name && x.parent_id === parentId);
   if (g) {
     if (Object.keys(extra).length) await api.patch(`/api/groups/${g.id}`, extra);
     return g.id;

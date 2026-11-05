@@ -158,7 +158,7 @@ function EndView({ end, graph }: { end: LinkEnd; graph: TopologyGraph }) {
         {end.if_index !== null && (
           <span className="text-slate-500">
             {' '}
-            (ifIndex <Ltr>{end.if_index}</Ltr>)
+            <Ltr>(ifIndex {end.if_index})</Ltr>
           </span>
         )}
       </div>
@@ -173,7 +173,7 @@ function EndView({ end, graph }: { end: LinkEnd; graph: TopologyGraph }) {
           {end.sensor_status && <StatusBadge status={end.sensor_status} />}
           {end.oper_status !== null && (
             <span className="text-slate-500">
-              oper <Ltr>{end.oper_status === 1 ? 'up' : `${end.oper_status}`}</Ltr>
+              <Ltr>oper {end.oper_status === 1 ? 'up' : `${end.oper_status}`}</Ltr>
             </span>
           )}
         </div>
@@ -792,7 +792,12 @@ export function TopologyPage() {
       <Card bodyClassName="p-3">
         <div className="flex flex-wrap items-end gap-3">
           <Field label={t('topology.group')} className="w-full sm:w-64">
-            <GroupSelect value={groupId} onChange={setGroupId} allowRoot />
+            <GroupSelect
+              value={groupId}
+              onChange={setGroupId}
+              allowRoot
+              rootLabel={t('topology.allGroups')}
+            />
           </Field>
           <div className="flex flex-wrap items-center gap-x-4 gap-y-2 pb-1.5">
             <Checkbox

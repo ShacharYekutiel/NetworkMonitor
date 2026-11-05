@@ -40,7 +40,7 @@ test('sensor types list contains snmp_custom and snmp_disk', async () => {
   const disk = types.find((t: any) => t.type === 'snmp_disk');
   expect(custom).toMatchObject({ requires_snmp: true, primary_channel: 'value' });
   expect(custom.config_fields.find((f: any) => f.key === 'multiplier')).toMatchObject({ type: 'float', default: 1 });
-  expect(custom.config_fields.find((f: any) => f.key === 'value_type').options).toEqual(['gauge', 'counter', 'string']);
+  expect(custom.config_fields.find((f: any) => f.key === 'value_type').options).toEqual(['gauge', 'counter', 'string', 'enum']); // [2b-1] enum
   expect(disk).toMatchObject({ requires_snmp: true, primary_channel: 'disk_used_pct' });
   expect(disk.channels.map((c: any) => c.key)).toEqual(['disk_used_pct', 'disk_used_bytes', 'disk_free_bytes', 'disk_total_bytes']);
 });

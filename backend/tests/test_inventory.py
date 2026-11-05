@@ -17,6 +17,7 @@ GROUP_KEYS = {
     "status_counts",
     "created_at",
     "updated_at",
+    "dependency",
 }
 DEVICE_KEYS = {
     "id",
@@ -33,6 +34,11 @@ DEVICE_KEYS = {
     "status_counts",
     "created_at",
     "updated_at",
+    "dependency",
+    "effective_dependency",
+    "in_maintenance",
+    "maintenance",
+    "identity",
 }
 SENSOR_KEYS = {
     "id",
@@ -53,6 +59,8 @@ SENSOR_KEYS = {
     "sort_order",
     "created_at",
     "updated_at",
+    "acknowledgement",
+    "in_maintenance",
 }
 
 
@@ -402,6 +410,7 @@ async def test_tree(admin: httpx.AsyncClient) -> None:
         "primary_value": None,
         "primary_unit": "ms",
         "last_check_at": None,
+        "acknowledged": False,
     }
 
 

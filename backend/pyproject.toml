@@ -30,6 +30,8 @@ dependencies = [
     # OS trust store (Windows certificate store, macOS Keychain, Linux system bundle)
     # so corporate TLS-inspection CAs are trusted; see netmon/tlsutil.py.
     "truststore>=0.10",
+    # [2b-1] IANA zone database for zoneinfo (Windows and slim images have none)
+    "tzdata>=2024.1",
 ]
 
 [project.optional-dependencies]

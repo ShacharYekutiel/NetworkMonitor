@@ -4,6 +4,7 @@ import { raw } from '../lib/lab';
 import {
   createWebhook,
   ensureChildGroup,
+  flattenTree,
   hooks,
   hooksForSensors,
   httpDevice,
@@ -74,7 +75,7 @@ test('API: dependency + effective_dependency shapes (explicit, group-inherited, 
   const p = await api.get(`/api/devices/${parent.device.id}`);
   expect(p.effective_dependency).toBeNull();
   const tree = await api.get('/api/tree');
-  const td = tree.devices.find((d: any) => d.id === child2.device.id);
+  const td = flattenTree(tree).devices.find((d: any) => d.id === child2.device.id);
   expect(td.parent_device_id).toBe(parent.device.id);
   // Validation (422): sensor of another device, unknown device, ids with mode inherit.
   const bad = [
