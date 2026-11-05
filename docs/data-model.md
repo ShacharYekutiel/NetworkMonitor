@@ -1,8 +1,10 @@
-# NetworkMonitor — Data Model (Phase 1 + Phase 2a)
+# NetworkMonitor — Data Model (Phase 1 + Phase 2a + Phase 2b-1)
 
 Sections and rows marked **[2a]** belong to the Phase 2a contract (auto-discovery, device templates,
 `snmp_custom` / `snmp_disk` sensors, Telegram channel). Everything else is the Phase 1 contract and is unchanged.
 Phase 2a schema changes are all in **migration `0003`** (see [§ Phase 2a migration](#phase-2a-migration-0003)).
+Sections marked **[2b-1]** (dependencies, `unreachable`, maintenance, acknowledge, escalation, fingerprinting,
+`hpe_switch`, topology) are in [§ Phase 2b-1](#2b-1-phase-2b-1-additions), migration `0004`.
 
 PostgreSQL ≥ 14 holds the data, and TimescaleDB is optional (see [architecture.md §6](architecture.md)). Alembic
 migrations own the schema.
@@ -890,3 +892,561 @@ Plain PostgreSQL DDL only.
    `ux_discovery_scans_running` (partial), `ix_discovery_results_scan_id`.
 3. `downgrade()`: drop the four tables, delete rows using the new enum values
    (`sensors` of the new types, `telegram` channels, `discovery` events), and restore the old checks.
+
+---
+
+# **[2b-1]** Phase 2b-1 additions
+
+Scope: device dependencies + `unreachable` status, maintenance windows, acknowledge, two-stage escalation
+(persistent alert state), device fingerprinting without SNMP + re-identify, the `hpe_switch` template, and the
+topology map (LLDP/CDP links). All schema changes are in **migration `0004`**
+([§ Phase 2b-1 migration](#2b-1-phase-2b-1-migration-0004)). Everything is additive except that
+`alert_notified` is **replaced** by `alert_state` (rows are migrated).
+
+## [2b-1] Enum changes
+
+| Name | Values |
+|---|---|
+| `status` | `up`, `warning`, `down`, `paused`, `unknown`, **[2b-1]** `unreachable` |
+| `event_kind` | `status_change`, `notification`, `system`, `discovery`, **[2b-1]** `acknowledge`, `maintenance` |
+| **[2b-1]** `dependency_mode` | `inherit`, `none`, `device` |
+| **[2b-1]** `maintenance_scope` | `global`, `group`, `device` |
+| **[2b-1]** `maintenance_kind` | `once`, `weekly` |
+| **[2b-1]** `alert_state_status` | `down`, `warning`, `up`, `suspended` |
+| **[2b-1]** `classified_by` | `snmp`, `fingerprint`, `ports`, `none` |
+| **[2b-1]** `confidence` | `high`, `medium`, `low` |
+| **[2b-1]** `link_source` | `lldp`, `cdp`, `manual` |
+| **[2b-1]** `topology_refresh_status` | `running`, `completed`, `failed` |
+
+`sensor_channels.status` is unchanged (`up`,`warning`,`down`,`unknown`): `unreachable` is a sensor status only.
+`alert_rules.on_statuses` is unchanged (subset of `down`,`warning`,`up`): `unreachable` never alerts.
+
+**[2b-1] Status severity** (replaces the Phase 1 line; rollups, sorting, "worst first"):
+`down` (5) > `warning` (4) > `unreachable` (3) > `unknown` (2) > `up` (1) > `paused` (0).
+Rationale: a group containing a down router and its unreachable children shows `down` (the root cause);
+a device whose only problem is a dead parent shows `unreachable`, which outranks `unknown`/`up` but never hides
+a real `warning`/`down`. The code constant is `netmon.poller.types.SEVERITY`; the frontend mirror is
+`frontend/src/lib/status.ts`.
+
+## [2b-1] Device dependencies
+
+### Columns
+`groups` gains:
+
+| Column | Type | Constraints |
+|---|---|---|
+| dependency_mode | text | NOT NULL DEFAULT `inherit` CHECK in dependency_mode |
+| dependency_device_id | integer | NULL, FK `devices.id` ON DELETE SET NULL |
+| dependency_sensor_id | integer | NULL, FK `sensors.id` ON DELETE SET NULL |
+
+`devices` gains the same three columns (same names, same FKs), plus the identity/topology columns in later
+sections.
+
+- `mode = device` with `dependency_device_id IS NULL` (the parent was deleted through a cascade) behaves as
+  `none`. The device-delete API resets dependents to `none` explicitly in the same transaction
+  (`UPDATE devices/groups SET dependency_mode='none', dependency_device_id=NULL, dependency_sensor_id=NULL WHERE dependency_device_id=:id`).
+- `dependency_sensor_id` must be a sensor of `dependency_device_id` (API `422`, loc
+  `["body","dependency","sensor_id"]`). With mode `inherit`/`none` both ids are stored NULL.
+- A root group with `inherit` = `none`.
+
+### Effective dependency (computed, not stored)
+For device D:
+1. `D.dependency_mode = device` → parent = `D.dependency_device_id` (source `device`).
+2. `none` → no parent.
+3. `inherit` → walk D's group, then its ancestors: the first group whose mode is not `inherit` decides
+   (`device` → that group's device/sensor, source `group`; `none` → no parent). Root reached → no parent.
+4. **Self rule:** an *inherited* parent equal to D itself is ignored (D has no parent). This makes "group
+   *Branch* depends on *branch-gw*" work while *branch-gw* lives in *Branch*. An explicit self-dependency is a
+   cycle (below).
+
+The **dependency sensor** S of parent P: the configured `dependency_sensor_id`, else P's **primary
+availability sensor** = P's enabled `ping` sensor with the lowest `(sort_order, id)`; if P has no enabled ping
+sensor, S = none ("whole device" mode).
+
+**Parent down** (evaluated at the moment it is needed, from the DB):
+- P disabled (`enabled = false`) → **not** down (children evaluate normally).
+- S set → `S.status ∈ {down, unreachable}`.
+- No S → every non-paused sensor of P has status `down` or `unreachable`, and there is at least one.
+- Chains are transitive automatically: if P is itself unreachable, its ping sensor is `unreachable`, which
+  counts as down.
+
+### Cycles
+Validated by the API on every change of a device's or group's dependency fields **and** on device moves
+(`group_id` change): compute the effective parent of every device; following parents from any device must not
+return to it. Otherwise `400 dependency_cycle`, `details: [{"device_ids": [3, 7, 3]}]` (the cycle path). The
+check is in `netmon.services.dependencies.find_cycle(inventory) -> list[int] | None` (pure).
+
+### Status evaluation with a dependency (`netmon.poller.processor.persist`)
+After `evaluate()`: if the evaluated status is `down` (check failed **or** a down threshold) **and** the
+device has an effective parent that is down → the sensor's status is **`unreachable`** instead, and
+`status_message = "Unreachable (parent <parent device name> down): <original message>"`. The channels keep
+their evaluated values/statuses. `warning`/`up` are never changed. The parent state is read in the same
+transaction (one query; only on a failing check).
+
+**Cascade** (`netmon.services.dependencies.on_status_change`, called from `events.published` for
+`status_change` events): when a sensor of device P changes status, for every device C whose effective parent
+is P (and whose dependency sensor is this sensor, or "whole device" mode):
+- P **became down** → each sensor of C with status `down` becomes `unreachable` (via `set_sensor_status`-like
+  code, writes a `status_change` event `down → unreachable` with the message above, keeps `last_check_at`).
+- P **is no longer down** → each sensor of C with status `unreachable` is queued for an immediate re-check
+  (`scheduler.run_soon(sensor_ids)`, random jitter 0–5 s each; does not move the regular schedule). The status
+  stays `unreachable` until that check runs; then it becomes whatever the check says. A child that is
+  genuinely down after the parent recovered goes `unreachable → down` and **alerts** like any new problem.
+- The cascade recurses naturally (C's own sensor changes trigger C's children).
+
+Interaction with other statuses: `paused` always wins (paused sensors are not checked); `unknown` (resume,
+stale start) is replaced by the next check result; startup does not touch `unreachable` sensors.
+
+**Rollup:** `unreachable` takes part in the worst-of like any status. `status_counts` gain an `unreachable`
+key.
+
+## [2b-1] Maintenance windows
+
+### `maintenance_windows`
+| Column | Type | Constraints |
+|---|---|---|
+| id | integer | PK |
+| name | varchar(128) | NOT NULL |
+| enabled | boolean | NOT NULL DEFAULT true |
+| scope | text | NOT NULL CHECK in maintenance_scope |
+| group_id | integer | NULL, FK `groups.id` ON DELETE CASCADE. Required iff scope = group. |
+| device_id | integer | NULL, FK `devices.id` ON DELETE CASCADE. Required iff scope = device. |
+| kind | text | NOT NULL CHECK in maintenance_kind |
+| starts_at | timestamptz | `once` only (else NULL) |
+| ends_at | timestamptz | `once` only. `starts_at < ends_at`, span ≤ 366 days. |
+| weekdays | smallint[] | `weekly` only: ISO weekdays 1 = Monday … 7 = Sunday, 1–7 distinct values, stored sorted. NULL for `once`. |
+| start_time | time | `weekly` only: local wall-clock start (minute precision) |
+| duration_min | integer | `weekly` only: 1–10080 (7 days) |
+| comment | text | NOT NULL DEFAULT '' (≤ 1000 chars) |
+| created_by | integer | NULL, FK `users.id` ON DELETE SET NULL |
+| created_at, updated_at | timestamptz | |
+
+Table CHECK: `(scope='group') = (group_id IS NOT NULL) AND (scope='device') = (device_id IS NOT NULL)` and
+`(kind='once' AND starts_at IS NOT NULL AND ends_at IS NOT NULL AND ends_at > starts_at AND weekdays IS NULL AND start_time IS NULL AND duration_min IS NULL) OR (kind='weekly' AND starts_at IS NULL AND ends_at IS NULL AND weekdays IS NOT NULL AND start_time IS NOT NULL AND duration_min BETWEEN 1 AND 10080)`.
+
+### Time zone
+New settings key **`timezone`**: an IANA zone name (e.g. `Asia/Jerusalem`). Default: the `TZ` environment
+variable if it is a valid IANA name (`zoneinfo.ZoneInfo(TZ)` succeeds), else `"UTC"`. Validated with
+`zoneinfo` on `PUT /api/settings` and `POST /api/setup` (422). The setup wizard sends the browser zone
+(`Intl.DateTimeFormat().resolvedOptions().timeZone`) so no one has to configure it. The backend adds the
+**`tzdata`** PyPI package as a dependency (Windows and slim images have no system zone database).
+
+Only `weekly` windows use it. `once` windows are absolute instants (the UI converts from the configured zone
+for display and input).
+
+### Occurrences (pure function `netmon.services.maintenance.occurrences(window, tz, start, end)`)
+- `weekly`: for every local date `d` with ISO weekday in `weekdays`: start = `datetime.combine(d, start_time, tzinfo=tz)`
+  (Python `zoneinfo`, `fold=0`; a start time inside a DST gap therefore lands after the gap), end = start +
+  `duration_min` real minutes. Occurrences may cross midnight and overlap each other (overlaps just merge).
+- `once`: `[starts_at, ends_at)`.
+- A window is **active** at instant t when it is enabled and some occurrence has `start <= t < end`.
+
+### Coverage
+A device is **in maintenance** at t when an active window has scope `global`, or scope `device` with its id, or
+scope `group` with its group or any ancestor of its group. Maintenance is **not a status**: checks run,
+measurements and statuses are stored as usual; it is a flag.
+
+- Sensors/devices expose `in_maintenance` (from the device). Groups do not.
+- `events.in_maintenance boolean NOT NULL DEFAULT false`: for `status_change` and `acknowledge` events, true
+  when the event's device was in maintenance at event time.
+- **Notifications:** while a device is in maintenance no problem, escalation or reminder notification is sent
+  for its sensors (see [alert state](#2b-1-alert-state-escalation-reminders-ack)). **Exception:** a recovery
+  (`up`) for a problem that **was** notified before is still sent, so nobody is left with a dangling DOWN.
+- **When a device leaves maintenance** and one of its sensors has a problem whose notification was
+  suppressed (`alert_state.maintenance_suppressed`), and the problem is still active and not acknowledged, the
+  problem notification is sent **once** (`after_maintenance: true`) and the escalation timer restarts from the
+  window end. A problem that started and ended inside the window sends nothing.
+
+### Tracker
+`netmon.services.maintenance.MaintenanceTracker` (on the runtime, `rt.maintenance`): keeps the windows in
+memory (reloaded after every window mutation), evaluates coverage, and runs a loop that wakes at the next
+occurrence boundary or after 30 s, whichever is first, and when `rt.clock` changes (tests). On a change of the
+active set it: writes one `maintenance` event per window that started/ended (message
+`Maintenance "Night patch" started` / `... ended`; `device_id`/`group_id` set for those scopes,
+`device_name` snapshot), broadcasts `maintenance.changed`, requests a rollup, and hands the devices that left
+maintenance to the alert engine. API: `in_maintenance(device_id) -> bool`, `active_window_ids() -> list[int]`,
+`window_for(device_id) -> (window_id, name, ends_at) | None` (the covering active occurrence with the latest end).
+
+## [2b-1] Acknowledge
+
+`sensors` gains:
+
+| Column | Type | Constraints |
+|---|---|---|
+| ack_at | timestamptz | NULL. NULL = not acknowledged. |
+| ack_user_id | integer | NULL, FK `users.id` ON DELETE SET NULL |
+| ack_by | varchar(64) | NULL. Username snapshot. |
+| ack_comment | text | NOT NULL DEFAULT '' (≤ 1000 chars) |
+| ack_status | text | NULL CHECK in (`down`,`warning`): the status that was acknowledged |
+
+- Allowed only when the sensor status is `down` or `warning` (not `unreachable`: it never alerts, and its
+  cause is the parent, which is what should be acknowledged). Otherwise `409 not_acknowledgeable`.
+- Re-acknowledging an acknowledged sensor replaces comment/user/time.
+- **Auto-clear:** any status change of the sensor clears all five columns (to up, to another problem status,
+  to unreachable/paused/unknown). No extra event is written for the auto-clear (the `status_change` event
+  is the record); a `sensor.ack` WS message with `acknowledgement: null` is sent.
+- Effect: the acknowledged problem sends no further problem/escalation/reminder notifications; its recovery is
+  still sent to everyone notified. Status and rollups are unchanged (an acknowledged down sensor is still
+  `down`).
+- `acknowledge` events: `sensor_id`/`device_id`/`group_id`/names set, `old_status = new_status =` the sensor
+  status, message `Acknowledged by admin: <comment>` (or without `: <comment>` when empty) /
+  `Acknowledgement removed by admin`.
+
+## [2b-1] Escalation and persistent alert state
+
+### `alert_rules` gains
+| Column | Type | Constraints |
+|---|---|---|
+| escalation_after_s | integer | NULL, CHECK `60 <= escalation_after_s <= 604800` |
+| escalation_channel_ids | integer[] | NOT NULL DEFAULT '{}'. Validated to exist on write; ids deleted later are ignored at send time. |
+| repeat_every_s | integer | NULL, CHECK `300 <= repeat_every_s <= 604800`. Reminder to the primary channels. |
+
+API validation (422): `escalation_after_s` and a non-empty `escalation_channel_ids` must be given together;
+`escalation_after_s >= delay_s`; escalation/repeat require `down` or `warning` in `on_statuses`.
+
+### [2b-1] Alert state, escalation, reminders, ack
+**`alert_state`** replaces `alert_notified` and the in-memory delay timers (survives restarts).
+
+| Column | Type | Constraints |
+|---|---|---|
+| rule_id | integer | FK `alert_rules.id` ON DELETE CASCADE |
+| sensor_id | integer | FK `sensors.id` ON DELETE CASCADE |
+| status | text | NOT NULL CHECK in alert_state_status |
+| event_id | bigint | NULL (no FK; events age out). The status_change event being notified. |
+| problem_since | timestamptz | NOT NULL. Start of the current problem (or of the recovery for `up`). |
+| due_at | timestamptz | NULL. When the problem (or recovery, for status `up`) notification is due. NULL = nothing pending. |
+| primary_sent_at | timestamptz | NULL |
+| escalation_due_at | timestamptz | NULL |
+| escalated_at | timestamptz | NULL |
+| next_reminder_at | timestamptz | NULL |
+| reminders_sent | integer | NOT NULL DEFAULT 0 |
+| maintenance_suppressed | boolean | NOT NULL DEFAULT false |
+| notified_channel_ids | integer[] | NOT NULL DEFAULT '{}'. Every channel that successfully received a problem/escalation/reminder for this problem. |
+| updated_at | timestamptz | NOT NULL DEFAULT now() |
+| | | PK `(rule_id, sensor_id)`; index on `sensor_id` |
+
+A rule R **matches** status S for a sensor when R is enabled, `R.sensor_id` is NULL or the sensor, and S ∈
+`R.on_statuses`. **Still active** for a row = the sensor's current status ∈ {down, warning} ∩ `R.on_statuses`.
+
+**On a `status_change` event E (sensor X, new status S, time t):**
+
+| S | Action per rule |
+|---|---|
+| `down` / `warning` | For each rule R matching S: if there is no row, or the row status ∉ {down, warning} → **new problem**: upsert `status=S, event_id=E, problem_since=t, due_at=t+R.delay_s, primary_sent_at=NULL, escalation_due_at = t+R.escalation_after_s` (NULL when no escalation), `escalated_at=NULL, next_reminder_at=NULL, reminders_sent=0, maintenance_suppressed=false`, **keeping** `notified_channel_ids` (an unsent recovery). If the row is already `down`/`warning` → **change within the problem**: `status=S, event_id=E, due_at=t+R.delay_s` (Phase 1 behaviour: every down↔warning transition notifies), rest unchanged. Rows of rules that do **not** match S: `due_at=NULL` (a pending delayed notification is dropped, as in Phase 1). |
+| `up` | For each row of X: `notified_channel_ids` empty → delete. Else if R is enabled and `up` ∈ `R.on_statuses` → `status=up, event_id=E, problem_since=t, due_at=t+R.delay_s`, escalation/reminder cleared. Else delete (no recovery wanted). |
+| `unreachable` / `paused` / `unknown` | For each row: `notified_channel_ids` empty → delete; else `status=suspended`, `due_at`/`escalation_due_at`/`next_reminder_at` = NULL (a later `up` sends the recovery; a later `down` is a new problem). |
+
+**Alert loop** (`AlertEngine` task): wakes at the earliest of `due_at`, `escalation_due_at`,
+`next_reminder_at` (one query), on any `notify()` from the event path, on `rt.clock` changes, and at least every
+30 s. It locks due rows (`FOR UPDATE SKIP LOCKED`) and, per row, using `now = rt.clock.now()`:
+
+1. **Problem due** (`status ∈ {down,warning}`, `due_at <= now`): not still active → `due_at=NULL` (delete the
+   row if nothing was notified). Acknowledged → `due_at=NULL`. Device in maintenance → `due_at=NULL,
+   maintenance_suppressed=true`. Else send stage `problem` to R's current channels; on ≥ 1 success add them to
+   `notified_channel_ids`, `primary_sent_at=now`; always `due_at=NULL`; `next_reminder_at = now +
+   R.repeat_every_s` when set.
+2. **Recovery due** (`status = up`, `due_at <= now`): sensor still `up` → send stage `recovery` to the enabled
+   channels in `notified_channel_ids` (even in maintenance), then delete the row. Not up → `due_at=NULL`.
+3. **Escalation due**: still active, not acknowledged, R still has escalation → send stage `escalation` to
+   `R.escalation_channel_ids`, add successes to `notified_channel_ids`, `escalated_at=now`. In maintenance →
+   `maintenance_suppressed=true`. In every case `escalation_due_at=NULL`.
+4. **Reminder due**: still active, not acknowledged, R still has `repeat_every_s`, not in maintenance → send
+   stage `reminder` to R's channels, `reminders_sent += 1`. Then `next_reminder_at = now + R.repeat_every_s`
+   (also when skipped for maintenance); NULL when acknowledged / not active / repeat removed. After a long
+   downtime only one overdue reminder is sent (no burst).
+
+**Leaving maintenance** (from the tracker): for rows of the device's sensors with `maintenance_suppressed`:
+still active and not acknowledged → `due_at = now` (sent once by step 1, payload `after_maintenance: true`),
+`escalation_due_at = now + R.escalation_after_s` if R has escalation and `escalated_at IS NULL`;
+`maintenance_suppressed=false` in every case.
+
+**Acknowledge** sets `due_at`/`escalation_due_at`/`next_reminder_at` = NULL on the sensor's down/warning rows
+(defensive; steps 1/3/4 also check). Unacknowledge re-arms nothing (escalation does not restart; reminders
+resume: `next_reminder_at = now + repeat_every_s`).
+
+**De-duplication:** one send per `(sensor_id, event_id, stage, channel_id)` within the process (bounded
+in-memory set, as in Phase 1). A send failure writes a `notification` event; there is no retry.
+
+**Restart:** rows are persisted; overdue rows are processed right after startup (validated against the current
+state). The Phase 1 sentence "Pending timers are lost on restart" no longer applies.
+
+## [2b-1] Device identity and fingerprinting
+
+### Columns
+`discovery_results` gains:
+
+| Column | Type | Constraints |
+|---|---|---|
+| fingerprint | jsonb | NULL (NULL = fingerprinting off or nothing to fingerprint). Schema below. |
+| model | varchar(64) | NULL |
+| classified_by | text | NOT NULL DEFAULT `ports` CHECK in classified_by |
+| confidence | text | NOT NULL DEFAULT `low` CHECK in confidence |
+
+`devices` gains `identity jsonb NULL`: the last identification (from import or `POST /api/devices/{id}/identify`),
+shape `DeviceIdentity` in api.md.
+
+### Fingerprint JSON
+```json
+{ "http": [ { "port": 443, "scheme": "https", "status": 200, "title": "Login | OPNsense", "server": "OPNsense",
+              "realm": null, "markers": ["opnsense"], "redirects": 1, "error": null } ],
+  "ssh": { "port": 22, "banner": "SSH-2.0-OpenSSH_9.7" },
+  "telnet": null }
+```
+- `http`: one entry per open port of {80, 443, 8080, 8443} (443/8443 → `https`, others `http`); always present
+  (possibly `[]`). `error` is a short text (`timeout`, `tls error`, `connection refused`, ...) with the other
+  fields null/[]. `title` ≤ 200 chars (first `<title>`, HTML-unescaped, whitespace collapsed), `server` = the
+  `Server` header ≤ 200, `realm` = `realm="..."` of the first `WWW-Authenticate` header ≤ 200, `markers` =
+  sorted subset of the marker list below found in title + body.
+- `ssh`: when 22 is open; the first line received within the timeout (≤ 255 printable ASCII chars), else
+  `{"port":22,"banner":null}`.
+- `telnet`: when 23 is open; up to 512 bytes read within the timeout, IAC sequences (0xFF + 2 bytes; SB…SE)
+  removed, non-printables dropped, first non-empty line ≤ 255 chars. Nothing is ever sent.
+
+**Markers** (case-insensitive, regex `\b<marker>\b` over title + the first 64 KiB of the body):
+`opnsense, pfsense, unifi, ubiquiti, airos, edgeos, mikrotik, routeros, tp-link, tplink, easy smart, omada,
+procurve, aruba, arubaos, officeconnect, comware, h3c, hpe, cisco, netgear, prosafe, d-link, dlink, zyxel,
+fortinet, fortigate, synology, diskstation, qnap, laserjet, officejet, brother, canon, kyocera, ricoh, epson,
+xerox, lexmark, ilo, idrac, supermicro, megarac`.
+
+### Fingerprint classification rules (pure, `netmon.discovery.classify.classify_fingerprint(fp) -> FpMatch | None`)
+Applied when **SNMP did not answer**, and also when SNMP answered but rules 1–12 ended in class `unknown`
+(then the SNMP vendor is kept if the fingerprint rule gives none). Evaluated **before** the port rules 13–18;
+first match wins. Fields: **T** = all HTTP titles, **S** = Server headers, **R** = realms, **M** = markers,
+**B** = SSH banner, **N** = telnet banner. Regexes are case-insensitive.
+
+| # | Condition | class | vendor | confidence | Notes |
+|---|---|---|---|---|---|
+| F1 | T or M `opnsense` | router | opnsense | high | Login page title `Login \| OPNsense` |
+| F2 | T or M `pfsense` | router | pfsense | high | |
+| F3 | T `RouterOS\|mikrotik\|webfig`, or B starts `SSH-2.0-ROSSSH` | router | mikrotik | high | ROSSSH is MikroTik's SSH server |
+| F4 | T `UniFi OS` | router | ubiquiti | medium | UDM/UCG consoles |
+| F5 | T `UniFi Network` | server | ubiquiti | medium | Self-hosted controller (8443) |
+| F6 | T or M `edgeos\|edgerouter` → router; `edgeswitch` → switch; `airos` → access_point; other M `unifi\|ubiquiti` → unknown | (stated) | ubiquiti | medium / low for the last | |
+| F7 | T or M `TL-SG\d+\w*E\b\|easy smart` | switch | tp-link | medium | Easy Smart (TL-SG105E/108E/116E/1016DE/1024DE …). Title/body text varies by firmware |
+| F8 | T `\bTL-SG\|\bT\d{4}\|jetstream` → switch; T or M `omada\|\bEAP\d` → access_point; other M `tp-link\|tplink` → unknown | (stated) | tp-link | medium / low | |
+| F9 | B `Comware` | switch | h3c | high | Comware SSH banner `SSH-2.0-Comware-x.y` |
+| F10 | T or M `comware\|h3c\|officeconnect\|procurve\|arubaos\|aruba.*switch\|hpe.*switch` | switch | hp (h3c for comware/h3c) | medium | ProCurve/ArubaOS-Switch/OfficeConnect web UIs |
+| F11 | S `^eHTTP` | switch | hp | medium | Old ProCurve web server |
+| F12 | T or M `\bilo\b\|integrated lights-out` | server | hp | high | |
+| F13 | T or M `idrac` | server | dell | high | |
+| F14 | T or M `supermicro\|megarac` or T `\bIPMI\b` | server | null (supermicro when that word) | medium | BMC |
+| F15 | T or M `synology\|diskstation` | nas | synology | high | DSM ports 5000/5001 are not probed; 80/443 redirect usually shows it |
+| F16 | T or M `qnap\|\bQTS\b` | nas | qnap | medium | |
+| F17 | T or M `laserjet\|officejet\|pagewide\|designjet`, or S `HP HTTP Server\|HP-ChaiSOE` | printer | hp | high (title) / medium (server) | |
+| F18 | T or M `brother`, or S `^debut` | printer | brother | high / medium | |
+| F19 | T or M `canon`, or S `CANON HTTP Server\|KS_HTTP` | printer | canon | medium | |
+| F20 | T or M `kyocera\|command center` , or S `KM-MFP-http` | printer | kyocera | medium | |
+| F21 | T or M `ricoh\|web image monitor` | printer | ricoh | medium | |
+| F22 | T or M `epson` → printer/epson; `xerox` → printer/xerox; `lexmark` → printer/lexmark | printer | (stated) | medium | |
+| F23 | T or M `fortigate\|fortinet`, or S `^xxxxxxxx-xxxxx$` | router | fortinet | medium | |
+| F24 | B `Cisco-\d`, or S `cisco`, or T `cisco` | T `\bSG\d{3}\|\bCBS\d{3}\|catalyst\|switch` → switch, else router | cisco | medium | Banner `SSH-2.0-Cisco-1.25` does not say the device type |
+| F25 | T or M `netgear\|prosafe` | T `\b(GS\|XS\|MS)\d{3}` → switch, else unknown | netgear | medium / low | |
+| F26 | T or M `d-link\|dlink` | T `\b(DGS\|DES\|DXS)-` → switch, else unknown | d-link | medium / low | |
+| F27 | T or M `zyxel` | T `\b(GS\|XGS\|XS)\d{3,4}` → switch, else unknown | zyxel | medium / low | |
+| F28 | S `Microsoft-IIS` | server | microsoft | low | |
+| F29 | B `OpenSSH.*(Ubuntu\|Debian\|Raspbian)` | server | linux | low | |
+
+**Model** (first match over T, then N; stored ≤ 64 chars, else null): `\b(TL-[A-Z]{2,5}\d{2,5}[A-Z]{0,3})\b`,
+`\b(J[L]?\d{3,4}A)\b` (HPE part numbers), `OfficeConnect\s+(?:Switch\s+)?(\d{4}S?)`, `\b((?:DS|RS)\d{3,4}\+?)\b`,
+`\b((?:GS|XS|MS)\d{3}[A-Z]{0,4})\b`, `\b((?:DGS|DES|DXS)-\d{4}[-\w]*)\b`, `\b(U[67]-[\w-]+|UAP-[\w-]+)\b`.
+
+These rules are **heuristics**. Confidence `high` means "the string is vendor-specific as far as the architect
+knows", never certainty; the UI shows the confidence and the user always chooses the template.
+
+**`classified_by` / `confidence` for every result:** SNMP rules 1–10 → `snmp`/`high`; 11–12 → `snmp`/`medium`
+(12 ending in `unknown` → fingerprint rules may take over); fingerprint match → `fingerprint`/rule confidence;
+port rules 13–17 → `ports`/`low`; rule 18 → `none`/`low`.
+
+New vendor slugs: `h3c`, `supermicro`; `aruba` now also comes from enterprise 47196.
+
+### Vendor table additions
+| Enterprise | Vendor slug | Default class (rule 10) | Confidence | Notes |
+|---|---|---|---|---|
+| 25506 | h3c | switch | high | H3C / HPE Comware (OfficeConnect 1920 non-S, 1950, 5130, 5510 …) |
+| 47196 | aruba | switch | medium | Aruba (HPE) AOS-CX switches (6100/6200/6300 …) |
+
+Rule 10's switch regex gains `officeconnect|comware|arubaos|aruba.*switch`.
+
+### Template match: new field `enterprises`
+Match rules gain `"enterprises": int[] | null`: matches when the result's `sys_object_id` enterprise is in
+the list. `suggest()` gains the `sys_object_id` argument. Template entries (all kinds) gain
+`"enterprises": int[] | null` (default null = always): the entry is applied only when the device's
+sysObjectID enterprise is in the list; apply GETs `sysObjectID.0` once when any entry has it (failure → those
+entries skipped with `snmp_error`). `snmp_table` entries gain `"skip_zero": bool` (default false): rows whose
+walked value is `0` or not numeric are ignored (and not counted towards `max`).
+
+## [2b-1] `hpe_switch` template
+
+| id | name en / he | priority | match |
+|---|---|---|---|
+| `hpe_switch` | HPE / Aruba switch / מתג HPE / Aruba | 50 | `requires_snmp`, classes `[switch]`, `enterprises [11, 25506, 47196]` |
+
+(Class `switch` keeps HP JetDirect printers — also enterprise 11 — out.)
+
+Entries in order:
+
+| # | Entry | Details | Confidence |
+|---|---|---|---|
+| 1 | Ping | | |
+| 2 | System (`snmp_system`) | uptime | high |
+| 3 | `CPU` (`snmp_custom`, probe, `enterprises [11]`) | oid `1.3.6.1.4.1.11.2.14.11.5.1.9.6.1.0` (hpSwitchCpuStat, STATISTICS-MIB), gauge, unit `%`, label `CPU`, channels `[{"key":"value","warning_max":80,"down_max":95}]` | **high** for ArubaOS-Switch/ProCurve (2530/2540/2930/3810/5400). **low** for OfficeConnect 1820/1920S (also enterprise 11, may not implement it → probe fails → skipped) |
+| 4 | `Memory {index}` (`snmp_table`, `enterprises [11]`) | `walk_oid` hpLocalMemAllocBytes `1.3.6.1.4.1.11.2.14.11.5.1.1.2.1.1.1.7`, `percent_of_column` hpLocalMemTotalBytes `…1.1.1.5`, label none, name `Memory {index}` / `זיכרון {index}`, config gauge `%`, channels warning_max 85 / down_max 95, max 8. Index = slot / stack member (`1` standalone). | **medium**: NETSWITCH-MIB hpLocalMemEntry columns .5 TotalBytes, .6 FreeBytes, .7 AllocBytes as in the brief; verify on a real switch |
+| 5 | `CPU {label}` (`snmp_table`, `enterprises [25506]`, `skip_zero: true`) | `walk_oid` hh3cEntityExtCpuUsage `1.3.6.1.4.1.25506.2.6.1.1.1.1.6`, `label_oid` entPhysicalName `1.3.6.1.2.1.47.1.1.1.1.7`, config gauge `%`, channels 80/95, max 8 | OIDs **high** (HH3C-ENTITY-EXT-MIB). Row selection by non-zero value **medium**: only boards/MPUs report CPU, chassis/ports/fans report 0; a board idling at exactly 0 % at apply time would be skipped (re-apply adds it) |
+| 6 | `Memory {label}` (`snmp_table`, `enterprises [25506]`, `skip_zero: true`) | `walk_oid` hh3cEntityExtMemUsage `1.3.6.1.4.1.25506.2.6.1.1.1.1.8`, `label_oid` entPhysicalName, gauge `%`, channels 85/95, max 8 | as row 5 |
+| 7 | CPU Load (`snmp_cpu`, probe, `enterprises [47196]`) | HOST-RESOURCES | **low** for AOS-CX: probe decides |
+| 8 | Memory (`snmp_memory`, probe, `enterprises [47196]`) | HOST-RESOURCES | **low** |
+| 9 | `snmp_interfaces` | up only, `exclude_if_types [1, 24, 53, 131, 136]` (other, loopback, propVirtual/VLAN, tunnel, l3ipvlan), `exclude_name_regex` = IF_EXCLUDE, max 52 | high |
+
+Comware's `hh3cEntityExtEntry` is indexed by `entPhysicalIndex`, so the created `snmp_custom` sensors use a
+fixed `<column>.<entPhysicalIndex>` OID (stable across reboots on a fixed chassis: medium). Hebrew name of the
+template: `מתג HPE / Aruba`; description en `Ping, system, CPU and memory (HPE MIBs), active ports`, he
+`פינג, מערכת, מעבד וזיכרון (MIB של HPE), פורטים פעילים`. **The owner must verify rows 3–6 on his switches.**
+
+## [2b-1] Topology
+
+### `devices` gains
+| Column | Type | Constraints |
+|---|---|---|
+| lldp_chassis_id | varchar(255) | NULL. Normalised (below) own `lldpLocChassisId`, written by refresh. |
+| lldp_sys_name | varchar(255) | NULL. `lldpLocSysName`. |
+
+### `topology_neighbors` (unmanaged nodes)
+| Column | Type | Constraints |
+|---|---|---|
+| id | integer | PK |
+| chassis_id | varchar(255) | NOT NULL, UNIQUE (normalised; CDP neighbours use `cdp:<deviceId>`) |
+| sys_name | varchar(255) | NULL |
+| sys_descr | text | NULL (≤ 1000) |
+| mgmt_address | varchar(64) | NULL (first IPv4, else IPv6) |
+| first_seen, last_seen | timestamptz | NOT NULL DEFAULT now() |
+
+### `topology_links`
+| Column | Type | Constraints |
+|---|---|---|
+| id | integer | PK |
+| source | text | NOT NULL CHECK in link_source |
+| a_device_id | integer | NOT NULL, FK `devices.id` ON DELETE CASCADE |
+| a_if_index | integer | NULL |
+| a_port | varchar(255) | NOT NULL DEFAULT '' (ifName, else ifDescr, else LLDP port id) |
+| b_device_id | integer | NULL, FK `devices.id` ON DELETE CASCADE |
+| b_neighbor_id | integer | NULL, FK `topology_neighbors.id` ON DELETE CASCADE |
+| b_if_index | integer | NULL |
+| b_port | varchar(255) | NOT NULL DEFAULT '' |
+| first_seen, last_seen | timestamptz | NOT NULL DEFAULT now() (manual: creation / update time) |
+| missed_refreshes | integer | NOT NULL DEFAULT 0 |
+| stale | boolean | NOT NULL DEFAULT false |
+| created_by | integer | NULL, FK `users.id` ON DELETE SET NULL (manual only) |
+
+- CHECK exactly one of `b_device_id` / `b_neighbor_id` is set; CHECK `b_device_id IS NULL OR b_device_id <> a_device_id`.
+- **Canonical order** for device–device links: `a_device_id < b_device_id` (endpoints swapped when needed), so
+  both sides' LLDP reports collapse into one row.
+- UNIQUE index `ux_topology_links_ends` on `(source, a_device_id, a_port, COALESCE(b_device_id,0), COALESCE(b_neighbor_id,0), b_port)`.
+- Manual links are never stale and never touched by refresh. A discovered link with the same endpoints and
+  ports as a manual one is still stored; the graph API hides discovered duplicates of manual links.
+
+### `topology_layout`
+`node_key varchar(32) PK` (`d:<device_id>` or `n:<neighbor_id>`), `x double precision NOT NULL`,
+`y double precision NOT NULL`, `updated_at`. One global layout. Rows of deleted nodes are removed by the
+refresh and ignored by the graph API.
+
+### `topology_refreshes`
+`id` PK, `trigger` (`manual`|`scheduled`), `status` (topology_refresh_status), `started_at`, `finished_at` NULL,
+`devices_total`, `devices_ok`, `devices_failed`, `links_found` (integers, default 0), `error` text NULL,
+`created_by` FK users SET NULL. Partial unique index on `status='running'`; startup marks `running` rows
+`failed` ("Interrupted by restart"); keep the newest 20.
+
+### Settings key
+`topology_refresh_min`: int, `0` (off) or 5–1440, default `30`.
+
+### SNMP data (LLDP-MIB `1.0.8802.1.1.2`, CDP)
+| Object | OID | Index | Confidence |
+|---|---|---|---|
+| lldpLocChassisIdSubtype / lldpLocChassisId | `1.0.8802.1.1.2.1.3.1.0` / `.1.3.2.0` | scalar | high |
+| lldpLocSysName | `1.0.8802.1.1.2.1.3.3.0` | scalar | high |
+| lldpLocPortIdSubtype / PortId / PortDesc | `1.0.8802.1.1.2.1.3.7.1.2` / `.3` / `.4` | `lldpLocPortNum` | high |
+| lldpRemChassisIdSubtype / ChassisId | `1.0.8802.1.1.2.1.4.1.1.4` / `.5` | `lldpRemTimeMark.lldpRemLocalPortNum.lldpRemIndex` | high |
+| lldpRemPortIdSubtype / PortId / PortDesc | `…4.1.1.6` / `.7` / `.8` | same | high |
+| lldpRemSysName / SysDesc | `…4.1.1.9` / `.10` | same | high |
+| lldpRemManAddrIfSubtype | `1.0.8802.1.1.2.1.4.2.1.3` | `TimeMark.LocalPortNum.Index.AddrSubtype.<len>.<addr octets>` (address is in the **index**) | high for the layout; address subtype 1 = IPv4 (len 4), 2 = IPv6 (len 16) |
+| cdpCacheAddressType / Address | `1.3.6.1.4.1.9.9.23.1.2.1.1.3` / `.4` | `cdpCacheIfIndex.cdpCacheDeviceIndex` | high (type 1 = IPv4, 4 octets) |
+| cdpCacheDeviceId / DevicePort / Platform | `….1.1.6` / `.7` / `.8` | same; **local side = ifIndex directly** | high |
+
+The time mark (first index arc) is ignored; LocalPortNum and RemIndex identify the neighbour row.
+
+**Normalisation:** chassis/port id subtype 4 (`macAddress`) or any 6-octet value under subtype 3/4 →
+`aa:bb:cc:dd:ee:ff`; subtype 5 (`networkAddress`) → the address text; other subtypes → decoded text when
+printable, else lower-case hex `0x…`.
+
+**Local port → ifIndex/ifName** (in this order, against the device's ifName/ifDescr walk):
+1. `lldpLocPortIdSubtype` 5 (`interfaceName`) or 7 (`local`) and the port id text equals an `ifName` or `ifDescr` → that ifIndex.
+2. `lldpLocPortDesc` equals an `ifName` or `ifDescr` → that ifIndex.
+3. `lldpLocPortNum` is an existing ifIndex → that ifIndex.
+4. Else `a_if_index = NULL`, `a_port` = port desc or id.
+
+Per family: **ArubaOS-Switch/ProCurve**: lldpLocPortNum = ifIndex = port number, ifName `1`, `2`, `A1` …
+(confidence **medium-high**; step 3 catches it, step 1 usually too — port id subtype 7 "local" = port
+number). **Comware**: lldpLocPortNum is **not** the ifIndex in general (confidence **medium**); the port id is
+usually subtype 5 with the interface name (`GigabitEthernet1/0/1`), so step 1 resolves it. Step 3 is a
+last-resort guess and may be wrong on Comware — that is why it comes last. Comware 7 may also populate the
+LLDP-V2 MIB; only the v1 LLDP-MIB is used here (if a device answers only V2, it shows no links — report it).
+
+### Refresh (`netmon.topology.refresh`)
+- Devices walked: `enabled` devices that have at least one SNMP sensor (`requires_snmp` type) — ping-only
+  devices are skipped. Concurrency 8 (own semaphore), each device a 30 s budget, effective SNMP credentials,
+  the shared SNMP client/engine. Per device: local scalars, lldpLocPortTable, lldpRemTable,
+  lldpRemManAddrTable, cdpCacheTable (missing tables = no rows, not a failure), and ifName/ifDescr. A device
+  counts as **ok** when the lldpLocChassisId GET or any walk succeeded; a timeout/auth failure → failed.
+- **Matching** a neighbour row to a device (first rule that gives exactly one device; ties → lowest id):
+  1. a management address equals a device `host` (IP text compare after normalisation);
+  2. normalised remote chassis id equals a device's `lldp_chassis_id`;
+  3. remote sysName equals (case-insensitive) a device `lldp_sys_name`, `name`, or `host`; also with the
+     domain stripped (`sw1.lan` ↔ `sw1`).
+  Unmatched → upsert a `topology_neighbors` row by chassis id (sys_name, sys_descr, mgmt_address, last_seen).
+- The remote port: matched device → resolve `b_if_index` against **that** device's ifName/ifDescr with rule 1/2
+  (port id subtype 5/7 or port desc), else NULL; `b_port` = port id or desc text.
+- Upsert links (canonical order), `last_seen = now`, `missed_refreshes = 0`, `stale = false`.
+- **Stale:** for every non-manual link not seen in this refresh where at least one endpoint device was walked
+  **ok**: `missed_refreshes += 1`; `>= 3` → `stale = true`. Stale links are never deleted automatically.
+- **Promotion:** a neighbour that now matches a device (rules above) has its links re-pointed to the device
+  (duplicates merged, keeping the oldest `first_seen`), its layout row renamed when the device has none, and is
+  deleted. Neighbours with no links left are deleted at the end.
+- One refresh at a time. Scheduled by a loop (like discovery) every `topology_refresh_min` minutes (first run 2
+  minutes after startup); off when 0.
+
+### Dependency suggestions (pure, `netmon.topology.suggest_dependencies(graph, root_device_id)`)
+- Graph = non-stale device–device links (manual included). Root = the request's `root_device_id`, else the
+  device with the most such links (ties → lowest id).
+- BFS from the root; each reached device's suggested parent = its BFS predecessor (ties → the neighbour with
+  more links, then lowest id). The root and unreached devices get `null`.
+- Nothing is applied automatically; applying goes through the bulk endpoint, which validates cycles.
+
+## [2b-1] Phase 2b-1 migration (`0004`)
+File `backend/netmon/migrations/versions/0004_phase2b1.py`, `revision = "0004"`, `down_revision = "0003"`.
+Plain PostgreSQL DDL only.
+
+`upgrade()`:
+1. Widen checks: `sensors_status_check` (`status` + `unreachable`), `events_old_status_check`,
+   `events_new_status_check` (same list), `events_kind_check` (+ `acknowledge`, `maintenance`).
+2. `ALTER TABLE groups ADD dependency_mode …, dependency_device_id …, dependency_sensor_id …`.
+3. `ALTER TABLE devices ADD dependency_mode, dependency_device_id, dependency_sensor_id, identity jsonb NULL,
+   lldp_chassis_id, lldp_sys_name`; index `ix_devices_dependency_device_id`.
+4. `ALTER TABLE sensors ADD ack_at, ack_user_id, ack_by, ack_comment, ack_status`.
+5. `ALTER TABLE events ADD in_maintenance boolean NOT NULL DEFAULT false`.
+6. `ALTER TABLE alert_rules ADD escalation_after_s, escalation_channel_ids, repeat_every_s` (+ checks).
+7. `CREATE TABLE alert_state` (+ `ix_alert_state_sensor_id`); copy
+   `INSERT INTO alert_state (rule_id, sensor_id, status, problem_since, primary_sent_at, notified_channel_ids)
+   SELECT n.rule_id, n.sensor_id, n.status, n.time, n.time, COALESCE((SELECT array_agg(channel_id) FROM alert_rule_channels c WHERE c.rule_id = n.rule_id), '{}') FROM alert_notified n`;
+   `DROP TABLE alert_notified`.
+8. `CREATE TABLE maintenance_windows` (+ `ix_maintenance_windows_group_id`, `ix_maintenance_windows_device_id`).
+9. `ALTER TABLE discovery_results ADD fingerprint, model, classified_by, confidence`;
+   `UPDATE discovery_results SET classified_by='snmp', confidence='medium' WHERE snmp_ok`.
+10. `CREATE TABLE topology_neighbors, topology_links, topology_layout, topology_refreshes` with
+    `ux_topology_links_ends`, `ix_topology_links_b_device_id`, `ix_topology_links_b_neighbor_id`,
+    `ux_topology_refreshes_running` (partial).
+
+`downgrade()` (reverse order): drop the topology tables, `maintenance_windows`; recreate `alert_notified` and
+copy `alert_state` rows with `status IN ('down','warning') AND cardinality(notified_channel_ids) > 0`, drop
+`alert_state`; drop the added columns; `UPDATE sensors SET status='down' WHERE status='unreachable'`,
+`UPDATE events SET old_status='down' WHERE old_status='unreachable'` (same for `new_status`),
+`DELETE FROM events WHERE kind IN ('acknowledge','maintenance')`; restore the old checks. Settings rows
+`timezone`/`topology_refresh_min` are harmless and stay.
