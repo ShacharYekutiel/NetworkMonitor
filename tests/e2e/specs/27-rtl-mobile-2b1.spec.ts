@@ -83,13 +83,13 @@ test('Hebrew: dir=rtl, translated texts, LTR IPs; screenshots', async ({ page })
   await shot2b(page, 'device-desktop-he');
 
   await page.goto('/');
-  await expect(page.locator('main')).not.toContainText(/Acknowledged|Unreachable devices/);
+  await expect(page.locator('main')).not.toContainText(/Acknowledged problems|Unreachable devices|Down and warning sensors/);
   await expect(page.getByText('החלפת ספק כוח').first()).toBeAttached();
   await shot2b(page, 'dashboard-desktop-he');
 
   await page.goto('/topology');
   await expect(page.locator('main canvas').first()).toBeVisible();
-  await expect(page.locator('main')).not.toContainText(/Refresh topology now|Suggest dependencies|Include stale|Add link/);
+  await expect(page.locator('main')).not.toContainText(/Refresh topology|Suggest dependencies|Include stale|Add link/);
   await page.waitForTimeout(1000);
   await shot2b(page, 'topology-desktop-he');
 
@@ -115,7 +115,7 @@ for (const lang of ['en', 'he'] as const) {
     }
     // Maintenance drawer on the phone.
     await page.goto('/maintenance');
-    await page.getByRole('button', { name: lang === 'en' ? /Add (maintenance )?window/ : /.+/ }).first().click().catch(() => undefined);
+    await page.getByRole('main').getByRole('button', { name: lang === 'en' ? 'Add maintenance window' : 'הוספת חלון תחזוקה' }).first().click({ timeout: 5000 }).catch(() => undefined);
     const o = await horizontalOverflow(page);
     if (o.scrollWidth > o.clientWidth + 1) bad.push(`maintenance drawer: ${o.scrollWidth} > ${o.clientWidth}`);
     await shot2b(page, `maintenance-drawer-phone-${lang}`);

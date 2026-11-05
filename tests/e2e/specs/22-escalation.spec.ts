@@ -55,11 +55,13 @@ test('alert rule form: Escalation section (minutes in the UI, seconds in the API
   await dlg.getByLabel(/^Name/).fill(name);
   await dlg.getByLabel('Applies to').selectOption({ label: `${dev.device.name} / ${dev.sensor.name}` });
   await dlg.getByRole('checkbox', { name: new RegExp((await api.get(`/api/notification-channels/${primary}`)).name) }).first().check();
-  await dlg.getByRole('button', { name: /Escalation/ }).click();
-  await dlg.getByLabel(/Escalate after/).fill('1');
-  const escSection = dlg.locator('fieldset, section, div').filter({ has: dlg.getByLabel(/Escalate after/) }).last();
-  await escSection.getByRole('checkbox', { name: new RegExp((await api.get(`/api/notification-channels/${esc}`)).name) }).check();
-  await dlg.getByLabel(/Remind every/).fill('5');
+  await dlg.getByRole('button', { name: /Escalation and reminders/ }).click();
+  await dlg.getByRole('checkbox', { name: /Escalate if not acknowledged/ }).check();
+  await dlg.getByRole('spinbutton', { name: /^Escalate after/ }).fill('1');
+  const escName = (await api.get(`/api/notification-channels/${esc}`)).name;
+  await dlg.getByRole('group', { name: /Escalation channels/ }).getByRole('checkbox', { name: new RegExp(escName) }).check();
+  await dlg.getByRole('checkbox', { name: /Remind until acknowledged/ }).check();
+  await dlg.getByRole('spinbutton', { name: /^Remind every/ }).fill('5');
   await shot2b(page, 'escalation-rule-form-en');
   await dlg.getByRole('button', { name: 'Save' }).click();
   await expect(dlg).toBeHidden();
@@ -67,7 +69,7 @@ test('alert rule form: Escalation section (minutes in the UI, seconds in the API
   expect(r).toMatchObject({ escalation_after_s: 60, escalation_channel_ids: [esc], repeat_every_s: 300, channel_ids: [primary], delay_s: 0 });
   ruleId = r.id;
   // List shows the escalation icon.
-  await expect(page.getByRole('row').filter({ hasText: name }).getByLabel(/Escalation/)).toBeVisible();
+  await expect(page.getByRole('row').filter({ hasText: name }).getByLabel('Escalation and reminders')).toBeVisible();
 });
 
 test('validation of the escalation fields (422)', async () => {

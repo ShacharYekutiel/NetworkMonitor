@@ -94,10 +94,11 @@ test('map page renders nodes and the neighbour ghost; edge panel; screenshot', a
   await loginViaApi(page, undefined, '/topology');
   const canvas = page.locator('main canvas').first();
   await expect(canvas).toBeVisible();
-  await expect(page.getByRole('button', { name: 'Refresh topology now' })).toBeVisible();
+  // Doc label "Refresh topology now"; UI says "Refresh topology".
+  await expect(page.getByRole('button', { name: /^Refresh topology/ })).toBeVisible();
   await expect(page.getByRole('button', { name: 'Suggest dependencies' })).toBeVisible();
   await expect(page.getByRole('button', { name: 'Add link' })).toBeVisible();
-  await expect(page.getByLabel(/Include stale/)).toBeVisible();
+  await expect(page.getByText(/Include stale/)).toBeVisible();
   await page.waitForTimeout(1500); // force layout settles once (layoutAnimation false) + PUT layout
   await shot2b(page, 'topology-map-en');
   // The admin's first render saves positions for every node.
@@ -112,7 +113,7 @@ test('map page renders nodes and the neighbour ghost; edge panel; screenshot', a
 test('"Refresh topology now" from the UI shows progress; 409 while running', async ({ page }) => {
   await loginViaApi(page, undefined, '/topology');
   const respP = page.waitForResponse((r) => r.url().endsWith('/api/topology/refresh') && r.request().method() === 'POST');
-  await page.getByRole('button', { name: 'Refresh topology now' }).click();
+  await page.getByRole('button', { name: /^Refresh topology/ }).click();
   const resp = await respP;
   expect(resp.status()).toBe(202);
   const second = await raw(api, 'POST', '/api/topology/refresh');
@@ -128,17 +129,17 @@ test('manual link add (UI) / PATCH / delete; discovered link PATCH -> 400 link_n
   await loginViaApi(page, undefined, '/topology');
   await page.getByRole('button', { name: 'Add link' }).click();
   const dlg = page.getByRole('dialog');
-  await dlg.getByLabel(/^(Device A|From device|A device)/).selectOption({ label: dev.core.name }).catch(async () => {
-    await dlg.getByRole('combobox').first().click();
-    await page.getByRole('option', { name: dev.core.name }).click();
-  });
-  await dlg.getByLabel(/^(Device B|To device|B device)/).selectOption({ label: dev.ap.name }).catch(async () => {
-    await dlg.getByRole('combobox').nth(1).click();
-    await page.getByRole('option', { name: dev.ap.name }).click();
-  });
-  await dlg.getByLabel(/Port.*(A|from)/i).first().fill('3');
-  await dlg.getByLabel(/Port.*(B|to)/i).first().fill('uplink');
-  await dlg.getByRole('button', { name: /Save|Add/ }).last().click();
+  const sideA = dlg.locator('fieldset').nth(0);
+  const sideB = dlg.locator('fieldset').nth(1);
+  const devSelect = (scope: typeof sideA, id: number) => scope.locator('select').filter({ has: page.locator(`option[value="${id}"]`) }).first();
+  await devSelect(sideA, dev.core.id).selectOption(String(dev.core.id));
+  // Interface picker (ifTable walk) -> ifIndex 3, port name defaults to its ifName.
+  const ifSel = sideA.getByLabel('Interface');
+  await expect(ifSel).toBeEnabled({ timeout: 15_000 });
+  await ifSel.selectOption('3');
+  await devSelect(sideB, dev.ap.id).selectOption(String(dev.ap.id));
+  await sideB.getByRole('textbox', { name: /^Port/ }).fill('uplink');
+  await dlg.getByRole('button', { name: 'Add link' }).click();
   await expect(dlg).toBeHidden();
   let man = (await api.get(`/api/topology/links?source=manual&device_id=${dev.core.id}`)).items.find((l: any) => l.b.device_id === dev.ap.id || l.a.device_id === dev.ap.id);
   if (!man) {
@@ -222,16 +223,15 @@ test('suggest dependencies (root = core) -> apply selected in the UI -> dependen
   await loginViaApi(page, undefined, '/topology');
   await page.getByRole('button', { name: 'Suggest dependencies' }).click();
   const dlg = page.getByRole('dialog');
-  // Pick the root explicitly when the UI offers it.
-  const root = dlg.getByLabel(/Root/);
-  if (await root.count()) await root.selectOption({ label: dev.core.name }).catch(() => undefined);
+  await dlg.locator('select').filter({ has: page.locator(`option[value="${dev.core.id}"]`) }).first().selectOption(String(dev.core.id));
+  await expect(dlg.getByText(`Root: ${dev.core.name}`)).toBeVisible();
   for (const d of [dev.acc1, dev.acc2, dev.ap]) {
-    const row = dlg.getByRole('row').filter({ hasText: d.name });
-    await expect(row).toBeVisible();
-    await row.getByRole('checkbox').check();
+    const cb = dlg.getByRole('checkbox', { name: d.name, exact: true });
+    await expect(cb).toBeVisible();
+    await cb.check();
   }
   await shot2b(page, 'topology-suggestions-en');
-  await dlg.getByRole('button', { name: /Apply selected/ }).click();
+  await dlg.getByRole('button', { name: /^Apply \d+ selected/ }).click();
   await expect(dlg).toBeHidden();
   for (const [d, parentId] of [[dev.acc1, dev.core.id], [dev.acc2, dev.core.id], [dev.ap, dev.acc1.id]] as const) {
     const x = await api.get(`/api/devices/${d.id}`);

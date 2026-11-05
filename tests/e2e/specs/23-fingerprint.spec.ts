@@ -115,7 +115,7 @@ test('results page: model column, confidence chip and the expandable fingerprint
   await loginViaApi(page, undefined, `/discovery/scans/${scanId}`);
   const row = page.getByRole('row').filter({ hasText: '127.0.0.41' }).first();
   await expect(row).toContainText('TL-SG108E');
-  await expect(row).toContainText(/Medium/);
+  await expect(row).toContainText(/medium/i);
   await row.getByRole('button', { name: /Fingerprint|Details|Expand/ }).first().click();
   await expect(page.getByText('TL-SG108E').nth(1)).toBeVisible();
   const r46 = page.getByRole('row').filter({ hasText: '127.0.0.46' }).first();

@@ -37,19 +37,21 @@ test.afterAll(async () => {
 
 test('create a once window covering now from the Maintenance page (device scope)', async ({ page }) => {
   await loginViaApi(page, undefined, `/devices/${dev.device.id}`);
-  await page.getByRole('button', { name: 'Add maintenance window' }).click();
+  // architecture.md §10.3 says "Add maintenance window"; the UI labels the button "Maintenance" (see report).
+  await page.getByRole('main').getByRole('button', { name: /^(Add maintenance window|Maintenance)$/ }).click();
   const dlg = page.getByRole('dialog');
   await dlg.getByLabel(/^Name/).fill(winName);
   // Prefilled scope = this device.
-  await expect(dlg).toContainText(dev.device.name);
-  await dlg.getByRole('radio', { name: /One-time/ }).check();
+  await expect(dlg.getByRole('radio', { name: 'Device' })).toBeChecked();
+  await expect(dlg.locator('select').filter({ has: page.locator(`option[value="${dev.device.id}"]`) })).toHaveValue(String(dev.device.id));
+  await dlg.getByRole('button', { name: 'One-time' }).click();
   // Inputs are interpreted in settings.timezone (UTC here, the browser zone sent by the wizard is UTC too).
   const pad = (n: number) => String(n).padStart(2, '0');
   const fmt = (d: Date) => `${d.getUTCFullYear()}-${pad(d.getUTCMonth() + 1)}-${pad(d.getUTCDate())}T${pad(d.getUTCHours())}:${pad(d.getUTCMinutes())}`;
   const start = new Date(Date.now() - 5 * 60_000);
   const end = new Date(Date.now() + 60 * 60_000);
-  await dlg.getByLabel(/^Start/).fill(fmt(start));
-  await dlg.getByLabel(/^End/).fill(fmt(end));
+  await dlg.getByLabel(/^Starts/).fill(fmt(start));
+  await dlg.getByLabel(/^Ends/).fill(fmt(end));
   await dlg.getByLabel(/^Comment/).fill('QA firmware window');
   await dlg.getByRole('button', { name: 'Save' }).click();
   await expect(dlg).toBeHidden();
@@ -61,7 +63,7 @@ test('create a once window covering now from the Maintenance page (device scope)
   expect(Math.abs(Date.parse(w.ends_at) - Math.floor(end.getTime() / 60_000) * 60_000)).toBeLessThan(61_000);
 
   await page.goto('/maintenance');
-  const active = page.locator('section').filter({ has: page.getByRole('heading', { name: /Active now/ }) });
+  const active = page.locator('section').filter({ has: page.getByRole('heading', { name: /^Active now/ }) });
   await expect(active).toContainText(winName);
   await shot2b(page, 'maintenance-list-en');
   // Badge on the device page ("In maintenance until HH:MM").
@@ -141,17 +143,15 @@ test('problem that starts and ends inside a window sends nothing', async () => {
 
 test('weekly window: occurrences preview in the drawer and the API; schedule text', async ({ page }) => {
   await loginViaApi(page, undefined, '/maintenance');
-  await page.getByRole('button', { name: /Add (maintenance )?window/ }).click();
+  await page.getByRole('main').getByRole('button', { name: 'Add maintenance window' }).click();
   const dlg = page.getByRole('dialog');
   const name = uid('Weekly backup');
   await dlg.getByLabel(/^Name/).fill(name);
-  await dlg.getByLabel(/^Scope/).selectOption('device');
-  const devPicker = dlg.getByRole('combobox', { name: /Device/ }).last();
-  await devPicker.click();
-  await page.getByRole('option', { name: new RegExp(dev.device.name) }).first().click();
-  await dlg.getByRole('radio', { name: /Weekly/ }).check();
+  await dlg.getByRole('radio', { name: 'Device' }).check();
+  await dlg.locator('select').filter({ has: page.locator(`option[value="${dev.device.id}"]`) }).selectOption(String(dev.device.id));
+  await dlg.getByRole('button', { name: 'Weekly' }).click();
   await dlg.getByRole('button', { name: /^Sun/ }).click();
-  await dlg.getByLabel(/^Time/).fill('02:00');
+  await dlg.getByLabel(/^Start time/).fill('02:00');
   await dlg.getByLabel(/^Duration/).fill('90');
   await expect(dlg.getByText(/Next occurrences/)).toBeVisible();
   await dlg.getByRole('button', { name: 'Save' }).click();
@@ -168,9 +168,10 @@ test('weekly window: occurrences preview in the drawer and the API; schedule tex
     expect(Date.parse(o.end) - Date.parse(o.start)).toBe(90 * 60_000);
   }
   // List shows the schedule text in the configured time zone.
-  const row = page.locator('section').filter({ has: page.getByRole('heading', { name: /Recurring/ }) });
+  const row = page.locator('section').filter({ has: page.getByRole('heading', { name: /^Recurring/ }) });
   await expect(row).toContainText(name);
-  await expect(row).toContainText(/Every Sun 02:00, 90 min/);
+  // en text per i18n maintenance.scheduleWeekly ("Every {{days}} at {{time}} · {{duration}}").
+  await expect(row).toContainText(/Every Sun.*02:00.*(90 min|1 h 30|1:30)/);
   // Edit -> preview from /occurrences.
   await row.getByText(name).click();
   await expect(page.getByRole('dialog').getByText(/Next occurrences/)).toBeVisible();

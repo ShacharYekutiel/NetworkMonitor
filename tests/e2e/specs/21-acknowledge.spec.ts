@@ -72,11 +72,11 @@ test('problem -> acknowledge with a comment in the UI -> Acknowledged card, sens
   expect(dash.acknowledged_sensors.map((x: any) => x.id)).toContain(dev.sensor.id);
   expect(dash.acknowledged_count).toBeGreaterThanOrEqual(1);
   await page.goto('/');
-  await expect(card(page, /Acknowledged/)).toContainText(dev.sensor.name);
-  await expect(card(page, /^Problems/)).not.toContainText(dev.device.name);
+  await expect(card(page, /^Acknowledged problems/)).toContainText(dev.sensor.name);
+  await expect(card(page, 'Down and warning sensors')).not.toContainText(dev.device.name);
   await shot2b(page, 'ack-dashboard-en');
   // Tooltip text "by admin at HH:MM: comment".
-  await expect(card(page, /Acknowledged/).locator(`[title*="${COMMENT}"], [aria-label*="${COMMENT}"]`).first()).toBeAttached();
+  await expect(card(page, /^Acknowledged problems/).locator(`[title*="${COMMENT}"], [aria-label*="${COMMENT}"]`).first()).toBeAttached();
 });
 
 test('acknowledged: escalation and reminders do not fire (test clock)', async () => {

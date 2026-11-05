@@ -75,16 +75,16 @@ test('viewer UI: map visible without admin toolbar; maintenance read-only; no Ac
   await loginViaApi(page, VIEWER, '/topology');
   await expect(page.getByRole('navigation').getByRole('link', { name: 'Map' })).toBeVisible();
   await expect(page.locator('main canvas').first()).toBeVisible();
-  for (const b of ['Refresh topology now', 'Add link', 'Suggest dependencies', 'Reset layout']) {
+  for (const b of [/^Refresh topology/, /^Add link/, /^Suggest dependencies/, /^Reset layout/, /^Delete \d+ stale/]) {
     await expect(page.getByRole('button', { name: b })).toHaveCount(0);
   }
-  await expect(page.getByLabel(/Include stale/)).toBeVisible();
+  await expect(page.getByText(/Include stale/)).toBeVisible();
   await shot2b(page, 'viewer-topology-en');
 
   await page.getByRole('navigation').getByRole('link', { name: 'Maintenance' }).click();
   await expect(page).toHaveURL(/\/maintenance/);
   await expect(page.getByText(/Viewer window/).first()).toBeVisible();
-  await expect(page.getByRole('button', { name: /Add (maintenance )?window/ })).toHaveCount(0);
+  await expect(page.getByRole('button', { name: /Add maintenance window/ })).toHaveCount(0);
   await expect(page.getByRole('switch').or(page.getByRole('checkbox', { name: /Enabled/ }))).toHaveCount(0);
   await shot2b(page, 'viewer-maintenance-en');
 
@@ -95,5 +95,5 @@ test('viewer UI: map visible without admin toolbar; maintenance read-only; no Ac
   await expect(page.getByRole('button', { name: 'Acknowledge' })).toHaveCount(0);
   await page.goto(`/devices/${dev.device.id}`);
   await expect(page.getByRole('button', { name: 'Re-identify' })).toHaveCount(0);
-  await expect(page.getByRole('button', { name: 'Add maintenance window' })).toHaveCount(0);
+  await expect(page.getByRole('main').getByRole('button', { name: /^(Add maintenance window|Maintenance)$/ })).toHaveCount(0);
 });

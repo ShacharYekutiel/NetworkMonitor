@@ -92,7 +92,7 @@ test('API: dependency + effective_dependency shapes (explicit, group-inherited, 
 
 test('device page: dependency picker shows the effective parent, header shows "Parent: X"', async ({ page }) => {
   await loginViaApi(page, undefined, `/devices/${child2.device.id}`);
-  await expect(page.getByText(new RegExp(`Parent:?\\s*${parentName}`))).toBeVisible();
+  await expect(page.locator('main')).toContainText(new RegExp(`Parent:\\s*${parentName}`));
   await page.getByRole('button', { name: /^Edit/ }).first().click();
   const dlg = page.getByRole('dialog');
   await expect(dlg.getByRole('radio', { name: /Inherit from group/ })).toBeChecked();
@@ -115,7 +115,7 @@ test('parent outage: children unreachable (violet, live), only the parent alerts
   for (const c of [c1, c2]) expect(c.status_message).toMatch(new RegExp(`^Unreachable \\(parent ${parentName} down\\): `));
 
   // Live in the UI (no reload): violet status, banner on the device page, tree dot.
-  await expect(page.getByText(new RegExp(`Parent ${parentName} is down`))).toBeVisible({ timeout: 20_000 });
+  await expect(page.locator('main [role=status]').filter({ hasText: new RegExp(`Parent\\s*${parentName}\\s*is down`) })).toBeVisible({ timeout: 20_000 });
   const badge = page.locator('main').getByText(/^Unreachable$/).first();
   await expect(badge).toBeVisible();
   const color = await badge.evaluate((el) => {
@@ -226,9 +226,7 @@ test('cycles: direct, via group inheritance and via bulk apply -> 400 dependency
   await page.getByRole('button', { name: /^Edit/ }).first().click();
   const dlg = page.getByRole('dialog');
   await dlg.getByRole('radio', { name: /Depends on device/ }).check();
-  const picker = dlg.getByRole('combobox', { name: /Depends on|Parent device|Device/ }).last();
-  await picker.click();
-  await page.getByRole('option', { name: new RegExp(child1Name) }).first().click();
+  await dlg.locator('select').filter({ has: page.locator(`option[value="${child1.device.id}"]`) }).first().selectOption(String(child1.device.id));
   await dlg.getByRole('button', { name: 'Save' }).click();
   await expect(dlg.getByText(/cycle/i)).toBeVisible();
   await expect(dlg).toContainText(child1Name);
