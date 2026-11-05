@@ -1,0 +1,4 @@
+# Corporate CA certificates are site-specific: never commit them.
+*
+!.gitignore
+!README.md
