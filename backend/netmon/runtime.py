@@ -14,6 +14,7 @@ from sqlalchemy.ext.asyncio import AsyncConnection, AsyncEngine, AsyncSession, a
 
 from netmon import __version__
 from netmon.alerts.engine import AlertEngine
+from netmon.clock import Clock
 from netmon.config import Settings
 from netmon.db import timescale
 from netmon.db.engine import make_engine, make_sessionmaker, wait_for_db
@@ -72,6 +73,12 @@ class Runtime:
         self.alerts: AlertEngine | None = None
         self.discovery: Any = None  # netmon.discovery.runner.ScanRunner
         self.discovery_scheduler: Any = None
+        # [2b-1]
+        self.clock = Clock()
+        self.maintenance: Any = None  # netmon.services.maintenance.MaintenanceTracker
+        self.topology: Any = None  # netmon.topology.refresh.TopologyRunner
+        self.topology_scheduler: Any = None
+        self.dependencies_enabled = True
         self.semaphore = asyncio.Semaphore(max(1, settings.netmon_max_concurrent_checks))
         self.started_monotonic = time.monotonic()
         self._lock_conn: AsyncConnection | None = None
@@ -111,6 +118,12 @@ class Runtime:
         )
         self.timescale_enabled = ts.enabled
         self.retention_policy_ok = ts.retention_policy
+        from netmon.topology.refresh import TopologyRunner
+
+        self.topology = TopologyRunner(self)
+        n = await self.topology.mark_interrupted()
+        if n:
+            log.warning("Marked %d interrupted topology refresh(es) as failed", n)
         await self._mark_stale_sensors()
         self.alerts = AlertEngine(self)
         from netmon.discovery.runner import ScanRunner
@@ -123,6 +136,18 @@ class Runtime:
         if maintenance:
             self.discovery_scheduler = DiscoveryScheduler(self)
             self.discovery_scheduler.start()
+        # [2b-1] the alert loop processes overdue alert_state rows right away, then the
+        # maintenance tracker, then the topology scheduler
+        self.alerts.start()
+        from netmon.services.maintenance import MaintenanceTracker
+
+        self.maintenance = MaintenanceTracker(self)
+        await self.maintenance.start()
+        if maintenance:
+            from netmon.topology.scheduler import TopologyScheduler
+
+            self.topology_scheduler = TopologyScheduler(self)
+            await self.topology_scheduler.start()
         self._tasks.append(asyncio.create_task(self._rollup_loop(), name="netmon-rollup"))
         if maintenance:
             self._tasks.append(asyncio.create_task(retention.loop(self), name="netmon-retention"))
@@ -138,6 +163,14 @@ class Runtime:
         log.info("NetworkMonitor %s started (timescale=%s)", self.version, self.timescale_enabled)
 
     async def stop(self) -> None:
+        if self.topology_scheduler is not None:
+            await self.topology_scheduler.stop()
+            self.topology_scheduler = None
+        if self.topology is not None:
+            with contextlib.suppress(Exception):
+                await self.topology.shutdown()
+        if self.maintenance is not None:
+            await self.maintenance.stop()
         if self.discovery_scheduler is not None:
             await self.discovery_scheduler.stop()
             self.discovery_scheduler = None
@@ -338,3 +371,5 @@ class Runtime:
     def config_changed(self, entity: str, id_: int, action: str) -> None:
         self.hub.broadcast("config.changed", {"entity": entity, "id": id_, "action": action})
         self.request_rollup()
+        if entity in ("device", "group") and self.maintenance is not None:
+            self.maintenance.request()  # coverage may have changed (moves, new devices)

@@ -96,6 +96,8 @@ class Settings(BaseSettings):
         default=64, ge=1, le=256, alias="NETMON_DISCOVERY_CONCURRENCY"
     )
     netmon_discovery_rate: int = Field(default=100, ge=1, le=1000, alias="NETMON_DISCOVERY_RATE")
+    # [2b-1] QA only: enables PUT /api/test/clock. Never set by installers or compose.
+    netmon_test_mode: bool = Field(default=False, alias="NETMON_TEST_MODE")
 
     # resolved values (filled by load_settings)
     data_dir: Path = Field(default=Path("./data"), exclude=True)

@@ -117,6 +117,28 @@ class Scheduler:
         for sid in sensor_ids:
             self.remove(sid)
 
+    def run_soon(self, sensor_ids: list[int], jitter_s: float = 5.0) -> None:
+        """[2b-1] One extra run of each sensor after a random 0..jitter_s delay. The regular
+        schedule is not moved; a sensor that is running at that moment is skipped."""
+        for sid in dict.fromkeys(sensor_ids):
+            delay = random.uniform(0, jitter_s) if jitter_s > 0 else 0.0
+            task = asyncio.create_task(self._soon(sid, delay))
+            self._tasks.add(task)
+            task.add_done_callback(self._tasks.discard)
+
+    async def _soon(self, sensor_id: int, delay: float) -> None:
+        if delay > 0:
+            await asyncio.sleep(delay)
+        if sensor_id in self._running:
+            return
+        self._running.add(sensor_id)
+        await self._run_one(sensor_id, remove_on_pause=False)
+
+    async def idle(self) -> None:
+        """Wait for in-flight checks (tests)."""
+        while self._tasks:
+            await asyncio.gather(*list(self._tasks), return_exceptions=True)
+
     async def _loop(self) -> None:
         while True:
             self._wake.clear()
@@ -144,7 +166,7 @@ class Scheduler:
             with contextlib.suppress(TimeoutError):
                 await asyncio.wait_for(self._wake.wait(), timeout)
 
-    async def _run_one(self, sensor_id: int) -> None:
+    async def _run_one(self, sensor_id: int, remove_on_pause: bool = True) -> None:
         try:
             async with self.rt.sessionmaker() as session:
                 sensor = await session.get(Sensor, sensor_id)
@@ -153,7 +175,8 @@ class Scheduler:
                     return
                 device = await session.get(Device, sensor.device_id)
                 if device is None or effective_paused(sensor, device):
-                    self.remove(sensor_id)
+                    if remove_on_pause:
+                        self.remove(sensor_id)
                     return
                 ctx = await build_context(session, sensor, device)
             raw, duration, checked_at = await execute_check(ctx, self.rt.semaphore)

@@ -10,11 +10,19 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from netmon.poller.types import SEVERITY, worst
 
-STATUSES = ("up", "warning", "down", "paused", "unknown")
+STATUSES = ("up", "warning", "down", "paused", "unknown", "unreachable")
 
 
 def empty_counts() -> dict[str, int]:
-    return {"up": 0, "warning": 0, "down": 0, "paused": 0, "unknown": 0, "total": 0}
+    return {
+        "up": 0,
+        "warning": 0,
+        "down": 0,
+        "paused": 0,
+        "unknown": 0,
+        "unreachable": 0,
+        "total": 0,
+    }
 
 
 def add_counts(a: dict[str, int], b: dict[str, int]) -> None:
@@ -147,25 +155,51 @@ class Inventory:
 async def load_inventory(session: AsyncSession) -> Inventory:
     inv = Inventory()
     for row in await session.execute(
-        text("SELECT id, parent_id, name, snmp_credentials, sort_order FROM groups")
+        text(
+            "SELECT id, parent_id, name, snmp_credentials, sort_order, dependency_mode, "
+            "dependency_device_id, dependency_sensor_id FROM groups"
+        )
     ):
         inv.groups[row.id] = {
             "parent_id": row.parent_id,
             "name": row.name,
             "snmp_credentials": row.snmp_credentials,
             "sort_order": row.sort_order,
+            "dependency_mode": row.dependency_mode,
+            "dependency_device_id": row.dependency_device_id,
+            "dependency_sensor_id": row.dependency_sensor_id,
         }
     for row in await session.execute(
-        text("SELECT id, group_id, name, enabled, snmp_credentials FROM devices")
+        text(
+            "SELECT id, group_id, name, host, enabled, snmp_credentials, dependency_mode, "
+            "dependency_device_id, dependency_sensor_id FROM devices"
+        )
     ):
         inv.devices[row.id] = {
             "group_id": row.group_id,
             "name": row.name,
+            "host": row.host,
             "enabled": row.enabled,
             "snmp_credentials": row.snmp_credentials,
+            "dependency_mode": row.dependency_mode,
+            "dependency_device_id": row.dependency_device_id,
+            "dependency_sensor_id": row.dependency_sensor_id,
         }
-    for row in await session.execute(text("SELECT id, device_id, status FROM sensors")):
-        inv.sensors[row.id] = {"device_id": row.device_id, "status": row.status}
+    for row in await session.execute(
+        text(
+            "SELECT id, device_id, name, type, enabled, sort_order, status, "
+            "ack_at IS NOT NULL AS acked FROM sensors"
+        )
+    ):
+        inv.sensors[row.id] = {
+            "device_id": row.device_id,
+            "status": row.status,
+            "name": row.name,
+            "type": row.type,
+            "enabled": row.enabled,
+            "sort_order": row.sort_order,
+            "acknowledged": row.acked,
+        }
     inv.compute()
     return inv
 

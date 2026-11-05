@@ -21,8 +21,66 @@ export function textToHeaders(s: string): Record<string, string> {
   return out;
 }
 
+// [2b-1] snmp_custom enum value maps. The form keeps the rows as JSON text in RawConfig.
+export type ValueMapStatus = 'up' | 'warning' | 'down';
+export type ValueMapRow = { value: string; status: ValueMapStatus; text: string };
+export type ValueMap = Record<string, { status: ValueMapStatus; text: string }>;
+export const VALUE_MAP_MAX = 32;
+
+export function valueMapToRows(v: unknown): ValueMapRow[] {
+  if (!v || typeof v !== 'object' || Array.isArray(v)) return [];
+  return Object.entries(v as ValueMap)
+    .map(([value, e]) => ({
+      value,
+      status: (e?.status ?? 'warning') as ValueMapStatus,
+      text: String(e?.text ?? ''),
+    }))
+    .sort((a, b) => Number(a.value) - Number(b.value));
+}
+
+export function parseValueMapRows(raw: string | boolean | undefined): ValueMapRow[] {
+  if (typeof raw !== 'string' || !raw) return [];
+  try {
+    const x = JSON.parse(raw) as unknown;
+    return Array.isArray(x) ? (x as ValueMapRow[]) : [];
+  } catch {
+    return [];
+  }
+}
+
+/** Rows → API object; error = i18n key (integer keys, distinct, ≤ 32, text ≤ 32 chars). */
+export function rowsToValueMap(rows: ValueMapRow[]): { map: ValueMap; error: string | null } {
+  const map: ValueMap = {};
+  const used = rows.filter((r) => r.value.trim() !== '' || r.text.trim() !== '');
+  if (used.length > VALUE_MAP_MAX) return { map, error: 'valueMap.err.tooMany' };
+  for (const r of used) {
+    const k = r.value.trim();
+    if (!/^-?\d+$/.test(k)) return { map, error: 'valueMap.err.integer' };
+    const key = String(Number(k));
+    if (key in map) return { map, error: 'valueMap.err.duplicate' };
+    if (r.text.length > 32) return { map, error: 'valueMap.err.text' };
+    map[key] = { status: r.status, text: r.text.trim() };
+  }
+  return { map, error: null };
+}
+
+/** The mapped status/text of a raw enum value (unmapped → value_map_default, "unexpected value"). */
+export function mapEnumValue(
+  config: Record<string, unknown>,
+  raw: number | null | undefined,
+): { status: ValueMapStatus; text: string | null } | null {
+  if (raw === null || raw === undefined || config.value_type !== 'enum') return null;
+  const map = (config.value_map ?? {}) as ValueMap;
+  const hit = map[String(Math.round(raw))];
+  if (hit) return { status: hit.status, text: hit.text };
+  const d = config.value_map_default;
+  return { status: d === 'up' || d === 'down' ? d : 'warning', text: null };
+}
+
 function toRaw(f: ConfigField, v: unknown): string | boolean {
   switch (f.type) {
+    case 'value_map':
+      return JSON.stringify(valueMapToRows(v));
     case 'bool':
       return v === undefined || v === null ? false : Boolean(v);
     case 'int_list':
@@ -115,6 +173,13 @@ export function configFromRaw(
       case 'headers':
         config[f.key] = textToHeaders(String(v ?? ''));
         break;
+      case 'value_map': {
+        const { map, error } = rowsToValueMap(parseValueMapRows(v));
+        if (error) errors[f.key] = error;
+        else if (f.required && !Object.keys(map).length) errors[f.key] = 'validation.required';
+        else config[f.key] = map;
+        break;
+      }
       case 'str_nullable': {
         const s = String(v ?? '');
         if (!s.trim()) {
@@ -150,6 +215,9 @@ export function visibleConfigFields(
     return fields.filter((f) => {
       if (f.key === 'percent_of_oid') return vt === 'gauge';
       if (f.key === 'expected' || f.key === 'match') return vt === 'string';
+      // [2b-1] enum: value map + default status; the raw integer is used (no multiplier/unit).
+      if (f.key === 'value_map' || f.key === 'value_map_default') return vt === 'enum';
+      if (f.key === 'multiplier' || f.key === 'unit') return vt !== 'enum';
       return true;
     });
   }
@@ -173,6 +241,12 @@ export function buildSensorConfig(
     if (vt !== 'gauge' && fields.some((f) => f.key === 'percent_of_oid'))
       res.config.percent_of_oid = null;
     if (vt !== 'string' && fields.some((f) => f.key === 'expected')) res.config.expected = null;
+    // [2b-1] value_map is required non-empty for enum (422 otherwise).
+    if (vt === 'enum') {
+      const m = res.config.value_map as ValueMap | undefined;
+      if (!res.errors.value_map && (!m || !Object.keys(m).length))
+        res.errors.value_map = 'valueMap.err.empty';
+    }
     if (typeof res.config.oid === 'string') res.config.oid = res.config.oid.trim();
   }
   return res;

@@ -2,6 +2,7 @@ import { useState, type FormEvent } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useNavigate } from 'react-router-dom';
 import { endpoints } from '../api/endpoints';
+import { browserTimeZone } from '../lib/maintenance';
 import type { Language } from '../api/types';
 import { useAuth } from '../hooks/auth';
 import { setLanguage } from '../i18n';
@@ -42,6 +43,8 @@ export function SetupPage() {
         password,
         email: email.trim() || null,
         language,
+        // [2b-1] the browser's zone, silently (data-model.md § Time zone)
+        timezone: browserTimeZone(),
       });
       signedIn(r.user);
       navigate('/', { replace: true });

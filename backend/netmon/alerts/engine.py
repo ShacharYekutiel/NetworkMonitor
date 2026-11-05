@@ -1,4 +1,9 @@
-"""AlertEngine: match status-change events to alert rules and send notifications."""
+"""AlertEngine: persisted alert state (`alert_state`), problem / recovery / escalation /
+reminder notifications.
+
+[2b-1] The event path only upserts `alert_state` rows and wakes the loop; one loop sends every
+due notification (docs/data-model.md "Alert state, escalation, reminders, ack"). No in-memory
+timers: the state survives restarts. Time comes from `rt.clock`."""
 
 from __future__ import annotations
 
@@ -6,31 +11,43 @@ import asyncio
 import contextlib
 import logging
 from collections import OrderedDict
+from dataclasses import dataclass, field
+from datetime import datetime, timedelta
 from typing import TYPE_CHECKING, Any
 
 from sqlalchemy import text
 
 from netmon.alerts import templates
-from netmon.alerts.email import SmtpError, send_email
-from netmon.alerts.telegram import TelegramError, send_telegram
-from netmon.alerts.webhook import WebhookError, send_webhook
+from netmon.alerts.email import send_email
+from netmon.alerts.telegram import send_telegram
+from netmon.alerts.webhook import send_webhook
 from netmon.services import events as events_svc
 from netmon.services import settings as settings_svc
+from netmon.services.serialize import iso, now_utc
 
 if TYPE_CHECKING:
     from netmon.runtime import Runtime
 
 log = logging.getLogger("netmon.alerts")
 
+PROBLEM = ("down", "warning")
+LOOP_MAX_S = 30.0
+BATCH = 500
+MAX_PARALLEL_SENDS = 16
+STAGE_EVENTS = {
+    "problem": "sensor.status_changed",
+    "recovery": "sensor.status_changed",
+    "escalation": "sensor.escalation",
+    "reminder": "sensor.reminder",
+}
+
 
 def should_fire(old_status: str | None, new_status: str | None) -> bool:
-    """Whether a transition can fire at all. An `up` additionally needs a previously *sent*
-    down/warning notification of the same rule for the sensor (checked per rule)."""
+    """Whether a transition can open/change/recover a problem at all (Phase 1 helper; an `up`
+    additionally needs a previously notified problem, see alert_state)."""
     if new_status not in ("down", "warning", "up"):
         return False
-    if new_status == old_status:
-        return False
-    return True
+    return new_status != old_status
 
 
 def build_payload(
@@ -41,10 +58,17 @@ def build_payload(
     rule: dict[str, Any] | None,
     public_base_url: str | None,
     test_time: str | None = None,
+    *,
+    stage: str | None = None,
+    after_maintenance: bool = False,
+    problem_since: str | None = None,
 ) -> dict[str, Any]:
     if event is None:
         return {
             "event": "test",
+            "stage": None,
+            "after_maintenance": False,
+            "problem_since": None,
             "event_id": None,
             "time": test_time,
             "old_status": None,
@@ -59,8 +83,12 @@ def build_payload(
     url = None
     if public_base_url and event.get("sensor_id") is not None:
         url = f"{public_base_url.rstrip('/')}/sensors/{event['sensor_id']}"
+    stage = stage or ("recovery" if event.get("new_status") == "up" else "problem")
     return {
-        "event": "sensor.status_changed",
+        "event": STAGE_EVENTS.get(stage, "sensor.status_changed"),
+        "stage": stage,
+        "after_maintenance": bool(after_maintenance),
+        "problem_since": problem_since,
         "event_id": event["id"],
         "time": event["time"],
         "old_status": event["old_status"],
@@ -94,219 +122,636 @@ async def send_to_channel(
         await send_webhook(channel["config"], payload)
 
 
+@dataclass
+class _Send:
+    stage: str
+    channels: list[int]
+    payload: dict[str, Any]
+    keys: dict[int, tuple[Any, ...]] = field(default_factory=dict)
+    ok: list[int] = field(default_factory=list)
+
+
+@dataclass
+class _Plan:
+    rule_id: int
+    sensor_id: int
+    updates: dict[str, Any] = field(default_factory=dict)
+    delete: bool = False
+    sends: list[_Send] = field(default_factory=list)
+
+
 class AlertEngine:
     def __init__(self, rt: Runtime) -> None:
         self.rt = rt
-        self._last_change: dict[int, int] = {}
-        self._timers: set[asyncio.Task[None]] = set()
-        self._sent: OrderedDict[tuple[int, int], None] = OrderedDict()
+        self._sent: OrderedDict[tuple[Any, ...], bool] = OrderedDict()
         self._tasks: set[asyncio.Task[None]] = set()
-        # test hook: called with (channel, payload) instead of real sending when set
+        self._lock = asyncio.Lock()
+        self._wake = asyncio.Event()
+        self._loop_task: asyncio.Task[None] | None = None
+        # test hook: called with (channel, payload, smtp, lang) instead of real sending
         self.sender = send_to_channel
 
-    def on_status_change(self, event: dict[str, Any]) -> None:
-        sid = event.get("sensor_id")
-        if sid is None:
-            return
-        self._last_change[sid] = event["id"]
-        if not should_fire(event.get("old_status"), event.get("new_status")):
-            return
-        self._spawn(self._handle(event), self._tasks)
-
-    def _spawn(self, coro: Any, bucket: set[asyncio.Task[None]]) -> None:
-        task = asyncio.ensure_future(coro)
-        bucket.add(task)
-        task.add_done_callback(bucket.discard)
+    # ---------------------------------------------------------------- lifecycle
+    def start(self) -> None:
+        if self._loop_task is None:
+            self._loop_task = asyncio.create_task(self._loop(), name="netmon-alerts")
 
     async def stop(self) -> None:
-        for t in list(self._timers):
-            t.cancel()
-        for t in list(self._timers) + list(self._tasks):
+        if self._loop_task is not None:
+            self._loop_task.cancel()
+            with contextlib.suppress(BaseException):
+                await self._loop_task
+            self._loop_task = None
+        for t in list(self._tasks):
             with contextlib.suppress(asyncio.CancelledError, Exception):
                 await t
 
+    def notify(self) -> None:
+        self._wake.set()
+
     async def idle(self) -> None:
-        """Wait until no immediate sends are in flight (tests)."""
+        """Wait until the event path is idle, then process everything due now (tests)."""
         while self._tasks:
             await asyncio.gather(*list(self._tasks), return_exceptions=True)
+        await self.run_once()
 
-    @property
-    def pending_timers(self) -> int:
-        return len(self._timers)
+    def _spawn(self, coro: Any) -> None:
+        task = asyncio.ensure_future(coro)
+        self._tasks.add(task)
+        task.add_done_callback(self._tasks.discard)
 
-    async def _handle(self, event: dict[str, Any]) -> None:
+    # ---------------------------------------------------------------- event path
+    def on_status_change(self, event: dict[str, Any], time: datetime | None = None) -> None:
+        if event.get("sensor_id") is None:
+            return
+        if event.get("new_status") == event.get("old_status"):
+            return
+        self._spawn(self._handle(event, time))
+
+    async def _handle(self, event: dict[str, Any], time: datetime | None) -> None:
+        t = time or _parse(event.get("time")) or now_utc()
         try:
+            async with self._lock:
+                async with self.rt.sessionmaker() as session:
+                    await apply_event(session, event, t)
+                    await session.commit()
+        except Exception:  # noqa: BLE001 - e.g. the sensor was deleted meanwhile
+            log.exception("Cannot update alert state for event %s", event.get("id"))
+        self.notify()
+
+    async def acknowledged(self, sensor_id: int) -> None:
+        async with self._lock:
+            async with self.rt.sessionmaker() as session:
+                await session.execute(
+                    text(
+                        "UPDATE alert_state SET due_at = NULL, escalation_due_at = NULL, "
+                        "next_reminder_at = NULL, updated_at = now() "
+                        "WHERE sensor_id = :s AND status IN ('down','warning')"
+                    ),
+                    {"s": sensor_id},
+                )
+                await session.commit()
+
+    async def unacknowledged(self, sensor_id: int) -> None:
+        now = self.rt.clock.now()
+        async with self._lock:
+            async with self.rt.sessionmaker() as session:
+                await session.execute(
+                    text(
+                        "UPDATE alert_state s SET next_reminder_at = "
+                        "CAST(:now AS timestamptz) + make_interval(secs => r.repeat_every_s), "
+                        "updated_at = now() FROM alert_rules r "
+                        "WHERE r.id = s.rule_id AND s.sensor_id = :s "
+                        "AND s.status IN ('down','warning') AND r.repeat_every_s IS NOT NULL"
+                    ),
+                    {"s": sensor_id, "now": now},
+                )
+                await session.commit()
+        self.notify()
+
+    async def left_maintenance(self) -> None:
+        """Rows whose notification was suppressed by maintenance and whose device is no longer
+        in maintenance: re-arm the problem notification (sent once, `after_maintenance`) and
+        restart the escalation timer from now."""
+        maint = getattr(self.rt, "maintenance", None)
+        now = self.rt.clock.now()
+        async with self._lock:
             async with self.rt.sessionmaker() as session:
                 rows = (
                     await session.execute(
                         text(
                             """
-                            SELECT r.id, r.name, r.delay_s,
-                                   COALESCE(array_agg(rc.channel_id ORDER BY rc.channel_id)
-                                       FILTER (WHERE rc.channel_id IS NOT NULL), '{}') AS chans
-                            FROM alert_rules r
-                            LEFT JOIN alert_rule_channels rc ON rc.rule_id = r.id
-                            WHERE r.enabled AND (r.sensor_id IS NULL OR r.sensor_id = :sid)
-                              AND :st = ANY(r.on_statuses)
-                            GROUP BY r.id ORDER BY r.sensor_id NULLS LAST, r.id
+                            SELECT s.rule_id, s.sensor_id, s.due_at, s.escalated_at,
+                                   se.status AS sensor_status, se.ack_at, se.device_id,
+                                   r.enabled, r.on_statuses, r.sensor_id AS rule_sensor_id,
+                                   r.escalation_after_s, r.escalation_channel_ids
+                            FROM alert_state s JOIN sensors se ON se.id = s.sensor_id
+                            JOIN alert_rules r ON r.id = s.rule_id
+                            WHERE s.maintenance_suppressed AND s.status IN ('down','warning')
+                            FOR UPDATE OF s
                             """
-                        ),
-                        {"sid": event["sensor_id"], "st": event["new_status"]},
+                        )
                     )
                 ).all()
-        except Exception:  # noqa: BLE001
-            log.exception("Cannot load alert rules")
-            return
-        if event["new_status"] == "up":
-            rows = [r for r in rows if r.id in await self._notified_rules(event["sensor_id"])]
-        immediate: list[tuple[dict[str, Any], list[int]]] = []
-        for r in rows:
-            rule = {"id": r.id, "name": r.name}
-            if r.delay_s > 0:
-                self._spawn(self._delayed(event, rule, list(r.chans), r.delay_s), self._timers)
-            else:
-                immediate.append((rule, list(r.chans)))
-        for rule, chans in immediate:
-            await self._fire(event, rule, chans)
-
-    async def _delayed(
-        self, event: dict[str, Any], rule: dict[str, Any], chans: list[int], delay: int
-    ) -> None:
-        await asyncio.sleep(delay)
-        if self._last_change.get(event["sensor_id"]) != event["id"]:
-            return
-        async with self.rt.sessionmaker() as session:
-            status = (
-                await session.execute(
-                    text("SELECT status FROM sensors WHERE id = :id"), {"id": event["sensor_id"]}
-                )
-            ).scalar_one_or_none()
-            # the rule may have been disabled, deleted or changed while we waited
-            current = (
-                await session.execute(
-                    text(
-                        """
-                        SELECT r.enabled, r.on_statuses, r.sensor_id,
-                               COALESCE(array_agg(rc.channel_id ORDER BY rc.channel_id)
-                                   FILTER (WHERE rc.channel_id IS NOT NULL), '{}') AS chans
-                        FROM alert_rules r
-                        LEFT JOIN alert_rule_channels rc ON rc.rule_id = r.id
-                        WHERE r.id = :id GROUP BY r.id
-                        """
-                    ),
-                    {"id": rule["id"]},
-                )
-            ).first()
-        if status != event["new_status"]:
-            return
-        if (
-            current is None
-            or not current.enabled
-            or event["new_status"] not in current.on_statuses
-            or current.sensor_id not in (None, event["sensor_id"])
-        ):
-            return
-        if event["new_status"] == "up" and rule["id"] not in await self._notified_rules(
-            event["sensor_id"]
-        ):
-            return
-        await self._fire(event, rule, list(current.chans))
-
-    async def _notified_rules(self, sensor_id: int) -> set[int]:
-        async with self.rt.sessionmaker() as session:
-            rows = await session.execute(
-                text("SELECT rule_id FROM alert_notified WHERE sensor_id = :s"), {"s": sensor_id}
-            )
-            return {r.rule_id for r in rows}
-
-    async def _record_sent(self, rule_id: int, event: dict[str, Any]) -> None:
-        try:
-            async with self.rt.sessionmaker() as session:
-                if event["new_status"] == "up":
-                    await session.execute(
-                        text("DELETE FROM alert_notified WHERE rule_id = :r AND sensor_id = :s"),
-                        {"r": rule_id, "s": event["sensor_id"]},
-                    )
-                else:
-                    await session.execute(
-                        text(
-                            """
-                            INSERT INTO alert_notified (rule_id, sensor_id, status, time)
-                            VALUES (:r, :s, :st, now())
-                            ON CONFLICT (rule_id, sensor_id)
-                            DO UPDATE SET status = EXCLUDED.status, time = now()
-                            """
-                        ),
-                        {"r": rule_id, "s": event["sensor_id"], "st": event["new_status"]},
-                    )
+                n = 0
+                for r in rows:
+                    if maint is not None and maint.in_maintenance(r.device_id):
+                        continue
+                    if r.due_at is not None:
+                        continue  # already re-armed
+                    active = _active(r.enabled, r.on_statuses, r.rule_sensor_id, r)
+                    if active and r.ack_at is None:
+                        esc = None
+                        if (
+                            r.escalation_after_s
+                            and list(r.escalation_channel_ids or [])
+                            and r.escalated_at is None
+                        ):
+                            esc = now + timedelta(seconds=int(r.escalation_after_s))
+                        await session.execute(
+                            text(
+                                "UPDATE alert_state SET due_at = :now, "
+                                "escalation_due_at = COALESCE(:esc, escalation_due_at), "
+                                "updated_at = now() WHERE rule_id = :r AND sensor_id = :s"
+                            ),
+                            {"now": now, "esc": esc, "r": r.rule_id, "s": r.sensor_id},
+                        )
+                    else:
+                        await session.execute(
+                            text(
+                                "UPDATE alert_state SET maintenance_suppressed = false, "
+                                "updated_at = now() WHERE rule_id = :r AND sensor_id = :s"
+                            ),
+                            {"r": r.rule_id, "s": r.sensor_id},
+                        )
+                    n += 1
                 await session.commit()
-        except Exception as exc:  # noqa: BLE001 - e.g. sensor or rule deleted meanwhile
-            log.debug("Cannot record notification state: %s", exc)
+        if n:
+            self.notify()
 
-    async def _fire(self, event: dict[str, Any], rule: dict[str, Any], chans: list[int]) -> None:
-        todo = []
-        for cid in chans:
-            key = (event["id"], cid)
-            if key in self._sent:
-                continue
-            self._sent[key] = None
-            todo.append(cid)
-        while len(self._sent) > 20000:
-            self._sent.popitem(last=False)
-        if not todo:
-            # the channels were already served by another rule for this event
-            await self._record_sent(rule["id"], event)
-            return
+    # ---------------------------------------------------------------- loop
+    async def _loop(self) -> None:
+        while True:
+            try:
+                await self.run_once()
+            except asyncio.CancelledError:
+                raise
+            except Exception:  # noqa: BLE001
+                log.exception("Alert loop iteration failed")
+            timeout = LOOP_MAX_S
+            try:
+                nxt = await self._next_due()
+            except asyncio.CancelledError:
+                raise
+            except Exception:  # noqa: BLE001
+                nxt = None
+            if nxt is not None:
+                # never spin: something overdue that could not be processed waits a bit
+                timeout = min(timeout, max(0.05, (nxt - self.rt.clock.now()).total_seconds()))
+            changed = self.rt.clock.changed
+            if not self._wake.is_set():
+                waiters = [
+                    asyncio.ensure_future(self._wake.wait()),
+                    asyncio.ensure_future(changed.wait()),
+                ]
+                try:
+                    await asyncio.wait(
+                        waiters, timeout=timeout + 0.01, return_when=asyncio.FIRST_COMPLETED
+                    )
+                finally:
+                    for w in waiters:
+                        w.cancel()
+            self._wake.clear()
+
+    async def _next_due(self) -> datetime | None:
         async with self.rt.sessionmaker() as session:
-            ctx = (
+            return (
                 await session.execute(
                     text(
-                        """
-                        SELECT s.id AS sid, s.name AS sname, s.type AS stype,
-                               d.id AS did, d.name AS dname, d.host AS dhost,
-                               g.id AS gid, g.name AS gname
-                        FROM sensors s JOIN devices d ON d.id = s.device_id
-                        JOIN groups g ON g.id = d.group_id WHERE s.id = :sid
-                        """
-                    ),
-                    {"sid": event["sensor_id"]},
+                        "SELECT least(min(due_at), min(escalation_due_at), "
+                        "min(next_reminder_at)) FROM alert_state"
+                    )
                 )
-            ).first()
-            channels = (
+            ).scalar()
+
+    async def run_once(self) -> int:
+        """Process every due row once. Returns the number of rows handled."""
+        total = 0
+        async with self._lock:
+            while True:
+                n = await self._pass()
+                total += n
+                if n < BATCH:
+                    break
+        return total
+
+    async def _pass(self) -> int:
+        now = self.rt.clock.now()
+        maint = getattr(self.rt, "maintenance", None)
+        async with self.rt.sessionmaker() as session:
+            rows = (
                 await session.execute(
                     text(
-                        "SELECT id, name, type, config, enabled FROM notification_channels "
-                        "WHERE id = ANY(:ids) AND enabled"
+                        """
+                        SELECT s.*, r.name AS rule_name, r.enabled AS rule_enabled,
+                               r.on_statuses, r.sensor_id AS rule_sensor_id, r.delay_s,
+                               r.escalation_after_s, r.escalation_channel_ids, r.repeat_every_s,
+                               COALESCE((SELECT array_agg(rc.channel_id ORDER BY rc.channel_id)
+                                         FROM alert_rule_channels rc
+                                         WHERE rc.rule_id = r.id), '{}') AS rule_channels,
+                               se.name AS sname, se.type AS stype, se.status AS sensor_status,
+                               se.status_message, se.ack_at, se.device_id,
+                               d.name AS dname, d.host AS dhost, g.id AS gid, g.name AS gname
+                        FROM alert_state s
+                        JOIN alert_rules r ON r.id = s.rule_id
+                        JOIN sensors se ON se.id = s.sensor_id
+                        JOIN devices d ON d.id = se.device_id
+                        JOIN groups g ON g.id = d.group_id
+                        WHERE s.due_at <= :now OR s.escalation_due_at <= :now
+                           OR s.next_reminder_at <= :now
+                        ORDER BY r.sensor_id NULLS LAST, s.rule_id, s.sensor_id
+                        LIMIT :lim
+                        FOR UPDATE OF s SKIP LOCKED
+                        """
                     ),
-                    {"ids": todo},
+                    {"now": now, "lim": BATCH},
                 )
             ).all()
+            if not rows:
+                return 0
+            event_ids = [r.event_id for r in rows if r.event_id is not None]
+            events: dict[int, dict[str, Any]] = {}
+            if event_ids:
+                for e in await session.execute(
+                    text(
+                        "SELECT id, time, sensor_id, device_id, group_id, sensor_name, "
+                        "device_name, old_status, new_status, message FROM events "
+                        "WHERE id = ANY(:ids)"
+                    ),
+                    {"ids": event_ids},
+                ):
+                    events[e.id] = {
+                        "id": e.id,
+                        "time": iso(e.time),
+                        "sensor_id": e.sensor_id,
+                        "device_id": e.device_id,
+                        "group_id": e.group_id,
+                        "sensor_name": e.sensor_name,
+                        "device_name": e.device_name,
+                        "old_status": e.old_status,
+                        "new_status": e.new_status,
+                        "message": e.message,
+                    }
             cfg = await settings_svc.get_all(session)
-        if ctx is None:
-            sensor = {"id": event["sensor_id"], "name": event["sensor_name"], "type": None}
-            device = {"id": event["device_id"], "name": event["device_name"], "host": None}
-            group = None
-        else:
-            sensor = {"id": ctx.sid, "name": ctx.sname, "type": ctx.stype}
-            device = {"id": ctx.did, "name": ctx.dname, "host": ctx.dhost}
-            group = {"id": ctx.gid, "name": ctx.gname}
-        payload = build_payload(event, sensor, device, group, rule, cfg["public_base_url"])
-        sent_any = False
-        for ch in channels:
-            channel = {"id": ch.id, "name": ch.name, "type": ch.type, "config": ch.config}
+            plans = [
+                self._plan(r, now, events, cfg, bool(maint and maint.in_maintenance(r.device_id)))
+                for r in rows
+            ]
+            chan_ids = sorted({c for p in plans for s in p.sends for c in s.channels})
+            channels: dict[int, dict[str, Any]] = {}
+            if chan_ids:
+                for ch in await session.execute(
+                    text(
+                        "SELECT id, name, type, config FROM notification_channels "
+                        "WHERE id = ANY(:ids) AND enabled"
+                    ),
+                    {"ids": chan_ids},
+                ):
+                    channels[ch.id] = {
+                        "id": ch.id,
+                        "name": ch.name,
+                        "type": ch.type,
+                        "config": dict(ch.config),
+                    }
+            await session.commit()
+        await self._send_all(plans, channels, cfg, rows)
+        async with self.rt.sessionmaker() as session:
+            for p in plans:
+                await _apply_plan(session, p, now)
+            await session.commit()
+        return len(rows)
+
+    def _plan(
+        self,
+        r: Any,
+        now: datetime,
+        events: dict[int, dict[str, Any]],
+        cfg: dict[str, Any],
+        in_maint: bool,
+    ) -> _Plan:
+        p = _Plan(r.rule_id, r.sensor_id)
+        active = _active(r.rule_enabled, r.on_statuses, r.rule_sensor_id, r)
+        acked = r.ack_at is not None
+        notified = list(r.notified_channel_ids or [])
+        rule_chans = list(r.rule_channels or [])
+        ctx = {
+            "sensor": {"id": r.sensor_id, "name": r.sname, "type": r.stype},
+            "device": {"id": r.device_id, "name": r.dname, "host": r.dhost},
+            "group": {"id": r.gid, "name": r.gname},
+            "rule": {"id": r.rule_id, "name": r.rule_name},
+        }
+        event = events.get(r.event_id) if r.event_id is not None else None
+        if event is None:
+            event = {
+                "id": r.event_id,
+                "time": iso(r.problem_since),
+                "sensor_id": r.sensor_id,
+                "old_status": None,
+                "new_status": r.status if r.status in ("down", "warning", "up") else None,
+                "message": r.status_message or "",
+            }
+
+        def payload(stage: str, after: bool = False) -> dict[str, Any]:
+            return build_payload(
+                event,
+                ctx["sensor"],
+                ctx["device"],
+                ctx["group"],
+                ctx["rule"],
+                cfg.get("public_base_url"),
+                stage=stage,
+                after_maintenance=after,
+                problem_since=iso(r.problem_since),
+            )
+
+        def due(v: datetime | None) -> bool:
+            return v is not None and v <= now
+
+        if r.status in PROBLEM and due(r.due_at):
+            p.updates["due_at"] = None
+            if not active:
+                if not notified:
+                    p.delete = True
+            elif acked:
+                pass
+            elif in_maint:
+                p.updates["maintenance_suppressed"] = True
+            else:
+                after = bool(r.maintenance_suppressed)
+                p.sends.append(_Send("problem:after" if after else "problem", rule_chans, payload("problem", after)))
+                p.updates["maintenance_suppressed"] = False
+                if r.repeat_every_s:
+                    p.updates["next_reminder_at"] = now + timedelta(seconds=int(r.repeat_every_s))
+        elif r.status == "up" and due(r.due_at):
+            if r.sensor_status == "up":
+                p.sends.append(_Send("recovery", notified, payload("recovery")))
+                p.delete = True
+            else:
+                p.updates["due_at"] = None
+        if p.delete:
+            return p
+        if r.status not in PROBLEM:
+            # defensive: no escalation/reminder outside a problem (and no stale due_at)
+            for col in ("due_at", "escalation_due_at", "next_reminder_at"):
+                if due(getattr(r, col)):
+                    p.updates[col] = None
+            return p
+        if due(r.escalation_due_at):
+            p.updates["escalation_due_at"] = None
+            esc_chans = list(r.escalation_channel_ids or [])
+            if active and not acked and r.escalation_after_s and esc_chans:
+                if in_maint:
+                    p.updates["maintenance_suppressed"] = True
+                else:
+                    p.sends.append(_Send("escalation", esc_chans, payload("escalation")))
+                    p.updates["escalated_at"] = now
+        if due(r.next_reminder_at):
+            if active and not acked and r.repeat_every_s:
+                if not in_maint:
+                    stage = f"reminder:{int(r.reminders_sent) + 1}"
+                    p.sends.append(_Send(stage, rule_chans, payload("reminder")))
+                p.updates["next_reminder_at"] = now + timedelta(seconds=int(r.repeat_every_s))
+            else:
+                p.updates["next_reminder_at"] = None
+        return p
+
+    async def _send_all(
+        self,
+        plans: list[_Plan],
+        channels: dict[int, dict[str, Any]],
+        cfg: dict[str, Any],
+        rows: list[Any],
+    ) -> None:
+        jobs: dict[tuple[Any, ...], tuple[dict[str, Any], dict[str, Any], Any]] = {}
+        for p, r in zip(plans, rows, strict=True):
+            for s in p.sends:
+                ref = r.event_id if r.event_id is not None else iso(r.problem_since)
+                for cid in s.channels:
+                    if cid not in channels:
+                        continue
+                    key = (p.sensor_id, ref, s.stage, cid)
+                    s.keys[cid] = key
+                    if key in self._sent or key in jobs:
+                        continue
+                    jobs[key] = (channels[cid], s.payload, r)
+        results: dict[tuple[Any, ...], bool] = {}
+        if jobs:
+            sem = asyncio.Semaphore(MAX_PARALLEL_SENDS)
+            token = templates.DISPLAY_TZ.set(str(cfg.get("timezone") or "UTC"))
             try:
-                await self.sender(channel, payload, cfg["smtp"], cfg["default_language"])
-                sent_any = True
-            except (SmtpError, WebhookError, TelegramError, Exception) as exc:  # noqa: BLE001
-                log.warning("Notification via %s failed: %s", ch.name, exc)
-                await events_svc.write_notification_event(
-                    self.rt,
-                    f"{ch.name}: {exc}"[:1000],
-                    sensor_id=event.get("sensor_id"),
-                    device_id=event.get("device_id"),
-                    group_id=event.get("group_id"),
-                    sensor_name=event.get("sensor_name"),
-                    device_name=event.get("device_name"),
+
+                async def one(key: tuple[Any, ...], job: Any) -> None:
+                    channel, payload, r = job
+                    async with sem:
+                        results[key] = await self._send_one(channel, payload, cfg, r)
+
+                await asyncio.gather(*(one(k, j) for k, j in jobs.items()))
+            finally:
+                templates.DISPLAY_TZ.reset(token)
+            for key, ok in results.items():
+                self._sent[key] = ok
+            while len(self._sent) > 20000:
+                self._sent.popitem(last=False)
+        for p in plans:
+            for s in p.sends:
+                s.ok = [cid for cid, key in s.keys.items() if self._sent.get(key, False)]
+
+    async def _send_one(
+        self, channel: dict[str, Any], payload: dict[str, Any], cfg: dict[str, Any], r: Any
+    ) -> bool:
+        try:
+            await self.sender(channel, payload, cfg["smtp"], cfg["default_language"])
+            return True
+        except Exception as exc:  # noqa: BLE001
+            log.warning("Notification via %s failed: %s", channel["name"], exc)
+            await events_svc.write_notification_event(
+                self.rt,
+                f"{channel['name']}: {exc}"[:1000],
+                sensor_id=r.sensor_id,
+                device_id=r.device_id,
+                group_id=r.gid,
+                sensor_name=r.sname,
+                device_name=r.dname,
+            )
+            return False
+
+
+def _active(enabled: bool, on_statuses: Any, rule_sensor_id: int | None, r: Any) -> bool:
+    """Still active: the rule is enabled and matches the sensor, and the sensor's current
+    status is down/warning and in the rule's statuses."""
+    return (
+        bool(enabled)
+        and rule_sensor_id in (None, r.sensor_id)
+        and r.sensor_status in PROBLEM
+        and r.sensor_status in list(on_statuses or [])
+    )
+
+
+async def _apply_plan(session: Any, p: _Plan, now: datetime) -> None:
+    key = {"r": p.rule_id, "s": p.sensor_id}
+    if p.delete:
+        await session.execute(
+            text("DELETE FROM alert_state WHERE rule_id = :r AND sensor_id = :s"), key
+        )
+        return
+    sets = dict(p.updates)
+    added: list[int] = []
+    for s in p.sends:
+        if not s.ok:
+            continue
+        added += s.ok
+        if s.stage.startswith("problem"):
+            sets["primary_sent_at"] = now
+    reminders = sum(1 for s in p.sends if s.stage.startswith("reminder"))
+    clauses = [f"{k} = :{k}" for k in sets]
+    params: dict[str, Any] = {**key, **sets}
+    if added:
+        clauses.append(
+            "notified_channel_ids = ARRAY(SELECT DISTINCT x FROM "
+            "unnest(notified_channel_ids || CAST(:added AS integer[])) x ORDER BY x)"
+        )
+        params["added"] = sorted(set(added))
+    if reminders:
+        clauses.append("reminders_sent = reminders_sent + :rem")
+        params["rem"] = reminders
+    if not clauses:
+        return
+    clauses.append("updated_at = now()")
+    await session.execute(
+        text(
+            f"UPDATE alert_state SET {', '.join(clauses)} "  # noqa: S608 - fixed column names
+            "WHERE rule_id = :r AND sensor_id = :s"
+        ),
+        params,
+    )
+
+
+async def apply_event(session: Any, event: dict[str, Any], t: datetime) -> None:
+    """The `status_change` table of docs/data-model.md: upsert/suspend/delete the sensor's
+    alert_state rows for event E (sensor X, new status S, time t)."""
+    sid = event["sensor_id"]
+    status = event["new_status"]
+    eid = event.get("id")
+    rows = {
+        r.rule_id: r
+        for r in (
+            await session.execute(
+                text(
+                    "SELECT s.rule_id, s.status, cardinality(s.notified_channel_ids) AS n, "
+                    "r.enabled, r.on_statuses, r.delay_s FROM alert_state s "
+                    "JOIN alert_rules r ON r.id = s.rule_id WHERE s.sensor_id = :s "
+                    "FOR UPDATE OF s"
+                ),
+                {"s": sid},
+            )
+        ).all()
+    }
+    if status in PROBLEM:
+        rules = (
+            await session.execute(
+                text(
+                    "SELECT id, delay_s, escalation_after_s, escalation_channel_ids "
+                    "FROM alert_rules WHERE enabled AND (sensor_id IS NULL OR sensor_id = :s) "
+                    "AND :st = ANY(on_statuses)"
+                ),
+                {"s": sid, "st": status},
+            )
+        ).all()
+        matching = set()
+        for rule in rules:
+            matching.add(rule.id)
+            due = t + timedelta(seconds=int(rule.delay_s or 0))
+            row = rows.get(rule.id)
+            if row is None or row.status not in PROBLEM:
+                esc = None
+                if rule.escalation_after_s and list(rule.escalation_channel_ids or []):
+                    esc = t + timedelta(seconds=int(rule.escalation_after_s))
+                await session.execute(
+                    text(
+                        """
+                        INSERT INTO alert_state (rule_id, sensor_id, status, event_id,
+                            problem_since, due_at, escalation_due_at)
+                        VALUES (:r, :s, :st, :e, :t, :due, :esc)
+                        ON CONFLICT (rule_id, sensor_id) DO UPDATE SET
+                            status = EXCLUDED.status, event_id = EXCLUDED.event_id,
+                            problem_since = EXCLUDED.problem_since, due_at = EXCLUDED.due_at,
+                            primary_sent_at = NULL,
+                            escalation_due_at = EXCLUDED.escalation_due_at,
+                            escalated_at = NULL, next_reminder_at = NULL, reminders_sent = 0,
+                            maintenance_suppressed = false, updated_at = now()
+                        """
+                    ),
+                    {"r": rule.id, "s": sid, "st": status, "e": eid, "t": t, "due": due, "esc": esc},
                 )
-        if sent_any:
-            await self._record_sent(rule["id"], event)
+            else:
+                await session.execute(
+                    text(
+                        "UPDATE alert_state SET status = :st, event_id = :e, due_at = :due, "
+                        "updated_at = now() WHERE rule_id = :r AND sensor_id = :s"
+                    ),
+                    {"r": rule.id, "s": sid, "st": status, "e": eid, "due": due},
+                )
+        for rid in rows:
+            if rid not in matching:
+                await session.execute(
+                    text(
+                        "UPDATE alert_state SET due_at = NULL, updated_at = now() "
+                        "WHERE rule_id = :r AND sensor_id = :s"
+                    ),
+                    {"r": rid, "s": sid},
+                )
+        return
+    for rid, row in rows.items():
+        key = {"r": rid, "s": sid}
+        if not row.n:
+            await session.execute(
+                text("DELETE FROM alert_state WHERE rule_id = :r AND sensor_id = :s"), key
+            )
+        elif status == "up":
+            if row.enabled and "up" in list(row.on_statuses or []):
+                await session.execute(
+                    text(
+                        "UPDATE alert_state SET status = 'up', event_id = :e, problem_since = :t, "
+                        "due_at = :due, escalation_due_at = NULL, next_reminder_at = NULL, "
+                        "maintenance_suppressed = false, updated_at = now() "
+                        "WHERE rule_id = :r AND sensor_id = :s"
+                    ),
+                    {
+                        **key,
+                        "e": eid,
+                        "t": t,
+                        "due": t + timedelta(seconds=int(row.delay_s or 0)),
+                    },
+                )
+            else:
+                await session.execute(
+                    text("DELETE FROM alert_state WHERE rule_id = :r AND sensor_id = :s"), key
+                )
+        else:  # unreachable / paused / unknown
+            await session.execute(
+                text(
+                    "UPDATE alert_state SET status = 'suspended', due_at = NULL, "
+                    "escalation_due_at = NULL, next_reminder_at = NULL, updated_at = now() "
+                    "WHERE rule_id = :r AND sensor_id = :s"
+                ),
+                key,
+            )
+
+
+def _parse(value: Any) -> datetime | None:
+    if not isinstance(value, str):
+        return None
+    try:
+        return datetime.fromisoformat(value.replace("Z", "+00:00"))
+    except ValueError:
+        return None

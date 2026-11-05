@@ -134,10 +134,13 @@ export function ApplyTemplateModal({
   open,
   onClose,
   device,
+  initialTemplate,
 }: {
   open: boolean;
   onClose: () => void;
   device: Device;
+  /** [2b-1] preselected template (e.g. the identity's suggestion) */
+  initialTemplate?: string;
 }) {
   const { t, i18n } = useTranslation();
   const qc = useQueryClient();
@@ -149,6 +152,7 @@ export function ApplyTemplateModal({
   useEffect(() => {
     if (!open) return;
     setResult(null);
+    if (initialTemplate) setId(initialTemplate);
     apply.reset();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open]);

@@ -1,4 +1,5 @@
 import i18n from '../i18n';
+import { mapEnumValue } from './sensorConfig';
 
 function locale(): string {
   return i18n.language === 'he' ? 'he-IL' : 'en-GB';
@@ -59,6 +60,12 @@ export function sensorValueText(
 ): string {
   if (s.type === 'snmp_custom' && s.config.value_type === 'string' && key === 'value') {
     return value === null || value === undefined ? '—' : i18n.t('sensors.textOk');
+  }
+  // [2b-1] enum: the mapped text with the raw integer, e.g. "bad (2)".
+  if (s.type === 'snmp_custom' && s.config.value_type === 'enum' && key === 'value') {
+    const m = mapEnumValue(s.config, value);
+    if (!m) return '—';
+    return `${m.text || i18n.t('valueMap.unexpected')} (${Math.round(value as number)})`;
   }
   return formatValue(value, unit);
 }

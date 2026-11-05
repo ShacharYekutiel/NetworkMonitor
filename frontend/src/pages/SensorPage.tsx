@@ -26,6 +26,10 @@ import {
   Value,
 } from '../components/ui';
 import { useAuth } from '../hooks/auth';
+import { AckAction, AckBadge, AckDetails } from '../components/Acknowledge';
+import { StatusMessage } from '../components/Dependency';
+import { MaintenanceBadge } from '../components/Maintenance';
+import { mapEnumValue, valueMapToRows } from '../lib/sensorConfig';
 import { useLocalState } from '../hooks/useLocalState';
 import { errorMessage } from '../lib/errors';
 import { formatDateTime, formatRelative, sensorValueText } from '../lib/format';
@@ -59,6 +63,12 @@ export function SensorPage() {
     queryFn: () => endpoints.events({ sensor_id: id, page_size: 20 }),
   });
   const { toggle } = useSensorActions();
+  const deviceId = sensor.data?.device_id;
+  const device = useQuery({
+    queryKey: qk.device(deviceId ?? 0),
+    queryFn: () => endpoints.device(deviceId as number),
+    enabled: !!deviceId && !!sensor.data?.in_maintenance,
+  });
 
   useEffect(() => {
     setChannel(null);
@@ -110,6 +120,7 @@ export function SensorPage() {
         actions={
           isAdmin && (
             <>
+              <AckAction sensor={s} size="md" />
               <Button
                 variant="primary"
                 busy={run.isPending}
@@ -140,11 +151,23 @@ export function SensorPage() {
 
       <Card>
         <div className="flex flex-wrap items-center gap-x-6 gap-y-2 text-sm">
-          <StatusBadge status={s.status} />
+          <span className="inline-flex flex-wrap items-center gap-1.5">
+            <StatusBadge status={s.status} />
+            {s.acknowledgement && <AckBadge ack={s.acknowledgement} />}
+            {s.in_maintenance && (
+              <MaintenanceBadge
+                endsAt={device.data?.maintenance?.ends_at}
+                name={device.data?.maintenance?.name}
+              />
+            )}
+          </span>
           {s.status_message && (
-            <bdi dir="auto" className="text-slate-600 dark:text-slate-300">
-              {s.status_message}
-            </bdi>
+            <StatusMessage
+              message={s.status_message}
+              status={s.status}
+              deviceId={s.device_id}
+              className="text-slate-600 dark:text-slate-300"
+            />
           )}
           <span className="text-slate-500">
             {t('sensors.lastCheck')}:{' '}
@@ -157,6 +180,11 @@ export function SensorPage() {
             {t('sensors.interval')}: <Ltr>{s.interval_s}</Ltr>
           </span>
         </div>
+        {s.acknowledgement && (
+          <div className="mt-2">
+            <AckDetails ack={s.acknowledgement} />
+          </div>
+        )}
         {lastRun && (
           <div className="mt-3">
             <CheckResultView result={lastRun} />
@@ -229,6 +257,7 @@ export function SensorPage() {
             label={activeChannel}
             from={history.data.from}
             to={history.data.to}
+            events={events.data?.items}
           />
         )}
         {history.data && (!hc || hc.points.length === 0) && <Empty>{t('sensors.noData')}</Empty>}
@@ -240,28 +269,31 @@ export function SensorPage() {
 
       <Card title={t('sensors.settings')}>
         <dl className="grid grid-cols-1 gap-x-6 gap-y-2 text-sm sm:grid-cols-2 lg:grid-cols-3">
-          {Object.entries(s.config).map(([k, v]) => (
-            <div key={k} className="flex gap-2">
-              <dt className="text-slate-500">
-                {t(`sensorConfig.${s.type}.${k}`, { defaultValue: k })}:
-              </dt>
-              <dd className="min-w-0 break-all">
-                <Ltr>
-                  {v === null || v === ''
-                    ? '—'
-                    : typeof v === 'object'
-                      ? JSON.stringify(v)
-                      : t(`sensorConfigOption.${s.type}.${k}.${String(v)}`, {
-                          defaultValue: String(v),
-                        })}
-                </Ltr>
-              </dd>
-            </div>
-          ))}
+          {Object.entries(s.config)
+            .filter(([k]) => !(k === 'value_map' && s.config.value_type === 'enum'))
+            .map(([k, v]) => (
+              <div key={k} className="flex gap-2">
+                <dt className="text-slate-500">
+                  {t(`sensorConfig.${s.type}.${k}`, { defaultValue: k })}:
+                </dt>
+                <dd className="min-w-0 break-all">
+                  <Ltr>
+                    {v === null || v === ''
+                      ? '—'
+                      : typeof v === 'object'
+                        ? JSON.stringify(v)
+                        : t(`sensorConfigOption.${s.type}.${k}.${String(v)}`, {
+                            defaultValue: String(v),
+                          })}
+                  </Ltr>
+                </dd>
+              </div>
+            ))}
           {!Object.keys(s.config).length && (
             <div className="text-slate-500">{t('sensors.noConfig')}</div>
           )}
         </dl>
+        {s.type === 'snmp_custom' && s.config.value_type === 'enum' && <ValueMapTable sensor={s} />}
       </Card>
 
       <Card title={t('sensors.events')} bodyClassName="p-0">
@@ -278,6 +310,61 @@ export function SensorPage() {
         busy={del.isPending}
         error={del.error}
       />
+    </div>
+  );
+}
+
+/** [2b-1] The enum value map of an snmp_custom sensor; the current raw value is highlighted. */
+function ValueMapTable({ sensor }: { sensor: import('../api/types').Sensor }) {
+  const { t } = useTranslation();
+  const raw = sensor.channels.find((c) => c.key === 'value')?.last_value ?? null;
+  const current = mapEnumValue(sensor.config, raw);
+  const rows = valueMapToRows(sensor.config.value_map);
+  const rawKey = raw === null ? null : String(Math.round(raw));
+  const unmapped = rawKey !== null && !rows.some((r) => r.value === rawKey);
+  return (
+    <div className="mt-4">
+      <div className="mb-1 text-xs font-semibold text-slate-600 dark:text-slate-300">
+        {t('sensorConfig.snmp_custom.value_map')}
+      </div>
+      <table className="text-sm">
+        <thead>
+          <tr className="text-xs text-slate-500">
+            <th className="pe-4 text-start font-medium">{t('valueMap.value')}</th>
+            <th className="pe-4 text-start font-medium">{t('valueMap.status')}</th>
+            <th className="text-start font-medium">{t('valueMap.text')}</th>
+          </tr>
+        </thead>
+        <tbody>
+          {rows.map((r) => (
+            <tr
+              key={r.value}
+              className={cx(r.value === rawKey && 'bg-sky-50 font-semibold dark:bg-sky-950/50')}
+            >
+              <td className="pe-4 font-mono">
+                <Ltr>{r.value}</Ltr>
+              </td>
+              <td className="pe-4 py-0.5">
+                <StatusBadge status={r.status} />
+              </td>
+              <td dir="auto">{r.text}</td>
+            </tr>
+          ))}
+          <tr className={cx(unmapped && 'bg-sky-50 font-semibold dark:bg-sky-950/50')}>
+            <td className="pe-4 text-slate-500">{t('valueMap.other')}</td>
+            <td className="pe-4 py-0.5">
+              <StatusBadge status={String(sensor.config.value_map_default ?? 'warning')} />
+            </td>
+            <td className="text-slate-500">{t('valueMap.unexpected')}</td>
+          </tr>
+        </tbody>
+      </table>
+      {current && raw !== null && (
+        <p className="mt-1 text-xs text-slate-500">
+          {t('valueMap.current')}: <Ltr className="font-mono">{Math.round(raw)}</Ltr> →{' '}
+          {current.text || t('valueMap.unexpected')} ({t(`status.${current.status}`)})
+        </p>
+      )}
     </div>
   );
 }

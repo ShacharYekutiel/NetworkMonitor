@@ -13,6 +13,7 @@ from sqlalchemy import insert, select
 from netmon.models import Device, Event, Sensor
 from netmon.poller.checks import PLUGINS
 from netmon.poller.types import CheckContext, CheckResult, EvaluatedResult, evaluate
+from netmon.services import dependencies
 from netmon.services import events as events_svc
 from netmon.services.sensors import channel_thresholds, effective_paused
 from netmon.services.serialize import iso, now_utc
@@ -85,6 +86,12 @@ async def persist(
         if effective_paused(sensor, device):
             # paused while the check was running: discard
             return ev
+        if ev.status == "down":
+            # [2b-1] a failing child of a down parent is unreachable, not down
+            parent = await dependencies.down_parent_name(session, device)
+            if parent is not None:
+                ev.status = "unreachable"
+                ev.message = dependencies.unreachable_message(parent, ev.message)
         if ev.ok:
             rows = [
                 {"time": checked_at, "sensor_id": sensor.id, "channel": c.key, "value": c.value}
@@ -117,6 +124,8 @@ async def persist(
                 new_status=ev.status,
                 message=ev.message,
                 time=checked_at,
+                in_maintenance=rt.maintenance is not None
+                and rt.maintenance.in_maintenance(device.id),
             )
         await session.commit()
         update = {
@@ -126,6 +135,7 @@ async def persist(
             "status_message": sensor.status_message,
             "last_check_at": iso(sensor.last_check_at),
             "status_changed": event is not None,
+            "acknowledged": sensor.ack_at is not None,
             "channels": [{"key": c.key, "value": c.value, "status": c.status} for c in ev.channels],
         }
     rt.hub.broadcast("sensor.update", update)

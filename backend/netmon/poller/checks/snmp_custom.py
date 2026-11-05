@@ -121,6 +121,22 @@ async def run(ctx: CheckContext) -> CheckResult:
             msg = _message(label, fmt_number(rate) + (f" {unit}" if unit else ""))
         return CheckResult(True, msg, {"value": rate}, new_state=new_state)
 
+    if value_type == "enum":
+        if isinstance(raw, bool) or not isinstance(raw, int):
+            return CheckResult(False, "Value is not an integer")
+        mapping = cfg.get("value_map") or {}
+        entry = mapping.get(str(int(raw)))
+        if entry is not None:
+            status, text = entry.get("status", "warning"), entry.get("text") or str(raw)
+        else:
+            status, text = cfg.get("value_map_default") or "warning", "unexpected value"
+        return CheckResult(
+            True,
+            f"{name}: {text} ({int(raw)})"[:200],
+            {"value": float(int(raw))},
+            status_override=status,
+        )
+
     # string
     text = decode_text(raw)
     expected = cfg.get("expected")

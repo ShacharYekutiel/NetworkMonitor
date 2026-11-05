@@ -131,6 +131,7 @@ async def set_sensor_status(
     device: Device,
     new_status: str,
     message: str = "",
+    in_maintenance: bool = False,
 ) -> Event | None:
     """Change a sensor's stored status (pause/resume) and write the status_change event."""
     if sensor.status == new_status:
@@ -151,10 +152,13 @@ async def set_sensor_status(
         new_status=new_status,
         message=message,
         time=now,
+        in_maintenance=in_maintenance,
     )
 
 
-async def sync_device_sensors_status(session: AsyncSession, device: Device) -> list[Event]:
+async def sync_device_sensors_status(
+    session: AsyncSession, device: Device, in_maintenance: bool = False
+) -> list[Event]:
     """After a device enable/disable: set paused/unknown on its sensors."""
     sensors = (
         (await session.execute(select(Sensor).where(Sensor.device_id == device.id))).scalars().all()
@@ -166,7 +170,7 @@ async def sync_device_sensors_status(session: AsyncSession, device: Device) -> l
             if effective_paused(s, device)
             else ("unknown" if s.status == "paused" else s.status)
         )
-        ev = await set_sensor_status(session, s, device, target)
+        ev = await set_sensor_status(session, s, device, target, in_maintenance=in_maintenance)
         if ev is not None:
             out.append(ev)
     return out

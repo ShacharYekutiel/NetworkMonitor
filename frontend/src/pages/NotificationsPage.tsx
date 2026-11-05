@@ -13,7 +13,9 @@ import type {
 } from '../api/types';
 import { NOTIFICATION_TYPES } from '../api/types';
 import type { WebhookChannelConfig } from '../api/types';
-import { EditIcon, PlusIcon, TrashIcon } from '../components/icons';
+import { ChevronIcon, EditIcon, EscalateIcon, PlusIcon, TrashIcon } from '../components/icons';
+import { escalationForm, escalationToInput, type EscalationForm } from '../lib/escalation';
+import { formatDuration } from '../lib/format';
 import { StatusBadge } from '../components/Status';
 import { useToast } from '../components/toast';
 import {
@@ -395,9 +397,16 @@ function RuleModal({
   const [delay, setDelay] = useState('0');
   const [enabled, setEnabled] = useState(true);
   const [channelIds, setChannelIds] = useState<number[]>([]);
+  const [esc, setEsc] = useState<EscalationForm>(escalationForm());
+  const [escOpen, setEscOpen] = useState(false);
+  const setE = <K extends keyof EscalationForm>(k: K, v: EscalationForm[K]) =>
+    setEsc((x) => ({ ...x, [k]: v }));
 
   useEffect(() => {
     if (!open) return;
+    const ef = escalationForm(rule);
+    setEsc(ef);
+    setEscOpen(ef.escalate || ef.remind);
     setName(rule?.name ?? '');
     setSensorId(rule?.sensor_id ?? null);
     setStatuses(rule?.on_statuses ?? ['down', 'up']);
@@ -416,7 +425,11 @@ function RuleModal({
     },
   });
 
-  const valid = name.trim() && statuses.length > 0 && channelIds.length > 0;
+  const delayS = Math.max(0, Math.min(86400, Number(delay) || 0));
+  const escResult = escalationToInput(esc, { delay_s: delayS, on_statuses: statuses });
+  const escErrors = escResult.errors;
+  const valid =
+    name.trim() && statuses.length > 0 && channelIds.length > 0 && !Object.keys(escErrors).length;
   const submit = (e: FormEvent) => {
     e.preventDefault();
     if (!valid) return;
@@ -424,11 +437,14 @@ function RuleModal({
       name: name.trim(),
       sensor_id: sensorId,
       on_statuses: statuses,
-      delay_s: Math.max(0, Math.min(86400, Number(delay) || 0)),
+      delay_s: delayS,
       enabled,
       channel_ids: channelIds,
+      ...escResult.body,
     });
   };
+  const EscErr = ({ k }: { k?: string }) =>
+    k ? <span className="text-red-600">{t(k)}</span> : null;
 
   return (
     <Modal open={open} onClose={onClose} title={rule ? t('rules.edit') : t('rules.add')}>
@@ -495,6 +511,135 @@ function RuleModal({
             <p className="text-sm text-slate-500">{t('rules.noChannels')}</p>
           )}
         </FieldGroup>
+        <section className="rounded-md border border-slate-200 dark:border-slate-700">
+          <button
+            type="button"
+            onClick={() => setEscOpen((o) => !o)}
+            aria-expanded={escOpen}
+            className="flex w-full items-center gap-2 px-3 py-2 text-start text-sm font-semibold"
+          >
+            <ChevronIcon
+              size={14}
+              className={
+                escOpen ? 'rotate-90 transition-transform' : 'transition-transform rtl:rotate-180'
+              }
+            />
+            <EscalateIcon size={14} />
+            {t('escalation.title')}
+            {(esc.escalate || esc.remind) && (
+              <span className="ms-auto rounded bg-sky-100 px-1.5 text-xs font-medium text-sky-800 dark:bg-sky-900 dark:text-sky-100">
+                {t('escalation.on')}
+              </span>
+            )}
+          </button>
+          {escOpen && (
+            <div className="space-y-3 border-t border-slate-200 p-3 dark:border-slate-700">
+              <p className="text-xs text-slate-500">{t('escalation.help')}</p>
+              {escErrors.statuses && (
+                <p className="text-xs">
+                  <EscErr k={escErrors.statuses} />
+                </p>
+              )}
+              <Checkbox
+                label={t('escalation.enable')}
+                checked={esc.escalate}
+                onChange={(v) => setE('escalate', v)}
+              />
+              {esc.escalate && (
+                <div className="space-y-3 ps-6">
+                  <Field
+                    label={t('escalation.after')}
+                    hint={
+                      escErrors.escalation_after ? (
+                        <EscErr k={escErrors.escalation_after} />
+                      ) : (
+                        t('escalation.afterHint')
+                      )
+                    }
+                  >
+                    <div className="flex items-center gap-2">
+                      <Input
+                        type="number"
+                        min={1}
+                        max={10080}
+                        step="any"
+                        value={esc.escalation_after_min}
+                        onChange={(e) => setE('escalation_after_min', e.target.value)}
+                        dir="ltr"
+                        className="w-28"
+                        aria-invalid={!!escErrors.escalation_after}
+                      />
+                      <span className="text-sm text-slate-500">{t('escalation.minutes')}</span>
+                    </div>
+                  </Field>
+                  <FieldGroup
+                    label={t('escalation.channels')}
+                    required
+                    hint={
+                      escErrors.escalation_channels ? (
+                        <EscErr k={escErrors.escalation_channels} />
+                      ) : (
+                        t('escalation.channelsHint')
+                      )
+                    }
+                  >
+                    <div className="flex flex-col gap-1">
+                      {channels.map((c) => (
+                        <Checkbox
+                          key={c.id}
+                          label={`${c.name} (${t(`channels.${c.type}`)})`}
+                          checked={esc.escalation_channel_ids.includes(c.id)}
+                          onChange={(v) =>
+                            setE(
+                              'escalation_channel_ids',
+                              v
+                                ? [...esc.escalation_channel_ids, c.id]
+                                : esc.escalation_channel_ids.filter((y) => y !== c.id),
+                            )
+                          }
+                        />
+                      ))}
+                    </div>
+                  </FieldGroup>
+                </div>
+              )}
+              <Checkbox
+                label={t('escalation.remindEnable')}
+                checked={esc.remind}
+                onChange={(v) => setE('remind', v)}
+              />
+              {esc.remind && (
+                <div className="ps-6">
+                  <Field
+                    label={t('escalation.repeat')}
+                    hint={
+                      escErrors.repeat_every ? (
+                        <EscErr k={escErrors.repeat_every} />
+                      ) : (
+                        t('escalation.repeatHint')
+                      )
+                    }
+                  >
+                    <div className="flex items-center gap-2">
+                      <Input
+                        type="number"
+                        min={5}
+                        max={10080}
+                        step="any"
+                        value={esc.repeat_every_min}
+                        onChange={(e) => setE('repeat_every_min', e.target.value)}
+                        dir="ltr"
+                        className="w-28"
+                        aria-invalid={!!escErrors.repeat_every}
+                      />
+                      <span className="text-sm text-slate-500">{t('escalation.minutes')}</span>
+                    </div>
+                  </Field>
+                </div>
+              )}
+            </div>
+          )}
+        </section>
         <Checkbox label={t('common.enabled')} checked={enabled} onChange={setEnabled} />
         <ErrorBox error={m.error} />
         <div className="flex justify-end gap-2">
@@ -646,7 +791,35 @@ export function NotificationsPage() {
             <tbody>
               {rules.data.items.map((r) => (
                 <tr key={r.id}>
-                  <td className={`${td} font-medium`}>{r.name}</td>
+                  <td className={`${td} font-medium`}>
+                    <span className="inline-flex items-center gap-1.5">
+                      {r.name}
+                      {(r.escalation_after_s != null || r.repeat_every_s != null) && (
+                        <span
+                          className="text-sky-600 dark:text-sky-400"
+                          title={[
+                            r.escalation_after_s != null &&
+                              t('escalation.summary', {
+                                after: formatDuration(r.escalation_after_s),
+                                channels: r.escalation_channel_ids.map(chName).join(', '),
+                              }),
+                            r.repeat_every_s != null &&
+                              t('escalation.summaryRepeat', {
+                                every: formatDuration(r.repeat_every_s),
+                              }),
+                          ]
+                            .filter(Boolean)
+                            .join(' · ')}
+                        >
+                          <EscalateIcon
+                            size={13}
+                            aria-hidden={false}
+                            aria-label={t('escalation.title')}
+                          />
+                        </span>
+                      )}
+                    </span>
+                  </td>
                   <td className={td}>
                     {r.sensor_id === null
                       ? t('rules.global')

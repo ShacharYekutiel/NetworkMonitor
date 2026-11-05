@@ -20,7 +20,13 @@ from netmon.poller.sensor_types import (
     validate_channel_overrides,
     validate_config,
 )
-from netmon.poller.snmp_client import SnmpError, as_text, snmp_walk, walk_to_index
+from netmon.poller.snmp_client import (
+    SnmpError,
+    as_text,
+    snmp_get_typed,
+    snmp_walk,
+    walk_to_index,
+)
 from netmon.poller.types import CheckContext
 from netmon.services import settings as settings_svc
 from netmon.services.sensors import build_channels, effective_credentials
@@ -211,6 +217,18 @@ async def _table_slots(rt: Runtime, entry: dict[str, Any], ctx: _Ctx) -> list[_S
     if not values:
         return [_Slot(skip=_skip(label, "snmp_custom", "no_rows", "The table has no rows"))]
     suffixes = sorted(values, key=_suffix_key)
+    if entry.get("skip_zero"):
+        suffixes = [x for x in suffixes if _nonzero_number(values[x])]
+    filters = list(entry.get("filters") or [])
+    if filters and suffixes:
+        try:
+            suffixes = await _apply_filters(rt, ctx, walk_oid, values, suffixes, filters)
+        except TimeoutError:
+            return [_Slot(skip=_skip(label, "snmp_custom", "probe_failed", "Timed out"))]
+        except SnmpError as exc:
+            return [_Slot(skip=_skip(label, "snmp_custom", "snmp_error", str(exc)))]
+    if not suffixes:
+        return [_Slot(skip=_skip(label, "snmp_custom", "no_rows", "No matching rows"))]
     max_n = int(entry.get("max") or len(suffixes))
     overrides = validate_channel_overrides("snmp_custom", entry.get("channels") or [])
     slots = []
@@ -229,7 +247,13 @@ async def _table_slots(rt: Runtime, entry: dict[str, Any], ctx: _Ctx) -> list[_S
         if identity("snmp_custom", cfg) in ctx.existing:
             slots.append(_Slot(skip=_skip(name, "snmp_custom", "exists")))
             continue
-        slots.append(_Slot(candidate=_Candidate("snmp_custom", name, cfg, overrides, None, False)))
+        slots.append(
+            _Slot(
+                candidate=_Candidate(
+                    "snmp_custom", name, cfg, overrides, entry.get("interval_s"), False
+                )
+            )
+        )
     rest = len(suffixes) - max_n
     if rest > 0:
         slots.append(
@@ -240,6 +264,76 @@ async def _table_slots(rt: Runtime, entry: dict[str, Any], ctx: _Ctx) -> list[_S
             )
         )
     return slots
+
+
+def _nonzero_number(v: Any) -> bool:
+    """skip_zero: rows whose value is 0 or not numeric are ignored."""
+    if isinstance(v, bool):
+        return False
+    if isinstance(v, int | float):
+        return v != 0
+    try:
+        return float(as_text(v)) != 0
+    except ValueError:
+        return False
+
+
+def _as_int(v: Any) -> int | None:
+    if isinstance(v, bool):
+        return None
+    if isinstance(v, int):
+        return v
+    try:
+        return int(as_text(v))
+    except ValueError:
+        return None
+
+
+FILTER_GET_CHUNK = 16
+
+
+async def _apply_filters(
+    rt: Runtime,
+    ctx: _Ctx,
+    walk_oid: str,
+    values: dict[str, Any],
+    suffixes: list[str],
+    filters: list[dict[str, Any]],
+) -> list[str]:
+    """Keep the rows whose `oid.S` value (integer) is in `in` / not in `not_in` for every
+    filter. A missing or non-integer value drops the row. A filter on the walked column reuses
+    the walked values; others are fetched with GETs (in chunks)."""
+    kept = list(suffixes)
+    for f in filters:
+        oid = str(f.get("oid") or "").strip(".")
+        if not oid or not kept:
+            continue
+        if oid == walk_oid:
+            got = {x: values.get(x) for x in kept}
+        else:
+            got = {}
+            for i in range(0, len(kept), FILTER_GET_CHUNK):
+                chunk = kept[i : i + FILTER_GET_CHUNK]
+                oids = [f"{oid}.{x}" for x in chunk]
+                async with rt.semaphore:
+                    res = await asyncio.wait_for(
+                        snmp_get_typed(ctx.host, ctx.creds, oids), max(1.0, _remaining(ctx))
+                    )
+                for x, o in zip(chunk, oids, strict=True):
+                    got[x] = res.get(o, (None, ""))[0]
+        allowed, denied = f.get("in"), f.get("not_in")
+        nxt = []
+        for x in kept:
+            v = _as_int(got.get(x))
+            if v is None:
+                continue
+            if allowed is not None and v not in allowed:
+                continue
+            if denied is not None and v in denied:
+                continue
+            nxt.append(x)
+        kept = nxt
+    return kept
 
 
 async def _run_probe(rt: Runtime, ctx: _Ctx, cand: _Candidate) -> None:

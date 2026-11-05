@@ -10,12 +10,15 @@ tests/
 │   ├── playwright.config.ts
 │   ├── lib/helpers.ts   API client, login helpers, polling waits, simulator controls
 │   ├── lib/lab.ts       Phase 2a: discovery lab expectations, Telegram mock, scan waits, extra hosts
-│   └── specs/           01-… 18-… (run in file order, one worker)
+│   ├── lib/lab2b.ts     Phase 2b-1: test clock, backend restart, lab component control, toggle targets
+│   └── specs/           01-… 27-… (run in file order, one worker)
 └── sim/
     ├── lab.sh                Phase 2a lab launcher (start/stop/status/env)
     ├── snmp_agent.py         snmpsim launcher (--host/--port/--data; prints READY)
     ├── snmp/public.snmprec   the simulated device "netmon-sim" (community `public`)
     ├── discovery/            per-device snmprec data of the discovery lab (+ gen_snmprec.py)
+    ├── fingerprint/fp_hosts.py  [2b-1] HTTP(S)/SSH/telnet fingerprint hosts 127.0.0.41-49, 61-67
+    ├── hpe/                  [2b-1] HPE ArubaOS/Comware + LLDP tree snmprec data (+ gen_snmprec.py)
     ├── telegram_mock.py      Telegram Bot API mock
     ├── tcp_listener.py       raw TCP accept-and-close listener (printer port 9100)
     ├── http_target.py        HTTP target whose health can be toggled (--host/--port)
@@ -77,6 +80,15 @@ single specs can run on their own.
 | `15-discovery-profiles` | **[2a]** Scheduled profile via the UI, Run now (baseline, no notification), new host 127.0.0.41 appears → scheduled run → `discovery` event + webhook `discovery.new_hosts` + Telegram for that host only; profile API secrets/merge/validation (waits ~1–2 min for the scheduler) |
 | `16-discovery-cancel` | **[2a]** Cancel a running /20 scan from its page; concurrent scan → 409 `scan_running` (API + UI), delete/import/profile-run while running → 409; delete a finished scan |
 | `17-discovery-viewer` | **[2a]** Viewer: no Discovery nav, `/discovery` forbidden, 403 on all discovery endpoints + apply-template + storage, templates readable, no `discovery.*` WS frames |
+| `19-dependencies` | **[2b-1]** Parent .31 / children .32 (explicit, dependency sensor) and .33 (group-inherited, whole-device mode): API shapes + validation; outage -> children `unreachable` (violet, live, banner, rollups, dashboard card), only the parent alerts; parent up -> children re-checked -> up; child still down -> `unreachable -> down` -> alert; cycles (direct, self, via group, bulk) -> `400 dependency_cycle` (UI shows the names); self rule; parent delete resets dependents |
+| `20-maintenance` | **[2b-1]** Once window from the device page covering now -> suppressed DOWN, `in_maintenance` flags/events; test clock past the end -> one DOWN `after_maintenance`, recovery after; problem inside the window only -> nothing; weekly window + occurrences preview + schedule text; validation; `settings.timezone` (Asia/Jerusalem shifts occurrences, invalid -> 422); settings time-zone select |
+| `21-acknowledge` | **[2b-1]** 409 on up; ack with comment in the UI -> `sensor.ack`, Acknowledged card, not in Problems; escalation + reminders silent (test clock); unack -> reminder resumes; re-ack; recovery auto-clears and notifies the notified channel |
+| `22-escalation` | **[2b-1]** Escalation section of the rule form (minutes -> seconds), validation; problem -> primary; **backend restart**; escalation once after the delay (test clock), still once after another restart; reminders one per interval, no burst; recovery to primary + escalation channel |
+| `23-fingerprint` | **[2b-1]** Scan 127.0.0.41-49 + 61-67 with fingerprinting: class/vendor/model/confidence/classified_by per F-rules, fingerprint JSON (titles, redirects, TLS self-signed, banners, IAC stripping, 64 KiB cap, realm, timeout), no credentials sent (sim log); results page details; Re-identify (UI, fingerprint-only) + SNMP identify of .51 |
+| `24-hpe-templates` | **[2b-1]** Scan + import .51/.52 with the auto-selected `hpe_arubaos_switch` / `hpe_comware`: exact sensor lists, PSU bad / Fan 2 fanError down, notPresent skipped, PoE only on ArubaOS (Comware `no_rows`), values (CPU, memory, PoE %, W, temperature), enum configs |
+| `25-topology` | **[2b-1]** LLDP refresh: 3 deduplicated links with the right ifIndexes (Comware `lldpLocPortNum != ifIndex`), neighbour printer-3f; map renders (+ dark); refresh 409; manual links (UI/API, PATCH, `link_not_manual`, survive refresh); promotion of the neighbour; stale after 3 refreshes (agent data swap) + bulk delete; suggestions (root core) -> Apply selected -> dependencies; layout + group filter + `topology.updated` |
+| `26-viewer-2b1` | **[2b-1]** Viewer reads map/maintenance; 15 write endpoints -> 403; no admin buttons on map/maintenance/sensor/device pages |
+| `27-rtl-mobile-2b1` | **[2b-1]** Hebrew (`dir=rtl`, no English leftovers, LTR IPs) on maintenance/topology/dashboard/device/sensor; 390 px without horizontal overflow (en/he); screenshots to `$QA2B1_SHOT_DIR` |
 | `18-discovery-rtl-mobile` | **[2a]** Discovery + results in Hebrew (RTL, translated classes/templates, LTR IPs), phone width without horizontal overflow (en/he); screenshots to `$QA2A_SHOT_DIR` (default `$SCREENSHOT_DIR/qa-2a`) |
 
 Timing: sensors use `interval_s = 10` (the API minimum). Waits are `expect.poll` / auto-retrying
@@ -128,6 +140,45 @@ curl -s http://127.0.0.1:18081/_messages
 ```
 
 Spec 15 starts extra HTTP hosts on `127.0.0.40` / `127.0.0.41:8080` itself.
+
+## Phase 2b-1 lab (`tests/sim/lab.sh`, `LAB_2B1=1` default; architecture.md §10.4)
+
+`run.sh` starts the backend with `NETMON_TEST_MODE=1` (`PUT /api/test/clock`) through a restartable script
+(`$BACKEND_RESTART`), and exports `LAB_SH`/`LAB_DIR` so specs can `kill`/`revive`/`swap` single components:
+
+```bash
+tests/sim/lab.sh kill http-31          # parent outage (connection refused)
+tests/sim/lab.sh revive http-31
+tests/sim/lab.sh swap snmp-access-2 tests/sim/hpe/access2_noprinter   # LLDP row removed (stale test)
+backend/.venv/bin/python tests/sim/fingerprint/fp_hosts.py --list    # fingerprint inventory
+```
+
+| Address | Simulates | Expected |
+|---|---|---|
+| `127.0.0.31–.36` tcp/8080 | toggle HTTP targets (`POST /fail`, `/ok`): .31 parent, .32/.33 children, .34 maintenance, .35 ack (+ specs 26/27), .36 escalation | — |
+| `127.0.0.41` tcp/80 | `<title>TL-SG108E</title>`, body `TP-LINK Easy Smart` | switch / tp-link / `TL-SG108E` / medium (F7) |
+| `127.0.0.42` tcp/443 | self-signed TLS, `302 /ui/` → `Login \| OPNsense` | router / opnsense / high, redirects 1 |
+| `127.0.0.43` tcp/80 | `302 http://example.com/` | not followed, status 302 |
+| `127.0.0.44` / `.45` tcp/22 | `SSH-2.0-Comware-7.1.064` / `SSH-2.0-ROSSSH` | switch/h3c/high (F9) / router/mikrotik/high (F3) |
+| `127.0.0.46` tcp/23 | IAC negotiation + `User Access Verification` | banner without IAC bytes |
+| `127.0.0.47` tcp/80 | `Server: HP HTTP Server; HP LaserJet …`, no title | printer / hp / medium (F17) |
+| `127.0.0.48` tcp/8080 | 401 `realm="DGS-1210-28"`, 100 KiB body, marker `zyxel` after 64 KiB | realm captured, no `zyxel` marker |
+| `127.0.0.49` tcp/80 | accepts, never answers | `error: "timeout"` |
+| `127.0.0.61–.67` | QA extras: Aruba web (F10, `JL259A`), Cisco SSH (F24), FortiGate (F23), Synology (F15), iLO (F12), iDRAC (F13), nginx (no rule) | see `23-fingerprint` |
+| `127.0.0.51` udp/1161 | ArubaOS-Switch 2930F `core-sw`: CPU 7, mem 39.39 %, PSU bad, RPS notPresent, PoE 45/370 W, LLDP | `hpe_arubaos_switch` |
+| `127.0.0.52` udp/1161 | Comware 1950 `access-1`: CPU/mem/temp Board, Fan 2 fanError, PoE 0, LLDP port nums 101–104 | `hpe_comware` |
+| `127.0.0.53` udp/1161 | ArubaOS 2530 `access-2` (minimal) + unmanaged neighbour `printer-3f` (00:11:22:33:44:55, 127.0.0.99) | variant `access2_noprinter` |
+| `127.0.0.54` udp/1161 | UniFi U6-Lite `U6-Lite-Office` with LLDP on eth0 | AP → access-1 by sysName |
+
+All SNMP agents are v2c, community `public` (`<dir>/public.snmprec`; an SNMPv3 agent would need
+`self.snmprec`, since snmpsim selects data by context name and managers send an empty context). Quick checks:
+
+```bash
+snmpwalk -v2c -c public 127.0.0.51:1161 1.3.6.1.4.1.11.2.14.11.1.2.6.1.4     # hpicfSensorStatus 4,2,4,5
+snmpwalk -v2c -c public 127.0.0.52:1161 1.3.6.1.4.1.25506.2.6.1.1.1.1.19     # ErrorStatus 1,2,41,2
+snmpwalk -v2c -c public 127.0.0.53:1161 1.0.8802.1.1.2.1.4                  # lldpRemTable + ManAddr
+curl -sk https://127.0.0.42/ -L ; curl -s -m2 http://127.0.0.49/ ; nc 127.0.0.44 22
+```
 
 ## Other suites
 

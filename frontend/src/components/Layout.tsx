@@ -12,12 +12,15 @@ import {
   LayersIcon,
   ListIcon,
   LogoutIcon,
+  MapIcon,
   MenuIcon,
+  WrenchIcon,
   PulseIcon,
   RadarIcon,
   UsersIcon,
 } from './icons';
 import { TreeNav } from './Tree';
+import { GlobalMaintenanceBanner } from './Maintenance';
 import { cx } from './ui';
 
 function NavItem({ to, icon, label }: { to: string; icon: React.ReactNode; label: string }) {
@@ -149,6 +152,12 @@ export function Layout() {
           <nav className="space-y-0.5 p-2">
             <NavItem to="/" icon={<DashboardIcon size={16} />} label={t('nav.dashboard')} />
             <NavItem to="/events" icon={<ListIcon size={16} />} label={t('nav.events')} />
+            <NavItem to="/topology" icon={<MapIcon size={16} />} label={t('nav.map')} />
+            <NavItem
+              to="/maintenance"
+              icon={<WrenchIcon size={16} />}
+              label={t('nav.maintenance')}
+            />
             {isAdmin && (
               <NavItem to="/discovery" icon={<RadarIcon size={16} />} label={t('nav.discovery')} />
             )}
@@ -170,8 +179,11 @@ export function Layout() {
           </div>
           <TreeNav />
         </aside>
-        <main className="min-w-0 flex-1 overflow-y-auto p-4 lg:p-6">
-          <Outlet />
+        <main className="min-w-0 flex-1 overflow-y-auto">
+          <GlobalMaintenanceBanner />
+          <div className="p-4 lg:p-6">
+            <Outlet />
+          </div>
         </main>
       </div>
     </div>
