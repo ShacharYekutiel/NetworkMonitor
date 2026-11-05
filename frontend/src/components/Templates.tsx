@@ -3,7 +3,13 @@ import { Link } from 'react-router-dom';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useTranslation } from 'react-i18next';
 import { endpoints, qk } from '../api/endpoints';
-import type { ApplyTemplateResult, Device, DeviceTemplate, SkippedSensor } from '../api/types';
+import type {
+  ApplyTemplateResult,
+  Confidence,
+  Device,
+  DeviceTemplate,
+  SkippedSensor,
+} from '../api/types';
 import { applySummary, describeEntry, groupSkipped, l10n, skipReasonKey } from '../lib/templates';
 import { CheckIcon } from './icons';
 import { Button, cx, ErrorBox, Field, Loading, Modal, Notice, Select } from './ui';
@@ -15,6 +21,58 @@ export function useDeviceTemplates() {
     staleTime: Infinity,
     select: (d) => [...d.items].sort((a, b) => b.priority - a.priority),
   });
+}
+
+/** [2b-2] The full response (items + library status) of GET /api/device-templates. */
+export function useTemplateLibrary() {
+  return useQuery({
+    queryKey: qk.deviceTemplates,
+    queryFn: endpoints.deviceTemplates,
+    staleTime: Infinity,
+  });
+}
+
+const CONFIDENCE_TONE: Record<Confidence, string> = {
+  high: 'bg-green-50 text-green-800 ring-green-200 dark:bg-green-950/50 dark:text-green-300 dark:ring-green-900',
+  medium:
+    'bg-amber-50 text-amber-800 ring-amber-200 dark:bg-amber-950/50 dark:text-amber-300 dark:ring-amber-900',
+  low: 'bg-orange-50 text-orange-800 ring-orange-200 dark:bg-orange-950/50 dark:text-orange-300 dark:ring-orange-900',
+};
+
+/** [2b-2] Confidence chip of a template entry. */
+export function ConfidenceChip({ confidence }: { confidence: Confidence }) {
+  const { t } = useTranslation();
+  return (
+    <span
+      title={t('templates.confidenceTitle')}
+      className={cx(
+        'inline-flex shrink-0 items-center whitespace-nowrap rounded px-1.5 py-px text-[11px] font-medium ring-1 ring-inset',
+        CONFIDENCE_TONE[confidence] ?? CONFIDENCE_TONE.low,
+      )}
+    >
+      {t(`confidence.${confidence}`)}
+    </span>
+  );
+}
+
+/** [2b-2] Verified (green) / Unverified (gray, tooltip = verified_note) badge. */
+export function VerifiedBadge({ tpl }: { tpl: DeviceTemplate }) {
+  const { t } = useTranslation();
+  const ok = tpl.verified === true;
+  return (
+    <span
+      title={tpl.verified_note || (ok ? undefined : t('templates.unverifiedHint'))}
+      className={cx(
+        'inline-flex items-center gap-1 whitespace-nowrap rounded px-1.5 py-0.5 text-[11px] font-medium ring-1 ring-inset',
+        ok
+          ? 'bg-green-50 text-green-800 ring-green-200 dark:bg-green-950/50 dark:text-green-300 dark:ring-green-900'
+          : 'bg-gray-100 text-gray-600 ring-gray-200 dark:bg-slate-800 dark:text-slate-300 dark:ring-slate-700',
+      )}
+    >
+      {ok && <CheckIcon size={11} />}
+      {ok ? t('templates.verified') : t('templates.unverified')}
+    </span>
+  );
 }
 
 /** Native select of templates with localized names (explicit colours via the base Select). */
@@ -64,7 +122,9 @@ export function SkippedList({ skipped, compact }: { skipped: SkippedSensor[]; co
           <div
             className={cx(
               'font-medium',
-              g.reason === 'exists' ? 'text-slate-500' : 'text-amber-700 dark:text-amber-400',
+              g.reason === 'exists' || g.reason === 'not_applicable'
+                ? 'text-slate-500'
+                : 'text-amber-700 dark:text-amber-400',
             )}
           >
             {t(skipReasonKey(g.reason))} ({g.items.length})

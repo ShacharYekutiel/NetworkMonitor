@@ -31,6 +31,12 @@ export type ApiErrorDetail = {
   device_ids?: number[];
   /** [2b-1] topology_refresh_running */
   refresh_id?: number;
+  /** [2b-2] ports_disabled */
+  port_inventory?: string;
+  arp_collect?: string;
+  effective_class?: string;
+  /** [2b-2] ports_refresh_running */
+  device_id?: number;
 };
 export type ApiErrorEnvelope = {
   error: { code: string; message: string; details: ApiErrorDetail[] | null };
@@ -116,9 +122,19 @@ export type Device = {
   in_maintenance: boolean;
   maintenance: MaintenanceRef | null;
   identity: DeviceIdentity | null;
+  /** [2b-2] */
+  port_inventory: InventoryMode;
+  arp_collect: InventoryMode;
+  ports_effective: boolean;
+  arp_effective: boolean;
+  effective_class: DeviceClass;
   created_at: string;
   updated_at: string;
 };
+
+/** [2b-2] */
+export type InventoryMode = 'auto' | 'on' | 'off';
+export const INVENTORY_MODES: InventoryMode[] = ['auto', 'on', 'off'];
 
 export type SensorType =
   | 'ping'
@@ -130,7 +146,8 @@ export type SensorType =
   | 'tcp_port'
   | 'dns'
   | 'snmp_custom' // [2a]
-  | 'snmp_disk'; // [2a]
+  | 'snmp_disk' // [2a]
+  | 'snmp_walk_count'; // [2b-2]
 
 export const SENSOR_TYPES: SensorType[] = [
   'ping',
@@ -143,6 +160,7 @@ export const SENSOR_TYPES: SensorType[] = [
   'dns',
   'snmp_custom',
   'snmp_disk',
+  'snmp_walk_count',
 ];
 
 export type Channel = {
@@ -437,6 +455,14 @@ export type Settings = {
   timezone: string;
   /** [2b-1] 0 (off) or 5–1440 */
   topology_refresh_min: number;
+  /** [2b-2] 0 (off) or 5–1440 */
+  port_inventory_min: number;
+  /** [2b-2] 1–1000 */
+  uplink_mac_threshold: number;
+  /** [2b-2] 1–365 */
+  port_mac_retention_days: number;
+  /** [2b-2] */
+  reverse_dns: boolean;
 };
 export type SettingsInput = Partial<Omit<Settings, 'smtp'>> & {
   smtp?: Partial<Omit<SmtpSettings, 'password' | 'password_set'>> & { password?: string | null };
@@ -513,6 +539,16 @@ export type WsMessage =
       data: { reason: 'refresh' | 'link' | 'layout'; refresh_id: number | null };
     }
   | { type: 'topology.refresh'; ts: string; data: { refresh: TopologyRefresh } }
+  | {
+      type: 'ports.updated';
+      ts: string;
+      data: { device_id: number; ok: boolean; collected_at: string };
+    }
+  | {
+      type: 'templates.reloaded';
+      ts: string;
+      data: { loaded_at: string; count: number; error_count: number };
+    }
   | { type: 'pong'; ts: string; data: Record<string, never> };
 
 // ---------------------------------------------------------------------------
@@ -680,6 +716,10 @@ export type TemplateEntry =
       channels: ChannelOverride[];
       interval_s: number | null;
       probe: boolean;
+      /** [2b-2] */
+      when?: TemplateFilter[];
+      confidence?: Confidence | null;
+      notes?: string;
     }
   | {
       kind: 'snmp_interfaces';
@@ -689,6 +729,9 @@ export type TemplateEntry =
       exclude_name_regex: string | null;
       max: number;
       channels: ChannelOverride[];
+      /** [2b-2] */
+      confidence?: Confidence | null;
+      notes?: string;
     }
   | {
       kind: 'snmp_table';
@@ -702,9 +745,15 @@ export type TemplateEntry =
       max: number;
       /** [2b-1] */
       skip_zero?: boolean;
-      filters?: { oid: string; in: number[] | null; not_in: number[] | null }[];
+      filters?: TemplateFilter[];
       interval_s?: number | null;
+      /** [2b-2] */
+      confidence?: Confidence | null;
+      notes?: string;
     };
+
+/** [2b-2] */
+export type TemplateFilter = { oid: string; in: number[] | null; not_in: number[] | null };
 
 export type TemplateMatchRule = {
   device_classes: DeviceClass[] | null;
@@ -713,7 +762,12 @@ export type TemplateMatchRule = {
   any_open_ports: number[] | null;
   /** [2b-1] sysObjectID enterprise numbers (null = any) */
   enterprises?: number[] | null;
+  /** [2b-2] */
+  sys_object_id_prefixes?: string[] | null;
+  sys_descr_regex?: string | null;
 };
+/** [2b-2] api.md name */
+export type TemplateRule = TemplateMatchRule;
 
 export type DeviceTemplate = {
   id: string;
@@ -723,15 +777,49 @@ export type DeviceTemplate = {
   priority: number;
   match: TemplateMatchRule[];
   entries: TemplateEntry[];
+  /** [2b-2] (optional only so 2b-1 servers still render) */
+  version?: number;
+  verified?: boolean;
+  verified_note?: string;
+  vendor?: string | null;
+  source?: TemplateSource;
+  overrides_builtin?: boolean;
+  file?: string;
 };
 
-export type SkipReason = 'exists' | 'probe_failed' | 'snmp_error' | 'max_reached' | 'no_rows';
+/** [2b-2] */
+export type TemplateSource = 'builtin' | 'user';
+export type TemplateLoadError = {
+  source: TemplateSource;
+  file: string;
+  template_id: string | null;
+  path: string;
+  message: string;
+};
+export type TemplateLibraryStatus = {
+  loaded_at: string;
+  builtin_count: number;
+  user_count: number;
+  /** ids of built-ins replaced by user files, sorted */
+  overridden: string[];
+  /** admins only, else "" */
+  user_dir: string;
+  /** admins only, else [] */
+  errors: TemplateLoadError[];
+};
+export type DeviceTemplatesResponse = { items: DeviceTemplate[]; library?: TemplateLibraryStatus };
+
+export type SkipReason =
+  'exists' | 'probe_failed' | 'snmp_error' | 'max_reached' | 'no_rows' | 'not_applicable'; // [2b-2]
+/** [2b-2] api.md name */
+export type TemplateSkipReason = SkipReason;
 export const SKIP_REASONS: SkipReason[] = [
   'exists',
   'probe_failed',
   'snmp_error',
   'max_reached',
   'no_rows',
+  'not_applicable',
 ];
 export type SkippedSensor = { name: string; type: SensorType; reason: SkipReason; message: string };
 
@@ -998,3 +1086,227 @@ export type DependencySuggestions = {
   items: DependencySuggestion[];
 };
 export type DependencyBulkItem = { device_id: number; dependency: DependencyInput };
+
+// ---------------------------------------------------------------------------
+// [2b-2] Switch ports view, MAC/IP search
+
+export type PortKind = 'physical' | 'lag' | 'vlan' | 'mgmt' | 'other';
+export const PORT_KINDS: PortKind[] = ['physical', 'lag', 'vlan', 'mgmt', 'other'];
+export type PortState = 'up' | 'down' | 'admin_down' | 'absent';
+export const PORT_STATES: PortState[] = ['up', 'down', 'admin_down', 'absent'];
+export type ConnectedKind = 'none' | 'client' | 'ap' | 'switch';
+export const CONNECTED_KINDS: ConnectedKind[] = ['none', 'client', 'ap', 'switch'];
+export type IfStatus =
+  'up' | 'down' | 'testing' | 'unknown' | 'dormant' | 'notPresent' | 'lowerLayerDown';
+export const IF_STATUSES: IfStatus[] = [
+  'up',
+  'down',
+  'testing',
+  'unknown',
+  'dormant',
+  'notPresent',
+  'lowerLayerDown',
+];
+export type SourceState = 'ok' | 'empty' | 'error' | 'skipped' | 'unmapped';
+export const SOURCE_STATES: SourceState[] = ['ok', 'empty', 'error', 'skipped', 'unmapped'];
+export type PoeDetection =
+  'disabled' | 'searching' | 'delivering' | 'fault' | 'test' | 'other_fault';
+export const POE_DETECTIONS: PoeDetection[] = [
+  'disabled',
+  'searching',
+  'delivering',
+  'fault',
+  'test',
+  'other_fault',
+];
+export type AlertReason = 'sensor' | 'errors' | 'poe_fault';
+export const ALERT_REASONS: AlertReason[] = ['sensor', 'errors', 'poe_fault'];
+
+export type PortPoe = {
+  admin_enabled: boolean | null;
+  detection: PoeDetection | null;
+  /** 0–4 */
+  power_class: number | null;
+  /** null on every device in 2b-2 (no vendor column yet) */
+  power_w: number | null;
+};
+
+export type PortMac = {
+  /** "aa:bb:cc:dd:ee:ff" */
+  mac: string;
+  vlan: number | null;
+  vendor: string | null;
+  locally_administered: boolean;
+  /** newest (may be a last-known, non-present one; then ips = []) */
+  ip: string | null;
+  ips: string[];
+  /** reverse DNS of ip */
+  hostname: string | null;
+  /** a monitored device whose host equals ip */
+  device_id: number | null;
+  device_name: string | null;
+  first_seen: string;
+  last_seen: string;
+};
+
+export type PortNeighbor = {
+  link_id: number;
+  source: 'lldp' | 'cdp' | 'manual';
+  kind: 'device' | 'neighbor';
+  device_id: number | null;
+  neighbor_id: number | null;
+  /** device name, else neighbour sys_name, else chassis id */
+  name: string;
+  /** the remote port text */
+  port: string;
+  device_class: DeviceClass | null;
+  status: Status | null;
+  mgmt_address: string | null;
+};
+
+export type Port = {
+  if_index: number;
+  name: string;
+  descr: string;
+  alias: string;
+  kind: PortKind;
+  if_type: number | null;
+  admin_status: IfStatus;
+  oper_status: IfStatus;
+  state: PortState;
+  alert: boolean;
+  alert_reasons: AlertReason[];
+  speed_bps: number | null;
+  duplex: 'full' | 'half' | 'unknown' | null;
+  mac: string | null;
+  last_change_at: string | null;
+  pvid: number | null;
+  mode: 'access' | 'trunk' | null;
+  untagged_vlans: number[];
+  tagged_vlans: number[];
+  /** null = no PoE row for this port */
+  poe: PortPoe | null;
+  in_bps: number | null;
+  out_bps: number | null;
+  in_errors_delta: number | null;
+  out_errors_delta: number | null;
+  is_uplink: boolean;
+  uplink_reason: 'neighbor' | 'mac_count' | null;
+  connected_kind: ConnectedKind;
+  trunk: boolean;
+  /** primary neighbour */
+  neighbor: PortNeighbor | null;
+  mac_count: number;
+  /** null for uplinks */
+  first_mac: PortMac | null;
+  /** all present MACs; [] for uplinks (count only) */
+  macs: PortMac[];
+  sensor_id: number | null;
+  sensor_status: Status | null;
+  collected_at: string;
+};
+
+export type PortDetail = Port & {
+  /** all non-stale neighbours of the port */
+  neighbors: PortNeighbor[];
+  /** true when is_uplink and include_uplink_macs was not set */
+  macs_hidden: boolean;
+  /** the full linked sensor (channels with last values) */
+  sensor: Sensor | null;
+};
+
+export type HealthCategory = 'cpu' | 'memory' | 'temperature' | 'poe' | 'psu' | 'fan';
+export const HEALTH_CATEGORIES: HealthCategory[] = [
+  'cpu',
+  'memory',
+  'temperature',
+  'poe',
+  'psu',
+  'fan',
+];
+export type HealthItem = {
+  category: HealthCategory;
+  status: Status;
+  value: number | null;
+  unit: string;
+  text: string;
+  sensor_ids: number[];
+  primary_sensor_id: number;
+};
+
+export type PortInventoryStatus = {
+  last_run_at: string | null;
+  last_ok_at: string | null;
+  duration_ms: number | null;
+  error: string | null;
+  running: boolean;
+  next_run_at: string | null;
+  sources: {
+    if_xtable: SourceState;
+    duplex: SourceState;
+    bridge: SourceState;
+    vlans: SourceState;
+    fdb: SourceState;
+    poe: SourceState;
+    arp: SourceState;
+  };
+  fdb_mib: 'q_bridge' | 'bridge' | null;
+  vlan_mib: 'static' | 'current' | null;
+  ports: number;
+  macs: number;
+  arp_entries: number;
+  /** devices currently collecting ARP (global; 0 → no IPs anywhere) */
+  arp_sources: number;
+};
+
+export type DevicePorts = {
+  device_id: number;
+  ports_effective: boolean;
+  arp_effective: boolean;
+  port_inventory: InventoryMode;
+  arp_collect: InventoryMode;
+  effective_class: DeviceClass;
+  status: PortInventoryStatus;
+  settings: { interval_min: number; uplink_mac_threshold: number };
+  health: HealthItem[];
+  ports: Port[];
+};
+
+export type MacLocation = {
+  mac: string;
+  vendor: string | null;
+  locally_administered: boolean;
+  ip: string | null;
+  ips: string[];
+  hostname: string | null;
+  device_id: number;
+  device_name: string;
+  device_host: string;
+  if_index: number;
+  port: string;
+  port_alias: string;
+  vlan: number | null;
+  is_uplink: boolean;
+  present: boolean;
+  first_seen: string;
+  last_seen: string;
+  /** the most likely access port of this MAC (≤ 1 per MAC) */
+  best: boolean;
+};
+export type ArpHit = {
+  ip: string;
+  mac: string;
+  hostname: string | null;
+  source_device_id: number;
+  source_device_name: string;
+  present: boolean;
+  first_seen: string;
+  last_seen: string;
+};
+export type MacSearchResult = {
+  query: { mac: string | null; mac_prefix: string | null; ip: string | null };
+  /** ≤ 200 */
+  items: MacLocation[];
+  /** ≤ 50 */
+  arp: ArpHit[];
+};

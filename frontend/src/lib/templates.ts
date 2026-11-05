@@ -1,5 +1,9 @@
 import type { TFunction } from 'i18next';
+import { SKIP_REASONS } from '../api/types';
 import type {
+  Confidence,
+  SkipReason,
+  TemplateFilter,
   ApplyTemplateResult,
   DeviceTemplate,
   DiscoveryResult,
@@ -12,7 +16,8 @@ import type {
 } from '../api/types';
 
 const HEBREW = /[\u0590-\u05FF]/;
-const LTR_RUN = /[/\\^]?[A-Za-z0-9][^\s\u0590-\u05FF()]*/g;
+// A Latin/number token, or several separated by single spaces ("Check Point", "enterprise 2620").
+const LTR_RUN = /[/\\^]?[A-Za-z0-9][^\s\u0590-\u05FF()]*(?: [A-Za-z0-9][^\s\u0590-\u05FF()]*)*/g;
 
 /**
  * In Hebrew text, wraps Latin/number tokens (paths like "/volume1", "C:\", regexes like "^eth0$")
@@ -81,6 +86,9 @@ export function describeMatch(rules: TemplateMatchRule[], t: TFunction): string 
       p.push(t('templates.matchPorts', { ports: r.any_open_ports.join(', ') }));
     if (r.enterprises?.length)
       p.push(t('templates.matchEnterprises', { list: r.enterprises.join(', ') }));
+    if (r.sys_object_id_prefixes?.length)
+      p.push(t('templates.matchOidPrefixes', { list: r.sys_object_id_prefixes.join(', ') }));
+    if (r.sys_descr_regex) p.push(t('templates.matchDescr', { re: r.sys_descr_regex }));
     return p.length ? p.join(' + ') : t('templates.matchAny');
   });
   return isolateLtrRuns(parts.join(t('templates.or')));
@@ -104,6 +112,12 @@ const VENDOR_LABELS: Record<string, string> = {
   netgear: 'NETGEAR',
   ubiquiti: 'Ubiquiti',
   microsoft: 'Microsoft',
+  // [2b-2] template library vendor folders
+  hpe: 'HPE',
+  checkpoint: 'Check Point',
+  fortinet: 'Fortinet',
+  cisco: 'Cisco',
+  dell: 'Dell',
 };
 
 /** Human vendor name from a vendor slug (data-model.md vendor table). */
@@ -114,7 +128,7 @@ export function vendorLabel(slug: string | null | undefined): string {
 
 /** i18n key of a skip reason; unknown reasons fall back to the generic text. */
 export function skipReasonKey(reason: string): string {
-  return ['exists', 'probe_failed', 'snmp_error', 'max_reached', 'no_rows'].includes(reason)
+  return SKIP_REASONS.includes(reason as SkipReason)
     ? `templates.skip.${reason}`
     : 'templates.skip.other';
 }
@@ -123,7 +137,14 @@ export function skipReasonKey(reason: string): string {
 export function groupSkipped(
   skipped: SkippedSensor[],
 ): { reason: string; items: SkippedSensor[] }[] {
-  const order = ['snmp_error', 'probe_failed', 'no_rows', 'max_reached', 'exists'];
+  const order = [
+    'snmp_error',
+    'probe_failed',
+    'no_rows',
+    'not_applicable',
+    'max_reached',
+    'exists',
+  ];
   const map = new Map<string, SkippedSensor[]>();
   for (const s of skipped) map.set(s.reason, [...(map.get(s.reason) ?? []), s]);
   const rank = (r: string) => (order.includes(r) ? order.indexOf(r) : order.length);
@@ -200,4 +221,38 @@ export function retryIds(rows: ImportRow[]): number[] {
   return rows
     .filter((r) => r.kind === 'missing' || (r.kind === 'error' && r.retry))
     .map((r) => r.result_id);
+}
+
+/** [2b-2] The entry's confidence (null for entries without a vendor OID). */
+export function entryConfidence(e: TemplateEntry): Confidence | null {
+  return e.confidence ?? null;
+}
+
+/** [2b-2] "1.3.6.1.4.1.2620.1.5.2.0 in 1" texts of a sensor entry's `when` conditions. */
+export function describeWhen(filters: TemplateFilter[] | undefined, t: TFunction): string[] {
+  return (filters ?? []).map((f) => {
+    const parts: string[] = [];
+    if (f.in?.length) parts.push(t('templates.whenIn', { list: f.in.join(', ') }));
+    if (f.not_in?.length) parts.push(t('templates.whenNotIn', { list: f.not_in.join(', ') }));
+    return parts.length ? `${f.oid} ${parts.join(' · ')}` : `${f.oid} ${t('templates.whenAny')}`;
+  });
+}
+
+/** [2b-2] Templates grouped by vendor slug (sorted by label; generic / no vendor last). */
+export function groupByVendor(
+  templates: DeviceTemplate[],
+): { vendor: string | null; items: DeviceTemplate[] }[] {
+  const map = new Map<string | null, DeviceTemplate[]>();
+  for (const tpl of templates) {
+    // Built-in generic templates (vendor folder `generic`) join the ones without a vendor.
+    const v = tpl.vendor && tpl.vendor !== 'generic' ? tpl.vendor : null;
+    map.set(v, [...(map.get(v) ?? []), tpl]);
+  }
+  return [...map.entries()]
+    .sort((a, b) => {
+      if (a[0] === null) return 1;
+      if (b[0] === null) return -1;
+      return vendorLabel(a[0]).localeCompare(vendorLabel(b[0]));
+    })
+    .map(([vendor, items]) => ({ vendor, items }));
 }

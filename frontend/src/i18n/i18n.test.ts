@@ -14,7 +14,16 @@ import {
   NOTIFICATION_TYPES,
   SENSOR_TYPES,
   SKIP_REASONS,
+  ALERT_REASONS,
+  CONNECTED_KINDS,
+  HEALTH_CATEGORIES,
+  IF_STATUSES,
+  INVENTORY_MODES,
+  POE_DETECTIONS,
+  PORT_KINDS,
+  PORT_STATES,
 } from '../api/types';
+import { PORT_COLUMNS } from '../lib/ports';
 import { STATUSES } from '../lib/status';
 
 type Tree = { [k: string]: string | Tree };
@@ -129,6 +138,9 @@ describe('i18n', () => {
       'not_acknowledgeable',
       'topology_refresh_running',
       'link_not_manual',
+      // [2b-2]
+      'ports_disabled',
+      'ports_refresh_running',
     ];
     for (const c of codes) {
       expect(enFlat[`errors.${c}`], c).toBeTruthy();
@@ -253,6 +265,73 @@ describe('i18n', () => {
     await i18n.changeLanguage('en');
     expect(i18n.t('topology.staleDeleted', { count: 1 })).toBe('1 stale link deleted.');
     expect(i18n.t('topology.staleDeleted', { count: 3 })).toBe('3 stale links deleted.');
+  });
+
+  it('covers the Phase 2b-2 enums and keys in both languages', () => {
+    const keys = [
+      'nav.find',
+      'sensorType.snmp_walk_count',
+      'templates.skip.not_applicable',
+      'templates.verified',
+      'templates.unverified',
+      'templates.source.builtin',
+      'templates.source.user',
+      'templates.overrides',
+      'templates.reload',
+      'device.portInventory',
+      'device.arpCollect',
+      'sensorConfig.snmp_custom.percent_base',
+      ...['total', 'sum'].map((o) => `sensorConfigOption.snmp_custom.percent_base.${o}`),
+      ...['oid', 'count_values', 'label', 'max_rows'].map(
+        (k) => `sensorConfig.snmp_walk_count.${k}`,
+      ),
+      ...['rows', 'matched', 'unmatched'].map((c) => `channel.${c}`),
+      ...HEALTH_CATEGORIES.map((c) => `health.${c}`),
+      ...INVENTORY_MODES.map((m) => `inventoryMode.${m}`),
+      ...PORT_STATES.map((s) => `ports.state.${s}`),
+      ...PORT_KINDS.map((k) => `ports.kind.${k}`),
+      ...IF_STATUSES.map((s) => `ports.ifStatus.${s}`),
+      ...CONNECTED_KINDS.map((k) => `ports.connectedKind.${k}`),
+      ...POE_DETECTIONS.map((d) => `ports.poeDetection.${d}`),
+      ...ALERT_REASONS.map((r) => `ports.alertReason.${r}`),
+      ...['neighbor', 'mac_count'].map((r) => `ports.uplinkReason.${r}`),
+      ...['access', 'trunk'].map((m) => `ports.mode.${m}`),
+      ...['full', 'half', 'unknown'].map((d) => `ports.duplex.${d}`),
+      ...['port', ...PORT_COLUMNS].map((c) => `ports.col.${c}`),
+      ...['faceplate', 'list'].map((v) => `ports.view.${v}`),
+      ...[
+        'empty',
+        'connected',
+        'alert',
+        'emptyAlert',
+        'disabled',
+        'client',
+        'ap',
+        'switch',
+        'trunk',
+        'macCount',
+      ].map((l) => `ports.legend.${l}`),
+      ...['fdbEmpty', 'noArp', 'poeUnmapped'].map((h) => `ports.hint.${h}`),
+      ...['interval', 'threshold', 'retention', 'reverseDns'].map((k) => `settings.ports.${k}`),
+    ];
+    for (const k of keys) {
+      expect(enFlat[k], `en:${k}`).toBeTruthy();
+      expect(heFlat[k], `he:${k}`).toBeTruthy();
+    }
+    expect(heFlat['sensorType.snmp_walk_count']).toBe('ספירת שורות SNMP');
+    expect(enFlat['sensorType.snmp_walk_count']).toBe('SNMP row count');
+  });
+
+  it('renders the 2b-2 plurals', async () => {
+    const i18n = (await import('./index')).default;
+    await i18n.changeLanguage('he');
+    expect(i18n.t('ports.macCount', { count: 1 })).toBe('MAC אחד');
+    expect(i18n.t('ports.macCount', { count: 2 })).toBe('2 כתובות MAC');
+    expect(i18n.t('ports.uplinkMacs', { count: 7 })).toBe('נלמדו 7 כתובות MAC (Uplink)');
+    await i18n.changeLanguage('en');
+    expect(i18n.t('ports.macCount', { count: 1 })).toBe('1 MAC');
+    expect(i18n.t('ports.macCount', { count: 7 })).toBe('7 MACs');
+    expect(i18n.t('find.count', { count: 2 })).toBe('2 locations');
   });
 
   it('defines every static key used in the source', () => {

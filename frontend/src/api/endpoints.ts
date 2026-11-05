@@ -16,7 +16,14 @@ import type {
   AlertRule,
   ApplyTemplateResult,
   DeviceTemplate,
+  DeviceTemplatesResponse,
+  DevicePorts,
   DiscoveryProfile,
+  InventoryMode,
+  MacSearchResult,
+  PortDetail,
+  PortKind,
+  TemplateLibraryStatus,
   DiscoveryResult,
   DiscoveryScan,
   ImportRequest,
@@ -84,7 +91,15 @@ export const qk = {
   topology: (params?: object) => ['topology', params ?? {}] as const,
   topologyLinks: (params?: object) => ['topologyLinks', params ?? {}] as const,
   dependencySuggestions: (root?: number | null) => ['dependencySuggestions', root ?? null] as const,
+  // [2b-2]
+  devicePorts: (deviceId: number) => ['device-ports', deviceId] as const,
+  portDetail: (deviceId: number, ifIndex: number, includeUplinkMacs = false) =>
+    ['port-detail', deviceId, ifIndex, includeUplinkMacs] as const,
+  macSearch: (q: MacSearchQuery) => ['mac-search', q] as const,
 };
+
+/** [2b-2] exactly one of q / ip */
+export type MacSearchQuery = { q: string } | { ip: string };
 
 export type GroupInput = {
   name?: string;
@@ -107,6 +122,9 @@ export type DeviceInput = {
   auto_sensors?: SensorType[];
   /** [2b-1] */
   dependency?: DependencyInput;
+  /** [2b-2] */
+  port_inventory?: InventoryMode;
+  arp_collect?: InventoryMode;
 };
 
 export type SensorInput = {
@@ -304,7 +322,9 @@ export const endpoints = {
 
   // [2a] snmp storage, device templates
   snmpStorage: (id: number) => api.get<{ items: SnmpStorage[] }>(`/devices/${id}/snmp/storage`),
-  deviceTemplates: () => api.get<{ items: DeviceTemplate[] }>('/device-templates'),
+  deviceTemplates: () => api.get<DeviceTemplatesResponse>('/device-templates'),
+  /** [2b-2] admin */
+  reloadTemplates: () => api.post<TemplateLibraryStatus>('/device-templates/reload'),
   deviceTemplate: (id: string) =>
     api.get<DeviceTemplate>(`/device-templates/${encodeURIComponent(id)}`),
   applyTemplate: (deviceId: number, template_id: string) =>
@@ -370,6 +390,18 @@ export const endpoints = {
   deleteStaleLinks: () => api.del<{ deleted: number }>('/topology/links', { stale: true }),
   saveLayout: (positions: LayoutPosition[]) => api.put<void>('/topology/layout', { positions }),
   resetLayout: () => api.del('/topology/layout'),
+  // [2b-2] ports and MAC/IP search
+  devicePorts: (id: number, kinds?: PortKind[]) =>
+    api.get<DevicePorts>(`/devices/${id}/ports`, kinds?.length ? { kind: kinds } : undefined),
+  portDetail: (id: number, ifIndex: number, includeUplinkMacs = false) =>
+    api.get<PortDetail>(
+      `/devices/${id}/ports/${ifIndex}`,
+      includeUplinkMacs ? { include_uplink_macs: true } : undefined,
+    ),
+  refreshPorts: (id: number) =>
+    api.post<{ device_id: number; queued: boolean }>(`/devices/${id}/ports/refresh`),
+  searchMac: (q: MacSearchQuery) => api.get<MacSearchResult>('/search/mac', q),
+
   dependencySuggestions: (root_device_id?: number | null) =>
     api.get<DependencySuggestions>(
       '/topology/dependency-suggestions',

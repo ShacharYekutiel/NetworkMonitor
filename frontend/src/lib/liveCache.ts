@@ -181,6 +181,8 @@ export function applyLiveMessage(
           batch.add(['devices']);
           batch.add(['sensors']);
           batch.add(['snmpInterfaces', id]);
+          // [2b-2] port_inventory / arp_collect changes are normal device updates.
+          batch.add(qk.devicePorts(id));
           break;
         case 'sensor':
           batch.add(['sensor', id]);
@@ -264,6 +266,20 @@ export function applyLiveMessage(
         old ? { ...old, last_refresh: r, refresh_running: r.status === 'running' } : old,
       );
       if (r.status !== 'running') batch.add(['topology']);
+      break;
+    }
+    case 'ports.updated': {
+      // [2b-2] Simplest rule (api.md): refetch every open ports view and port modal — an ARP-only
+      // device's run may change IPs shown on other switches.
+      batch.add(['device-ports']);
+      batch.add(['port-detail']);
+      batch.add(['mac-search']);
+      notifyPortsUpdated(msg.data);
+      break;
+    }
+    case 'templates.reloaded': {
+      batch.add(qk.deviceTemplates);
+      batch.add(['deviceTemplate']);
       break;
     }
     case 'discovery.progress': {
@@ -373,4 +389,17 @@ export function dependentDeviceIds(qc: QueryClient, parentId: number): number[] 
   for (const [, d] of qc.getQueriesData<Device>({ queryKey: ['device'] }))
     if (d && d.effective_dependency?.device_id === parentId) ids.add(d.id);
   return [...ids];
+}
+
+// [2b-2] ports.updated listeners (the Refresh button stops its spinner on its device's message).
+export type PortsUpdated = { device_id: number; ok: boolean; collected_at: string };
+const portsListeners = new Set<(d: PortsUpdated) => void>();
+
+export function onPortsUpdated(l: (d: PortsUpdated) => void): () => void {
+  portsListeners.add(l);
+  return () => portsListeners.delete(l);
+}
+
+function notifyPortsUpdated(d: PortsUpdated) {
+  portsListeners.forEach((l) => l(d));
 }

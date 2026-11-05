@@ -66,7 +66,8 @@
     "discovery": "Discovery",
     "templates": "Templates",
     "maintenance": "Maintenance",
-    "map": "Map"
+    "map": "Map",
+    "find": "Find"
   },
   "tree": {
     "search": "Search groups, devices, sensors",
@@ -358,7 +359,22 @@
     "timezoneHint": "Used for weekly maintenance windows and the times in notifications.",
     "topologyRefresh": "Topology refresh (minutes)",
     "topologyRefreshHint": "How often LLDP/CDP neighbours are read. 0 = off.",
-    "topologyRefreshErr": "0 (off) or 5 to 1440."
+    "topologyRefreshErr": "0 (off) or 5 to 1440.",
+    "ports": {
+      "title": "Ports",
+      "intro": "Port inventory reads each switch's interfaces, VLANs, MAC table and PoE, and ARP from routers.",
+      "interval": "Read interval (minutes)",
+      "intervalHint": "0 = off (manual refresh still works), else 5–1440",
+      "intervalErr": "Enter 0 or 5–1440.",
+      "threshold": "Uplink MAC threshold",
+      "thresholdHint": "A port with more MACs than this is treated as an uplink (1–1000).",
+      "thresholdErr": "Enter 1–1000.",
+      "retention": "MAC/ARP history (days)",
+      "retentionHint": "How long MACs and IPs that disappeared are kept (1–365).",
+      "retentionErr": "Enter 1–365.",
+      "reverseDns": "Reverse DNS for IP addresses",
+      "reverseDnsHint": "Look up host names (PTR) of the IPs learned from ARP."
+    }
   },
   "users": {
     "title": "Users",
@@ -395,7 +411,8 @@
     "interval": "Between 10 and 86400 seconds.",
     "username": "3–64 characters: letters, digits, dot, underscore, hyphen.",
     "passwordLength": "8–128 characters.",
-    "passwordMismatch": "The passwords do not match."
+    "passwordMismatch": "The passwords do not match.",
+    "percentBaseSum": "“Sum” needs the percent-of OID."
   },
   "units": {
     "days": "days",
@@ -437,7 +454,9 @@
     "dependency_cycle_path": "This dependency would create a loop: {{path}}.",
     "not_acknowledgeable": "Only down or warning sensors can be acknowledged.",
     "topology_refresh_running": "A topology refresh is already running.",
-    "link_not_manual": "Discovered links cannot be edited; only manual links can."
+    "link_not_manual": "Discovered links cannot be edited; only manual links can.",
+    "ports_disabled": "Port inventory and ARP collection are both off for this device. Set them to On in the device settings.",
+    "ports_refresh_running": "The ports of this device are being read right now."
   },
   "sensorType": {
     "ping": "Ping",
@@ -449,7 +468,8 @@
     "tcp_port": "TCP Port",
     "dns": "DNS",
     "snmp_custom": "Custom SNMP OID",
-    "snmp_disk": "Disk usage"
+    "snmp_disk": "Disk usage",
+    "snmp_walk_count": "SNMP row count"
   },
   "channel": {
     "latency_ms": "Latency",
@@ -475,7 +495,10 @@
     "disk_used_pct": "Disk used",
     "disk_used_bytes": "Used space",
     "disk_free_bytes": "Free space",
-    "disk_total_bytes": "Disk size"
+    "disk_total_bytes": "Disk size",
+    "rows": "Rows",
+    "matched": "Matched",
+    "unmatched": "Not matched"
   },
   "sensorConfig": {
     "ping": {
@@ -525,11 +548,18 @@
       "expected": "Expected text",
       "match": "Match",
       "value_map": "Value map",
-      "value_map_default": "Status of other values"
+      "value_map_default": "Status of other values",
+      "percent_base": "Percent base"
     },
     "snmp_disk": {
       "storage_descr": "Storage (description)",
       "storage_index": "Storage index"
+    },
+    "snmp_walk_count": {
+      "oid": "Column OID",
+      "count_values": "Values counted as matched",
+      "label": "Label",
+      "max_rows": "Max rows"
     }
   },
   "sensorConfigHint": {
@@ -555,10 +585,14 @@
       "multiplier": "Applied to the raw value (gauge) or the rate (counter), e.g. 8 for octets → bit/s, 0.1 for tenths",
       "label": "Optional; shown in the status message",
       "percent_of_oid": "Optional; value = raw ÷ this OID × 100 (the multiplier is ignored)",
-      "expected": "Empty = any text is OK; otherwise the value must match"
+      "expected": "Empty = any text is OK; otherwise the value must match",
+      "percent_base": "Total: value ÷ divisor OID. Sum: value ÷ (value + other OID), e.g. used next to free."
     },
     "snmp_disk": {
       "storage_descr": "Exactly as reported by the device, e.g. / or C:\\"
+    },
+    "snmp_walk_count": {
+      "count_values": "Comma-separated integers; empty = every row matches."
     }
   },
   "deviceClass": {
@@ -582,12 +616,19 @@
       "match": {
         "equals": "Equals",
         "contains": "Contains"
+      },
+      "percent_base": {
+        "total": "Divisor is the total",
+        "sum": "Divisor is the other part (sum)"
       }
     }
   },
   "sensorConfigPlaceholder": {
     "snmp_custom": {
       "oid": "1.3.6.1.4.1.…"
+    },
+    "snmp_walk_count": {
+      "count_values": "1, 3"
     }
   },
   "storage": {
@@ -661,10 +702,39 @@
       "snmp_error": "SNMP query failed",
       "max_reached": "Limit reached",
       "no_rows": "Nothing found on the device",
-      "other": "Skipped"
+      "other": "Skipped",
+      "not_applicable": "Not applicable to this device"
     },
     "entryEnum": "status by value map",
-    "matchEnterprises": "enterprise {{list}}"
+    "matchEnterprises": "enterprise {{list}}",
+    "verified": "Verified",
+    "unverified": "Unverified",
+    "unverifiedHint": "Not yet tested on real equipment; OIDs may need corrections.",
+    "verifiedOn": "Verified on",
+    "source": {
+      "builtin": "Built-in",
+      "user": "User"
+    },
+    "overrides": "overrides built-in",
+    "reload": "Reload templates",
+    "reloadDone": "Templates reloaded: {{builtin}} built-in, {{user}} user, {{errors}} errors.",
+    "loadErrors_one": "{{count}} template file could not be loaded",
+    "loadErrors_other": "{{count}} template files could not be loaded",
+    "library": "Template library",
+    "libraryLine": "{{builtin}} built-in and {{user}} user templates, {{errors}} load errors",
+    "loadedAt": "loaded {{time}}",
+    "overriddenList": "Built-ins replaced by user files",
+    "userDir": "User template folder",
+    "userDirHint": "Copy a built-in template file into this folder, edit it and press “Reload templates”. Keep the same id to replace a built-in, or use a new id.",
+    "version": "v{{version}}",
+    "vendorGeneric": "Generic",
+    "confidenceTitle": "Confidence in the OIDs of this entry",
+    "when": "only when",
+    "whenIn": "in {{list}}",
+    "whenNotIn": "not in {{list}}",
+    "whenAny": "answers",
+    "matchOidPrefixes": "sysObjectID {{list}}",
+    "matchDescr": "sysDescr matches {{re}}"
   },
   "discovery": {
     "title": "Discovery",
@@ -1091,5 +1161,239 @@
     "applied_other": "Dependency set on {{count}} devices.",
     "allGroups": "All groups",
     "refreshNow": "Refresh topology now"
+  },
+  "ports": {
+    "tab": "Ports",
+    "tabs": "Device views",
+    "view": {
+      "faceplate": "Front panel",
+      "list": "Port list"
+    },
+    "viewToggle": "Ports view",
+    "refresh": "Refresh ports",
+    "refreshFailed": "Reading the ports failed; see the status line.",
+    "collecting": "Reading ports…",
+    "neverRun": "Ports have not been read yet.",
+    "statusLine": "Updated {{ago}} · next {{next}}",
+    "statusLineNoNext": "Updated {{ago}}",
+    "autoOff": "automatic reading is off",
+    "lastError": "last error",
+    "hint": {
+      "fdbEmpty": "This switch does not report its MAC table over SNMP.",
+      "noArp": "No ARP source: IP addresses are not available. Enable “Collect ARP” on a router or firewall.",
+      "poeUnmapped": "PoE data could not be matched to ports."
+    },
+    "notEffective": "Port inventory is not active for this device (mode: {{mode}}, detected as: {{cls}}).",
+    "notEffectiveAuto": "In Auto mode only switches with an SNMP sensor are inventoried.",
+    "enable": "Enable port inventory",
+    "enabledToast": "Port inventory enabled; the first read starts within a minute.",
+    "noPorts": "The device reported no ports.",
+    "noSnapshot": "No port data yet. The first read runs within a few minutes.",
+    "noPhysical": "No physical ports to show.",
+    "fallbackNote": "The port names do not follow a known pattern, so ports are shown in ifIndex order.",
+    "member": "Member {{n}}",
+    "uplinkGroup": "Uplink / SFP ports",
+    "legend": {
+      "empty": "Empty",
+      "connected": "Connected",
+      "alert": "Connected, alert",
+      "emptyAlert": "Empty, alert",
+      "disabled": "Disabled",
+      "client": "Client",
+      "ap": "Access point",
+      "switch": "Switch / uplink",
+      "trunk": "Trunk",
+      "macCount": "MACs learned (uplink)"
+    },
+    "portN": "Port {{name}}",
+    "vlanN": "VLAN {{vlan}}",
+    "alert": "alert",
+    "state": {
+      "up": "Up",
+      "down": "No link",
+      "admin_down": "Disabled",
+      "absent": "Not present"
+    },
+    "ifStatus": {
+      "up": "up",
+      "down": "down",
+      "testing": "testing",
+      "unknown": "unknown",
+      "dormant": "dormant",
+      "notPresent": "not present",
+      "lowerLayerDown": "lower layer down"
+    },
+    "connectedKind": {
+      "none": "nothing",
+      "client": "client",
+      "ap": "access point",
+      "switch": "switch"
+    },
+    "mode": {
+      "access": "Access",
+      "trunk": "Trunk"
+    },
+    "duplex": {
+      "full": "Full",
+      "half": "Half",
+      "unknown": "Unknown"
+    },
+    "kind": {
+      "physical": "Physical",
+      "lag": "Trunk / LAG",
+      "vlan": "VLAN interface",
+      "mgmt": "Management",
+      "other": "Other"
+    },
+    "macCount_one": "{{count}} MAC",
+    "macCount_other": "{{count}} MACs",
+    "poeOn": "On",
+    "poeOnClass": "On · class {{cls}}",
+    "columns": "Columns",
+    "col": {
+      "port": "Port",
+      "status": "Status",
+      "connected": "Connected",
+      "vlan": "VLAN",
+      "mode": "Mode",
+      "speed": "Speed",
+      "poe": "PoE (W)",
+      "rxtx": "Rx / Tx",
+      "alias": "Alias",
+      "duplex": "Duplex",
+      "mac": "MAC",
+      "ip": "IP",
+      "hostname": "Hostname",
+      "vendor": "Vendor",
+      "errors": "Errors (Δ)",
+      "lastChange": "Last change",
+      "ifIndex": "ifIndex",
+      "kind": "Kind"
+    },
+    "filter": "Filter ports",
+    "filterPlaceholder": "Filter: port, alias, MAC, IP, hostname, vendor, neighbour…",
+    "physicalOnly": "Physical ports only",
+    "shown": "{{shown}} of {{total}} ports",
+    "noMatch": "No port matches the filter.",
+    "alertReason": {
+      "sensor": "interface sensor alert",
+      "errors": "errors",
+      "poe_fault": "PoE fault"
+    },
+    "uplinkReason": {
+      "neighbor": "Uplink (LLDP neighbour)",
+      "mac_count": "Uplink (many MACs)"
+    },
+    "section": {
+      "state": "State",
+      "link": "Link",
+      "poe": "PoE",
+      "traffic": "Traffic and errors",
+      "history": "Last 24 hours",
+      "connected": "Connected"
+    },
+    "field": {
+      "admin": "Admin",
+      "oper": "Oper",
+      "lastChange": "Last change",
+      "ifIndex": "ifIndex",
+      "kind": "Kind",
+      "mac": "Port MAC",
+      "speed": "Speed",
+      "duplex": "Duplex",
+      "mode": "Mode",
+      "pvid": "VLAN (PVID)",
+      "untagged": "Untagged VLANs",
+      "tagged": "Tagged VLANs",
+      "poeAdmin": "PoE",
+      "poeDetection": "Detection",
+      "poeClass": "Class",
+      "poePower": "Power",
+      "rx": "Rx",
+      "tx": "Tx",
+      "errors": "Errors (last interval)"
+    },
+    "poeEnabled": "enabled",
+    "poeDisabled": "disabled",
+    "poeDetection": {
+      "disabled": "disabled",
+      "searching": "searching",
+      "delivering": "delivering power",
+      "fault": "fault",
+      "test": "test",
+      "other_fault": "other fault"
+    },
+    "noPoe": "No PoE on this port.",
+    "noSensor": "This port is not monitored by a sensor, so there is no history.",
+    "startMonitoring": "Start monitoring",
+    "openSensor": "Open sensor",
+    "remotePort": "port",
+    "noNeighbor": "No LLDP/CDP neighbour.",
+    "uplinkMacs_one": "{{count}} MAC learned (uplink)",
+    "uplinkMacs_other": "{{count}} MACs learned (uplink)",
+    "showAllMacs": "Show all MACs",
+    "noMacs": "No MAC addresses learned on this port.",
+    "mac": {
+      "mac": "MAC",
+      "vendor": "Vendor",
+      "vlan": "VLAN",
+      "ip": "IP",
+      "hostname": "Hostname",
+      "device": "Device",
+      "firstSeen": "First seen",
+      "lastSeen": "Last seen",
+      "random": "random (locally administered)",
+      "lastKnownIp": "last known IP (not in ARP now)"
+    }
+  },
+  "health": {
+    "cpu": "CPU",
+    "memory": "Memory",
+    "temperature": "Temperature",
+    "poe": "PoE",
+    "psu": "PSU",
+    "fan": "Fans"
+  },
+  "find": {
+    "title": "Find MAC / IP",
+    "subtitle": "Where is a device connected? Searches the MAC tables of every switch.",
+    "placeholder": "aa:bb:cc:dd:ee:ff, aabb.ccdd.eeff, a prefix (005056) or an IPv4 address",
+    "headerPlaceholder": "Find MAC / IP…",
+    "label": "MAC address or IP",
+    "search": "Search",
+    "invalidHint": "Enter a MAC (6–12 hex digits) or an IPv4 address.",
+    "forIp": "Results for IP {{ip}}",
+    "forMac": "Results for MAC {{mac}}",
+    "forPrefix": "Results for MAC prefix {{prefix}}",
+    "count_one": "{{count}} location",
+    "count_other": "{{count}} locations",
+    "bestTitle": "Most likely access port:",
+    "best": "best",
+    "none": "Nothing found.",
+    "switch": "Switch",
+    "port": "Port",
+    "portType": "Port type",
+    "presence": "Present",
+    "present": "now",
+    "gone": "not any more",
+    "uplink": "uplink",
+    "access": "access",
+    "arpTitle": "ARP entries",
+    "arpSource": "Learned from",
+    "help": "The MAC tables are read with the port inventory of each switch; IP addresses come from routers and firewalls with “Collect ARP”."
+  },
+  "inventoryMode": {
+    "auto": "Auto",
+    "on": "On",
+    "off": "Off"
+  },
+  "device": {
+    "inventory": "Ports and ARP",
+    "portInventory": "Port inventory",
+    "arpCollect": "Collect ARP",
+    "inventoryHint": "Auto: ports for switches, ARP for routers/firewalls (needs an SNMP sensor).",
+    "effectiveOn": "on",
+    "effectiveOff": "off",
+    "effectiveAuto": "Auto — {{state}}: detected as {{cls}}"
   }
 }

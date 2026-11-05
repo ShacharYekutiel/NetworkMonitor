@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
-import { Link, NavLink, Outlet, useLocation } from 'react-router-dom';
+import { Link, NavLink, Outlet, useLocation, useNavigate } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import { useAuth } from '../hooks/auth';
 import { useLocalState } from '../hooks/useLocalState';
@@ -17,8 +17,10 @@ import {
   WrenchIcon,
   PulseIcon,
   RadarIcon,
+  SearchIcon,
   UsersIcon,
 } from './icons';
+import { parseSearchInput } from '../lib/ports';
 import { TreeNav } from './Tree';
 import { GlobalMaintenanceBanner } from './Maintenance';
 import { cx } from './ui';
@@ -99,6 +101,42 @@ function UserMenu() {
   );
 }
 
+/** [2b-2] Header MAC/IP search (≥ sm); opens the Find page. */
+function HeaderSearch() {
+  const { t } = useTranslation();
+  const navigate = useNavigate();
+  const [v, setV] = useState('');
+  return (
+    <form
+      role="search"
+      className="relative hidden w-56 sm:block"
+      onSubmit={(e) => {
+        e.preventDefault();
+        const raw = v.trim();
+        const p = parseSearchInput(raw);
+        // An invalid query still goes to the Find page, which shows the validation error.
+        const qs = new URLSearchParams(p ? (p as Record<string, string>) : { q: raw }).toString();
+        navigate(raw ? `/find?${qs}` : '/find');
+        setV('');
+      }}
+    >
+      <SearchIcon
+        size={14}
+        className="pointer-events-none absolute start-2 top-1/2 -translate-y-1/2 text-slate-400"
+      />
+      <input
+        value={v}
+        onChange={(e) => setV(e.target.value)}
+        placeholder={t('find.headerPlaceholder')}
+        aria-label={t('find.label')}
+        // MACs/IPs are LTR; the (translated) placeholder follows the page direction.
+        dir={v ? 'ltr' : undefined}
+        className="block w-full rounded-md border-0 bg-slate-100 py-1 pe-2 ps-7 text-sm text-slate-900 ring-1 ring-inset ring-slate-200 placeholder:text-slate-400 focus:bg-white focus:ring-2 focus:ring-sky-500 dark:bg-slate-800 dark:text-slate-100 dark:ring-slate-700 dark:focus:bg-slate-900"
+      />
+    </form>
+  );
+}
+
 export function Layout() {
   const { t } = useTranslation();
   const { isAdmin } = useAuth();
@@ -128,6 +166,7 @@ export function Layout() {
           <span className="hidden sm:inline">NetworkMonitor</span>
         </Link>
         <div className="flex-1" />
+        <HeaderSearch />
         <ConnectionIndicator />
         <LanguageSwitcher />
         <ThemeToggle />
@@ -153,6 +192,7 @@ export function Layout() {
             <NavItem to="/" icon={<DashboardIcon size={16} />} label={t('nav.dashboard')} />
             <NavItem to="/events" icon={<ListIcon size={16} />} label={t('nav.events')} />
             <NavItem to="/topology" icon={<MapIcon size={16} />} label={t('nav.map')} />
+            <NavItem to="/find" icon={<SearchIcon size={16} />} label={t('nav.find')} />
             <NavItem
               to="/maintenance"
               icon={<WrenchIcon size={16} />}

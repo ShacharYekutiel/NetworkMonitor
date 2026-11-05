@@ -34,6 +34,7 @@ export function HistoryChart({
   from,
   to,
   events,
+  heightClass = 'h-72',
 }: {
   points: HistoryPoint[];
   bucketS: number;
@@ -43,6 +44,8 @@ export function HistoryChart({
   to: string;
   /** [2b-1] status_change events drawn as coloured markers (incl. unreachable). */
   events?: NmEvent[];
+  /** [2b-2] smaller charts (port modal) */
+  heightClass?: string;
 }) {
   const ref = useRef<HTMLDivElement>(null);
   const chart = useRef<echarts.ECharts | null>(null);
@@ -191,7 +194,7 @@ export function HistoryChart({
   // ECharts time axes stay left-to-right in both languages (conventions.md).
   return (
     <div>
-      <div dir="ltr" ref={ref} className="h-72 w-full" role="img" aria-label={label} />
+      <div dir="ltr" ref={ref} className={`${heightClass} w-full`} role="img" aria-label={label} />
       {legend.length > 0 && (
         <div className="mt-1 flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-slate-500">
           <span>{t('chart.statusChanges')}:</span>

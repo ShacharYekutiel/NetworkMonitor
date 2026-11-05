@@ -31,6 +31,10 @@ export function LiveProvider({ children }: { children: ReactNode }) {
           void qc.invalidateQueries({ queryKey: ['sensors'] });
           void qc.invalidateQueries({ queryKey: ['sensor'] });
           void qc.invalidateQueries({ queryKey: ['device'] });
+          // [2b-2] port runs and template reloads may have happened meanwhile.
+          void qc.invalidateQueries({ queryKey: ['device-ports'] });
+          void qc.invalidateQueries({ queryKey: ['port-detail'] });
+          void qc.invalidateQueries({ queryKey: qk.deviceTemplates });
         },
       }),
     // eslint-disable-next-line react-hooks/exhaustive-deps
