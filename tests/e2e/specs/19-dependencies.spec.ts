@@ -234,7 +234,9 @@ test('cycles: direct, via group inheritance and via bulk apply -> 400 dependency
   await page.getByRole('button', { name: /^Edit/ }).first().click();
   const dlg = page.getByRole('dialog');
   await dlg.getByRole('radio', { name: /Depends on device/ }).check();
-  await dlg.getByRole('combobox', { name: /^Parent device/ }).selectOption(String(child1.device.id));
+  // With > 8 devices the picker adds a search box inside the same <label>, which then names only the input
+  // (the <select> loses its accessible name, see report) -> locate the select inside the field.
+  await dlg.locator('label').filter({ hasText: /^Parent device/ }).locator('select').selectOption(String(child1.device.id));
   await dlg.getByRole('button', { name: 'Save' }).click();
   await expect(dlg.getByText(/would create a loop/)).toBeVisible();
   await expect(dlg).toContainText(child1Name);
