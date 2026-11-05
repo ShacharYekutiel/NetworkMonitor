@@ -1912,9 +1912,9 @@ Over the device's sensors, first matching rule wins (regexes case-insensitive, o
 | # | Rule | Category |
 |---|---|---|
 | 1 | name `^poe\b` | `poe` |
-| 2 | type `snmp_cpu`, or type `snmp_custom` and name `\bcpu\b\|מעבד` | `cpu` |
-| 3 | type `snmp_memory`, or `snmp_custom` and name `\bmem(ory)?\b\|זיכרון` | `memory` |
-| 4 | `snmp_custom` and (name `temp\|טמפרטורה` or `config.unit` ∈ {`°C`, `C`}) | `temperature` |
+| 2 | `snmp_custom` and (name `temp\|טמפרטורה` or `config.unit` ∈ {`°C`, `C`}) | `temperature` |
+| 3 | type `snmp_cpu`, or type `snmp_custom` and name `\bcpu\b\|מעבד` | `cpu` |
+| 4 | type `snmp_memory`, or `snmp_custom` and name `\bmem(ory)?\b\|זיכרון` | `memory` |
 | 5 | `snmp_custom` and name `\bfans?\b\|cooling\|מאוורר` | `fan` |
 | 6 | `snmp_custom` and name `power supply\|\bpsu\b\|\bpower\b\|ספק כוח` | `psu` |
 
@@ -1924,6 +1924,9 @@ One item per category that has ≥ 1 sensor, order cpu, memory, temperature, poe
   (null if none), unit `%`; temperature → max over sensors with unit `°C`/`C`, unit `°C`; psu, fan → null, `""`;
 - `text`: psu, fan, and temperature without a value → `"<n up>/<n total>"`; others `""`;
 - `sensor_ids` sorted by id; `primary_sensor_id` = the worst sensor (ties: higher value, then lowest id).
+Temperature is checked before cpu/memory so readings named after a component ("Temperature CPU" on Check Point,
+"CPU temperature" on MikroTik) land in `temperature`; a status sensor without `temp`/°C such as HPE `CPU Board`
+stays `cpu` (2b-2 QA finding #3).
 These rules cover the 2b-1 HPE names (`Fan Sensor`, `Power Supply Sensor`, `Over-temperature Sensor`,
 `CPU Board`, `PSU 1`, `PoE 1 usage`, …) and the 2b-2 templates. Renamed sensors may leave the strip.
 

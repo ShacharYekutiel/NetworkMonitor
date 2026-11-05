@@ -102,12 +102,13 @@ test('Check Point standalone (.71): created / not_applicable and values', async 
   // health strip of the firewall's ports view (categorize: cpu, memory, temperature, psu, fan)
   const h = (await api.get(`/api/devices/${DEV.cp.id}/ports`)).health;
   expect.soft(h.map((x: any) => x.category)).toEqual(['cpu', 'memory', 'temperature', 'psu', 'fan']);
-  // categorize() rule 2 (snmp_custom + name \bcpu\b) precedes rule 4 (temperature): "Temperature CPU" lands in
-  // the CPU chip by the contract rules, so the temperature chip only has "Temperature Intake" (38.5).
-  // Asserted as specified; reported as a contract defect (the CPU temperature should be a temperature).
+  // categorize(): the temperature rule precedes cpu/memory (data-model § Health strip, QA finding #3), so
+  // "Temperature CPU" (44) is a temperature and the chip shows the max of both readings.
   const cpuIds = h.find((x: any) => x.category === 'cpu').sensor_ids;
-  expect.soft(cpuIds, 'cpu chip sensors (CPU + Temperature CPU by rule 2)').toHaveLength(2);
-  expect.soft(h.find((x: any) => x.category === 'temperature')).toMatchObject({ value: 38.5, unit: '°C' });
+  expect.soft(cpuIds, 'cpu chip sensors (CPU only)').toHaveLength(1);
+  const temp = h.find((x: any) => x.category === 'temperature');
+  expect.soft(temp.sensor_ids, 'temperature chip sensors (Temperature CPU + Intake)').toHaveLength(2);
+  expect.soft(temp).toMatchObject({ value: 44, unit: '°C' });
   expect.soft(h.find((x: any) => x.category === 'psu')).toMatchObject({ status: 'down', text: '1/2' });
   expect.soft(h.find((x: any) => x.category === 'fan')).toMatchObject({ status: 'down', text: '1/2' });
 });

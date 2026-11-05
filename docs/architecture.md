@@ -891,7 +891,10 @@ generator `gen_snmprec.py` per folder, like `tests/sim/hpe/`. Backend tests use 
 
 **Port sims** (`tests/sim/ports/`):
 
-- `127.0.0.61` **ArubaOS-Switch** (`arubaos/`): sysObjectID `1.3.6.1.4.1.11.2.3.7.11.181`, sysDescr as the 2b-1
+> Port-inventory sims use **127.0.0.81–.85** (originally specified as .61–.65): .61–.67 are the
+> 2b-1 fingerprint hosts, and SNMP agents there would change their classification in spec 23.
+
+- `127.0.0.81` **ArubaOS-Switch** (`arubaos/`): sysObjectID `1.3.6.1.4.1.11.2.3.7.11.181`, sysDescr as the 2b-1
   2930F sim, sysUpTime 100000000. ifIndex 1–10 named `1`…`10` (type 6), 11 `Trk1` (type 161), 12
   `DEFAULT_VLAN` (type 53). No dot1dBasePortIfIndex rows (bridge port = ifIndex, `sources.bridge = empty`).
   Q-BRIDGE static: VLAN 1 egress = untagged = {1–6, 8, 9}; VLAN 10 egress {7, 9, 10}, untagged {7}; VLAN 20
@@ -902,7 +905,7 @@ generator `gen_snmprec.py` per folder, like `tests/sim/hpe/`. Backend tests use 
   → 10. pethPsePortTable group 1 ports 1–8 (admin, detection, class): 1 (1, 3, 4), 2 (1, 2, –), 3 (1, 2, –),
   4 (1, 3, 5), 5 (2, 1, –), 6 (1, 2, –), 7 (1, 3, 1), 8 (1, 4, –). dot3StatsDuplexStatus: 1, 2, 4, 7, 9, 10 → 3;
   3 → 2; 6 → 1. ifLastChange of port 1 = 99000000.
-- `127.0.0.62` **Comware** (`comware/`): sysObjectID `1.3.6.1.4.1.25506.11.1.177`; ifIndex 1–4
+- `127.0.0.82` **Comware** (`comware/`): sysObjectID `1.3.6.1.4.1.25506.11.1.177`; ifIndex 1–4
   `GigabitEthernet1/0/1`…`/4`, 49/50 `Ten-GigabitEthernet1/0/49`/`50` (ifHighSpeed 10000), 101/102
   `GigabitEthernet2/0/1`/`2`, 200 `Vlan-interface1` (136), 300 `NULL0` (1), 301 `InLoopBack0` (24), 400
   `M-GigabitEthernet0/0/0` (6). dot1dBasePortIfIndex bp 1–4 → 1–4, 5 → 49, 6 → 50, 7 → 101, 8 → 102. Q-BRIDGE static:
@@ -910,26 +913,26 @@ generator `gen_snmprec.py` per folder, like `tests/sim/hpe/`. Backend tests use 
   {5, 6}. dot1qVlanFdbId: VLAN 1 → 1, VLAN 10 → **1010**. FDB: fdb 1 `00:0c:29:00:01:01` → bp 1; fdb 1010
   `00:0c:29:00:01:04` → bp 4; fdb 1 `00:0c:29:00:01:07` → bp 7; fdb 1 `02:00:00:00:09:01` → bp 3. PoE group 1
   ports 1, 2, 3, 4 (= ifIndex; 1 delivering class value 3).
-- `127.0.0.63` **Aruba CX** (`arubacx/`): sysObjectID `1.3.6.1.4.1.47196.4.1.1.1.200`, sysDescr `Aruba JL658A
+- `127.0.0.83` **Aruba CX** (`arubacx/`): sysObjectID `1.3.6.1.4.1.47196.4.1.1.1.200`, sysDescr `Aruba JL658A
   6300M 24SFP+ 4SFP56 Swch FL.10.13.1000`; ifIndex 1–6 `1/1/1`…`1/1/6`, 49/50 `1/1/49`/`50` (ifHighSpeed 10000,
   up), 1000 `vlan1` (53), 2000 `mgmt` (6). **No dot1qVlanStaticTable**; dot1qVlanCurrentTable (TimeMark 0) VLAN 1
   egress/untagged {1–6}; **no dot1qPvid rows**. **No dot1qTpFdbTable**; dot1dTpFdbTable `00:00:0c:00:cc:01` → bp 1 (status 3);
   dot1dBasePortIfIndex bp n → ifIndex n. PoE group 1 ports 1–6.
-- `127.0.0.64` **ARP router** (`arp_router/`): OPNsense-style sysObjectID `1.3.6.1.4.1.8072.3.2.8`, sysDescr with
+- `127.0.0.84` **ARP router** (`arp_router/`): OPNsense-style sysObjectID `1.3.6.1.4.1.8072.3.2.8`, sysDescr with
   `OPNsense`; ipNetToPhysicalTable (ifIndex 2, IPv4): `10.0.0.11` → `00:50:56:01:00:01` (3),
   `10.0.0.12` → `00:00:0c:00:00:03` (3), `10.0.0.17` → `00:50:56:01:00:07` (3), `10.0.0.99` →
   `02:00:00:00:09:01` (4 static), `10.0.0.50` → `00:50:56:01:00:50` (**2 invalid**), `10.0.0.1` → own MAC (**5
   local**), one IPv6 row (ignored).
-- `127.0.0.65` **legacy ARP** (`arp_legacy/`): sysDescr `Linux gw2 5.10` (class server → needs `arp_collect:
+- `127.0.0.85` **legacy ARP** (`arp_legacy/`): sysDescr `Linux gw2 5.10` (class server → needs `arp_collect:
   on`); only ipNetToMediaTable: `10.0.0.14` → `da:a1:19:00:00:04` (3).
 - PTR file: `10.0.0.11` → `pc-reception.lan`, `10.0.0.12` → `phone-12.lan`.
 
-Test setup: devices for .61–.65 with ping + snmp_system sensors (identity null → class detection: .61/.62/.63
-switch, .64 router, .65 server), `arp_collect: on` for .65, a manual topology link .62 ifIndex 49 ↔ .61 ifIndex 10,
-an `snmp_interface` sensor on .61 port 1. Then `POST …/ports/refresh` for .64, .65, then .61–.63 (or the
+Test setup: devices for .81–.85 with ping + snmp_system sensors (identity null → class detection: .81/.82/.83
+switch, .84 router, .85 server), `arp_collect: on` for .85, a manual topology link .82 ifIndex 49 ↔ .81 ifIndex 10,
+an `snmp_interface` sensor on .81 port 1. Then `POST …/ports/refresh` for .84, .85, then .81–.83 (or the
 scheduler with `port_inventory_min` 5).
 
-**Expected — .61 ArubaOS** (`GET /api/devices/{id}/ports`; `fdb_mib q_bridge`, `vlan_mib static`):
+**Expected — .81 ArubaOS** (`GET /api/devices/{id}/ports`; `fdb_mib q_bridge`, `vlan_mib static`):
 
 | if | state | speed | duplex | mode / pvid / untagged / tagged | poe (admin, detection, class) | mac_count / macs | uplink | connected_kind | alert |
 |---|---|---|---|---|---|---|---|---|---|
@@ -942,7 +945,7 @@ scheduler with `port_inventory_min` 5).
 | 7 | up | 1G | full | access / 10 / [10] / [] | true, delivering, 0 | 1: `00:50:56:01:00:07` ip 10.0.0.17, hostname null | no | client | no |
 | 8 | down | | | access / 1 | true, fault | 0 | no | none | **yes** (`poe_fault`) → peach |
 | 9 | up | 10G | full | trunk / 1 / [1] / [10, 20] | null | 7, `macs: []` | **mac_count** | client | no |
-| 10 | up | 10G | full | trunk / 1 / [] / [10, 20] | null | 2, `macs: []` | **neighbor** (.62) | switch, `trunk: true` | no |
+| 10 | up | 10G | full | trunk / 1 / [] / [10, 20] | null | 2, `macs: []` | **neighbor** (.82) | switch, `trunk: true` | no |
 | 11 | `Trk1` kind `lag` | | | | | | | | |
 | 12 | `DEFAULT_VLAN` kind `vlan` | | | | | | | | |
 
@@ -950,22 +953,22 @@ Port 1: `sensor_id` set; `last_change_at = collected_at − 10000 s`. First run:
 (snmpsim counters are static) → `in_bps = 0.0`, `in_errors_delta = 0`. Error/rate
 math, 32-bit wrap, 64-bit reset and `alert: errors` are covered by pure unit tests of `build_snapshot`.
 
-**Expected — .62 Comware:** physical ports 1–4, 49, 50, 101, 102; `M-GigabitEthernet0/0/0` kind `mgmt`;
+**Expected — .82 Comware:** physical ports 1–4, 49, 50, 101, 102; `M-GigabitEthernet0/0/0` kind `mgmt`;
 `Vlan-interface1` kind `vlan`; `NULL0`/`InLoopBack0` kind `other`. Bridge mapping: if 49 ↔ bp 5 etc. Port 4:
 access, pvid 10, MAC `00:0c:29:00:01:04` with **vlan 10** (fdbId 1010 mapped). Ports 49/50: trunk, tagged
-[10, 20] (port 50 = bp 6 is also in VLAN 1 egress without untagged: tagged [1, 10, 20]); port 49 uplink `neighbor` (.61), connected_kind `switch`. PoE: port 1 delivering (rule 1 mapping).
+[10, 20] (port 50 = bp 6 is also in VLAN 1 egress without untagged: tagged [1, 10, 20]); port 49 uplink `neighbor` (.81), connected_kind `switch`. PoE: port 1 delivering (rule 1 mapping).
 Faceplate vectors as § 11.4.
 
-**Expected — .63 Aruba CX:** `fdb_mib bridge`, `vlan_mib current`; port 1 MAC `00:00:0c:00:cc:01` **vlan null**;
+**Expected — .83 Aruba CX:** `fdb_mib bridge`, `vlan_mib current`; port 1 MAC `00:00:0c:00:cc:01` **vlan null**;
 ports access/pvid 1 (pvid from untagged since no dot1qPvid rows); `mgmt` kind `mgmt`; 49/50 in the uplink
 block (speed rule); PoE mapped.
 
-**Expected — search:** `q=00:50:56:01:00:07` → 1 item (.61, if 7, vlan 10, ip 10.0.0.17, `best`);
-`q=02-00-00-00-09-01` → 2 items: .62 if 3 (`best`, not uplink) then .61 if 9 (`is_uplink`), ip 10.0.0.99;
-`ip=10.0.0.12` → .61 if 2, `arp` = [10.0.0.12 from .64 present]; `q=005056` → 2 MACs (…01:00:01 and …01:00:07);
+**Expected — search:** `q=00:50:56:01:00:07` → 1 item (.81, if 7, vlan 10, ip 10.0.0.17, `best`);
+`q=02-00-00-00-09-01` → 2 items: .82 if 3 (`best`, not uplink) then .81 if 9 (`is_uplink`), ip 10.0.0.99;
+`ip=10.0.0.12` → .81 if 2, `arp` = [10.0.0.12 from .84 present]; `q=005056` → 2 MACs (…01:00:01 and …01:00:07);
 `ip=10.0.0.50` → no items (invalid ARP entry dropped); `q=zz` → 422; both `q` and `ip` → 422.
 
-**Expected — status/flags:** .65 with `arp_collect: auto` → `arp_effective false`, refresh → 409
+**Expected — status/flags:** .85 with `arp_collect: auto` → `arp_effective false`, refresh → 409
 `ports_disabled`; after PATCH `on` → its entries appear. `status.arp_sources = 2`. A second refresh while one
 runs → 409 `ports_refresh_running`. Viewer refresh → 403. `ports.updated` received after each run.
 Removing the MAC on port 7 from the sim and refreshing → `present: false` in search, port 7 `mac_count 0`;

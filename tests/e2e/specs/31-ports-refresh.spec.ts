@@ -163,11 +163,12 @@ test('UI: Refresh button -> spinner -> ports.updated over WS -> status line upda
   // the open view refetched (WS invalidation), and the button is enabled again
   await expect.poll(() => reqs.filter((r) => r.startsWith('GET') && /\/ports(\?|$)/.test(r)).length).toBeGreaterThanOrEqual(1);
   await expect(page.getByRole('button', { name: T('ports.refresh') })).toBeEnabled({ timeout: 30_000 });
-  // ports.updated of ANOTHER device (an ARP source) also refetches the open view (recommended behaviour)
+  // ports.updated of ANOTHER device that is an ARP source refetches the open view, debounced (trailing, at most
+  // once per 30 s) without any focus event (api.md, client behaviour on ports.updated).
   const n = reqs.length;
   await refreshPorts(api, lab.arp.id);
   await expect.poll(() => ws.frames.some((x) => x.type === 'ports.updated' && x.data?.device_id === lab.arp.id)).toBe(true);
-  await expect.poll(() => reqs.length, { message: 'ports view refetched on another device\'s ports.updated' }).toBeGreaterThan(n);
+  await expect.poll(() => reqs.length, { message: 'ports view refetched after an ARP source\'s ports.updated', timeout: 45_000 }).toBeGreaterThan(n);
 });
 
 test('failed run: SNMP timeout -> ok:false, error "Timeout", snapshot kept', async () => {

@@ -1455,7 +1455,8 @@ switches that refetched every few seconds):
 - `data.device_id` = the device whose ports view / port modal is open → refetch `GET /api/devices/{id}/ports`
   and the open port detail at once;
 - `data.device_id` is an **ARP source** (`arp_effective` from the cached `/api/devices`) → IPs/hostnames shown
-  elsewhere may have changed: mark the open ports view / port detail stale and refetch lazily (debounced, e.g.
-  at most once per 30 s, or on the next focus);
+  elsewhere may have changed: mark the open ports view / port detail stale, refetch them **debounced** (trailing,
+  at most once per 30 s, only while a view/detail is open, so a wall-screen dashboard with no focus events also
+  updates) and also on the next window focus;
 - any other device → nothing;
 - MAC/IP search results (`mac-search`) are **not** invalidated (the user re-runs the search).
