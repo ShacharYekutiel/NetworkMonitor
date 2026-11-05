@@ -50,6 +50,32 @@ Owner decisions: both layouts with a toggle; details only on click, in a modal; 
 - References for typical port views (no official Portnox docs found): Juniper Mist switch front
   panel, Ruckus One switch ports, Meter switch ports.
 
+**Design reference: Juniper Mist switch dashboard (chosen by the owner).** Adopt its look, with
+the owner's interaction rule (details on click in a modal, not on hover):
+- **Front panel** is the default tab. Square port tiles match the physical panel, uplink/SFP
+  ports sit separately, and a health strip above the ports shows CPU, memory, temperature, PoE,
+  PSUs and fans. The strip reuses the sensors from the 2b-1 HPE templates (green/yellow/red;
+  clicking it opens the sensor).
+- **Tile legend:**
+
+  | Tile | Meaning |
+  |---|---|
+  | white with gray border | empty (no link) |
+  | green with an icon | connected; the icon shows what is there: client, AP, switch/uplink (LLDP neighbour), with a trunk variant |
+  | orange | connected with an alert |
+  | peach | empty with an alert |
+  | gray, crossed-out icon | administratively disabled |
+
+  - A port with many learned MACs and no LLDP neighbour stays plain green with a MAC count.
+  - Speed, PoE and VLAN are not drawn on the tile; they are in the modal.
+- **Port list** tab, one row per port: Port, Status, Connected (neighbour or MAC count), VLAN,
+  Mode (access/trunk), Speed, PoE (W), Rx/Tx.
+  - The Port column stays fixed while scrolling.
+  - Column chooser; one filter field that searches all columns, including MAC and IP.
+- **Not included:** port actions (bounce, cable test, configuration). The product stays
+  read-only towards devices.
+- Later: an optical (DOM) chart for fiber ports (Rx/Tx power, temperature).
+
 ### Vendor template library
 - Templates move from code to **data files**, so new vendors can be added without a release
   (later: a template editor in the UI).
