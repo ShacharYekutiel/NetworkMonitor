@@ -33,6 +33,7 @@ backend/netmon/static/*
 # --- Local data / secrets (never commit)
 .devdata/
 data/
+!backend/netmon/data/
 deploy/.env
 *.secret
 secret.key
