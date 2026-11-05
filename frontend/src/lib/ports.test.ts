@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
-import { QueryClient } from '@tanstack/react-query';
+import { QueryClient, QueryObserver } from '@tanstack/react-query';
 import type { ConfigField, PortMac, WsMessage } from '../api/types';
 import { buildUrl } from '../api/client';
 import { mkPort } from './portFixtures';
@@ -27,7 +27,9 @@ import {
   toggleColumn,
 } from './ports';
 import {
+  ARP_REFETCH_MS,
   applyLiveMessage,
+  cancelArpRefetch,
   InvalidationBatcher,
   isArpSource,
   onPortsUpdated,
@@ -548,9 +550,84 @@ describe('WS: ports.updated and templates.reloaded', () => {
     expect(invalidated(qc, ['device-ports', 2])).toBe(true);
     expect(invalidated(qc, ['port-detail', 1, 7, false])).toBe(true);
     expect(invalidated(qc, ['mac-search', { q: '005056' }])).toBe(false);
-    // lazy: refetchType 'none' never triggers a refetch
+    // lazy: refetchType 'none' never triggers an immediate refetch (the delayed one is tested below)
     expect(refetch).not.toHaveBeenCalled();
+    cancelArpRefetch(qc);
     batch.dispose();
+  });
+
+  describe('debounced refetch of open views after ARP-source updates', () => {
+    afterEach(() => vi.useRealTimers());
+    const setupOpen = async () => {
+      vi.useFakeTimers();
+      const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+      qc.setQueryData(['device', 9], { id: 9, arp_effective: true });
+      const openFn = vi.fn(async () => ({ device_id: 1 }));
+      const detailFn = vi.fn(async () => ({ if_index: 7 }));
+      const closedFn = vi.fn(async () => ({ device_id: 2 }));
+      // device 1's view and a port modal are open (active observers); device 2's view is closed
+      const o1 = new QueryObserver(qc, { queryKey: ['device-ports', 1], queryFn: openFn });
+      const o2 = new QueryObserver(qc, {
+        queryKey: ['port-detail', 1, 7, false],
+        queryFn: detailFn,
+      });
+      const off1 = o1.subscribe(() => undefined);
+      const off2 = o2.subscribe(() => undefined);
+      await qc.fetchQuery({ queryKey: ['device-ports', 2], queryFn: closedFn });
+      await vi.advanceTimersByTimeAsync(0);
+      expect(openFn).toHaveBeenCalledTimes(1); // initial fetch
+      openFn.mockClear();
+      detailFn.mockClear();
+      closedFn.mockClear();
+      const batch = new InvalidationBatcher(qc, 0);
+      return { qc, batch, openFn, detailFn, closedFn, off: () => (off1(), off2()) };
+    };
+
+    it('a burst of 5 updates within 10 s gives exactly one refetch, ~30 s after the first', async () => {
+      const { qc, batch, openFn, detailFn, closedFn, off } = await setupOpen();
+      for (let i = 0; i < 5; i++) {
+        applyLiveMessage(qc, updated(9), batch);
+        await vi.advanceTimersByTimeAsync(2_000);
+      }
+      // 10 s after the first update: nothing yet (no focus event ever happens)
+      expect(openFn).not.toHaveBeenCalled();
+      await vi.advanceTimersByTimeAsync(ARP_REFETCH_MS - 10_000 - 1);
+      expect(openFn).not.toHaveBeenCalled();
+      await vi.advanceTimersByTimeAsync(1);
+      expect(openFn).toHaveBeenCalledTimes(1);
+      expect(detailFn).toHaveBeenCalledTimes(1);
+      expect(closedFn).not.toHaveBeenCalled();
+      // nothing more is pending
+      await vi.advanceTimersByTimeAsync(ARP_REFETCH_MS * 2);
+      expect(openFn).toHaveBeenCalledTimes(1);
+      // a later update starts a new window
+      applyLiveMessage(qc, updated(9), batch);
+      await vi.advanceTimersByTimeAsync(ARP_REFETCH_MS);
+      expect(openFn).toHaveBeenCalledTimes(2);
+      expect(closedFn).not.toHaveBeenCalled();
+      off();
+      batch.dispose();
+      cancelArpRefetch(qc);
+    });
+
+    it('updates from a non-ARP device never schedule the delayed refetch', async () => {
+      const { qc, batch, openFn, off } = await setupOpen();
+      applyLiveMessage(qc, updated(3), batch);
+      await vi.advanceTimersByTimeAsync(ARP_REFETCH_MS * 2);
+      expect(openFn).not.toHaveBeenCalled();
+      off();
+      batch.dispose();
+    });
+
+    it('cancelArpRefetch drops a pending refetch', async () => {
+      const { qc, batch, openFn, off } = await setupOpen();
+      applyLiveMessage(qc, updated(9), batch);
+      cancelArpRefetch(qc);
+      await vi.advanceTimersByTimeAsync(ARP_REFETCH_MS * 2);
+      expect(openFn).not.toHaveBeenCalled();
+      off();
+      batch.dispose();
+    });
   });
 
   it('knows ARP sources from any cached copy of the device', () => {

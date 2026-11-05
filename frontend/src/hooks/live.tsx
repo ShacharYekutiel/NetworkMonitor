@@ -2,7 +2,7 @@ import { createContext, useContext, useEffect, useMemo, useState, type ReactNode
 import { useQueryClient } from '@tanstack/react-query';
 import { LiveSocket, type WsState } from '../api/ws';
 import { qk } from '../api/endpoints';
-import { applyLiveMessage, InvalidationBatcher } from '../lib/liveCache';
+import { applyLiveMessage, cancelArpRefetch, InvalidationBatcher } from '../lib/liveCache';
 import { useAuth } from './auth';
 
 const Ctx = createContext<WsState>('closed');
@@ -52,6 +52,7 @@ export function LiveProvider({ children }: { children: ReactNode }) {
       offState();
       socket.stop();
       batch.dispose();
+      cancelArpRefetch(qc);
     };
   }, [authState, socket, qc]);
 

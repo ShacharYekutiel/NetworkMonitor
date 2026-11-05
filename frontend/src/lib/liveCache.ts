@@ -393,7 +393,8 @@ export function dependentDeviceIds(qc: QueryClient, parentId: number): number[] 
  * - That device's ports view and port modals are invalidated; only an open (observed) view
  *   refetches, closed ones are just marked stale.
  * - When the device is a known ARP source, IPs on every other switch may have changed: all ports
- *   views/modals are marked stale without refetching (they refetch on window focus or remount).
+ *   views/modals are marked stale (refetched on window focus or remount), and open ones refetch
+ *   once ARP_REFETCH_MS after the first such update of a burst (scheduleArpRefetch).
  * - MAC searches are not invalidated (a new search or a remount refetches them).
  * A WebSocket reconnect still refetches everything (hooks/live.tsx).
  */
@@ -407,7 +408,36 @@ export function applyPortsUpdated(
   if (isArpSource(qc, d.device_id)) {
     void qc.invalidateQueries({ queryKey: ['device-ports'], refetchType: 'none' });
     void qc.invalidateQueries({ queryKey: ['port-detail'], refetchType: 'none' });
+    scheduleArpRefetch(qc);
   }
+}
+
+/** [2b-2] Delay of the refetch of open ports views after an ARP source's run. */
+export const ARP_REFETCH_MS = 30_000;
+const arpTimers = new WeakMap<QueryClient, ReturnType<typeof setTimeout>>();
+
+/**
+ * Open ports views / port modals (active observers) refetch once, ARP_REFETCH_MS after the first
+ * ARP-source update of a burst (later updates in the window join it), so a wall-screen dashboard
+ * that never gets a focus event still shows fresh IPs. Closed queries are not refetched.
+ */
+export function scheduleArpRefetch(qc: QueryClient): void {
+  if (arpTimers.has(qc)) return;
+  arpTimers.set(
+    qc,
+    setTimeout(() => {
+      arpTimers.delete(qc);
+      void qc.refetchQueries({ queryKey: ['device-ports'], type: 'active' });
+      void qc.refetchQueries({ queryKey: ['port-detail'], type: 'active' });
+    }, ARP_REFETCH_MS),
+  );
+}
+
+/** Cancels a pending ARP refetch (socket stopped / tests). */
+export function cancelArpRefetch(qc: QueryClient): void {
+  const t = arpTimers.get(qc);
+  if (t) clearTimeout(t);
+  arpTimers.delete(qc);
 }
 
 /** Whether a device collects ARP, from any cached copy of it (unknown → false). */

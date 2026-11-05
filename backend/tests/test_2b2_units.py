@@ -463,7 +463,11 @@ def _s(id_, type_, name, status="up", value=None, unit="", cfg_unit=None):  # ty
         (_s(1, "ping", "CPU"), None),
         (_s(1, "snmp_custom", "Sessions"), None),
         (_s(1, "snmp_custom", "Fancy"), None),
-        (_s(1, "snmp_custom", "Temperature CPU"), "cpu"),  # rule 2 before rule 4
+        # temperature before cpu / memory (QA #3)
+        (_s(1, "snmp_custom", "Temperature CPU"), "temperature"),  # Check Point
+        (_s(1, "snmp_custom", "CPU temperature"), "temperature"),  # MikroTik
+        (_s(1, "snmp_custom", "Memory module", cfg_unit="°C"), "temperature"),
+        (_s(1, "snmp_custom", "CPU Board", cfg_unit=""), "cpu"),  # HPE status enum
     ],
 )
 def test_categorize(sensor: dict, cat: str | None) -> None:

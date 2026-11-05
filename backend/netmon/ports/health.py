@@ -30,12 +30,13 @@ def categorize(sensor: dict[str, Any]) -> str | None:
     custom = type_ == "snmp_custom"
     if RE_POE.search(name):
         return "poe"
+    # temperature before cpu/memory: "Temperature CPU", "CPU temperature" are temperatures
+    if custom and (RE_TEMP.search(name) or _unit(sensor) in CELSIUS):
+        return "temperature"
     if type_ == "snmp_cpu" or (custom and RE_CPU.search(name)):
         return "cpu"
     if type_ == "snmp_memory" or (custom and RE_MEM.search(name)):
         return "memory"
-    if custom and (RE_TEMP.search(name) or _unit(sensor) in CELSIUS):
-        return "temperature"
     if custom and RE_FAN.search(name):
         return "fan"
     if custom and RE_PSU.search(name):

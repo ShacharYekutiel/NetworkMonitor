@@ -444,3 +444,48 @@ async def test_percent_base_total_edit_keeps_state(rt, admin) -> None:  # type: 
         },
     )
     assert r.status_code == 200 and await state() == {}
+
+
+# ------------------------------------------------------------------ QA round
+@requires_db
+async def test_manual_link_default_port_from_inventory(rt, admin) -> None:  # type: ignore[no-untyped-def]
+    """QA #4: a manual link with only an ifIndex is named from switch_ports.name, then the
+    snmp_interface sensor's if_name, then the index."""
+    a = await make_device(admin, name="comware", host="127.0.7.240")
+    b = await make_device(admin, name="aruba", host="127.0.7.241")
+    await _exec(
+        rt,
+        "INSERT INTO switch_ports (device_id, if_index, name, kind, admin_status, oper_status, "
+        "collected_at) VALUES ($1, 49, 'Ten-GigabitEthernet1/0/49', 'physical', 'up', 'up', "
+        "now())",
+        a["id"],
+    )
+    await make_sensor(admin, b["id"], "snmp_interface", {"if_index": 10, "if_name": "eth10"})
+    r = await admin.post(
+        "/api/topology/links",
+        json={"a_device_id": a["id"], "a_if_index": 49, "b_device_id": b["id"], "b_if_index": 10},
+    )
+    assert r.status_code == 201, r.text
+    link = r.json()
+    ports = {link["a_device_id"]: link["a_port"], link["b_device_id"]: link["b_port"]}
+    assert ports == {a["id"]: "Ten-GigabitEthernet1/0/49", b["id"]: "eth10"}
+    r = await admin.post(
+        "/api/topology/links",
+        json={"a_device_id": a["id"], "a_if_index": 7, "b_device_id": b["id"], "b_if_index": 3},
+    )
+    link = r.json()
+    assert {link["a_port"], link["b_port"]} == {"7", "3"}
+
+
+@requires_db
+async def test_patch_inventory_mode_null_is_422(rt, admin) -> None:  # type: ignore[no-untyped-def]
+    """QA #5: an explicit null port_inventory / arp_collect is invalid; omitting is fine."""
+    dev = await make_device(admin, name="n", host="127.0.7.242")
+    for key in ("port_inventory", "arp_collect"):
+        r = await admin.patch(f"/api/devices/{dev['id']}", json={key: None})
+        assert r.status_code == 422 and r.json()["error"]["code"] == "validation_error", key
+        assert r.json()["error"]["details"][0]["loc"] == ["body", key]
+    r = await admin.patch(f"/api/devices/{dev['id']}", json={"name": "renamed"})
+    assert r.status_code == 200 and r.json()["port_inventory"] == "auto"
+    r = await admin.patch(f"/api/devices/{dev['id']}", json={"port_inventory": "on"})
+    assert r.json()["port_inventory"] == "on"

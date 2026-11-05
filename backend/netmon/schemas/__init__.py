@@ -228,6 +228,14 @@ class DevicePatch(_In):
     port_inventory: InventoryMode | None = None  # [2b-2]
     arp_collect: InventoryMode | None = None  # [2b-2]
 
+    @field_validator("port_inventory", "arp_collect")
+    @classmethod
+    def _mode_not_null(cls, v: str | None) -> str:
+        # omitted = unchanged; an explicit null is invalid (only auto | on | off)
+        if v is None:
+            raise ValueError("must be one of 'auto', 'on', 'off'")
+        return v
+
     @field_validator("host")
     @classmethod
     def _hv(cls, v: str | None) -> str | None:

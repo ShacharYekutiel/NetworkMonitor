@@ -241,8 +241,18 @@ async def list_links(
 
 
 async def _default_port(session: DB, device_id: int, if_index: int | None) -> str:
+    """ifName from the 2b-2 port inventory, else the snmp_interface sensor's if_name, else the
+    index."""
     if if_index is None:
         return ""
+    port = (
+        await session.execute(
+            text("SELECT name FROM switch_ports WHERE device_id = :d AND if_index = :i"),
+            {"d": device_id, "i": if_index},
+        )
+    ).scalar()
+    if port:
+        return str(port)
     name = (
         await session.execute(
             text(
