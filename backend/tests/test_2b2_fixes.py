@@ -467,14 +467,14 @@ async def test_manual_link_default_port_from_inventory(rt, admin) -> None:  # ty
     )
     assert r.status_code == 201, r.text
     link = r.json()
-    ports = {link["a_device_id"]: link["a_port"], link["b_device_id"]: link["b_port"]}
+    ports = {link["a"]["device_id"]: link["a"]["port"], link["b"]["device_id"]: link["b"]["port"]}
     assert ports == {a["id"]: "Ten-GigabitEthernet1/0/49", b["id"]: "eth10"}
     r = await admin.post(
         "/api/topology/links",
         json={"a_device_id": a["id"], "a_if_index": 7, "b_device_id": b["id"], "b_if_index": 3},
     )
     link = r.json()
-    assert {link["a_port"], link["b_port"]} == {"7", "3"}
+    assert {link["a"]["port"], link["b"]["port"]} == {"7", "3"}
 
 
 @requires_db
