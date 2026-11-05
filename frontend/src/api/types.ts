@@ -542,7 +542,13 @@ export type WsMessage =
   | {
       type: 'ports.updated';
       ts: string;
-      data: { device_id: number; ok: boolean; collected_at: string };
+      data: {
+        device_id: number;
+        ok: boolean;
+        collected_at: string;
+        /** [2b-2] the device collects ARP (absent on older servers) */
+        arp_source?: boolean;
+      };
     }
   | {
       type: 'templates.reloaded';

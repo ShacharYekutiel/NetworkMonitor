@@ -619,6 +619,36 @@ describe('WS: ports.updated and templates.reloaded', () => {
       batch.dispose();
     });
 
+    const withFlag = (device_id: number, arp_source: boolean): WsMessage => ({
+      type: 'ports.updated',
+      ts: 'x',
+      data: { device_id, ok: true, collected_at: 'x', arp_source },
+    });
+
+    it('arp_source: true from the server works with an empty device cache', async () => {
+      const { qc, batch, openFn, detailFn, closedFn, off } = await setupOpen();
+      qc.removeQueries({ queryKey: ['device'] });
+      expect(isArpSource(qc, 42)).toBe(false);
+      applyLiveMessage(qc, withFlag(42, true), batch);
+      await vi.advanceTimersByTimeAsync(ARP_REFETCH_MS);
+      expect(openFn).toHaveBeenCalledTimes(1);
+      expect(detailFn).toHaveBeenCalledTimes(1);
+      expect(closedFn).not.toHaveBeenCalled();
+      off();
+      batch.dispose();
+      cancelArpRefetch(qc);
+    });
+
+    it('arp_source: false wins over a cache that says ARP source', async () => {
+      const { qc, batch, openFn, off } = await setupOpen();
+      expect(isArpSource(qc, 9)).toBe(true);
+      applyLiveMessage(qc, withFlag(9, false), batch);
+      await vi.advanceTimersByTimeAsync(ARP_REFETCH_MS * 2);
+      expect(openFn).not.toHaveBeenCalled();
+      off();
+      batch.dispose();
+    });
+
     it('cancelArpRefetch drops a pending refetch', async () => {
       const { qc, batch, openFn, off } = await setupOpen();
       applyLiveMessage(qc, updated(9), batch);

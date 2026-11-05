@@ -400,12 +400,14 @@ export function dependentDeviceIds(qc: QueryClient, parentId: number): number[] 
  */
 export function applyPortsUpdated(
   qc: QueryClient,
-  d: { device_id: number },
+  d: { device_id: number; arp_source?: boolean },
   batch: InvalidationBatcher,
 ): void {
   batch.add(qk.devicePorts(d.device_id));
   batch.add(['port-detail', d.device_id]);
-  if (isArpSource(qc, d.device_id)) {
+  // The server says whether the device collects ARP; older servers omit it → cached device data.
+  const arp = typeof d.arp_source === 'boolean' ? d.arp_source : isArpSource(qc, d.device_id);
+  if (arp) {
     void qc.invalidateQueries({ queryKey: ['device-ports'], refetchType: 'none' });
     void qc.invalidateQueries({ queryKey: ['port-detail'], refetchType: 'none' });
     scheduleArpRefetch(qc);
@@ -455,7 +457,12 @@ export function refetchIfInvalidated(query: { state: { isInvalidated: boolean } 
 }
 
 // [2b-2] ports.updated listeners (the Refresh button stops its spinner on its device's message).
-export type PortsUpdated = { device_id: number; ok: boolean; collected_at: string };
+export type PortsUpdated = {
+  device_id: number;
+  ok: boolean;
+  collected_at: string;
+  arp_source?: boolean;
+};
 const portsListeners = new Set<(d: PortsUpdated) => void>();
 
 export function onPortsUpdated(l: (d: PortsUpdated) => void): () => void {
