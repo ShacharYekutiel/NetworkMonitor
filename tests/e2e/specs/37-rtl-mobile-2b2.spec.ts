@@ -6,7 +6,8 @@ import { T, box, ensurePortLab, openPorts, setLang, shot2b2, tile, type PortLab 
 // [2b-2] (i) Hebrew RTL + phone width (390 px): the 52-port faceplate scrolls inside its card, no page
 // overflow; port list, modal, Find and Templates in en/he without page overflow; LTR MACs/IPs; no missing
 // i18n keys on the new screens. Screenshots en + he (desktop + phone) to $QA2B2_SHOT_DIR.
-test.describe.configure({ mode: 'serial' });
+// default mode: a failure does not hide the results of the later tests (state is re-derived per test)
+test.describe.configure({ mode: 'default' });
 
 let api: Api;
 let lab: PortLab;

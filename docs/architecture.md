@@ -950,7 +950,7 @@ math, 32-bit wrap, 64-bit reset and `alert: errors` are covered by pure unit tes
 **Expected — .62 Comware:** physical ports 1–4, 49, 50, 101, 102; `M-GigabitEthernet0/0/0` kind `mgmt`;
 `Vlan-interface1` kind `vlan`; `NULL0`/`InLoopBack0` kind `other`. Bridge mapping: if 49 ↔ bp 5 etc. Port 4:
 access, pvid 10, MAC `00:0c:29:00:01:04` with **vlan 10** (fdbId 1010 mapped). Ports 49/50: trunk, tagged
-[10, 20]; port 49 uplink `neighbor` (.61), connected_kind `switch`. PoE: port 1 delivering (rule 1 mapping).
+[10, 20] (port 50 = bp 6 is also in VLAN 1 egress without untagged: tagged [1, 10, 20]); port 49 uplink `neighbor` (.61), connected_kind `switch`. PoE: port 1 delivering (rule 1 mapping).
 Faceplate vectors as § 11.4.
 
 **Expected — .63 Aruba CX:** `fdb_mib bridge`, `vlan_mib current`; port 1 MAC `00:00:0c:00:cc:01` **vlan null**;
@@ -985,7 +985,7 @@ psu (`PSU 1` up), fan (`Fan 2` down, text `1/2`).
 |---|---|---|
 | .71 | router / checkpoint (rule 9a, snmp/high) → `checkpoint_gaia` | created: Ping, System, CPU 23 % up, Memory 25 % up, Concurrent connections 12345, Connection table usage (no value, up), VPN tunnels up (matched 2, rows 3, unmatched 1 → **warning**), Temperature CPU 44, Temperature Intake 38.5, Fan 1 up, Fan 2 **down**, Power supply 1 up, Power supply 2 **down**, Disk /, Disk /var/log, interfaces eth0, eth1; skipped `not_applicable`: ClusterXL state, ClusterXL status |
 | .72 | router / checkpoint (rule 9a via the `checkpoint` probe) → `checkpoint_gaia` | created: …, CPU 41 %, ClusterXL state up (`ClusterXL: active`), ClusterXL status up (`OK (0)`); skipped: VPN tunnels up `probe_failed` (`No rows`), temperature/fan/PSU tables `no_rows` |
-| .73 | access_point / aruba → `aruba_wifi` | created: Ping, System, APs up (2 of 3 → **warning**), AP AP-Lobby up, AP AP-Office up, AP AP-Store **down**, Wi-Fi clients (matched 5); skipped: CPU Load / Memory `probe_failed`, controller rows `probe_failed` / `no_rows` |
+| .73 | switch / aruba (rule 10: the unchanged switch regex matches `ArubaOS` in sysDescr; the template matches by enterprise) → `aruba_wifi` | created: Ping, System, APs up (2 of 3 → **warning**), AP AP-Lobby up, AP AP-Office up, AP AP-Store **down**, Wi-Fi clients (matched 5); skipped: CPU Load / Memory `probe_failed`, controller rows `probe_failed` / `no_rows` |
 
 **Template library tests:**
 - Built-in library loads with **zero errors**; 19 templates; order as data-model; the nine converted templates

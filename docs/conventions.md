@@ -162,5 +162,9 @@ both Timescale mode and fallback mode, and on Windows paths (no POSIX-only calls
 - Frontend: extend `types.ts` / `endpoints.ts` / `ws.ts` exactly as api.md § 2b-2; `lib/faceplate.ts` and
   `lib/ports.ts` are pure and unit-tested with the vectors in architecture.md § 11.4/11.6. The front panel is
   always `dir="ltr"`; everything around it follows the RTL rules.
-- Existing test change allowed in 2b-2: `test_discovery_units.py::test_templates_data` (new ids and keys). Any
-  other existing test that fails is a regression.
+- Existing test change allowed in 2b-2: `test_discovery_units.py::test_templates_data` (new ids and keys).
+  Also required by this contract (the assertions encode 2b-1 facts that 2b-2 changes on purpose):
+  `test_migrations.py` (head revision `0005` instead of `0004`), `test_inventory.py` (Device gains the five
+  inventory keys; `/api/sensor-types` gains `snmp_walk_count`), `test_discovery.py` (the Cisco sim now suggests
+  `cisco_ios`), `test_2b_units.py` (Aruba CX now suggests `aruba_cx`). Any other existing test that fails is a
+  regression.

@@ -147,8 +147,11 @@ def arubaos_records(*, drop_port7_mac: bool = False) -> list[Record]:
     recs += port(11, "Trk1", 161)
     recs += port(12, "DEFAULT_VLAN", 53)
     recs += static_vlans(
-        {1: ({1, 2, 3, 4, 5, 6, 8, 9}, {1, 2, 3, 4, 5, 6, 8, 9}), 10: ({7, 9, 10}, {7}),
-         20: ({9, 10}, set())}
+        {
+            1: ({1, 2, 3, 4, 5, 6, 8, 9}, {1, 2, 3, 4, 5, 6, 8, 9}),
+            10: ({7, 9, 10}, {7}),
+            20: ({9, 10}, set()),
+        }
     )
     recs += [(f"{PVID}.{bp}", 66, "10" if bp == 7 else "1") for bp in range(1, 11)]
     fdb = [

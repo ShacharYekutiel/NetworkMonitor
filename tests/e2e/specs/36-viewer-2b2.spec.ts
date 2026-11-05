@@ -5,7 +5,8 @@ import { T, ensurePortLab, openPorts, search, tile, type PortLab } from '../lib/
 
 // [2b-2] (h) Viewer (architecture.md §11.7): can view ports, the port modal and search; cannot refresh,
 // reload templates, start monitoring or change the inventory flags / ports settings (403 + hidden buttons).
-test.describe.configure({ mode: 'serial' });
+// default mode: a failure does not hide the results of the later tests (state is re-derived per test)
+test.describe.configure({ mode: 'default' });
 
 let admin: Api;
 let viewer: Api;

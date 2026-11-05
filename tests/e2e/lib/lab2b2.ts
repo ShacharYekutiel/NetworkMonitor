@@ -151,8 +151,18 @@ export async function ensurePortLab(api: Api, opts: { force?: boolean } = {}): P
 
   // manual link CW if 49 <-> AOS if 10
   const links = (await api.get(`/api/topology/links?device_id=${cw.id}&page_size=1000`)).items;
-  let link = links.find((l: any) => l.source === 'manual' && ((l.a_device_id === cw.id && l.a_if_index === 49 && l.b_device_id === aos.id) || (l.b_device_id === cw.id && l.b_if_index === 49 && l.a_device_id === aos.id)));
-  if (!link) link = await api.post('/api/topology/links', { a_device_id: cw.id, a_if_index: 49, b_device_id: aos.id, b_neighbor_id: null, b_if_index: 10, b_port: '10' });
+  const ends = (l: any) => [l.a?.device_id ?? l.a_device_id, l.b?.device_id ?? l.b_device_id].sort().join(',');
+  let link = links.find((l: any) => ends(l) === [cw.id, aos.id].sort().join(','));
+  if (!link) {
+    const r = await raw(api, 'POST', '/api/topology/links', { a_device_id: cw.id, a_if_index: 49, b_device_id: aos.id, b_neighbor_id: null, b_if_index: 10, b_port: '10' });
+    if (r.status === 201) link = r.body;
+    else {
+      // 409: it exists, but the filtered listing did not return it -> look through every link
+      const all = (await api.get('/api/topology/links?page_size=1000')).items;
+      link = all.find((l: any) => ends(l) === [cw.id, aos.id].sort().join(','));
+      expect(link, `manual link CW 49 <-> AOS 10: POST ${r.status} ${r.text}; filtered listing ${JSON.stringify(links)}`).toBeTruthy();
+    }
+  }
 
   const lab: PortLab = { groupId, aos, cw, cx, arp, legacy, aos52, ap, ifSensorId: ifSensor.id, linkId: link.id };
   const fresh = !(await devicePorts(api, aos.id)).status.last_ok_at;

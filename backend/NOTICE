@@ -1,0 +1,4 @@
+NetworkMonitor backend - third-party data
+
+netmon/data/oui.tsv.gz: OUI data (c) IEEE Registration Authority, from the public MA-L listing
+(https://standards-oui.ieee.org/oui/oui.csv), retrieved 2026-11-05 with scripts/update_oui.py.

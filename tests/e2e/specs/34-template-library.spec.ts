@@ -10,7 +10,8 @@ import { E2E_DATA_DIR, T, clearUserTemplates, installUserTemplates, removeUserTe
 // 19 built-ins in order with verified/confidence; the nine converted templates equal the 2b-1 data; user
 // override directory (10 fixture files, 7 errors) + reload; load errors in the UI; delete override -> back to
 // built-in; Comware suggestion still hpe_comware; apply a user template; viewer sees no errors / user_dir.
-test.describe.configure({ mode: 'serial' });
+// default mode: a failure does not hide the results of the later tests (state is re-derived per test)
+test.describe.configure({ mode: 'default' });
 
 let api: Api;
 const ORDER = ['opnsense', 'unifi_ap', 'printer', 'apc_ups', 'aruba_cx', 'aruba_wifi', 'checkpoint_gaia', 'cisco_ios', 'dell_idrac', 'fortinet_fortigate', 'hpe_arubaos_switch', 'hpe_comware', 'hpe_ilo', 'mikrotik_routeros', 'paloalto_panos', 'nas_server', 'generic_snmp', 'http_server', 'generic_ping'];
@@ -35,7 +36,8 @@ function readsVendorOid(e: any): boolean {
   if (e.kind === 'snmp_table') return isVendorOid(e.walk_oid);
   return false;
 }
-const card = (page: Page, id: string) => page.locator('section').filter({ has: page.locator('header code', { hasText: new RegExp(`^${id}$`) }) });
+// the template card is the innermost <section> holding the id (the vendor group <section> contains it too)
+const card = (page: Page, id: string) => page.locator('section').filter({ has: page.locator('header code', { hasText: new RegExp(`^${id}$`) }) }).last();
 
 test.beforeAll(async () => {
   api = await apiAs();
@@ -145,6 +147,7 @@ test('user directory: 10 files -> 3 user templates, 1 override, 7 errors; reload
 
 test('Reload button (admin) shows counts; Comware apply/suggestion with the override; acme_ups applies', async ({ page }) => {
   test.skip(!E2E_DATA_DIR, 'needs E2E_DATA_DIR (run.sh)');
+  installUserTemplates(); // self-contained (beforeAll of a restarted worker clears the directory)
   await loginViaApi(page, undefined, '/templates');
   const resp = page.waitForResponse((r) => r.url().endsWith('/api/device-templates/reload') && r.request().method() === 'POST');
   await page.getByRole('button', { name: T('templates.reload') }).click();
@@ -165,6 +168,7 @@ test('Reload button (admin) shows counts; Comware apply/suggestion with the over
 
 test('delete the override + reload -> hpe_comware built-in again; Comware suggestion still hpe_comware', async () => {
   test.skip(!E2E_DATA_DIR, 'needs E2E_DATA_DIR (run.sh)');
+  installUserTemplates();
   removeUserTemplate('override/hpe_comware.yaml');
   const lib = await api.post('/api/device-templates/reload');
   expect(lib).toMatchObject({ user_count: 2, overridden: [] });

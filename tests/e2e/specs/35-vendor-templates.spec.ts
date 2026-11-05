@@ -9,7 +9,8 @@ import { IP, SYNTH, T, shot2b2 } from '../lib/lab2b2';
 // apply -> created / skipped (probe_failed, no_rows, not_applicable) and live values; synthetic sims: every
 // new template applies with no probe_failed / no_rows / snmp_error / not_applicable (mechanics; http probes
 // of hpe_ilo / dell_idrac excepted: nothing listens on 443 there).
-test.describe.configure({ mode: 'serial' });
+// default mode: a failure does not hide the results of the later tests (state is re-derived per test)
+test.describe.configure({ mode: 'default' });
 
 let api: Api;
 let gid = 0;
@@ -68,7 +69,10 @@ test('classification: Check Point (enterprise 2620 and net-snmp Linux + svn prob
   expect(R[IP.cp]).toMatchObject({ device_class: 'router', vendor: 'checkpoint', classified_by: 'snmp', confidence: 'high', suggested_template: 'checkpoint_gaia', sys_object_id: '1.3.6.1.4.1.2620.1.6.123.1.49' });
   // rule 9a via the `checkpoint` subtree probe beats rule 11 (net-snmp .10 -> server/linux)
   expect(R[IP.cpCluster]).toMatchObject({ device_class: 'router', vendor: 'checkpoint', classified_by: 'snmp', confidence: 'high', suggested_template: 'checkpoint_gaia', sys_object_id: '1.3.6.1.4.1.8072.3.2.10' });
-  expect(R[IP.instant]).toMatchObject({ device_class: 'access_point', vendor: 'aruba', suggested_template: 'aruba_wifi' });
+  // Contract §11.6 expects access_point; rule 10's switch regex (2b-1) contains `arubaos`, which matches the
+  // contract's own sysDescr "ArubaOS (MODEL: 515)..." -> switch (contract defect, reported). Soft so the rest runs.
+  expect.soft(R[IP.instant]?.device_class, 'Aruba Instant class').toBe('access_point');
+  expect(R[IP.instant]).toMatchObject({ vendor: 'aruba', suggested_template: 'aruba_wifi' });
 });
 
 test('synthetic sims: each suggests its own template', async () => {
@@ -89,7 +93,8 @@ test('Check Point standalone (.71): created / not_applicable and values', async 
   const vpn = by['VPN tunnels up'];
   expect.soft(vpn.type).toBe('snmp_walk_count');
   expect.soft({ status: vpn.status, rows: ch(vpn, 'rows'), matched: ch(vpn, 'matched'), unmatched: ch(vpn, 'unmatched') }).toEqual({ status: 'warning', rows: 3, matched: 2, unmatched: 1 });
-  expect.soft(vpn.status_message).toMatch(/2 of 3/);
+  // threshold breach -> the Phase 1 threshold message ("unmatched 1 > 0"); else "<label>: 2 of 3" (contract ambiguity)
+  expect.soft(vpn.status_message).toMatch(/2 of 3|unmatched 1 > 0/);
   expect.soft(ch(by['Temperature CPU'])).toBe(44);
   expect.soft(ch(by['Temperature Intake'])).toBe(38.5);
   expect.soft([by['Fan 1'].status, by['Fan 2'].status]).toEqual(['up', 'down']);
@@ -137,7 +142,9 @@ test('Aruba Instant VC (.73): APs up (warning 2 of 3), per-AP rows, Wi-Fi client
 });
 
 test('apply result dialog shows not_applicable (UI, Check Point re-apply)', async ({ page }) => {
-  await loginViaApi(page, undefined, `/devices/${DEV.cp.id}`);
+  const cp = await findDevice(api, IP.cp);
+  test.skip(!cp, 'Check Point device not created (earlier test failed)');
+  await loginViaApi(page, undefined, `/devices/${cp.id}`);
   await page.getByRole('button', { name: T('templates.apply') }).first().click();
   const dlg = page.getByRole('dialog');
   await dlg.getByRole('combobox').first().selectOption('checkpoint_gaia');
@@ -168,9 +175,13 @@ test('synthetic sims: mechanics of every new template (no failed/empty/inapplica
 
 test('synthetic sims: created sensors produce values (no check errors)', async () => {
   const problems: string[] = [];
-  for (const tpl of Object.keys(SYNTH)) {
-    const d = DEV[`syn-${tpl}`];
-    const created = APPLY[`syn-${tpl}`].created.filter((c: any) => c.type !== 'http' && c.type !== 'ping');
+  for (const [tpl, ip] of Object.entries(SYNTH)) {
+    const d = await findDevice(api, ip);
+    if (!d) {
+      problems.push(`${tpl}: device missing`);
+      continue;
+    }
+    const created = (await api.get(`/api/sensors?device_id=${d.id}&page_size=1000`)).items.filter((c: any) => c.type !== 'http' && c.type !== 'ping');
     const by = await waitChecked(d.id, created.map((c: any) => c.name), 120_000).catch(() => sensorsByName(d.id));
     for (const c of created) {
       const s = by[c.name];

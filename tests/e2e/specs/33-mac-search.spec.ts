@@ -4,7 +4,8 @@ import { T, ensurePortLab, search, shot2b2, type PortLab } from '../lib/lab2b2';
 
 // [2b-2] (f) Global MAC / IP search (api.md [2b-2] Search) and the Find page: best access port, uplink rows,
 // ARP hits, prefix search, validation; the port cell links to /devices/{id}?tab=ports&port={if_index}.
-test.describe.configure({ mode: 'serial' });
+// default mode: a failure does not hide the results of the later tests (state is re-derived per test)
+test.describe.configure({ mode: 'default' });
 
 let api: Api;
 let lab: PortLab;

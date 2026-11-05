@@ -5,7 +5,8 @@ import { T, devicePorts, ensurePortLab, openPorts, refreshPorts, search, waitRun
 
 // [2b-2] (d) Refresh + job status + errors (api.md [2b-2] Errors, PortInventoryStatus), the WS ports.updated
 // live update, the inventory flags auto/on/off (data-model § Devices: inventory flags), settings validation.
-test.describe.configure({ mode: 'serial' });
+// default mode: a failure does not hide the results of the later tests (state is re-derived per test)
+test.describe.configure({ mode: 'default' });
 
 let api: Api;
 let lab: PortLab;

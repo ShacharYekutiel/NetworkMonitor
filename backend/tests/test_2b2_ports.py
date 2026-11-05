@@ -154,7 +154,11 @@ async def test_ports_lab(rt, admin: httpx.AsyncClient, agents, ptr_file) -> None
 
     # device flags in GET /api/devices/{id}
     d = (await admin.get(f"/api/devices/{devs['aruba']['id']}")).json()
-    assert (d["port_inventory"], d["arp_collect"], d["effective_class"]) == ("auto", "auto", "switch")
+    assert (d["port_inventory"], d["arp_collect"], d["effective_class"]) == (
+        "auto",
+        "auto",
+        "switch",
+    )
     assert d["ports_effective"] is True and d["arp_effective"] is False
     d = (await admin.get(f"/api/devices/{devs['router']['id']}")).json()
     assert d["effective_class"] == "router" and d["arp_effective"] is True
@@ -319,7 +323,9 @@ async def test_ports_lab(rt, admin: httpx.AsyncClient, agents, ptr_file) -> None
     # ---------------------------------------------------------------- ARP-only devices
     body = (await admin.get(f"/api/devices/{devs['router']['id']}/ports")).json()
     assert body["ports_effective"] is False and body["arp_effective"] is True
-    assert body["status"]["sources"]["arp"] == "ok" and body["status"]["sources"]["fdb"] == "skipped"
+    assert (
+        body["status"]["sources"]["arp"] == "ok" and body["status"]["sources"]["fdb"] == "skipped"
+    )
     assert body["status"]["arp_entries"] == 4 and body["ports"] == []
     body = (await admin.get(f"/api/devices/{devs['legacy']['id']}/ports")).json()
     assert body["status"]["arp_entries"] == 1
@@ -375,7 +381,7 @@ async def test_ports_lab(rt, admin: httpx.AsyncClient, agents, ptr_file) -> None
 
     # ---------------------------------------------------------------- MAC disappears
     before = (await admin.get("/api/search/mac", params={"q": "00:50:56:01:00:07"})).json()
-    restart(agents, "aruba", sims.arubaos_records(drop_port7_mac=True))
+    await asyncio.to_thread(restart, agents, "aruba", sims.arubaos_records(drop_port7_mac=True))
     try:
         await _refresh(rt, admin, devs["aruba"]["id"])
         p = _ports((await admin.get(f"/api/devices/{devs['aruba']['id']}/ports")).json())
@@ -386,7 +392,7 @@ async def test_ports_lab(rt, admin: httpx.AsyncClient, agents, ptr_file) -> None
         assert it["present"] is False and it["best"] is False
         assert it["last_seen"] == before["items"][0]["last_seen"]
     finally:
-        restart(agents, "aruba", sims.arubaos_records())
+        await asyncio.to_thread(restart, agents, "aruba", sims.arubaos_records())
 
     # ---------------------------------------------------------------- viewer / errors
     assert (await admin.get("/api/devices/9999/ports")).status_code == 404
@@ -417,7 +423,8 @@ async def test_refresh_permissions_and_running(rt, admin, viewer, agents) -> Non
     # viewers read the (empty) snapshot of a never-run device
     body = (await viewer.get(f"/api/devices/{dev['id']}/ports")).json()
     st = body["status"]
-    assert st["last_run_at"] is None and st["ports"] == 0 and st["next_run_at"] is not None
+    # not detected yet -> nothing effective -> no next run
+    assert st["last_run_at"] is None and st["ports"] == 0 and st["next_run_at"] is None
     assert set(st["sources"].values()) == {"skipped"}
     assert body["ports"] == [] and body["health"] == []
     # a second refresh while one is queued/running -> 409
@@ -448,7 +455,9 @@ async def test_refresh_permissions_and_running(rt, admin, viewer, agents) -> Non
 
 
 async def test_failed_run_keeps_snapshot(rt, admin, agents) -> None:  # type: ignore[no-untyped-def]
-    dev = await _device(admin, agents, "cx")
+    # "on": a credential change re-runs class detection, which fails -> unknown -> with "auto"
+    # the device would no longer be eligible (409 ports_disabled)
+    dev = await _device(admin, agents, "cx", port_inventory="on")
     await _refresh(rt, admin, dev["id"])
     body = (await admin.get(f"/api/devices/{dev['id']}/ports")).json()
     assert len(body["ports"]) == 10
@@ -463,7 +472,8 @@ async def test_failed_run_keeps_snapshot(rt, admin, agents) -> None:  # type: ig
         rt.hub.listeners.remove(q)
     msgs = [q.get_nowait() for _ in range(q.qsize())]
     assert {"device_id": dev["id"], "ok": False} == {
-        k: v for k, v in next(m["data"] for m in msgs if m["type"] == "ports.updated").items()
+        k: v
+        for k, v in next(m["data"] for m in msgs if m["type"] == "ports.updated").items()
         if k != "collected_at"
     }
     body = (await admin.get(f"/api/devices/{dev['id']}/ports")).json()

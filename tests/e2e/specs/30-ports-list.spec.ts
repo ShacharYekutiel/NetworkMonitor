@@ -5,7 +5,8 @@ import { T, ensurePortLab, openPorts, shot2b2, type PortLab } from '../lib/lab2b
 // [2b-2] (c) Port list (architecture.md §11.5): default columns, sticky Port column, "Physical ports only",
 // one filter across all texts + MACs in any notation + IP/hostname/vendor/neighbour/alias, column chooser
 // persisted in localStorage['netmon.ports.columns'] across a reload, row click -> modal.
-test.describe.configure({ mode: 'serial' });
+// default mode: a failure does not hide the results of the later tests (state is re-derived per test)
+test.describe.configure({ mode: 'default' });
 
 let api: Api;
 let lab: PortLab;

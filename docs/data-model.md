@@ -1956,7 +1956,8 @@ Channels (primary `matched`), unit `#`, no default thresholds: `rows`, `matched`
 New config key `percent_base`: `"total"` (default, unchanged 2a behaviour: `raw / divisor × 100`) or `"sum"`:
 `value = raw / (raw + other) × 100`, where `percent_of_oid` names the *other part* (e.g. free memory next to
 used memory, CISCO-MEMORY-POOL has no total column). With `"sum"`: `raw < 0`, `other < 0` or
-`raw + other ≤ 0` → ok, no value (as `percent_of_oid` today). `"sum"` without `percent_of_oid` → 422 (loc
+`raw + other ≤ 0` → ok, no value (as `percent_of_oid` today). The key is stored only when given (absent = `"total"`, so the stored config of existing
+sensors is unchanged). `"sum"` without `percent_of_oid` → 422 (loc
 `["body","config","percent_base"]`). A PATCH changing `percent_base` resets `sensors.state`. Not part of the
 idempotency identity. `GET /api/sensor-types` lists it as type `enum`, options `["total","sum"]`.
 

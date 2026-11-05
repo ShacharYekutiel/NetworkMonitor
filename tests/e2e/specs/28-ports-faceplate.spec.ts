@@ -7,7 +7,8 @@ import { IP, T, box, devicePorts, ensurePortLab, openPorts, portOf, refreshPorts
 // [2b-2] (a) Port inventory snapshot (architecture.md §11.6 expected tables) + the front panel:
 // layout per parser (§11.4) for each sim, tile states/icons (§11.5), legend, LTR inside Hebrew.
 // Lab: AOS = contract .61 (here 127.0.0.81), CW = .62 (.82), CX = .63 (.83), see lib/lab2b2.ts.
-test.describe.configure({ mode: 'serial' });
+// default mode: a failure does not hide the results of the later tests (state is re-derived per test)
+test.describe.configure({ mode: 'default' });
 
 let api: Api;
 let lab: PortLab;

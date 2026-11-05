@@ -6,7 +6,8 @@ import { T, devicePorts, ensurePortLab, openPorts, portOf, shot2b2, tile, type P
 // [2b-2] (b) Port modal (architecture.md §11.5): every field of an access port (VLAN, mode, duplex, PoE, MAC
 // with vendor + IP + hostname), an uplink with the MAC count and "Show all MACs" (include_uplink_macs), the
 // AP port with its neighbour link, close by X / Escape / outside click, ?port= deep link, Start monitoring.
-test.describe.configure({ mode: 'serial' });
+// default mode: a failure does not hide the results of the later tests (state is re-derived per test)
+test.describe.configure({ mode: 'default' });
 
 let api: Api;
 let lab: PortLab;
