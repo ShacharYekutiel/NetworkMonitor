@@ -74,7 +74,11 @@ ENV CI=1 \
     npm_config_fetch_timeout=120000
 # Install dependencies first so this layer is cached while only sources change.
 COPY frontend/package.json frontend/package-lock.json ./
+COPY deploy/docker/npm-tls-probe.js /usr/local/lib/netmon-npm-tls-probe.js
+# The probe stops the build within seconds, with a pointer to deploy/certs, when the
+# registry's certificate is not trusted (instead of minutes of npm retries).
 RUN if [ -n "$NPM_REGISTRY" ]; then npm config set registry "$NPM_REGISTRY"; fi; \
+    NODE_USE_ENV_PROXY=1 NODE_NO_WARNINGS=1 node /usr/local/lib/netmon-npm-tls-probe.js "$(npm config get registry)" || exit 1; \
     for attempt in 1 2 3; do \
       npm ci --no-audit --no-fund && exit 0; \
       echo "npm ci failed (attempt $attempt/3), retrying in 15s..." >&2; \
