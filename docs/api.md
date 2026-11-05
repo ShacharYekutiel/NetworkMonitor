@@ -1171,7 +1171,7 @@ type TopologyRefresh = { id: number; trigger: "manual" | "scheduled"; status: "r
 | `GET /api/topology` | viewer | Query: `group_id` (recursive), `include_stale` (bool, default true) | `{"nodes": TopologyNode[], "links": TopologyLink[], "last_refresh": TopologyRefresh \| null, "refresh_running": boolean}` |
 | `POST /api/topology/refresh` | admin | — | `202 TopologyRefresh` (`running`). `409 topology_refresh_running`. |
 | `GET /api/topology/links` | admin | Query: `device_id`, `source`, `stale` | Page of `TopologyLink`, sorted by `id` |
-| `POST /api/topology/links` | admin | `{"a_device_id":1,"a_if_index":24,"a_port":"24","b_device_id":5,"b_neighbor_id":null,"b_if_index":null,"b_port":"uplink"}` | `201 TopologyLink` (`source: "manual"`). Exactly one of b ids (422); `a_port` defaults to the ifName of `a_if_index` when given. |
+| `POST /api/topology/links` | admin | `{"a_device_id":1,"a_if_index":24,"a_port":"24","b_device_id":5,"b_neighbor_id":null,"b_if_index":null,"b_port":"uplink"}` | `201 TopologyLink` (`source: "manual"`). Exactly one of b ids (422); `a_port` defaults to the ifName of `a_if_index` when given. A port stored as the index default (or null) is **resolved when read** — `switch_ports.name`, else the `snmp_interface` sensor's `if_name`, else the index — so a link created before the first port-inventory run shows the name once the inventory exists. |
 | `PATCH /api/topology/links/{id}` | admin | subset of the create fields | `TopologyLink`; discovered link → `400 link_not_manual` |
 | `DELETE /api/topology/links/{id}` | admin | — | `204` (any source; a discovered one returns on the next refresh if still reported) |
 | `DELETE /api/topology/links?stale=true` | admin | — | `200 {"deleted": n}` (removes all stale links; `stale=true` is required, else 422) |
@@ -1446,7 +1446,7 @@ today).
 
 | type | data | When / who |
 |---|---|---|
-| `ports.updated` | `{"device_id": 3, "ok": true, "collected_at": "2026-11-05T10:00:00Z"}` | After every port/ARP run of a device (scheduled or manual), also failed ones (`ok: false`); all. Clients refetch `GET /api/devices/{id}/ports` (and an open port modal). |
+| `ports.updated` | `{"device_id": 3, "ok": true, "collected_at": "2026-11-05T10:00:00Z", "arp_source": false}` | After every port/ARP run of a device (scheduled or manual), also failed ones (`ok: false`); all. `arp_source` = this run collected ARP for the device (`arp_effective`), so clients know without their own cache. Clients refetch `GET /api/devices/{id}/ports` (and an open port modal). |
 | `templates.reloaded` | `{"loaded_at": "...", "count": 19, "error_count": 0}` | After `POST /api/device-templates/reload` (not at startup); all. Clients invalidate the templates queries. |
 | `config.changed` | unchanged; a device PATCH of `port_inventory` / `arp_collect` is a normal `device` update | as today |
 
@@ -1454,7 +1454,7 @@ today).
 switches that refetched every few seconds):
 - `data.device_id` = the device whose ports view / port modal is open → refetch `GET /api/devices/{id}/ports`
   and the open port detail at once;
-- `data.device_id` is an **ARP source** (`arp_effective` from the cached `/api/devices`) → IPs/hostnames shown
+- `data.arp_source` is true (an **ARP source**; older servers without the key: `arp_effective` from the cached `/api/devices`) → IPs/hostnames shown
   elsewhere may have changed: mark the open ports view / port detail stale, refetch them **debounced** (trailing,
   at most once per 30 s, only while a view/detail is open, so a wall-screen dashboard with no focus events also
   updates) and also on the next window focus;
