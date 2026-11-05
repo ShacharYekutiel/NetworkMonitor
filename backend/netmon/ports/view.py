@@ -12,6 +12,15 @@ UPLINK_CLASSES = ("switch", "router", "access_point")
 PROBLEM = ("down", "warning")
 
 
+def display_port(stored: str | None, if_index: int | None, name: str | None) -> str:
+    """The port text shown for a link end: a stored value that is empty or the bare index
+    default is replaced by the current name (switch_ports.name, else the snmp_interface
+    sensor's if_name). The stored value is never changed."""
+    if if_index is not None and (not stored or stored == str(if_index)):
+        return name or stored or str(if_index)
+    return stored or ""
+
+
 def port_state(admin_status: str, oper_status: str) -> str:
     if admin_status == "down":
         return "admin_down"

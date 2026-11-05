@@ -198,7 +198,12 @@ async def run_device(rt: Runtime, device_id: int, trigger: str = "scheduled") ->
         flags = (await load_flags(session, device_id)).get(device_id)
     target = await _credentials(rt, device_id)
     if flags is None or target is None:
-        return {"device_id": device_id, "ok": False, "collected_at": iso(started)}
+        return {
+            "device_id": device_id,
+            "ok": False,
+            "collected_at": iso(started),
+            "arp_source": False,
+        }
     host, creds = target
     error: str | None = None
     try:
@@ -228,7 +233,13 @@ async def run_device(rt: Runtime, device_id: int, trigger: str = "scheduled") ->
             raise
         except Exception:  # noqa: BLE001
             log.exception("Reverse DNS for device %s failed", device_id)
-    payload = {"device_id": device_id, "ok": ok, "collected_at": iso(started)}
+    # arp_source: this run collected ARP for the device (IPs elsewhere may have changed)
+    payload = {
+        "device_id": device_id,
+        "ok": ok,
+        "collected_at": iso(started),
+        "arp_source": bool(flags.arp),
+    }
     rt.hub.broadcast("ports.updated", payload)
     return payload
 

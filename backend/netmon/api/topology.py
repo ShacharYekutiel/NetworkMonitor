@@ -10,6 +10,8 @@ from sqlalchemy import text
 from netmon.api.deps import DB, RT, Admin, Page, Viewer
 from netmon.api.errors import ApiError, not_found, validation_error
 from netmon.models import Device, TopologyLink, TopologyNeighbor
+from netmon.ports.read import port_names
+from netmon.ports.view import display_port
 from netmon.schemas import LayoutIn, TopologyLinkIn
 from netmon.services.dependencies import dependency_out, effective_parent
 from netmon.services.serialize import iso, page
@@ -79,12 +81,36 @@ def _end(
     }
 
 
-def link_out(ln: Any, ifaces: dict[tuple[int, int], dict[str, Any]]) -> dict[str, Any]:
+def link_out(
+    ln: Any,
+    ifaces: dict[tuple[int, int], dict[str, Any]],
+    names: dict[tuple[int, int], str] | None = None,
+) -> dict[str, Any]:
+    """[2b-2] `names`: current port names (netmon.ports.read.port_names); an end whose stored
+    port is empty or the bare index shows the current name (the stored value is kept)."""
+    names = names or {}
+
+    def port(dev: int | None, idx: int | None, stored: str) -> str:
+        name = names.get((dev, idx)) if dev is not None and idx is not None else None
+        return display_port(stored, idx, name)
+
     return {
         "id": ln.id,
         "source": ln.source,
-        "a": _end(ln.a_device_id, None, ln.a_if_index, ln.a_port, ifaces),
-        "b": _end(ln.b_device_id, ln.b_neighbor_id, ln.b_if_index, ln.b_port, ifaces),
+        "a": _end(
+            ln.a_device_id,
+            None,
+            ln.a_if_index,
+            port(ln.a_device_id, ln.a_if_index, ln.a_port),
+            ifaces,
+        ),
+        "b": _end(
+            ln.b_device_id,
+            ln.b_neighbor_id,
+            ln.b_if_index,
+            port(ln.b_device_id, ln.b_if_index, ln.b_port),
+            ifaces,
+        ),
         "stale": ln.stale,
         "missed_refreshes": ln.missed_refreshes,
         "first_seen": iso(ln.first_seen),
@@ -183,9 +209,10 @@ async def graph(
                 }
             )
     ifaces = await _iface_data(session)
+    names = await port_names(session)
     return {
         "nodes": nodes,
-        "links": [link_out(ln, ifaces) for ln in links],
+        "links": [link_out(ln, ifaces, names) for ln in links],
         "last_refresh": await _last_refresh(session),
         "refresh_running": rt.topology is not None and rt.topology.running_id is not None,
     }
@@ -237,7 +264,8 @@ async def list_links(
         )
     ).all()
     ifaces = await _iface_data(session)
-    return page([link_out(r, ifaces) for r in rows], total, pg.page, pg.page_size)
+    names = await port_names(session)
+    return page([link_out(r, ifaces, names) for r in rows], total, pg.page, pg.page_size)
 
 
 async def _default_port(session: DB, device_id: int, if_index: int | None) -> str:
@@ -317,7 +345,7 @@ async def _link_json(session: DB, link_id: int) -> dict:
         await session.execute(text("SELECT * FROM topology_links WHERE id = :id"), {"id": link_id})
     ).first()
     assert row is not None
-    return link_out(row, await _iface_data(session))
+    return link_out(row, await _iface_data(session), await port_names(session))
 
 
 def _changed(rt: RT, link_id: int, action: str) -> None:

@@ -51,6 +51,50 @@ class Context:
         return self._device_info
 
 
+async def port_names(
+    session: Any, device_ids: list[int] | None = None
+) -> dict[tuple[int, int], str]:
+    """(device_id, if_index) -> the current port name: switch_ports.name wins over the
+    snmp_interface sensor's if_name (lowest sensor id)."""
+    cond_s, cond_p, params = "", "", {}
+    if device_ids is not None:
+        if not device_ids:
+            return {}
+        cond_s, cond_p = " AND device_id = ANY(:ids)", " WHERE device_id = ANY(:ids)"
+        params = {"ids": sorted(set(device_ids))}
+    out: dict[tuple[int, int], str] = {}
+    for r in await session.execute(
+        text(
+            "SELECT device_id, config FROM sensors WHERE type = 'snmp_interface'"
+            f"{cond_s} ORDER BY id DESC"
+        ),
+        params,
+    ):
+        cfg = r.config or {}
+        try:
+            idx = int(cfg.get("if_index"))
+        except (TypeError, ValueError):
+            continue
+        if cfg.get("if_name"):
+            out[(r.device_id, idx)] = str(cfg["if_name"])  # DESC: the lowest id wins
+    for r in await session.execute(
+        text(f"SELECT device_id, if_index, name FROM switch_ports{cond_p}"), params
+    ):
+        if r.name:
+            out[(r.device_id, r.if_index)] = r.name
+    return out
+
+
+def resolve_link_ports(ln: dict[str, Any], names: dict[tuple[int, int], str]) -> dict[str, Any]:
+    """A copy of a link row with display port texts for both ends (view.display_port)."""
+    out = dict(ln)
+    for side in ("a", "b"):
+        dev, idx = ln.get(f"{side}_device_id"), ln.get(f"{side}_if_index")
+        name = names.get((dev, idx)) if dev is not None and idx is not None else None
+        out[f"{side}_port"] = view.display_port(ln.get(f"{side}_port"), idx, name)
+    return out
+
+
 async def load_context(session: Any, inv: Inventory, device_ids: list[int]) -> Context:
     values = await settings_svc.get_all(session)
     ctx = Context(
@@ -71,8 +115,11 @@ async def load_context(session: Any, inv: Inventory, device_ids: list[int]) -> C
             )
         ).mappings()
         nb_ids: set[int] = set()
-        for r in rows:
-            ln = dict(r)
+        link_rows = [dict(r) for r in rows]
+        ends = {ln[f"{x}_device_id"] for ln in link_rows for x in "ab"} - {None}
+        names = await port_names(session, sorted(ends))
+        for raw in link_rows:
+            ln = resolve_link_ports(raw, names)
             for did in {ln["a_device_id"], ln["b_device_id"]} & set(device_ids):
                 ctx.links.setdefault(did, []).append(ln)
             if ln["b_neighbor_id"] is not None:
