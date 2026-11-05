@@ -4,7 +4,7 @@ Sections and rows marked **[2a]** belong to the Phase 2a contract (auto-discover
 `snmp_custom` / `snmp_disk` sensors, Telegram channel). Everything else is the Phase 1 contract and is unchanged.
 Phase 2a schema changes are all in **migration `0003`** (see [§ Phase 2a migration](#phase-2a-migration-0003)).
 Sections marked **[2b-1]** (dependencies, `unreachable`, maintenance, acknowledge, escalation, fingerprinting,
-`hpe_switch`, topology) are in [§ Phase 2b-1](#2b-1-phase-2b-1-additions), migration `0004`.
+HPE switch templates, topology) are in [§ Phase 2b-1](#2b-1-phase-2b-1-additions), migration `0004`.
 
 PostgreSQL ≥ 14 holds the data, and TimescaleDB is optional (see [architecture.md §6](architecture.md)). Alembic
 migrations own the schema.
@@ -898,7 +898,7 @@ Plain PostgreSQL DDL only.
 # **[2b-1]** Phase 2b-1 additions
 
 Scope: device dependencies + `unreachable` status, maintenance windows, acknowledge, two-stage escalation
-(persistent alert state), device fingerprinting without SNMP + re-identify, the `hpe_switch` template, and the
+(persistent alert state), device fingerprinting without SNMP + re-identify, the HPE switch templates (`hpe_arubaos_switch`, `hpe_comware`), `snmp_custom` `enum` mode, and the
 topology map (LLDP/CDP links). All schema changes are in **migration `0004`**
 ([§ Phase 2b-1 migration](#2b-1-phase-2b-1-migration-0004)). Everything is additive except that
 `alert_notified` is **replaced** by `alert_state` (rows are migrated).
@@ -1263,44 +1263,106 @@ New vendor slugs: `h3c`, `supermicro`; `aruba` now also comes from enterprise 47
 | Enterprise | Vendor slug | Default class (rule 10) | Confidence | Notes |
 |---|---|---|---|---|
 | 25506 | h3c | switch | high | H3C / HPE Comware (OfficeConnect 1920 non-S, 1950, 5130, 5510 …) |
-| 47196 | aruba | switch | medium | Aruba (HPE) AOS-CX switches (6100/6200/6300 …) |
+| 47196 | aruba | switch | medium | Aruba (HPE) AOS-CX switches (6100/6200/6300 …). Classified only; no dedicated template |
 
 Rule 10's switch regex gains `officeconnect|comware|arubaos|aruba.*switch`.
 
 ### Template match: new field `enterprises`
 Match rules gain `"enterprises": int[] | null`: matches when the result's `sys_object_id` enterprise is in
-the list. `suggest()` gains the `sys_object_id` argument. Template entries (all kinds) gain
-`"enterprises": int[] | null` (default null = always): the entry is applied only when the device's
-sysObjectID enterprise is in the list; apply GETs `sysObjectID.0` once when any entry has it (failure → those
-entries skipped with `snmp_error`). `snmp_table` entries gain `"skip_zero": bool` (default false): rows whose
-walked value is `0` or not numeric are ignored (and not counted towards `max`).
+the list (`null` = any). `suggest()` gains the `sys_object_id` argument. Existing templates get
+`"enterprises": null`.
 
-## [2b-1] `hpe_switch` template
+### `snmp_table` entry additions
+| Field | Type | Default | Meaning |
+|---|---|---|---|
+| `skip_zero` | bool | false | Rows whose walked value is `0` or not numeric are ignored (not counted towards `max`). |
+| `filters` | `{"oid": str, "in": int[] \| null, "not_in": int[] \| null}[]` | `[]` | Each filter GETs `oid + "." + S` for the row suffix S; the row is kept only when the value (integer) is in `in` (when set) and not in `not_in` (when set). A missing/non-integer value drops the row. All filters must pass. |
+
+`config` of an `snmp_table` entry may now contain every `snmp_custom` key except `oid`/`percent_of_oid`/`label`
+(so also `value_map` / `value_map_default` / `interval_s` stays on the entry level as `interval_s: int | null`,
+new, default null = settings default).
+
+## [2b-1] `snmp_custom`: new value type `enum`
+`value_type` gains **`enum`**, for integer status columns (fan/PSU/sensor states). New config keys:
+
+| Key | Type | Default | Meaning |
+|---|---|---|---|
+| `value_map` | `value_map` (new config field type): object, key = integer as a decimal string, value = `{"status": "up"\|"warning"\|"down", "text": str}` (`text` 0–32 chars) | `{}` | **Required non-empty** for `enum` (422 otherwise); ignored for other types. ≤ 32 entries. |
+| `value_map_default` | `"up"` \| `"warning"` \| `"down"` | `"warning"` | Status for a value not in the map |
+
+Evaluation (`enum`): the response must be an integer (else check failed, `Value is not an integer`). The
+channel `value` = the raw integer (no multiplier). The check is **ok** and the sensor status is the mapped
+status (`CheckResult.status_override`, new optional field: `evaluate()` uses `worst(override, channel
+statuses)` for an ok result). `status_message` = `"<label>: <text> (<raw>)"` (text = the map text, or
+`unexpected value` when unmapped). Thresholds still apply to `value` but none are set by default.
+`GET /api/sensor-types` lists `value_map` (type `value_map`) and `value_map_default` (type `enum`). The
+frontend renders `value_map` as an editable table (value, status, text).
+
+Decision: a mapping on `snmp_custom` rather than a new sensor type — same GET path, one extra branch, and the
+templates can create it from tables.
+
+## [2b-1] HPE switch templates
+
+Two templates, chosen automatically by sysObjectID enterprise (no conditional rows):
 
 | id | name en / he | priority | match |
 |---|---|---|---|
-| `hpe_switch` | HPE / Aruba switch / מתג HPE / Aruba | 50 | `requires_snmp`, classes `[switch]`, `enterprises [11, 25506, 47196]` |
+| `hpe_arubaos_switch` | HPE ArubaOS-Switch / ProCurve / מתג HPE ArubaOS | 50 | `requires_snmp`, classes `[switch]`, `enterprises [11]` |
+| `hpe_comware` | HPE Comware / H3C switch / מתג HPE Comware | 50 | `requires_snmp`, classes `[switch]`, `enterprises [25506]` |
 
-(Class `switch` keeps HP JetDirect printers — also enterprise 11 — out.)
+Class `switch` keeps HP JetDirect printers (also enterprise 11) out. **Aruba CX (47196) gets no template**: the
+architect is not confident about its CPU/memory/health MIBs; CX devices fall to `generic_snmp` (probed
+HOST-RESOURCES CPU/memory). Descriptions: en `Ping, system, CPU, memory, hardware health, PoE and active
+ports`, he `פינג, מערכת, מעבד, זיכרון, תקינות חומרה, PoE ופורטים פעילים`.
 
-Entries in order:
+Every vendor row is either `probe: true` (single OID) or an `snmp_table` (a walk with no rows → skipped
+`no_rows`), so unsupported objects never create sensors. Confidence: **high** = matches the published MIB as far
+as the architect knows; **medium** = believed correct, verify; **low** = unsure. **The owner verifies all
+vendor rows on his switches.**
 
+Common enum maps (stored in the entry config):
+
+- `HPICF_SENSOR_MAP` (hpicfSensorStatus: unknown(1), bad(2), warning(3), good(4), notPresent(5)):
+  `{"1":{"status":"warning","text":"unknown"},"2":{"status":"down","text":"bad"},"3":{"status":"warning","text":"warning"},"4":{"status":"up","text":"good"}}`,
+  default `warning`. Enum values: **medium-high** confidence.
+- `HH3C_ERROR_MAP` (hh3cEntityExtErrorStatus): `{"2":{"status":"up","text":"normal"}}`, default **`down`**
+  (every other value is a fault: postFailure(3), fanError(41), psuError(51), rpsError(61), hardwareFaulty(91), …).
+  `normal(2)` / `notSupported(1)` / `entityAbsent(4)`: **medium** confidence.
+
+### `hpe_arubaos_switch` entries
 | # | Entry | Details | Confidence |
 |---|---|---|---|
 | 1 | Ping | | |
-| 2 | System (`snmp_system`) | uptime | high |
-| 3 | `CPU` (`snmp_custom`, probe, `enterprises [11]`) | oid `1.3.6.1.4.1.11.2.14.11.5.1.9.6.1.0` (hpSwitchCpuStat, STATISTICS-MIB), gauge, unit `%`, label `CPU`, channels `[{"key":"value","warning_max":80,"down_max":95}]` | **high** for ArubaOS-Switch/ProCurve (2530/2540/2930/3810/5400). **low** for OfficeConnect 1820/1920S (also enterprise 11, may not implement it → probe fails → skipped) |
-| 4 | `Memory {index}` (`snmp_table`, `enterprises [11]`) | `walk_oid` hpLocalMemAllocBytes `1.3.6.1.4.1.11.2.14.11.5.1.1.2.1.1.1.7`, `percent_of_column` hpLocalMemTotalBytes `…1.1.1.5`, label none, name `Memory {index}` / `זיכרון {index}`, config gauge `%`, channels warning_max 85 / down_max 95, max 8. Index = slot / stack member (`1` standalone). | **medium**: NETSWITCH-MIB hpLocalMemEntry columns .5 TotalBytes, .6 FreeBytes, .7 AllocBytes as in the brief; verify on a real switch |
-| 5 | `CPU {label}` (`snmp_table`, `enterprises [25506]`, `skip_zero: true`) | `walk_oid` hh3cEntityExtCpuUsage `1.3.6.1.4.1.25506.2.6.1.1.1.1.6`, `label_oid` entPhysicalName `1.3.6.1.2.1.47.1.1.1.1.7`, config gauge `%`, channels 80/95, max 8 | OIDs **high** (HH3C-ENTITY-EXT-MIB). Row selection by non-zero value **medium**: only boards/MPUs report CPU, chassis/ports/fans report 0; a board idling at exactly 0 % at apply time would be skipped (re-apply adds it) |
-| 6 | `Memory {label}` (`snmp_table`, `enterprises [25506]`, `skip_zero: true`) | `walk_oid` hh3cEntityExtMemUsage `1.3.6.1.4.1.25506.2.6.1.1.1.1.8`, `label_oid` entPhysicalName, gauge `%`, channels 85/95, max 8 | as row 5 |
-| 7 | CPU Load (`snmp_cpu`, probe, `enterprises [47196]`) | HOST-RESOURCES | **low** for AOS-CX: probe decides |
-| 8 | Memory (`snmp_memory`, probe, `enterprises [47196]`) | HOST-RESOURCES | **low** |
-| 9 | `snmp_interfaces` | up only, `exclude_if_types [1, 24, 53, 131, 136]` (other, loopback, propVirtual/VLAN, tunnel, l3ipvlan), `exclude_name_regex` = IF_EXCLUDE, max 52 | high |
+| 2 | System | uptime | high |
+| 3 | `CPU` (`snmp_custom` gauge, probe) | `1.3.6.1.4.1.11.2.14.11.5.1.9.6.1.0` hpSwitchCpuStat, unit `%`, label `CPU`, channel value warning_max 80 / down_max 95 | **high** (2530/2540/2920/2930/3810/5400). **low** on OfficeConnect 1820/1920S (also enterprise 11): may be absent → skipped |
+| 4 | `Memory {index}` (`snmp_table`) | walk hpLocalMemAllocBytes `1.3.6.1.4.1.11.2.14.11.5.1.1.2.1.1.1.7`, `percent_of_column` hpLocalMemTotalBytes `…1.1.1.5`, gauge `%`, 85/95, max 8. Index = slot / stack member (`1` standalone) | **medium** (NETSWITCH-MIB hpLocalMemEntry .5 Total, .6 Free, .7 Alloc) |
+| 5 | `{label}` health (`snmp_table`) | walk hpicfSensorStatus `1.3.6.1.4.1.11.2.14.11.1.2.6.1.4`, `label_oid` hpicfSensorDescr `…6.1.7`, `filters [{"oid":"1.3.6.1.4.1.11.2.14.11.1.2.6.1.4","not_in":[5]}]` (skip notPresent), config `{"value_type":"enum","value_map":HPICF_SENSOR_MAP,"value_map_default":"warning"}`, name `{label}` (e.g. `Fan Sensor`, `Power Supply Sensor`, `Over-temperature Sensor`), max 16, interval 300 | table/column layout **medium-high** (HP-ICF-CHASSIS hpicfSensorEntry: .1 Index, .2 ObjectId, .3 Number, .4 Status, .5 Warnings, .6 Failures, .7 Descr). hpicfSensorObjectId (.2) is not needed: the description names the sensor |
+| 6 | `PoE {index} usage` (`snmp_table`) | walk pethMainPseConsumptionPower `1.3.6.1.2.1.105.1.3.1.1.4`, `percent_of_column` pethMainPsePower `…1.1.2`, `filters [{"oid":"1.3.6.1.2.1.105.1.3.1.1.2","not_in":[0]}]`, gauge `%`, warning_max 80 / down_max 95, max 8 | **high** (RFC 3621). Present only on PoE models |
+| 7 | `PoE {index} power` (`snmp_table`) | walk `…105.1.3.1.1.4` (consumption), same filter, gauge unit `W`, no thresholds, max 8 | high |
+| 8 | `PoE {index} budget` (`snmp_table`) | walk `…105.1.3.1.1.2` (nominal), `skip_zero`, gauge unit `W`, `interval_s` 3600, max 8 | high |
+| 9 | `snmp_interfaces` | up only, `exclude_if_types [1, 24, 53, 131, 136]` (other, loopback, propVirtual/VLAN, tunnel, l3ipvlan), `exclude_name_regex` IF_EXCLUDE, max 52 | high |
 
-Comware's `hh3cEntityExtEntry` is indexed by `entPhysicalIndex`, so the created `snmp_custom` sensors use a
-fixed `<column>.<entPhysicalIndex>` OID (stable across reboots on a fixed chassis: medium). Hebrew name of the
-template: `מתג HPE / Aruba`; description en `Ping, system, CPU and memory (HPE MIBs), active ports`, he
-`פינג, מערכת, מעבד וזיכרון (MIB של HPE), פורטים פעילים`. **The owner must verify rows 3–6 on his switches.**
+ArubaOS-Switch has no plain temperature gauge in this template (the over-temperature *status* is row 5; the
+`hpSystemAirTempTable` value is a string like `38C`, confidence low — future item).
+
+### `hpe_comware` entries
+| # | Entry | Details | Confidence |
+|---|---|---|---|
+| 1 | Ping | | |
+| 2 | System | uptime | high |
+| 3 | `CPU {label}` (`snmp_table`) | walk hh3cEntityExtCpuUsage `1.3.6.1.4.1.25506.2.6.1.1.1.1.6`, `label_oid` entPhysicalName `1.3.6.1.2.1.47.1.1.1.1.7`, `skip_zero`, gauge `%`, 80/95, max 8 | OID **high**; non-zero row selection **medium** (only boards/MPUs report CPU; a board at exactly 0 % at apply time is skipped — re-apply adds it) |
+| 4 | `Memory {label}` (`snmp_table`) | walk hh3cEntityExtMemUsage `…1.1.1.1.8`, label entPhysicalName, `skip_zero`, gauge `%`, 85/95, max 8 | as row 3 |
+| 5 | `Temperature {label}` (`snmp_table`) | walk hh3cEntityExtTemperature `…1.1.1.1.12`, label entPhysicalName, `skip_zero`, gauge unit `°C`, warning_max 65 / down_max 80, max 16 | column **medium**; thresholds are generic defaults (Comware's own threshold `.13` is not used) |
+| 6 | `{label}` fan/PSU (`snmp_table`) | walk hh3cEntityExtErrorStatus `…1.1.1.1.19`, label entPhysicalName, `filters [{"oid":"1.3.6.1.2.1.47.1.1.1.1.5","in":[6,7]}, {"oid":"1.3.6.1.4.1.25506.2.6.1.1.1.1.19","not_in":[1,4]}]` (entPhysicalClass powerSupply(6)/fan(7); skip notSupported/absent), config `{"value_type":"enum","value_map":HH3C_ERROR_MAP,"value_map_default":"down"}`, max 16, interval 300 | entPhysicalClass values **high** (ENTITY-MIB); ErrorStatus column number `.19` **medium** |
+| 7–9 | PoE usage / power / budget | identical to `hpe_arubaos_switch` rows 6–8 | MIB high; Comware support **medium** |
+| 10 | `snmp_interfaces` | as ArubaOS row 9 (Comware `Vlan-interface*` is type 136, `NULL0` type 1, `InLoopBack0` type 24) | high |
+
+`hh3cEntityExtEntry` is indexed by `entPhysicalIndex`, so the created sensors use fixed
+`<column>.<entPhysicalIndex>` OIDs (stable on a fixed chassis/stack: medium). Comware sysObjectIDs are
+`1.3.6.1.4.1.25506.11.1.<model>` (medium); OfficeConnect 1920 (non-S)/1950 are Comware, OfficeConnect
+1820/1920S report enterprise 11.
+
+**Future items (not 2b-1):** per-port PoE status (`pethPsePortTable`), ArubaOS temperature value, Aruba CX template.
 
 ## [2b-1] Topology
 
