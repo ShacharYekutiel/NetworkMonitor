@@ -47,7 +47,7 @@ async def test_setup_flow(client: httpx.AsyncClient) -> None:
     assert "secure" not in cookie  # plain http
 
     assert (await client.get("/api/setup/status")).json() == {"setup_required": False}
-    assert (await client.get("/api/settings/public")).json() == {"default_language": "he"}
+    assert (await client.get("/api/settings/public")).json()["default_language"] == "he"
     r = await client.get("/api/groups")
     assert [g["name"] for g in r.json()["items"]] == ["Default"]
     r = await client.post("/api/setup", json=ADMIN)

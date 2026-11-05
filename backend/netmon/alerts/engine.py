@@ -171,8 +171,10 @@ class AlertEngine:
 
     async def idle(self) -> None:
         """Wait until the event path is idle, then process everything due now (tests)."""
-        while self._tasks:
-            await asyncio.gather(*list(self._tasks), return_exceptions=True)
+        while pending := [t for t in self._tasks if not t.done()]:
+            # only pending tasks: awaiting already-finished ones does not yield to the loop,
+            # so their done-callbacks (which empty the set) would never run
+            await asyncio.gather(*pending, return_exceptions=True)
         await self.run_once()
 
     def _spawn(self, coro: Any) -> None:
@@ -588,6 +590,7 @@ class AlertEngine:
                 group_id=r.gid,
                 sensor_name=r.sname,
                 device_name=r.dname,
+                time=self.rt.clock.now(),
             )
             return False
 

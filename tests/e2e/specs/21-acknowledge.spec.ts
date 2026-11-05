@@ -75,8 +75,11 @@ test('problem -> acknowledge with a comment in the UI -> Acknowledged card, sens
   await expect(card(page, /^Acknowledged problems/)).toContainText(dev.sensor.name);
   await expect(card(page, 'Down and warning sensors')).not.toContainText(dev.device.name);
   await shot2b(page, 'ack-dashboard-en');
-  // Tooltip text "by admin at HH:MM: comment".
-  await expect(card(page, /^Acknowledged problems/).locator(`[title*="${COMMENT}"], [aria-label*="${COMMENT}"]`).first()).toBeAttached();
+  // "Acknowledged by admin at <time>: comment" (inline details on the dashboard).
+  await expect(card(page, /^Acknowledged problems/)).toContainText(new RegExp(`Acknowledged by admin at .+: ${COMMENT}`));
+  // Sensor page: check badge with the tooltip "Acknowledged by admin at …: comment".
+  await page.goto(`/sensors/${dev.sensor.id}`);
+  await expect(page.locator(`main [title*="${COMMENT}"]`).first()).toBeAttached();
 });
 
 test('acknowledged: escalation and reminders do not fire (test clock)', async () => {
@@ -92,7 +95,6 @@ test('acknowledged: escalation and reminders do not fire (test clock)', async ()
 test('unacknowledge -> reminders resume, escalation does not restart', async ({ page }) => {
   await loginViaApi(page, undefined, `/sensors/${dev.sensor.id}`);
   await page.getByRole('button', { name: 'Unacknowledge' }).click();
-  await page.getByRole('dialog').getByRole('button', { name: /Unacknowledge|Confirm|OK/ }).click().catch(() => undefined);
   await expect(page.getByRole('button', { name: 'Acknowledge' })).toBeVisible();
   const ev = (await api.get(`/api/events?kind=acknowledge&sensor_id=${dev.sensor.id}`)).items;
   expect(ev[0].message).toBe('Acknowledgement removed by admin');

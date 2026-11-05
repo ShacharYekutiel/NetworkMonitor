@@ -42,7 +42,8 @@ test('create a once window covering now from the Maintenance page (device scope)
   const dlg = page.getByRole('dialog');
   await dlg.getByLabel(/^Name/).fill(winName);
   // Prefilled scope = this device.
-  await expect(dlg.getByRole('radio', { name: 'Device' })).toBeChecked();
+  const scopeGroup = dlg.getByRole('group', { name: 'Applies to' });
+  await expect(scopeGroup.getByRole('radio', { name: 'Device', exact: true })).toBeChecked();
   await expect(dlg.locator('select').filter({ has: page.locator(`option[value="${dev.device.id}"]`) })).toHaveValue(String(dev.device.id));
   await dlg.getByRole('button', { name: 'One-time' }).click();
   // Inputs are interpreted in settings.timezone (UTC here, the browser zone sent by the wizard is UTC too).
@@ -147,7 +148,7 @@ test('weekly window: occurrences preview in the drawer and the API; schedule tex
   const dlg = page.getByRole('dialog');
   const name = uid('Weekly backup');
   await dlg.getByLabel(/^Name/).fill(name);
-  await dlg.getByRole('radio', { name: 'Device' }).check();
+  await dlg.getByRole('group', { name: 'Applies to' }).getByRole('radio', { name: 'Device', exact: true }).check();
   await dlg.locator('select').filter({ has: page.locator(`option[value="${dev.device.id}"]`) }).selectOption(String(dev.device.id));
   await dlg.getByRole('button', { name: 'Weekly' }).click();
   await dlg.getByRole('button', { name: /^Sun/ }).click();
@@ -171,9 +172,9 @@ test('weekly window: occurrences preview in the drawer and the API; schedule tex
   const row = page.locator('section').filter({ has: page.getByRole('heading', { name: /^Recurring/ }) });
   await expect(row).toContainText(name);
   // en text per i18n maintenance.scheduleWeekly ("Every {{days}} at {{time}} · {{duration}}").
-  await expect(row).toContainText(/Every Sun.*02:00.*(90 min|1 h 30|1:30)/);
+  await expect(row).toContainText(/Every Sun at 02:00 · 1h 30m/);
   // Edit -> preview from /occurrences.
-  await row.getByText(name).click();
+  await row.locator('li').filter({ hasText: name }).getByRole('button', { name: 'Edit' }).click();
   await expect(page.getByRole('dialog').getByText(/Next occurrences/)).toBeVisible();
   await shot2b(page, 'maintenance-weekly-preview-en');
   await page.getByRole('dialog').getByRole('button', { name: /Cancel|Close/ }).first().click();

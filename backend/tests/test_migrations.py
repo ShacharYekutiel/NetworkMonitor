@@ -283,3 +283,202 @@ async def test_migration_0003_up_down(mode: str, rt) -> None:  # type: ignore[no
         await engine.dispose()
         await admin.execute(f'DROP DATABASE IF EXISTS "{name}" WITH (FORCE)')
         await admin.close()
+
+
+# ------------------------------------------------------------------ [2b-1] migration 0004
+PHASE2B_TABLES = {
+    "alert_state",
+    "maintenance_windows",
+    "topology_neighbors",
+    "topology_links",
+    "topology_layout",
+    "topology_refreshes",
+}
+
+
+@pytest.mark.parametrize("mode", ["timescale", "fallback"])
+async def test_migration_0004_up_down_up(mode: str, rt) -> None:  # type: ignore[no-untyped-def]
+    assert TEST_DATABASE_URL
+    if mode == "timescale" and rt.settings.netmon_disable_timescale:
+        pytest.skip("suite runs in forced fallback mode")
+    name = f"netmon_test_m4_{secrets.token_hex(3)}"
+    admin = await asyncpg.connect(_plain(TEST_DATABASE_URL))
+    await admin.execute(f'CREATE DATABASE "{name}"')
+    engine = make_engine(db_url_for(name).replace("postgresql://", "postgresql+asyncpg://"))
+    url = db_url_for(name)
+    try:
+        await run_migrations(engine)
+        enabled = await timescale.bootstrap(engine, 90, disabled=(mode == "fallback"))
+        if mode == "timescale" and not enabled:
+            pytest.skip("TimescaleDB not available")
+        # back to 0003 and create Phase 2a state with notified problems
+        async with engine.connect() as c:
+            await c.run_sync(lambda sc: _alembic(sc, "downgrade", "0003"))
+            await c.commit()
+        assert not (PHASE2B_TABLES & await _tables(url))
+        assert "alert_notified" in await _tables(url)
+        conn = await asyncpg.connect(_plain(url))
+        try:
+            gid = await conn.fetchval("INSERT INTO groups (name) VALUES ('g') RETURNING id")
+            did = await conn.fetchval(
+                "INSERT INTO devices (group_id, name, host) VALUES ($1, 'd', 'h') RETURNING id", gid
+            )
+            s1, s2 = [
+                await conn.fetchval(
+                    "INSERT INTO sensors (device_id, name, type, config, status) "
+                    "VALUES ($1, $2, 'ping', '{}', 'down') RETURNING id",
+                    did,
+                    n,
+                )
+                for n in ("a", "b")
+            ]
+            c1, c2 = [
+                await conn.fetchval(
+                    "INSERT INTO notification_channels (name, type, config) "
+                    "VALUES ($1, 'webhook', '{}') RETURNING id",
+                    n,
+                )
+                for n in ("c1", "c2")
+            ]
+            rule = await conn.fetchval(
+                "INSERT INTO alert_rules (name, on_statuses) VALUES ('r', '{down,up}') RETURNING id"
+            )
+            await conn.execute(
+                "INSERT INTO alert_rule_channels VALUES ($1, $2), ($1, $3)", rule, c2, c1
+            )
+            await conn.execute(
+                "INSERT INTO alert_notified (rule_id, sensor_id, status, time) VALUES "
+                "($1, $2, 'down', '2026-11-01T10:00:00Z'), ($1, $3, 'warning', now())",
+                rule,
+                s1,
+                s2,
+            )
+            await conn.execute(
+                "INSERT INTO discovery_scans (trigger, status, targets, total_hosts) "
+                "VALUES ('manual', 'completed', '{x}', 1)"
+            )
+            await conn.execute(
+                "INSERT INTO discovery_results (scan_id, ip, ping_ok, snmp_ok, device_class, "
+                "suggested_template, is_new) VALUES (1, '10.0.0.1', true, true, 'switch', "
+                "'generic_snmp', true), (1, '10.0.0.2', true, false, 'unknown', "
+                "'generic_ping', true)"
+            )
+        finally:
+            await conn.close()
+        await run_migrations(engine)  # 0003 -> 0004
+        assert PHASE2B_TABLES <= await _tables(url)
+        assert "alert_notified" not in await _tables(url)
+        conn = await asyncpg.connect(_plain(url))
+        try:
+            assert await conn.fetchval("SELECT version_num FROM alembic_version") == "0004"
+            rows = await conn.fetch("SELECT * FROM alert_state ORDER BY sensor_id")
+            assert [(r["sensor_id"], r["status"]) for r in rows] == [(s1, "down"), (s2, "warning")]
+            assert rows[0]["notified_channel_ids"] == sorted([c1, c2])
+            assert rows[0]["problem_since"] == rows[0]["primary_sent_at"]
+            assert rows[0]["problem_since"].isoformat().startswith("2026-11-01T10:00:00")
+            assert rows[0]["due_at"] is None and rows[0]["reminders_sent"] == 0
+            dr = await conn.fetch(
+                "SELECT classified_by, confidence FROM discovery_results ORDER BY id"
+            )
+            assert [tuple(r) for r in dr] == [("snmp", "medium"), ("ports", "low")]
+            idx = {
+                r["indexname"]
+                for r in await conn.fetch(
+                    "SELECT indexname FROM pg_indexes WHERE schemaname='public'"
+                )
+            }
+            assert {
+                "ix_alert_state_sensor_id",
+                "ix_devices_dependency_device_id",
+                "ix_maintenance_windows_group_id",
+                "ix_maintenance_windows_device_id",
+                "ux_topology_links_ends",
+                "ix_topology_links_b_device_id",
+                "ix_topology_links_b_neighbor_id",
+                "ux_topology_refreshes_running",
+            } <= idx
+            # new values are accepted now
+            await conn.execute("UPDATE sensors SET status = 'unreachable' WHERE id = $1", s2)
+            await conn.execute(
+                "INSERT INTO events (kind, old_status, new_status, in_maintenance) VALUES "
+                "('status_change', 'down', 'unreachable', true), ('acknowledge', 'down', 'down', "
+                "false), ('maintenance', NULL, NULL, false), ('system', NULL, NULL, false)"
+            )
+            await conn.execute(
+                "UPDATE alert_state SET status = 'suspended' WHERE sensor_id = $1", s2
+            )
+            await conn.execute(
+                "UPDATE devices SET dependency_mode = 'device', dependency_device_id = $1", did
+            )
+            with pytest.raises(asyncpg.CheckViolationError):
+                await conn.execute(
+                    "INSERT INTO maintenance_windows (name, scope, kind) VALUES ('x', 'global', "
+                    "'once')"
+                )
+            await conn.execute(
+                "INSERT INTO maintenance_windows (name, scope, kind, weekdays, start_time, "
+                "duration_min) VALUES ('w', 'global', 'weekly', '{7}', '02:00', 90)"
+            )
+            with pytest.raises(asyncpg.UniqueViolationError):
+                await conn.execute(
+                    "INSERT INTO topology_refreshes (trigger, status) VALUES "
+                    "('manual', 'running'), ('manual', 'running')"
+                )
+            await conn.execute(
+                "INSERT INTO measurements (time, sensor_id, channel, value) "
+                "VALUES (now(), 1, 'value', 1)"
+            )
+        finally:
+            await conn.close()
+        async with engine.connect() as c:  # 0004 -> 0003
+            await c.run_sync(lambda sc: _alembic(sc, "downgrade", "0003"))
+            await c.commit()
+        assert not (PHASE2B_TABLES & await _tables(url))
+        conn = await asyncpg.connect(_plain(url))
+        try:
+            assert await conn.fetchval("SELECT version_num FROM alembic_version") == "0003"
+            back = await conn.fetch("SELECT rule_id, sensor_id, status FROM alert_notified")
+            assert [(r["sensor_id"], r["status"]) for r in back] == [(s1, "down")]  # not suspended
+            assert await conn.fetchval("SELECT status FROM sensors WHERE id = $1", s2) == "down"
+            kinds = sorted(r["kind"] for r in await conn.fetch("SELECT kind FROM events"))
+            assert kinds == ["status_change", "system"]
+            assert (
+                await conn.fetchval("SELECT new_status FROM events WHERE kind = 'status_change'")
+                == "down"
+            )
+            cols = {
+                r["column_name"]
+                for r in await conn.fetch(
+                    "SELECT column_name FROM information_schema.columns WHERE table_name IN "
+                    "('devices', 'sensors', 'events', 'alert_rules', 'groups', "
+                    "'discovery_results')"
+                )
+            }
+            assert not cols & {
+                "dependency_mode",
+                "ack_at",
+                "in_maintenance",
+                "escalation_after_s",
+                "identity",
+                "fingerprint",
+                "lldp_chassis_id",
+            }
+            with pytest.raises(asyncpg.CheckViolationError):
+                await conn.execute("UPDATE sensors SET status = 'unreachable' WHERE id = $1", s1)
+            with pytest.raises(asyncpg.CheckViolationError):
+                await conn.execute("INSERT INTO events (kind) VALUES ('acknowledge')")
+            assert await conn.fetchval("SELECT count(*) FROM measurements") == 1
+        finally:
+            await conn.close()
+        await run_migrations(engine)  # and up again
+        conn = await asyncpg.connect(_plain(url))
+        try:
+            assert await conn.fetchval("SELECT version_num FROM alembic_version") == "0004"
+            rows = await conn.fetch("SELECT sensor_id, status FROM alert_state")
+            assert [(r["sensor_id"], r["status"]) for r in rows] == [(s1, "down")]
+        finally:
+            await conn.close()
+    finally:
+        await engine.dispose()
+        await admin.execute(f'DROP DATABASE IF EXISTS "{name}" WITH (FORCE)')
+        await admin.close()

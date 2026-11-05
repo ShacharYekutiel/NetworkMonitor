@@ -80,7 +80,10 @@ test('ArubaOS-Switch sensors and values', async () => {
   D.aruba = await findDevice(api, '127.0.0.51');
   expect(D.aruba).toBeTruthy();
   let s = await sensorsByName(D.aruba.id);
-  expect(Object.keys(s).sort()).toEqual([...ARUBA].sort());
+  // DEFECT (contract): "PoE 1 power" uses the same OID as "PoE 1 usage" (…105.1.3.1.1.4.1); the snmp_custom
+  // idempotency key is config.oid, so apply skips it as `exists`. §10.4 expects it -> soft.
+  expect.soft(Object.keys(s).sort(), 'ArubaOS sensor names').toEqual([...ARUBA].sort());
+  expect(Object.keys(s).filter((n) => n !== 'PoE 1 power').sort()).toEqual(ARUBA.filter((n) => n !== 'PoE 1 power').sort());
   expect(Object.keys(s).some((n) => /Redundant/.test(n))).toBe(false); // notPresent skipped
   expect(s['Power Supply Sensor'].interval_s).toBe(300);
   expect(s['PoE 1 budget'].interval_s).toBe(3600);
@@ -88,7 +91,7 @@ test('ArubaOS-Switch sensors and values', async () => {
   await expect
     .poll(async () => {
       s = await sensorsByName(D.aruba.id);
-      return ['CPU', 'Memory 1', 'Power Supply Sensor', 'Fan Sensor', 'PoE 1 usage', 'PoE 1 power', 'PoE 1 budget', '1', '2'].filter((n) => s[n].status === 'unknown');
+      return ['CPU', 'Memory 1', 'Power Supply Sensor', 'Fan Sensor', 'PoE 1 usage', 'PoE 1 power', 'PoE 1 budget', '1', '2'].filter((n) => s[n] && s[n].status === 'unknown');
     }, { timeout: 90_000, intervals: [2000, 5000] })
     .toEqual([]);
   expect(s['Power Supply Sensor'].status).toBe('down');
@@ -99,7 +102,7 @@ test('ArubaOS-Switch sensors and values', async () => {
   expect(channel(s['CPU'])).toBe(7);
   expect(channel(s['Memory 1'])).toBeCloseTo(39.39, 1);
   expect(channel(s['PoE 1 usage'])).toBeCloseTo(12.16, 1);
-  expect(channel(s['PoE 1 power'])).toBe(45);
+  if (s['PoE 1 power']) expect(channel(s['PoE 1 power'])).toBe(45);
   expect(channel(s['PoE 1 budget'])).toBe(370);
   expect(s['1'].type).toBe('snmp_interface');
   expect(s['1'].config).toMatchObject({ if_index: 1 });

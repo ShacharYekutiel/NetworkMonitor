@@ -136,8 +136,8 @@ class Scheduler:
 
     async def idle(self) -> None:
         """Wait for in-flight checks (tests)."""
-        while self._tasks:
-            await asyncio.gather(*list(self._tasks), return_exceptions=True)
+        while pending := [t for t in self._tasks if not t.done()]:
+            await asyncio.gather(*pending, return_exceptions=True)
 
     async def _loop(self) -> None:
         while True:

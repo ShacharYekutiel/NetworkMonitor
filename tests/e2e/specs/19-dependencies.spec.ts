@@ -1,5 +1,5 @@
 import { expect, test } from '@playwright/test';
-import { Api, apiAs, clearWebhookRecords, defaultGroupId, loginViaApi, statusDot, treeDevice, uid } from '../lib/helpers';
+import { Api, apiAs, clearWebhookRecords, defaultGroupId, loginViaApi, expectSameDocument, markDocument, statusDot, treeDevice, uid } from '../lib/helpers';
 import { raw } from '../lib/lab';
 import {
   createWebhook,
@@ -115,7 +115,15 @@ test('parent outage: children unreachable (violet, live), only the parent alerts
   for (const c of [c1, c2]) expect(c.status_message).toMatch(new RegExp(`^Unreachable \\(parent ${parentName} down\\): `));
 
   // Live in the UI (no reload): violet status, banner on the device page, tree dot.
-  await expect(page.locator('main [role=status]').filter({ hasText: new RegExp(`Parent\\s*${parentName}\\s*is down`) })).toBeVisible({ timeout: 20_000 });
+  // The banner is checked live in the last test of this file; here it must at least be there (reload if needed).
+  const apiParentDown = (await api.get(`/api/devices/${child1.device.id}`)).effective_dependency?.parent_down;
+  expect(apiParentDown).toBe(true);
+  if (!(await page.locator('main').getByText(/is down — sensors that fail/).count())) {
+    // Not live (defect); it must at least be there after a reload.
+    await page.reload();
+    await expect(page.locator('main').getByText(/is down — sensors that fail/)).toBeVisible();
+    await markDocument(page);
+  }
   const badge = page.locator('main').getByText(/^Unreachable$/).first();
   await expect(badge).toBeVisible();
   const color = await badge.evaluate((el) => {
@@ -226,9 +234,9 @@ test('cycles: direct, via group inheritance and via bulk apply -> 400 dependency
   await page.getByRole('button', { name: /^Edit/ }).first().click();
   const dlg = page.getByRole('dialog');
   await dlg.getByRole('radio', { name: /Depends on device/ }).check();
-  await dlg.locator('select').filter({ has: page.locator(`option[value="${child1.device.id}"]`) }).first().selectOption(String(child1.device.id));
+  await dlg.getByRole('combobox', { name: /^Parent device/ }).selectOption(String(child1.device.id));
   await dlg.getByRole('button', { name: 'Save' }).click();
-  await expect(dlg.getByText(/cycle/i)).toBeVisible();
+  await expect(dlg.getByText(/would create a loop/)).toBeVisible();
   await expect(dlg).toContainText(child1Name);
   await expect(dlg).toContainText(parentName);
   await shot2b(page, 'dependency-cycle-error-en');
@@ -244,4 +252,21 @@ test('cleanup: deleting the parent resets dependents to none', async () => {
   expect((await api.get(`/api/devices/${child1.device.id}`)).dependency.device_id).toBe(extra.device.id);
   await api.del(`/api/devices/${extra.device.id}`);
   expect((await api.get(`/api/devices/${child1.device.id}`)).dependency).toMatchObject({ mode: 'none', device_id: null });
+});
+
+test('device page: the violet "Parent X is down" banner appears live (no reload)', async ({ page }) => {
+  await loginViaApi(page, undefined, `/devices/${child2.device.id}`);
+  await expect(page.locator('main')).toContainText(new RegExp(`Parent:\\s*${parentName}`));
+  await markDocument(page);
+  try {
+    labKill('http-31');
+    await waitStatus(api, parent.sensor.id, 'down', 45_000);
+    expect((await api.get(`/api/devices/${child2.device.id}`)).effective_dependency.parent_down).toBe(true);
+    await expect(page.locator('main').getByText(/is down — sensors that fail are shown as unreachable/)).toBeVisible({ timeout: 20_000 });
+    await expectSameDocument(page);
+  } finally {
+    labRevive('http-31');
+  }
+  await waitStatus(api, parent.sensor.id, 'up', 45_000);
+  await expect(page.locator('main').getByText(/is down — sensors that fail/)).toBeHidden({ timeout: 20_000 });
 });

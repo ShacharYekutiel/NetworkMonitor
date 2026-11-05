@@ -139,7 +139,7 @@ test('manual link add (UI) / PATCH / delete; discovered link PATCH -> 400 link_n
   await ifSel.selectOption('3');
   await devSelect(sideB, dev.ap.id).selectOption(String(dev.ap.id));
   await sideB.getByRole('textbox', { name: /^Port/ }).fill('uplink');
-  await dlg.getByRole('button', { name: 'Add link' }).click();
+  await dlg.getByRole('button', { name: 'Save' }).click();
   await expect(dlg).toBeHidden();
   let man = (await api.get(`/api/topology/links?source=manual&device_id=${dev.core.id}`)).items.find((l: any) => l.b.device_id === dev.ap.id || l.a.device_id === dev.ap.id);
   if (!man) {

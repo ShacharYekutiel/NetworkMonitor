@@ -27,7 +27,7 @@ const EXPECTED: Record<string, Exp> = {
   '127.0.0.64': { device_class: 'nas', vendor: 'synology', confidence: 'high', classified_by: 'fingerprint' },
   '127.0.0.65': { device_class: 'server', vendor: 'hp', confidence: 'high', classified_by: 'fingerprint' },
   '127.0.0.66': { device_class: 'server', vendor: 'dell', confidence: 'high', classified_by: 'fingerprint' },
-  '127.0.0.67': { device_class: 'unknown', vendor: null, classified_by: 'ports', confidence: 'low' },
+  '127.0.0.67': { device_class: 'unknown', vendor: null, classified_by: 'none', confidence: 'low' }, // rule 18 (80 only)
 };
 const FP_TIMEOUT = 1000;
 
@@ -117,16 +117,20 @@ test('results page: model column, confidence chip and the expandable fingerprint
   await expect(row).toContainText('TL-SG108E');
   await expect(row).toContainText(/medium/i);
   await row.getByRole('button', { name: /Fingerprint|Details|Expand/ }).first().click();
-  await expect(page.getByText('TL-SG108E').nth(1)).toBeVisible();
+  await expect(page.getByText('TL-SG108E').nth(1)).toBeVisible(); // model column + fingerprint title
   const r46 = page.getByRole('row').filter({ hasText: '127.0.0.46' }).first();
   await r46.getByRole('button', { name: /Fingerprint|Details|Expand/ }).first().click();
-  await expect(page.getByText('User Access Verification')).toBeVisible();
+  await expect(page.getByText('User Access Verification').first()).toBeVisible();
   await shot2b(page, 'fingerprint-results-en');
 });
 
 test('Re-identify: fingerprint-only device (UI) and an SNMP device (API)', async ({ page }) => {
   let d = await findDevice(api, '127.0.0.41');
-  if (!d) d = await api.post('/api/devices', { group_id: await defaultGroupId(api), name: uid('tl-sg108e'), host: '127.0.0.41', auto_sensors: [] });
+  const created: number[] = [];
+  if (!d) {
+    d = await api.post('/api/devices', { group_id: await defaultGroupId(api), name: uid('tl-sg108e'), host: '127.0.0.41', auto_sensors: [] });
+    created.push(d.id);
+  }
   await loginViaApi(page, undefined, `/devices/${d.id}`);
   await page.getByRole('button', { name: 'Re-identify' }).click();
   const result = page.locator('section, [role=dialog]').filter({ hasText: /Suggested template|suggested/i }).first();
@@ -141,7 +145,10 @@ test('Re-identify: fingerprint-only device (UI) and an SNMP device (API)', async
 
   // SNMP device: the ArubaOS agent with device credentials (port 1161).
   let a = await findDevice(api, '127.0.0.51');
-  if (!a) a = await api.post('/api/devices', { group_id: await defaultGroupId(api), name: uid('aruba-ident'), host: '127.0.0.51', snmp_credentials: snmpCreds(), auto_sensors: [] });
+  if (!a) {
+    a = await api.post('/api/devices', { group_id: await defaultGroupId(api), name: uid('aruba-ident'), host: '127.0.0.51', snmp_credentials: snmpCreds(), auto_sensors: [] });
+    created.push(a.id);
+  }
   const t0 = Date.now();
   const id = await api.post(`/api/devices/${a.id}/identify`);
   expect(Date.now() - t0).toBeLessThan(40_000);
@@ -149,4 +156,6 @@ test('Re-identify: fingerprint-only device (UI) and an SNMP device (API)', async
   expect(id.sys_descr).toContain('2930F');
   // Viewer / unknown device.
   expect((await raw(api, 'POST', '/api/devices/99999999/identify')).status).toBe(404);
+  // Leave .41/.51 free for 24-hpe-templates (imports .51) and the topology spec.
+  for (const id of created) await api.del(`/api/devices/${id}`);
 });

@@ -77,6 +77,7 @@ async def test_groups_crud_cycle_conflict(admin: httpx.AsyncClient) -> None:
         "down": 0,
         "paused": 0,
         "unknown": 0,
+        "unreachable": 0,
         "total": 0,
     }
     assert g1["created_at"].endswith("Z")

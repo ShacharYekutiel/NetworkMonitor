@@ -54,7 +54,10 @@ def identity(type_: str, config: dict[str, Any]) -> tuple[Any, ...] | None:
     if type_ == "snmp_disk":
         return (type_, config.get("storage_descr"))
     if type_ == "snmp_custom":
-        return (type_, str(config.get("oid") or "").lstrip("."))
+        # [2b-1] percent_of_oid is part of the identity: the HPE templates read the same
+        # column as a percentage (PoE usage) and as a plain value (PoE power)
+        pct = str(config.get("percent_of_oid") or "").lstrip(".") or None
+        return (type_, str(config.get("oid") or "").lstrip("."), pct)
     if type_ == "http":
         return (type_, config.get("url"))
     if type_ == "tcp_port":

@@ -314,8 +314,8 @@ class Runtime:
 
     async def drain(self) -> None:
         """Wait for background work (tests / shutdown)."""
-        while self._bg:
-            await asyncio.gather(*list(self._bg), return_exceptions=True)
+        while pending := [t for t in self._bg if not t.done()]:
+            await asyncio.gather(*pending, return_exceptions=True)
         if self.alerts is not None:
             await self.alerts.idle()
 

@@ -928,7 +928,7 @@ existing keys keep their meaning (except `Status` gaining a value).
 ### [2b-1] Errors
 | HTTP | code | When |
 |---|---|---|
-| 400 | `dependency_cycle` | A dependency change (device, group, device move, bulk apply) would create a cycle. `details: [{"device_ids": [3, 7, 3]}]` |
+| 400 | `dependency_cycle` | A dependency change (device, group, device move, group move, bulk apply) would create a cycle. `details: [{"device_ids": [3, 7, 3]}]` |
 | 409 | `not_acknowledgeable` | Acknowledge on a sensor whose status is not `down`/`warning` |
 | 409 | `topology_refresh_running` | Refresh requested while one runs (`details: [{"refresh_id": 12}]`) |
 | 400 | `link_not_manual` | PATCH of a discovered (lldp/cdp) link |

@@ -188,6 +188,7 @@ start_one() { # name; DATA_<name> may override the data dir (SNMP components)
   [ -n "$line" ] || { echo "lab: unknown component $1" >&2; exit 2; }
   IFS='|' read -r name proto bind rd cmd <<<"$line"
   mkdir -p "$PIDS_DIR" "$LOG_DIR"
+  if alive "$name" && ready "$name" "$rd"; then echo "lab: $name already running"; return 0; fi
   for _ in $(seq 1 50); do port_free "$proto" "$bind" && break; sleep 0.1; done
   : >"$LOG_DIR/$name.log"
   # shellcheck disable=SC2086

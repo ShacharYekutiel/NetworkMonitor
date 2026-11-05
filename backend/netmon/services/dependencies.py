@@ -251,6 +251,16 @@ async def _cascade(rt: Runtime, events: list[Event]) -> None:
     if not changed:
         return
     async with rt.sessionmaker() as session:
+        configured = (
+            await session.execute(
+                text(
+                    "SELECT EXISTS (SELECT 1 FROM devices WHERE dependency_mode = 'device') "
+                    "OR EXISTS (SELECT 1 FROM groups WHERE dependency_mode = 'device')"
+                )
+            )
+        ).scalar()
+        if not configured:
+            return  # no dependencies anywhere: nothing to cascade
         inv = await load_inventory(session)
     to_unreachable: dict[int, str] = {}  # child device -> parent name
     recheck: list[int] = []

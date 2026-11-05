@@ -833,7 +833,7 @@ A template entry is skipped with reason `exists` when the device already has a s
 | `ping`, `snmp_system`, `snmp_cpu`, `snmp_memory` | the type |
 | `snmp_interface` | `config.if_index` |
 | `snmp_disk` | `config.storage_descr` |
-| `snmp_custom` | `config.oid` |
+| `snmp_custom` | `config.oid` (**[2b-1]** `(config.oid, config.percent_of_oid)`: the HPE templates read the PoE consumption column both as a percentage and in W) |
 | `http` | `config.url` (exact string, before `{host}` substitution) |
 | `tcp_port` | `config.port` |
 | `dns` | `(config.query_name, config.record_type)` |
@@ -975,7 +975,7 @@ sensor, S = none ("whole device" mode).
 
 ### Cycles
 Validated by the API on every change of a device's or group's dependency fields **and** on device moves
-(`group_id` change): compute the effective parent of every device; following parents from any device must not
+(`group_id` change) and group moves (`parent_id` change, which changes what the devices below inherit): compute the effective parent of every device; following parents from any device must not
 return to it. Otherwise `400 dependency_cycle`, `details: [{"device_ids": [3, 7, 3]}]` (the cycle path). The
 check is in `netmon.services.dependencies.find_cycle(inventory) -> list[int] | None` (pure).
 
@@ -1161,14 +1161,19 @@ A rule R **matches** status S for a sensor when R is enabled, `R.sensor_id` is N
 **Leaving maintenance** (from the tracker): for rows of the device's sensors with `maintenance_suppressed`:
 still active and not acknowledged → `due_at = now` (sent once by step 1, payload `after_maintenance: true`),
 `escalation_due_at = now + R.escalation_after_s` if R has escalation and `escalated_at IS NULL`;
-`maintenance_suppressed=false` in every case.
+`maintenance_suppressed=false` otherwise. (Implementation note: for the re-armed rows the flag stays `true`
+until step 1 sends — it is the persisted "after maintenance" marker, so the flag also survives a restart
+between the window end and the send; rows whose `due_at` is already set are not re-armed again. The check
+runs on every coverage change and once at startup, so a window that ended while the process was down is
+handled too.)
 
 **Acknowledge** sets `due_at`/`escalation_due_at`/`next_reminder_at` = NULL on the sensor's down/warning rows
 (defensive; steps 1/3/4 also check). Unacknowledge re-arms nothing (escalation does not restart; reminders
 resume: `next_reminder_at = now + repeat_every_s`).
 
 **De-duplication:** one send per `(sensor_id, event_id, stage, channel_id)` within the process (bounded
-in-memory set, as in Phase 1). A send failure writes a `notification` event; there is no retry.
+in-memory set, as in Phase 1). Reminders count as distinct stages (`reminder:<n>`), and the after-maintenance
+problem send is distinct from a pre-window problem send of the same event. A send failure writes a `notification` event; there is no retry.
 
 **Restart:** rows are persisted; overdue rows are processed right after startup (validated against the current
 state). The Phase 1 sentence "Pending timers are lost on restart" no longer applies.
@@ -1249,7 +1254,8 @@ first match wins. Fields: **T** = all HTTP titles, **S** = Server headers, **R**
 | F28 | S `Microsoft-IIS` | server | microsoft | low | |
 | F29 | B `OpenSSH.*(Ubuntu\|Debian\|Raspbian)` | server | linux | low | |
 
-**Model** (first match over T, then N; stored ≤ 64 chars, else null): `\b(TL-[A-Z]{2,5}\d{2,5}[A-Z]{0,3})\b`,
+**Model** (first match over T, then R, then N; stored ≤ 64 chars, else null — R is needed for the
+`realm="DGS-1210-28"` case of the fingerprint sims): `\b(TL-[A-Z]{2,5}\d{2,5}[A-Z]{0,3})\b`,
 `\b(J[L]?\d{3,4}A)\b` (HPE part numbers), `OfficeConnect\s+(?:Switch\s+)?(\d{4}S?)`, `\b((?:DS|RS)\d{3,4}\+?)\b`,
 `\b((?:GS|XS|MS)\d{3}[A-Z]{0,4})\b`, `\b((?:DGS|DES|DXS)-\d{4}[-\w]*)\b`, `\b(U[67]-[\w-]+|UAP-[\w-]+)\b`.
 
