@@ -27,13 +27,31 @@ ARG PYTHON_IMAGE=python:3.12-slim
 # ---------------------------------------------------------------------------
 FROM ${NODE_IMAGE} AS frontend
 WORKDIR /src/frontend
+# Optional npm registry mirror (e.g. a corporate Nexus/Artifactory proxy):
+#   docker compose build --build-arg NPM_REGISTRY=https://nexus.example.com/repository/npm/
+ARG NPM_REGISTRY=
+# Slow, filtered or proxied networks (corporate firewalls, TLS inspection) can make npm
+# drop connections and die with "Exit handler never called". Fewer parallel sockets,
+# longer timeouts, more retries, and a few whole-command retries make the install robust.
 ENV CI=1 \
     npm_config_fund=false \
     npm_config_audit=false \
-    npm_config_update_notifier=false
+    npm_config_update_notifier=false \
+    npm_config_maxsockets=4 \
+    npm_config_fetch_retries=6 \
+    npm_config_fetch_retry_mintimeout=20000 \
+    npm_config_fetch_retry_maxtimeout=180000 \
+    npm_config_fetch_timeout=600000
 # Install dependencies first so this layer is cached while only sources change.
 COPY frontend/package.json frontend/package-lock.json ./
-RUN npm ci
+RUN if [ -n "$NPM_REGISTRY" ]; then npm config set registry "$NPM_REGISTRY"; fi; \
+    for attempt in 1 2 3; do \
+      npm ci --no-audit --no-fund && exit 0; \
+      echo "npm ci failed (attempt $attempt/3), retrying in 15s..." >&2; \
+      rm -rf node_modules; sleep 15; \
+    done; \
+    echo "npm ci failed 3 times. On a filtered or proxied network see deploy/README.md (Troubleshooting)." >&2; \
+    exit 1
 COPY frontend/ ./
 RUN npm run build && test -f dist/index.html
 

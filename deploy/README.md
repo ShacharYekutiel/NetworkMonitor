@@ -129,6 +129,20 @@ harmless: the custom-format dump restores cleanly with the steps above. Restore 
 TimescaleDB, or a newer one. A dump taken in plain PostgreSQL mode restores
 into either mode.
 
+### Troubleshooting: `npm ci` fails during `docker compose up --build`
+
+Errors such as `npm error Exit handler never called!`, `ECONNRESET` or `ETIMEDOUT` in the
+`frontend` build stage mean the build host cannot reliably download packages from
+registry.npmjs.org (corporate proxy, firewall, TLS inspection). The Dockerfile already
+retries with conservative settings. If it still fails:
+
+- Check access from a container: `docker run --rm node:22-slim npm view react version`.
+- Behind an HTTP proxy, configure it in Docker Desktop (Settings → Resources → Proxies) so builds use it.
+- With a corporate npm mirror (Nexus, Artifactory):
+  `docker compose -f deploy/docker-compose.yml build --build-arg NPM_REGISTRY=https://<mirror>/repository/npm/`
+  and then `docker compose -f deploy/docker-compose.yml up -d`.
+- Or build on another network (e.g. a phone hotspot) and run there afterwards: only the build needs the npm registry.
+
 ### Files
 
 | Path | Purpose |
@@ -236,3 +250,17 @@ docker compose -f deploy/docker-compose.yml exec -T db pg_dump -U netmon -Fc net
 ו-`timescaledb_post_restore()` אחריו. אם הקובץ `secret.key` אובד, המשתמשים רק יצטרכו להתחבר מחדש.
 
 </div>
+
+### פתרון תקלות: `npm ci` נכשל בזמן `docker compose up --build`
+
+שגיאות כמו `npm error Exit handler never called!`‏, `ECONNRESET` או `ETIMEDOUT` בשלב ה-`frontend`
+אומרות שהמחשב לא מצליח להוריד חבילות מ-registry.npmjs.org בצורה יציבה (proxy ארגוני, חומת אש,
+בדיקת SSL). ה-Dockerfile כבר מנסה שוב עם הגדרות זהירות. אם זה עדיין נכשל:
+
+- בדיקת גישה מתוך קונטיינר: `docker run --rm node:22-slim npm view react version`.
+- מאחורי proxy: מגדירים אותו ב-Docker Desktop‏ (Settings → Resources → Proxies).
+- עם mirror ארגוני של npm‏ (Nexus,‏ Artifactory):
+  `docker compose -f deploy/docker-compose.yml build --build-arg NPM_REGISTRY=https://<mirror>/repository/npm/`
+  ואחר כך `docker compose -f deploy/docker-compose.yml up -d`.
+- או בונים פעם אחת ברשת אחרת (למשל נקודה חמה מהטלפון) וחוזרים לרשת הרגילה: רק הבנייה צריכה את npm.
+
