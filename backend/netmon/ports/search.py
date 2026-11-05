@@ -47,6 +47,13 @@ def normalize_query(q: str | None, ip: str | None) -> dict[str, str | None]:
     return {"mac": None, "mac_prefix": None, "ip": str(addr)}
 
 
+def prefix_pattern(digits: str) -> str:
+    """Hex digits -> a LIKE pattern on the stored colon form (index ix_port_macs_mac_pattern):
+    "005056" -> "00:50:56%", "0050560" -> "00:50:56:0%"."""
+    pairs = [digits[i : i + 2] for i in range(0, len(digits), 2)]
+    return ":".join(pairs) + "%"
+
+
 async def search_mac(session: Any, q: str | None, ip: str | None) -> dict[str, Any]:
     query = normalize_query(q, ip)
     arp_rows: list[dict[str, Any]] = []
@@ -69,7 +76,7 @@ async def search_mac(session: Any, q: str | None, ip: str | None) -> dict[str, A
     elif query["mac"] is not None:
         cond, params = "pm.mac = :mac", {"mac": query["mac"]}
     else:
-        cond, params = "replace(pm.mac, ':', '') LIKE :p", {"p": f"{query['mac_prefix']}%"}
+        cond, params = "pm.mac LIKE :p", {"p": prefix_pattern(str(query["mac_prefix"]))}
     rows = [
         dict(r)
         for r in (

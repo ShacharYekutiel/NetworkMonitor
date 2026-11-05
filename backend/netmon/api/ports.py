@@ -66,7 +66,14 @@ async def device_ports(
     ]
     if kind:
         rows = [r for r in rows if r["kind"] in kind]
-    macs = await read.present_macs(session, device_id, ctx.reverse_dns)
+    # MAC details (ARP / DNS / OUI) only for ports that can show them: a port above the
+    # uplink threshold is an uplink and lists its count only
+    macs = await read.present_macs(
+        session,
+        device_id,
+        ctx.reverse_dns,
+        if_indexes=[r["if_index"] for r in rows if r["mac_count"] <= ctx.threshold],
+    )
     sensors = await read.interface_sensors(session, device_id)
     ports = [
         read.strip_private(

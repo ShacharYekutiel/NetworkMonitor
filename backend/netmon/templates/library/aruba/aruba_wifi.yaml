@@ -3,7 +3,7 @@
 # Poll the Instant virtual controller IP (it answers for the cluster).
 schema: 1
 id: aruba_wifi
-version: 1
+version: 2
 vendor: aruba
 verified: false
 verified_note: ""
@@ -46,10 +46,12 @@ entries:
   - kind: sensor
     type: snmp_walk_count
     name: {en: Wi-Fi clients, he: לקוחות Wi-Fi}
-    config: {oid: '1.3.6.1.4.1.14823.2.3.3.1.2.4.1.1', label: Wi-Fi clients}
+    config: {oid: '1.3.6.1.4.1.14823.2.3.3.1.2.4.1.3', label: Wi-Fi clients}   # aiClientIPAddress
     probe: true
     confidence: low
-    notes: "AI-AP-MIB aiClientMACAddress: counts the client rows."
+    notes: >-
+      AI-AP-MIB aiClientIPAddress: counts the client rows (a value column; the index column
+      aiClientMACAddress is not-accessible). low-medium: needs the owner's snmpwalk.
   # --- Mobility Controller
   - kind: sensor
     type: snmp_walk_count

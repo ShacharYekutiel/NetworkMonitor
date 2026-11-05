@@ -34,17 +34,21 @@ class Context:
     reverse_dns: bool
     links: dict[int, list[dict[str, Any]]] = field(default_factory=dict)  # by device id
     neighbors: dict[int, dict[str, Any]] = field(default_factory=dict)
+    _device_info: dict[int, dict[str, Any]] | None = None
 
     def device_info(self) -> dict[int, dict[str, Any]]:
-        return {
-            did: {
-                "name": f.name,
-                "host": f.host,
-                "device_class": f.effective_class,
-                "status": self.inv.device_status.get(did, "unknown"),
+        """Built once per Context (not per port / search row)."""
+        if self._device_info is None:
+            self._device_info = {
+                did: {
+                    "name": f.name,
+                    "host": f.host,
+                    "device_class": f.effective_class,
+                    "status": self.inv.device_status.get(did, "unknown"),
+                }
+                for did, f in self.flags.items()
             }
-            for did, f in self.flags.items()
-        }
+        return self._device_info
 
 
 async def load_context(session: Any, inv: Inventory, device_ids: list[int]) -> Context:
@@ -250,9 +254,22 @@ async def interface_sensors(session: Any, device_id: int) -> dict[int, tuple[int
 
 
 async def present_macs(
-    session: Any, device_id: int, reverse_dns: bool, if_index: int | None = None
+    session: Any,
+    device_id: int,
+    reverse_dns: bool,
+    if_index: int | None = None,
+    if_indexes: list[int] | None = None,
 ) -> dict[int, list[dict[str, Any]]]:
-    cond = "" if if_index is None else " AND if_index = :i"
+    """PortMac dicts of the present MACs by ifIndex: one port (`if_index`), a set of ports
+    (`if_indexes`, e.g. the non-uplinks of the list view) or the whole device."""
+    params: dict[str, Any] = {"d": device_id}
+    cond = ""
+    if if_index is not None:
+        cond, params["i"] = " AND if_index = :i", if_index
+    elif if_indexes is not None:
+        if not if_indexes:
+            return {}
+        cond, params["ifs"] = " AND if_index = ANY(:ifs)", sorted(if_indexes)
     rows = [
         dict(r)
         for r in (
@@ -261,7 +278,7 @@ async def present_macs(
                     "SELECT if_index, mac, vlan, first_seen, last_seen FROM port_macs "
                     f"WHERE device_id = :d AND present{cond}"
                 ),
-                {"d": device_id, **({"i": if_index} if if_index is not None else {})},
+                params,
             )
         ).mappings()
     ]

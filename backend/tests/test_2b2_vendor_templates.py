@@ -252,7 +252,7 @@ def aruba_instant_records() -> list[Record]:
         ("0.11.134.1.1.3", "AP-Store", 2),
     ):
         recs += [(f"{AI}.1.1.2.{mac}", 4, name), (f"{AI}.1.1.11.{mac}", 2, str(status))]
-    recs += [(f"{AI}.4.1.1.{i}.0.0.0.0.{i}", "4x", f"00000000000{i}") for i in range(1, 6)]
+    recs += [(f"{AI}.4.1.3.0.0.0.0.0.{i}", 64, f"10.0.1.{i}") for i in range(1, 6)]
     recs += interfaces([(1, "bond0", 6, 1), (2, "eth0", 6, 1)])
     return recs
 

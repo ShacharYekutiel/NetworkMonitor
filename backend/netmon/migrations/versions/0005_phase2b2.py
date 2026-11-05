@@ -94,6 +94,8 @@ UPGRADE = [
     )""",
     "CREATE UNIQUE INDEX ux_port_macs_key ON port_macs (device_id, mac, (COALESCE(vlan, -1)))",
     "CREATE INDEX ix_port_macs_mac ON port_macs (mac)",
+    # prefix search (LIKE 'aa:bb:c%') must use an index whatever the database collation
+    "CREATE INDEX ix_port_macs_mac_pattern ON port_macs (mac varchar_pattern_ops)",
     "CREATE INDEX ix_port_macs_device_if ON port_macs (device_id, if_index) WHERE present",
     # 5. ARP
     """

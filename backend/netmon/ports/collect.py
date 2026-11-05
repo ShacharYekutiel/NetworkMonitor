@@ -7,6 +7,7 @@ semaphore only while it runs, so the poller keeps getting slots between walks.""
 from __future__ import annotations
 
 import asyncio
+import logging
 import ipaddress
 import re
 from collections.abc import Awaitable, Callable
@@ -14,6 +15,8 @@ from dataclasses import dataclass, field
 from typing import Any
 
 from netmon.poller.snmp_client import SnmpError, snmp_get, snmp_walk
+
+log = logging.getLogger("netmon.ports.collect")
 
 # ------------------------------------------------------------------ OIDs
 SYS_UPTIME = "1.3.6.1.2.1.1.3.0"
@@ -470,13 +473,21 @@ class _Optional:
     def __init__(self, walk: Walker) -> None:
         self.walk = walk
 
-    async def cols(self, oids: list[str], cap: int = TABLE_CAP) -> list[dict[str, Any]] | None:
+    async def cols(
+        self, oids: list[str], cap: int = TABLE_CAP, *, capped_is_error: bool = False
+    ) -> list[dict[str, Any]] | None:
+        """`capped_is_error`: a column that returns the cap is probably truncated -> error
+        (keeps the previous data instead of marking the tail not present)."""
         out = []
         for oid in oids:
             try:
-                out.append(await self.walk(oid, cap))
+                rows = await self.walk(oid, cap)
             except SnmpError:
                 return None
+            if capped_is_error and len(rows) >= cap:
+                log.warning("%s returned %d rows (the cap): treated as an error", oid, len(rows))
+                return None
+            out.append(rows)
         return out
 
 
@@ -550,7 +561,7 @@ async def collect_ports(walk: Walker, version: str, walks: PortWalks) -> None:
                 src["vlans"] = "ok" if walks.pvids else "empty"
     # FDB (#9, #10, #10b): bridge-port mapping is applied by the snapshot builder
     src["fdb_mib"] = None
-    q = await opt.cols([DOT1Q_FDB_PORT, DOT1Q_FDB_STATUS], FDB_CAP)
+    q = await opt.cols([DOT1Q_FDB_PORT, DOT1Q_FDB_STATUS], FDB_CAP, capped_is_error=True)
     if q is None:
         src["fdb"] = "error"
     elif q[0]:
@@ -561,7 +572,7 @@ async def collect_ports(walk: Walker, version: str, walks: PortWalks) -> None:
             src["fdb"], src["fdb_mib"] = "ok", "q_bridge"
             walks.fdb_q = (q[0], q[1], fdb_id_to_vlan(fids[0]))
     else:
-        d = await opt.cols([DOT1D_FDB_PORT, DOT1D_FDB_STATUS], FDB_CAP)
+        d = await opt.cols([DOT1D_FDB_PORT, DOT1D_FDB_STATUS], FDB_CAP, capped_is_error=True)
         if d is None:
             src["fdb"] = "error"
         elif d[0]:
@@ -586,13 +597,13 @@ async def collect_ports(walk: Walker, version: str, walks: PortWalks) -> None:
 async def collect_arp(walk: Walker, walks: PortWalks) -> None:
     """Walks #12 / #12b into `walks.arp` and `sources.arp`."""
     opt = _Optional(walk)
-    phys = await opt.cols([IP_NET_TO_PHYS_ADDR, IP_NET_TO_PHYS_TYPE], FDB_CAP)
+    phys = await opt.cols([IP_NET_TO_PHYS_ADDR, IP_NET_TO_PHYS_TYPE], FDB_CAP, capped_is_error=True)
     if phys is None:
         walks.sources["arp"] = "error"
         return
     entries = parse_arp_phys(phys[0], phys[1])
     if not entries:
-        media = await opt.cols([IP_NET_TO_MEDIA_ADDR, IP_NET_TO_MEDIA_TYPE], FDB_CAP)
+        media = await opt.cols([IP_NET_TO_MEDIA_ADDR, IP_NET_TO_MEDIA_TYPE], FDB_CAP, capped_is_error=True)
         if media is None:
             walks.sources["arp"] = "error"
             return
