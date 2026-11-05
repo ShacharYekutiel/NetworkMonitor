@@ -1,6 +1,6 @@
 // Hand-written mirror of docs/api.md. Field names are exact.
 
-export type Status = 'up' | 'warning' | 'down' | 'paused' | 'unknown';
+export type Status = 'up' | 'warning' | 'down' | 'paused' | 'unknown' | 'unreachable'; // [2b-1] unreachable
 export type ChannelStatus = 'up' | 'warning' | 'down' | 'unknown';
 export type Role = 'admin' | 'viewer';
 export type Language = 'en' | 'he';
@@ -11,6 +11,8 @@ export type StatusCounts = {
   down: number;
   paused: number;
   unknown: number;
+  /** [2b-1] */
+  unreachable: number;
   total: number;
 };
 
@@ -25,6 +27,10 @@ export type ApiErrorDetail = {
   /** [2a] too_many_hosts */
   count?: number;
   max?: number;
+  /** [2b-1] dependency_cycle: the cycle path, e.g. [3, 7, 3] */
+  device_ids?: number[];
+  /** [2b-1] topology_refresh_running */
+  refresh_id?: number;
 };
 export type ApiErrorEnvelope = {
   error: { code: string; message: string; details: ApiErrorDetail[] | null };
@@ -85,6 +91,8 @@ export type Group = {
   sort_order: number;
   status: Status;
   status_counts: StatusCounts;
+  /** [2b-1] `inherit` at a root group means none. */
+  dependency: Dependency;
   created_at: string;
   updated_at: string;
 };
@@ -102,6 +110,12 @@ export type Device = {
   sort_order: number;
   status: Status;
   status_counts: StatusCounts;
+  /** [2b-1] */
+  dependency: Dependency;
+  effective_dependency: EffectiveDependency | null;
+  in_maintenance: boolean;
+  maintenance: MaintenanceRef | null;
+  identity: DeviceIdentity | null;
   created_at: string;
   updated_at: string;
 };
@@ -167,12 +181,28 @@ export type Sensor = {
   primary_channel: string;
   channels: Channel[];
   sort_order: number;
+  /** [2b-1] */
+  acknowledgement: Acknowledgement | null;
+  in_maintenance: boolean;
   created_at: string;
   updated_at: string;
 };
 
-export type EventKind = 'status_change' | 'notification' | 'system' | 'discovery';
-export const EVENT_KINDS: EventKind[] = ['status_change', 'notification', 'system', 'discovery'];
+export type EventKind =
+  | 'status_change'
+  | 'notification'
+  | 'system'
+  | 'discovery'
+  | 'acknowledge' // [2b-1]
+  | 'maintenance'; // [2b-1]
+export const EVENT_KINDS: EventKind[] = [
+  'status_change',
+  'notification',
+  'system',
+  'discovery',
+  'acknowledge',
+  'maintenance',
+];
 
 export type NmEvent = {
   id: number;
@@ -186,6 +216,8 @@ export type NmEvent = {
   old_status: Status | null;
   new_status: Status | null;
   message: string;
+  /** [2b-1] */
+  in_maintenance: boolean;
 };
 
 export type CheckResult = {
@@ -219,6 +251,8 @@ export type TreeSensor = {
   primary_value: number | null;
   primary_unit: string;
   last_check_at: string | null;
+  /** [2b-1] */
+  acknowledged: boolean;
 };
 export type TreeDevice = {
   id: number;
@@ -227,6 +261,10 @@ export type TreeDevice = {
   enabled: boolean;
   status: Status;
   status_counts: StatusCounts;
+  /** [2b-1] */
+  in_maintenance: boolean;
+  /** [2b-1] effective parent device */
+  parent_device_id: number | null;
   sensors: TreeSensor[];
 };
 export type TreeGroup = {
@@ -250,7 +288,8 @@ export type ConfigFieldType =
   | 'str_nullable'
   | 'int_nullable'
   | 'headers'
-  | 'float'; // [2a]
+  | 'float' // [2a]
+  | 'value_map'; // [2b-1]
 
 export type ConfigField = {
   key: string;
@@ -307,7 +346,22 @@ export type Dashboard = {
   device_counts: StatusCounts;
   group_count: number;
   recent_events: NmEvent[];
+  /** down/warning, not acknowledged */
   problem_sensors: Sensor[];
+  /** [2b-1] */
+  acknowledged_sensors: Sensor[];
+  acknowledged_count: number;
+  unreachable_devices: UnreachableDevice[];
+  maintenance: { active_window_ids: number[]; device_count: number };
+};
+
+/** [2b-1] */
+export type UnreachableDevice = {
+  id: number;
+  name: string;
+  host: string;
+  parent_device_id: number | null;
+  parent_device_name: string | null;
 };
 
 export type EmailChannelConfig = { to: string[] };
@@ -353,6 +407,10 @@ export type AlertRule = {
   delay_s: number;
   enabled: boolean;
   channel_ids: number[];
+  /** [2b-1] */
+  escalation_after_s: number | null;
+  escalation_channel_ids: number[];
+  repeat_every_s: number | null;
   created_at: string;
   updated_at: string;
 };
@@ -375,6 +433,10 @@ export type Settings = {
   default_interval_s: number;
   default_language: Language;
   public_base_url: string | null;
+  /** [2b-1] IANA zone */
+  timezone: string;
+  /** [2b-1] 0 (off) or 5–1440 */
+  topology_refresh_min: number;
 };
 export type SettingsInput = Partial<Omit<Settings, 'smtp'>> & {
   smtp?: Partial<Omit<SmtpSettings, 'password' | 'password_set'>> & { password?: string | null };
@@ -396,6 +458,8 @@ export type WsMessage =
         last_check_at: string | null;
         status_changed: boolean;
         channels: { key: string; value: number | null; status: ChannelStatus }[];
+        /** [2b-1] */
+        acknowledged?: boolean;
       };
     }
   | { type: 'event.created'; ts: string; data: NmEvent }
@@ -419,7 +483,9 @@ export type WsMessage =
           | 'sensor'
           | 'alert_rule'
           | 'notification_channel'
-          | 'discovery_profile';
+          | 'discovery_profile'
+          | 'maintenance_window' // [2b-1]
+          | 'topology_link'; // [2b-1]
         id: number;
         action: 'created' | 'updated' | 'deleted';
       };
@@ -427,6 +493,26 @@ export type WsMessage =
   | { type: 'discovery.progress'; ts: string; data: DiscoveryProgress }
   | { type: 'discovery.result'; ts: string; data: { scan_id: number; result: DiscoveryResult } }
   | { type: 'discovery.finished'; ts: string; data: DiscoveryFinished }
+  | {
+      type: 'sensor.ack';
+      ts: string;
+      data: { id: number; device_id: number; acknowledgement: Acknowledgement | null };
+    }
+  | {
+      type: 'maintenance.changed';
+      ts: string;
+      data: {
+        active_window_ids: number[];
+        entered_device_ids: number[];
+        left_device_ids: number[];
+      };
+    }
+  | {
+      type: 'topology.updated';
+      ts: string;
+      data: { reason: 'refresh' | 'link' | 'layout'; refresh_id: number | null };
+    }
+  | { type: 'topology.refresh'; ts: string; data: { refresh: TopologyRefresh } }
   | { type: 'pong'; ts: string; data: Record<string, never> };
 
 // ---------------------------------------------------------------------------
@@ -472,6 +558,10 @@ export type ScanOptions = {
   tcp_ports: number[];
   tcp_timeout_ms: number;
   dns: boolean;
+  /** [2b-1] default true */
+  fingerprint: boolean;
+  /** [2b-1] 500–5000, default 2000 */
+  fingerprint_timeout_ms: number;
 };
 
 /** Request form: every key optional; secrets are real values. */
@@ -495,6 +585,8 @@ export type ScanOptionsInput = Partial<{
   tcp_ports: number[];
   tcp_timeout_ms: number;
   dns: boolean;
+  fingerprint: boolean;
+  fingerprint_timeout_ms: number;
 }>;
 
 export type DiscoveryProfile = {
@@ -554,6 +646,11 @@ export type DiscoveryResult = {
   existing_device_id: number | null;
   is_new: boolean;
   imported_device_id: number | null;
+  /** [2b-1] */
+  fingerprint: Fingerprint | null;
+  model: string | null;
+  classified_by: ClassifiedBy;
+  confidence: Confidence;
 };
 
 export type DiscoveryProgress = {
@@ -603,6 +700,10 @@ export type TemplateEntry =
       config: Record<string, unknown>;
       channels: ChannelOverride[];
       max: number;
+      /** [2b-1] */
+      skip_zero?: boolean;
+      filters?: { oid: string; in: number[] | null; not_in: number[] | null }[];
+      interval_s?: number | null;
     };
 
 export type TemplateMatchRule = {
@@ -610,6 +711,8 @@ export type TemplateMatchRule = {
   vendors: string[] | null;
   requires_snmp: boolean;
   any_open_ports: number[] | null;
+  /** [2b-1] sysObjectID enterprise numbers (null = any) */
+  enterprises?: number[] | null;
 };
 
 export type DeviceTemplate = {
@@ -664,3 +767,234 @@ export type SnmpStorage = {
   used_bytes: number | null;
   existing_sensor_id: number | null;
 };
+
+// ---------------------------------------------------------------------------
+// [2b-1] Dependencies, maintenance, acknowledge, fingerprinting, topology
+
+export type Acknowledgement = {
+  /** username snapshot */
+  by: string | null;
+  at: string;
+  comment: string;
+  status: 'down' | 'warning';
+};
+
+export type DependencyMode = 'inherit' | 'none' | 'device';
+export const DEPENDENCY_MODES: DependencyMode[] = ['inherit', 'none', 'device'];
+export type Dependency = {
+  mode: DependencyMode;
+  device_id: number | null;
+  device_name: string | null;
+  sensor_id: number | null;
+  sensor_name: string | null;
+};
+/** Request form of a dependency. */
+export type DependencyInput = {
+  mode: DependencyMode;
+  device_id: number | null;
+  sensor_id: number | null;
+};
+export type EffectiveDependency = {
+  device_id: number;
+  device_name: string;
+  /** the resolved dependency sensor (null = whole device) */
+  sensor_id: number | null;
+  sensor_name: string | null;
+  source: 'device' | 'group';
+  /** set when source = group */
+  group_id: number | null;
+  parent_down: boolean;
+};
+export type MaintenanceRef = { window_id: number; name: string; ends_at: string };
+
+export type Confidence = 'high' | 'medium' | 'low';
+export const CONFIDENCES: Confidence[] = ['high', 'medium', 'low'];
+export type ClassifiedBy = 'snmp' | 'fingerprint' | 'ports' | 'none';
+export const CLASSIFIED_BY: ClassifiedBy[] = ['snmp', 'fingerprint', 'ports', 'none'];
+
+export type FingerprintHttp = {
+  port: number;
+  scheme: 'http' | 'https';
+  status: number | null;
+  title: string | null;
+  server: string | null;
+  realm: string | null;
+  markers: string[];
+  redirects: number;
+  error: string | null;
+};
+export type Fingerprint = {
+  http: FingerprintHttp[];
+  ssh: { port: number; banner: string | null } | null;
+  telnet: { port: number; banner: string | null } | null;
+};
+export type DeviceIdentity = {
+  device_class: DeviceClass;
+  vendor: string | null;
+  model: string | null;
+  confidence: Confidence;
+  classified_by: ClassifiedBy;
+  suggested_template: string;
+  snmp_ok: boolean;
+  sys_object_id: string | null;
+  sys_descr: string | null;
+  open_ports: number[];
+  fingerprint: Fingerprint | null;
+  identified_at: string;
+};
+
+export type MaintenanceScope = 'global' | 'group' | 'device';
+export const MAINTENANCE_SCOPES: MaintenanceScope[] = ['global', 'group', 'device'];
+export type MaintenanceKind = 'once' | 'weekly';
+export type MaintenanceWindow = {
+  id: number;
+  name: string;
+  enabled: boolean;
+  scope: MaintenanceScope;
+  group_id: number | null;
+  group_name: string | null;
+  device_id: number | null;
+  device_name: string | null;
+  kind: MaintenanceKind;
+  /** once */
+  starts_at: string | null;
+  ends_at: string | null;
+  /** weekly: ISO 1=Mon..7=Sun */
+  weekdays: number[] | null;
+  /** weekly: "HH:MM" local (settings.timezone) */
+  start_time: string | null;
+  /** weekly */
+  duration_min: number | null;
+  /** settings.timezone, informational */
+  timezone: string;
+  comment: string;
+  active_now: boolean;
+  /** current occurrence if active, else next; null = none left */
+  occurrence_start: string | null;
+  occurrence_end: string | null;
+  created_by: string | null;
+  created_at: string;
+  updated_at: string;
+};
+export type MaintenanceWindowInput = {
+  name?: string;
+  enabled?: boolean;
+  scope?: MaintenanceScope;
+  group_id?: number | null;
+  device_id?: number | null;
+  kind?: MaintenanceKind;
+  starts_at?: string | null;
+  ends_at?: string | null;
+  weekdays?: number[] | null;
+  start_time?: string | null;
+  duration_min?: number | null;
+  comment?: string;
+};
+export type Occurrence = { start: string; end: string };
+export type MaintenanceActive = {
+  now: string;
+  windows: MaintenanceWindow[];
+  /** devices currently covered */
+  device_ids: number[];
+};
+
+export type TopologyDeviceNode = {
+  key: string;
+  kind: 'device';
+  device_id: number;
+  name: string;
+  host: string;
+  group_id: number;
+  status: Status;
+  in_maintenance: boolean;
+  /** from identity */
+  device_class: DeviceClass | null;
+  x: number | null;
+  y: number | null;
+  in_filter: boolean;
+};
+export type TopologyNeighborNode = {
+  key: string;
+  kind: 'neighbor';
+  neighbor_id: number;
+  /** sys_name, else chassis id */
+  name: string;
+  chassis_id: string;
+  mgmt_address: string | null;
+  sys_descr: string | null;
+  x: number | null;
+  y: number | null;
+  in_filter: true;
+};
+export type TopologyNode = TopologyDeviceNode | TopologyNeighborNode;
+export type LinkEnd = {
+  node: string;
+  device_id: number | null;
+  neighbor_id: number | null;
+  if_index: number | null;
+  port: string;
+  /** snmp_interface sensor of that device with this if_index */
+  sensor_id: number | null;
+  sensor_status: Status | null;
+  /** last oper_status channel value (1 = up) */
+  oper_status: number | null;
+  in_bps: number | null;
+  out_bps: number | null;
+  in_util_pct: number | null;
+  out_util_pct: number | null;
+};
+export type LinkSource = 'lldp' | 'cdp' | 'manual';
+export const LINK_SOURCES: LinkSource[] = ['lldp', 'cdp', 'manual'];
+export type TopologyLink = {
+  id: number;
+  source: LinkSource;
+  a: LinkEnd;
+  b: LinkEnd;
+  stale: boolean;
+  missed_refreshes: number;
+  first_seen: string;
+  last_seen: string;
+};
+export type TopologyRefreshStatus = 'running' | 'completed' | 'failed';
+export type TopologyRefresh = {
+  id: number;
+  trigger: 'manual' | 'scheduled';
+  status: TopologyRefreshStatus;
+  started_at: string;
+  finished_at: string | null;
+  devices_total: number;
+  devices_ok: number;
+  devices_failed: number;
+  links_found: number;
+  error: string | null;
+};
+export type TopologyGraph = {
+  nodes: TopologyNode[];
+  links: TopologyLink[];
+  last_refresh: TopologyRefresh | null;
+  refresh_running: boolean;
+};
+export type TopologyLinkInput = {
+  a_device_id: number;
+  a_if_index: number | null;
+  a_port?: string;
+  b_device_id: number | null;
+  b_neighbor_id: number | null;
+  b_if_index: number | null;
+  b_port: string;
+};
+export type LayoutPosition = { node: string; x: number; y: number };
+export type DependencySuggestion = {
+  device_id: number;
+  device_name: string;
+  suggested_parent_id: number | null;
+  suggested_parent_name: string | null;
+  current: Dependency;
+  effective_parent_id: number | null;
+  hops: number;
+};
+export type DependencySuggestions = {
+  root_device_id: number | null;
+  items: DependencySuggestion[];
+};
+export type DependencyBulkItem = { device_id: number; dependency: DependencyInput };

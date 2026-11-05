@@ -1,6 +1,6 @@
 import { useTranslation } from 'react-i18next';
 import type { Status, StatusCounts } from '../api/types';
-import { STATUS_BADGE, STATUS_DOT, statusClass } from '../lib/status';
+import { COUNT_ORDER, STATUS_BADGE, STATUS_DOT, statusClass } from '../lib/status';
 import { cx } from './ui';
 
 export function StatusDot({ status, className }: { status: Status | string; className?: string }) {
@@ -32,7 +32,7 @@ export function StatusBadge({ status }: { status: Status | string }) {
   );
 }
 
-const ORDER: Status[] = ['down', 'warning', 'unknown', 'paused', 'up'];
+const ORDER: Status[] = COUNT_ORDER;
 
 /** Compact counters (only non-zero statuses), e.g. on a group row. */
 export function StatusCountPills({ counts }: { counts: StatusCounts }) {

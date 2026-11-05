@@ -9,6 +9,7 @@ import type {
   Page,
   Sensor,
   Tree,
+  TopologyGraph,
   WsMessage,
 } from '../api/types';
 import {
@@ -18,7 +19,7 @@ import {
   clearBuffered,
   mergeResult,
 } from './discovery';
-import { patchTreeDevice, patchTreeGroup, patchTreeSensor } from './tree';
+import { patchTreeDevice, patchTreeGroup, patchTreeSensor, patchTreeDeviceFlags } from './tree';
 
 /** Collects invalidations and flushes them in one batch, so bursts of WS messages stay cheap. */
 export class InvalidationBatcher {
@@ -73,6 +74,11 @@ export function applyLiveMessage(
       const d = msg.data;
       const patchSensor = (s: Sensor): Sensor => ({
         ...s,
+        // [2b-1] any status change clears the acknowledgement (sensor.ack follows as well).
+        acknowledgement:
+          d.acknowledged === false || (d.status_changed && d.acknowledged !== true)
+            ? null
+            : s.acknowledgement,
         status: d.status,
         status_message: d.status_message,
         last_check_at: d.last_check_at,
@@ -90,6 +96,7 @@ export function applyLiveMessage(
           status: d.status,
           status_message: d.status_message,
           last_check_at: d.last_check_at,
+          ...(d.acknowledged !== undefined ? { acknowledged: d.acknowledged } : {}),
         });
       });
       // primary_value needs the primary channel key, which the tree node carries.
@@ -133,6 +140,9 @@ export function applyLiveMessage(
         old ? { ...old, status, status_counts } : old,
       );
       patchPages<Device>(qc, 'devices', id, (x) => ({ ...x, status, status_counts }));
+      qc.setQueriesData<TopologyGraph>({ queryKey: ['topology'] }, (old) =>
+        patchTopologyNode(old, id, { status }),
+      );
       batch.add(qk.dashboard);
       break;
     }
@@ -177,7 +187,73 @@ export function applyLiveMessage(
         case 'discovery_profile':
           batch.add(qk.discoveryProfiles);
           break;
+        case 'maintenance_window':
+          batch.add(['maintenanceWindows']);
+          batch.add(['maintenanceWindow', id]);
+          batch.add(['occurrences', id]);
+          batch.add(qk.maintenanceActive);
+          break;
+        case 'topology_link':
+          batch.add(['topology']);
+          batch.add(['topologyLinks']);
+          break;
       }
+      // Device/group changes can move dependencies, names and the topology graph.
+      if (entity === 'device' || entity === 'group') {
+        batch.add(['topology']);
+        batch.add(['dependencySuggestions']);
+      }
+      break;
+    }
+    case 'sensor.ack': {
+      const { id, acknowledgement } = msg.data;
+      const patch = (s: Sensor): Sensor => ({ ...s, acknowledgement });
+      qc.setQueryData<Sensor>(qk.sensor(id), (old) => (old ? patch(old) : old));
+      patchPages<Sensor>(qc, 'sensors', id, patch);
+      qc.setQueryData<Tree>(qk.tree, (old) =>
+        old ? patchTreeSensor(old, id, { acknowledged: acknowledgement !== null }) : old,
+      );
+      qc.setQueryData<Dashboard>(qk.dashboard, (old) =>
+        old ? applyAckToDashboard(old, id, acknowledgement) : old,
+      );
+      batch.add(qk.dashboard);
+      break;
+    }
+    case 'maintenance.changed': {
+      const { entered_device_ids, left_device_ids } = msg.data;
+      qc.setQueryData<Tree>(qk.tree, (old) => {
+        if (!old) return old;
+        let t = old;
+        for (const id of entered_device_ids)
+          t = patchTreeDeviceFlags(t, id, { in_maintenance: true });
+        for (const id of left_device_ids)
+          t = patchTreeDeviceFlags(t, id, { in_maintenance: false });
+        return t;
+      });
+      // Per api.md: refetch tree/devices/sensors/dashboard (ends_at, window names, sensors flags).
+      batch.add(qk.tree);
+      batch.add(['devices']);
+      batch.add(['device']);
+      batch.add(['sensors']);
+      batch.add(['sensor']);
+      batch.add(qk.dashboard);
+      batch.add(qk.maintenanceActive);
+      batch.add(['maintenanceWindows']);
+      batch.add(['topology']);
+      break;
+    }
+    case 'topology.updated': {
+      batch.add(['topology']);
+      batch.add(['topologyLinks']);
+      if (msg.data.reason === 'refresh') batch.add(['dependencySuggestions']);
+      break;
+    }
+    case 'topology.refresh': {
+      const r = msg.data.refresh;
+      qc.setQueriesData<TopologyGraph>({ queryKey: ['topology'] }, (old) =>
+        old ? { ...old, last_refresh: r, refresh_running: r.status === 'running' } : old,
+      );
+      if (r.status !== 'running') batch.add(['topology']);
       break;
     }
     case 'discovery.progress': {
@@ -223,4 +299,52 @@ export function applyLiveMessage(
     default:
       break;
   }
+}
+
+/** Patches one device node of a topology graph (by device id). */
+export function patchTopologyNode(
+  g: TopologyGraph | undefined,
+  deviceId: number,
+  patch: { status?: Sensor['status']; in_maintenance?: boolean },
+): TopologyGraph | undefined {
+  if (!g || !g.nodes.some((n) => n.kind === 'device' && n.device_id === deviceId)) return g;
+  return {
+    ...g,
+    nodes: g.nodes.map((n) =>
+      n.kind === 'device' && n.device_id === deviceId ? { ...n, ...patch } : n,
+    ),
+  };
+}
+
+/**
+ * Moves a sensor between the dashboard's problem and acknowledged lists in place
+ * (the dashboard refetch that follows fixes ordering and limits).
+ */
+export function applyAckToDashboard(
+  d: Dashboard,
+  sensorId: number,
+  ack: Sensor['acknowledgement'],
+): Dashboard {
+  const all = [...d.problem_sensors, ...d.acknowledged_sensors];
+  const s = all.find((x) => x.id === sensorId);
+  if (!s) return d;
+  const next = { ...s, acknowledgement: ack };
+  const problems = d.problem_sensors.filter((x) => x.id !== sensorId);
+  const acked = d.acknowledged_sensors.filter((x) => x.id !== sensorId);
+  const wasAcked = d.acknowledged_sensors.some((x) => x.id === sensorId);
+  if (ack) {
+    return {
+      ...d,
+      problem_sensors: problems,
+      acknowledged_sensors: [...acked, next],
+      acknowledged_count: d.acknowledged_count + (wasAcked ? 0 : 1),
+    };
+  }
+  const stillProblem = next.status === 'down' || next.status === 'warning';
+  return {
+    ...d,
+    problem_sensors: stillProblem ? [...problems, next] : problems,
+    acknowledged_sensors: acked,
+    acknowledged_count: Math.max(0, d.acknowledged_count - (wasAcked ? 1 : 0)),
+  };
 }
