@@ -15,13 +15,14 @@ export function DevicePicker({
   onChange,
   exclude = [],
   allowNone,
-  ariaLabel,
+  label,
 }: {
   value: number | null;
   onChange: (v: number | null) => void;
   exclude?: number[];
   allowNone?: boolean;
-  ariaLabel?: string;
+  /** Accessible name of the select (the search box has its own), usually the field label. */
+  label: string;
 }) {
   const { t } = useTranslation();
   const { data } = useTree();
@@ -50,14 +51,15 @@ export function DevicePicker({
           value={q}
           onChange={(e) => setQ(e.target.value)}
           placeholder={t('dependency.searchDevice')}
-          aria-label={t('dependency.searchDevice')}
+          aria-label={`${label}: ${t('dependency.searchDevice')}`}
+          id={searchId}
           className="sm:w-40"
         />
       )}
       <Select
         value={value === null ? '' : String(value)}
         onChange={(e) => onChange(e.target.value ? Number(e.target.value) : null)}
-        aria-label={ariaLabel}
+        aria-label={label}
       >
         {(allowNone || value === null) && <option value="">{t('dependency.chooseDevice')}</option>}
         {opts.map(({ device, group }) => (
@@ -147,6 +149,7 @@ export function DependencyEditor({
         <div className="mt-3 grid grid-cols-1 gap-3 sm:grid-cols-2">
           <Field label={t('dependency.parentDevice')} required>
             <DevicePicker
+              label={t('dependency.parentDevice')}
               value={value.device_id}
               exclude={exclude}
               onChange={(id) => onChange({ ...value, device_id: id, sensor_id: null })}

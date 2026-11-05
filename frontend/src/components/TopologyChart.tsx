@@ -6,7 +6,7 @@ import { TooltipComponent } from 'echarts/components';
 import { CanvasRenderer } from 'echarts/renderers';
 import { useTranslation } from 'react-i18next';
 import type { LayoutPosition, TopologyGraph } from '../api/types';
-import { buildGraph, forceRepulsion, type GraphNodeDatum } from '../lib/topology';
+import { buildGraph, forceRepulsion, isRealDrag, type GraphNodeDatum } from '../lib/topology';
 
 echarts.use([GraphChart, TooltipComponent, CanvasRenderer]);
 
@@ -66,6 +66,11 @@ export function TopologyChart({
   const chart = useRef<echarts.ECharts | null>(null);
   const idsRef = useRef<string[]>([]);
   const nodesRef = useRef<GraphNodeDatum[]>([]);
+  const downRef = useRef<{
+    id: string;
+    px: [number, number];
+    pos: [number, number] | null;
+  } | null>(null);
   const cb = useRef({
     onPositions,
     onSave,
@@ -101,15 +106,40 @@ export function TopologyChart({
     c.getZr().on('click', (e) => {
       if (!e.target) cb.current.onBackgroundClick();
     });
-    // Dragging ends on mouseup: keep the node where it was dropped, and save it (admins only).
-    c.on('mouseup', (p) => {
-      const params = p as { dataType?: string; dataIndex: number };
-      if (params.dataType !== 'node') return;
+    // A drag starts with mousedown on a node: remember where it was (pixels and layout).
+    c.on('mousedown', (p) => {
+      const params = p as {
+        dataType?: string;
+        dataIndex: number;
+        event?: { offsetX: number; offsetY: number };
+      };
+      if (params.dataType !== 'node' || !params.event) {
+        downRef.current = null;
+        return;
+      }
       const id = idsRef.current[params.dataIndex];
+      downRef.current = {
+        id,
+        px: [params.event.offsetX, params.event.offsetY],
+        pos: readPositions(c, idsRef.current)[id] ?? null,
+      };
+    });
+    // Dragging ends on mouseup: keep the node where it was dropped, and save it (admins only).
+    // A plain click (≤ 3 px of pointer movement, or no layout change) never saves.
+    c.on('mouseup', (p) => {
+      const params = p as {
+        dataType?: string;
+        dataIndex: number;
+        event?: { offsetX: number; offsetY: number };
+      };
+      const down = downRef.current;
+      downRef.current = null;
+      if (params.dataType !== 'node' || !down || !params.event) return;
+      const id = idsRef.current[params.dataIndex];
+      if (!id || id !== down.id) return;
       const now = readPositions(c, idsRef.current)[id];
-      if (!id || !now) return;
-      const prev = cb.current.positions[id];
-      if (prev && Math.abs(prev[0] - now[0]) < 0.5 && Math.abs(prev[1] - now[1]) < 0.5) return;
+      if (!now || !isRealDrag(down.px, [params.event.offsetX, params.event.offsetY], down.pos, now))
+        return;
       cb.current.onPositions({ ...cb.current.positions, [id]: now });
       if (cb.current.canSave) cb.current.onSave([{ node: id, x: now[0], y: now[1] }]);
     });

@@ -408,8 +408,9 @@ function AddLinkModal({
       b_device_id: bKind === 'device' ? b : null,
       b_neighbor_id: bKind === 'neighbor' ? b : null,
       b_if_index: bKind === 'device' ? bIf : null,
-      b_port: bPort.trim(),
     };
+    // Blank ports are omitted so the backend defaults them to the ifName of the if_index.
+    if (bPort.trim()) body.b_port = bPort.trim();
     // a_port defaults to the ifName of a_if_index when omitted (api.md).
     if (aPort.trim() || aIf === null) body.a_port = aPort.trim();
     m.mutate(body);
@@ -436,6 +437,7 @@ function AddLinkModal({
           </legend>
           <Field label={t('topology.device')} required>
             <DevicePicker
+              label={t('topology.device')}
               value={a}
               onChange={(v) => {
                 setA(v);
@@ -482,6 +484,7 @@ function AddLinkModal({
             <>
               <Field label={t('topology.device')} required>
                 <DevicePicker
+                  label={t('topology.device')}
                   value={b}
                   exclude={a !== null ? [a] : []}
                   onChange={(v) => {
@@ -594,7 +597,7 @@ function SuggestModal({ open, onClose }: { open: boolean; onClose: () => void })
     >
       <p className="mb-3 text-sm text-slate-600 dark:text-slate-300">{t('topology.suggestHint')}</p>
       <Field label={t('topology.root')} hint={t('topology.rootHint')} className="mb-3">
-        <DevicePicker value={root} onChange={setRoot} allowNone />
+        <DevicePicker label={t('topology.root')} value={root} onChange={setRoot} allowNone />
       </Field>
       {q.data?.root_device_id != null && (
         <p className="mb-2 text-xs text-slate-500">
@@ -779,7 +782,7 @@ export function TopologyPage() {
                 disabled={running}
                 onClick={() => refresh.mutate()}
               >
-                <RefreshIcon size={14} /> {t('topology.refresh')}
+                <RefreshIcon size={14} /> {t('topology.refreshNow')}
               </Button>
               <Button onClick={() => setSuggest(true)}>{t('topology.suggest')}</Button>
               <Button onClick={() => setAddLink(true)}>

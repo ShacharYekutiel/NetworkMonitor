@@ -833,7 +833,7 @@ A template entry is skipped with reason `exists` when the device already has a s
 | `ping`, `snmp_system`, `snmp_cpu`, `snmp_memory` | the type |
 | `snmp_interface` | `config.if_index` |
 | `snmp_disk` | `config.storage_descr` |
-| `snmp_custom` | `config.oid` (**[2b-1]** `(config.oid, config.percent_of_oid)`: the HPE templates read the PoE consumption column both as a percentage and in W) |
+| `snmp_custom` | **[2b-1]** `(type, config.oid, config.percent_of_oid)` (leading dots stripped; a missing/empty `percent_of_oid` is null). Phase 2a was `config.oid` alone; existing sensors without `percent_of_oid` keep matching. Needed because the HPE templates read the PoE consumption column both as a percentage and in W. |
 | `http` | `config.url` (exact string, before `{host}` substitution) |
 | `tcp_port` | `config.port` |
 | `dns` | `(config.query_name, config.record_type)` |
@@ -986,15 +986,37 @@ device has an effective parent that is down → the sensor's status is **`unreac
 their evaluated values/statuses. `warning`/`up` are never changed. The parent state is read in the same
 transaction (one query; only on a failing check).
 
+**Parent down for a check** (review H2): for this rule the parent counts as down when it is down now **or** its
+dependency sensor (whole-device mode: any of its non-paused sensors) changed status *out of* `down`/`unreachable`
+at or after the check's start time (`checked_at`), i.e. the parent recovered while this child's check was
+running. Such a check failed because of the parent, so the child becomes `unreachable`, not `down`.
+
+**Child before parent** (review H2): when a check of C evaluates `down`, C has an effective parent P and P is
+**not** down:
+- the scheduler re-checks P's dependency sensor right away (`run_soon([S])`, jitter 0; whole-device mode: all
+  of P's enabled sensors), and
+- the alert engine holds the new problem: a new problem row of a sensor whose device has an effective parent
+  gets `due_at = t + max(R.delay_s, hold)`, with `hold` = the parent's interval plus timeout
+  (`S.interval_s + S.timeout_s` of the dependency sensor S; whole-device mode: the largest `interval_s +
+  timeout_s` among P's enabled sensors). This applies with `delay_s = 0` too; escalation/reminder timers are
+  unchanged. If P goes down meanwhile, the cascade turns C `unreachable` and the held row is deleted
+  (nothing was notified) before anything is sent.
+`delay_s ≥ the parent's interval` (owner note) remains the robust setting; the hold covers the common case
+without it.
+
 **Cascade** (`netmon.services.dependencies.on_status_change`, called from `events.published` for
 `status_change` events): when a sensor of device P changes status, for every device C whose effective parent
 is P (and whose dependency sensor is this sensor, or "whole device" mode):
 - P **became down** → each sensor of C with status `down` becomes `unreachable` (via `set_sensor_status`-like
   code, writes a `status_change` event `down → unreachable` with the message above, keeps `last_check_at`).
 - P **is no longer down** → each sensor of C with status `unreachable` is queued for an immediate re-check
-  (`scheduler.run_soon(sensor_ids)`, random jitter 0–5 s each; does not move the regular schedule). The status
+  (`scheduler.run_soon(sensor_ids)`, random jitter 0–5 s each; does not move the regular schedule). A
+  `run_soon` for a sensor that is **running at that moment** is not dropped: one follow-up run is queued and
+  starts right after the running check finishes (at most one pending follow-up per sensor). The status
   stays `unreachable` until that check runs; then it becomes whatever the check says. A child that is
   genuinely down after the parent recovered goes `unreachable → down` and **alerts** like any new problem.
+- The cascade re-evaluates "P is down" inside the transaction that changes C's sensors (not from an earlier
+  snapshot), so a parent that recovered meanwhile does not leave C stuck `unreachable`.
 - The cascade recurses naturally (C's own sensor changes trigger C's children).
 
 Interaction with other statuses: `paused` always wins (paused sensors are not checked); `unknown` (resume,
@@ -1030,7 +1052,8 @@ Table CHECK: `(scope='group') = (group_id IS NOT NULL) AND (scope='device') = (d
 ### Time zone
 New settings key **`timezone`**: an IANA zone name (e.g. `Asia/Jerusalem`). Default: the `TZ` environment
 variable if it is a valid IANA name (`zoneinfo.ZoneInfo(TZ)` succeeds), else `"UTC"`. Validated with
-`zoneinfo` on `PUT /api/settings` and `POST /api/setup` (422). The setup wizard sends the browser zone
+`zoneinfo` on `PUT /api/settings` (422). `POST /api/setup` **ignores** an invalid `timezone` (the default
+above is stored instead and a warning is logged), because the wizard has no field to correct it. The setup wizard sends the browser zone
 (`Intl.DateTimeFormat().resolvedOptions().timeZone`) so no one has to configure it. The backend adds the
 **`tzdata`** PyPI package as a dependency (Windows and slim images have no system zone database).
 
@@ -1067,7 +1090,10 @@ occurrence boundary or after 30 s, whichever is first, and when `rt.clock` chang
 active set it: writes one `maintenance` event per window that started/ended (message
 `Maintenance "Night patch" started` / `... ended`; `device_id`/`group_id` set for those scopes,
 `device_name` snapshot), broadcasts `maintenance.changed`, requests a rollup, and hands the devices that left
-maintenance to the alert engine. API: `in_maintenance(device_id) -> bool`, `active_window_ids() -> list[int]`,
+maintenance to the alert engine. The **first** evaluation after process start only establishes the active set:
+it writes no events and broadcasts nothing, so a window that is already active at startup has no `started`
+event (its later `ended` event can appear without a `started` one), and a window that ended while the process
+was down writes no `ended` event (its suppressed alerts are still handled, see leaving maintenance). API: `in_maintenance(device_id) -> bool`, `active_window_ids() -> list[int]`,
 `window_for(device_id) -> (window_id, name, ends_at) | None` (the covering active occurrence with the latest end).
 
 ## [2b-1] Acknowledge
@@ -1116,7 +1142,7 @@ API validation (422): `escalation_after_s` and a non-empty `escalation_channel_i
 | sensor_id | integer | FK `sensors.id` ON DELETE CASCADE |
 | status | text | NOT NULL CHECK in alert_state_status |
 | event_id | bigint | NULL (no FK; events age out). The status_change event being notified. |
-| problem_since | timestamptz | NOT NULL. Start of the current problem (or of the recovery for `up`). |
+| problem_since | timestamptz | NOT NULL. Start of the current problem; kept unchanged when the row turns `up` (the recovery time is the recovery event's `time`). |
 | due_at | timestamptz | NULL. When the problem (or recovery, for status `up`) notification is due. NULL = nothing pending. |
 | primary_sent_at | timestamptz | NULL |
 | escalation_due_at | timestamptz | NULL |
@@ -1125,6 +1151,7 @@ API validation (422): `escalation_after_s` and a non-empty `escalation_channel_i
 | reminders_sent | integer | NOT NULL DEFAULT 0 |
 | maintenance_suppressed | boolean | NOT NULL DEFAULT false |
 | notified_channel_ids | integer[] | NOT NULL DEFAULT '{}'. Every channel that successfully received a problem/escalation/reminder for this problem. |
+| sending_since | timestamptz | NULL. **[review H3]** In-flight marker of the pass that is sending for this row (see the alert loop). |
 | updated_at | timestamptz | NOT NULL DEFAULT now() |
 | | | PK `(rule_id, sensor_id)`; index on `sensor_id` |
 
@@ -1135,13 +1162,27 @@ A rule R **matches** status S for a sensor when R is enabled, `R.sensor_id` is N
 
 | S | Action per rule |
 |---|---|
-| `down` / `warning` | For each rule R matching S: if there is no row, or the row status ∉ {down, warning} → **new problem**: upsert `status=S, event_id=E, problem_since=t, due_at=t+R.delay_s, primary_sent_at=NULL, escalation_due_at = t+R.escalation_after_s` (NULL when no escalation), `escalated_at=NULL, next_reminder_at=NULL, reminders_sent=0, maintenance_suppressed=false`, **keeping** `notified_channel_ids` (an unsent recovery). If the row is already `down`/`warning` → **change within the problem**: `status=S, event_id=E, due_at=t+R.delay_s` (Phase 1 behaviour: every down↔warning transition notifies), rest unchanged. Rows of rules that do **not** match S: `due_at=NULL` (a pending delayed notification is dropped, as in Phase 1). |
-| `up` | For each row of X: `notified_channel_ids` empty → delete. Else if R is enabled and `up` ∈ `R.on_statuses` → `status=up, event_id=E, problem_since=t, due_at=t+R.delay_s`, escalation/reminder cleared. Else delete (no recovery wanted). |
+| `down` / `warning` | For each rule R matching S: if there is no row, or the row status ∉ {down, warning} → **new problem**: upsert `status=S, event_id=E, problem_since=t, due_at=t+R.delay_s, primary_sent_at=NULL, escalation_due_at = t+R.escalation_after_s` (NULL when no escalation), `escalated_at=NULL, next_reminder_at=NULL, reminders_sent=0, maintenance_suppressed=false`, **keeping** `notified_channel_ids` (an unsent recovery). If the row is already `down`/`warning` → **change within the problem**: `status=S, event_id=E, due_at=t+R.delay_s` (Phase 1 behaviour: every down↔warning transition notifies); additionally, when R has escalation, `escalated_at IS NULL` and `escalation_due_at IS NULL` (it was consumed while the row was not active), `escalation_due_at = t + R.escalation_after_s` (re-armed); rest unchanged. Rows of rules that do **not** match S: `due_at=NULL` (a pending delayed notification is dropped, as in Phase 1). |
+| `up` | For each row of X: `notified_channel_ids` empty → delete. Else if R is enabled and `up` ∈ `R.on_statuses` → `status=up, event_id=E, due_at=t+R.delay_s` (`problem_since` **kept**: the original problem start), escalation/reminder cleared. Else delete (no recovery wanted). |
 | `unreachable` / `paused` / `unknown` | For each row: `notified_channel_ids` empty → delete; else `status=suspended`, `due_at`/`escalation_due_at`/`next_reminder_at` = NULL (a later `up` sends the recovery; a later `down` is a new problem). |
 
 **Alert loop** (`AlertEngine` task): wakes at the earliest of `due_at`, `escalation_due_at`,
 `next_reminder_at` (one query), on any `notify()` from the event path, on `rt.clock` changes, and at least every
 30 s. It locks due rows (`FOR UPDATE SKIP LOCKED`) and, per row, using `now = rt.clock.now()`:
+
+- **Maintenance must be known first** (review H1): the runtime creates and starts (`reload` + first `evaluate`)
+  the `MaintenanceTracker` **before** `AlertEngine.start()`. Defensively, while the tracker is missing or not yet
+  initialized, the loop treats every device as in maintenance for sending purposes: it sends nothing for problem,
+  escalation and reminder stages and leaves those rows untouched (still due), so they are processed once
+  coverage is known. Recoveries are not held.
+- **Sends happen outside the engine lock** (review H3): a pass plans under the lock in one short transaction
+  that also stamps every row it will send for with an in-flight marker (`alert_state.sending_since =
+  now`, cleared when the pass applies its result), then releases the lock, sends (≤ 16 in parallel), and
+  re-takes the lock only to apply the results (`notified_channel_ids`, `primary_sent_at`, …) to rows that still
+  carry its marker. The event path, acknowledge and leaving-maintenance never wait for a channel. A row with
+  `sending_since` set counts as **notified** for the `up`/`unreachable`/`paused`/`unknown` rules of the
+  `status_change` table (it is not deleted, so a recovery is still sent once the in-flight send has landed in
+  `notified_channel_ids`), and is skipped by other passes. A marker older than 10 minutes (crash) is ignored.
 
 1. **Problem due** (`status ∈ {down,warning}`, `due_at <= now`): not still active → `due_at=NULL` (delete the
    row if nothing was notified). Acknowledged → `due_at=NULL`. Device in maintenance → `due_at=NULL,
@@ -1158,25 +1199,36 @@ A rule R **matches** status S for a sensor when R is enabled, `R.sensor_id` is N
    (also when skipped for maintenance); NULL when acknowledged / not active / repeat removed. After a long
    downtime only one overdue reminder is sent (no burst).
 
-**Leaving maintenance** (from the tracker): for rows of the device's sensors with `maintenance_suppressed`:
-still active and not acknowledged → `due_at = now` (sent once by step 1, payload `after_maintenance: true`),
-`escalation_due_at = now + R.escalation_after_s` if R has escalation and `escalated_at IS NULL`;
-`maintenance_suppressed=false` otherwise. (Implementation note: for the re-armed rows the flag stays `true`
-until step 1 sends — it is the persisted "after maintenance" marker, so the flag also survives a restart
-between the window end and the send; rows whose `due_at` is already set are not re-armed again. The check
-runs on every coverage change and once at startup, so a window that ended while the process was down is
-handled too.)
+**Leaving maintenance** (from the tracker): for rows of the device's sensors with `maintenance_suppressed`,
+still active and not acknowledged, two independent re-arms:
+- **Problem:** only when the problem notification was never sent (`primary_sent_at IS NULL`) and nothing is
+  pending (`due_at IS NULL`) → `due_at = now` (sent once by step 1, payload `after_maintenance: true`). A
+  problem already notified before the window is **not** sent again (its suppressed stage was an escalation).
+- **Escalation:** when R has escalation, `escalated_at IS NULL` and `escalation_due_at IS NULL` →
+  `escalation_due_at = now + R.escalation_after_s`, regardless of `due_at`.
+- The flag stays `true` only while a problem re-arm is pending (it is the persisted "after maintenance" marker,
+  so it survives a restart between the window end and the send; step 1 clears it). In every other case —
+  nothing to re-arm, only the escalation re-armed, not active, acknowledged — `maintenance_suppressed=false`.
+The check runs on every coverage change and once at startup, so a window that ended while the process was down
+is handled too.
 
 **Acknowledge** sets `due_at`/`escalation_due_at`/`next_reminder_at` = NULL on the sensor's down/warning rows
-(defensive; steps 1/3/4 also check). Unacknowledge re-arms nothing (escalation does not restart; reminders
-resume: `next_reminder_at = now + repeat_every_s`).
+(defensive; steps 1/3/4 also check). **Unacknowledge** (review M1) re-arms what the acknowledgement
+prevented, for the sensor's still-active down/warning rows:
+- `primary_sent_at IS NULL` → `due_at = now` (the problem notification was never sent; sent by step 1, normal
+  payload; in maintenance step 1 suppresses it as usual);
+- R has escalation and `escalated_at IS NULL` → `escalation_due_at = now + R.escalation_after_s`;
+- R has `repeat_every_s` and `primary_sent_at IS NOT NULL` → `next_reminder_at = now + repeat_every_s`
+  (reminders resume; with a pending problem send, step 1 arms them).
 
 **De-duplication:** one send per `(sensor_id, event_id, stage, channel_id)` within the process (bounded
 in-memory set, as in Phase 1). Reminders count as distinct stages (`reminder:<n>`), and the after-maintenance
 problem send is distinct from a pre-window problem send of the same event. A send failure writes a `notification` event; there is no retry.
 
 **Restart:** rows are persisted; overdue rows are processed right after startup (validated against the current
-state). The Phase 1 sentence "Pending timers are lost on restart" no longer applies.
+state), once the maintenance tracker has evaluated coverage (above). The Phase 1 sentence "Pending timers are
+lost on restart" no longer applies. Sends are at-least-once: a crash between a send and the result being applied
+can repeat that send after the restart.
 
 ## [2b-1] Device identity and fingerprinting
 
@@ -1254,9 +1306,13 @@ first match wins. Fields: **T** = all HTTP titles, **S** = Server headers, **R**
 | F28 | S `Microsoft-IIS` | server | microsoft | low | |
 | F29 | B `OpenSSH.*(Ubuntu\|Debian\|Raspbian)` | server | linux | low | |
 
-**Model** (first match over T, then R, then N; stored ≤ 64 chars, else null — R is needed for the
-`realm="DGS-1210-28"` case of the fingerprint sims): `\b(TL-[A-Z]{2,5}\d{2,5}[A-Z]{0,3})\b`,
-`\b(J[L]?\d{3,4}A)\b` (HPE part numbers), `OfficeConnect\s+(?:Switch\s+)?(\d{4}S?)`, `\b((?:DS|RS)\d{3,4}\+?)\b`,
+**Model** — the regexes below are tried, in the order listed, against the HTTP titles (**T**), then the HTTP
+realms (**R**, the `realm="..."` of `WWW-Authenticate`), then the telnet banner (**N**): the first text that
+yields a match wins (T → R → N; within one text, the first regex in the list). Stored ≤ 64 chars, else null. R
+is what gives `DGS-1210-28` for the `realm="DGS-1210-28"` fingerprint sim. Regexes:
+`\b(TL-[A-Z]{2,5}\d{2,5}[A-Z]{0,3})\b`,
+`\b(J[L]?\d{3,4}A)\b` (HPE part numbers), `OfficeConnect\s+(?:Switch\s+)?(\d{4}S?)`,
+`\b((?:DS|RS)\d{3,4}\+?)(?!\w)` (no trailing `\b`, so `DS920+` keeps its `+`),
 `\b((?:GS|XS|MS)\d{3}[A-Z]{0,4})\b`, `\b((?:DGS|DES|DXS)-\d{4}[-\w]*)\b`, `\b(U[67]-[\w-]+|UAP-[\w-]+)\b`.
 
 These rules are **heuristics**. Confidence `high` means "the string is vendor-specific as far as the architect
@@ -1477,10 +1533,15 @@ LLDP-V2 MIB; only the v1 LLDP-MIB is used here (if a device answers only V2, it 
   (port id subtype 5/7 or port desc), else NULL; `b_port` = port id or desc text.
 - Upsert links (canonical order), `last_seen = now`, `missed_refreshes = 0`, `stale = false`.
 - **Stale:** for every non-manual link not seen in this refresh where at least one endpoint device was walked
-  **ok**: `missed_refreshes += 1`; `>= 3` → `stale = true`. Stale links are never deleted automatically.
+  **ok and reported LLDP/CDP data** in this refresh (a non-empty lldpLocPortTable, lldpRemTable or
+  cdpCacheTable): `missed_refreshes += 1`; `>= 3` → `stale = true`. An endpoint that answers SNMP but has no
+  LLDP/CDP data could never report the link, so its successful walk does not count as a miss. Stale links are
+  never deleted automatically.
 - **Promotion:** a neighbour that now matches a device (rules above) has its links re-pointed to the device
   (duplicates merged, keeping the oldest `first_seen`), its layout row renamed when the device has none, and is
   deleted. Neighbours with no links left are deleted at the end.
+- **Startup:** `topology_refreshes` rows still `running` (left by a crash or kill) are marked `failed` with
+  `error = 'Interrupted by restart'` and `finished_at = now()` before anything else uses the runner.
 - One refresh at a time. Scheduled by a loop (like discovery) every `topology_refresh_min` minutes (first run 2
   minutes after startup); off when 0.
 
@@ -1504,7 +1565,8 @@ Plain PostgreSQL DDL only.
 4. `ALTER TABLE sensors ADD ack_at, ack_user_id, ack_by, ack_comment, ack_status`.
 5. `ALTER TABLE events ADD in_maintenance boolean NOT NULL DEFAULT false`.
 6. `ALTER TABLE alert_rules ADD escalation_after_s, escalation_channel_ids, repeat_every_s` (+ checks).
-7. `CREATE TABLE alert_state` (+ `ix_alert_state_sensor_id`); copy
+7. `CREATE TABLE alert_state` (+ `ix_alert_state_sensor_id`; includes the **[review H3]** in-flight column
+   `sending_since timestamptz NULL` — 0004 is unreleased, so it goes into the same `CREATE TABLE`); copy
    `INSERT INTO alert_state (rule_id, sensor_id, status, problem_since, primary_sent_at, notified_channel_ids)
    SELECT n.rule_id, n.sensor_id, n.status, n.time, n.time, COALESCE((SELECT array_agg(channel_id) FROM alert_rule_channels c WHERE c.rule_id = n.rule_id), '{}') FROM alert_notified n`;
    `DROP TABLE alert_notified`.

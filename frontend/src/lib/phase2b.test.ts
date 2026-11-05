@@ -410,3 +410,116 @@ describe('history event markers', () => {
     expect(m.map((x) => x.status)).toEqual(['down', 'unreachable']);
   });
 });
+
+describe('2b-1 fix round', () => {
+  it('device.status refetches devices whose effective parent changed (live parent banner)', async () => {
+    const {
+      applyLiveMessage: apply,
+      InvalidationBatcher: B,
+      dependentDeviceIds,
+    } = await import('./liveCache');
+    const qc = new QueryClient();
+    qc.setQueryData(['tree'], tree()); // device 3 has parent_device_id 2
+    qc.setQueryData(['device', 9], { id: 9, effective_dependency: { device_id: 2 } });
+    expect(dependentDeviceIds(qc, 2).sort()).toEqual([3, 9]);
+    const spy = vi.spyOn(qc, 'invalidateQueries');
+    const batch = new B(qc, 10_000);
+    apply(
+      qc,
+      { type: 'device.status', ts: '', data: { id: 2, status: 'down', status_counts: counts } },
+      batch,
+    );
+    batch.flush();
+    const keys = spy.mock.calls.map((c) => JSON.stringify(c[0]?.queryKey));
+    expect(keys).toContain('["device",3]');
+    expect(keys).toContain('["device",9]');
+  });
+
+  it('a plain click is not a drag', async () => {
+    const { isRealDrag } = await import('./topology');
+    expect(isRealDrag([10, 10], [12, 11], [0, 0], [5, 5])).toBe(false); // ≤ 3 px
+    expect(isRealDrag([10, 10], [30, 10], [0, 0], [0, 0])).toBe(false); // layout unchanged
+    expect(isRealDrag([10, 10], [30, 10], [0, 0], [20, 0])).toBe(true);
+    expect(isRealDrag([10, 10], [30, 10], null, [20, 0])).toBe(true);
+    expect(isRealDrag([10, 10], [30, 10], [0, 0], null)).toBe(false);
+  });
+
+  it('never preselects explicit none/device suggestions', async () => {
+    const { suggestionRows, defaultSelection } = await import('./topology');
+    const cur = (mode: 'inherit' | 'none' | 'device', device_id: number | null = null) => ({
+      mode,
+      device_id,
+      device_name: null,
+      sensor_id: null,
+      sensor_name: null,
+    });
+    const rows = suggestionRows([
+      {
+        device_id: 1,
+        device_name: 'a',
+        suggested_parent_id: 9,
+        suggested_parent_name: 'p',
+        current: cur('inherit'),
+        effective_parent_id: null,
+        hops: 1,
+      },
+      {
+        device_id: 2,
+        device_name: 'b',
+        suggested_parent_id: 9,
+        suggested_parent_name: 'p',
+        current: cur('none'),
+        effective_parent_id: null,
+        hops: 1,
+      },
+      {
+        device_id: 3,
+        device_name: 'c',
+        suggested_parent_id: 9,
+        suggested_parent_name: 'p',
+        current: cur('device', 4),
+        effective_parent_id: 4,
+        hops: 1,
+      },
+      {
+        device_id: 4,
+        device_name: 'd',
+        suggested_parent_id: 9,
+        suggested_parent_name: 'p',
+        current: cur('inherit'),
+        effective_parent_id: 7,
+        hops: 1,
+      },
+    ]);
+    expect([...defaultSelection(rows)]).toEqual([1]);
+  });
+
+  it('setup retries once without the time zone on a 422 for it', async () => {
+    const { setupWithTimezone } = await import('../pages/Setup');
+    const body = {
+      username: 'admin',
+      password: 'x'.repeat(10),
+      email: null,
+      language: 'en' as const,
+    };
+    const calls: unknown[] = [];
+    const call = vi.fn(async (b: Record<string, unknown>) => {
+      calls.push(b);
+      if (b.timezone)
+        throw new ApiError(422, 'validation_error', 'bad', [
+          { loc: ['body', 'timezone'], msg: 'invalid' },
+        ]);
+      return { user: { id: 1 } } as never;
+    });
+    await setupWithTimezone(body, call, 'Mars/Olympus');
+    expect(calls).toEqual([{ ...body, timezone: 'Mars/Olympus' }, body]);
+    // Other errors are not retried.
+    const other = vi.fn(async () => {
+      throw new ApiError(422, 'validation_error', 'bad', [
+        { loc: ['body', 'password'], msg: 'short' },
+      ]);
+    });
+    await expect(setupWithTimezone(body, other, 'UTC')).rejects.toThrow();
+    expect(other).toHaveBeenCalledTimes(1);
+  });
+});

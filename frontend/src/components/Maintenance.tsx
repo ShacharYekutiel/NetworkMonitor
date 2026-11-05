@@ -39,7 +39,7 @@ export function useServerTimeZone(): string {
   const { data } = useQuery({
     queryKey: qk.publicSettings,
     queryFn: endpoints.publicSettings,
-    staleTime: 300_000,
+    staleTime: 30_000,
   });
   return data?.timezone || 'UTC';
 }
@@ -363,7 +363,11 @@ export function MaintenanceWindowModal({
               hint={<Err k={errors.target} />}
               className="sm:col-span-2"
             >
-              <DevicePicker value={f.device_id} onChange={(v) => set('device_id', v)} />
+              <DevicePicker
+                label={t('maintenance.device')}
+                value={f.device_id}
+                onChange={(v) => set('device_id', v)}
+              />
             </Field>
           )}
           <FieldGroup label={t('maintenance.kind')} className="sm:col-span-2">
@@ -492,7 +496,7 @@ export function AddMaintenanceButton({ defaults }: { defaults: Partial<Maintenan
   return (
     <>
       <Button onClick={() => setOpen(true)}>
-        <WrenchIcon size={14} /> {t('maintenance.addShort')}
+        <WrenchIcon size={14} /> {t('maintenance.add')}
       </Button>
       <MaintenanceWindowModal open={open} onClose={() => setOpen(false)} defaults={defaults} />
     </>

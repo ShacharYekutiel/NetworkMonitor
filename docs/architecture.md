@@ -178,7 +178,7 @@ native installers) → defaults. **The end user never edits any of these.** Inst
 | **[2a]** `NETMON_DISCOVERY_CONCURRENCY` | `64` | Hosts probed in parallel by a discovery scan (1–256) |
 | **[2a]** `NETMON_DISCOVERY_RATE` | `100` | Max new hosts started per second by a scan (1–1000) |
 | **[2b-1]** `TZ` | unset | Only used as the default of the `timezone` setting when it is a valid IANA name |
-| **[2b-1]** `NETMON_TEST_MODE` | `0` | `1` enables `PUT /api/test/clock` (QA only; never set by installers/compose) |
+| **[2b-1]** `NETMON_TEST_MODE` | `0` | `1` enables `PUT /api/test/clock` (QA only; never set by installers/compose). When on: startup `WARNING` log + `system` event, and `/api/health` reports `"test_mode": true`. |
 
 Runtime settings (SMTP, retention, default interval, default language) live in the DB `settings` table and are
 edited in the UI. They are **not** env vars.
@@ -500,13 +500,13 @@ Sections are marked **[2b-1]**.
 | Clock | `netmon.clock` | `Clock.now() -> datetime` (UTC, + test offset), `changed: asyncio.Event`. On the runtime as `rt.clock`. Used by maintenance and alerting only. |
 | Dependencies | `netmon.services.dependencies` | Pure: `effective_parent(inv, device_id)`, `dependency_sensor(inv, parent_id)`, `find_cycle(inv)`, `parent_down(...)`. I/O: `on_status_change(rt, events)` cascade (down→unreachable, re-check on recovery). `Inventory` gains the dependency columns and sensor type/sort_order/enabled. |
 | Processor | `netmon.poller.processor` | After `evaluate()`: `down` + parent down → `unreachable` (message prefix). Clears the acknowledgement on any status change. Sets `events.in_maintenance`. |
-| Scheduler | `netmon.poller.scheduler` | New `run_soon(sensor_ids, jitter_s=5)`: an extra one-off run that does not move the regular schedule (skipped when the sensor is already running). |
-| MaintenanceTracker | `netmon.services.maintenance` | Pure `occurrences()` / `covers()`; the tracker loop (§ data-model). Started after the alert engine. |
-| AlertEngine | `netmon.alerts.engine` | Rewritten around `alert_state`: the event path only upserts rows and `notify()`s; one loop sends due problem / recovery / escalation / reminder notifications. No in-memory timers. `sender` test hook kept. `templates.py` gains the stage subjects and the "Problem since" row. |
+| Scheduler | `netmon.poller.scheduler` | New `run_soon(sensor_ids, jitter_s=5)`: an extra one-off run that does not move the regular schedule. For a sensor that is running at that moment, one follow-up run is queued to start right after the running check finishes. The processor calls it with jitter 0 to re-check a parent when a child fails while the parent is up (data-model § Status evaluation with a dependency). |
+| MaintenanceTracker | `netmon.services.maintenance` | Pure `occurrences()` / `covers()`; the tracker loop (§ data-model). Created, loaded and evaluated **before** the alert engine starts (startup order: topology/discovery `mark_interrupted` → stale sensors → MaintenanceTracker.start → AlertEngine.start → schedulers → poller). Exposes `initialized`; until it is true the alert engine sends no problem/escalation/reminder notifications. |
+| AlertEngine | `netmon.alerts.engine` | Rewritten around `alert_state`: the event path only upserts rows and `notify()`s; one loop sends due problem / recovery / escalation / reminder notifications. No in-memory timers. The engine lock covers planning and applying results only — channel sends run outside it, guarded by the per-row `sending_since` marker — so status updates, acknowledge and maintenance changes never wait for a slow channel. `sender` test hook kept. `templates.py` gains the stage subjects and the "Problem since" row. |
 | Fingerprint | `netmon.discovery.fingerprint` | `async fingerprint_host(ip, host_header, open_ports, timeout_ms) -> dict` (HTTP/SSH/telnet, limits in api.md). `classify.py` gains `classify_fingerprint()` and `classify_host() -> Classification(device_class, vendor, model, confidence, classified_by)` (pure). |
 | Identify | `netmon.discovery.identify` | `identify_device(rt, device) -> DeviceIdentity`, reuses `probe.py` + fingerprint + classify; used by the endpoint. |
 | Templates | `netmon.templates.builtin`, `apply` | `hpe_arubaos_switch`, `hpe_comware`; `enterprises` match field; `snmp_table` `skip_zero`/`filters`/`interval_s`; `snmp_custom` `enum` (in `poller/checks/snmp_custom.py` + `sensor_types.py`). |
-| Topology | `netmon.topology.collect` (SNMP walks, pure parsers for LLDP/CDP index layouts and id normalisation), `netmon.topology.refresh` (matching, upserts, stale, promotion), `netmon.topology.scheduler` (loop), `netmon.topology.suggest` (pure BFS) | One refresh at a time, semaphore 8, shared SNMP engine. |
+| Topology | `netmon.topology.collect` (SNMP walks, pure parsers for LLDP/CDP index layouts and id normalisation), `netmon.topology.refresh` (matching, upserts, stale, promotion), `netmon.topology.scheduler` (loop), `netmon.topology.suggest` (pure BFS) | One refresh at a time, semaphore 8, shared SNMP engine. Startup marks leftover `running` refreshes `failed` ("Interrupted by restart"). |
 
 Startup order additions: after migrations → mark `running` topology refreshes failed → … → start alert engine
 (loop processes overdue `alert_state` rows) → maintenance tracker → topology scheduler. Shutdown: topology
@@ -623,15 +623,17 @@ refresh cancelled (ends `failed`, "Cancelled by shutdown"), then the loops.
   | .48 | 8080 | 100 KiB body without a title, `WWW-Authenticate: Basic realm="DGS-1210-28"` | body capped at 64 KiB, realm captured, model `DGS-1210-28` |
   | .49 | 80 | accepts and never answers | `error: "timeout"` within `fingerprint_timeout_ms` |
   Plus pure unit tests for every F-rule and the SNMP + fingerprint `unknown` fallback.
-- **HPE snmpsim** (`tests/sim/hpe/`, one process per device, port 1161, community `public`):
-  - `127.0.0.51` **ArubaOS-Switch** (`arubaos.snmprec`): sysObjectID `1.3.6.1.4.1.11.2.3.7.11.181` (2930F-style),
+- **HPE snmpsim** (`tests/sim/hpe/`, one process per device, port 1161, community `public`). Each device's
+  data is `tests/sim/hpe/<dir>/public.snmprec` (snmpsim selects the data file by community, so the file must be
+  named after it): `arubaos/`, `comware/`, `access2/`, `access2_noprinter/`, `unifi_lldp/`.
+  - `127.0.0.51` **ArubaOS-Switch** (`arubaos/public.snmprec`): sysObjectID `1.3.6.1.4.1.11.2.3.7.11.181` (2930F-style),
     sysDescr `Aruba JL256A 2930F-48G-4SFP+ Switch, revision WC.16.11.0012, ROM WC.16.01.0010 (/ws/swbuildm/...)`;
     hpSwitchCpuStat `.1.3.6.1.4.1.11.2.14.11.5.1.9.6.1.0` = 7; hpLocalMemTable row 1 (.5.1 = 330000000, .6.1 =
     200000000, .7.1 = 130000000); hpicfSensorTable rows 1–4: (Descr `Fan Sensor`, Status 4), (`Power Supply
     Sensor`, **2 = bad**), (`Over-temperature Sensor`, 4), (`Redundant Power Supply Sensor`, **5 = notPresent**);
     pethMainPseTable group 1 (.2.1 = 370, .3.1 = 1, .4.1 = 45); ifTable/ifXTable ports `1`…`4` (type 6, 1 and 2
     up), `DEFAULT_VLAN` (type 53, up); LLDP data below.
-  - `127.0.0.52` **Comware** (`comware.snmprec`): sysObjectID `1.3.6.1.4.1.25506.11.1.177`, sysDescr
+  - `127.0.0.52` **Comware** (`comware/public.snmprec`): sysObjectID `1.3.6.1.4.1.25506.11.1.177`, sysDescr
     `HPE Comware Platform Software, Software Version 7.1.070, Release 6328 HPE 1950-24G-2SFP+-2XGT Switch`;
     entPhysicalTable indexes 1 (chassis, class 3), 2 (board `Board`, class 9), 3/4 (fans `Fan 1`/`Fan 2`,
     class 7), 5 (PSU `PSU 1`, class 6); hh3cEntityExt `.6.2` = 12 (CPU), `.6.1/.6.3/.6.4/.6.5` = 0, `.8.2` = 41,
@@ -662,7 +664,8 @@ refresh cancelled (ends `failed`, "Cancelled by shutdown"), then the loops.
 - Set the server time zone once in Settings (the wizard pre-fills it on new installs; existing installs start
   as `UTC` unless `TZ` is set) — weekly maintenance windows use it.
 - Add a `delay_s` (≥ the parent's ping interval) to alert rules so child alerts are reliably replaced by
-  `unreachable` during a parent outage.
+  `unreachable` during a parent outage. Without it, the engine still holds a child's new problem for the
+  parent's interval + timeout and re-checks the parent at once, which covers the usual case.
 - Verify the HPE OIDs marked medium/low on the real switches (CPU/memory/health/PoE rows); OfficeConnect
   1820/1920S may lack the ArubaOS-Switch MIBs (their rows are then skipped, not wrong).
 - Enable LLDP on the switches (on by default on ArubaOS-Switch and Comware) and SNMP read access to the LLDP-MIB

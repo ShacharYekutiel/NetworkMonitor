@@ -218,6 +218,24 @@ export function buildGraph(
   return { nodes, links, needsLayout };
 }
 
+/**
+ * Whether a node mouseup ends a real drag: the pointer moved more than `thresholdPx`
+ * pixels since mousedown and the node's layout position changed. A plain click → false.
+ */
+export function isRealDrag(
+  downPx: [number, number],
+  upPx: [number, number],
+  before: [number, number] | null,
+  after: [number, number] | null,
+  thresholdPx = 3,
+): boolean {
+  if (!after) return false;
+  if (Math.hypot(upPx[0] - downPx[0], upPx[1] - downPx[1]) <= thresholdPx) return false;
+  if (before && Math.abs(before[0] - after[0]) < 0.5 && Math.abs(before[1] - after[1]) < 0.5)
+    return false;
+  return true;
+}
+
 /** Force repulsion scaled by node count (denser graphs need more room). */
 export function forceRepulsion(nodeCount: number): number {
   return Math.round(Math.min(1200, 180 + nodeCount * 18));
@@ -244,11 +262,19 @@ export function suggestionRows(items: DependencySuggestion[]): SuggestionRow[] {
   }));
 }
 
-/** Rows selected by default: a suggestion exists and differs from the effective parent. */
+/**
+ * Rows selected by default: only devices that inherit and have no effective parent yet.
+ * An explicit choice ("none" or a device) is never preselected.
+ */
 export function defaultSelection(rows: SuggestionRow[]): Set<number> {
   return new Set(
     rows
-      .filter((r) => r.suggested_parent_id !== null && !r.alreadyEffective)
+      .filter(
+        (r) =>
+          r.suggested_parent_id !== null &&
+          r.current.mode === 'inherit' &&
+          r.effective_parent_id === null,
+      )
       .map((r) => r.device_id),
   );
 }

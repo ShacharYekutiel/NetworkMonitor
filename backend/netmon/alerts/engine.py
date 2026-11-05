@@ -138,6 +138,7 @@ class _Plan:
     updates: dict[str, Any] = field(default_factory=dict)
     delete: bool = False
     sends: list[_Send] = field(default_factory=list)
+    event_id: int | None = None
 
 
 class AlertEngine:
@@ -148,6 +149,9 @@ class AlertEngine:
         self._lock = asyncio.Lock()
         self._wake = asyncio.Event()
         self._loop_task: asyncio.Task[None] | None = None
+        # (rule_id, sensor_id) -> number of sends in flight (sent outside the lock)
+        self._inflight: dict[tuple[int, int], int] = {}
+        self._failures = 0
         # test hook: called with (channel, payload, smtp, lang) instead of real sending
         self.sender = send_to_channel
 
@@ -191,15 +195,35 @@ class AlertEngine:
         self._spawn(self._handle(event, time))
 
     async def _handle(self, event: dict[str, Any], time: datetime | None) -> None:
+        from netmon.services import dependencies
+
         t = time or _parse(event.get("time")) or now_utc()
         try:
             async with self._lock:
                 async with self.rt.sessionmaker() as session:
-                    await apply_event(session, event, t)
+                    min_due = None
+                    if event.get("new_status") == "down" and event.get("device_id") is not None:
+                        # a child's DOWN waits until its parent has been re-checked
+                        min_due = await dependencies.parent_hold_until(
+                            session, event["device_id"], t
+                        )
+                    await apply_event(
+                        session, event, t, inflight=set(self._inflight), min_due=min_due
+                    )
                     await session.commit()
         except Exception:  # noqa: BLE001 - e.g. the sensor was deleted meanwhile
             log.exception("Cannot update alert state for event %s", event.get("id"))
         self.notify()
+
+    def request_acknowledged(self, sensor_id: int) -> None:
+        """Non-blocking for request handlers (processed in the background)."""
+        self._spawn(self.acknowledged(sensor_id))
+
+    def request_unacknowledged(self, sensor_id: int) -> None:
+        self._spawn(self.unacknowledged(sensor_id))
+
+    def request_left_maintenance(self) -> None:
+        self._spawn(self.left_maintenance())
 
     async def acknowledged(self, sensor_id: int) -> None:
         async with self._lock:
@@ -218,13 +242,29 @@ class AlertEngine:
         now = self.rt.clock.now()
         async with self._lock:
             async with self.rt.sessionmaker() as session:
+                # reminders resume; a problem notification that the ack prevented (delay not
+                # over yet) is sent now; an escalation that never happened restarts from now
                 await session.execute(
                     text(
-                        "UPDATE alert_state s SET next_reminder_at = "
-                        "CAST(:now AS timestamptz) + make_interval(secs => r.repeat_every_s), "
-                        "updated_at = now() FROM alert_rules r "
-                        "WHERE r.id = s.rule_id AND s.sensor_id = :s "
-                        "AND s.status IN ('down','warning') AND r.repeat_every_s IS NOT NULL"
+                        """
+                        UPDATE alert_state s SET
+                            next_reminder_at = CASE WHEN r.repeat_every_s IS NOT NULL
+                                THEN CAST(:now AS timestamptz)
+                                     + make_interval(secs => r.repeat_every_s)
+                                ELSE s.next_reminder_at END,
+                            due_at = CASE WHEN s.primary_sent_at IS NULL
+                                THEN CAST(:now AS timestamptz) ELSE s.due_at END,
+                            escalation_due_at = CASE
+                                WHEN s.escalated_at IS NULL AND r.escalation_after_s IS NOT NULL
+                                     AND cardinality(r.escalation_channel_ids) > 0
+                                THEN CAST(:now AS timestamptz)
+                                     + make_interval(secs => r.escalation_after_s)
+                                ELSE s.escalation_due_at END,
+                            updated_at = now()
+                        FROM alert_rules r
+                        WHERE r.id = s.rule_id AND s.sensor_id = :s
+                          AND s.status IN ('down','warning')
+                        """
                     ),
                     {"s": sensor_id, "now": now},
                 )
@@ -244,6 +284,7 @@ class AlertEngine:
                         text(
                             """
                             SELECT s.rule_id, s.sensor_id, s.due_at, s.escalated_at,
+                                   s.escalation_due_at, s.primary_sent_at,
                                    se.status AS sensor_status, se.ack_at, se.device_id,
                                    r.enabled, r.on_statuses, r.sensor_id AS rule_sensor_id,
                                    r.escalation_after_s, r.escalation_channel_ids
@@ -259,8 +300,6 @@ class AlertEngine:
                 for r in rows:
                     if maint is not None and maint.in_maintenance(r.device_id):
                         continue
-                    if r.due_at is not None:
-                        continue  # already re-armed
                     active = _active(r.enabled, r.on_statuses, r.rule_sensor_id, r)
                     if active and r.ack_at is None:
                         esc = None
@@ -268,15 +307,26 @@ class AlertEngine:
                             r.escalation_after_s
                             and list(r.escalation_channel_ids or [])
                             and r.escalated_at is None
+                            and r.escalation_due_at is None
                         ):
                             esc = now + timedelta(seconds=int(r.escalation_after_s))
+                        # the problem was already sent before the window: no second DOWN
+                        resend = r.primary_sent_at is None
+                        due = r.due_at if r.due_at is not None else (now if resend else None)
                         await session.execute(
                             text(
-                                "UPDATE alert_state SET due_at = :now, "
+                                "UPDATE alert_state SET due_at = :due, "
                                 "escalation_due_at = COALESCE(:esc, escalation_due_at), "
+                                "maintenance_suppressed = :keep, "
                                 "updated_at = now() WHERE rule_id = :r AND sensor_id = :s"
                             ),
-                            {"now": now, "esc": esc, "r": r.rule_id, "s": r.sensor_id},
+                            {
+                                "due": due,
+                                "esc": esc,
+                                "keep": resend,  # the marker for `after_maintenance`
+                                "r": r.rule_id,
+                                "s": r.sensor_id,
+                            },
                         )
                     else:
                         await session.execute(
@@ -294,12 +344,21 @@ class AlertEngine:
     # ---------------------------------------------------------------- loop
     async def _loop(self) -> None:
         while True:
+            backoff = 0.0
             try:
                 await self.run_once()
+                if self._failures:
+                    log.info("Alert loop recovered after %d failed iteration(s)", self._failures)
+                self._failures = 0
             except asyncio.CancelledError:
                 raise
             except Exception:  # noqa: BLE001
-                log.exception("Alert loop iteration failed")
+                self._failures += 1
+                if self._failures == 1:
+                    log.exception("Alert loop iteration failed; retrying with backoff")
+                else:
+                    log.debug("Alert loop iteration failed again", exc_info=True)
+                backoff = min(LOOP_MAX_S, 0.5 * 2 ** min(self._failures, 6))
             timeout = LOOP_MAX_S
             try:
                 nxt = await self._next_due()
@@ -310,6 +369,8 @@ class AlertEngine:
             if nxt is not None:
                 # never spin: something overdue that could not be processed waits a bit
                 timeout = min(timeout, max(0.05, (nxt - self.rt.clock.now()).total_seconds()))
+            if backoff:
+                timeout = backoff
             changed = self.rt.clock.changed
             if not self._wake.is_set():
                 waiters = [
@@ -339,17 +400,46 @@ class AlertEngine:
     async def run_once(self) -> int:
         """Process every due row once. Returns the number of rows handled."""
         total = 0
-        async with self._lock:
-            while True:
-                n = await self._pass()
-                total += n
-                if n < BATCH:
-                    break
+        while True:
+            n = await self._pass()
+            total += n
+            if n < BATCH:
+                break
         return total
 
     async def _pass(self) -> int:
-        now = self.rt.clock.now()
+        """Claim and plan the due rows and apply the state changes under the lock, send
+        outside it (rows are marked in flight), then record the results under the lock."""
         maint = getattr(self.rt, "maintenance", None)
+        if maint is None or not getattr(maint, "initialized", False):
+            # never decide "not in maintenance" before the tracker evaluated once
+            return 0
+        async with self._lock:
+            claimed = await self._claim(maint)
+        if claimed is None:
+            return 0
+        plans, rows, channels, cfg, now = claimed
+        keys = [(p.rule_id, p.sensor_id) for p in plans if p.sends]
+        for k in keys:
+            self._inflight[k] = self._inflight.get(k, 0) + 1
+        try:
+            await self._send_all(plans, channels, cfg, rows)
+        finally:
+            async with self._lock:
+                for k in keys:
+                    left = self._inflight.get(k, 1) - 1
+                    if left <= 0:
+                        self._inflight.pop(k, None)
+                    else:
+                        self._inflight[k] = left
+                async with self.rt.sessionmaker() as session:
+                    for p in plans:
+                        await _apply_results(session, p, now)
+                    await session.commit()
+        return len(rows)
+
+    async def _claim(self, maint: Any) -> Any:
+        now = self.rt.clock.now()
         async with self.rt.sessionmaker() as session:
             rows = (
                 await session.execute(
@@ -380,7 +470,7 @@ class AlertEngine:
                 )
             ).all()
             if not rows:
-                return 0
+                return None
             event_ids = [r.event_id for r in rows if r.event_id is not None]
             events: dict[int, dict[str, Any]] = {}
             if event_ids:
@@ -425,13 +515,10 @@ class AlertEngine:
                         "type": ch.type,
                         "config": dict(ch.config),
                     }
-            await session.commit()
-        await self._send_all(plans, channels, cfg, rows)
-        async with self.rt.sessionmaker() as session:
             for p in plans:
-                await _apply_plan(session, p, now)
+                await _apply_state(session, p)
             await session.commit()
-        return len(rows)
+        return plans, rows, channels, cfg, now
 
     def _plan(
         self,
@@ -441,7 +528,7 @@ class AlertEngine:
         cfg: dict[str, Any],
         in_maint: bool,
     ) -> _Plan:
-        p = _Plan(r.rule_id, r.sensor_id)
+        p = _Plan(r.rule_id, r.sensor_id, event_id=r.event_id)
         active = _active(r.rule_enabled, r.on_statuses, r.rule_sensor_id, r)
         acked = r.ack_at is not None
         notified = list(r.notified_channel_ids or [])
@@ -606,7 +693,9 @@ def _active(enabled: bool, on_statuses: Any, rule_sensor_id: int | None, r: Any)
     )
 
 
-async def _apply_plan(session: Any, p: _Plan, now: datetime) -> None:
+async def _apply_state(session: Any, p: _Plan) -> None:
+    """Before sending (under the lock): the planned state changes (due columns, deletes,
+    escalated_at, reminder count). The send results are recorded by _apply_results."""
     key = {"r": p.rule_id, "s": p.sensor_id}
     if p.delete:
         await session.execute(
@@ -614,22 +703,9 @@ async def _apply_plan(session: Any, p: _Plan, now: datetime) -> None:
         )
         return
     sets = dict(p.updates)
-    added: list[int] = []
-    for s in p.sends:
-        if not s.ok:
-            continue
-        added += s.ok
-        if s.stage.startswith("problem"):
-            sets["primary_sent_at"] = now
     reminders = sum(1 for s in p.sends if s.stage.startswith("reminder"))
     clauses = [f"{k} = :{k}" for k in sets]
     params: dict[str, Any] = {**key, **sets}
-    if added:
-        clauses.append(
-            "notified_channel_ids = ARRAY(SELECT DISTINCT x FROM "
-            "unnest(notified_channel_ids || CAST(:added AS integer[])) x ORDER BY x)"
-        )
-        params["added"] = sorted(set(added))
     if reminders:
         clauses.append("reminders_sent = reminders_sent + :rem")
         params["rem"] = reminders
@@ -645,9 +721,61 @@ async def _apply_plan(session: Any, p: _Plan, now: datetime) -> None:
     )
 
 
-async def apply_event(session: Any, event: dict[str, Any], t: datetime) -> None:
+async def _apply_results(session: Any, p: _Plan, now: datetime) -> None:
+    """After sending: successful channels join notified_channel_ids (the row may have moved
+    on meanwhile, e.g. to `up`: its recovery then reaches these channels too)."""
+    if p.delete:
+        return
+    key = {"r": p.rule_id, "s": p.sensor_id}
+    added: list[int] = []
+    primary = False
+    for s in p.sends:
+        if not s.ok:
+            continue
+        added += s.ok
+        primary = primary or s.stage.startswith("problem")
+    if not added:
+        return
+    clauses = [
+        "notified_channel_ids = ARRAY(SELECT DISTINCT x FROM "
+        "unnest(notified_channel_ids || CAST(:added AS integer[])) x ORDER BY x)"
+    ]
+    params: dict[str, Any] = {**key, "added": sorted(set(added))}
+    if primary:
+        # only for the same problem (a new problem may have replaced the row meanwhile)
+        clauses.append(
+            "primary_sent_at = CASE WHEN event_id IS NOT DISTINCT FROM CAST(:eid AS bigint) "
+            "THEN COALESCE(primary_sent_at, :now) ELSE primary_sent_at END"
+        )
+        params["now"] = now
+        params["eid"] = p.event_id
+    if not clauses:
+        return
+    clauses.append("updated_at = now()")
+    await session.execute(
+        text(
+            f"UPDATE alert_state SET {', '.join(clauses)} "  # noqa: S608 - fixed column names
+            "WHERE rule_id = :r AND sensor_id = :s"
+        ),
+        params,
+    )
+
+
+async def apply_event(
+    session: Any,
+    event: dict[str, Any],
+    t: datetime,
+    *,
+    inflight: set[tuple[int, int]] | None = None,
+    min_due: datetime | None = None,
+) -> None:
     """The `status_change` table of docs/data-model.md: upsert/suspend/delete the sensor's
-    alert_state rows for event E (sensor X, new status S, time t)."""
+    alert_state rows for event E (sensor X, new status S, time t).
+
+    `inflight`: rows whose notification is being sent right now count as notified.
+    `min_due`: a new problem is not due before this (a child waiting for its parent's
+    re-check)."""
+    inflight = inflight or set()
     sid = event["sensor_id"]
     status = event["new_status"]
     eid = event.get("id")
@@ -657,7 +785,9 @@ async def apply_event(session: Any, event: dict[str, Any], t: datetime) -> None:
             await session.execute(
                 text(
                     "SELECT s.rule_id, s.status, cardinality(s.notified_channel_ids) AS n, "
-                    "r.enabled, r.on_statuses, r.delay_s FROM alert_state s "
+                    "s.escalated_at, s.escalation_due_at, s.problem_since, "
+                    "r.enabled, r.on_statuses, r.delay_s, r.escalation_after_s, "
+                    "r.escalation_channel_ids FROM alert_state s "
                     "JOIN alert_rules r ON r.id = s.rule_id WHERE s.sensor_id = :s "
                     "FOR UPDATE OF s"
                 ),
@@ -682,6 +812,8 @@ async def apply_event(session: Any, event: dict[str, Any], t: datetime) -> None:
             due = t + timedelta(seconds=int(rule.delay_s or 0))
             row = rows.get(rule.id)
             if row is None or row.status not in PROBLEM:
+                if min_due is not None and due < min_due:
+                    due = min_due
                 esc = None
                 if rule.escalation_after_s and list(rule.escalation_channel_ids or []):
                     esc = t + timedelta(seconds=int(rule.escalation_after_s))
@@ -711,12 +843,25 @@ async def apply_event(session: Any, event: dict[str, Any], t: datetime) -> None:
                     },
                 )
             else:
+                # change within the problem; an escalation lost while the status did not
+                # match the rule is re-armed (measured from problem_since)
+                esc = None
+                if (
+                    row.escalated_at is None
+                    and row.escalation_due_at is None
+                    and rule.escalation_after_s
+                    and list(rule.escalation_channel_ids or [])
+                ):
+                    esc = max(
+                        row.problem_since + timedelta(seconds=int(rule.escalation_after_s)), t
+                    )
                 await session.execute(
                     text(
                         "UPDATE alert_state SET status = :st, event_id = :e, due_at = :due, "
+                        "escalation_due_at = COALESCE(:esc, escalation_due_at), "
                         "updated_at = now() WHERE rule_id = :r AND sensor_id = :s"
                     ),
-                    {"r": rule.id, "s": sid, "st": status, "e": eid, "due": due},
+                    {"r": rule.id, "s": sid, "st": status, "e": eid, "due": due, "esc": esc},
                 )
         for rid in rows:
             if rid not in matching:
@@ -730,7 +875,7 @@ async def apply_event(session: Any, event: dict[str, Any], t: datetime) -> None:
         return
     for rid, row in rows.items():
         key = {"r": rid, "s": sid}
-        if not row.n:
+        if not row.n and (rid, sid) not in inflight:
             await session.execute(
                 text("DELETE FROM alert_state WHERE rule_id = :r AND sensor_id = :s"), key
             )
@@ -738,7 +883,8 @@ async def apply_event(session: Any, event: dict[str, Any], t: datetime) -> None:
             if row.enabled and "up" in list(row.on_statuses or []):
                 await session.execute(
                     text(
-                        "UPDATE alert_state SET status = 'up', event_id = :e, problem_since = :t, "
+                        # problem_since keeps the start of the problem (recovery payloads)
+                        "UPDATE alert_state SET status = 'up', event_id = :e, "
                         "due_at = :due, escalation_due_at = NULL, next_reminder_at = NULL, "
                         "maintenance_suppressed = false, updated_at = now() "
                         "WHERE rule_id = :r AND sensor_id = :s"
@@ -746,7 +892,6 @@ async def apply_event(session: Any, event: dict[str, Any], t: datetime) -> None:
                     {
                         **key,
                         "e": eid,
-                        "t": t,
                         "due": t + timedelta(seconds=int(row.delay_s or 0)),
                     },
                 )

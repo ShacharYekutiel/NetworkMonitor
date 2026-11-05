@@ -981,7 +981,7 @@ export type TopologyLinkInput = {
   b_device_id: number | null;
   b_neighbor_id: number | null;
   b_if_index: number | null;
-  b_port: string;
+  b_port?: string;
 };
 export type LayoutPosition = { node: string; x: number; y: number };
 export type DependencySuggestion = {

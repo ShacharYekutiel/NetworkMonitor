@@ -197,6 +197,7 @@ unreachable.
 
 - `database`: `"ok"` | `"error"`.
 - `poller`: `"running"` | `"stopped"`.
+- **[2b-1]** `test_mode`: `true` only when `NETMON_TEST_MODE=1` (the test clock is enabled), else `false`.
 
 ### Setup
 
@@ -1098,7 +1099,8 @@ has them as `null`/`false`/`null`:
 | `reminder` | `sensor.reminder` | rule channels | `[NetworkMonitor] REMINDER DOWN: …` / `[NetworkMonitor] תזכורת DOWN: …` |
 
 `event_id`, `old_status`, `new_status`, `message`, `time` refer to the status_change event that opened (or
-changed) the problem. Email/Telegram bodies gain a row "Problem since" / "בעיה מאז" (in `settings.timezone`).
+changed) the problem — for `recovery`, to the `up` event (so `time` is the recovery time). `problem_since` is
+always the **start of the problem**, also in `recovery` payloads (downtime = `time − problem_since`). Email/Telegram bodies gain a row "Problem since" / "בעיה מאז" (in `settings.timezone`).
 
 ### [2b-1] Dashboard
 `GET /api/dashboard` gains:
@@ -1116,7 +1118,9 @@ changed) the problem. Email/Telegram bodies gain a row "Problem since" / "בעי
 ### [2b-1] Settings
 - `timezone` (IANA, validated), `topology_refresh_min` (0 or 5–1440). A change of `topology_refresh_min`
   reschedules the topology loop; a change of `timezone` re-evaluates maintenance immediately.
-- `POST /api/setup` accepts optional `"timezone"` (invalid → 422). `GET /api/settings/public` gains
+- `POST /api/setup` accepts optional `"timezone"`; an invalid zone is **ignored** (the default — `TZ` if valid,
+  else `UTC` — is stored, a warning is logged, setup succeeds), since the wizard sends the browser zone without
+  a field to correct it. `PUT /api/settings` still answers 422 for an invalid zone. `GET /api/settings/public` gains
   `timezone` (viewers need it to render windows).
 
 ### [2b-1] Re-identify
@@ -1197,7 +1201,9 @@ With env **`NETMON_TEST_MODE=1`** only (otherwise the routes answer `404 not_fou
 `PUT /api/test/clock` (admin) `{"offset_s": 3600}` → `200 {"now": "...", "offset_s": 3600}`. It shifts
 `rt.clock.now()` (used by the maintenance tracker, the alert loop, `active_now`/occurrences and the event times
 written by those two components) and wakes both loops. `offset_s` −31536000…31536000; `0` resets. The poller,
-JWT expiry and DB `now()` are not affected. Never enabled by installers or compose.
+JWT expiry and DB `now()` are not affected. Never enabled by installers or compose. When enabled, the server
+logs a `WARNING` at startup ("NETMON_TEST_MODE is enabled: PUT /api/test/clock is available — never use this
+in production"), writes the same text as a `system` event, and `GET /api/health` reports `"test_mode": true`.
 
 ### [2b-1] WebSocket additions
 

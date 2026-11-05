@@ -870,7 +870,6 @@
   "maintenance": {
     "title": "Maintenance windows",
     "add": "Add maintenance window",
-    "addShort": "Maintenance",
     "edit": "Edit maintenance window",
     "deleteTitle": "Delete maintenance window",
     "badge": "In maintenance",
@@ -1090,6 +1089,7 @@
     "applySelected_other": "Apply {{count}} selected",
     "applied_one": "Dependency set on {{count}} device.",
     "applied_other": "Dependency set on {{count}} devices.",
-    "allGroups": "All groups"
+    "allGroups": "All groups",
+    "refreshNow": "Refresh topology now"
   }
 }

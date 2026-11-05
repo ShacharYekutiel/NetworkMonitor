@@ -194,11 +194,11 @@ export function SensorPage() {
 
       <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-6">
         {s.channels.map((c) => {
-          // [2b-1] enum: the tile shows the mapped status (the channel itself stays "up").
+          // [2b-1] enum: the tile shows the sensor status (the channel itself stays "up").
           const cs =
-            (s.type === 'snmp_custom' && c.key === 'value'
-              ? mapEnumValue(s.config, c.last_value)?.status
-              : undefined) ?? c.status;
+            s.type === 'snmp_custom' && s.config.value_type === 'enum' && c.key === 'value'
+              ? s.status
+              : c.status;
           return (
             <button
               key={c.key}
