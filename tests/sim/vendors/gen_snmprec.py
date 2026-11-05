@@ -189,6 +189,8 @@ for mac in CLIENTS:
     instant += [
         (f"{AI}.4.1.1.{arcs(mac)}", "4x", mac.replace(":", "")),  # aiClientMACAddress
         (f"{AI}.4.1.2.{arcs(mac)}", "4x", APS[0][0].replace(":", "")),  # aiClientWlanMACAddress
+        # aiClientIPAddress (the backend's aruba_wifi walks this column instead of the contract's .1)
+        (f"{AI}.4.1.3.{arcs(mac)}", "64", f"10.0.20.{CLIENTS.index(mac) + 11}"),
     ]
 write("aruba_instant/public.snmprec", instant)
 
@@ -214,6 +216,7 @@ SYNTH["aruba_wifi"] = (
     + two(f"{AI}.1.1.11", "2", "1")
     + two(f"{AI}.1.1.2", "4", "AP-One", "AP-Two")
     + two(f"{AI}.4.1.1", "4x", "3c22fb000001", "3c22fb000002")
+    + two(f"{AI}.4.1.3", "64", "10.0.20.11", "10.0.20.12")  # aiClientIPAddress
     + two("1.3.6.1.4.1.14823.2.2.1.5.2.1.4.1.19", "2", "1")  # wlanAPStatus
     + two("1.3.6.1.4.1.14823.2.2.1.5.2.1.4.1.3", "4", "MC-AP-1", "MC-AP-2")  # wlanAPName
     + [("1.3.6.1.4.1.14823.2.2.1.1.3.2.0", "2", "7")]  # wlsxSwitchTotalNumStationsAssociated

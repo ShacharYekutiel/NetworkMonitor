@@ -7,8 +7,8 @@ semaphore only while it runs, so the poller keeps getting slots between walks.""
 from __future__ import annotations
 
 import asyncio
-import logging
 import ipaddress
+import logging
 import re
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass, field
@@ -603,7 +603,9 @@ async def collect_arp(walk: Walker, walks: PortWalks) -> None:
         return
     entries = parse_arp_phys(phys[0], phys[1])
     if not entries:
-        media = await opt.cols([IP_NET_TO_MEDIA_ADDR, IP_NET_TO_MEDIA_TYPE], FDB_CAP, capped_is_error=True)
+        media = await opt.cols(
+            [IP_NET_TO_MEDIA_ADDR, IP_NET_TO_MEDIA_TYPE], FDB_CAP, capped_is_error=True
+        )
         if media is None:
             walks.sources["arp"] = "error"
             return

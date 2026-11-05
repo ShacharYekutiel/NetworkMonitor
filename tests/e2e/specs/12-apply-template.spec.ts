@@ -29,8 +29,19 @@ test('API: built-in templates, sorted by priority', async () => {
     'opnsense',
     'unifi_ap',
     'printer',
-    'hpe_arubaos_switch', // [2b-1] priority 50
-    'hpe_comware', // [2b-1] priority 50
+    // priority 50, by id: [2b-1] HPE + [2b-2] vendor library (data-model § New vendor templates, final order)
+    'apc_ups',
+    'aruba_cx',
+    'aruba_wifi',
+    'checkpoint_gaia',
+    'cisco_ios',
+    'dell_idrac',
+    'fortinet_fortigate',
+    'hpe_arubaos_switch',
+    'hpe_comware',
+    'hpe_ilo',
+    'mikrotik_routeros',
+    'paloalto_panos',
     'nas_server',
     'generic_snmp',
     'http_server',

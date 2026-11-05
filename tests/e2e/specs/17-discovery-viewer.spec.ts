@@ -62,7 +62,7 @@ test('viewer: 403 forbidden on every discovery endpoint and apply-template; temp
     expect.soft(r.status, `${m} ${p}`).toBe(403);
     expect.soft(r.body?.error?.code, `${m} ${p}`).toBe('forbidden');
   }
-  expect((await viewer.get('/api/device-templates')).items.length).toBe(9); // 7 + [2b-1] hpe_arubaos_switch, hpe_comware
+  expect((await viewer.get('/api/device-templates')).items.length).toBe(19); // 7 + [2b-1] 2 HPE + [2b-2] 10 vendor templates
   expect((await viewer.get('/api/device-templates/opnsense')).id).toBe('opnsense');
 });
 

@@ -117,14 +117,13 @@ async def detect_class(rt: Runtime, device_id: int) -> str | None:
     creds = {**creds, "retries": max(1, int(creds.get("retries") or 0))}
     cls: str | None = None
     try:
-        async with rt.semaphore:
-            vals, probes = await asyncio.wait_for(
-                asyncio.gather(
-                    snmp_get(host, creds, [SYS_DESCR, SYS_OBJECT_ID, SYS_NAME]),
-                    _probe_names(host, creds),
-                ),
-                DETECT_BUDGET_S,
-            )
+
+        async def identify() -> tuple[dict[str, Any], set[str]]:
+            async with rt.semaphore:
+                got = await snmp_get(host, creds, [SYS_DESCR, SYS_OBJECT_ID, SYS_NAME])
+                return got, await _probe_names(host, creds)
+
+        vals, probes = await asyncio.wait_for(identify(), DETECT_BUDGET_S)
         oid = vals.get(SYS_OBJECT_ID)
         cls, _, _ = classify_rule(
             str(oid) if oid is not None else None,

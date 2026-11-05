@@ -140,7 +140,8 @@ test('sensor page of the enum sensor shows the mapped text; screenshot', async (
   await loginViaApi(page, undefined, `/sensors/${s['Power Supply Sensor'].id}`);
   await expect(page.getByText('Power Supply Sensor: bad (2)').first()).toBeVisible();
   await shot2b(page, 'hpe-psu-bad-en');
-  await page.goto(`/devices/${D.comware.id}`);
+  // [2b-2] Ports is the default device tab for switches with port inventory (architecture §11.5)
+  await page.goto(`/devices/${D.comware.id}?tab=sensors`);
   await expect(page.getByText('Fan 2').first()).toBeVisible();
   await shot2b(page, 'hpe-comware-device-en');
 });
