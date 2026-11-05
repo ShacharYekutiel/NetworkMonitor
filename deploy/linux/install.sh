@@ -21,6 +21,8 @@
 #   4. Installs the app (with the web UI bundled) into the venv.
 #   5. Installs netmon.service (CAP_NET_RAW ambient capability), enables and starts it.
 #   6. Prints the URL.
+# Corporate TLS inspection: certificates in deploy/certs/ (see deploy/certs/README.md) are
+# added to the system trust store first, so apt/dnf, pip, npm and the app trust them.
 # =============================================================================
 set -Eeuo pipefail
 
