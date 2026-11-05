@@ -769,3 +769,12 @@ def test_classification_9a_and_f23a() -> None:
     assert m is not None and m.rule == "F23a"
     assert classify_fingerprint({"http": [{"title": "Gaiaxyz", "markers": []}]}) is None
     assert find_markers("Check Point Gaia R81") == ["check point", "gaia"]
+
+
+def test_display_port() -> None:
+    assert view.display_port("49", 49, "Ten-GigabitEthernet1/0/49") == "Ten-GigabitEthernet1/0/49"
+    assert view.display_port("", 49, "Te1/0/49") == "Te1/0/49"
+    assert view.display_port(None, 49, None) == "49"
+    assert view.display_port("49", 49, None) == "49"
+    assert view.display_port("uplink-core", 49, "Te1/0/49") == "uplink-core"  # explicit name
+    assert view.display_port("eth0", None, "x") == "eth0"

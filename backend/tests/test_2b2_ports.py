@@ -151,6 +151,8 @@ async def test_ports_lab(rt, admin: httpx.AsyncClient, agents, ptr_file) -> None
         devs[k]["id"] for k in ("router", "legacy", "aruba", "comware", "cx")
     ]
     assert all(u["ok"] for u in updated) and all(u["collected_at"] for u in updated)
+    # arp_source: true for the ARP router and the legacy ARP host, false for the switches
+    assert [u["arp_source"] for u in updated] == [True, True, False, False, False]
 
     # device flags in GET /api/devices/{id}
     d = (await admin.get(f"/api/devices/{devs['aruba']['id']}")).json()
@@ -471,7 +473,7 @@ async def test_failed_run_keeps_snapshot(rt, admin, agents) -> None:  # type: ig
     finally:
         rt.hub.listeners.remove(q)
     msgs = [q.get_nowait() for _ in range(q.qsize())]
-    assert {"device_id": dev["id"], "ok": False} == {
+    assert {"device_id": dev["id"], "ok": False, "arp_source": False} == {
         k: v
         for k, v in next(m["data"] for m in msgs if m["type"] == "ports.updated").items()
         if k != "collected_at"
@@ -574,3 +576,44 @@ async def test_mac_moves_reset_first_seen(rt, admin, agents) -> None:  # type: i
     await admin.put("/api/settings", json={"uplink_mac_threshold": 7})
     p = _ports((await admin.get(f"/api/devices/{dev['id']}/ports")).json())
     assert p[9]["is_uplink"] is False and len(p[9]["macs"]) == 7
+
+
+async def test_link_port_names_resolved_at_read_time(rt, admin, agents) -> None:  # type: ignore[no-untyped-def]
+    """A manual link created by ifIndex BEFORE the first inventory run stores the index as
+    the port; after the run every output shows the current ifName (stored value kept)."""
+    aruba = await _device(admin, agents, "aruba")
+    comware = await _device(admin, agents, "comware")
+    r = await admin.post(
+        "/api/topology/links",
+        json={
+            "a_device_id": comware["id"],
+            "a_if_index": 49,
+            "b_device_id": aruba["id"],
+            "b_if_index": 10,
+        },
+    )
+    assert r.status_code == 201, r.text
+    link_id = r.json()["id"]
+    assert {r.json()["a"]["port"], r.json()["b"]["port"]} == {"49", "10"}
+    for key in ("aruba", "comware"):
+        await _refresh(rt, admin, {"aruba": aruba, "comware": comware}[key]["id"])
+    det = (await admin.get(f"/api/devices/{aruba['id']}/ports/10")).json()
+    assert [n["port"] for n in det["neighbors"]] == ["Ten-GigabitEthernet1/0/49"]
+    assert det["neighbor"]["port"] == "Ten-GigabitEthernet1/0/49"
+    p = _ports((await admin.get(f"/api/devices/{comware['id']}/ports")).json())
+    assert p[49]["neighbor"]["port"] == "10" and p[49]["is_uplink"] is True
+    links = (await admin.get("/api/topology/links")).json()["items"]
+    ln = next(x for x in links if x["id"] == link_id)
+    ends = {ln["a"]["device_id"]: ln["a"]["port"], ln["b"]["device_id"]: ln["b"]["port"]}
+    assert ends == {comware["id"]: "Ten-GigabitEthernet1/0/49", aruba["id"]: "10"}
+    graph = (await admin.get("/api/topology")).json()
+    gl = next(x for x in graph["links"] if x["id"] == link_id)
+    assert "Ten-GigabitEthernet1/0/49" in (gl["a"]["port"], gl["b"]["port"])
+    conn = await asyncpg.connect(_plain(rt.settings.database_url))
+    try:
+        stored = await conn.fetchrow(
+            "SELECT a_port, b_port, a_device_id FROM topology_links WHERE id = $1", link_id
+        )
+    finally:
+        await conn.close()
+    assert {stored["a_port"], stored["b_port"]} == {"49", "10"}  # stored value kept
