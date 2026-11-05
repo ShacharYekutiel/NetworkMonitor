@@ -7,15 +7,16 @@ import asyncio
 import json
 import logging
 import time
+from datetime import timedelta
 from typing import TYPE_CHECKING, Any
 
 from sqlalchemy import text
 
 from netmon.models import Device
-from netmon.poller.snmp_client import SnmpError, as_text, snmp_get
+from netmon.poller.snmp_client import SnmpError, as_text, in_subtree, snmp_get, snmp_getnext
 from netmon.ports import dns
 from netmon.ports.collect import PortWalks, collect_arp, collect_ports, get_uptime, make_walker
-from netmon.ports.eligibility import DeviceFlags, load_flags
+from netmon.ports.eligibility import DETECT_MAX_AGE_S, DeviceFlags, load_flags
 from netmon.ports.snapshot import PORT_SOURCES, build_snapshot, skipped_sources
 from netmon.services.sensors import effective_credentials
 from netmon.services.serialize import iso
@@ -82,20 +83,46 @@ async def _credentials(rt: Runtime, device_id: int) -> tuple[str, dict[str, Any]
 
 
 # ------------------------------------------------------------------ class detection
+DETECT_MAX_AGE = timedelta(seconds=DETECT_MAX_AGE_S)
+DETECT_RETRY_AFTER = timedelta(hours=1)  # a failed detection is retried after 1 h
+
+
+async def _probe_names(host: str, creds: dict[str, Any]) -> set[str]:
+    """The discovery subtree probes: one GETNEXT carrying every SUBTREE_PROBES varbind."""
+    from netmon.discovery.classify import SUBTREE_PROBES
+
+    names = list(SUBTREE_PROBES)
+    try:
+        rows = await snmp_getnext(host, creds, [SUBTREE_PROBES[n] for n in names])
+    except SnmpError:
+        return set()
+    out = set()
+    for name, (oid, _value, type_name) in zip(names, rows, strict=False):
+        if type_name != "EndOfMibView" and in_subtree(oid, SUBTREE_PROBES[name]):
+            out.add(name)
+    return out
+
+
 async def detect_class(rt: Runtime, device_id: int) -> str | None:
-    """GET sysDescr/sysObjectID/sysName (retries 0) and run the pure classify rules 1-12 (no
-    subtree probes, no FreeBSD walk, snmp_ok). Stores detected_class/detected_at."""
+    """GET sysDescr/sysObjectID/sysName plus the subtree-probe GETNEXT (the device's own
+    retries, at least 1) and run the pure classify rules 1-12 (no FreeBSD walk, snmp_ok).
+    A failure keeps the previous class (only a first-ever failure stores `unknown`) and is
+    retried after 1 h. Stores detected_class/detected_at; returns the stored class."""
     from netmon.discovery.classify import classify_rule
 
     target = await _credentials(rt, device_id)
     if target is None:
         return None
     host, creds = target
-    cls = "unknown"
+    creds = {**creds, "retries": max(1, int(creds.get("retries") or 0))}
+    cls: str | None = None
     try:
         async with rt.semaphore:
-            vals = await asyncio.wait_for(
-                snmp_get(host, {**creds, "retries": 0}, [SYS_DESCR, SYS_OBJECT_ID, SYS_NAME]),
+            vals, probes = await asyncio.wait_for(
+                asyncio.gather(
+                    snmp_get(host, creds, [SYS_DESCR, SYS_OBJECT_ID, SYS_NAME]),
+                    _probe_names(host, creds),
+                ),
                 DETECT_BUDGET_S,
             )
         oid = vals.get(SYS_OBJECT_ID)
@@ -103,24 +130,39 @@ async def detect_class(rt: Runtime, device_id: int) -> str | None:
             str(oid) if oid is not None else None,
             as_text(vals.get(SYS_DESCR)) or None,
             as_text(vals.get(SYS_NAME)) or None,
-            set(),
+            probes,
             False,
             [],
             True,
         )
     except (SnmpError, TimeoutError):
-        cls = "unknown"
+        cls = None
     now = rt.clock.now()
     async with rt.sessionmaker() as session:
-        await session.execute(
-            text(
-                "INSERT INTO port_inventory_status (device_id, detected_class, detected_at) "
-                "SELECT :d, :c, :t WHERE EXISTS (SELECT 1 FROM devices WHERE id = :d) "
-                "ON CONFLICT (device_id) DO UPDATE SET detected_class = EXCLUDED.detected_class, "
-                "detected_at = EXCLUDED.detected_at"
-            ),
-            {"d": device_id, "c": cls, "t": now},
-        )
+        if cls is None:  # failed: keep the previous class, retry in 1 h
+            row = (
+                await session.execute(
+                    text(
+                        "INSERT INTO port_inventory_status (device_id, detected_class, "
+                        "detected_at) SELECT :d, 'unknown', :t WHERE EXISTS "
+                        "(SELECT 1 FROM devices WHERE id = :d) ON CONFLICT (device_id) DO UPDATE "
+                        "SET detected_class = COALESCE(port_inventory_status.detected_class, "
+                        "'unknown'), detected_at = EXCLUDED.detected_at RETURNING detected_class"
+                    ),
+                    {"d": device_id, "t": now - DETECT_MAX_AGE + DETECT_RETRY_AFTER},
+                )
+            ).first()
+            cls = row.detected_class if row is not None else None
+        else:
+            await session.execute(
+                text(
+                    "INSERT INTO port_inventory_status (device_id, detected_class, detected_at) "
+                    "SELECT :d, :c, :t WHERE EXISTS (SELECT 1 FROM devices WHERE id = :d) "
+                    "ON CONFLICT (device_id) DO UPDATE SET "
+                    "detected_class = EXCLUDED.detected_class, detected_at = EXCLUDED.detected_at"
+                ),
+                {"d": device_id, "c": cls, "t": now},
+            )
         await session.commit()
     return cls
 

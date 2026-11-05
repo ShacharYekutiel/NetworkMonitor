@@ -243,12 +243,10 @@ export function buildSensorConfig(
     if (vt !== 'gauge' && fields.some((f) => f.key === 'percent_of_oid'))
       res.config.percent_of_oid = null;
     if (vt !== 'string' && fields.some((f) => f.key === 'expected')) res.config.expected = null;
-    // [2b-2] "sum" needs percent_of_oid (422 otherwise); other value types keep the default.
-    if (fields.some((f) => f.key === 'percent_base')) {
-      if (vt !== 'gauge') res.config.percent_base = 'total';
-      else if (res.config.percent_base === 'sum' && !res.config.percent_of_oid)
-        res.errors.percent_base = 'validation.percentBaseSum';
-    }
+    // [2b-2] percent_base is sent for gauges only ("sum" needs percent_of_oid, 422 otherwise).
+    if (vt !== 'gauge') delete res.config.percent_base;
+    else if (res.config.percent_base === 'sum' && !res.config.percent_of_oid)
+      res.errors.percent_base = 'validation.percentBaseSum';
     // [2b-1] value_map is required non-empty for enum (422 otherwise).
     if (vt === 'enum') {
       const m = res.config.value_map as ValueMap | undefined;

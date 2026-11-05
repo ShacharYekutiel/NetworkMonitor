@@ -7,7 +7,7 @@ import type { Device, DevicePorts, Port } from '../../api/types';
 import { useAuth } from '../../hooks/auth';
 import { errorMessage } from '../../lib/errors';
 import { formatRelative } from '../../lib/format';
-import { onPortsUpdated } from '../../lib/liveCache';
+import { onPortsUpdated, refetchIfInvalidated } from '../../lib/liveCache';
 import { ListIcon, PanelIcon, RefreshIcon } from '../icons';
 import { useToast } from '../toast';
 import { Button, Card, cx, ErrorBox, Loading, Notice } from '../ui';
@@ -121,6 +121,7 @@ export function PortsTab({ device }: { device: Device }) {
   const q = useQuery({
     queryKey: qk.devicePorts(device.id),
     queryFn: () => endpoints.devicePorts(device.id),
+    refetchOnWindowFocus: refetchIfInvalidated,
   });
 
   // Refresh: spinner until ports.updated for this device, or 90 s.

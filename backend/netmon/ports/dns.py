@@ -7,6 +7,7 @@ NETMON_TEST_PTR_FILE (JSON {"10.0.0.11": "pc.lan"}) replaces the resolver."""
 from __future__ import annotations
 
 import asyncio
+import concurrent.futures
 import json
 import logging
 import os
@@ -51,14 +52,36 @@ def clean_name(name: str | None) -> str | None:
     return n[:255] or None
 
 
+# PTR lookups use their own threads: the default executor also serves loop.getaddrinfo (pysnmp
+# target resolution), so slow PTR queries there would stall polling.
+_pool = concurrent.futures.ThreadPoolExecutor(max_workers=CONCURRENCY, thread_name_prefix="ptr")
+_sems: dict[asyncio.AbstractEventLoop, asyncio.Semaphore] = {}
+
+
+def _semaphore() -> asyncio.Semaphore:
+    """One semaphore per event loop, shared by every device's DNS pass."""
+    loop = asyncio.get_running_loop()
+    sem = _sems.get(loop)
+    if sem is None:
+        for old in [lp for lp in _sems if lp.is_closed()]:
+            del _sems[old]
+        sem = _sems[loop] = asyncio.Semaphore(CONCURRENCY)
+    return sem
+
+
+def _getnameinfo(ip: str) -> str:
+    return socket.getnameinfo((ip, 0), socket.NI_NAMEREQD)[0]
+
+
 async def lookup(ip: str) -> str | None:
     loop = asyncio.get_running_loop()
-    try:
-        host, _ = await asyncio.wait_for(
-            loop.getnameinfo((ip, 0), socket.NI_NAMEREQD), LOOKUP_TIMEOUT_S
-        )
-    except (TimeoutError, OSError, UnicodeError):
-        return None
+    async with _semaphore():
+        try:
+            host = await asyncio.wait_for(
+                loop.run_in_executor(_pool, _getnameinfo, ip), LOOKUP_TIMEOUT_S
+            )
+        except (TimeoutError, OSError, UnicodeError):
+            return None
     return clean_name(host)
 
 
@@ -94,15 +117,13 @@ async def refresh(rt: Runtime, source_device_id: int) -> int:
     if not ips:
         return 0
     fake = _test_ptr(rt)
-    sem = asyncio.Semaphore(CONCURRENCY)
     results: dict[str, str | None] = {}
 
     async def one(ip: str) -> None:
         if fake is not None:
             results[ip] = clean_name(fake.get(ip))
             return
-        async with sem:
-            results[ip] = await lookup(ip)
+        results[ip] = await lookup(ip)
 
     try:
         await asyncio.wait_for(asyncio.gather(*(one(ip) for ip in ips)), PASS_BUDGET_S)

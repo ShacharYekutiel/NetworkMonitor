@@ -7,6 +7,7 @@ import type { PortDetail, PortMac, PortNeighbor, Sensor } from '../../api/types'
 import { formatDateTime, formatNumber, formatRelative, formatValue } from '../../lib/format';
 import { errorsDelta, formatSpeed, formatVlanList, tileView } from '../../lib/ports';
 import { useAuth } from '../../hooks/auth';
+import { refetchIfInvalidated } from '../../lib/liveCache';
 import { DeviceClassIcon } from '../discovery/Badges';
 import { HistoryChart } from '../HistoryChart';
 import { AlertIcon, PlayIcon } from '../icons';
@@ -470,6 +471,7 @@ export function PortModal({
     queryKey: qk.portDetail(deviceId, ifIndex ?? -1, showAll),
     queryFn: () => endpoints.portDetail(deviceId, ifIndex as number, showAll),
     enabled: ifIndex !== null,
+    refetchOnWindowFocus: refetchIfInvalidated,
     placeholderData: (prev) => (prev && prev.if_index === ifIndex ? prev : undefined),
   });
   const p = q.data;

@@ -382,10 +382,9 @@ async def test_checkpoint_cluster_member(admin: httpx.AsyncClient, vendor_agents
 
 async def test_aruba_instant(admin: httpx.AsyncClient, vendor_agents) -> None:  # type: ignore[no-untyped-def]
     ident, res = await _identify_apply(admin, vendor_agents["instant"], "instant-vc")
-    # NOTE (reported contract issue): architecture § 11.6 expects access_point, but rule 10's
-    # unchanged switch regex matches "ArubaOS" -> switch. The template matches by enterprise.
+    # [2b-2 fix HIGH-4] enterprise 14823: ArubaOS is wireless unless a Mobility Access Switch
     assert (ident["device_class"], ident["vendor"], ident["suggested_template"]) == (
-        "switch",
+        "access_point",
         "aruba",
         "aruba_wifi",
     )

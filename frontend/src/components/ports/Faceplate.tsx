@@ -79,6 +79,8 @@ function Tile({
       type="button"
       onClick={() => onSelect(port)}
       aria-label={text.ariaLabel(port)}
+      // The real name: labels in the fallback and "other" blocks are positions.
+      title={port.name || port.descr || String(port.if_index)}
       aria-pressed={selected}
       data-if-index={port.if_index}
       data-tile={v.kind}

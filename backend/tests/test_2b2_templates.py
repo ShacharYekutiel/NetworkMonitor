@@ -370,7 +370,7 @@ def test_load_dir_file_errors(tmp_path: Path) -> None:
         by_file["c/broken.yaml"]["template_id"] is None and by_file["c/broken.yaml"]["path"] == ""
     )
     assert by_file["c/broken_json.json"]["message"].startswith("invalid JSON: ")
-    assert by_file["c/big.yaml"]["message"] == "file too large"
+    assert by_file["c/big.yaml"]["message"] == "file too large (max 256 KiB)"
     assert set(by_file) == {"b/acme_ups.yml", "c/broken.yaml", "c/broken_json.json", "c/big.yaml"}
     assert all(e["source"] == "user" for e in errors)
     assert load_dir(tmp_path / "missing", "user") == ([], [])

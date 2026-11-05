@@ -26,7 +26,13 @@ import {
   tileView,
   toggleColumn,
 } from './ports';
-import { applyLiveMessage, InvalidationBatcher, onPortsUpdated } from './liveCache';
+import {
+  applyLiveMessage,
+  InvalidationBatcher,
+  isArpSource,
+  onPortsUpdated,
+  refetchIfInvalidated,
+} from './liveCache';
 import { groupByVendor, groupSkipped, skipReasonKey, describeWhen } from './templates';
 import { buildSensorConfig, visibleConfigFields } from './sensorConfig';
 import { formatValue } from './format';
@@ -353,6 +359,10 @@ describe('filterPorts', () => {
     expect(ids('0050.5601.0007')).toEqual([7]);
     expect(ids('005056010007')).toEqual([7]);
     expect(ids('00:50:56')).toEqual([1, 7]);
+    // "1010" is not a MAC fragment (no MAC contains it as text either); "10" matches as text only
+    // (IPs 10.0.0.x, VLAN 10, ifIndex 10)
+    expect(ids('1010')).toEqual([]);
+    expect(ids('10')).toEqual([1, 2, 7, 10]);
   });
   it('finds IP, hostname, vendor, alias and neighbour, case-insensitively', () => {
     expect(ids('10.0.0.12')).toEqual([2]);
@@ -368,6 +378,12 @@ describe('filterPorts', () => {
     expect(macQuery('10.0.0.1')).toBeNull();
     expect(macQuery('0050.5601.0007')).toBe('005056010007');
     expect(macQuery('abc')).toBeNull();
+    // a VLAN or port number is not a MAC: ≥ 6 hex digits or a separator is required
+    expect(macQuery('1010')).toBeNull();
+    expect(macQuery('00505')).toBeNull();
+    expect(macQuery('005056')).toBe('005056');
+    expect(macQuery('00:50')).toBe('0050');
+    expect(macQuery('0050.56')).toBe('005056');
     expect(macQuery('hello')).toBeNull();
   });
   it('searches translated column texts supplied by the UI', () => {
@@ -483,15 +499,76 @@ describe('WS: ports.updated and templates.reloaded', () => {
       data: { device_id: 3, ok: true, collected_at: '2026-11-05T10:00:00Z' },
     };
     applyLiveMessage(qc, msg, batch);
-    expect(add.mock.calls.map((c) => c[0])).toEqual(
-      expect.arrayContaining([['device-ports'], ['port-detail']]),
-    );
+    // Only that device's view and modals; never every ports view or MAC searches.
+    expect(add.mock.calls.map((c) => c[0])).toEqual([
+      ['device-ports', 3],
+      ['port-detail', 3],
+    ]);
     expect(seen).toEqual([3]);
     off();
     applyLiveMessage(qc, msg, batch);
     expect(seen).toEqual([3]);
     batch.dispose();
   });
+  const updated = (device_id: number): WsMessage => ({
+    type: 'ports.updated',
+    ts: 'x',
+    data: { device_id, ok: true, collected_at: 'x' },
+  });
+  const seed = (qc: QueryClient) => {
+    qc.setQueryData(['device-ports', 1], { device_id: 1 });
+    qc.setQueryData(['device-ports', 2], { device_id: 2 });
+    qc.setQueryData(['port-detail', 1, 7, false], { if_index: 7 });
+    qc.setQueryData(['mac-search', { q: '005056' }], { items: [] });
+  };
+  const invalidated = (qc: QueryClient, key: unknown[]) =>
+    qc.getQueryCache().find({ queryKey: key, exact: true })?.state.isInvalidated;
+
+  it('only the updated device is invalidated (an open view refetches, a closed one goes stale)', () => {
+    const qc = new QueryClient();
+    const batch = new InvalidationBatcher(qc, 0);
+    seed(qc);
+    applyLiveMessage(qc, updated(2), batch);
+    batch.flush();
+    expect(invalidated(qc, ['device-ports', 2])).toBe(true);
+    expect(invalidated(qc, ['device-ports', 1])).toBe(false);
+    expect(invalidated(qc, ['port-detail', 1, 7, false])).toBe(false);
+    expect(invalidated(qc, ['mac-search', { q: '005056' }])).toBe(false);
+    batch.dispose();
+  });
+
+  it('an ARP source marks every ports view stale without refetching', () => {
+    const qc = new QueryClient();
+    const batch = new InvalidationBatcher(qc, 0);
+    seed(qc);
+    const refetch = vi.spyOn(qc, 'refetchQueries');
+    qc.setQueryData(['device', 9], { id: 9, arp_effective: true });
+    applyLiveMessage(qc, updated(9), batch);
+    expect(invalidated(qc, ['device-ports', 1])).toBe(true);
+    expect(invalidated(qc, ['device-ports', 2])).toBe(true);
+    expect(invalidated(qc, ['port-detail', 1, 7, false])).toBe(true);
+    expect(invalidated(qc, ['mac-search', { q: '005056' }])).toBe(false);
+    // lazy: refetchType 'none' never triggers a refetch
+    expect(refetch).not.toHaveBeenCalled();
+    batch.dispose();
+  });
+
+  it('knows ARP sources from any cached copy of the device', () => {
+    const qc = new QueryClient();
+    expect(isArpSource(qc, 4)).toBe(false);
+    qc.setQueryData(['devices', {}], { items: [{ id: 4, arp_effective: true }], total: 1 });
+    expect(isArpSource(qc, 4)).toBe(true);
+    qc.setQueryData(['device-ports', 5], { device_id: 5, arp_effective: true });
+    expect(isArpSource(qc, 5)).toBe(true);
+    qc.setQueryData(['device', 6], { id: 6, arp_effective: false });
+    expect(isArpSource(qc, 6)).toBe(false);
+  });
+
+  it('ports queries refetch on focus only after being marked stale', () => {
+    expect(refetchIfInvalidated({ state: { isInvalidated: true } })).toBe(true);
+    expect(refetchIfInvalidated({ state: { isInvalidated: false } })).toBe(false);
+  });
+
   it('templates.reloaded invalidates the templates queries', () => {
     const qc = new QueryClient();
     const batch = new InvalidationBatcher(qc);
@@ -575,7 +652,7 @@ describe('sensor forms 2b-2', () => {
     f('percent_of_oid', 'str_nullable'),
     f('percent_base', 'enum', { default: 'total', options: ['total', 'sum'] }),
   ];
-  it('percent_base is shown for gauges only and reset otherwise', () => {
+  it('percent_base is shown and sent for gauges only', () => {
     const keys = (vt: string) =>
       visibleConfigFields('snmp_custom', custom, { value_type: vt }).map((x) => x.key);
     expect(keys('gauge')).toContain('percent_base');
@@ -586,8 +663,15 @@ describe('sensor forms 2b-2', () => {
       percent_of_oid: '',
       percent_base: 'sum',
     });
-    expect(r.config.percent_base).toBe('total');
+    expect('percent_base' in r.config).toBe(false);
     expect(r.errors).toEqual({});
+    const g = buildSensorConfig('snmp_custom', custom, {
+      oid: '1.3.6',
+      value_type: 'gauge',
+      percent_of_oid: '',
+      percent_base: 'total',
+    });
+    expect(g.config.percent_base).toBe('total');
   });
   it('"sum" without percent_of_oid is rejected client-side', () => {
     const r = buildSensorConfig('snmp_custom', custom, {

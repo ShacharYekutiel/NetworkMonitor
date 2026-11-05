@@ -151,12 +151,17 @@ export function hexDigits(s: string): string {
   return s.toLowerCase().replace(/[^0-9a-f]/g, '');
 }
 
-/** A query that may be (part of) a MAC in any notation: hex digits and separators only. */
+/**
+ * A query that may be (part of) a MAC in any notation: hex digits and separators only, with
+ * ≥ 6 hex digits, or ≥ 4 with a separator (":", "-", "."); never an IPv4-like query.
+ */
 export function macQuery(q: string): string | null {
   const s = q.trim();
   if (!/^[0-9a-f:.\-\s]+$/i.test(s) || IPV4_LIKE.test(s)) return null;
   const hex = hexDigits(s);
-  return hex.length >= 4 ? hex : null;
+  // A bare number like a VLAN ("1010") is not a MAC: require ≥ 6 hex digits or a separator.
+  if (hex.length < 6 && !(/[:.-]/.test(s) && hex.length >= 4)) return null;
+  return hex;
 }
 
 function macTexts(m: PortMac): string[] {

@@ -3,6 +3,7 @@ import { qk } from '../api/endpoints';
 import type {
   Dashboard,
   Device,
+  DevicePorts,
   DiscoveryResult,
   DiscoveryScan,
   Group,
@@ -269,11 +270,7 @@ export function applyLiveMessage(
       break;
     }
     case 'ports.updated': {
-      // [2b-2] Simplest rule (api.md): refetch every open ports view and port modal — an ARP-only
-      // device's run may change IPs shown on other switches.
-      batch.add(['device-ports']);
-      batch.add(['port-detail']);
-      batch.add(['mac-search']);
+      applyPortsUpdated(qc, msg.data, batch);
       notifyPortsUpdated(msg.data);
       break;
     }
@@ -389,6 +386,42 @@ export function dependentDeviceIds(qc: QueryClient, parentId: number): number[] 
   for (const [, d] of qc.getQueriesData<Device>({ queryKey: ['device'] }))
     if (d && d.effective_dependency?.device_id === parentId) ids.add(d.id);
   return [...ids];
+}
+
+/**
+ * [2b-2] ports.updated (a port/ARP run of one device finished).
+ * - That device's ports view and port modals are invalidated; only an open (observed) view
+ *   refetches, closed ones are just marked stale.
+ * - When the device is a known ARP source, IPs on every other switch may have changed: all ports
+ *   views/modals are marked stale without refetching (they refetch on window focus or remount).
+ * - MAC searches are not invalidated (a new search or a remount refetches them).
+ * A WebSocket reconnect still refetches everything (hooks/live.tsx).
+ */
+export function applyPortsUpdated(
+  qc: QueryClient,
+  d: { device_id: number },
+  batch: InvalidationBatcher,
+): void {
+  batch.add(qk.devicePorts(d.device_id));
+  batch.add(['port-detail', d.device_id]);
+  if (isArpSource(qc, d.device_id)) {
+    void qc.invalidateQueries({ queryKey: ['device-ports'], refetchType: 'none' });
+    void qc.invalidateQueries({ queryKey: ['port-detail'], refetchType: 'none' });
+  }
+}
+
+/** Whether a device collects ARP, from any cached copy of it (unknown → false). */
+export function isArpSource(qc: QueryClient, deviceId: number): boolean {
+  if (qc.getQueryData<Device>(qk.device(deviceId))?.arp_effective) return true;
+  if (qc.getQueryData<DevicePorts>(qk.devicePorts(deviceId))?.arp_effective) return true;
+  for (const [, page] of qc.getQueriesData<Page<Device>>({ queryKey: ['devices'] }))
+    if (page?.items?.some((x) => x.id === deviceId && x.arp_effective)) return true;
+  return false;
+}
+
+/** refetchOnWindowFocus for ports queries: only those marked stale by an ARP source's run. */
+export function refetchIfInvalidated(query: { state: { isInvalidated: boolean } }): boolean {
+  return query.state.isInvalidated;
 }
 
 // [2b-2] ports.updated listeners (the Refresh button stops its spinner on its device's message).

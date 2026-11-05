@@ -546,7 +546,7 @@ def load_dir(root: Path, source: str) -> tuple[list[dict[str, Any]], list[dict[s
         tid: str | None = None
         try:
             if path.stat().st_size > MAX_FILE_BYTES:
-                raise TemplateError("", "file too large")
+                raise TemplateError("", f"file too large (max {MAX_FILE_BYTES // 1024} KiB)")
             raw = path.read_bytes()
             try:
                 text = raw.decode("utf-8-sig")
@@ -563,6 +563,15 @@ def load_dir(root: Path, source: str) -> tuple[list[dict[str, Any]], list[dict[s
             continue
         except OSError as exc:
             errors.append(_error(source, rel, tid, "", f"invalid value: cannot read ({exc})"))
+            continue
+        except RecursionError:  # absurdly deep nesting: reject this file only
+            kind = "JSON" if path.suffix.lower() == ".json" else "YAML"
+            errors.append(_error(source, rel, tid, "", f"invalid {kind}: nesting too deep"))
+            continue
+        except Exception as exc:  # noqa: BLE001 - safety net: one bad file never breaks a load
+            kind = "JSON" if path.suffix.lower() == ".json" else "YAML"
+            msg = " ".join(str(exc).split())[:200] or type(exc).__name__
+            errors.append(_error(source, rel, tid, "", f"invalid {kind}: {msg}"))
             continue
         seen[t["id"]] = rel
         t["source"] = source

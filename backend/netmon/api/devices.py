@@ -155,12 +155,14 @@ async def patch_device(device_id: int, body: DevicePatch, _: Admin, rt: RT, sess
     if "sort_order" in fields and body.sort_order is not None:
         d.sort_order = body.sort_order
     if "snmp_credentials" in fields:
-        d.snmp_credentials = (
+        new_creds = (
             merge_snmp(body.snmp_credentials, d.snmp_credentials)
             if body.snmp_credentials is not None
             else None
         )
-        identity_changed = True
+        if new_creds != d.snmp_credentials:  # unchanged credentials re-sent by a form: no-op
+            d.snmp_credentials = new_creds
+            identity_changed = True
     for key in ("port_inventory", "arp_collect"):  # [2b-2]
         value = getattr(body, key)
         if key in fields and value is not None and value != getattr(d, key):

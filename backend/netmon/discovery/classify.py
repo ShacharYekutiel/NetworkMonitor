@@ -83,6 +83,7 @@ RE_V_SWITCH = re.compile(
     r"|officeconnect|comware|arubaos|aruba.*switch",
     _I,
 )
+RE_ARUBA_SWITCH = re.compile(r"\(MODEL:\s*S\d{4}|\bswitch\b", _I)  # Mobility Access Switch
 RE_V_AP = re.compile(r"\b(access point|aironet)\b|\bAP\d", _I)
 RE_G_SWITCH = re.compile(r"switch", _I)
 RE_G_ROUTER = re.compile(r"router|routeros|gateway", _I)
@@ -173,6 +174,10 @@ def classify_rule(
         # 10 vendor table with a plain default class
         if ent is not None and ent in VENDORS and VENDORS[ent][1] is not None:
             slug, default_class = VENDORS[ent]
+            if ent == 14823:  # [2b-2] Aruba (HPE) wireless: "ArubaOS" must not mean switch
+                if RE_ARUBA_SWITCH.search(descr):
+                    return "switch", "aruba", 10
+                return "access_point", "aruba", 10
             if RE_V_SWITCH.search(descr):
                 return "switch", slug, 10
             if RE_V_AP.search(descr):
