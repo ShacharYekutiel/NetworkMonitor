@@ -91,6 +91,9 @@ services:
       TZ: ${TZ:-UTC}
     volumes:
       - netmon-data:/data
+      # Corporate root CAs (TLS-inspecting firewalls): trusted at runtime, so a prebuilt
+      # image from ghcr.io works too. See deploy/certs/README.md.
+      - ./certs:/etc/netmon/certs:ro
     ports:
       - "${NETMON_HTTP_PORT:-8080}:8080"
     # Unprivileged ICMP (ping) for every GID inside the container.

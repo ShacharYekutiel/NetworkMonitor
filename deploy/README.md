@@ -129,6 +129,24 @@ harmless: the custom-format dump restores cleanly with the steps above. Restore 
 TimescaleDB, or a newer one. A dump taken in plain PostgreSQL mode restores
 into either mode.
 
+### Prebuilt image (no build on the host)
+
+Every push to `main` (and `phase*` branches) publishes a ready image to GitHub Container
+Registry, so a host that cannot download npm/PyPI packages does not need to build:
+
+```sh
+# deploy/.env
+NETMON_IMAGE=ghcr.io/shacharyekutiel/networkmonitor:latest   # or :phase2, :sha-<commit>
+
+docker login ghcr.io          # only if the package is private (user + PAT with read:packages)
+docker compose -f deploy/docker-compose.yml pull netmon
+docker compose -f deploy/docker-compose.yml up -d --no-build
+```
+
+Corporate CAs in `deploy/certs` are mounted into the container (`/etc/netmon/certs`) and
+trusted at runtime, so the prebuilt image works behind a TLS-inspecting firewall as well.
+To update later: `pull netmon` again, then `up -d --no-build`.
+
 ### Troubleshooting: certificate errors (`UNABLE_TO_GET_ISSUER_CERT_LOCALLY`, `SELF_SIGNED_CERT_IN_CHAIN`)
 
 The build stops with `ERROR: TLS certificate check failed for https://registry.npmjs.org/`, or `npm ci` /
@@ -277,6 +295,23 @@ docker compose -f deploy/docker-compose.yml exec -T db pg_dump -U netmon -Fc net
 ו-`timescaledb_post_restore()` אחריו. אם הקובץ `secret.key` אובד, המשתמשים רק יצטרכו להתחבר מחדש.
 
 </div>
+
+### image מוכן (בלי בנייה במחשב)
+
+כל דחיפה ל-`main` (ול-branches בשם `phase*`) מפרסמת image מוכן ב-GitHub Container Registry,
+כך שמחשב שלא יכול להוריד חבילות npm/PyPI לא צריך לבנות:
+
+```sh
+# deploy/.env
+NETMON_IMAGE=ghcr.io/shacharyekutiel/networkmonitor:latest   # או :phase2
+
+docker login ghcr.io          # רק אם ה-package פרטי (משתמש + PAT עם read:packages)
+docker compose -f deploy/docker-compose.yml pull netmon
+docker compose -f deploy/docker-compose.yml up -d --no-build
+```
+
+התעודות הארגוניות שב-`deploy/certs` ממופות לתוך הקונטיינר (`/etc/netmon/certs`) ונטענות בזמן ריצה,
+כך שגם ה-image המוכן עובד מאחורי חומת אש שבודקת SSL. לעדכון: שוב `pull netmon` ואז `up -d --no-build`.
 
 ### פתרון תקלות: שגיאות תעודה (`UNABLE_TO_GET_ISSUER_CERT_LOCALLY`,‏ `SELF_SIGNED_CERT_IN_CHAIN`)
 

@@ -81,6 +81,8 @@ def server_ctx(pki: dict[str, Path]) -> ssl.SSLContext:
 def fresh_context(monkeypatch: pytest.MonkeyPatch) -> Iterator[None]:
     """Each test starts with no extra CA and rebuilds the shared context."""
     monkeypatch.delenv(tlsutil.EXTRA_CA_ENV, raising=False)
+    monkeypatch.delenv(tlsutil.EXTRA_CA_DIR_ENV, raising=False)
+    monkeypatch.setattr(tlsutil, "DEFAULT_EXTRA_CA_DIR", "/nonexistent/netmon-certs")
     tlsutil.client_ssl_context.cache_clear()
     yield
     tlsutil.client_ssl_context.cache_clear()
@@ -178,6 +180,44 @@ async def test_stdlib_client_with_extra_ca(
     with pytest.raises(ssl.SSLCertVerificationError):
         await handshake()
     trust_extra_ca(monkeypatch, pki["ca"])
+    await handshake()
+
+
+@pytest.mark.parametrize("form", ["pem_crlf", "der"])
+async def test_ca_directory(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+    https: HttpsServer,
+    pki: dict[str, Path],
+    form: str,
+) -> None:
+    """A mounted certs folder (compose: deploy/certs -> /etc/netmon/certs) is trusted."""
+
+    async def handshake() -> None:
+        _, w = await asyncio.open_connection(
+            "127.0.0.1", https.port, ssl=tlsutil.client_ssl_context(), server_hostname="localhost"
+        )
+        w.close()
+
+    certs = tmp_path / "certs"
+    certs.mkdir()
+    (certs / "README.md").write_text("ignored")
+    (certs / "junk.crt").write_text("not a certificate")  # logged and skipped
+    if form == "der":
+        _openssl("x509", "-in", str(pki["ca"]), "-outform", "DER", "-out", "corp.cer", cwd=certs)
+    else:
+        (certs / "corp.crt").write_bytes(pki["ca"].read_bytes().replace(b"\n", b"\r\n"))
+
+    with pytest.raises(ssl.SSLCertVerificationError):
+        await handshake()
+    # The default location is used without any environment variable.
+    monkeypatch.setattr(tlsutil, "DEFAULT_EXTRA_CA_DIR", str(certs))
+    tlsutil.client_ssl_context.cache_clear()
+    await handshake()
+    # An explicit NETMON_EXTRA_CA_DIR wins over the default.
+    monkeypatch.setattr(tlsutil, "DEFAULT_EXTRA_CA_DIR", "/nonexistent/netmon-certs")
+    monkeypatch.setenv(tlsutil.EXTRA_CA_DIR_ENV, str(certs))
+    tlsutil.client_ssl_context.cache_clear()
     await handshake()
 
 
