@@ -113,3 +113,23 @@ docker compose -f deploy/docker-compose.yml up -d --build
 הסקריפט `deploy/linux/install.sh` מוסיף את הקבצים מהתיקייה הזו למאגר התעודות של המערכת.
 
 </div>
+
+### Root, not intermediate / שורש, לא ביניים
+
+The build checks that every certificate here chains to a **root** (a self-signed CA).
+npm accepts an intermediate on its own, but Python/OpenSSL (pip and the app) do not, so a
+build with only an intermediate stops with `corporate CA ... is an intermediate certificate
+whose root is missing` and names the missing issuer. Export that issuer (the top of the
+chain) into this folder too. Check a file on Windows with:
+
+```powershell
+$c = [System.Security.Cryptography.X509Certificates.X509Certificate2]::new("deploy\certs\corporate-ca.crt")
+"Subject: $($c.Subject)"; "Issuer:  $($c.Issuer)"
+```
+
+If Subject and Issuer are the same, it is a root.
+
+הבנייה בודקת שכל תעודה כאן מובילה לתעודת **שורש** (CA שחתום על עצמו). npm מקבל גם תעודת ביניים
+לבדה, אבל Python/OpenSSL (pip והאפליקציה) לא, ולכן בנייה עם תעודת ביניים בלבד נעצרת עם הודעה
+שמציינת את התעודה החסרה. מייצאים גם אותה (הראשונה בשרשרת) לתיקייה הזו. אם ב-PowerShell שלמעלה
+Subject ו-Issuer זהים, זו תעודת שורש.

@@ -42,7 +42,20 @@ RUN sed -i 's/\r$//' /usr/local/bin/netmon-import-ca-certs \
  && netmon-import-ca-certs /tmp/netmon-certs /usr/local/share/ca-certificates/netmon \
  && update-ca-certificates --fresh \
  && rm -rf /tmp/netmon-certs \
- && test -s /etc/ssl/certs/ca-certificates.crt
+ && test -s /etc/ssl/certs/ca-certificates.crt \
+ # Every corporate certificate must chain to a root in the store: Python/OpenSSL (pip and
+ # the app) reject a chain that ends at an intermediate, even though npm accepts it.
+ && for c in /usr/local/share/ca-certificates/netmon/netmon-*.crt; do \
+      [ -f "$c" ] || continue; \
+      if ! openssl verify -CAfile /etc/ssl/certs/ca-certificates.crt "$c" >/dev/null 2>&1; then \
+        echo "ERROR: corporate CA $(basename "$c") is an intermediate certificate whose root is missing." >&2; \
+        echo "  Subject: $(openssl x509 -in "$c" -noout -subject | sed 's/^subject= *//')" >&2; \
+        echo "  Issued by (add this one too): $(openssl x509 -in "$c" -noout -issuer | sed 's/^issuer= *//')" >&2; \
+        echo "  Export the TOP certificate of the chain (the root) into deploy/certs and rebuild." >&2; \
+        echo "  See deploy/certs/README.md." >&2; \
+        exit 1; \
+      fi; \
+    done
 # pip/requests/httpx/OpenSSL read these; the bundle is Mozilla's roots + deploy/certs.
 ENV SSL_CERT_FILE=/etc/ssl/certs/ca-certificates.crt \
     REQUESTS_CA_BUNDLE=/etc/ssl/certs/ca-certificates.crt \

@@ -59,7 +59,14 @@ for f in "$SRC_DIR"/*.crt "$SRC_DIR"/*.pem "$SRC_DIR"/*.cer "$SRC_DIR"/*.CRT "$S
         continue
       fi
       subject="$(openssl x509 -in "$dest" -noout -subject 2>/dev/null | sed 's/^subject= *//')"
+      issuer="$(openssl x509 -in "$dest" -noout -issuer 2>/dev/null | sed 's/^issuer= *//')"
       echo "corporate CA: $base -> $subject"
+      if [ "$subject" != "$issuer" ]; then
+        # Not self-signed: an intermediate. Node accepts it as a trust anchor, but
+        # OpenSSL/Python (pip, the app) need the chain to end at the root.
+        echo "corporate CA: NOTE: $base is an intermediate certificate (issued by: $issuer)." >&2
+        echo "  Its root must be in deploy/certs too (or already be a public root CA)." >&2
+      fi
     else
       cp "$part" "$dest"
       echo "corporate CA: $base"
