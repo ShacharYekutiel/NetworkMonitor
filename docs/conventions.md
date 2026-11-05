@@ -143,3 +143,24 @@ npm run lint && npm test -- --run && npm run build      # build → frontend/dis
 ## Definition of done (per change)
 Lint is clean and the tests pass. The contract docs are updated if the behaviour changed. The change works in
 both Timescale mode and fallback mode, and on Windows paths (no POSIX-only calls without a fallback).
+
+## Phase 2b-2 notes
+- Backend: keep `netmon.ports.collect` parsers, `netmon.ports.snapshot`, `netmon.ports.view`,
+  `netmon.ports.health`, `netmon.templates.library` (validation) and `netmon.templates.builtin` pure and
+  exhaustively unit-tested; SNMP/DB/DNS I/O lives in `ports/collect.py` walk functions, `ports/runner.py`,
+  `ports/dns.py`, `templates/registry.py`.
+- New dependency `PyYAML>=6.0.1`; only `yaml.safe_load` is allowed. `pyproject.toml` `package-data` gains
+  `templates/library/*/*.yaml` and `data/*.gz` (check the wheel/Docker image contains them).
+- Template YAML style: 2-space indent, **quote every OID** (`'1.3.6.1…'`), quote `on`/`off`/`yes`/`no` strings,
+  single quotes for regexes, one template per file named `<id>.yaml` under `library/<vendor>/`, a `confidence`
+  on every vendor-OID entry, `notes` for MIB names and doubts. Changing a template bumps its `version`.
+- Pydantic models (`extra="forbid"`): `PortsRefreshResponse`, `DevicePorts`, `Port`, `PortDetail`, `PortMac`,
+  `PortNeighbor`, `HealthItem`, `PortInventoryStatus`, `MacSearchResult`, `TemplateLibraryStatus`,
+  `TemplateLoadError`; device create/PATCH gain `port_inventory` / `arp_collect` (`Literal["auto","on","off"]`).
+- The OUI file is regenerated only with `backend/scripts/update_oui.py` (commit the output as is; never edit it
+  by hand). The app never downloads it.
+- Frontend: extend `types.ts` / `endpoints.ts` / `ws.ts` exactly as api.md § 2b-2; `lib/faceplate.ts` and
+  `lib/ports.ts` are pure and unit-tested with the vectors in architecture.md § 11.4/11.6. The front panel is
+  always `dir="ltr"`; everything around it follows the RTL rules.
+- Existing test change allowed in 2b-2: `test_discovery_units.py::test_templates_data` (new ids and keys). Any
+  other existing test that fails is a regression.

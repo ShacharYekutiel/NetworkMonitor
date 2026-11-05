@@ -1,9 +1,11 @@
-# NetworkMonitor — Architecture (Phase 1 / MVP + Phase 2a + Phase 2b-1)
+# NetworkMonitor — Architecture (Phase 1 / MVP + Phase 2a + Phase 2b-1 + Phase 2b-2)
 
 Phase 2a (auto-discovery, device templates, `snmp_custom`/`snmp_disk`, Telegram) is described in
 [§ 9](#9-phase-2a-discovery-templates-custom-snmp-telegram); items elsewhere marked **[2a]** belong to it.
 Phase 2b-1 (dependencies, maintenance windows, acknowledge, escalation, fingerprinting, HPE templates,
 topology) is described in [§ 10](#10-phase-2b-1-dependencies-maintenance-acknowledge-escalation-fingerprinting-hpe-topology).
+Phase 2b-2 (switch ports view, vendor template library) is described in
+[§ 11](#11-phase-2b-2-switch-ports-view-vendor-template-library); items marked **[2b-2]** belong to it.
 
 NetworkMonitor is a license-free, PRTG-like network monitor. One Python process serves the REST API, the
 WebSocket, the built React SPA, and runs the poller and the alert engine. PostgreSQL holds everything, and
@@ -671,3 +673,386 @@ refresh cancelled (ends `failed`, "Cancelled by shutdown"), then the loops.
 - Enable LLDP on the switches (on by default on ArubaOS-Switch and Comware) and SNMP read access to the LLDP-MIB
   (SNMPv3 views must include `1.0.8802`). TP-Link Easy Smart switches (no SNMP) never report links; add manual
   links for them.
+
+## 11. Phase 2b-2: switch ports view, vendor template library
+
+Contract details: [data-model.md § Phase 2b-2](data-model.md#2b-2-phase-2b-2-additions) (tables, SNMP objects,
+parsers, uplink/tile/health rules, OUI, template schema, vendor templates, migration `0005`) and
+[api.md § Phase 2b-2](api.md#2b-2-phase-2b-2-contract) (types, endpoints, errors, WS). Backend, frontend and
+QA implement in parallel against those files and this section. Sections are marked **[2b-2]**. Everything is
+additive to 2b-1. The product stays **read-only towards devices** (no port actions).
+
+### 11.1 Components [2b-2]
+| Component | Module | Responsibility |
+|---|---|---|
+| Port collectors | `netmon.ports.collect` | SNMP walks of data-model § Port inventory: SNMP data (shared `snmp_walk`, per-v3-credential engines) and the **pure** parsers: `port_kind`, `portlist`, bridge-port mapping, VLAN sets, FDB (Q-BRIDGE + BRIDGE fallback), ARP (physical + media fallback), PoE mapping (`map_pse_ports`), MAC text / locally-administered bit. |
+| Snapshot builder | `netmon.ports.snapshot` | Pure `build_snapshot(prev_rows, walks, now) -> rows` (rates, error deltas, last change, duplex, VLAN/mode, PoE). |
+| Port view | `netmon.ports.view` | Pure read side: neighbours of a port, `is_uplink`, `state`, `alert`, `connected_kind`, `first_mac`, MAC → IP. Used by the ports API and the search API. |
+| Health strip | `netmon.ports.health` | Pure `categorize(sensor)` and `health_items(sensors)`. |
+| OUI | `netmon.ports.oui` | Lazy loader of `netmon/data/oui.tsv.gz`, `vendor(mac) -> str | None`. |
+| Reverse DNS | `netmon.ports.dns` | Cached PTR lookups (`dns_cache`), concurrency 8, 2 s timeout, test hook `NETMON_TEST_PTR_FILE`. |
+| Runner | `netmon.ports.runner` | `run_device(rt, device_id, trigger)`: one device's ports and/or ARP run (sequence in § 11.2), one DB transaction, then `ports.updated`. |
+| Scheduler | `netmon.ports.scheduler` | 60 s loop: eligibility, class detection, due devices, semaphore **4**, manual refresh queue, daily cleanup. |
+| Search | `netmon.ports.search` | MAC / IP search (api.md). |
+| Walk count check | `netmon.poller.checks.snmp_walk_count` | New sensor type (data-model). |
+| Template library | `netmon.templates.library` (schema + `load_dir`), `netmon.templates.registry` (current registry, atomic reload), `netmon.templates.builtin` (pure match helpers; `TEMPLATES`/`BY_ID` updated in place) | YAML/JSON templates, user overrides, load errors, reload endpoint. |
+| OUI update script | `backend/scripts/update_oui.py` | Maintainers only: downloads the IEEE MA-L CSV, writes the gzip deterministically. Not packaged, never run by the app. |
+
+Repository additions: `backend/netmon/ports/`, `backend/netmon/data/oui.tsv.gz`,
+`backend/netmon/templates/library/<vendor>/<id>.yaml`, `backend/scripts/update_oui.py`,
+`backend/netmon/api/ports.py` (+ `/api/search/mac`), `schemas/ports.py`, `frontend/src/lib/faceplate.ts`,
+`frontend/src/lib/ports.ts`, `frontend/src/components/ports/*`, `frontend/src/pages/FindPage.tsx`,
+`tests/sim/ports/`, `tests/sim/vendors/`. New dependency: `PyYAML>=6.0.1`.
+
+### 11.2 Port inventory job [2b-2]
+- **Scheduler loop** (started after the topology scheduler; first pass 180 s after startup, then every 60 s;
+  off while `settings.port_inventory_min = 0`, manual refresh still works):
+  1. load enabled devices with their SNMP-sensor flag, `identity`, `port_inventory`, `arp_collect` and
+     `port_inventory_status`;
+  2. run **class detection** (data-model § Devices: inventory flags) for `auto` devices that need it (counts
+     against the same semaphore, 10 s budget each);
+  3. a device is **due** when ports or ARP is effective and `last_run_at` is null or
+     `≤ now − port_inventory_min`; due devices start in order of `last_run_at` (nulls first), at most **4 runs at
+     once** (own `asyncio.Semaphore(4)`, like topology's own 8), skipping devices already running.
+- **Manual refresh** (`POST …/ports/refresh`) queues the device at the front; the API answers `202` at once.
+- **Per-device run** (`run_device`, budget **90 s** via `asyncio.wait_for`; DNS has its own 60 s):
+  1. `sysUpTime.0` GET; ports effective → walks #2–#11 sequentially (a missing table = `empty`, an SNMP error
+     on an optional table = `error`, which keeps that part of the previous snapshot); ifDescr (#2) missing or
+     failing → the run **failed** (`error` set, snapshot untouched);
+  2. ARP effective → walks #12 / #12b;
+  3. one DB transaction: `switch_ports` upsert/delete, `port_macs` and `arp_entries` present/first/last-seen
+     rules, `switch_ports.mac_count`, `port_inventory_status`;
+  4. reverse DNS for new/expired IPs (outside the transaction, ≤ 256 per pass);
+  5. broadcast `ports.updated {device_id, ok, collected_at}`.
+  A timeout or SNMP auth failure → `ok: false`, `error` = `Timeout` / the SNMP message.
+- **Daily cleanup** (first 1 h after startup, then every 24 h): retention of non-present `port_macs` /
+  `arp_entries`, `dns_cache` rows older than 7 d.
+- **Startup / shutdown:** no persistent "running" state (nothing to mark interrupted); shutdown cancels the loop
+  and running runs (their transaction is not committed). Startup order: … → topology scheduler → **port
+  inventory scheduler**.
+- **Load:** ≈ 15 walks per switch every 10 min, sequential per device, 4 devices in parallel, bulk walks (25 per
+  PDU). A 48-port switch with 1000 MACs is ≈ 150 PDUs per run. SNMP traffic goes only to monitored devices that
+  are eligible.
+
+### 11.3 Template library [2b-2]
+- Startup (before the discovery scheduler): create `${NETMON_DATA_DIR}/templates/` if missing, load built-in +
+  user templates (`asyncio.to_thread`), log `INFO` "Loaded N templates (B built-in, U user, E errors)" and each
+  error at `WARNING` (built-in errors at `ERROR`). The server always starts, whatever the user files contain.
+- Reload: `POST /api/device-templates/reload` re-reads both sources; the swap is atomic (requests in flight keep
+  the old registry); `templates.reloaded` is broadcast. No file watcher (simplicity; Windows-safe).
+- User templates are trusted admin input (they only describe SNMP reads/HTTP checks of the device host); the
+  loader uses `yaml.safe_load` (no object construction) and enforces the size/count limits.
+- Operator how-to (README + Templates page hint): copy a built-in file from the repo (or `GET
+  /api/device-templates/{id}` as a reference) to `<data dir>/templates/<vendor>/<id>.yaml`, edit, press
+  *Reload templates*; keep the same `id` to override a built-in, or use a new `id`.
+
+### 11.4 Faceplate layout (frontend, pure `frontend/src/lib/faceplate.ts`) [2b-2]
+`layoutFaceplate(ports: Port[]): Faceplate` — deterministic; unit-tested with the vectors below.
+
+```ts
+type FaceplateCell = { if_index: number; label: string } | null;   // null = empty slot (spacer)
+type FaceplateBlock = { key: string; module: number | null; uplink: boolean;
+  top: FaceplateCell[]; bottom: FaceplateCell[];                   // equal length = number of columns
+  gapEvery: 6 };                                                   // visual gap after every 6 columns
+type FaceplateMember = { member: number; label: string | null;     // "Member 2"; null when one member
+  blocks: FaceplateBlock[] };                                      // main blocks by module asc, then "other", then uplink
+type Faceplate = { mode: "parsed" | "fallback"; members: FaceplateMember[] };
+```
+
+**Input:** ports with `kind = "physical"` only (`mgmt`, `lag`, `vlan`, `other` are list-only).
+
+**Name rules** (first match; `prefix` may be empty; regexes are anchored and case-insensitive):
+
+| Rule | Regex | member | module | port | Examples |
+|---|---|---|---|---|---|
+| R1 | `^(?<prefix>[a-z][a-z\- _]*?)?\s*(?<a>\d+)/(?<b>\d+)/(?<c>\d+)$` | a | b | c | `1/1/1` (Aruba CX), `GigabitEthernet1/0/1`, `Ten-GigabitEthernet1/0/49` (Comware), `Gi1/0/1`, `Te1/1/1` (Cisco) |
+| R2 | `^(?<a>\d+)/(?<m>[a-z])(?<p>\d+)$` | a | letter index (A=1) | p | `1/A1` (ArubaOS stacked chassis) |
+| R3 | `^(?<a>\d+)/(?<p>\d+)$` (no prefix) | a | 0 | p | `2/14` (ArubaOS stack member 2) |
+| R4 | `^(?<prefix>[a-z][a-z\- _]*?)\s*(?<a>\d+)/(?<b>\d+)$` (prefix required) | 1 | a | b | `Gi0/1`, `Fa0/24`, `GigabitEthernet0/1` |
+| R5 | `^(?<m>[a-z])(?<p>\d+)$` | 1 | letter index | p | `A1`, `B24` (HPE 5400/8200 modules) |
+| R6 | `^(?<p>\d+)$` | 1 | 0 | p | `1` … `52` (ArubaOS-Switch / ProCurve) |
+| R7 | `^(?<prefix>[a-z][a-z\- _]*?)\s*(?<p>\d+)$` | 1 | 0 | p | `Port 12`, `Ethernet5`, `lan1` |
+
+`label` = `p` as text (R2/R5: letter + `p`, e.g. `A1`).
+
+**Uplink group** (per member), a port is in it when any holds:
+1. **prefix hint**: the prefix lower-cased with `-`, space and `_` removed is one of `te`, `fo`, `hu`, `twe`,
+   `tf`, `xe`, `xge`, or starts with `ten`, `xgigabit`, `twentyfive`, `forty`, `hundred`, `25g`, `40g`, `50g`,
+   `100g` (`Ten-GigabitEthernet`, `TenGigabitEthernet`, `XGigabitEthernet`, `FortyGigE`, `Te`);
+2. `speed_bps ≥ 10 000 000 000`;
+3. R1/R4 names whose `module` differs from the member's **main module** (the module with the most R1/R4
+   ports; ties → lowest), e.g. Cisco `Te1/1/1` next to `Gi1/0/x`.
+Rule 2 depends on the reported speed: an SFP+ port without link may report 0 and then stays in the main block
+(cosmetic; accepted).
+
+**Blocks:** within a member, non-uplink ports are grouped by `module` (one block each, `key` `m<member>-<module>`),
+uplink ports form one block (`key` `m<member>-uplink`, `module: null`, `uplink: true`) placed last. In a block
+with smallest port number `pmin`: column `= ceil(p/2) − ceil(pmin/2)`, **odd `p` → top row, even `p` → bottom
+row**; unused cells are `null`. Members are sorted ascending.
+
+**Fallback** (`mode: "fallback"`): when more than 20 % of the physical ports match no rule, or two ports give the
+same `(member, module, port)`. Then one member (label null) with one block: ports sorted by `if_index`, position
+`i` (0-based) → column `floor(i/2)`, top when `i` is even, bottom when odd; no uplink split.
+When ≤ 20 % are unparsed, they go into an extra block `key` `other` (positional like the fallback, sorted by
+`if_index`) at the end of the first member.
+
+**Test vectors** (QA, Vitest — expected `(rule, member, module, port, uplink hint)`):
+`1` → R6 1/0/1 no; `52` → R6 1/0/52 no; `A1` → R5 1/1/1; `B24` → R5 1/2/24; `1/1/1` → R1 1/1/1;
+`2/1/48` → R1 2/1/48; `GigabitEthernet1/0/1` → R1 1/0/1 no; `Ten-GigabitEthernet1/0/49` → R1 1/0/49 **yes**;
+`XGigabitEthernet1/0/25` → R1 1/0/25 yes; `Gi1/0/1` → R1 1/0/1 no; `Te1/1/1` → R1 1/1/1 yes;
+`GigabitEthernet0/1` → R4 1/0/1; `Fa0/24` → R4 1/0/24; `2/14` → R3 2/0/14; `1/A1` → R2 1/1/1; `Port 12` → R7
+1/0/12; `Trk1` → not an input (kind lag). Layout vectors: ports `1`–`10` with `9`,`10` at 10 G → main block top
+`[1,3,5,7]` bottom `[2,4,6,8]`, uplink block top `[9]` bottom `[10]`; Comware `GigabitEthernet1/0/1`–`/4`,
+`Ten-GigabitEthernet1/0/49`–`/50`, `GigabitEthernet2/0/1`–`/2` → member 1: main `[1,3]/[2,4]`, uplink
+`[49]/[50]`; member 2: main `[1]/[2]`; 10 ports named `p-a`…`p-j` → fallback.
+
+### 11.5 Frontend (high level) [2b-2]
+- **Device page tabs:** *Sensors* (existing content) and *Ports*. *Ports* is the default tab when
+  `device.ports_effective`; URL state `?tab=ports&view=faceplate|list&port=<if_index>` (the `port` param opens
+  the modal, used by the Find page). The tab is shown for every device with an SNMP sensor; when
+  `ports_effective` is false it shows an explanation (effective class, mode) and, for admins, *Enable port
+  inventory* (`PATCH {"port_inventory": "on"}`).
+- **Ports header:** health strip, then a status line "Updated 3 min ago · next in 7 min" (+ error text when
+  `status.error`), a *Refresh* button (admin; spinner until `ports.updated` for this device or 90 s), the
+  view toggle *Front panel* (default) | *Port list*. Hints: `sources.fdb` `empty` → "This switch does not report
+  its MAC table over SNMP"; `status.arp_sources = 0` → "No ARP source: IP addresses are not available. Enable
+  *Collect ARP* on a router or firewall"; `sources.poe = unmapped` → "PoE data could not be matched to ports".
+- **Health strip:** one chip per `HealthItem` (fixed order), i18n `health.<category>`, value
+  (`formatValue(value, unit)`) or `text`, a status dot (`up` green-600, `warning` amber-500, `down` red-600,
+  others slate-500/gray-400 as in conventions). Click → `/sensors/{primary_sensor_id}`. Hidden when empty.
+- **Front panel:** `layoutFaceplate()`; container `dir="ltr"` (a physical panel is never mirrored), horizontal
+  scroll **inside** the panel only. Tile 28×28 px (22×22 below 640 px), rounded, port number above the top row /
+  below the bottom row (`text-[10px]`). Selected tile `ring-2 ring-sky-500`. Each tile is a `button` with an
+  `aria-label` ("Port 7, up, client, VLAN 10").
+
+  | Condition (first match) | Tile | Tailwind (light / dark) |
+  |---|---|---|
+  | `state = admin_down` | gray, crossed-out icon | `bg-gray-200 text-gray-500` / `dark:bg-slate-700 dark:text-slate-400` |
+  | `state = up` and `alert` | orange, icon | `bg-orange-500 text-white` |
+  | `state = up` | green, icon of `connected_kind` (`client` monitor, `ap` wifi, `switch` switch); `trunk` adds a small stacked-lines badge at the top-end corner; a `mac_count` uplink shows the count (≤ 99, else `99+`) as a corner badge | `bg-green-500 text-white` |
+  | not up and `alert` | peach, no icon | `bg-orange-200 border border-orange-300` / `dark:bg-orange-900/40 dark:border-orange-700` |
+  | otherwise | white with gray border | `bg-white border border-gray-300` / `dark:bg-slate-900 dark:border-slate-600` |
+
+  Speed, PoE and VLAN are **not** drawn on tiles. A legend row under the panel explains the five tiles and
+  the three icons (`ports.legend.*`). Member labels ("Member 2") above each member row.
+- **Port list:** columns Port (sticky, `sticky start-0`), Status (up / no link / disabled / not present + alert
+  icon), Connected (primary neighbour name linked to its device, else `n MACs` for uplinks, else
+  `first_mac` as hostname ‖ IP ‖ vendor ‖ MAC, `+k` when more), VLAN (PVID), Mode, Speed, PoE (W) (`power_w`,
+  else "On · class 3" when delivering, else "—"), Rx/Tx (`in_bps`/`out_bps`, human units). Column chooser adds
+  Alias, Duplex, MAC, IP, Hostname, Vendor, Errors (Δ), Last change, ifIndex, Kind; choice in
+  `localStorage['netmon.ports.columns']` (try/catch). Toggle "Physical ports only" (default on: kinds physical,
+  lag). **One filter field** matching case-insensitively across all column texts plus every MAC (compared on hex
+  digits, so `0050.5601.0007` finds `00:50:56:01:00:07`), IP, hostname, vendor, neighbour name and alias of the
+  port (pure `filterPorts()` in `lib/ports.ts`). Row click → modal.
+- **Port modal** (`GET …/ports/{if_index}` on open; closed by X, backdrop click or Esc; focus trapped; logical
+  CSS): name + alias, admin/oper state, last change; link (speed, duplex, mode, PVID, untagged/tagged VLANs);
+  PoE (admin, detection, class, W); traffic and errors — with a linked sensor: the existing `HistoryChart` (24 h)
+  for `in_bps`/`out_bps` and `in_errors_ps`/`out_errors_ps` and a link to the sensor; without: the snapshot
+  rates and errors Δ plus (admin) **Start monitoring** = `POST /api/sensors {"device_id", "type":
+  "snmp_interface", "name": <port name>, "config": {"if_index", "if_name"}}`, then refetch; connected —
+  neighbours (linked to their device), MAC table (MAC, vendor or "random (locally administered)", VLAN, IP,
+  hostname, device link, first/last seen); for uplinks "N MACs learned (uplink)" and *Show MACs* (refetch with
+  `include_uplink_macs=true`). MACs, IPs and hostnames in `dir="ltr"` / `<bdi>`.
+- **Find page** (`/find`, nav "Find", all users): one input; IPv4 → `?ip=`, else `?q=`; results table (MAC,
+  vendor, IP, hostname, switch, port, VLAN, uplink badge, last seen, present), the `best` row highlighted; the
+  port cell links to `/devices/{id}?tab=ports&port={if_index}`. Invalid input → `errors.validation_error`.
+- **Device form:** selects *Port inventory* and *Collect ARP* (Auto / On / Off) with the effective state
+  ("Auto — on: detected as switch").
+- **Settings page:** section *Ports*: interval (minutes, 0 = off), uplink MAC threshold, MAC/ARP retention days,
+  reverse DNS toggle.
+- **Templates page:** badges *Verified* (green) / *Unverified* (gray, tooltip `verified_note`), *Built-in* /
+  *User* (+ "overrides built-in"), `version`; entry rows show a confidence chip (`confidence.high|medium|low`)
+  and `notes`, sensor `when` conditions. Admins: *Reload templates* button (shows counts and errors), an errors
+  panel listing `file`, `path`, `message`, and the user directory path.
+- **Apply result:** skip reason `not_applicable` → `templates.skip.not_applicable`.
+- **Sensor forms:** `snmp_walk_count` (oid, count values as comma-separated integers, label, max rows) and
+  `snmp_custom.percent_base`.
+- **WS (`ws.ts`):** `ports.updated` → invalidate `['device-ports', device_id]` and `['port-detail',
+  device_id]`, and (simplest rule) every open ports query; `templates.reloaded` → invalidate the templates
+  queries.
+- **Types/endpoints:** `types.ts` gains every [2b-2] type exactly as in api.md; `endpoints.ts` gains
+  `devicePorts(id, kinds?)`, `portDetail(id, ifIndex, includeUplinkMacs?)`, `refreshPorts(id)`,
+  `searchMac({q} | {ip})`, `reloadTemplates()`.
+- **New i18n keys (en + he):** `ports.*` (tab, views, status line, hints, columns, states, modal sections,
+  legend), `health.cpu|memory|temperature|poe|psu|fan`, `find.*`, `nav.find`, `inventoryMode.auto|on|off`,
+  `device.portInventory`, `device.arpCollect`, `settings.ports.*`, `templates.verified`,
+  `templates.unverified`, `templates.source.builtin|user`, `templates.overrides`, `templates.reload`,
+  `templates.loadErrors`, `templates.skip.not_applicable`, `sensorType.snmp_walk_count`,
+  `sensorConfig.snmp_walk_count.*`, `sensorConfig.snmp_custom.percent_base`, `channel.rows|matched|unmatched`,
+  `errors.ports_disabled`, `errors.ports_refresh_running`, template names of the new templates.
+
+### 11.6 QA simulators and tests [2b-2]
+All sims use snmpsim (`public.snmprec` per directory, community `public`, port 1161, one process per IP) and a
+generator `gen_snmprec.py` per folder, like `tests/sim/hpe/`. Backend tests use `NETMON_TEST_MODE=1` +
+`NETMON_TEST_PTR_FILE`.
+
+**Port sims** (`tests/sim/ports/`):
+
+- `127.0.0.61` **ArubaOS-Switch** (`arubaos/`): sysObjectID `1.3.6.1.4.1.11.2.3.7.11.181`, sysDescr as the 2b-1
+  2930F sim, sysUpTime 100000000. ifIndex 1–10 named `1`…`10` (type 6), 11 `Trk1` (type 161), 12
+  `DEFAULT_VLAN` (type 53). No dot1dBasePortIfIndex rows (bridge port = ifIndex, `sources.bridge = empty`).
+  Q-BRIDGE static: VLAN 1 egress = untagged = {1–6, 8, 9}; VLAN 10 egress {7, 9, 10}, untagged {7}; VLAN 20
+  egress {9, 10}; dot1qPvid 1 for all except 7 → 10. No dot1qVlanFdbId (fdbId = VLAN). FDB (status 3 unless
+  stated): fdb 1 `00:50:56:01:00:01` → 1; fdb 1 `3c:52:82:00:00:02` and `00:00:0c:00:00:03` → 2; fdb 1
+  `00:1a:1e:00:00:61` → 3 **status 4 (self)**; fdb 1 `da:a1:19:00:00:04` → 4; fdb 10 `00:50:56:01:00:07` → 7;
+  seven MACs `02:00:00:00:09:01`…`07` → 9 (VLANs 1, 1, 1, 10, 10, 20, 20); `02:00:00:00:0a:01`, `…:0a:02` (fdb 10)
+  → 10. pethPsePortTable group 1 ports 1–8 (admin, detection, class): 1 (1, 3, 4), 2 (1, 2, –), 3 (1, 2, –),
+  4 (1, 3, 5), 5 (2, 1, –), 6 (1, 2, –), 7 (1, 3, 1), 8 (1, 4, –). dot3StatsDuplexStatus: 1, 2, 4, 7, 9, 10 → 3;
+  3 → 2; 6 → 1. ifLastChange of port 1 = 99000000.
+- `127.0.0.62` **Comware** (`comware/`): sysObjectID `1.3.6.1.4.1.25506.11.1.177`; ifIndex 1–4
+  `GigabitEthernet1/0/1`…`/4`, 49/50 `Ten-GigabitEthernet1/0/49`/`50` (ifHighSpeed 10000), 101/102
+  `GigabitEthernet2/0/1`/`2`, 200 `Vlan-interface1` (136), 300 `NULL0` (1), 301 `InLoopBack0` (24), 400
+  `M-GigabitEthernet0/0/0` (6). dot1dBasePortIfIndex bp 1–4 → 1–4, 5 → 49, 6 → 50, 7 → 101, 8 → 102. Q-BRIDGE static:
+  VLAN 1 untagged {1, 2, 3, 5, 7, 8} (egress same + 6); VLAN 10 egress {4, 5, 6}, untagged {4}; VLAN 20 egress
+  {5, 6}. dot1qVlanFdbId: VLAN 1 → 1, VLAN 10 → **1010**. FDB: fdb 1 `00:0c:29:00:01:01` → bp 1; fdb 1010
+  `00:0c:29:00:01:04` → bp 4; fdb 1 `00:0c:29:00:01:07` → bp 7; fdb 1 `02:00:00:00:09:01` → bp 3. PoE group 1
+  ports 1, 2, 3, 4 (= ifIndex; 1 delivering class value 3).
+- `127.0.0.63` **Aruba CX** (`arubacx/`): sysObjectID `1.3.6.1.4.1.47196.4.1.1.1.200`, sysDescr `Aruba JL658A
+  6300M 24SFP+ 4SFP56 Swch FL.10.13.1000`; ifIndex 1–6 `1/1/1`…`1/1/6`, 49/50 `1/1/49`/`50` (ifHighSpeed 10000,
+  up), 1000 `vlan1` (53), 2000 `mgmt` (6). **No dot1qVlanStaticTable**; dot1qVlanCurrentTable (TimeMark 0) VLAN 1
+  egress/untagged {1–6}; **no dot1qPvid rows**. **No dot1qTpFdbTable**; dot1dTpFdbTable `00:00:0c:00:cc:01` → bp 1 (status 3);
+  dot1dBasePortIfIndex bp n → ifIndex n. PoE group 1 ports 1–6.
+- `127.0.0.64` **ARP router** (`arp_router/`): OPNsense-style sysObjectID `1.3.6.1.4.1.8072.3.2.8`, sysDescr with
+  `OPNsense`; ipNetToPhysicalTable (ifIndex 2, IPv4): `10.0.0.11` → `00:50:56:01:00:01` (3),
+  `10.0.0.12` → `00:00:0c:00:00:03` (3), `10.0.0.17` → `00:50:56:01:00:07` (3), `10.0.0.99` →
+  `02:00:00:00:09:01` (4 static), `10.0.0.50` → `00:50:56:01:00:50` (**2 invalid**), `10.0.0.1` → own MAC (**5
+  local**), one IPv6 row (ignored).
+- `127.0.0.65` **legacy ARP** (`arp_legacy/`): sysDescr `Linux gw2 5.10` (class server → needs `arp_collect:
+  on`); only ipNetToMediaTable: `10.0.0.14` → `da:a1:19:00:00:04` (3).
+- PTR file: `10.0.0.11` → `pc-reception.lan`, `10.0.0.12` → `phone-12.lan`.
+
+Test setup: devices for .61–.65 with ping + snmp_system sensors (identity null → class detection: .61/.62/.63
+switch, .64 router, .65 server), `arp_collect: on` for .65, a manual topology link .62 ifIndex 49 ↔ .61 ifIndex 10,
+an `snmp_interface` sensor on .61 port 1. Then `POST …/ports/refresh` for .64, .65, then .61–.63 (or the
+scheduler with `port_inventory_min` 5).
+
+**Expected — .61 ArubaOS** (`GET /api/devices/{id}/ports`; `fdb_mib q_bridge`, `vlan_mib static`):
+
+| if | state | speed | duplex | mode / pvid / untagged / tagged | poe (admin, detection, class) | mac_count / macs | uplink | connected_kind | alert |
+|---|---|---|---|---|---|---|---|---|---|
+| 1 | up | 1G | full | access / 1 / [1] / [] | true, delivering, 3 | 1: `00:50:56:01:00:01` ip 10.0.0.11, hostname `pc-reception.lan`, vendor from OUI | no | client | no |
+| 2 | up | 1G | full | access / 1 | true, searching, null | 2; `first_mac` = `00:00:0c:00:00:03` (has IP 10.0.0.12, `phone-12.lan`, vendor starts `Cisco`) | no | client | no |
+| 3 | up | 100M | half | access / 1 | true, searching | 0 (self entry dropped) | no | client | no |
+| 4 | up | 1G | full | access / 1 | true, delivering, 4 | 1: `da:a1:19:00:00:04`, `locally_administered: true`, vendor null, ip 10.0.0.14 (legacy ARP) | no | client | no |
+| 5 | admin_down | | | access / 1 | false, disabled | 0 | no | none | no |
+| 6 | down | null | unknown | access / 1 | true, searching | 0 | no | none | no |
+| 7 | up | 1G | full | access / 10 / [10] / [] | true, delivering, 0 | 1: `00:50:56:01:00:07` ip 10.0.0.17, hostname null | no | client | no |
+| 8 | down | | | access / 1 | true, fault | 0 | no | none | **yes** (`poe_fault`) → peach |
+| 9 | up | 10G | full | trunk / 1 / [1] / [10, 20] | null | 7, `macs: []` | **mac_count** | client | no |
+| 10 | up | 10G | full | trunk / 1 / [] / [10, 20] | null | 2, `macs: []` | **neighbor** (.62) | switch, `trunk: true` | no |
+| 11 | `Trk1` kind `lag` | | | | | | | | |
+| 12 | `DEFAULT_VLAN` kind `vlan` | | | | | | | | |
+
+Port 1: `sensor_id` set; `last_change_at = collected_at − 10000 s`. First run: `in_bps` null; second run
+(snmpsim counters are static) → `in_bps = 0.0`, `in_errors_delta = 0`. Error/rate
+math, 32-bit wrap, 64-bit reset and `alert: errors` are covered by pure unit tests of `build_snapshot`.
+
+**Expected — .62 Comware:** physical ports 1–4, 49, 50, 101, 102; `M-GigabitEthernet0/0/0` kind `mgmt`;
+`Vlan-interface1` kind `vlan`; `NULL0`/`InLoopBack0` kind `other`. Bridge mapping: if 49 ↔ bp 5 etc. Port 4:
+access, pvid 10, MAC `00:0c:29:00:01:04` with **vlan 10** (fdbId 1010 mapped). Ports 49/50: trunk, tagged
+[10, 20]; port 49 uplink `neighbor` (.61), connected_kind `switch`. PoE: port 1 delivering (rule 1 mapping).
+Faceplate vectors as § 11.4.
+
+**Expected — .63 Aruba CX:** `fdb_mib bridge`, `vlan_mib current`; port 1 MAC `00:00:0c:00:cc:01` **vlan null**;
+ports access/pvid 1 (pvid from untagged since no dot1qPvid rows); `mgmt` kind `mgmt`; 49/50 in the uplink
+block (speed rule); PoE mapped.
+
+**Expected — search:** `q=00:50:56:01:00:07` → 1 item (.61, if 7, vlan 10, ip 10.0.0.17, `best`);
+`q=02-00-00-00-09-01` → 2 items: .62 if 3 (`best`, not uplink) then .61 if 9 (`is_uplink`), ip 10.0.0.99;
+`ip=10.0.0.12` → .61 if 2, `arp` = [10.0.0.12 from .64 present]; `q=005056` → 2 MACs (…01:00:01 and …01:00:07);
+`ip=10.0.0.50` → no items (invalid ARP entry dropped); `q=zz` → 422; both `q` and `ip` → 422.
+
+**Expected — status/flags:** .65 with `arp_collect: auto` → `arp_effective false`, refresh → 409
+`ports_disabled`; after PATCH `on` → its entries appear. `status.arp_sources = 2`. A second refresh while one
+runs → 409 `ports_refresh_running`. Viewer refresh → 403. `ports.updated` received after each run.
+Removing the MAC on port 7 from the sim and refreshing → `present: false` in search, port 7 `mac_count 0`;
+`last_seen` unchanged. Device delete cascades all rows.
+
+**Health strip** (unit + API): the 2b-1 HPE sim (127.0.0.51) after applying `hpe_arubaos_switch` → items cpu
+(up, 7 %), memory (up, ≈ 39.4 %), temperature (`Over-temperature Sensor`, up, text `1/1`), poe (up, ≈ 12.16 %),
+psu (`Power Supply Sensor` down, text `0/1`), fan (up, `1/1`). Comware sim → cpu, memory, temperature (43 °C),
+psu (`PSU 1` up), fan (`Fan 2` down, text `1/2`).
+
+**Vendor template sims** (`tests/sim/vendors/`):
+
+| IP | Dir | Device | Key data |
+|---|---|---|---|
+| .71 | `checkpoint/` | Check Point standalone appliance | sysObjectID `1.3.6.1.4.1.2620.1.6.123.1.49`, sysDescr `Linux gw-hq 3.10.0-1160.15.2cpx86_64 #1 SMP …`; procUsage 23; memTotalReal64 16000000000, memActiveReal64 4000000000; fwNumConn 12345; fwConnTableLimit 0; haInstalled 0; tunnelState rows 3, 3, 131; temperature rows (`CPU`, "44.0"), (`Intake`, "38.5"); fan status rows (`Fan 1`, 0), (`Fan 2`, 1); powerSupplyStatus rows 1 "Up", 2 "Down"; hrStorage `/`, `/var/log`; ifTable eth0 (up), eth1 (up), eth2 (down), lo |
+| .72 | `checkpoint_cluster/` | ClusterXL member (VM) | sysObjectID **`1.3.6.1.4.1.8072.3.2.10`** (net-snmp) + svn subtree (procUsage 41, memory), haInstalled 1, haState `active`, haStatCode 0; no tunnel table, no hardware sensor tables |
+| .73 | `aruba_instant/` | Aruba Instant virtual controller | sysObjectID `1.3.6.1.4.1.14823.1.2.111`, sysDescr `ArubaOS (MODEL: 515), Version 8.10.0.6`; aiAPTable 3 rows (index = AP MAC): (`AP-Lobby`, 1), (`AP-Office`, 1), (`AP-Store`, 2); aiClientTable 5 rows; ifTable `bond0`/`eth0` |
+
+| Sim | Classification / suggestion | Apply result |
+|---|---|---|
+| .71 | router / checkpoint (rule 9a, snmp/high) → `checkpoint_gaia` | created: Ping, System, CPU 23 % up, Memory 25 % up, Concurrent connections 12345, Connection table usage (no value, up), VPN tunnels up (matched 2, rows 3, unmatched 1 → **warning**), Temperature CPU 44, Temperature Intake 38.5, Fan 1 up, Fan 2 **down**, Power supply 1 up, Power supply 2 **down**, Disk /, Disk /var/log, interfaces eth0, eth1; skipped `not_applicable`: ClusterXL state, ClusterXL status |
+| .72 | router / checkpoint (rule 9a via the `checkpoint` probe) → `checkpoint_gaia` | created: …, CPU 41 %, ClusterXL state up (`ClusterXL: active`), ClusterXL status up (`OK (0)`); skipped: VPN tunnels up `probe_failed` (`No rows`), temperature/fan/PSU tables `no_rows` |
+| .73 | access_point / aruba → `aruba_wifi` | created: Ping, System, APs up (2 of 3 → **warning**), AP AP-Lobby up, AP AP-Office up, AP AP-Store **down**, Wi-Fi clients (matched 5); skipped: CPU Load / Memory `probe_failed`, controller rows `probe_failed` / `no_rows` |
+
+**Template library tests:**
+- Built-in library loads with **zero errors**; 19 templates; order as data-model; the nine converted templates
+  equal `backend/tests/fixtures/templates_2b1.json` with 2b-2 keys removed; every vendor-OID entry has a
+  confidence; every template has en and he names; every new template's apply mechanics pass the **synthetic
+  sim** test: a generator builds one `.snmprec` from each template's own OIDs (scalar OIDs get a value that
+  passes probes/`when`; table OIDs get two rows with suffixes `1`, `2` and filter-passing values; label columns
+  get text) and asserts no entry ends `probe_failed`/`no_rows`/`snmp_error`/`not_applicable` (mechanics only,
+  not OID correctness).
+- **User override directory** (tmp `NETMON_DATA_DIR`), then `POST /api/device-templates/reload`:
+
+  | File (relative) | Content | Expected |
+  |---|---|---|
+  | `override/hpe_comware.yaml` | valid copy, `priority: 55` | `hpe_comware` `source: user`, `overrides_builtin: true`, priority 55; in `library.overridden` |
+  | `acme/acme_ups.yaml` | valid new template | listed, `source: user` |
+  | `json/acme_json.json` | valid JSON template | listed |
+  | `dup/acme_ups.yml` | second `acme_ups` | error `duplicate id "acme_ups" (also in acme/acme_ups.yaml)` |
+  | `bad/broken.yaml` | invalid YAML | error starting `invalid YAML:`, `template_id` null |
+  | `bad/unknown_key.yaml` | extra top-level `prio: 1` | `unknown key: prio`, path `""` |
+  | `bad/wrong_name.yaml` | `id: other_id` | `id must match the file name (expected "wrong_name")` |
+  | `bad/badoid.yaml` | `walk_oid: abc` in entry 0 | `invalid OID: abc`, path `entries[0].walk_oid` |
+  | `bad/noconf.yaml` | vendor `snmp_custom` without confidence at entry 2 | `confidence required for vendor OIDs`, path `entries[2]` |
+  | `override/generic_snmp.yaml` | `type: foo` | `unknown sensor type: foo`; `generic_snmp` stays `source: builtin` |
+
+  `library`: `builtin_count 19`, `user_count 3`, `overridden ["hpe_comware"]`, 7 errors; viewers get `errors: []`
+  and `user_dir: ""`; `templates.reloaded` broadcast. Deleting the override file and reloading → `hpe_comware`
+  back to built-in. A discovery suggestion for the Comware sim then still returns `hpe_comware`. Apply with
+  `template_id: "acme_ups"` works.
+- **Pure units:** every parser in data-model (portlist bit order incl. port 9 in octet 1; FDB index parsing for
+  both MIBs; status filter; ARP index with/without the length arc; types 2/5 dropped; PoE mapping rules 1–3;
+  `port_kind`; last change; rates incl. wrap/reset), `view` rules (uplink by neighbour vs MAC count, threshold
+  boundary `= 5` not uplink / `6` uplink, alert reasons, connected_kind), health categorization incl. Hebrew
+  names, OUI lookup (`00:00:0c` → starts with `Cisco`, locally administered → null), search normalisation,
+  `snmp_walk_count` evaluation, `percent_base: sum`, `when` handling, classification rule 9a / F23a,
+  `sys_object_id_prefixes` / `sys_descr_regex` matching.
+- Migration `0005` up/down on Timescale and fallback DBs with rows in the new tables and an `snmp_walk_count`
+  sensor present.
+- Frontend (Vitest): faceplate vectors (§ 11.4), `filterPorts` (MAC in three notations, IP, vendor), tile style
+  mapping (each legend row), health chip formatting. E2E (Playwright, optional): open the .61 device, toggle
+  views, open port 9 modal (uplink: count, *Show MACs*), Find page search for `00:50:56:01:00:07` → link opens
+  the modal.
+
+### 11.7 Security and limits [2b-2]
+- Ports endpoints are read-only for viewers; refresh, reload and the inventory flags are admin-only. MACs, IPs
+  and hostnames are internal network data, shown to every logged-in user (same as sensors today).
+- No SNMP writes, no port actions. SNMP is sent only to enabled devices that are eligible; DNS PTR queries go
+  to the system resolver only for IPs learned from ARP.
+- Caps: walk rows (data-model), 200 search items, 1000 uplink MACs in the modal, 256 PTR lookups per pass,
+  template files 200 × 256 KiB.
+
+### 11.8 Owner notes and verification [2b-2]
+Ports view, all switches: enable LLDP and SNMP read views covering `1.3.6.1.2.1` (IF-MIB, BRIDGE/Q-BRIDGE
+`1.3.6.1.2.1.17`, POWER-ETHERNET `1.3.6.1.2.1.105`, EtherLike `1.3.6.1.2.1.10.7`) and `1.0.8802`. Set
+*Collect ARP* on the Check Point gateway (auto when it is classified `router`) and/or the core L3 switch, or no
+IPs are shown. Make sure the server's DNS answers PTR queries for the office range (Windows DNS reverse zone),
+else hostnames stay empty. Tune *uplink MAC threshold* (5) if desk phones with a PC behind them look like
+uplinks (they do not, at 2 MACs).
+
+Please verify and report (screenshots of the port list + the outputs below are enough):
+
+| Device | Check |
+|---|---|
+| HPE ArubaOS-Switch | VLAN/PVID/mode match `show vlans`/`show interfaces brief`; MACs match `show mac-address`; PoE detection per port matches `show power-over-ethernet brief` (mapping rule 1: PSE port index = ifIndex); duplex; trunk `Trk*` ifType (54 or 161); on a stack, port names (`1/1`?) and PSE groups. **Per-port watts:** note one port's power from `show power-over-ethernet brief` (e.g. 5.4 W), run `snmpwalk -v2c -c <community> -On <ip> 1.3.6.1.4.1.11 > aos.txt` and send the file (the architect finds the column holding that value) |
+| HPE Comware | same checks with `display vlan`, `display mac-address`, `display poe interface`; FDB VLAN correct on VLANs ≠ 1 (fdbId mapping); for watts send `snmpwalk -On <ip> 1.3.6.1.4.1.25506 > cw.txt` with one known port power |
+| Aruba CX (product line?) | which models; send `snmpwalk -On <ip> 1.3.6.1.4.1.47196 > cx.txt`, `… 1.3.6.1.2.1.25 > cx_hr.txt`, `… 1.3.6.1.2.1.99 > cx_sensor.txt` (completes CPU/memory/fans/PSU with ARUBAWIRED-*); check that the ports view shows VLANs and MACs (Q-BRIDGE/BRIDGE fallbacks) |
+| Aruba Wi-Fi | Instant (virtual controller IP) or Mobility Controller? Check "APs up" and "Wi-Fi clients" against the UI; send `snmpwalk -On <ip> 1.3.6.1.4.1.14823.2.3.3.1.2` (Instant) or `… 1.3.6.1.4.1.14823.2.2.1.5.2.1` (controller) so per-AP clients can be added |
+| Check Point | appliance or VM; ClusterXL or not; SNMP v3 on Gaia (`set snmp agent on`, `set snmp agent-version v3-Only` or `any`, `add snmp usm user <name> security-level authPriv auth-pass-phrase … privacy-pass-phrase …`, `save config`); compare CPU with `cpview`, connections with `fw tab -t connections -s`; on a cluster: `haInstalled` (`snmpget … 1.3.6.1.4.1.2620.1.5.2.0`) = 1 on members, haState/haStatCode on active vs standby and when a member is down (`cphaprob stat`); VPN tunnel count (permanent tunnels only); hardware sensors (appliance); classification and suggested template in discovery |
+| All 2b-1/2b-2 templates | after testing, tell the architect which templates may be marked `verified: true` (with model/firmware for `verified_note`) |
+
+Open questions carried from the roadmap: the Aruba product lines; Check Point appliance/VM, ClusterXL, SNMPv3.
