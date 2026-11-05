@@ -92,18 +92,24 @@ test('acknowledged: escalation and reminders do not fire (test clock)', async ()
   expect((await hooks(PRIMARY)).length).toBe(1);
 });
 
-test('unacknowledge -> reminders resume, escalation does not restart', async ({ page }) => {
+test('unacknowledge -> reminders resume and the escalation that never fired is re-armed', async ({ page }) => {
+  // Contract (data-model.md, review M1): unacknowledge re-arms what the acknowledgement prevented.
+  // The problem was acked before its escalation fired, so escalation_due_at = now + escalation_after_s.
   await loginViaApi(page, undefined, `/sensors/${dev.sensor.id}`);
   await page.getByRole('button', { name: 'Unacknowledge' }).click();
   await expect(page.getByRole('button', { name: 'Acknowledge' })).toBeVisible();
   const ev = (await api.get(`/api/events?kind=acknowledge&sensor_id=${dev.sensor.id}`)).items;
   expect(ev[0].message).toBe('Acknowledgement removed by admin');
-  // next_reminder_at = now(+400) + 300 -> due at +700.
+  // escalation_due_at = now(+400) + 60 -> due at +460; next_reminder_at = now(+400) + 300 -> due at +700.
+  await setClock(api, 470);
+  await expect.poll(async () => (await hooks(ESC)).length, { timeout: 15_000 }).toBe(1);
+  expect((await hooks(ESC))[0].body).toMatchObject({ event: 'sensor.escalation', new_status: 'down' });
+  expect((await hooks(PRIMARY)).length).toBe(1); // no reminder yet
   await setClock(api, 710);
   await expect.poll(async () => (await hooks(PRIMARY)).length, { timeout: 15_000 }).toBe(2);
   expect((await hooks(PRIMARY))[1].body).toMatchObject({ event: 'sensor.reminder', stage: 'reminder' });
   await quiet(4_000);
-  expect(await hooks(ESC)).toEqual([]);
+  expect((await hooks(ESC)).length).toBe(1); // escalation fires exactly once
 });
 
 test('re-ack, then recovery: ack auto-cleared, recovery sent to the notified channel', async () => {
@@ -113,7 +119,8 @@ test('re-ack, then recovery: ack auto-cleared, recovery sent to the notified cha
   const s = await waitStatus(api, dev.sensor.id, 'up', 45_000);
   expect(s.acknowledgement).toBeNull();
   await expect.poll(async () => (await hooks(PRIMARY)).map((r) => r.body.new_status), { timeout: 20_000 }).toEqual(['down', 'down', 'up']);
-  expect(await hooks(ESC)).toEqual([]); // never notified -> no recovery there
+  // The escalation channel was notified after the unack, so it gets the recovery too.
+  await expect.poll(async () => (await hooks(ESC)).map((r) => r.body.new_status), { timeout: 20_000 }).toEqual(['down', 'up']);
   // Auto-clear writes no acknowledge event.
   const ev = (await api.get(`/api/events?kind=acknowledge&sensor_id=${dev.sensor.id}`)).items;
   expect(ev[0].message).toBe('Acknowledged by admin: second');
