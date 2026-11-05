@@ -35,7 +35,7 @@ test('default columns, physical-only toggle, connected texts', async ({ page }) 
   await list(page).getByRole('checkbox', { name: T('ports.physicalOnly') }).uncheck();
   expect(await firstCells(page)).toContain('DEFAULT_VLAN');
   await list(page).getByRole('checkbox', { name: T('ports.physicalOnly') }).check();
-  const row = (name: string) => bodyRows(page).filter({ has: page.locator('td:first-child', { hasText: new RegExp(`^\\s*${name}\\b`) }) }).first();
+  const row = (name: string) => bodyRows(page).filter({ has: page.locator('td:first-child button', { hasText: new RegExp(`^\\s*${name}\\s*$`) }) }).first();
   await expect(row('9')).toContainText(T('ports.macCount', { count: 7 })); // uplink: "7 MACs"
   await expect(row('10')).toContainText(lab.cw.name); // neighbour name linked to its device
   await expect(row('10').getByRole('link', { name: lab.cw.name })).toHaveAttribute('href', `/devices/${lab.cw.id}`);
@@ -93,16 +93,18 @@ test('column chooser: Alias + IP + Vendor persist after a reload (localStorage)'
   for (const c of ['alias', 'ip', 'vendor']) await chooser.getByRole('checkbox', { name: T(`ports.col.${c}`) }).check();
   await chooser.getByRole('checkbox', { name: T('ports.col.rxtx') }).uncheck();
   await page.keyboard.press('Escape');
-  const heads = async () => (await list(page).locator('thead th').allInnerTexts()).map((s) => s.trim());
-  expect(await heads()).toEqual(expect.arrayContaining([T('ports.col.alias'), T('ports.col.ip'), T('ports.col.vendor')]));
-  expect(await heads()).not.toContain(T('ports.col.rxtx'));
+  // headers are CSS upper-case: compare case-insensitively
+  const heads = async () => (await list(page).locator('thead th').allInnerTexts()).map((s) => s.trim().toLowerCase());
+  const H = (c: string) => T(`ports.col.${c}`).toLowerCase();
+  expect(await heads()).toEqual(expect.arrayContaining([H('alias'), H('ip'), H('vendor')]));
+  expect(await heads()).not.toContain(H('rxtx'));
   const stored = JSON.parse((await page.evaluate(() => localStorage.getItem('netmon.ports.columns'))) ?? 'null');
   expect(stored).toEqual(expect.arrayContaining(['alias', 'ip', 'vendor']));
   expect(stored).not.toContain('rxtx');
   await page.reload();
   await expect(list(page)).toBeVisible();
-  expect(await heads()).toEqual(expect.arrayContaining([T('ports.col.alias'), T('ports.col.ip'), T('ports.col.vendor')]));
-  expect(await heads()).not.toContain(T('ports.col.rxtx'));
+  expect(await heads()).toEqual(expect.arrayContaining([H('alias'), H('ip'), H('vendor')]));
+  expect(await heads()).not.toContain(H('rxtx'));
   const r1 = bodyRows(page).first();
   await expect(r1).toContainText('Reception PC');
   await expect(r1).toContainText(/VMware/i);

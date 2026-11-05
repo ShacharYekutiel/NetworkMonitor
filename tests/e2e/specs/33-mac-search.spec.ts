@@ -82,7 +82,7 @@ test('Find page: MAC search -> best row highlighted, port link opens the modal',
   await loginViaApi(page);
   await page.getByRole('navigation').first().getByRole('link', { name: T('nav.find') }).click();
   await expect(page).toHaveURL(/\/find/);
-  const input = page.getByRole('searchbox', { name: T('find.label') }).or(page.getByRole('textbox', { name: T('find.label') }));
+  const input = page.locator('main').getByRole('textbox', { name: T('find.label') }); // the header has a quick-find box too
   await input.fill('02:00:00:00:09:01');
   await input.press('Enter');
   await expect(page).toHaveURL(/[?&]q=02/);
@@ -92,7 +92,7 @@ test('Find page: MAC search -> best row highlighted, port link opens the modal',
   await expect(page.getByTestId('find-best')).toContainText('10.0.0.99');
   const rows = results.locator('tbody tr');
   await expect(rows.filter({ hasText: lab.cw.name })).toHaveCount(1);
-  await expect(rows.filter({ hasText: lab.aos.name })).toContainText(T('ports.uplink'));
+  await expect(rows.filter({ hasText: lab.aos.name })).toContainText(T('find.uplink'));
   await shot2b2(page, 'find-mac-en');
   const link = rows.filter({ hasText: lab.cw.name }).getByTestId('find-port-link');
   await expect(link).toHaveAttribute('href', `/devices/${lab.cw.id}?tab=ports&port=3`);
@@ -103,7 +103,7 @@ test('Find page: MAC search -> best row highlighted, port link opens the modal',
 
 test('Find page: IPv4 -> ?ip=, ARP hits; invalid input -> validation message', async ({ page }) => {
   await loginViaApi(page, undefined, '/find');
-  const input = page.getByRole('searchbox', { name: T('find.label') }).or(page.getByRole('textbox', { name: T('find.label') }));
+  const input = page.locator('main').getByRole('textbox', { name: T('find.label') }); // the header has a quick-find box too
   await input.fill('10.0.0.11');
   await input.press('Enter');
   await expect(page).toHaveURL(/[?&]ip=10\.0\.0\.11/);

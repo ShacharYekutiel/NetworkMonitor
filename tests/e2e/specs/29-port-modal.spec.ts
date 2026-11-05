@@ -127,7 +127,8 @@ test('neighbour uplink port 10 and the AP port (CW 2) link to their devices', as
   await loginViaApi(page);
   let m = await openTile(page, lab.aos.id, 10);
   await expect(m.getByRole('link', { name: lab.cw.name })).toHaveAttribute('href', `/devices/${lab.cw.id}`);
-  await expect(m).toContainText('Ten-GigabitEthernet1/0/49');
+  // api.md: a manual link's a_port defaults to the ifName of a_if_index -> "Ten-GigabitEthernet1/0/49"
+  await expect.soft(m, 'remote port = ifName of the manual link end').toContainText('Ten-GigabitEthernet1/0/49');
   await page.keyboard.press('Escape');
   m = await openTile(page, lab.cw.id, 2);
   const link = m.getByRole('link', { name: lab.ap.name });

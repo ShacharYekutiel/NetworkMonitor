@@ -91,10 +91,14 @@ export async function refreshPorts(api: Api, id: number, timeout = 100_000): Pro
   await expect
     .poll(async () => (await devicePorts(api, id)).status.running, { timeout: 100_000, message: `device ${id} idle before refresh` })
     .toBe(false);
+  // timestamps are serialised in whole seconds: keep runs >= 1.1 s apart so a new run is visibly newer
+  const s0 = (await devicePorts(api, id)).status.last_run_at;
+  const wait = s0 ? Date.parse(s0) + 1100 - Date.now() : 0;
+  if (wait > 0) await new Promise((res) => setTimeout(res, Math.min(wait, 1100)));
   const r = await raw(api, 'POST', `/api/devices/${id}/ports/refresh`);
   expect(r.status, `refresh ${id}: ${r.text}`).toBe(202);
   expect(r.body).toEqual({ device_id: id, queued: true });
-  return waitRun(api, id, before.last_run_at, timeout);
+  return waitRun(api, id, s0 ?? before.last_run_at, timeout);
 }
 export async function waitRun(api: Api, id: number, prevRunAt: string | null, timeout = 100_000): Promise<any> {
   let dp: any = null;

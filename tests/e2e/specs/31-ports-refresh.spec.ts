@@ -100,6 +100,7 @@ test('flags: off disables a switch (409), on forces, auto follows the class; 422
 test('409 ports_refresh_running for a second refresh while one runs', async () => {
   await expect.poll(async () => (await devicePorts(api, lab.aos52.id)).status.running).toBe(false);
   const prev = (await devicePorts(api, lab.aos52.id)).status.last_run_at;
+  await new Promise((r) => setTimeout(r, 1100)); // whole-second timestamps: make the new run visibly newer
   const [a, b] = await Promise.all([
     raw(api, 'POST', `/api/devices/${lab.aos52.id}/ports/refresh`),
     raw(api, 'POST', `/api/devices/${lab.aos52.id}/ports/refresh`),
