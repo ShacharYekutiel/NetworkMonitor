@@ -5,6 +5,7 @@ from typing import Any
 import httpx
 
 from netmon import __version__
+from netmon.tlsutil import httpx_verify
 
 
 class WebhookError(Exception):
@@ -19,7 +20,7 @@ async def send_webhook(config: dict[str, Any], payload: dict[str, Any]) -> None:
     }
     try:
         async with httpx.AsyncClient(
-            verify=bool(config.get("verify_tls", True)),
+            verify=httpx_verify(bool(config.get("verify_tls", True))),
             timeout=float(config.get("timeout_s", 10)),
         ) as client:
             resp = await client.post(config["url"], json=payload, headers=headers)

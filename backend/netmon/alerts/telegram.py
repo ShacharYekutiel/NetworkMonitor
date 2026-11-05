@@ -8,6 +8,7 @@ from typing import Any
 import httpx
 
 from netmon import __version__
+from netmon.tlsutil import client_ssl_context
 
 log = logging.getLogger("netmon.alerts.telegram")
 
@@ -54,7 +55,7 @@ async def send_telegram(config: dict[str, Any], text: str, parse_mode: str | Non
         body["parse_mode"] = parse_mode
     url = f"{_api_base}/bot{token}/sendMessage"
     try:
-        async with httpx.AsyncClient(timeout=TIMEOUT_S) as client:
+        async with httpx.AsyncClient(timeout=TIMEOUT_S, verify=client_ssl_context()) as client:
             resp = await client.post(
                 url, json=body, headers={"User-Agent": f"NetworkMonitor/{__version__}"}
             )

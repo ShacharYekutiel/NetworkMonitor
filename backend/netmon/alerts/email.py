@@ -6,6 +6,8 @@ from typing import Any
 
 import aiosmtplib
 
+from netmon.tlsutil import client_ssl_context
+
 
 class SmtpError(Exception):
     pass
@@ -36,6 +38,7 @@ async def send_email(
             password=smtp.get("password") or None,
             use_tls=security == "ssl",
             start_tls=True if security == "starttls" else False,
+            tls_context=client_ssl_context() if security in ("ssl", "starttls") else None,
             timeout=20,
         )
     except (aiosmtplib.SMTPException, OSError, TimeoutError) as exc:

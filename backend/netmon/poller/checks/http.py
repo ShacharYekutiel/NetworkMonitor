@@ -13,6 +13,7 @@ import httpx
 
 from netmon import __version__
 from netmon.poller.types import CheckContext, CheckResult
+from netmon.tlsutil import httpx_verify
 
 
 def host_for_url(host: str) -> str:
@@ -136,7 +137,7 @@ async def run(ctx: CheckContext) -> CheckResult:
     start = time.perf_counter()
     try:
         async with httpx.AsyncClient(
-            verify=bool(cfg.get("verify_tls", True)),
+            verify=httpx_verify(bool(cfg.get("verify_tls", True))),
             follow_redirects=bool(cfg.get("follow_redirects", True)),
             timeout=timeout,
             trust_env=False,
