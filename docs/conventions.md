@@ -66,7 +66,8 @@ TEST_DATABASE_URL=postgresql://netmon:netmon@localhost:5432/postgres pytest -q
     `text-start`), never `ml-/mr-/left-/right-`. Directional icons flip with `rtl:rotate-180`.
   - Numbers, IPs and hostnames are wrapped in `<bdi>` / `dir="ltr"` spans.
   - ECharts time axes stay left-to-right in both languages.
-- Status colors (Tailwind): up `green-600`, warning `amber-500`, down `red-600`, paused `gray-400`, unknown `slate-500`.
+- Status colors (Tailwind): up `green-600`, warning `amber-500`, down `red-600`, paused `gray-400`, unknown `slate-500`,
+  **[2b-1]** unreachable `violet-500` (`#8b5cf6`).
 - Language choice: use the logged-in `user.language`. Before login, use `localStorage['netmon.lang']`, then
   `GET /api/settings/public`'s `default_language`.
 - Tests: Vitest + Testing Library, colocated as `*.test.tsx`. `npm run build` must finish with **zero** TS errors.
@@ -126,6 +127,18 @@ npm run lint && npm test -- --run && npm run build      # build → frontend/dis
   `endpoints.ts`, and handle `discovery.*` in `ws.ts` (forward to subscribers; invalidate the scan query on
   `discovery.finished`, and `/api/tree` on `config.changed` as today).
 - New user-visible strings need both `en` and `he` entries.
+
+## Phase 2b-1 notes
+- Backend: keep `services/dependencies.py` (resolution, cycles), `services/maintenance.py` `occurrences()`/`covers()`,
+  `discovery/classify.py` (incl. `classify_fingerprint`), `topology/collect.py` parsers and `topology/suggest.py`
+  pure and exhaustively unit-tested. Time in maintenance/alerting code comes only from `rt.clock.now()`, never
+  `datetime.now()` directly.
+- Backend: pydantic models `DependencyIn`, `MaintenanceWindowIn/Out`, `AcknowledgeIn`, `TopologyLinkIn`,
+  `LayoutIn`, `DependencyBulkIn` with `extra="forbid"`. `alert_notified` is gone: tests use `alert_state`.
+- Frontend: extend `types.ts` (`Status` + `unreachable`, `StatusCounts.unreachable`, new types exactly as in
+  api.md), `endpoints.ts`, and `ws.ts` (`sensor.ack`, `maintenance.changed`, `topology.updated`,
+  `topology.refresh`; `config.changed` entities `maintenance_window`, `topology_link`). Every `Record<Status, …>`
+  must get the new key (TypeScript will flag them).
 
 ## Definition of done (per change)
 Lint is clean and the tests pass. The contract docs are updated if the behaviour changed. The change works in

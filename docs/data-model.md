@@ -33,7 +33,8 @@ migrations own the schema.
 | **[2a]** `scan_trigger` | `manual`, `scheduled` |
 
 **Status severity** is used for rollups and sorting, from highest to lowest: `down` (4) > `warning` (3) >
-`unknown` (2) > `up` (1) > `paused` (0).
+`unknown` (2) > `up` (1) > `paused` (0). **[2b-1]** adds `unreachable` between `warning` and `unknown`
+([§ enum changes](#2b-1-enum-changes)).
 
 ## Tables
 
@@ -243,7 +244,9 @@ A row is written when a rule sent a `down`/`warning` notification and deleted wh
 - With `delay_s > 0`, the engine schedules an in-memory timer. When it expires, the engine sends only if the
   sensor's current status is still S, nothing else changed the status in between, and the rule still exists,
   is enabled and still matches (its current channels are used). Pending timers are lost on
-  restart, which is acceptable for the MVP.
+  restart, which is acceptable for the MVP. **[2b-1] Superseded:** delays, escalation and reminders are
+  persisted in `alert_state` ([§ alert state](#2b-1-alert-state-escalation-reminders-ack)); `alert_notified` is
+  replaced by it.
 - One notification is sent per (rule, channel). If a global rule and a sensor rule both target the same channel
   for the same event, the engine sends it once.
 
@@ -1278,9 +1281,9 @@ the list (`null` = any). `suggest()` gains the `sys_object_id` argument. Existin
 | `skip_zero` | bool | false | Rows whose walked value is `0` or not numeric are ignored (not counted towards `max`). |
 | `filters` | `{"oid": str, "in": int[] \| null, "not_in": int[] \| null}[]` | `[]` | Each filter GETs `oid + "." + S` for the row suffix S; the row is kept only when the value (integer) is in `in` (when set) and not in `not_in` (when set). A missing/non-integer value drops the row. All filters must pass. |
 
-`config` of an `snmp_table` entry may now contain every `snmp_custom` key except `oid`/`percent_of_oid`/`label`
-(so also `value_map` / `value_map_default` / `interval_s` stays on the entry level as `interval_s: int | null`,
-new, default null = settings default).
+`config` of an `snmp_table` entry may contain every `snmp_custom` key except `oid`/`percent_of_oid`/`label`
+(so also `value_type: "enum"` with `value_map` / `value_map_default`). New entry field `interval_s: int | null`
+(default null = `settings.default_interval_s`) sets the interval of the created sensors.
 
 ## [2b-1] `snmp_custom`: new value type `enum`
 `value_type` gains **`enum`**, for integer status columns (fan/PSU/sensor states). New config keys:

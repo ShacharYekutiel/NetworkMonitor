@@ -1,7 +1,9 @@
-# NetworkMonitor — Architecture (Phase 1 / MVP + Phase 2a)
+# NetworkMonitor — Architecture (Phase 1 / MVP + Phase 2a + Phase 2b-1)
 
 Phase 2a (auto-discovery, device templates, `snmp_custom`/`snmp_disk`, Telegram) is described in
 [§ 9](#9-phase-2a-discovery-templates-custom-snmp-telegram); items elsewhere marked **[2a]** belong to it.
+Phase 2b-1 (dependencies, maintenance windows, acknowledge, escalation, fingerprinting, HPE templates,
+topology) is described in [§ 10](#10-phase-2b-1-dependencies-maintenance-acknowledge-escalation-fingerprinting-hpe-topology).
 
 NetworkMonitor is a license-free, PRTG-like network monitor. One Python process serves the REST API, the
 WebSocket, the built React SPA, and runs the poller and the alert engine. PostgreSQL holds everything, and
@@ -49,7 +51,7 @@ Related contracts: [data-model.md](data-model.md), [api.md](api.md), [convention
 
 ### Libraries (fixed)
 FastAPI, uvicorn, SQLAlchemy 2 (async) + asyncpg, Alembic, pydantic v2 + pydantic-settings, PyJWT, argon2-cffi,
-pysnmp >= 7 (lextudio), icmplib, httpx, dnspython, aiosmtplib.
+pysnmp >= 7 (lextudio), icmplib, httpx, dnspython, aiosmtplib, **[2b-1]** tzdata (IANA zones on Windows/slim images).
 Frontend: React 18, TypeScript, Vite, Tailwind CSS, React Router, TanStack Query, ECharts, i18next.
 
 ## 2. Process model
@@ -175,6 +177,8 @@ native installers) → defaults. **The end user never edits any of these.** Inst
 | **[2a]** `NETMON_TELEGRAM_API_BASE` | `https://api.telegram.org` | Telegram Bot API base URL, no trailing slash. Tests point it at the mock (`http://127.0.0.1:18081`). |
 | **[2a]** `NETMON_DISCOVERY_CONCURRENCY` | `64` | Hosts probed in parallel by a discovery scan (1–256) |
 | **[2a]** `NETMON_DISCOVERY_RATE` | `100` | Max new hosts started per second by a scan (1–1000) |
+| **[2b-1]** `TZ` | unset | Only used as the default of the `timezone` setting when it is a valid IANA name |
+| **[2b-1]** `NETMON_TEST_MODE` | `0` | `1` enables `PUT /api/test/clock` (QA only; never set by installers/compose) |
 
 Runtime settings (SMTP, retention, default interval, default language) live in the DB `settings` table and are
 edited in the UI. They are **not** env vars.
@@ -482,3 +486,185 @@ The server needs outbound HTTPS to `api.telegram.org` (Docker Desktop has it by 
   `http_server` (ping + web UI check); that is the expected outcome.
 - Put the community in the target group's SNMP credentials (preferred, devices then inherit it) or add it as
   an extra community in the scan.
+
+## 10. Phase 2b-1: dependencies, maintenance, acknowledge, escalation, fingerprinting, HPE, topology
+
+Contract details: [data-model.md § Phase 2b-1](data-model.md#2b-1-phase-2b-1-additions) (statuses, tables,
+algorithms, rules, templates, migration `0004`) and [api.md § Phase 2b-1](api.md#2b-1-phase-2b-1-contract)
+(endpoints, types, WS, errors). Backend, frontend and QA implement in parallel against those two files.
+Sections are marked **[2b-1]**.
+
+### 10.1 Components [2b-1]
+| Component | Module | Responsibility |
+|---|---|---|
+| Clock | `netmon.clock` | `Clock.now() -> datetime` (UTC, + test offset), `changed: asyncio.Event`. On the runtime as `rt.clock`. Used by maintenance and alerting only. |
+| Dependencies | `netmon.services.dependencies` | Pure: `effective_parent(inv, device_id)`, `dependency_sensor(inv, parent_id)`, `find_cycle(inv)`, `parent_down(...)`. I/O: `on_status_change(rt, events)` cascade (down→unreachable, re-check on recovery). `Inventory` gains the dependency columns and sensor type/sort_order/enabled. |
+| Processor | `netmon.poller.processor` | After `evaluate()`: `down` + parent down → `unreachable` (message prefix). Clears the acknowledgement on any status change. Sets `events.in_maintenance`. |
+| Scheduler | `netmon.poller.scheduler` | New `run_soon(sensor_ids, jitter_s=5)`: an extra one-off run that does not move the regular schedule (skipped when the sensor is already running). |
+| MaintenanceTracker | `netmon.services.maintenance` | Pure `occurrences()` / `covers()`; the tracker loop (§ data-model). Started after the alert engine. |
+| AlertEngine | `netmon.alerts.engine` | Rewritten around `alert_state`: the event path only upserts rows and `notify()`s; one loop sends due problem / recovery / escalation / reminder notifications. No in-memory timers. `sender` test hook kept. `templates.py` gains the stage subjects and the "Problem since" row. |
+| Fingerprint | `netmon.discovery.fingerprint` | `async fingerprint_host(ip, host_header, open_ports, timeout_ms) -> dict` (HTTP/SSH/telnet, limits in api.md). `classify.py` gains `classify_fingerprint()` and `classify_host() -> Classification(device_class, vendor, model, confidence, classified_by)` (pure). |
+| Identify | `netmon.discovery.identify` | `identify_device(rt, device) -> DeviceIdentity`, reuses `probe.py` + fingerprint + classify; used by the endpoint. |
+| Templates | `netmon.templates.builtin`, `apply` | `hpe_arubaos_switch`, `hpe_comware`; `enterprises` match field; `snmp_table` `skip_zero`/`filters`/`interval_s`; `snmp_custom` `enum` (in `poller/checks/snmp_custom.py` + `sensor_types.py`). |
+| Topology | `netmon.topology.collect` (SNMP walks, pure parsers for LLDP/CDP index layouts and id normalisation), `netmon.topology.refresh` (matching, upserts, stale, promotion), `netmon.topology.scheduler` (loop), `netmon.topology.suggest` (pure BFS) | One refresh at a time, semaphore 8, shared SNMP engine. |
+
+Startup order additions: after migrations → mark `running` topology refreshes failed → … → start alert engine
+(loop processes overdue `alert_state` rows) → maintenance tracker → topology scheduler. Shutdown: topology
+refresh cancelled (ends `failed`, "Cancelled by shutdown"), then the loops.
+
+### 10.2 Key behaviours [2b-1]
+- **unreachable** is produced only by the processor (failed/down check + parent down) and by the cascade
+  (existing `down` children when a parent goes down). It never alerts, never escalates. The child's `alert_state`
+  rows become `suspended`. Recommendation for the owner: give alert rules a `delay_s` at least as long as the
+  parent ping interval (e.g. 60–120 s): a child polled before its parent's check noticed the outage would
+  otherwise alert `down` before the cascade turns it `unreachable`; with a delay, the pending notification is
+  dropped because the sensor is no longer down when it falls due.
+- **Maintenance** never hides state; it only suppresses notifications and flags devices/sensors/events.
+- **Acknowledge** never hides state; it silences one problem until any status change.
+- **Escalation** is measured from `problem_since` (the moment the problem began), not from the first send.
+- **Fingerprinting** connects only to the hosts being scanned/identified, follows ≤ 2 same-host redirects,
+  reads ≤ 64 KiB, sends no credentials and nothing on SSH/telnet. TLS verification is off for fingerprinting
+  only.
+- **Topology** writes are admin-only; viewers read the map. Refresh SNMP goes only to monitored devices with
+  SNMP sensors.
+
+### 10.3 Frontend (high level) [2b-1]
+- **Status `unreachable`:** colour **`violet-500`** (dot `bg-violet-500`, text `text-violet-500`, badge
+  `bg-violet-500 text-white`, hex `#8b5cf6`), i18n `status.unreachable` = "Unreachable" / "לא נגיש". Added to
+  `STATUSES`, `SEVERITY` (5/4/3/2/1/0 per data-model), filters, `StatusCounts` displays, charts legends.
+  `isProblem()` stays down/warning. conventions.md status colours updated.
+- **Dependency picker** (device and group edit forms): radio *Inherit from group* / *None* / *Depends on
+  device*; device = searchable select (excludes itself), then an optional "Dependency sensor" select of that
+  device's sensors (default label "Ping / availability (automatic)"). Read-only line "Effective: depends on
+  *branch-gw* (from group *Branch*)" from `effective_dependency`; error `errors.dependency_cycle` shows the path
+  names. Device page header shows "Parent: X" (link) and, when `parent_down`, a violet banner "Parent X is down
+  — sensors that fail are shown as unreachable".
+- **Maintenance:** nav item "Maintenance" (all users; edit for admins), route `/maintenance`: list grouped
+  *Active now* / *Upcoming* / *Recurring* / *Past* with scope, schedule text ("Every Sun 02:00, 90 min" in the
+  configured time zone, shown in the header), next occurrence, enabled toggle; create/edit drawer (name, scope
+  + group/device picker, One-time [start/end datetime inputs interpreted in `settings.timezone`] or Weekly
+  [weekday chips, time, duration], comment), "Next occurrences" preview from `/occurrences`. **Badge** (wrench
+  icon, "In maintenance until 02:00") on devices/sensors in tree, lists, device/sensor pages; global banner in
+  the layout when a `global` window is active. Device page has "Add maintenance window" (prefilled scope
+  device). Settings page gets a time-zone select (`Intl.supportedValuesOf('timeZone')`), and the setup wizard
+  sends the browser time zone silently.
+- **Acknowledge:** on the sensor page and in problem lists (dashboard, sensors filtered by status) an admin
+  "Acknowledge" button for down/warning → small dialog with optional comment; acknowledged sensors show a check
+  badge with tooltip "by admin at 09:12: comment" and an "Unacknowledge" action. Dashboard: *Problems* (not
+  acknowledged), *Acknowledged* (separate card), *Unreachable devices* card (with parent), maintenance count.
+  `sensor.ack` WS updates in place.
+- **Alert rule form:** collapsible "Escalation" section: "Escalate after [n] minutes if not acknowledged" +
+  channel multi-select; "Remind every [n] minutes until acknowledged or recovered". Inputs in minutes, sent in
+  seconds. Rule list shows an escalation icon.
+- **Discovery results:** columns gain *model* and a confidence chip (`classified_by` icon: SNMP / web / ports);
+  an expandable row shows the fingerprint (HTTP titles/servers per port, SSH/telnet banner, markers).
+- **Device page:** admin action "Re-identify" → spinner (≤ 40 s) → result card (class, vendor, model,
+  confidence, fingerprint, suggested template) with "Apply suggested template" (existing apply flow). The
+  stored `identity` is shown in the device details.
+- **Templates:** `snmp_custom` form handles `value_type: enum` with a value-map table editor
+  (`config_fields` type `value_map`).
+- **Topology map** (`/topology`, nav "Map", all users): **ECharts `graph` series** (already a dependency, no new
+  library). Nodes: devices as circles coloured by `STATUS_HEX[status]` with a class icon symbol
+  (`path://` icons), maintenance as a small wrench badge (second symbol via `label.rich`), neighbours as
+  hollow dashed "ghost" nodes. Edges: colour from the interface sensor of either end (worst of the two:
+  `oper_status` 1 → up colour, other → down colour; no sensor → neutral gray; stale → dashed, 40 % opacity);
+  optional label toggle "Show traffic" (`in_bps`/`out_bps`, human units). Click edge → side panel with both
+  port names, link source, first/last seen, a Delete (admin) button; click device node → device page; click
+  neighbour → panel with chassis id / mgmt address / "Add as device" (opens the device create form with
+  `host` = mgmt address, `name` = sys name). Toolbar: group filter, "Include stale", "Refresh topology now"
+  (admin; shows `topology.refresh` progress), "Reset layout" (admin), "Add link" (admin, manual link dialog),
+  "Suggest dependencies" (admin) → table of suggestions with checkboxes and current value → "Apply selected"
+  → `POST /api/devices/dependencies`.
+  - Layout: if every node has `x/y` → `layout: 'none'`. Otherwise run `layout: 'force'` once (repulsion scaled by
+    node count, `layoutAnimation: false`), then read positions from
+    `chart.getModel().getSeriesByIndex(0).getData().getItemLayout(i)`, switch to `layout: 'none'`, and (admin)
+    save them with `PUT /api/topology/layout`; nodes that already had positions are kept fixed (`fixed: true`)
+    during that run. Dragging (`draggable: true`) saves the moved node on `mouseup` (admins only; viewers can drag
+    but nothing is saved). One global layout.
+  - RTL: the canvas is not mirrored (coordinates are absolute); side panels/toolbars use logical utilities;
+    labels with IPs/ports in `dir="ltr"` spans in panels. Dark mode: colours from the Tailwind theme tokens
+    (background transparent, label/edge colours switched by the `dark` class through the ECharts option).
+  - Fallback if ECharts graph turns out insufficient: report to the architect before adding any library.
+- New i18n keys (en + he): `status.unreachable`, `dependency.*`, `maintenance.*`, `ack.*`, `escalation.*`,
+  `identify.*`, `fingerprint.*`, `confidence.*`, `classifiedBy.*`, `topology.*`, `nav.maintenance`, `nav.map`,
+  `errors.dependency_cycle`, `errors.not_acknowledgeable`, `errors.topology_refresh_running`,
+  `errors.link_not_manual`, `eventKind.acknowledge`, `eventKind.maintenance`, `sensorConfig.snmp_custom.value_map`,
+  `sensorConfig.snmp_custom.value_map_default`, template names of `hpe_arubaos_switch` / `hpe_comware`.
+
+### 10.4 QA simulators and tests [2b-1] (`tests/sim/`)
+- **Time control:** run the server with `NETMON_TEST_MODE=1` and use `PUT /api/test/clock {"offset_s": N}` to
+  jump into/out of maintenance windows and past `delay_s` / `escalation_after_s` / `repeat_every_s` (the loops
+  wake immediately). Backend unit tests inject a fake `Clock`. The poller still runs in real time, so use
+  short sensor intervals (10 s) for status transitions.
+- **Dependency sims:** two TCP/HTTP targets or loopback IPs whose availability the test toggles (e.g. an HTTP
+  sensor against `tests/sim/http_target.py` on 127.0.0.31 as the parent's "dependency sensor", children with
+  HTTP sensors on 127.0.0.32/.33; stopping the targets simulates the outage). Assert: parent down → children
+  `unreachable` with the message format, no notification (webhook mock receives nothing for children), rollup
+  counts; parent up → children re-checked within ~5 s and back to `up`; child target kept down → `unreachable →
+  down` → webhook receives DOWN. Cycle validation (direct, via group inheritance, bulk apply), self-rule.
+- **Maintenance:** weekly window across midnight and across a DST change (unit tests on `occurrences()` with
+  `Europe/Berlin` / `Asia/Jerusalem` dates), group scope with subgroups, global scope; notification suppressed
+  in the window, sent once after the window when still down (`after_maintenance: true`), nothing when recovered
+  inside; recovery of a pre-window notified problem is sent inside the window; `maintenance` events and
+  `maintenance.changed`.
+- **Ack/escalation:** ack stops escalation and reminders, recovery still reaches primary + escalation channels;
+  ack auto-clears on status change; viewer 403; escalation survives a server restart (stop/start the process
+  between the problem and `escalation_after_s`); reminder count; migration of `alert_notified` rows.
+- **Fingerprint sims** (`tests/sim/fingerprint/`, one asyncio script, loopback IPs 127.0.0.41–.49):
+  | IP | Ports | Serves | Expected |
+  |---|---|---|---|
+  | .41 | 80 | `<title>TL-SG108E</title>`, body contains `TP-LINK` | switch / tp-link / model `TL-SG108E` / medium (F7) |
+  | .42 | 443 (self-signed) | 302 → `/ui/` same host, then `<title>Login \| OPNsense</title>` | router / opnsense / high, `redirects: 1` |
+  | .43 | 80 | 302 → `http://example.com/` | not followed: `redirects: 0`, status 302 |
+  | .44 | 22 | banner `SSH-2.0-Comware-7.1.064\r\n` | switch / h3c / high (F9) |
+  | .45 | 22 | banner `SSH-2.0-ROSSSH\r\n` | router / mikrotik / high |
+  | .46 | 23 | IAC negotiation bytes then `\r\nUser Access Verification\r\n` | banner text without IAC bytes |
+  | .47 | 80 | `Server: HP HTTP Server; HP LaserJet …`, no title | printer / hp |
+  | .48 | 8080 | 100 KiB body without a title, `WWW-Authenticate: Basic realm="DGS-1210-28"` | body capped at 64 KiB, realm captured, model `DGS-1210-28` |
+  | .49 | 80 | accepts and never answers | `error: "timeout"` within `fingerprint_timeout_ms` |
+  Plus pure unit tests for every F-rule and the SNMP + fingerprint `unknown` fallback.
+- **HPE snmpsim** (`tests/sim/hpe/`, one process per device, port 1161, community `public`):
+  - `127.0.0.51` **ArubaOS-Switch** (`arubaos.snmprec`): sysObjectID `1.3.6.1.4.1.11.2.3.7.11.181` (2930F-style),
+    sysDescr `Aruba JL256A 2930F-48G-4SFP+ Switch, revision WC.16.11.0012, ROM WC.16.01.0010 (/ws/swbuildm/...)`;
+    hpSwitchCpuStat `.1.3.6.1.4.1.11.2.14.11.5.1.9.6.1.0` = 7; hpLocalMemTable row 1 (.5.1 = 330000000, .6.1 =
+    200000000, .7.1 = 130000000); hpicfSensorTable rows 1–4: (Descr `Fan Sensor`, Status 4), (`Power Supply
+    Sensor`, **2 = bad**), (`Over-temperature Sensor`, 4), (`Redundant Power Supply Sensor`, **5 = notPresent**);
+    pethMainPseTable group 1 (.2.1 = 370, .3.1 = 1, .4.1 = 45); ifTable/ifXTable ports `1`…`4` (type 6, 1 and 2
+    up), `DEFAULT_VLAN` (type 53, up); LLDP data below.
+  - `127.0.0.52` **Comware** (`comware.snmprec`): sysObjectID `1.3.6.1.4.1.25506.11.1.177`, sysDescr
+    `HPE Comware Platform Software, Software Version 7.1.070, Release 6328 HPE 1950-24G-2SFP+-2XGT Switch`;
+    entPhysicalTable indexes 1 (chassis, class 3), 2 (board `Board`, class 9), 3/4 (fans `Fan 1`/`Fan 2`,
+    class 7), 5 (PSU `PSU 1`, class 6); hh3cEntityExt `.6.2` = 12 (CPU), `.6.1/.6.3/.6.4/.6.5` = 0, `.8.2` = 41,
+    `.12.2` = 43, `.12.1` = 0; ErrorStatus `.19.3` = 2, **`.19.4` = 41 (fanError)**, `.19.5` = 2, `.19.1` = 1;
+    pethMainPseTable group 1 (.2.1 = 0 → PoE rows filtered/skipped); ifTable `GigabitEthernet1/0/1`…`/4`,
+    `Vlan-interface1` (type 136), `NULL0` (type 1), `InLoopBack0` (type 24).
+  - Expected apply results: ArubaOS → Ping, System, CPU, `Memory 1` (≈ 39.39 %), `Fan Sensor` up,
+    `Power Supply Sensor` **down** (`bad (2)`), `Over-temperature Sensor` up, no notPresent row, PoE usage
+    (≈ 12.16 %), power 45 W, budget 370 W, interfaces `1`, `2`. Comware → Ping, System, `CPU Board`, `Memory
+    Board`, `Temperature Board`, `Fan 1` up, `Fan 2` **down**, `PSU 1` up, PoE rows skipped (`no_rows`),
+    interfaces up only. Suggested template per sysObjectID. Both classify as `switch` (`hp` / `h3c`).
+- **LLDP snmpsim tree** (same agents plus two more): `127.0.0.51` core (ArubaOS style: lldpLocChassisId subtype
+  4 MAC `00:1a:1e:00:00:51`, lldpLocPortTable PortNum = ifIndex 1–4, port id subtype 7 = `1`…`4`); `127.0.0.52`
+  access-1 (Comware style: lldpLocPortNum 101–104 ≠ ifIndex 1–4, port id subtype 5 =
+  `GigabitEthernet1/0/1`…); `127.0.0.53` access-2 (ArubaOS style, minimal: system + ifTable + LLDP); `127.0.0.54`
+  UniFi AP (net-snmp Linux, LLDP with `eth0`). Remote rows (index `0.<localPortNum>.<n>`): core port 1 ↔ access-1
+  `GigabitEthernet1/0/1` (mgmt addr 127.0.0.52 in lldpRemManAddrTable), core port 2 ↔ access-2 port 24 (no mgmt
+  addr; match by chassis id), access-1 `GigabitEthernet1/0/2` ↔ AP `eth0` (match by sysName `U6-Lite-Office`),
+  access-2 port 3 ↔ **unmanaged** neighbour (chassis `00:11:22:33:44:55`, sysName `printer-3f`, mgmt
+  `127.0.0.99`, no device). Expected: 3 device–device links (deduplicated from both sides), 1 neighbour node,
+  ifIndex resolution correct on both families, dependency suggestions with root = core: access-1/access-2 →
+  core, AP → access-1. Removing a remote row and refreshing 3× → `stale: true`; adding a device with host
+  127.0.0.99 and refreshing → neighbour promoted (links re-pointed). CDP: one `cdpCacheTable` row on access-2
+  (optional test).
+- Migration `0004` up/down on Timescale and fallback DBs, with `alert_notified` data present.
+
+### 10.5 Owner notes [2b-1]
+- Set the server time zone once in Settings (the wizard pre-fills it on new installs; existing installs start
+  as `UTC` unless `TZ` is set) — weekly maintenance windows use it.
+- Add a `delay_s` (≥ the parent's ping interval) to alert rules so child alerts are reliably replaced by
+  `unreachable` during a parent outage.
+- Verify the HPE OIDs marked medium/low on the real switches (CPU/memory/health/PoE rows); OfficeConnect
+  1820/1920S may lack the ArubaOS-Switch MIBs (their rows are then skipped, not wrong).
+- Enable LLDP on the switches (on by default on ArubaOS-Switch and Comware) and SNMP read access to the LLDP-MIB
+  (SNMPv3 views must include `1.0.8802`). TP-Link Easy Smart switches (no SNMP) never report links; add manual
+  links for them.
