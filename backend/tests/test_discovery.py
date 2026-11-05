@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import logging
 import socket
 import threading
 import time
@@ -495,6 +496,19 @@ async def test_scan_with_ping(admin: httpx.AsyncClient, lab: Lab) -> None:
 
 async def test_cancel_and_loop_responsive(rt, admin: httpx.AsyncClient) -> None:  # type: ignore[no-untyped-def]
     gid = await default_group_id(admin)
+    # name any callback that blocks the loop, so a failure says what blocked it
+    loop = asyncio.get_running_loop()
+    slow: list[str] = []
+
+    class _Slow(logging.Handler):
+        def emit(self, record: logging.LogRecord) -> None:
+            if "took" in record.getMessage():
+                slow.append(record.getMessage()[:400])
+
+    handler = _Slow(level=logging.WARNING)
+    logging.getLogger("asyncio").addHandler(handler)
+    loop.set_debug(True)
+    loop.slow_callback_duration = 0.1
     # nothing answers SNMP here: every host waits for its credential timeouts
     r = await admin.post(
         "/api/discovery/scans",
@@ -517,7 +531,8 @@ async def test_cancel_and_loop_responsive(rt, admin: httpx.AsyncClient) -> None:
         t0 = time.perf_counter()
         await asyncio.sleep(0.05)
         lag = max(lag, time.perf_counter() - t0 - 0.05)
-    assert lag < 0.25, f"event loop blocked for {lag:.3f}s"
+    loop.set_debug(False)
+    logging.getLogger("asyncio").removeHandler(handler)
     # the API stays responsive while the scan runs
     t0 = time.perf_counter()
     assert (await admin.get("/api/health")).status_code == 200
@@ -543,6 +558,8 @@ async def test_cancel_and_loop_responsive(rt, admin: httpx.AsyncClient) -> None:
     )
     assert r.status_code == 202
     await wait_scan(admin, r.json()["id"])
+    # checked last, so a slow runner cannot leave the scan running for the next tests
+    assert lag < 0.25, f"event loop blocked for {lag:.3f}s; slow callbacks: {slow}"
 
 
 async def test_scan_validation(admin: httpx.AsyncClient, viewer: httpx.AsyncClient) -> None:

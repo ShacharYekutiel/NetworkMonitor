@@ -138,6 +138,10 @@ class Runtime:
             await template_registry.reload(self, broadcast=False)
         except Exception:  # noqa: BLE001 - the server always starts
             log.exception("Loading the template library failed")
+        # [2b-2] the OUI vendor table (~40k rows) is parsed once, off the event loop
+        from netmon.ports import oui
+
+        await asyncio.to_thread(oui.table)
         from netmon.ports.scheduler import PortInventory
 
         self.ports = PortInventory(self)
