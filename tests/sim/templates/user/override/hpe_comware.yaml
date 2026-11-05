@@ -1,0 +1,15 @@
+# QA fixture (architecture §11.6): valid user override of the built-in hpe_comware, priority 55.
+schema: 1
+id: hpe_comware
+version: 3
+vendor: h3c
+name: {en: "HPE Comware (QA override)", he: "HPE Comware (עקיפת QA)"}
+description: {en: "QA override of the built-in Comware template"}
+requires_snmp: true
+priority: 55
+match:
+  - {device_classes: [switch], requires_snmp: true, enterprises: [25506]}
+entries:
+  - {kind: sensor, type: ping, name: {en: Ping, he: פינג}}
+  - {kind: sensor, type: snmp_system, name: {en: System, he: מערכת}}
+  - {kind: snmp_interfaces, oper_up_only: true, exclude_if_types: [1, 24, 53, 131, 136], max: 52, confidence: high}

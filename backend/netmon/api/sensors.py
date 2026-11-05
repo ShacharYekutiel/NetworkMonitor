@@ -189,7 +189,10 @@ async def patch_sensor(sensor_id: int, body: SensorPatch, _: Admin, rt: RT, sess
         if s.type == "snmp_interface" and s.config.get("if_index") != old.get("if_index"):
             s.state = {}  # different interface: counters are no longer comparable
         if s.type == "snmp_custom":
-            if any(s.config.get(k) != old.get(k) for k in ("oid", "value_type", "percent_of_oid")):
+            if any(
+                s.config.get(k) != old.get(k)
+                for k in ("oid", "value_type", "percent_of_oid", "percent_base")
+            ):
                 s.state = {}
             sync_channel_units(s)
     if "channels" in fields and body.channels is not None:

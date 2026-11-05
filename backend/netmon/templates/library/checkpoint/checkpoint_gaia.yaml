@@ -1,0 +1,137 @@
+# Check Point Gaia (CHECKPOINT-MIB 1.3.6.1.4.1.2620). Gateways often report the net-snmp Linux
+# sysObjectID; classification then uses the svn subtree probe (1.3.6.1.4.1.2620.1.6).
+schema: 1
+id: checkpoint_gaia
+version: 1
+vendor: checkpoint
+verified: false
+verified_note: ""
+name: {en: "Check Point Gaia firewall", he: "חומת אש Check Point Gaia"}
+description:
+  en: "Ping, system, CPU, memory, connections, ClusterXL, VPN tunnels, hardware health and disks"
+  he: "פינג, מערכת, מעבד, זיכרון, חיבורים, ClusterXL, מנהרות VPN, תקינות חומרה ודיסקים"
+requires_snmp: true
+priority: 50
+match:
+  - {requires_snmp: true, vendors: [checkpoint]}
+  - {requires_snmp: true, enterprises: [2620]}
+entries:
+  - {kind: sensor, type: ping, name: {en: Ping, he: פינג}}
+  - {kind: sensor, type: snmp_system, name: {en: System, he: מערכת}}
+  - kind: sensor
+    type: snmp_custom
+    name: {en: CPU, he: מעבד}
+    config: {oid: '1.3.6.1.4.1.2620.1.6.7.2.4.0', value_type: gauge, unit: '%', label: CPU}
+    channels: [{key: value, warning_max: 80, down_max: 95}]
+    probe: true
+    confidence: medium
+    notes: "procUsage (svn MIB); medium-high."
+  - kind: sensor
+    type: snmp_custom
+    name: {en: Memory, he: זיכרון}
+    config:
+      oid: '1.3.6.1.4.1.2620.1.6.7.4.4.0'             # memActiveReal64
+      percent_of_oid: '1.3.6.1.4.1.2620.1.6.7.4.3.0'  # memTotalReal64
+      value_type: gauge
+      unit: '%'
+      label: Memory
+    channels: [{key: value, warning_max: 85, down_max: 95}]
+    probe: true
+    confidence: medium
+  - kind: sensor
+    type: snmp_custom
+    name: {en: Concurrent connections, he: חיבורים בו-זמניים}
+    config: {oid: '1.3.6.1.4.1.2620.1.1.25.3.0', value_type: gauge, unit: conn, label: Connections}
+    probe: true
+    confidence: high
+    notes: "fwNumConn."
+  - kind: sensor
+    type: snmp_custom
+    name: {en: Connection table usage, he: ניצול טבלת חיבורים}
+    config:
+      oid: '1.3.6.1.4.1.2620.1.1.25.3.0'              # fwNumConn
+      percent_of_oid: '1.3.6.1.4.1.2620.1.1.25.10.0'  # fwConnTableLimit
+      value_type: gauge
+      unit: '%'
+      label: Connection table
+    channels: [{key: value, warning_max: 80, down_max: 95}]
+    probe: true
+    confidence: medium
+    notes: "A limit of 0 means automatic: no value (ok)."
+  - kind: sensor
+    type: snmp_custom
+    name: {en: ClusterXL state, he: מצב ClusterXL}
+    config: {oid: '1.3.6.1.4.1.2620.1.5.6.0', value_type: string, label: ClusterXL}   # haState
+    when: [{oid: '1.3.6.1.4.1.2620.1.5.2.0', in: [1]}]                                # haInstalled
+    confidence: high
+    notes: "haState (active, standby, ...) high; haInstalled = 1 on cluster members medium."
+  - kind: sensor
+    type: snmp_custom
+    name: {en: ClusterXL status, he: סטטוס ClusterXL}
+    config:
+      oid: '1.3.6.1.4.1.2620.1.5.101.0'               # haStatCode
+      value_type: enum
+      value_map:
+        0: {status: up, text: OK}
+        1: {status: warning, text: warning}
+        2: {status: down, text: problem}
+      value_map_default: down
+      label: ClusterXL
+    when: [{oid: '1.3.6.1.4.1.2620.1.5.2.0', in: [1]}]
+    interval_s: 60
+    confidence: low
+    notes: "haStatCode: low-medium."
+  - kind: sensor
+    type: snmp_walk_count
+    name: {en: VPN tunnels up, he: מנהרות VPN פעילות}
+    config: {oid: '1.3.6.1.4.1.2620.500.9002.1.3', count_values: [3], label: VPN tunnels up}
+    channels: [{key: unmatched, warning_max: 0}]
+    probe: true
+    confidence: low
+    notes: >-
+      tunnelState: active(3); destroy(4), idle(129), phase1(130), down(131), init(132).
+      Lists permanent tunnels only.
+  - kind: snmp_table
+    walk_oid: '1.3.6.1.4.1.2620.1.6.7.8.1.1.3'        # tempertureSensorValue (DisplayString)
+    label_oid: '1.3.6.1.4.1.2620.1.6.7.8.1.1.2'       # tempertureSensorName
+    name: {en: 'Temperature {label}', he: 'טמפרטורה {label}'}
+    config: {value_type: gauge, unit: '°C'}
+    channels: [{key: value, warning_max: 70, down_max: 85}]
+    max: 16
+    confidence: medium
+    notes: "Appliances only (VMs: no rows). The value is text, parsed as a number."
+  - kind: snmp_table
+    walk_oid: '1.3.6.1.4.1.2620.1.6.7.8.2.1.6'        # fanSpeedSensorStatus
+    label_oid: '1.3.6.1.4.1.2620.1.6.7.8.2.1.2'       # fanSpeedSensorName
+    name: {en: '{label}', he: '{label}'}
+    config:
+      value_type: enum
+      value_map:
+        0: {status: up, text: normal}
+        1: {status: down, text: abnormal}
+        2: {status: warning, text: unknown}
+      value_map_default: warning
+    max: 16
+    interval_s: 300
+    confidence: low
+    notes: "low-medium."
+  - kind: snmp_table
+    walk_oid: '1.3.6.1.4.1.2620.1.6.7.9.1.1.2'        # powerSupplyStatus (DisplayString)
+    label_oid: '1.3.6.1.4.1.2620.1.6.7.9.1.1.1'       # powerSupplyIndex
+    name: {en: 'Power supply {label}', he: 'ספק כוח {label}'}
+    config: {value_type: string, expected: Up, match: equals}
+    max: 8
+    interval_s: 300
+    confidence: medium
+  - kind: sensor
+    type: snmp_disk
+    name: {en: Disk /, he: דיסק /}
+    config: {storage_descr: /}
+    probe: true
+  - kind: sensor
+    type: snmp_disk
+    name: {en: Disk /var/log, he: דיסק /var/log}
+    config: {storage_descr: /var/log}
+    probe: true
+    notes: "Gaia log partition."
+  - {kind: snmp_interfaces, oper_up_only: true, exclude_if_types: [1, 24, 53, 131, 136], max: 32}

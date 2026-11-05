@@ -99,6 +99,13 @@ async def run(ctx: CheckContext) -> CheckResult:
                 return CheckResult(
                     False, f"Value is not numeric: '{decode_text(vals[pct_oid][0])[:40]}'"
                 )
+            if cfg.get("percent_base") == "sum":
+                # [2b-2] percent_of_oid is the other part (e.g. free next to used memory)
+                if num < 0 or divisor < 0 or num + divisor <= 0:
+                    return CheckResult(
+                        True, f"{name}: level not reported (raw={fmt_number(num)})", {"value": None}
+                    )
+                divisor = num + divisor
             if num < 0 or divisor <= 0:
                 return CheckResult(
                     True, f"{name}: level not reported (raw={fmt_number(num)})", {"value": None}

@@ -114,8 +114,24 @@ def device_out(d: Any, inv: Inventory, maint: Any = None) -> dict[str, Any]:
         "in_maintenance": in_maint,
         "maintenance": maint.maintenance_ref(d.id) if in_maint else None,
         "identity": d.identity,
+        **inventory_flags_out(d, inv),
         "created_at": iso(d.created_at),
         "updated_at": iso(d.updated_at),
+    }
+
+
+def inventory_flags_out(d: Any, inv: Inventory) -> dict[str, Any]:
+    """[2b-2] port_inventory / arp_collect and their effective state."""
+    from netmon.ports.eligibility import SNMP_TYPES, arp_effective, effective_class, ports_effective
+
+    has_snmp = any(inv.sensors[s]["type"] in SNMP_TYPES for s in inv.device_sensors.get(d.id, []))
+    cls = effective_class(d.identity, inv.detected_class.get(d.id))
+    return {
+        "port_inventory": d.port_inventory,
+        "arp_collect": d.arp_collect,
+        "ports_effective": ports_effective(d.port_inventory, d.enabled, has_snmp, cls),
+        "arp_effective": arp_effective(d.arp_collect, d.enabled, has_snmp, cls),
+        "effective_class": cls,
     }
 
 

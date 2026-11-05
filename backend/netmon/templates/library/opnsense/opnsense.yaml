@@ -1,0 +1,32 @@
+# OPNsense / pfSense (FreeBSD net-snmp / bsnmpd): standard MIBs plus the web GUI.
+schema: 1
+id: opnsense
+version: 1
+vendor: opnsense
+verified: false
+verified_note: ""
+name: {en: "OPNsense / pfSense firewall", he: "חומת אש OPNsense / pfSense"}
+description:
+  en: "Ping, system, CPU, memory, root disk, active interfaces and the web GUI"
+  he: "פינג, מערכת, מעבד, זיכרון, דיסק שורש, ממשקים פעילים וממשק הניהול"
+requires_snmp: true
+priority: 90
+match:
+  - {vendors: [opnsense, pfsense], requires_snmp: true}
+  - {device_classes: [router], vendors: [freebsd], requires_snmp: true}
+entries:
+  - {kind: sensor, type: ping, name: {en: Ping, he: פינג}}
+  - {kind: sensor, type: snmp_system, name: {en: System, he: מערכת}}
+  - {kind: sensor, type: snmp_cpu, name: {en: CPU Load, he: עומס מעבד}, probe: true}
+  - {kind: sensor, type: snmp_memory, name: {en: Memory, he: זיכרון}, probe: true}
+  - kind: sensor
+    type: snmp_disk
+    name: {en: Disk /, he: דיסק /}
+    config: {storage_descr: /}
+    probe: true
+  - {kind: snmp_interfaces, oper_up_only: true, exclude_if_types: [24], max: 16}
+  - kind: sensor
+    type: http
+    name: {en: Web GUI, he: ממשק ניהול}
+    config: {url: 'https://{host}/', verify_tls: false}
+    probe: true

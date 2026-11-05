@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from fastapi import APIRouter, Query, Response
-from sqlalchemy import or_, select, update
+from sqlalchemy import or_, select, text, update
 
 from netmon.api.common import commit_or_conflict, csv_list, merge_snmp
 from netmon.api.deps import DB, RT, Admin, Page, Viewer
@@ -75,6 +75,8 @@ async def create_device(body: DeviceCreate, _: Admin, rt: RT, session: DB) -> di
         enabled=body.enabled,
         snmp_credentials=merge_snmp(body.snmp_credentials, None) if body.snmp_credentials else None,
         sort_order=body.sort_order,
+        port_inventory=body.port_inventory,
+        arp_collect=body.arp_collect,
     )
     deps.apply_dependency(d, dep)
     session.add(d)
@@ -125,6 +127,8 @@ async def patch_device(device_id: int, body: DevicePatch, _: Admin, rt: RT, sess
         raise not_found("Device")
     fields = body.model_fields_set
     check_cycle = False
+    identity_changed = False  # [2b-2] host / credentials: class detection must run again
+    flags_changed = False
     if "group_id" in fields and body.group_id is not None and body.group_id != d.group_id:
         if await session.get(Group, body.group_id) is None:
             raise validation_error(["body", "group_id"], "group does not exist")
@@ -139,6 +143,7 @@ async def patch_device(device_id: int, body: DevicePatch, _: Admin, rt: RT, sess
         d.name = body.name.strip()
     if "host" in fields and body.host and body.host != d.host:
         d.host = body.host
+        identity_changed = True
         # another host: stored interface counters are no longer comparable
         await session.execute(
             update(Sensor)
@@ -154,6 +159,17 @@ async def patch_device(device_id: int, body: DevicePatch, _: Admin, rt: RT, sess
             merge_snmp(body.snmp_credentials, d.snmp_credentials)
             if body.snmp_credentials is not None
             else None
+        )
+        identity_changed = True
+    for key in ("port_inventory", "arp_collect"):  # [2b-2]
+        value = getattr(body, key)
+        if key in fields and value is not None and value != getattr(d, key):
+            setattr(d, key, value)
+            flags_changed = True
+    if identity_changed:
+        await session.execute(
+            text("UPDATE port_inventory_status SET detected_at = NULL WHERE device_id = :d"),
+            {"d": d.id},
         )
     if check_cycle:
         await deps.check_no_cycle(session)
@@ -172,6 +188,8 @@ async def patch_device(device_id: int, body: DevicePatch, _: Admin, rt: RT, sess
     events_svc.published(rt, evs)
     if rt.scheduler:
         await rt.scheduler.reload_device(d.id)
+    if (flags_changed or identity_changed or enabled_changed) and rt.ports is not None:
+        rt.ports.mark_due(d.id)
     rt.config_changed("device", d.id, "updated")
     return device_out(d, await load_inventory(session), rt.maintenance)
 

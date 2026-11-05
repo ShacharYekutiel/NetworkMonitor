@@ -1,0 +1,15 @@
+# Ping only: the fallback template (matches every device).
+schema: 1
+id: generic_ping
+version: 1
+vendor: null
+verified: true             # no OIDs
+verified_note: "No SNMP objects"
+name: {en: "Ping only", he: "פינג בלבד"}
+description: {en: "A single ping sensor", he: "חיישן פינג יחיד"}
+requires_snmp: false
+priority: 0
+match:
+  - {}
+entries:
+  - {kind: sensor, type: ping, name: {en: Ping, he: פינג}}

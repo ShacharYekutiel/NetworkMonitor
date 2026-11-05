@@ -1,0 +1,10 @@
+# QA fixture: extra top-level key -> "unknown key: prio", path ""
+schema: 1
+id: unknown_key
+name: {en: "Unknown key"}
+priority: 1
+prio: 1
+match:
+  - {requires_snmp: false}
+entries:
+  - {kind: sensor, type: ping, name: {en: Ping}}

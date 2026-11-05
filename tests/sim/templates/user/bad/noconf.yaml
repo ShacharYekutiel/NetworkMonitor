@@ -1,0 +1,17 @@
+# QA fixture: vendor-OID snmp_custom at entry 2 without confidence -> "confidence required for vendor OIDs",
+# path entries[2]
+schema: 1
+id: noconf
+name: {en: "No confidence"}
+requires_snmp: true
+priority: 1
+match:
+  - {requires_snmp: true}
+entries:
+  - {kind: sensor, type: ping, name: {en: Ping}}
+  - {kind: sensor, type: snmp_system, name: {en: System}}
+  - kind: sensor
+    type: snmp_custom
+    name: {en: Vendor value}
+    config: {oid: '1.3.6.1.4.1.99999.2.0', value_type: gauge}
+    probe: true

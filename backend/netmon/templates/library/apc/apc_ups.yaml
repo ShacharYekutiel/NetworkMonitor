@@ -1,0 +1,112 @@
+# APC UPS (PowerNet-MIB 1.3.6.1.4.1.318.1.1.1). No interfaces. On battery -> sensor down -> the
+# global alert rules notify.
+schema: 1
+id: apc_ups
+version: 1
+vendor: apc
+verified: false
+verified_note: ""
+name: {en: "APC UPS", he: "אל-פסק APC"}
+description:
+  en: "Ping, system, battery capacity and runtime, load, output and battery status"
+  he: "פינג, מערכת, קיבולת סוללה וזמן גיבוי, עומס, מצב יציאה ומצב סוללה"
+requires_snmp: true
+priority: 50
+match:
+  - {requires_snmp: true, enterprises: [318]}
+entries:
+  - {kind: sensor, type: ping, name: {en: Ping, he: פינג}}
+  - {kind: sensor, type: snmp_system, name: {en: System, he: מערכת}}
+  - kind: sensor
+    type: snmp_custom
+    name: {en: Battery capacity, he: קיבולת סוללה}
+    config: {oid: '1.3.6.1.4.1.318.1.1.1.2.2.1.0', value_type: gauge, unit: '%', label: Battery}
+    channels: [{key: value, warning_min: 50, down_min: 20}]
+    probe: true
+    confidence: high
+    notes: "upsAdvBatteryCapacity."
+  - kind: sensor
+    type: snmp_custom
+    name: {en: Runtime remaining, he: זמן גיבוי נותר}
+    config:
+      oid: '1.3.6.1.4.1.318.1.1.1.2.2.3.0'            # upsAdvBatteryRunTimeRemaining (TimeTicks)
+      value_type: gauge
+      multiplier: 0.0001666667                        # 1/100 s -> minutes
+      unit: min
+      label: Runtime
+    channels: [{key: value, warning_min: 15, down_min: 5}]
+    probe: true
+    confidence: high
+  - kind: sensor
+    type: snmp_custom
+    name: {en: Output load, he: עומס יציאה}
+    config: {oid: '1.3.6.1.4.1.318.1.1.1.4.2.3.0', value_type: gauge, unit: '%', label: Load}
+    channels: [{key: value, warning_max: 80, down_max: 95}]
+    probe: true
+    confidence: high
+    notes: "upsAdvOutputLoad."
+  - kind: sensor
+    type: snmp_custom
+    name: {en: Output status, he: מצב יציאה}
+    config:
+      oid: '1.3.6.1.4.1.318.1.1.1.4.1.1.0'            # upsBasicOutputStatus
+      value_type: enum
+      value_map:
+        1: {status: warning, text: unknown}
+        2: {status: up, text: on line}
+        3: {status: down, text: on battery}
+        4: {status: warning, text: smart boost}
+        5: {status: warning, text: timed sleeping}
+        6: {status: warning, text: software bypass}
+        7: {status: down, text: 'off'}
+        8: {status: warning, text: rebooting}
+        9: {status: warning, text: switched bypass}
+        10: {status: down, text: hardware failure bypass}
+        11: {status: down, text: sleeping until power return}
+        12: {status: warning, text: smart trim}
+        13: {status: up, text: eco mode}
+        14: {status: warning, text: hot standby}
+        15: {status: warning, text: battery test}
+      value_map_default: warning
+      label: Output
+    interval_s: 30
+    probe: true
+    confidence: high
+    notes: "Values 1-12 high, 13-15 medium."
+  - kind: sensor
+    type: snmp_custom
+    name: {en: Battery status, he: מצב סוללה}
+    config:
+      oid: '1.3.6.1.4.1.318.1.1.1.2.1.1.0'            # upsBasicBatteryStatus
+      value_type: enum
+      value_map:
+        1: {status: warning, text: unknown}
+        2: {status: up, text: normal}
+        3: {status: down, text: low}
+        4: {status: down, text: fault}
+      value_map_default: warning
+      label: Battery
+    probe: true
+    confidence: high
+  - kind: sensor
+    type: snmp_custom
+    name: {en: Battery replacement, he: החלפת סוללה}
+    config:
+      oid: '1.3.6.1.4.1.318.1.1.1.2.2.4.0'            # upsAdvBatteryReplaceIndicator
+      value_type: enum
+      value_map:
+        1: {status: up, text: ok}
+        2: {status: warning, text: replace battery}
+      value_map_default: warning
+      label: Battery replacement
+    interval_s: 3600
+    probe: true
+    confidence: high
+  - kind: sensor
+    type: snmp_custom
+    name: {en: Battery temperature, he: טמפרטורת סוללה}
+    config: {oid: '1.3.6.1.4.1.318.1.1.1.2.2.2.0', value_type: gauge, unit: '°C', label: Battery}
+    channels: [{key: value, warning_max: 40, down_max: 50}]
+    probe: true
+    confidence: high
+    notes: "upsAdvBatteryTemperature."

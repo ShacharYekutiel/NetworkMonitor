@@ -58,6 +58,10 @@ def identity(type_: str, config: dict[str, Any]) -> tuple[Any, ...] | None:
         # column as a percentage (PoE usage) and as a plain value (PoE power)
         pct = str(config.get("percent_of_oid") or "").lstrip(".") or None
         return (type_, str(config.get("oid") or "").lstrip("."), pct)
+    if type_ == "snmp_walk_count":  # [2b-2]
+        cv = config.get("count_values")
+        values = tuple(sorted(cv)) if isinstance(cv, list) else None
+        return (type_, str(config.get("oid") or "").lstrip("."), values)
     if type_ == "http":
         return (type_, config.get("url"))
     if type_ == "tcp_port":
@@ -77,6 +81,7 @@ class _Candidate:
     probe: bool
     skip: dict[str, Any] | None = None  # set when the candidate turned into a skip
     probe_result: Any = None
+    when: list[dict[str, Any]] = field(default_factory=list)  # [2b-2]
 
 
 @dataclass
@@ -136,7 +141,13 @@ def _sensor_candidate(entry: dict[str, Any], ctx: _Ctx) -> _Slot:
     overrides = validate_channel_overrides(type_, entry.get("channels") or [])
     return _Slot(
         candidate=_Candidate(
-            type_, name, cfg, overrides, entry.get("interval_s"), bool(entry.get("probe"))
+            type_,
+            name,
+            cfg,
+            overrides,
+            entry.get("interval_s"),
+            bool(entry.get("probe")),
+            when=list(entry.get("when") or []),
         )
     )
 
@@ -339,6 +350,42 @@ async def _apply_filters(
     return kept
 
 
+def when_passes(filters: list[dict[str, Any]], values: dict[str, Any]) -> str | None:
+    """[2b-2] None when every condition holds, else the OID of the first failing one. A value
+    must be an integer passing `in` / `not_in`; a missing value fails."""
+    for f in filters:
+        oid = str(f.get("oid") or "").strip().lstrip(".")
+        v = _as_int(values.get(oid)) if values.get(oid) is not None else None
+        allowed, denied = f.get("in"), f.get("not_in")
+        if v is None or (allowed is not None and v not in allowed):
+            return oid
+        if denied is not None and v in denied:
+            return oid
+    return None
+
+
+async def _check_when(rt: Runtime, ctx: _Ctx, cand: _Candidate) -> None:
+    """[2b-2] One GET for all `when` OIDs of the entry; a failure -> skipped not_applicable."""
+    oids = [str(f.get("oid") or "").strip().lstrip(".") for f in cand.when]
+    if not oids:
+        return
+    values: dict[str, Any] = {}
+    async with ctx.probe_sem:
+        try:
+            if _remaining(ctx) <= 0:
+                raise TimeoutError
+            async with rt.semaphore:
+                res = await asyncio.wait_for(
+                    snmp_get_typed(ctx.host, ctx.creds, oids), max(1.0, _remaining(ctx))
+                )
+            values = {o: v for o, (v, _) in res.items()}
+        except (TimeoutError, SnmpError):
+            values = {}
+    failed = when_passes(cand.when, values)
+    if failed is not None:
+        cand.skip = _skip(cand.name, cand.type, "not_applicable", f"Condition not met: {failed}")
+
+
 async def _run_probe(rt: Runtime, ctx: _Ctx, cand: _Candidate) -> None:
     remaining = _remaining(ctx)
     if remaining <= 0:
@@ -367,6 +414,9 @@ async def _run_probe(rt: Runtime, ctx: _Ctx, cand: _Candidate) -> None:
             return
     if not raw.ok:
         cand.skip = _skip(cand.name, cand.type, "probe_failed", raw.message or "Check failed")
+        return
+    if cand.type == "snmp_walk_count" and not (raw.values.get("rows") or 0) >= 1:
+        cand.skip = _skip(cand.name, cand.type, "probe_failed", "No rows")  # [2b-2]
         return
     cand.probe_result = raw
     if raw.config_update:
@@ -459,7 +509,15 @@ async def _apply_template(
         elif kind == "snmp_table":
             slots.extend(await _table_slots(rt, entry, ctx))
 
-    probes = [s.candidate for s in slots if s.candidate is not None and s.candidate.probe]
+    # [2b-2] order per entry: exists (above) -> when -> probe
+    conditional = [s.candidate for s in slots if s.candidate is not None and s.candidate.when]
+    if conditional:
+        await asyncio.gather(*(_check_when(rt, ctx, c) for c in conditional))
+    probes = [
+        s.candidate
+        for s in slots
+        if s.candidate is not None and s.candidate.probe and s.candidate.skip is None
+    ]
     if probes:
         await asyncio.gather(*(_run_probe(rt, ctx, c) for c in probes))
 

@@ -29,6 +29,16 @@
 #   127.0.0.53  udp/1161  ArubaOS "access-2"        tests/sim/hpe/access2/public.snmprec (variant access2_noprinter)
 #   127.0.0.54  udp/1161  UniFi AP + LLDP           tests/sim/hpe/unifi_lldp/public.snmprec
 #   (all community public, v2c; 127.0.0.99 = the unmanaged LLDP neighbour, nothing listens there)
+#   Phase 2b-2 (LAB_2B2=1, default; docs/architecture.md §11.6; all udp/1161, community public, v2c):
+#   127.0.0.81  ArubaOS-Switch port sim "port-aos"  tests/sim/ports/arubaos (variant arubaos_nomac7)
+#   127.0.0.82  Comware port sim "port-cw"          tests/sim/ports/comware  (LLDP: port 2 -> U6-Lite-Office .54)
+#   127.0.0.83  Aruba CX port sim "port-cx"         tests/sim/ports/arubacx
+#   127.0.0.84  ARP router (ipNetToPhysical)        tests/sim/ports/arp_router
+#   127.0.0.85  legacy ARP (ipNetToMedia)           tests/sim/ports/arp_legacy
+#   127.0.0.86  52-port ArubaOS "port-aos52"        tests/sim/ports/arubaos52
+#   (the contract's .61-.65 collide with the 2b-1 fingerprint hosts, which spec 23 scans with SNMP on)
+#   127.0.0.71  Check Point "gw-hq"   .72 ClusterXL member "gw-cl1"   .73 Aruba Instant "instant-vc"
+#   127.0.0.101-.110  synthetic sims, one per new vendor template (tests/sim/vendors/synthetic/<id>)
 #   with LAB_GENERIC=1 (default): Phase 1 SNMP agent 127.0.0.1 udp/$LAB_SNMP_PORT, HTTP toggle target
 #   127.0.0.1:$LAB_HTTP_PORT, webhook receiver 127.0.0.1:$LAB_HOOK_PORT.
 #
@@ -48,6 +58,7 @@ LAB_DIR="${LAB_DIR:-${TMPDIR:-/tmp}/netmon-lab}"
 TELEGRAM_PORT="${TELEGRAM_PORT:-18081}"
 LAB_GENERIC="${LAB_GENERIC:-1}"
 LAB_2B1="${LAB_2B1:-1}"
+LAB_2B2="${LAB_2B2:-1}"
 LAB_SNMP_PORT="${LAB_SNMP_PORT:-11161}"
 LAB_HTTP_PORT="${LAB_HTTP_PORT:-18083}"
 LAB_HOOK_PORT="${LAB_HOOK_PORT:-18082}"
@@ -74,6 +85,28 @@ components() {
     echo "snmp-access-1|udp|127.0.0.52:1161|log|$PY $HERE/snmp_agent.py --host 127.0.0.52 --port 1161 --data ${DATA_snmp_access_1:-$h/comware}"
     echo "snmp-access-2|udp|127.0.0.53:1161|log|$PY $HERE/snmp_agent.py --host 127.0.0.53 --port 1161 --data ${DATA_snmp_access_2:-$h/access2}"
     echo "snmp-ap-lldp|udp|127.0.0.54:1161|log|$PY $HERE/snmp_agent.py --host 127.0.0.54 --port 1161 --data ${DATA_snmp_ap_lldp:-$h/unifi_lldp}"
+  fi
+  if [ "$LAB_2B2" = "1" ]; then
+    local p="$HERE/ports" v="$HERE/vendors" ip name dir t
+    while read -r ip name dir; do
+      local var="DATA_${name//-/_}"
+      echo "$name|udp|$ip:1161|log|$PY $HERE/snmp_agent.py --host $ip --port 1161 --data ${!var:-$dir}"
+    done <<COMPONENTS_EOF
+127.0.0.81 snmp-port-aos $p/arubaos
+127.0.0.82 snmp-port-cw $p/comware
+127.0.0.83 snmp-port-cx $p/arubacx
+127.0.0.84 snmp-arp-router $p/arp_router
+127.0.0.85 snmp-arp-legacy $p/arp_legacy
+127.0.0.86 snmp-port-aos52 $p/arubaos52
+127.0.0.71 snmp-checkpoint $v/checkpoint
+127.0.0.72 snmp-cp-cluster $v/checkpoint_cluster
+127.0.0.73 snmp-aruba-instant $v/aruba_instant
+COMPONENTS_EOF
+    local n=101
+    for t in aruba_cx aruba_wifi checkpoint_gaia fortinet_fortigate cisco_ios paloalto_panos mikrotik_routeros apc_ups hpe_ilo dell_idrac; do
+      echo "snmp-syn-${t//_/-}|udp|127.0.0.$n:1161|log|$PY $HERE/snmp_agent.py --host 127.0.0.$n --port 1161 --data $v/synthetic/$t"
+      n=$((n + 1))
+    done
   fi
   if [ "$LAB_GENERIC" = "1" ]; then
     echo "snmp-generic|udp|127.0.0.1:$LAB_SNMP_PORT|log|$PY $HERE/snmp_agent.py --port $LAB_SNMP_PORT"
@@ -214,9 +247,9 @@ do_status() {
   while IFS='|' read -r name proto bind rd cmd; do
     if alive "$name"; then
       if ready "$name" "$rd"; then state="ready"; else state="alive, not ready"; rc=1; fi
-      printf '%-15s %-4s %-22s pid %-8s %s\n' "$name" "$proto" "$bind" "$(cat "$PIDS_DIR/$name.pid")" "$state"
+      printf '%-20s %-4s %-22s pid %-8s %s\n' "$name" "$proto" "$bind" "$(cat "$PIDS_DIR/$name.pid")" "$state"
     else
-      printf '%-15s %-4s %-22s %-12s %s\n' "$name" "$proto" "$bind" "-" "stopped"; rc=1
+      printf '%-20s %-4s %-22s %-12s %s\n' "$name" "$proto" "$bind" "-" "stopped"; rc=1
     fi
   done < <(components)
   return $rc

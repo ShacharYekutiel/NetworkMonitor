@@ -1,0 +1,41 @@
+# Printer: Printer-MIB (RFC 3805) supplies and page counter.
+schema: 1
+id: printer
+version: 1
+vendor: null
+verified: false
+verified_note: ""
+name: {en: "Printer", he: "מדפסת"}
+description:
+  en: "Ping, system, toner/supply levels, page counter and the web page"
+  he: "פינג, מערכת, רמות טונר וחומרים מתכלים, מונה דפים ודף האינטרנט"
+requires_snmp: true
+priority: 60
+match:
+  - {device_classes: [printer], requires_snmp: true}
+entries:
+  - {kind: sensor, type: ping, name: {en: Ping, he: פינג}}
+  - {kind: sensor, type: snmp_system, name: {en: System, he: מערכת}}
+  - kind: snmp_table
+    walk_oid: '1.3.6.1.2.1.43.11.1.1.9'           # prtMarkerSuppliesLevel
+    label_oid: '1.3.6.1.2.1.43.11.1.1.6'          # prtMarkerSuppliesDescription
+    percent_of_column: '1.3.6.1.2.1.43.11.1.1.8'  # prtMarkerSuppliesMaxCapacity
+    name: {en: 'Supply {label}', he: 'חומר מתכלה {label}'}
+    config: {value_type: gauge, unit: '%'}
+    channels: [{key: value, warning_min: 15, down_min: 5}]
+    max: 8
+    confidence: high
+    notes: "Printer-MIB prtMarkerSuppliesTable; suffix is hrDeviceIndex.supplyIndex (e.g. 1.1)."
+  - kind: sensor
+    type: snmp_custom
+    name: {en: Page counter, he: מונה דפים}
+    config: {oid: '1.3.6.1.2.1.43.10.2.1.4.1.1', value_type: gauge, unit: pages, label: Pages}
+    interval_s: 3600
+    probe: true
+    confidence: high
+    notes: "prtMarkerLifeCount (Printer-MIB)."
+  - kind: sensor
+    type: http
+    name: {en: HTTP, he: HTTP}
+    config: {url: 'http://{host}/'}
+    probe: true

@@ -1,0 +1,84 @@
+# Cisco IOS / IOS-XE (enterprise 9): CISCO-PROCESS-MIB, CISCO-MEMORY-POOL-MIB,
+# CISCO-ENVMON-MIB, IF-MIB.
+schema: 1
+id: cisco_ios
+version: 1
+vendor: cisco
+verified: false
+verified_note: ""
+name: {en: "Cisco IOS / IOS-XE", he: "Cisco IOS / IOS-XE"}
+description:
+  en: "Ping, system, CPU, memory pools, temperature, fans, power supplies and active ports"
+  he: "פינג, מערכת, מעבד, זיכרון, טמפרטורה, מאווררים, ספקי כוח ופורטים פעילים"
+requires_snmp: true
+priority: 50
+match:
+  - {requires_snmp: true, enterprises: [9]}
+entries:
+  - {kind: sensor, type: ping, name: {en: Ping, he: פינג}}
+  - {kind: sensor, type: snmp_system, name: {en: System, he: מערכת}}
+  - kind: snmp_table
+    walk_oid: '1.3.6.1.4.1.9.9.109.1.1.1.1.8'         # cpmCPUTotal5minRev
+    name: {en: 'CPU {index}', he: 'מעבד {index}'}
+    config: {value_type: gauge, unit: '%'}
+    channels: [{key: value, warning_max: 80, down_max: 95}]
+    max: 8
+    confidence: high
+  - kind: snmp_table
+    walk_oid: '1.3.6.1.4.1.9.9.48.1.1.1.5'            # ciscoMemoryPoolUsed
+    percent_of_column: '1.3.6.1.4.1.9.9.48.1.1.1.6'   # ciscoMemoryPoolFree (the other part)
+    label_oid: '1.3.6.1.4.1.9.9.48.1.1.1.2'           # ciscoMemoryPoolName
+    name: {en: 'Memory {label}', he: 'זיכרון {label}'}
+    config: {value_type: gauge, unit: '%', percent_base: sum}
+    channels: [{key: value, warning_max: 85, down_max: 95}]
+    max: 4
+    confidence: high
+    notes: "used / (used + free). High on IOS; IOS-XE pools medium."
+  - kind: snmp_table
+    walk_oid: '1.3.6.1.4.1.9.9.13.1.3.1.3'            # ciscoEnvMonTemperatureStatusValue
+    label_oid: '1.3.6.1.4.1.9.9.13.1.3.1.2'           # ciscoEnvMonTemperatureStatusDescr
+    name: {en: 'Temperature {label}', he: 'טמפרטורה {label}'}
+    config: {value_type: gauge, unit: '°C'}
+    channels: [{key: value, warning_max: 65, down_max: 80}]
+    max: 16
+    skip_zero: true
+    confidence: high
+  - kind: snmp_table
+    walk_oid: '1.3.6.1.4.1.9.9.13.1.3.1.6'            # ciscoEnvMonTemperatureState
+    label_oid: '1.3.6.1.4.1.9.9.13.1.3.1.2'
+    name: {en: '{label}', he: '{label}'}
+    config:
+      value_type: enum
+      value_map: &envmon                              # CiscoEnvMonState
+        1: {status: up, text: normal}
+        2: {status: warning, text: warning}
+        3: {status: down, text: critical}
+        4: {status: down, text: shutdown}
+        6: {status: down, text: notFunctioning}
+      value_map_default: warning
+    filters: [{oid: '1.3.6.1.4.1.9.9.13.1.3.1.6', not_in: [5]}]   # notPresent(5)
+    max: 16
+    interval_s: 300
+    confidence: high
+    notes: "Temperature state."
+  - kind: snmp_table
+    walk_oid: '1.3.6.1.4.1.9.9.13.1.4.1.3'            # ciscoEnvMonFanState
+    label_oid: '1.3.6.1.4.1.9.9.13.1.4.1.2'           # ciscoEnvMonFanStatusDescr
+    name: {en: '{label}', he: '{label}'}
+    config: {value_type: enum, value_map: *envmon, value_map_default: warning}
+    filters: [{oid: '1.3.6.1.4.1.9.9.13.1.4.1.3', not_in: [5]}]
+    max: 16
+    interval_s: 300
+    confidence: high
+    notes: "Fan state."
+  - kind: snmp_table
+    walk_oid: '1.3.6.1.4.1.9.9.13.1.5.1.3'            # ciscoEnvMonSupplyState
+    label_oid: '1.3.6.1.4.1.9.9.13.1.5.1.2'           # ciscoEnvMonSupplyStatusDescr
+    name: {en: '{label}', he: '{label}'}
+    config: {value_type: enum, value_map: *envmon, value_map_default: warning}
+    filters: [{oid: '1.3.6.1.4.1.9.9.13.1.5.1.3', not_in: [5]}]
+    max: 8
+    interval_s: 300
+    confidence: high
+    notes: "Power supply state."
+  - {kind: snmp_interfaces, oper_up_only: true, exclude_if_types: [1, 24, 53, 131, 136], max: 52}

@@ -1,0 +1,9 @@
+# QA fixture: a second acme_ups -> duplicate id "acme_ups" (also in acme/acme_ups.yaml)
+schema: 1
+id: acme_ups
+name: {en: "ACME UPS duplicate"}
+priority: 31
+match:
+  - {requires_snmp: true}
+entries:
+  - {kind: sensor, type: ping, name: {en: Ping}}

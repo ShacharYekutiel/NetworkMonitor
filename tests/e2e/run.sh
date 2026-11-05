@@ -10,6 +10,7 @@
 #   SCREENSHOT_DIR where the screenshot spec writes PNGs (default tests/e2e/test-results/screenshots)
 #   NETMON_DISABLE_TIMESCALE=1  run the backend in fallback mode
 #   NETMON_TEST_MODE is always 1 here (PUT /api/test/clock, docs/api.md [2b-1] Test clock).
+#   NETMON_TEST_PTR_FILE=tests/sim/ports/ptr.json ([2b-2] reverse DNS test hook, no DNS stub needed).
 #   Specs can restart the backend with $BACKEND_RESTART (same DB, data dir, port and env; waits for
 #   /api/health) and control single lab components with "$LAB_SH swap|kill|revive NAME" (LAB_DIR exported).
 #   LAB_EXTERNAL=1 do not start the Phase 2a discovery lab (tests/sim/lab.sh); use one that is already
@@ -95,6 +96,7 @@ echo "e2e: simulators (snmp udp/$SNMP_PORT, http :$HTTP_PORT, webhook :$HOOK_POR
 # Phase 2a discovery lab: snmpsim agents on 127.0.0.21-24:1161, HTTP host 127.0.0.25:8080, printer
 # tcp/9100, Telegram Bot API mock (docs/architecture.md §9.6), plus the Phase 2b-1 lab (§10.4): toggle
 # HTTP targets 127.0.0.31-36:8080, fingerprint hosts 127.0.0.41-49/61-67, HPE/LLDP snmpsim 127.0.0.51-54.
+# Phase 2b-2 (§11.6): port sims 127.0.0.81-86, vendor sims 127.0.0.71-73, synthetic 127.0.0.101-110.
 # Fixed addresses, so only one lab per box.
 if [ "${LAB_EXTERNAL:-0}" != "1" ]; then
   echo "e2e: discovery lab (tests/sim/lab.sh, telegram mock :$TELEGRAM_PORT)"
@@ -112,6 +114,7 @@ cat >"$WORK/backend.sh" <<BACKEND_EOF
 #!/usr/bin/env bash
 export DATABASE_URL="$DB_URL" NETMON_DATA_DIR="$WORK/data" NETMON_HOST=127.0.0.1 NETMON_PORT="$APP_PORT"
 export NETMON_LOG_LEVEL=info NETMON_TELEGRAM_API_BASE="$TELEGRAM_MOCK_URL" NETMON_TEST_MODE=1
+export NETMON_TEST_PTR_FILE="$ROOT/tests/sim/ports/ptr.json"
 exec "$NETMON" serve >>"$LOGS/backend.log" 2>&1
 BACKEND_EOF
 cat >"$WORK/restart_backend.sh" <<RESTART_EOF
@@ -161,6 +164,9 @@ export SCREENSHOT_DIR="${SCREENSHOT_DIR:-$HERE/test-results/screenshots}"
 export TELEGRAM_MOCK_URL DISCOVERY_SNMP_PORT=1161 BACKEND_LOG="$LOGS/backend.log" SIM_DIR="$ROOT/tests/sim" PY
 export BACKEND_RESTART="$WORK/restart_backend.sh" LAB_SH="$ROOT/tests/sim/lab.sh" LAB_DIR TELEGRAM_PORT
 export QA2B1_SHOT_DIR="${QA2B1_SHOT_DIR:-$SCREENSHOT_DIR/qa-2b1}"
+export QA2B2_SHOT_DIR="${QA2B2_SHOT_DIR:-$SCREENSHOT_DIR/qa-2b2}"
+# [2b-2] specs write user template files into ${NETMON_DATA_DIR}/templates and reload (spec 34).
+export E2E_DATA_DIR="$WORK/data"
 echo "e2e: running playwright against $BASE_URL"
 set +e
 (cd "$HERE" && npx playwright test "$@")

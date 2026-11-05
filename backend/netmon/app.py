@@ -26,6 +26,7 @@ from netmon.api import (
     groups,
     health,
     maintenance,
+    ports,
     sensors,
     templates,
     testclock,
@@ -167,6 +168,7 @@ def create_app(
         templates.router,
         maintenance.router,
         topology.router,
+        ports.router,
         testclock.router,
         ws.router,
     ):

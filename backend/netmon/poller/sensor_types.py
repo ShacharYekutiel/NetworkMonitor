@@ -20,6 +20,7 @@ SENSOR_TYPES_ORDER = [
     "dns",
     "snmp_custom",
     "snmp_disk",
+    "snmp_walk_count",  # [2b-2]
 ]
 AUTO_SENSOR_TYPES = {"ping", "snmp_system", "snmp_cpu", "snmp_memory"}
 
@@ -202,6 +203,8 @@ SENSOR_TYPES: dict[str, SensorTypeDef] = {
             ConfigField(
                 "value_map_default", "enum", default="warning", options=["up", "warning", "down"]
             ),
+            # [2b-2] "sum": value = raw / (raw + other) x 100 (percent_of_oid = the other part)
+            ConfigField("percent_base", "enum", default="total", options=["total", "sum"]),
         ],
         [ChannelDef("value", "")],
     ),
@@ -220,7 +223,24 @@ SENSOR_TYPES: dict[str, SensorTypeDef] = {
             ChannelDef("disk_total_bytes", "B"),
         ],
     ),
+    # [2b-2] rows of one table column, and the rows whose integer value is in a set
+    "snmp_walk_count": SensorTypeDef(
+        "snmp_walk_count",
+        True,
+        "matched",
+        [
+            ConfigField("oid", "str", required=True),
+            ConfigField("count_values", "int_list", default=None),
+            ConfigField("label", "str", default=""),
+            ConfigField("max_rows", "int", default=5000, min=1, max=10000),
+        ],
+        [ChannelDef("rows", "#"), ChannelDef("matched", "#"), ChannelDef("unmatched", "#")],
+    ),
 }
+
+# [2b-2] optional keys that are stored only when given (absent = the default); keeps the
+# stored config of sensors created before the key existed unchanged
+OMIT_WHEN_ABSENT = {("snmp_custom", "percent_base")}
 
 OID_RE = re.compile(r"^\.?[0-2](\.\d+){1,127}$")
 
@@ -284,6 +304,8 @@ def validate_config(
         if f.key not in merged or (merged[f.key] is None and f.required):
             if f.required:
                 errors.append({"loc": loc, "msg": "field required"})
+                continue
+            if (type_, f.key) in OMIT_WHEN_ABSENT:
                 continue
             out[f.key] = _copy_default(f.default)
             continue
@@ -354,6 +376,8 @@ def validate_config(
         errors.append({"loc": ["body", loc_prefix, "query_name"], "msg": "too long"})
     if type_ == "snmp_custom":
         _validate_snmp_custom(out, loc_prefix, errors)
+    if type_ == "snmp_walk_count":
+        _validate_walk_count(out, loc_prefix, errors)
     if type_ == "snmp_disk" and isinstance(out.get("storage_descr"), str):
         if len(out["storage_descr"]) > 255:
             errors.append(
@@ -395,6 +419,26 @@ def _validate_snmp_custom(out: dict[str, Any], loc_prefix: str, errors: list) ->
                 "msg": "only allowed when value_type is gauge",
             }
         )
+    if out.get("percent_base") == "sum" and out.get("percent_of_oid") is None:
+        errors.append(
+            {
+                "loc": ["body", loc_prefix, "percent_base"],
+                "msg": '"sum" requires percent_of_oid',
+            }
+        )
+
+
+def _validate_walk_count(out: dict[str, Any], loc_prefix: str, errors: list) -> None:
+    v = out.get("oid")
+    if isinstance(v, str):
+        if not OID_RE.match(v.strip()):
+            errors.append(
+                {"loc": ["body", loc_prefix, "oid"], "msg": "must be a numeric OID like 1.3.6.1..."}
+            )
+        else:
+            out["oid"] = normalize_oid(v)
+    if isinstance(out.get("label"), str) and len(out["label"]) > 64:
+        errors.append({"loc": ["body", loc_prefix, "label"], "msg": "must be 0-64 characters"})
 
 
 VALUE_MAP_MAX = 32
@@ -498,6 +542,7 @@ DEFAULT_NAMES = {
     "dns": "DNS",
     "snmp_custom": "SNMP",
     "snmp_disk": "Disk",
+    "snmp_walk_count": "Count",
 }
 
 
@@ -513,4 +558,6 @@ def default_sensor_name(type_: str, config: dict[str, Any]) -> str:
         return f"SNMP {config.get('oid', '')}"[:128]
     if type_ == "snmp_disk" and config.get("storage_descr"):
         return f"Disk {config['storage_descr']}"[:128]
+    if type_ == "snmp_walk_count":
+        return f"Count {config.get('oid', '')}"[:128]
     return DEFAULT_NAMES.get(type_, type_)

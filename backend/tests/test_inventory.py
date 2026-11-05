@@ -39,6 +39,12 @@ DEVICE_KEYS = {
     "in_maintenance",
     "maintenance",
     "identity",
+    # [2b-2]
+    "port_inventory",
+    "arp_collect",
+    "ports_effective",
+    "arp_effective",
+    "effective_class",
 }
 SENSOR_KEYS = {
     "id",
@@ -329,6 +335,7 @@ async def test_sensor_types_endpoint(viewer: httpx.AsyncClient) -> None:
         "dns",
         "snmp_custom",
         "snmp_disk",
+        "snmp_walk_count",  # [2b-2]
     ]
     ping = items[0]
     assert ping == {

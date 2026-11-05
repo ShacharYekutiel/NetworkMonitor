@@ -229,7 +229,7 @@ async def test_scan_import_end_to_end(rt, admin: httpx.AsyncClient, lab: Lab) ->
         21: ("router", "opnsense", "opnsense", "group"),
         22: ("access_point", "ubiquiti", "unifi_ap", "group"),
         23: ("printer", "brother", "printer", "extra"),
-        24: ("switch", "cisco", "generic_snmp", "group"),
+        24: ("switch", "cisco", "cisco_ios", "group"),  # [2b-2] cisco_ios template
         25: ("unknown", None, "http_server", None),
     }
     for last, (cls, vendor, tpl, cred) in expect.items():

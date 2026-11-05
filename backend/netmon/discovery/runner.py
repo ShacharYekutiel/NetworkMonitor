@@ -393,6 +393,7 @@ class ScanRunner:
                 "snmp_ok": res.snmp_ok,
                 "open_ports": res.open_ports,
                 "sys_object_id": res.sys_object_id,
+                "sys_descr": res.sys_descr,
             }
         )
         async with self.rt.sessionmaker() as session:

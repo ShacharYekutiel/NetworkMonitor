@@ -15,6 +15,7 @@ EMAIL_RE = re.compile(r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
 Role = Literal["admin", "viewer"]
 Language = Literal["en", "he"]
 StatusLit = Literal["up", "warning", "down", "paused", "unknown", "unreachable"]
+InventoryMode = Literal["auto", "on", "off"]  # [2b-2]
 
 
 class _In(BaseModel):
@@ -209,6 +210,8 @@ class DeviceCreate(_In):
     sort_order: int = 0
     auto_sensors: list[str] = Field(default_factory=list)
     dependency: DependencyIn | None = None
+    port_inventory: InventoryMode = "auto"  # [2b-2]
+    arp_collect: InventoryMode = "auto"  # [2b-2]
 
     _h = field_validator("host")(lambda cls, v: _host(v))
 
@@ -222,6 +225,8 @@ class DevicePatch(_In):
     snmp_credentials: SnmpIn | None = None
     sort_order: int | None = None
     dependency: DependencyIn | None = None
+    port_inventory: InventoryMode | None = None  # [2b-2]
+    arp_collect: InventoryMode | None = None  # [2b-2]
 
     @field_validator("host")
     @classmethod
@@ -480,10 +485,15 @@ class SettingsPut(_In):
     public_base_url: str | None = Field(default=None, max_length=512)
     timezone: str | None = None  # [2b-1]
     topology_refresh_min: int | None = Field(default=None, ge=0, le=1440)  # [2b-1]
+    # [2b-2]
+    port_inventory_min: int | None = Field(default=None, ge=0, le=1440)
+    uplink_mac_threshold: int | None = Field(default=None, ge=1, le=1000)
+    port_mac_retention_days: int | None = Field(default=None, ge=1, le=365)
+    reverse_dns: bool | None = None
 
     _tzv = field_validator("timezone")(lambda cls, v: _tz(v))
 
-    @field_validator("topology_refresh_min")
+    @field_validator("topology_refresh_min", "port_inventory_min")
     @classmethod
     def _trm(cls, v: int | None) -> int | None:
         if v is not None and 0 < v < 5:

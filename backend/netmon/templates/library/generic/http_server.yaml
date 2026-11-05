@@ -1,0 +1,37 @@
+# Web server: ping plus HTTP/HTTPS probes on the usual ports (no SNMP).
+schema: 1
+id: http_server
+version: 1
+vendor: null
+verified: true             # no OIDs
+verified_note: "No SNMP objects"
+name: {en: "Web server", he: "שרת אינטרנט"}
+description:
+  en: "Ping and HTTP/HTTPS checks on ports 80, 443, 8080 and 8443"
+  he: "פינג ובדיקות HTTP/HTTPS בפורטים 80, 443, 8080 ו-8443"
+requires_snmp: false
+priority: 10
+match:
+  - {any_open_ports: [80, 443, 8080, 8443]}
+entries:
+  - {kind: sensor, type: ping, name: {en: Ping, he: פינג}}
+  - kind: sensor
+    type: http
+    name: {en: HTTP, he: HTTP}
+    config: {url: 'http://{host}/'}
+    probe: true
+  - kind: sensor
+    type: http
+    name: {en: HTTPS, he: HTTPS}
+    config: {url: 'https://{host}/', verify_tls: false}
+    probe: true
+  - kind: sensor
+    type: http
+    name: {en: HTTP 8080, he: HTTP 8080}
+    config: {url: 'http://{host}:8080/'}
+    probe: true
+  - kind: sensor
+    type: http
+    name: {en: HTTPS 8443, he: HTTPS 8443}
+    config: {url: 'https://{host}:8443/', verify_tls: false}
+    probe: true
