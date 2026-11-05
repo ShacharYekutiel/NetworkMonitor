@@ -16,7 +16,10 @@ router = APIRouter()
 
 @router.get("/api/settings/public")
 async def public_settings(session: DB) -> dict:
-    return {"default_language": await settings_svc.get(session, "default_language")}
+    return {
+        "default_language": await settings_svc.get(session, "default_language"),
+        "timezone": await settings_svc.get(session, "timezone"),
+    }
 
 
 @router.get("/api/settings")
@@ -48,10 +51,21 @@ async def put_settings(body: SettingsPut, _: Admin, rt: RT, session: DB) -> dict
             await settings_svc.put(session, key, getattr(body, key))
     if "public_base_url" in fields:
         await settings_svc.put(session, "public_base_url", body.public_base_url)
+    tz_changed = topo_changed = False
+    if "timezone" in fields and body.timezone is not None:
+        tz_changed = body.timezone != current["timezone"]
+        await settings_svc.put(session, "timezone", body.timezone)
+    if "topology_refresh_min" in fields and body.topology_refresh_min is not None:
+        topo_changed = body.topology_refresh_min != current["topology_refresh_min"]
+        await settings_svc.put(session, "topology_refresh_min", body.topology_refresh_min)
     await session.commit()
     values = await settings_svc.get_all(session)
     if retention_changed and rt.timescale_enabled and rt.engine is not None:
         rt.retention_policy_ok = await reapply_retention(rt.engine, int(values["retention_days"]))
+    if tz_changed and rt.maintenance is not None:
+        await rt.maintenance.reload()  # weekly windows move with the zone
+    if topo_changed and rt.topology_scheduler is not None:
+        await rt.topology_scheduler.reschedule()
     return settings_svc.settings_out(values)
 
 

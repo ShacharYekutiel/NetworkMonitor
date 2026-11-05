@@ -189,6 +189,9 @@ export type ScanOptionsForm = {
   tcp_ports: string;
   tcp_timeout_ms: string;
   dns: boolean;
+  /** [2b-1] */
+  fingerprint: boolean;
+  fingerprint_timeout_ms: string;
 };
 
 export function newExtraV3(): ExtraV3Form {
@@ -219,6 +222,8 @@ export function scanOptionsForm(o?: ScanOptions | null): ScanOptionsForm {
     tcp_ports: (o?.tcp_ports ?? DEFAULT_TCP_PORTS).join(', '),
     tcp_timeout_ms: String(o?.tcp_timeout_ms ?? 1000),
     dns: o?.dns ?? true,
+    fingerprint: o?.fingerprint ?? true,
+    fingerprint_timeout_ms: String(o?.fingerprint_timeout_ms ?? 2000),
   };
 }
 
@@ -231,7 +236,8 @@ export type OptionsErrors = Partial<
     | 'extra_communities'
     | 'extra_v3'
     | 'tcp_ports'
-    | 'tcp_timeout_ms',
+    | 'tcp_timeout_ms'
+    | 'fingerprint_timeout_ms',
     string
   >
 >;
@@ -266,7 +272,13 @@ export function scanOptionsToInput(f: ScanOptionsForm): {
   errors: OptionsErrors;
 } {
   const errors: OptionsErrors = {};
-  const options: ScanOptionsInput = { ping: f.ping, snmp: f.snmp, tcp: f.tcp, dns: f.dns };
+  const options: ScanOptionsInput = {
+    ping: f.ping,
+    snmp: f.snmp,
+    tcp: f.tcp,
+    dns: f.dns,
+    fingerprint: f.fingerprint,
+  };
   if (!f.ping && !f.snmp && !f.tcp) errors.probes = 'discovery.err.probes';
 
   const pt = intIn(f.ping_timeout_ms, 100, 5000);
@@ -286,6 +298,11 @@ export function scanOptionsToInput(f: ScanOptionsForm): {
   const tt = intIn(f.tcp_timeout_ms, 100, 5000);
   if (tt === null) errors.tcp_timeout_ms = 'discovery.err.tcpTimeout';
   else options.tcp_timeout_ms = tt;
+
+  // [2b-1] fingerprint probes: 500–5000 ms (validated even when off, like the other timeouts).
+  const ft = intIn(f.fingerprint_timeout_ms, 500, 5000);
+  if (ft === null) errors.fingerprint_timeout_ms = 'discovery.err.fingerprintTimeout';
+  else options.fingerprint_timeout_ms = ft;
 
   const ports = parsePorts(f.tcp_ports);
   if (!ports || ports.length > 32) {

@@ -99,7 +99,11 @@ function Legend() {
     <span className="inline-flex items-center gap-1.5">
       <span
         className="inline-block w-5 border-t-[3px]"
-        style={{ borderColor: color, borderStyle: dashed ? 'dashed' : 'solid', opacity: dashed ? 0.5 : 1 }}
+        style={{
+          borderColor: color,
+          borderStyle: dashed ? 'dashed' : 'solid',
+          opacity: dashed ? 0.5 : 1,
+        }}
       />
       {label}
     </span>
@@ -138,7 +142,10 @@ function EndView({ end, graph }: { end: LinkEnd; graph: TopologyGraph }) {
     <div className="min-w-0 space-y-0.5">
       <div className="truncate font-medium">
         {end.device_id !== null ? (
-          <Link className="text-sky-700 hover:underline dark:text-sky-400" to={`/devices/${end.device_id}`}>
+          <Link
+            className="text-sky-700 hover:underline dark:text-sky-400"
+            to={`/devices/${end.device_id}`}
+          >
             {node?.name ?? `#${end.device_id}`}
           </Link>
         ) : (
@@ -157,7 +164,10 @@ function EndView({ end, graph }: { end: LinkEnd; graph: TopologyGraph }) {
       </div>
       {end.sensor_id !== null && (
         <div className="flex flex-wrap items-center gap-1 text-xs">
-          <Link className="text-sky-700 hover:underline dark:text-sky-400" to={`/sensors/${end.sensor_id}`}>
+          <Link
+            className="text-sky-700 hover:underline dark:text-sky-400"
+            to={`/sensors/${end.sensor_id}`}
+          >
             {t('topology.interfaceSensor')}
           </Link>
           {end.sensor_status && <StatusBadge status={end.sensor_status} />}
@@ -318,7 +328,10 @@ function PortInput({
   });
   return (
     <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
-      <Field label={t('topology.interface')} hint={ifs.error ? t('topology.noInterfaces') : undefined}>
+      <Field
+        label={t('topology.interface')}
+        hint={ifs.error ? t('topology.noInterfaces') : undefined}
+      >
         <Select
           value={ifIndex === null ? '' : String(ifIndex)}
           disabled={!ifs.data?.items.length}
@@ -337,7 +350,12 @@ function PortInput({
         </Select>
       </Field>
       <Field label={label}>
-        <Input value={port} onChange={(e) => onChange(ifIndex, e.target.value)} dir="ltr" maxLength={255} />
+        <Input
+          value={port}
+          onChange={(e) => onChange(ifIndex, e.target.value)}
+          dir="ltr"
+          maxLength={255}
+        />
       </Field>
     </div>
   );
@@ -463,10 +481,14 @@ function AddLinkModal({
           {bKind === 'device' ? (
             <>
               <Field label={t('topology.device')} required>
-                <DevicePicker value={b} exclude={a !== null ? [a] : []} onChange={(v) => {
-                  setB(v);
-                  setBIf(null);
-                }} />
+                <DevicePicker
+                  value={b}
+                  exclude={a !== null ? [a] : []}
+                  onChange={(v) => {
+                    setB(v);
+                    setBIf(null);
+                  }}
+                />
               </Field>
               <PortInput
                 deviceId={b}
@@ -482,7 +504,10 @@ function AddLinkModal({
           ) : (
             <>
               <Field label={t('topology.neighbor')} required>
-                <Select value={b === null ? '' : String(b)} onChange={(e) => setB(e.target.value ? Number(e.target.value) : null)}>
+                <Select
+                  value={b === null ? '' : String(b)}
+                  onChange={(e) => setB(e.target.value ? Number(e.target.value) : null)}
+                >
                   <option value="">{t('topology.chooseNeighbor')}</option>
                   {neighbors.map((n) => (
                     <option key={n.neighbor_id} value={n.neighbor_id}>
@@ -492,7 +517,12 @@ function AddLinkModal({
                 </Select>
               </Field>
               <Field label={t('topology.port')}>
-                <Input value={bPort} onChange={(e) => setBPort(e.target.value)} dir="ltr" maxLength={255} />
+                <Input
+                  value={bPort}
+                  onChange={(e) => setBPort(e.target.value)}
+                  dir="ltr"
+                  maxLength={255}
+                />
               </Field>
             </>
           )}
@@ -510,7 +540,9 @@ function currentText(
 ): string {
   if (c.mode === 'device') return c.device_name ?? `#${c.device_id}`;
   if (c.mode === 'none') return t('dependency.modes.none');
-  return effName ? t('topology.inheritEffective', { name: effName }) : t('dependency.modes.inherit');
+  return effName
+    ? t('topology.inheritEffective', { name: effName })
+    : t('dependency.modes.inherit');
 }
 
 function SuggestModal({ open, onClose }: { open: boolean; onClose: () => void }) {
@@ -549,7 +581,12 @@ function SuggestModal({ open, onClose }: { open: boolean; onClose: () => void })
       footer={
         <>
           <Button onClick={onClose}>{t('common.cancel')}</Button>
-          <Button variant="primary" disabled={!toApply} busy={apply.isPending} onClick={() => apply.mutate()}>
+          <Button
+            variant="primary"
+            disabled={!toApply}
+            busy={apply.isPending}
+            onClick={() => apply.mutate()}
+          >
             {t('topology.applySelected', { count: toApply })}
           </Button>
         </>
@@ -561,7 +598,9 @@ function SuggestModal({ open, onClose }: { open: boolean; onClose: () => void })
       </Field>
       {q.data?.root_device_id != null && (
         <p className="mb-2 text-xs text-slate-500">
-          {t('topology.rootUsed', { name: deviceName(q.data.root_device_id) ?? `#${q.data.root_device_id}` })}
+          {t('topology.rootUsed', {
+            name: deviceName(q.data.root_device_id) ?? `#${q.data.root_device_id}`,
+          })}
         </p>
       )}
       {q.isLoading && <Loading />}
@@ -576,9 +615,13 @@ function SuggestModal({ open, onClose }: { open: boolean; onClose: () => void })
                   type="checkbox"
                   className="h-4 w-4"
                   aria-label={t('common.selectAll')}
-                  checked={selectable.length > 0 && selectable.every((r) => selected.has(r.device_id))}
+                  checked={
+                    selectable.length > 0 && selectable.every((r) => selected.has(r.device_id))
+                  }
                   onChange={(e) =>
-                    setSelected(e.target.checked ? new Set(selectable.map((r) => r.device_id)) : new Set())
+                    setSelected(
+                      e.target.checked ? new Set(selectable.map((r) => r.device_id)) : new Set(),
+                    )
                   }
                 />
               </th>
@@ -613,13 +656,17 @@ function SuggestModal({ open, onClose }: { open: boolean; onClose: () => void })
                   {currentText(
                     t,
                     r.current,
-                    r.effective_parent_id !== null ? (deviceName(r.effective_parent_id) ?? null) : null,
+                    r.effective_parent_id !== null
+                      ? (deviceName(r.effective_parent_id) ?? null)
+                      : null,
                   )}
                 </td>
                 <td className={td}>
                   {r.suggested_parent_name ?? '—'}
                   {r.alreadyEffective && (
-                    <span className="ms-1 text-xs text-slate-500">({t('topology.alreadyEffective')})</span>
+                    <span className="ms-1 text-xs text-slate-500">
+                      ({t('topology.alreadyEffective')})
+                    </span>
                   )}
                 </td>
                 <td className={`${td} tabular-nums`}>{r.hops}</td>
@@ -707,7 +754,9 @@ export function TopologyPage() {
   const selLink = sel?.kind === 'link' ? data?.links.find((l) => l.id === sel.id) : undefined;
   const selNeighbor =
     sel?.kind === 'neighbor'
-      ? data?.nodes.find((n): n is TopologyNeighborNode => n.kind === 'neighbor' && n.neighbor_id === sel.id)
+      ? data?.nodes.find(
+          (n): n is TopologyNeighborNode => n.kind === 'neighbor' && n.neighbor_id === sel.id,
+        )
       : undefined;
   const running = !!data && (data.refresh_running || data.last_refresh?.status === 'running');
 
@@ -724,7 +773,12 @@ export function TopologyPage() {
         actions={
           isAdmin && (
             <>
-              <Button variant="primary" busy={refresh.isPending} disabled={running} onClick={() => refresh.mutate()}>
+              <Button
+                variant="primary"
+                busy={refresh.isPending}
+                disabled={running}
+                onClick={() => refresh.mutate()}
+              >
                 <RefreshIcon size={14} /> {t('topology.refresh')}
               </Button>
               <Button onClick={() => setSuggest(true)}>{t('topology.suggest')}</Button>
@@ -741,8 +795,16 @@ export function TopologyPage() {
             <GroupSelect value={groupId} onChange={setGroupId} allowRoot />
           </Field>
           <div className="flex flex-wrap items-center gap-x-4 gap-y-2 pb-1.5">
-            <Checkbox label={t('topology.includeStale')} checked={includeStale} onChange={setIncludeStale} />
-            <Checkbox label={t('topology.showTraffic')} checked={showTraffic} onChange={setShowTraffic} />
+            <Checkbox
+              label={t('topology.includeStale')}
+              checked={includeStale}
+              onChange={setIncludeStale}
+            />
+            <Checkbox
+              label={t('topology.showTraffic')}
+              checked={showTraffic}
+              onChange={setShowTraffic}
+            />
           </div>
           {isAdmin && (
             <div className="flex flex-wrap gap-2 sm:ms-auto">
@@ -762,7 +824,12 @@ export function TopologyPage() {
               <Button size="sm" onClick={() => setResetting(true)}>
                 {t('topology.resetLayout')}
               </Button>
-              <Button size="sm" variant="ghost" disabled={!staleCount} onClick={() => setDelStale(true)}>
+              <Button
+                size="sm"
+                variant="ghost"
+                disabled={!staleCount}
+                onClick={() => setDelStale(true)}
+              >
                 <TrashIcon size={12} /> {t('topology.deleteStale', { count: staleCount })}
               </Button>
             </div>
@@ -812,7 +879,9 @@ export function TopologyPage() {
           </Card>
         </div>
       )}
-      {isAdmin && data && <AddLinkModal open={addLink} onClose={() => setAddLink(false)} graph={data} />}
+      {isAdmin && data && (
+        <AddLinkModal open={addLink} onClose={() => setAddLink(false)} graph={data} />
+      )}
       {isAdmin && <SuggestModal open={suggest} onClose={() => setSuggest(false)} />}
       {isAdmin && (
         <DeviceFormModal
@@ -835,7 +904,10 @@ export function TopologyPage() {
         title={t('topology.deleteLink')}
         message={
           delLink
-            ? t('topology.deleteLinkConfirm', { a: delLink.a.port || '?', b: delLink.b.port || '?' })
+            ? t('topology.deleteLinkConfirm', {
+                a: delLink.a.port || '?',
+                b: delLink.b.port || '?',
+              })
             : ''
         }
         onConfirm={() => delLink && removeLink.mutate(delLink)}

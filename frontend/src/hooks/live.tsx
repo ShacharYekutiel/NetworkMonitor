@@ -24,6 +24,13 @@ export function LiveProvider({ children }: { children: ReactNode }) {
           void qc.invalidateQueries({ queryKey: ['discoveryScan'] });
           void qc.invalidateQueries({ queryKey: ['discoveryResults'] });
           void qc.invalidateQueries({ queryKey: ['discoveryScans'] });
+          // [2b-1] maintenance coverage, acks and the topology may have changed meanwhile.
+          void qc.invalidateQueries({ queryKey: qk.maintenanceActive });
+          void qc.invalidateQueries({ queryKey: ['maintenanceWindows'] });
+          void qc.invalidateQueries({ queryKey: ['topology'] });
+          void qc.invalidateQueries({ queryKey: ['sensors'] });
+          void qc.invalidateQueries({ queryKey: ['sensor'] });
+          void qc.invalidateQueries({ queryKey: ['device'] });
         },
       }),
     // eslint-disable-next-line react-hooks/exhaustive-deps

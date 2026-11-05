@@ -34,8 +34,11 @@ async def list_events_impl(
     status: str | None = None,
     since: str | None = None,
     until: str | None = None,
+    in_maintenance: bool | None = None,
 ) -> dict:
     stmt = select(Event)
+    if in_maintenance is not None:
+        stmt = stmt.where(Event.in_maintenance.is_(in_maintenance))
     if sensor_id is not None:
         stmt = stmt.where(Event.sensor_id == sensor_id)
     if device_id is not None:
@@ -75,6 +78,7 @@ async def list_events(
     status: str | None = None,
     since: str | None = None,
     until: str | None = None,
+    in_maintenance: bool | None = None,
 ) -> dict:
     return await list_events_impl(
         session,
@@ -86,4 +90,5 @@ async def list_events(
         status=status,
         since=since,
         until=until,
+        in_maintenance=in_maintenance,
     )

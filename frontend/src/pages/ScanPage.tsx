@@ -19,7 +19,20 @@ import {
   VendorBadge,
 } from '../components/discovery/Badges';
 import { GroupSelect } from '../components/EntityForms';
-import { CheckIcon, SearchIcon, StopIcon, TrashIcon, XIcon } from '../components/icons';
+import {
+  CheckIcon,
+  ChevronIcon,
+  SearchIcon,
+  StopIcon,
+  TrashIcon,
+  XIcon,
+} from '../components/icons';
+import {
+  ConfidenceChip,
+  FingerprintView,
+  fingerprintSummary,
+  hasFingerprint,
+} from '../components/discovery/Fingerprint';
 import { SkippedList, TemplateSelect, useDeviceTemplates } from '../components/Templates';
 import { useToast } from '../components/toast';
 import {
@@ -261,81 +274,125 @@ function ResultRow({
 }) {
   const { t } = useTranslation();
   const existing = isExisting(r);
+  const [fpOpen, setFpOpen] = useState(false);
+  const fp = hasFingerprint(r.fingerprint) ? r.fingerprint : null;
+  const summary = fingerprintSummary(r.fingerprint);
   return (
-    <tr
-      className={cx(
-        'hover:bg-slate-50 dark:hover:bg-slate-800/40',
-        selected && 'bg-sky-50/70 dark:bg-sky-950/40',
-        existing && 'text-slate-500',
-      )}
-    >
-      <td className={td}>
-        <input
-          type="checkbox"
-          className="h-4 w-4 disabled:opacity-40"
-          aria-label={t('discovery.selectHost', { ip: r.ip })}
-          checked={selected}
-          disabled={existing || disabled}
-          onChange={(e) => onSelect(e.target.checked)}
-        />
-      </td>
-      <td className={`${td} whitespace-nowrap font-mono text-xs`}>
-        <Ltr>{r.ip}</Ltr>
-        {r.mac && (
-          <div className="text-[11px] text-slate-500">
-            <Ltr>{r.mac}</Ltr>
+    <>
+      <tr
+        className={cx(
+          'hover:bg-slate-50 dark:hover:bg-slate-800/40',
+          selected && 'bg-sky-50/70 dark:bg-sky-950/40',
+          existing && 'text-slate-500',
+          fpOpen && '[&>td]:border-b-0',
+        )}
+      >
+        <td className={td}>
+          <input
+            type="checkbox"
+            className="h-4 w-4 disabled:opacity-40"
+            aria-label={t('discovery.selectHost', { ip: r.ip })}
+            checked={selected}
+            disabled={existing || disabled}
+            onChange={(e) => onSelect(e.target.checked)}
+          />
+        </td>
+        <td className={`${td} whitespace-nowrap font-mono text-xs`}>
+          <Ltr>{r.ip}</Ltr>
+          {r.mac && (
+            <div className="text-[11px] text-slate-500">
+              <Ltr>{r.mac}</Ltr>
+            </div>
+          )}
+          {fp && (
+            <button
+              type="button"
+              onClick={() => setFpOpen((o) => !o)}
+              aria-expanded={fpOpen}
+              className="mt-0.5 inline-flex items-center gap-0.5 font-sans text-[11px] text-sky-700 hover:underline dark:text-sky-400"
+            >
+              <ChevronIcon size={10} className={fpOpen ? 'rotate-90' : 'rtl:rotate-180'} />
+              {t('fingerprint.heading')}
+            </button>
+          )}
+        </td>
+        <td className={`${td} w-[15rem] min-w-[9rem] max-w-[15rem]`}>
+          {existing ? (
+            <bdi dir="auto" className="font-medium">
+              {resultDisplayName(r)}
+            </bdi>
+          ) : (
+            <Input
+              className="py-1 text-xs"
+              value={edit.name ?? ''}
+              placeholder={resultDisplayName(r)}
+              onChange={(e) => onEdit({ ...edit, name: e.target.value })}
+              maxLength={128}
+              dir="auto"
+              aria-label={t('discovery.deviceName', { ip: r.ip })}
+            />
+          )}
+          {r.sys_descr ? (
+            <TruncLtr
+              className="mt-0.5 max-w-[15rem] text-[11px] text-slate-500"
+              title={r.sys_descr}
+            >
+              {r.sys_descr}
+            </TruncLtr>
+          ) : (
+            summary && (
+              <div
+                dir="auto"
+                className="mt-0.5 max-w-[15rem] truncate text-[11px] text-slate-500"
+                title={summary}
+              >
+                {summary}
+              </div>
+            )
+          )}
+        </td>
+        <td className={td}>
+          <div className="flex flex-col items-start gap-1">
+            <DeviceClassBadge cls={r.device_class} />
+            {r.vendor && <VendorBadge vendor={r.vendor} />}
+            {r.model && (
+              <span className="font-mono text-[11px] text-slate-600 dark:text-slate-300">
+                <Ltr>{r.model}</Ltr>
+              </span>
+            )}
+            <ConfidenceChip confidence={r.confidence} by={r.classified_by} />
           </div>
-        )}
-      </td>
-      <td className={`${td} w-[15rem] min-w-[9rem] max-w-[15rem]`}>
-        {existing ? (
-          <bdi dir="auto" className="font-medium">
-            {resultDisplayName(r)}
-          </bdi>
-        ) : (
-          <Input
-            className="py-1 text-xs"
-            value={edit.name ?? ''}
-            placeholder={resultDisplayName(r)}
-            onChange={(e) => onEdit({ ...edit, name: e.target.value })}
-            maxLength={128}
-            dir="auto"
-            aria-label={t('discovery.deviceName', { ip: r.ip })}
-          />
-        )}
-        {r.sys_descr && (
-          <TruncLtr className="mt-0.5 max-w-[15rem] text-[11px] text-slate-500" title={r.sys_descr}>
-            {r.sys_descr}
-          </TruncLtr>
-        )}
-      </td>
-      <td className={td}>
-        <div className="flex flex-col items-start gap-1">
-          <DeviceClassBadge cls={r.device_class} />
-          {r.vendor && <VendorBadge vendor={r.vendor} />}
-        </div>
-      </td>
-      <td className={`${td} min-w-[10rem]`}>
-        <ReachabilityChips r={r} />
-      </td>
-      <td className={td}>
-        <StateCell r={r} />
-      </td>
-      <td className={`${td} min-w-[12rem]`}>
-        {existing ? (
-          <span className="text-xs">—</span>
-        ) : (
-          <TemplateSelect
-            className="py-1 text-xs"
-            templates={templates}
-            suggested={r.suggested_template}
-            value={edit.template ?? r.suggested_template}
-            onChange={(v) => onEdit({ ...edit, template: v })}
-            ariaLabel={t('discovery.templateFor', { ip: r.ip })}
-          />
-        )}
-      </td>
-    </tr>
+        </td>
+        <td className={`${td} min-w-[10rem]`}>
+          <ReachabilityChips r={r} />
+        </td>
+        <td className={td}>
+          <StateCell r={r} />
+        </td>
+        <td className={`${td} min-w-[12rem]`}>
+          {existing ? (
+            <span className="text-xs">—</span>
+          ) : (
+            <TemplateSelect
+              className="py-1 text-xs"
+              templates={templates}
+              suggested={r.suggested_template}
+              value={edit.template ?? r.suggested_template}
+              onChange={(v) => onEdit({ ...edit, template: v })}
+              ariaLabel={t('discovery.templateFor', { ip: r.ip })}
+            />
+          )}
+        </td>
+      </tr>
+      {fp && fpOpen && (
+        <tr className={cx(selected && 'bg-sky-50/70 dark:bg-sky-950/40')}>
+          <td className={td} />
+          <td className={td} colSpan={6}>
+            <FingerprintView fp={fp} />
+          </td>
+        </tr>
+      )}
+    </>
   );
 }
 
@@ -375,8 +432,29 @@ function ResultCard({
           <div className="mt-1 flex flex-wrap items-center gap-1">
             <DeviceClassBadge cls={r.device_class} />
             {r.vendor && <VendorBadge vendor={r.vendor} />}
+            {r.model && (
+              <span className="font-mono text-[11px] text-slate-600 dark:text-slate-300">
+                <Ltr>{r.model}</Ltr>
+              </span>
+            )}
+            <ConfidenceChip confidence={r.confidence} by={r.classified_by} />
             <ReachabilityChips r={r} />
           </div>
+          {hasFingerprint(r.fingerprint) && (
+            <details className="mt-1.5 min-w-0">
+              <summary className="cursor-pointer text-xs text-sky-700 dark:text-sky-400">
+                {t('fingerprint.heading')}
+                {fingerprintSummary(r.fingerprint) && (
+                  <span dir="auto" className="ms-1 text-slate-500">
+                    · {fingerprintSummary(r.fingerprint)}
+                  </span>
+                )}
+              </summary>
+              <div className="mt-1">
+                <FingerprintView fp={r.fingerprint} />
+              </div>
+            </details>
+          )}
         </div>
       </div>
       {!existing && (

@@ -128,7 +128,11 @@ export function DependencyEditor({
                 name={forGroup ? 'dep-mode-group' : 'dep-mode-device'}
                 checked={value.mode === m}
                 onChange={() =>
-                  onChange({ mode: m, device_id: m === 'device' ? value.device_id : null, sensor_id: null })
+                  onChange({
+                    mode: m,
+                    device_id: m === 'device' ? value.device_id : null,
+                    sensor_id: null,
+                  })
                 }
               />
               {m === 'inherit'
@@ -186,12 +190,13 @@ export function EffectiveDependencyText({ effective }: { effective: EffectiveDep
   return (
     <>
       {t('dependency.effective')}{' '}
-      <Link className="font-medium text-sky-700 hover:underline dark:text-sky-400" to={`/devices/${effective.device_id}`}>
+      <Link
+        className="font-medium text-sky-700 hover:underline dark:text-sky-400"
+        to={`/devices/${effective.device_id}`}
+      >
         {effective.device_name}
       </Link>
-      {effective.sensor_name && (
-        <span className="text-slate-500"> / {effective.sensor_name}</span>
-      )}{' '}
+      {effective.sensor_name && <span className="text-slate-500"> / {effective.sensor_name}</span>}{' '}
       {groupName ? (
         <span className="text-slate-500">({t('dependency.fromGroup', { group: groupName })})</span>
       ) : (

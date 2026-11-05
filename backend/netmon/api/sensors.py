@@ -24,7 +24,7 @@ from netmon.poller.sensor_types import (
 )
 from netmon.poller.snmp_client import DEFAULT_SNMP
 from netmon.poller.types import SEVERITY, CheckContext, evaluate
-from netmon.schemas import SensorCreate, SensorPatch, SensorTestIn
+from netmon.schemas import AcknowledgeIn, SensorCreate, SensorPatch, SensorTestIn
 from netmon.services import events as events_svc
 from netmon.services import history as history_svc
 from netmon.services import settings as settings_svc
@@ -58,13 +58,20 @@ async def _sensor_full(session: DB, sensor_id: int) -> tuple[Sensor, Device]:
     return s, d
 
 
-def _out(s: Sensor, d: Device, reveal: bool = True) -> dict:
-    return sensor_out(s, d.name, d.group_id, reveal_secrets=reveal)
+def _out(s: Sensor, d: Device, reveal: bool = True, maint: Any = None) -> dict:
+    return sensor_out(
+        s,
+        d.name,
+        d.group_id,
+        reveal_secrets=reveal,
+        in_maintenance=bool(maint is not None and maint.in_maintenance(d.id)),
+    )
 
 
 @router.get("/api/sensors")
 async def list_sensors(
     user: Viewer,
+    rt: RT,
     session: DB,
     pg: Page,
     device_id: int | None = None,
@@ -72,6 +79,7 @@ async def list_sensors(
     status: str | None = None,
     type: str | None = None,  # noqa: A002
     q: str | None = Query(default=None, max_length=255),
+    acknowledged: bool | None = None,
 ) -> dict:
     return await sensors_page(
         session,
@@ -83,6 +91,8 @@ async def list_sensors(
         types=csv_list(type),
         q=q,
         reveal=user.role == "admin",
+        acknowledged=acknowledged,
+        maint=rt.maintenance,
     )
 
 
@@ -97,8 +107,12 @@ async def sensors_page(
     types: list[str] | None = None,
     q: str | None = None,
     reveal: bool = True,
+    acknowledged: bool | None = None,
+    maint: Any = None,
 ) -> dict:
     stmt = select(Sensor, Device).join(Device, Device.id == Sensor.device_id)
+    if acknowledged is not None:
+        stmt = stmt.where(Sensor.ack_at.isnot(None) if acknowledged else Sensor.ack_at.is_(None))
     if device_id is not None:
         stmt = stmt.where(Sensor.device_id == device_id)
     if group_id is not None:
@@ -123,7 +137,7 @@ async def sensors_page(
     else:
         stmt = stmt.order_by(Device.name, Sensor.sort_order, Sensor.name, Sensor.id)
     rows = (await session.execute(stmt.offset((page_no - 1) * page_size).limit(page_size))).all()
-    return page([_out(s, d, reveal) for s, d in rows], total, page_no, page_size)
+    return page([_out(s, d, reveal, maint) for s, d in rows], total, page_no, page_size)
 
 
 @router.post("/api/sensors", status_code=201)
@@ -154,13 +168,13 @@ async def create_sensor(body: SensorCreate, _: Admin, rt: RT, session: DB) -> di
     if rt.scheduler:
         await rt.scheduler.upsert(s.id)
     rt.config_changed("sensor", s.id, "created")
-    return _out(s, device)
+    return _out(s, device, maint=rt.maintenance)
 
 
 @router.get("/api/sensors/{sensor_id}")
-async def get_sensor(sensor_id: int, user: Viewer, session: DB) -> dict:
+async def get_sensor(sensor_id: int, user: Viewer, rt: RT, session: DB) -> dict:
     s, d = await _sensor_full(session, sensor_id)
-    return _out(s, d, user.role == "admin")
+    return _out(s, d, user.role == "admin", rt.maintenance)
 
 
 @router.patch("/api/sensors/{sensor_id}")
@@ -190,7 +204,13 @@ async def patch_sensor(sensor_id: int, body: SensorPatch, _: Admin, rt: RT, sess
     if "enabled" in fields and body.enabled is not None and body.enabled != s.enabled:
         s.enabled = body.enabled
         target = "paused" if not (s.enabled and d.enabled) else "unknown"
-        ev = await set_sensor_status(session, s, d, target)
+        ev = await set_sensor_status(
+            session,
+            s,
+            d,
+            target,
+            in_maintenance=rt.maintenance is not None and rt.maintenance.in_maintenance(d.id),
+        )
         if ev is not None:
             evs.append(ev)
     await session.commit()
@@ -199,7 +219,97 @@ async def patch_sensor(sensor_id: int, body: SensorPatch, _: Admin, rt: RT, sess
     if rt.scheduler:
         await rt.scheduler.upsert(s.id)
     rt.config_changed("sensor", s.id, "updated")
-    return _out(s, d)
+    return _out(s, d, maint=rt.maintenance)
+
+
+# ---------------------------------------------------------------- [2b-1] acknowledge
+def _ack_ws(rt: RT, s: Sensor) -> None:
+    from netmon.services.serialize import acknowledgement_out
+
+    rt.hub.broadcast(
+        "sensor.ack",
+        {"id": s.id, "device_id": s.device_id, "acknowledgement": acknowledgement_out(s)},
+    )
+
+
+@router.post("/api/sensors/{sensor_id}/acknowledge")
+async def acknowledge(
+    sensor_id: int, user: Admin, rt: RT, session: DB, body: AcknowledgeIn | None = None
+) -> dict:
+    body = body or AcknowledgeIn()
+    s = (
+        await session.execute(select(Sensor).where(Sensor.id == sensor_id).with_for_update())
+    ).scalar_one_or_none()
+    if s is None:
+        raise not_found("Sensor")
+    d = await session.get(Device, s.device_id)
+    assert d is not None
+    if s.status not in ("down", "warning"):
+        raise ApiError(
+            409,
+            "not_acknowledgeable",
+            f"Only down or warning sensors can be acknowledged (status is {s.status})",
+        )
+    comment = body.comment.strip()
+    s.ack_at = rt.clock.now()
+    s.ack_user_id = user.id
+    s.ack_by = user.username
+    s.ack_comment = comment
+    s.ack_status = s.status
+    ev = await events_svc.add_event(
+        session,
+        "acknowledge",
+        f"Acknowledged by {user.username}" + (f": {comment}" if comment else ""),
+        sensor_id=s.id,
+        device_id=d.id,
+        group_id=d.group_id,
+        sensor_name=s.name,
+        device_name=d.name,
+        old_status=s.status,
+        new_status=s.status,
+        in_maintenance=rt.maintenance is not None and rt.maintenance.in_maintenance(d.id),
+    )
+    await session.commit()
+    events_svc.published(rt, [ev])
+    _ack_ws(rt, s)
+    if rt.alerts is not None:
+        await rt.alerts.acknowledged(s.id)
+    rt.request_rollup()
+    return _out(s, d, maint=rt.maintenance)
+
+
+@router.delete("/api/sensors/{sensor_id}/acknowledge")
+async def unacknowledge(sensor_id: int, user: Admin, rt: RT, session: DB) -> dict:
+    s = (
+        await session.execute(select(Sensor).where(Sensor.id == sensor_id).with_for_update())
+    ).scalar_one_or_none()
+    if s is None:
+        raise not_found("Sensor")
+    d = await session.get(Device, s.device_id)
+    assert d is not None
+    if s.ack_at is None:
+        return _out(s, d, maint=rt.maintenance)
+    events_svc.clear_ack(s)
+    ev = await events_svc.add_event(
+        session,
+        "acknowledge",
+        f"Acknowledgement removed by {user.username}",
+        sensor_id=s.id,
+        device_id=d.id,
+        group_id=d.group_id,
+        sensor_name=s.name,
+        device_name=d.name,
+        old_status=s.status,
+        new_status=s.status,
+        in_maintenance=rt.maintenance is not None and rt.maintenance.in_maintenance(d.id),
+    )
+    await session.commit()
+    events_svc.published(rt, [ev])
+    _ack_ws(rt, s)
+    if rt.alerts is not None:
+        await rt.alerts.unacknowledged(s.id)
+    rt.request_rollup()
+    return _out(s, d, maint=rt.maintenance)
 
 
 @router.delete("/api/sensors/{sensor_id}", status_code=204)

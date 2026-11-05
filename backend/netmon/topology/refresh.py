@@ -258,9 +258,7 @@ class TopologyRunner:
         stats["devices_ok"] = len(ok_ids)
         stats["devices_failed"] = len(results) - len(ok_ids)
 
-        devs = {
-            r.id: _Dev(r.id, r.name, r.host, r.lldp_chassis_id, r.lldp_sys_name) for r in rows
-        }
+        devs = {r.id: _Dev(r.id, r.name, r.host, r.lldp_chassis_id, r.lldp_sys_name) for r in rows}
         for did in ok_ids:
             d = results[did]
             devs[did].chassis = d.chassis_id or devs[did].chassis
@@ -339,7 +337,9 @@ class TopologyRunner:
                 )
             for c in d.cdp:
                 a_port = port_name(c.if_index, d.if_names, d.if_descrs) or str(c.if_index)
-                a_if = c.if_index if (c.if_index in d.if_names or c.if_index in d.if_descrs) else None
+                a_if = (
+                    c.if_index if (c.if_index in d.if_names or c.if_index in d.if_descrs) else None
+                )
                 target = matcher.match([c.address] if c.address else [], None, c.device_id, did)
                 if target is not None:
                     other = results.get(target)
@@ -483,8 +483,15 @@ class TopologyRunner:
                             "a_port = :ap, b_device_id = :b, b_neighbor_id = NULL, "
                             "b_if_index = :bi, b_port = :bp WHERE id = :id"
                         ),
-                        {"a": a, "ai": a_if, "ap": a_port, "b": b, "bi": b_if, "bp": b_port,
-                         "id": ln.id},
+                        {
+                            "a": a,
+                            "ai": a_if,
+                            "ap": a_port,
+                            "b": b,
+                            "bi": b_if,
+                            "bp": b_port,
+                            "id": ln.id,
+                        },
                     )
             has_layout = (
                 await session.execute(

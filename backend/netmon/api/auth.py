@@ -86,7 +86,11 @@ async def setup(body: SetupIn, request: Request, rt: RT, session: DB) -> JSONRes
         session.add(Group(name="Default", parent_id=None, description="", sort_order=0))
     await settings_svc.ensure_defaults(session)
     await settings_svc.put(session, "default_language", body.language)
+    if body.timezone:
+        await settings_svc.put(session, "timezone", body.timezone)
     await session.commit()
+    if body.timezone and rt.maintenance is not None:
+        await rt.maintenance.reload()
     await session.refresh(user)
     rt.mark_has_users()
     rt.config_changed("group", 0, "created")

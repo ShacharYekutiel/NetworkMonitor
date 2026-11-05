@@ -37,7 +37,10 @@ function ScopeText({ w }: { w: MaintenanceWindow }) {
     return (
       <span>
         {t('maintenance.scopes.group')}:{' '}
-        <Link className="text-sky-700 hover:underline dark:text-sky-400" to={`/groups/${w.group_id}`}>
+        <Link
+          className="text-sky-700 hover:underline dark:text-sky-400"
+          to={`/groups/${w.group_id}`}
+        >
           {w.group_name ?? `#${w.group_id}`}
         </Link>
       </span>
@@ -45,7 +48,10 @@ function ScopeText({ w }: { w: MaintenanceWindow }) {
   return (
     <span>
       {t('maintenance.scopes.device')}:{' '}
-      <Link className="text-sky-700 hover:underline dark:text-sky-400" to={`/devices/${w.device_id}`}>
+      <Link
+        className="text-sky-700 hover:underline dark:text-sky-400"
+        to={`/devices/${w.device_id}`}
+      >
         {w.device_name ?? `#${w.device_id}`}
       </Link>
     </span>
@@ -53,7 +59,10 @@ function ScopeText({ w }: { w: MaintenanceWindow }) {
 }
 
 function Occurrences({ id }: { id: number }) {
-  const q = useQuery({ queryKey: qk.occurrences(id, 14), queryFn: () => endpoints.occurrences(id, 14) });
+  const q = useQuery({
+    queryKey: qk.occurrences(id, 14),
+    queryFn: () => endpoints.occurrences(id, 14),
+  });
   if (q.isLoading) return <Loading />;
   if (q.error) return <ErrorBox error={q.error} />;
   return <OccurrenceList items={(q.data?.items ?? []).slice(0, 10)} />;
@@ -94,7 +103,10 @@ function WindowRow({
           aria-label={t('maintenance.occurrences')}
           className="mt-0.5 rounded p-0.5 text-slate-500 hover:bg-slate-100 dark:hover:bg-slate-800"
         >
-          <ChevronIcon size={14} className={cx('transition-transform', open ? 'rotate-90' : 'rtl:rotate-180')} />
+          <ChevronIcon
+            size={14}
+            className={cx('transition-transform', open ? 'rotate-90' : 'rtl:rotate-180')}
+          />
         </button>
         <div className="min-w-0 flex-1 basis-56">
           <div className="flex flex-wrap items-center gap-2">
@@ -128,10 +140,13 @@ function WindowRow({
           {w.occurrence_start ? (
             <>
               <div className="text-slate-500">
-                {w.active_now ? t('maintenance.currentOccurrence') : t('maintenance.nextOccurrence')}
+                {w.active_now
+                  ? t('maintenance.currentOccurrence')
+                  : t('maintenance.nextOccurrence')}
               </div>
               <bdi className="tabular-nums">
-                {formatInTz(w.occurrence_start, tz, locale)} – {formatInTz(w.occurrence_end, tz, locale, { timeStyle: 'short' })}
+                {formatInTz(w.occurrence_start, tz, locale)} –{' '}
+                {formatInTz(w.occurrence_end, tz, locale, { timeStyle: 'short' })}
               </bdi>
             </>
           ) : (
@@ -146,10 +161,20 @@ function WindowRow({
               disabled={toggle.isPending}
               onChange={() => toggle.mutate()}
             />
-            <Button size="sm" variant="ghost" aria-label={t('common.edit')} onClick={() => onEdit(w)}>
+            <Button
+              size="sm"
+              variant="ghost"
+              aria-label={t('common.edit')}
+              onClick={() => onEdit(w)}
+            >
               <EditIcon size={14} />
             </Button>
-            <Button size="sm" variant="ghost" aria-label={t('common.delete')} onClick={() => onDelete(w)}>
+            <Button
+              size="sm"
+              variant="ghost"
+              aria-label={t('common.delete')}
+              onClick={() => onDelete(w)}
+            >
               <TrashIcon size={14} />
             </Button>
           </div>
@@ -195,7 +220,10 @@ export function MaintenancePage() {
   });
 
   const groups = groupWindows(list.data?.items ?? [], Date.now());
-  const section = (key: 'active' | 'upcoming' | 'recurring' | 'past', items: MaintenanceWindow[]) => (
+  const section = (
+    key: 'active' | 'upcoming' | 'recurring' | 'past',
+    items: MaintenanceWindow[],
+  ) => (
     <Card
       key={key}
       title={

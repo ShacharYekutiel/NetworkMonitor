@@ -3,7 +3,7 @@ import { useTranslation } from 'react-i18next';
 import type { NmEvent } from '../api/types';
 import { formatDateTime, formatRelative } from '../lib/format';
 import { StatusBadge } from './Status';
-import { ChevronIcon } from './icons';
+import { ChevronIcon, WrenchIcon } from './icons';
 import { Empty, Table, td, th } from './ui';
 
 export function EventKindLabel({ kind }: { kind: NmEvent['kind'] }) {
@@ -64,6 +64,15 @@ export function EventsTable({
               <StatusTransition ev={ev} />
             </td>
             <td dir="auto" className={`${td} min-w-48 text-slate-600 dark:text-slate-300`}>
+              {ev.in_maintenance && (
+                <span
+                  className="me-1 inline-flex align-[-2px] text-sky-600 dark:text-sky-400"
+                  title={t('events.inMaintenance')}
+                  aria-label={t('events.inMaintenance')}
+                >
+                  <WrenchIcon size={13} />
+                </span>
+              )}
               {ev.message}
             </td>
           </tr>

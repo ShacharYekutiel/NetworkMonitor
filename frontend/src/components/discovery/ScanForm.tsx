@@ -252,8 +252,16 @@ export function ScanOptionsEditor({
             checked={value.dns}
             onChange={(v) => set('dns', v)}
           />
+          <Checkbox
+            label={t('discovery.optFingerprint')}
+            checked={value.fingerprint}
+            onChange={(v) => set('fingerprint', v)}
+          />
         </div>
       </FieldGroup>
+      {value.fingerprint && (
+        <p className="-mt-1 text-xs text-slate-500">{t('discovery.fingerprintHint')}</p>
+      )}
 
       {value.tcp && (
         <Field
@@ -488,6 +496,25 @@ export function ScanOptionsEditor({
                 value={value.tcp_timeout_ms}
                 onChange={(e) => set('tcp_timeout_ms', e.target.value)}
                 dir="ltr"
+              />
+            </Field>
+            <Field
+              label={t('discovery.fingerprintTimeout')}
+              hint={
+                errors.fingerprint_timeout_ms ? (
+                  <Err k={errors.fingerprint_timeout_ms} />
+                ) : undefined
+              }
+            >
+              <Input
+                type="number"
+                min={500}
+                max={5000}
+                step={100}
+                value={value.fingerprint_timeout_ms}
+                onChange={(e) => set('fingerprint_timeout_ms', e.target.value)}
+                dir="ltr"
+                disabled={!value.fingerprint}
               />
             </Field>
           </div>

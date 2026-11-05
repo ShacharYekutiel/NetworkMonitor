@@ -4,8 +4,13 @@ import { describe, expect, it } from 'vitest';
 import en from './locales/en.json';
 import he from './locales/he.json';
 import {
+  CLASSIFIED_BY,
+  CONFIDENCES,
+  DEPENDENCY_MODES,
   DEVICE_CLASSES,
   EVENT_KINDS,
+  LINK_SOURCES,
+  MAINTENANCE_SCOPES,
   NOTIFICATION_TYPES,
   SENSOR_TYPES,
   SKIP_REASONS,
@@ -119,6 +124,11 @@ describe('i18n', () => {
       'scan_not_running',
       'too_many_hosts',
       'device_exists',
+      // [2b-1]
+      'dependency_cycle',
+      'not_acknowledgeable',
+      'topology_refresh_running',
+      'link_not_manual',
     ];
     for (const c of codes) {
       expect(enFlat[`errors.${c}`], c).toBeTruthy();
@@ -168,6 +178,81 @@ describe('i18n', () => {
     expect(heFlat['deviceClass.access_point']).toBe('נקודת גישה');
     expect(heFlat['sensorType.snmp_custom']).toBe('OID SNMP מותאם');
     expect(heFlat['sensorType.snmp_disk']).toBe('שימוש בדיסק');
+  });
+
+  it('covers the Phase 2b-1 enums and keys in both languages', () => {
+    const keys = [
+      'status.unreachable',
+      'nav.maintenance',
+      'nav.map',
+      'eventKind.acknowledge',
+      'eventKind.maintenance',
+      'errors.dependency_cycle_path',
+      ...CONFIDENCES.map((c) => `confidence.${c}`),
+      ...CLASSIFIED_BY.map((c) => `classifiedBy.${c}`),
+      ...DEPENDENCY_MODES.map((m) => `dependency.modes.${m}`),
+      'dependency.modes.inheritParent',
+      ...MAINTENANCE_SCOPES.map((s) => `maintenance.scopes.${s}`),
+      ...['once', 'weekly'].map((k) => `maintenance.kinds.${k}`),
+      ...['active', 'upcoming', 'recurring', 'past'].flatMap((s) => [
+        `maintenance.sections.${s}`,
+        `maintenance.empty.${s}`,
+      ]),
+      ...LINK_SOURCES.map((s) => `topology.source.${s}`),
+      ...['running', 'completed', 'failed'].map((s) => `topology.refreshStatus.${s}`),
+      ...['device', 'neighbor'].map((k) => `topology.bKind.${k}`),
+      'sensorConfig.snmp_custom.value_map',
+      'sensorConfig.snmp_custom.value_map_default',
+      'sensorConfigOption.snmp_custom.value_type.enum',
+      'escalation.help',
+      'escalation.afterHint',
+      'escalation.channelsHint',
+      'escalation.repeatHint',
+    ];
+    for (const k of keys) {
+      expect(enFlat[k], `en:${k}`).toBeTruthy();
+      expect(heFlat[k], `he:${k}`).toBeTruthy();
+    }
+    expect(heFlat['status.unreachable']).toBe('לא נגיש');
+    expect(enFlat['status.unreachable']).toBe('Unreachable');
+  });
+
+  it('has the 2b-1 plurals in every category (en: one/other, he: one/two/other)', () => {
+    const plurals = [
+      'dashboard.andMore',
+      'dashboard.maintenanceActive',
+      'dashboard.maintenanceDevices',
+      'maintenance.coveredDevices',
+      'fingerprint.redirects',
+      'topology.refreshFailed',
+      'topology.deleteStale',
+      'topology.deleteStaleConfirm',
+      'topology.staleDeleted',
+      'topology.stale',
+      'topology.applySelected',
+      'topology.applied',
+    ];
+    for (const [lang, flat] of [
+      ['en', enFlat],
+      ['he', heFlat],
+    ] as const) {
+      const cats = new Intl.PluralRules(lang).resolvedOptions().pluralCategories;
+      for (const base of plurals) {
+        expect(base in flat, `${lang}:${base} plain`).toBe(false);
+        for (const c of cats) expect(flat[`${base}_${c}`], `${lang}:${base}_${c}`).toBeTruthy();
+      }
+    }
+  });
+
+  it('renders 2b-1 plurals correctly', async () => {
+    const i18n = (await import('./index')).default;
+    await i18n.changeLanguage('he');
+    expect(i18n.t('dashboard.maintenanceDevices', { count: 1 })).toBe('התקן אחד בתחזוקה');
+    expect(i18n.t('dashboard.maintenanceDevices', { count: 2 })).toBe('2 התקנים בתחזוקה');
+    expect(i18n.t('dashboard.maintenanceDevices', { count: 12 })).toBe('12 התקנים בתחזוקה');
+    await i18n.changeLanguage('en');
+    expect(i18n.t('topology.staleDeleted', { count: 1 })).toBe('1 stale link deleted.');
+    expect(i18n.t('topology.staleDeleted', { count: 3 })).toBe('3 stale links deleted.');
   });
 
   it('defines every static key used in the source', () => {

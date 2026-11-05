@@ -75,7 +75,11 @@ export function SensorTable({
                 className={`${td} max-w-xs truncate text-slate-500`}
                 title={s.status_message}
               >
-                <StatusMessage message={s.status_message} status={s.status} deviceId={s.device_id} />
+                <StatusMessage
+                  message={s.status_message}
+                  status={s.status}
+                  deviceId={s.device_id}
+                />
               </td>
               <td className={`${td} whitespace-nowrap text-slate-500`}>
                 {formatRelative(s.last_check_at)}

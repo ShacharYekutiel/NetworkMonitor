@@ -27,7 +27,11 @@ export function AckBadge({ ack, compact }: { ack: Acknowledgement; compact?: boo
   const title = ackTooltip(t, ack);
   if (compact)
     return (
-      <span title={title} aria-label={title} className="inline-flex shrink-0 text-emerald-600 dark:text-emerald-400">
+      <span
+        title={title}
+        aria-label={title}
+        className="inline-flex shrink-0 text-emerald-600 dark:text-emerald-400"
+      >
         <CheckIcon size={13} />
       </span>
     );

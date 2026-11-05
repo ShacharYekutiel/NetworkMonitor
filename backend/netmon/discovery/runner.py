@@ -18,7 +18,8 @@ from sqlalchemy import text
 from sqlalchemy.exc import IntegrityError
 
 from netmon.discovery import options as opts_mod
-from netmon.discovery.classify import classify, suggest_template
+from netmon.discovery.classify import classify_host, suggest_template
+from netmon.discovery.fingerprint import FINGERPRINT_PORTS, fingerprint_host
 from netmon.discovery.probe import HOST_TIMEOUT_S, ProbeResult, probe_host, resolve_hostname
 from netmon.discovery.serialize import ip_text, result_out
 from netmon.discovery.targets import HostTarget, expand_targets, rejected_reason
@@ -34,6 +35,7 @@ if TYPE_CHECKING:
 log = logging.getLogger("netmon.discovery")
 
 KEEP_SCANS = 20
+FINGERPRINT_BACKSTOP_S = 30.0
 CANCEL_WAIT_S = 4.5  # the API answers within 5 s
 MAX_NOTIFY_HOSTS = 50
 EXISTING_DEVICE_SQL = (
@@ -319,7 +321,7 @@ class ScanRunner:
                 return None
         # the result object is shared with the caller, so a backstop timeout keeps what the
         # probes already found (ping / TCP / SNMP identity)
-        holder["res"] = ProbeResult(ip=ip, hostname=host.hostname)
+        holder["res"] = ProbeResult(ip=ip, hostname=host.hostname, target_hostname=host.hostname)
         return await probe_host(
             ip, scan.options, scan.credentials, hostname=host.hostname, result=holder["res"]
         )
@@ -357,7 +359,23 @@ class ScanRunner:
             log.exception("Cannot store discovery result for %s", res.ip)
 
     async def _record(self, scan: _Scan, res: ProbeResult) -> None:
-        device_class, vendor = classify(
+        fp = None
+        if scan.options.get("fingerprint", True) and set(res.open_ports) & set(FINGERPRINT_PORTS):
+            try:
+                fp = await asyncio.wait_for(
+                    fingerprint_host(
+                        res.ip,
+                        res.target_hostname or res.ip,
+                        res.open_ports,
+                        int(scan.options.get("fingerprint_timeout_ms", 2000)),
+                    ),
+                    FINGERPRINT_BACKSTOP_S,
+                )
+            except TimeoutError:
+                fp = None
+            except Exception as exc:  # noqa: BLE001
+                log.debug("Fingerprint of %s failed: %s", res.ip, type(exc).__name__)
+        c = classify_host(
             res.sys_object_id,
             res.sys_descr,
             res.sys_name,
@@ -365,13 +383,16 @@ class ScanRunner:
             res.pf,
             res.open_ports,
             res.snmp_ok,
+            fp,
         )
+        device_class, vendor = c.device_class, c.vendor
         template = suggest_template(
             {
                 "device_class": device_class,
                 "vendor": vendor,
                 "snmp_ok": res.snmp_ok,
                 "open_ports": res.open_ports,
+                "sys_object_id": res.sys_object_id,
             }
         )
         async with self.rt.sessionmaker() as session:
@@ -394,11 +415,13 @@ class ScanRunner:
                         INSERT INTO discovery_results (scan_id, ip, hostname, mac, ping_ok,
                             ping_rtt_ms, snmp_ok, snmp_version, snmp_credential_index, sys_name,
                             sys_descr, sys_object_id, open_ports, device_class, vendor,
-                            suggested_template, is_new)
+                            suggested_template, is_new, fingerprint, model, classified_by,
+                            confidence)
                         VALUES (:scan_id, CAST(:ip AS inet), :hostname, :mac, :ping_ok,
                             :ping_rtt_ms, :snmp_ok, :snmp_version, :cred_idx, :sys_name,
                             :sys_descr, :sys_object_id, :open_ports, :device_class, :vendor,
-                            :template, :is_new)
+                            :template, :is_new, CAST(:fingerprint AS jsonb), :model,
+                            :classified_by, :confidence)
                         ON CONFLICT (scan_id, ip) DO NOTHING
                         RETURNING *
                         """
@@ -421,6 +444,10 @@ class ScanRunner:
                         "vendor": vendor,
                         "template": template,
                         "is_new": is_new,
+                        "fingerprint": _json(fp) if fp is not None else None,
+                        "model": c.model,
+                        "classified_by": c.classified_by,
+                        "confidence": c.confidence,
                     },
                 )
             ).first()

@@ -11,6 +11,7 @@ from netmon.api.errors import ApiError, conflict, not_found, validation_error
 from netmon.models import Group, Sensor
 from netmon.poller.sensor_types import SENSOR_TYPES
 from netmon.schemas import GroupCreate, GroupPatch
+from netmon.services import dependencies as deps
 from netmon.services.retention import delete_sensor_measurements
 from netmon.services.serialize import group_out, iso, page
 from netmon.services.status import load_inventory
@@ -63,6 +64,9 @@ async def create_group(body: GroupCreate, _: Admin, rt: RT, session: DB) -> dict
     if body.parent_id is not None and await session.get(Group, body.parent_id) is None:
         raise validation_error(["body", "parent_id"], "parent group does not exist")
     await _check_unique(session, body.parent_id, body.name, None)
+    dep = ("inherit", None, None)
+    if body.dependency is not None:
+        dep = await deps.validated_dependency(session, body.dependency, ["body", "dependency"])
     g = Group(
         name=body.name.strip(),
         parent_id=body.parent_id,
@@ -70,7 +74,9 @@ async def create_group(body: GroupCreate, _: Admin, rt: RT, session: DB) -> dict
         snmp_credentials=merge_snmp(body.snmp_credentials, None) if body.snmp_credentials else None,
         sort_order=body.sort_order,
     )
+    deps.apply_dependency(g, dep)
     session.add(g)
+    await deps.check_no_cycle(session)
     await commit_or_conflict(session)
     await session.refresh(g)
     rt.config_changed("group", g.id, "created")
@@ -113,6 +119,14 @@ async def patch_group(group_id: int, body: GroupPatch, _: Admin, rt: RT, session
             if body.snmp_credentials is not None
             else None
         )
+    check_cycle = "parent_id" in fields  # a move changes what devices inherit
+    if "dependency" in fields and body.dependency is not None:
+        deps.apply_dependency(
+            g, await deps.validated_dependency(session, body.dependency, ["body", "dependency"])
+        )
+        check_cycle = True
+    if check_cycle:
+        await deps.check_no_cycle(session)
     await commit_or_conflict(session)
     await session.refresh(g)
     rt.config_changed("group", g.id, "updated")
@@ -139,8 +153,9 @@ async def delete_group(group_id: int, _: Admin, rt: RT, session: DB) -> Response
 
 
 @router.get("/api/tree")
-async def tree(_: Viewer, session: DB) -> dict:
+async def tree(_: Viewer, rt: RT, session: DB) -> dict:
     inv = await load_inventory(session)
+    maint = rt.maintenance
     from netmon.models import Device
 
     devices = {d.id: d for d in (await session.execute(select(Device))).scalars()}
@@ -164,6 +179,7 @@ async def tree(_: Viewer, session: DB) -> dict:
             "primary_value": ch.last_value if ch else None,
             "primary_unit": ch.unit if ch else None,
             "last_check_at": iso(s.last_check_at),
+            "acknowledged": s.ack_at is not None,
         }
 
     def device_node(did: int) -> dict:
@@ -176,6 +192,8 @@ async def tree(_: Viewer, session: DB) -> dict:
             "enabled": d.enabled,
             "status": inv.device_status[did],
             "status_counts": dict(inv.device_counts[did]),
+            "in_maintenance": bool(maint is not None and maint.in_maintenance(did)),
+            "parent_device_id": eff.device_id if (eff := deps.effective_parent(inv, did)) else None,
             "sensors": [sensor_node(s) for s in ss],
         }
 

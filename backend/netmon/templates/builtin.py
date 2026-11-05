@@ -216,8 +216,12 @@ HPE_ARUBAOS_ENTRIES: list[dict[str, Any]] = [
     _sensor(
         "snmp_custom",
         _l("CPU", "מעבד"),
-        {"oid": "1.3.6.1.4.1.11.2.14.11.5.1.9.6.1.0", "value_type": "gauge", "unit": "%",
-         "label": "CPU"},
+        {
+            "oid": "1.3.6.1.4.1.11.2.14.11.5.1.9.6.1.0",
+            "value_type": "gauge",
+            "unit": "%",
+            "label": "CPU",
+        },
         probe=True,
         channels=[{"key": "value", "warning_max": 80, "down_max": 95}],
     ),

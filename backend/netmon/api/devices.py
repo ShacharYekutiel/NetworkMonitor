@@ -11,7 +11,8 @@ from netmon.api.errors import ApiError, not_found, validation_error
 from netmon.models import Device, Group, Sensor
 from netmon.poller.sensor_types import AUTO_SENSOR_TYPES, default_sensor_name, validate_config
 from netmon.poller.snmp_client import SnmpError
-from netmon.schemas import DeviceCreate, DevicePatch
+from netmon.schemas import DependencyBulkIn, DeviceCreate, DevicePatch
+from netmon.services import dependencies as deps
 from netmon.services import events as events_svc
 from netmon.services import settings as settings_svc
 from netmon.services.retention import delete_sensor_measurements
@@ -30,6 +31,7 @@ router = APIRouter()
 @router.get("/api/devices")
 async def list_devices(
     _: Viewer,
+    rt: RT,
     session: DB,
     pg: Page,
     group_id: int | None = None,
@@ -49,7 +51,7 @@ async def list_devices(
         rows = [d for d in rows if inv.device_status.get(d.id) in statuses]
     total = len(rows)
     sliced = rows[pg.offset : pg.offset + pg.page_size]
-    return page([device_out(d, inv) for d in sliced], total, pg.page, pg.page_size)
+    return page([device_out(d, inv, rt.maintenance) for d in sliced], total, pg.page, pg.page_size)
 
 
 @router.post("/api/devices", status_code=201)
@@ -62,6 +64,9 @@ async def create_device(body: DeviceCreate, _: Admin, rt: RT, session: DB) -> di
             ["body", "auto_sensors"],
             f"only {sorted(AUTO_SENSOR_TYPES)} can be created automatically",
         )
+    dep = ("inherit", None, None)
+    if body.dependency is not None:
+        dep = await deps.validated_dependency(session, body.dependency, ["body", "dependency"])
     d = Device(
         group_id=body.group_id,
         name=body.name.strip(),
@@ -71,8 +76,10 @@ async def create_device(body: DeviceCreate, _: Admin, rt: RT, session: DB) -> di
         snmp_credentials=merge_snmp(body.snmp_credentials, None) if body.snmp_credentials else None,
         sort_order=body.sort_order,
     )
+    deps.apply_dependency(d, dep)
     session.add(d)
     await session.flush()
+    await deps.check_no_cycle(session)
     interval = int(await settings_svc.get(session, "default_interval_s"))
     created: list[Sensor] = []
     for i, type_ in enumerate(dict.fromkeys(body.auto_sensors)):
@@ -100,15 +107,15 @@ async def create_device(body: DeviceCreate, _: Admin, rt: RT, session: DB) -> di
     rt.config_changed("device", d.id, "created")
     for s in created:
         rt.config_changed("sensor", s.id, "created")
-    return device_out(d, await load_inventory(session))
+    return device_out(d, await load_inventory(session), rt.maintenance)
 
 
 @router.get("/api/devices/{device_id}")
-async def get_device(device_id: int, _: Viewer, session: DB) -> dict:
+async def get_device(device_id: int, _: Viewer, rt: RT, session: DB) -> dict:
     d = await session.get(Device, device_id)
     if d is None:
         raise not_found("Device")
-    return device_out(d, await load_inventory(session))
+    return device_out(d, await load_inventory(session), rt.maintenance)
 
 
 @router.patch("/api/devices/{device_id}")
@@ -117,10 +124,17 @@ async def patch_device(device_id: int, body: DevicePatch, _: Admin, rt: RT, sess
     if d is None:
         raise not_found("Device")
     fields = body.model_fields_set
+    check_cycle = False
     if "group_id" in fields and body.group_id is not None and body.group_id != d.group_id:
         if await session.get(Group, body.group_id) is None:
             raise validation_error(["body", "group_id"], "group does not exist")
         d.group_id = body.group_id
+        check_cycle = True
+    if "dependency" in fields and body.dependency is not None:
+        deps.apply_dependency(
+            d, await deps.validated_dependency(session, body.dependency, ["body", "dependency"])
+        )
+        check_cycle = True
     if "name" in fields and body.name:
         d.name = body.name.strip()
     if "host" in fields and body.host and body.host != d.host:
@@ -141,19 +155,68 @@ async def patch_device(device_id: int, body: DevicePatch, _: Admin, rt: RT, sess
             if body.snmp_credentials is not None
             else None
         )
+    if check_cycle:
+        await deps.check_no_cycle(session)
     evs = []
     enabled_changed = "enabled" in fields and body.enabled is not None and body.enabled != d.enabled
     if enabled_changed:
         d.enabled = bool(body.enabled)
         await session.flush()
-        evs = await sync_device_sensors_status(session, d)
+        evs = await sync_device_sensors_status(
+            session,
+            d,
+            in_maintenance=rt.maintenance is not None and rt.maintenance.in_maintenance(d.id),
+        )
     await commit_or_conflict(session)
     await session.refresh(d)
     events_svc.published(rt, evs)
     if rt.scheduler:
         await rt.scheduler.reload_device(d.id)
     rt.config_changed("device", d.id, "updated")
-    return device_out(d, await load_inventory(session))
+    return device_out(d, await load_inventory(session), rt.maintenance)
+
+
+@router.post("/api/devices/dependencies")
+async def bulk_dependencies(body: DependencyBulkIn, _: Admin, rt: RT, session: DB) -> dict:
+    """[2b-1] Atomic bulk apply; cycles are checked on the final state."""
+    updated: list[int] = []
+    for i, item in enumerate(body.items):
+        d = await session.get(Device, item.device_id)
+        if d is None:
+            raise validation_error(["body", "items", i, "device_id"], "device does not exist")
+        values = await deps.validated_dependency(
+            session, item.dependency, ["body", "items", i, "dependency"]
+        )
+        if (d.dependency_mode, d.dependency_device_id, d.dependency_sensor_id) != values:
+            deps.apply_dependency(d, values)
+            updated.append(d.id)
+    await deps.check_no_cycle(session)
+    await commit_or_conflict(session)
+    for did in updated:
+        rt.config_changed("device", did, "updated")
+    return {"updated": updated}
+
+
+@router.post("/api/devices/{device_id}/identify")
+async def identify(device_id: int, _: Admin, rt: RT, session: DB) -> dict:
+    """[2b-1] Re-identify: probe, fingerprint, classify, suggest a template; stored."""
+    from netmon.discovery.identify import identify_device
+
+    d = await session.get(Device, device_id)
+    if d is None:
+        raise not_found("Device")
+    creds = await effective_credentials(session, d)
+    host = d.host
+    await session.close()
+    identity = await identify_device(rt, host, creds)
+    async with rt.sessionmaker() as s2:
+        dev = await s2.get(Device, device_id)
+        if dev is None:
+            raise not_found("Device")
+        dev.identity = identity
+        await s2.commit()
+    rt.config_changed("device", device_id, "updated")
+    return identity
 
 
 @router.delete("/api/devices/{device_id}", status_code=204)
@@ -164,12 +227,15 @@ async def delete_device(device_id: int, _: Admin, rt: RT, session: DB) -> Respon
     sensor_ids = list(
         (await session.execute(select(Sensor.id).where(Sensor.device_id == device_id))).scalars()
     )
+    dependents = await deps.reset_dependents(session, device_id)
     await session.delete(d)
     await session.commit()
     if rt.scheduler:
         rt.scheduler.remove_many(sensor_ids)
     rt.spawn(delete_sensor_measurements(rt, sensor_ids))
     rt.config_changed("device", device_id, "deleted")
+    for did in dependents:
+        rt.config_changed("device", did, "updated")
     return Response(status_code=204)
 
 

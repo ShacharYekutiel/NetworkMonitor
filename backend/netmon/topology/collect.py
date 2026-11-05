@@ -31,8 +31,11 @@ MAX_ROWS = 5000
 CHASSIS_MAC, CHASSIS_NET = 4, 5
 PORT_MAC, PORT_NET, PORT_IFNAME, PORT_LOCAL = 3, 4, 5, 7
 
-_MAC_TEXT = re.compile(r"^([0-9a-f]{2})[:\-. ]?([0-9a-f]{2})[:\-. ]?([0-9a-f]{2})[:\-. ]?"
-                       r"([0-9a-f]{2})[:\-. ]?([0-9a-f]{2})[:\-. ]?([0-9a-f]{2})$", re.I)
+_MAC_TEXT = re.compile(
+    r"^([0-9a-f]{2})[:\-. ]?([0-9a-f]{2})[:\-. ]?([0-9a-f]{2})[:\-. ]?"
+    r"([0-9a-f]{2})[:\-. ]?([0-9a-f]{2})[:\-. ]?([0-9a-f]{2})$",
+    re.I,
+)
 
 
 # ------------------------------------------------------------------ pure helpers
@@ -363,7 +366,9 @@ async def collect_device(host: str, creds: dict[str, Any]) -> DeviceData:
     data = DeviceData()
     errors: list[str] = []
     try:
-        vals = await snmp_get_typed(host, creds, [LOC_CHASSIS_SUBTYPE, LOC_CHASSIS_ID, LOC_SYS_NAME])
+        vals = await snmp_get_typed(
+            host, creds, [LOC_CHASSIS_SUBTYPE, LOC_CHASSIS_ID, LOC_SYS_NAME]
+        )
         data.ok = True
         sub = _int(vals[LOC_CHASSIS_SUBTYPE][0])
         raw = vals[LOC_CHASSIS_ID][0]

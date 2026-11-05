@@ -334,7 +334,8 @@ export function timeZones(current?: string): string[] {
   } catch {
     list = [];
   }
-  if (!list.length) list = ['UTC', 'Asia/Jerusalem', 'Europe/London', 'Europe/Berlin', 'America/New_York'];
+  if (!list.length)
+    list = ['UTC', 'Asia/Jerusalem', 'Europe/London', 'Europe/Berlin', 'America/New_York'];
   if (!list.includes('UTC')) list = ['UTC', ...list];
   if (current && !list.includes(current)) list = [current, ...list];
   return list;

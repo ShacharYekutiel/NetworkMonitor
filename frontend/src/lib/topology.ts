@@ -20,12 +20,14 @@ const CLASS_SVG: Record<DeviceClass, string> = {
     '<rect x="2" y="7" width="20" height="10" rx="2"/><path d="M6 11h2v2H6zM10 11h2v2h-2zM14 11h2v2h-2zM18 11h.01"/>',
   access_point:
     '<path d="M2 9a15 15 0 0120 0M5 12.5a10 10 0 0114 0M8.5 16a5 5 0 017 0"/><circle cx="12" cy="19" r="1"/>',
-  printer: '<path d="M6 9V3h12v6"/><rect x="3" y="9" width="18" height="8" rx="2"/><path d="M6 14h12v7H6z"/>',
+  printer:
+    '<path d="M6 9V3h12v6"/><rect x="3" y="9" width="18" height="8" rx="2"/><path d="M6 14h12v7H6z"/>',
   nas: '<rect x="5" y="3" width="14" height="18" rx="2"/><path d="M8 7h8M8 11h8M8 15h8"/>',
   server:
     '<rect x="3" y="4" width="18" height="7" rx="1.5"/><rect x="3" y="13" width="18" height="7" rx="1.5"/><path d="M7 7.5h.01M7 16.5h.01"/>',
   workstation: '<rect x="3" y="4" width="18" height="12" rx="2"/><path d="M8 20h8M12 16v4"/>',
-  unknown: '<circle cx="12" cy="12" r="9"/><path d="M9.5 9.5a2.5 2.5 0 015 .5c0 1.5-2.5 2-2.5 3.5M12 17h.01"/>',
+  unknown:
+    '<circle cx="12" cy="12" r="9"/><path d="M9.5 9.5a2.5 2.5 0 015 .5c0 1.5-2.5 2-2.5 3.5M12 17h.01"/>',
 };
 const WRENCH =
   '<path d="M14.7 6.3a4 4 0 00-5.4 5.2L3.6 17.2a1.6 1.6 0 002.2 2.2l5.7-5.7a4 4 0 005.2-5.4l-2.5 2.5-2.1-.5-.5-2.1z"/>';
@@ -92,7 +94,8 @@ export function linkColor(l: TopologyLink, dark: boolean): string {
 
 /** The end that carries traffic data (the first with an interface sensor and a rate). */
 export function trafficEnd(l: TopologyLink): LinkEnd | null {
-  for (const e of [l.a, l.b]) if (e.sensor_id !== null && (e.in_bps !== null || e.out_bps !== null)) return e;
+  for (const e of [l.a, l.b])
+    if (e.sensor_id !== null && (e.in_bps !== null || e.out_bps !== null)) return e;
   return null;
 }
 
@@ -236,19 +239,25 @@ export function suggestionRows(items: DependencySuggestion[]): SuggestionRow[] {
     changes:
       s.suggested_parent_id !== null &&
       !(s.current.mode === 'device' && s.current.device_id === s.suggested_parent_id),
-    alreadyEffective: s.suggested_parent_id !== null && s.effective_parent_id === s.suggested_parent_id,
+    alreadyEffective:
+      s.suggested_parent_id !== null && s.effective_parent_id === s.suggested_parent_id,
   }));
 }
 
 /** Rows selected by default: a suggestion exists and differs from the effective parent. */
 export function defaultSelection(rows: SuggestionRow[]): Set<number> {
   return new Set(
-    rows.filter((r) => r.suggested_parent_id !== null && !r.alreadyEffective).map((r) => r.device_id),
+    rows
+      .filter((r) => r.suggested_parent_id !== null && !r.alreadyEffective)
+      .map((r) => r.device_id),
   );
 }
 
 /** Bulk body for `POST /api/devices/dependencies` (explicit device dependency, automatic sensor). */
-export function suggestionsToBulk(rows: SuggestionRow[], selected: Set<number>): DependencyBulkItem[] {
+export function suggestionsToBulk(
+  rows: SuggestionRow[],
+  selected: Set<number>,
+): DependencyBulkItem[] {
   return rows
     .filter((r) => selected.has(r.device_id) && r.suggested_parent_id !== null && r.changes)
     .map((r) => ({

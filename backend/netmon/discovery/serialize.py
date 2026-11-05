@@ -54,7 +54,19 @@ def result_out(row: Any, existing_device_id: int | None = None) -> dict[str, Any
         "existing_device_id": existing_device_id,
         "is_new": bool(_get(row, "is_new")),
         "imported_device_id": _get(row, "imported_device_id"),
+        # [2b-1]
+        "fingerprint": _opt(row, "fingerprint"),
+        "model": _opt(row, "model"),
+        "classified_by": _opt(row, "classified_by") or "ports",
+        "confidence": _opt(row, "confidence") or "low",
     }
+
+
+def _opt(row: Any, key: str) -> Any:
+    try:
+        return _get(row, key)
+    except (AttributeError, KeyError):
+        return None
 
 
 def scan_out(scan: Any, created_by: str | None) -> dict[str, Any]:

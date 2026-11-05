@@ -33,7 +33,8 @@
     "warning": "אזהרה",
     "down": "תקלה",
     "paused": "מושהה",
-    "unknown": "לא ידוע"
+    "unknown": "לא ידוע",
+    "unreachable": "לא נגיש"
   },
   "role": {
     "admin": "מנהל מערכת",
@@ -63,7 +64,9 @@
     "toggleSidebar": "הצגה/הסתרה של סרגל הצד",
     "breadcrumbs": "נתיב ניווט",
     "discovery": "גילוי",
-    "templates": "תבניות"
+    "templates": "תבניות",
+    "maintenance": "תחזוקה",
+    "map": "מפה"
   },
   "tree": {
     "search": "חיפוש קבוצות, התקנים וחיישנים",
@@ -110,7 +113,19 @@
     "deviceCount_other": "{{count}} התקנים",
     "sensorCount_one": "חיישן אחד",
     "sensorCount_two": "2 חיישנים",
-    "sensorCount_other": "{{count}} חיישנים"
+    "sensorCount_other": "{{count}} חיישנים",
+    "acknowledged": "תקלות שאושרו",
+    "andMore_one": "ועוד אחת",
+    "andMore_two": "ועוד 2",
+    "andMore_other": "ועוד {{count}}",
+    "maintenanceActive_one": "חלון תחזוקה אחד פעיל",
+    "maintenanceActive_two": "2 חלונות תחזוקה פעילים",
+    "maintenanceActive_other": "{{count}} חלונות תחזוקה פעילים",
+    "maintenanceDevices_one": "התקן אחד בתחזוקה",
+    "maintenanceDevices_two": "2 התקנים בתחזוקה",
+    "maintenanceDevices_other": "{{count}} התקנים בתחזוקה",
+    "parent": "התקן אב",
+    "unreachableDevices": "התקנים לא נגישים"
   },
   "groups": {
     "add": "הוספת קבוצה",
@@ -226,7 +241,8 @@
     "avg": "ממוצע",
     "min": "מינימום",
     "max": "מקסימום",
-    "minMax": "מינימום–מקסימום"
+    "minMax": "מינימום–מקסימום",
+    "statusChanges": "שינויי מצב"
   },
   "range": {
     "1h": "שעה",
@@ -257,13 +273,18 @@
     "none": "אין אירועים.",
     "system": "מערכת",
     "filteredDevice": "מסונן לפי התקן #{{id}}.",
-    "filteredSensor": "מסונן לפי חיישן #{{id}}."
+    "filteredSensor": "מסונן לפי חיישן #{{id}}.",
+    "maintenance": "תחזוקה",
+    "inMaintenance": "בזמן תחזוקה",
+    "notInMaintenance": "מחוץ לתחזוקה"
   },
   "eventKind": {
     "status_change": "שינוי סטטוס",
     "notification": "התראה",
     "system": "מערכת",
-    "discovery": "גילוי"
+    "discovery": "גילוי",
+    "acknowledge": "אישור",
+    "maintenance": "תחזוקה"
   },
   "pagination": {
     "range": "{{from}}–{{to}} מתוך {{total}}",
@@ -338,7 +359,12 @@
     "healthLine": "גרסה {{version}} · מסד נתונים {{db}} · {{mode}} · מנוע דגימה {{poller}} · חיישנים מתוזמנים: {{count}}",
     "security": {
       "none": "ללא"
-    }
+    },
+    "timezone": "אזור זמן",
+    "timezoneHint": "משמש לחלונות תחזוקה שבועיים ולשעות בהתראות.",
+    "topologyRefresh": "רענון טופולוגיה (דקות)",
+    "topologyRefreshHint": "כל כמה זמן נקראים שכני LLDP/CDP. 0 = כבוי.",
+    "topologyRefreshErr": "0 (כבוי) או 5 עד 1440."
   },
   "users": {
     "title": "משתמשים",
@@ -415,7 +441,12 @@
     "too_many_hosts": "היעדים מתרחבים ליותר מדי מארחים.",
     "too_many_hosts_count": "היעדים מתרחבים ל-{{hosts}} מארחים; המגבלה היא {{max}}.",
     "telegram_error": "שליחת הודעת הטלגרם נכשלה",
-    "device_exists": "כבר קיים התקן עם הכתובת הזו."
+    "device_exists": "כבר קיים התקן עם הכתובת הזו.",
+    "dependency_cycle": "התלות הזו יוצרת לולאה (התקן יהיה תלוי בעצמו).",
+    "dependency_cycle_path": "התלות הזו יוצרת לולאה: {{path}}.",
+    "not_acknowledgeable": "אפשר לאשר רק חיישנים בתקלה או באזהרה.",
+    "topology_refresh_running": "רענון טופולוגיה כבר פועל.",
+    "link_not_manual": "אי אפשר לערוך קישורים שהתגלו; רק קישורים ידניים."
   },
   "sensorType": {
     "ping": "Ping",
@@ -501,7 +532,9 @@
       "label": "תווית",
       "percent_of_oid": "אחוז מתוך OID (מחלק)",
       "expected": "טקסט צפוי",
-      "match": "התאמה"
+      "match": "התאמה",
+      "value_map": "מיפוי ערכים",
+      "value_map_default": "מצב לערכים אחרים"
     },
     "snmp_disk": {
       "storage_descr": "אחסון (תיאור)",
@@ -552,7 +585,8 @@
       "value_type": {
         "gauge": "מד (מספר)",
         "counter": "מונה (קצב לשנייה)",
-        "string": "התאמת טקסט"
+        "string": "התאמת טקסט",
+        "enum": "קוד מצב (מיפוי ערכים)"
       },
       "match": {
         "equals": "שווה ל",
@@ -637,7 +671,9 @@
       "max_reached": "הגיע למגבלה",
       "no_rows": "לא נמצא דבר בהתקן",
       "other": "דולג"
-    }
+    },
+    "entryEnum": "מצב לפי מיפוי ערכים",
+    "matchEnterprises": "enterprise {{list}}"
   },
   "discovery": {
     "title": "גילוי",
@@ -697,7 +733,8 @@
       "ports": "1–32 פורטים בין 1 ל-65535.",
       "communities": "עד 5 קהילות של עד 64 תווים.",
       "v3": "עד 3 משתמשי v3, לכל אחד שם משתמש.",
-      "hours": "בין 1 ל-720 שעות."
+      "hours": "בין 1 ל-720 שעות.",
+      "fingerprintTimeout": "500 עד 5000 ms."
     },
     "saveAsProfile": "שמירה כפרופיל",
     "profileName": "שם הפרופיל",
@@ -800,6 +837,281 @@
     "importBudget": "זמן הייבוא הסתיים לפני שהגיע למארח הזה",
     "retrySelected": "המארחים לניסיון חוזר עדיין נבחרים.",
     "profileSavedBusy": "הפרופיל \"{{name}}\" נשמר; כבר פועלת סריקה — הריצו אותו מאוחר יותר.",
-    "openProfiles": "פרופילים שמורים"
+    "openProfiles": "פרופילים שמורים",
+    "optFingerprint": "טביעת אצבע (web/SSH/telnet)",
+    "fingerprintHint": "קורא את כותרת דף האינטרנט, כותרת השרת ובאנר SSH/telnet של מארחים עם פורטים 80/443/8080/8443/22/23 פתוחים, כדי לזהות התקנים בלי SNMP. לא נשלחים פרטי התחברות.",
+    "fingerprintTimeout": "זמן קצוב לטביעת אצבע (ms)"
+  },
+  "ack": {
+    "acknowledged": "אושר",
+    "action": "אישור תקלה",
+    "by": "אושר על ידי {{by}} ב-{{at}}",
+    "comment": "הערה",
+    "commentHint": "רשות, למשל \"מחליפים ספק כוח, צפי 14:00\". גלוי לכולם.",
+    "done": "התקלה אושרה.",
+    "explain": "אישור משתיק את ההתראות הנוספות על התקלה הזו (תקלה, הסלמה ותזכורות). המצב לא משתנה, והאישור מתבטל אוטומטית בשינוי המצב הבא. התראת החזרה לתקינות עדיין נשלחת.",
+    "title": "אישור {{name}}",
+    "tooltip": "אושר על ידי {{by}} ב-{{at}}",
+    "unack": "ביטול אישור",
+    "unknownUser": "משתמש שנמחק"
+  },
+  "dependency": {
+    "title": "תלות",
+    "mode": "התקן אב",
+    "modes": {
+      "inherit": "בירושה מהקבוצה",
+      "inheritParent": "בירושה מקבוצת האב",
+      "none": "ללא",
+      "device": "תלוי בהתקן"
+    },
+    "deviceHint": "כשהתקן האב מושבת, חיישנים של ההתקן הזה שנכשלים מוצגים כלא נגישים ואינם שולחים התראה.",
+    "groupHint": "התקני הקבוצה (ותתי-הקבוצות) שיורשים משתמשים בהתקן האב הזה. התקן שהוא עצמו האב אינו מושפע.",
+    "parentDevice": "התקן אב",
+    "searchDevice": "חיפוש…",
+    "chooseDevice": "— בחרו התקן —",
+    "sensor": "חיישן תלות",
+    "sensorAuto": "פינג / זמינות (אוטומטי)",
+    "sensorHint": "האב נחשב מושבת כשהחיישן הזה מושבת. אוטומטי = חיישן הפינג שלו, אחרת כל החיישנים שלו.",
+    "effective": "בפועל: תלוי ב-",
+    "effectiveNone": "בפועל: אין התקן אב",
+    "fromGroup": "מהקבוצה {{group}}",
+    "fromDevice": "הוגדר בהתקן",
+    "parent": "התקן אב",
+    "parentDownPrefix": "התקן האב",
+    "parentDownSuffix": "מושבת — חיישנים שנכשלים מוצגים כלא נגישים.",
+    "unreachableMsg": "לא נגיש (התקן האב <p>{{name}}</p> מושבת)"
+  },
+  "maintenance": {
+    "title": "חלונות תחזוקה",
+    "add": "הוספת חלון תחזוקה",
+    "addShort": "תחזוקה",
+    "edit": "עריכת חלון תחזוקה",
+    "deleteTitle": "מחיקת חלון תחזוקה",
+    "badge": "בתחזוקה",
+    "badgeUntil": "בתחזוקה עד {{time}}",
+    "globalBanner": "התחזוקה \"{{name}}\" פעילה לכל ההתקנים עד {{time}}. ההתראות מושהות.",
+    "view": "הצגה",
+    "scope": "חל על",
+    "scopes": {
+      "global": "כל ההתקנים",
+      "group": "קבוצה",
+      "device": "התקן"
+    },
+    "group": "קבוצה (כולל תתי-קבוצות)",
+    "device": "התקן",
+    "kind": "תזמון",
+    "kinds": {
+      "once": "חד-פעמי",
+      "weekly": "שבועי"
+    },
+    "starts": "התחלה",
+    "ends": "סיום",
+    "weekdays": "ימים",
+    "startTime": "שעת התחלה",
+    "durationMin": "משך (דקות)",
+    "comment": "הערה",
+    "tzNote": "השעות לפי אזור הזמן של השרת:",
+    "tzHeader": "אזור זמן:",
+    "preview": "המופעים הבאים (14 יום)",
+    "occurrences": "המופעים הקרובים",
+    "noOccurrences": "אין מופע ב-14 הימים הקרובים.",
+    "scheduleWeekly": "בכל {{days}} ב-{{time}} · {{duration}}",
+    "everyDay": "יום",
+    "activeBadge": "פעיל עכשיו",
+    "disabled": "מושבת",
+    "currentOccurrence": "נוכחי",
+    "nextOccurrence": "הבא",
+    "noneLeft": "אין מופעים נוספים",
+    "coveredDevices_one": "התקן אחד בתחזוקה כעת",
+    "coveredDevices_two": "2 התקנים בתחזוקה כעת",
+    "coveredDevices_other": "{{count}} התקנים בתחזוקה כעת",
+    "showPast": "הצגה",
+    "hidePast": "הסתרה",
+    "sections": {
+      "active": "פעילים עכשיו",
+      "upcoming": "קרובים",
+      "recurring": "חוזרים",
+      "past": "שהסתיימו"
+    },
+    "empty": {
+      "active": "אין חלון פעיל כרגע.",
+      "upcoming": "אין חלון חד-פעמי קרוב.",
+      "recurring": "אין חלון שבועי.",
+      "past": "אין חלונות שהסתיימו."
+    },
+    "err": {
+      "endBeforeStart": "הסיום חייב להיות אחרי ההתחלה.",
+      "tooLong": "עד 366 ימים.",
+      "weekdays": "בחרו לפחות יום אחד.",
+      "time": "בפורמט HH:MM (00:00–23:59).",
+      "duration": "1 עד 10080 דקות (7 ימים)."
+    }
+  },
+  "escalation": {
+    "title": "הסלמה ותזכורות",
+    "on": "פעיל",
+    "help": "הסלמה שולחת את התקלה לערוצים נוספים אם לא אושרה ולא חזרה לתקינות אחרי הזמן שנקבע (מתחילת התקלה). תזכורות חוזרות על ההתראה לערוצי הכלל. שתיהן נעצרות כשהתקלה מאושרת, חוזרת לתקינות, או כשההתקן בתחזוקה.",
+    "enable": "הסלמה אם לא אושרה",
+    "after": "הסלמה אחרי",
+    "afterHint": "מתחילת התקלה; לפחות ההשהיה שלמעלה (דקה עד 7 ימים).",
+    "minutes": "דקות",
+    "channels": "ערוצי הסלמה",
+    "channelsHint": "מי מקבל את ההסלמה (למשל אחראי התורנות). גם החזרה לתקינות נשלחת אליהם.",
+    "remindEnable": "תזכורת עד אישור או חזרה לתקינות",
+    "repeat": "תזכורת כל",
+    "repeatHint": "נשלחת לערוצי הכלל; 5 דקות עד 7 ימים.",
+    "summary": "הסלמה אחרי {{after}} אל {{channels}}",
+    "summaryRepeat": "תזכורת כל {{every}}",
+    "err": {
+      "after": "בין 1 ל-10080 דקות.",
+      "afterDelay": "חייב להיות לפחות כמו ההשהיה.",
+      "channels": "בחרו לפחות ערוץ הסלמה אחד.",
+      "repeat": "בין 5 ל-10080 דקות.",
+      "statuses": "הסלמה ותזכורות דורשות \"מושבת\" או \"אזהרה\" במצבים."
+    }
+  },
+  "identify": {
+    "action": "זיהוי מחדש",
+    "title": "זהות",
+    "running": "מזהה את ההתקן (SNMP, פורטים, טביעת web/SSH)… עד 40 שניות.",
+    "suggested": "תבנית מוצעת",
+    "identifiedAt": "זוהה",
+    "applySuggested": "החלת התבנית המוצעת"
+  },
+  "fingerprint": {
+    "heading": "טביעת אצבע",
+    "title": "כותרת",
+    "server": "שרת",
+    "realm": "Realm",
+    "markers": "סמנים",
+    "ssh": "SSH",
+    "telnet": "Telnet",
+    "none": "לא זוהה דבר.",
+    "redirects_one": "הפניה אחת",
+    "redirects_two": "2 הפניות",
+    "redirects_other": "{{count}} הפניות"
+  },
+  "confidence": {
+    "label": "ודאות",
+    "high": "גבוהה",
+    "medium": "בינונית",
+    "low": "נמוכה"
+  },
+  "classifiedBy": {
+    "label": "זוהה לפי",
+    "snmp": "SNMP",
+    "fingerprint": "Web/SSH",
+    "ports": "פורטים",
+    "none": "ניחוש"
+  },
+  "valueMap": {
+    "value": "ערך",
+    "status": "מצב",
+    "text": "טקסט",
+    "textPlaceholder": "למשל תקין",
+    "add": "הוספת ערך",
+    "hint": "ערך שלם ← מצב וטקסט. ערכים שלא ברשימה מקבלים את מצב ברירת המחדל.",
+    "other": "אחר",
+    "unexpected": "ערך לא צפוי",
+    "current": "הערך הנוכחי",
+    "err": {
+      "integer": "הערכים חייבים להיות מספרים שלמים.",
+      "duplicate": "כל ערך יכול להופיע פעם אחת בלבד.",
+      "text": "טקסט: עד 32 תווים.",
+      "tooMany": "עד 32 ערכים.",
+      "empty": "הוסיפו לפחות ערך אחד."
+    }
+  },
+  "topology": {
+    "title": "מפת רשת",
+    "refresh": "רענון טופולוגיה",
+    "refreshStarted": "רענון הטופולוגיה התחיל.",
+    "refreshRunning": "קורא שכני LLDP/CDP…",
+    "neverRefreshed": "עדיין לא רוענן.",
+    "lastRefresh": "רענון אחרון {{when}}",
+    "refreshStatus": {
+      "running": "פועל",
+      "completed": "הושלם",
+      "failed": "נכשל"
+    },
+    "refreshCounts": "{{ok}}/{{total}} התקנים, {{links}} קישורים",
+    "refreshFailed_one": "התקן אחד נכשל",
+    "refreshFailed_two": "2 התקנים נכשלו",
+    "refreshFailed_other": "{{count}} התקנים נכשלו",
+    "group": "קבוצה",
+    "includeStale": "כולל קישורים ישנים",
+    "showTraffic": "הצגת תעבורה",
+    "saveLayout": "שמירת פריסה",
+    "layoutSaved": "הפריסה נשמרה.",
+    "resetLayout": "איפוס פריסה",
+    "resetConfirm": "לשכוח את כל מיקומי הצמתים ולסדר את המפה מחדש אוטומטית?",
+    "deleteStale_one": "מחיקת קישור ישן אחד",
+    "deleteStale_two": "מחיקת 2 קישורים ישנים",
+    "deleteStale_other": "מחיקת {{count}} קישורים ישנים",
+    "deleteStaleConfirm_one": "למחוק קישור ישן אחד? קישורים שידווחו שוב ייווצרו מחדש ברענון הבא.",
+    "deleteStaleConfirm_two": "למחוק 2 קישורים ישנים? קישורים שידווחו שוב ייווצרו מחדש ברענון הבא.",
+    "deleteStaleConfirm_other": "למחוק {{count}} קישורים ישנים? קישורים שידווחו שוב ייווצרו מחדש ברענון הבא.",
+    "staleDeleted_one": "נמחק קישור ישן אחד.",
+    "staleDeleted_two": "נמחקו 2 קישורים ישנים.",
+    "staleDeleted_other": "נמחקו {{count}} קישורים ישנים.",
+    "empty": "אין התקנים להצגה. הוסיפו התקנים עם חיישני SNMP ורעננו את הטופולוגיה.",
+    "hint": "לחיצה על התקן פותחת אותו; על קישור או שכן לא מנוהל — פרטים. גררו כדי לסדר; צביטה או גלילה לזום.",
+    "unmanaged": "שכן לא מנוהל",
+    "unmanagedHint": "דווח ב-LLDP/CDP אך אינו מנוטר.",
+    "linkUp": "ממשק פעיל",
+    "linkDown": "ממשק מושבת",
+    "linkNoSensor": "אין חיישן ממשק",
+    "linkStale": "ישן (לא דווח לאחרונה)",
+    "link": "קישור",
+    "source": {
+      "lldp": "LLDP",
+      "cdp": "CDP",
+      "manual": "ידני"
+    },
+    "stale_one": "ישן · החמיץ רענון אחד",
+    "stale_two": "ישן · החמיץ 2 רענונים",
+    "stale_other": "ישן · החמיץ {{count}} רענונים",
+    "port": "פורט",
+    "interfaceSensor": "חיישן ממשק",
+    "firstSeen": "נראה לראשונה",
+    "lastSeen": "נראה לאחרונה",
+    "deleteLink": "מחיקת קישור",
+    "deleteLinkConfirm": "למחוק את הקישור {{a}} ↔ {{b}}?",
+    "deleteDiscoveredHint": "קישור שהתגלה יחזור ברענון הבא אם המתגים עדיין מדווחים עליו.",
+    "chassisId": "מזהה Chassis",
+    "mgmtAddress": "כתובת ניהול",
+    "addAsDevice": "הוספה כהתקן",
+    "addLink": "הוספת קישור",
+    "endA": "צד A",
+    "endB": "צד B",
+    "endBKind": "מחובר אל",
+    "bKind": {
+      "device": "התקן",
+      "neighbor": "שכן לא מנוהל"
+    },
+    "device": "התקן",
+    "neighbor": "שכן",
+    "chooseNeighbor": "— בחרו שכן —",
+    "interface": "ממשק",
+    "noInterface": "— ללא —",
+    "noInterfaces": "לא ניתן לקרוא ממשקים; הקלידו את שם הפורט.",
+    "suggest": "הצעת תלויות",
+    "suggestTitle": "תלויות מוצעות",
+    "suggestHint": "התקני אב שנגזרו מהקישורים (מהשורש החוצה). בדקו והחילו את מה שתרצו; שום דבר לא משתנה אוטומטית.",
+    "root": "התקן שורש",
+    "rootHint": "בדרך כלל מתג הליבה או הנתב. ריק = ההתקן עם הכי הרבה קישורים.",
+    "rootUsed": "שורש: {{name}}",
+    "current": "נוכחי",
+    "suggested": "התקן אב מוצע",
+    "hops": "קפיצות",
+    "alreadyEffective": "כבר בתוקף",
+    "inheritEffective": "בירושה ({{name}})",
+    "noSuggestions": "אין הצעות: אין קישורים מהשורש.",
+    "applySelected_one": "החלת הנבחר",
+    "applySelected_two": "החלת 2 נבחרים",
+    "applySelected_other": "החלת {{count}} נבחרים",
+    "applied_one": "התלות הוגדרה בהתקן אחד.",
+    "applied_two": "התלות הוגדרה בשני התקנים.",
+    "applied_other": "התלות הוגדרה ב-{{count}} התקנים."
   }
 }

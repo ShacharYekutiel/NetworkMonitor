@@ -4,6 +4,7 @@ with exactly the api.md field names)."""
 from __future__ import annotations
 
 import re
+from datetime import datetime
 from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
@@ -13,7 +14,7 @@ EMAIL_RE = re.compile(r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
 
 Role = Literal["admin", "viewer"]
 Language = Literal["en", "he"]
-StatusLit = Literal["up", "warning", "down", "paused", "unknown"]
+StatusLit = Literal["up", "warning", "down", "paused", "unknown", "unreachable"]
 
 
 class _In(BaseModel):
@@ -38,11 +39,24 @@ def _username(v: str) -> str:
 
 
 # ---------------------------------------------------------------- setup / auth / users
+def _tz(v: str | None) -> str | None:
+    from netmon.services.maintenance import valid_timezone
+
+    if v is None:
+        return None
+    if not valid_timezone(v):
+        raise ValueError("must be a valid IANA time zone name (e.g. Asia/Jerusalem)")
+    return v
+
+
 class SetupIn(_In):
     username: str
     password: str = Field(min_length=8, max_length=128)
     email: str | None = None
     language: Language = "en"
+    timezone: str | None = None  # [2b-1]
+
+    _tzv = field_validator("timezone")(lambda cls, v: _tz(v))
 
     _u = field_validator("username")(lambda cls, v: _username(v))
     _e = field_validator("email")(lambda cls, v: _email(v))
@@ -110,6 +124,33 @@ class SnmpIn(_In):
         return v
 
 
+# ---------------------------------------------------------------- [2b-1] dependencies
+class DependencyIn(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    mode: Literal["inherit", "none", "device"]
+    device_id: int | None = None
+    sensor_id: int | None = None
+
+
+class DependencyBulkItem(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    device_id: int
+    dependency: DependencyIn
+
+
+class DependencyBulkIn(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    items: list[DependencyBulkItem] = Field(min_length=1, max_length=1000)
+
+    @field_validator("items")
+    @classmethod
+    def _unique(cls, v: list[DependencyBulkItem]) -> list[DependencyBulkItem]:
+        ids = [i.device_id for i in v]
+        if len(set(ids)) != len(ids):
+            raise ValueError("device_id values must be unique")
+        return v
+
+
 # ---------------------------------------------------------------- groups / devices
 class GroupCreate(_In):
     name: str = Field(min_length=1, max_length=128)
@@ -117,6 +158,7 @@ class GroupCreate(_In):
     description: str = Field(default="", max_length=10000)
     snmp_credentials: SnmpIn | None = None
     sort_order: int = 0
+    dependency: DependencyIn | None = None
 
 
 class GroupPatch(_In):
@@ -125,6 +167,7 @@ class GroupPatch(_In):
     description: str | None = Field(default=None, max_length=10000)
     snmp_credentials: SnmpIn | None = None
     sort_order: int | None = None
+    dependency: DependencyIn | None = None
 
 
 def validate_http_url(v: str) -> str:
@@ -166,6 +209,7 @@ class DeviceCreate(_In):
     snmp_credentials: SnmpIn | None = None
     sort_order: int = 0
     auto_sensors: list[str] = Field(default_factory=list)
+    dependency: DependencyIn | None = None
 
     _h = field_validator("host")(lambda cls, v: _host(v))
 
@@ -178,6 +222,7 @@ class DevicePatch(_In):
     enabled: bool | None = None
     snmp_credentials: SnmpIn | None = None
     sort_order: int | None = None
+    dependency: DependencyIn | None = None
 
     @field_validator("host")
     @classmethod
@@ -307,6 +352,9 @@ class AlertRuleCreate(_In):
     delay_s: int = Field(default=0, ge=0, le=86400)
     enabled: bool = True
     channel_ids: list[int] = Field(min_length=1)
+    escalation_after_s: int | None = Field(default=None, ge=60, le=604800)  # [2b-1]
+    escalation_channel_ids: list[int] = Field(default_factory=list, max_length=100)
+    repeat_every_s: int | None = Field(default=None, ge=300, le=604800)
 
 
 class AlertRulePatch(_In):
@@ -316,6 +364,94 @@ class AlertRulePatch(_In):
     delay_s: int | None = Field(default=None, ge=0, le=86400)
     enabled: bool | None = None
     channel_ids: list[int] | None = Field(default=None, min_length=1)
+    escalation_after_s: int | None = Field(default=None, ge=60, le=604800)  # [2b-1]
+    escalation_channel_ids: list[int] | None = Field(default=None, max_length=100)
+    repeat_every_s: int | None = Field(default=None, ge=300, le=604800)
+
+
+# ---------------------------------------------------------------- [2b-1] acknowledge
+class AcknowledgeIn(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    comment: str = Field(default="", max_length=1000)
+
+
+# ---------------------------------------------------------------- [2b-1] maintenance
+START_TIME_RE = re.compile(r"^([01]\d|2[0-3]):[0-5]\d$")
+
+
+class MaintenanceWindowIn(BaseModel):
+    """Create (all fields) and PATCH (subset) of a maintenance window; the cross-field rules
+    are checked in the API on the merged state."""
+
+    model_config = ConfigDict(extra="forbid")
+    name: str | None = Field(default=None, min_length=1, max_length=128)
+    enabled: bool | None = None
+    scope: Literal["global", "group", "device"] | None = None
+    group_id: int | None = None
+    device_id: int | None = None
+    kind: Literal["once", "weekly"] | None = None
+    starts_at: datetime | None = None
+    ends_at: datetime | None = None
+    weekdays: list[int] | None = Field(default=None, max_length=7)
+    start_time: str | None = None
+    duration_min: int | None = Field(default=None, ge=1, le=10080)
+    comment: str | None = Field(default=None, max_length=1000)
+
+    @field_validator("start_time")
+    @classmethod
+    def _st(cls, v: str | None) -> str | None:
+        if v is not None and not START_TIME_RE.match(v):
+            raise ValueError("must be HH:MM (00:00-23:59)")
+        return v
+
+    @field_validator("weekdays")
+    @classmethod
+    def _wd(cls, v: list[int] | None) -> list[int] | None:
+        if v is None:
+            return v
+        if not v:
+            raise ValueError("must not be empty")
+        if any(not 1 <= d <= 7 for d in v) or len(set(v)) != len(v):
+            raise ValueError("ISO weekdays 1-7, distinct")
+        return sorted(v)
+
+    @field_validator("starts_at", "ends_at")
+    @classmethod
+    def _aware(cls, v: datetime | None) -> datetime | None:
+        if v is not None and v.tzinfo is None:
+            from datetime import UTC
+
+            v = v.replace(tzinfo=UTC)
+        return v
+
+
+# ---------------------------------------------------------------- [2b-1] topology
+class TopologyLinkIn(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    a_device_id: int | None = None
+    a_if_index: int | None = Field(default=None, ge=1)
+    a_port: str | None = Field(default=None, max_length=255)
+    b_device_id: int | None = None
+    b_neighbor_id: int | None = None
+    b_if_index: int | None = Field(default=None, ge=1)
+    b_port: str | None = Field(default=None, max_length=255)
+
+
+class LayoutPosition(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    node: str = Field(min_length=1, max_length=32)
+    x: float
+    y: float
+
+
+class LayoutIn(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    positions: list[LayoutPosition] = Field(min_length=1, max_length=5000)
+
+
+class ClockIn(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    offset_s: int = Field(ge=-31536000, le=31536000)
 
 
 # ---------------------------------------------------------------- settings
@@ -343,6 +479,17 @@ class SettingsPut(_In):
     default_interval_s: int | None = Field(default=None, ge=10, le=86400)
     default_language: Language | None = None
     public_base_url: str | None = Field(default=None, max_length=512)
+    timezone: str | None = None  # [2b-1]
+    topology_refresh_min: int | None = Field(default=None, ge=0, le=1440)  # [2b-1]
+
+    _tzv = field_validator("timezone")(lambda cls, v: _tz(v))
+
+    @field_validator("topology_refresh_min")
+    @classmethod
+    def _trm(cls, v: int | None) -> int | None:
+        if v is not None and 0 < v < 5:
+            raise ValueError("must be 0 (off) or 5-1440")
+        return v
 
     @field_validator("public_base_url")
     @classmethod
@@ -434,6 +581,8 @@ class ScanOptionsIn(BaseModel):
     tcp_ports: list[int] | None = Field(default=None, min_length=1, max_length=32)
     tcp_timeout_ms: int | None = Field(default=None, ge=100, le=5000)
     dns: bool | None = None
+    fingerprint: bool | None = None  # [2b-1]
+    fingerprint_timeout_ms: int | None = Field(default=None, ge=500, le=5000)  # [2b-1]
 
     @field_validator("extra_communities")
     @classmethod

@@ -187,6 +187,9 @@ async def _rule_out(session: DB, r: AlertRule) -> dict:
         "delay_s": r.delay_s,
         "enabled": r.enabled,
         "channel_ids": list(chans),
+        "escalation_after_s": r.escalation_after_s,
+        "escalation_channel_ids": sorted(r.escalation_channel_ids or []),
+        "repeat_every_s": r.repeat_every_s,
         "created_at": iso(r.created_at),
         "updated_at": iso(r.updated_at),
     }
@@ -210,6 +213,47 @@ async def _check_refs(session: DB, sensor_id: int | None, channel_ids: list[int]
 
 def _dedupe(values: list[Any]) -> list[Any]:
     return list(dict.fromkeys(values))
+
+
+async def _check_escalation(
+    session: DB,
+    on_statuses: list[str],
+    delay_s: int,
+    escalation_after_s: int | None,
+    escalation_channel_ids: list[int],
+    repeat_every_s: int | None,
+    check_channels: bool,
+) -> None:
+    """[2b-1] escalation_after_s and escalation_channel_ids together; >= delay_s;
+    escalation/repeat need down or warning in on_statuses; channels must exist."""
+    if (escalation_after_s is None) != (not escalation_channel_ids):
+        loc = "escalation_channel_ids" if escalation_after_s is not None else "escalation_after_s"
+        raise validation_error(
+            ["body", loc], "escalation_after_s and escalation_channel_ids must be given together"
+        )
+    if escalation_after_s is not None and escalation_after_s < delay_s:
+        raise validation_error(["body", "escalation_after_s"], "must be >= delay_s")
+    if (escalation_after_s is not None or repeat_every_s is not None) and not (
+        {"down", "warning"} & set(on_statuses)
+    ):
+        raise validation_error(
+            ["body", "on_statuses"], "escalation and reminders need down or warning"
+        )
+    if check_channels and escalation_channel_ids:
+        found = set(
+            (
+                await session.execute(
+                    select(NotificationChannel.id).where(
+                        NotificationChannel.id.in_(escalation_channel_ids)
+                    )
+                )
+            ).scalars()
+        )
+        missing = [c for c in escalation_channel_ids if c not in found]
+        if missing:
+            raise validation_error(
+                ["body", "escalation_channel_ids"], f"unknown channel id(s): {missing}"
+            )
 
 
 @router.get("/api/alert-rules")
@@ -242,12 +286,25 @@ async def list_rules(_: Admin, session: DB, pg: Page, sensor_id: str | None = No
 async def create_rule(body: AlertRuleCreate, _: Admin, rt: RT, session: DB) -> dict:
     channel_ids = _dedupe(body.channel_ids)
     await _check_refs(session, body.sensor_id, channel_ids)
+    esc_ids = _dedupe(body.escalation_channel_ids)
+    await _check_escalation(
+        session,
+        list(body.on_statuses),
+        body.delay_s,
+        body.escalation_after_s,
+        esc_ids,
+        body.repeat_every_s,
+        True,
+    )
     r = AlertRule(
         name=body.name.strip(),
         sensor_id=body.sensor_id,
         on_statuses=_dedupe(list(body.on_statuses)),
         delay_s=body.delay_s,
         enabled=body.enabled,
+        escalation_after_s=body.escalation_after_s,
+        escalation_channel_ids=esc_ids,
+        repeat_every_s=body.repeat_every_s,
     )
     session.add(r)
     await session.flush()
@@ -289,6 +346,23 @@ async def patch_rule(rule_id: int, body: AlertRulePatch, _: Admin, rt: RT, sessi
         r.delay_s = body.delay_s
     if body.enabled is not None:
         r.enabled = body.enabled
+    if "escalation_after_s" in fields:
+        r.escalation_after_s = body.escalation_after_s
+        if body.escalation_after_s is None:
+            r.escalation_channel_ids = []  # clearing the escalation clears its channels
+    if "escalation_channel_ids" in fields and body.escalation_channel_ids is not None:
+        r.escalation_channel_ids = _dedupe(body.escalation_channel_ids)
+    if "repeat_every_s" in fields:
+        r.repeat_every_s = body.repeat_every_s
+    await _check_escalation(
+        session,
+        list(r.on_statuses),
+        int(r.delay_s),
+        r.escalation_after_s,
+        list(r.escalation_channel_ids or []),
+        r.repeat_every_s,
+        "escalation_channel_ids" in fields,
+    )
     if channel_ids is not None:
         await session.execute(delete(AlertRuleChannel).where(AlertRuleChannel.rule_id == r.id))
         for cid in channel_ids:

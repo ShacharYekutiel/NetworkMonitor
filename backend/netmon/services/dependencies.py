@@ -266,7 +266,9 @@ async def _cascade(rt: Runtime, events: list[Event]) -> None:
                 to_unreachable[cid] = inv.devices[eff.device_id]["name"]
         else:
             recheck += [
-                s for s in inv.device_sensors.get(cid, []) if inv.sensors[s]["status"] == "unreachable"
+                s
+                for s in inv.device_sensors.get(cid, [])
+                if inv.sensors[s]["status"] == "unreachable"
             ]
     new_events: list[Any] = []
     if to_unreachable:
@@ -276,9 +278,7 @@ async def _cascade(rt: Runtime, events: list[Event]) -> None:
                 (
                     await session.execute(
                         select(Sensor)
-                        .where(
-                            Sensor.device_id.in_(list(to_unreachable)), Sensor.status == "down"
-                        )
+                        .where(Sensor.device_id.in_(list(to_unreachable)), Sensor.status == "down")
                         .with_for_update()
                     )
                 )
@@ -337,3 +337,79 @@ def _iso(dt: Any) -> str | None:
     from netmon.services.serialize import iso
 
     return iso(dt)
+
+
+# ------------------------------------------------------------------ API helpers
+async def validated_dependency(
+    session: AsyncSession, dep: Any, loc: list[Any]
+) -> tuple[str, int | None, int | None]:
+    """DependencyIn -> (mode, device_id, sensor_id). Raises ApiError(422) with `loc` prefix
+    (e.g. ["body", "dependency"])."""
+    from netmon.api.errors import validation_error
+
+    if dep.mode != "device":
+        if dep.device_id is not None:
+            raise validation_error([*loc, "device_id"], f"must be null for mode {dep.mode}")
+        if dep.sensor_id is not None:
+            raise validation_error([*loc, "sensor_id"], f"must be null for mode {dep.mode}")
+        return dep.mode, None, None
+    if dep.device_id is None:
+        raise validation_error([*loc, "device_id"], "required for mode device")
+    exists = (
+        await session.execute(text("SELECT 1 FROM devices WHERE id = :id"), {"id": dep.device_id})
+    ).first()
+    if exists is None:
+        raise validation_error([*loc, "device_id"], "device does not exist")
+    if dep.sensor_id is not None:
+        owner = (
+            await session.execute(
+                text("SELECT device_id FROM sensors WHERE id = :id"), {"id": dep.sensor_id}
+            )
+        ).scalar_one_or_none()
+        if owner != dep.device_id:
+            raise validation_error([*loc, "sensor_id"], "sensor does not belong to the device")
+    return "device", dep.device_id, dep.sensor_id
+
+
+def apply_dependency(obj: Any, values: tuple[str, int | None, int | None]) -> None:
+    obj.dependency_mode, obj.dependency_device_id, obj.dependency_sensor_id = values
+
+
+async def check_no_cycle(session: AsyncSession) -> None:
+    """On the session's current (flushed, uncommitted) state; raises 400 dependency_cycle."""
+    from netmon.api.errors import ApiError
+    from netmon.services.status import load_inventory
+
+    await session.flush()
+    cycle = find_cycle(await load_inventory(session))
+    if cycle is not None:
+        raise ApiError(
+            400,
+            "dependency_cycle",
+            "This dependency would create a cycle: " + " -> ".join(str(i) for i in cycle),
+            [{"device_ids": cycle}],
+        )
+
+
+async def reset_dependents(session: AsyncSession, device_id: int) -> list[int]:
+    """Device delete: dependents fall back to `none` (same transaction). Returns the
+    affected device ids."""
+    ids = list(
+        (
+            await session.execute(
+                text(
+                    "UPDATE devices SET dependency_mode = 'none', dependency_device_id = NULL, "
+                    "dependency_sensor_id = NULL WHERE dependency_device_id = :id RETURNING id"
+                ),
+                {"id": device_id},
+            )
+        ).scalars()
+    )
+    await session.execute(
+        text(
+            "UPDATE groups SET dependency_mode = 'none', dependency_device_id = NULL, "
+            "dependency_sensor_id = NULL WHERE dependency_device_id = :id"
+        ),
+        {"id": device_id},
+    )
+    return ids

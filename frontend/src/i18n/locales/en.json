@@ -33,7 +33,8 @@
     "warning": "Warning",
     "down": "Down",
     "paused": "Paused",
-    "unknown": "Unknown"
+    "unknown": "Unknown",
+    "unreachable": "Unreachable"
   },
   "role": {
     "admin": "Administrator",
@@ -63,7 +64,9 @@
     "toggleSidebar": "Toggle sidebar",
     "breadcrumbs": "Breadcrumbs",
     "discovery": "Discovery",
-    "templates": "Templates"
+    "templates": "Templates",
+    "maintenance": "Maintenance",
+    "map": "Map"
   },
   "tree": {
     "search": "Search groups, devices, sensors",
@@ -107,7 +110,16 @@
     "deviceCount_one": "{{count}} device",
     "deviceCount_other": "{{count}} devices",
     "sensorCount_one": "{{count}} sensor",
-    "sensorCount_other": "{{count}} sensors"
+    "sensorCount_other": "{{count}} sensors",
+    "acknowledged": "Acknowledged problems",
+    "andMore_one": "and {{count}} more",
+    "andMore_other": "and {{count}} more",
+    "maintenanceActive_one": "{{count}} maintenance window active",
+    "maintenanceActive_other": "{{count}} maintenance windows active",
+    "maintenanceDevices_one": "{{count}} device in maintenance",
+    "maintenanceDevices_other": "{{count}} devices in maintenance",
+    "parent": "parent",
+    "unreachableDevices": "Unreachable devices"
   },
   "groups": {
     "add": "Add group",
@@ -223,7 +235,8 @@
     "avg": "Average",
     "min": "Min",
     "max": "Max",
-    "minMax": "Min–max"
+    "minMax": "Min–max",
+    "statusChanges": "Status changes"
   },
   "range": {
     "1h": "1 hour",
@@ -254,13 +267,18 @@
     "none": "No events.",
     "system": "System",
     "filteredDevice": "Filtered by device #{{id}}.",
-    "filteredSensor": "Filtered by sensor #{{id}}."
+    "filteredSensor": "Filtered by sensor #{{id}}.",
+    "maintenance": "Maintenance",
+    "inMaintenance": "During maintenance",
+    "notInMaintenance": "Outside maintenance"
   },
   "eventKind": {
     "status_change": "Status change",
     "notification": "Notification",
     "system": "System",
-    "discovery": "Discovery"
+    "discovery": "Discovery",
+    "acknowledge": "Acknowledge",
+    "maintenance": "Maintenance"
   },
   "pagination": {
     "range": "{{from}}–{{to}} of {{total}}",
@@ -335,7 +353,12 @@
     "healthLine": "Version {{version}} · database {{db}} · {{mode}} · poller {{poller}} · sensors scheduled: {{count}}",
     "security": {
       "none": "None"
-    }
+    },
+    "timezone": "Time zone",
+    "timezoneHint": "Used for weekly maintenance windows and the times in notifications.",
+    "topologyRefresh": "Topology refresh (minutes)",
+    "topologyRefreshHint": "How often LLDP/CDP neighbours are read. 0 = off.",
+    "topologyRefreshErr": "0 (off) or 5 to 1440."
   },
   "users": {
     "title": "Users",
@@ -409,7 +432,12 @@
     "too_many_hosts": "The targets expand to too many hosts.",
     "too_many_hosts_count": "The targets expand to {{hosts}} hosts; the limit is {{max}}.",
     "telegram_error": "Sending the Telegram message failed",
-    "device_exists": "A device with this address already exists."
+    "device_exists": "A device with this address already exists.",
+    "dependency_cycle": "This dependency would create a loop (a device would depend on itself).",
+    "dependency_cycle_path": "This dependency would create a loop: {{path}}.",
+    "not_acknowledgeable": "Only down or warning sensors can be acknowledged.",
+    "topology_refresh_running": "A topology refresh is already running.",
+    "link_not_manual": "Discovered links cannot be edited; only manual links can."
   },
   "sensorType": {
     "ping": "Ping",
@@ -495,7 +523,9 @@
       "label": "Label",
       "percent_of_oid": "Percent of OID (divisor)",
       "expected": "Expected text",
-      "match": "Match"
+      "match": "Match",
+      "value_map": "Value map",
+      "value_map_default": "Status of other values"
     },
     "snmp_disk": {
       "storage_descr": "Storage (description)",
@@ -546,7 +576,8 @@
       "value_type": {
         "gauge": "Gauge (number)",
         "counter": "Counter (rate per second)",
-        "string": "Text match"
+        "string": "Text match",
+        "enum": "Status code (value map)"
       },
       "match": {
         "equals": "Equals",
@@ -631,7 +662,9 @@
       "max_reached": "Limit reached",
       "no_rows": "Nothing found on the device",
       "other": "Skipped"
-    }
+    },
+    "entryEnum": "status by value map",
+    "matchEnterprises": "enterprise {{list}}"
   },
   "discovery": {
     "title": "Discovery",
@@ -688,7 +721,8 @@
       "ports": "1–32 ports between 1 and 65535.",
       "communities": "Up to 5 communities of at most 64 characters.",
       "v3": "Up to 3 v3 users, each with a username.",
-      "hours": "Between 1 and 720 hours."
+      "hours": "Between 1 and 720 hours.",
+      "fingerprintTimeout": "500 to 5000 ms."
     },
     "saveAsProfile": "Save as profile",
     "profileName": "Profile name",
@@ -789,6 +823,272 @@
     "importBudget": "the import ran out of time before this host",
     "retrySelected": "Hosts to retry are still selected.",
     "profileSavedBusy": "Profile \"{{name}}\" saved; a scan is already running — run it later.",
-    "openProfiles": "Saved profiles"
+    "openProfiles": "Saved profiles",
+    "optFingerprint": "Fingerprint (web/SSH/telnet)",
+    "fingerprintHint": "Reads the web page title, server header and SSH/telnet banner of hosts with ports 80/443/8080/8443/22/23 open, to recognise devices without SNMP. Sends no credentials.",
+    "fingerprintTimeout": "Fingerprint timeout (ms)"
+  },
+  "ack": {
+    "acknowledged": "Acknowledged",
+    "action": "Acknowledge",
+    "by": "Acknowledged by {{by}} at {{at}}",
+    "comment": "Comment",
+    "commentHint": "Optional, e.g. \"Replacing PSU, ETA 14:00\". Shown to everyone.",
+    "done": "Problem acknowledged.",
+    "explain": "Acknowledging silences further problem, escalation and reminder notifications for this problem. The status is unchanged, and the acknowledgement clears automatically on the next status change. Recovery is still notified.",
+    "title": "Acknowledge {{name}}",
+    "tooltip": "Acknowledged by {{by}} at {{at}}",
+    "unack": "Unacknowledge",
+    "unknownUser": "a deleted user"
+  },
+  "dependency": {
+    "title": "Dependency",
+    "mode": "Parent",
+    "modes": {
+      "inherit": "Inherit from group",
+      "inheritParent": "Inherit from parent group",
+      "none": "None",
+      "device": "Depends on device"
+    },
+    "deviceHint": "When the parent device is down, sensors of this device that fail are shown as unreachable and do not alert.",
+    "groupHint": "Devices of this group (and subgroups) that inherit use this parent. A device that is itself the parent is not affected.",
+    "parentDevice": "Parent device",
+    "searchDevice": "Search…",
+    "chooseDevice": "— choose a device —",
+    "sensor": "Dependency sensor",
+    "sensorAuto": "Ping / availability (automatic)",
+    "sensorHint": "The parent counts as down when this sensor is down. Automatic = its ping sensor, else all its sensors.",
+    "effective": "Effective: depends on",
+    "effectiveNone": "Effective: no parent",
+    "fromGroup": "from group {{group}}",
+    "fromDevice": "set on this device",
+    "parent": "Parent",
+    "parentDownPrefix": "Parent",
+    "parentDownSuffix": "is down — sensors that fail are shown as unreachable.",
+    "unreachableMsg": "Unreachable (parent <p>{{name}}</p> down)"
+  },
+  "maintenance": {
+    "title": "Maintenance windows",
+    "add": "Add maintenance window",
+    "addShort": "Maintenance",
+    "edit": "Edit maintenance window",
+    "deleteTitle": "Delete maintenance window",
+    "badge": "In maintenance",
+    "badgeUntil": "In maintenance until {{time}}",
+    "globalBanner": "Maintenance \"{{name}}\" is active for all devices until {{time}}. Notifications are paused.",
+    "view": "View",
+    "scope": "Applies to",
+    "scopes": {
+      "global": "All devices",
+      "group": "Group",
+      "device": "Device"
+    },
+    "group": "Group (with subgroups)",
+    "device": "Device",
+    "kind": "Schedule",
+    "kinds": {
+      "once": "One-time",
+      "weekly": "Weekly"
+    },
+    "starts": "Starts",
+    "ends": "Ends",
+    "weekdays": "Days",
+    "startTime": "Start time",
+    "durationMin": "Duration (minutes)",
+    "comment": "Comment",
+    "tzNote": "Times are in the server time zone:",
+    "tzHeader": "Time zone:",
+    "preview": "Next occurrences (14 days)",
+    "occurrences": "Upcoming occurrences",
+    "noOccurrences": "No occurrence in the next 14 days.",
+    "scheduleWeekly": "Every {{days}} at {{time}} · {{duration}}",
+    "everyDay": "day",
+    "activeBadge": "Active now",
+    "disabled": "Disabled",
+    "currentOccurrence": "Current",
+    "nextOccurrence": "Next",
+    "noneLeft": "No further occurrence",
+    "coveredDevices_one": "{{count}} device in maintenance now",
+    "coveredDevices_other": "{{count}} devices in maintenance now",
+    "showPast": "Show",
+    "hidePast": "Hide",
+    "sections": {
+      "active": "Active now",
+      "upcoming": "Upcoming",
+      "recurring": "Recurring",
+      "past": "Past"
+    },
+    "empty": {
+      "active": "No window is active right now.",
+      "upcoming": "No upcoming one-time window.",
+      "recurring": "No weekly window.",
+      "past": "No past window."
+    },
+    "err": {
+      "endBeforeStart": "The end must be after the start.",
+      "tooLong": "At most 366 days.",
+      "weekdays": "Choose at least one day.",
+      "time": "Use HH:MM (00:00–23:59).",
+      "duration": "1 to 10080 minutes (7 days)."
+    }
+  },
+  "escalation": {
+    "title": "Escalation and reminders",
+    "on": "On",
+    "help": "Escalation sends the problem to more channels when it is neither acknowledged nor recovered after the given time (measured from when the problem began). Reminders repeat the notification to the rule channels. Both stop when the problem is acknowledged, recovers, or the device is in maintenance.",
+    "enable": "Escalate if not acknowledged",
+    "after": "Escalate after",
+    "afterHint": "From the start of the problem; at least the delay above (1 minute to 7 days).",
+    "minutes": "minutes",
+    "channels": "Escalation channels",
+    "channelsHint": "Who gets the escalation (e.g. the on-call manager). The recovery is sent to them too.",
+    "remindEnable": "Remind until acknowledged or recovered",
+    "repeat": "Remind every",
+    "repeatHint": "Sent to the rule channels; 5 minutes to 7 days.",
+    "summary": "Escalates after {{after}} to {{channels}}",
+    "summaryRepeat": "Reminds every {{every}}",
+    "err": {
+      "after": "Between 1 and 10080 minutes.",
+      "afterDelay": "Must be at least the delay.",
+      "channels": "Choose at least one escalation channel.",
+      "repeat": "Between 5 and 10080 minutes.",
+      "statuses": "Escalation and reminders need Down or Warning in the statuses."
+    }
+  },
+  "identify": {
+    "action": "Re-identify",
+    "title": "Identity",
+    "running": "Identifying the device (SNMP, ports, web/SSH fingerprint)… up to 40 seconds.",
+    "suggested": "Suggested template",
+    "identifiedAt": "Identified",
+    "applySuggested": "Apply suggested template"
+  },
+  "fingerprint": {
+    "heading": "Fingerprint",
+    "title": "Title",
+    "server": "Server",
+    "realm": "Realm",
+    "markers": "Markers",
+    "ssh": "SSH",
+    "telnet": "Telnet",
+    "none": "Nothing identified.",
+    "redirects_one": "{{count}} redirect",
+    "redirects_other": "{{count}} redirects"
+  },
+  "confidence": {
+    "label": "Confidence",
+    "high": "high",
+    "medium": "medium",
+    "low": "low"
+  },
+  "classifiedBy": {
+    "label": "Identified by",
+    "snmp": "SNMP",
+    "fingerprint": "Web/SSH",
+    "ports": "Ports",
+    "none": "Guess"
+  },
+  "valueMap": {
+    "value": "Value",
+    "status": "Status",
+    "text": "Text",
+    "textPlaceholder": "e.g. ok",
+    "add": "Add value",
+    "hint": "Integer value → status and text. Values not listed use the default status.",
+    "other": "other",
+    "unexpected": "unexpected value",
+    "current": "Current value",
+    "err": {
+      "integer": "Values must be integers.",
+      "duplicate": "Each value may appear only once.",
+      "text": "Text: at most 32 characters.",
+      "tooMany": "At most 32 values.",
+      "empty": "Add at least one value."
+    }
+  },
+  "topology": {
+    "title": "Network map",
+    "refresh": "Refresh topology",
+    "refreshStarted": "Topology refresh started.",
+    "refreshRunning": "Reading LLDP/CDP neighbours…",
+    "neverRefreshed": "Not refreshed yet.",
+    "lastRefresh": "Last refresh {{when}}",
+    "refreshStatus": {
+      "running": "running",
+      "completed": "completed",
+      "failed": "failed"
+    },
+    "refreshCounts": "{{ok}}/{{total}} devices, {{links}} links",
+    "refreshFailed_one": "{{count}} device failed",
+    "refreshFailed_other": "{{count}} devices failed",
+    "group": "Group",
+    "includeStale": "Include stale links",
+    "showTraffic": "Show traffic",
+    "saveLayout": "Save layout",
+    "layoutSaved": "Layout saved.",
+    "resetLayout": "Reset layout",
+    "resetConfirm": "Forget all node positions and arrange the map automatically again?",
+    "deleteStale_one": "Delete {{count}} stale link",
+    "deleteStale_other": "Delete {{count}} stale links",
+    "deleteStaleConfirm_one": "Delete {{count}} stale link? Links reported again are re-created by the next refresh.",
+    "deleteStaleConfirm_other": "Delete {{count}} stale links? Links reported again are re-created by the next refresh.",
+    "staleDeleted_one": "{{count}} stale link deleted.",
+    "staleDeleted_other": "{{count}} stale links deleted.",
+    "empty": "No devices to show. Add devices with SNMP sensors and refresh the topology.",
+    "hint": "Click a device to open it, a link or an unmanaged neighbour for details. Drag to arrange; pinch or scroll to zoom.",
+    "unmanaged": "Unmanaged neighbour",
+    "unmanagedHint": "Reported by LLDP/CDP but not monitored.",
+    "linkUp": "Interface up",
+    "linkDown": "Interface down",
+    "linkNoSensor": "No interface sensor",
+    "linkStale": "Stale (not reported lately)",
+    "link": "Link",
+    "source": {
+      "lldp": "LLDP",
+      "cdp": "CDP",
+      "manual": "Manual"
+    },
+    "stale_one": "Stale · missed {{count}} refresh",
+    "stale_other": "Stale · missed {{count}} refreshes",
+    "port": "Port",
+    "interfaceSensor": "Interface sensor",
+    "firstSeen": "First seen",
+    "lastSeen": "Last seen",
+    "deleteLink": "Delete link",
+    "deleteLinkConfirm": "Delete the link {{a}} ↔ {{b}}?",
+    "deleteDiscoveredHint": "A discovered link comes back with the next refresh if the switches still report it.",
+    "chassisId": "Chassis ID",
+    "mgmtAddress": "Management address",
+    "addAsDevice": "Add as device",
+    "addLink": "Add link",
+    "endA": "Side A",
+    "endB": "Side B",
+    "endBKind": "Connected to",
+    "bKind": {
+      "device": "A device",
+      "neighbor": "An unmanaged neighbour"
+    },
+    "device": "Device",
+    "neighbor": "Neighbour",
+    "chooseNeighbor": "— choose a neighbour —",
+    "interface": "Interface",
+    "noInterface": "— none —",
+    "noInterfaces": "Interfaces could not be read; type the port name.",
+    "suggest": "Suggest dependencies",
+    "suggestTitle": "Suggested dependencies",
+    "suggestHint": "Parents derived from the links (walking out from the root). Review and apply the ones you want; nothing is changed automatically.",
+    "root": "Root device",
+    "rootHint": "Usually the core switch or router. Empty = the device with the most links.",
+    "rootUsed": "Root: {{name}}",
+    "current": "Current",
+    "suggested": "Suggested parent",
+    "hops": "Hops",
+    "alreadyEffective": "already in effect",
+    "inheritEffective": "Inherit ({{name}})",
+    "noSuggestions": "No suggestions: there are no links from the root.",
+    "applySelected_one": "Apply {{count}} selected",
+    "applySelected_other": "Apply {{count}} selected",
+    "applied_one": "Dependency set on {{count}} device.",
+    "applied_other": "Dependency set on {{count}} devices."
   }
 }

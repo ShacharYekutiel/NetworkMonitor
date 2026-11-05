@@ -86,7 +86,11 @@ export function MaintenanceBadge({
   const title = name ? `${text} — ${name}` : text;
   if (compact)
     return (
-      <span title={title} aria-label={title} className="inline-flex shrink-0 text-sky-600 dark:text-sky-400">
+      <span
+        title={title}
+        aria-label={title}
+        className="inline-flex shrink-0 text-sky-600 dark:text-sky-400"
+      >
         <WrenchIcon size={13} />
       </span>
     );
@@ -172,10 +176,16 @@ export function useScheduleText() {
   const locale = useLocale();
   const tz = useServerTimeZone();
   const names = weekdayNames(locale);
-  return (w: Pick<MaintenanceWindow, 'kind' | 'weekdays' | 'start_time' | 'duration_min' | 'starts_at' | 'ends_at'>) => {
+  return (
+    w: Pick<
+      MaintenanceWindow,
+      'kind' | 'weekdays' | 'start_time' | 'duration_min' | 'starts_at' | 'ends_at'
+    >,
+  ) => {
     if (w.kind === 'weekly') {
       const days = [...(w.weekdays ?? [])].sort((a, b) => a - b);
-      const dayText = days.length === 7 ? t('maintenance.everyDay') : days.map((d) => names[d]).join(', ');
+      const dayText =
+        days.length === 7 ? t('maintenance.everyDay') : days.map((d) => names[d]).join(', ');
       return t('maintenance.scheduleWeekly', {
         days: dayText,
         time: w.start_time ?? '',
@@ -195,14 +205,33 @@ export function OccurrenceList({ items }: { items: { start: string; end: string 
   const { t } = useTranslation();
   const tz = useServerTimeZone();
   const locale = useLocale();
-  if (!items.length) return <p className="text-xs text-slate-500">{t('maintenance.noOccurrences')}</p>;
+  if (!items.length)
+    return <p className="text-xs text-slate-500">{t('maintenance.noOccurrences')}</p>;
   return (
     <ul className="space-y-0.5 text-xs tabular-nums text-slate-600 dark:text-slate-300">
       {items.map((o) => (
         <li key={o.start} className="flex flex-wrap gap-x-1">
-          <bdi>{formatInTz(o.start, tz, locale, { weekday: 'short', day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit', hourCycle: 'h23' })}</bdi>
+          <bdi>
+            {formatInTz(o.start, tz, locale, {
+              weekday: 'short',
+              day: 'numeric',
+              month: 'short',
+              hour: '2-digit',
+              minute: '2-digit',
+              hourCycle: 'h23',
+            })}
+          </bdi>
           <span className="text-slate-400">–</span>
-          <bdi>{formatInTz(o.end, tz, locale, { weekday: 'short', day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit', hourCycle: 'h23' })}</bdi>
+          <bdi>
+            {formatInTz(o.end, tz, locale, {
+              weekday: 'short',
+              day: 'numeric',
+              month: 'short',
+              hour: '2-digit',
+              minute: '2-digit',
+              hourCycle: 'h23',
+            })}
+          </bdi>
         </li>
       ))}
     </ul>
@@ -296,7 +325,11 @@ export function MaintenanceWindowModal({
             />
           </Field>
           <div className="flex items-end pb-1.5">
-            <Checkbox label={t('common.enabled')} checked={f.enabled} onChange={(v) => set('enabled', v)} />
+            <Checkbox
+              label={t('common.enabled')}
+              checked={f.enabled}
+              onChange={(v) => set('enabled', v)}
+            />
           </div>
           <FieldGroup label={t('maintenance.scope')} className="sm:col-span-2">
             <div className="flex flex-wrap gap-x-5 gap-y-1">
@@ -314,17 +347,30 @@ export function MaintenanceWindowModal({
             </div>
           </FieldGroup>
           {f.scope === 'group' && (
-            <Field label={t('maintenance.group')} required hint={<Err k={errors.target} />} className="sm:col-span-2">
+            <Field
+              label={t('maintenance.group')}
+              required
+              hint={<Err k={errors.target} />}
+              className="sm:col-span-2"
+            >
               <GroupSelect value={f.group_id} onChange={(v) => set('group_id', v)} allowRoot />
             </Field>
           )}
           {f.scope === 'device' && (
-            <Field label={t('maintenance.device')} required hint={<Err k={errors.target} />} className="sm:col-span-2">
+            <Field
+              label={t('maintenance.device')}
+              required
+              hint={<Err k={errors.target} />}
+              className="sm:col-span-2"
+            >
               <DevicePicker value={f.device_id} onChange={(v) => set('device_id', v)} />
             </Field>
           )}
           <FieldGroup label={t('maintenance.kind')} className="sm:col-span-2">
-            <div className="inline-flex rounded-md ring-1 ring-slate-300 dark:ring-slate-600" role="group">
+            <div
+              className="inline-flex rounded-md ring-1 ring-slate-300 dark:ring-slate-600"
+              role="group"
+            >
               {(['once', 'weekly'] as const).map((k) => (
                 <button
                   key={k}
@@ -372,7 +418,11 @@ export function MaintenanceWindowModal({
               >
                 <WeekdayChips value={f.weekdays} onChange={(v) => set('weekdays', v)} />
               </FieldGroup>
-              <Field label={t('maintenance.startTime')} required hint={<Err k={errors.start_time} />}>
+              <Field
+                label={t('maintenance.startTime')}
+                required
+                hint={<Err k={errors.start_time} />}
+              >
                 <Input
                   type="time"
                   value={f.start_time}

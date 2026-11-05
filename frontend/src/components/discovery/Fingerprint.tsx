@@ -74,7 +74,9 @@ export function FingerprintView({ fp }: { fp: Fingerprint }) {
             </Ltr>
             {h.status !== null && <Ltr className="text-slate-500">HTTP {h.status}</Ltr>}
             {h.redirects > 0 && (
-              <span className="text-slate-500">{t('fingerprint.redirects', { count: h.redirects })}</span>
+              <span className="text-slate-500">
+                {t('fingerprint.redirects', { count: h.redirects })}
+              </span>
             )}
             {h.error && <span className="text-red-600 dark:text-red-400">{h.error}</span>}
           </div>

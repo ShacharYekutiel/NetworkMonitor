@@ -488,7 +488,13 @@ class AlertEngine:
                 p.updates["maintenance_suppressed"] = True
             else:
                 after = bool(r.maintenance_suppressed)
-                p.sends.append(_Send("problem:after" if after else "problem", rule_chans, payload("problem", after)))
+                p.sends.append(
+                    _Send(
+                        "problem:after" if after else "problem",
+                        rule_chans,
+                        payload("problem", after),
+                    )
+                )
                 p.updates["maintenance_suppressed"] = False
                 if r.repeat_every_s:
                     p.updates["next_reminder_at"] = now + timedelta(seconds=int(r.repeat_every_s))
@@ -691,7 +697,15 @@ async def apply_event(session: Any, event: dict[str, Any], t: datetime) -> None:
                             maintenance_suppressed = false, updated_at = now()
                         """
                     ),
-                    {"r": rule.id, "s": sid, "st": status, "e": eid, "t": t, "due": due, "esc": esc},
+                    {
+                        "r": rule.id,
+                        "s": sid,
+                        "st": status,
+                        "e": eid,
+                        "t": t,
+                        "due": due,
+                        "esc": esc,
+                    },
                 )
             else:
                 await session.execute(

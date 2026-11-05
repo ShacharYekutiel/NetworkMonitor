@@ -11,7 +11,10 @@ import { buildGraph, forceRepulsion, type GraphNodeDatum } from '../lib/topology
 echarts.use([GraphChart, TooltipComponent, CanvasRenderer]);
 
 const esc = (s: string) =>
-  s.replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c]!);
+  s.replace(
+    /[&<>"']/g,
+    (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c]!,
+  );
 
 type ItemLayoutData = { getItemLayout(i: number): [number, number] | null; count(): number };
 type ModelAccess = {
@@ -63,8 +66,24 @@ export function TopologyChart({
   const chart = useRef<echarts.ECharts | null>(null);
   const idsRef = useRef<string[]>([]);
   const nodesRef = useRef<GraphNodeDatum[]>([]);
-  const cb = useRef({ onPositions, onSave, onNodeClick, onLinkClick, onBackgroundClick, canSave, positions });
-  cb.current = { onPositions, onSave, onNodeClick, onLinkClick, onBackgroundClick, canSave, positions };
+  const cb = useRef({
+    onPositions,
+    onSave,
+    onNodeClick,
+    onLinkClick,
+    onBackgroundClick,
+    canSave,
+    positions,
+  });
+  cb.current = {
+    onPositions,
+    onSave,
+    onNodeClick,
+    onLinkClick,
+    onBackgroundClick,
+    canSave,
+    positions,
+  };
   const { t } = useTranslation();
 
   useEffect(() => {
@@ -162,9 +181,14 @@ export function TopologyChart({
     };
     if (built.needsLayout) {
       // One-off force layout (existing positions stay fixed), then fix it as layout "none".
-      c.setOption({ ...base, series: [series('force', built.nodes)] }, { replaceMerge: ['series'] });
+      c.setOption(
+        { ...base, series: [series('force', built.nodes)] },
+        { replaceMerge: ['series'] },
+      );
       const pos = readPositions(c, idsRef.current);
-      const fixed = built.nodes.map((n) => (pos[n.id] ? { ...n, x: pos[n.id][0], y: pos[n.id][1], fixed: true } : n));
+      const fixed = built.nodes.map((n) =>
+        pos[n.id] ? { ...n, x: pos[n.id][0], y: pos[n.id][1], fixed: true } : n,
+      );
       c.setOption({ ...base, series: [series('none', fixed)] }, { replaceMerge: ['series'] });
       cb.current.onPositions({ ...cb.current.positions, ...pos });
       if (cb.current.canSave && Object.keys(pos).length)
@@ -172,7 +196,6 @@ export function TopologyChart({
     } else {
       c.setOption({ ...base, series: [series('none', built.nodes)] }, { replaceMerge: ['series'] });
     }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [graph, dark, showTraffic, positions, resetToken, t]);
 
   // The canvas is never mirrored: coordinates are absolute (architecture.md § 10.3 RTL).

@@ -248,9 +248,7 @@ class MaintenanceTracker:
                 r.id: r.parent_id
                 for r in await session.execute(text("SELECT id, parent_id FROM groups"))
             }
-            devices = (
-                await session.execute(text("SELECT id, group_id, name FROM devices"))
-            ).all()
+            devices = (await session.execute(text("SELECT id, group_id, name FROM devices"))).all()
         covered: dict[int, tuple[int, str, datetime]] = {}
         if active:
             by_id = {w["id"]: w for w in self.windows}
