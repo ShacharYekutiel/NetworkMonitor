@@ -38,10 +38,10 @@ ENV CI=1 \
     npm_config_audit=false \
     npm_config_update_notifier=false \
     npm_config_maxsockets=4 \
-    npm_config_fetch_retries=6 \
-    npm_config_fetch_retry_mintimeout=20000 \
-    npm_config_fetch_retry_maxtimeout=180000 \
-    npm_config_fetch_timeout=600000
+    npm_config_fetch_retries=3 \
+    npm_config_fetch_retry_mintimeout=10000 \
+    npm_config_fetch_retry_maxtimeout=60000 \
+    npm_config_fetch_timeout=120000
 # Install dependencies first so this layer is cached while only sources change.
 COPY frontend/package.json frontend/package-lock.json ./
 RUN if [ -n "$NPM_REGISTRY" ]; then npm config set registry "$NPM_REGISTRY"; fi; \
