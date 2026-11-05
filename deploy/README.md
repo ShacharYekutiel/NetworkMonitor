@@ -129,6 +129,63 @@ harmless: the custom-format dump restores cleanly with the steps above. Restore 
 TimescaleDB, or a newer one. A dump taken in plain PostgreSQL mode restores
 into either mode.
 
+### Prebuilt image (no build on the host)
+
+Every push to `main` (and `phase*` branches) publishes a ready image to GitHub Container
+Registry, so a host that cannot download npm/PyPI packages does not need to build:
+
+```sh
+# deploy/.env
+NETMON_IMAGE=ghcr.io/shacharyekutiel/networkmonitor:latest   # or :phase2, :sha-<commit>
+
+docker login ghcr.io          # only if the package is private (user + PAT with read:packages)
+docker compose -f deploy/docker-compose.yml pull netmon
+docker compose -f deploy/docker-compose.yml up -d --no-build
+```
+
+Corporate CAs in `deploy/certs` are mounted into the container (`/etc/netmon/certs`) and
+trusted at runtime, so the prebuilt image works behind a TLS-inspecting firewall as well.
+To update later: `pull netmon` again, then `up -d --no-build`.
+
+### Troubleshooting: certificate errors (`UNABLE_TO_GET_ISSUER_CERT_LOCALLY`, `SELF_SIGNED_CERT_IN_CHAIN`)
+
+The build stops with `ERROR: TLS certificate check failed for https://registry.npmjs.org/`, or `npm ci` /
+`pip install` report `UNABLE_TO_GET_ISSUER_CERT_LOCALLY`, `SELF_SIGNED_CERT_IN_CHAIN` or
+`CERTIFICATE_VERIFY_FAILED`; or, at runtime, Telegram / webhook / email notifications or HTTPS sensors fail with
+`certificate verify failed`. Your network inspects HTTPS: a firewall or proxy re-signs every connection with the
+organisation's own root CA, which your PC trusts but a container does not.
+
+Fix: export that root CA (on Windows: browser padlock → certificate → top of the chain → export as
+*Base-64 encoded X.509*; or `certlm.msc` → *Trusted Root Certification Authorities*), save it into
+[`deploy/certs/`](certs/README.md) and rebuild:
+
+```bash
+docker compose -f deploy/docker-compose.yml up -d --build
+```
+
+Nothing else to configure: every `*.crt` / `*.pem` / `*.cer` in `deploy/certs/` (PEM or DER) is trusted by npm, pip
+and apt during the build and by the app at runtime. The files are git-ignored. Step-by-step export instructions:
+[deploy/certs/README.md](certs/README.md).
+
+Native installs: on Windows the app trusts the Windows certificate store, so a CA deployed by IT works as is;
+`install.ps1` also trusts any files in `deploy\certs` (web UI build, pip and the service). On Linux
+`install.sh` adds the files in `deploy/certs` to the system trust store.
+
+### Troubleshooting: `npm ci` fails during `docker compose up --build`
+
+Errors such as `npm error Exit handler never called!`, `ECONNRESET` or `ETIMEDOUT` in the
+`frontend` build stage mean the build host cannot reliably download packages from
+registry.npmjs.org (corporate proxy, firewall, TLS inspection). With TLS inspection, `npm ci` may only print
+`Exit handler never called!`: see the certificate section above first. The Dockerfile already
+retries with conservative settings. If it still fails:
+
+- Check access from a container: `docker run --rm node:22-slim npm view react version`.
+- Behind an HTTP proxy, configure it in Docker Desktop (Settings → Resources → Proxies) so builds use it.
+- With a corporate npm mirror (Nexus, Artifactory):
+  `docker compose -f deploy/docker-compose.yml build --build-arg NPM_REGISTRY=https://<mirror>/repository/npm/`
+  and then `docker compose -f deploy/docker-compose.yml up -d`.
+- Or build on another network (e.g. a phone hotspot) and run there afterwards: only the build needs the npm registry.
+
 ### Files
 
 | Path | Purpose |
@@ -139,6 +196,8 @@ into either mode.
 | `.env.example` | Optional compose overrides |
 | `linux/install.sh`, `linux/uninstall.sh`, `linux/netmon.service` | Native Linux |
 | `windows/install.ps1`, `windows/uninstall.ps1` | Native Windows |
+| `certs/` | Corporate root CA certificates for TLS-inspecting networks (git-ignored; see `certs/README.md`) |
+| `import-ca-certs.sh` | Normalises `certs/*` into the system trust store (used by the Dockerfile and `install.sh`) |
 
 ---
 
@@ -236,3 +295,63 @@ docker compose -f deploy/docker-compose.yml exec -T db pg_dump -U netmon -Fc net
 ו-`timescaledb_post_restore()` אחריו. אם הקובץ `secret.key` אובד, המשתמשים רק יצטרכו להתחבר מחדש.
 
 </div>
+
+### image מוכן (בלי בנייה במחשב)
+
+כל דחיפה ל-`main` (ול-branches בשם `phase*`) מפרסמת image מוכן ב-GitHub Container Registry,
+כך שמחשב שלא יכול להוריד חבילות npm/PyPI לא צריך לבנות:
+
+```sh
+# deploy/.env
+NETMON_IMAGE=ghcr.io/shacharyekutiel/networkmonitor:latest   # או :phase2
+
+docker login ghcr.io          # רק אם ה-package פרטי (משתמש + PAT עם read:packages)
+docker compose -f deploy/docker-compose.yml pull netmon
+docker compose -f deploy/docker-compose.yml up -d --no-build
+```
+
+התעודות הארגוניות שב-`deploy/certs` ממופות לתוך הקונטיינר (`/etc/netmon/certs`) ונטענות בזמן ריצה,
+כך שגם ה-image המוכן עובד מאחורי חומת אש שבודקת SSL. לעדכון: שוב `pull netmon` ואז `up -d --no-build`.
+
+### פתרון תקלות: שגיאות תעודה (`UNABLE_TO_GET_ISSUER_CERT_LOCALLY`,‏ `SELF_SIGNED_CERT_IN_CHAIN`)
+
+הבנייה נעצרת עם `ERROR: TLS certificate check failed for https://registry.npmjs.org/`, או ש-`npm ci` /
+`pip install` מדווחים `UNABLE_TO_GET_ISSUER_CERT_LOCALLY`,‏ `SELF_SIGNED_CERT_IN_CHAIN` או
+`CERTIFICATE_VERIFY_FAILED`; או שבזמן ריצה התראות Telegram,‏ Webhook או דוא"ל, או חיישני HTTPS, נכשלים עם
+`certificate verify failed`. המשמעות: הרשת שלכם בודקת HTTPS. חומת אש או proxy חותמים מחדש כל חיבור בתעודת
+CA ראשית של הארגון, שהמחשב שלכם סומך עליה אבל קונטיינר לא.
+
+הפתרון: ייצאו את תעודת ה-CA הראשית (ב-Windows: מנעול בדפדפן ← תעודה ← התעודה העליונה בשרשרת ← ייצוא בפורמט
+*Base-64 encoded X.509*; או `certlm.msc` ← *Trusted Root Certification Authorities*), שמרו אותה בתיקייה
+[`deploy/certs/`](certs/README.md) ובנו מחדש:
+
+</div>
+
+```bash
+docker compose -f deploy/docker-compose.yml up -d --build
+```
+
+<div dir="rtl">
+
+אין שום הגדרה נוספת: כל קובץ `*.crt` / `*.pem` / `*.cer` בתיקייה `deploy/certs/` (PEM או DER) מהימן על npm,‏
+pip ו-apt בזמן הבנייה ועל האפליקציה בזמן ריצה. הקבצים לא נשמרים ב-git. הוראות ייצוא מפורטות:
+[deploy/certs/README.md](certs/README.md).
+
+התקנה ללא Docker: ב-Windows האפליקציה סומכת על מאגר התעודות של Windows, כך ש-CA שמחלקת ה-IT הפיצה עובד
+בלי לעשות דבר; `install.ps1` סומך גם על קבצים בתיקייה `deploy\certs` (בניית הממשק, pip והשירות). בלינוקס
+`install.sh` מוסיף את הקבצים מ-`deploy/certs` למאגר התעודות של המערכת.
+
+### פתרון תקלות: `npm ci` נכשל בזמן `docker compose up --build`
+
+שגיאות כמו `npm error Exit handler never called!`‏, `ECONNRESET` או `ETIMEDOUT` בשלב ה-`frontend`
+אומרות שהמחשב לא מצליח להוריד חבילות מ-registry.npmjs.org בצורה יציבה (proxy ארגוני, חומת אש,
+בדיקת SSL). עם בדיקת SSL ייתכן ש-`npm ci` ידפיס רק `Exit handler never called!`: בדקו קודם את סעיף שגיאות
+התעודה למעלה. ה-Dockerfile כבר מנסה שוב עם הגדרות זהירות. אם זה עדיין נכשל:
+
+- בדיקת גישה מתוך קונטיינר: `docker run --rm node:22-slim npm view react version`.
+- מאחורי proxy: מגדירים אותו ב-Docker Desktop‏ (Settings → Resources → Proxies).
+- עם mirror ארגוני של npm‏ (Nexus,‏ Artifactory):
+  `docker compose -f deploy/docker-compose.yml build --build-arg NPM_REGISTRY=https://<mirror>/repository/npm/`
+  ואחר כך `docker compose -f deploy/docker-compose.yml up -d`.
+- או בונים פעם אחת ברשת אחרת (למשל נקודה חמה מהטלפון) וחוזרים לרשת הרגילה: רק הבנייה צריכה את npm.
+

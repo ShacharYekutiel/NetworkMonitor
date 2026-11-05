@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import errno
 import logging
 import re
 import shutil
@@ -37,6 +38,14 @@ def result_from_rtts(rtts: list[float], sent: int) -> CheckResult:
     return CheckResult(True, "", {"latency_ms": round(avg, 3), "packet_loss_pct": round(loss, 2)})
 
 
+def is_fd_exhaustion(exc: BaseException) -> bool:
+    """EMFILE / ENFILE, also when icmplib wraps it in ICMPSocketError (message only)."""
+    if isinstance(exc, OSError) and exc.errno in (errno.EMFILE, errno.ENFILE):
+        return True
+    text = str(exc)
+    return "Too many open files" in text or "[Errno 24]" in text or "[Errno 23]" in text
+
+
 class _ResolveError(Exception):
     pass
 
@@ -69,6 +78,9 @@ async def _ping(host: str, count: int, timeout_ms: int, size: int) -> tuple[list
         except icmplib.NameLookupError as exc:
             raise _ResolveError(str(exc)) from exc
         except (icmplib.ICMPSocketError, PermissionError, OSError) as exc:
+            if is_fd_exhaustion(exc):
+                # transient (too many open files): never switch / remember another mode
+                raise
             last_exc = exc
             if _mode == mode:
                 _mode = None  # re-probe next time
@@ -142,3 +154,13 @@ def _run_blocking(args: list[str], timeout: float) -> bytes:
     except subprocess.TimeoutExpired as exc:
         raise TimeoutError("ping timed out") from exc
     return res.stdout or b""
+
+
+async def ping_once(host: str, timeout_ms: int) -> float | None:
+    """One echo request with the same privileged/unprivileged/binary fallback as the sensor.
+    Returns the RTT in ms, or None when there was no reply (or ping is unavailable)."""
+    try:
+        rtts, _ = await _ping(host, 1, timeout_ms, 56)
+    except Exception:  # noqa: BLE001
+        return None
+    return round(rtts[0], 3) if rtts else None

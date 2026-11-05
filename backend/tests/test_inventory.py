@@ -318,6 +318,8 @@ async def test_sensor_types_endpoint(viewer: httpx.AsyncClient) -> None:
         "http",
         "tcp_port",
         "dns",
+        "snmp_custom",
+        "snmp_disk",
     ]
     ping = items[0]
     assert ping == {

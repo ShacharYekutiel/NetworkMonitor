@@ -16,7 +16,19 @@ from starlette.routing import Match
 from starlette.staticfiles import StaticFiles
 
 from netmon import __version__
-from netmon.api import alerting, auth, dashboard, devices, events, groups, health, sensors, ws
+from netmon.api import (
+    alerting,
+    auth,
+    dashboard,
+    devices,
+    discovery,
+    events,
+    groups,
+    health,
+    sensors,
+    templates,
+    ws,
+)
 from netmon.api import settings as settings_api
 from netmon.api.errors import error_response, install_error_handlers
 from netmon.config import Settings, load_settings
@@ -148,6 +160,8 @@ def create_app(
         dashboard.router,
         alerting.router,
         settings_api.router,
+        discovery.router,
+        templates.router,
         ws.router,
     ):
         app.include_router(r)

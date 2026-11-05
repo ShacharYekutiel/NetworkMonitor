@@ -3,6 +3,10 @@ import type { ConfigField, SensorType } from '../api/types';
 import type { ConfigErrors, RawConfig } from '../lib/sensorConfig';
 import { Checkbox, Field, Input, Select, Textarea } from './ui';
 
+/** Free text that may be Hebrew (labels, units, match strings): direction follows the content. */
+const FREE_TEXT_KEYS = ['label', 'unit', 'expected', 'keyword'];
+const WIDE_KEYS = ['url', 'query_name', 'keyword', 'oid', 'percent_of_oid', 'storage_descr'];
+
 export function SensorConfigFields({
   type,
   fields,
@@ -59,7 +63,7 @@ export function SensorConfigFields({
                 >
                   {(f.options ?? []).map((o) => (
                     <option key={o} value={o}>
-                      {o}
+                      {t(`sensorConfigOption.${type}.${f.key}.${o}`, { defaultValue: o })}
                     </option>
                   ))}
                 </Select>
@@ -84,8 +88,8 @@ export function SensorConfigFields({
               </Field>
             );
           default: {
-            const numeric = f.type === 'int' || f.type === 'int_nullable';
-            const wide = f.key === 'url' || f.key === 'query_name' || f.key === 'keyword';
+            const numeric = f.type === 'int' || f.type === 'int_nullable' || f.type === 'float';
+            const wide = WIDE_KEYS.includes(f.key);
             return (
               <Field
                 key={f.key}
@@ -98,14 +102,16 @@ export function SensorConfigFields({
                   type={numeric ? 'number' : 'text'}
                   min={f.min ?? undefined}
                   max={f.max ?? undefined}
+                  step={f.type === 'float' ? 'any' : undefined}
                   value={String(v ?? '')}
                   onChange={(e) => set(f.key, e.target.value)}
-                  dir="ltr"
+                  dir={FREE_TEXT_KEYS.includes(f.key) ? 'auto' : 'ltr'}
                   disabled={disabled}
                   placeholder={
-                    f.type === 'str_nullable' || f.type === 'int_nullable' || f.type === 'int_list'
+                    t(`sensorConfigPlaceholder.${type}.${f.key}`, { defaultValue: '' }) ||
+                    (f.type === 'str_nullable' || f.type === 'int_nullable' || f.type === 'int_list'
                       ? t('common.optional')
-                      : undefined
+                      : undefined)
                   }
                 />
               </Field>

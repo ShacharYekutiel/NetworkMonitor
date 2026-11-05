@@ -28,7 +28,7 @@ import {
 import { useAuth } from '../hooks/auth';
 import { useLocalState } from '../hooks/useLocalState';
 import { errorMessage } from '../lib/errors';
-import { formatDateTime, formatRelative, formatValue } from '../lib/format';
+import { formatDateTime, formatRelative, sensorValueText } from '../lib/format';
 import { canRun, STATUS_TEXT, statusClass } from '../lib/status';
 
 const RANGES: HistoryRange[] = ['1h', '24h', '7d', '30d'];
@@ -187,7 +187,7 @@ export function SensorPage() {
                 statusClass(c.status, STATUS_TEXT),
               )}
             >
-              <Value text={formatValue(c.last_value, c.unit)} />
+              <Value text={sensorValueText(s, c.key, c.last_value, c.unit)} />
             </div>
           </button>
         ))}
@@ -251,7 +251,9 @@ export function SensorPage() {
                     ? '—'
                     : typeof v === 'object'
                       ? JSON.stringify(v)
-                      : String(v)}
+                      : t(`sensorConfigOption.${s.type}.${k}.${String(v)}`, {
+                          defaultValue: String(v),
+                        })}
                 </Ltr>
               </dd>
             </div>

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import hashlib
 import ipaddress
 from typing import Any
 
@@ -25,19 +26,58 @@ class SnmpError(Exception):
     pass
 
 
-_engine: Any = None
+# One SNMP engine for v1/v2c, and one per distinct SNMPv3 credential set.
+#
+# pysnmp keeps SNMPv3 users in the engine keyed by user name only. With a single shared
+# engine, two credential sets that use the same user name (e.g. "netmon" on a device and
+# on its group, with different keys or protocols) overwrite each other: concurrent polls
+# then go out with the other set's keys and fail ("Wrong SNMP PDU digest" or a timeout).
+# A separate engine per credential fingerprint keeps them isolated.
+_MAX_V3_ENGINES = 64
+_engines: dict[str, Any] = {}
 _engine_loop: asyncio.AbstractEventLoop | None = None
 
 
-def _get_engine() -> Any:
-    global _engine, _engine_loop
+def _v3_fingerprint(creds: dict[str, Any]) -> str:
+    material = "\x1f".join(
+        str(creds.get(k) or "")
+        for k in (
+            "v3_username",
+            "v3_security_level",
+            "v3_auth_protocol",
+            "v3_auth_key",
+            "v3_priv_protocol",
+            "v3_priv_key",
+        )
+    )
+    return "v3:" + hashlib.sha256(material.encode()).hexdigest()
+
+
+def _close_engine(engine: Any) -> None:
+    try:
+        engine.close_dispatcher()
+    except Exception:  # noqa: BLE001 - best effort on eviction
+        pass
+
+
+def _get_engine(creds: dict[str, Any] | None = None) -> Any:
+    global _engine_loop
     from pysnmp.hlapi.v3arch.asyncio import SnmpEngine
 
     loop = asyncio.get_running_loop()
-    if _engine is None or _engine_loop is not loop:
-        _engine = SnmpEngine()
+    if _engine_loop is not loop:
+        # New event loop (tests, restart): engines are bound to the loop they ran on.
+        _engines.clear()
         _engine_loop = loop
-    return _engine
+    key = "v12" if not creds or creds.get("version") != "v3" else _v3_fingerprint(creds)
+    engine = _engines.pop(key, None)
+    if engine is None:
+        engine = SnmpEngine()
+        if len(_engines) >= _MAX_V3_ENGINES + 1:
+            oldest = next(k for k in _engines if k != "v12")
+            _close_engine(_engines.pop(oldest))
+    _engines[key] = engine  # re-insert: most recently used last
+    return engine
 
 
 def _auth_data(creds: dict[str, Any]) -> Any:
@@ -127,7 +167,7 @@ async def snmp_get(host: str, creds: dict[str, Any], oids: list[str]) -> dict[st
     """GET several OIDs at once. Returns {oid: value_or_None}. noSuchName (v1) -> SnmpError."""
     from pysnmp.hlapi.v3arch import asyncio as h
 
-    engine = _get_engine()
+    engine = _get_engine(creds)
     target = await _target(host, creds)
     try:
         err_ind, err_status, err_index, var_binds = await h.get_cmd(
@@ -157,7 +197,7 @@ async def snmp_walk(
     """Walk a subtree. Returns [(oid, value)]."""
     from pysnmp.hlapi.v3arch import asyncio as h
 
-    engine = _get_engine()
+    engine = _get_engine(creds)
     target = await _target(host, creds)
     auth = _auth_data(creds)
     obj = h.ObjectType(h.ObjectIdentity(base_oid))
@@ -232,3 +272,79 @@ def resolve_credentials(
         if creds is not None:
             return {**DEFAULT_SNMP, **creds}, "group", gid
     return dict(DEFAULT_SNMP), "default", None
+
+
+MISSING_TYPES = ("NoSuchObject", "NoSuchInstance", "EndOfMibView", "noSuchName")
+
+
+async def snmp_get_typed(
+    host: str, creds: dict[str, Any], oids: list[str]
+) -> dict[str, tuple[Any, str]]:
+    """GET several OIDs in one request. Returns {oid: (value, asn1_type_name)}.
+
+    The type name is the pysnmp class name (`Counter32`, `Counter64`, `Gauge32`, `Integer32`,
+    `Integer`, `OctetString`, `TimeTicks`, ...). A missing OID has value None and type
+    `NoSuchObject` / `NoSuchInstance` / `EndOfMibView`, or `noSuchName` (SNMP v1)."""
+    from pysnmp.hlapi.v3arch import asyncio as h
+
+    engine = _get_engine(creds)
+    target = await _target(host, creds)
+    try:
+        err_ind, err_status, err_index, var_binds = await h.get_cmd(
+            engine,
+            _auth_data(creds),
+            target,
+            h.ContextData(),
+            *[h.ObjectType(h.ObjectIdentity(o)) for o in oids],
+            lookupMib=False,
+        )
+    except Exception as exc:  # noqa: BLE001
+        raise SnmpError(str(exc) or type(exc).__name__) from exc
+    if err_ind:
+        raise SnmpError(str(err_ind))
+    if err_status and int(err_status) != 0:
+        if err_status.prettyPrint() == "noSuchName":
+            return {o: (None, "noSuchName") for o in oids}
+        raise SnmpError(f"SNMP error: {err_status.prettyPrint()}")
+    out: dict[str, tuple[Any, str]] = {}
+    for oid, val in var_binds:
+        out[str(oid)] = (convert(val), val.__class__.__name__)
+    for o in oids:
+        out.setdefault(o, (None, "NoSuchObject"))
+    return out
+
+
+async def snmp_getnext(
+    host: str, creds: dict[str, Any], oids: list[str]
+) -> list[tuple[str, Any, str]]:
+    """One GETNEXT with several varbinds. Returns [(next_oid, value, type_name)] in request
+    order. v1 noSuchName (end of MIB) yields an empty list."""
+    from pysnmp.hlapi.v3arch import asyncio as h
+
+    engine = _get_engine(creds)
+    target = await _target(host, creds)
+    try:
+        err_ind, err_status, _err_index, var_binds = await h.next_cmd(
+            engine,
+            _auth_data(creds),
+            target,
+            h.ContextData(),
+            *[h.ObjectType(h.ObjectIdentity(o)) for o in oids],
+            lookupMib=False,
+            lexicographicMode=True,
+        )
+    except Exception as exc:  # noqa: BLE001
+        raise SnmpError(str(exc) or type(exc).__name__) from exc
+    if err_ind:
+        raise SnmpError(str(err_ind))
+    if err_status and int(err_status) != 0:
+        if err_status.prettyPrint() == "noSuchName":
+            return []
+        raise SnmpError(f"SNMP error: {err_status.prettyPrint()}")
+    return [(str(oid), convert(val), val.__class__.__name__) for oid, val in var_binds]
+
+
+def in_subtree(oid: str, base: str) -> bool:
+    base = base.strip(".")
+    oid = oid.strip(".")
+    return oid == base or oid.startswith(base + ".")

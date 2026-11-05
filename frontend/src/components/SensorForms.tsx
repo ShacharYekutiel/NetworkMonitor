@@ -2,22 +2,31 @@ import { useEffect, useMemo, useState, type FormEvent } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useTranslation } from 'react-i18next';
 import { endpoints, qk, type SensorInput } from '../api/endpoints';
-import type { CheckResult, Device, Sensor, SensorType, SnmpInterface } from '../api/types';
+import type {
+  CheckResult,
+  Device,
+  Sensor,
+  SensorType,
+  SnmpInterface,
+  SnmpStorage,
+} from '../api/types';
 import { SENSOR_TYPES } from '../api/types';
 import { useSensorTypes } from '../hooks/queries';
 import {
-  configFromRaw,
+  buildSensorConfig,
   rawFromConfig,
+  visibleConfigFields,
   type ConfigErrors,
   type RawConfig,
 } from '../lib/sensorConfig';
-import { formatValue } from '../lib/format';
+import { formatValue, storageUsedPct } from '../lib/format';
 import { errorMessage } from '../lib/errors';
 import { CheckResultView } from './CheckResultView';
 import { SensorConfigFields } from './SensorConfigFields';
 import { useToast } from './toast';
 import {
   Button,
+  cx,
   Empty,
   ErrorBox,
   Field,
@@ -105,7 +114,7 @@ export function AddSensorModal({
 
   const build = () => {
     if (!def) return null;
-    const { config, errors: errs } = configFromRaw(def.config_fields, raw);
+    const { config, errors: errs } = buildSensorConfig(type, def.config_fields, raw);
     setErrors(errs);
     return Object.keys(errs).length ? null : config;
   };
@@ -119,7 +128,7 @@ export function AddSensorModal({
     create.mutate({
       device_id: device.id,
       type,
-      name: name.trim() || t(`sensorType.${type}`),
+      name: defaultSensorName(t, type, name, nameTouched, config),
       config,
       interval_s: intervalVal,
       enabled: true,
@@ -183,9 +192,18 @@ export function AddSensorModal({
             <InterfacePicker device={device} interval={intervalVal} onDone={close} />
           ) : (
             <form onSubmit={submit} className="space-y-4">
+              {type === 'snmp_disk' && (
+                <StoragePicker
+                  deviceId={device.id}
+                  mode="multi"
+                  interval={intervalVal}
+                  onPick={(descr) => setRaw((r) => ({ ...r, storage_descr: descr }))}
+                  onDone={close}
+                />
+              )}
               <SensorConfigFields
                 type={type}
-                fields={def.config_fields}
+                fields={visibleConfigFields(type, def.config_fields, raw)}
                 raw={raw}
                 onChange={setRaw}
                 errors={errors}
@@ -422,7 +440,7 @@ export function EditSensorModal({
   const submit = (e: FormEvent) => {
     e.preventDefault();
     if (!def || intervalVal === 'invalid' || intervalVal === undefined) return;
-    const { config, errors: errs } = configFromRaw(def.config_fields, raw);
+    const { config, errors: errs } = buildSensorConfig(sensor.type, def.config_fields, raw);
     setErrors(errs);
     if (Object.keys(errs).length) return;
     m.mutate({
@@ -475,9 +493,16 @@ export function EditSensorModal({
               />
             </Field>
           </div>
+          {sensor.type === 'snmp_disk' && (
+            <StoragePicker
+              deviceId={sensor.device_id}
+              mode="single"
+              onPick={(descr) => setRaw((r) => ({ ...r, storage_descr: descr }))}
+            />
+          )}
           <SensorConfigFields
             type={sensor.type}
-            fields={def.config_fields}
+            fields={visibleConfigFields(sensor.type, def.config_fields, raw)}
             raw={raw}
             onChange={setRaw}
             errors={errors}
@@ -510,4 +535,214 @@ export function useSensorActions() {
     onError: (e) => toast.push('error', errorMessage(t, e)),
   });
   return { toggle };
+}
+
+/** Localized default name, like the backend's defaults (label / "Disk <descr>"). */
+export function defaultSensorName(
+  t: (k: string, o?: Record<string, unknown>) => string,
+  type: SensorType,
+  name: string,
+  nameTouched: boolean,
+  config: Record<string, unknown>,
+): string {
+  const typed = name.trim();
+  if (typed && nameTouched) return typed;
+  if (type === 'snmp_custom') {
+    const label = String(config.label ?? '').trim();
+    if (label) return label.slice(0, 128);
+    if (config.oid) return `SNMP ${String(config.oid)}`.slice(0, 128);
+  }
+  if (type === 'snmp_disk' && config.storage_descr)
+    return t('sensors.diskName', { descr: String(config.storage_descr) }).slice(0, 128);
+  return typed || t(`sensorType.${type}`);
+}
+
+const HIDDEN_STORAGE = ['ram', 'virtual_memory'];
+
+/** Picks hrStorage rows for `snmp_disk` (GET /devices/{id}/snmp/storage). */
+function StoragePicker({
+  deviceId,
+  mode,
+  interval,
+  onPick,
+  onDone,
+}: {
+  deviceId: number;
+  mode: 'multi' | 'single';
+  interval?: number | undefined | 'invalid';
+  onPick: (descr: string) => void;
+  onDone?: () => void;
+}) {
+  const { t } = useTranslation();
+  const qc = useQueryClient();
+  const toast = useToast();
+  const [open, setOpen] = useState(false);
+  const q = useQuery({
+    queryKey: qk.snmpStorage(deviceId),
+    queryFn: () => endpoints.snmpStorage(deviceId),
+    enabled: open,
+    retry: false,
+    staleTime: 0,
+  });
+  const rows = useMemo(
+    () => (q.data?.items ?? []).filter((r) => !HIDDEN_STORAGE.includes(r.type)),
+    [q.data],
+  );
+  const [selected, setSelected] = useState<number[] | null>(null);
+  // Preselect fixed disks that are not monitored yet (api.md).
+  const sel =
+    selected ??
+    rows
+      .filter((r) => r.type === 'fixed_disk' && r.existing_sensor_id === null)
+      .map((r) => r.index);
+
+  const add = useMutation({
+    mutationFn: async (items: SnmpStorage[]) => {
+      const results = await Promise.allSettled(
+        items.map((r) =>
+          endpoints.createSensor({
+            device_id: deviceId,
+            type: 'snmp_disk',
+            name: t('sensors.diskName', { descr: r.descr }).slice(0, 128),
+            config: { storage_descr: r.descr },
+            interval_s: interval === 'invalid' ? undefined : interval,
+            enabled: true,
+          }),
+        ),
+      );
+      const failed = results.filter((r) => r.status === 'rejected');
+      if (failed.length === results.length && failed[0])
+        throw (failed[0] as PromiseRejectedResult).reason;
+      return { ok: results.length - failed.length, failed: failed.length };
+    },
+    onSuccess: ({ ok, failed }) => {
+      void qc.invalidateQueries({ queryKey: ['sensors'] });
+      void qc.invalidateQueries({ queryKey: qk.tree });
+      void qc.invalidateQueries({ queryKey: qk.snmpStorage(deviceId) });
+      toast.push(failed ? 'error' : 'success', t('storage.added', { ok, failed }));
+      onDone?.();
+    },
+  });
+
+  if (!open)
+    return (
+      <Button size="sm" onClick={() => setOpen(true)}>
+        {t('storage.pick')}
+      </Button>
+    );
+
+  return (
+    <div className="space-y-2 rounded-md p-3 ring-1 ring-slate-200 dark:ring-slate-700">
+      <div className="text-xs font-medium text-slate-600 dark:text-slate-400">
+        {t('storage.title')}
+      </div>
+      {q.isLoading && <Loading />}
+      {q.error && (
+        <div className="space-y-2">
+          <ErrorBox error={q.error} />
+          <Button size="sm" onClick={() => void q.refetch()}>
+            {t('common.retry')}
+          </Button>
+        </div>
+      )}
+      {q.data && !rows.length && <Empty>{t('storage.none')}</Empty>}
+      {rows.length > 0 && (
+        <div className="max-h-64 overflow-y-auto">
+          <Table>
+            <thead>
+              <tr>
+                {mode === 'multi' && <th className={th} />}
+                <th className={th}>{t('storage.descr')}</th>
+                <th className={th}>{t('storage.type')}</th>
+                <th className={th}>{t('storage.size')}</th>
+                <th className={th}>{t('storage.used')}</th>
+                {mode === 'single' && <th className={th} />}
+              </tr>
+            </thead>
+            <tbody>
+              {rows.map((r) => {
+                const exists = r.existing_sensor_id !== null;
+                const pct = storageUsedPct(r);
+                return (
+                  <tr key={r.index} className={cx(exists && mode === 'multi' && 'opacity-50')}>
+                    {mode === 'multi' && (
+                      <td className={td}>
+                        <input
+                          type="checkbox"
+                          aria-label={r.descr}
+                          disabled={exists}
+                          checked={exists || sel.includes(r.index)}
+                          onChange={(e) =>
+                            setSelected(
+                              e.target.checked
+                                ? [...sel, r.index]
+                                : sel.filter((x) => x !== r.index),
+                            )
+                          }
+                        />
+                      </td>
+                    )}
+                    <td className={`${td} max-w-[16rem] break-all`}>
+                      <Ltr>{r.descr}</Ltr>
+                      {exists && (
+                        <span className="ms-2 text-xs text-slate-500">({t('iface.exists')})</span>
+                      )}
+                    </td>
+                    <td className={`${td} whitespace-nowrap text-xs text-slate-500`}>
+                      {t(`storage.types.${r.type}`)}
+                    </td>
+                    <td className={`${td} whitespace-nowrap tabular-nums`}>
+                      <Value text={formatValue(r.size_bytes, 'B')} />
+                    </td>
+                    <td className={`${td} whitespace-nowrap tabular-nums`}>
+                      <Value text={formatValue(pct, '%')} />
+                    </td>
+                    {mode === 'single' && (
+                      <td className={`${td} text-end`}>
+                        <Button
+                          size="sm"
+                          onClick={() => {
+                            onPick(r.descr);
+                            setOpen(false);
+                          }}
+                        >
+                          {t('storage.use')}
+                        </Button>
+                      </td>
+                    )}
+                  </tr>
+                );
+              })}
+            </tbody>
+          </Table>
+        </div>
+      )}
+      {mode === 'multi' && rows.length > 0 && (
+        <>
+          <ErrorBox error={add.error} />
+          <div className="flex flex-wrap items-center justify-end gap-2">
+            <span className="me-auto text-xs text-slate-500">{t('storage.manualHint')}</span>
+            <Button
+              variant="primary"
+              disabled={!sel.length || interval === 'invalid'}
+              busy={add.isPending}
+              onClick={() => add.mutate(rows.filter((r) => sel.includes(r.index)))}
+            >
+              {t('iface.add', { count: sel.length })}
+            </Button>
+          </div>
+        </>
+      )}
+      {mode === 'multi' && (q.error || (q.data && !rows.length)) && (
+        <p className="text-xs text-slate-500">{t('storage.manualHint')}</p>
+      )}
+      {mode === 'single' && (
+        <div className="flex justify-end">
+          <Button size="sm" variant="ghost" onClick={() => setOpen(false)}>
+            {t('common.close')}
+          </Button>
+        </div>
+      )}
+    </div>
+  );
 }

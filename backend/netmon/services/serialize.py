@@ -179,13 +179,26 @@ def event_out(e: Any) -> dict[str, Any]:
     }
 
 
+def public_channel_config(type_: str, config: dict[str, Any]) -> dict[str, Any]:
+    """Channel config as returned by the API (secrets replaced by *_set flags)."""
+    if type_ == "telegram":
+        return {
+            "bot_token": None,
+            "bot_token_set": bool(config.get("bot_token")),
+            "chat_id": config.get("chat_id"),
+            "parse_mode": config.get("parse_mode", "HTML"),
+            "disable_notification": bool(config.get("disable_notification", False)),
+        }
+    return dict(config)
+
+
 def notification_channel_out(c: Any) -> dict[str, Any]:
     return {
         "id": c.id,
         "name": c.name,
         "type": c.type,
         "enabled": c.enabled,
-        "config": dict(c.config),
+        "config": public_channel_config(c.type, c.config),
         "created_at": iso(c.created_at),
         "updated_at": iso(c.updated_at),
     }

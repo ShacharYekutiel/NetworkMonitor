@@ -10,7 +10,7 @@ from netmon.api.deps import DB, RT, Admin, Page, Viewer
 from netmon.api.errors import ApiError, not_found, validation_error
 from netmon.models import Device, Group, Sensor
 from netmon.poller.sensor_types import AUTO_SENSOR_TYPES, default_sensor_name, validate_config
-from netmon.poller.snmp_client import SnmpError, as_text, snmp_walk, walk_to_index
+from netmon.poller.snmp_client import SnmpError
 from netmon.schemas import DeviceCreate, DevicePatch
 from netmon.services import events as events_svc
 from netmon.services import settings as settings_svc
@@ -21,6 +21,7 @@ from netmon.services.sensors import (
     sync_device_sensors_status,
 )
 from netmon.services.serialize import device_out, page
+from netmon.services.snmp_enum import enumerate_interfaces, enumerate_storage
 from netmon.services.status import load_inventory
 
 router = APIRouter()
@@ -172,72 +173,6 @@ async def delete_device(device_id: int, _: Admin, rt: RT, session: DB) -> Respon
     return Response(status_code=204)
 
 
-IF_STATUS = {
-    1: "up",
-    2: "down",
-    3: "testing",
-    4: "unknown",
-    5: "dormant",
-    6: "notPresent",
-    7: "lowerLayerDown",
-}
-IF_TABLE = "1.3.6.1.2.1.2.2.1"
-IF_XTABLE = "1.3.6.1.2.1.31.1.1.1"
-
-
-def _mac(v: object) -> str | None:
-    if isinstance(v, bytes) and v:
-        return ":".join(f"{b:02x}" for b in v)
-    return None
-
-
-async def enumerate_interfaces(host: str, creds: dict) -> list[dict]:
-    async def col(base: str, n: int) -> dict:
-        oid = f"{base}.{n}"
-        return walk_to_index(await snmp_walk(host, creds, oid), oid)
-
-    descr = await col(IF_TABLE, 2)
-    if not descr:
-        raise SnmpError("ifTable not available")
-    types, speeds, macs = await col(IF_TABLE, 3), await col(IF_TABLE, 5), await col(IF_TABLE, 6)
-    admin, oper = await col(IF_TABLE, 7), await col(IF_TABLE, 8)
-    names: dict = {}
-    high: dict = {}
-    alias: dict = {}
-    if creds.get("version") != "v1":
-        try:
-            names = await col(IF_XTABLE, 1)
-            high = await col(IF_XTABLE, 15)
-            alias = await col(IF_XTABLE, 18)
-        except SnmpError:
-            pass
-    items = []
-    for idx in sorted(descr, key=lambda x: int(x) if x.isdigit() else 0):
-        if not idx.isdigit():
-            continue
-        hs = high.get(idx)
-        speed = (
-            int(hs) * 1_000_000
-            if isinstance(hs, int) and hs > 0
-            else (speeds.get(idx) if isinstance(speeds.get(idx), int) else None)
-        )
-        d_text = as_text(descr.get(idx))
-        items.append(
-            {
-                "if_index": int(idx),
-                "name": as_text(names.get(idx)) or d_text,
-                "descr": d_text,
-                "alias": as_text(alias.get(idx)),
-                "type": types.get(idx) if isinstance(types.get(idx), int) else None,
-                "speed_bps": speed,
-                "admin_status": IF_STATUS.get(admin.get(idx), "unknown"),  # type: ignore[arg-type]
-                "oper_status": IF_STATUS.get(oper.get(idx), "unknown"),  # type: ignore[arg-type]
-                "mac": _mac(macs.get(idx)),
-            }
-        )
-    return items
-
-
 @router.get("/api/devices/{device_id}/snmp/interfaces")
 async def snmp_interfaces(device_id: int, _: Admin, rt: RT, session: DB) -> dict:
     d = await session.get(Device, device_id)
@@ -262,4 +197,32 @@ async def snmp_interfaces(device_id: int, _: Admin, rt: RT, session: DB) -> dict
         raise ApiError(502, "snmp_error", f"SNMP enumeration failed: {exc}") from exc
     for it in items:
         it["existing_sensor_id"] = existing.get(it["if_index"])
+    return {"items": items}
+
+
+@router.get("/api/devices/{device_id}/snmp/storage")
+async def snmp_storage(device_id: int, _: Admin, rt: RT, session: DB) -> dict:
+    d = await session.get(Device, device_id)
+    if d is None:
+        raise not_found("Device")
+    creds = await effective_credentials(session, d)
+    existing: dict[str, int] = {}
+    for s in (
+        await session.execute(
+            select(Sensor)
+            .where(Sensor.device_id == device_id, Sensor.type == "snmp_disk")
+            .order_by(Sensor.id)
+        )
+    ).scalars():
+        descr = s.config.get("storage_descr")
+        if isinstance(descr, str):
+            existing.setdefault(descr, s.id)
+    await session.close()
+    try:
+        async with rt.semaphore:
+            items = await enumerate_storage(d.host, creds)
+    except SnmpError as exc:
+        raise ApiError(502, "snmp_error", f"SNMP enumeration failed: {exc}") from exc
+    for it in items:
+        it["existing_sensor_id"] = existing.get(it["descr"])
     return {"items": items}

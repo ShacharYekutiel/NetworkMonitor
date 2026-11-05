@@ -61,7 +61,9 @@
     "tree": "התקנים",
     "sidebar": "ניווט",
     "toggleSidebar": "הצגה/הסתרה של סרגל הצד",
-    "breadcrumbs": "נתיב ניווט"
+    "breadcrumbs": "נתיב ניווט",
+    "discovery": "גילוי",
+    "templates": "תבניות"
   },
   "tree": {
     "search": "חיפוש קבוצות, התקנים וחיישנים",
@@ -203,7 +205,9 @@
     "events": "אירועים",
     "deleteTitle": "מחיקת חיישן",
     "deleteConfirm": "למחוק את החיישן \"{{name}}\" ואת ההיסטוריה שלו? לא ניתן לבטל פעולה זו.",
-    "runPausedHint": "החיישן מושהה. יש לחדש אותו (או את ההתקן שלו) כדי להריץ בדיקה."
+    "runPausedHint": "החיישן מושהה. יש לחדש אותו (או את ההתקן שלו) כדי להריץ בדיקה.",
+    "diskName": "דיסק {{descr}}",
+    "textOk": "תואם"
   },
   "iface": {
     "name": "ממשק",
@@ -258,7 +262,8 @@
   "eventKind": {
     "status_change": "שינוי סטטוס",
     "notification": "התראה",
-    "system": "מערכת"
+    "system": "מערכת",
+    "discovery": "גילוי"
   },
   "pagination": {
     "range": "{{from}}–{{to}} מתוך {{total}}",
@@ -286,7 +291,10 @@
     "test": "שליחת בדיקה",
     "testOk": "הבדיקה נשלחה",
     "none": "אין עדיין ערוצי התראה.",
-    "deleteTitle": "מחיקת ערוץ"
+    "deleteTitle": "מחיקת ערוץ",
+    "telegram": "טלגרם",
+    "testSent": "הודעת הבדיקה נשלחה.",
+    "testSavedHint": "שולח בדיקה עם ההגדרות השמורות — יש לשמור קודם."
   },
   "rules": {
     "title": "כללי התראה",
@@ -401,7 +409,13 @@
     "webhook_error": "הקריאה ל-Webhook נכשלה",
     "internal_error": "אירעה שגיאה בשרת.",
     "network_error": "אין חיבור לשרת.",
-    "sensor_paused": "אי אפשר לבדוק חיישן מושהה — יש לחדש קודם את החיישן או את ההתקן."
+    "sensor_paused": "אי אפשר לבדוק חיישן מושהה — יש לחדש קודם את החיישן או את ההתקן.",
+    "scan_running": "סריקת גילוי כבר פועלת.",
+    "scan_not_running": "הסריקה הזו כבר אינה פועלת.",
+    "too_many_hosts": "היעדים מתרחבים ליותר מדי מארחים.",
+    "too_many_hosts_count": "היעדים מתרחבים ל-{{hosts}} מארחים; המגבלה היא {{max}}.",
+    "telegram_error": "שליחת הודעת הטלגרם נכשלה",
+    "device_exists": "כבר קיים התקן עם הכתובת הזו."
   },
   "sensorType": {
     "ping": "Ping",
@@ -411,7 +425,9 @@
     "snmp_interface": "SNMP ממשק",
     "http": "HTTP(S)",
     "tcp_port": "פורט TCP",
-    "dns": "DNS"
+    "dns": "DNS",
+    "snmp_custom": "OID SNMP מותאם",
+    "snmp_disk": "שימוש בדיסק"
   },
   "channel": {
     "latency_ms": "זמן תגובה",
@@ -432,7 +448,12 @@
     "status_code": "קוד סטטוס",
     "ssl_days_left": "ימים לתפוגת התעודה",
     "connect_time_ms": "זמן התחברות",
-    "resolve_time_ms": "זמן פענוח"
+    "resolve_time_ms": "זמן פענוח",
+    "value": "ערך",
+    "disk_used_pct": "ניצול דיסק",
+    "disk_used_bytes": "שטח בשימוש",
+    "disk_free_bytes": "שטח פנוי",
+    "disk_total_bytes": "גודל הדיסק"
   },
   "sensorConfig": {
     "ping": {
@@ -471,6 +492,20 @@
       "port": "פורט",
       "timeout_s": "זמן קצוב (שניות)",
       "expected": "תשובה צפויה"
+    },
+    "snmp_custom": {
+      "oid": "OID",
+      "value_type": "סוג ערך",
+      "unit": "יחידה",
+      "multiplier": "מכפיל",
+      "label": "תווית",
+      "percent_of_oid": "אחוז מתוך OID (מחלק)",
+      "expected": "טקסט צפוי",
+      "match": "התאמה"
+    },
+    "snmp_disk": {
+      "storage_descr": "אחסון (תיאור)",
+      "storage_index": "אינדקס אחסון"
     }
   },
   "sensorConfigHint": {
@@ -489,6 +524,282 @@
     "dns": {
       "server": "ריק = שימוש בכתובת ההתקן כשרת ה-DNS",
       "expected": "רשות; לפחות תשובה אחת חייבת להיות שווה לו"
+    },
+    "snmp_custom": {
+      "oid": "OID מספרי עם נקודות, למשל 1.3.6.1.2.1.1.3.0 (שמות MIB אינם נתמכים)",
+      "unit": "מוצגת ליד הערך, למשל ⁦°C⁩, לקוחות, דפים (עד 16 תווים)",
+      "multiplier": "מוחל על הערך הגולמי (מד) או על הקצב (מונה), למשל 8 להמרת אוקטטים ל-bit/s, ‏0.1 לעשיריות",
+      "label": "רשות; מוצגת בהודעת הסטטוס",
+      "percent_of_oid": "רשות; ערך = גולמי ÷ OID זה × 100 (המכפיל לא מוחל)",
+      "expected": "ריק = כל טקסט תקין; אחרת הערך חייב להתאים"
+    },
+    "snmp_disk": {
+      "storage_descr": "בדיוק כפי שההתקן מדווח, למשל / או C:\\"
     }
+  },
+  "deviceClass": {
+    "router": "נתב/חומת אש",
+    "switch": "מתג",
+    "access_point": "נקודת גישה",
+    "printer": "מדפסת",
+    "nas": "NAS",
+    "server": "שרת",
+    "workstation": "תחנת עבודה",
+    "unknown": "לא ידוע"
+  },
+  "sensorConfigOption": {
+    "snmp_custom": {
+      "value_type": {
+        "gauge": "מד (מספר)",
+        "counter": "מונה (קצב לשנייה)",
+        "string": "התאמת טקסט"
+      },
+      "match": {
+        "equals": "שווה ל",
+        "contains": "מכיל"
+      }
+    }
+  },
+  "sensorConfigPlaceholder": {
+    "snmp_custom": {
+      "oid": "1.3.6.1.4.1.…"
+    }
+  },
+  "storage": {
+    "pick": "בחירה מההתקן",
+    "title": "אחסון שההתקן מדווח עליו",
+    "none": "ההתקן לא דיווח על דיסקים.",
+    "descr": "תיאור",
+    "type": "סוג",
+    "size": "גודל",
+    "used": "בשימוש",
+    "use": "בחירה",
+    "added": "נוספו חיישני דיסק: {{ok}}, נכשלו: {{failed}}",
+    "manualHint": "או הזינו את תיאור האחסון למטה.",
+    "types": {
+      "ram": "RAM",
+      "virtual_memory": "זיכרון וירטואלי",
+      "fixed_disk": "דיסק קבוע",
+      "removable_disk": "דיסק נשלף",
+      "network_disk": "דיסק רשת",
+      "flash": "פלאש",
+      "other": "אחר"
+    }
+  },
+  "telegram": {
+    "helpTitle": "איך משיגים טוקן של בוט ומזהה צ'אט?",
+    "help1": "בטלגרם פתחו את <c>@BotFather</c>, שלחו <c>/newbot</c> ופעלו לפי השלבים. BotFather משיב עם טוקן הבוט (למשל <c>123456789:AAE…</c>). שמרו אותו בסוד.",
+    "help2": "צ'אט פרטי: פתחו את הבוט ולחצו Start. קבוצה: הוסיפו את הבוט לקבוצה ושלחו בה הודעה. ערוץ: הוסיפו את הבוט כמנהל.",
+    "help3": "לאחר מכן פתחו בדפדפן את הכתובת הבאה והעתיקו את המספר שאחרי <c>\"id\"</c> בחלק <c>\"chat\"</c>:",
+    "help4": "מזהים של קבוצות וערוצים הם שליליים (סופר-קבוצות מתחילות ב-<c>-100</c>). לערוץ ציבורי אפשר גם <c>@channelname</c>.",
+    "botToken": "טוקן הבוט",
+    "botTokenHint": "מ-<c>@BotFather</c>. לכתיבה בלבד: לא יוצג שוב.",
+    "tokenInvalid": "נדרשות ספרות, נקודתיים והמפתח, למשל 123456789:AAE…",
+    "chatId": "מזהה צ'אט",
+    "chatIdHint": "<c>-100…</c> לקבוצות/ערוצים, מספר לצ'אט פרטי, או <c>@channelname</c>",
+    "chatIdInvalid": "הזינו מזהה מספרי (למשל ‎-1001234567890) או ‎@channelname.",
+    "parseMode": "פורמט ההודעה",
+    "parseHtml": "מעוצב (HTML)",
+    "parsePlain": "טקסט פשוט",
+    "silent": "שקט (ללא צליל התראה)"
+  },
+  "templates": {
+    "title": "תבניות התקנים",
+    "subtitle": "סטים מובנים של חיישנים. החלת תבנית מוסיפה רק את מה שחסר.",
+    "none": "אין תבניות.",
+    "template": "תבנית",
+    "suggested": "מומלצת",
+    "apply": "החלת תבנית",
+    "applyButton": "החלה",
+    "applyHint": "חיישנים שכבר קיימים מדולגים. רשומות שמסומנות „אם זמין” נבדקות קודם מול ההתקן.",
+    "applying": "בודק את ההתקן… זה עשוי להימשך עד שתי דקות.",
+    "resultTitle": "התבנית הוחלה על {{name}}",
+    "applySummary": "נוצרו: {{created}} · דולגו: {{skipped}} · כבר קיימים: {{existing}}",
+    "createdTitle": "חיישנים שנוצרו",
+    "skippedTitle": "לא נוצרו",
+    "creates": "יוצרת",
+    "matches": "מומלצת עבור",
+    "priority": "עדיפות {{priority}}",
+    "ifAvailable": "אם זמין",
+    "entryInterfaces": "חיישני ממשקים (עד {{max}})",
+    "entryInterfacesUp": "ממשקים פעילים (עד {{max}})",
+    "matching": "שמות התואמים ל-{{re}}",
+    "entryTable": "{{name}} לכל שורה בטבלה (עד {{max}})",
+    "matchNone": "לעולם לא מומלצת אוטומטית",
+    "matchSnmp": "עונה ל-SNMP",
+    "matchPorts": "פורט {{ports}} פתוח",
+    "matchAny": "כל התקן",
+    "or": "; או ",
+    "skip": {
+      "exists": "כבר קיים",
+      "probe_failed": "לא זמין בהתקן",
+      "snmp_error": "שאילתת SNMP נכשלה",
+      "max_reached": "הגיע למגבלה",
+      "no_rows": "לא נמצא דבר בהתקן",
+      "other": "דולג"
+    }
+  },
+  "discovery": {
+    "title": "גילוי",
+    "subtitle": "סריקת טווחי כתובות, זיהוי התקנים והוספתם עם תבנית.",
+    "tab": {
+      "scans": "סריקות",
+      "profiles": "פרופילים שמורים"
+    },
+    "newScan": "סריקה חדשה",
+    "targets": "יעדים",
+    "targetsHint": "אחד בכל שורה: CIDR (<c>192.168.1.0/24</c>), טווח (<c>192.168.1.10-50</c> או <c>10.0.0.1-10.0.1.20</c>), כתובת IPv4/IPv6 או שם מארח. עד 64 רשומות ו-4096 מארחים.",
+    "targetsCount_one": "יעד אחד",
+    "targetsCount_two": "שני יעדים",
+    "targetsCount_other": "{{count}} יעדים",
+    "hostsCount_one": "מארח אחד",
+    "hostsCount_two": "שני מארחים",
+    "hostsCount_other": "{{count}} מארחים",
+    "tooManyHosts": "יותר מהמגבלה של {{max}}",
+    "tooManyTargets": "לכל היותר {{max}} רשומות.",
+    "targetError": {
+      "invalid": "אינו כתובת, טווח, CIDR או שם מארח",
+      "rejected": "אי אפשר לסרוק multicast, ‏0.0.0.0/8 ו-240.0.0.0/4",
+      "prefix": "התחילית חייבת להיות בין ‎/8 ל-‎/32",
+      "order": "הטווח מסתיים לפני שהוא מתחיל"
+    },
+    "moreErrors_one": "ועוד שגיאה אחת",
+    "moreErrors_two": "ועוד שתי שגיאות",
+    "moreErrors_other": "ועוד {{count}} שגיאות",
+    "targetGroup": "קבוצת יעד",
+    "targetGroupHint": "פרטי ה-SNMP שלה נוסים ראשונים; התקנים מיובאים נכנסים אליה כברירת מחדל.",
+    "probes": "בדיקות",
+    "optPing": "Ping ‏(ICMP)",
+    "optSnmp": "SNMP",
+    "optTcp": "פורטי TCP",
+    "optDns": "DNS הפוך",
+    "tcpPorts": "פורטי TCP",
+    "tcpPortsHint": "עד 32 פורטים, מופרדים בפסיקים.",
+    "extraCreds": "פרטי SNMP נוספים",
+    "extraCredsHint": "נוסים אחרי פרטי קבוצת היעד. לכתיבה בלבד: לא יוצגו שוב לאחר השמירה.",
+    "storedSecrets": "שמורים: {{communities}} קהילות, {{v3}} משתמשי v3.",
+    "replaceSecrets": "החלפת הפרטים השמורים",
+    "extraCommunities": "קהילות נוספות (v2c)",
+    "extraCommunitiesHint": "עד 5, נוסות כ-v2c.",
+    "addV3": "הוספת משתמש v3",
+    "advanced": "מתקדם",
+    "snmpPort": "פורט SNMP",
+    "snmpPortHint": "ריק = הפורט של הקבוצה",
+    "snmpTimeout": "זמן קצוב SNMP (שניות)",
+    "pingTimeout": "זמן קצוב Ping (אלפיות)",
+    "tcpTimeout": "זמן קצוב TCP (אלפיות)",
+    "err": {
+      "probes": "יש להפעיל לפחות אחת מהבדיקות Ping,‏ SNMP או TCP.",
+      "pingTimeout": "בין 100 ל-5000 אלפיות שנייה.",
+      "port": "פורט בין 1 ל-65535.",
+      "snmpTimeout": "בין 1 ל-10 שניות.",
+      "tcpTimeout": "בין 100 ל-5000 אלפיות שנייה.",
+      "ports": "1–32 פורטים בין 1 ל-65535.",
+      "communities": "עד 5 קהילות של עד 64 תווים.",
+      "v3": "עד 3 משתמשי v3, לכל אחד שם משתמש.",
+      "hours": "בין 1 ל-720 שעות."
+    },
+    "saveAsProfile": "שמירה כפרופיל",
+    "profileName": "שם הפרופיל",
+    "scopeNote": "רק הכתובות שברשימה נבדקות (Ping, חיבור TCP, קריאת SNMP, DNS הפוך).",
+    "startScan": "התחלת סריקה",
+    "openRunning": "פתיחת הסריקה הפעילה ‎#{{id}}",
+    "history": "היסטוריית סריקות",
+    "noScans": "אין עדיין סריקות.",
+    "started": "התחילה",
+    "finished": "הסתיימה",
+    "source": "מקור",
+    "found": "נמצאו",
+    "new": "חדשים",
+    "total": "מארחים",
+    "manual": "סריקה חד-פעמית",
+    "trigger": {
+      "manual": "ידנית",
+      "scheduled": "מתוזמנת"
+    },
+    "open": "פתיחה",
+    "deleteRunningHint": "אי אפשר למחוק סריקה פעילה.",
+    "deleteScanTitle": "מחיקת סריקה",
+    "deleteScanConfirm": "למחוק את סריקה ‎#{{id}} ואת התוצאות שלה?",
+    "profiles": "פרופילים שמורים",
+    "noProfiles": "אין עדיין פרופילים שמורים.",
+    "addProfile": "הוספת פרופיל",
+    "editProfile": "עריכת פרופיל",
+    "schedule": "תזמון",
+    "runs": "הרצה",
+    "scheduleHint": "כבוי כברירת מחדל. ההרצה המתוזמנת הראשונה רק רושמת קו בסיס.",
+    "scheduleChoice": {
+      "off": "כבוי (ידני בלבד)",
+      "daily": "יומי",
+      "weekly": "שבועי",
+      "hours": "כל N שעות"
+    },
+    "everyHours": "כל (שעות)",
+    "everyNHours_one": "כל שעה",
+    "everyNHours_two": "כל שעתיים",
+    "everyNHours_other": "כל {{count}} שעות",
+    "notifyNew": "התראה על מארחים חדשים",
+    "notifyChannels": "ערוצי התראה",
+    "notifyHint": "ללא ערוצים נרשם אירוע בלבד.",
+    "lastRun": "הרצה אחרונה",
+    "nextRun": "הבאה",
+    "notify": "התראות מארחים חדשים",
+    "eventOnly": "אירוע בלבד",
+    "runNow": "הרצה עכשיו",
+    "deleteProfileTitle": "מחיקת פרופיל",
+    "deleteProfileConfirm": "למחוק את הפרופיל \"{{name}}\"? הסריקות הקודמות שלו יישמרו.",
+    "status": {
+      "running": "פועלת",
+      "completed": "הושלמה",
+      "cancelled": "בוטלה",
+      "failed": "נכשלה"
+    },
+    "extraCredential": "ענה עם פרטי גישה נוספים",
+    "scanTitle": "סריקה ‎#{{id}}",
+    "scanned": "נסרקו {{scanned}} מתוך {{total}}",
+    "polling": "עדכונים חיים אינם זמינים — מתרענן כל 2 שניות",
+    "progress": "התקדמות הסריקה",
+    "cancel": "ביטול הסריקה",
+    "cancelTitle": "ביטול סריקה",
+    "cancelConfirm": "לעצור את הסריקה עכשיו? המארחים שנמצאו עד כה יישמרו.",
+    "results": "תוצאות ({{count}})",
+    "waitingResults": "סורק… מארחים שנמצאו יופיעו כאן כשהם עונים.",
+    "noResults": "אף מארח לא ענה.",
+    "noMatch": "אין תוצאות שתואמות למסננים.",
+    "searchResults": "חיפוש IP, שם מארח, sysName",
+    "onlyNew": "חדשים בלבד",
+    "hideExisting": "הסתרת התקנים קיימים",
+    "class": "סוג",
+    "vendor": "יצרן",
+    "ip": "כתובת IP",
+    "reachability": "מענה",
+    "imported": "יובא",
+    "exists": "קיים",
+    "newBadge": "חדש",
+    "seenBefore": "נראה בעבר",
+    "selectHost": "בחירת {{ip}}",
+    "deviceName": "שם ההתקן עבור {{ip}}",
+    "templateFor": "תבנית עבור {{ip}}",
+    "importGroup": "ייבוא לקבוצה",
+    "importAfterScan": "הייבוא יתאפשר כשהסריקה תסתיים.",
+    "importSelected": "ייבוא הנבחרים ({{count}})",
+    "importResult": "תוצאות הייבוא",
+    "importSummary": "התקנים שנוצרו: {{created}} · לא יובאו: {{failed}}",
+    "sensorsCreated_one": "נוצר חיישן אחד",
+    "sensorsCreated_two": "נוצרו שני חיישנים",
+    "sensorsCreated_other": "נוצרו {{count}} חיישנים",
+    "openDevice": "פתיחת ההתקן",
+    "classVendor": "סוג / יצרן",
+    "openPorts": "פורטי TCP פתוחים",
+    "addCommunity": "הוספת קהילה",
+    "removeCommunity": "הסרת קהילה {{n}}",
+    "showSecret": "הצגה",
+    "hideSecret": "הסתרה",
+    "importMaybePartial": "ייתכן שהייבוא הושלם חלקית. הרשימה רועננה: מארחים שיובאו מסומנים כ\"יובא\"; השאר עדיין נבחרים, כך שאפשר לנסות שוב רק אותם.",
+    "notImportedRetry": "לא יובא — נסו שוב",
+    "importBudget": "זמן הייבוא הסתיים לפני שהגיע למארח הזה",
+    "retrySelected": "המארחים לניסיון חוזר עדיין נבחרים.",
+    "profileSavedBusy": "הפרופיל \"{{name}}\" נשמר; כבר פועלת סריקה — הריצו אותו מאוחר יותר.",
+    "openProfiles": "פרופילים שמורים"
   }
 }

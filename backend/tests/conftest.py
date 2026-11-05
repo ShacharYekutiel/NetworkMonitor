@@ -28,6 +28,7 @@ TEST_DATABASE_URL = os.environ.get("TEST_DATABASE_URL")
 requires_db = pytest.mark.skipif(not TEST_DATABASE_URL, reason="TEST_DATABASE_URL not set")
 
 TABLES = (
+    "discovery_results, discovery_scans, discovery_profiles, discovery_known_hosts, "
     "alert_notified, alert_rule_channels, alert_rules, notification_channels, events, "
     "measurements, sensor_channels, sensors, devices, groups, users, settings"
 )

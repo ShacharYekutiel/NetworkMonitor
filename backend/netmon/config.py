@@ -89,6 +89,13 @@ class Settings(BaseSettings):
     netmon_trust_proxy: bool = Field(default=False, alias="NETMON_TRUST_PROXY")
     netmon_dev: bool = Field(default=False, alias="NETMON_DEV")
     netmon_disable_timescale: bool = Field(default=False, alias="NETMON_DISABLE_TIMESCALE")
+    netmon_telegram_api_base: str = Field(
+        default="https://api.telegram.org", alias="NETMON_TELEGRAM_API_BASE"
+    )
+    netmon_discovery_concurrency: int = Field(
+        default=64, ge=1, le=256, alias="NETMON_DISCOVERY_CONCURRENCY"
+    )
+    netmon_discovery_rate: int = Field(default=100, ge=1, le=1000, alias="NETMON_DISCOVERY_RATE")
 
     # resolved values (filled by load_settings)
     data_dir: Path = Field(default=Path("./data"), exclude=True)

@@ -1,6 +1,16 @@
 import { api } from './client';
 import type {
   AlertRule,
+  ApplyTemplateResult,
+  DeviceTemplate,
+  DiscoveryProfile,
+  DiscoveryResult,
+  DiscoveryScan,
+  ImportRequest,
+  ImportResponse,
+  ScanOptionsInput,
+  SnmpStorage,
+  TelegramChannelConfigInput,
   ChannelThresholdInput,
   CheckResult,
   Dashboard,
@@ -45,6 +55,14 @@ export const qk = {
   alertRules: (params?: object) => ['alertRules', params ?? {}] as const,
   settings: ['settings'] as const,
   users: ['users'] as const,
+  // [2a]
+  snmpStorage: (deviceId: number) => ['snmpStorage', deviceId] as const,
+  deviceTemplates: ['deviceTemplates'] as const,
+  discoveryProfiles: ['discoveryProfiles'] as const,
+  discoveryScans: (params?: object) => ['discoveryScans', params ?? {}] as const,
+  discoveryScan: (id: number) => ['discoveryScan', id] as const,
+  /** All results of a scan (unfiltered; filters are applied client-side so WS rows merge in). */
+  discoveryResults: (scanId: number) => ['discoveryResults', scanId] as const,
 };
 
 export type GroupInput = {
@@ -98,9 +116,48 @@ export type UserInput = {
   is_active?: boolean;
 };
 
-export type ChannelInput = Partial<
-  Pick<NotificationChannel, 'name' | 'type' | 'enabled' | 'config'>
->;
+export type ChannelInput = Partial<Pick<NotificationChannel, 'name' | 'type' | 'enabled'>> & {
+  config?: NotificationChannel['config'] | TelegramChannelConfigInput;
+};
+
+export type DiscoveryProfileInput = {
+  name?: string;
+  targets?: string[];
+  group_id?: number;
+  options?: ScanOptionsInput;
+  schedule_enabled?: boolean;
+  schedule_every_hours?: number;
+  notify_new_hosts?: boolean;
+  notify_channel_ids?: number[];
+};
+
+export type ScanRequest = { targets: string[]; group_id: number; options?: ScanOptionsInput };
+
+export type ResultsQuery = {
+  only_new?: boolean;
+  hide_existing?: boolean;
+  device_class?: string;
+  q?: string;
+  page?: number;
+  page_size?: number;
+};
+
+const RESULTS_PAGE = 1000;
+
+/** Fetches every result page of a scan (≤ 4096 hosts, so at most a few pages). */
+async function allResults(scanId: number, q: ResultsQuery = {}): Promise<DiscoveryResult[]> {
+  const out: DiscoveryResult[] = [];
+  for (let page = 1; page <= 10; page++) {
+    const r = await api.get<Page<DiscoveryResult>>(`/discovery/scans/${scanId}/results`, {
+      ...q,
+      page,
+      page_size: RESULTS_PAGE,
+    });
+    out.push(...r.items);
+    if (out.length >= r.total || r.items.length < RESULTS_PAGE) break;
+  }
+  return out;
+}
 export type AlertRuleInput = Partial<
   Pick<AlertRule, 'name' | 'sensor_id' | 'on_statuses' | 'delay_s' | 'enabled' | 'channel_ids'>
 >;
@@ -189,6 +246,34 @@ export const endpoints = {
   updateAlertRule: (id: number, body: AlertRuleInput) =>
     api.patch<AlertRule>(`/alert-rules/${id}`, body),
   deleteAlertRule: (id: number) => api.del(`/alert-rules/${id}`),
+
+  // [2a] snmp storage, device templates
+  snmpStorage: (id: number) => api.get<{ items: SnmpStorage[] }>(`/devices/${id}/snmp/storage`),
+  deviceTemplates: () => api.get<{ items: DeviceTemplate[] }>('/device-templates'),
+  deviceTemplate: (id: string) =>
+    api.get<DeviceTemplate>(`/device-templates/${encodeURIComponent(id)}`),
+  applyTemplate: (deviceId: number, template_id: string) =>
+    api.post<ApplyTemplateResult>(`/devices/${deviceId}/apply-template`, { template_id }),
+
+  // [2a] discovery
+  discoveryProfiles: () =>
+    api.get<Page<DiscoveryProfile>>('/discovery/profiles', { page_size: 1000 }),
+  discoveryProfile: (id: number) => api.get<DiscoveryProfile>(`/discovery/profiles/${id}`),
+  createDiscoveryProfile: (body: DiscoveryProfileInput) =>
+    api.post<DiscoveryProfile>('/discovery/profiles', body),
+  updateDiscoveryProfile: (id: number, body: DiscoveryProfileInput) =>
+    api.patch<DiscoveryProfile>(`/discovery/profiles/${id}`, body),
+  deleteDiscoveryProfile: (id: number) => api.del(`/discovery/profiles/${id}`),
+  runDiscoveryProfile: (id: number) => api.post<DiscoveryScan>(`/discovery/profiles/${id}/run`),
+  startScan: (body: ScanRequest) => api.post<DiscoveryScan>('/discovery/scans', body),
+  discoveryScans: (params?: { profile_id?: number; page?: number; page_size?: number }) =>
+    api.get<Page<DiscoveryScan>>('/discovery/scans', { page_size: 100, ...params }),
+  discoveryScan: (id: number) => api.get<DiscoveryScan>(`/discovery/scans/${id}`),
+  cancelScan: (id: number) => api.post<DiscoveryScan>(`/discovery/scans/${id}/cancel`),
+  deleteScan: (id: number) => api.del(`/discovery/scans/${id}`),
+  discoveryResults: allResults,
+  importResults: (scanId: number, body: ImportRequest) =>
+    api.post<ImportResponse>(`/discovery/scans/${scanId}/import`, body),
 
   // settings
   settings: () => api.get<Settings>('/settings'),

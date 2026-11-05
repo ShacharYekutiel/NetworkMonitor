@@ -9,11 +9,16 @@ tests/
 │   ├── run.sh           one-command runner: fresh DB + build + backend + simulators + tests + teardown
 │   ├── playwright.config.ts
 │   ├── lib/helpers.ts   API client, login helpers, polling waits, simulator controls
-│   └── specs/           01-… 09-… (run in file order, one worker)
+│   ├── lib/lab.ts       Phase 2a: discovery lab expectations, Telegram mock, scan waits, extra hosts
+│   └── specs/           01-… 18-… (run in file order, one worker)
 └── sim/
-    ├── snmp_agent.py         snmpsim launcher (prints READY <port>)
+    ├── lab.sh                Phase 2a lab launcher (start/stop/status/env)
+    ├── snmp_agent.py         snmpsim launcher (--host/--port/--data; prints READY)
     ├── snmp/public.snmprec   the simulated device "netmon-sim" (community `public`)
-    ├── http_target.py        HTTP target whose health can be toggled
+    ├── discovery/            per-device snmprec data of the discovery lab (+ gen_snmprec.py)
+    ├── telegram_mock.py      Telegram Bot API mock
+    ├── tcp_listener.py       raw TCP accept-and-close listener (printer port 9100)
+    ├── http_target.py        HTTP target whose health can be toggled (--host/--port)
     └── webhook_receiver.py   records every POST as a JSON line
 ```
 
@@ -36,9 +41,11 @@ PG_ADMIN_URL=postgresql://postgres:postgres@localhost:5432/postgres SKIP_BUILD=1
 2. builds the SPA (`npm run build:copy`, skipped with `SKIP_BUILD=1`);
 3. starts the simulators and `netmon serve` on free ports with a temporary `NETMON_DATA_DIR`;
 4. waits for `/api/health`, the simulators' health endpoints and the SNMP agent's `READY`;
-5. runs `npx playwright test` with `BASE_URL`, `SNMP_PORT`, `HTTP_TARGET_URL`, `WEBHOOK_URL`,
-   `SCREENSHOT_DIR` exported;
-6. stops everything and drops the database.
+5. starts the Phase 2a discovery lab (`tests/sim/lab.sh start` with `LAB_GENERIC=0`, Telegram mock on a free
+   port) and passes `NETMON_TELEGRAM_API_BASE` to the backend (`LAB_EXTERNAL=1` reuses a lab you started);
+6. runs `npx playwright test` with `BASE_URL`, `SNMP_PORT`, `HTTP_TARGET_URL`, `WEBHOOK_URL`,
+   `SCREENSHOT_DIR`, `TELEGRAM_MOCK_URL`, `DISCOVERY_SNMP_PORT`, `BACKEND_LOG` exported;
+7. stops everything and drops the database.
 
 Logs: `tests/e2e/test-results/logs/` (backend, simulators, received webhooks). Playwright traces and failure
 screenshots: `tests/e2e/test-results/artifacts/`, HTML report: `tests/e2e/test-results/report/`.
@@ -62,6 +69,15 @@ single specs can run on their own.
 | `07-thresholds` | `latency_ms.warning_max = 0.001` → Warning (live, dashboard problem list, event); restore → Up; invalid input rejected |
 | `08-ui-checks` | Login language from `settings.default_language`; 401 → login; 422 details; 409 conflict text; SNMP error in picker; known UI defects (see below) |
 | `09-screenshots` | Screenshots of the real system (dashboard en/he @2x, sensor charts, events, settings, dark, phone) |
+| `10-discovery-scan` | **[2a]** UI scan of `127.0.0.20-30` (snmp_port 1161, extra community `printers`, TCP 8080/9100, ping off): live progress + rows via WS, exactly the 5 lab hosts with the documented class/vendor/template/credential, existing device flagged, filters; ping-on scan finds all 11; target validation (`too_many_hosts`, multicast, …) |
+| `11-discovery-import` | **[2a]** Import 4 hosts with their templates into a group → the documented sensors per device; own credentials (port 1161 / community `printers`); re-import → `device_exists`; values: UniFi clients 5/12, toner 40 %, drum "level not reported", page counter, disk `/` 25 %, igb0 ≈ 20 Mbit/s, HTTP 8080 |
+| `12-apply-template` | **[2a]** Template list/order; apply `generic_snmp` to the switch from the device page (created/skipped), re-apply idempotent (`exists`), disabled device → paused sensors, `/templates` page |
+| `13-snmp-custom-disk` | **[2a]** `snmp_custom` gauge (+ multiplier, unit PATCH) and string (contains/equals) via the form, counter rate, missing OID / non-numeric / validation; `snmp_disk` via the storage picker, exact-match rules |
+| `14-telegram` | **[2a]** Telegram channel: create + test (mock receives HTML message), edit keeps the token, wrong token → 502 `telegram_error` shown, chat-not-found / 429 texts, plain mode, validation, alert rule → down + recovery messages, token never in any API response or the backend log |
+| `15-discovery-profiles` | **[2a]** Scheduled profile via the UI, Run now (baseline, no notification), new host 127.0.0.41 appears → scheduled run → `discovery` event + webhook `discovery.new_hosts` + Telegram for that host only; profile API secrets/merge/validation (waits ~1–2 min for the scheduler) |
+| `16-discovery-cancel` | **[2a]** Cancel a running /20 scan from its page; concurrent scan → 409 `scan_running` (API + UI), delete/import/profile-run while running → 409; delete a finished scan |
+| `17-discovery-viewer` | **[2a]** Viewer: no Discovery nav, `/discovery` forbidden, 403 on all discovery endpoints + apply-template + storage, templates readable, no `discovery.*` WS frames |
+| `18-discovery-rtl-mobile` | **[2a]** Discovery + results in Hebrew (RTL, translated classes/templates, LTR IPs), phone width without horizontal overflow (en/he); screenshots to `$QA2A_SHOT_DIR` (default `$SCREENSHOT_DIR/qa-2a`) |
 
 Timing: sensors use `interval_s = 10` (the API minimum). Waits are `expect.poll` / auto-retrying
 assertions against the real backend and UI, never fixed sleeps.
@@ -82,6 +98,36 @@ python3 tests/sim/webhook_receiver.py --port 18082 --out hooks.jsonl
   failing. Control: `POST /toggle`, `/fail`, `/ok`, `GET /state`, `GET /health`.
 - **Webhook receiver**: records each POST (`time`, `path`, `headers`, `body`). `GET /records` returns them,
   `DELETE /records` clears them.
+
+## Phase 2a discovery lab (`tests/sim/lab.sh`)
+
+```bash
+tests/sim/lab.sh start     # everything below + Phase 1 sims (LAB_GENERIC=0 to skip those); prints the env
+tests/sim/lab.sh status
+tests/sim/lab.sh stop
+eval "$(tests/sim/lab.sh env)"   # NETMON_TELEGRAM_API_BASE, TELEGRAM_MOCK_URL, ...
+```
+
+| Address | Simulates | Community | Expected classification / template |
+|---|---|---|---|
+| `127.0.0.21` udp/1161 | OPNsense 24.7 (net-snmp, FreeBSD OID `.8072.3.2.8`): `igb0`, `igb1`, `lo0`, `pflog0`, `enc0` (down); CPU 10/30 %; RAM 25 %; `/` (index 31) 25 %, `/boot/efi` | public | router / opnsense / `opnsense` |
+| `127.0.0.22` udp/1161 | UniFi U6-Lite (`.8072.3.2.10`): `lo`, `eth0`, `br0`, `ath0`; unifiVap rows 1/2 = `HomeWiFi` 5 clients `ng`, 12 clients `na`; CPU 17 %; RAM 40 % | public | access_point / ubiquiti / `unifi_ap` |
+| `127.0.0.23` udp/1161 + tcp/9100 | Brother NC-8300h (`.2435.2.3.9.1`): page counter 12345, Black Toner 40/100, Drum Unit -3/100 | **printers** | printer / brother / `printer` (`snmp_credential: "extra"`) |
+| `127.0.0.24` udp/1161 | Cisco 2960-X (`.9.1.1208`): Gi1/0/1–2 up, Gi1/0/3–4 down, no HOST-RESOURCES-MIB | public | switch / cisco / `generic_snmp` |
+| `127.0.0.25` tcp/8080 | HTTP-only host (`http_target.py`) | — | unknown / null / `http_server` |
+| `127.0.0.1:18081` | Telegram Bot API mock | — | token `123456:TEST_TOKEN_valid_0123456789abcdef`; chat `-1001` / `@netmon_test` ok, `404` chat not found, `429` rate limit, `slow` 15 s; also rejects unparsable HTML like the real API. `GET/DELETE /_messages`. |
+
+The snmprec files are generated by `tests/sim/discovery/gen_snmprec.py` (keeps OIDs sorted). Quick checks:
+
+```bash
+snmpget -v2c -c public 127.0.0.21:1161 1.3.6.1.2.1.1.1.0
+snmpwalk -v2c -c printers 127.0.0.23:1161 1.3.6.1.2.1.43.11.1.1
+curl -s -H 'Content-Type: application/json' -d '{"chat_id":"-1001","text":"hi"}' \
+  http://127.0.0.1:18081/bot123456:TEST_TOKEN_valid_0123456789abcdef/sendMessage
+curl -s http://127.0.0.1:18081/_messages
+```
+
+Spec 15 starts extra HTTP hosts on `127.0.0.40` / `127.0.0.41:8080` itself.
 
 ## Other suites
 

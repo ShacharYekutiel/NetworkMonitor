@@ -6,7 +6,15 @@ import { endpoints, qk } from '../api/endpoints';
 import { Breadcrumbs } from '../components/Breadcrumbs';
 import { DeviceFormModal } from '../components/EntityForms';
 import { EventsTable } from '../components/EventList';
-import { EditIcon, PauseIcon, PlayIcon, PlusIcon, TrashIcon } from '../components/icons';
+import {
+  EditIcon,
+  LayersIcon,
+  PauseIcon,
+  PlayIcon,
+  PlusIcon,
+  TrashIcon,
+} from '../components/icons';
+import { ApplyTemplateModal } from '../components/Templates';
 import { AddSensorModal } from '../components/SensorForms';
 import { SensorRowActions } from '../components/SensorRowActions';
 import { SensorTable } from '../components/SensorTable';
@@ -38,6 +46,7 @@ export function DevicePage() {
   const [editing, setEditing] = useState(false);
   const [adding, setAdding] = useState(false);
   const [deleting, setDeleting] = useState(false);
+  const [applying, setApplying] = useState(false);
 
   const toggle = useMutation({
     mutationFn: (enabled: boolean) => endpoints.updateDevice(id, { enabled }),
@@ -83,6 +92,9 @@ export function DevicePage() {
             <>
               <Button variant="primary" onClick={() => setAdding(true)}>
                 <PlusIcon size={14} /> {t('sensors.add')}
+              </Button>
+              <Button onClick={() => setApplying(true)}>
+                <LayersIcon size={14} /> {t('templates.apply')}
               </Button>
               <Button busy={toggle.isPending} onClick={() => toggle.mutate(!d.enabled)}>
                 {d.enabled ? (
@@ -132,6 +144,9 @@ export function DevicePage() {
 
       <DeviceFormModal open={editing} onClose={() => setEditing(false)} device={d} />
       {isAdmin && <AddSensorModal open={adding} onClose={() => setAdding(false)} device={d} />}
+      {isAdmin && (
+        <ApplyTemplateModal open={applying} onClose={() => setApplying(false)} device={d} />
+      )}
       <ConfirmDialog
         open={deleting}
         title={t('devices.deleteTitle')}

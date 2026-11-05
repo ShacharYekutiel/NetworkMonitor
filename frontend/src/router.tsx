@@ -7,6 +7,9 @@ import { useAuth } from './hooks/auth';
 import { AccountPage } from './pages/AccountPage';
 import { DashboardPage } from './pages/Dashboard';
 import { DevicePage } from './pages/DevicePage';
+import { DiscoveryPage } from './pages/DiscoveryPage';
+import { ScanPage } from './pages/ScanPage';
+import { TemplatesPage } from './pages/TemplatesPage';
 import { EventsPage } from './pages/EventsPage';
 import { GroupPage } from './pages/GroupPage';
 import { LoginPage } from './pages/Login';
@@ -76,6 +79,23 @@ export function AppRoutes() {
         <Route path="sensors/:id" element={<SensorPage />} />
         <Route path="events" element={<EventsPage />} />
         <Route path="account" element={<AccountPage />} />
+        <Route path="templates" element={<TemplatesPage />} />
+        <Route
+          path="discovery"
+          element={
+            <AdminOnly>
+              <DiscoveryPage />
+            </AdminOnly>
+          }
+        />
+        <Route
+          path="discovery/scans/:id"
+          element={
+            <AdminOnly>
+              <ScanPage />
+            </AdminOnly>
+          }
+        />
         <Route
           path="notifications"
           element={

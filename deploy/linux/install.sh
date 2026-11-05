@@ -21,6 +21,8 @@
 #   4. Installs the app (with the web UI bundled) into the venv.
 #   5. Installs netmon.service (CAP_NET_RAW ambient capability), enables and starts it.
 #   6. Prints the URL.
+# Corporate TLS inspection: certificates in deploy/certs/ (see deploy/certs/README.md) are
+# added to the system trust store first, so apt/dnf, pip, npm and the app trust them.
 # =============================================================================
 set -Eeuo pipefail
 
@@ -129,6 +131,44 @@ apt_install() {
 }
 dnf_install() { dnf install -y -q "$@"; }
 
+# ============================================================================= corporate CA
+# A TLS-inspecting firewall re-signs HTTPS with a private corporate root CA. Every
+# *.crt / *.pem / *.cer in deploy/certs/ (see deploy/certs/README.md) is added to the
+# system trust store, which apt/dnf/curl, pip and the app itself (truststore) use; npm and
+# uv get it through NODE_EXTRA_CA_CERTS / SSL_CERT_FILE for the rest of this script.
+readonly CA_SRC_DIR="${SCRIPT_DIR}/../certs"
+readonly CA_IMPORT="${SCRIPT_DIR}/../import-ca-certs.sh"
+CA_DONE=0
+import_corporate_cas() {
+  local dest update bundle before after
+  if [ "$FAMILY" = debian ]; then
+    dest=/usr/local/share/ca-certificates/netmon
+    update="update-ca-certificates"
+    bundle=/etc/ssl/certs/ca-certificates.crt
+  else
+    dest=/etc/pki/ca-trust/source/anchors
+    update="update-ca-trust extract"
+    bundle=/etc/pki/tls/certs/ca-bundle.crt
+  fi
+  have "${update%% *}" || return 0  # not installed yet: retried after the base tools
+  CA_DONE=1
+  [ -f "$CA_IMPORT" ] || return 0
+  before="$(find "$dest" -maxdepth 1 -name 'netmon-*.crt' 2>/dev/null | wc -l || true)"
+  sh "$CA_IMPORT" "$CA_SRC_DIR" "$dest" | sed 's/^/  /'
+  after="$(find "$dest" -maxdepth 1 -name 'netmon-*.crt' 2>/dev/null | wc -l || true)"
+  if [ "$before" -gt 0 ] || [ "$after" -gt 0 ]; then
+    $update >/dev/null 2>&1 || warn "\"${update}\" failed; corporate CA certificates may not be trusted"
+  fi
+  if [ "$after" -gt 0 ] && [ -s "$bundle" ]; then
+    export NODE_EXTRA_CA_CERTS="$bundle" SSL_CERT_FILE="$bundle" PIP_CERT="$bundle" UV_NATIVE_TLS=1
+    ok "Trusting ${after} corporate CA certificate(s) from deploy/certs"
+  fi
+}
+if [ -d "$CA_SRC_DIR" ]; then
+  log "Checking deploy/certs for corporate CA certificates"
+  import_corporate_cas
+fi
+
 log "Installing base tools"
 if [ "$FAMILY" = debian ]; then
   apt_install ca-certificates curl gnupg tar gzip
@@ -141,6 +181,7 @@ else
   have find || RHEL_BASE+=(findutils)
   dnf_install "${RHEL_BASE[@]}"
 fi
+if [ -d "$CA_SRC_DIR" ] && [ "$CA_DONE" -eq 0 ]; then import_corporate_cas; fi
 
 # ============================================================================= PostgreSQL
 # Results of this section:

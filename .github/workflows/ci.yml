@@ -119,6 +119,22 @@ jobs:
       - name: Build image
         run: $COMPOSE build --pull
 
+      - name: Corporate CA in deploy/certs reaches the image trust store
+        run: |
+          set -eu
+          d="$(mktemp -d)"
+          openssl req -x509 -newkey rsa:2048 -nodes -days 1 -subj "/CN=NetMon CI Corporate Root" \
+            -keyout "$d/ca.key" -out "$d/ca.pem" 2>/dev/null
+          # One PEM with CRLF line endings (Windows export) and one DER file.
+          sed 's/$/\r/' "$d/ca.pem" > deploy/certs/ci-root-pem.cer
+          openssl x509 -in "$d/ca.pem" -outform DER -out deploy/certs/ci-root-der.cer
+          docker build --target pybase -t netmon-ca-check .
+          rm -f deploy/certs/ci-root-*.cer
+          docker run --rm -v "$d/ca.pem:/ca.pem:ro" netmon-ca-check sh -c '
+            ls /usr/local/share/ca-certificates/netmon
+            test "$(ls /usr/local/share/ca-certificates/netmon | wc -l)" -eq 2
+            openssl verify -CAfile /etc/ssl/certs/ca-certificates.crt /ca.pem'
+
       - name: Start stack (the documented single step)
         run: $COMPOSE up -d
 
@@ -193,7 +209,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - name: shellcheck
-        run: shellcheck -x deploy/linux/*.sh
+        run: shellcheck -x deploy/*.sh deploy/linux/*.sh
       - name: PowerShell parse + PSScriptAnalyzer
         shell: pwsh
         run: |

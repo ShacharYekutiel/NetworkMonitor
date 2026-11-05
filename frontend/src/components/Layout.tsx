@@ -9,10 +9,12 @@ import {
   CogIcon,
   DashboardIcon,
   KeyIcon,
+  LayersIcon,
   ListIcon,
   LogoutIcon,
   MenuIcon,
   PulseIcon,
+  RadarIcon,
   UsersIcon,
 } from './icons';
 import { TreeNav } from './Tree';
@@ -147,6 +149,10 @@ export function Layout() {
           <nav className="space-y-0.5 p-2">
             <NavItem to="/" icon={<DashboardIcon size={16} />} label={t('nav.dashboard')} />
             <NavItem to="/events" icon={<ListIcon size={16} />} label={t('nav.events')} />
+            {isAdmin && (
+              <NavItem to="/discovery" icon={<RadarIcon size={16} />} label={t('nav.discovery')} />
+            )}
+            <NavItem to="/templates" icon={<LayersIcon size={16} />} label={t('nav.templates')} />
             {isAdmin && (
               <>
                 <NavItem

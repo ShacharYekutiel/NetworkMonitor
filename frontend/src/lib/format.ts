@@ -42,8 +42,25 @@ export function formatValue(v: number | null | undefined, unit: string): string 
     case 'd':
       return `${formatNumber(v, 1)} ${i18n.t('units.days')}`;
     default:
-      return `${formatNumber(v)} ${unit}`;
+      // snmp_custom units are free text ("", "clients", "°C"); no trailing space when empty.
+      return unit ? `${formatNumber(v)} ${unit}` : formatNumber(v);
   }
+}
+
+/**
+ * Text of a sensor channel value. `snmp_custom` in string mode stores 1 for a match, so it
+ * shows a word instead of the number.
+ */
+export function sensorValueText(
+  s: { type: string; config: Record<string, unknown> },
+  key: string,
+  value: number | null | undefined,
+  unit: string,
+): string {
+  if (s.type === 'snmp_custom' && s.config.value_type === 'string' && key === 'value') {
+    return value === null || value === undefined ? '—' : i18n.t('sensors.textOk');
+  }
+  return formatValue(value, unit);
 }
 
 /**
@@ -86,4 +103,13 @@ export function formatRelative(iso: string | null | undefined, now: number = Dat
   if (abs < 3600) return rtf.format(Math.round(diff / 60), 'minute');
   if (abs < 86400) return rtf.format(Math.round(diff / 3600), 'hour');
   return rtf.format(Math.round(diff / 86400), 'day');
+}
+
+/** Used % of an hrStorage row; null (shown as "—") when size or used is unknown or size is 0. */
+export function storageUsedPct(r: {
+  size_bytes: number | null;
+  used_bytes: number | null;
+}): number | null {
+  if (r.size_bytes === null || r.used_bytes === null || r.size_bytes <= 0) return null;
+  return (r.used_bytes / r.size_bytes) * 100;
 }

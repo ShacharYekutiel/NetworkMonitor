@@ -15,4 +15,18 @@
   :root.dark {
     color-scheme: dark;
   }
+  /*
+   * Native <select> popups (notably Chrome/Edge on Windows) draw <option>s with their own
+   * colours; without explicit ones they can end up white-on-white in dark mode.
+   */
+  select option,
+  select optgroup {
+    background-color: #ffffff;
+    color: #0f172a;
+  }
+  :root.dark select option,
+  :root.dark select optgroup {
+    background-color: #0f172a;
+    color: #f1f5f9;
+  }
 }

@@ -21,6 +21,9 @@ through a WebSocket, and the UI comes in English and Hebrew (RTL).
 docker compose -f deploy/docker-compose.yml up -d
 # open http://<server>:8080 and complete the setup wizard
 ```
+Behind a firewall that inspects HTTPS (build fails with `UNABLE_TO_GET_ISSUER_CERT_LOCALLY` or
+`SELF_SIGNED_CERT_IN_CHAIN`): put your organisation's root CA into [`deploy/certs/`](deploy/certs/README.md) and
+run `docker compose -f deploy/docker-compose.yml up -d --build`.
 
 **Native Linux** (systemd, run as root)
 ```bash
@@ -69,6 +72,10 @@ docker compose -f deploy/docker-compose.yml up -d
 </div>
 
 אחר כך פתחו את `http://<server>:8080` והשלימו את אשף ההתקנה.
+
+מאחורי חומת אש שבודקת HTTPS (הבנייה נכשלת עם `UNABLE_TO_GET_ISSUER_CERT_LOCALLY` או
+`SELF_SIGNED_CERT_IN_CHAIN`): שימו את תעודת ה-CA הראשית של הארגון בתיקייה [`deploy/certs/`](deploy/certs/README.md)
+והריצו שוב `docker compose -f deploy/docker-compose.yml up -d --build`.
 
 **לינוקס (התקנה מקומית, systemd, כ-root)**
 

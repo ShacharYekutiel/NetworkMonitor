@@ -12,6 +12,7 @@ from sqlalchemy import text
 
 from netmon.alerts import templates
 from netmon.alerts.email import SmtpError, send_email
+from netmon.alerts.telegram import TelegramError, send_telegram
 from netmon.alerts.webhook import WebhookError, send_webhook
 from netmon.services import events as events_svc
 from netmon.services import settings as settings_svc
@@ -76,8 +77,12 @@ def build_payload(
 async def send_to_channel(
     channel: dict[str, Any], payload: dict[str, Any], smtp: dict[str, Any], lang: str
 ) -> None:
-    """Raises SmtpError / WebhookError."""
-    if channel["type"] == "email":
+    """Raises SmtpError / WebhookError / TelegramError."""
+    if channel["type"] == "telegram":
+        cfg = channel["config"]
+        parse_mode = cfg.get("parse_mode", "HTML")
+        await send_telegram(cfg, templates.telegram_text(payload, lang, parse_mode), parse_mode)
+    elif channel["type"] == "email":
         await send_email(
             smtp,
             list(channel["config"].get("to") or []),
@@ -292,7 +297,7 @@ class AlertEngine:
             try:
                 await self.sender(channel, payload, cfg["smtp"], cfg["default_language"])
                 sent_any = True
-            except (SmtpError, WebhookError, Exception) as exc:  # noqa: BLE001
+            except (SmtpError, WebhookError, TelegramError, Exception) as exc:  # noqa: BLE001
                 log.warning("Notification via %s failed: %s", ch.name, exc)
                 await events_svc.write_notification_event(
                     self.rt,

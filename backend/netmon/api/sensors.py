@@ -36,6 +36,7 @@ from netmon.services.sensors import (
     default_thresholds,
     effective_credentials,
     set_sensor_status,
+    sync_channel_units,
 )
 from netmon.services.serialize import check_result_out, page, sensor_out
 from netmon.services.status import load_inventory
@@ -145,7 +146,7 @@ async def create_sensor(body: SensorCreate, _: Admin, rt: RT, session: DB) -> di
         status_message="",
         state={},
         sort_order=body.sort_order,
-        channels=build_channels(tdef.type, overrides),
+        channels=build_channels(tdef.type, overrides, cfg),
     )
     session.add(s)
     await session.commit()
@@ -169,10 +170,14 @@ async def patch_sensor(sensor_id: int, body: SensorPatch, _: Admin, rt: RT, sess
     if "type" in fields and body.type is not None and body.type != s.type:
         raise ApiError(400, "invalid_sensor_type", "The sensor type cannot be changed")
     if "config" in fields and body.config is not None:
-        old_index = s.config.get("if_index")
+        old = dict(s.config)
         s.config = validate_config(s.type, body.config, base=dict(s.config))
-        if s.type == "snmp_interface" and s.config.get("if_index") != old_index:
+        if s.type == "snmp_interface" and s.config.get("if_index") != old.get("if_index"):
             s.state = {}  # different interface: counters are no longer comparable
+        if s.type == "snmp_custom":
+            if any(s.config.get(k) != old.get(k) for k in ("oid", "value_type", "percent_of_oid")):
+                s.state = {}
+            sync_channel_units(s)
     if "channels" in fields and body.channels is not None:
         apply_channel_overrides(s, validate_channel_overrides(s.type, body.channels))
     if "name" in fields and body.name:
@@ -242,7 +247,7 @@ async def test_sensor(body: SensorTestIn, _: Admin, rt: RT, session: DB) -> dict
     await session.close()
     ctx = CheckContext(None, tdef.type, cfg, host, creds, {}, timeout_s=60.0)
     raw, duration, checked_at = await execute_check(ctx, rt.semaphore)
-    ev = evaluate(raw, default_thresholds(tdef.type, overrides), duration, checked_at)
+    ev = evaluate(raw, default_thresholds(tdef.type, overrides, cfg), duration, checked_at)
     return check_result_out(ev)
 
 
