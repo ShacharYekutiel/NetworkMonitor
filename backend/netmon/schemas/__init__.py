@@ -54,9 +54,8 @@ class SetupIn(_In):
     password: str = Field(min_length=8, max_length=128)
     email: str | None = None
     language: Language = "en"
-    timezone: str | None = None  # [2b-1]
-
-    _tzv = field_validator("timezone")(lambda cls, v: _tz(v))
+    # [2b-1] the browser zone; an invalid value is ignored by the setup endpoint (logged)
+    timezone: str | None = Field(default=None, max_length=128)
 
     _u = field_validator("username")(lambda cls, v: _username(v))
     _e = field_validator("email")(lambda cls, v: _email(v))
@@ -440,8 +439,8 @@ class TopologyLinkIn(BaseModel):
 class LayoutPosition(BaseModel):
     model_config = ConfigDict(extra="forbid")
     node: str = Field(min_length=1, max_length=32)
-    x: float
-    y: float
+    x: float = Field(allow_inf_nan=False)
+    y: float = Field(allow_inf_nan=False)
 
 
 class LayoutIn(BaseModel):

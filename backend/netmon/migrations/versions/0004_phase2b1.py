@@ -90,6 +90,7 @@ UPGRADE = [
         reminders_sent integer NOT NULL DEFAULT 0,
         maintenance_suppressed boolean NOT NULL DEFAULT false,
         notified_channel_ids integer[] NOT NULL DEFAULT '{}',
+        sending_since timestamptz NULL,
         updated_at timestamptz NOT NULL DEFAULT now(),
         PRIMARY KEY (rule_id, sensor_id)
     )""",
@@ -227,9 +228,12 @@ DOWNGRADE = [
     )""",
     """
     INSERT INTO alert_notified (rule_id, sensor_id, status, time)
-    SELECT rule_id, sensor_id, status, COALESCE(primary_sent_at, problem_since)
+    SELECT rule_id, sensor_id,
+           CASE WHEN status IN ('down','warning') THEN status ELSE 'down' END,
+           COALESCE(primary_sent_at, problem_since)
     FROM alert_state
-    WHERE status IN ('down','warning') AND cardinality(notified_channel_ids) > 0""",
+    WHERE cardinality(notified_channel_ids) > 0
+       OR (sending_since IS NOT NULL AND status IN ('down','warning'))""",
     "DROP TABLE alert_state",
     "ALTER TABLE discovery_results DROP COLUMN IF EXISTS fingerprint",
     "ALTER TABLE discovery_results DROP COLUMN IF EXISTS model",

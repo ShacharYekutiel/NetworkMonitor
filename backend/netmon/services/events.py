@@ -88,9 +88,7 @@ def published(rt: Runtime, events: list[Event]) -> None:
     if changes:
         rt.request_rollup()
         if getattr(rt, "dependencies_enabled", True):
-            from netmon.services import dependencies
-
-            rt.spawn(dependencies.on_status_change(rt, changes))
+            rt.cascade.submit(changes)
 
 
 async def write_system_event(rt: Runtime, message: str, **fields: Any) -> None:

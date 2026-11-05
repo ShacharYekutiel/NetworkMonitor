@@ -35,6 +35,7 @@ class Scheduler:
         self._heap: list[tuple[float, int, int]] = []  # (when, sensor_id, gen)
         self._entries: dict[int, _Entry] = {}
         self._running: set[int] = set()
+        self._followup: set[int] = set()  # [2b-1] run once more after the current run
         self._tasks: set[asyncio.Task[None]] = set()
         self._gen = 0
         self._wake = asyncio.Event()
@@ -130,6 +131,9 @@ class Scheduler:
         if delay > 0:
             await asyncio.sleep(delay)
         if sensor_id in self._running:
+            # a check is in flight (it may have started before the reason for this extra
+            # run): run once more right after it
+            self._followup.add(sensor_id)
             return
         self._running.add(sensor_id)
         await self._run_one(sensor_id, remove_on_pause=False)
@@ -187,3 +191,8 @@ class Scheduler:
             log.exception("Check of sensor %s failed", sensor_id)
         finally:
             self._running.discard(sensor_id)
+            if sensor_id in self._followup:
+                self._followup.discard(sensor_id)
+                task = asyncio.create_task(self._soon(sensor_id, 0.0))
+                self._tasks.add(task)
+                task.add_done_callback(self._tasks.discard)

@@ -25,6 +25,9 @@ from netmon.config import load_settings
 from netmon.runtime import Runtime
 
 TEST_DATABASE_URL = os.environ.get("TEST_DATABASE_URL")
+
+# [2b-1] coalescing window of the dependency cascade (0.5 s in production)
+__import__("netmon.services.dependencies", fromlist=["x"]).CASCADE_DEBOUNCE_S = 0.02
 requires_db = pytest.mark.skipif(not TEST_DATABASE_URL, reason="TEST_DATABASE_URL not set")
 
 TABLES = (
@@ -122,6 +125,7 @@ async def clean(rt: Runtime, app: Any) -> AsyncIterator[None]:
     if rt.alerts is not None:
         rt.alerts.sender = __import__("netmon.alerts.engine", fromlist=["x"]).send_to_channel
         rt.alerts._sent.clear()  # noqa: SLF001
+    rt.cascade.invalidate()
     rt.clock.set_offset(0)
     if rt.maintenance is not None:
         rt.maintenance.reset_state()

@@ -129,6 +129,23 @@ def redirect_target(
     return scheme, port, path
 
 
+def fingerprint_tls_context() -> ssl.SSLContext:
+    """Fingerprinting only: no verification, and old TLS versions/ciphers allowed (old switch
+    and printer web UIs). Sensors keep their own TLS settings."""
+    ctx = ssl.create_default_context()
+    ctx.check_hostname = False
+    ctx.verify_mode = ssl.CERT_NONE
+    try:
+        ctx.minimum_version = ssl.TLSVersion.TLSv1
+    except (ValueError, AttributeError):  # pragma: no cover - TLS 1.0 not built in
+        pass
+    try:
+        ctx.set_ciphers("DEFAULT:@SECLEVEL=0")
+    except ssl.SSLError:  # pragma: no cover - non-OpenSSL builds
+        pass
+    return ctx
+
+
 def _is_ip(value: str) -> bool:
     try:
         ipaddress.ip_address(value.strip("[]"))
@@ -148,9 +165,7 @@ async def _http_once(
     """One GET; returns (status, headers (lower-case name -> values), body <= 64 KiB)."""
     ctx = None
     if scheme == "https":
-        ctx = ssl.create_default_context()
-        ctx.check_hostname = False
-        ctx.verify_mode = ssl.CERT_NONE
+        ctx = fingerprint_tls_context()
     sni: str | None = None
     if ctx is not None:
         sni = "" if _is_ip(host_header) else host_header

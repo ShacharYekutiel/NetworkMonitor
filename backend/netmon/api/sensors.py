@@ -273,7 +273,7 @@ async def acknowledge(
     events_svc.published(rt, [ev])
     _ack_ws(rt, s)
     if rt.alerts is not None:
-        await rt.alerts.acknowledged(s.id)
+        rt.alerts.request_acknowledged(s.id)
     rt.request_rollup()
     return _out(s, d, maint=rt.maintenance)
 
@@ -307,7 +307,7 @@ async def unacknowledge(sensor_id: int, user: Admin, rt: RT, session: DB) -> dic
     events_svc.published(rt, [ev])
     _ack_ws(rt, s)
     if rt.alerts is not None:
-        await rt.alerts.unacknowledged(s.id)
+        rt.alerts.request_unacknowledged(s.id)
     rt.request_rollup()
     return _out(s, d, maint=rt.maintenance)
 

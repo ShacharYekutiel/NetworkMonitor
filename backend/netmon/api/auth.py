@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import logging
+
 from fastapi import APIRouter, Request, Response
 from fastapi.responses import JSONResponse
 from sqlalchemy import func, select, text
@@ -87,7 +89,15 @@ async def setup(body: SetupIn, request: Request, rt: RT, session: DB) -> JSONRes
     await settings_svc.ensure_defaults(session)
     await settings_svc.put(session, "default_language", body.language)
     if body.timezone:
-        await settings_svc.put(session, "timezone", body.timezone)
+        from netmon.services.maintenance import valid_timezone
+
+        if valid_timezone(body.timezone):
+            await settings_svc.put(session, "timezone", body.timezone)
+        else:
+            # setup never fails over the browser's zone; the default stays
+            logging.getLogger("netmon.api.auth").warning(
+                "Setup: ignoring unknown time zone %r; using the default", body.timezone[:64]
+            )
     await session.commit()
     if body.timezone and rt.maintenance is not None:
         await rt.maintenance.reload()

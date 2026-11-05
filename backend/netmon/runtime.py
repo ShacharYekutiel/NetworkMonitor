@@ -10,7 +10,7 @@ import time
 from typing import Any
 
 from sqlalchemy import text
-from sqlalchemy.ext.asyncio import AsyncConnection, AsyncEngine, AsyncSession, async_sessionmaker
+from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession, async_sessionmaker
 
 from netmon import __version__
 from netmon.alerts.engine import AlertEngine
@@ -79,9 +79,14 @@ class Runtime:
         self.topology: Any = None  # netmon.topology.refresh.TopologyRunner
         self.topology_scheduler: Any = None
         self.dependencies_enabled = True
+        from netmon.services.dependencies import Cascade
+
+        self.cascade = Cascade(self)
         self.semaphore = asyncio.Semaphore(max(1, settings.netmon_max_concurrent_checks))
         self.started_monotonic = time.monotonic()
-        self._lock_conn: AsyncConnection | None = None
+        # a dedicated asyncpg connection outside the SQLAlchemy pool holds the session-level
+        # advisory lock; the watchdog checks that same connection
+        self._lock_conn: Any = None
         self._has_users = False
         self._tasks: list[asyncio.Task[Any]] = []
         self._rollup_event = asyncio.Event()
@@ -136,13 +141,13 @@ class Runtime:
         if maintenance:
             self.discovery_scheduler = DiscoveryScheduler(self)
             self.discovery_scheduler.start()
-        # [2b-1] the alert loop processes overdue alert_state rows right away, then the
-        # maintenance tracker, then the topology scheduler
-        self.alerts.start()
+        # [2b-1] the maintenance tracker evaluates once BEFORE the alert loop starts, so
+        # overdue rows of devices in maintenance are not sent after a restart
         from netmon.services.maintenance import MaintenanceTracker
 
         self.maintenance = MaintenanceTracker(self)
         await self.maintenance.start()
+        self.alerts.start()
         if maintenance:
             from netmon.topology.scheduler import TopologyScheduler
 
@@ -155,6 +160,14 @@ class Runtime:
             self.scheduler = Scheduler(self)
             await self.scheduler.start()
         await events_svc.write_system_event(self, "NetworkMonitor started")
+        if s.netmon_test_mode:
+            log.warning(
+                "NETMON_TEST_MODE is on: PUT /api/test/clock can shift the maintenance/alerting "
+                "clock. Never use this in production."
+            )
+            await events_svc.write_system_event(
+                self, "Test mode is on (NETMON_TEST_MODE): the test clock API is enabled"
+            )
         if not self.timescale_enabled:
             await events_svc.write_system_event(
                 self, "TimescaleDB not available — using plain PostgreSQL"
@@ -193,22 +206,30 @@ class Runtime:
         await self.hub.close_all(1001)
         if self._lock_conn is not None:
             with contextlib.suppress(Exception):
-                await self._lock_conn.execute(
-                    text("SELECT pg_advisory_unlock(:id)"), {"id": ADVISORY_LOCK_ID}
-                )
+                await self._lock_conn.execute("SELECT pg_advisory_unlock($1)", ADVISORY_LOCK_ID)
+            with contextlib.suppress(Exception):
                 await self._lock_conn.close()
             self._lock_conn = None
         if self.engine is not None:
             await self.engine.dispose()
         self.started = False
 
+    async def _lock_connect(self) -> Any:
+        import asyncpg
+
+        url = self.settings.async_database_url.replace("postgresql+asyncpg://", "postgresql://", 1)
+        return await asyncio.wait_for(
+            asyncpg.connect(url, server_settings={"application_name": "netmon-lock"}), 30
+        )
+
     async def _acquire_lock(self) -> None:
-        assert self.engine is not None
-        conn = await self.engine.connect()
-        got = (
-            await conn.execute(text("SELECT pg_try_advisory_lock(:id)"), {"id": ADVISORY_LOCK_ID})
-        ).scalar()
-        await conn.commit()
+        conn = await self._lock_connect()
+        try:
+            got = await conn.fetchval("SELECT pg_try_advisory_lock($1)", ADVISORY_LOCK_ID)
+        except BaseException:
+            with contextlib.suppress(Exception):
+                await conn.close()
+            raise
         if not got:
             await conn.close()
             raise LockHeldError(
@@ -225,26 +246,29 @@ class Runtime:
         """Verify we still hold the advisory lock (it is lost when PostgreSQL restarts);
         re-acquire it, or exit when another instance has taken it."""
         held = False
+        reason = "no lock connection"
         if self._lock_conn is not None:
             try:
                 held = bool(
-                    (
-                        await self._lock_conn.execute(
-                            text(
-                                "SELECT count(*) FROM pg_locks WHERE locktype = 'advisory' "
-                                "AND classid = 0 AND objid = :id AND objsubid = 1 "
-                                "AND pid = pg_backend_pid() AND granted"
-                            ),
-                            {"id": ADVISORY_LOCK_ID},
-                        )
-                    ).scalar()
+                    await asyncio.wait_for(
+                        self._lock_conn.fetchval(
+                            "SELECT count(*) FROM pg_locks WHERE locktype = 'advisory' "
+                            "AND database = (SELECT oid FROM pg_database "
+                            "WHERE datname = current_database()) "
+                            "AND classid = 0 AND objid = $1 AND objsubid = 1 "
+                            "AND pid = pg_backend_pid() AND granted",
+                            ADVISORY_LOCK_ID,
+                        ),
+                        10,
+                    )
                 )
-                await self._lock_conn.commit()
-            except Exception:  # noqa: BLE001
+                reason = "the lock is no longer held by this connection"
+            except Exception as exc:  # noqa: BLE001
                 held = False
+                reason = f"the lock connection failed: {type(exc).__name__}: {exc}"
         if held:
             return True
-        log.error("Lost the single-instance advisory lock (database restart?); re-acquiring")
+        log.error("Lost the single-instance advisory lock (%s); re-acquiring", reason)
         if self._lock_conn is not None:
             with contextlib.suppress(Exception):
                 await self._lock_conn.close()
@@ -307,10 +331,11 @@ class Runtime:
             events_svc.published(self, evs)
 
     # ------------------------------------------------------------------ helpers
-    def spawn(self, coro: Any) -> None:
+    def spawn(self, coro: Any) -> asyncio.Future[Any]:
         task = asyncio.ensure_future(coro)
         self._bg.add(task)
         task.add_done_callback(self._bg.discard)
+        return task
 
     async def drain(self) -> None:
         """Wait for background work (tests / shutdown)."""
@@ -371,5 +396,7 @@ class Runtime:
     def config_changed(self, entity: str, id_: int, action: str) -> None:
         self.hub.broadcast("config.changed", {"entity": entity, "id": id_, "action": action})
         self.request_rollup()
-        if entity in ("device", "group") and self.maintenance is not None:
-            self.maintenance.request()  # coverage may have changed (moves, new devices)
+        if entity in ("device", "group"):
+            self.cascade.invalidate()  # dependencies may have changed
+            if self.maintenance is not None:
+                self.maintenance.request()  # coverage may have changed (moves, new devices)

@@ -27,4 +27,5 @@ async def health(rt: RT) -> dict:
         "poller": "running" if sched is not None and sched.running else "stopped",
         "sensors_scheduled": sched.scheduled_count if sched is not None else 0,
         "uptime_s": rt.uptime_s(),
+        "test_mode": bool(rt.settings.netmon_test_mode),
     }

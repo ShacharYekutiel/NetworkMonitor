@@ -33,6 +33,7 @@ log = logging.getLogger("netmon.topology")
 CONCURRENCY = 8
 DEVICE_BUDGET_S = 30.0
 STALE_AFTER = 3
+REFRESH_BUDGET_S = 900.0  # backstop for a whole refresh (devices have their own 30 s)
 KEEP_REFRESHES = 20
 SNMP_TYPES = tuple(t for t, d in SENSOR_TYPES.items() if d.requires_snmp)
 
@@ -114,6 +115,7 @@ class TopologyRunner:
         self._current: int | None = None
         self._lock = asyncio.Lock()
         self.device_budget_s = DEVICE_BUDGET_S
+        self.total_budget_s = REFRESH_BUDGET_S
 
     @property
     def running_id(self) -> int | None:
@@ -151,12 +153,29 @@ class TopologyRunner:
                     await session.commit()
                 except IntegrityError:
                     await session.rollback()
-                    rid = (
-                        await session.execute(
-                            text("SELECT id FROM topology_refreshes WHERE status = 'running'")
-                        )
-                    ).scalar()
-                    raise RefreshRunningError(rid) from None
+                    # no refresh runs in this process (checked above): a `running` row is a
+                    # leftover (a previous process died, or its final write failed)
+                    n = await self.mark_interrupted()
+                    log.warning("Cleared %d stale running topology refresh row(s)", n)
+                    try:
+                        row = (
+                            await session.execute(
+                                text(
+                                    "INSERT INTO topology_refreshes (trigger, status, "
+                                    "created_by) VALUES (:t, 'running', :u) RETURNING *"
+                                ),
+                                {"t": trigger, "u": created_by},
+                            )
+                        ).one()
+                        await session.commit()
+                    except IntegrityError:
+                        await session.rollback()
+                        rid = (
+                            await session.execute(
+                                text("SELECT id FROM topology_refreshes WHERE status = 'running'")
+                            )
+                        ).scalar()
+                        raise RefreshRunningError(rid) from None
             out = refresh_out(row)
             self._current = int(row.id)
             self._task = asyncio.create_task(self._run(int(row.id)), name="netmon-topology")
@@ -176,46 +195,71 @@ class TopologyRunner:
     async def _run(self, refresh_id: int) -> None:
         stats = {"devices_total": 0, "devices_ok": 0, "devices_failed": 0, "links_found": 0}
         status, error = "completed", None
+        log.info("Topology refresh %s started", refresh_id)
         try:
-            stats = await self.refresh(stats)
+            stats = await asyncio.wait_for(self.refresh(stats), self.total_budget_s)
         except asyncio.CancelledError:
             status, error = "failed", "Cancelled by shutdown"
+        except TimeoutError:
+            log.warning("Topology refresh %s timed out", refresh_id)
+            status, error = "failed", f"Timed out after {self.total_budget_s:g} s"
         except Exception as exc:  # noqa: BLE001
             log.exception("Topology refresh %s failed", refresh_id)
             status, error = "failed", (str(exc) or type(exc).__name__)[:1000]
-        try:
-            async with self.rt.sessionmaker() as session:
-                row = (
-                    await session.execute(
-                        text(
-                            "UPDATE topology_refreshes SET status = :st, error = :err, "
-                            "finished_at = now(), devices_total = :t, devices_ok = :ok, "
-                            "devices_failed = :f, links_found = :l WHERE id = :id RETURNING *"
-                        ),
-                        {
-                            "st": status,
-                            "err": error,
-                            "t": stats["devices_total"],
-                            "ok": stats["devices_ok"],
-                            "f": stats["devices_failed"],
-                            "l": stats["links_found"],
-                            "id": refresh_id,
-                        },
-                    )
-                ).one()
-                await session.execute(
-                    text(
-                        "DELETE FROM topology_refreshes WHERE status <> 'running' AND id NOT IN "
-                        "(SELECT id FROM topology_refreshes ORDER BY id DESC LIMIT :k)"
-                    ),
-                    {"k": KEEP_REFRESHES},
-                )
-                await session.commit()
-        except Exception:  # noqa: BLE001
-            log.exception("Cannot finish topology refresh %s", refresh_id)
-            return
+        row = None
+        for attempt in range(3):
+            try:
+                row = await self._finish(refresh_id, status, error, stats)
+                break
+            except asyncio.CancelledError:
+                raise
+            except Exception:  # noqa: BLE001
+                log.exception("Cannot finish topology refresh %s (attempt %d)", refresh_id, attempt)
+                await asyncio.sleep(0.5 * (attempt + 1))
+        log.info(
+            "Topology refresh %s %s: %d/%d devices ok, %d links",
+            refresh_id,
+            status,
+            stats["devices_ok"],
+            stats["devices_total"],
+            stats["links_found"],
+        )
+        if row is None:
+            return  # the row stays `running`; the next start() clears it
         self.rt.hub.broadcast("topology.refresh", {"refresh": refresh_out(row)}, admin_only=True)
         self.rt.hub.broadcast("topology.updated", {"reason": "refresh", "refresh_id": refresh_id})
+
+    async def _finish(
+        self, refresh_id: int, status: str, error: str | None, stats: dict[str, int]
+    ) -> Any:
+        async with self.rt.sessionmaker() as session:
+            row = (
+                await session.execute(
+                    text(
+                        "UPDATE topology_refreshes SET status = :st, error = :err, "
+                        "finished_at = now(), devices_total = :t, devices_ok = :ok, "
+                        "devices_failed = :f, links_found = :l WHERE id = :id RETURNING *"
+                    ),
+                    {
+                        "st": status,
+                        "err": error,
+                        "t": stats["devices_total"],
+                        "ok": stats["devices_ok"],
+                        "f": stats["devices_failed"],
+                        "l": stats["links_found"],
+                        "id": refresh_id,
+                    },
+                )
+            ).one()
+            await session.execute(
+                text(
+                    "DELETE FROM topology_refreshes WHERE status <> 'running' AND id NOT IN "
+                    "(SELECT id FROM topology_refreshes ORDER BY id DESC LIMIT :k)"
+                ),
+                {"k": KEEP_REFRESHES},
+            )
+            await session.commit()
+        return row
 
     # ---------------------------------------------------------------- the refresh
     async def refresh(self, stats: dict[str, int]) -> dict[str, int]:
@@ -395,8 +439,13 @@ class TopologyRunner:
             for ln in links.values():
                 nb_id = nb_ids.get(ln["b_nb"]) if ln["b_nb"] else None
                 seen.add(await _upsert_link(session, ln, nb_id))
-            seen |= await self._promote(session, matcher, seen)
-            if ok_ids:
+            seen |= await self._promote(session, matcher, seen, results)
+            # a miss counts only for an endpoint that was walked ok AND returned LLDP/CDP data
+            # (an agent whose LLDP tables came back empty says nothing about its links)
+            lldp_ok = [
+                i for i in ok_ids if results[i].local_ports or results[i].remotes or results[i].cdp
+            ]
+            if lldp_ok:
                 await session.execute(
                     text(
                         "UPDATE topology_links SET missed_refreshes = missed_refreshes + 1, "
@@ -404,7 +453,7 @@ class TopologyRunner:
                         "WHERE source <> 'manual' AND NOT (id = ANY(:seen)) "
                         "AND (a_device_id = ANY(:ok) OR b_device_id = ANY(:ok))"
                     ),
-                    {"n": STALE_AFTER, "seen": sorted(seen), "ok": ok_ids},
+                    {"n": STALE_AFTER, "seen": sorted(seen), "ok": lldp_ok},
                 )
             await session.execute(
                 text(
@@ -421,7 +470,13 @@ class TopologyRunner:
     def _is_self(chassis: str, dev: _Dev) -> bool:
         return bool(chassis and dev.chassis and chassis.lower() == dev.chassis.lower())
 
-    async def _promote(self, session: Any, matcher: Matcher, seen: set[int]) -> set[int]:
+    async def _promote(
+        self,
+        session: Any,
+        matcher: Matcher,
+        seen: set[int],
+        results: dict[int, DeviceData] | None = None,
+    ) -> set[int]:
         """Neighbours that now match a device: re-point their links to the device (merging
         duplicates, keeping the oldest first_seen), move the layout row, delete them."""
         out: set[int] = set()
@@ -448,18 +503,28 @@ class TopologyRunner:
                         text("DELETE FROM topology_links WHERE id = :id"), {"id": ln.id}
                     )
                     continue
+                local, local_port = ln.a_device_id, ln.a_port
                 a, a_if, a_port = ln.a_device_id, ln.a_if_index, ln.a_port
                 b, b_if, b_port = target, ln.b_if_index, ln.b_port
+                other = (results or {}).get(target)
+                if other is not None:  # resolve the port on the newly matched device
+                    idx = resolve_remote_port(5, b_port, b_port, other.if_names, other.if_descrs)
+                    if idx is not None:
+                        b_if = idx
+                        b_port = port_name(idx, other.if_names, other.if_descrs) or b_port
                 if b < a:
                     a, a_if, a_port, b, b_if, b_port = b, b_if, b_port, a, a_if, a_port
+                # a parallel link between the same devices on the same local port (e.g. the
+                # direct link this refresh found) absorbs it: no duplicate edges
                 dup = (
                     await session.execute(
                         text(
                             "SELECT id, first_seen FROM topology_links WHERE source = :s AND "
-                            "a_device_id = :a AND a_port = :ap AND b_device_id = :b "
-                            "AND b_port = :bp AND id <> :id"
+                            "id <> :id AND ((a_device_id = :l AND a_port = :lp "
+                            "AND b_device_id = :t) OR (a_device_id = :t AND b_device_id = :l "
+                            "AND b_port = :lp)) ORDER BY id LIMIT 1"
                         ),
-                        {"s": ln.source, "a": a, "ap": a_port, "b": b, "bp": b_port, "id": ln.id},
+                        {"s": ln.source, "l": local, "lp": local_port, "t": target, "id": ln.id},
                     )
                 ).first()
                 if dup is not None:

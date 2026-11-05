@@ -176,6 +176,11 @@ class MaintenanceTracker:
         self._initialized = False
 
     # ---------------------------------------------------------------- queries (sync)
+    @property
+    def initialized(self) -> bool:
+        """True once the first evaluation is done (the alert engine sends nothing before)."""
+        return self._initialized
+
     def in_maintenance(self, device_id: int | None) -> bool:
         return device_id is not None and device_id in self._covered
 
@@ -295,7 +300,9 @@ class MaintenanceTracker:
             self.rt.request_rollup()
         if self.rt.alerts is not None and (initial or left):
             # rows suppressed by a window that has ended (also across a restart)
-            await self.rt.alerts.left_maintenance()
+            self.rt.alerts.request_left_maintenance()
+        if initial and self.rt.alerts is not None:
+            self.rt.alerts.notify()  # rows held until the first evaluation can go now
         self._names = {k: v for k, v in self._names.items() if k in names}
 
     async def _write_events(
@@ -344,16 +351,20 @@ class MaintenanceTracker:
             if nxt:
                 timeout = min(timeout, max(0.05, (nxt[0] - now).total_seconds() + 0.05))
             changed = self.rt.clock.changed
+            if not self._wake.is_set():
+                waiters = [
+                    asyncio.ensure_future(self._wake.wait()),
+                    asyncio.ensure_future(changed.wait()),
+                ]
+                try:
+                    await asyncio.wait(
+                        waiters, timeout=timeout, return_when=asyncio.FIRST_COMPLETED
+                    )
+                finally:
+                    for w in waiters:
+                        w.cancel()
+            # clear before evaluating: a wake that arrives during evaluate() is not lost
             self._wake.clear()
-            waiters = [
-                asyncio.ensure_future(self._wake.wait()),
-                asyncio.ensure_future(changed.wait()),
-            ]
-            try:
-                await asyncio.wait(waiters, timeout=timeout, return_when=asyncio.FIRST_COMPLETED)
-            finally:
-                for w in waiters:
-                    w.cancel()
             try:
                 await self.evaluate()
             except asyncio.CancelledError:

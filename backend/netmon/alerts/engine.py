@@ -33,6 +33,7 @@ log = logging.getLogger("netmon.alerts")
 PROBLEM = ("down", "warning")
 LOOP_MAX_S = 30.0
 BATCH = 500
+SENDING_STALE_S = 600  # an in-flight marker older than this is ignored
 MAX_PARALLEL_SENDS = 16
 STAGE_EVENTS = {
     "problem": "sensor.status_changed",
@@ -139,6 +140,7 @@ class _Plan:
     delete: bool = False
     sends: list[_Send] = field(default_factory=list)
     event_id: int | None = None
+    delete_after: bool = False
 
 
 class AlertEngine:
@@ -149,8 +151,6 @@ class AlertEngine:
         self._lock = asyncio.Lock()
         self._wake = asyncio.Event()
         self._loop_task: asyncio.Task[None] | None = None
-        # (rule_id, sensor_id) -> number of sends in flight (sent outside the lock)
-        self._inflight: dict[tuple[int, int], int] = {}
         self._failures = 0
         # test hook: called with (channel, payload, smtp, lang) instead of real sending
         self.sender = send_to_channel
@@ -207,9 +207,7 @@ class AlertEngine:
                         min_due = await dependencies.parent_hold_until(
                             session, event["device_id"], t
                         )
-                    await apply_event(
-                        session, event, t, inflight=set(self._inflight), min_due=min_due
-                    )
+                    await apply_event(session, event, t, min_due=min_due)
                     await session.commit()
         except Exception:  # noqa: BLE001 - e.g. the sensor was deleted meanwhile
             log.exception("Cannot update alert state for event %s", event.get("id"))
@@ -342,7 +340,45 @@ class AlertEngine:
             self.notify()
 
     # ---------------------------------------------------------------- loop
+    async def recover_inflight(self) -> int:
+        """Startup: rows whose send was interrupted by the previous process (marker still
+        set) are re-armed, so every notification is delivered at least once."""
+        now = self.rt.clock.now()
+        async with self._lock:
+            async with self.rt.sessionmaker() as session:
+                res = await session.execute(
+                    text(
+                        """
+                        UPDATE alert_state SET
+                            due_at = CASE
+                                WHEN status IN ('down','warning') AND primary_sent_at IS NULL
+                                     OR status = 'up'
+                                THEN COALESCE(due_at, :now) ELSE due_at END,
+                            escalation_due_at = CASE
+                                WHEN escalated_at IS NOT NULL AND escalated_at >= sending_since
+                                THEN :now ELSE escalation_due_at END,
+                            escalated_at = CASE
+                                WHEN escalated_at IS NOT NULL AND escalated_at >= sending_since
+                                THEN NULL ELSE escalated_at END,
+                            sending_since = NULL, updated_at = now()
+                        WHERE sending_since IS NOT NULL
+                        """
+                    ),
+                    {"now": now},
+                )
+                await session.commit()
+        n = res.rowcount or 0
+        if n:
+            log.warning("Re-armed %d notification(s) interrupted by a restart", n)
+        return n
+
     async def _loop(self) -> None:
+        try:
+            await self.recover_inflight()
+        except asyncio.CancelledError:
+            raise
+        except Exception:  # noqa: BLE001
+            log.exception("Cannot re-arm interrupted notifications")
         while True:
             backoff = 0.0
             try:
@@ -411,27 +447,15 @@ class AlertEngine:
         """Claim and plan the due rows and apply the state changes under the lock, send
         outside it (rows are marked in flight), then record the results under the lock."""
         maint = getattr(self.rt, "maintenance", None)
-        if maint is None or not getattr(maint, "initialized", False):
-            # never decide "not in maintenance" before the tracker evaluated once
-            return 0
         async with self._lock:
             claimed = await self._claim(maint)
         if claimed is None:
             return 0
         plans, rows, channels, cfg, now = claimed
-        keys = [(p.rule_id, p.sensor_id) for p in plans if p.sends]
-        for k in keys:
-            self._inflight[k] = self._inflight.get(k, 0) + 1
         try:
             await self._send_all(plans, channels, cfg, rows)
         finally:
             async with self._lock:
-                for k in keys:
-                    left = self._inflight.get(k, 1) - 1
-                    if left <= 0:
-                        self._inflight.pop(k, None)
-                    else:
-                        self._inflight[k] = left
                 async with self.rt.sessionmaker() as session:
                     for p in plans:
                         await _apply_results(session, p, now)
@@ -440,6 +464,9 @@ class AlertEngine:
 
     async def _claim(self, maint: Any) -> Any:
         now = self.rt.clock.now()
+        # never decide "not in maintenance" before the tracker evaluated once: until then
+        # only recoveries are processed (the other rows stay due)
+        ready = maint is not None and bool(getattr(maint, "initialized", False))
         async with self.rt.sessionmaker() as session:
             rows = (
                 await session.execute(
@@ -459,14 +486,21 @@ class AlertEngine:
                         JOIN sensors se ON se.id = s.sensor_id
                         JOIN devices d ON d.id = se.device_id
                         JOIN groups g ON g.id = d.group_id
-                        WHERE s.due_at <= :now OR s.escalation_due_at <= :now
-                           OR s.next_reminder_at <= :now
+                        WHERE (s.due_at <= :now OR s.escalation_due_at <= :now
+                               OR s.next_reminder_at <= :now)
+                          AND (s.sending_since IS NULL OR s.sending_since < :stale)
+                          AND (:ready OR (s.status = 'up' AND s.due_at <= :now))
                         ORDER BY r.sensor_id NULLS LAST, s.rule_id, s.sensor_id
                         LIMIT :lim
                         FOR UPDATE OF s SKIP LOCKED
                         """
                     ),
-                    {"now": now, "lim": BATCH},
+                    {
+                        "now": now,
+                        "lim": BATCH,
+                        "ready": ready,
+                        "stale": now - timedelta(seconds=SENDING_STALE_S),
+                    },
                 )
             ).all()
             if not rows:
@@ -516,6 +550,8 @@ class AlertEngine:
                         "config": dict(ch.config),
                     }
             for p in plans:
+                if p.sends:
+                    p.updates["sending_since"] = now  # in flight: counts as notified
                 await _apply_state(session, p)
             await session.commit()
         return plans, rows, channels, cfg, now
@@ -590,10 +626,11 @@ class AlertEngine:
         elif r.status == "up" and due(r.due_at):
             if r.sensor_status == "up":
                 p.sends.append(_Send("recovery", notified, payload("recovery")))
-                p.delete = True
+                p.updates["due_at"] = None
+                p.delete_after = True  # deleted once sent (at-least-once across restarts)
             else:
                 p.updates["due_at"] = None
-        if p.delete:
+        if p.delete or p.delete_after:
             return p
         if r.status not in PROBLEM:
             # defensive: no escalation/reminder outside a problem (and no stale due_at)
@@ -727,6 +764,22 @@ async def _apply_results(session: Any, p: _Plan, now: datetime) -> None:
     if p.delete:
         return
     key = {"r": p.rule_id, "s": p.sensor_id}
+    if p.delete_after:
+        # the recovery was sent; unless a new problem replaced the row meanwhile
+        await session.execute(
+            text(
+                "DELETE FROM alert_state WHERE rule_id = :r AND sensor_id = :s "
+                "AND status = 'up' AND event_id IS NOT DISTINCT FROM CAST(:eid AS bigint)"
+            ),
+            {**key, "eid": p.event_id},
+        )
+        await session.execute(
+            text(
+                "UPDATE alert_state SET sending_since = NULL WHERE rule_id = :r AND sensor_id = :s"
+            ),
+            key,
+        )
+        return
     added: list[int] = []
     primary = False
     for s in p.sends:
@@ -734,13 +787,15 @@ async def _apply_results(session: Any, p: _Plan, now: datetime) -> None:
             continue
         added += s.ok
         primary = primary or s.stage.startswith("problem")
-    if not added:
+    if not p.sends:
         return
-    clauses = [
-        "notified_channel_ids = ARRAY(SELECT DISTINCT x FROM "
-        "unnest(notified_channel_ids || CAST(:added AS integer[])) x ORDER BY x)"
-    ]
+    clauses = ["sending_since = NULL"]
     params: dict[str, Any] = {**key, "added": sorted(set(added))}
+    if added:
+        clauses.append(
+            "notified_channel_ids = ARRAY(SELECT DISTINCT x FROM "
+            "unnest(notified_channel_ids || CAST(:added AS integer[])) x ORDER BY x)"
+        )
     if primary:
         # only for the same problem (a new problem may have replaced the row meanwhile)
         clauses.append(
@@ -766,16 +821,14 @@ async def apply_event(
     event: dict[str, Any],
     t: datetime,
     *,
-    inflight: set[tuple[int, int]] | None = None,
     min_due: datetime | None = None,
 ) -> None:
     """The `status_change` table of docs/data-model.md: upsert/suspend/delete the sensor's
     alert_state rows for event E (sensor X, new status S, time t).
 
-    `inflight`: rows whose notification is being sent right now count as notified.
-    `min_due`: a new problem is not due before this (a child waiting for its parent's
-    re-check)."""
-    inflight = inflight or set()
+    A row whose notification is being sent right now (`sending_since`, younger than
+    SENDING_STALE_S) counts as notified. `min_due`: a new problem is not due before this
+    (a child waiting for its parent's re-check)."""
     sid = event["sensor_id"]
     status = event["new_status"]
     eid = event.get("id")
@@ -785,7 +838,7 @@ async def apply_event(
             await session.execute(
                 text(
                     "SELECT s.rule_id, s.status, cardinality(s.notified_channel_ids) AS n, "
-                    "s.escalated_at, s.escalation_due_at, s.problem_since, "
+                    "s.escalated_at, s.escalation_due_at, s.problem_since, s.sending_since, "
                     "r.enabled, r.on_statuses, r.delay_s, r.escalation_after_s, "
                     "r.escalation_channel_ids FROM alert_state s "
                     "JOIN alert_rules r ON r.id = s.rule_id WHERE s.sensor_id = :s "
@@ -875,7 +928,10 @@ async def apply_event(
         return
     for rid, row in rows.items():
         key = {"r": rid, "s": sid}
-        if not row.n and (rid, sid) not in inflight:
+        sending = row.sending_since is not None and row.sending_since > t - timedelta(
+            seconds=SENDING_STALE_S
+        )
+        if not row.n and not sending:
             await session.execute(
                 text("DELETE FROM alert_state WHERE rule_id = :r AND sensor_id = :s"), key
             )
