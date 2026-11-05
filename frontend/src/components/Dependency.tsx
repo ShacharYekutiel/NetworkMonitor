@@ -1,5 +1,5 @@
 // [2b-1] Device dependencies: device picker, dependency editor, effective parent, parent banner.
-import { useMemo, useState } from 'react';
+import { useId, useMemo, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { useQuery } from '@tanstack/react-query';
 import { Trans, useTranslation } from 'react-i18next';
@@ -26,6 +26,7 @@ export function DevicePicker({
   const { t } = useTranslation();
   const { data } = useTree();
   const [q, setQ] = useState('');
+  const searchId = useId();
   const all = useMemo(
     () =>
       allDevices(data?.groups ?? [])

@@ -143,6 +143,9 @@ export function applyLiveMessage(
       qc.setQueriesData<TopologyGraph>({ queryKey: ['topology'] }, (old) =>
         patchTopologyNode(old, id, { status }),
       );
+      // [2b-1] Children whose effective parent is this device: parent_down may have changed
+      // (it depends on the dependency sensor, so refetch instead of guessing).
+      for (const childId of dependentDeviceIds(qc, id)) batch.add(['device', childId]);
       batch.add(qk.dashboard);
       break;
     }
@@ -159,6 +162,13 @@ export function applyLiveMessage(
     }
     case 'config.changed': {
       const { entity, id } = msg.data;
+      // Settings (time zone, default language) are public: refetch them if announced.
+      if ((entity as string) === 'settings') {
+        batch.add(qk.publicSettings);
+        batch.add(qk.settings);
+        batch.add(['maintenanceWindows']);
+        break;
+      }
       batch.add(qk.tree);
       batch.add(qk.dashboard);
       switch (entity) {
@@ -347,4 +357,20 @@ export function applyAckToDashboard(
     acknowledged_sensors: acked,
     acknowledged_count: Math.max(0, d.acknowledged_count - (wasAcked ? 1 : 0)),
   };
+}
+
+/** Ids of devices whose effective parent is `parentId` (from the tree and cached devices). */
+export function dependentDeviceIds(qc: QueryClient, parentId: number): number[] {
+  const ids = new Set<number>();
+  const tree = qc.getQueryData<Tree>(qk.tree);
+  const visit = (gs: Tree['groups']) => {
+    for (const g of gs) {
+      for (const d of g.devices) if (d.parent_device_id === parentId) ids.add(d.id);
+      visit(g.children);
+    }
+  };
+  if (tree) visit(tree.groups);
+  for (const [, d] of qc.getQueriesData<Device>({ queryKey: ['device'] }))
+    if (d && d.effective_dependency?.device_id === parentId) ids.add(d.id);
+  return [...ids];
 }
