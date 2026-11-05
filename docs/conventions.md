@@ -166,5 +166,6 @@ both Timescale mode and fallback mode, and on Windows paths (no POSIX-only calls
   Also required by this contract (the assertions encode 2b-1 facts that 2b-2 changes on purpose):
   `test_migrations.py` (head revision `0005` instead of `0004`), `test_inventory.py` (Device gains the five
   inventory keys; `/api/sensor-types` gains `snmp_walk_count`), `test_discovery.py` (the Cisco sim now suggests
-  `cisco_ios`), `test_2b_units.py` (Aruba CX now suggests `aruba_cx`). Any other existing test that fails is a
-  regression.
+  `cisco_ios`), `test_2b_units.py` (Aruba CX now suggests `aruba_cx`), `conftest.py` (`dns_cache` added to the
+  truncated tables: it has no FK to `devices`, so the CASCADE truncate does not reach it). Reviewed and approved
+  by the architect (2b-2 review); any other existing test that fails is a regression.

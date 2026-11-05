@@ -714,7 +714,8 @@ Repository additions: `backend/netmon/ports/`, `backend/netmon/data/oui.tsv.gz`,
   3. a device is **due** when ports or ARP is effective and `last_run_at` is null or
      `≤ now − port_inventory_min`; due devices start in order of `last_run_at` (nulls first), at most **4 runs at
      once** (own `asyncio.Semaphore(4)`, like topology's own 8), skipping devices already running.
-- **Manual refresh** (`POST …/ports/refresh`) queues the device at the front; the API answers `202` at once.
+- **Manual refresh** (`POST …/ports/refresh`) queues the device at the front; the API answers `202` at once
+  (up to ≈ 10 s later when class detection must run first, see api.md).
 - **Per-device run** (`run_device`, budget **90 s** via `asyncio.wait_for`; DNS has its own 60 s):
   1. `sysUpTime.0` GET; ports effective → walks #2–#11 sequentially (a missing table = `empty`, an SNMP error
      on an optional table = `error`, which keeps that part of the previous snapshot); ifDescr (#2) missing or
@@ -794,7 +795,8 @@ row**; unused cells are `null`. Members are sorted ascending.
 same `(member, module, port)`. Then one member (label null) with one block: ports sorted by `if_index`, position
 `i` (0-based) → column `floor(i/2)`, top when `i` is even, bottom when odd; no uplink split.
 When ≤ 20 % are unparsed, they go into an extra block `key` `other` (positional like the fallback, sorted by
-`if_index`) at the end of the first member.
+`if_index`) in the first member, after its main (module) blocks and **before** its uplink block (block order
+per member: main blocks by module asc, then `other`, then uplink).
 
 **Test vectors** (QA, Vitest — expected `(rule, member, module, port, uplink hint)`):
 `1` → R6 1/0/1 no; `52` → R6 1/0/52 no; `A1` → R5 1/1/1; `B24` → R5 1/2/24; `1/1/1` → R1 1/1/1;
@@ -868,8 +870,9 @@ When ≤ 20 % are unparsed, they go into an extra block `key` `other` (positiona
 - **Sensor forms:** `snmp_walk_count` (oid, count values as comma-separated integers, label, max rows) and
   `snmp_custom.percent_base`.
 - **WS (`ws.ts`):** `ports.updated` → invalidate `['device-ports', device_id]` and `['port-detail',
-  device_id]`, and (simplest rule) every open ports query; `templates.reloaded` → invalidate the templates
-  queries.
+  device_id]` (refetched only if open); an ARP source's message → lazy, debounced refetch of the open ports
+  view; `mac-search` is not invalidated (api.md "Client behaviour on `ports.updated`"); `templates.reloaded` →
+  invalidate the templates queries.
 - **Types/endpoints:** `types.ts` gains every [2b-2] type exactly as in api.md; `endpoints.ts` gains
   `devicePorts(id, kinds?)`, `portDetail(id, ifIndex, includeUplinkMacs?)`, `refreshPorts(id)`,
   `searchMac({q} | {ip})`, `reloadTemplates()`.
@@ -985,7 +988,7 @@ psu (`PSU 1` up), fan (`Fan 2` down, text `1/2`).
 |---|---|---|
 | .71 | router / checkpoint (rule 9a, snmp/high) → `checkpoint_gaia` | created: Ping, System, CPU 23 % up, Memory 25 % up, Concurrent connections 12345, Connection table usage (no value, up), VPN tunnels up (matched 2, rows 3, unmatched 1 → **warning**), Temperature CPU 44, Temperature Intake 38.5, Fan 1 up, Fan 2 **down**, Power supply 1 up, Power supply 2 **down**, Disk /, Disk /var/log, interfaces eth0, eth1; skipped `not_applicable`: ClusterXL state, ClusterXL status |
 | .72 | router / checkpoint (rule 9a via the `checkpoint` probe) → `checkpoint_gaia` | created: …, CPU 41 %, ClusterXL state up (`ClusterXL: active`), ClusterXL status up (`OK (0)`); skipped: VPN tunnels up `probe_failed` (`No rows`), temperature/fan/PSU tables `no_rows` |
-| .73 | switch / aruba (rule 10: the unchanged switch regex matches `ArubaOS` in sysDescr; the template matches by enterprise) → `aruba_wifi` | created: Ping, System, APs up (2 of 3 → **warning**), AP AP-Lobby up, AP AP-Office up, AP AP-Store **down**, Wi-Fi clients (matched 5); skipped: CPU Load / Memory `probe_failed`, controller rows `probe_failed` / `no_rows` |
+| .73 | access_point / aruba (rule 10, enterprise 14823 exception) → `aruba_wifi` | created: Ping, System, APs up (2 of 3 → **warning**), AP AP-Lobby up, AP AP-Office up, AP AP-Store **down**, Wi-Fi clients (matched 5); skipped: CPU Load / Memory `probe_failed`, controller rows `probe_failed` / `no_rows` |
 
 **Template library tests:**
 - Built-in library loads with **zero errors**; 19 templates; order as data-model; the nine converted templates

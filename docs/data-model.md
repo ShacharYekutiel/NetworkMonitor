@@ -1645,11 +1645,17 @@ gateways; UPS / BMC templates match by enterprise / sysObjectID, not by class.
 
 **Class detection for devices without `identity`** (manually added, or imported before 2b-1): for an `auto`
 device with ≥ 1 SNMP sensor whose `identity` is null and whose `detected_at` is null or older than 24 h, the
-scheduler GETs `sysDescr.0`, `sysObjectID.0`, `sysName.0` (effective credentials, retries 0) and runs the
-pure `classify()` rules 1–12 (no subtree probes, no FreeBSD walk, `snmp_ok = true`). The class (or `unknown`
-on an SNMP failure) is written to `port_inventory_status.detected_class` / `detected_at`. A later identify /
-import that fills `identity` takes precedence. `PATCH /api/devices/{id}` changing `host` or `snmp_credentials`
-clears `detected_at`.
+scheduler GETs `sysDescr.0`, `sysObjectID.0`, `sysName.0` (effective credentials **with the device's own
+`retries`**) plus **one GETNEXT with the five `SUBTREE_PROBES` varbinds** (as discovery, so a Check Point
+gateway behind the net-snmp Linux sysObjectID is found by the `checkpoint` probe), and runs the pure
+`classify()` rules 1–12 (no FreeBSD walk, `snmp_ok = true`). The class is written to
+`port_inventory_status.detected_class` / `detected_at`. 10 s budget per device.
+**Detection failure** (SNMP error / timeout): the previous `detected_class` is **kept** (only a device that never
+had a class gets `unknown`), and `detected_at = now − 23 h` so detection retries in ≈ 1 h; a failure never
+demotes a known class. A later identify / import that fills `identity` takes precedence.
+`PATCH /api/devices/{id}` clears `detected_at` (and makes the device due) only on a **real change**: `host`
+differs from the stored host, or the merged `snmp_credentials` (after secret merging) differ from the stored
+credentials. Re-sending unchanged credentials (the device form always sends them) changes nothing.
 
 ## [2b-2] `switch_ports` (latest snapshot per port)
 
@@ -1725,6 +1731,7 @@ value is then wrong, accepted.)
 | last_seen | timestamptz | NOT NULL |
 
 Indexes: `ux_port_macs_key` UNIQUE on `(device_id, mac, COALESCE(vlan, -1))`, `ix_port_macs_mac` on `(mac)`,
+`ix_port_macs_mac_prefix` on `(mac varchar_pattern_ops)` (MAC prefix search),
 `ix_port_macs_device_if` on `(device_id, if_index)` WHERE `present`.
 
 Write rules for a run whose FDB read succeeded (`sources.fdb` = `ok` or `empty`):
@@ -1763,8 +1770,11 @@ newest non-present row is used for `ip` (shown as last known), and `ips` is `[]`
 
 - Filled **only by the inventory job** (never on an API request), after the ARP read, for IPs of present
   `arp_entries` whose cache row is missing, older than 24 h (name found) or older than 1 h (no name).
-- Lookup: `loop.getnameinfo((ip, 0), socket.NI_NAMEREQD)` (system resolver, works on Windows), 2 s timeout,
-  at most 8 concurrent, at most 256 lookups per job pass. The trailing dot is stripped; names are lower-cased.
+- Lookup: `socket.getnameinfo((ip, 0), socket.NI_NAMEREQD)` (system resolver, works on Windows) run in a
+  **dedicated module-level `ThreadPoolExecutor(max_workers=8)`** (`loop.run_in_executor(_dns_pool, …)`), never
+  the default executor (pysnmp resolves every SNMP target through `loop.getaddrinfo` on the default executor;
+  slow PTR lookups there would stall all polling). 2 s timeout, at most 8 concurrent **in total** (one
+  module-level `asyncio.Semaphore(8)` shared by all devices), at most 256 lookups per job pass. The trailing dot is stripped; names are lower-cased.
 - Off when `settings.reverse_dns = false` (the cache is then not read either: `hostname` is null).
 - Test hook: with `NETMON_TEST_MODE=1`, `NETMON_TEST_PTR_FILE` (a JSON object `{"10.0.0.11": "pc.lan"}`)
   replaces the resolver; IPs missing from the file resolve to no name.
@@ -1804,6 +1814,8 @@ ifIndexes.
 
 All walks use the device's effective credentials and the shared SNMP client (`snmp_walk`, per-v3-credential
 engines). Walk caps: ifTable/ifXTable/dot1d/dot1q/PoE columns 5000 rows each, FDB and ARP 20000 rows each.
+A walk that returns **exactly the cap** is treated as truncated: that source is `error` (the previous data is
+kept, a WARNING is logged), so a truncated FDB/ARP never marks the tail `present = false`.
 
 | # | Object | OID | Index | Required | Confidence |
 |---|---|---|---|---|---|
@@ -1889,6 +1901,10 @@ linked interface sensor, `settings.uplink_mac_threshold`.
 - **MAC list of a port**: present `port_macs` rows sorted by `vlan` (NULL first), then `mac`. Hidden (count
   only) when `is_uplink`. **first_mac** (summary) = the first of the list ordered by (has an IP desc,
   `last_seen` desc, `mac`); null for uplinks.
+- **Read cost:** `GET /api/devices/{id}/ports` loads MAC details (ARP/IP, DNS, OUI, monitored device) only for
+  ports that are not uplinks (uplink ports need only `mac_count`); the port detail with
+  `include_uplink_macs=true` loads them for that port (capped at 1000). The device map used for neighbours is
+  built once per request, not per port / search row.
 
 ### Health strip (computed on read, pure `netmon.ports.health.categorize(sensor) -> category | None`)
 Over the device's sensors, first matching rule wins (regexes case-insensitive, on the sensor **name**):
@@ -1958,7 +1974,9 @@ New config key `percent_base`: `"total"` (default, unchanged 2a behaviour: `raw 
 used memory, CISCO-MEMORY-POOL has no total column). With `"sum"`: `raw < 0`, `other < 0` or
 `raw + other ≤ 0` → ok, no value (as `percent_of_oid` today). The key is stored only when given (absent = `"total"`, so the stored config of existing
 sensors is unchanged). `"sum"` without `percent_of_oid` → 422 (loc
-`["body","config","percent_base"]`). A PATCH changing `percent_base` resets `sensors.state`. Not part of the
+`["body","config","percent_base"]`). A PATCH changing the **effective** `percent_base` resets `sensors.state`
+(compared normalised: `config.get("percent_base") or "total"` on both sides, so writing `"total"` to a sensor
+that had no key is not a change). Not part of the
 idempotency identity. `GET /api/sensor-types` lists it as type `enum`, options `["total","sum"]`.
 
 ## [2b-2] Template library (data files)
@@ -2069,7 +2087,10 @@ filled with their defaults, so every key is always present.
 
 ### Load errors
 Pure `netmon.templates.library.load_dir(root, source) -> (templates, errors)`; any error rejects the **whole
-file** (other files still load).
+file** (other files still load). The per-file handler also catches `RecursionError` (deeply nested YAML/JSON →
+`invalid YAML: nesting too deep` / `invalid JSON: nesting too deep`) and, as a safety net, any other exception
+(`invalid value: <exception text>`), so no file can make a reload fail or drop the other user templates. The
+size cap (`file too large`, 256 KiB) is checked before reading.
 
 ```json
 { "source": "user", "file": "acme/acme_ups.yaml", "template_id": "acme_ups",
@@ -2181,6 +2202,14 @@ Confidence values for the converted vendor rows are the ones in the 2b-1 tables 
   medium. Markers gain `check point`, `gaia`.
 - Rule 10's switch regex is unchanged (Aruba CX `Swch` in sysDescr is covered by enterprise 47196's default
   class `switch`).
+- **Rule 10 exception for enterprise 14823 (Aruba Wi-Fi)**, evaluated in rule 10 **before** the switch regex
+  (the regex's `arubaos` would otherwise turn every Instant AP / controller into a switch): sysDescr matches
+  `(?i)\(MODEL:\s*S\d{4}|\bswitch\b` (Mobility Access Switch S1500/S2500/S3500) → `switch` / `aruba`; else →
+  `access_point` / `aruba` (Instant / AOS10 APs `MODEL: 515`, `IAP-…`; Mobility Controllers `MODEL:
+  Aruba7010…`, no controller class). Rule number 10, confidence medium. Unit vectors: `ArubaOS (MODEL: 515),
+  Version 8.10.0.6` → access_point; `ArubaOS (MODEL: Aruba7010-US), Version 8.7.1.0` → access_point;
+  `ArubaOS (MODEL: S2500-24P), Version 7.4` → switch. Class detection (§ Devices: inventory flags) uses the
+  same rule.
 
 ## [2b-2] New vendor templates
 
@@ -2228,7 +2257,7 @@ cluster).
 | 3 | CPU Load, Memory (generic, probe) | | low |
 | 4 | `APs up` (`snmp_walk_count`, probe) | Instant aiAPStatus `1.3.6.1.4.1.14823.2.3.3.1.2.1.1.11`, `count_values [1]` (up(1), down(2)), label `APs up`, channel `unmatched` warning_max 0 | MIB root medium; column **low** |
 | 5 | `AP {label}` (`snmp_table`) | walk aiAPStatus `…2.1.1.11`, label aiAPName `…2.1.1.2`, enum `{1 up "up", 2 down "down"}` default warning, max 64, interval 300 | **low** |
-| 6 | `Wi-Fi clients` (`snmp_walk_count`, probe) | Instant aiClientMACAddress `1.3.6.1.4.1.14823.2.3.3.1.2.4.1.1`, `count_values` null (counts clients) | **low** |
+| 6 | `Wi-Fi clients` (`snmp_walk_count`, probe) | Instant aiClientIPAddress `1.3.6.1.4.1.14823.2.3.3.1.2.4.1.3`, `count_values` null (counts clients; a non-index column, since the MAC index column `…4.1.1` may be not-accessible) | **low** |
 | 7 | `APs up` (`snmp_walk_count`, probe) | controller wlanAPStatus `1.3.6.1.4.1.14823.2.2.1.5.2.1.4.1.19`, `count_values [1]`, `unmatched` warning_max 0 | **low** |
 | 8 | `AP {label}` (`snmp_table`) | walk wlanAPStatus `…5.2.1.4.1.19`, label wlanAPName `…5.2.1.4.1.3`, same enum, max 64, interval 300 | **low** |
 | 9 | `Wi-Fi clients` (`snmp_custom` gauge, probe) | wlsxSwitchTotalNumStationsAssociated `1.3.6.1.4.1.14823.2.2.1.1.3.2.0`, unit `clients` | **low** |
@@ -2382,6 +2411,7 @@ Plain PostgreSQL DDL only (no Timescale calls; none of the new tables is a hyper
    `switch_ports_poe_class_check` (`BETWEEN 0 AND 4`).
 4. `CREATE TABLE port_macs (…)`; `CREATE UNIQUE INDEX ux_port_macs_key ON port_macs (device_id, mac,
    (COALESCE(vlan, -1)))`; `CREATE INDEX ix_port_macs_mac ON port_macs (mac)`; `CREATE INDEX
+   ix_port_macs_mac_prefix ON port_macs (mac varchar_pattern_ops)` (prefix search, any collation); `CREATE INDEX
    ix_port_macs_device_if ON port_macs (device_id, if_index) WHERE present`.
 5. `CREATE TABLE arp_entries (…, PRIMARY KEY (source_device_id, ip))`; `ix_arp_entries_mac`, `ix_arp_entries_ip`.
 6. `CREATE TABLE dns_cache (…)`.

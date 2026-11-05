@@ -1334,7 +1334,7 @@ type DevicePorts = { device_id: number; ports_effective: boolean; arp_effective:
 |---|---|---|---|
 | `GET /api/devices/{id}/ports` | viewer | Query `kind` (repeatable; default all) | `200 DevicePorts` |
 | `GET /api/devices/{id}/ports/{if_index}` | viewer | Query `include_uplink_macs` (bool, default false; then the MAC list is returned for uplinks too, capped at 1000) | `200 PortDetail`, `404 not_found` |
-| `POST /api/devices/{id}/ports/refresh` | admin | — (no body) | `202 {"device_id": 3, "queued": true}`. Runs ports (if effective) and ARP (if effective) for this device now; `409 ports_disabled`, `409 ports_refresh_running`. `ports.updated` follows. |
+| `POST /api/devices/{id}/ports/refresh` | admin | — (no body) | `202 {"device_id": 3, "queued": true}`. Runs ports (if effective) and ARP (if effective) for this device now; `409 ports_disabled`, `409 ports_refresh_running`. `ports.updated` follows. When the device needs class detection (no identity, `detected_at` missing/old) the detection runs inside the request first (SNMP, 10 s budget), so the `202` / `409 ports_disabled` can take up to ≈ 10 s. |
 | `GET /api/search/mac` | viewer | Query **exactly one** of `q` (MAC in any notation — `aa:bb:cc:dd:ee:ff`, `aa-bb-…`, `aabb.ccdd.eeff`, `aabbccddeeff` — or a prefix of 6–11 hex digits) and `ip` (IPv4) | `200 MacSearchResult` |
 
 `GET /api/devices/{id}/ports` example (trimmed):
@@ -1391,7 +1391,9 @@ type MacSearchResult = { query: { mac: string | null; mac_prefix: string | null;
 ```
 
 - `q` with 12 hex digits → exact MAC (`query.mac` normalised); 6–11 → prefix on the hex digits
-  (`query.mac_prefix` lower-case hex, e.g. `"00505601"`). `ip` → the MACs that `arp_entries` maps that IP to
+  (`query.mac_prefix` lower-case hex, e.g. `"00505601"`). The server turns the prefix into the stored colon
+  form and searches `mac LIKE '00:50:56:01%'` (odd digit count: `'0050560'` → `'00:50:56:0%'`), served by the
+  index `ix_port_macs_mac_prefix` (`varchar_pattern_ops`, migration 0005); never `replace(mac, ':', '')`. `ip` → the MACs that `arp_entries` maps that IP to
   (present first, then newest), then their locations (`query.ip`).
 - `items` sort: `best` desc, `present` desc, `is_uplink` asc, `last_seen` desc, `device_name`, `if_index`.
   `best` = for each MAC, its first row in that order if it is `present` and not an uplink.
@@ -1434,7 +1436,7 @@ type TemplateLibraryStatus = { loaded_at: string; builtin_count: number; user_co
 |---|---|---|
 | `GET /api/device-templates` | viewer | `{"items": DeviceTemplate[], "library": TemplateLibraryStatus}` — items sorted by `priority` desc, then `id`. `library.errors`/`user_dir` are filled for admins only. |
 | `GET /api/device-templates/{id}` | viewer | `DeviceTemplate` (unchanged otherwise) |
-| `POST /api/device-templates/reload` | admin | — (no body). Re-reads the built-in library and the user directory, swaps the registry atomically. `200 TemplateLibraryStatus` (always 200; errors are in the body). Broadcasts `templates.reloaded`. |
+| `POST /api/device-templates/reload` | admin | — (no body). Re-reads the built-in library and the user directory, swaps the registry atomically. `200 TemplateLibraryStatus` (always 200: a bad file — invalid syntax, too large, too deeply nested, any validation error — is only an entry in `errors`, never a 500, and never removes the other templates). Broadcasts `templates.reloaded`. |
 | `POST /api/devices/{id}/apply-template` | admin | unchanged; `template_id` is validated against the **current** registry (user templates included). |
 
 `POST /api/discovery/import` validates `template_id` against the current registry too (unknown → 422, loc as
@@ -1448,7 +1450,12 @@ today).
 | `templates.reloaded` | `{"loaded_at": "...", "count": 19, "error_count": 0}` | After `POST /api/device-templates/reload` (not at startup); all. Clients invalidate the templates queries. |
 | `config.changed` | unchanged; a device PATCH of `port_inventory` / `arp_collect` is a normal `device` update | as today |
 
-`ports.updated` for an ARP-only device also tells clients that IPs may have changed elsewhere: a client showing
-another device's ports refetches them when the message's `device_id` is an ARP source
-(`arp_effective` known from `/api/devices`) — or simply refetches an open ports view on every `ports.updated`
-(the recommended, simpler behaviour; the endpoint is cheap).
+**Client behaviour on `ports.updated`** (replaces the earlier "refetch everything" recommendation — with many
+switches that refetched every few seconds):
+- `data.device_id` = the device whose ports view / port modal is open → refetch `GET /api/devices/{id}/ports`
+  and the open port detail at once;
+- `data.device_id` is an **ARP source** (`arp_effective` from the cached `/api/devices`) → IPs/hostnames shown
+  elsewhere may have changed: mark the open ports view / port detail stale and refetch lazily (debounced, e.g.
+  at most once per 30 s, or on the next focus);
+- any other device → nothing;
+- MAC/IP search results (`mac-search`) are **not** invalidated (the user re-runs the search).
