@@ -250,7 +250,10 @@ async def test_ack_stops_escalation_and_reminders(
     ev = (await admin.get("/api/events", params={"kind": "acknowledge"})).json()["items"]
     assert ev[0]["message"] == "Acknowledgement removed by admin" and len(ev) == 3
     await tick(rt, clock, 301)
-    assert outbox.stages() == [("primary", "problem"), ("primary", "reminder")]
+    # reminders resume and the escalation that the ack prevented restarts from the unack (M1)
+    assert outbox.stages()[0] == ("primary", "problem")
+    assert sorted(outbox.stages()[1:]) == [("oncall", "escalation"), ("primary", "reminder")]
+    outbox.items[:] = outbox.items[:1] + [i for i in outbox.items[1:] if i[0] == "primary"]
     # ack again, then a status change auto-clears the acknowledgement (no extra event)
     await admin.post(f"/api/sensors/{s['id']}/acknowledge", json={"comment": "c"})
     _drain_q(q)
@@ -268,7 +271,7 @@ async def test_ack_stops_escalation_and_reminders(
     outbox.clear()
     # the recovery of an acknowledged problem still reaches everyone notified
     await run(rt, clock, s["id"], UP)
-    assert outbox.stages() == [("primary", "recovery")]
+    assert sorted(outbox.stages()) == [("oncall", "recovery"), ("primary", "recovery")]
     rt.hub.listeners.remove(q)
 
 
@@ -419,6 +422,32 @@ async def test_state_survives_restart(
 
 
 # ------------------------------------------------------------------ dependencies
+class RecordingScheduler:
+    def __init__(self) -> None:
+        self.calls: list[tuple[list[int], float]] = []
+
+    def run_soon(self, sensor_ids: list[int], jitter_s: float = 5.0) -> None:
+        self.calls.append((list(sensor_ids), jitter_s))
+
+
+def _child_only_scheduler() -> Any:
+    from netmon.poller.scheduler import Scheduler
+
+    class ChildOnly(Scheduler):
+        def __init__(self, rt: Runtime, skip: set[int]) -> None:
+            super().__init__(rt)
+            self.skip = skip
+
+        def run_soon(self, sensor_ids: list[int], jitter_s: float = 5.0) -> None:
+            super().run_soon([i for i in sensor_ids if i not in self.skip], jitter_s)
+
+    return ChildOnly
+
+
+def ChildOnlyScheduler(rt: Runtime, skip: set[int]) -> Any:  # noqa: N802
+    return _child_only_scheduler()(rt, skip)
+
+
 def _closed_port() -> int:
     s = socket.socket()
     s.bind(("127.0.6.1", 0))
@@ -434,8 +463,6 @@ async def test_parent_down_children_unreachable_then_recheck(
     outbox: Outbox,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    from netmon.poller.scheduler import Scheduler
-
     monkeypatch.setattr(dependencies, "RECHECK_JITTER_S", 0.0)
     p = await channel(admin, "primary")
     gid = (await admin.get("/api/groups", params={"parent_id": "root"})).json()["items"][0]["id"]
@@ -475,12 +502,20 @@ async def test_parent_down_children_unreachable_then_recheck(
     await run(rt, clock, gw_ping["id"], UP)
     for _, s in kids:
         await run(rt, clock, s["id"], UP)
-    # child 1 is checked before the parent's outage was noticed -> down (with delay 0 it
-    # notifies, documented); the cascade turns it unreachable when the parent goes down
-    await run(rt, clock, kids[0][1]["id"], DOWN)
-    assert outbox.stages() == [("primary", "problem")]
-    outbox.clear()
-    await run(rt, clock, gw_ping["id"], DOWN)
+    # child 1 is checked before the parent's outage was noticed -> down, but its alert is
+    # held (even with delay_s 0) and the parent is re-checked right away (H2); the cascade
+    # turns the child unreachable when the parent is found down: no child DOWN at all
+    recorder = RecordingScheduler()
+    rt.scheduler = recorder  # type: ignore[assignment]
+    try:
+        clock.advance(1)
+        await run(rt, clock, kids[0][1]["id"], DOWN)
+        assert outbox.stages() == []
+        assert recorder.calls == [([gw_ping["id"]], 0)]
+        clock.advance(1)
+        await run(rt, clock, gw_ping["id"], DOWN)
+    finally:
+        rt.scheduler = None
     assert outbox.stages() == [("primary", "problem")]  # only the parent alerts
     s1 = (await admin.get(f"/api/sensors/{kids[0][1]['id']}")).json()
     assert s1["status"] == "unreachable"
@@ -492,7 +527,8 @@ async def test_parent_down_children_unreachable_then_recheck(
     assert s2["status_message"].startswith("Unreachable (parent branch-gw down): ")
     assert outbox.stages() == [("primary", "problem")]
     ev = (await admin.get("/api/events", params={"sensor_id": kids[0][1]["id"]})).json()["items"]
-    assert (ev[0]["old_status"], ev[0]["new_status"]) == ("down", "unreachable")
+    # (the fake clock runs ahead of the cascade's wall-clock event time: no ordering check)
+    assert ("down", "unreachable") in [(e["old_status"], e["new_status"]) for e in ev]
     # rollups, dashboard, tree
     dev1 = (await admin.get(f"/api/devices/{kids[0][0]['id']}")).json()
     assert dev1["status"] == "unreachable" and dev1["effective_dependency"]["parent_down"]
@@ -512,9 +548,12 @@ async def test_parent_down_children_unreachable_then_recheck(
     assert await state(rt, kids[0][1]["id"]) == [] or all(
         x["status"] == "suspended" for x in await state(rt, kids[0][1]["id"])
     )
+    await tick(rt, clock, 300)
+    assert outbox.stages() == [("primary", "problem")]  # still only the parent
+    clock.set(datetime.now(UTC))  # the re-checks below run on the wall clock
     # parent recovers -> children are re-checked (real tcp checks to a closed port): still
-    # down -> unreachable -> down, which alerts like any new problem
-    rt.scheduler = Scheduler(rt)
+    # down -> unreachable -> down, which alerts like any new problem (after the hold)
+    rt.scheduler = ChildOnlyScheduler(rt, {gw_ping["id"]})
     try:
         outbox.clear()
         await run(rt, clock, gw_ping["id"], UP)
@@ -525,8 +564,12 @@ async def test_parent_down_children_unreachable_then_recheck(
     for _, s in kids:
         got = (await admin.get(f"/api/sensors/{s['id']}")).json()
         assert got["status"] == "down", got
-    # the real checks used wall-clock times; move the fake clock past them
+    # the real checks used wall-clock times; move the fake clock past them and the hold
+    # (parent ping interval 60 s + timeout 60 s)
     clock.set(datetime.now(UTC) + timedelta(seconds=5))
+    await rt.drain()
+    assert outbox.stages() == [("primary", "recovery")]
+    clock.set(datetime.now(UTC) + timedelta(seconds=125))
     await rt.drain()
     stages = outbox.stages()
     assert stages.count(("primary", "problem")) == 2  # both children, genuinely down
@@ -661,6 +704,7 @@ async def test_delayed_child_alert_dropped_by_cascade(
     )
     await run(rt, clock, gw_ping["id"], UP)
     await run(rt, clock, cs["id"], UP)
+    clock.advance(1)
     await run(rt, clock, cs["id"], DOWN)  # the child noticed first: pending (delay)
     assert len(await state(rt, cs["id"])) == 1
     await run(rt, clock, gw_ping["id"], DOWN)

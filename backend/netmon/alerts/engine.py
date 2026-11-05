@@ -152,6 +152,9 @@ class AlertEngine:
         self._wake = asyncio.Event()
         self._loop_task: asyncio.Task[None] | None = None
         self._failures = 0
+        self._passes_in_flight = 0
+        self._no_passes = asyncio.Event()
+        self._no_passes.set()
         # test hook: called with (channel, payload, smtp, lang) instead of real sending
         self.sender = send_to_channel
 
@@ -180,6 +183,9 @@ class AlertEngine:
             # so their done-callbacks (which empty the set) would never run
             await asyncio.gather(*pending, return_exceptions=True)
         await self.run_once()
+        while self._passes_in_flight:  # e.g. the background loop sending right now
+            await self._no_passes.wait()
+            await self.run_once()  # its results may have made more rows due
 
     def _spawn(self, coro: Any) -> None:
         task = asyncio.ensure_future(coro)
@@ -447,20 +453,39 @@ class AlertEngine:
         """Claim and plan the due rows and apply the state changes under the lock, send
         outside it (rows are marked in flight), then record the results under the lock."""
         maint = getattr(self.rt, "maintenance", None)
-        async with self._lock:
-            claimed = await self._claim(maint)
+        self._pass_begin()  # from the claim on: idle() waits for it
+        try:
+            async with self._lock:
+                claimed = await self._claim(maint)
+        except BaseException:
+            self._pass_end()
+            raise
         if claimed is None:
+            self._pass_end()
             return 0
         plans, rows, channels, cfg, now = claimed
         try:
             await self._send_all(plans, channels, cfg, rows)
         finally:
-            async with self._lock:
-                async with self.rt.sessionmaker() as session:
-                    for p in plans:
-                        await _apply_results(session, p, now)
-                    await session.commit()
+            try:
+                async with self._lock:
+                    async with self.rt.sessionmaker() as session:
+                        for p in plans:
+                            await _apply_results(session, p, now)
+                        await session.commit()
+            finally:
+                self._pass_end()
         return len(rows)
+
+    def _pass_begin(self) -> None:
+        self._passes_in_flight += 1
+        self._no_passes.clear()
+
+    def _pass_end(self) -> None:
+        self._passes_in_flight -= 1
+        if self._passes_in_flight <= 0:
+            self._passes_in_flight = 0
+            self._no_passes.set()
 
     async def _claim(self, maint: Any) -> Any:
         now = self.rt.clock.now()

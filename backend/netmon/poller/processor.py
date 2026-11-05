@@ -98,6 +98,9 @@ async def persist(
                 and not ps.down
                 and ps.last_change is not None
                 and ps.last_change >= checked_at
+                # a change stamped in the future (clock skew) never counts: it would make
+                # every re-check "recent" again and loop
+                and ps.last_change <= now_utc()
             )
             if ps is not None and (ps.down or recent):
                 ev.status = "unreachable"

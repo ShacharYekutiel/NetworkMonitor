@@ -20,8 +20,6 @@ def z(dt: datetime) -> str:
 
 
 async def test_setup_timezone(client: httpx.AsyncClient) -> None:
-    r = await client.post("/api/setup", json={**ADMIN, "timezone": "Mars/Base"})
-    assert r.status_code == 422
     r = await client.post("/api/setup", json={**ADMIN, "timezone": "Asia/Jerusalem"})
     assert r.status_code == 201, r.text
     assert (await client.get("/api/settings/public")).json()["timezone"] == "Asia/Jerusalem"
@@ -306,3 +304,39 @@ async def test_sensor_types_value_map(admin: httpx.AsyncClient) -> None:
     )
     assert table["filters"][0] == {"oid": "1.3.6.1.2.1.47.1.1.1.1.5", "in": [6, 7], "not_in": None}
     assert table["interval_s"] == 300 and table["skip_zero"] is False
+
+
+async def test_setup_ignores_invalid_timezone(client: httpx.AsyncClient) -> None:
+    """L11: setup never fails over the browser zone; PUT /api/settings still validates."""
+    r = await client.post("/api/setup", json={**ADMIN, "timezone": "Mars/Base"})
+    assert r.status_code == 201, r.text
+    from netmon.services.maintenance import default_timezone
+
+    assert (await client.get("/api/settings/public")).json()["timezone"] == default_timezone()
+    r = await client.put("/api/settings", json={"timezone": "Mars/Base"})
+    assert r.status_code == 422
+
+
+async def test_health_test_mode_flag(rt: Runtime, client: httpx.AsyncClient) -> None:
+    """L4: /api/health reports test mode."""
+    assert (await client.get("/api/health")).json()["test_mode"] is False
+    rt.settings.netmon_test_mode = True
+    try:
+        assert (await client.get("/api/health")).json()["test_mode"] is True
+    finally:
+        rt.settings.netmon_test_mode = False
+
+
+async def test_layout_rejects_nan(admin: httpx.AsyncClient) -> None:
+    """L1: x/y must be finite."""
+    raw = '{"positions": [{"node": "d:1", "x": NaN, "y": 1}]}'
+    r = await admin.put(
+        "/api/topology/layout", content=raw, headers={"Content-Type": "application/json"}
+    )
+    assert r.status_code == 422, r.text
+    r = await admin.put(
+        "/api/topology/layout",
+        content='{"positions": [{"node": "d:1", "x": 1e400, "y": 1}]}',
+        headers={"Content-Type": "application/json"},
+    )
+    assert r.status_code == 422, r.text

@@ -6,6 +6,7 @@ from __future__ import annotations
 import asyncio
 import socket
 from collections.abc import Iterator
+from datetime import UTC, datetime, timedelta
 from typing import Any
 
 import httpx
@@ -461,3 +462,83 @@ async def test_mark_interrupted_and_scheduler(rt: Runtime, admin: httpx.AsyncCli
         assert sched.interval_min == 5 and sched.next_at is not None
     finally:
         await sched.stop()
+
+
+async def test_l5_no_miss_without_lldp_data(
+    rt: Runtime, admin: httpx.AsyncClient, lab: Lab
+) -> None:
+    """A device that answers SNMP but returns no LLDP/CDP rows does not age its links."""
+    from sqlalchemy import text
+
+    bare_ip = "127.0.6.65"
+    await asyncio.to_thread(lab.start, bare_ip, system("Bare switch", "1.3.6.1.4.1.9999.1", "bare"))
+    bare = await _snmp_device(admin, lab, bare_ip, "bare")
+    other = await make_device(admin, name="peer", host="127.0.6.66")  # not walked
+    core = await _snmp_device(admin, lab, CORE, "core")
+    async with rt.sessionmaker() as session:
+        await session.execute(
+            text(
+                "INSERT INTO topology_links (source, a_device_id, a_port, b_device_id, b_port) "
+                "VALUES ('lldp', :a, '1', :b, '2'), ('lldp', :c, '9', :a, '9')"
+            ),
+            {"a": bare["id"], "b": other["id"], "c": core["id"]},
+        )
+        await session.commit()
+    graph = await _refresh(rt, admin)
+    assert graph["last_refresh"]["devices_ok"] == 2
+    by = {(ln["a"]["device_id"], ln["b"]["device_id"]): ln for ln in graph["links"]}
+    lone = by.get((bare["id"], other["id"])) or by[(other["id"], bare["id"])]
+    assert lone["missed_refreshes"] == 0  # the bare device says nothing about its links
+    seen_by_core = by.get((core["id"], bare["id"])) or by[(bare["id"], core["id"])]
+    assert seen_by_core["missed_refreshes"] == 1  # core returned LLDP data without it
+
+
+async def test_l7_promotion_merges_parallel_link(rt: Runtime, admin: httpx.AsyncClient) -> None:
+    from sqlalchemy import text
+
+    from netmon.topology.collect import DeviceData
+    from netmon.topology.refresh import Matcher, TopologyRunner, _Dev
+
+    x = await make_device(admin, name="sw", host="127.0.6.80")
+    y = await make_device(admin, name="nas", host="127.0.6.81")
+    async with rt.sessionmaker() as session:
+        nb = (
+            await session.execute(
+                text(
+                    "INSERT INTO topology_neighbors (chassis_id, sys_name, mgmt_address) "
+                    "VALUES ('aa:bb:cc:00:00:01', 'nas', '127.0.6.81') RETURNING id"
+                )
+            )
+        ).scalar_one()
+        old = (
+            await session.execute(
+                text(
+                    "INSERT INTO topology_links (source, a_device_id, a_port, b_neighbor_id, "
+                    "b_port, first_seen) VALUES ('lldp', :x, '3', :n, 'eth0', "
+                    "now() - interval '3 days') RETURNING id"
+                ),
+                {"x": x["id"], "n": nb},
+            )
+        ).scalar_one()
+        direct = (
+            await session.execute(
+                text(
+                    "INSERT INTO topology_links (source, a_device_id, a_port, b_device_id, "
+                    "b_if_index, b_port) VALUES ('lldp', :x, '3', :y, 2, 'Ethernet 0') "
+                    "RETURNING id"
+                ),
+                {"x": x["id"], "y": y["id"]},
+            )
+        ).scalar_one()
+        devs = [_Dev(x["id"], "sw", "127.0.6.80", None, None), _Dev(y["id"], "nas", "127.0.6.81",
+                None, None)]  # fmt: skip
+        results = {y["id"]: DeviceData(ok=True, if_names={2: "Ethernet 0"})}
+        await TopologyRunner(rt)._promote(session, Matcher(devs), {direct}, results)  # noqa: SLF001
+        await session.commit()
+        rows = (await session.execute(text("SELECT * FROM topology_links"))).all()
+        nbs = (await session.execute(text("SELECT count(*) FROM topology_neighbors"))).scalar()
+    assert nbs == 0
+    assert [r.id for r in rows] == [direct]  # one edge, no duplicate
+    assert rows[0].b_port == "Ethernet 0" and rows[0].b_if_index == 2
+    assert rows[0].first_seen < datetime.now(UTC) - timedelta(days=2)  # the oldest kept
+    assert old not in [r.id for r in rows]

@@ -438,7 +438,11 @@ async def test_migration_0004_up_down_up(mode: str, rt) -> None:  # type: ignore
         try:
             assert await conn.fetchval("SELECT version_num FROM alembic_version") == "0003"
             back = await conn.fetch("SELECT rule_id, sensor_id, status FROM alert_notified")
-            assert [(r["sensor_id"], r["status"]) for r in back] == [(s1, "down")]  # not suspended
+            # every row that notified someone (L8): the suspended one too (as down)
+            assert sorted((r["sensor_id"], r["status"]) for r in back) == [
+                (s1, "down"),
+                (s2, "down"),
+            ]
             assert await conn.fetchval("SELECT status FROM sensors WHERE id = $1", s2) == "down"
             kinds = sorted(r["kind"] for r in await conn.fetch("SELECT kind FROM events"))
             assert kinds == ["status_change", "system"]
@@ -474,8 +478,8 @@ async def test_migration_0004_up_down_up(mode: str, rt) -> None:  # type: ignore
         conn = await asyncpg.connect(_plain(url))
         try:
             assert await conn.fetchval("SELECT version_num FROM alembic_version") == "0004"
-            rows = await conn.fetch("SELECT sensor_id, status FROM alert_state")
-            assert [(r["sensor_id"], r["status"]) for r in rows] == [(s1, "down")]
+            rows = await conn.fetch("SELECT sensor_id, status FROM alert_state ORDER BY 1")
+            assert [(r["sensor_id"], r["status"]) for r in rows] == [(s1, "down"), (s2, "down")]
         finally:
             await conn.close()
     finally:
