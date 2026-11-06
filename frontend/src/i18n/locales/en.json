@@ -709,6 +709,7 @@
     "matchEnterprises": "enterprise {{list}}",
     "verified": "Verified",
     "unverified": "Unverified",
+    "renamed": "name fixed to tell units apart",
     "unverifiedHint": "Not yet tested on real equipment; OIDs may need corrections.",
     "verifiedOn": "Verified on",
     "source": {
@@ -1092,6 +1093,7 @@
     "refreshFailed_other": "{{count}} devices failed",
     "group": "Group",
     "includeStale": "Include stale links",
+    "showNeighbors": "Show unmanaged neighbours",
     "showTraffic": "Show traffic",
     "saveLayout": "Save layout",
     "layoutSaved": "Layout saved.",

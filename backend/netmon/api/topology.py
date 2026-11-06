@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import re
 from typing import Any
 
 from fastapi import APIRouter, Query, Response
@@ -10,6 +11,8 @@ from sqlalchemy import text
 from netmon.api.deps import DB, RT, Admin, Page, Viewer
 from netmon.api.errors import ApiError, not_found, validation_error
 from netmon.models import Device, TopologyLink, TopologyNeighbor
+from netmon.ports import oui
+from netmon.ports.eligibility import effective_class
 from netmon.ports.read import port_names
 from netmon.ports.view import display_port
 from netmon.schemas import LayoutIn, TopologyLinkIn
@@ -18,6 +21,25 @@ from netmon.services.serialize import iso, page
 from netmon.services.status import load_inventory
 from netmon.topology.refresh import RefreshRunningError, refresh_out
 from netmon.topology.suggest import suggest_dependencies
+
+_MAC = re.compile(r"^[0-9a-f]{2}([:-][0-9a-f]{2}){5}$", re.I)
+_VENDOR_NOISE = re.compile(
+    r"[,.]|\b(inc|ltd|llc|co|corp|corporation|limited|gmbh|technologies|technology)\b", re.I
+)
+
+
+def neighbor_label(chassis_id: str) -> str:
+    """[2b-2] An LLDP neighbour without sysName: "Vendor …ee:ff" from the OUI table when the
+    chassis id is a MAC (servers with lldpd, phones), else the chassis id as is."""
+    if not _MAC.match(chassis_id or ""):
+        return chassis_id
+    vendor = oui.vendor(chassis_id)
+    if not vendor:
+        return chassis_id
+    words = _VENDOR_NOISE.sub(" ", vendor).split() or [vendor]
+    short = " ".join(words[:2]) if len(" ".join(words[:2])) <= 16 else words[0]
+    return f"{short[:20]} …{chassis_id[-5:].lower()}"
+
 
 router = APIRouter()
 
@@ -164,8 +186,9 @@ async def graph(
             device_ids.add(ln.b_device_id)
         if ln.b_neighbor_id is not None:
             neighbor_ids.add(ln.b_neighbor_id)
+    # [2b-2] same class as the device list: identity, else the port inventory's detection
     classes = {
-        r.id: (r.identity or {}).get("device_class")
+        r.id: effective_class(r.identity, inv.detected_class.get(r.id))
         for r in await session.execute(text("SELECT id, identity FROM devices"))
     }
     nodes: list[dict[str, Any]] = []
@@ -199,7 +222,7 @@ async def graph(
                     "key": f"n:{nb.id}",
                     "kind": "neighbor",
                     "neighbor_id": nb.id,
-                    "name": nb.sys_name or nb.chassis_id,
+                    "name": nb.sys_name or neighbor_label(nb.chassis_id),
                     "chassis_id": nb.chassis_id,
                     "mgmt_address": nb.mgmt_address,
                     "sys_descr": nb.sys_descr,

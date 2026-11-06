@@ -718,6 +718,7 @@
     "matchEnterprises": "enterprise {{list}}",
     "verified": "נבדקה",
     "unverified": "לא נבדקה",
+    "renamed": "השם תוקן כדי להבדיל בין יחידות",
     "unverifiedHint": "עוד לא נבדקה על ציוד אמיתי; ייתכן שה-OID ידרשו תיקון.",
     "verifiedOn": "נבדקה על",
     "source": {
@@ -1110,6 +1111,7 @@
     "refreshFailed_other": "{{count}} התקנים נכשלו",
     "group": "קבוצה",
     "includeStale": "כולל קישורים ישנים",
+    "showNeighbors": "הצגת שכנים לא מנוהלים",
     "showTraffic": "הצגת תעבורה",
     "saveLayout": "שמירת פריסה",
     "layoutSaved": "הפריסה נשמרה.",

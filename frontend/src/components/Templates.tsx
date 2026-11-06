@@ -137,7 +137,12 @@ export function SkippedList({ skipped, compact }: { skipped: SkippedSensor[]; co
                 {s.message && (
                   <span className="text-slate-500">
                     {' '}
-                    — <bdi dir="ltr">{s.message}</bdi>
+                    —{' '}
+                    {s.message === 'Renamed' ? (
+                      t('templates.renamed')
+                    ) : (
+                      <bdi dir="ltr">{s.message}</bdi>
+                    )}
                   </span>
                 )}
               </li>

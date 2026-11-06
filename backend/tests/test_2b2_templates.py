@@ -88,6 +88,11 @@ def test_converted_templates_identical_to_2b1() -> None:
     """Identity proof: the nine 2b-1 templates without the 2b-2 keys equal the fixture that was
     generated from the 2b-1 builtin.TEMPLATES before its data was removed (order included)."""
     fixture = json.loads(FIXTURE.read_text(encoding="utf-8"))
+    # deliberate change since 2b-1 (owner's FF 5945 test): Comware reports 65535 for a CPU /
+    # memory / temperature column an entity does not have; those rows are filtered out
+    comware = next(t for t in fixture if t["id"] == "hpe_comware")
+    for e in comware["entries"][2:5]:
+        e["filters"] = [{"oid": e["walk_oid"], "in": None, "not_in": [65535]}]
     ids = [t["id"] for t in fixture]
     loaded = [strip_2b2(t) for t in TEMPLATES if t["id"] in ids]
     assert [t["id"] for t in loaded] == ids

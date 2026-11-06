@@ -7,6 +7,7 @@ from __future__ import annotations
 import asyncio
 import logging
 import re
+from collections import Counter
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any
 
@@ -100,6 +101,10 @@ class _Ctx:
     existing: set[tuple[Any, ...]]
     deadline: float
     probe_sem: asyncio.Semaphore = field(default_factory=lambda: asyncio.Semaphore(4))
+    # identity -> (sensor id, name) of the device's sensors, to repair ambiguous names
+    existing_names: dict[tuple[Any, ...], tuple[int, str]] = field(default_factory=dict)
+    renames: list[tuple[int, str, str]] = field(default_factory=list)
+    entity: dict[str, str] | None = None  # entPhysicalIndex -> stack unit label (cached)
 
 
 def _l10n(name: Any, lang: str) -> str:
@@ -213,6 +218,64 @@ async def _interface_slots(rt: Runtime, entry: dict[str, Any], ctx: _Ctx) -> lis
     return slots
 
 
+ENT_PHYSICAL = "1.3.6.1.2.1.47.1.1.1.1"  # ENTITY-MIB entPhysicalEntry
+ENT_CHASSIS = 3
+UNIT_WORD = {"en": "Unit", "he": "יחידה"}
+
+
+async def _entity_units(rt: Runtime, ctx: _Ctx) -> dict[str, str]:
+    """entPhysicalIndex -> the stack unit it sits in ("Unit 2" or the chassis name), only when the
+    device has more than one chassis (an IRF / VSF / stack); {} otherwise."""
+    if ctx.entity is not None:
+        return ctx.entity
+    contained = await _walk_column(rt, ctx, f"{ENT_PHYSICAL}.4")
+    classes = await _walk_column(rt, ctx, f"{ENT_PHYSICAL}.5")
+    chassis = sorted((i for i, c in classes.items() if _as_int(c) == ENT_CHASSIS), key=_suffix_key)
+    units: dict[str, str] = {}
+    if len(chassis) > 1:
+        names = await _walk_column(rt, ctx, f"{ENT_PHYSICAL}.7")
+        texts = [as_text(names.get(c)).strip() for c in chassis]
+        distinct = all(texts) and len(set(texts)) == len(texts)
+        word = UNIT_WORD.get(ctx.lang, "Unit")
+        label = {c: (texts[n] if distinct else f"{word} {n + 1}") for n, c in enumerate(chassis)}
+        for idx in classes:
+            cur, hops = idx, 0
+            while cur in contained and hops < 32 and cur not in label:
+                cur = str(_as_int(contained.get(cur)) or 0)
+                hops += 1
+            if cur in label:
+                units[idx] = label[cur]
+    ctx.entity = units
+    return units
+
+
+async def _unique_labels(
+    rt: Runtime, ctx: _Ctx, entry: dict[str, Any], rows: list[tuple[str, str]]
+) -> dict[str, str]:
+    """Row labels made unique within one table entry: rows that share a name (e.g. "PSU 1" on
+    every member of an IRF stack) get their stack unit (ENTITY-MIB tables), then "#n"."""
+    out = dict(rows)
+    if all(n == 1 for n in Counter(out.values()).values()):
+        return out
+    if str(entry.get("label_oid") or "").strip(".").startswith(ENT_PHYSICAL):
+        try:
+            units = await _entity_units(rt, ctx)
+        except (TimeoutError, SnmpError):
+            units = {}
+        counts = Counter(out.values())
+        for s, text in rows:
+            if counts[text] > 1 and units.get(s):
+                out[s] = f"{text[:44]} · {units[s]}"[:64]
+    counts = Counter(out.values())
+    seen: Counter[str] = Counter()
+    for s, _ in rows:
+        text = out[s]
+        if counts[text] > 1:
+            seen[text] += 1
+            out[s] = f"{text[:58]} #{seen[text]}"
+    return out
+
+
 async def _table_slots(rt: Runtime, entry: dict[str, Any], ctx: _Ctx) -> list[_Slot]:
     name_tpl = _l10n(entry["name"], ctx.lang)
     label = re.sub(r"\s+", " ", name_tpl.replace("{label}", "").replace("{index}", "")).strip()
@@ -246,20 +309,33 @@ async def _table_slots(rt: Runtime, entry: dict[str, Any], ctx: _Ctx) -> list[_S
     max_n = int(entry.get("max") or len(suffixes))
     overrides = validate_channel_overrides("snmp_custom", entry.get("channels") or [])
     slots = []
+    base: list[tuple[str, str]] = []
     for s in suffixes[:max_n]:
         text = as_text(labels.get(s)) if s in labels else ""
         text2 = as_text(labels2.get(s)) if s in labels2 else ""
         row_label = text or s
         if text and text2:
             row_label = f"{text} ({text2})"
-        row_label = row_label[:64]
+        base.append((s, row_label[:64]))
+    unique = await _unique_labels(rt, ctx, entry, base)
+    for s, plain in base:
+        row_label = unique[s]
         cfg_in = {**(entry.get("config") or {}), "oid": f"{walk_oid}.{s}", "label": row_label}
         if entry.get("percent_of_column"):
             cfg_in["percent_of_oid"] = f"{str(entry['percent_of_column']).strip('.')}.{s}"
         cfg = validate_config("snmp_custom", cfg_in)
         name = name_tpl.replace("{label}", row_label).replace("{index}", s)[:128]
-        if identity("snmp_custom", cfg) in ctx.existing:
-            slots.append(_Slot(skip=_skip(name, "snmp_custom", "exists")))
+        key = identity("snmp_custom", cfg)
+        if key in ctx.existing:
+            # an earlier apply gave this sensor the ambiguous name: repair it, unless the
+            # user renamed it since
+            old = ctx.existing_names.get(key) if key is not None else None
+            ambiguous = name_tpl.replace("{label}", plain).replace("{index}", s)[:128]
+            if old is not None and old[1] == ambiguous != name:
+                ctx.renames.append((old[0], name, row_label))
+                slots.append(_Slot(skip=_skip(name, "snmp_custom", "exists", "Renamed")))
+            else:
+                slots.append(_Slot(skip=_skip(name, "snmp_custom", "exists")))
             continue
         slots.append(
             _Slot(
@@ -475,6 +551,9 @@ async def _apply_template(
             .all()
         )
         existing = {k for s in sensors if (k := identity(s.type, s.config)) is not None}
+        existing_names = {
+            k: (s.id, s.name) for s in sensors if (k := identity(s.type, s.config)) is not None
+        }
         next_sort = max((s.sort_order for s in sensors), default=-1) + 1
         default_interval = int(await settings_svc.get(session, "default_interval_s"))
         host, device_enabled = device.host, device.enabled
@@ -482,6 +561,7 @@ async def _apply_template(
         host, creds, lang if lang in ("en", "he") else "en", existing, loop.time() + budget_s
     )
     ctx.probe_sem = asyncio.Semaphore(PROBES_PER_DEVICE)
+    ctx.existing_names = existing_names
 
     slots: list[_Slot] = []
     for entry in template["entries"]:
@@ -557,12 +637,23 @@ async def _apply_template(
             next_sort += 1
             session.add(s)
             new_sensors.append(s)
+        renamed: list[int] = []
+        for sensor_id, new_name, new_label in ctx.renames:
+            row = await session.get(Sensor, sensor_id)
+            if row is None:
+                continue
+            row.name = new_name
+            if (row.config or {}).get("label") is not None:
+                row.config = {**row.config, "label": new_label}
+            renamed.append(sensor_id)
         await session.commit()
         for s in new_sensors:
             created.append({"sensor_id": s.id, "name": s.name, "type": s.type})
     if rt.scheduler:
         for s in new_sensors:
             await rt.scheduler.upsert(s.id)
+        for sensor_id in renamed:
+            await rt.scheduler.upsert(sensor_id)
     if broadcast:
         rt.config_changed("device", device_id, "updated")
     return {

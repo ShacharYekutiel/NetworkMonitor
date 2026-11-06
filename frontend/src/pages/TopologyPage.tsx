@@ -693,6 +693,8 @@ export function TopologyPage() {
   const [groupId, setGroupId] = useLocalState<number | null>('netmon.topology.group', null);
   const [includeStale, setIncludeStale] = useLocalState('netmon.topology.stale', true);
   const [showTraffic, setShowTraffic] = useLocalState('netmon.topology.traffic', false);
+  // [2b-2] unmanaged LLDP neighbours (servers, phones…) can crowd the map
+  const [showNeighbors, setShowNeighbors] = useLocalState('netmon.topology.neighbors', true);
   const [positions, setPositions] = useState<Record<string, [number, number]>>({});
   const [resetToken, setResetToken] = useState(0);
   const [sel, setSel] = useState<Selection>(null);
@@ -710,7 +712,7 @@ export function TopologyPage() {
     placeholderData: keepPreviousData,
   });
   // A different filter is a different node set: start from the stored layout again.
-  useEffect(() => setPositions({}), [groupId, includeStale]);
+  useEffect(() => setPositions({}), [groupId, includeStale, showNeighbors]);
 
   const save = useMutation({
     mutationFn: (p: LayoutPosition[]) => endpoints.saveLayout(p),
@@ -752,8 +754,14 @@ export function TopologyPage() {
     },
   });
 
-  const data = g.data;
-  const staleCount = data?.links.filter((l) => l.stale).length ?? 0;
+  const data = useMemo(() => {
+    if (!g.data || showNeighbors) return g.data;
+    const nodes = g.data.nodes.filter((n) => n.kind !== 'neighbor');
+    const keys = new Set(nodes.map((n) => n.key));
+    const links = g.data.links.filter((l) => keys.has(l.a.node) && keys.has(l.b.node));
+    return { ...g.data, nodes, links };
+  }, [g.data, showNeighbors]);
+  const staleCount = g.data?.links.filter((l) => l.stale).length ?? 0;
   const selLink = sel?.kind === 'link' ? data?.links.find((l) => l.id === sel.id) : undefined;
   const selNeighbor =
     sel?.kind === 'neighbor'
@@ -807,6 +815,11 @@ export function TopologyPage() {
               label={t('topology.includeStale')}
               checked={includeStale}
               onChange={setIncludeStale}
+            />
+            <Checkbox
+              label={t('topology.showNeighbors')}
+              checked={showNeighbors}
+              onChange={setShowNeighbors}
             />
             <Checkbox
               label={t('topology.showTraffic')}
