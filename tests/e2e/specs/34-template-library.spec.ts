@@ -80,6 +80,10 @@ test('built-in library: 19 templates, order, zero errors, verified + confidence 
 test('the nine converted templates equal the 2b-1 data (fixture) with 2b-2 keys removed', async () => {
   test.skip(!existsSync(FIXTURE_2B1), 'backend/tests/fixtures/templates_2b1.json missing');
   const fixture = JSON.parse(readFileSync(FIXTURE_2B1, 'utf8'));
+  // deliberate change since 2b-1 (owner's FF 5945 test): Comware CPU / memory / temperature rows
+  // reading 65535 ("no sensor") are filtered out
+  const comware = fixture.find((t: any) => t.id === 'hpe_comware');
+  for (const e of comware.entries.slice(2, 5)) e.filters = [{ oid: e.walk_oid, in: null, not_in: [65535] }];
   const r = await api.get('/api/device-templates');
   const nine = r.items.filter((t: any) => CONVERTED.includes(t.id)).map(strip2b2);
   expect(nine.map((t: any) => t.id)).toEqual(fixture.map((t: any) => t.id));
