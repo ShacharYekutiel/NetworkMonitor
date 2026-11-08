@@ -298,10 +298,26 @@ async def test_flood_rate_limited(rt: Runtime, admin: httpx.AsyncClient) -> None
     h0 = time.monotonic()
     assert (await admin.get("/api/health")).status_code == 200
     assert time.monotonic() - h0 < 1.0  # responsive during the flood
-    await wait_for(lambda: dropped_at_least(admin, "syslog", "rate_limited", 1500))
-    await asyncio.sleep(1.5)
-    st = (await admin.get("/api/ingest/status")).json()["counters"]["syslog"]
-    assert st["stored"] <= 1250
+    await wait_for(lambda: dropped_at_least(admin, "syslog", "rate_limited", 1))
+
+    # wait until the counters stop moving, then check the token-bucket rule itself:
+    # stored <= burst (1000) + rate (200/s) * elapsed. Fixed counts were timing-dependent on
+    # slow CI runners (more refill while the flood is still being received).
+    async def settled() -> dict:
+        prev = None
+        for _ in range(100):
+            st = (await admin.get("/api/ingest/status")).json()["counters"]["syslog"]
+            total = st["stored"] + st["dropped"]["rate_limited"] + st["dropped"]["queue_full"]
+            if total == prev:
+                return st
+            prev = total
+            await asyncio.sleep(0.5)
+        raise AssertionError("counters kept moving")
+
+    st = await settled()
+    elapsed = time.monotonic() - t0
+    assert st["stored"] <= 1000 + 200 * elapsed + 50
+    assert st["dropped"]["rate_limited"] >= 1
     assert st["dropped"]["rate_limited"] + st["stored"] + st["dropped"]["queue_full"] <= 3000
 
 
