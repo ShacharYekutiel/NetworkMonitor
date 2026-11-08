@@ -501,3 +501,30 @@ def test_cursor_and_buckets() -> None:
     assert query.pick_bucket(3600) == 60
     assert query.pick_bucket(86400) == 900
     assert query.pick_bucket(31 * 86400) in (21600, 86400)
+
+
+def test_bind_reason_reads_the_os_message() -> None:
+    """§12.2.1: a held port reports the OS reason even when asyncio's message has none."""
+    import socket
+
+    from netmon.ingest.bind_error import bind_reason
+
+    with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as held:
+        held.bind(("127.0.0.1", 0))
+        port = held.getsockname()[1]
+        text = bind_reason(OSError("could not bind to local_addr"), "127.0.0.1", port, udp=True)
+    assert text.startswith("could not bind to local_addr (")
+    assert "in use" in text.lower() or "10048" in text
+    assert bind_reason(OSError(98, "Address already in use"), "127.0.0.1", 1, udp=True) == (
+        "[Errno 98] Address already in use"
+    )
+
+
+def test_cursor_keeps_sub_second_precision() -> None:
+    """E2E 39/47: a cursor rounded to the second skipped rows from the same second."""
+    from datetime import UTC, datetime
+
+    from netmon.ingest.query import decode_cursor, encode_cursor
+
+    t = datetime(2026, 11, 8, 10, 0, 0, 123456, tzinfo=UTC)
+    assert decode_cursor(encode_cursor(t, 7), 2) == [t, 7]

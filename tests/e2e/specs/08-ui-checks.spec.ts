@@ -14,7 +14,9 @@ test('login page uses settings.default_language when nothing is stored locally',
     await expect(page.getByRole('heading', { name: 'כניסה' })).toBeVisible();
     const pub = await (await page.request.get('/api/settings/public')).json();
     // [2b-1] settings/public gained `timezone` (additive, api.md [2b-1] Settings).
-    expect(pub).toEqual({ default_language: 'he', timezone: expect.any(String) });
+    // [2b-3] settings/public also carries `features` (all OFF by default) and `ldap` (additive).
+    expect(pub).toMatchObject({ default_language: 'he', timezone: expect.any(String) });
+    expect(Object.values(pub.features ?? {}).every((v) => v === false)).toBe(true);
     await ctx.close();
   } finally {
     await api.put('/api/settings', { default_language: 'en' });

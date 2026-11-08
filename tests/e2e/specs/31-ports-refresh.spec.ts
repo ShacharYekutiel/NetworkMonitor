@@ -51,7 +51,9 @@ test('never-run device: nulls, zeros, sources skipped; viewer-independent shape'
   const dp = await devicePorts(api, lab.ap.id); // AP device: class access_point, never inventoried
   expect(dp).toMatchObject({ ports_effective: false, arp_effective: false, effective_class: 'access_point', ports: [] });
   expect(dp.status).toMatchObject({ last_run_at: null, last_ok_at: null, duration_ms: null, error: null, running: false, next_run_at: null, ports: 0, macs: 0, arp_entries: 0, fdb_mib: null, vlan_mib: null });
-  expect(Object.values(dp.status.sources)).toEqual(Array(7).fill('skipped'));
+  // [2b-3] an 8th source (`lag`) was added; every source of a never-run device is skipped.
+  expect(Object.keys(dp.status.sources)).toContain('lag');
+  expect(Object.values(dp.status.sources)).toEqual(Array(Object.keys(dp.status.sources).length).fill('skipped'));
 });
 
 test('409 ports_disabled: legacy ARP with arp_collect auto (class server); PATCH on -> entries appear', async () => {
