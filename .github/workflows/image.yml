@@ -6,7 +6,7 @@ name: Image
 #   ghcr.io/<owner>/<repo>:latest       (main)
 #   ghcr.io/<owner>/<repo>:<branch>     (e.g. phase2)
 #   ghcr.io/<owner>/<repo>:sha-<short>  (every build)
-# Version tags (v*) are published by release.yml (multi-arch).
+# Version tags (v*) are published by release.yml (amd64).
 on:
   push:
     branches: ["main", "phase*"]
