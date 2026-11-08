@@ -21,7 +21,11 @@ SENSOR_TYPES_ORDER = [
     "snmp_custom",
     "snmp_disk",
     "snmp_walk_count",  # [2b-2]
+    "trap",  # [2b-3] passive event sensors
+    "syslog",
+    "port_flap",
 ]
+PASSIVE_TYPES = ("trap", "syslog", "port_flap")
 AUTO_SENSOR_TYPES = {"ping", "snmp_system", "snmp_cpu", "snmp_memory"}
 
 
@@ -55,6 +59,8 @@ class SensorTypeDef:
     primary_channel: str
     config_fields: list[ConfigField] = field(default_factory=list)
     channels: list[ChannelDef] = field(default_factory=list)
+    # [2b-3] passive: not scheduled, no measurements, status driven by event conditions
+    passive: bool = False
 
     def channel(self, key: str) -> ChannelDef | None:
         for ch in self.channels:
@@ -69,6 +75,7 @@ class SensorTypeDef:
             "primary_channel": self.primary_channel,
             "config_fields": [asdict(f) for f in self.config_fields],
             "channels": [asdict(c) for c in self.channels],
+            "passive": self.passive,
         }
 
 
@@ -236,6 +243,11 @@ SENSOR_TYPES: dict[str, SensorTypeDef] = {
         ],
         [ChannelDef("rows", "#"), ChannelDef("matched", "#"), ChannelDef("unmatched", "#")],
     ),
+    # [2b-3] passive event sensors: one channel `active` (active conditions, no thresholds)
+    **{
+        t: SensorTypeDef(t, False, "active", [], [ChannelDef("active", "#")], passive=True)
+        for t in PASSIVE_TYPES
+    },
 }
 
 # [2b-2] optional keys that are stored only when given (absent = the default); keeps the
@@ -247,6 +259,11 @@ OID_RE = re.compile(r"^\.?[0-2](\.\d+){1,127}$")
 
 def normalize_oid(v: str) -> str:
     return v.strip().lstrip(".")
+
+
+def is_passive(type_: str) -> bool:
+    """[2b-3] passive event sensor types (never scheduled or run)."""
+    return type_ in PASSIVE_TYPES
 
 
 def get_type(type_: str) -> SensorTypeDef:
@@ -543,6 +560,9 @@ DEFAULT_NAMES = {
     "snmp_custom": "SNMP",
     "snmp_disk": "Disk",
     "snmp_walk_count": "Count",
+    "trap": "SNMP traps",  # [2b-3]
+    "syslog": "Syslog",
+    "port_flap": "Port flapping",
 }
 
 

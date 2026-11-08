@@ -1333,6 +1333,12 @@ maintenance suppression and after-maintenance sends, rollups, tree, dashboard, w
   trap's ifIndex has an `snmp_interface` sensor, or is a LAG / LAG member, or is an uplink per the 2b-2 view
   rule; a device with neither port inventory data nor interface sensors → every port is important; a trap
   without an ifIndex varbind → important.
+- **Link-down scope** (owner decision, setting `event_linkdown_scope`): `important` (default, the rule
+  above) or `all` (every port with a linkDown/linkUp or ifOperStatus change). With `all` the port filter
+  `important` matches every port (built-in Link down rule and custom rules using it), and flapping (§ 12.4)
+  raises its condition for every port.
+- **Built-in rule names** are returned in the requesting user's language (he/en) while the stored name is
+  still one of the built-in default names; a renamed built-in and user rules are returned as typed.
 - Unknown sources, disabled devices and paused event sensors never raise conditions (messages are still
   stored). Turning `event_alerts` OFF stops evaluation, deletes all conditions and sets every event sensor to
   `up` with message "Event alerts are turned off" (status_change events written; recoveries for notified
@@ -1369,6 +1375,9 @@ Algorithm (`netmon.ingest.flapping`, pure core `FlapTracker.add(t) -> FlapChange
 - the deques are in memory (lost on restart; acceptable); conditions are persisted; at startup, flap conditions
   older than `flap_quiet_min` since `last_at` expire through the normal expiry loop.
 Turning `flapping` OFF clears all flap conditions and the suppression set (re-arm as above).
+**Alerting scope:** transitions are tracked for every port, but the flap condition (and the alert
+suppression) is raised only for ports inside `event_linkdown_scope` (§ 12.3: `important` by default, `all`
+= every port).
 
 ### 12.5 SIEM forwarding [2b-3]
 Feature `siem_forwarding`. Settings `siem_targets` (≤ 4 targets: host, port, `udp` | `tcp` | `tls`,

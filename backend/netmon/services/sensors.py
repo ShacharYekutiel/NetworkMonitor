@@ -170,6 +170,13 @@ async def sync_device_sensors_status(
             if effective_paused(s, device)
             else ("unknown" if s.status == "paused" else s.status)
         )
+        if s.type in ("trap", "syslog", "port_flap"):  # [2b-3] passive event sensors
+            if target == "paused" and s.status != "paused":
+                await session.execute(
+                    text("DELETE FROM event_conditions WHERE sensor_id = :s"), {"s": s.id}
+                )
+            elif target == "unknown":
+                target = "up"
         ev = await set_sensor_status(session, s, device, target, in_maintenance=in_maintenance)
         if ev is not None:
             out.append(ev)

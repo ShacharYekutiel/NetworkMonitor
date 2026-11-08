@@ -64,7 +64,71 @@ async def run_once(rt: Runtime) -> dict[str, int]:
         await session.commit()
     if removed_m or removed_e:
         log.info("Retention removed %d measurements and %d events", removed_m, removed_e)
-    return {"measurements": removed_m, "events": removed_e}
+    out = {"measurements": removed_m, "events": removed_e}
+    out.update(await _run_2b3_auth(rt, cfg))
+    out.update(await _run_2b3_ingest(rt, cfg))
+    return out
+
+
+async def delete_old_ingest(rt: Runtime, table: str, days: int, batch: int = BATCH) -> int:
+    """[2b-3] traps / syslog_messages older than `days` (fallback mode or no Timescale policy),
+    in batches; runs whether or not the feature is on."""
+    total = 0
+    while True:
+        async with rt.sessionmaker() as session:
+            res = await session.execute(
+                text(
+                    f"DELETE FROM {table} WHERE (id, time) IN (SELECT id, time FROM {table} "  # noqa: S608
+                    "WHERE time < now() - make_interval(days => :d) LIMIT :n)"
+                ),
+                {"d": int(days), "n": batch},
+            )
+            await session.commit()
+        n = res.rowcount or 0
+        total += n
+        if n < batch:
+            return total
+        await asyncio.sleep(0)
+
+
+async def _run_2b3_ingest(rt: Runtime, cfg: dict) -> dict[str, int]:
+    out = {"traps": 0, "syslog": 0}
+    if rt.timescale_enabled and getattr(rt, "ingest_retention_policy_ok", False):
+        return out  # Timescale retention policies drop old chunks
+    try:
+        out["traps"] = await delete_old_ingest(rt, "traps", int(cfg["trap_retention_days"]))
+        out["syslog"] = await delete_old_ingest(
+            rt, "syslog_messages", int(cfg["syslog_retention_days"])
+        )
+    except Exception as exc:  # noqa: BLE001
+        log.warning("Trap/syslog retention failed: %s", exc)
+    if out["traps"] or out["syslog"]:
+        log.info("Retention removed %d traps and %d syslog messages", out["traps"], out["syslog"])
+    return out
+
+
+async def _run_2b3_auth(rt: Runtime, cfg: dict) -> dict[str, int]:
+    """[2b-3] Audit retention (runs whether or not the audit log is on) and the cleanup of
+    API tokens expired/revoked more than 30 days ago."""
+    from netmon.auth import tokens
+    from netmon.services import audit
+
+    out = {"audit": 0, "api_tokens": 0}
+    try:
+        out["audit"] = await audit.purge_old(rt, int(cfg.get("audit_retention_days") or 365))
+    except Exception as exc:  # noqa: BLE001
+        log.warning("Audit retention failed: %s", exc)
+    try:
+        async with rt.sessionmaker() as session:
+            out["api_tokens"] = await tokens.cleanup(session, rt.clock.now())
+            await session.commit()
+    except Exception as exc:  # noqa: BLE001
+        log.warning("API token cleanup failed: %s", exc)
+    if out["audit"] or out["api_tokens"]:
+        log.info(
+            "Retention removed %d audit entries and %d API tokens", out["audit"], out["api_tokens"]
+        )
+    return out
 
 
 async def delete_sensor_measurements(rt: Runtime, sensor_ids: list[int]) -> None:

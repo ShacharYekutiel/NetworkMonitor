@@ -510,8 +510,10 @@ async def apply_template(
     *,
     budget_s: float = BUDGET_S,
     broadcast: bool = True,
+    audit_ctx: Any = None,
 ) -> dict[str, Any]:
     """Create the template's missing sensors on a device. Returns ApplyTemplateResult.
+    [2b-3] `audit_ctx` (AuditCtx): records `device.apply_template` in the same transaction.
 
     Applies to the same device are serialized (per-device lock), so concurrent apply-template /
     import calls cannot create duplicate sensors."""
@@ -520,7 +522,13 @@ async def apply_template(
     try:
         async with lock:
             return await _apply_template(
-                rt, device_id, template, lang, budget_s=budget_s, broadcast=broadcast
+                rt,
+                device_id,
+                template,
+                lang,
+                budget_s=budget_s,
+                broadcast=broadcast,
+                audit_ctx=audit_ctx,
             )
     finally:
         lock, users = _device_locks[device_id]
@@ -538,6 +546,7 @@ async def _apply_template(
     *,
     budget_s: float,
     broadcast: bool,
+    audit_ctx: Any = None,
 ) -> dict[str, Any]:
     loop = asyncio.get_running_loop()
     async with rt.sessionmaker() as session:
@@ -646,6 +655,22 @@ async def _apply_template(
             if (row.config or {}).get("label") is not None:
                 row.config = {**row.config, "label": new_label}
             renamed.append(sensor_id)
+        if audit_ctx is not None and audit_ctx.enabled:
+            from netmon.services import audit
+
+            await session.flush()
+            dev = await session.get(Device, device_id)
+            await audit.record(
+                session,
+                audit_ctx,
+                "device.apply_template",
+                audit.entity("device", device_id, dev.name if dev else None, device_id=device_id),
+                {
+                    "template_id": [None, template["id"]],
+                    "created": [None, [f"{s.name} ({s.type})" for s in new_sensors]],
+                    "renamed": [None, renamed],
+                },
+            )
         await session.commit()
         for s in new_sensors:
             created.append({"sensor_id": s.id, "name": s.name, "type": s.type})

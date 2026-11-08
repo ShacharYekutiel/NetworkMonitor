@@ -26,6 +26,9 @@ from netmon.runtime import Runtime
 
 TEST_DATABASE_URL = os.environ.get("TEST_DATABASE_URL")
 
+# [2b-3] shared fixtures of the auth / audit / tokens / Teams / AD tests
+pytest_plugins = ["tests.fixtures_2b3_auth"]
+
 # [2b-1] coalescing window of the dependency cascade (0.5 s in production)
 __import__("netmon.services.dependencies", fromlist=["x"]).CASCADE_DEBOUNCE_S = 0.02
 requires_db = pytest.mark.skipif(not TEST_DATABASE_URL, reason="TEST_DATABASE_URL not set")
@@ -35,7 +38,11 @@ TABLES = (
     "alert_state, alert_rule_channels, alert_rules, notification_channels, events, "
     "measurements, sensor_channels, sensors, devices, groups, users, settings, "
     "maintenance_windows, topology_links, topology_neighbors, topology_layout, "
-    "topology_refreshes, dns_cache"
+    "topology_refreshes, dns_cache, "
+    # [2b-3] (TRUNCATE does not fire the audit_log row trigger)
+    "audit_log, api_tokens, "
+    # [2b-3] ingestion (event_rules is re-seeded with the built-in rules in `clean`)
+    "traps, syslog_messages, event_conditions, event_rules"
 )
 
 
@@ -86,12 +93,44 @@ def make_settings(db_url: str, data_dir: Path, **extra: Any) -> Any:
     return s
 
 
+def free_port(kind: int) -> int:
+    import socket
+
+    s = socket.socket(socket.AF_INET, kind)
+    try:
+        s.bind(("127.0.0.1", 0))
+        return int(s.getsockname()[1])
+    finally:
+        s.close()
+
+
+def ingest_ports() -> dict[str, str]:
+    """[2b-3] trap / syslog listeners on free loopback ports (UDP and TCP free for syslog)."""
+    import socket
+
+    for _ in range(50):
+        sp = free_port(socket.SOCK_DGRAM)
+        t = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        try:
+            t.bind(("127.0.0.1", sp))
+        except OSError:
+            continue
+        finally:
+            t.close()
+        return {
+            "NETMON_TRAP_PORT": str(free_port(socket.SOCK_DGRAM)),
+            "NETMON_SYSLOG_PORT": str(sp),
+            "NETMON_INGEST_HOST": "127.0.0.1",
+        }
+    raise RuntimeError("no free port")
+
+
 @pytest.fixture(scope="session")
 async def rt(
     databases: dict[str, str], tmp_path_factory: pytest.TempPathFactory
 ) -> AsyncIterator[Runtime]:
     data_dir = tmp_path_factory.mktemp("data")
-    settings = make_settings(databases["main"], data_dir)
+    settings = make_settings(databases["main"], data_dir, **ingest_ports())
     runtime = Runtime(settings)
     await runtime.start(run_poller=False, maintenance=False)
     yield runtime
@@ -121,7 +160,23 @@ async def clean(rt: Runtime, app: Any) -> AsyncIterator[None]:
     rt._has_users = False  # noqa: SLF001
     rt._rollup_snapshot = None  # noqa: SLF001
     app.state.login_limiter._fails.clear()  # noqa: SLF001
+    # [2b-3] API tokens and Active Directory throttles / memory
+    app.state.token_limiter.clear()
+    app.state.token_stamper.clear()
+    app.state.directory.guard.clear()
+    app.state.directory.last_good.clear()
     rt.hub.listeners.clear()
+    # [2b-3] every feature OFF (fresh install), built-in event rules back, caches empty
+    await rt.features.reset()
+    async with rt.sessionmaker() as session:
+        from netmon.ingest.builtin import ensure_builtin_rules
+
+        await ensure_builtin_rules(session)
+        await session.commit()
+    if rt.ingest is not None:
+        rt.ingest.reset_state()
+        await rt.ingest.rebuild_sources()
+        await rt.event_sensors.reload()
     if rt.alerts is not None:
         rt.alerts.sender = __import__("netmon.alerts.engine", fromlist=["x"]).send_to_channel
         rt.alerts._sent.clear()  # noqa: SLF001

@@ -13,6 +13,7 @@ from netmon.services.serialize import user_out
 
 log = logging.getLogger("netmon.ws")
 router = APIRouter()
+WS_TOPICS = ("syslog", "trap")  # [2b-3]
 
 
 def _origin_ok(ws: WebSocket, trust_proxy: bool) -> bool:
@@ -56,6 +57,19 @@ async def websocket(ws: WebSocket) -> None:
                 continue
             if isinstance(msg, dict) and msg.get("type") == "ping":
                 client.queue.put_nowait(make_message("pong", {}))
+            elif isinstance(msg, dict) and msg.get("type") in ("subscribe", "unsubscribe"):
+                # [2b-3] live views; unknown topics are ignored
+                topics = msg.get("topics")
+                wanted = (
+                    {t for t in topics if t in WS_TOPICS} if isinstance(topics, list) else set()
+                )
+                if msg["type"] == "subscribe":
+                    client.topics |= wanted
+                else:
+                    client.topics -= wanted
+                client.queue.put_nowait(
+                    make_message("subscribed", {"topics": sorted(client.topics)})
+                )
     except WebSocketDisconnect:
         pass
     except Exception as exc:  # noqa: BLE001

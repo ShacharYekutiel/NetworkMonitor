@@ -26,6 +26,7 @@ class _Client:
         self.is_admin = is_admin
         self.queue: asyncio.Queue[str | None] = asyncio.Queue(maxsize=1000)
         self.task: asyncio.Task[None] | None = None
+        self.topics: set[str] = set()  # [2b-3] live views (syslog, trap); per socket
 
     async def sender(self) -> None:
         while True:
@@ -87,6 +88,28 @@ class Hub:
                 log.warning("Dropping slow WebSocket client")
                 self._clients.discard(client)
                 asyncio.ensure_future(_close(client.ws, 1008))
+
+    # [2b-3] topic subscriptions (`{"type":"subscribe","topics":[...]}`)
+    def has_subscribers(self, topic: str) -> bool:
+        return any(topic in c.topics for c in self._clients)
+
+    def broadcast_topic(self, topic: str, type_: str, data: dict[str, Any]) -> int:
+        """Send only to sockets subscribed to `topic`. Returns the number of recipients."""
+        for q in self.listeners:
+            with contextlib.suppress(asyncio.QueueFull):
+                q.put_nowait({"type": type_, "data": data, "topic": topic})
+        targets = [c for c in self._clients if topic in c.topics]
+        if not targets:
+            return 0
+        msg = make_message(type_, data)
+        for client in targets:
+            try:
+                client.queue.put_nowait(msg)
+            except asyncio.QueueFull:
+                log.warning("Dropping slow WebSocket client")
+                self._clients.discard(client)
+                asyncio.ensure_future(_close(client.ws, 1008))
+        return len(targets)
 
     async def close_user(self, user_id: int, code: int = 4401) -> int:
         """Close every socket of a user (session revoked). Returns the number closed."""

@@ -17,6 +17,7 @@ from starlette.responses import Response
 COOKIE_NAME = "netmon_session"
 TOKEN_TTL_S = 43200
 RENEW_BELOW_S = 6 * 3600
+LDAP_SESSION_MAX_S = 12 * 3600  # [2b-3] AD users log in again at least every 12 h
 
 _hasher = PasswordHasher()
 
@@ -47,16 +48,53 @@ async def burn_verify(password: str) -> None:
     await verify_password(_DUMMY_HASH, password)
 
 
-def make_token(secret: str, user_id: int, role: str, token_version: int) -> str:
+def make_token(
+    secret: str,
+    user_id: int,
+    role: str,
+    token_version: int,
+    *,
+    src: str = "local",
+    at: float | None = None,
+    exp_cap: float | None = None,
+) -> str:
+    """[2b-3] claims gain `src` (local|ldap) and `at` (auth time); `exp_cap` (epoch seconds)
+    limits the expiry (AD sessions end at `at + 12 h`)."""
     now = int(time.time())
+    exp = now + TOKEN_TTL_S
+    if exp_cap is not None:
+        exp = max(now + 1, min(exp, int(exp_cap)))
     claims = {
         "sub": str(user_id),
         "role": role,
         "tv": token_version,
         "iat": now,
-        "exp": now + TOKEN_TTL_S,
+        "exp": exp,
+        "src": src,
+        "at": int(at if at is not None else now),
     }
     return jwt.encode(claims, secret, algorithm="HS256")
+
+
+def session_token(
+    rt: Any, user: Any, *, at: float | None = None, clock_now: float | None = None
+) -> str:
+    """Session JWT for `user`. AD users: `at` = auth time (default: now on the app clock);
+    the cookie expires at the latest at `at + 12 h` (real time, shifted like the app clock)."""
+    if (getattr(user, "source", "local") or "local") != "ldap":
+        return make_token(rt.secret_key, user.id, user.role, user.token_version, at=at)
+    clock_now = clock_now if clock_now is not None else rt.clock.now().timestamp()
+    at = at if at is not None else clock_now
+    remaining = at + LDAP_SESSION_MAX_S - clock_now
+    return make_token(
+        rt.secret_key,
+        user.id,
+        user.role,
+        user.token_version,
+        src="ldap",
+        at=at,
+        exp_cap=time.time() + max(1.0, remaining),
+    )
 
 
 def decode_token(secret: str, token: str) -> dict[str, Any] | None:

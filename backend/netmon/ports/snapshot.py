@@ -17,11 +17,13 @@ from netmon.ports.collect import (
     FdbEntry,
     PortWalks,
     bridge_map,
+    lag_sources,
     mac_text,
     map_pse_ports,
     parse_fdb_dot1d,
     parse_fdb_q,
     port_kind,
+    resolve_lag,
     to_int,
     to_text,
     vlan_sets,
@@ -29,7 +31,7 @@ from netmon.ports.collect import (
 
 WRAP32 = 2**32
 PORT_SOURCES = ("if_xtable", "duplex", "bridge", "vlans", "fdb", "poe")
-ALL_SOURCES = (*PORT_SOURCES, "arp")
+ALL_SOURCES = (*PORT_SOURCES, "arp", "lag")  # [2b-3] lag
 POE_KEYS = ("poe_admin_enabled", "poe_detection", "poe_class", "poe_power_w")
 VLAN_KEYS = ("pvid", "mode", "untagged_vlans", "tagged_vlans")
 
@@ -42,7 +44,12 @@ class Snapshot:
 
 
 def skipped_sources() -> dict[str, Any]:
-    return {**{k: "skipped" for k in ALL_SOURCES}, "fdb_mib": None, "vlan_mib": None}
+    return {
+        **{k: "skipped" for k in ALL_SOURCES},
+        "fdb_mib": None,
+        "vlan_mib": None,
+        "lag_mib": None,
+    }
 
 
 def rate(cur: int | None, prev: int | None, bits: int | None, dt: float) -> float | None:
@@ -228,6 +235,21 @@ def build_snapshot(
             r["mac_count"] = int((prev_rows.get(r["if_index"]) or {}).get("mac_count") or 0)
         else:
             r["mac_count"] = counts.get(r["if_index"], 0)
+    # [2b-3] LAG membership: resolved while the feature is ON (walks read), else the previous
+    # snapshot's values are kept (stored columns untouched)
+    if walks.lacp is not None or walks.stack is not None:
+        resolved = resolve_lag(rows, walks.lacp, walks.stack)
+        for r in rows:
+            lag = resolved.get(r["if_index"])
+            r["lag_if_index"], r["lag_attached"] = lag if lag is not None else (None, None)
+        src["lag"], src["lag_mib"] = lag_sources(resolved, walks.lacp, walks.stack)
+    else:
+        for r in rows:
+            prev = prev_rows.get(r["if_index"]) or {}
+            r["lag_if_index"] = prev.get("lag_if_index")
+            r["lag_attached"] = prev.get("lag_attached")
+        if "lag" not in src:
+            src["lag"], src["lag_mib"] = "skipped", None
     for k in ALL_SOURCES:
         src.setdefault(k, "skipped")
     src.setdefault("fdb_mib", None)

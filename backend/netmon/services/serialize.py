@@ -45,6 +45,10 @@ def user_out(u: Any) -> dict[str, Any]:
         "is_active": u.is_active,
         "last_login_at": iso(u.last_login_at),
         "created_at": iso(u.created_at),
+        # [2b-3]
+        "source": getattr(u, "source", None) or "local",
+        "display_name": getattr(u, "display_name", None),
+        "ldap_synced_at": iso(getattr(u, "ldap_synced_at", None)),
     }
 
 
@@ -115,8 +119,27 @@ def device_out(d: Any, inv: Inventory, maint: Any = None) -> dict[str, Any]:
         "maintenance": maint.maintenance_ref(d.id) if in_maint else None,
         "identity": d.identity,
         **inventory_flags_out(d, inv),
+        **source_addresses_out(d, inv),
         "created_at": iso(d.created_at),
         "updated_at": iso(d.updated_at),
+    }
+
+
+def source_addresses_out(d: Any, inv: Inventory) -> dict[str, Any]:
+    """[2b-3] additional sender addresses, conflicts with other devices, deleted event
+    sensors."""
+    addrs = [str(a) for a in (getattr(d, "source_addresses", None) or [])]
+    conflicts = []
+    for addr in addrs:
+        for oid, o in sorted(inv.devices.items()):
+            if oid == d.id:
+                continue
+            if addr in (o.get("source_addresses") or []) or str(o.get("host") or "") == addr:
+                conflicts.append({"address": addr, "device_id": oid, "device_name": o["name"]})
+    return {
+        "source_addresses": addrs,
+        "source_address_conflicts": conflicts,
+        "event_sensor_optout": list(getattr(d, "event_sensor_optout", None) or []),
     }
 
 
@@ -236,6 +259,10 @@ def public_channel_config(type_: str, config: dict[str, Any]) -> dict[str, Any]:
             "parse_mode": config.get("parse_mode", "HTML"),
             "disable_notification": bool(config.get("disable_notification", False)),
         }
+    if type_ == "teams":  # [2b-3] the Workflows URL is signed: write-only
+        from netmon.alerts.teams import config_out
+
+        return config_out(config)
     return dict(config)
 
 

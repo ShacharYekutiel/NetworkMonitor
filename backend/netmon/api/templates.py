@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from fastapi import APIRouter
 
-from netmon.api.deps import DB, RT, Admin, Viewer
+from netmon.api.deps import DB, RT, Admin, Audit, Viewer
 from netmon.api.errors import not_found, validation_error
 from netmon.models import Device
 from netmon.schemas import ApplyTemplateRequest
@@ -40,7 +40,7 @@ async def device_template(template_id: str, _: Viewer) -> dict:
 
 @router.post("/api/devices/{device_id}/apply-template")
 async def apply_device_template(
-    device_id: int, body: ApplyTemplateRequest, user: Admin, rt: RT, session: DB
+    device_id: int, body: ApplyTemplateRequest, user: Admin, rt: RT, session: DB, ctx: Audit
 ) -> dict:
     if await session.get(Device, device_id) is None:
         raise not_found("Device")
@@ -49,4 +49,4 @@ async def apply_device_template(
         raise validation_error(["body", "template_id"], "unknown template")
     lang = user.language
     await session.close()
-    return await apply_template(rt, device_id, template, lang)
+    return await apply_template(rt, device_id, template, lang, audit_ctx=ctx)

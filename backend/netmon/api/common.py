@@ -75,6 +75,23 @@ async def commit_or_conflict(session: AsyncSession, field: str = "name") -> None
         raise
 
 
+async def flush_or_conflict(session: AsyncSession, field: str = "name") -> None:
+    """[2b-3] Flush (the new row gets its id for the audit record) with commit_or_conflict's
+    error mapping; the transaction is rolled back on a conflict."""
+    try:
+        await session.flush()
+    except IntegrityError as exc:
+        await session.rollback()
+        msg = str(exc.orig) if exc.orig else str(exc)
+        if "unique" in msg.lower() or "duplicate" in msg.lower():
+            raise ApiError(
+                409, "conflict", f"An item with this {field} already exists", [{"field": field}]
+            ) from exc
+        if "foreign key" in msg.lower():
+            raise ApiError(422, "validation_error", "Referenced item does not exist") from exc
+        raise
+
+
 def csv_list(value: str | None) -> list[str] | None:
     if value is None or value == "":
         return None

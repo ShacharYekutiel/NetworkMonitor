@@ -283,7 +283,8 @@ def _sensor_entry(e: dict[str, Any], path: str) -> dict[str, Any]:
 
     _keys(e, path, SENSOR_KEYS, ("kind", "type", "name"))
     type_ = e["type"]
-    if not isinstance(type_, str) or type_ not in SENSOR_TYPES:
+    if not isinstance(type_, str) or type_ not in SENSOR_TYPES or SENSOR_TYPES[type_].passive:
+        # [2b-3] passive event sensors are never created by templates
         raise TemplateError(_join(path, "type"), f"unknown sensor type: {type_}")
     name = _l10n(e["name"], _join(path, "name"), 1, 128)
     config = _mapping(e.get("config", {}), _join(path, "config"))

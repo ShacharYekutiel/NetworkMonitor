@@ -34,6 +34,8 @@ dependencies = [
     "tzdata>=2024.1",
     # [2b-2] template library files (yaml.safe_load only)
     "PyYAML>=6.0.1",
+    # [2b-3] Active Directory login (pure Python, LGPL-3.0, used unmodified as a library)
+    "ldap3>=2.9.1",
 ]
 
 [project.optional-dependencies]

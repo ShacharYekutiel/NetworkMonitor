@@ -5,18 +5,38 @@ from __future__ import annotations
 from fastapi import APIRouter, Query, Response
 from sqlalchemy import func, select
 
-from netmon.api.common import commit_or_conflict, merge_snmp
-from netmon.api.deps import DB, RT, Admin, Page, Viewer
+from netmon.api.common import commit_or_conflict, flush_or_conflict, merge_snmp
+from netmon.api.deps import DB, RT, Admin, Audit, Page, Viewer
 from netmon.api.errors import ApiError, conflict, not_found, validation_error
 from netmon.models import Group, Sensor
 from netmon.poller.sensor_types import SENSOR_TYPES
 from netmon.schemas import GroupCreate, GroupPatch
+from netmon.services import audit
 from netmon.services import dependencies as deps
 from netmon.services.retention import delete_sensor_measurements
 from netmon.services.serialize import group_out, iso, page
 from netmon.services.status import load_inventory
 
 router = APIRouter()
+
+GROUP_AUDIT_FIELDS = (
+    "name",
+    "parent_id",
+    "description",
+    "sort_order",
+    "snmp_credentials",
+    "dependency_mode",
+    "dependency_device_id",
+    "dependency_sensor_id",
+)
+
+
+def _values(g: Group) -> dict:
+    return {k: getattr(g, k) for k in GROUP_AUDIT_FIELDS if hasattr(g, k)}
+
+
+def _entity(g: Group) -> audit.Entity:
+    return audit.entity("group", g.id, g.name)
 
 
 async def _check_unique(session: DB, parent_id: int | None, name: str, exclude: int | None) -> None:
@@ -60,7 +80,7 @@ async def list_groups(
 
 
 @router.post("/api/groups", status_code=201)
-async def create_group(body: GroupCreate, _: Admin, rt: RT, session: DB) -> dict:
+async def create_group(body: GroupCreate, _: Admin, rt: RT, session: DB, ctx: Audit) -> dict:
     if body.parent_id is not None and await session.get(Group, body.parent_id) is None:
         raise validation_error(["body", "parent_id"], "parent group does not exist")
     await _check_unique(session, body.parent_id, body.name, None)
@@ -77,6 +97,8 @@ async def create_group(body: GroupCreate, _: Admin, rt: RT, session: DB) -> dict
     deps.apply_dependency(g, dep)
     session.add(g)
     await deps.check_no_cycle(session)
+    await flush_or_conflict(session)
+    await audit.record(session, ctx, "group.create", _entity(g), audit.created(_values(g)))
     await commit_or_conflict(session)
     await session.refresh(g)
     rt.config_changed("group", g.id, "created")
@@ -92,10 +114,13 @@ async def get_group(group_id: int, _: Viewer, session: DB) -> dict:
 
 
 @router.patch("/api/groups/{group_id}")
-async def patch_group(group_id: int, body: GroupPatch, _: Admin, rt: RT, session: DB) -> dict:
+async def patch_group(
+    group_id: int, body: GroupPatch, _: Admin, rt: RT, session: DB, ctx: Audit
+) -> dict:
     g = await session.get(Group, group_id)
     if g is None:
         raise not_found("Group")
+    before = _values(g)
     fields = body.model_fields_set
     new_parent = body.parent_id if "parent_id" in fields else g.parent_id
     new_name = body.name.strip() if "name" in fields and body.name else g.name
@@ -127,6 +152,9 @@ async def patch_group(group_id: int, body: GroupPatch, _: Admin, rt: RT, session
         check_cycle = True
     if check_cycle:
         await deps.check_no_cycle(session)
+    changes = audit.diff(before, _values(g))
+    if changes:
+        await audit.record(session, ctx, "group.update", _entity(g), changes)
     await commit_or_conflict(session)
     await session.refresh(g)
     rt.config_changed("group", g.id, "updated")
@@ -134,10 +162,11 @@ async def patch_group(group_id: int, body: GroupPatch, _: Admin, rt: RT, session
 
 
 @router.delete("/api/groups/{group_id}", status_code=204)
-async def delete_group(group_id: int, _: Admin, rt: RT, session: DB) -> Response:
+async def delete_group(group_id: int, _: Admin, rt: RT, session: DB, ctx: Audit) -> Response:
     g = await session.get(Group, group_id)
     if g is None:
         raise not_found("Group")
+    await audit.record(session, ctx, "group.delete", _entity(g), audit.deleted(_values(g)))
     inv = await load_inventory(session)
     gids = set(inv.descendants(group_id))
     sensor_ids = [

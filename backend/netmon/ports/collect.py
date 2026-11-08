@@ -437,6 +437,10 @@ class PortWalks:
     arp: list[ArpEntry] = field(default_factory=list)
     sources: dict[str, Any] = field(default_factory=dict)
     error: str | None = None  # the ifTable read failed (run failed)
+    # [2b-3] LAG membership (walks #13 / #14, only while the `lag` feature is ON); None = not
+    # read (feature OFF) or failed
+    lacp: dict[int, int] | None = None  # member ifIndex -> aggregator ifIndex (0 = none)
+    stack: dict[tuple[int, int], int] | None = None  # (higher, lower) -> ifStackStatus
 
 
 Walker = Callable[[str, int], Awaitable[dict[str, Any]]]
@@ -612,3 +616,89 @@ async def collect_arp(walk: Walker, walks: PortWalks) -> None:
         entries = parse_arp_media(media[0], media[1])
     walks.arp = entries
     walks.sources["arp"] = "ok" if entries else "empty"
+
+
+# ------------------------------------------------------------------ [2b-3] LAG membership
+DOT3AD_AGG_PORT_ATTACHED_AGG_ID = "1.2.840.10006.300.43.1.2.1.1.13"  # walk #13
+IF_STACK_STATUS = "1.3.6.1.2.1.31.1.2.1.3"  # walk #14
+
+
+def parse_lacp(col: dict[str, Any]) -> dict[int, int]:
+    """#13: member ifIndex -> aggregator ifIndex (0 = not attached); index 0 ignored."""
+    out: dict[int, int] = {}
+    for suffix, value in col.items():
+        arcs = _arcs(suffix)
+        v = to_int(value)
+        if arcs is None or len(arcs) != 1 or arcs[0] == 0 or v is None:
+            continue
+        out[arcs[0]] = v
+    return out
+
+
+def parse_if_stack(col: dict[str, Any]) -> dict[tuple[int, int], int]:
+    """#14: (higherLayer, lowerLayer) -> ifStackStatus."""
+    out: dict[tuple[int, int], int] = {}
+    for suffix, value in col.items():
+        arcs = _arcs(suffix)
+        v = to_int(value)
+        if arcs is None or len(arcs) != 2 or v is None:
+            continue
+        out[(arcs[0], arcs[1])] = v
+    return out
+
+
+def resolve_lag(
+    ports: list[dict[str, Any]],
+    lacp_rows: dict[int, int] | None,
+    stack_rows: dict[tuple[int, int], int] | None,
+) -> dict[int, tuple[int, bool | None]]:
+    """Pure: {member_if_index: (lag_if_index, attached)} for the physical ports (architecture
+    section 12.6). Rows with index 0, non-physical members or non-`lag` aggregators are
+    ignored."""
+    lacp = lacp_rows or {}
+    stack = stack_rows or {}
+    lags = {int(p["if_index"]) for p in ports if p.get("kind") == "lag"}
+    out: dict[int, tuple[int, bool | None]] = {}
+    for p in ports:
+        if p.get("kind") != "physical":
+            continue
+        idx = int(p["if_index"])
+        v = lacp.get(idx)
+        if v is not None and v != 0 and v in lags:
+            out[idx] = (v, True)
+            continue
+        highs = [h for (h, low), val in stack.items() if low == idx and val == 1 and h in lags]
+        if highs:
+            out[idx] = (min(highs), False if idx in lacp else None)
+    return out
+
+
+def lag_sources(
+    resolved: dict[int, tuple[int, bool | None]],
+    lacp_rows: dict[int, int] | None,
+    stack_rows: dict[tuple[int, int], int] | None,
+) -> tuple[str, str | None]:
+    """(`sources.lag`, `lag_mib`)."""
+    if lacp_rows is None and stack_rows is None:
+        return "error", None
+    if not resolved:
+        return "empty", None
+    via_lacp = any(att is True for _, att in resolved.values())
+    via_stack = any(att is not True for _, att in resolved.values())
+    if via_lacp and via_stack:
+        return "ok", "both"
+    return "ok", "ieee8023" if via_lacp else "if_stack"
+
+
+async def collect_lag(walk: Walker, walks: PortWalks) -> None:
+    """Walks #13 and #14 (cap TABLE_CAP each); a failing walk leaves its field None."""
+    try:
+        walks.lacp = parse_lacp(await walk(DOT3AD_AGG_PORT_ATTACHED_AGG_ID, TABLE_CAP))
+    except SnmpError:
+        walks.lacp = None
+    try:
+        walks.stack = parse_if_stack(await walk(IF_STACK_STATUS, TABLE_CAP))
+    except SnmpError:
+        walks.stack = None
+    if walks.lacp is None and walks.stack is None:
+        walks.sources["lag"], walks.sources["lag_mib"] = "error", None

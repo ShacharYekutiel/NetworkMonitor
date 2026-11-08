@@ -98,6 +98,20 @@ class Settings(BaseSettings):
     netmon_discovery_rate: int = Field(default=100, ge=1, le=1000, alias="NETMON_DISCOVERY_RATE")
     # [2b-1] QA only: enables PUT /api/test/clock. Never set by installers or compose.
     netmon_test_mode: bool = Field(default=False, alias="NETMON_TEST_MODE")
+    # [2b-3] trap / syslog listeners (0 disables that socket); set by installers / compose
+    netmon_trap_port: int = Field(default=162, ge=0, le=65535, alias="NETMON_TRAP_PORT")
+    netmon_syslog_port: int = Field(default=514, ge=0, le=65535, alias="NETMON_SYSLOG_PORT")
+    netmon_syslog_tcp_port: int | None = Field(
+        default=None, ge=0, le=65535, alias="NETMON_SYSLOG_TCP_PORT"
+    )
+    netmon_ingest_host: str = Field(default="0.0.0.0", alias="NETMON_INGEST_HOST")
+
+    @property
+    def syslog_tcp_port(self) -> int:
+        """NETMON_SYSLOG_TCP_PORT, default = NETMON_SYSLOG_PORT."""
+        if self.netmon_syslog_tcp_port is None:
+            return self.netmon_syslog_port
+        return self.netmon_syslog_tcp_port
 
     # resolved values (filled by load_settings)
     data_dir: Path = Field(default=Path("./data"), exclude=True)

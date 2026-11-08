@@ -677,6 +677,8 @@ class ScanRunner:
         for ch in channels:
             channel = {"id": ch.id, "name": ch.name, "type": ch.type, "config": dict(ch.config)}
             try:
+                if ch.type == "teams" and not _feature(self.rt, "teams"):
+                    raise RuntimeError("Teams notifications are turned off")  # [2b-3]
                 await sender(channel, payload, cfg["smtp"], cfg["default_language"])
             except Exception as exc:  # noqa: BLE001
                 log.warning("Discovery notification via %s failed: %s", ch.name, exc)
@@ -692,6 +694,11 @@ class ScanRunner:
         except Exception as exc:  # noqa: BLE001
             log.warning("Cannot write discovery event: %s", exc)
             return None
+
+
+def _feature(rt: Any, name: str) -> bool:
+    features = getattr(rt, "features", None)
+    return bool(features is not None and features.enabled(name))
 
 
 def _json(value: Any) -> str:

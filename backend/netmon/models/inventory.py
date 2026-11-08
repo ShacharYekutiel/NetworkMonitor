@@ -15,7 +15,7 @@ from sqlalchemy import (
     Text,
     func,
 )
-from sqlalchemy.dialects.postgresql import JSONB
+from sqlalchemy.dialects.postgresql import ARRAY, INET, JSONB
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from netmon.models.base import Base, TimestampMixin
@@ -67,6 +67,13 @@ class Device(TimestampMixin, Base):
     # [2b-2] auto | on | off
     port_inventory: Mapped[str] = mapped_column(Text, nullable=False, default="auto")
     arp_collect: Mapped[str] = mapped_column(Text, nullable=False, default="auto")
+    # [2b-3] additional sender addresses (traps/syslog attribution) and deleted event sensors
+    source_addresses: Mapped[list[Any]] = mapped_column(
+        ARRAY(INET), nullable=False, default=list, server_default="{}"
+    )
+    event_sensor_optout: Mapped[list[str]] = mapped_column(
+        ARRAY(Text), nullable=False, default=list, server_default="{}"
+    )
 
 
 class Sensor(TimestampMixin, Base):
