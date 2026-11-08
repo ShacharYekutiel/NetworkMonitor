@@ -27,8 +27,31 @@ import { LdapTab } from '../components/features/LdapSettings';
 import { SiemTab } from '../components/features/SiemSettings';
 import { FeatureSection } from '../components/features/common';
 import { TabBar } from '../components/TabBar';
+import {
+  BackupSettingsTab,
+  ChatAckSettingsTab,
+  FlowSettingsTab,
+  NewDeviceSettingsTab,
+  ReportSettingsTab,
+} from '../components/features/Phase3Settings';
+import { SsoTab } from '../components/features/SsoSettings';
+import { NocTab } from '../components/features/NocSettings';
 
-const SETTINGS_TABS = ['general', 'features', 'ingest', 'siem', 'ldap', 'audit'] as const;
+const SETTINGS_TABS = [
+  'general',
+  'features',
+  'ingest',
+  'siem',
+  'ldap',
+  'sso', // [3]
+  'backup',
+  'flows',
+  'newDevices',
+  'reports',
+  'noc',
+  'chatAck',
+  'audit',
+] as const;
 type SettingsTab = (typeof SETTINGS_TABS)[number];
 
 function SmtpCard({ settings }: { settings: Settings }) {
@@ -475,6 +498,13 @@ export function SettingsPage() {
       {q.data && tab === 'ingest' && <IngestTab settings={q.data} />}
       {q.data && tab === 'siem' && <SiemTab settings={q.data} />}
       {q.data && tab === 'ldap' && <LdapTab settings={q.data} />}
+      {q.data && tab === 'sso' && <SsoTab />}
+      {q.data && tab === 'backup' && <BackupSettingsTab settings={q.data} />}
+      {q.data && tab === 'flows' && <FlowSettingsTab settings={q.data} />}
+      {q.data && tab === 'newDevices' && <NewDeviceSettingsTab settings={q.data} />}
+      {q.data && tab === 'reports' && <ReportSettingsTab settings={q.data} />}
+      {q.data && tab === 'noc' && <NocTab />}
+      {q.data && tab === 'chatAck' && <ChatAckSettingsTab settings={q.data} />}
       {q.data && tab === 'audit' && (
         <FeatureSection feature="audit">
           <AuditRetentionCard settings={q.data} />

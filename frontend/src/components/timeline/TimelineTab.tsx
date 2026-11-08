@@ -195,7 +195,7 @@ export function TimelineTab({ deviceId }: { deviceId: number }) {
                   'flex items-start gap-3 border-b border-slate-100 px-3 py-1.5 dark:border-slate-800/70';
                 return (
                   <li key={`${it.kind}-${it.id}`}>
-                    {href && (isAdmin || it.kind !== 'audit') ? (
+                    {href && (isAdmin || (it.kind !== 'audit' && it.kind !== 'config')) ? (
                       <Link
                         to={href}
                         className={cx(cls, 'hover:bg-slate-50 dark:hover:bg-slate-800/50')}

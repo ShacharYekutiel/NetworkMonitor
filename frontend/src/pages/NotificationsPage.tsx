@@ -42,6 +42,7 @@ import {
 import { errorMessage } from '../lib/errors';
 import { headersToText, textToHeaders } from '../lib/sensorConfig';
 import { isTelegramChatId, isTelegramToken } from '../lib/telegram';
+import { ChatAckFields } from '../components/chatack/ChannelAckFields';
 import type { TeamsChannelConfig, TeamsChannelConfigInput } from '../api/types';
 import { isLegacyTeamsHost, teamsUrlError, urlHost } from '../lib/teams';
 import { useFeatures, FeatureOffNotice } from '../hooks/features';
@@ -117,6 +118,9 @@ function ChannelModal({
   const [touched, setTouched] = useState(false);
   const [testResult, setTestResult] = useState<TestResult | null>(null);
   const [teamsUrl, setTeamsUrl] = useState('');
+  // [3] chat acknowledge
+  const [ackButtons, setAckButtons] = useState(false);
+  const [ackLink, setAckLink] = useState(false);
   const { features } = useFeatures();
 
   useEffect(() => {
@@ -137,6 +141,10 @@ function ChannelModal({
     setParseMode(tc ? (tc.parse_mode ?? '') : 'HTML');
     setSilent(tc?.disable_notification ?? false);
     setTeamsUrl('');
+    // [3] defaults (data-model § Channel config additions): teams ack_link true, others false
+    const cfg = (channel?.config ?? {}) as { ack_buttons?: boolean; ack_link?: boolean };
+    setAckButtons(cfg.ack_buttons ?? false);
+    setAckLink(cfg.ack_link ?? (channel ? channel.type === 'teams' : false));
     setTouched(false);
     setTestResult(null);
     test.reset();
@@ -194,10 +202,12 @@ function ChannelModal({
       chat_id: chatId.trim(),
       parse_mode: parseMode || null,
       disable_notification: silent,
+      ack_buttons: ackButtons,
+      ack_link: ackLink,
     };
     // Write-only secret: omitted keeps the stored token on PATCH (api.md § telegram).
     if (botToken.trim()) telegram.bot_token = botToken.trim();
-    const teams: TeamsChannelConfigInput = {};
+    const teams: TeamsChannelConfigInput = { ack_link: ackLink };
     if (teamsUrl.trim()) teams.url = teamsUrl.trim();
     const config =
       type === 'teams'
@@ -210,6 +220,7 @@ function ChannelModal({
                   .split(/[\s,;]+/)
                   .map((x) => x.trim())
                   .filter(Boolean),
+                ack_link: ackLink,
               }
             : {
                 url: url.trim(),
@@ -238,7 +249,11 @@ function ChannelModal({
           <Select
             value={type}
             disabled={!!channel}
-            onChange={(e) => setType(e.target.value as NotificationType)}
+            onChange={(e) => {
+              const v = e.target.value as NotificationType;
+              setType(v);
+              setAckLink(v === 'teams');
+            }}
           >
             {NOTIFICATION_TYPES.filter(
               (nt) => nt !== 'teams' || features.teams || channel?.type === 'teams',
@@ -398,6 +413,16 @@ function ChannelModal({
               </div>
             </div>
           </>
+        )}
+        {type !== 'webhook' && (
+          <ChatAckFields
+            type={type}
+            channel={channel}
+            ackButtons={ackButtons}
+            ackLink={ackLink}
+            onAckButtons={setAckButtons}
+            onAckLink={setAckLink}
+          />
         )}
         <Checkbox label={t('common.enabled')} checked={enabled} onChange={setEnabled} />
         <ErrorBox error={m.error} />

@@ -1,4 +1,5 @@
 import { api, buildUrl } from './client';
+import type { BackupMode, SshCredentialsInput } from './types3';
 import type {
   ApiToken,
   AuditEntry,
@@ -138,6 +139,8 @@ export type GroupInput = {
   sort_order?: number;
   /** [2b-1] */
   dependency?: DependencyInput;
+  /** [3] null = inherit */
+  ssh_credentials?: SshCredentialsInput | null;
 };
 
 export type DeviceInput = {
@@ -156,6 +159,11 @@ export type DeviceInput = {
   arp_collect?: InventoryMode;
   /** [2b-3] */
   source_addresses?: string[];
+  /** [3] */
+  ssh_credentials?: SshCredentialsInput | null;
+  config_backup?: BackupMode;
+  config_backup_driver?: string | null;
+  newdev_excluded_ports?: number[];
 };
 
 export type SensorInput = {

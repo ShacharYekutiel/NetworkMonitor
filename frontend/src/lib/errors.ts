@@ -48,7 +48,10 @@ export function errorMessage(t: TFunction, e: unknown, ctx: ErrorContext = {}): 
         e.code === 'webhook_error' ||
         e.code === 'telegram_error' ||
         e.code === 'teams_error' || // [2b-3]
-        e.code === 'forward_error') &&
+        e.code === 'forward_error' ||
+        e.code === 'ssh_error' || // [3]
+        e.code === 'oidc_error' ||
+        e.code === 'sso_ntlm') &&
       e.message
     ) {
       return `${base}: ${e.message}`;

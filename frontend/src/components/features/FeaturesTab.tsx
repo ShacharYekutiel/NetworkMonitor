@@ -1,10 +1,13 @@
 import { useState } from 'react';
-import { useMutation, useQueryClient } from '@tanstack/react-query';
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useTranslation } from 'react-i18next';
 import { endpoints } from '../../api/endpoints';
 import type { EventRule, FeatureName, Settings, SettingsInput } from '../../api/types';
-import { FEATURE_NAMES } from '../../api/types';
+import { endpoints3, qk3 } from '../../api/endpoints3';
 import {
+  FEATURE_GROUPS,
+  PHASE3_FEATURES,
+  type StatusLine,
   featureHints,
   featuresFromSettings,
   featureSettingKey,
@@ -14,9 +17,118 @@ import { useToast } from '../toast';
 import { Button, Card, Checkbox, cx, ErrorBox, Modal } from '../ui';
 import { useSaveSettings, Toggle } from './common';
 import { useIngestStatus } from './IngestStatus';
+import {
+  backupStatusLines,
+  flowStatusLines,
+  kerberosStatusLines,
+  newDeviceStatusLines,
+  pollerStatusLines,
+} from '../../lib/features3';
+import { formatDateTime } from '../../lib/format';
+
+function Lines({ lines }: { lines: StatusLine[] }) {
+  const { t } = useTranslation();
+  return (
+    <>
+      {lines.map((l, i) => (
+        <p
+          key={i}
+          className={cx(
+            'text-xs',
+            l.tone === 'ok' && 'text-green-700 dark:text-green-400',
+            l.tone === 'error' && 'text-red-600 dark:text-red-400',
+            l.tone === 'muted' && 'text-slate-500',
+          )}
+        >
+          {t(l.key, l.params)}
+        </p>
+      ))}
+    </>
+  );
+}
+
+const fmtDate = (iso: string) =>
+  new Intl.DateTimeFormat(undefined, { dateStyle: 'short' }).format(new Date(iso));
+const fmtTime = (iso: string) => {
+  const d = new Date(iso);
+  const sameDay = new Date().toDateString() === d.toDateString();
+  return sameDay
+    ? new Intl.DateTimeFormat(undefined, { timeStyle: 'short' }).format(d)
+    : formatDateTime(iso);
+};
+
+/** [3] Status lines of a phase-3 feature, from its own status endpoint (only while ON). */
+function Phase3Lines({ name, on }: { name: FeatureName; on: boolean }) {
+  const { t } = useTranslation();
+  const flows = useQuery({
+    queryKey: qk3.flowStatus,
+    queryFn: endpoints3.flowStatus,
+    enabled: on && name === 'flows',
+    refetchInterval: 15_000,
+  });
+  const backup = useQuery({
+    queryKey: qk3.backupRunner,
+    queryFn: endpoints3.backupRunner,
+    enabled: on && name === 'config_backup',
+    refetchInterval: 30_000,
+  });
+  const newdev = useQuery({
+    queryKey: qk3.newDeviceStatus,
+    queryFn: endpoints3.newDeviceStatus,
+    enabled: on && name === 'new_device_alerts',
+  });
+  const krb = useQuery({
+    queryKey: qk3.kerberos,
+    queryFn: endpoints3.kerberos,
+    enabled: on && name === 'sso_kerberos',
+  });
+  const poll = useQuery({
+    queryKey: qk3.telegramStatus,
+    queryFn: endpoints3.telegramStatus,
+    enabled: on && name === 'chat_ack',
+    refetchInterval: 30_000,
+  });
+  if (!on) return null;
+  let lines: StatusLine[];
+  switch (name) {
+    case 'flows':
+      lines = flowStatusLines(flows.data);
+      break;
+    case 'config_backup':
+      lines = backupStatusLines(backup.data, fmtTime);
+      break;
+    case 'new_device_alerts':
+      lines = newDeviceStatusLines(newdev.data, fmtDate);
+      break;
+    case 'sso_kerberos':
+      lines = kerberosStatusLines(krb.data);
+      break;
+    case 'chat_ack':
+      lines = pollerStatusLines(poll.data?.pollers);
+      break;
+    default:
+      lines = [{ key: 'features.status.on', tone: 'ok' }];
+  }
+  const err = flows.error ?? backup.error ?? newdev.error ?? krb.error ?? poll.error;
+  return (
+    <>
+      <Lines lines={lines} />
+      {!!err && <p className="text-xs text-slate-500">{t('features.status.unknown')}</p>}
+    </>
+  );
+}
 
 /** Dialog after turning Event alerts on: enable the (seeded, disabled) built-in rules in one click. */
-function BuiltinRulesDialog({ rules, onClose }: { rules: EventRule[]; onClose: () => void }) {
+function BuiltinRulesDialog({
+  rules,
+  onClose,
+  backup,
+}: {
+  rules: EventRule[];
+  onClose: () => void;
+  /** [3] the config-change trigger rules (feature config_backup) */
+  backup?: boolean;
+}) {
   const { t } = useTranslation();
   const qc = useQueryClient();
   const toast = useToast();
@@ -35,7 +147,7 @@ function BuiltinRulesDialog({ rules, onClose }: { rules: EventRule[]; onClose: (
     <Modal
       open={rules.length > 0}
       onClose={onClose}
-      title={t('features.builtinTitle')}
+      title={backup ? t('features.backupBuiltinTitle') : t('features.builtinTitle')}
       footer={
         <>
           <Button onClick={onClose}>{t('features.builtinLater')}</Button>
@@ -51,7 +163,9 @@ function BuiltinRulesDialog({ rules, onClose }: { rules: EventRule[]; onClose: (
       }
     >
       <div className="space-y-3" data-testid="builtin-rules-dialog">
-        <p className="text-sm">{t('features.builtinText')}</p>
+        <p className="text-sm">
+          {backup ? t('features.backupBuiltinText') : t('features.builtinText')}
+        </p>
         <div className="flex flex-col gap-1.5">
           {rules.map((r) => (
             <Checkbox
@@ -109,19 +223,11 @@ function FeatureRow({
           </span>
         </div>
         <p className="text-sm text-slate-600 dark:text-slate-300">{t(`features.desc.${name}`)}</p>
-        {lines.map((l, i) => (
-          <p
-            key={i}
-            className={cx(
-              'text-xs',
-              l.tone === 'ok' && 'text-green-700 dark:text-green-400',
-              l.tone === 'error' && 'text-red-600 dark:text-red-400',
-              l.tone === 'muted' && 'text-slate-500',
-            )}
-          >
-            {t(l.key, l.params)}
-          </p>
-        ))}
+        {PHASE3_FEATURES.includes(name) ? (
+          <Phase3Lines name={name} on={f[name]} />
+        ) : (
+          <Lines lines={lines} />
+        )}
         {hints.map((h) => (
           <p
             key={h.key}
@@ -145,6 +251,7 @@ export function FeaturesTab({ settings }: { settings: Settings }) {
   const [pending, setPending] = useState<FeatureName | null>(null);
   const [errors, setErrors] = useState<Partial<Record<FeatureName, unknown>>>({});
   const [builtins, setBuiltins] = useState<EventRule[]>([]);
+  const [backupRules, setBackupRules] = useState<EventRule[]>([]);
   const save = useSaveSettings({ toast: false });
   const toggle = (name: FeatureName, v: boolean) => {
     setPending(name);
@@ -154,8 +261,22 @@ export function FeaturesTab({ settings }: { settings: Settings }) {
         if (name === 'event_alerts' && v && (s.feature_traps_enabled || s.feature_syslog_enabled)) {
           try {
             const r = await endpoints.eventRules();
-            const b = r.items.filter((x) => x.builtin);
+            const b = r.items.filter((x) => x.builtin && x.action !== 'config_backup');
             if (b.length && b.every((x) => !x.enabled)) setBuiltins(b);
+          } catch {
+            /* the dialog is a convenience */
+          }
+        }
+        // [3] "Enable the built-in config-change triggers?" (seeded disabled)
+        if (
+          name === 'config_backup' &&
+          v &&
+          (s.feature_traps_enabled || s.feature_syslog_enabled)
+        ) {
+          try {
+            const r = await endpoints.eventRules();
+            const b = r.items.filter((x) => x.builtin && x.action === 'config_backup');
+            if (b.length && b.every((x) => !x.enabled)) setBackupRules(b);
           } catch {
             /* the dialog is a convenience */
           }
@@ -170,19 +291,32 @@ export function FeaturesTab({ settings }: { settings: Settings }) {
       <p className="border-b border-slate-200 px-4 py-2 text-xs text-slate-500 dark:border-slate-800">
         {t('features.intro')}
       </p>
-      <ul className="divide-y divide-slate-100 dark:divide-slate-800" data-testid="features-list">
-        {FEATURE_NAMES.map((n) => (
-          <FeatureRow
-            key={n}
-            name={n}
-            settings={settings}
-            onToggle={toggle}
-            busy={pending === n}
-            error={errors[n]}
-          />
+      <div data-testid="features-list">
+        {FEATURE_GROUPS.map((g) => (
+          <section key={g.key} aria-labelledby={`fg-${g.key}`}>
+            <h3
+              id={`fg-${g.key}`}
+              className="border-b border-slate-200 bg-slate-50 px-4 py-1.5 text-xs font-semibold uppercase tracking-wide text-slate-500 dark:border-slate-800 dark:bg-slate-800/40"
+            >
+              {t(`features.group.${g.key}`)}
+            </h3>
+            <ul className="divide-y divide-slate-100 dark:divide-slate-800">
+              {g.names.map((n) => (
+                <FeatureRow
+                  key={n}
+                  name={n}
+                  settings={settings}
+                  onToggle={toggle}
+                  busy={pending === n}
+                  error={errors[n]}
+                />
+              ))}
+            </ul>
+          </section>
         ))}
-      </ul>
+      </div>
       <BuiltinRulesDialog rules={builtins} onClose={() => setBuiltins([])} />
+      <BuiltinRulesDialog rules={backupRules} onClose={() => setBackupRules([])} backup />
     </Card>
   );
 }

@@ -28,7 +28,8 @@
     "selectAll": "בחירת הכול",
     "language": "שפה",
     "none": "אין",
-    "refresh": "רענון"
+    "refresh": "רענון",
+    "device": "התקן"
   },
   "status": {
     "up": "תקין",
@@ -72,7 +73,11 @@
     "find": "חיפוש",
     "logs": "יומנים",
     "audit": "יומן ביקורת",
-    "tokens": "אסימוני API"
+    "tokens": "אסימוני API",
+    "flows": "תעבורה",
+    "newDevices": "התקנים חדשים",
+    "backups": "גיבויי תצורה",
+    "reports": "דוחות"
   },
   "tree": {
     "search": "חיפוש קבוצות, התקנים וחיישנים",
@@ -168,7 +173,8 @@
       "ports": "פורטים",
       "sensors": "חיישנים",
       "logs": "יומנים",
-      "timeline": "ציר זמן"
+      "timeline": "ציר זמן",
+      "config": "תצורה"
     },
     "sourceAddresses": "כתובות מקור נוספות",
     "sourceAddressesHint": "כתובות IP נוספות שמהן ההתקן שולח מלכודות/Syslog (אחת בכל שורה, עד 16).",
@@ -306,7 +312,9 @@
     "acknowledge": "אישור",
     "maintenance": "תחזוקה",
     "notification_sent": "התראה נשלחה",
-    "port_change": "שינוי פורט"
+    "port_change": "שינוי פורט",
+    "config_change": "שינוי תצורה",
+    "new_device": "התקן חדש"
   },
   "pagination": {
     "range": "{{from}}–{{to}} מתוך {{total}}",
@@ -409,7 +417,14 @@
       "ingest": "מלכודות ו-Syslog",
       "siem": "העברה ל-SIEM",
       "ldap": "Active Directory",
-      "audit": "ביקורת"
+      "audit": "ביקורת",
+      "sso": "כניסה אחודה",
+      "backup": "גיבויי תצורה",
+      "flows": "תעבורה",
+      "newDevices": "התקנים חדשים",
+      "reports": "דוחות",
+      "noc": "מסכי NOC",
+      "chatAck": "אישור מהצ'אט"
     }
   },
   "users": {
@@ -439,7 +454,8 @@
     "newPassword": "סיסמה חדשה",
     "confirmPassword": "אימות הסיסמה החדשה",
     "passwordChanged": "הסיסמה שונתה.",
-    "ldapManaged": "החשבון שלך מנוהל ב-Active Directory. את הסיסמה והדוא\"ל משנים שם."
+    "ldapManaged": "החשבון שלך מנוהל ב-Active Directory. את הסיסמה והדוא\"ל משנים שם.",
+    "oidcManaged": "החשבון הזה נכנס עם Microsoft Entra ID, והסיסמה שלו מנוהלת שם."
   },
   "validation": {
     "required": "שדה חובה.",
@@ -508,7 +524,25 @@
     "directory_unavailable": "הספרייה (Active Directory) אינה זמינה. נסו שוב מאוחר יותר או היכנסו עם חשבון מקומי.",
     "invalid_cursor": "המיקום ברשימה כבר אינו תקף; טענו את הרשימה מחדש.",
     "teams_error": "Microsoft Teams דחה את ההודעה",
-    "forward_error": "השליחה ל-SIEM נכשלה"
+    "forward_error": "השליחה ל-SIEM נכשלה",
+    "backup_running": "גיבוי של ההתקן הזה כבר רץ.",
+    "host_key_mismatch": "המפתח של ההתקן השתנה שוב מאז שהוצג. טענו מחדש ובדקו את טביעת האצבע החדשה.",
+    "no_host_key_change": "המפתח של ההתקן לא השתנה; אין מה לאשר.",
+    "invalid_private_key": "לא ניתן לקרוא את המפתח הפרטי (תבנית או ססמת מפתח שגויה).",
+    "ssh_error": "בדיקת SSH נכשלה",
+    "invalid_keytab": "לא ניתן לקרוא את קובץ ה-keytab, או שהגרסה שלו אינה נתמכת.",
+    "sso_failed": "הכניסה האחודה נכשלה.",
+    "sso_ntlm": "הדפדפן הציע NTLM במקום Kerberos",
+    "sso_conflict": "חשבון Microsoft הזה מתנגש במשתמש מקומי או משתמש AD באותו שם.",
+    "sso_challenge": "הדפדפן לא שלח כרטיס כניסה של Windows.",
+    "oidc_error": "אין גישה ל-Microsoft Entra ID",
+    "report_running": "הדוח הזה כבר רץ.",
+    "ack_expired": "פג תוקף הקישור.",
+    "ack_invalid": "הקישור אינו תקין.",
+    "ack_stale": "התקלה הזו כבר אינה פעילה.",
+    "not_in_group": "לחשבון שלך אין תפקיד ב-NetworkMonitor.",
+    "oidc_group_overage": "החשבון שלך חבר ביותר מדי קבוצות ו-Entra ID לא שולח אותן; השתמשו בתפקידי אפליקציה.",
+    "inactive": "החשבון הזה מושבת."
   },
   "sensorType": {
     "ping": "Ping",
@@ -524,7 +558,9 @@
     "snmp_walk_count": "ספירת שורות SNMP",
     "trap": "מלכודות SNMP",
     "syslog": "Syslog",
-    "port_flap": "ריצוד פורטים"
+    "port_flap": "ריצוד פורטים",
+    "config_backup": "גיבוי תצורה",
+    "new_mac": "התקנים חדשים"
   },
   "channel": {
     "latency_ms": "זמן תגובה",
@@ -1487,7 +1523,8 @@
   "user": {
     "source": {
       "local": "מקומי",
-      "ldap": "AD"
+      "ldap": "AD",
+      "oidc": "Entra ID"
     }
   },
   "features": {
@@ -1509,7 +1546,15 @@
       "teams": "Microsoft Teams",
       "flapping": "זיהוי ריצוד פורטים",
       "siem_forwarding": "העברה ל-SIEM",
-      "api_tokens": "אסימוני API"
+      "api_tokens": "אסימוני API",
+      "config_backup": "גיבוי תצורה",
+      "flows": "ניתוח תעבורה (NetFlow/sFlow)",
+      "new_device_alerts": "התראה על התקן חדש",
+      "sso_kerberos": "כניסה עם Windows ‏(Kerberos)",
+      "sso_oidc": "כניסה עם Microsoft ‏(Entra ID)",
+      "reports": "דוחות מתוזמנים",
+      "noc": "מסכי קיר NOC",
+      "chat_ack": "אישור טיפול מ-Telegram/Teams"
     },
     "desc": {
       "traps": "קבלת מלכודות SNMP ‏(v1/v2c/v3) מהתקנים, שמירה וחיפוש.",
@@ -1522,7 +1567,15 @@
       "teams": "שליחת התראות לערוץ Microsoft Teams ‏(Workflows webhook).",
       "flapping": "זיהוי פורטים שעולים ונופלים שוב ושוב ועיכוב התראות הקישור שלהם.",
       "siem_forwarding": "העברת מלכודות ו-Syslog שהתקבלו ל-SIEM ‏(RFC 5424 על UDP,‏ TCP או TLS).",
-      "api_tokens": "אסימונים אישיים לסקריפטים ולשילובים (Authorization: Bearer)."
+      "api_tokens": "אסימונים אישיים לסקריפטים ולשילובים (Authorization: Bearer).",
+      "config_backup": "איסוף תצורות של מתגים ונתבים ב-SSH (קריאה בלבד), שמירת גרסאות, הצגת הבדלים והתראה על שינויים.",
+      "flows": "קבלת NetFlow v5/v9,‏ IPFIX ו-sFlow והצגת המשתמשים, האפליקציות והממשקים העמוסים ביותר.",
+      "new_device_alerts": "התראה כשהתקן שלא נראה מעולם (כתובת MAC) מופיע בפורט גישה.",
+      "sso_kerberos": "מחשבים בתחום נכנסים אוטומטית עם חשבון Windows שלהם.",
+      "sso_oidc": "כפתור \"כניסה עם Microsoft\" ‏(Entra ID, כולל אימות רב-שלבי).",
+      "reports": "דוחות שבועיים או חודשיים בדוא\"ל או בערוץ: זמינות, התראות, פורטים ושינויים.",
+      "noc": "דפי מצב במסך מלא למסכי קיר, נפתחים בקישור סודי ורק מכתובות מורשות.",
+      "chat_ack": "כפתור \"אישור טיפול\" ב-Telegram, וקישור בהודעות Teams ודוא\"ל."
     },
     "hint": {
       "needsIngest": "נדרשות מלכודות SNMP או Syslog פעילות כדי לקבל משהו.",
@@ -1530,7 +1583,17 @@
       "flappingTraps": "משתמש במלכודות linkUp/linkDown כשמלכודות SNMP פעילות, וגם בחיישני ממשק ובמלאי הפורטים.",
       "ldapConfig": "השלימו קודם את הגדרות Active Directory (חשבון שירות, סיסמה, שרתים או תחום, קבוצה).",
       "timelineSources": "מלכודות, Syslog ורשומות ביקורת מופיעות כשהתכונות האלה פעילות.",
-      "lagPorts": "משתמש במלאי הפורטים (התקנים שהפורטים שלהם מופעלים)."
+      "lagPorts": "משתמש במלאי הפורטים (התקנים שהפורטים שלהם מופעלים).",
+      "sshCredentials": "נדרשים פרטי SSH בהתקנים או בקבוצות שלהם.",
+      "backupSyslog": "גיבוי בעקבות הודעת שינוי תצורה דורש Syslog פעיל.",
+      "flowExporters": "הגדירו במתגים ובנתבים ייצוא תעבורה לשרת הזה (UDP 2055,‏ 4739 או 6343).",
+      "newdevFdb": "משתמש במלאי הפורטים (טבלאות MAC) של המתגים.",
+      "kerberosLdap": "נדרשת כניסה עם Active Directory פעילה ומוגדרת (התפקידים נקבעים לפי קבוצות AD).",
+      "keytab": "נדרש קובץ keytab שהועלה בהגדרות ← כניסה אחודה.",
+      "oidcSetup": "נדרשים רישום אפליקציה ב-Entra ID וגישת HTTPS יוצאת דרך ה-Proxy.",
+      "reportsDelivery": "שליחה מתוזמנת דורשת SMTP או ערוץ Teams/Telegram.",
+      "publicUrl": "הקישור ב-Teams ובדוא\"ל דורש את הכתובת הציבורית (הגדרות ← כללי).",
+      "telegramButtons": "כפתורים ב-Telegram דורשים ערוץ Telegram שבו מופעל כפתור \"אישור טיפול\"."
     },
     "status": {
       "on": "פעילה",
@@ -1539,13 +1602,36 @@
       "socketOff": "שקע {{proto}} מושבת בהגדרות השרת",
       "stopped": "{{proto}} {{port}}: לא מאזין",
       "forwardErrors": "שגיאות העברה ב-{{n}} יעדים",
-      "targets": "יעדים פעילים: {{n}}"
+      "targets": "יעדים פעילים: {{n}}",
+      "unknown": "המצב אינו זמין כרגע.",
+      "nextBackup": "הגיבוי הבא ב-{{time}} ‏({{n}} התקנים)",
+      "backupRunning": "רצים: {{running}}, בתור: {{queued}}",
+      "driverErrors": "קובצי מנהלי התקן עם שגיאות: {{n}}",
+      "learningUntil": "בלמידה עד {{date}}",
+      "watching": "במעקב: {{n}} מתגים · {{newCount}} חדשים שלא אושרו",
+      "keytab": "Kerberos: ‏keytab עם {{n}} ישויות",
+      "noKeytab": "Kerberos: לא הועלה keytab",
+      "kerberosUnsupported": "Kerberos אינו זמין בפלטפורמה של השרת",
+      "kerberosError": "שגיאת Kerberos: ‏{{error}}",
+      "noPoller": "אין ערוץ Telegram עם כפתור אישור טיפול",
+      "pollerOk": "קליטת Telegram ‏@{{bot}}: מחובר",
+      "pollerIdle": "קליטת Telegram ‏@{{bot}}: לא פעיל",
+      "pollerError": "קליטת Telegram ‏@{{bot}}: {{error}}"
     },
     "builtinTitle": "להפעיל את הכללים המובנים?",
     "builtinText": "NetworkMonitor כולל כללי אירועים מוכנים. הפעילו עכשיו את המסומנים — אין צורך בהגדרה נוספת.",
     "builtinEnable": "הפעלת המסומנים",
     "builtinLater": "לא עכשיו",
-    "builtinEnabled": "הכללים המובנים הופעלו."
+    "builtinEnabled": "הכללים המובנים הופעלו.",
+    "group": {
+      "monitoring": "ניטור",
+      "logs": "יומנים ואירועים",
+      "network": "רשת",
+      "access": "גישה",
+      "notifications": "התראות"
+    },
+    "backupBuiltinTitle": "להפעיל את הכללים המובנים לזיהוי שינוי תצורה?",
+    "backupBuiltinText": "הכללים האלה מפעילים גיבוי כשהתקן מדווח ב-Syslog על שינוי תצורה. הפעילו עכשיו את המסומנים."
   },
   "syslogSeverity": {
     "0": "חירום",
@@ -1755,12 +1841,14 @@
     "actions": {
       "warning": "אזהרה",
       "down": "נפל",
-      "ignore": "התעלמות (עצירה)"
+      "ignore": "התעלמות (עצירה)",
+      "config_backup": "גיבוי התצורה"
     },
     "actionHint": {
       "warning": "מעלה מצב אזהרה בחיישן האירועים של ההתקן.",
       "down": "מעלה מצב נפילה בחיישן האירועים של ההתקן.",
-      "ignore": "הודעות מתאימות נעצרות כאן; כללים מאוחרים יותר לא נבדקים."
+      "ignore": "הודעות מתאימות נעצרות כאן; כללים מאוחרים יותר לא נבדקים.",
+      "config_backup": "מוסיף את ההתקן לתור גיבוי התצורה (נדרש שגיבוי תצורה יהיה פעיל); לא מעלה התראה."
     },
     "keyVarbind": "משתנה מפתח",
     "keyVarbindHint": "מעקב נפרד לכל מופע (למשל ifIndex: פורט 5 ופורט 7).",
@@ -1816,7 +1904,13 @@
     "noExpiry": "ניקוי ידני",
     "key": "מפתח {{key}}",
     "ifIndex": "ifIndex {{key}}",
-    "transitions": "{{n}} שינויים"
+    "transitions": "{{n}} שינויים",
+    "source": {
+      "backup_failed": "הגיבוי נכשל",
+      "host_key": "מפתח SSH של ההתקן השתנה",
+      "config_changed": "התצורה השתנתה",
+      "new_mac": "התקן חדש"
+    }
   },
   "flapping": {
     "title": "ריצוד פורטים",
@@ -2103,7 +2197,15 @@
       "api_token": "אסימוני API",
       "settings": "הגדרות",
       "feature": "תכונות",
-      "ingest": "קליטה"
+      "ingest": "קליטה",
+      "config": "גיבוי תצורה",
+      "flows": "תעבורה",
+      "newdev": "התקנים חדשים",
+      "sso": "כניסה אחודה",
+      "report": "דוחות",
+      "kiosk_screen": "מסכי NOC",
+      "chatack": "אישור מהצ'אט",
+      "channel": "ערוצים"
     },
     "entityType": {
       "device": "התקן",
@@ -2131,7 +2233,9 @@
       "trap": "מלכודת",
       "syslog": "Syslog",
       "port": "פורט",
-      "audit": "שינוי"
+      "audit": "שינוי",
+      "config": "תצורה",
+      "new_mac": "התקנים חדשים"
     }
   },
   "tokens": {
@@ -2174,5 +2278,716 @@
     "urlHttps": "הכתובת חייבת להתחיל ב-https://",
     "urlInvalid": "כתובת לא תקינה.",
     "urlLong": "עד 2048 תווים."
+  },
+  "settings3": {
+    "range": "{{min}}–{{max}}",
+    "rangeZero": "0 (אף פעם) או {{min}}–{{max}}",
+    "timeErr": "בתבנית HH:MM",
+    "backupTitle": "גיבוי תצורה",
+    "config_backup_time": "שעת הגיבוי היומי",
+    "config_backup_timeHint": "שעון מקומי (אזור הזמן של השרת)",
+    "config_backup_window_min": "פיזור על פני (דקות)",
+    "config_backup_concurrency": "חיבורים במקביל",
+    "config_backup_timeout_s": "זמן קצוב לחיבור (שניות)",
+    "config_backup_max_versions": "מספר גרסאות מרבי להתקן",
+    "config_backup_min_versions": "גרסאות שנשמרות תמיד (מינימום)",
+    "config_backup_retention_days": "שמירת גרסאות (ימים)",
+    "config_backup_fail_threshold": "התראה אחרי ניסיונות כושלים",
+    "config_change_clear_min": "התראת שינוי נסגרת אחרי (דקות)",
+    "config_backup_mask_secrets": "הסתרת סיסמאות ומפתחות בתצורות השמורות",
+    "config_change_alert": "התראה כשתצורה משתנה",
+    "flowsTitle": "קליטת תעבורה",
+    "flow_max_records_per_s": "מספר רשומות מרבי בשנייה",
+    "flow_top_conversations": "שיחות שנשמרות בכל דקה",
+    "flow_top_hosts": "מארחים שנשמרים בכל דקה",
+    "flow_top_apps": "אפליקציות שנשמרות בכל דקה",
+    "flow_raw_retention_hours": "שמירת רשומות גולמיות (שעות)",
+    "flow_minute_retention_hours": "שמירת נתוני דקה (שעות)",
+    "flow_rollup_retention_days": "שמירת נתוני שעה (ימים)",
+    "flow_app_overrides": "שמות אפליקציות",
+    "overridesHint": "אחד בכל שורה: פרוטוקול פורט שם, לדוגמה \"6 8443 admin-portal\" ‏(6 = TCP,‏ 17 = UDP).",
+    "overridesErr": "בכל שורה נדרשים פרוטוקול (0–255), פורט (0–65535) ושם; עד 200 שורות.",
+    "newdevTitle": "התראה על התקן חדש",
+    "newdev_learning_days": "תקופת למידה (ימים)",
+    "newdev_condition_clear_min": "ההתראה נסגרת אחרי (דקות)",
+    "newdev_forget_after_days": "שכחת התקנים שלא נראו (ימים)",
+    "newdev_ignore_random_macs": "התעלמות מכתובות MAC אקראיות (מנוהלות מקומית), למשל של טלפונים",
+    "reportsTitle": "דוחות",
+    "report_retention_days": "שמירת הרצות דוחות (ימים)",
+    "chatAckTitle": "אישור טיפול מהצ'אט",
+    "chat_ack_ttl_h": "תוקף קישורי אישור (שעות)",
+    "telegram_poll_timeout_s": "זמן המתנה לקליטה מ-Telegram (שניות)"
+  },
+  "configBackup": {
+    "title": "גיבויי תצורה",
+    "runnerLine": "רצים {{running}} · בתור {{queued}} · במקביל {{concurrency}} · הריצה המתוזמנת הבאה {{next}} · {{n}} התקנים מתאימים",
+    "backupAll": "גיבוי הכול",
+    "exportZip": "הורדת הכול (ZIP)",
+    "allGroups": "כל הקבוצות",
+    "anyResult": "כל תוצאה",
+    "filterDevice": "סינון לפי שם התקן",
+    "empty": "אין עדיין התקנים עם גיבוי תצורה. הוסיפו פרטי SSH לקבוצה או להתקן.",
+    "status": "מצב הגיבוי",
+    "backupNow": "גיבוי עכשיו",
+    "queued": "הגיבוי נוסף לתור.",
+    "queuedN": "{{n}} גיבויים נוספו לתור.",
+    "running": "רץ",
+    "never": "אף פעם",
+    "lastResult": "תוצאה אחרונה",
+    "lastAttempt": "ניסיון אחרון",
+    "lastSuccess": "הצלחה אחרונה",
+    "lastChange": "שינוי אחרון",
+    "nextDue": "ריצה הבאה",
+    "versions": "גרסאות",
+    "mode": "גיבוי",
+    "failures": "{{n}} ניסיונות כושלים ברצף",
+    "versionList": "גרסאות",
+    "noVersions": "עדיין לא נשמרו גרסאות.",
+    "collectedAt": "נאסף",
+    "triggerLabel": "מקור",
+    "changes": "שינויים",
+    "lines": "שורות",
+    "initial": "ראשונית",
+    "latest": "אחרונה",
+    "view": "הצגה",
+    "diffPrev": "השוואה",
+    "versionNo": "גרסה {{n}}",
+    "download": "הורדה",
+    "maskedNote": "סיסמאות ומפתחות מוסתרים בעותק הזה.",
+    "adminOnly": "הצגה והשוואה של תצורות זמינות למנהלים בלבד.",
+    "diff": "השוואת גרסאות",
+    "from": "מ-",
+    "to": "עד",
+    "unified": "תצוגה מאוחדת",
+    "sideBySide": "זו לצד זו",
+    "diffTruncated": "ההבדל גדול מדי; מוצגת רק תחילתו.",
+    "noDifferences": "הגרסאות זהות.",
+    "search": "חיפוש בתצורות",
+    "searchLabel": "טקסט לחיפוש",
+    "searchGo": "חיפוש",
+    "regex": "ביטוי רגולרי",
+    "allVersions": "כל הגרסאות (לא רק האחרונה)",
+    "searchShort": "הזינו לפחות 2 תווים.",
+    "searchLong": "עד 200 תווים.",
+    "searchRegex": "הביטוי הרגולרי אינו תקין.",
+    "searchTruncated": "יותר מדי התאמות; מוצגות רק התוצאות הראשונות.",
+    "noMatches": "אין התאמות.",
+    "modes": {
+      "auto": "אוטומטי",
+      "on": "פעיל",
+      "off": "כבוי"
+    },
+    "modeHint": {
+      "auto": "מגובה כשיש פרטי SSH ומנהל התקן מתאים.",
+      "on": "מגובה תמיד; היעדר מנהל התקן או פרטי גישה מדווח ככישלון.",
+      "off": "לא מגובה."
+    },
+    "result": {
+      "ok": "השתנתה",
+      "unchanged": "ללא שינוי",
+      "failed": "נכשל",
+      "cancelled": "בוטל"
+    },
+    "trigger": {
+      "schedule": "מתוזמן",
+      "manual": "ידני",
+      "event": "Syslog/מלכודת",
+      "retry": "ניסיון חוזר"
+    },
+    "reason": {
+      "ok": "מוכן לגיבוי.",
+      "disabled_device": "ההתקן מושהה.",
+      "mode_off": "הגיבוי כבוי בהתקן הזה.",
+      "no_credentials": "אין פרטי SSH בהתקן או בקבוצות שלו.",
+      "no_driver": "אין מנהל התקן שמתאים להתקן הזה; בחרו אחד בהגדרות ההתקן.",
+      "host_key_changed": "מפתח ה-SSH של ההתקן השתנה; אשרו את המפתח החדש או אפסו אותו."
+    }
+  },
+  "driver": {
+    "label": "מנהל התקן",
+    "override": "מנהל התקן",
+    "overrideHint": "אוטומטי: לפי תבנית ההתקן או מזהה המערכת שלו.",
+    "auto": "אוטומטי",
+    "unverified": "לא מאומת",
+    "errors": "חלק מקובצי מנהלי ההתקן לא נטענו",
+    "source": {
+      "override": "נקבע בהתקן",
+      "template": "מהתבנית",
+      "sys_object_id": "ממזהה המערכת"
+    }
+  },
+  "ssh": {
+    "title": "פרטי SSH (גיבוי תצורה)",
+    "unreadable": "לא ניתן לפענח את הפרטים השמורים — הזינו אותם מחדש.",
+    "prepareHint": "גיבוי התצורה כבוי; אפשר כבר עכשיו להגדיר פרטי גישה ולבדוק אותם.",
+    "inheritParent": "בירושה מקבוצת האב",
+    "inheritGroup": "בירושה מהקבוצה",
+    "username": "שם משתמש",
+    "port": "פורט",
+    "password": "סיסמה",
+    "enablePassword": "סיסמת enable",
+    "privateKey": "מפתח פרטי (OpenSSH או PEM)",
+    "passphrase": "ססמת המפתח",
+    "legacy": "התרת אלגוריתמים ישנים",
+    "legacyHint": "רק להתקנים ישנים שאינם תומכים בהצפנה ובהחלפת מפתחות מודרניות.",
+    "test": "בדיקת חיבור",
+    "testHint": "מתחבר, נכנס ומריץ את פקודות מנהל ההתקן; דבר לא נשמר.",
+    "credentialsSource": "פרטי SSH",
+    "source": {
+      "device": "נקבעו בהתקן",
+      "group": "מקבוצה",
+      "none": "אין"
+    },
+    "step": {
+      "connect": "חיבור",
+      "host_key": "מפתח ההתקן",
+      "auth": "כניסה",
+      "prompt": "שורת פקודה",
+      "setup": "הכנת החיבור",
+      "command": "פקודות"
+    },
+    "err": {
+      "username": "שם משתמש: 1–64 תווים להדפסה, ללא רווחים.",
+      "port": "פורט: 1–65535.",
+      "secret": "הזינו סיסמה או מפתח פרטי.",
+      "keyLong": "המפתח הפרטי ארוך מדי (עד 16KiB).",
+      "keyFormat": "המפתח הפרטי צריך להיות בתבנית OpenSSH או PEM ‏(-----BEGIN … PRIVATE KEY-----)."
+    }
+  },
+  "hostKey": {
+    "title": "מפתח SSH של ההתקן",
+    "none": "עדיין לא נקבע מפתח; הוא נקבע בגיבוי המוצלח הראשון.",
+    "pinned": "מפתח קבוע",
+    "pinnedAt": "נקבע ב-",
+    "acceptedBy": "אושר על ידי",
+    "presented": "המפתח שהוצג",
+    "changedAt": "השתנה ב-",
+    "changedTitle": "ההתקן הציג מפתח SSH אחר",
+    "changedText": "הגיבויים נעצרו עד שתבדקו. אשרו את המפתח החדש רק אם ההתקן הוחלף או הותקן מחדש.",
+    "changedShort": "המפתח השתנה",
+    "accept": "אישור המפתח החדש",
+    "accepted": "המפתח החדש אושר.",
+    "reset": "איפוס המפתח הקבוע",
+    "resetConfirm": "לשכוח את המפתח הקבוע? המפתח שיוצג בחיבור הבא ייחשב מהימן.",
+    "resetDone": "המפתח הקבוע הוסר."
+  },
+  "flows": {
+    "title": "ניתוח תעבורה",
+    "exporter": "מקור תעבורה",
+    "allExporters": "כל המקורות",
+    "range": "טווח זמן",
+    "doubleCount": "סיכום על פני כל המקורות עלול לספור אותה תעבורה יותר מפעם אחת כשכמה התקנים מייצאים אותה.",
+    "topTalkers": "המארחים הפעילים ביותר",
+    "topApps": "האפליקציות המובילות",
+    "topConversations": "השיחות המובילות",
+    "conversationsRange": "שיחות זמינות לטווחים של עד 24 שעות.",
+    "side": "כיוון",
+    "sides": {
+      "both": "מקור ויעד",
+      "src": "מקור",
+      "dst": "יעד"
+    },
+    "col": {
+      "talkers": "מארח",
+      "apps": "אפליקציה",
+      "conversations": "שיחה"
+    },
+    "bytes": "נפח",
+    "packets": "חבילות",
+    "share": "חלק",
+    "other": "אחר",
+    "device": "התקן",
+    "noData": "אין נתוני תעבורה בטווח הזה.",
+    "noExporters": "אין עדיין מקורות. הגדירו בהתקן ייצוא תעבורה לשרת הזה.",
+    "interface": "ממשק",
+    "split": "פילוח לפי",
+    "splits": {
+      "none": "סך הכול",
+      "app": "אפליקציה",
+      "host": "מארח"
+    },
+    "dir": {
+      "in": "נכנס",
+      "out": "יוצא"
+    },
+    "speed": "מהירות הקו {{speed}}",
+    "peak": "שיא נכנס {{in}} · יוצא {{out}}",
+    "mirrorHint": "תעבורה נכנסת מוצגת מעל הציר, ויוצאת מתחתיו.",
+    "preset": {
+      "15m": "15 דקות",
+      "1h": "שעה",
+      "6h": "6 שעות",
+      "24h": "24 שעות",
+      "7d": "7 ימים",
+      "31d": "31 ימים"
+    },
+    "tab": {
+      "top": "המובילים",
+      "interfaces": "ממשקים",
+      "exporters": "מקורות",
+      "status": "מצב"
+    },
+    "receiver": {
+      "netflow": "NetFlow",
+      "ipfix": "IPFIX",
+      "sflow": "sFlow"
+    },
+    "rollup": {
+      "cagg": "צבירה רציפה (TimescaleDB)",
+      "table": "טבלה שעתית"
+    },
+    "st": {
+      "rate": "רשומות בשנייה / מכסה",
+      "queue": "תור",
+      "templates": "תבניות",
+      "storage": "אחסון",
+      "receivers": "מקלטים",
+      "rollup": "צבירה שעתית: {{mode}}",
+      "counters": "מונים",
+      "since": "מאז {{time}}",
+      "datagrams": "חבילות שהתקבלו",
+      "records": "רשומות",
+      "stored": "שורות שנשמרו",
+      "dropped": "נזרקו"
+    },
+    "drop": {
+      "rate_limited": "הגבלת קצב",
+      "queue_full": "התור מלא",
+      "parse_error": "שגיאות פענוח",
+      "no_template": "עדיין אין תבנית",
+      "unknown_exporter": "מקור לא מוכר",
+      "ignored_exporter": "מקור שמתעלמים ממנו",
+      "over_budget": "חריגה מהמכסה",
+      "unsupported": "לא נתמך",
+      "exporter_limit": "מגבלת מקורות",
+      "aggregation_overflow": "גלישה בצבירה",
+      "db_error": "שגיאות מסד נתונים"
+    }
+  },
+  "exporter": {
+    "address": "כתובת",
+    "state": "מצב",
+    "protocols": "פרוטוקולים",
+    "rate": "קצב",
+    "sampling": "דגימה",
+    "lastSeen": "נראה לאחרונה",
+    "perSecond": "{{n}} בשנייה",
+    "override": "ידני",
+    "accept": "אישור",
+    "ignore": "התעלמות",
+    "edit": "מקור {{address}}",
+    "samplingOverride": "קצב דגימה ידני (1:N)",
+    "samplingHint": "ריק = לפי מה שהמקור מדווח ({{seen}}).",
+    "samplingInvalid": "הזינו מספר שלם בין 1 ל-1,000,000, או השאירו ריק.",
+    "device": "התקן",
+    "deviceHint": "קישור המקור להתקן (שמות ממשקים, דף ההתקן).",
+    "bothDirections": "מייצא את שני הכיוונים באותם ממשקים — התעבורה עלולה להיספר פעמיים.",
+    "unsampled": "לא דווח קצב דגימה; הנפחים מוצגים ללא הכפלה.",
+    "deleteTitle": "מחיקת מקור",
+    "deleteConfirm": "למחוק את המקור {{address}} ואת הנתונים שלו?",
+    "states": {
+      "accepted": "מאושר",
+      "pending": "ממתין לאישור",
+      "ignored": "בהתעלמות"
+    },
+    "proto": {
+      "netflow5": "NetFlow v5",
+      "netflow9": "NetFlow v9",
+      "ipfix": "IPFIX",
+      "sflow5": "sFlow v5"
+    }
+  },
+  "newDevices": {
+    "title": "התקנים חדשים",
+    "subtitle": "התקנים (כתובות MAC) שנראו לראשונה בפורטי גישה.",
+    "statusTitle": "זיהוי",
+    "learningUntil": "בלמידה עד {{date}}",
+    "learningHint": "בזמן הלמידה כל התקן שנראה נרשם כמוכר, בלי התראה.",
+    "watching": "במעקב: התקן שלא נראה מעולם מעלה התראה.",
+    "restartLearning": "התחלת למידה מחדש",
+    "restartConfirm": "להתחיל תקופת למידה חדשה? התקנים שייראו בה יירשמו כמוכרים בלי התראה.",
+    "learningRestarted": "הלמידה התחילה מחדש.",
+    "switches": "מתגים שנקראו / בטווח",
+    "knownCount": "התקנים מוכרים",
+    "newCount": "חדשים שלא אושרו",
+    "lastDetection": "זיהוי אחרון",
+    "scope": "טווח",
+    "scopeAll": "כל הקבוצות",
+    "scopeHint": "רק מתגים בקבוצות האלה נמצאים במעקב; בלי בחירה = הכול.",
+    "excludeHint": "כדי להתעלם מפורט (למשל עמדת בדיקות), פתחו אותו בלשונית הפורטים של ההתקן וסמנו \"התעלמות מהתקנים חדשים בפורט הזה\".",
+    "tab": {
+      "detected": "זוהו",
+      "known": "מוכרים",
+      "allowlist": "רשימת היתר"
+    },
+    "search": "חיפוש",
+    "searchPlaceholder": "MAC, יצרן, IP או שם מארח",
+    "anyState": "כל מצב",
+    "state": "מצב",
+    "vendor": "יצרן",
+    "ipHost": "IP / מארח",
+    "switchPort": "מתג / פורט",
+    "firstSeen": "נראה לראשונה",
+    "lastSeen": "נראה לאחרונה {{rel}}",
+    "nowAt": "כעת ב-{{place}}",
+    "random": "אקראית",
+    "randomHint": "כתובת MAC מנוהלת מקומית (אקראית)",
+    "ackBy": "אושר על ידי {{user}}",
+    "acknowledge": "אישור כמוכר",
+    "ackSelected": "אישור המסומנים ({{n}})",
+    "ackTitle": "אישור {{n}} התקנים כמוכרים",
+    "ackText": "הם יפסיקו להתריע וירשמו כהתקנים מוכרים.",
+    "ackLimit": "בכל פעם מאושרים רק {{n}} הראשונים.",
+    "acknowledged": "{{n}} התקנים אושרו.",
+    "comment": "הערה (מי / מה)",
+    "forget": "שכחה",
+    "forgetConfirm": "לשכוח את {{mac}}? הוא יתריע שוב אם ייראה.",
+    "forgotten": "ההתקן נשכח.",
+    "noneNew": "אין התקנים חדשים.",
+    "noneKnown": "אין התקנים מתאימים.",
+    "filteredByDevice": "מוצג מתג אחד בלבד.",
+    "ignorePort": "התעלמות מהתקנים חדשים בפורט הזה",
+    "badge_one": "התקן חדש אחד",
+    "badge_two": "שני התקנים חדשים",
+    "badge_other": "{{count}} התקנים חדשים",
+    "states": {
+      "baseline": "בסיס",
+      "new": "חדש",
+      "known": "מוכר",
+      "allowed": "ברשימת היתר"
+    }
+  },
+  "allowlist": {
+    "intro": "התקנים שכתובת ה-MAC שלהם מתחילה בקידומת מורשית לא מתריעים (למשל כל המדפסות של יצרן מסוים).",
+    "prefix": "קידומת",
+    "prefixHint": "OUI ‏(3 בתים), קידומת של 28/36 סיביות או MAC מלאה",
+    "prefixInvalid": "הזינו 6, 7, 9 או 12 ספרות הקסדצימליות (מותר להפריד ב- : - .).",
+    "comment": "הערה",
+    "add": "הוספה",
+    "added": "נוסף לרשימת ההיתר.",
+    "created": "נוסף",
+    "empty": "רשימת ההיתר ריקה.",
+    "allowVendor": "היתר ליצרן",
+    "allowVendorHint": "הוספת {{oui}} לרשימת ההיתר"
+  },
+  "sso": {
+    "kerberosButton": "כניסה עם Windows",
+    "kerberosTrying": "נכנסים עם חשבון Windows שלך…",
+    "kerberosFailed": "הכניסה עם Windows לא הצליחה. היכנסו עם שם משתמש וסיסמה.",
+    "oidcButton": "כניסה עם Microsoft",
+    "or": "או",
+    "error": {
+      "sso_failed": "הכניסה האחודה נכשלה. נסו שוב או היכנסו עם סיסמה.",
+      "sso_conflict": "חשבון Microsoft הזה מתנגש במשתמש קיים באותו שם. פנו למנהל.",
+      "not_in_group": "לחשבון שלך אין תפקיד ב-NetworkMonitor. פנו למנהל.",
+      "oidc_group_overage": "החשבון שלך חבר ביותר מדי קבוצות ו-Entra ID לא שולח אותן. בקשו ממנהל לעבור לתפקידי אפליקציה.",
+      "oidc_error": "אין גישה ל-Microsoft Entra ID.",
+      "feature_disabled": "הכניסה עם Microsoft כבויה.",
+      "inactive": "החשבון שלך מושבת.",
+      "sso_ntlm": "הדפדפן הציע NTLM במקום Kerberos. הוסיפו את האתר לאזור האינטראנט המקומי ובדקו את ה-SPN שלו."
+    }
+  },
+  "kerberos": {
+    "title": "כניסה עם Windows ‏(Kerberos)",
+    "intro": "מחשבים שמצורפים לתחום נכנסים בלי סיסמה. המשתמשים והתפקידים נלקחים מ-Active Directory.",
+    "unsupported": "Kerberos אינו זמין בפלטפורמה של השרת.",
+    "realms": "תחומים מורשים (Realms)",
+    "realmsHint": "באותיות גדולות, מופרדים בפסיקים, לדוגמה MNIDOM.NET",
+    "realmsRequired": "הזינו לפחות תחום אחד.",
+    "realmsTooMany": "עד 8 תחומים.",
+    "realmsInvalid": "יש תחום עם תווים לא חוקיים.",
+    "autoLogin": "כניסה אוטומטית בפתיחת דף הכניסה",
+    "keytab": "Keytab",
+    "noKeytab": "לא הועלה keytab.",
+    "uploadedAt": "הועלה ב-{{date}}",
+    "principal": "ישות (Principal)",
+    "enctype": "הצפנה",
+    "upload": "העלאת keytab",
+    "uploaded": "ה-keytab הועלה.",
+    "deleteKeytab": "מחיקת ה-keytab",
+    "testHint": "לבדיקה: התנתקו ופתחו את דף הכניסה ממחשב שמצורף לתחום, שהדפדפן שלו סומך על האתר לכניסת Windows (אזור האינטראנט המקומי).",
+    "state": {
+      "ready": "מוכן",
+      "unavailable": "לא זמין",
+      "disabled": "כבוי",
+      "error": "שגיאה"
+    },
+    "warning": {
+      "rc4_only": "ב-keytab יש רק מפתחות RC4; מומלץ להשתמש במפתחות AES.",
+      "no_http_principal": "ב-keytab אין ישות שירות HTTP/ עבור האתר הזה."
+    }
+  },
+  "oidc": {
+    "title": "כניסה עם Microsoft ‏(Entra ID)",
+    "intro": "OpenID Connect עם רישום אפליקציה ב-Entra ID. התפקידים נקבעים לפי תפקידי אפליקציה או חברות בקבוצות.",
+    "tenant": "מזהה דייר (Tenant ID)",
+    "client": "מזהה אפליקציה (Client ID)",
+    "secret": "סוד הלקוח",
+    "secretExpires": "תוקף הסוד עד",
+    "secretExpiresHint": "רשות, לתזכורת.",
+    "roleSource": "תפקידים לפי",
+    "roleSources": {
+      "app_roles": "תפקידי אפליקציה",
+      "groups": "חברות בקבוצות"
+    },
+    "adminValues": "ערכים למנהלים",
+    "viewerValues": "ערכים לצופים",
+    "valuesHint": {
+      "app_roles": "ערכי תפקידי אפליקציה, אחד בכל שורה (לדוגמה NetMon.Admin).",
+      "groups": "מזהי אובייקט של קבוצות, אחד בכל שורה."
+    },
+    "buttonLabel": "טקסט הכפתור",
+    "buttonLabelHint": "ריק = \"כניסה עם Microsoft\".",
+    "redirectUri": "כתובת החזרה (Redirect URI)",
+    "redirectUriHint": "רשמו בדיוק את הכתובת הזו ברישום האפליקציה ב-Entra ID.",
+    "test": "בדיקת התחברות",
+    "testOk": "הבדיקה הצליחה: {{keys}} מפתחות חתימה, {{ms}} ms.",
+    "err": {
+      "tenant": "מזהה הדייר צריך להיות GUID.",
+      "client": "מזהה האפליקציה צריך להיות GUID.",
+      "secret": "נדרש סוד לקוח.",
+      "values": "הזינו לפחות ערך אחד למנהלים או לצופים.",
+      "tooMany": "עד 16 ערכים לכל תפקיד.",
+      "groupIds": "בחברות בקבוצות, הערכים צריכים להיות מזהי אובייקט (GUID) של קבוצות."
+    }
+  },
+  "reports": {
+    "title": "דוחות",
+    "definitions": "הגדרות דוחות",
+    "add": "דוח חדש",
+    "edit": "עריכת דוח",
+    "empty": "אין עדיין דוחות.",
+    "schedule": "תזמון",
+    "schedules": {
+      "weekly": "שבועי",
+      "monthly": "חודשי",
+      "none": "לפי דרישה בלבד"
+    },
+    "scheduleWeekly": "בכל יום {{day}} בשעה {{time}}",
+    "scheduleMonthly": "בכל חודש ב-{{day}} בשעה {{time}}",
+    "scheduleNone": "לפי דרישה",
+    "weekdayLabel": "יום",
+    "weekday": {
+      "1": "שני",
+      "2": "שלישי",
+      "3": "רביעי",
+      "4": "חמישי",
+      "5": "שישי",
+      "6": "שבת",
+      "7": "ראשון"
+    },
+    "monthDay": "יום בחודש",
+    "monthDayHint": "1–28",
+    "sendTime": "שעת שליחה",
+    "nextRun": "ריצה הבאה",
+    "lastRun": "ריצה אחרונה",
+    "disabled": "כבוי",
+    "recipients": "נמענים",
+    "recipientsCount": "{{emails}} כתובות · {{channels}} ערוצים",
+    "emailTo": "נמעני דוא\"ל",
+    "emailToHint": "כתובת אחת בכל שורה (עד 50).",
+    "channels": "ערוצים",
+    "noChannels": "אין ערוצי התראה.",
+    "scope": "טווח",
+    "scopeHint": "קבוצות (כולל תת-קבוצות) והתקנים; בלי בחירה = הכול.",
+    "addDevice": "הוספת התקן",
+    "sections": "תוכן",
+    "sectionsHint": "סמנו את הסעיפים וסדרו אותם בעזרת החצים.",
+    "moveUp": "הזזה למעלה",
+    "moveDown": "הזזה למטה",
+    "preview": "תצוגה מקדימה",
+    "runNow": "הרצה עכשיו",
+    "runTitle": "הרצת \"{{name}}\"",
+    "periodStart": "מתאריך",
+    "periodEnd": "עד תאריך",
+    "periodEndHint": "עד תחילת היום הזה.",
+    "sendToRecipients": "שליחה גם לנמענים",
+    "started": "הדוח בהכנה.",
+    "runs": "הרצות",
+    "noRuns": "אין עדיין הרצות.",
+    "report": "דוח",
+    "period": "תקופה",
+    "trigger": "מקור",
+    "triggers": {
+      "schedule": "מתוזמן",
+      "manual": "ידני"
+    },
+    "deliveries": "משלוח",
+    "notSent": "לא נשלח",
+    "resendFailed": "שליחה חוזרת של הכושלים",
+    "resent": "השליחה החוזרת התחילה.",
+    "deleteTitle": "מחיקת דוח",
+    "deleteConfirm": "למחוק את הדוח \"{{name}}\"? ההרצות הקודמות שלו נשמרות.",
+    "status": {
+      "running": "בהכנה",
+      "ok": "תקין",
+      "partial": "נשלח חלקית",
+      "failed": "נכשל"
+    },
+    "downloadHtml": "הורדת HTML",
+    "print": "הדפסה / שמירה כ-PDF",
+    "runningNote": "הדוח בהכנה; הדף יתעדכן מעצמו.",
+    "periodLine": "תקופה: {{from}} – {{to}} ‏({{tz}})",
+    "scopeLine": "טווח: {{scope}}",
+    "generated": "הופק ב-{{time}}",
+    "overall": "זמינות כוללת",
+    "notMeasured": "לא נמדדו",
+    "na": "אין נתון",
+    "note": {
+      "feature_off": "לא נכלל: התכונה כבויה.",
+      "no_data": "אין נתונים בתקופה הזו."
+    },
+    "col": {
+      "item": "פריט",
+      "group": "קבוצה",
+      "devices": "התקנים",
+      "device": "התקן",
+      "availability": "זמינות",
+      "downtime": "זמן השבתה",
+      "outages": "השבתות",
+      "longest": "ההשבתה הארוכה ביותר",
+      "sensor": "חיישן",
+      "notifications": "התראות",
+      "problemTime": "זמן בתקלה",
+      "port": "פורט",
+      "episodes": "אירועים",
+      "transitions": "מעברים",
+      "errors": "שגיאות",
+      "changes": "שינויים",
+      "lines": "שורות",
+      "lastChange": "שינוי אחרון",
+      "detected": "זוהה",
+      "acknowledged": "אושר"
+    },
+    "err": {
+      "name": "הזינו שם (עד 128 תווים).",
+      "sections": "בחרו לפחות סעיף אחד.",
+      "weekday": "בחרו יום.",
+      "monthDay": "יום בחודש: 1–28.",
+      "time": "שעת שליחה: HH:MM.",
+      "tooManyEmails": "עד 50 כתובות דוא\"ל.",
+      "email": "יש כתובת דוא\"ל לא תקינה.",
+      "period": "בחרו את שני התאריכים.",
+      "periodOrder": "תאריך הסיום צריך להיות אחרי תאריך ההתחלה.",
+      "periodLong": "עד 92 ימים."
+    }
+  },
+  "reportSection": {
+    "availability": "זמינות",
+    "top_alerts": "החיישנים המתריעים ביותר",
+    "flapping_ports": "פורטים מרצדים",
+    "port_errors": "שגיאות בפורטים",
+    "config_changes": "שינויי תצורה",
+    "new_devices": "התקנים חדשים",
+    "top_talkers": "המארחים והאפליקציות המובילים"
+  },
+  "kiosk": {
+    "title": "מסכי NOC",
+    "intro": "מסכי קיר פותחים קישור סודי ומציגים דף מצב חי. הם עובדים רק מהכתובות המורשות ואינם יכולים לקרוא שום דבר אחר.",
+    "add": "מסך חדש",
+    "edit": "עריכת מסך",
+    "empty": "אין עדיין מסכים.",
+    "token": "אסימון",
+    "sources": "כתובות מורשות",
+    "sourcesHint": "כתובות IP או CIDR של המסכים, אחת בכל שורה (1–64).",
+    "scope": "טווח",
+    "everything": "הכול",
+    "widgets": "תוכן",
+    "widgetsHint": "סמנו מה המסך מציג וסדרו בעזרת החצים.",
+    "showAddresses": "הצגת כתובות ההתקנים",
+    "refresh": "רענון (שניות)",
+    "refreshHint": "10–300; שינויים מגיעים גם בזמן אמת.",
+    "lastSeen": "נראה לאחרונה",
+    "disabled": "מושבת",
+    "regenerate": "קישור חדש",
+    "regenerateConfirm": "ליצור קישור חדש עבור \"{{name}}\"? הקישור הקודם יפסיק לעבוד מיד.",
+    "deleteTitle": "מחיקת מסך",
+    "deleteConfirm": "למחוק את המסך \"{{name}}\"?",
+    "urlTitle": "קישור עבור \"{{name}}\"",
+    "urlOnce": "הקישור מוצג רק עכשיו. העתיקו אותו לדפדפן של מסך הקיר.",
+    "urlHint": "פתחו את הקישור במסך מלא (F11) במסך הקיר. החלק הסודי שאחרי # לא מגיע ליומני השרת.",
+    "urlDone": "סיום",
+    "copy": "העתקה",
+    "copied": "הועתק",
+    "widget": {
+      "summary": "מספרי סיכום",
+      "down_devices": "התקנים שנפלו",
+      "problems": "תקלות",
+      "recent_alerts": "התראות אחרונות",
+      "map": "מפה",
+      "group_tiles": "אריחי קבוצות"
+    },
+    "err": {
+      "sourcesRequired": "הזינו לפחות כתובת מורשית אחת.",
+      "sourcesTooMany": "עד 64 כתובות.",
+      "sourcesInvalid": "יש כתובת שאינה IP או CIDR תקינים.",
+      "refresh": "רענון: 10–300 שניות.",
+      "widgets": "בחרו לפחות פריט אחד."
+    }
+  },
+  "noc": {
+    "devicesUp": "התקנים תקינים",
+    "devicesDown": "התקנים שנפלו",
+    "devicesWarning": "אזהרות",
+    "sensorsDown": "חיישנים בתקלה",
+    "acknowledged": "בטיפול",
+    "maintenance": "בתחזוקה",
+    "downDevices": "התקנים שנפלו ({{n}})",
+    "allUp": "כל ההתקנים תקינים",
+    "problems": "תקלות ({{n}})",
+    "noProblems": "אין תקלות",
+    "recentAlerts": "התראות אחרונות",
+    "map": "מפה",
+    "ack": "בטיפול",
+    "updated": "עודכן {{time}}",
+    "stale": "אין נתונים עדכניים — ייתכן שהמסך מנותק.",
+    "unavailable": "המסך הזה אינו זמין.",
+    "noToken": "פתחו את הדף הזה בקישור של המסך.",
+    "fullscreen": "מסך מלא"
+  },
+  "chatAck": {
+    "pageTitle": "אישור טיפול בתקלה",
+    "expired": "פג תוקף הקישור.",
+    "off": "אישור טיפול מהצ'אט כבוי.",
+    "since": "מאז {{time}} ‏({{rel}})",
+    "notActive": "התקלה הזו כבר אינה פעילה.",
+    "already": "כבר אושר טיפול",
+    "done": "הטיפול אושר.",
+    "comment": "הערה (רשות)",
+    "acknowledge": "אישור טיפול",
+    "adminOnly": "רק מנהלים יכולים לאשר טיפול.",
+    "openApp": "פתיחת NetworkMonitor",
+    "accounts": "חשבונות צ'אט",
+    "accountsIntro": "קשרו את חשבון ה-Telegram שלכם כדי לאשר טיפול בתקלות בכפתור שבהודעות Telegram.",
+    "linkTelegram": "קישור Telegram",
+    "noLinks": "אין חשבונות מקושרים.",
+    "linkedAt": "קושר ב-{{date}}",
+    "lastUsed": "שימוש אחרון ב-{{date}}",
+    "unlink": "ניתוק",
+    "unlinked": "החשבון נותק.",
+    "codeTitle": "קישור חשבון Telegram",
+    "codeStep1": "שלחו את ההודעה הזו אל {{bot}} בצ'אט פרטי:",
+    "codeNoBot": "שלחו את ההודעה הזו לבוט של NetworkMonitor בצ'אט פרטי:",
+    "codeExpires": "בתוקף עד {{time}}, לשימוש אחד.",
+    "codeGroupHint": "בקבוצה, שלחו ‎/link@BotName עם הקוד.",
+    "allLinks": "חשבונות צ'אט מקושרים",
+    "pollers": "קליטה מ-Telegram",
+    "pollerState": {
+      "idle": "לא פעיל",
+      "polling": "מחובר",
+      "error": "שגיאה"
+    },
+    "pollerLine": "קליטה ‎@{{bot}}: {{state}}",
+    "channelTitle": "אישור טיפול מהצ'אט",
+    "ackButtons": "כפתור \"אישור טיפול\" בהודעות",
+    "ackButtonsHint": "לחיצה מאשרת טיפול ב-NetworkMonitor (רק לחשבונות מנהל מקושרים). השתמשו בבוט ייעודי ל-NetworkMonitor.",
+    "ackLinkTelegram": "כפתור קישור \"אישור טיפול\" (פותח את NetworkMonitor)",
+    "ackLink": "קישור \"אישור טיפול\" בהודעות",
+    "takeOver": "השתלטות על הבוט (מחיקת ה-webhook שלו)",
+    "takeOverHint": "רק אם לבוט מוגדר webhook או שתוכנה אחרת משתמשת בו.",
+    "takenOver": "ה-webhook של הבוט נמחק.",
+    "teamsLimit": "ב-Teams כפתור אישור הטיפול פותח את NetworkMonitor בדפדפן; הוא עובד מרשת המשרד או דרך VPN.",
+    "emailHint": "מוסיף קישור לאישור טיפול שפותח את NetworkMonitor.",
+    "needsPublicUrl": "קישורים דורשים את הכתובת הציבורית (הגדרות ← כללי)."
   }
 }

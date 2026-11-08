@@ -30,3 +30,31 @@
     color: #f1f5f9;
   }
 }
+
+/* [3] Printable report page (/reports/runs/:id): Print / Save as PDF */
+@media print {
+  @page {
+    size: A4;
+    margin: 14mm 12mm;
+  }
+  html,
+  body {
+    background: #fff !important;
+    color: #0f172a !important;
+  }
+  :root.dark {
+    color-scheme: light;
+  }
+  .report-print table {
+    page-break-inside: auto;
+  }
+  .report-print tr {
+    page-break-inside: avoid;
+  }
+  .report-print thead {
+    display: table-header-group;
+  }
+  .report-print h2 {
+    page-break-after: avoid;
+  }
+}

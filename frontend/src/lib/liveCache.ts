@@ -1,5 +1,6 @@
 import type { QueryClient, QueryKey } from '@tanstack/react-query';
 import { qk } from '../api/endpoints';
+import { qk3 } from '../api/endpoints3';
 import type {
   Dashboard,
   Device,
@@ -179,6 +180,35 @@ export function applyLiveMessage(
     case 'ingest.receiver':
       batch.add(qk.ingestStatus);
       break;
+    // [3]
+    case 'config_backup.update': {
+      const { device_id, status } = msg.data;
+      qc.setQueryData(qk3.deviceConfig(device_id), status);
+      batch.add(['config-backups']);
+      batch.add(qk3.backupRunner);
+      break;
+    }
+    case 'config_backup.changed':
+      batch.add(['config-versions', msg.data.device_id]);
+      batch.add(qk3.deviceConfig(msg.data.device_id));
+      batch.add(['timeline', msg.data.device_id]);
+      break;
+    case 'flows.exporter':
+      batch.add(qk3.flowExporters);
+      batch.add(qk3.flowStatus);
+      break;
+    case 'new_device.detected':
+      batch.add(['new-devices']);
+      batch.add(qk3.newDeviceStatus);
+      break;
+    case 'report.run':
+      batch.add(['report-runs']);
+      batch.add(qk3.reports);
+      batch.add(qk3.reportRun(msg.data.run.id));
+      break;
+    case 'chat_ack.poller':
+      batch.add(qk3.telegramStatus);
+      break;
     case 'config.changed': {
       const { entity, id } = msg.data;
       if (entity === 'event_rule') {
@@ -187,6 +217,29 @@ export function applyLiveMessage(
       }
       if (entity === 'api_token') {
         batch.add(['tokens']);
+        break;
+      }
+      // [3] entities that do not touch the tree
+      if (entity === 'report') {
+        batch.add(qk3.reports);
+        batch.add(qk3.report(id));
+        break;
+      }
+      if (entity === 'kiosk_screen') {
+        batch.add(qk3.kioskScreens);
+        break;
+      }
+      if (entity === 'flow_exporter') {
+        batch.add(qk3.flowExporters);
+        break;
+      }
+      if (entity === 'mac_allowlist') {
+        batch.add(qk3.allowlist);
+        break;
+      }
+      if (entity === 'config_backup') {
+        batch.add(qk3.deviceConfig(id));
+        batch.add(['config-backups']);
         break;
       }
       // Settings (time zone, default language) are public: refetch them if announced.

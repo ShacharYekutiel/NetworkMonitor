@@ -11,7 +11,13 @@ import { Button, Card, cx, Empty, ErrorBox, Loading, Table, td, th } from './ui'
 
 /** [2b-3] Passive event sensors (trap/syslog/port_flap) have no measurements or polling. */
 export function isEventSensor(s: Pick<Sensor, 'type'>): boolean {
-  return s.type === 'trap' || s.type === 'syslog' || s.type === 'port_flap';
+  return (
+    s.type === 'trap' ||
+    s.type === 'syslog' ||
+    s.type === 'port_flap' ||
+    s.type === 'config_backup' || // [3]
+    s.type === 'new_mac'
+  );
 }
 
 export function FlappingBadge() {
@@ -34,6 +40,8 @@ function ConditionRow({ c }: { c: EventCondition }) {
       <td className={td}>
         {c.source === 'flap' ? (
           <FlappingBadge />
+        ) : c.source !== 'rule' ? (
+          <span className="font-medium">{t(`conditions.source.${c.source}`)}</span>
         ) : (
           <span className="font-medium">{c.rule_name ?? `#${c.rule_id}`}</span>
         )}

@@ -5,6 +5,7 @@ import { endpoints } from '../api/endpoints';
 import { useToast } from '../components/toast';
 import { Button, Card, ErrorBox, Field, Input, Notice, PageHeader } from '../components/ui';
 import { useAuth } from '../hooks/auth';
+import { ChatAccountsCard } from '../components/chatack/ChatAccounts';
 
 export function AccountPage() {
   const { t } = useTranslation();
@@ -40,14 +41,19 @@ export function AccountPage() {
   };
 
   if (!user) return null;
-  const ldap = user.source === 'ldap';
+  // [3] oidc accounts have no local password either
+  const ldap = user.source === 'ldap' || user.source === 'oidc';
   return (
     <div className="max-w-xl space-y-6">
       <PageHeader
         title={t('account.title')}
-        subtitle={`${user.display_name ? `${user.display_name} · ` : ''}${user.username} · ${t(`role.${user.role}`)} · ${t(`user.source.${ldap ? 'ldap' : 'local'}`)}`}
+        subtitle={`${user.display_name ? `${user.display_name} · ` : ''}${user.username} · ${t(`role.${user.role}`)} · ${t(`user.source.${user.source === 'ldap' || user.source === 'oidc' ? user.source : 'local'}`)}`}
       />
-      {ldap && <Notice>{t('account.ldapManaged')}</Notice>}
+      {ldap && (
+        <Notice>
+          {user.source === 'oidc' ? t('account.oidcManaged') : t('account.ldapManaged')}
+        </Notice>
+      )}
       <Card title={t('account.profile')}>
         <form
           onSubmit={(e) => {
@@ -122,6 +128,7 @@ export function AccountPage() {
           </form>
         </Card>
       )}
+      <ChatAccountsCard />
     </div>
   );
 }

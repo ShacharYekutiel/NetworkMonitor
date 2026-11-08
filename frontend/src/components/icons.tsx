@@ -323,3 +323,30 @@ export const ClockIcon = (p: P) => (
     <path d="M12 7v5l3 2" />
   </Svg>
 );
+/** [3] flows */
+export const FlowIcon = (p: P) => (
+  <Svg {...p}>
+    <path d="M3 7h13l-3-3M21 17H8l3 3" />
+  </Svg>
+);
+/** [3] new devices */
+export const NewDeviceIcon = (p: P) => (
+  <Svg {...p}>
+    <rect x="3" y="5" width="14" height="10" rx="1" />
+    <path d="M7 19h6M10 15v4M19 3v6M16 6h6" />
+  </Svg>
+);
+/** [3] config backups */
+export const BackupIcon = (p: P) => (
+  <Svg {...p}>
+    <path d="M4 7c0-1.7 3.6-3 8-3s8 1.3 8 3-3.6 3-8 3-8-1.3-8-3z" />
+    <path d="M4 7v10c0 1.7 3.6 3 8 3s8-1.3 8-3V7M4 12c0 1.7 3.6 3 8 3s8-1.3 8-3" />
+  </Svg>
+);
+/** [3] reports */
+export const ReportIcon = (p: P) => (
+  <Svg {...p}>
+    <path d="M6 3h9l4 4v14H6z" />
+    <path d="M9 17v-3M12 17v-6M15 17v-4" />
+  </Svg>
+);

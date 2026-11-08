@@ -50,6 +50,13 @@ export function LiveProvider({ children }: { children: ReactNode }) {
           void qc.invalidateQueries({ queryKey: ['event-rules'] });
           void qc.invalidateQueries({ queryKey: ['conditions'] });
           void qc.invalidateQueries({ queryKey: qk.ingestStatus });
+          // [3] backups, exporters, new devices and report runs may have changed meanwhile.
+          void qc.invalidateQueries({ queryKey: ['device-config'] });
+          void qc.invalidateQueries({ queryKey: ['config-backups'] });
+          void qc.invalidateQueries({ queryKey: ['flows-exporters'] });
+          void qc.invalidateQueries({ queryKey: ['new-devices'] });
+          void qc.invalidateQueries({ queryKey: ['new-devices-status'] });
+          void qc.invalidateQueries({ queryKey: ['report-runs'] });
         },
       }),
     // eslint-disable-next-line react-hooks/exhaustive-deps
