@@ -8,6 +8,7 @@ from sqlalchemy import or_, select, text, update
 from netmon.api.common import commit_or_conflict, csv_list, merge_snmp
 from netmon.api.deps import DB, RT, Admin, Audit, Page, Viewer
 from netmon.api.errors import ApiError, not_found, validation_error
+from netmon.configbackup.credentials import merge as ssh_merge
 from netmon.models import Device, Group, Sensor
 from netmon.poller.sensor_types import AUTO_SENSOR_TYPES, default_sensor_name, validate_config
 from netmon.poller.snmp_client import SnmpError
@@ -28,6 +29,18 @@ from netmon.services.status import load_inventory
 
 router = APIRouter()
 
+
+def check_driver(driver_id: str | None) -> str | None:
+    """[3] config_backup_driver override: null/"" = automatic; unknown ids -> 422."""
+    from netmon.configbackup import drivers
+
+    if not driver_id:
+        return None
+    if drivers.get(driver_id) is None:
+        raise validation_error(["body", "config_backup_driver"], "unknown config backup driver")
+    return driver_id
+
+
 DEVICE_AUDIT_FIELDS = (
     "name",
     "host",
@@ -42,6 +55,11 @@ DEVICE_AUDIT_FIELDS = (
     "dependency_device_id",
     "dependency_sensor_id",
     "source_addresses",  # [2b-3]
+    # [3] (encrypted ssh_credentials fields are redacted by the audit)
+    "ssh_credentials",
+    "config_backup",
+    "config_backup_driver",
+    "newdev_excluded_ports",
 )
 
 
@@ -109,6 +127,13 @@ async def create_device(body: DeviceCreate, _: Admin, rt: RT, session: DB, ctx: 
         port_inventory=body.port_inventory,
         arp_collect=body.arp_collect,
         source_addresses=list(body.source_addresses),  # [2b-3]
+        # [3]
+        ssh_credentials=ssh_merge(body.ssh_credentials, None, rt.secret_key)
+        if body.ssh_credentials is not None
+        else None,
+        config_backup=body.config_backup,
+        config_backup_driver=check_driver(body.config_backup_driver),
+        newdev_excluded_ports=list(body.newdev_excluded_ports),
     )
     deps.apply_dependency(d, dep)
     session.add(d)
@@ -209,6 +234,21 @@ async def patch_device(
             identity_changed = True
     if "source_addresses" in fields and body.source_addresses is not None:  # [2b-3]
         d.source_addresses = list(body.source_addresses)
+    # [3] config backup / new-device alerts
+    if "ssh_credentials" in fields:
+        new_ssh = (
+            ssh_merge(body.ssh_credentials, d.ssh_credentials, rt.secret_key)
+            if body.ssh_credentials is not None
+            else None
+        )
+        if new_ssh != d.ssh_credentials:
+            d.ssh_credentials = new_ssh
+    if "config_backup" in fields and body.config_backup is not None:
+        d.config_backup = body.config_backup
+    if "config_backup_driver" in fields:
+        d.config_backup_driver = check_driver(body.config_backup_driver)
+    if "newdev_excluded_ports" in fields and body.newdev_excluded_ports is not None:
+        d.newdev_excluded_ports = list(body.newdev_excluded_ports)
     for key in ("port_inventory", "arp_collect"):  # [2b-2]
         value = getattr(body, key)
         if key in fields and value is not None and value != getattr(d, key):

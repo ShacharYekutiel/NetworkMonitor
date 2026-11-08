@@ -73,8 +73,8 @@ class AuthInfo:
 
 
 def ldap_session_expired(rt: Runtime, user: User, claims: dict[str, Any]) -> bool:
-    """[2b-3] AD users re-authenticate at least every 12 h (`at` = auth time)."""
-    if (getattr(user, "source", "local") or "local") != "ldap":
+    """[2b-3] AD users re-authenticate at least every 12 h (`at` = auth time); [3] OIDC too."""
+    if (getattr(user, "source", "local") or "local") not in ("ldap", "oidc"):
         return False
     at = claims.get("at", claims.get("iat"))
     try:
@@ -99,6 +99,9 @@ async def authenticate(rt: Runtime, session: AsyncSession, token: str | None) ->
         raise ApiError(401, "unauthenticated", "Session invalid or expired")
     if ldap_session_expired(rt, user, claims):
         raise ApiError(401, "unauthenticated", "Session expired; log in again")
+    if user.source == "oidc" and not feature_on(rt, "sso_oidc"):
+        # [3] `src = oidc` sessions are refused while the feature is OFF
+        raise ApiError(401, "unauthenticated", "Microsoft sign-in is turned off")
     return user, claims
 
 
@@ -151,14 +154,15 @@ async def current_user(request: Request, rt: RT, session: DB) -> User:
         "session", user.id, user.username, user.role, None, user.source or "local"
     )
     now = time.time()
-    if user.source == "ldap":
+    am = claims.get("am") if isinstance(claims.get("am"), str) else None  # [3] kept on renewal
+    if user.source in ("ldap", "oidc"):
         # sliding renewal never extends past at + 12 h (judged on the app clock)
         at = float(claims.get("at", claims.get("iat")))
         clock_now = rt.clock.now().timestamp()
         if int(claims["exp"]) - now < RENEW_BELOW_S and clock_now < at + LDAP_SESSION_MAX_S:
-            request.state.renew_token = session_token(rt, user, at=at, clock_now=clock_now)
+            request.state.renew_token = session_token(rt, user, at=at, clock_now=clock_now, am=am)
     elif int(claims["exp"]) - now < RENEW_BELOW_S:
-        request.state.renew_token = session_token(rt, user)
+        request.state.renew_token = session_token(rt, user, am=am)
     return user
 
 

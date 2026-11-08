@@ -235,6 +235,9 @@ async def run_device(rt: Runtime, device_id: int, trigger: str = "scheduled") ->
         from netmon.services import events as events_svc
 
         events_svc.published(rt, port_events)
+    newdev = getattr(rt, "newdev", None)
+    if ok and flags.ports and newdev is not None and newdev.enabled:
+        await newdev.after_fdb(device_id, started)  # [3] new-device detection
     log.info(
         "Port inventory of device %s (%s): %s in %d ms",
         device_id,

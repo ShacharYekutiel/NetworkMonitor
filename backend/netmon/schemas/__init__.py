@@ -10,7 +10,15 @@ from typing import Any, Literal
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 from netmon.auth.ldap_config import LdapSettingsIn
+from netmon.flows.settings import FlowSettingsMixin
 from netmon.schemas.ingest import IngestSettingsMixin, source_addresses
+from netmon.schemas.phase3 import (
+    ConfigBackupSettingsMixin,
+    NewdevSettingsMixin,
+    Phase3FeaturesMixin,
+    SshCredentialsIn,
+)
+from netmon.schemas.phase3c import Phase3CSettingsMixin
 
 USERNAME_RE = re.compile(r"^[A-Za-z0-9._-]{3,64}$")
 EMAIL_RE = re.compile(r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
@@ -163,6 +171,7 @@ class GroupCreate(_In):
     snmp_credentials: SnmpIn | None = None
     sort_order: int = 0
     dependency: DependencyIn | None = None
+    ssh_credentials: SshCredentialsIn | None = None  # [3]
 
 
 class GroupPatch(_In):
@@ -172,6 +181,7 @@ class GroupPatch(_In):
     snmp_credentials: SnmpIn | None = None
     sort_order: int | None = None
     dependency: DependencyIn | None = None
+    ssh_credentials: SshCredentialsIn | None = None  # [3] null = inherit
 
 
 def validate_http_url(v: str) -> str:
@@ -204,6 +214,16 @@ def _host(v: str) -> str:
     return v.strip("[]")
 
 
+def _if_indexes(v: list[int] | None) -> list[int] | None:
+    """[3] newdev_excluded_ports: positive ifIndexes, deduplicated, sorted."""
+    if v is None:
+        return v
+    for x in v:
+        if not 1 <= int(x) <= 2_147_483_647:
+            raise ValueError("ifIndexes must be positive")
+    return sorted(set(v))
+
+
 class DeviceCreate(_In):
     group_id: int
     name: str = Field(min_length=1, max_length=128)
@@ -217,9 +237,15 @@ class DeviceCreate(_In):
     port_inventory: InventoryMode = "auto"  # [2b-2]
     arp_collect: InventoryMode = "auto"  # [2b-2]
     source_addresses: list[str] = Field(default_factory=list)  # [2b-3]
+    # [3] config backup and new-device alerts
+    ssh_credentials: SshCredentialsIn | None = None
+    config_backup: InventoryMode = "auto"
+    config_backup_driver: str | None = Field(default=None, max_length=64)
+    newdev_excluded_ports: list[int] = Field(default_factory=list, max_length=256)
 
     _h = field_validator("host")(lambda cls, v: _host(v))
     _sa = field_validator("source_addresses")(lambda cls, v: source_addresses(v))
+    _nex = field_validator("newdev_excluded_ports")(lambda cls, v: _if_indexes(v))
 
 
 class DevicePatch(_In):
@@ -234,10 +260,16 @@ class DevicePatch(_In):
     port_inventory: InventoryMode | None = None  # [2b-2]
     arp_collect: InventoryMode | None = None  # [2b-2]
     source_addresses: list[str] | None = None  # [2b-3]
+    # [3]
+    ssh_credentials: SshCredentialsIn | None = None  # null = inherit
+    config_backup: InventoryMode | None = None
+    config_backup_driver: str | None = Field(default=None, max_length=64)  # null = auto
+    newdev_excluded_ports: list[int] | None = Field(default=None, max_length=256)
 
     _sa = field_validator("source_addresses")(lambda cls, v: source_addresses(v))
+    _nex = field_validator("newdev_excluded_ports")(lambda cls, v: _if_indexes(v))
 
-    @field_validator("port_inventory", "arp_collect")
+    @field_validator("port_inventory", "arp_collect", "config_backup")
     @classmethod
     def _mode_not_null(cls, v: str | None) -> str:
         # omitted = unchanged; an explicit null is invalid (only auto | on | off)
@@ -308,6 +340,7 @@ class NotificationChannelPatch(_In):
 class EmailConfig(BaseModel):
     model_config = ConfigDict(extra="forbid")
     to: list[str] = Field(min_length=1, max_length=20)
+    ack_link: bool = False  # [3] chat_ack: "Acknowledge" link in problem mails
 
     @field_validator("to")
     @classmethod
@@ -347,6 +380,8 @@ class TelegramConfig(BaseModel):
     chat_id: str = Field(max_length=64)
     parse_mode: Literal["HTML"] | None = "HTML"
     disable_notification: bool = False
+    ack_buttons: bool = False  # [3] chat_ack: inline "Acknowledge" button (callback)
+    ack_link: bool = False  # [3] chat_ack: URL button to the ack page (without ack_buttons)
 
     @field_validator("bot_token")
     @classmethod
@@ -375,6 +410,7 @@ class TeamsConfig(BaseModel):
     url_set: bool | None = None
     url_host: str | None = None
     legacy: bool | None = None
+    ack_link: bool = True  # [3] chat_ack: Action.OpenUrl to the ack page
 
     @field_validator("url")
     @classmethod
@@ -514,7 +550,15 @@ class SmtpIn(_In):
         return _email(v)
 
 
-class SettingsPut(_In, IngestSettingsMixin):
+class SettingsPut(
+    _In,
+    IngestSettingsMixin,
+    Phase3FeaturesMixin,  # [3]
+    ConfigBackupSettingsMixin,
+    NewdevSettingsMixin,
+    FlowSettingsMixin,
+    Phase3CSettingsMixin,  # [3] reports / chat ack
+):
     smtp: SmtpIn | None = None
     retention_days: int | None = Field(default=None, ge=1, le=3650)
     event_retention_days: int | None = Field(default=None, ge=1, le=3650)

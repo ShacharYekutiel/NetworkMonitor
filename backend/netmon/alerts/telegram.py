@@ -40,8 +40,14 @@ def scrub(text: str, token: str | None) -> str:
     return text
 
 
-async def send_telegram(config: dict[str, Any], text: str, parse_mode: str | None = "HTML") -> None:
-    """POST {base}/bot{token}/sendMessage. Raises TelegramError with a token-free message."""
+async def send_telegram(
+    config: dict[str, Any],
+    text: str,
+    parse_mode: str | None = "HTML",
+    reply_markup: dict[str, Any] | None = None,
+) -> None:
+    """POST {base}/bot{token}/sendMessage. Raises TelegramError with a token-free message.
+    [3] `reply_markup`: the chat-ack inline keyboard (callback or URL button)."""
     token = str(config.get("bot_token") or "")
     if not token:
         raise TelegramError("No bot token configured")
@@ -53,9 +59,13 @@ async def send_telegram(config: dict[str, Any], text: str, parse_mode: str | Non
     }
     if parse_mode:
         body["parse_mode"] = parse_mode
+    if reply_markup:
+        body["reply_markup"] = reply_markup
     url = f"{_api_base}/bot{token}/sendMessage"
     try:
-        async with httpx.AsyncClient(timeout=TIMEOUT_S, verify=client_ssl_context()) as client:
+        async with httpx.AsyncClient(
+            timeout=TIMEOUT_S, verify=client_ssl_context(), trust_env=True
+        ) as client:
             resp = await client.post(
                 url, json=body, headers={"User-Agent": f"NetworkMonitor/{__version__}"}
             )

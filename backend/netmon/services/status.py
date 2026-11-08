@@ -94,6 +94,16 @@ class Inventory:
                 return "group", gid
         return "default", None
 
+    def effective_ssh(self, device_id: int) -> tuple[str, int | None]:
+        """[3] "device" | "group" | "none" and the group that provides the credentials."""
+        d = self.devices[device_id]
+        if d.get("ssh_credentials") is not None:
+            return "device", None
+        for gid in self.ancestors(d["group_id"]):
+            if self.groups[gid].get("ssh_credentials") is not None:
+                return "group", gid
+        return "none", None
+
     def compute(self) -> None:
         for gid in self.groups:
             self.children.setdefault(gid, [])
@@ -158,7 +168,7 @@ async def load_inventory(session: AsyncSession) -> Inventory:
     for row in await session.execute(
         text(
             "SELECT id, parent_id, name, snmp_credentials, sort_order, dependency_mode, "
-            "dependency_device_id, dependency_sensor_id FROM groups"
+            "dependency_device_id, dependency_sensor_id, ssh_credentials FROM groups"
         )
     ):
         inv.groups[row.id] = {
@@ -169,11 +179,13 @@ async def load_inventory(session: AsyncSession) -> Inventory:
             "dependency_mode": row.dependency_mode,
             "dependency_device_id": row.dependency_device_id,
             "dependency_sensor_id": row.dependency_sensor_id,
+            "ssh_credentials": row.ssh_credentials,  # [3]
         }
     for row in await session.execute(
         text(
             "SELECT id, group_id, name, host, enabled, snmp_credentials, dependency_mode, "
-            "dependency_device_id, dependency_sensor_id, source_addresses FROM devices"
+            "dependency_device_id, dependency_sensor_id, source_addresses, ssh_credentials "
+            "FROM devices"
         )
     ):
         inv.devices[row.id] = {
@@ -186,6 +198,7 @@ async def load_inventory(session: AsyncSession) -> Inventory:
             "dependency_device_id": row.dependency_device_id,
             "dependency_sensor_id": row.dependency_sensor_id,
             "source_addresses": [str(a) for a in row.source_addresses or []],  # [2b-3]
+            "ssh_credentials": row.ssh_credentials,  # [3]
         }
     for row in await session.execute(
         text(

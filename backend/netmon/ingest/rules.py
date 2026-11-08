@@ -28,7 +28,7 @@ class Rule:
     group_id: int | None
     device_id: int | None
     match: dict[str, Any]
-    action: str  # warning | down | ignore
+    action: str  # warning | down | ignore | [3] config_backup
     key_varbind_oid: str | None = None
     key_regex: str | None = None
     clear_match: dict[str, Any] | None = None
@@ -207,9 +207,10 @@ def rule_key(rule: Rule, rec: Mapping[str, Any]) -> str:
 
 def evaluate(rec: Mapping[str, Any], rules: list[Rule], ctx: Context) -> Outcome:
     """`rules`: the enabled rules of the record's kind in scope for its device, sorted by
-    (priority, id)."""
+    (priority, id). [3] `config_backup` rules never take part (see `backup_triggers`)."""
     out = Outcome()
     kind = "trap" if "trap_oid" in rec else "syslog"
+    rules = [r for r in rules if r.action != BACKUP_ACTION]
     for rule in rules:
         if rule.clear_match is not None and rule.action != "ignore":
             if matches(rule.clear_match, kind, rec, ctx, rule):
@@ -236,6 +237,21 @@ def evaluate(rec: Mapping[str, Any], rules: list[Rule], ctx: Context) -> Outcome
             out.matched_rule_ids.append(rule.id)
         break
     return out
+
+
+BACKUP_ACTION = "config_backup"  # [3]
+
+
+def backup_triggers(rec: Mapping[str, Any], rules: list[Rule]) -> list[int]:
+    """[3] Ids of the enabled `config_backup` rules (in scope, as `evaluate`) whose `match`
+    matches the record; non-empty -> queue a config backup of the device."""
+    kind = "trap" if "trap_oid" in rec else "syslog"
+    ctx = Context()
+    return [
+        r.id
+        for r in rules
+        if r.action == BACKUP_ACTION and r.enabled and matches(r.match, kind, rec, ctx, r)
+    ]
 
 
 def in_scope(rule: Rule, device_id: int, group_chain: list[int] | set[int]) -> bool:
@@ -392,19 +408,20 @@ def validate_rule(data: dict[str, Any]) -> dict[str, Any]:
     if scope != "device":
         device_id = None
     action = data.get("action")
-    if action not in ("warning", "down", "ignore"):
-        _err(errors, ["action"], "must be warning, down or ignore")
+    if action not in ("warning", "down", "ignore", BACKUP_ACTION):
+        _err(errors, ["action"], "must be warning, down, ignore or config_backup")
     match = validate_match(kind, data.get("match"), ["match"], errors)
     key_oid = data.get("key_varbind_oid") or None
     key_regex = data.get("key_regex") or None
     clear_match_in = data.get("clear_match")
     clear_after = data.get("clear_after_min")
     clear_match = None
-    if action == "ignore":
+    if action in ("ignore", BACKUP_ACTION):
+        what = "an ignore" if action == "ignore" else "a config_backup"
         if key_oid or key_regex:
-            _err(errors, ["action"], "an ignore rule has no key")
+            _err(errors, ["action"], f"{what} rule has no key")
         if clear_match_in is not None or clear_after is not None:
-            _err(errors, ["action"], "an ignore rule has no clearing")
+            _err(errors, ["action"], f"{what} rule has no clearing")
     else:
         if clear_match_in is None and clear_after is None:
             _err(
@@ -455,5 +472,5 @@ def validate_rule(data: dict[str, Any]) -> dict[str, Any]:
         "key_varbind_oid": key_oid if kind == "trap" else None,
         "key_regex": key_regex if kind == "syslog" else None,
         "clear_match": clear_match,
-        "clear_after_min": clear_after if action != "ignore" else None,
+        "clear_after_min": clear_after if action not in ("ignore", BACKUP_ACTION) else None,
     }

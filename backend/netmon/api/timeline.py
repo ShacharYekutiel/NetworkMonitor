@@ -37,7 +37,7 @@ async def device_timeline(
     bad = [k for k in kinds or [] if k not in timeline_svc.KINDS]
     if bad:
         raise validation_error(["query", "kinds"], f"must be in {list(timeline_svc.KINDS)}")
-    available = {"status", "notification", "ack", "maintenance", "port"}
+    available = {"status", "notification", "ack", "maintenance", "port", "config", "new_mac"}
     if rt.features.enabled("traps"):
         available.add("trap")
     if rt.features.enabled("syslog"):

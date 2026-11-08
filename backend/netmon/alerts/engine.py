@@ -82,6 +82,7 @@ def build_payload(
             "group": None,
             "rule": None,
             "url": None,
+            "ack_url": None,  # [3]
         }
     url = None
     if public_base_url and event.get("sensor_id") is not None:
@@ -103,13 +104,21 @@ def build_payload(
         "group": group,
         "rule": rule,
         "url": url,
+        "ack_url": None,  # [3] chat_ack (decorate_payload)
     }
 
 
 async def send_to_channel(
     channel: dict[str, Any], payload: dict[str, Any], smtp: dict[str, Any], lang: str
 ) -> None:
-    """Raises SmtpError / WebhookError / TelegramError / TeamsError."""
+    """Raises SmtpError / WebhookError / TelegramError / TeamsError.
+
+    [3] chat_ack: `payload["ack_token"]` (internal, never sent) and `payload["ack_url"]` are set
+    by `netmon.chatack.service.decorate_payload` while `chat_ack` is ON; each channel type uses
+    them per its config (`ack_buttons` / `ack_link`)."""
+    from netmon.chatack.service import channel_payload, telegram_markup
+
+    payload = channel_payload(channel, payload)
     if channel["type"] == "teams":  # [2b-3]
         from netmon.alerts import teams
 
@@ -117,7 +126,12 @@ async def send_to_channel(
     elif channel["type"] == "telegram":
         cfg = channel["config"]
         parse_mode = cfg.get("parse_mode", "HTML")
-        await send_telegram(cfg, templates.telegram_text(payload, lang, parse_mode), parse_mode)
+        await send_telegram(
+            cfg,
+            templates.telegram_text(payload, lang, parse_mode),
+            parse_mode,
+            telegram_markup(cfg, payload, lang),
+        )
     elif channel["type"] == "email":
         await send_email(
             smtp,
@@ -699,17 +713,23 @@ class AlertEngine:
             }
 
         def payload(stage: str, after: bool = False, flap: bool = False) -> dict[str, Any]:
-            return build_payload(
-                event,
-                ctx["sensor"],
-                ctx["device"],
-                ctx["group"],
-                ctx["rule"],
-                cfg.get("public_base_url"),
-                stage=stage,
-                after_maintenance=after,
-                problem_since=iso(r.problem_since),
-                after_flapping=flap,
+            from netmon.chatack.service import decorate_payload
+
+            return decorate_payload(
+                self.rt,
+                build_payload(
+                    event,
+                    ctx["sensor"],
+                    ctx["device"],
+                    ctx["group"],
+                    ctx["rule"],
+                    cfg.get("public_base_url"),
+                    stage=stage,
+                    after_maintenance=after,
+                    problem_since=iso(r.problem_since),
+                    after_flapping=flap,
+                ),
+                cfg,
             )
 
         def due(v: datetime | None) -> bool:

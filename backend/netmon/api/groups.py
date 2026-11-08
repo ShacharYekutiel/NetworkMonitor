@@ -8,6 +8,7 @@ from sqlalchemy import func, select
 from netmon.api.common import commit_or_conflict, flush_or_conflict, merge_snmp
 from netmon.api.deps import DB, RT, Admin, Audit, Page, Viewer
 from netmon.api.errors import ApiError, conflict, not_found, validation_error
+from netmon.configbackup.credentials import merge as ssh_merge
 from netmon.models import Group, Sensor
 from netmon.poller.sensor_types import SENSOR_TYPES
 from netmon.schemas import GroupCreate, GroupPatch
@@ -28,6 +29,7 @@ GROUP_AUDIT_FIELDS = (
     "dependency_mode",
     "dependency_device_id",
     "dependency_sensor_id",
+    "ssh_credentials",  # [3] (encrypted fields are redacted by the audit)
 )
 
 
@@ -93,6 +95,9 @@ async def create_group(body: GroupCreate, _: Admin, rt: RT, session: DB, ctx: Au
         description=body.description,
         snmp_credentials=merge_snmp(body.snmp_credentials, None) if body.snmp_credentials else None,
         sort_order=body.sort_order,
+        ssh_credentials=ssh_merge(body.ssh_credentials, None, rt.secret_key)  # [3]
+        if body.ssh_credentials is not None
+        else None,
     )
     deps.apply_dependency(g, dep)
     session.add(g)
@@ -144,6 +149,14 @@ async def patch_group(
             if body.snmp_credentials is not None
             else None
         )
+    if "ssh_credentials" in fields:  # [3] null = inherit
+        new_ssh = (
+            ssh_merge(body.ssh_credentials, g.ssh_credentials, rt.secret_key)
+            if body.ssh_credentials is not None
+            else None
+        )
+        if new_ssh != g.ssh_credentials:
+            g.ssh_credentials = new_ssh
     check_cycle = "parent_id" in fields  # a move changes what devices inherit
     if "dependency" in fields and body.dependency is not None:
         deps.apply_dependency(

@@ -42,7 +42,15 @@ TABLES = (
     # [2b-3] (TRUNCATE does not fire the audit_log row trigger)
     "audit_log, api_tokens, "
     # [2b-3] ingestion (event_rules is re-seeded with the built-in rules in `clean`)
-    "traps, syslog_messages, event_conditions, event_rules"
+    "traps, syslog_messages, event_conditions, event_rules, "
+    # [3] flow collector (hourly fallback tables / continuous aggregates are not truncated
+    # here: flow tests clean them themselves)
+    "flow_exporters, flow_if_1m, flow_app_1m, flow_host_1m, flow_conv_1m, "
+    # [3] config backup (ssh_host_keys, config_backup_status, config_versions cascade with
+    # devices), new-device alerts, reports, kiosk, chat ack, flapping episodes
+    "ssh_host_keys, config_backup_status, config_versions, known_macs, mac_allowlist, "
+    "port_flap_episodes, reports, report_runs, kiosk_screens, chat_identities, "
+    "chat_link_codes, telegram_poll_state"
 )
 
 
@@ -121,6 +129,11 @@ def ingest_ports() -> dict[str, str]:
             "NETMON_TRAP_PORT": str(free_port(socket.SOCK_DGRAM)),
             "NETMON_SYSLOG_PORT": str(sp),
             "NETMON_INGEST_HOST": "127.0.0.1",
+            # [3] flow sockets on free loopback ports
+            "NETMON_NETFLOW_PORT": str(free_port(socket.SOCK_DGRAM)),
+            "NETMON_IPFIX_PORT": str(free_port(socket.SOCK_DGRAM)),
+            "NETMON_SFLOW_PORT": str(free_port(socket.SOCK_DGRAM)),
+            "NETMON_FLOW_HOST": "127.0.0.1",
         }
     raise RuntimeError("no free port")
 
@@ -173,6 +186,8 @@ async def clean(rt: Runtime, app: Any) -> AsyncIterator[None]:
 
         await ensure_builtin_rules(session)
         await session.commit()
+    if getattr(rt, "flows", None) is not None:
+        rt.flows.reset_state()  # [3]
     if rt.ingest is not None:
         rt.ingest.reset_state()
         await rt.ingest.rebuild_sources()

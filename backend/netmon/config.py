@@ -105,6 +105,11 @@ class Settings(BaseSettings):
         default=None, ge=0, le=65535, alias="NETMON_SYSLOG_TCP_PORT"
     )
     netmon_ingest_host: str = Field(default="0.0.0.0", alias="NETMON_INGEST_HOST")
+    # [3] flow collector sockets (0 disables that socket; open only while `flows` is ON)
+    netmon_netflow_port: int = Field(default=2055, ge=0, le=65535, alias="NETMON_NETFLOW_PORT")
+    netmon_ipfix_port: int = Field(default=4739, ge=0, le=65535, alias="NETMON_IPFIX_PORT")
+    netmon_sflow_port: int = Field(default=6343, ge=0, le=65535, alias="NETMON_SFLOW_PORT")
+    netmon_flow_host: str = Field(default="0.0.0.0", alias="NETMON_FLOW_HOST")
 
     @property
     def syslog_tcp_port(self) -> int:

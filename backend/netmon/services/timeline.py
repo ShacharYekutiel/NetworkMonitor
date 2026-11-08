@@ -15,7 +15,18 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from netmon.ingest.query import encode_cursor
 from netmon.services.serialize import iso
 
-KINDS = ("status", "notification", "ack", "maintenance", "trap", "syslog", "port", "audit")
+KINDS = (
+    "status",
+    "notification",
+    "ack",
+    "maintenance",
+    "trap",
+    "syslog",
+    "port",
+    "audit",
+    "config",  # [3] config_change events
+    "new_mac",  # [3] new_device events
+)
 RANK = {k: i for i, k in enumerate(KINDS)}
 MAX_MESSAGE = 500
 _ACK_BY = re.compile(r"^Acknowledge(?:d|ment removed) by ([^:]+)")
@@ -75,6 +86,10 @@ async def _events(
         where = "e.kind = 'acknowledge' AND e.device_id = :d"
     elif kind == "port":
         where = "e.kind = 'port_change' AND e.device_id = :d"
+    elif kind == "config":  # [3]
+        where = "e.kind = 'config_change' AND e.device_id = :d"
+    elif kind == "new_mac":  # [3]
+        where = "e.kind = 'new_device' AND e.device_id = :d"
     else:  # maintenance: device scope, group scope (D's group or ancestors), or global
         where = (
             "e.kind = 'maintenance' AND (e.device_id = :d OR (e.device_id IS NULL AND "

@@ -239,8 +239,15 @@ async def _ldap_login(
 
 
 async def _upsert_ldap_user(
-    request: Request, rt: RT, session: DB, du: object, sam: str, role: str
+    request: Request,
+    rt: RT,
+    session: DB,
+    du: object,
+    sam: str,
+    role: str,
+    method: str | None = None,
 ) -> tuple[User, bool]:
+    """[3] `method` (e.g. "kerberos") is recorded on the `auth.login` audit row."""
     from netmon.auth.ldap import DirectoryUser
 
     assert isinstance(du, DirectoryUser)
@@ -335,7 +342,14 @@ async def _upsert_ldap_user(
             raise _LoginFailed("inactive")
         user.ldap_synced_at = now
         user.last_login_at = now
-    await audit.record(session, actor, "auth.login", _user_entity(user), source="ldap")
+    await audit.record(
+        session,
+        actor,
+        "auth.login",
+        _user_entity(user),
+        {"method": [None, method]} if method else None,
+        source="ldap",
+    )
     await session.commit()
     await session.refresh(user)
     return user, role_changed
@@ -384,7 +398,7 @@ def _ldap_managed(what: str) -> ApiError:
 async def patch_me(body: MePatch, user: Viewer, session: DB, ctx: Audit) -> dict:
     fields = body.model_fields_set
     before = _user_values(user)
-    if "email" in fields and user.source == "ldap" and body.email != user.email:
+    if "email" in fields and user.source in ("ldap", "oidc") and body.email != user.email:
         raise _ldap_managed("email address")
     if "email" in fields:
         user.email = body.email
@@ -402,7 +416,7 @@ async def patch_me(body: MePatch, user: Viewer, session: DB, ctx: Audit) -> dict
 async def change_password(
     body: ChangePasswordIn, request: Request, rt: RT, user: Viewer, session: DB, ctx: Audit
 ) -> Response:
-    if user.source == "ldap" or user.password_hash is None:
+    if user.source in ("ldap", "oidc") or user.password_hash is None:
         raise _ldap_managed("password")
     if not await verify_password(user.password_hash, body.current_password):
         raise ApiError(401, "invalid_credentials", "Current password is wrong")
@@ -498,7 +512,7 @@ async def patch_user(
     if user is None:
         raise not_found("User")
     fields = body.model_fields_set
-    if user.source == "ldap":
+    if user.source in ("ldap", "oidc"):  # [3] OIDC users: the same managed fields
         if "password" in fields and body.password:
             raise _ldap_managed("password")
         if "role" in fields and body.role is not None and body.role != user.role:

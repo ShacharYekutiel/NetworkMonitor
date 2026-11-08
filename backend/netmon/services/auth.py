@@ -57,9 +57,11 @@ def make_token(
     src: str = "local",
     at: float | None = None,
     exp_cap: float | None = None,
+    am: str | None = None,
 ) -> str:
     """[2b-3] claims gain `src` (local|ldap) and `at` (auth time); `exp_cap` (epoch seconds)
-    limits the expiry (AD sessions end at `at + 12 h`)."""
+    limits the expiry (AD sessions end at `at + 12 h`). [3] `src` may be `oidc`; `am` is the
+    authentication method (`password` | `kerberos` | `oidc`; absent = password)."""
     now = int(time.time())
     exp = now + TOKEN_TTL_S
     if exp_cap is not None:
@@ -73,16 +75,28 @@ def make_token(
         "src": src,
         "at": int(at if at is not None else now),
     }
+    if am:
+        claims["am"] = am
     return jwt.encode(claims, secret, algorithm="HS256")
 
 
+HARD_LIMIT_SOURCES = ("ldap", "oidc")  # [3] OIDC sessions follow the AD 12 h rule
+
+
 def session_token(
-    rt: Any, user: Any, *, at: float | None = None, clock_now: float | None = None
+    rt: Any,
+    user: Any,
+    *,
+    at: float | None = None,
+    clock_now: float | None = None,
+    am: str | None = None,
 ) -> str:
-    """Session JWT for `user`. AD users: `at` = auth time (default: now on the app clock);
-    the cookie expires at the latest at `at + 12 h` (real time, shifted like the app clock)."""
-    if (getattr(user, "source", "local") or "local") != "ldap":
-        return make_token(rt.secret_key, user.id, user.role, user.token_version, at=at)
+    """Session JWT for `user`. AD (and [3] OIDC) users: `at` = auth time (default: now on the
+    app clock); the cookie expires at the latest at `at + 12 h` (real time, shifted like the
+    app clock). [3] `am` = authentication method claim (kept across renewals by the caller)."""
+    src = getattr(user, "source", "local") or "local"
+    if src not in HARD_LIMIT_SOURCES:
+        return make_token(rt.secret_key, user.id, user.role, user.token_version, at=at, am=am)
     clock_now = clock_now if clock_now is not None else rt.clock.now().timestamp()
     at = at if at is not None else clock_now
     remaining = at + LDAP_SESSION_MAX_S - clock_now
@@ -91,9 +105,10 @@ def session_token(
         user.id,
         user.role,
         user.token_version,
-        src="ldap",
+        src=src,
         at=at,
         exp_cap=time.time() + max(1.0, remaining),
+        am=am,
     )
 
 

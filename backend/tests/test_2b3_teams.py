@@ -74,6 +74,7 @@ async def test_channel_crud_secret_url(
         "url_set": True,
         "url_host": "prod-12.westeurope.logic.azure.com",
         "legacy": False,
+        "ack_link": True,  # [3] chat_ack
     }
     assert "TOPSECRETSIG" not in r.text
     # PATCH without a URL keeps it (echoed response keys are ignored)

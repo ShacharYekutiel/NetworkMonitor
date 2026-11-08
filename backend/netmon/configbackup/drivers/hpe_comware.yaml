@@ -1,0 +1,23 @@
+id: hpe_comware
+name: 'HPE Comware 7'
+version: 1
+confidence: unverified
+priority: 100
+match:
+  templates: ['hpe_comware']
+  sys_object_id: ['1.3.6.1.4.1.25506.', '1.3.6.1.4.1.11.2.3.7.11.']
+mode: shell
+prompt: '^(<[^<>\r\n]{1,64}>|\[[^\[\]\r\n]{1,64}\])\s*$'
+pre_prompt: []
+enable: null
+session_setup: ['screen-length disable']
+commands:
+  - command: 'display current-configuration'
+error_patterns: ['^\s*% (Unrecognized|Incomplete|Too many|Wrong parameter)']
+ignore_lines: []
+secrets:
+  - '\b(?:cipher|hash)\s+(?!authentication-mode\b|privacy-mode\b)(\S+)'
+  - '^\s*snmp-agent community (?:(?:read|write)\s+)?(?:simple\s+|cipher\s+)?(\S+)'
+  - '\b(?:authentication-mode|privacy-mode)\s+\S+\s+(?!cipher\b|simple\b)(\S+)'
+  - '\b(?:key|password)\s+(?:\S+\s+)?(?:simple|cipher)\s+(\S+)'
+notes: 'IRF: one config for the stack. Verify on FF 5945.'

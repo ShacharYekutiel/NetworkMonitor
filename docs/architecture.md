@@ -1931,9 +1931,12 @@ else whose `match.sys_object_id` prefixes match `identity.sys_object_id` (pure `
 data-model). No driver → state `no_driver` (shown, not an error).
 
 #### 13.2.3 SSH session engine and host-key policy
-- asyncssh `connect(host, port, username, password | client_keys, known_hosts=None, connect_timeout=15,
-  login_timeout=30, keepalive_interval=15, agent_path=None, config=None, client_host_keysign=False)` with our own
-  host-key check (below) via a `SSHClient.validate_host_public_key` override; no `~/.ssh` lookups. Algorithms:
+- asyncssh `connect(host, port, username, password | client_keys, known_hosts=([], [], []),
+  connect_timeout=15, login_timeout=30, keepalive_interval=15, agent_path=None, config=None,
+  client_host_keysign=False)` with our own host-key check (below) via a `SSHClient.validate_host_public_key`
+  override; no `~/.ssh` lookups. `known_hosts=([], [], [])` is an **empty** trust list (trusted host keys, CA
+  keys, revoked keys), which makes asyncssh pass every presented key to the callback; `known_hosts=None` would
+  instead **disable** host-key validation entirely (the callback would never run, TOFU/pinning would be void). Algorithms:
   asyncssh defaults; when the driver or the device's `ssh_credentials.legacy_algorithms` says so, also
   `diffie-hellman-group14-sha1`, `diffie-hellman-group1-sha1`, `ssh-rsa` host keys and `aes128-cbc`/`3des-cbc`
   (old ArubaOS-Switch firmware).
@@ -1970,7 +1973,9 @@ data-model). No driver → state `no_driver` (shown, not an error).
   whenever `config_backup` is ON — **independently of `event_alerts`** — and never take part in the first-match
   search of warning/down/ignore rules. A hit queues the device with a **debounce**: the backup starts 120 s after
   the *last* trigger (a burst of CLI changes gives one backup); at most one triggered backup per device per 10
-  minutes (a trigger inside that window schedules exactly one more run at its end). Built-in trigger rules,
+  minutes (a trigger inside that window schedules exactly one more run at its end). The debounced due time is
+  stored in `config_backup_status.next_due_at` (shown by the API) and replaced by the next remaining due time
+  (or NULL) when the run is recorded. Built-in trigger rules,
   seeded **disabled**: HPE Comware `CFGMAN` configuration changed, ArubaOS-Switch running/startup config
   changed, Cisco IOS `%SYS-5-CONFIG_I` (data-model § [3] Built-in config-change rules). The backup's own login
   runs session-only commands, so it does not re-trigger itself (QA asserts it with the SSH sim command log).
@@ -2004,7 +2009,11 @@ data-model). No driver → state `no_driver` (shown, not an error).
 - **Search:** `pg_trgm` GIN index on `content` of **latest versions only** (partial index `WHERE is_latest`,
   created by the 2b-3 trigram bootstrap); `GET /api/config-backups/search?q=` returns devices with matching lines
   (≤ 20 lines per device with line numbers, ≤ 200 devices; `regex=true` uses PostgreSQL `~*` with a 200-char
-  pattern compiled first in Python to reject invalid ones). `all_versions=true` scans every version in a `since`
+  pattern compiled first in Python to reject invalid ones). Matching is **per line**: the stored config is one
+  text value, so the pattern is sent as `(?n)<pattern>` (newline-sensitive ARE: `^`/`$` match at line breaks,
+  `.` and `[^…]` do not cross them; a leading `(?flags)` of the pattern is merged into it, e.g. `(?ni)`); the
+  trigram index is still used. Lines are then matched in Python one by one; a device whose text matched only
+  across lines (explicit `\n`) has no matching line and is not listed. `all_versions=true` scans every version in a `since`
   range (sequential; ≤ 31 days).
 - **Export:** one version as a `text/plain` attachment (`<device>_<yyyymmdd-hhmm>.cfg`); "Download all latest"
   as a streamed ZIP (built in a thread, ≤ 2000 devices). Masked secrets stay masked; unmasked storage exists only
@@ -2194,7 +2203,9 @@ Feature `new_device_alerts`. Input: the 2b-2 FDB data written by the port-invent
   7. otherwise → `new`: event **`new_device`** (`device_id` = the switch, message `New device 00:11:22:33:44:55
      (Hewlett Packard) on sw-floor2 port 1/0/17, VLAN 20, 10.0.20.57 pc-1234.mnidom.net`) and a condition
      (source `new_mac`, key = MAC, status **warning**) on the switch's passive **`new_mac`** event sensor ("New
-     devices", auto-created for in-scope switches while ON), expiring after `newdev_condition_clear_min`
+     devices", auto-created for in-scope switches while ON — when the feature is turned on, at start-up, on a
+     scope or device/group change and at each FDB run, like the `config_backup` sensor; a sensor the user
+     deleted is not re-created: device `event_sensor_optout`), expiring after `newdev_condition_clear_min`
      (default 1440) or removed by *Acknowledge as known*.
   8. **Flood guard:** more than 20 `new` MACs on one switch in one run → the first 20 as above and one summary
      event `+N more new devices on sw-floor2`; all stored `new`.
@@ -2274,7 +2285,9 @@ browser (domain PC; site trusted for Negotiate)                    app (behind C
   `Path=/api/auth/oidc`, 10 min).
 - `GET /api/auth/oidc/callback?code&state` → state check (constant time), token request (`authorization_code`,
   `code_verifier`, client secret), **id_token validation**: RS256 against the tenant JWKS (cached 24 h; refetched
-  on an unknown `kid`, at most once per 5 min), `iss` = `https://login.microsoftonline.com/<tenant id>/v2.0`,
+  on an unknown `kid`, at most once per 5 min — except that a `kid` which is still unknown and has not itself
+  caused a refetch within 5 min may refetch once the cached JWKS is older than 60 s, so a bogus `kid` shortly
+  before a key rotation cannot block the new key for 5 min), `iss` = `https://login.microsoftonline.com/<tenant id>/v2.0`,
   `aud` = client id, `tid` = tenant id, `exp`/`nbf`/`iat` with 300 s leeway, `nonce`. Any failure → redirect to
   `/login?sso_error=<code>`; Entra `error` parameters are mapped, never echoed raw.
 - **User mapping:** `oid` → `users.external_id` with source **`oidc`**; username = lower(`preferred_username`)

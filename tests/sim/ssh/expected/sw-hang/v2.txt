@@ -49,7 +49,7 @@ interface Ten-GigabitEthernet1/0/3
  snmp-agent local-engineid 800063A280F4B52F3A1B2C00000001
  snmp-agent community read cipher <secret removed>
  snmp-agent sys-info version v2c v3
- snmp-agent usm-user v3 netmon-snmp netmon-group cipher <secret removed> sha <secret removed> privacy-mode aes128 $c$3$cHJpdktleVNlY3JldA==
+ snmp-agent usm-user v3 netmon-snmp netmon-group cipher authentication-mode sha <secret removed> privacy-mode aes128 <secret removed>
 #
  ssh server enable
 #

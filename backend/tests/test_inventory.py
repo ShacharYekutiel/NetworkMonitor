@@ -18,6 +18,7 @@ GROUP_KEYS = {
     "created_at",
     "updated_at",
     "dependency",
+    "ssh_credentials",  # [3]
 }
 DEVICE_KEYS = {
     "id",
@@ -49,6 +50,13 @@ DEVICE_KEYS = {
     "source_addresses",
     "source_address_conflicts",
     "event_sensor_optout",
+    # [3]
+    "ssh_credentials",
+    "effective_ssh_source",
+    "effective_ssh_group_id",
+    "config_backup",
+    "config_backup_driver",
+    "newdev_excluded_ports",
 }
 SENSOR_KEYS = {
     "id",
@@ -343,6 +351,8 @@ async def test_sensor_types_endpoint(viewer: httpx.AsyncClient) -> None:
         "trap",  # [2b-3] passive event sensors
         "syslog",
         "port_flap",
+        "config_backup",  # [3]
+        "new_mac",
     ]
     ping = items[0]
     assert ping == {

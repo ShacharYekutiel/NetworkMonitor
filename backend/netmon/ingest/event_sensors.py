@@ -25,12 +25,20 @@ if TYPE_CHECKING:
 
 log = logging.getLogger("netmon.ingest.event_sensors")
 
-EVENT_TYPES = ("trap", "syslog", "port_flap")
-DEFAULT_NAMES = {"trap": "SNMP traps", "syslog": "Syslog", "port_flap": "Port flapping"}
+EVENT_TYPES = ("trap", "syslog", "port_flap", "config_backup", "new_mac")  # [3] +2
+DEFAULT_NAMES = {
+    "trap": "SNMP traps",
+    "syslog": "Syslog",
+    "port_flap": "Port flapping",
+    "config_backup": "Configuration backup",  # [3]
+    "new_mac": "New devices",
+}
 IDLE_MESSAGES = {
     "trap": "Receiving traps",
     "syslog": "Receiving syslog",
     "port_flap": "No flapping ports",
+    "config_backup": "Configuration backup OK",  # [3]
+    "new_mac": "No new devices",
 }
 OFF_MESSAGE = "Event alerts are turned off"
 FLAP_OFF_MESSAGE = "Port flapping detection is turned off"
@@ -92,7 +100,7 @@ class EventSensors:
                 await session.execute(
                     text(
                         "SELECT id, device_id, type, enabled FROM sensors "
-                        "WHERE type IN ('trap','syslog','port_flap')"
+                        "WHERE type IN ('trap','syslog','port_flap','config_backup','new_mac')"
                     )
                 )
             ).all()
@@ -275,7 +283,11 @@ class EventSensors:
         if n:
             worst = conds[0]
             status = worst.status
-            msg = worst.message if worst.source == "flap" else f"{worst.rule_name}: {worst.message}"
+            msg = (
+                f"{worst.rule_name}: {worst.message}"
+                if worst.source == "rule"
+                else worst.message  # flap and the [3] sources carry their own text
+            )
             if n > 1:
                 msg += f" (+{n - 1} more)"
         else:
@@ -570,6 +582,124 @@ class EventSensors:
 
     async def flap_conditions_off(self) -> None:
         await self.remove_conditions("source = 'flap'", {"types": ["port_flap"]}, FLAP_OFF_MESSAGE)
+
+    # ---------------------------------------------------------------- [3] other sources
+    async def set_condition(
+        self,
+        device_id: int,
+        type_: str,
+        *,
+        source: str,
+        key: str,
+        status: str,
+        message: str,
+        expires_at: datetime | None = None,
+        create: bool = True,
+    ) -> bool:
+        """[3] Raise / refresh one condition (`backup_failed`, `host_key`, `config_changed`,
+        `new_mac`) on the device's passive sensor of `type_` (created when missing unless
+        opted out). Returns True when the condition is stored."""
+        return bool(
+            await self.set_conditions(
+                device_id,
+                type_,
+                [(source, key, status, message, expires_at)],
+                create=create,
+            )
+        )
+
+    async def set_conditions(
+        self,
+        device_id: int,
+        type_: str,
+        items: list[tuple[str, str, str, str, datetime | None]],
+        *,
+        create: bool = True,
+        session: AsyncSession | None = None,
+    ) -> int:
+        """[3] Several conditions `(source, key, status, message, expires_at)` on one sensor in
+        one transaction (own session unless `session` is given: then the caller commits and
+        publishes nothing)."""
+        if not items:
+            return 0
+        now = self.rt.clock.now()
+        created: list[int] = []
+        evs: list[Event] = []
+        updates: list[dict[str, Any]] = []
+
+        async def run(s: AsyncSession) -> int:
+            device = await self._device(s, device_id)
+            if device is None or not device.enabled:
+                return 0
+            sensor, was_created = await self.get_or_create(s, device, type_, create=create)
+            if sensor is None or not sensor.enabled:
+                return 0
+            if was_created:
+                created.append(sensor.id)
+            for source, key, status, message, exp in items:
+                await self._upsert_condition(
+                    s,
+                    sensor.id,
+                    source=source,
+                    rule_id=None,
+                    key=key,
+                    status=status,
+                    message=message,
+                    now=now,
+                    expires_at=exp,
+                )
+            await self._cap(s, sensor.id)
+            ev, upd = await self.recompute(s, sensor, device)
+            if ev is not None:
+                evs.append(ev)
+            if upd is not None:
+                updates.append(upd)
+            return len(items)
+
+        if session is not None:
+            return await run(session)
+        async with self._lock, self.rt.sessionmaker() as s:
+            n = await run(s)
+            await s.commit()
+        self._publish(evs, updates, created)
+        if any(it[4] is not None for it in items):
+            self.wake()
+        return n
+
+    async def remove_device_conditions(
+        self,
+        device_id: int | None,
+        type_: str,
+        sources: list[str],
+        keys: list[str] | None = None,
+        idle_message: str | None = None,
+    ) -> int:
+        """[3] Delete conditions of `sources` (optionally only `keys`) on the `type_` sensor of
+        one device (or of every device when `device_id` is None) and recompute."""
+        where = "s.type = :t AND c.source = ANY(:src)"
+        params: dict[str, Any] = {"t": type_, "src": sources}
+        if device_id is not None:
+            where += " AND s.device_id = :d"
+            params["d"] = device_id
+        if keys is not None:
+            where += " AND c.key = ANY(:keys)"
+            params["keys"] = keys
+        async with self._lock, self.rt.sessionmaker() as session:
+            rows = (
+                await session.execute(
+                    text(
+                        "DELETE FROM event_conditions c USING sensors s WHERE s.id = c.sensor_id "
+                        f"AND {where} RETURNING c.sensor_id"
+                    ),
+                    params,
+                )
+            ).all()
+            evs, updates = await self._recompute_many(
+                session, {r.sensor_id for r in rows}, idle_message=idle_message
+            )
+            await session.commit()
+        self._publish(evs, updates)
+        return len(rows)
 
     async def link_down_cleared(self, device_id: int, if_index: int) -> None:
         """Flapping started: remove the Link-down (ifIndex-keyed) conditions of that port."""

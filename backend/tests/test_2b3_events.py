@@ -65,7 +65,10 @@ async def sensor_of(c: httpx.AsyncClient, device_id: int, type_: str) -> dict[st
 async def test_event_rules_api(rt: Runtime, admin: httpx.AsyncClient) -> None:
     await features(admin, traps=True)
     rules = await rules_by_key(admin)
-    assert set(rules) == {"trap_link_down", "trap_auth_failure", "trap_restart", "syslog_error"}
+    assert set(rules) == {"trap_link_down", "trap_auth_failure", "trap_restart", "syslog_error",
+                          # [3] built-in config-change triggers (action config_backup)
+                          "syslog_comware_cfg_changed", "syslog_arubaos_cfg_changed",
+                          "syslog_cisco_config_i"}  # fmt: skip
     ld = rules["trap_link_down"]
     assert ld["enabled"] is False and ld["priority"] == 1000 and ld["name"] == "Link down"
     assert ld["key_varbind_oid"] == IFINDEX and ld["clear_after_min"] == 1440
@@ -103,7 +106,7 @@ async def test_event_rules_api(rt: Runtime, admin: httpx.AsyncClient) -> None:
     assert (await admin.get(f"/api/event-rules/{rid}")).status_code == 404
     assert [
         x["kind"] for x in (await admin.get("/api/event-rules?kind=syslog")).json()["items"]
-    ] == ["syslog"]
+    ] == ["syslog"] * 4  # [3] + the 3 built-in config-change rules
 
 
 async def test_rule_test_preview_and_viewer(
@@ -473,8 +476,8 @@ async def test_migration_0006_up_down_up(mode: str, rt: Runtime) -> None:
         await timescale.bootstrap_ingest(engine, enabled, 30, 30)
         conn = await asyncpg.connect(_plain(url))
         try:
-            assert await conn.fetchval("SELECT version_num FROM alembic_version") == "0006"
-            assert await conn.fetchval("SELECT count(*) FROM event_rules WHERE NOT enabled") == 4
+            assert await conn.fetchval("SELECT version_num FROM alembic_version") == "0007"
+            assert await conn.fetchval("SELECT count(*) FROM event_rules WHERE NOT enabled") == 7
             if mode == "timescale":
                 ht = await conn.fetchval(
                     "SELECT count(*) FROM timescaledb_information.hypertables "
@@ -569,8 +572,8 @@ async def test_migration_0006_up_down_up(mode: str, rt: Runtime) -> None:
         await run_migrations(engine)
         conn = await asyncpg.connect(_plain(url))
         try:
-            assert await conn.fetchval("SELECT version_num FROM alembic_version") == "0006"
-            assert await conn.fetchval("SELECT count(*) FROM event_rules") == 4
+            assert await conn.fetchval("SELECT version_num FROM alembic_version") == "0007"
+            assert await conn.fetchval("SELECT count(*) FROM event_rules") == 7
         finally:
             await conn.close()
     finally:

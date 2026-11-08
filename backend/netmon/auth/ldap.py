@@ -555,6 +555,61 @@ def authenticate_sync(
             svc.close()
 
 
+def lookup_sync(
+    cfg: LdapConfig,
+    sam: str,
+    deadline: float,
+    last_good: _LastGood | None = None,
+    now: Callable[[], datetime] | None = None,
+) -> AuthOutcome:
+    """[3] SSO (Kerberos): the § 12.7 sequence minus the user bind — the identity was already
+    proven by the Kerberos ticket. Service bind, find by sAMAccountName, account state, groups
+    (blocking; call in a thread)."""
+    steps: list[Step] = []
+    if not ldap_pure.valid_sam(sam):
+        return AuthOutcome(False, "unknown_user", steps=steps)
+    targets, _dns = resolve_targets(cfg)
+    svc: _Conn | None = None
+    try:
+        try:
+            svc = _connect_service(cfg, targets, deadline, steps, last_good)
+        except _Unavailable:
+            return AuthOutcome(False, "directory_unavailable", steps=steps)
+        label = svc.target.label
+        try:
+            found = _find_user(svc, cfg, ldap_pure.LoginName(sam=sam, upn=None), steps)
+        except _Unavailable as exc:
+            steps.append(Step("search_user", False, str(exc), label))
+            return AuthOutcome(False, "directory_unavailable", server=label, steps=steps)
+        if isinstance(found, str):
+            return AuthOutcome(False, found, server=label, steps=steps)
+        user = found
+        reason = ldap_pure.account_state(
+            user._uac,  # type: ignore[attr-defined]
+            user._computed,  # type: ignore[attr-defined]
+            user._expires,  # type: ignore[attr-defined]
+            (now or (lambda: datetime.now(UTC)))(),
+        )
+        if reason:
+            steps.append(Step("account_state", False, reason, label))
+            return AuthOutcome(False, reason, user=user, server=label, steps=steps)
+        try:
+            role = None
+            if _in_group(svc, user.dn, cfg.admin_group_dn):
+                role = "admin"
+            elif _in_group(svc, user.dn, cfg.viewer_group_dn):
+                role = "viewer"
+        except _Unavailable as exc:
+            steps.append(Step("groups", False, str(exc), label))
+            return AuthOutcome(False, "directory_unavailable", user=user, server=label, steps=steps)
+        if role is None:
+            return AuthOutcome(False, "not_in_group", user=user, server=label, steps=steps)
+        return AuthOutcome(True, None, role=role, user=user, server=label, steps=steps)
+    finally:
+        if svc is not None:
+            svc.close()
+
+
 def test_connection_sync(cfg: LdapConfig, deadline: float) -> dict[str, Any]:
     """LdapTestResult (api.md): every server is tried (table), then service bind, base DN and
     groups on the first server that binds."""
@@ -765,6 +820,33 @@ class Directory:
             )
         except Exception as exc:  # noqa: BLE001 - never a 500 from the directory path
             log.exception("Directory authentication failed unexpectedly")
+            return AuthOutcome(
+                False, "directory_unavailable", steps=[Step("connect", False, _short(exc))]
+            )
+
+    async def lookup(self, cfg: LdapConfig, sam: str, now: datetime | None = None) -> AuthOutcome:
+        """[3] SSO: directory checks of an already authenticated account (no user bind)."""
+        if cfg.bind_password_unreadable or not cfg.bind_password:
+            return AuthOutcome(
+                False,
+                "directory_unavailable",
+                steps=[Step("service_bind", False, "service account password not available")],
+            )
+        try:
+            return await self._run(
+                cfg.budget_s,
+                lambda dl: lookup_sync(
+                    cfg, sam, dl, self.last_good, (lambda: now) if now else None
+                ),
+            )
+        except TimeoutError:
+            return AuthOutcome(
+                False,
+                "directory_unavailable",
+                steps=[Step("connect", False, f"no answer within {cfg.budget_s:.0f} s")],
+            )
+        except Exception as exc:  # noqa: BLE001
+            log.exception("Directory lookup failed unexpectedly")
             return AuthOutcome(
                 False, "directory_unavailable", steps=[Step("connect", False, _short(exc))]
             )

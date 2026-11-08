@@ -393,6 +393,7 @@ def test_teams_url_helpers() -> None:
         "url_set": True,
         "url_host": "prod-12.westeurope.logic.azure.com",
         "legacy": False,
+        "ack_link": True,  # [3] chat_ack
     }
     assert teams.is_legacy("https://mnidom.webhook.office.com/webhookb2/x")
     assert teams.is_legacy("https://outlook.office.com/webhook/x")

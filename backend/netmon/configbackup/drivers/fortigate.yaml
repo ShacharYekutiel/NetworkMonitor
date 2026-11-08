@@ -1,0 +1,19 @@
+id: fortigate
+name: 'Fortinet FortiGate (FortiOS)'
+version: 1
+confidence: unverified
+priority: 400
+match:
+  templates: ['fortigate', 'fortinet_fortigate']
+  sys_object_id: ['1.3.6.1.4.1.12356.']
+mode: exec
+prompt: null
+commands:
+  - command: 'show full-configuration'
+error_patterns: ['^Command fail\.']
+ignore_lines:
+  - '^#conf_file_ver='
+  - '^#buildno='
+secrets:
+  - '\bset [\w-]+ ENC (\S+)'
+notes: 'No VDOM support in phase 3.'

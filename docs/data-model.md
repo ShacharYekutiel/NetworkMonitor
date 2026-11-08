@@ -3027,7 +3027,7 @@ regexes with single quotes, quote OIDs).
 | `commands` | `[{command, fallback?}]` | backup commands (1–4) |
 | `error_patterns` | regex[] | output lines that mean failure |
 | `ignore_lines` | regex[] | removed before hashing (`^`-anchored, applied per line) |
-| `secrets` | regex[] | per line; every capture group 1 replaced by `<secret removed>` |
+| `secrets` | regex[] | per line; every match (`finditer`: a line may hold several secrets, e.g. SNMPv3 auth + priv keys) of every regex is taken on the **original** line and the union of all group-1 spans is replaced by `<secret removed>` (order-independent; a rule never matches inside an inserted mask). A rule must capture the secret, never a keyword: use a negative look-ahead where a keyword can follow (Comware `cipher authentication-mode …`) and no `^` anchor on rules that must hit several secrets on one line |
 | `strip_ansi` | bool | default true |
 | `legacy_algorithms` | bool | default false |
 | `timeouts` | `{prompt_s, command_s}` | defaults 30, 90 |
@@ -3060,10 +3060,10 @@ commands:
 error_patterns: ['^\s*% (Unrecognized|Incomplete|Too many|Wrong parameter)']
 ignore_lines: []
 secrets:
-  - '\b(?:cipher|hash)\s+(\S+)'
-  - '^\s*snmp-agent community (?:read|write)\s+(?:simple\s+|cipher\s+)?(\S+)'
-  - '^\s*snmp-agent usm-user .*?(?:authentication-mode \S+|privacy-mode \S+)\s+(\S+)'
-  - '\bkey\s+(?:simple|cipher)\s+(\S+)'
+  - '\b(?:cipher|hash)\s+(?!authentication-mode\b|privacy-mode\b)(\S+)'
+  - '^\s*snmp-agent community (?:(?:read|write)\s+)?(?:simple\s+|cipher\s+)?(\S+)'
+  - '\b(?:authentication-mode|privacy-mode)\s+\S+\s+(?!cipher\b|simple\b)(\S+)'
+  - '\b(?:key|password)\s+(?:\S+\s+)?(?:simple|cipher)\s+(\S+)'
 notes: 'IRF: one config for the stack. Verify on FF 5945.'
 ```
 
@@ -3071,12 +3071,12 @@ The other six drivers (values; full files ship in the repo):
 
 | id | match | prompt | setup | commands | ignore_lines | secrets (group 1 masked) |
 |---|---|---|---|---|---|---|
-| `hpe_arubaos_switch` | templates `hpe_arubaos_switch`; sysObjectID `1.3.6.1.4.1.11.2.3.7.11.` (after Comware by priority 110: Comware matches by template first) | `'^[\w.\-]{1,64}(\([\w\-]+\))?# ?$'` | `no page` | `show running-config` | `'^Running configuration:$'` | `'^\s*password (?:manager\|operator) .*?(?:sha1\|plaintext) "?([^"\s]+)'`, `'^\s*snmp-server community "([^"]+)"'`, `'\bkey "?([^"\s]+)"?'` ; `pre_prompt` "Press any key to continue" → `\n` |
-| `aruba_cx` | templates `aruba_cx`; sysObjectID `1.3.6.1.4.1.47196.` | `'^[\w.\-]{1,64}# ?$'` | `no page` | `show running-config` | `'^Current configuration:$'` | `'\bciphertext (\S+)'`, `'^\s*snmp-server community (\S+)'` |
-| `checkpoint_gaia` | templates `checkpoint_gaia`; sysObjectID `1.3.6.1.4.1.2620.` | — (exec) | — | `show configuration` (fallback `clish -c "show configuration"`) | `'^# Exported by \S+ on '`, `'^# Configuration of \S+$'` (keeps hostname stable) | `'password-hash (\S+)'`, `'^set snmp community (\S+)'`, `'^set expert-password-hash (\S+)'` |
-| `cisco_ios` | templates `cisco_ios`; sysObjectID `1.3.6.1.4.1.9.1.` | `'^[\w.\-:/]{1,64}[>#] ?$'`; enable when `'>\s*$'` | `terminal length 0`, `terminal width 0` | `show running-config` | `'^! (Last configuration change\|NVRAM config last updated) at'`, `'^Building configuration'`, `'^Current configuration : \d+ bytes'`, `'^ntp clock-period'` | `'^\s*enable (?:secret\|password)(?: \d)? (\S+)'`, `'^\s*username \S+ .*?(?:secret\|password)(?: \d)? (\S+)'`, `'^\s*snmp-server community (\S+)'`, `'\bkey(?: \d)? (\S+)'` |
-| `fortigate` | templates `fortigate`; sysObjectID `1.3.6.1.4.1.12356.` | — (exec) | — | `show full-configuration` | `'^#conf_file_ver='`, `'^#buildno='` | `'\bset (?:password\|passwd\|psksecret\|secret\|key\|private-key\|passphrase) ENC (\S+)'` |
-| `mikrotik_routeros` | templates `mikrotik`; sysObjectID `1.3.6.1.4.1.14988.` | — (exec) | — | `/export` | `'^# \S+ \d\d:\d\d:\d\d by RouterOS'`, `'^# \d{4}-\d\d-\d\d \d\d:\d\d:\d\d by RouterOS'`, `'^# software id = '` | (RouterOS 7 hides secrets in `/export`; none) |
+| `hpe_arubaos_switch` | templates `hpe_arubaos_switch`; sysObjectID `1.3.6.1.4.1.11.2.3.7.11.` (after Comware by priority 110: Comware matches by template first) | `'^[\w.\-]{1,64}(\([\w\-]+\))?# ?$'` | `no page` | `show running-config` | `'^Running configuration:$'` | `'^\s*password (?:manager\|operator\|port-access) .*?(?:sha1\|sha256\|plaintext) "?((?<=")[^"]+\|[^"\s]+)'`, `'\bpassword\b.*?\b(?:sha1\|sha256\|plaintext) "?((?<=")[^"]+\|[^"\s]+)'`, `'^\s*snmp-server community "([^"]+)"'`, `'\bkey "?((?<=")[^"]+\|[^"\s]+)'`, `'\b(?:auth\|priv)\s+(?:md5\|sha\S*\|des\|3des\|aes\S*)\s+"?((?<=")[^"]+\|[^"\s]+)'` ; `pre_prompt` "Press any key to continue" → `\n` |
+| `aruba_cx` | templates `aruba_cx`; sysObjectID `1.3.6.1.4.1.47196.` | `'^[\w.\-]{1,64}# ?$'` | `no page` | `show running-config` | `'^Current configuration:$'` | `'\bciphertext (\S+)'`, `'\bplaintext (\S+)'`, `'^\s*snmp-server community (\S+)'` |
+| `checkpoint_gaia` | templates `checkpoint_gaia`; sysObjectID `1.3.6.1.4.1.2620.` | — (exec) | — | `show configuration` (fallback `clish -c "show configuration"`) | `'^# Exported by \S+ on '`, `'^# Configuration of \S+$'` (keeps hostname stable) | `'password-hash (\S+)'`, `'^set snmp community (\S+)'`, `'^set expert-password-hash (\S+)'`, `'\b(?:auth\|privacy)-pass-(?:phrase\|hash) (\S+)'`, `'(?<![\w-])secret (\S+)'`, `'^(?:add\|set) aaa tacacs-servers .*?\bkey (\S+)'` |
+| `cisco_ios` | templates `cisco_ios`; sysObjectID `1.3.6.1.4.1.9.1.` | `'^[\w.\-:/]{1,64}[>#] ?$'`; enable when `'>\s*$'` | `terminal length 0`, `terminal width 0` | `show running-config` | `'^! (Last configuration change\|NVRAM config last updated) at'`, `'^Building configuration'`, `'^Current configuration : \d+ bytes'`, `'^ntp clock-period'` | `'^\s*enable (?:secret\|password)(?: \d)? (\S+)'`, `'^\s*username \S+ .*?(?:secret\|password)(?: \d)? (\S+)'`, `'^\s*snmp-server community (\S+)'`, `'^\s*snmp-server host \S+ (?:informs \|traps )?(?:version (?:1\|2c\|3 \S+) )?(\S+)'`, `'\bpre-shared-key(?: (?:local\|remote))?(?: \d)? (\S+)'`, `'\bkey(?:-string)?(?: \d+)?(?: md5)?(?: \d)? (\S+)'`, `'(?<![\w-])password(?: \d)? (\S+)'`, `'\bauth (?:md5\|sha\S*) (\S+)'`, `'\bpriv (?:des\S*\|3des\|aes(?: \d+)?) (\S+)'` |
+| `fortigate` | templates `fortigate`; sysObjectID `1.3.6.1.4.1.12356.` | — (exec) | — | `show full-configuration` | `'^#conf_file_ver='`, `'^#buildno='` | `'\bset [\w-]+ ENC (\S+)'` (every `ENC` value is a secret). Not maskable per line: `config system snmp community` → `set name "<community>"` (context needed) |
+| `mikrotik_routeros` | templates `mikrotik`; sysObjectID `1.3.6.1.4.1.14988.` | — (exec) | — | `/export` | `'^# \S+ \d\d:\d\d:\d\d by RouterOS'`, `'^# \d{4}-\d\d-\d\d \d\d:\d\d:\d\d by RouterOS'`, `'^# software id = '` | `'\b[\w-]*(?:password\|secret\|passphrase\|pre-shared-key\|private-key\|auth-key\|psk)=("[^"]*"\|\S+)'` (RouterOS 7 hides most secrets in `/export`; this covers v6 and `show-sensitive` exports) |
 
 **`match_driver` vectors** (drivers above): device with template `hpe_comware` → `hpe_comware`; template
 `hpe_arubaos_switch` → `hpe_arubaos_switch`; no template, sysObjectID `1.3.6.1.4.1.25506.11.1.240` →
@@ -3565,7 +3565,8 @@ the bootstrap).
    recreated with the five passive types; `devices.event_sensor_optout` values check widened accordingly (API
    validation).
 2. `events_kind_check` + `'config_change','new_device'`.
-3. `users_source_check` + `'oidc'`.
+3. `users_source_check` + `'oidc'` (and `users_username_check` gains `source = 'oidc'`: 1–64 characters, no
+   control characters or white space); `audit_log_source_check` + `'oidc'` (OIDC sign-ins).
 4. `event_conditions` source check + `'backup_failed','host_key','config_changed','new_mac'`; `event_rules`
    action check + `'config_backup'` (and the table CHECK: `config_backup` rows have no key/clear fields); seed the
    3 built-in config-change rules (English names, `enabled = false`).
@@ -3584,7 +3585,8 @@ the bootstrap).
 `downgrade()` (reverse): `DROP MATERIALIZED VIEW IF EXISTS flow_if_1h, flow_app_1h, flow_host_1h CASCADE` and
 `DROP TABLE IF EXISTS` the same names (whichever the bootstrap created); drop the tables of steps 13 → 7; drop the
 columns of steps 6 and 5; `DELETE FROM event_rules WHERE action = 'config_backup'`, restore the action and
-condition-source checks after `DELETE FROM event_conditions WHERE source IN (…new…)`; `DELETE FROM users WHERE
-source = 'oidc'`, restore the user check; `DELETE FROM events WHERE kind IN ('config_change','new_device')`,
+condition-source checks after `DELETE FROM event_conditions WHERE source IN (…new…)`; `UPDATE audit_log SET source = NULL WHERE source = 'oidc'` (with the
+append-only trigger `audit_log_immutable` disabled for that statement), restore the audit source check; `DELETE FROM
+users WHERE source = 'oidc'`, restore the user checks; `DELETE FROM events WHERE kind IN ('config_change','new_device')`,
 restore the kind check; `DELETE FROM sensors WHERE type IN ('config_backup','new_mac')`, restore the type check
 and `ux_sensors_event_type`. Settings rows stay (harmless).

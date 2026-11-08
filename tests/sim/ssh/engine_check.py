@@ -92,7 +92,7 @@ async def main(base: str) -> None:
                 got = await backup(dev)
                 want = (HERE / "expected" / name / f"{v}.txt").read_text()
                 check(f"{name} {v}: engine output normalised == expected", got == want, first_diff(got, want))
-                leaks = [s for s in leaked_secrets(got) if name != "sw-cw1" or "cHJpdktl" not in s]
+                leaks = leaked_secrets(got)
                 check(f"{name} {v}: no fixture secret stored", not leaks, str(leaks))
             except SessionError as e:
                 check(f"{name} {v}: backup", False, f"{e.code}: {e}")

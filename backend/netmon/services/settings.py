@@ -9,8 +9,10 @@ from sqlalchemy import select
 from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from netmon.flows.settings import DEFAULTS as FLOW_DEFAULTS
 from netmon.models import Setting
 from netmon.services.features import FEATURES
+from netmon.services.settings_p3c import DEFAULTS as P3C_DEFAULTS
 
 DEFAULTS: dict[str, Any] = {
     "smtp": {
@@ -64,9 +66,54 @@ DEFAULTS: dict[str, Any] = {
     "flap_quiet_min": 15,
     "event_linkdown_scope": "important",
     "siem_targets": [],
+    # [3] config backup (data-model § [3] Settings keys)
+    "config_backup_time": "02:47",
+    "config_backup_window_min": 60,
+    "config_backup_concurrency": 4,
+    "config_backup_timeout_s": 120,
+    "config_backup_mask_secrets": True,
+    "config_backup_max_versions": 100,
+    "config_backup_min_versions": 10,
+    "config_backup_retention_days": 365,
+    "config_backup_fail_threshold": 2,
+    "config_change_alert": False,
+    "config_change_clear_min": 60,
+    # [3] new-device alerts (newdev_learning_until: set by the first ON, read-only in the API)
+    "newdev_learning_days": 7,
+    "newdev_learning_until": None,
+    "newdev_scope_group_ids": [],
+    "newdev_ignore_random_macs": True,
+    "newdev_condition_clear_min": 1440,
+    "newdev_forget_after_days": 0,
+    # [3] flow collector (netmon.flows.settings)
+    **FLOW_DEFAULTS,
+    # [3] SSO objects, reports, chat acknowledge (netmon.services.settings_p3c)
+    **P3C_DEFAULTS,
 }
 
-MERGED_OBJECTS = ("smtp", "ldap")  # stored objects merged over their defaults
+# [3] plain keys written by PUT /api/settings as they come (validated by the schema mixins)
+CONFIG_BACKUP_KEYS = (
+    "config_backup_time",
+    "config_backup_window_min",
+    "config_backup_concurrency",
+    "config_backup_timeout_s",
+    "config_backup_mask_secrets",
+    "config_backup_max_versions",
+    "config_backup_min_versions",
+    "config_backup_retention_days",
+    "config_backup_fail_threshold",
+    "config_change_alert",
+    "config_change_clear_min",
+)
+NEWDEV_KEYS = (
+    "newdev_learning_days",
+    "newdev_scope_group_ids",
+    "newdev_ignore_random_macs",
+    "newdev_condition_clear_min",
+    "newdev_forget_after_days",
+)
+
+MERGED_OBJECTS = ("smtp", "ldap", "kerberos", "oidc")  # stored objects merged over their defaults
 
 
 def defaults() -> dict[str, Any]:
@@ -146,6 +193,15 @@ def settings_out(values: dict[str, Any], secret_key: str | None = None) -> dict[
         "ldap": ldap_out(values["ldap"], secret_key),
         "audit_retention_days": values["audit_retention_days"],
         **ingest_settings_out(values),
+        # [3]
+        **{k: values[k] for k in (*CONFIG_BACKUP_KEYS, *NEWDEV_KEYS)},
+        **{k: values[k] for k in FLOW_DEFAULTS},  # [3] flows
+        "newdev_learning_until": values.get("newdev_learning_until"),
+        # [3] reports / chat ack (kerberos / oidc: GET /api/sso/*, never here)
+        **{
+            k: values[k]
+            for k in ("report_retention_days", "chat_ack_ttl_h", "telegram_poll_timeout_s")
+        },
     }
 
 
