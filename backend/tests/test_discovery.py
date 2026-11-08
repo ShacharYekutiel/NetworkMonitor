@@ -9,6 +9,7 @@ import logging
 import socket
 import threading
 import time
+import warnings
 from collections.abc import Iterator
 from datetime import timedelta
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
@@ -588,10 +589,15 @@ async def test_cancel_and_loop_responsive(rt, admin: httpx.AsyncClient) -> None:
     assert r.status_code == 202
     await wait_scan(admin, r.json()["id"])
     # checked last, so a slow runner cannot leave the scan running for the next tests
-    assert lag < 0.25, (
+    detail = (
         f"event loop blocked for {lag:.3f}s; slow callbacks: {slow}; "
         f"loop thread stacks while blocked (samples): {blocked_at}"
     )
+    if lag > 0.1:  # visible in the CI log even when the test passes
+        warnings.warn(detail, stacklevel=1)
+    # The 2a bug blocked the loop for seconds. Shared CI runners (with asyncio debug on) show
+    # single steps of ~0.3 s inside pysnmp request setup, so the bound is 0.5 s.
+    assert lag < 0.5, detail
 
 
 async def test_scan_validation(admin: httpx.AsyncClient, viewer: httpx.AsyncClient) -> None:
