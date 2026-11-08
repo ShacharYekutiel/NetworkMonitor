@@ -98,8 +98,16 @@ the owner's interaction rule (details on click in a modal, not on hover):
 Open questions for 2b-2: which Aruba product lines (CX switches, Instant APs, Mobility
 Controller, Central); Check Point on appliance or VM, ClusterXL or not, SNMP v3 enabled on Gaia.
 
+## Release v1.0.0 and production (branch `release-gitops`)
+- GitOps production on one Ubuntu server: `deploy/production/` on `main` is the server's desired
+  state (pinned image in `release.env`, Caddy HTTPS with the internal CA's certificate, TimescaleDB,
+  pre-deploy dumps, automatic container rollback, daily backups). Tag `vX.Y.Z` opens the bump PR.
+  See docs/production.md.
+
 ## Phase 2b-3
-- SNMP traps (v1/v2c/v3) on UDP 162 and syslog (UDP/TCP 514), standard ports.
+- SNMP traps (v1/v2c/v3) on UDP 162 and syslog (UDP/TCP 514), standard ports. Production:
+  uncomment the placeholder ports in `deploy/production/compose.yaml` (published ports keep the
+  sender IP).
 - Syslog search/filter, match rules that raise alerts, retention 30 days (configurable).
 - Ports view: **LAG membership** (design gap found in the 2b-2 review). Today the physical members of a
   `Trk*` / `Bridge-Aggregation*` / Port-channel show no VLANs or MACs (the switch reports them on the LAG

@@ -1,0 +1,75 @@
+#!/usr/bin/env bash
+# Fake `docker` for tests/test-sync.sh: simulates just enough of `docker compose` and
+# `docker inspect/exec/volume` for ops/sync.sh. State lives in $FAKE_STATE.
+#   FAKE_BAD_IMAGE   netmon reports "unhealthy" while running this image
+#   FAKE_PULL_FAIL   `compose pull` fails
+set -euo pipefail
+S="${FAKE_STATE:?}"
+mkdir -p "$S/run"
+echo "docker $*" >>"$S/calls"
+
+img_of_env() { sed -n 's/^NETMON_IMAGE=//p' "$1"; }
+running() { [[ -f $S/run/$1 ]]; }
+
+if [[ $1 == compose ]]; then
+  shift
+  envf=""
+  while (($#)); do
+    case "$1" in
+      --project-directory | -f) shift 2 ;;
+      --env-file) envf="$2"; shift 2 ;;
+      *) break ;;
+    esac
+  done
+  sub="$1"
+  shift
+  case "$sub" in
+    config)
+      [[ " $* " == *" --services "* ]] && { printf '%s\n' init db netmon proxy; exit 0; }
+      grep -q '^NETMON_IMAGE=' "$envf"
+      ;;
+    ps)
+      if [[ " $* " == *" -q "* ]]; then
+        svc="${*: -1}"
+        [[ -e $S/run/$svc || -e $S/created-$svc ]] && echo "cid-$svc"
+      else
+        ls "$S/run"
+      fi
+      ;;
+    pull) [[ -z ${FAKE_PULL_FAIL:-} ]] || exit 1 ;;
+    up)
+      if [[ " $* " == *" --remove-orphans "* ]]; then
+        for s in db netmon proxy; do touch "$S/run/$s" "$S/created-$s"; done
+        img_of_env "$envf" >"$S/netmon_image"
+        touch "$S/db_volume"
+      else
+        touch "$S/run/db" "$S/created-db" "$S/db_volume"
+      fi
+      ;;
+    stop) for s in "$@"; do rm -f "$S/run/$s"; done ;;
+    logs | restart | run | exec) : ;;
+    *) echo "fake docker: unsupported compose $sub" >&2; exit 2 ;;
+  esac
+  exit 0
+fi
+
+case "$1" in
+  inspect)
+    fmt="$3" cid="$4" svc="${4#cid-}"
+    case "$fmt" in
+      *Health*)
+        if ! running "$svc"; then echo exited
+        elif [[ $svc == netmon && "$(cat "$S/netmon_image")" == "${FAKE_BAD_IMAGE:-none}" ]]; then echo unhealthy
+        else echo healthy; fi
+        ;;
+      *Running*) running "$svc" && echo true || echo false ;;
+      *Config.Image*) [[ $svc == netmon ]] && cat "$S/netmon_image" ;;
+    esac
+    : "$cid"
+    ;;
+  exec)
+    if [[ " $* " == *" pg_dump "* ]]; then echo "PGDMP-fake-dump"; else cat >/dev/null; fi
+    ;;
+  volume) if [[ -f $S/db_volume ]]; then echo netmon_netmon-db; fi ;;
+  *) echo "fake docker: unsupported $1" >&2; exit 2 ;;
+esac

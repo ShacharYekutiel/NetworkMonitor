@@ -2,6 +2,10 @@
 
 [English](#english) · [עברית](#עברית)
 
+> **Production server (GitOps, HTTPS, backups):** see [production/README.md](production/README.md)
+> and [docs/production.md](../docs/production.md). The options below are for evaluation and
+> small single-host installs.
+
 ## English
 
 There are three ways to install NetworkMonitor. In each one the web UI listens on port **8080**, the health check

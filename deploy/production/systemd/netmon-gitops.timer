@@ -1,0 +1,12 @@
+[Unit]
+Description=Run the NetworkMonitor GitOps sync every 2 minutes
+
+[Timer]
+OnBootSec=2min
+# Counted from the END of the previous run, so runs never overlap (sync.sh also uses flock).
+OnUnitInactiveSec=2min
+AccuracySec=15s
+Unit=netmon-gitops.service
+
+[Install]
+WantedBy=timers.target

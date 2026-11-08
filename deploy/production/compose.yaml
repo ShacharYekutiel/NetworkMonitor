@@ -1,0 +1,161 @@
+# NetworkMonitor — PRODUCTION stack (GitOps). Do not run by hand on the server unless
+# you know why: ops/sync.sh (systemd timer netmon-gitops.timer) applies it.
+#
+#   docker compose --project-directory /opt/netmon/deploy/production \
+#     -f compose.yaml --env-file release.env config -q
+#
+# Based on deploy/docker-compose.yml (same init / db / netmon services and volume names),
+# with: the image pinned by release.env (no build), the app not published directly, and a
+# Caddy reverse proxy terminating HTTPS on 443 (80 -> 443 redirect).
+#
+# Host paths (root-only, never in git):
+#   ${NETMON_ETC_DIR:-/etc/netmon-gitops}/tls/{cert.pem,key.pem}  TLS cert (full chain) + key
+#   ${NETMON_ETC_DIR:-/etc/netmon-gitops}/site.env                NETMON_FQDN for Caddy
+#   ${NETMON_ETC_DIR:-/etc/netmon-gitops}/app.env                 optional app overrides
+#   ${NETMON_ETC_DIR:-/etc/netmon-gitops}/ca/                     corporate CAs for the app
+#
+# Production NEVER uses ":latest" — NETMON_IMAGE comes from release.env and is checked by
+# ops/check-release.sh (exact version, optional @sha256 digest).
+
+name: netmon
+
+x-logging: &logging
+  driver: json-file
+  options:
+    max-size: "10m"
+    max-file: "5"
+
+services:
+  # One-shot: create the shared data volume layout and a random DB password if absent.
+  # (Identical to deploy/docker-compose.yml.)
+  init:
+    image: busybox:1.37
+    restart: "no"
+    network_mode: none
+    volumes:
+      - netmon-data:/data
+    environment:
+      APP_UID: "10001"
+      PG_GID: "70"
+    command:
+      - sh
+      - -euc
+      - |
+        umask 077
+        if [ ! -s /data/db_password ]; then
+          tr -dc 'A-Za-z0-9' < /dev/urandom | head -c 40 > /data/db_password.tmp
+          [ "$$(wc -c < /data/db_password.tmp)" -eq 40 ]
+          mv /data/db_password.tmp /data/db_password
+          echo "init: generated a new database password"
+        else
+          echo "init: database password already present"
+        fi
+        chown "$$APP_UID:$$PG_GID" /data /data/db_password
+        chmod 0750 /data
+        chmod 0640 /data/db_password
+    logging: *logging
+
+  db:
+    image: timescale/timescaledb:2.31.0-pg16
+    restart: unless-stopped
+    depends_on:
+      init:
+        condition: service_completed_successfully
+    environment:
+      POSTGRES_USER: netmon
+      POSTGRES_DB: netmon
+      POSTGRES_PASSWORD_FILE: /run/netmon/db_password
+      TIMESCALEDB_TELEMETRY: "off"
+    volumes:
+      - netmon-db:/var/lib/postgresql/data
+      - netmon-data:/run/netmon:ro
+    # Not published to the host (only the app talks to it).
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -q -h 127.0.0.1 -U netmon -d netmon"]
+      interval: 5s
+      timeout: 5s
+      retries: 30
+      start_period: 30s
+    shm_size: 256mb
+    stop_grace_period: 60s
+    logging: *logging
+
+  netmon:
+    image: ${NETMON_IMAGE:?NETMON_IMAGE is not set - pass --env-file release.env}
+    restart: unless-stopped
+    depends_on:
+      init:
+        condition: service_completed_successfully
+      db:
+        condition: service_healthy
+    env_file:
+      - path: ./config/settings.env
+      - path: ${NETMON_ETC_DIR:-/etc/netmon-gitops}/app.env
+        required: false
+    environment:
+      DATABASE_URL: postgresql://netmon@db:5432/netmon
+      NETMON_DB_PASSWORD_FILE: /data/db_password
+      NETMON_DATA_DIR: /data
+      NETMON_PORT: "8080"
+      # Behind Caddy: trust X-Forwarded-* (Caddy overwrites client-supplied ones) and
+      # always mark the session cookie Secure (the site is HTTPS-only).
+      NETMON_TRUST_PROXY: "true"
+      NETMON_COOKIE_SECURE: "true"
+      # Test hooks must never be enabled in production.
+      NETMON_TEST_MODE: "false"
+      NETMON_DEV: "false"
+    volumes:
+      - netmon-data:/data
+      # Corporate root CAs (TLS-inspecting proxy) trusted by the app at runtime.
+      - ${NETMON_ETC_DIR:-/etc/netmon-gitops}/ca:/etc/netmon/certs:ro
+    # Reachable only through Caddy (no `ports:`).
+    expose:
+      - "8080"
+    # [2b-3 placeholder] Inbound SNMP traps and syslog must keep the sender's IP address.
+    # Docker's published ports (iptables DNAT) preserve the source IP for external senders;
+    # the app must listen on these ports inside the container (non-root: map to >1024 or
+    # set net.ipv4.ip_unprivileged_port_start). Uncomment when phase 2b-3 ships:
+    # ports:
+    #   - "162:1162/udp"   # SNMP traps
+    #   - "514:1514/udp"   # syslog
+    #   - "514:1514/tcp"   # syslog
+    sysctls:
+      net.ipv4.ping_group_range: "0 2147483647"
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8080/api/health', timeout=4)"]
+      interval: 15s
+      timeout: 5s
+      retries: 4
+      start_period: 120s
+    stop_grace_period: 20s
+    logging: *logging
+
+  proxy:
+    image: caddy:2.10.2-alpine
+    restart: unless-stopped
+    depends_on:
+      - netmon
+    ports:
+      - "80:80"
+      - "443:443"
+    env_file:
+      - path: ${NETMON_ETC_DIR:-/etc/netmon-gitops}/site.env
+        required: false
+    volumes:
+      - ./caddy/Caddyfile:/etc/caddy/Caddyfile:ro
+      - ${NETMON_ETC_DIR:-/etc/netmon-gitops}/tls:/etc/caddy/tls:ro
+      - caddy-data:/data
+      - caddy-config:/config
+    healthcheck:
+      test: ["CMD", "wget", "-q", "-O", "/dev/null", "http://127.0.0.1:2019/config/"]
+      interval: 15s
+      timeout: 5s
+      retries: 4
+      start_period: 10s
+    logging: *logging
+
+volumes:
+  netmon-db:
+  netmon-data:
+  caddy-data:
+  caddy-config:

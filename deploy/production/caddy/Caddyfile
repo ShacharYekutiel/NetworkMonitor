@@ -1,0 +1,52 @@
+# HTTPS front end for NetworkMonitor.
+#
+# NETMON_FQDN comes from /etc/netmon-gitops/site.env (written by ops/bootstrap.sh).
+# The certificate is issued by the organisation's internal CA (ops/make-csr.sh +
+# ops/install-cert.sh); until then bootstrap installs a temporary self-signed one.
+# Both live in /etc/netmon-gitops/tls/ on the host, mounted read-only at /etc/caddy/tls.
+{
+	# Certificates are managed by hand (internal CA): never try ACME / an internal CA.
+	auto_https disable_redirects
+	# Clients that send no SNI (or an unknown name, e.g. the server's IP) get our cert.
+	default_sni {$NETMON_FQDN}
+	admin localhost:2019
+	servers {
+		# HTTP/3 would need UDP 443 published as well; TCP only is enough here.
+		protocols h1 h2
+	}
+}
+
+(app) {
+	tls /etc/caddy/tls/cert.pem /etc/caddy/tls/key.pem
+	encode zstd gzip
+	header {
+		Strict-Transport-Security "max-age=31536000"
+		X-Content-Type-Options nosniff
+		Referrer-Policy same-origin
+		-Server
+	}
+	# WebSocket (/ws) upgrades are proxied transparently by reverse_proxy.
+	# Caddy does not trust client-supplied X-Forwarded-* (no trusted_proxies), so the
+	# app (NETMON_TRUST_PROXY=true) sees X-Forwarded-For/-Proto/-Host set by Caddy only.
+	reverse_proxy netmon:8080 {
+		# Keep long-lived WebSocket connections across `caddy reload` for a while.
+		stream_close_delay 5m
+	}
+}
+
+# Full name (from site.env) and the org short DNS name. Both must be SANs of the cert.
+https://{$NETMON_FQDN}, https://netmonitor {
+	import app
+}
+
+# Anything else on 443 (IP address, other names): send the browser to the canonical name,
+# so the session cookie and the Origin check always use one host.
+https:// {
+	tls /etc/caddy/tls/cert.pem /etc/caddy/tls/key.pem
+	redir https://{$NETMON_FQDN}{uri} permanent
+}
+
+# Port 80: redirect everything to HTTPS on the canonical name.
+http:// {
+	redir https://{$NETMON_FQDN}{uri} permanent
+}

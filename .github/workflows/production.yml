@@ -1,0 +1,65 @@
+name: Production config
+
+# Validates deploy/production/ (the GitOps folder the production server deploys from):
+# shellcheck, release.env format + version/image consistency (never :latest), compose
+# config, Caddyfile, systemd units, and the sync.sh decision logic (fake docker).
+on:
+  push:
+    branches: ["main"]
+    paths: ["deploy/production/**", ".github/workflows/production.yml"]
+  pull_request:
+    paths: ["deploy/production/**", ".github/workflows/production.yml"]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: production-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    defaults:
+      run:
+        working-directory: deploy/production
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: shellcheck
+        run: |
+          shellcheck --version | head -n2
+          shellcheck -x ops/*.sh tests/*.sh tests/fake-bin/*
+
+      - name: release.env (format, version == image tag, no latest)
+        run: ops/check-release.sh release.env
+
+      - name: docker compose config
+        run: |
+          docker compose version
+          mkdir -p "$RUNNER_TEMP/etc"
+          NETMON_ETC_DIR="$RUNNER_TEMP/etc" docker compose -f compose.yaml --env-file release.env config -q
+          NETMON_ETC_DIR="$RUNNER_TEMP/etc" docker compose -f compose.yaml --env-file release.env config --images
+
+      - name: Caddyfile (caddy validate with a throwaway cert)
+        run: |
+          tls="$RUNNER_TEMP/tls"
+          mkdir -p "$tls"
+          openssl req -x509 -newkey rsa:2048 -nodes -days 1 -subj /CN=netmonitor.example.local \
+            -keyout "$tls/key.pem" -out "$tls/cert.pem" 2>/dev/null
+          img="$(NETMON_ETC_DIR=/x docker compose -f compose.yaml --env-file release.env config --images | grep '^caddy:')"
+          docker run --rm -e NETMON_FQDN=netmonitor.example.local \
+            -v "$PWD/caddy/Caddyfile:/etc/caddy/Caddyfile:ro" -v "$tls:/etc/caddy/tls:ro" \
+            "$img" caddy validate --config /etc/caddy/Caddyfile --adapter caddyfile
+
+      - name: systemd units
+        run: |
+          d="$RUNNER_TEMP/units"
+          mkdir -p "$d"
+          for f in systemd/*; do sed "s#/usr/local/lib/netmon-gitops/#$PWD/ops/#" "$f" >"$d/$(basename "$f")"; done
+          (cd "$d" && systemd-analyze verify ./*.service ./*.timer)
+
+      - name: sync.sh logic (fake docker)
+        run: tests/test-sync.sh

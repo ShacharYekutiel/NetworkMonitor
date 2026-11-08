@@ -1,0 +1,18 @@
+[Unit]
+Description=NetworkMonitor GitOps sync (deploys deploy/production from origin/main)
+Documentation=file:///opt/netmon/deploy/production/README.md
+Wants=network-online.target
+After=network-online.target docker.service
+Requires=docker.service
+
+[Service]
+Type=oneshot
+# NETMON_REPO_DIR (written by ops/bootstrap.sh).
+EnvironmentFile=-/etc/netmon-gitops/gitops.env
+Environment=HOME=/root
+# The installed copy (updated by sync.sh after a healthy deploy), not the git checkout.
+ExecStart=/usr/local/lib/netmon-gitops/sync.sh
+# Pulling images + waiting for health can take a while on a slow proxy.
+TimeoutStartSec=30min
+Nice=5
+SyslogIdentifier=netmon-gitops
