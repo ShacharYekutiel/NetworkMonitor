@@ -192,3 +192,32 @@ both Timescale mode and fallback mode, and on Windows paths (no POSIX-only calls
 - Existing test changes allowed in 2b-3 (contract changes on purpose): `test_migrations.py` (head `0006`),
   sensor-type list tests (three passive types), `User`/`Device`/`Port` shape tests (new keys),
   `last_admin` tests (local admins), event-kind lists. Any other failing existing test is a regression.
+
+## Phase 3 notes
+- Every phase-3 feature follows the 2b-3 toggle rules (OFF by default, runtime start/stop, `409 feature_disabled`,
+  OFF leaves no socket/task/connection running). Tests cover OFF, ON and ON → OFF → ON for each of the 8 features.
+- Keep pure and exhaustively unit-tested: `netmon.configbackup.drivers` (`validate_driver`, `match_driver`),
+  `configbackup.normalize`, the host-key decision and retention selection, `netmon.flows.decode_*`,
+  `flows.templates`, `flows.aggregate.MinuteAggregator`, `flows.services`, `netmon.newdev.detector`
+  (`is_access_port`, `classify_sightings`), `auth.kerberos_pure` (keytab parser, NTLM detection, principal split),
+  `auth.oidc.validate_claims`, `reports.compute`, `kiosk.guard`, `chatack.tokens`. I/O lives in the session engine,
+  receivers, worker/writer, runners, pollers.
+- New dependencies: `asyncssh>=2.17` (EPL-2.0 OR GPL-2.0-or-later; core), `gssapi>=1.8` (ISC; extra
+  `kerberos`, installed in the Docker image with `libgssapi-krb5-2`). No other new runtime dependency.
+- Config backup: never send a command that is not in a validated driver; never log credentials or config content;
+  config content is read only by admin endpoints. Driver YAML style as templates (single-quoted regexes).
+- Flows: decoding and aggregation run only in the flow worker thread, never on the event loop; the thread hands
+  rows to the loop with `call_soon_threadsafe`; every queue bounded, every drop counted.
+- Kerberos: set `KRB5_CONFIG` / `KRB5RCACHEDIR` before importing `gssapi`; gssapi calls only in
+  `asyncio.to_thread`. The keytab file exists only while the feature is ON.
+- Tokens in URLs only in fragments (`/noc#…`, `/ack#…`); never put a kiosk/ack token in a query string or a log
+  line.
+- Pydantic models (`extra="forbid"`): `SshCredentialsIn`, `SshTestIn`, `BackupRunIn`, `HostKeyAcceptIn`,
+  `FlowExporterPatch`, `NewDeviceAckIn`, `AllowEntryIn`, `KerberosSettingsIn`, `OidcSettingsIn`, `ReportIn`,
+  `ReportRunIn`, `ReportPreviewIn`, `KioskScreenIn`, `ChatAckResolveIn`, `ChatAckIn`, `LinkCodeIn`; device and
+  group create/PATCH gain `ssh_credentials`, `config_backup`, `config_backup_driver`, `newdev_excluded_ports`.
+- Frontend: extend `types.ts` / `endpoints.ts` / `ws.ts` exactly as api.md § Phase 3; `/noc` and `/ack` are
+  routes outside the authenticated shell; configs, diffs, IPs, MACs and flow keys render `dir="ltr"`.
+- Existing test changes allowed in phase 3 (contract changes on purpose): `test_migrations.py` (head `0007`),
+  sensor-type lists (two more passive types), feature lists (19 names), `User`/`Device`/`Group` shape tests (new
+  keys), event-kind lists, event-rule action lists. Any other failing existing test is a regression.

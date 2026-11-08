@@ -1,4 +1,4 @@
-# NetworkMonitor — Data Model (Phase 1 + Phase 2a + Phase 2b-1 + Phase 2b-2 + Phase 2b-3)
+# NetworkMonitor — Data Model (Phase 1 + Phase 2a + Phase 2b-1 + Phase 2b-2 + Phase 2b-3 + Phase 3)
 
 Sections and rows marked **[2a]** belong to the Phase 2a contract (auto-discovery, device templates,
 `snmp_custom` / `snmp_disk` sensors, Telegram channel). Everything else is the Phase 1 contract and is unchanged.
@@ -10,6 +10,8 @@ Sections marked **[2b-2]** (switch ports view, template library, vendor template
 Sections marked **[2b-3]** (feature toggles, traps, syslog, event rules, flapping, SIEM forwarding, LAG,
 Active Directory, audit log, timeline, Teams, API tokens) are in [§ Phase 2b-3](#2b-3-phase-2b-3-additions),
 migration `0006`.
+Sections marked **[3]** (config backup, flows, new-device alerts, SSO, reports, NOC screens, chat acknowledge)
+are in [§ Phase 3](#3-phase-3-additions), migration `0007`.
 
 PostgreSQL ≥ 14 holds the data, and TimescaleDB is optional (see [architecture.md §6](architecture.md)). Alembic
 migrations own the schema.
@@ -2920,3 +2922,666 @@ restore `events_kind_check`; `DELETE FROM notification_channels WHERE type = 'te
 restore its check; drop `ix_events_maintenance`, `ux_sensors_event_type`; `DELETE FROM sensors WHERE type IN
 ('trap','syslog','port_flap')`, restore `sensors_type_check`. Settings rows stay (harmless). A Timescale
 hypertable is dropped by `DROP TABLE` like a plain table.
+
+# **[3]** Phase 3 additions
+
+Scope: network device config backup, NetFlow/IPFIX/sFlow collector, new-device alerts, SSO (Kerberos, OIDC),
+reports, NOC kiosk screens, acknowledge from Telegram/Teams. All schema changes are in **migration `0007`**
+([§ Phase 3 migration](#3-phase-3-migration-0007)). Everything is additive.
+
+API shapes: [api.md § Phase 3](api.md#3-phase-3-contract). Components and flows:
+[architecture.md § 13](architecture.md#13-phase-3-config-backup-flows-new-device-alerts-sso-reports-noc-mode-chat-acknowledge).
+
+## [3] Enum changes
+
+| Name | Values |
+|---|---|
+| `sensor_type` | … 2b-3 values, **[3]** `config_backup`, `new_mac` (passive event sensors) |
+| `event_kind` | … 2b-3 values, **[3]** `config_change`, `new_device` |
+| `user_source` | `local`, `ldap`, **[3]** `oidc` (Kerberos SSO users are AD users: `ldap`) |
+| `condition_source` | `rule`, `flap`, **[3]** `backup_failed`, `host_key`, `config_changed`, `new_mac` |
+| `event_rule_action` | `warning`, `down`, `ignore`, **[3]** `config_backup` |
+| `actor_type` | unchanged (`user`, `token`, `system`, `anonymous`); kiosk requests are not audited |
+| `feature` | … 11 values of 2b-3, **[3]** `config_backup`, `flows`, `new_device_alerts`, `sso_kerberos`, `sso_oidc`, `reports`, `noc`, `chat_ack` |
+| **[3]** `backup_mode` | `auto`, `on`, `off` |
+| **[3]** `backup_result` | `ok`, `unchanged`, `failed`, `cancelled` |
+| **[3]** `backup_trigger` | `schedule`, `manual`, `event`, `retry` |
+| **[3]** `backup_error` | `connect_timeout`, `connect_refused`, `auth_failed`, `host_key_changed`, `prompt_timeout`, `command_error`, `too_large`, `no_driver`, `no_credentials`, `cancelled`, `internal` |
+| **[3]** `host_key_state` | `pinned`, `changed` |
+| **[3]** `flow_protocol` | `netflow5`, `netflow9`, `ipfix`, `sflow5` |
+| **[3]** `exporter_state` | `accepted`, `pending`, `ignored` |
+| **[3]** `if_direction` | `in`, `out` |
+| **[3]** `host_direction` | `src`, `dst` |
+| **[3]** `known_mac_state` | `baseline`, `new`, `known`, `allowed` |
+| **[3]** `report_schedule` | `weekly`, `monthly`, `none` |
+| **[3]** `report_section` | `availability`, `top_alerts`, `flapping_ports`, `port_errors`, `config_changes`, `new_devices`, `top_talkers` |
+| **[3]** `kiosk_widget` | `summary`, `down_devices`, `problems`, `recent_alerts`, `map`, `group_tiles` |
+| **[3]** `chat_provider` | `telegram` |
+
+## [3] Feature toggles
+
+Keys `feature_<name>_enabled` (bool, **default `false`**, also on upgraded installs; no migration writes them).
+
+| Key | ON | OFF means exactly |
+|---|---|---|
+| `feature_config_backup_enabled` | scheduler, manual/trigger queue, `config_backup` sensors, `config_backup` rule action | no SSH connection is opened; scheduler/queue stopped, running sessions cancelled; `config_backup` conditions deleted (sensors `up`, "Configuration backup is turned off"); `/api/config-backups*` and the device `…/config*` endpoints 409 (`POST /api/devices/{id}/ssh/test` stays allowed, so credentials can be prepared); versions, status and host keys kept; retention still runs; `config_backup` rule actions are skipped |
+| `feature_flows_enabled` | UDP sockets 2055/4739/6343, worker, writer | sockets closed, worker stopped (current minute discarded); `/api/flows*` 409; data kept; retention and (fallback) hourly rollup still run |
+| `feature_new_device_alerts_enabled` | detection after FDB writes, `new_mac` sensors | no detection; `new_mac` conditions deleted (sensors `up`); `/api/new-devices*` 409; `known_macs`, allow-list, learning end kept |
+| `feature_sso_kerberos_enabled` | `GET /api/auth/sso/kerberos` negotiates; keytab file present | endpoint 409 (`feature_disabled`); keytab file deleted; settings (incl. the encrypted keytab) kept and editable (`/api/sso/kerberos*` admin endpoints stay available so the admin can prepare) |
+| `feature_sso_oidc_enabled` | `/api/auth/oidc/start|callback` work | both 409 (callback: redirect to `/login?sso_error=feature_disabled`); settings editable, `POST /api/sso/oidc/test` still allowed; OIDC users get 401 at their next session check (`src = oidc` sessions are refused while OFF) |
+| `feature_reports_enabled` | scheduler, sends, report pages | scheduler stopped; `/api/reports*` 409; definitions and runs kept; run retention still runs |
+| `feature_noc_enabled` | kiosk API/WS answer | every kiosk request 404 (indistinguishable), kiosk WS closed (4403); `/api/kiosk-screens*` (admin management) 409; screens kept |
+| `feature_chat_ack_enabled` | ack buttons/links added to messages, Telegram poller, ack page API, linking | no buttons/links in new messages; poller stopped; `/api/chat-ack/*` and `/api/chat-links*` 409; presses on old buttons are not received (no poller); links and identities kept |
+
+## [3] SSH credentials (jsonb in `groups.ssh_credentials` / `devices.ssh_credentials`)
+
+`groups` and `devices` gain `ssh_credentials jsonb NULL` (NULL = inherit; device → its group → parent groups →
+none). Stored shape (secrets only encrypted, `"v1:…"` as § [2b-3] Encryption, AAD
+`b"ssh.<field>"`, e.g. `b"ssh.password"`):
+
+```json
+{ "username": "netmon-backup", "port": 22,
+  "password_enc": "v1:…",            // null when key auth only
+  "private_key_enc": null,           // OpenSSH or PEM private key text (≤ 16 KiB), encrypted
+  "passphrase_enc": null,            // for an encrypted private key
+  "enable_password_enc": null,       // Cisco enable / other privilege step
+  "legacy_algorithms": false }
+```
+Validation (422): `username` 1–64 printable; `port` 1–65535; at least one of password / private key on create;
+private key must parse with asyncssh (`import_private_key`, with the passphrase) — the error text never includes
+key material. API secret rules as `SnmpCredentials` (null + `*_set` in responses; omitted/null keep, `""` clears,
+string replaces). Decryption failure → treated as unset, `credentials_unreadable: true`, one `system` event.
+
+`devices` also gains:
+
+| Column | Type | Constraints |
+|---|---|---|
+| config_backup | text | NOT NULL DEFAULT `auto` CHECK in backup_mode |
+| config_backup_driver | varchar(64) | NULL — driver id override (validated against the loaded drivers) |
+| newdev_excluded_ports | integer[] | NOT NULL DEFAULT '{}' — ifIndexes never treated as access ports (≤ 256) |
+
+## [3] Config backup drivers (data files)
+
+`backend/netmon/configbackup/drivers/<id>.yaml`, loaded at startup with `yaml.safe_load` (package data
+`configbackup/drivers/*.yaml`), validated by the pure `validate_driver` (an invalid file is skipped with a load
+error shown on the Config backups page, like the 2b-2 template library). Style rules as 2b-2 templates (quote
+regexes with single quotes, quote OIDs).
+
+| Key | Type | Meaning |
+|---|---|---|
+| `id` | str | `^[a-z0-9_]{2,64}$`, equals the file name |
+| `name` | str | display name |
+| `version` | int | bumped on change |
+| `confidence` | `verified` \| `unverified` | |
+| `priority` | int | match order (lower first, ties by id) |
+| `match.templates` | str[] | 2b-2 template ids (`hpe_comware`, …) |
+| `match.sys_object_id` | str[] | sysObjectID prefixes |
+| `mode` | `shell` \| `exec` | |
+| `prompt` | regex | matched against the last line of the cleaned buffer (multiline off) |
+| `pre_prompt` | `[{pattern, send}]` | e.g. `{'pattern': 'Press any key to continue', 'send': '\n'}` (≤ 4) |
+| `enable` | `{when: regex, command, password_prompt: regex}` \| null | |
+| `session_setup` | str[] | session-only commands; each must be in the global allow-list below |
+| `commands` | `[{command, fallback?}]` | backup commands (1–4) |
+| `error_patterns` | regex[] | output lines that mean failure |
+| `ignore_lines` | regex[] | removed before hashing (`^`-anchored, applied per line) |
+| `secrets` | regex[] | per line; every capture group 1 replaced by `<secret removed>` |
+| `strip_ansi` | bool | default true |
+| `legacy_algorithms` | bool | default false |
+| `timeouts` | `{prompt_s, command_s}` | defaults 30, 90 |
+| `notes` | str | |
+
+**Allow-list of `session_setup` commands** (exact, case-insensitive): `screen-length disable`, `no page`, `terminal
+length 0`, `terminal width 0`, `terminal pager 0`, `set clienv rows 0`. **Backup commands** must start with
+`display `, `show `, `/export` or `clish -c "show ` and contain none of `;`, `|`, `&`, `>`, `<`, backtick, `$(`,
+newline. Forbidden first words for any command (defence in depth): `save`, `write`, `commit`, `configure`,
+`config`, `conf`, `copy`, `delete`, `erase`, `reload`, `reboot`, `reset`, `system-view`, `undo`, `set`, `add`,
+`remove`, `/system`. Violations → the driver is rejected.
+
+Example (`hpe_comware.yaml`):
+```yaml
+id: hpe_comware
+name: 'HPE Comware 7'
+version: 1
+confidence: unverified
+priority: 100
+match:
+  templates: ['hpe_comware']
+  sys_object_id: ['1.3.6.1.4.1.25506.', '1.3.6.1.4.1.11.2.3.7.11.']
+mode: shell
+prompt: '^(<[^<>\r\n]{1,64}>|\[[^\[\]\r\n]{1,64}\])\s*$'
+pre_prompt: []
+enable: null
+session_setup: ['screen-length disable']
+commands:
+  - command: 'display current-configuration'
+error_patterns: ['^\s*% (Unrecognized|Incomplete|Too many|Wrong parameter)']
+ignore_lines: []
+secrets:
+  - '\b(?:cipher|hash)\s+(\S+)'
+  - '^\s*snmp-agent community (?:read|write)\s+(?:simple\s+|cipher\s+)?(\S+)'
+  - '^\s*snmp-agent usm-user .*?(?:authentication-mode \S+|privacy-mode \S+)\s+(\S+)'
+  - '\bkey\s+(?:simple|cipher)\s+(\S+)'
+notes: 'IRF: one config for the stack. Verify on FF 5945.'
+```
+
+The other six drivers (values; full files ship in the repo):
+
+| id | match | prompt | setup | commands | ignore_lines | secrets (group 1 masked) |
+|---|---|---|---|---|---|---|
+| `hpe_arubaos_switch` | templates `hpe_arubaos_switch`; sysObjectID `1.3.6.1.4.1.11.2.3.7.11.` (after Comware by priority 110: Comware matches by template first) | `'^[\w.\-]{1,64}(\([\w\-]+\))?# ?$'` | `no page` | `show running-config` | `'^Running configuration:$'` | `'^\s*password (?:manager\|operator) .*?(?:sha1\|plaintext) "?([^"\s]+)'`, `'^\s*snmp-server community "([^"]+)"'`, `'\bkey "?([^"\s]+)"?'` ; `pre_prompt` "Press any key to continue" → `\n` |
+| `aruba_cx` | templates `aruba_cx`; sysObjectID `1.3.6.1.4.1.47196.` | `'^[\w.\-]{1,64}# ?$'` | `no page` | `show running-config` | `'^Current configuration:$'` | `'\bciphertext (\S+)'`, `'^\s*snmp-server community (\S+)'` |
+| `checkpoint_gaia` | templates `checkpoint_gaia`; sysObjectID `1.3.6.1.4.1.2620.` | — (exec) | — | `show configuration` (fallback `clish -c "show configuration"`) | `'^# Exported by \S+ on '`, `'^# Configuration of \S+$'` (keeps hostname stable) | `'password-hash (\S+)'`, `'^set snmp community (\S+)'`, `'^set expert-password-hash (\S+)'` |
+| `cisco_ios` | templates `cisco_ios`; sysObjectID `1.3.6.1.4.1.9.1.` | `'^[\w.\-:/]{1,64}[>#] ?$'`; enable when `'>\s*$'` | `terminal length 0`, `terminal width 0` | `show running-config` | `'^! (Last configuration change\|NVRAM config last updated) at'`, `'^Building configuration'`, `'^Current configuration : \d+ bytes'`, `'^ntp clock-period'` | `'^\s*enable (?:secret\|password)(?: \d)? (\S+)'`, `'^\s*username \S+ .*?(?:secret\|password)(?: \d)? (\S+)'`, `'^\s*snmp-server community (\S+)'`, `'\bkey(?: \d)? (\S+)'` |
+| `fortigate` | templates `fortigate`; sysObjectID `1.3.6.1.4.1.12356.` | — (exec) | — | `show full-configuration` | `'^#conf_file_ver='`, `'^#buildno='` | `'\bset (?:password\|passwd\|psksecret\|secret\|key\|private-key\|passphrase) ENC (\S+)'` |
+| `mikrotik_routeros` | templates `mikrotik`; sysObjectID `1.3.6.1.4.1.14988.` | — (exec) | — | `/export` | `'^# \S+ \d\d:\d\d:\d\d by RouterOS'`, `'^# \d{4}-\d\d-\d\d \d\d:\d\d:\d\d by RouterOS'`, `'^# software id = '` | (RouterOS 7 hides secrets in `/export`; none) |
+
+**`match_driver` vectors** (drivers above): device with template `hpe_comware` → `hpe_comware`; template
+`hpe_arubaos_switch` → `hpe_arubaos_switch`; no template, sysObjectID `1.3.6.1.4.1.25506.11.1.240` →
+`hpe_comware`; no template, `1.3.6.1.4.1.11.2.3.7.11.181` → `hpe_comware` (priority 100 < 110; the HP prefix is
+shared — **documented ambiguity**: ArubaOS-Switch devices are identified by their template, which 2b-2 classifies
+from sysDescr); sysObjectID `1.3.6.1.4.1.2620.1.6.123` → `checkpoint_gaia`; `1.3.6.1.4.1.8072.3.2.10` (net-snmp,
+no template) → none; override `cisco_ios` on any device → `cisco_ios`; override with an unknown id → 422 at save.
+
+## [3] `ssh_host_keys`
+| Column | Type | Constraints |
+|---|---|---|
+| device_id | integer | PK, FK `devices.id` ON DELETE CASCADE |
+| algorithm | varchar(64) | NOT NULL — e.g. `ssh-ed25519`, `rsa-sha2-512` key type `ssh-rsa` |
+| fingerprint | varchar(64) | NOT NULL — `SHA256:` + base64 (OpenSSH style, no padding) |
+| public_key | text | NOT NULL — OpenSSH one-line format |
+| state | text | NOT NULL DEFAULT `pinned` CHECK in host_key_state |
+| presented_algorithm | varchar(64) | NULL — key seen while `changed` |
+| presented_fingerprint | varchar(64) | NULL |
+| presented_public_key | text | NULL |
+| pinned_at | timestamptz | NOT NULL |
+| changed_at | timestamptz | NULL |
+| accepted_by | varchar(64) | NULL — username of the last accept |
+
+Decisions (pure `host_key_decision(row, presented) -> accept | pin | reject_changed`): no row → `pin` (insert);
+row `pinned` and same fingerprint → `accept`; row `pinned`, different → `reject_changed` (state `changed`,
+`presented_*` stored); row `changed` → `reject_changed` (presented updated) until accept. **Accept** (admin, with
+the fingerprint shown in the UI as a guard: request carries `fingerprint`, must equal `presented_fingerprint`, else
+409 `host_key_mismatch`) → the presented key becomes the pinned key, state `pinned`. **Reset** → row deleted
+(next connection pins).
+
+## [3] `config_backup_status`
+| Column | Type | Constraints |
+|---|---|---|
+| device_id | integer | PK, FK `devices.id` ON DELETE CASCADE |
+| driver | varchar(64) | NULL — driver used by the last attempt |
+| last_attempt_at | timestamptz | NULL |
+| last_result | text | NULL CHECK in backup_result |
+| last_error | text | NULL CHECK in backup_error |
+| last_message | varchar(500) | NULL — human detail (never secrets) |
+| last_trigger | text | NULL CHECK in backup_trigger |
+| last_duration_ms | integer | NULL |
+| last_success_at | timestamptz | NULL — last `ok` or `unchanged` |
+| last_change_at | timestamptz | NULL — last stored non-initial version |
+| last_unchanged_at | timestamptz | NULL |
+| consecutive_failures | integer | NOT NULL DEFAULT 0 |
+| next_due_at | timestamptz | NULL — next scheduled/retry/debounced run |
+| pending_trigger | boolean | NOT NULL DEFAULT false — "run again after the current/limit window" |
+
+## [3] `config_versions`
+| Column | Type | Constraints |
+|---|---|---|
+| id | bigint | PK identity |
+| device_id | integer | NOT NULL FK `devices.id` ON DELETE CASCADE |
+| collected_at | timestamptz | NOT NULL |
+| trigger | text | NOT NULL CHECK in backup_trigger |
+| driver | varchar(64) | NOT NULL |
+| sha256 | char(64) | NOT NULL — of the normalized content |
+| content | text | NOT NULL — normalized (masked when masking was on) |
+| masked | boolean | NOT NULL |
+| size_bytes | integer | NOT NULL |
+| lines | integer | NOT NULL |
+| added | integer | NOT NULL DEFAULT 0 — vs the previous version (0 for initial) |
+| removed | integer | NOT NULL DEFAULT 0 |
+| initial | boolean | NOT NULL — first version of the device (or first after all versions were deleted) |
+| is_latest | boolean | NOT NULL |
+
+Indexes: `ix_config_versions_device (device_id, collected_at DESC)`, unique partial `ux_config_versions_latest
+(device_id) WHERE is_latest`; trigram (bootstrap, `rt.trgm_enabled`) `ix_config_versions_trgm USING gin (content
+gin_trgm_ops) WHERE is_latest`. `version_no` in the API = row number per device by `collected_at` (computed).
+
+**Retention selection** (pure `select_expired(versions, now, max_versions, retention_days, min_versions)`): sort
+newest first; keep index 0 (latest) and indexes < `min_versions`; from the rest delete those with index ≥
+`max_versions` or `collected_at < now − retention_days`. Vectors (max 5, days 30, min 2): 7 versions all fresh →
+delete the 2 oldest; versions aged 0, 40, 50 d → keep 0 and 40 (min 2), delete 50; 1 version aged 400 d → keep.
+
+**Normalisation vectors** (pure `normalize`): Cisco raw `show running-config\r\nBuilding configuration...\r\n\r\nCurrent
+configuration : 1234 bytes\r\n!\r\n! Last configuration change at 10:00:00 UTC Sun Nov 8 2026\r\nhostname r1\r\nenable
+secret 9 $9$abc\r\nr1#` → `!\nhostname r1\nenable secret 9 <secret removed>\n` (masking on); ArubaOS raw with
+`\x1b[24;1H\x1b[2K` sequences and `-- MORE --, next page: Space` absent (paging off) → ANSI removed; Comware
+`display current-configuration\n#\n version 7.1.070\n#\n snmp-agent community read cipher $c$3$xyz\n#\nreturn\n<sw1>`
+→ `#\n version 7.1.070\n#\n snmp-agent community read cipher <secret removed>\n#\nreturn\n`; the same with masking
+off keeps `$c$3$xyz`; two outputs equal except an ignored line → same sha256.
+
+## [3] Event rule action `config_backup`
+`event_rules.action` gains `config_backup`: valid for trap and syslog rules, no key, no clear fields (422
+otherwise). Evaluation (pure `rules.backup_triggers(record, rules) -> bool`): any enabled `config_backup` rule in
+scope whose `match` matches → the device is queued (architecture § 13.2.4). These rules are evaluated when
+`config_backup` is ON, independent of `event_alerts`, and are **skipped** by the 2b-3 raise/clear evaluation
+(`evaluate` ignores them). `matched_rule_ids` of the record includes them.
+
+### Built-in config-change rules (seeded by `0007`, **enabled = false**)
+| builtin_key | name (en / he) | kind | priority | match | action |
+|---|---|---|---|---|---|
+| `syslog_comware_cfg_changed` | Comware configuration changed / שינוי תצורה Comware | syslog | 2000 | `{"severity_max":null,"facilities":[],"programs":["CFGMAN"],"text":null,"text_regex":false}` (every message of the Comware configuration-management module, e.g. `%%10CFGMAN/5/CFGMAN_CFGCHANGED: …`; the debounce merges a save and a change into one backup) | config_backup |
+| `syslog_arubaos_cfg_changed` | ArubaOS-Switch configuration changed / שינוי תצורה ArubaOS | syslog | 2010 | `{"severity_max":null,"facilities":[],"programs":["mgr"],"text":"(running\|startup) config(uration)? (file )?changed","text_regex":true}` | config_backup |
+| `syslog_cisco_config_i` | Cisco IOS configured / שינוי תצורה Cisco | syslog | 2020 | `{"severity_max":null,"facilities":[],"programs":[],"text":"%SYS-5-CONFIG_I","text_regex":false}` | config_backup |
+
+Confidence: Cisco high; Comware and ArubaOS **medium** — the owner sends real lines (architecture § 13.13) and the
+patterns are adjusted before they are marked verified. Turning `config_backup` ON for the first time shows "Enable
+the built-in config-change triggers?" (like 2b-3).
+
+## [3] Flow collector
+
+### `flow_exporters`
+| Column | Type | Constraints |
+|---|---|---|
+| id | integer | PK |
+| address | inet | NOT NULL UNIQUE — sFlow agent address / NetFlow-IPFIX UDP source |
+| device_id | integer | NULL FK `devices.id` ON DELETE SET NULL |
+| state | text | NOT NULL CHECK in exporter_state |
+| protocols | text[] | NOT NULL DEFAULT '{}' — subset of flow_protocol seen |
+| sampling_override | integer | NULL CHECK 1–1 000 000 |
+| sampling_seen | integer | NULL — last effective rate |
+| first_seen, last_seen | timestamptz | NOT NULL |
+| records_total | bigint | NOT NULL DEFAULT 0 (updated at most once per minute) |
+
+Auto state at first sight: attributed to a device → `accepted` (device_id set); else `pending`. A device's
+source-address change re-attributes `pending` exporters on the next minute. ≤ 256 rows (more → not inserted,
+`exporter_limit`).
+
+### 1-minute tables (hypertables in Timescale mode, chunk 6 h; plain tables otherwise)
+All have `time timestamptz NOT NULL` (minute start, UTC), `exporter_id integer NOT NULL` (no FK — like
+`measurements`; exporter delete → background delete), `bytes bigint NOT NULL`, `packets bigint NOT NULL`, `flows
+integer NOT NULL` (after sampling correction for bytes/packets; `flows` = records).
+
+| Table | Extra columns | Key (unique index) | Other index |
+|---|---|---|---|
+| `flow_if_1m` | `if_index integer NOT NULL`, `direction text NOT NULL CHECK in if_direction` | `(exporter_id, if_index, direction, time)` | `(time DESC)` |
+| `flow_app_1m` | `protocol smallint NOT NULL`, `port integer NOT NULL` (-1 = other) | `(exporter_id, protocol, port, time)` | `(time DESC)` |
+| `flow_host_1m` | `ip inet NOT NULL`, `direction text NOT NULL CHECK in host_direction`, `other boolean NOT NULL DEFAULT false` (ip `0.0.0.0` when other) | `(exporter_id, ip, direction, other, time)` | `(time DESC)`, `(ip, time DESC)` |
+| `flow_conv_1m` | `in_if integer`, `out_if integer`, `src_ip inet`, `dst_ip inet`, `protocol smallint`, `src_port integer`, `dst_port integer` (all NOT NULL; the non-service port is 0), `other boolean NOT NULL DEFAULT false` | none (insert only) | `(exporter_id, time DESC)` |
+
+Hourly objects (bootstrap-created, architecture § 13.3.6): `flow_if_1h (time, exporter_id, if_index, direction,
+bytes, packets, flows)`, `flow_app_1h (time, exporter_id, protocol, port, …)`, `flow_host_1h (time, exporter_id,
+ip, direction, other, …)`. Fallback tables have PK `(exporter_id, <keys>, time)`. Timescale bootstrap SQL
+(in a savepoint each; any failure → fallback tables for all three, `flows_rollup = "table"`):
+```sql
+SELECT create_hypertable('flow_if_1m','time', chunk_time_interval => INTERVAL '6 hours',
+       if_not_exists => TRUE, migrate_data => TRUE, create_default_indexes => FALSE);   -- same for app/host/conv
+CREATE MATERIALIZED VIEW IF NOT EXISTS flow_if_1h WITH (timescaledb.continuous, timescaledb.materialized_only = false) AS
+  SELECT time_bucket(INTERVAL '1 hour', time) AS time, exporter_id, if_index, direction,
+         sum(bytes)::bigint AS bytes, sum(packets)::bigint AS packets, sum(flows)::bigint AS flows
+  FROM flow_if_1m GROUP BY 1, 2, 3, 4 WITH NO DATA;
+SELECT add_continuous_aggregate_policy('flow_if_1h', start_offset => INTERVAL '6 hours',
+       end_offset => INTERVAL '1 hour', schedule_interval => INTERVAL '15 minutes', if_not_exists => TRUE);
+SELECT add_retention_policy('flow_if_1m', INTERVAL '<flow_minute_retention_hours> hours', if_not_exists => TRUE);
+SELECT add_retention_policy('flow_if_1h', INTERVAL '<flow_rollup_retention_days> days', if_not_exists => TRUE);
+-- flow_conv_1m: retention <flow_raw_retention_hours> hours; policies re-applied on settings change
+```
+Fallback rollup (hourly loop, last 3 complete hours, idempotent):
+```sql
+INSERT INTO flow_if_1h (time, exporter_id, if_index, direction, bytes, packets, flows)
+SELECT date_bin(INTERVAL '1 hour', time, TIMESTAMPTZ '2000-01-01'), exporter_id, if_index, direction,
+       sum(bytes), sum(packets), sum(flows)
+FROM flow_if_1m WHERE time >= :from AND time < :to GROUP BY 1, 2, 3, 4
+ON CONFLICT (exporter_id, if_index, direction, time)
+DO UPDATE SET bytes = EXCLUDED.bytes, packets = EXCLUDED.packets, flows = EXCLUDED.flows;
+```
+
+### Services map (`backend/netmon/data/services.tsv`, pure `netmon.flows.services`)
+UTF-8 TSV `protocol<TAB>port<TAB>name` (~250 rows, from the IANA service-name registry subset + common
+enterprise ports: 22 ssh, 53 dns, 80 http, 123 ntp, 161/162 snmp, 389/636 ldap(s), 443 https, 445 smb, 514
+syslog, 1433 mssql, 3389 rdp, 5985/5986 winrm, 8080 http-alt, 8443 https-alt, 2055/4739/6343 flows, …); protocol 6
+tcp, 17 udp; ICMP (1) and ICMPv6 (58) → port 0 name `icmp`/`icmpv6`; GRE 47, ESP 50 → port 0 with protocol
+names. Settings `flow_app_overrides` (≤ 200 `{protocol, port, name}`) win over the file.
+`service_port(proto, sp, dp)`: proto without ports → 0; else the port present in the map (dp first, then sp);
+else the lower of the two when it is < 1024; else the lower of the two ports when either is < 49152; else 0
+(both ephemeral). Vectors: (6, 51000, 443) → 443; (6, 443, 51000) → 443; (17, 53000, 53) → 53; (6, 50000, 8443) →
+8443; (6, 3000, 50000) → 3000; (17, 60000, 61000) → 0; (1, 0, 0) → 0.
+
+### Decoder vectors (QA builds the datagrams with `tests/sim/flows/send_flows.py`; unit tests use bytes literals)
+- v5: header count 2, sampling `0x4064` (mode 1, interval 100) → 2 records, rate 100; count 31 → `parse_error`.
+- v9: template 256 (fields 8,12,7,11,4,1,2,10,14) then data → records; data before template → `no_template`; options
+  template 257 with 34 = 512 → exporter rate 512; a data record whose length is shorter than the template →
+  `parse_error` for that set only (other sets of the datagram still processed).
+- IPFIX: template 300 with a variable-length field (65535) and an enterprise field (bit 15, PEN 9) → skipped
+  correctly; withdrawal (field count 0) then data → `no_template`; 305/306 = 1/99 → rate 100.
+- sFlow: expanded flow sample, sampling rate 4096, raw header (Ethernet + 802.1Q + IPv4 + TCP 51000→443),
+  frame_length 1514 → 1 record bytes 1514 × 4096 = 6 201 344, packets 4096, ingress ifIndex from the sample;
+  agent address 10.0.0.12 used as exporter even when the UDP source is 172.17.0.1.
+
+### Aggregation vectors (pure `MinuteAggregator`, top_apps 2, top_hosts 1, top_conversations 1)
+Records (bytes): A 10.0.0.1:51000→10.0.0.9:443 tcp 600 in_if 1 out_if 2; B 10.0.0.2:52000→10.0.0.9:443 tcp 300 in 1
+out 2; C 10.0.0.1:53000→8.8.8.8:53 udp 100 in 1 out 3. → `flow_if_1m`: (1,in) 1000, (2,out) 900, (3,out) 100;
+`flow_app_1m`: (6,443) 900, (17,53) 100; `flow_host_1m` src: 10.0.0.1 700 + other 300, dst: 10.0.0.9 900 + other
+100; `flow_conv_1m`: (1,2,10.0.0.1,10.0.0.9,6,0,443) 600 + other 400. Sums per table = 1000.
+
+## [3] New-device alerts
+
+### `known_macs`
+| Column | Type | Constraints |
+|---|---|---|
+| mac | varchar(17) | PK — `aa:bb:cc:dd:ee:ff` |
+| state | text | NOT NULL CHECK in known_mac_state |
+| vendor | varchar(64) | NULL — OUI snapshot |
+| first_seen | timestamptz | NOT NULL |
+| first_device_id | integer | NULL FK `devices.id` ON DELETE SET NULL |
+| first_if_index | integer | NULL |
+| first_port_name | varchar(255) | NULL — snapshot |
+| first_vlan | integer | NULL |
+| first_ip | varchar(45) | NULL — snapshot at detection |
+| first_hostname | varchar(255) | NULL |
+| last_seen | timestamptz | NOT NULL |
+| last_device_id | integer | NULL FK `devices.id` ON DELETE SET NULL |
+| last_if_index | integer | NULL |
+| last_vlan | integer | NULL |
+| detected_at | timestamptz | NULL — when it became `new` |
+| ack_at | timestamptz | NULL |
+| ack_by | varchar(64) | NULL |
+| ack_comment | varchar(500) | NOT NULL DEFAULT '' |
+
+Indexes: `(state, detected_at DESC)`, `(first_seen DESC)`, `(last_device_id)`. Not subject to retention (the
+register is the baseline; "Forget" deletes rows; rows of MACs not seen for `newdev_forget_after_days` — default
+**0 = never** — are deleted by the daily task).
+
+### `mac_allowlist`
+| Column | Type | Constraints |
+|---|---|---|
+| id | integer | PK |
+| prefix | varchar(17) | NOT NULL UNIQUE — normalised lower-case hex with colons: 6 hex digits (OUI, `00:1b:21`), 7 (`00:1b:21:a`), 9 (`00:1b:21:aa:b`) or 12 (full MAC) |
+| bits | smallint | NOT NULL CHECK in (24, 28, 36, 48) |
+| comment | varchar(200) | NOT NULL DEFAULT '' |
+| created_by | varchar(64) | NULL |
+| created_at | timestamptz | NOT NULL |
+
+≤ 5000 rows. Match = the MAC's first `bits` bits equal the prefix.
+
+### Pure rules and vectors
+`is_access_port(port, view)`: (kind `physical`, lag_if_index null, not uplink, mode ≠ `trunk`, if_index ∉
+excluded). Vectors: physical access, 1 MAC → true; physical, `mac_count` 40 > threshold 25 → false (uplink by
+mac_count); physical with LLDP neighbour switch → false; `Trk1` member → false; mode `trunk` → false; mode null
+(no VLAN data) → true; kind `mgmt` → false; excluded ifIndex → false.
+
+`classify_sightings(sightings, known, allowlist, ctx{first_read, learning, ignore_random})` → per MAC one of
+`skip_random`, `update_known`, `baseline`, `allowed`, `new`; order exactly as architecture § 13.4 rules 2–7.
+Vectors: `02:00:00:aa:00:02` ignore_random → `skip_random`; `01:00:5e:00:00:01` (multicast) → `skip_random`;
+known MAC → `update_known`; unknown + first_read → `baseline`; unknown + learning → `baseline`; unknown + OUI
+`3c:a8:2a` allow-listed → `allowed`; unknown otherwise → `new`; 25 `new` in one run → 20 events + 1 summary.
+
+Settings: `newdev_learning_days` (0–60, default 7), `newdev_learning_until` (timestamptz, set by the first ON;
+read-only in the API except through "Restart learning"), `newdev_scope_group_ids` (int[], ≤ 100, [] = all),
+`newdev_ignore_random_macs` (bool, true), `newdev_condition_clear_min` (10–10080, 1440), `newdev_forget_after_days`
+(0 or 30–3650, 0). Per-switch "first read since ON" is tracked in `port_inventory_status.newdev_baselined_at`
+(timestamptz NULL, new column; cleared for all rows when the feature is turned ON).
+
+## [3] Users, SSO
+
+`users.source` gains `oidc` (check updated). `users_source_password_check` unchanged (`oidc` users have no
+password). `external_id` holds the Entra `oid` for `oidc` users (GUID lower-case, 36 chars with dashes — column
+widened to `varchar(64)` already). Sessions: JWT claim `am` (`password` | `kerberos` | `oidc` | absent = password).
+
+### Kerberos settings (key `kerberos`)
+```json
+{ "realms": ["MNIDOM.NET"],            // accepted client realms (upper-case), 1–8
+  "auto_login": true,
+  "keytab_enc": "v1:…",                // stored only; AAD b"kerberos.keytab"; API: keytab_set, keytab_entries
+  "keytab_uploaded_at": "2026-11-08T10:00:00Z" }
+```
+Default: realms derived from `ldap.domain` upper-cased when empty, auto_login true, no keytab. Turning the feature
+ON requires a keytab with ≥ 1 entry and `feature_ldap_enabled` (422 `details` with the missing parts).
+
+**Keytab parser vectors** (pure `parse_keytab(bytes) -> [{principal, kvno, enctype}]`): file version `0x0502`,
+entries `int32 size` (negative = deleted, skipped), principal components with realm, name type, timestamp, kvno8
+(and the optional 32-bit kvno at the end of the entry when present), enctype, key. Version `0x0501` → 422
+`invalid_keytab`; truncated → 422; enctype 23 only → warning `rc4_only`; no `HTTP/` principal → warning
+`no_http_principal`.
+
+**Principal → account** (pure `kerberos_pure.split_principal`): `jdoe@MNIDOM.NET` → (`jdoe`, `MNIDOM.NET`);
+`JDoe@mnidom.net` → realm upper-cased; `HTTP/x@MNIDOM.NET` (service principal) → refused `sso_failed`;
+`a@b@C` → refused. sAMAccountName = the name part (AD Kerberos principal names equal sAMAccountName).
+
+**NTLM detection vectors** (`token_mech`): `NTLMSSP\0…` → `ntlm`; SPNEGO NegTokenInit (`0x60 … 1.3.6.1.5.5.2`) with
+mechTypes [`1.2.840.48018.1.2.2` (MS KRB5), `1.2.840.113554.1.2.2`] → `kerberos`; mechTypes [`1.3.6.1.4.1.311.2.2.10`
+(NTLM)] only → `ntlm`; NegTokenInit with Kerberos mechTypes but an NTLMSSP mechToken → `ntlm`; garbage → `invalid`.
+
+### OIDC settings (key `oidc`)
+```json
+{ "tenant_id": "00000000-0000-0000-0000-000000000000",
+  "client_id": "11111111-1111-1111-1111-111111111111",
+  "client_secret_enc": "v1:…",           // AAD b"oidc.client_secret"; API: client_secret (write-only), client_secret_set
+  "client_secret_expires_at": null,      // optional date entered by the admin (reminder only)
+  "role_source": "app_roles",            // "app_roles" | "groups"
+  "admin_values": ["NetMon.Admin"],      // app role values, or group object ids when role_source = groups (≤ 16)
+  "viewer_values": ["NetMon.Viewer"],
+  "button_label": null }                 // optional, else "Sign in with Microsoft"
+```
+Turning `sso_oidc` ON validates tenant/client ids (GUIDs), a stored secret, and ≥ 1 admin or viewer value (422).
+Process env `NETMON_OIDC_AUTHORITY` (default `https://login.microsoftonline.com`, tests only).
+
+**id_token validation vectors** (pure `oidc.validate_claims(claims, cfg, nonce, now)`): valid → ok; `iss` other
+tenant → `sso_failed`; `aud` other client → `sso_failed`; `exp` = now − 301 s → `sso_failed`; `exp` = now − 299 s →
+ok (leeway); `nonce` mismatch → `sso_failed`; `roles` [`NetMon.Viewer`] → viewer; [`NetMon.Admin`,
+`NetMon.Viewer`] → admin; [] → `not_in_group`; role_source groups with `_claim_names.groups` → `oidc_group_overage`.
+
+## [3] Port flapping episodes (for reports)
+### `port_flap_episodes`
+| Column | Type | Constraints |
+|---|---|---|
+| id | bigint | PK identity |
+| device_id | integer | NOT NULL FK `devices.id` ON DELETE CASCADE |
+| if_index | integer | NOT NULL |
+| port_name | varchar(255) | NOT NULL DEFAULT '' |
+| started_at | timestamptz | NOT NULL |
+| ended_at | timestamptz | NULL |
+| transitions | integer | NOT NULL |
+
+Written by the 2b-3 flapping tracker (insert at start, update at end and on each transition, at most once per 10 s)
+while `flapping` is ON. Index `(started_at DESC)`, `(device_id, started_at DESC)`. Retention with
+`event_retention_days`.
+
+## [3] Reports
+
+### `reports`
+| Column | Type | Constraints |
+|---|---|---|
+| id | integer | PK |
+| name | varchar(128) | NOT NULL UNIQUE (case-insensitive) |
+| enabled | boolean | NOT NULL DEFAULT true |
+| language | text | NOT NULL CHECK in language |
+| scope_group_ids | integer[] | NOT NULL DEFAULT '{}' — recursive; with `scope_device_ids` both empty = everything |
+| scope_device_ids | integer[] | NOT NULL DEFAULT '{}' |
+| sections | text[] | NOT NULL — ordered, distinct, ⊆ report_section, ≥ 1 |
+| schedule | text | NOT NULL CHECK in report_schedule |
+| weekday | smallint | NULL — 1 (Mon)–7, iff weekly |
+| month_day | smallint | NULL — 1–28, iff monthly |
+| send_time | varchar(5) | NULL — `HH:MM`, iff weekly/monthly |
+| email_to | text[] | NOT NULL DEFAULT '{}' — ≤ 50 addresses |
+| channel_ids | integer[] | NOT NULL DEFAULT '{}' — notification channels (email/teams/telegram/webhook) |
+| next_run_at | timestamptz | NULL |
+| last_run_id | bigint | NULL |
+| created_at, updated_at | timestamptz | |
+
+### `report_runs`
+| Column | Type | Constraints |
+|---|---|---|
+| id | bigint | PK identity |
+| report_id | integer | NULL FK `reports.id` ON DELETE SET NULL (on-demand runs of unsaved definitions: NULL) |
+| report_name | varchar(128) | NOT NULL — snapshot |
+| trigger | text | NOT NULL CHECK in (`schedule`,`manual`) |
+| period_start, period_end | timestamptz | NOT NULL |
+| started_at, finished_at | timestamptz | `finished_at` NULL while running |
+| status | text | NOT NULL CHECK in (`running`,`ok`,`partial`,`failed`) — partial = some deliveries failed |
+| language | text | NOT NULL |
+| data | jsonb | NOT NULL — `ReportData` (api.md) |
+| html | text | NULL — the rendered email/page HTML (≤ 2 MB) |
+| deliveries | jsonb | NOT NULL DEFAULT '[]' — `[{"target": "email:ops@mnidom.net" \| "channel:4", "ok": true, "error": null, "at": "…"}]` |
+| created_by | varchar(64) | NULL |
+
+Index `(report_id, started_at DESC)`, `(started_at DESC)`. Retention `report_retention_days` (30–3650, 400).
+
+### Report vectors (pure `availability`, period 2026-11-02T00:00 → 2026-11-09T00:00 = 168 h)
+1. Last change before the period → `up`; changes: down at +10 h, up at +12 h → measured 168 h, downtime 2 h,
+   availability 98.81 %, outages 1, longest 2 h.
+2. As 1 plus a maintenance window +11 h → +13 h covering the device → measured 166 h, downtime 1 h → 99.40 %.
+3. `down` from before the period until +1 h, then `unreachable` +1 h → +5 h, then `up` → measured 164 h, downtime 1 h
+   → 99.39 %, outages 1 (the outage started before the period: counted, longest = 1 h within the period).
+4. Sensor created at +100 h (first event `unknown`→`up`), never down → measured 68 h, 100.00 %.
+5. Paused the whole period → measured 0 → `null` ("n/a").
+6. `warning` for 20 h, otherwise up → 100.00 %.
+Group: devices of vectors 1 (168 h measured, 98.81) and 4 (68 h, 100) → (166 + 68) / (168 + 68) = 99.15 %.
+Schedule vectors (tz `Asia/Jerusalem`): weekly Monday 07:47 created Sunday 2026-11-08 12:00 → next 2026-11-09T05:47Z
+(IST +2), period 2026-11-02T00:00+02 → 2026-11-09T00:00+02; monthly day 1 07:47 on 2026-03-31 → next
+2026-04-01T04:47Z (IDT +3), period March (2026-03-01T00:00+02 → 2026-04-01T00:00+03, 743 h).
+
+## [3] NOC kiosk screens
+
+### `kiosk_screens`
+| Column | Type | Constraints |
+|---|---|---|
+| id | integer | PK |
+| name | varchar(128) | NOT NULL UNIQUE |
+| enabled | boolean | NOT NULL DEFAULT true |
+| token_hash | char(64) | NOT NULL UNIQUE — SHA-256 hex of the token |
+| token_prefix | varchar(12) | NOT NULL — `nmk_` + 8 chars (display) |
+| allowed_sources | text[] | NOT NULL — 1–64 IPs/CIDRs (IPv4/IPv6), validated |
+| scope_group_id | integer | NULL FK `groups.id` ON DELETE SET NULL (NULL = everything) |
+| widgets | text[] | NOT NULL — ordered, distinct, ⊆ kiosk_widget, ≥ 1 |
+| language | text | NOT NULL CHECK in language |
+| show_addresses | boolean | NOT NULL DEFAULT false |
+| refresh_s | integer | NOT NULL DEFAULT 30 CHECK 10–300 |
+| last_seen_at | timestamptz | NULL (updated at most once per minute) |
+| last_seen_ip | varchar(45) | NULL |
+| created_at, updated_at | timestamptz | |
+
+Token `nmk_` + `secrets.token_urlsafe(32)` (43 chars). Guard vectors (pure `kiosk.guard(ip, sources)`):
+`10.1.2.3` in [`10.1.2.0/24`] → ok; `10.1.3.1` → deny; `::ffff:10.1.2.3` normalised → ok; [] → deny (cannot be
+saved anyway).
+
+## [3] Chat acknowledge
+
+### `chat_identities`
+| Column | Type | Constraints |
+|---|---|---|
+| id | integer | PK |
+| user_id | integer | NOT NULL FK `users.id` ON DELETE CASCADE |
+| provider | text | NOT NULL CHECK in chat_provider |
+| external_id | varchar(64) | NOT NULL — Telegram `from.id` as text |
+| display | varchar(128) | NOT NULL DEFAULT '' — `@username` or first/last name |
+| linked_at | timestamptz | NOT NULL |
+| last_used_at | timestamptz | NULL |
+
+Unique `(provider, external_id)` (one NetworkMonitor user per Telegram account); a user may link several.
+
+### `chat_link_codes`
+| Column | Type | Constraints |
+|---|---|---|
+| code_hash | char(64) | PK — SHA-256 of the normalised code (upper-case, no `NM-`) |
+| user_id | integer | NOT NULL FK `users.id` ON DELETE CASCADE |
+| provider | text | NOT NULL |
+| expires_at | timestamptz | NOT NULL — created + 10 min |
+| used_at | timestamptz | NULL |
+
+At most 3 unexpired codes per user (oldest replaced); rows deleted 1 day after expiry.
+
+### `telegram_poll_state`
+| Column | Type | Constraints |
+|---|---|---|
+| bot_key | char(64) | PK — SHA-256 of the bot token |
+| bot_username | varchar(64) | NULL — from `getMe` |
+| next_offset | bigint | NOT NULL DEFAULT 0 |
+| state | text | NOT NULL DEFAULT `idle` — `idle` \| `polling` \| `error` |
+| last_error | varchar(500) | NULL |
+| updated_at | timestamptz | NOT NULL |
+
+### Channel config additions (`notification_channels.config`)
+- `telegram`: `ack_buttons` (bool, default false), `ack_link` (bool, default false; URL button, used only when
+  `ack_buttons` is false).
+- `teams`: `ack_link` (bool, default true).
+- `email`: `ack_link` (bool, default false).
+Buttons/links are added only when `chat_ack` is ON (link: and `public_base_url` is set), for stages problem,
+escalation and reminder.
+
+### Ack token vectors (pure `chatack.tokens`, key = 32 bytes `0x01…0x20` in tests)
+`encode(sensor_id=7, event_id=991, exp_min=29_400_000)` → `a1.` + 38 base64url chars (length 41); `decode` of it →
+(7, 991, 29 400 000); one flipped character → `invalid`; `exp_min` < now → `expired`; prefix `a2.` → `invalid`;
+length ≠ 41 → `invalid`.
+
+## [3] Events additions
+- `config_change`: `device_id` set, `sensor_id` = the device's `config_backup` sensor or NULL, `old_status` /
+  `new_status` NULL, message `Configuration changed (+12 −3 lines), version 37` (en, built from fields by the UI).
+- `new_device`: `device_id` = the switch, `sensor_id` = its `new_mac` sensor or NULL, message as architecture §
+  13.4; summary rows `+N more new devices on …`.
+- Timeline kinds `config` (from `config_change`) and `new_mac` (from `new_device`) read these via `ix (device_id,
+  time DESC)`.
+
+## [3] Settings keys
+| Key | Type | Default | Limits / meaning |
+|---|---|---|---|
+| `feature_*_enabled` (8 new keys) | bool | `false` | § [3] Feature toggles |
+| `config_backup_time` | `HH:MM` | `"02:47"` | local time |
+| `config_backup_window_min` | int | 60 | 0–720 (0 = all at once, still capped by concurrency) |
+| `config_backup_concurrency` | int | 4 | 1–16 |
+| `config_backup_timeout_s` | int | 120 | 30–600 |
+| `config_backup_mask_secrets` | bool | true | |
+| `config_backup_max_versions` | int | 100 | 2–1000 |
+| `config_backup_min_versions` | int | 10 | 1–100, ≤ max |
+| `config_backup_retention_days` | int | 365 | 7–3650 |
+| `config_backup_fail_threshold` | int | 2 | 1–10 |
+| `config_change_alert` | bool | false | condition `config_changed` on changes |
+| `config_change_clear_min` | int | 60 | 5–10080 |
+| `flow_max_records_per_s` | int | 10000 | 1000–50000 |
+| `flow_top_conversations` | int | 500 | 50–5000 |
+| `flow_top_hosts` | int | 200 | 20–2000 |
+| `flow_top_apps` | int | 100 | 10–1000 |
+| `flow_raw_retention_hours` | int | 24 | 1–168 |
+| `flow_minute_retention_hours` | int | 48 | 24–336 (must exceed the cagg start_offset 6 h; ≥ 24 enforced) |
+| `flow_rollup_retention_days` | int | 30 | 7–400 |
+| `flow_app_overrides` | object[] | [] | ≤ 200 `{protocol, port, name}` |
+| `newdev_*` | | | § [3] New-device alerts |
+| `kerberos` | object | above | |
+| `oidc` | object | above | |
+| `report_retention_days` | int | 400 | 30–3650 |
+| `chat_ack_ttl_h` | int | 168 | 1–720 |
+| `telegram_poll_timeout_s` | int | 50 | 10–50 |
+
+Process env: `NETMON_NETFLOW_PORT` (2055), `NETMON_IPFIX_PORT` (4739), `NETMON_SFLOW_PORT` (6343),
+`NETMON_FLOW_HOST` (`0.0.0.0`), `NETMON_OIDC_AUTHORITY` (tests).
+
+## [3] Phase 3 migration (`0007`)
+File `backend/netmon/migrations/versions/0007_phase3.py`, `revision = "0007"`, `down_revision = "0006"`. Plain
+PostgreSQL DDL only (hypertables, continuous aggregates, hourly fallback tables and trigram indexes are created by
+the bootstrap).
+
+`upgrade()`:
+1. `sensors_type_check` re-added with the 2b-3 types + `'config_backup','new_mac'`; `ux_sensors_event_type`
+   recreated with the five passive types; `devices.event_sensor_optout` values check widened accordingly (API
+   validation).
+2. `events_kind_check` + `'config_change','new_device'`.
+3. `users_source_check` + `'oidc'`.
+4. `event_conditions` source check + `'backup_failed','host_key','config_changed','new_mac'`; `event_rules`
+   action check + `'config_backup'` (and the table CHECK: `config_backup` rows have no key/clear fields); seed the
+   3 built-in config-change rules (English names, `enabled = false`).
+5. `groups.ssh_credentials jsonb NULL`; `devices.ssh_credentials jsonb NULL`, `config_backup text NOT NULL
+   DEFAULT 'auto'` (+ check), `config_backup_driver varchar(64)`, `newdev_excluded_ports integer[] NOT NULL DEFAULT
+   '{}'`.
+6. `port_inventory_status.newdev_baselined_at timestamptz NULL`.
+7. `CREATE TABLE ssh_host_keys`, `config_backup_status`, `config_versions` (+ indexes).
+8. `CREATE TABLE flow_exporters`, `flow_if_1m`, `flow_app_1m`, `flow_host_1m`, `flow_conv_1m` (+ btree indexes).
+9. `CREATE TABLE known_macs`, `mac_allowlist`.
+10. `CREATE TABLE port_flap_episodes`.
+11. `CREATE TABLE reports`, `report_runs`.
+12. `CREATE TABLE kiosk_screens`.
+13. `CREATE TABLE chat_identities`, `chat_link_codes`, `telegram_poll_state`.
+
+`downgrade()` (reverse): `DROP MATERIALIZED VIEW IF EXISTS flow_if_1h, flow_app_1h, flow_host_1h CASCADE` and
+`DROP TABLE IF EXISTS` the same names (whichever the bootstrap created); drop the tables of steps 13 → 7; drop the
+columns of steps 6 and 5; `DELETE FROM event_rules WHERE action = 'config_backup'`, restore the action and
+condition-source checks after `DELETE FROM event_conditions WHERE source IN (…new…)`; `DELETE FROM users WHERE
+source = 'oidc'`, restore the user check; `DELETE FROM events WHERE kind IN ('config_change','new_device')`,
+restore the kind check; `DELETE FROM sensors WHERE type IN ('config_backup','new_mac')`, restore the type check
+and `ux_sensors_event_type`. Settings rows stay (harmless).
