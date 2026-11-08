@@ -23,7 +23,8 @@ BUCKETS = (60, 300, 900, 3600, 21600, 86400)
 
 # ------------------------------------------------------------------ cursors / time range
 def encode_cursor(*parts: Any) -> str:
-    raw = json.dumps([iso(p) if isinstance(p, datetime) else p for p in parts])
+    # full precision (iso() drops fractions): a rounded cursor skips rows from the same second
+    raw = json.dumps([p.isoformat() if isinstance(p, datetime) else p for p in parts])
     return base64.urlsafe_b64encode(raw.encode()).decode().rstrip("=")
 
 

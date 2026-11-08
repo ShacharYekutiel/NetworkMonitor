@@ -9,6 +9,7 @@ import logging
 from typing import TYPE_CHECKING, Any
 
 from netmon.ingest.attribution import normalize_ip
+from netmon.ingest.bind_error import bind_reason
 from netmon.ingest.limits import (
     TCP_IDLE_TIMEOUT_S,
     TCP_MAX_CONNECTIONS,
@@ -57,7 +58,7 @@ class SyslogTcp:
                 asyncio.start_server(self._handle, host, self.port, limit=1 << 17), 5
             )
         except (OSError, TimeoutError) as exc:
-            self._set("error", str(exc))
+            self._set("error", bind_reason(exc, host, self.port, udp=False))
             return False
         self._set("listening", None)
         return True

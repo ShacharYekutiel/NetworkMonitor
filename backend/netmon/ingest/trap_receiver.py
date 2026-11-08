@@ -13,6 +13,7 @@ from collections import OrderedDict, deque
 from typing import TYPE_CHECKING, Any
 
 from netmon.ingest.attribution import normalize_ip
+from netmon.ingest.bind_error import bind_reason
 from netmon.ingest.trap_decode import TrapDecodeError, TrapRecord, build_varbinds, from_v2_varbinds
 
 if TYPE_CHECKING:
@@ -89,7 +90,7 @@ class UdpReceiver:
                 5,
             )
         except (OSError, TimeoutError) as exc:
-            self._set("error", f"{exc}")
+            self._set("error", bind_reason(exc, host, self.port, udp=True))
             return False
         self.transport = transport  # type: ignore[assignment]
         self.protocol = protocol
