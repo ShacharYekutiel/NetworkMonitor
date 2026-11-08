@@ -155,7 +155,7 @@ class Ingest:
         self._sources_dirty = asyncio.Event()
         self._drop_events: dict[str, float] = {}
         self._drop_window: deque[float] = deque()
-        self._db_warned = 0.0
+        self._db_warned = float("-inf")  # monotonic counts from boot: 0.0 hid early warnings
         self.events = EventSensors(rt)
         self.flapping = FlapManager(rt)
         rt.event_sensors = self.events

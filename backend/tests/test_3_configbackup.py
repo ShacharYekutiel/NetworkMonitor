@@ -619,3 +619,15 @@ async def test_migration_0007_up_down_up(mode: str, rt: Runtime) -> None:
         await engine.dispose()
         await adm.execute(f'DROP DATABASE IF EXISTS "{name}" WITH (FORCE)')
         await adm.close()
+
+
+async def test_sensor_sync_due_soon_after_boot(rt: Runtime, admin: httpx.AsyncClient) -> None:
+    """CI regression: time.monotonic() counts from boot. With `_last_sensor_sync = 0.0`, a host
+    up for less than SENSOR_SYNC_S (1 h) never ran the sensor sync after mark_dirty, so a new
+    eligible device got no config_backup sensor. "Sync now" must not depend on uptime."""
+    from netmon.configbackup.runner import SENSOR_SYNC_S
+
+    await features(admin, config_backup=True)
+    cb = rt.configbackup
+    cb.mark_dirty()
+    assert 5.0 - cb._last_sensor_sync > SENSOR_SYNC_S  # e.g. 5 s after boot  # noqa: SLF001

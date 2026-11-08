@@ -93,7 +93,9 @@ class ConfigBackupRunner:
         self._warned_unreadable: set[int] = set()
         self.next_schedule_at: datetime | None = None
         self.last_schedule_at: datetime | None = None
-        self._last_sensor_sync = 0.0
+        # -inf, not 0.0: time.monotonic() counts from boot, so on a host up for less than
+        # SENSOR_SYNC_S a 0.0 never looked old enough and new devices got no sensor
+        self._last_sensor_sync = float("-inf")
         self._pending_schedule_now = False
 
     # ================================================================ component interface
@@ -195,7 +197,7 @@ class ConfigBackupRunner:
     def mark_dirty(self) -> None:
         """Devices / groups changed: sync the passive sensors soon (new eligible devices)."""
         if self.enabled:
-            self._last_sensor_sync = 0.0
+            self._last_sensor_sync = float("-inf")
             self._wake.set()
 
     def is_running(self, device_id: int) -> bool:
