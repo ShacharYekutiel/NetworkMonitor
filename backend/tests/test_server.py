@@ -14,6 +14,7 @@ import pytest
 import uvicorn
 import websockets
 
+import netmon
 from netmon.app import create_app
 from tests.conftest import ADMIN, make_settings, requires_db
 
@@ -68,7 +69,7 @@ async def test_websocket_flow(server: int) -> None:
         async with websockets.connect(url, additional_headers=headers) as ws:
             hello = await _recv(ws, "hello")
             assert hello["data"]["user"]["username"] == "admin"
-            assert hello["data"]["version"] == "0.1.0" and "timescale" in hello["data"]
+            assert hello["data"]["version"] == netmon.__version__ and "timescale" in hello["data"]
             assert hello["ts"].endswith("Z")
             await ws.send(json.dumps({"type": "ping"}))
             assert (await _recv(ws, "pong"))["data"] == {}
