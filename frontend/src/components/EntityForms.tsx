@@ -1,3 +1,5 @@
+import { useFeatures } from '../hooks/features';
+import { isIp, parseList } from '../lib/logs';
 import { useEffect, useMemo, useState, type FormEvent } from 'react';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { useTranslation } from 'react-i18next';
@@ -202,6 +204,11 @@ export function DeviceFormModal({
   const [dep, setDep] = useState<DependencyInput>(dependencyInputFrom(null));
   const [portInv, setPortInv] = useState<InventoryMode>('auto');
   const [arp, setArp] = useState<InventoryMode>('auto');
+  const [sources, setSources] = useState('');
+  const { features } = useFeatures();
+  const showSources = features.traps || features.syslog;
+  const srcList = parseList(sources);
+  const srcErr = srcList.length > 16 || srcList.some((x) => !isIp(x));
   const deviceName = useDeviceNames();
 
   useEffect(() => {
@@ -217,6 +224,7 @@ export function DeviceFormModal({
     setAuto(['ping']);
     setPortInv(device?.port_inventory ?? 'auto');
     setArp(device?.arp_collect ?? 'auto');
+    setSources((device?.source_addresses ?? []).join('\n'));
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open, device, groupId]);
 
@@ -251,6 +259,11 @@ export function DeviceFormModal({
     if (portInv !== (device?.port_inventory ?? 'auto')) body.port_inventory = portInv;
     if (arp !== (device?.arp_collect ?? 'auto')) body.arp_collect = arp;
     if (!device) body.auto_sensors = auto;
+    // [2b-3] sent only while traps/syslog are on (the field is hidden otherwise)
+    if (showSources) {
+      if (srcErr) return;
+      body.source_addresses = srcList;
+    }
     m.mutate(body);
   };
 
@@ -310,6 +323,36 @@ export function DeviceFormModal({
           selfDeviceId={device?.id}
           effective={device ? device.effective_dependency : undefined}
         />
+        {showSources && (
+          <Field
+            label={t('devices.sourceAddresses')}
+            hint={
+              srcErr ? (
+                <span className="text-red-600">{t('devices.sourceAddressesErr')}</span>
+              ) : (
+                t('devices.sourceAddressesHint')
+              )
+            }
+          >
+            <Textarea
+              rows={2}
+              value={sources}
+              onChange={(e) => setSources(e.target.value)}
+              dir="ltr"
+              className="font-mono"
+              placeholder="10.0.0.12"
+            />
+          </Field>
+        )}
+        {showSources && !!device?.source_address_conflicts?.length && (
+          <ul className="space-y-0.5 rounded-md bg-amber-50 px-3 py-2 text-xs text-amber-900 ring-1 ring-inset ring-amber-200 dark:bg-amber-950/40 dark:text-amber-200 dark:ring-amber-900">
+            {device.source_address_conflicts.map((c) => (
+              <li key={`${c.address}-${c.device_id}`}>
+                {t('devices.sourceConflict', { address: c.address, device: c.device_name })}
+              </li>
+            ))}
+          </ul>
+        )}
         <InventoryFields
           device={device}
           portInventory={portInv}
@@ -341,7 +384,11 @@ export function DeviceFormModal({
             type="submit"
             variant="primary"
             busy={m.isPending}
-            disabled={group === null || (dep.mode === 'device' && dep.device_id === null)}
+            disabled={
+              group === null ||
+              (dep.mode === 'device' && dep.device_id === null) ||
+              (showSources && srcErr)
+            }
           >
             {t('common.save')}
           </Button>

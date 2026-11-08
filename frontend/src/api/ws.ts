@@ -35,6 +35,8 @@ export class LiveSocket {
   private stopped = true;
   private hadOpen = false;
   private _state: WsState = 'closed';
+  /** [2b-3] live topics (syslog, trap) with reference counts */
+  private topics = new Map<string, number>();
 
   constructor(private readonly opts: LiveSocketOptions = {}) {}
 
@@ -55,6 +57,36 @@ export class LiveSocket {
   onState(l: StateListener): () => void {
     this.stateListeners.add(l);
     return () => this.stateListeners.delete(l);
+  }
+
+  /**
+   * [2b-3] Subscribes to a server topic (e.g. "syslog"). Reference-counted: the server is told
+   * on the first subscriber and when the last one leaves; topics are re-sent after a reconnect.
+   */
+  subscribeTopic(topic: string): () => void {
+    const n = this.topics.get(topic) ?? 0;
+    this.topics.set(topic, n + 1);
+    if (n === 0) this.send({ type: 'subscribe', topics: [topic] });
+    let released = false;
+    return () => {
+      if (released) return;
+      released = true;
+      const c = (this.topics.get(topic) ?? 1) - 1;
+      if (c <= 0) {
+        this.topics.delete(topic);
+        this.send({ type: 'unsubscribe', topics: [topic] });
+      } else this.topics.set(topic, c);
+    };
+  }
+
+  /** Currently subscribed topics (sorted). */
+  activeTopics(): string[] {
+    return [...this.topics.keys()].sort();
+  }
+
+  private send(msg: unknown): void {
+    const ws = this.ws;
+    if (ws && ws.readyState === WebSocket.OPEN) ws.send(JSON.stringify(msg));
   }
 
   start(): void {
@@ -96,6 +128,8 @@ export class LiveSocket {
       this.setState('open');
       if (this.hadOpen) this.opts.onReconnect?.();
       this.hadOpen = true;
+      if (this.topics.size)
+        ws.send(JSON.stringify({ type: 'subscribe', topics: this.activeTopics() }));
       if (this.pingTimer) clearInterval(this.pingTimer);
       this.pingTimer = setInterval(() => {
         if (ws.readyState === WebSocket.OPEN) ws.send(JSON.stringify({ type: 'ping' }));

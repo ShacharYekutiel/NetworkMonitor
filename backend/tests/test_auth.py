@@ -20,10 +20,10 @@ async def test_setup_flow(client: httpx.AsyncClient) -> None:
     assert r.json()["error"]["code"] == "setup_required"
     # exempt endpoints
     assert (await client.get("/api/health")).status_code == 200
-    assert (await client.get("/api/settings/public")).json() == {
-        "default_language": "en",
-        "timezone": (await client.get("/api/settings/public")).json()["timezone"],
-    }
+    public = (await client.get("/api/settings/public")).json()
+    assert public["default_language"] == "en" and public["timezone"]
+    # [2b-3] feature flags and the AD hint (null while AD login is off)
+    assert public["ldap"] is None and not any(public["features"].values())
     r = await client.get("/api/auth/me")
     assert r.status_code == 401
 
@@ -39,7 +39,12 @@ async def test_setup_flow(client: httpx.AsyncClient) -> None:
         "is_active",
         "last_login_at",
         "created_at",
+        # [2b-3]
+        "source",
+        "display_name",
+        "ldap_synced_at",
     }
+    assert user["source"] == "local"
     assert user["role"] == "admin" and user["language"] == "he"
     assert "netmon_session" in r.cookies
     cookie = r.headers["set-cookie"].lower()

@@ -132,3 +132,64 @@ async def drop_old_chunks(engine: AsyncEngine, retention_days: int) -> None:
 
 def _short(exc: Exception) -> str:
     return str(exc).splitlines()[0][:300] if str(exc) else type(exc).__name__
+
+
+# ------------------------------------------------------------------ [2b-3] traps / syslog
+INGEST_TABLES = {"traps": "7 days", "syslog_messages": "1 day"}
+
+
+async def bootstrap_ingest(
+    engine: AsyncEngine, enabled: bool, trap_days: int, syslog_days: int
+) -> bool:
+    """Timescale mode: `traps` (7-day chunks) and `syslog_messages` (1-day chunks) hypertables
+    with retention policies (no compression: rows are updated by "assign" / device delete).
+    Fallback: BRIN indexes on time. Returns True when both retention policies are in place
+    (else the hourly retention loop deletes old rows)."""
+    async with engine.connect() as conn:
+        if not enabled:
+            for table in INGEST_TABLES:
+                await conn.execute(
+                    text(
+                        f"CREATE INDEX IF NOT EXISTS ix_{table}_time_brin ON {table} "
+                        "USING brin (time)"
+                    )
+                )
+            await conn.commit()
+            return False
+        ok = True
+        for table, chunk in INGEST_TABLES.items():
+            try:
+                async with conn.begin_nested():
+                    await conn.execute(
+                        text(
+                            f"SELECT create_hypertable('{table}', 'time', "
+                            f"chunk_time_interval => INTERVAL '{chunk}', if_not_exists => TRUE, "
+                            "migrate_data => TRUE, create_default_indexes => FALSE)"
+                        )
+                    )
+            except Exception as exc:  # noqa: BLE001
+                log.warning("create_hypertable(%s) failed: %s", table, _short(exc))
+                ok = False
+        await conn.commit()
+    if not ok:
+        return False
+    return await reapply_ingest_retention(engine, trap_days, syslog_days)
+
+
+async def reapply_ingest_retention(engine: AsyncEngine, trap_days: int, syslog_days: int) -> bool:
+    ok = True
+    async with engine.connect() as conn:
+        for table, days in (("traps", trap_days), ("syslog_messages", syslog_days)):
+            try:
+                async with conn.begin_nested():
+                    await conn.execute(
+                        text(f"SELECT remove_retention_policy('{table}', if_exists => TRUE)")
+                    )
+                    await conn.execute(
+                        text(f"SELECT add_retention_policy('{table}', INTERVAL '{int(days)} days')")
+                    )
+            except Exception as exc:  # noqa: BLE001
+                log.warning("Cannot set the retention policy of %s: %s", table, _short(exc))
+                ok = False
+        await conn.commit()
+    return ok

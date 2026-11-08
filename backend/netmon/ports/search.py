@@ -54,7 +54,9 @@ def prefix_pattern(digits: str) -> str:
     return ":".join(pairs) + "%"
 
 
-async def search_mac(session: Any, q: str | None, ip: str | None) -> dict[str, Any]:
+async def search_mac(
+    session: Any, q: str | None, ip: str | None, lag_on: bool = False
+) -> dict[str, Any]:
     query = normalize_query(q, ip)
     arp_rows: list[dict[str, Any]] = []
     if query["ip"] is not None:
@@ -84,7 +86,8 @@ async def search_mac(session: Any, q: str | None, ip: str | None) -> dict[str, A
                 text(
                     "SELECT pm.*, d.name AS device_name, d.host AS device_host, "
                     "sp.name AS port, sp.descr AS port_descr, sp.alias AS port_alias, "
-                    "sp.mac_count FROM port_macs pm JOIN devices d ON d.id = pm.device_id "
+                    "sp.mac_count, sp.kind AS port_kind FROM port_macs pm "
+                    "JOIN devices d ON d.id = pm.device_id "
                     "LEFT JOIN switch_ports sp ON sp.device_id = pm.device_id "
                     f"AND sp.if_index = pm.if_index WHERE {cond} "
                     "ORDER BY pm.present DESC, pm.last_seen DESC LIMIT 2000"
@@ -96,6 +99,23 @@ async def search_mac(session: Any, q: str | None, ip: str | None) -> dict[str, A
     inv = await load_inventory(session)
     ctx = await load_context(session, inv, sorted({r["device_id"] for r in rows}))
     det = await mac_details(session, [r["mac"] for r in rows], ctx.reverse_dns)
+    # [2b-3] a MAC learned on a LAG: the member names, uplink judged on the LAG's neighbours
+    members: dict[tuple[int, int], list[dict[str, Any]]] = {}
+    lag_keys = {(r["device_id"], r["if_index"]) for r in rows if r.get("port_kind") == "lag"}
+    if lag_on and lag_keys:
+        for m in (
+            await session.execute(
+                text(
+                    "SELECT device_id, if_index, name, descr, lag_if_index FROM switch_ports "
+                    "WHERE device_id = ANY(:d) AND lag_if_index IS NOT NULL AND kind = 'physical' "
+                    "ORDER BY if_index"
+                ),
+                {"d": sorted({k[0] for k in lag_keys})},
+            )
+        ).mappings():
+            key = (m["device_id"], m["lag_if_index"])
+            if key in lag_keys:
+                members.setdefault(key, []).append(dict(m))
     items = []
     for r in rows:
         port_row = {
@@ -103,9 +123,11 @@ async def search_mac(session: Any, q: str | None, ip: str | None) -> dict[str, A
             "name": r["port"] or "",
             "descr": r["port_descr"] or "",
         }
-        is_up, _ = view.uplink(
-            neighbors_of(ctx, r["device_id"], port_row), int(r["mac_count"] or 0), ctx.threshold
-        )
+        nbs = neighbors_of(ctx, r["device_id"], port_row)
+        mem = members.get((r["device_id"], r["if_index"]), [])
+        if mem:
+            nbs = view.merge_neighbors(nbs, *(neighbors_of(ctx, r["device_id"], m) for m in mem))
+        is_up, _ = view.uplink(nbs, int(r["mac_count"] or 0), ctx.threshold)
         d = det.get(r["mac"], {})
         items.append(
             {
@@ -127,6 +149,7 @@ async def search_mac(session: Any, q: str | None, ip: str | None) -> dict[str, A
                 "first_seen": iso(r["first_seen"]),
                 "last_seen": iso(r["last_seen"]),
                 "best": False,
+                "lag_members": [m["name"] or str(m["if_index"]) for m in mem],
                 "_ts": r["last_seen"].timestamp(),
             }
         )

@@ -46,6 +46,14 @@ h "Health (https://${NETMON_FQDN:-?}/api/health)"
   "https://${NETMON_FQDN:-netmonitor}/api/health" 2>&1 || true
 echo
 
+h "Traps / syslog (host 162/udp, 514/udp+tcp -> container 1162/1514)"
+# Receiver states are in /api/health ("ingest") above: "disabled" until the owner turns
+# the Traps / Syslog features on in Settings -> Features.
+echo "host listeners (docker-proxy = published; anything else conflicts):"
+ss -H -lunp '( sport = :162 or sport = :514 )' 2>/dev/null | sed 's/^/  /' || true
+ss -H -ltnp '( sport = :514 )' 2>/dev/null | sed 's/^/  /' || true
+"$SELF_DIR/ingest-firewall.sh" status 2>&1 | sed 's/^/sender filter: /' | head -n 12 || true
+
 h "Backups ($NETMON_BACKUP_DIR)"
 for pat in 'daily/netmon-db-*.dump' 'daily/netmon-data-*.tar.gz' 'pre-deploy-*.dump'; do
   last="$(find "$NETMON_BACKUP_DIR" -maxdepth 2 -path "$NETMON_BACKUP_DIR/$pat" -printf '%T@ %p\n' 2>/dev/null |

@@ -15,6 +15,7 @@ import {
   Input,
   Loading,
   Modal,
+  Notice,
   PageHeader,
   Select,
   Table,
@@ -23,6 +24,25 @@ import {
 } from '../components/ui';
 import { useAuth } from '../hooks/auth';
 import { formatDateTime } from '../lib/format';
+import { useFeatures } from '../hooks/features';
+import { TokensTable } from '../components/TokensTable';
+
+/** [2b-3] Local / AD badge. */
+export function SourceBadge({ source }: { source?: User['source'] }) {
+  const { t } = useTranslation();
+  const ldap = source === 'ldap';
+  return (
+    <span
+      className={
+        ldap
+          ? 'rounded bg-indigo-100 px-1.5 py-0.5 text-[11px] font-medium text-indigo-800 dark:bg-indigo-900/50 dark:text-indigo-200'
+          : 'rounded bg-slate-100 px-1.5 py-0.5 text-[11px] font-medium text-slate-600 dark:bg-slate-800 dark:text-slate-300'
+      }
+    >
+      {t(`user.source.${ldap ? 'ldap' : 'local'}`)}
+    </span>
+  );
+}
 
 const USERNAME_RE = /^[A-Za-z0-9._-]{3,64}$/;
 
@@ -64,8 +84,14 @@ function UserModal({ open, onClose, user }: { open: boolean; onClose: () => void
     : password.length >= 8 && password.length <= 128;
   const unameOk = user || USERNAME_RE.test(username);
 
+  const ldap = user?.source === 'ldap';
   const submit = (e: FormEvent) => {
     e.preventDefault();
+    if (ldap) {
+      // [2b-3] AD-managed: only is_active and language may change (else 409 ldap_managed).
+      m.mutate({ is_active: active, language });
+      return;
+    }
     if (!pwOk || !unameOk) return;
     const body: UserInput = { email: email.trim() || null, role, language };
     if (user) {
@@ -81,6 +107,7 @@ function UserModal({ open, onClose, user }: { open: boolean; onClose: () => void
   return (
     <Modal open={open} onClose={onClose} title={user ? t('users.edit') : t('users.add')}>
       <form onSubmit={submit} className="space-y-3">
+        {ldap && <Notice>{t('users.ldapManaged')}</Notice>}
         <Field
           label={t('users.username')}
           required
@@ -95,11 +122,17 @@ function UserModal({ open, onClose, user }: { open: boolean; onClose: () => void
           />
         </Field>
         <Field label={t('users.email')}>
-          <Input type="email" value={email} onChange={(e) => setEmail(e.target.value)} dir="ltr" />
+          <Input
+            type="email"
+            value={email}
+            onChange={(e) => setEmail(e.target.value)}
+            dir="ltr"
+            disabled={ldap}
+          />
         </Field>
         <div className="grid grid-cols-2 gap-3">
           <Field label={t('users.role')}>
-            <Select value={role} onChange={(e) => setRole(e.target.value as Role)}>
+            <Select value={role} onChange={(e) => setRole(e.target.value as Role)} disabled={ldap}>
               <option value="viewer">{t('role.viewer')}</option>
               <option value="admin">{t('role.admin')}</option>
             </Select>
@@ -111,25 +144,32 @@ function UserModal({ open, onClose, user }: { open: boolean; onClose: () => void
             </Select>
           </Field>
         </div>
-        <Field
-          label={user ? t('users.newPassword') : t('users.password')}
-          hint={user ? t('users.passwordKeepHint') : t('validation.passwordLength')}
-          required={!user}
-        >
-          <Input
-            type="password"
-            autoComplete="new-password"
-            value={password}
-            onChange={(e) => setPassword(e.target.value)}
-            dir="ltr"
+        {!ldap && (
+          <Field
+            label={user ? t('users.newPassword') : t('users.password')}
+            hint={user ? t('users.passwordKeepHint') : t('validation.passwordLength')}
             required={!user}
-          />
-        </Field>
+          >
+            <Input
+              type="password"
+              autoComplete="new-password"
+              value={password}
+              onChange={(e) => setPassword(e.target.value)}
+              dir="ltr"
+              required={!user}
+            />
+          </Field>
+        )}
         {user && <Checkbox label={t('users.active')} checked={active} onChange={setActive} />}
         <ErrorBox error={m.error} />
         <div className="flex justify-end gap-2">
           <Button onClick={onClose}>{t('common.cancel')}</Button>
-          <Button type="submit" variant="primary" busy={m.isPending} disabled={!pwOk || !unameOk}>
+          <Button
+            type="submit"
+            variant="primary"
+            busy={m.isPending}
+            disabled={!ldap && (!pwOk || !unameOk)}
+          >
             {t('common.save')}
           </Button>
         </div>
@@ -140,6 +180,7 @@ function UserModal({ open, onClose, user }: { open: boolean; onClose: () => void
 
 export function UsersPage() {
   const { t } = useTranslation();
+  const { features } = useFeatures();
   const qc = useQueryClient();
   const { user: me } = useAuth();
   const q = useQuery({ queryKey: qk.users, queryFn: endpoints.users });
@@ -171,6 +212,7 @@ export function UsersPage() {
             <thead>
               <tr>
                 <th className={th}>{t('users.username')}</th>
+                <th className={th}>{t('users.source')}</th>
                 <th className={th}>{t('users.email')}</th>
                 <th className={th}>{t('users.role')}</th>
                 <th className={th}>{t('users.language')}</th>
@@ -187,6 +229,14 @@ export function UsersPage() {
                     {me?.id === u.id && (
                       <span className="ms-1 text-xs text-slate-500">({t('users.you')})</span>
                     )}
+                    {u.display_name && (
+                      <div className="text-xs font-normal text-slate-500">
+                        <bdi dir="auto">{u.display_name}</bdi>
+                      </div>
+                    )}
+                  </td>
+                  <td className={td}>
+                    <SourceBadge source={u.source} />
                   </td>
                   <td className={td} dir="ltr">
                     {u.email ?? '—'}
@@ -222,6 +272,11 @@ export function UsersPage() {
           </Table>
         )}
       </Card>
+      {features.api_tokens && (
+        <Card title={t('tokens.allTitle')} bodyClassName="p-0">
+          <TokensTable all />
+        </Card>
+      )}
       <UserModal
         open={editing !== null}
         onClose={() => setEditing(null)}

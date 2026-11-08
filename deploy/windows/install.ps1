@@ -18,7 +18,11 @@
       4. Installs the app (wheel, or the repository checkout with the web UI built)
          into the venv and registers the "NetworkMonitor" service with NSSM
          (LocalSystem, automatic start).
-      5. Opens TCP 8080 inbound in Windows Firewall, starts the service and prints the URL.
+      5. Opens TCP 8080 inbound in Windows Firewall, plus UDP 162 (SNMP traps) and
+         UDP/TCP 514 (syslog) for the receivers, which listen only while the Traps /
+         Syslog features are ON (Settings -> Features). Warns when the Windows "SNMP Trap"
+         service (SNMPTRAP) or another program holds those ports.
+      6. Starts the service and prints the URL.
 
     Corporate TLS inspection: the app trusts the Windows certificate store, so a root CA
     deployed by IT (group policy) works with no action. Certificates copied into
@@ -52,6 +56,14 @@
 .PARAMETER NssmPath
     Path to an nssm.exe to use instead of the bundled / downloaded one.
 
+.PARAMETER IngestRemoteAddress
+    Who may send SNMP traps / syslog through Windows Firewall: "Any" (default),
+    "LocalSubnet", or a list of addresses / networks, e.g. 10.0.0.0/8,192.168.10.0/24.
+
+.PARAMETER DisableWindowsSnmpTrap
+    Stop the Windows "SNMP Trap" service (SNMPTRAP) and set it to Disabled, so that
+    NetworkMonitor can receive traps on UDP 162. Without it the installer only warns.
+
 .EXAMPLE
     powershell -ExecutionPolicy Bypass -File .\deploy\windows\install.ps1 -Port 8081
 #>
@@ -66,7 +78,9 @@ param(
     [string]$PostgresSuperPassword = '',
     [switch]$SkipTimescale,
     [string]$TimescaleVersion = '2.31.0',
-    [string]$NssmPath = ''
+    [string]$NssmPath = '',
+    [string[]]$IngestRemoteAddress = @('Any'),
+    [switch]$DisableWindowsSnmpTrap
 )
 
 Set-StrictMode -Version 2.0
@@ -88,6 +102,12 @@ $PgMajor       = 16
 $PgWingetId    = "PostgreSQL.PostgreSQL.$PgMajor"
 $PyWingetId    = 'Python.Python.3.12'
 $FirewallRule  = 'NetworkMonitor-HTTP'
+# [2b-3] Receiver rules (removed by uninstall.ps1): name -> protocol, port.
+$IngestRules   = @(
+    @{ Name = 'NetworkMonitor-Traps';      Protocol = 'UDP'; Port = 162; Display = 'NetworkMonitor SNMP traps (UDP 162)' },
+    @{ Name = 'NetworkMonitor-Syslog-UDP'; Protocol = 'UDP'; Port = 514; Display = 'NetworkMonitor syslog (UDP 514)' },
+    @{ Name = 'NetworkMonitor-Syslog-TCP'; Protocol = 'TCP'; Port = 514; Display = 'NetworkMonitor syslog (TCP 514)' }
+)
 $NssmUrls      = @('https://nssm.cc/ci/nssm-2.24-101-g897c7ad.zip', 'https://nssm.cc/release/nssm-2.24.zip')
 $SidSystem     = '*S-1-5-18'       # NT AUTHORITY\SYSTEM (SIDs: independent of the UI language)
 $SidAdmins     = '*S-1-5-32-544'   # BUILTIN\Administrators
@@ -427,6 +447,9 @@ try {
         $rc = Invoke-PgSuper -Database $DbName -Sql 'CREATE EXTENSION IF NOT EXISTS timescaledb;' -IgnoreError
         if ($rc -ne 0) { Write-Warn2 'CREATE EXTENSION timescaledb failed; plain PostgreSQL mode will be used.' }
     }
+    # [2b-3] pg_trgm (contrib, shipped with the EDB installer) indexes the syslog/trap text search.
+    $rc = Invoke-PgSuper -Database $DbName -Sql 'CREATE EXTENSION IF NOT EXISTS pg_trgm;' -IgnoreError
+    if ($rc -ne 0) { Write-Warn2 'CREATE EXTENSION pg_trgm failed; log search will be slower.' }
     Write-Ok "Database '$DbName' ready"
 
     # ========================================================================= netmon.env
@@ -650,6 +673,41 @@ try {
     # Echo replies for the ping checks are inbound ICMP; Windows Firewall allows the replies to
     # our own requests automatically, so no ICMP rule is needed.
 
+    # [2b-3] SNMP traps / syslog. Nothing listens until the Traps / Syslog features are
+    # turned on in Settings -> Features; the rules only let the datagrams in.
+    Write-Step "Opening UDP 162 (traps) and UDP/TCP 514 (syslog) in Windows Firewall (from: $($IngestRemoteAddress -join ', '))"
+    foreach ($r in $IngestRules) {
+        if (Get-NetFirewallRule -Name $r.Name -ErrorAction SilentlyContinue) {
+            Set-NetFirewallRule -Name $r.Name -Enabled True -Action Allow -Direction Inbound -Profile Any `
+                -RemoteAddress $IngestRemoteAddress
+            Get-NetFirewallRule -Name $r.Name | Get-NetFirewallPortFilter |
+                Set-NetFirewallPortFilter -Protocol $r.Protocol -LocalPort $r.Port
+        } else {
+            New-NetFirewallRule -Name $r.Name -DisplayName $r.Display -Direction Inbound -Protocol $r.Protocol `
+                -LocalPort $r.Port -RemoteAddress $IngestRemoteAddress -Action Allow -Profile Any | Out-Null
+        }
+    }
+
+    # The Windows "SNMP Trap" service holds UDP 162 while it runs.
+    $snmpTrap = Get-Service -Name 'SNMPTRAP' -ErrorAction SilentlyContinue
+    if ($snmpTrap) {
+        $snmpTrapCim = Get-CimInstance Win32_Service -Filter "Name='SNMPTRAP'" -ErrorAction SilentlyContinue
+        $snmpTrapStart = if ($snmpTrapCim) { [string]$snmpTrapCim.StartMode } else { 'unknown' }
+        if ($DisableWindowsSnmpTrap) {
+            if ($snmpTrap.Status -ne 'Stopped') {
+                Write-Step 'Stopping the Windows SNMP Trap service (SNMPTRAP) - it holds UDP 162'
+                Stop-Service -Name 'SNMPTRAP' -Force
+            }
+            Set-Service -Name 'SNMPTRAP' -StartupType Disabled
+            Write-Ok 'Windows SNMP Trap service stopped and disabled'
+        } elseif ($snmpTrap.Status -eq 'Running' -or $snmpTrapStart -eq 'Auto') {
+            Write-Warn2 ("The Windows 'SNMP Trap' service (SNMPTRAP) is $($snmpTrap.Status.ToString().ToLower()) " +
+                         "(start: $snmpTrapStart). While it runs it holds UDP 162 and NetworkMonitor cannot receive traps. " +
+                         "Stop it with: Stop-Service SNMPTRAP; Set-Service SNMPTRAP -StartupType Disabled " +
+                         "(or re-run this installer with -DisableWindowsSnmpTrap).")
+        }
+    }
+
     # ========================================================================= start + health
     Write-Step 'Starting the service'
     Start-Service -Name $ServiceName
@@ -677,6 +735,36 @@ try {
     Write-Host "  Service:  Get-Service $ServiceName   |   logs: $LogDir"
     Write-Host "  Data:     $DataDir"
     if (-not $timescale) { Write-Host '  Storage:  plain PostgreSQL mode (TimescaleDB not installed)' }
+    Write-Host "  Traps/syslog: turn them on in Settings -> Features, then point the devices at ${hostShown}"
+    Write-Host '                (UDP 162 traps, UDP/TCP 514 syslog; examples in deploy\README.md).'
+
+    # [2b-3] Other programs listening on 162 / 514 (the service's own processes excluded).
+    $own = @{}
+    $svcCim = Get-CimInstance Win32_Service -Filter "Name='$ServiceName'" -ErrorAction SilentlyContinue
+    $svcPid = if ($svcCim) { [int]$svcCim.ProcessId } else { 0 }
+    if ($svcPid -gt 0) {
+        $procs = @(Get-CimInstance Win32_Process -ErrorAction SilentlyContinue)
+        $own[[int]$svcPid] = $true
+        do {
+            $added = $false
+            foreach ($p in $procs) {
+                if ($own.ContainsKey([int]$p.ParentProcessId) -and -not $own.ContainsKey([int]$p.ProcessId)) {
+                    $own[[int]$p.ProcessId] = $true; $added = $true
+                }
+            }
+        } while ($added)
+    }
+    $holders = @()
+    $holders += @(Get-NetUDPEndpoint -LocalPort 162, 514 -ErrorAction SilentlyContinue |
+                  ForEach-Object { [pscustomobject]@{ Proto = 'UDP'; Port = $_.LocalPort; ProcId = $_.OwningProcess } })
+    $holders += @(Get-NetTCPConnection -LocalPort 514 -State Listen -ErrorAction SilentlyContinue |
+                  ForEach-Object { [pscustomobject]@{ Proto = 'TCP'; Port = $_.LocalPort; ProcId = $_.OwningProcess } })
+    foreach ($h in ($holders | Where-Object { -not $own.ContainsKey([int]$_.ProcId) } | Sort-Object Proto, Port, ProcId -Unique)) {
+        $proc = Get-Process -Id $h.ProcId -ErrorAction SilentlyContinue
+        $name = if ($proc) { $proc.ProcessName } else { '?' }
+        Write-Warn2 ("$($h.Proto) $($h.Port) is already used by process $($h.ProcId) ($name): NetworkMonitor cannot " +
+                     'receive there while it runs. Stop / reconfigure that program (svchost on UDP 162 = SNMPTRAP).')
+    }
 }
 catch {
     Write-Host ''

@@ -284,6 +284,7 @@ async def test_alert_rules_api_and_firing(
         "event",
         "stage",
         "after_maintenance",
+        "after_flapping",  # [2b-3]
         "problem_since",
         "event_id",
         "time",

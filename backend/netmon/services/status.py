@@ -173,7 +173,7 @@ async def load_inventory(session: AsyncSession) -> Inventory:
     for row in await session.execute(
         text(
             "SELECT id, group_id, name, host, enabled, snmp_credentials, dependency_mode, "
-            "dependency_device_id, dependency_sensor_id FROM devices"
+            "dependency_device_id, dependency_sensor_id, source_addresses FROM devices"
         )
     ):
         inv.devices[row.id] = {
@@ -185,6 +185,7 @@ async def load_inventory(session: AsyncSession) -> Inventory:
             "dependency_mode": row.dependency_mode,
             "dependency_device_id": row.dependency_device_id,
             "dependency_sensor_id": row.dependency_sensor_id,
+            "source_addresses": [str(a) for a in row.source_addresses or []],  # [2b-3]
         }
     for row in await session.execute(
         text(

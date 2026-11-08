@@ -12,6 +12,13 @@
 #   - DATABASE_URL=postgresql://netmon@db:5432/netmon, NETMON_DATA_DIR=/data
 #   - the DB password comes from NETMON_DB_PASSWORD_FILE (set by docker-compose)
 #   - the SPA is served from <site-packages>/netmon/static
+#   - [2b-3] SNMP traps / syslog receivers listen on unprivileged ports inside the
+#     container (NETMON_TRAP_PORT=1162, NETMON_SYSLOG_PORT=1514 UDP+TCP); compose
+#     publishes host 162/udp -> 1162 and 514/udp+tcp -> 1514. Nothing listens until the
+#     owner turns the Traps / Syslog features on in Settings -> Features.
+#   - LDAPS (Active Directory login) trusts the same CAs as HTTPS: the OS store (with
+#     deploy/certs baked in) + certifi + NETMON_EXTRA_CA_DIR (default /etc/netmon/certs,
+#     mounted by compose).
 #
 # Corporate TLS inspection: drop the organisation's root CA (*.crt / *.pem / *.cer, PEM
 # or DER) into deploy/certs/ and rebuild. Every stage that reaches the network (npm, pip,
@@ -126,7 +133,10 @@ RUN pip install --upgrade pip \
  && rm -rf "$PKG_DIR/static" \
  && cp -a /src/backend/netmon/static "$PKG_DIR/static" \
  && test -f "$PKG_DIR/static/index.html" \
- && command -v netmon
+ && command -v netmon \
+ # Every dependency declared in backend/pyproject.toml (e.g. ldap3 for Active Directory
+ # login, phase 2b-3) must be installed and consistent in the venv.
+ && pip check
 
 # ---------------------------------------------------------------------------
 # Stage 3: runtime
@@ -160,12 +170,15 @@ ENV PATH=/opt/netmon/venv/bin:$PATH \
     DATABASE_URL=postgresql://netmon@db:5432/netmon \
     NETMON_DATA_DIR=/data \
     NETMON_HOST=0.0.0.0 \
-    NETMON_PORT=8080
+    NETMON_PORT=8080 \
+    NETMON_TRAP_PORT=1162 \
+    NETMON_SYSLOG_PORT=1514
 
 VOLUME ["/data"]
 WORKDIR /data
 USER netmon:netmon
-EXPOSE 8080
+# 8080 web UI/API; 1162/udp SNMP traps; 1514/udp+tcp syslog (only while the features are ON).
+EXPOSE 8080 1162/udp 1514/udp 1514/tcp
 
 # /api/health returns 200 while the process is alive (status "degraded" if the DB is down).
 HEALTHCHECK --interval=30s --timeout=5s --start-period=90s --retries=3 \

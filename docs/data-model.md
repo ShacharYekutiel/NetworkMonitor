@@ -2584,7 +2584,7 @@ Input: raw bytes (one datagram or TCP frame), receive time, time zone. Pre-proce
 |---|---|---|---|
 | S1 | `<165>1 2026-11-08T10:00:00.003Z sw1.mnidom.net evntslog 1234 ID47 [exampleSDID@32473 iut="3"] \xEF\xBB\xBFAn application event` | 20 / 5 | rfc5424, device_time `2026-11-08T10:00:00.003Z`, hostname `sw1.mnidom.net`, program `evntslog`, pid `1234`, msgid `ID47`, sd `[exampleSDID@32473 iut="3"]`, message `An application event` |
 | S2 | `<34>1 - - - - - - plain` | 4 / 2 | rfc5424, all empty, device_time null, sd null, message `plain` |
-| S3 | `<34>Oct 11 22:14:15 mymachine su: 'su root' failed for lonvick on /dev/pts/8` | 4 / 2 | rfc3164, hostname `mymachine`, program `su`, message `'su root' failed for lonvick on /dev/pts/8`, device_time 2025-10-11T19:14:15Z (Oct 11 2026 is > 1 day ahead → 2025; IDT +3) |
+| S3 | `<34>Oct 11 22:14:15 mymachine su: 'su root' failed for lonvick on /dev/pts/8` | 4 / 2 | rfc3164, hostname `mymachine`, program `su`, message `'su root' failed for lonvick on /dev/pts/8`, device_time 2026-10-11T19:14:15Z (Oct 11 2026 is before the receive date, so the current year; IDT +3) |
 | S4 | `<30>Nov  8 09:05:01 gw-hq sshd[2211]: Accepted password for admin` | 3 / 6 | hostname `gw-hq`, program `sshd`, pid `2211`, device_time `2026-11-08T07:05:01Z` (IST +2) |
 | S5 | `<188>Nov  8 12:00:00 2026 FF5945-IRF %%10IFNET/4/PHY_UPDOWN: Physical state on the interface Ten-GigabitEthernet1/0/49 changed to down.` | 23 / 4 | hostname `FF5945-IRF`, program `IFNET`, msgid `PHY_UPDOWN`, message `Physical state on the interface Ten-GigabitEthernet1/0/49 changed to down.` |
 | S6 | `<190>Nov  8 12:00:00 10.0.0.2 00076 ports: port 5 is now on-line` | 23 / 6 | hostname `10.0.0.2`, msgid `00076`, program `ports`, message `port 5 is now on-line` |
@@ -2695,7 +2695,8 @@ data-model § Uplinks; a device with no `switch_ports` rows and no `snmp_interfa
 | `syslog_error` | Syslog error or worse / שגיאת Syslog ומעלה | syslog | 1030 | `{"severity_max":3,"facilities":[],"programs":[],"text":null,"text_regex":false}` | warning | — | 30 |
 
 The name is stored in the default language at seed time; `POST /api/event-rules/{id}/reset` restores the row
-above (name in the current `default_language`, `enabled` unchanged).
+above (name in the current `default_language`, `enabled` unchanged). The API returns `name` of a built-in
+rule in the requesting user's language (he/en) while the stored name is one of the two default names.
 
 ### `event_conditions`
 | Column | Type | Constraints |
@@ -2783,7 +2784,8 @@ by neighbour on member 3 → members 3 and 4 uplink.
 
 CHECK `users_source_password_check`: `(source = 'local') = (password_hash IS NOT NULL)`. Username: local
 users keep `^[A-Za-z0-9._-]{3,64}$`; LDAP users store lower(sAMAccountName) (1–64 chars, any printable except
-`"/\[]:;|=,+*?<>@`), still unique on `lower(username)`.
+`"/\[]:;|=,+*?<>@`), still unique on `lower(username)`. Migration `0006` replaces the 0001 inline check
+`users_username_check` by `(source = 'local' AND <local pattern>) OR (source = 'ldap' AND <ldap rule>)`.
 
 ### LDAP settings (key `ldap`)
 ```json
@@ -2885,6 +2887,7 @@ Expired/revoked tokens are deleted 30 days after expiry/revocation by the daily 
 | `ingest_unknown_sources` | `"store"` \| `"drop"` | `"store"` | |
 | `ingest_ignored_sources` | str[] | [] | ≤ 256 IPs or CIDRs |
 | `flap_threshold`, `flap_window_min`, `flap_quiet_min` | int | 5, 10, 15 | § Port flapping |
+| `event_linkdown_scope` | `"important"` \| `"all"` | `"important"` | link-down / flapping alert scope (architecture § 12.3, § 12.4); other values → 422 |
 | `siem_targets` | object[] | [] | § SIEM |
 | `ldap` | object | above | § LDAP settings |
 | `audit_retention_days` | int | 365 | 30–3650 |

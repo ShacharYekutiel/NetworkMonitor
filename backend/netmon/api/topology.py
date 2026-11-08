@@ -8,7 +8,7 @@ from typing import Any
 from fastapi import APIRouter, Query, Response
 from sqlalchemy import text
 
-from netmon.api.deps import DB, RT, Admin, Page, Viewer
+from netmon.api.deps import DB, RT, Admin, Audit, Page, Viewer
 from netmon.api.errors import ApiError, not_found, validation_error
 from netmon.models import Device, TopologyLink, TopologyNeighbor
 from netmon.ports import oui
@@ -16,6 +16,7 @@ from netmon.ports.eligibility import effective_class
 from netmon.ports.read import port_names
 from netmon.ports.view import display_port
 from netmon.schemas import LayoutIn, TopologyLinkIn
+from netmon.services import audit
 from netmon.services.dependencies import dependency_out, effective_parent
 from netmon.services.serialize import iso, page
 from netmon.services.status import load_inventory
@@ -376,21 +377,47 @@ def _changed(rt: RT, link_id: int, action: str) -> None:
     rt.hub.broadcast("topology.updated", {"reason": "link", "refresh_id": None})
 
 
+LINK_AUDIT_FIELDS = (
+    "a_device_id",
+    "a_if_index",
+    "a_port",
+    "b_device_id",
+    "b_neighbor_id",
+    "b_if_index",
+    "b_port",
+)
+
+
+def _link_values(ln: TopologyLink) -> dict[str, Any]:
+    return {k: getattr(ln, k) for k in LINK_AUDIT_FIELDS}
+
+
+def _link_entity(ln: TopologyLink) -> audit.Entity:
+    return audit.entity("topology_link", ln.id, None, device_id=ln.a_device_id)
+
+
 @router.post("/api/topology/links", status_code=201)
-async def create_link(body: TopologyLinkIn, user: Admin, rt: RT, session: DB) -> dict:
+async def create_link(body: TopologyLinkIn, user: Admin, rt: RT, session: DB, ctx: Audit) -> dict:
     fields = await _link_fields(session, body.model_dump())
     ln = TopologyLink(source="manual", created_by=user.id, **fields)
     session.add(ln)
+    await _commit_link(session, flush_only=True)
+    await audit.record(
+        session, ctx, "topology_link.create", _link_entity(ln), audit.created(_link_values(ln))
+    )
     await _commit_link(session)
     _changed(rt, ln.id, "created")
     return await _link_json(session, ln.id)
 
 
-async def _commit_link(session: DB) -> None:
+async def _commit_link(session: DB, flush_only: bool = False) -> None:
     from sqlalchemy.exc import IntegrityError
 
     try:
-        await session.commit()
+        if flush_only:
+            await session.flush()
+        else:
+            await session.commit()
     except IntegrityError as exc:
         await session.rollback()
         raise ApiError(
@@ -399,12 +426,15 @@ async def _commit_link(session: DB) -> None:
 
 
 @router.patch("/api/topology/links/{link_id}")
-async def patch_link(link_id: int, body: TopologyLinkIn, _: Admin, rt: RT, session: DB) -> dict:
+async def patch_link(
+    link_id: int, body: TopologyLinkIn, _: Admin, rt: RT, session: DB, ctx: Audit
+) -> dict:
     ln = await session.get(TopologyLink, link_id)
     if ln is None:
         raise not_found("Link")
     if ln.source != "manual":
         raise ApiError(400, "link_not_manual", "Only manual links can be edited")
+    before = _link_values(ln)
     data = {
         "a_device_id": ln.a_device_id,
         "a_if_index": ln.a_if_index,
@@ -430,16 +460,22 @@ async def patch_link(link_id: int, body: TopologyLinkIn, _: Admin, rt: RT, sessi
     from sqlalchemy import func
 
     ln.last_seen = func.now()
+    changes = audit.diff(before, _link_values(ln))
+    if changes:
+        await audit.record(session, ctx, "topology_link.update", _link_entity(ln), changes)
     await _commit_link(session)
     _changed(rt, link_id, "updated")
     return await _link_json(session, link_id)
 
 
 @router.delete("/api/topology/links/{link_id}", status_code=204)
-async def delete_link(link_id: int, _: Admin, rt: RT, session: DB) -> Response:
+async def delete_link(link_id: int, _: Admin, rt: RT, session: DB, ctx: Audit) -> Response:
     ln = await session.get(TopologyLink, link_id)
     if ln is None:
         raise not_found("Link")
+    await audit.record(
+        session, ctx, "topology_link.delete", _link_entity(ln), audit.deleted(_link_values(ln))
+    )
     await session.delete(ln)
     await session.commit()
     _changed(rt, link_id, "deleted")
@@ -448,11 +484,15 @@ async def delete_link(link_id: int, _: Admin, rt: RT, session: DB) -> Response:
 
 @router.delete("/api/topology/links")
 async def delete_stale_links(
-    _: Admin, rt: RT, session: DB, stale: bool | None = Query(default=None)
+    _: Admin, rt: RT, session: DB, ctx: Audit, stale: bool | None = Query(default=None)
 ) -> dict:
     if stale is not True:
         raise validation_error(["query", "stale"], "stale=true is required")
     n = (await session.execute(text("DELETE FROM topology_links WHERE stale RETURNING id"))).all()
+    for (link_id,) in n:
+        await audit.record(
+            session, ctx, "topology_link.delete", audit.entity("topology_link", link_id)
+        )
     await session.execute(
         text(
             "DELETE FROM topology_neighbors n WHERE NOT EXISTS "

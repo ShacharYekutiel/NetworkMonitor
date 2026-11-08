@@ -79,6 +79,15 @@ class Runtime:
         self.topology: Any = None  # netmon.topology.refresh.TopologyRunner
         self.topology_scheduler: Any = None
         self.ports: Any = None  # [2b-2] netmon.ports.scheduler.PortInventory
+        # [2b-3] feature toggles, ingestion (traps/syslog), event sensors, flapping
+        from netmon.services.features import FeatureManager
+
+        self.features = FeatureManager(self)
+        self.ingest: Any = None  # netmon.ingest.pipeline.Ingest
+        self.event_sensors: Any = None  # netmon.ingest.event_sensors.EventSensors
+        self.flapping: Any = None  # netmon.ingest.flapping.FlapManager
+        self.trgm_enabled = False
+        self.ingest_retention_policy_ok = False
         self.dependencies_enabled = True
         from netmon.services.dependencies import Cascade
 
@@ -124,6 +133,16 @@ class Runtime:
         )
         self.timescale_enabled = ts.enabled
         self.retention_policy_ok = ts.retention_policy
+        # [2b-3] pg_trgm for the trap/syslog text search (failure -> sequential scans)
+        from netmon.db.extensions import ensure_trgm
+
+        self.trgm_enabled = await ensure_trgm(self.engine)
+        async with self.sessionmaker() as session:
+            trap_days = await settings_svc.get(session, "trap_retention_days")
+            syslog_days = await settings_svc.get(session, "syslog_retention_days")
+        self.ingest_retention_policy_ok = await timescale.bootstrap_ingest(
+            self.engine, self.timescale_enabled, int(trap_days), int(syslog_days)
+        )
         from netmon.topology.refresh import TopologyRunner
 
         self.topology = TopologyRunner(self)
@@ -163,6 +182,14 @@ class Runtime:
         self.maintenance = MaintenanceTracker(self)
         await self.maintenance.start()
         self.alerts.start()
+        # [2b-3] features: forwarders -> pipeline -> rules + expiry -> flapping -> receivers
+        from netmon.ingest.pipeline import Ingest
+
+        self.ingest = Ingest(self)
+        try:
+            await self.features.start()
+        except Exception:  # noqa: BLE001 - the server always starts
+            log.exception("Starting the 2b-3 features failed")
         if maintenance:
             from netmon.topology.scheduler import TopologyScheduler
 
@@ -192,6 +219,9 @@ class Runtime:
         log.info("NetworkMonitor %s started (timescale=%s)", self.version, self.timescale_enabled)
 
     async def stop(self) -> None:
+        # [2b-3] receivers first (sockets closed), pipeline flush <= 5 s, forwarders <= 2 s
+        with contextlib.suppress(Exception):
+            await self.features.stop()
         if self.ports is not None:
             with contextlib.suppress(Exception):
                 await self.ports.stop()
@@ -333,6 +363,7 @@ class Runtime:
                         # down/warning keep their status so alerting stays consistent
                         # (no repeated DOWN, and a later recovery still sends UP)
                         Sensor.status == "up",
+                        Sensor.type.not_in(("trap", "syslog", "port_flap")),  # [2b-3] passive
                         text(
                             "(sensors.last_check_at IS NULL OR sensors.last_check_at < "
                             "now() - make_interval(secs => sensors.interval_s * 3))"
@@ -415,6 +446,8 @@ class Runtime:
     def config_changed(self, entity: str, id_: int, action: str) -> None:
         self.hub.broadcast("config.changed", {"entity": entity, "id": id_, "action": action})
         self.request_rollup()
+        if entity in ("device", "group", "sensor", "event_rule") and self.ingest is not None:
+            self.ingest.mark_sources_dirty()  # [2b-3] attribution / rule cache
         if entity in ("device", "group"):
             self.cascade.invalidate()  # dependencies may have changed
             if self.maintenance is not None:

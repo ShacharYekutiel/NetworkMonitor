@@ -1,0 +1,13 @@
+# Syslog test vectors, docs/data-model.md [2b-3] "Syslog parsing" (ID|message; \xHH escapes, {c*N} repeat).
+# Expected fields (facility/severity, format, hostname, program, pid, msgid, sd, message) are in the contract.
+S1|<165>1 2026-11-08T10:00:00.003Z sw1.mnidom.net evntslog 1234 ID47 [exampleSDID@32473 iut="3"] \xEF\xBB\xBFAn application event
+S2|<34>1 - - - - - - plain
+S3|<34>Oct 11 22:14:15 mymachine su: 'su root' failed for lonvick on /dev/pts/8
+S4|<30>Nov  8 09:05:01 gw-hq sshd[2211]: Accepted password for admin
+S5|<188>Nov  8 12:00:00 2026 FF5945-IRF %%10IFNET/4/PHY_UPDOWN: Physical state on the interface Ten-GigabitEthernet1/0/49 changed to down.
+S6|<190>Nov  8 12:00:00 10.0.0.2 00076 ports: port 5 is now on-line
+S7|<13>Nov  8 12:00:00 su: test
+S8|<13>hello world
+S9|just text
+S10|<999>x
+S11|<14>Nov  8 12:00:00 host app: a\x00b{x*9000}

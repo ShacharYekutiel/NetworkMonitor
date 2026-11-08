@@ -176,6 +176,7 @@ async def test_ports_lab(rt, admin: httpx.AsyncClient, agents, ptr_file) -> None
         "fdb": "ok",
         "poe": "ok",
         "arp": "skipped",
+        "lag": "skipped",  # [2b-3] feature `lag` OFF
     }
     assert (st["fdb_mib"], st["vlan_mib"]) == ("q_bridge", "static")
     assert st["error"] is None and st["running"] is False and st["arp_sources"] == 2

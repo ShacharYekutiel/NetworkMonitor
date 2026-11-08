@@ -5,13 +5,15 @@
 
 - `release.env` — **הקובץ שמשנים כדי לשדרג**: הגרסה המדויקת ותמונת ה-Docker ‏(אפשר עם digest).
   לעולם לא `latest`.
-- `compose.yaml` — ה-stack: ‏`init` ‏(יוצר סיסמת DB אקראית), ‏`db` ‏(TimescaleDB), ‏`netmon` ‏(האפליקציה,
-  לא חשופה ישירות), ‏`proxy` ‏(Caddy: ‏HTTPS על 443, הפניה מ-80 ל-443, WebSocket).
+- `compose.yaml` — ה-stack: ‏`init` ‏(יוצר סיסמת DB אקראית), ‏`db` ‏(TimescaleDB), ‏`netmon` ‏(האפליקציה;
+  ממשק הווב לא חשוף ישירות, ‏traps ב-UDP 162 ו-syslog ב-UDP/TCP 514 כן — ראו "SNMP traps ו-syslog"),
+  ‏`proxy` ‏(Caddy: ‏HTTPS על 443, הפניה מ-80 ל-443, WebSocket).
 - `config/settings.env` — הגדרות אפליקציה שאינן סודיות (אזור זמן `Asia/Jerusalem` וכו').
 - `caddy/Caddyfile` — הגדרות ה-reverse proxy.
 - `ops/` — סקריפטים לשרת: ‏`bootstrap.sh`, ‏`sync.sh`, ‏`backup.sh`, ‏`restore.sh`, ‏`make-csr.sh`,
-  ‏`install-cert.sh`, ‏`status.sh`.
-- `systemd/` — ה-timers: סנכרון כל 2 דקות, גיבוי יומי ב-02:17.
+  ‏`install-cert.sh`, ‏`status.sh`, ‏`ingest-firewall.sh` ‏(אופציונלי: מי רשאי לשלוח traps/syslog).
+- `systemd/` — ה-timers: סנכרון כל 2 דקות, גיבוי יומי ב-02:17; ‏`netmon-ingest-firewall.service` ‏(מותקן,
+  **לא** מופעל — רק אם בוחרים בו).
 - `tests/` — בדיקת הלוגיקה של `sync.sh` בלי Docker ‏(רצה ב-CI).
 
 סודות **אינם** ב-git. הם נמצאים רק בשרת, בקבצים של root תחת `/etc/netmon-gitops/`.
@@ -254,6 +256,7 @@ NOTIFY_ON_SUCCESS=0       # 1 = גם הודעה על deploy מוצלח
 | `/etc/netmon-gitops/proxy.env`, `app.env` | proxy (אם הוגדר); הגדרות מקומיות לאפליקציה |
 | `/etc/netmon-gitops/ca/` | תעודות CA שהאפליקציה סומכת עליהן (מועתקות מ-`/usr/local/share/ca-certificates`) |
 | `/etc/netmon-gitops/notify.env` | webhook להתראות (אופציונלי) |
+| `/etc/netmon-gitops/ingest-allow.conf` | הרשתות שרשאיות לשלוח traps/syslog (אופציונלי, `ingest-firewall.sh`) |
 | `/var/lib/netmon-gitops/` | `deployed_rev`, ‏`bad_trees`, ‏`history.log` |
 | `/usr/local/lib/netmon-gitops/` | העותק המותקן של `ops/` (ה-timer מריץ אותו; מתעדכן אחרי deploy תקין) |
 | `/var/backups/netmon/` | גיבויים |
@@ -277,9 +280,95 @@ sudo /usr/local/lib/netmon-gitops/sync.sh --dry-run   # מה הסנכרון הי
 | `marked bad; waiting for a new change` | ה-deploy נכשל וחזר לגרסה הקודמת. מתקנים ב-PR חדש, או אחרי תיקון בשרת: `sudo /usr/local/lib/netmon-gitops/sync.sh --force` |
 | הדפדפן מזהיר על התעודה | עדיין התעודה הזמנית (`status.sh` מציין זאת) או שה-CA הארגוני לא מותקן במחשב. |
 | עבודת תחזוקה ידנית | `sudo systemctl stop netmon-gitops.timer` (אחרת drift יתוקן אוטומטית), בסוף `start`. |
+| כל ה-syslog/traps "מגיעים" מ-`172.x.0.1` (אזהרת NAT בדף הלוגים) | שלחתם מהשרת עצמו (עובר דרך `docker-proxy`) — בודקים ממחשב אחר. |
+| traps/syslog ממכשיר מסוים הפסיקו להגיע אחרי deploy | רשומת conntrack ישנה. ‏`sync.sh` מנקה אותה אוטומטית (כשהחבילה `conntrack` מותקנת); ידנית: `sudo conntrack -D -p udp --dport 162` ‏(ו-514). |
+| בהגדרות ← תכונות: `Address already in use` | תוכנה אחרת בשרת תופסת את 162/514: ‏`sudo ss -lunpt '( sport = :162 or sport = :514 )'`. |
 
-## בעתיד: SNMP traps ו-syslog ‏(שלב 2b-3)
+## SNMP traps ו-syslog ‏(שלב 2b-3)
 
-ב-`compose.yaml` יש placeholder בהערה לפורטים UDP 162 ‏(traps) ו-UDP/TCP 514 ‏(syslog). פורטים
-שמפורסמים ב-Docker ‏(iptables DNAT) שומרים את כתובת ה-IP של השולח, וזה הכרחי לזיהוי המכשיר.
-יש לפתוח אותם גם ב-firewall של השרת כשהשלב ייכנס.
+`compose.yaml` מפרסם את הפורטים הסטנדרטיים: ‏**UDP 162** ‏(traps) ו-**UDP + TCP 514** ‏(syslog), שמועברים לפורטים
+1162 / 1514 בתוך הקונטיינר (האפליקציה רצה בלי root). **אחרי השדרוג הכול כבוי ושום דבר לא מאזין** עד שמנהל מפעיל
+*Traps* / *Syslog* ב-*הגדרות ← תכונות*. ההפעלה מיידית — **אין צורך בשינוי בשרת או ב-deploy**. בשורת הסטטוס שם
+רואים "Listening on UDP 162" או את השגיאה.
+
+### כתובת השולח נשמרת
+
+Docker מממש פורט מפורסם עם iptables DNAT, שמשאיר את כתובת ה-IP המקורית של השולח, וכך כל הודעה משויכת למכשיר
+הנכון. שלוש הסתייגויות:
+
+- **בדיקה מהשרת עצמו** (או hairpin) עוברת דרך `docker-proxy` ומגיעה מכתובת ה-gateway של ה-bridge ‏(`172.x.0.1`).
+  בודקים ממחשב אחר.
+- **Docker Desktop ‏(Windows/macOS) לא שומר את כתובת השולח** (רלוונטי רק לבדיקות במחשב אישי, לא לשרת הזה).
+- **conntrack של UDP:** מכשיר שהמשיך לשלוח בזמן שהקונטיינר הוחלף עלול להישאר עם רשומת conntrack ישנה (אותו
+  5-tuple; syslog נשלח מפורט מקור 514) ו"להיעלם". ‏`sync.sh` מוחק את רשומות ה-UDP של 162/514 אחרי deploy שיצר
+  מחדש את הקונטיינר `netmon` — אם החבילה `conntrack` מותקנת (`bootstrap.sh` מתקין אותה; בשרת קיים:
+  `sudo apt-get install -y conntrack`). ידנית:
+
+```bash
+sudo conntrack -D -p udp --dport 162
+sudo conntrack -D -p udp --dport 514
+```
+
+### חומת אש: ‏ufw **לא** מסנן פורטים של Docker
+
+החוקים של Docker ‏(שרשראות `DOCKER` / `FORWARD`) נבדקים **לפני** ufw, ולכן `ufw deny 514` לא חוסם אף אחד.
+אין צורך ב-`ufw allow` כדי לקבל traps/syslog, וגם אי אפשר לחסום איתו. המקום הנכון לחוקים משלכם הוא השרשרת
+`DOCKER-USER`, עם הפורט **המקורי** (לפני ה-DNAT ל-1514):
+
+```bash
+# דוגמה: לקבל syslog ב-UDP רק מ-10.0.0.0/8
+sudo iptables -I DOCKER-USER -p udp -m conntrack --ctstate DNAT --ctdir ORIGINAL --ctorigdstport 514 ! -s 10.0.0.0/8 -j DROP
+```
+
+הסקריפט האופציונלי `ops/ingest-firewall.sh` עושה את זה לשלושת הפורטים (162/udp, ‏514/udp, ‏514/tcp) ומשאיר את
+ממשק הווב (443) בלי שינוי. **שום דבר לא מופעל אוטומטית**:
+
+```bash
+# 1. רשת אחת בכל שורה (# להערות)
+printf '10.0.0.0/8\n192.168.10.0/24\n' | sudo tee /etc/netmon-gitops/ingest-allow.conf
+# 2. הפעלה עכשיו ובכל אתחול (וגם אחרי restart של Docker)
+sudo systemctl enable --now netmon-ingest-firewall.service
+# מצב / ביטול
+sudo /usr/local/lib/netmon-gitops/ingest-firewall.sh status
+sudo systemctl disable --now netmon-ingest-firewall.service     # מסיר את החוקים
+```
+
+`--ctstate DNAT` מגביל את החוק לתעבורה **שנכנסת** לפורטים המפורסמים, כך ששליחה **יוצאת** של האפליקציה ל-SIEM
+בפורט 514 לא נחסמת. שכבה שנייה, רכה יותר: רשימת ההתעלמות באפליקציה (*Logs ← Unknown sources ← Ignore*).
+
+### התנגשויות פורטים
+
+```bash
+sudo ss -lunpt '( sport = :162 or sport = :514 )'    # צריך להופיע רק docker-proxy
+sudo ss -ltnp  '( sport = :514 )'
+```
+
+`snmptrapd` או `rsyslog` עם `imudp`/`imtcp` על 514 יכשילו את `docker compose up` ‏(`address already in use`).
+`ops/status.sh` מציג את המאזינים ואת מצב מסנן השולחים.
+
+### הגדרת המכשירים (דוגמאות — **יש לבדוק על המכשיר**)
+
+התחביר משתנה לפי דגם וגרסת firmware. מחליפים את `10.0.0.50` בכתובת שרת NetworkMonitor. מומלץ לשלוח syslog ברמת
+`warning` ‏(`informational` ב-Comware רושם כל התחברות וכל פקודה; ~75MB ליום לכל הודעה בשנייה).
+
+| מכשיר | Syslog | Traps |
+|---|---|---|
+| HPE Comware 7 ‏(FF 5945 IRF) | `info-center enable`<br>`info-center loghost 10.0.0.50 facility local7`<br>`info-center source default loghost level warning`<br>`info-center loghost source Vlan-interface<mgmt>` | v2c: `snmp-agent target-host trap address udp-domain 10.0.0.50 params securityname <community> v2c`<br>`snmp-agent trap enable`<br>`snmp-agent trap source Vlan-interface<mgmt>`<br>v3: `snmp-agent usm-user v3 <user> <group> simple authentication-mode sha <pw> privacy-mode aes128 <pw>` + `snmp-agent target-host trap address udp-domain 10.0.0.50 params securityname <user> v3 privacy` (אותו משתמש ומפתחות של ה-polling) |
+| ArubaOS-Switch | `logging 10.0.0.50`<br>`logging severity warning`<br>`logging facility local7` | `snmp-server host 10.0.0.50 community <community> trap-level all`<br>`snmp-server enable traps link-change <ports>`<br>v3: ‏`snmpv3 notify` / `snmpv3 targetaddress` (לפי מדריך המתג) |
+| Check Point Gaia ‏(clish) | `add syslog log-remote-address 10.0.0.50 level warning`<br>`save config`<br>(הודעות מערכת ההפעלה Gaia בלבד — **לא** לוגי תעבורה של Log Exporter, שיציפו את המקלט) | `add snmp traps receiver 10.0.0.50 version v2 community <community>`<br>`set snmp traps trap <name> enable`<br>`save config` |
+
+המכשיר צריך לשלוח מהכתובת שבה הוא מנוטר. אחרת מוסיפים את הכתובת הנוספת בטופס המכשיר (*Additional source
+addresses*) או משתמשים ב-"Assign to device" בלשונית *Unknown sources* בדף הלוגים.
+
+### Active Directory ‏(LDAPS)
+
+ההתחברות עם משתמשי AD מאמתת את תעודת ה-DC מול אותן תעודות CA כמו HTTPS: מאגר המערכת של ה-image, ‏certifi,
+והתיקייה `/etc/netmon-gitops/ca/` ‏(מוצמדת לקונטיינר כ-`/etc/netmon/certs`, כבר קיימת מ-`bootstrap.sh`). כלומר
+תעודת ה-root של Mnidom-PKI-SERV-CA שכבר הותקנה מספיקה. ברשימת השרתים משתמשים בשם ה-DC שבתעודה
+(`dc1.mnidom.net`, לא IP). בדיקה מהשרת:
+
+```bash
+openssl s_client -connect dc1.mnidom.net:636 -showcerts </dev/null | head -n 20
+```
+
+הכול מוגדר בממשק (*הגדרות ← Active Directory*); אין שום דבר להגדיר בשרת.

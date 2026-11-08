@@ -64,21 +64,25 @@ async def device_ports(
             )
         ).mappings()
     ]
+    lag = read.lag_ctx(rows) if rt.features.enabled("lag") else None  # [2b-3]
     if kind:
         rows = [r for r in rows if r["kind"] in kind]
     # MAC details (ARP / DNS / OUI) only for ports that can show them: a port above the
     # uplink threshold is an uplink and lists its count only
-    macs = await read.present_macs(
-        session,
-        device_id,
-        ctx.reverse_dns,
-        if_indexes=[r["if_index"] for r in rows if r["mac_count"] <= ctx.threshold],
-    )
+    wanted = {r["if_index"] for r in rows if r["mac_count"] <= ctx.threshold}
+    if lag is not None:  # members show their LAG's MACs too
+        for r in rows:
+            lag_if = lag.lag_of.get(r["if_index"])
+            if lag_if is not None and lag.rows[lag_if]["mac_count"] <= ctx.threshold:
+                wanted.add(lag_if)
+    macs = await read.present_macs(session, device_id, ctx.reverse_dns, if_indexes=sorted(wanted))
+    if lag is not None:
+        lag.macs = macs
     sensors = await read.interface_sensors(session, device_id)
     ports = [
         read.strip_private(
             read.port_out(
-                device_id, r, ctx, macs.get(r["if_index"], []), sensors.get(r["if_index"])
+                device_id, r, ctx, macs.get(r["if_index"], []), sensors.get(r["if_index"]), lag
             )
         )
         for r in rows
@@ -92,7 +96,13 @@ async def device_ports(
         "arp_collect": flags.arp_collect,
         "effective_class": flags.effective_class,
         "status": read.status_out(
-            status_row, flags, _running(rt, device_id), rt.clock.now(), interval, arp_sources
+            status_row,
+            flags,
+            _running(rt, device_id),
+            rt.clock.now(),
+            interval,
+            arp_sources,
+            lag_on=rt.features.enabled("lag"),
         ),
         "settings": {"interval_min": interval, "uplink_mac_threshold": ctx.threshold},
         "health": await read.device_health(session, device_id),
@@ -126,10 +136,24 @@ async def port_detail(
         raise not_found("Port")
     inv = await load_inventory(session)
     ctx = await read.load_context(session, inv, [device_id])
+    lag = None
+    if rt.features.enabled("lag"):  # [2b-3]
+        rows = [
+            dict(r)
+            for r in (
+                await session.execute(
+                    text("SELECT * FROM switch_ports WHERE device_id = :d"), {"d": device_id}
+                )
+            ).mappings()
+        ]
+        lag = read.lag_ctx(rows)
+        lag_if = lag.lag_of.get(if_index)
+        if lag_if is not None:
+            lag.macs = await read.present_macs(session, device_id, ctx.reverse_dns, lag_if)
     macs = await read.present_macs(session, device_id, ctx.reverse_dns, if_index)
     sensors = await read.interface_sensors(session, device_id)
     sensor = sensors.get(if_index)
-    port = read.port_out(device_id, dict(row), ctx, macs.get(if_index, []), sensor)
+    port = read.port_out(device_id, dict(row), ctx, macs.get(if_index, []), sensor, lag)
     hidden = port["is_uplink"] and not include_uplink_macs
     if port["is_uplink"] and include_uplink_macs:
         port["macs"] = [read._public_mac(m) for m in port["_macs_all"][: read.UPLINK_MAC_CAP]]
@@ -201,8 +225,9 @@ async def refresh_ports(device_id: int, _: Admin, rt: RT, session: DB) -> dict:
 @router.get("/api/search/mac", response_model=MacSearchResult)
 async def mac_search(
     _: Viewer,
+    rt: RT,
     session: DB,
     q: str | None = Query(default=None, max_length=64),
     ip: str | None = Query(default=None, max_length=64),
 ) -> dict:
-    return await search_mac(session, q, ip)
+    return await search_mac(session, q, ip, lag_on=rt.features.enabled("lag"))

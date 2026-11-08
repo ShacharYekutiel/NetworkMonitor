@@ -19,9 +19,12 @@ RestartSec=5
 RestartPreventExitStatus=3
 TimeoutStopSec=20
 
-# Privileged ICMP fallback (raw sockets) without running as root.
-AmbientCapabilities=CAP_NET_RAW
-CapabilityBoundingSet=CAP_NET_RAW
+# Without running as root:
+#   CAP_NET_RAW           privileged ICMP fallback (raw sockets)
+#   CAP_NET_BIND_SERVICE  [2b-3] SNMP trap receiver on UDP 162 and syslog on UDP/TCP 514
+#                         (opened only while the Traps / Syslog features are ON)
+AmbientCapabilities=CAP_NET_RAW CAP_NET_BIND_SERVICE
+CapabilityBoundingSet=CAP_NET_RAW CAP_NET_BIND_SERVICE
 NoNewPrivileges=true
 
 # Hardening

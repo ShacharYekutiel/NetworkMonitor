@@ -31,6 +31,7 @@ import { StatusMessage } from '../components/Dependency';
 import { MaintenanceBadge } from '../components/Maintenance';
 import { mapEnumValue, valueMapToRows } from '../lib/sensorConfig';
 import { useLocalState } from '../hooks/useLocalState';
+import { EventConditionsCard, isEventSensor } from '../components/EventConditions';
 import { errorMessage } from '../lib/errors';
 import { formatDateTime, formatRelative, sensorValueText } from '../lib/format';
 import { canRun, STATUS_TEXT, statusClass } from '../lib/status';
@@ -55,6 +56,8 @@ export function SensorPage() {
   const history = useQuery({
     queryKey: qk.history(id, range),
     queryFn: () => endpoints.history(id, range),
+    // [2b-3] passive event sensors have no measurements
+    enabled: !!sensor.data && !isEventSensor(sensor.data),
     placeholderData: keepPreviousData,
     refetchInterval: range === '1h' ? 60_000 : 300_000,
   });
@@ -101,6 +104,7 @@ export function SensorPage() {
   const activeChannel = channel ?? s.primary_channel;
   const hc = history.data?.channels.find((c) => c.key === activeChannel);
   const unit = hc?.unit ?? s.channels.find((c) => c.key === activeChannel)?.unit ?? '';
+  const passive = isEventSensor(s);
 
   return (
     <div className="space-y-4">
@@ -121,15 +125,17 @@ export function SensorPage() {
           isAdmin && (
             <>
               <AckAction sensor={s} size="md" />
-              <Button
-                variant="primary"
-                busy={run.isPending}
-                disabled={!canRun(s)}
-                title={canRun(s) ? undefined : t('sensors.runPausedHint')}
-                onClick={() => run.mutate()}
-              >
-                <RefreshIcon size={14} /> {t('sensors.runNow')}
-              </Button>
+              {!passive && (
+                <Button
+                  variant="primary"
+                  busy={run.isPending}
+                  disabled={!canRun(s)}
+                  title={canRun(s) ? undefined : t('sensors.runPausedHint')}
+                  onClick={() => run.mutate()}
+                >
+                  <RefreshIcon size={14} /> {t('sensors.runNow')}
+                </Button>
+              )}
               <Button busy={toggle.isPending} onClick={() => toggle.mutate(s)}>
                 {s.enabled ? (
                   <PauseIcon size={14} />
@@ -176,9 +182,12 @@ export function SensorPage() {
           <span className="text-slate-500">
             {t('sensors.since')}: {formatDateTime(s.last_status_change_at)}
           </span>
-          <span className="text-slate-500">
-            {t('sensors.interval')}: <Ltr>{s.interval_s}</Ltr>
-          </span>
+          {!passive && (
+            <span className="text-slate-500">
+              {t('sensors.interval')}: <Ltr>{s.interval_s}</Ltr>
+            </span>
+          )}
+          {passive && <span className="text-slate-500">{t('sensors.passiveNote')}</span>}
         </div>
         {s.acknowledgement && (
           <div className="mt-2">
@@ -228,86 +237,95 @@ export function SensorPage() {
         })}
       </div>
 
-      <Card
-        title={`${t('sensors.history')}: ${t(`channel.${activeChannel}`, { defaultValue: activeChannel })}`}
-        actions={
-          <div
-            className="inline-flex rounded-md ring-1 ring-slate-300 dark:ring-slate-600"
-            role="group"
-          >
-            {RANGES.map((r) => (
-              <button
-                key={r}
-                type="button"
-                onClick={() => setRange(r)}
-                aria-pressed={r === range}
-                className={cx(
-                  'px-2.5 py-1 text-xs first:rounded-s-md last:rounded-e-md',
-                  r === range
-                    ? 'bg-sky-600 text-white'
-                    : 'hover:bg-slate-100 dark:hover:bg-slate-800',
-                )}
+      {passive && <EventConditionsCard sensor={s} />}
+      {!passive && (
+        <>
+          <Card
+            title={`${t('sensors.history')}: ${t(`channel.${activeChannel}`, { defaultValue: activeChannel })}`}
+            actions={
+              <div
+                className="inline-flex rounded-md ring-1 ring-slate-300 dark:ring-slate-600"
+                role="group"
               >
-                {t(`range.${r}`)}
-              </button>
-            ))}
-          </div>
-        }
-      >
-        <ErrorBox error={history.error} />
-        {history.isLoading && <Loading />}
-        {history.data && hc && hc.points.length > 0 && (
-          <HistoryChart
-            points={hc.points}
-            bucketS={history.data.bucket_s}
-            unit={unit}
-            label={activeChannel}
-            from={history.data.from}
-            to={history.data.to}
-            events={events.data?.items}
-          />
-        )}
-        {history.data && (!hc || hc.points.length === 0) && <Empty>{t('sensors.noData')}</Empty>}
-      </Card>
-
-      <Card title={t('thresholds.title')}>
-        <ThresholdEditor sensor={s} readOnly={!isAdmin} />
-      </Card>
-
-      <Card title={t('sensors.settings')}>
-        <dl className="grid grid-cols-1 gap-x-6 gap-y-2 text-sm sm:grid-cols-2 lg:grid-cols-3">
-          {Object.entries(s.config)
-            .filter(
-              ([k]) =>
-                !(
-                  (k === 'value_map' || k === 'value_map_default') &&
-                  s.config.value_type === 'enum'
-                ),
-            )
-            .map(([k, v]) => (
-              <div key={k} className="flex gap-2">
-                <dt className="text-slate-500">
-                  {t(`sensorConfig.${s.type}.${k}`, { defaultValue: k })}:
-                </dt>
-                <dd className="min-w-0 break-all">
-                  <Ltr>
-                    {v === null || v === ''
-                      ? '—'
-                      : typeof v === 'object'
-                        ? JSON.stringify(v)
-                        : t(`sensorConfigOption.${s.type}.${k}.${String(v)}`, {
-                            defaultValue: String(v),
-                          })}
-                  </Ltr>
-                </dd>
+                {RANGES.map((r) => (
+                  <button
+                    key={r}
+                    type="button"
+                    onClick={() => setRange(r)}
+                    aria-pressed={r === range}
+                    className={cx(
+                      'px-2.5 py-1 text-xs first:rounded-s-md last:rounded-e-md',
+                      r === range
+                        ? 'bg-sky-600 text-white'
+                        : 'hover:bg-slate-100 dark:hover:bg-slate-800',
+                    )}
+                  >
+                    {t(`range.${r}`)}
+                  </button>
+                ))}
               </div>
-            ))}
-          {!Object.keys(s.config).length && (
-            <div className="text-slate-500">{t('sensors.noConfig')}</div>
-          )}
-        </dl>
-        {s.type === 'snmp_custom' && s.config.value_type === 'enum' && <ValueMapTable sensor={s} />}
-      </Card>
+            }
+          >
+            <ErrorBox error={history.error} />
+            {history.isLoading && <Loading />}
+            {history.data && hc && hc.points.length > 0 && (
+              <HistoryChart
+                points={hc.points}
+                bucketS={history.data.bucket_s}
+                unit={unit}
+                label={activeChannel}
+                from={history.data.from}
+                to={history.data.to}
+                events={events.data?.items}
+              />
+            )}
+            {history.data && (!hc || hc.points.length === 0) && (
+              <Empty>{t('sensors.noData')}</Empty>
+            )}
+          </Card>
+
+          <Card title={t('thresholds.title')}>
+            <ThresholdEditor sensor={s} readOnly={!isAdmin} />
+          </Card>
+
+          <Card title={t('sensors.settings')}>
+            <dl className="grid grid-cols-1 gap-x-6 gap-y-2 text-sm sm:grid-cols-2 lg:grid-cols-3">
+              {Object.entries(s.config)
+                .filter(
+                  ([k]) =>
+                    !(
+                      (k === 'value_map' || k === 'value_map_default') &&
+                      s.config.value_type === 'enum'
+                    ),
+                )
+                .map(([k, v]) => (
+                  <div key={k} className="flex gap-2">
+                    <dt className="text-slate-500">
+                      {t(`sensorConfig.${s.type}.${k}`, { defaultValue: k })}:
+                    </dt>
+                    <dd className="min-w-0 break-all">
+                      <Ltr>
+                        {v === null || v === ''
+                          ? '—'
+                          : typeof v === 'object'
+                            ? JSON.stringify(v)
+                            : t(`sensorConfigOption.${s.type}.${k}.${String(v)}`, {
+                                defaultValue: String(v),
+                              })}
+                      </Ltr>
+                    </dd>
+                  </div>
+                ))}
+              {!Object.keys(s.config).length && (
+                <div className="text-slate-500">{t('sensors.noConfig')}</div>
+              )}
+            </dl>
+            {s.type === 'snmp_custom' && s.config.value_type === 'enum' && (
+              <ValueMapTable sensor={s} />
+            )}
+          </Card>
+        </>
+      )}
 
       <Card title={t('sensors.events')} bodyClassName="p-0">
         {events.data ? <EventsTable events={events.data.items} showSource={false} /> : <Loading />}

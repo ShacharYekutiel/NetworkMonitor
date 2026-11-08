@@ -1544,7 +1544,7 @@ type User = { /* Phase 1 fields */ source: "local" | "ldap"; display_name: strin
   "trap_v3_users": [ { "username": "netmon-trap", "security_level": "authPriv", "auth_protocol": "SHA",
      "auth_key": null, "auth_key_set": true, "priv_protocol": "AES128", "priv_key": null, "priv_key_set": true } ],
   "ingest_unknown_sources": "store", "ingest_ignored_sources": ["10.9.0.0/16"],
-  "flap_threshold": 5, "flap_window_min": 10, "flap_quiet_min": 15,
+  "flap_threshold": 5, "flap_window_min": 10, "flap_quiet_min": 15, "event_linkdown_scope": "important",
   "siem_targets": [ { "id": "a1b2c3", "name": "QRadar", "enabled": true, "host": "siem.mnidom.net", "port": 6514,
      "protocol": "tls", "tls_verify": true, "kinds": ["syslog","trap"], "min_severity": 7, "sources": [],
      "include_unknown": false } ],
@@ -1640,7 +1640,9 @@ type TrapMatch = { trap_oids: string[]; varbinds: { oid: string; op: "eq" | "ne"
   ports: "any" | "important" };
 type SyslogMatch = { severity_max: number | null; facilities: number[]; programs: string[];
   text: string | null; text_regex: boolean };
-type EventRule = { id: number; name: string; kind: "trap" | "syslog"; enabled: boolean;
+type EventRule = { id: number;
+  name: string;            // built-in rules with their default name: in the request user's language (he/en)
+  kind: "trap" | "syslog"; enabled: boolean;
   builtin: string | null;                       // builtin_key
   priority: number; scope: "global" | "group" | "device"; group_id: number | null; device_id: number | null;
   scope_name: string | null;                    // group or device name

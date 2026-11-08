@@ -8,6 +8,7 @@ import type {
   DiscoveryScan,
   Group,
   Page,
+  PublicSettings,
   Sensor,
   Tree,
   TopologyGraph,
@@ -72,6 +73,8 @@ export function applyLiveMessage(
 ): void {
   switch (msg.type) {
     case 'sensor.update': {
+      // [2b-3] event sensors: their conditions change with the status/message.
+      batch.add(qk.conditions(msg.data.id));
       const d = msg.data;
       const patchSensor = (s: Sensor): Sensor => ({
         ...s,
@@ -161,8 +164,31 @@ export function applyLiveMessage(
       patchPages<Group>(qc, 'groups', id, (x) => ({ ...x, status, status_counts }));
       break;
     }
+    // [2b-3]
+    case 'features.changed': {
+      const features = msg.data.features;
+      qc.setQueryData(qk.publicSettings, (old: PublicSettings | undefined) =>
+        old ? { ...old, features } : old,
+      );
+      batch.add(qk.publicSettings);
+      batch.add(qk.settings);
+      batch.add(qk.ingestStatus);
+      batch.add(['device-ports']);
+      break;
+    }
+    case 'ingest.receiver':
+      batch.add(qk.ingestStatus);
+      break;
     case 'config.changed': {
       const { entity, id } = msg.data;
+      if (entity === 'event_rule') {
+        batch.add(['event-rules']);
+        break;
+      }
+      if (entity === 'api_token') {
+        batch.add(['tokens']);
+        break;
+      }
       // Settings (time zone, default language) are public: refetch them if announced.
       if ((entity as string) === 'settings') {
         batch.add(qk.publicSettings);

@@ -15,7 +15,14 @@ from sqlalchemy import text
 from netmon.models import Device
 from netmon.poller.snmp_client import SnmpError, as_text, in_subtree, snmp_get, snmp_getnext
 from netmon.ports import dns
-from netmon.ports.collect import PortWalks, collect_arp, collect_ports, get_uptime, make_walker
+from netmon.ports.collect import (
+    PortWalks,
+    collect_arp,
+    collect_lag,
+    collect_ports,
+    get_uptime,
+    make_walker,
+)
 from netmon.ports.eligibility import DETECT_MAX_AGE_S, DeviceFlags, load_flags
 from netmon.ports.snapshot import PORT_SOURCES, build_snapshot, skipped_sources
 from netmon.services.sensors import effective_credentials
@@ -65,6 +72,8 @@ PORT_COLUMNS = (
     "out_errors_delta",
     "mac_count",
     "collected_at",
+    "lag_if_index",  # [2b-3]
+    "lag_attached",
 )
 _UPSERT_PORT = text(
     f"INSERT INTO switch_ports (device_id, {', '.join(PORT_COLUMNS)}) VALUES (:device_id, "
@@ -173,6 +182,9 @@ async def _walk_all(rt: Runtime, host: str, creds: dict[str, Any], flags: Device
     walks.sys_uptime = await get_uptime(host, creds, rt.semaphore)
     if flags.ports:
         await collect_ports(walk, str(creds.get("version") or "v2c"), walks)
+        # [2b-3] LAG membership walks #13 / #14 only while the feature is ON
+        if walks.error is None and rt.features.enabled("lag"):
+            await collect_lag(walk, walks)
     if flags.arp:
         opt_errors: list[str] = []
 
@@ -218,7 +230,11 @@ async def run_device(rt: Runtime, device_id: int, trigger: str = "scheduled") ->
             error = str(walks.sources.get("_arp_error") or "ARP table not available")
     ok = error is None
     duration_ms = int((time.monotonic() - t0) * 1000)
-    await _store(rt, device_id, flags, walks, started, ok, error, duration_ms)
+    port_events = await _store(rt, device_id, flags, walks, started, ok, error, duration_ms)
+    if port_events:
+        from netmon.services import events as events_svc
+
+        events_svc.published(rt, port_events)
     log.info(
         "Port inventory of device %s (%s): %s in %d ms",
         device_id,
@@ -253,7 +269,8 @@ async def _store(
     ok: bool,
     error: str | None,
     duration_ms: int,
-) -> None:
+) -> list[Any]:
+    port_events: list[Any] = []
     async with rt.sessionmaker() as session:
         exists = (
             await session.execute(
@@ -261,7 +278,7 @@ async def _store(
             )
         ).first()
         if exists is None:
-            return  # deleted meanwhile
+            return []  # deleted meanwhile
         prev_status = (
             await session.execute(
                 text("SELECT sources, ports FROM port_inventory_status WHERE device_id = :d"),
@@ -274,14 +291,17 @@ async def _store(
         n_ports = prev_status.ports if prev_status is not None else 0
         if ok:
             if flags.ports:
-                snap = await _store_ports(session, device_id, walks, now)
+                snap, port_events = await _store_ports(rt, session, device_id, walks, now)
                 sources.update({k: snap.sources.get(k) for k in PORT_SOURCES})
                 sources["fdb_mib"] = snap.sources.get("fdb_mib")
                 sources["vlan_mib"] = snap.sources.get("vlan_mib")
+                sources["lag"] = snap.sources.get("lag", "skipped")  # [2b-3]
+                sources["lag_mib"] = snap.sources.get("lag_mib")
                 n_ports = len(snap.rows)
             else:
                 sources.update({k: "skipped" for k in PORT_SOURCES})
                 sources["fdb_mib"] = sources["vlan_mib"] = None
+                sources["lag"], sources["lag_mib"] = "skipped", None
             if flags.arp:
                 state = walks.sources.get("arp", "error")
                 sources["arp"] = state
@@ -326,9 +346,12 @@ async def _store(
             },
         )
         await session.commit()
+    return port_events
 
 
-async def _store_ports(session: Any, device_id: int, walks: PortWalks, now: datetime) -> Any:
+async def _store_ports(
+    rt: Runtime, session: Any, device_id: int, walks: PortWalks, now: datetime
+) -> tuple[Any, list[Any]]:
     prev = {
         r["if_index"]: dict(r)
         for r in (
@@ -338,6 +361,7 @@ async def _store_ports(session: Any, device_id: int, walks: PortWalks, now: date
         ).mappings()
     }
     snap = build_snapshot(prev, walks, now)
+    port_events = await _port_changes(rt, session, device_id, prev, snap.rows, now)
     indexes = [r["if_index"] for r in snap.rows]
     await session.execute(
         text("DELETE FROM switch_ports WHERE device_id = :d AND NOT (if_index = ANY(:idx))"),
@@ -374,7 +398,88 @@ async def _store_ports(session: Any, device_id: int, walks: PortWalks, now: date
             ),
             {"d": device_id, "now": now},
         )
-    return snap
+    return snap, port_events
+
+
+MAX_PORT_CHANGES = 200
+
+
+def _updown(oper: str | None) -> str | None:
+    if oper is None:
+        return None
+    return "up" if oper == "up" else "down"
+
+
+async def _port_changes(
+    rt: Runtime,
+    session: Any,
+    device_id: int,
+    prev: dict[int, dict[str, Any]],
+    rows: list[dict[str, Any]],
+    now: datetime,
+) -> list[Any]:
+    """[2b-3] Oper up/down transitions of physical/lag ports between two consecutive snapshots:
+    flapping input 3 and (while `timeline` is ON) `port_change` events (<= 200 per run, not on
+    the first snapshot of a device)."""
+    if not prev:
+        return []
+    changes = []
+    for r in rows:
+        if r["kind"] not in ("physical", "lag"):
+            continue
+        p = prev.get(r["if_index"])
+        if p is None:
+            continue
+        old, new = _updown(p.get("oper_status")), _updown(r.get("oper_status"))
+        if old is None or new is None or old == new:
+            continue
+        changes.append((r, old, new))
+    if not changes:
+        return []
+    flapping = getattr(rt, "flapping", None)
+    if flapping is not None:
+        for r, _old, new in changes:
+            flapping.transition(device_id, r["if_index"], new == "up", r.get("name") or None)
+    if not rt.features.enabled("timeline"):
+        return []
+    from netmon.ports.read import interface_sensors
+    from netmon.services import events as events_svc
+
+    dev = (
+        await session.execute(
+            text("SELECT name, group_id FROM devices WHERE id = :d"), {"d": device_id}
+        )
+    ).first()
+    sensors = await interface_sensors(session, device_id)
+    names = {
+        r.id: r.name
+        for r in await session.execute(
+            text("SELECT id, name FROM sensors WHERE id = ANY(:ids)"),
+            {"ids": [v[0] for v in sensors.values()]},
+        )
+    }
+    out = []
+    for r, old, new in changes[:MAX_PORT_CHANGES]:
+        sensor = sensors.get(r["if_index"])
+        label = f"Port {r['if_index']}"
+        if r.get("name") and r["name"] != str(r["if_index"]):
+            label += f" ({r['name']})"
+        out.append(
+            await events_svc.add_event(
+                session,
+                "port_change",
+                f"{label} {new}",
+                time=now,
+                device_id=device_id,
+                group_id=dev.group_id if dev else None,
+                device_name=dev.name if dev else None,
+                sensor_id=sensor[0] if sensor else None,
+                sensor_name=names.get(sensor[0]) if sensor else None,
+                old_status=old,
+                new_status=new,
+            )
+        )
+    return out
 
 
 async def _store_arp(session: Any, device_id: int, walks: PortWalks, now: datetime) -> None:
