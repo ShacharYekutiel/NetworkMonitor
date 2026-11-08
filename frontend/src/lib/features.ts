@@ -1,0 +1,139 @@
+// [2b-3] Feature toggles (architecture.md § 12.0). Pure helpers.
+import { isApiError } from '../api/client';
+import type {
+  FeatureName,
+  Features,
+  IngestStatus,
+  ReceiverStatus,
+  Settings,
+  SettingsInput,
+} from '../api/types';
+import { FEATURE_NAMES } from '../api/types';
+
+/** Every feature OFF (the default, also while /api/settings/public is loading). */
+export const ALL_OFF: Features = Object.fromEntries(
+  FEATURE_NAMES.map((f) => [f, false]),
+) as Features;
+
+/** Fills missing keys with false (older servers / partial payloads). */
+export function normalizeFeatures(f: Partial<Features> | null | undefined): Features {
+  const out = { ...ALL_OFF };
+  if (f) for (const k of FEATURE_NAMES) out[k] = f[k] === true;
+  return out;
+}
+
+export function featureSettingKey(name: FeatureName): keyof SettingsInput {
+  return `feature_${name}_enabled` as keyof SettingsInput;
+}
+
+/** Current toggle values from the admin settings object. */
+export function featuresFromSettings(s: Settings): Features {
+  const out = { ...ALL_OFF };
+  for (const k of FEATURE_NAMES)
+    out[k] = (s as unknown as Record<string, unknown>)[`feature_${k}_enabled`] === true;
+  return out;
+}
+
+/** Traps & Syslog page, device Logs tab, ingest endpoints and event rules need one of the two. */
+export function ingestOn(f: Features): boolean {
+  return f.traps || f.syslog;
+}
+
+/** The feature named by a `409 feature_disabled` error, else null. */
+export function disabledFeature(e: unknown): FeatureName | null {
+  if (!isApiError(e) || e.code !== 'feature_disabled') return null;
+  const f = e.details?.find((d) => typeof d.feature === 'string')?.feature;
+  return (FEATURE_NAMES as string[]).includes(f ?? '') ? (f as FeatureName) : null;
+}
+
+export type FeatureHint = { key: string; tone: 'warn' | 'info' };
+
+/** Dependency hints of a feature row (i18n keys under `features.hint`). */
+export function featureHints(name: FeatureName, f: Features, s?: Settings): FeatureHint[] {
+  const out: FeatureHint[] = [];
+  switch (name) {
+    case 'event_alerts':
+      if (!ingestOn(f)) out.push({ key: 'features.hint.needsIngest', tone: 'warn' });
+      break;
+    case 'siem_forwarding':
+      if (!ingestOn(f)) out.push({ key: 'features.hint.needsIngest', tone: 'warn' });
+      if (s && !(s.siem_targets ?? []).length)
+        out.push({ key: 'features.hint.noTargets', tone: 'info' });
+      break;
+    case 'flapping':
+      if (!f.traps) out.push({ key: 'features.hint.flappingTraps', tone: 'info' });
+      break;
+    case 'ldap':
+      if (s?.ldap && ldapMissing(s.ldap).length)
+        out.push({ key: 'features.hint.ldapConfig', tone: 'warn' });
+      break;
+    case 'timeline':
+      if (!f.audit || !ingestOn(f))
+        out.push({ key: 'features.hint.timelineSources', tone: 'info' });
+      break;
+    case 'lag':
+      out.push({ key: 'features.hint.lagPorts', tone: 'info' });
+      break;
+  }
+  return out;
+}
+
+/** Fields that turning `ldap` ON would reject (data-model § LDAP settings; 422 otherwise). */
+export function ldapMissing(l: NonNullable<Settings['ldap']>): string[] {
+  const miss: string[] = [];
+  if (!l.bind_dn.trim()) miss.push('bind_dn');
+  if (!l.bind_password_set || l.bind_password_unreadable) miss.push('bind_password');
+  if (!l.servers.length && !l.domain.trim()) miss.push('servers');
+  if (!l.base_dn.trim() && !l.domain.trim()) miss.push('base_dn');
+  if (!l.admin_group_dn.trim() && !l.viewer_group_dn.trim()) miss.push('group_dn');
+  return miss;
+}
+
+export type StatusLine = {
+  key: string;
+  params?: Record<string, string | number>;
+  tone: 'ok' | 'error' | 'muted';
+};
+
+function receiverLine(r: ReceiverStatus | undefined, proto: 'UDP' | 'TCP'): StatusLine | null {
+  if (!r) return null;
+  if (r.state === 'listening')
+    return { key: 'features.status.listening', params: { proto, port: r.port }, tone: 'ok' };
+  if (r.state === 'error')
+    return {
+      key: 'features.status.error',
+      params: { proto, port: r.port, error: r.error ?? '' },
+      tone: 'error',
+    };
+  return r.port === 0 || !r.enabled
+    ? { key: 'features.status.socketOff', params: { proto }, tone: 'muted' }
+    : { key: 'features.status.stopped', params: { proto, port: r.port }, tone: 'muted' };
+}
+
+/** Status lines of a feature row ("Listening on UDP 162", a start error, …). */
+export function featureStatus(
+  name: FeatureName,
+  f: Features,
+  ingest?: IngestStatus | null,
+  s?: Settings | null,
+): StatusLine[] {
+  if (!f[name]) return [];
+  const rx = (k: ReceiverStatus['kind']) => ingest?.receivers.find((r) => r.kind === k);
+  switch (name) {
+    case 'traps':
+      return [receiverLine(rx('trap'), 'UDP')].filter((x): x is StatusLine => !!x);
+    case 'syslog':
+      return [receiverLine(rx('syslog_udp'), 'UDP'), receiverLine(rx('syslog_tcp'), 'TCP')].filter(
+        (x): x is StatusLine => !!x,
+      );
+    case 'siem_forwarding': {
+      const fw = ingest?.forwarders ?? [];
+      const bad = fw.filter((x) => x.state === 'error').length;
+      if (bad) return [{ key: 'features.status.forwardErrors', params: { n: bad }, tone: 'error' }];
+      const n = (s?.siem_targets ?? []).filter((x) => x.enabled).length;
+      return [{ key: 'features.status.targets', params: { n }, tone: 'ok' }];
+    }
+    default:
+      return [{ key: 'features.status.on', tone: 'ok' }];
+  }
+}

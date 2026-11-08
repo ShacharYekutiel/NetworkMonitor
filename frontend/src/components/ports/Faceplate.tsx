@@ -11,6 +11,7 @@ import { TILE_CLASS, tileView, type TileIcon, type TileKind } from '../../lib/po
 import { BanIcon, DesktopIcon, SwitchIcon, TrunkIcon, WifiIcon } from '../icons';
 import { cx } from '../ui';
 import { usePortText } from './text';
+import { lagColorByMember, lagGroups, portName } from '../../lib/lag';
 
 const ICONS: Record<
   Exclude<TileIcon, null>,
@@ -67,10 +68,13 @@ function Tile({
   port,
   selected,
   onSelect,
+  lagColor,
 }: {
   port: Port;
   selected: boolean;
   onSelect: (p: Port) => void;
+  /** [2b-3] colour of the port's LAG (bar under the tile) */
+  lagColor?: string;
 }) {
   const text = usePortText();
   const v = tileView(port);
@@ -90,6 +94,14 @@ function Tile({
       )}
     >
       <TileGlyph kind={v.kind} icon={v.icon} trunk={v.trunk} badge={v.badge} />
+      {lagColor && (
+        <span
+          className="mt-[2px] block h-[3px] rounded-sm"
+          style={{ background: lagColor }}
+          data-lag={port.lag?.if_index}
+          aria-hidden="true"
+        />
+      )}
     </button>
   );
 }
@@ -107,18 +119,25 @@ function Block({
   byIndex,
   selected,
   onSelect,
+  lagColors,
 }: {
   block: FaceplateBlock;
   byIndex: Map<number, Port>;
   selected: number | null;
   onSelect: (p: Port) => void;
+  lagColors: Map<number, string>;
 }) {
   const { t } = useTranslation();
   const cols = block.top.map((top, i) => ({ top, bottom: block.bottom[i] }));
   const cell = (c: FaceplateCell) => {
     const p = c ? byIndex.get(c.if_index) : undefined;
     return p ? (
-      <Tile port={p} selected={selected === p.if_index} onSelect={onSelect} />
+      <Tile
+        port={p}
+        selected={selected === p.if_index}
+        onSelect={onSelect}
+        lagColor={lagColors.get(p.if_index)}
+      />
     ) : (
       <span className={cx('block', TILE)} />
     );
@@ -163,6 +182,8 @@ export function Faceplate({
   const { t } = useTranslation();
   const fp = useMemo(() => layoutFaceplate(ports), [ports]);
   const byIndex = useMemo(() => new Map(ports.map((p) => [p.if_index, p])), [ports]);
+  const lags = useMemo(() => lagGroups(ports), [ports]);
+  const lagColors = useMemo(() => lagColorByMember(lags), [lags]);
   if (!fp.members.length)
     return <p className="p-4 text-sm text-slate-500">{t('ports.noPhysical')}</p>;
   return (
@@ -188,6 +209,7 @@ export function Faceplate({
                     byIndex={byIndex}
                     selected={selected}
                     onSelect={onSelect}
+                    lagColors={lagColors}
                   />
                 ))}
               </div>
@@ -195,6 +217,25 @@ export function Faceplate({
           ))}
         </div>
       </div>
+      {lags.length > 0 && (
+        <ul
+          className="flex flex-wrap gap-x-4 gap-y-1 text-xs text-slate-600 dark:text-slate-300"
+          data-testid="lag-legend"
+        >
+          {lags.map((g) => (
+            <li key={g.if_index} className="inline-flex items-center gap-1.5">
+              <span
+                className="inline-block h-[3px] w-5 rounded-sm"
+                style={{ background: g.color }}
+                aria-hidden="true"
+              />
+              <bdi dir="ltr">
+                {g.name}: {g.members.map(portName).join(', ')}
+              </bdi>
+            </li>
+          ))}
+        </ul>
+      )}
     </div>
   );
 }

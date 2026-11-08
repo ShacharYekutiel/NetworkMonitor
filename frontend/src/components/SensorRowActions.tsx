@@ -9,6 +9,7 @@ import { useSensorActions } from './SensorForms';
 import { useToast } from './toast';
 import { Button } from './ui';
 import { AckAction } from './Acknowledge';
+import { isEventSensor } from './EventConditions';
 
 export function useRunNow() {
   const { t } = useTranslation();
@@ -37,17 +38,19 @@ export function SensorRowActions({ sensor }: { sensor: Sensor }) {
       {(sensor.acknowledgement || sensor.status === 'down' || sensor.status === 'warning') && (
         <AckAction sensor={sensor} />
       )}
-      <Button
-        size="sm"
-        variant="ghost"
-        title={canRun(sensor) ? t('sensors.runNow') : t('sensors.runPausedHint')}
-        aria-label={t('sensors.runNow')}
-        busy={run.isPending && run.variables?.id === sensor.id}
-        disabled={!canRun(sensor)}
-        onClick={() => run.mutate(sensor)}
-      >
-        <RefreshIcon size={14} />
-      </Button>
+      {!isEventSensor(sensor) && (
+        <Button
+          size="sm"
+          variant="ghost"
+          title={canRun(sensor) ? t('sensors.runNow') : t('sensors.runPausedHint')}
+          aria-label={t('sensors.runNow')}
+          busy={run.isPending && run.variables?.id === sensor.id}
+          disabled={!canRun(sensor)}
+          onClick={() => run.mutate(sensor)}
+        >
+          <RefreshIcon size={14} />
+        </Button>
+      )}
       <Button
         size="sm"
         variant="ghost"

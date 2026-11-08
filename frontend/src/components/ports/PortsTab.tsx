@@ -227,7 +227,12 @@ export function PortsTab({ device }: { device: Device }) {
           )}
         </Card>
       )}
-      <PortModal deviceId={device.id} ifIndex={selected} onClose={closePort} />
+      <PortModal
+        deviceId={device.id}
+        ifIndex={selected}
+        onClose={closePort}
+        onOpenPort={(i) => setParam('port', String(i))}
+      />
     </div>
   );
 }

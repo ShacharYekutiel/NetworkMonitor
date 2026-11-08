@@ -303,3 +303,23 @@ export const AlertIcon = (p: P) => (
     <path d="M12 10v4M12 17h.01" />
   </Svg>
 );
+/** [2b-3] logs (traps & syslog) */
+export const LogsIcon = (p: P) => (
+  <Svg {...p}>
+    <path d="M4 6h16M4 10h16M4 14h10M4 18h7" />
+  </Svg>
+);
+/** [2b-3] audit log */
+export const AuditIcon = (p: P) => (
+  <Svg {...p}>
+    <path d="M9 4h6l1 2h3v14H5V6h3z" />
+    <path d="M9 12l2 2 4-4" />
+  </Svg>
+);
+/** [2b-3] timeline */
+export const ClockIcon = (p: P) => (
+  <Svg {...p}>
+    <circle cx="12" cy="12" r="9" />
+    <path d="M12 7v5l3 2" />
+  </Svg>
+);

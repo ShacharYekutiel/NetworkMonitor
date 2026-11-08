@@ -42,10 +42,14 @@ import {
 import { errorMessage } from '../lib/errors';
 import { headersToText, textToHeaders } from '../lib/sensorConfig';
 import { isTelegramChatId, isTelegramToken } from '../lib/telegram';
+import type { TeamsChannelConfig, TeamsChannelConfigInput } from '../api/types';
+import { isLegacyTeamsHost, teamsUrlError, urlHost } from '../lib/teams';
+import { useFeatures, FeatureOffNotice } from '../hooks/features';
 
 function channelTarget(c: NotificationChannel): string {
   if (c.type === 'email') return (c.config as EmailChannelConfig).to?.join(', ') ?? '';
   if (c.type === 'telegram') return (c.config as TelegramChannelConfig).chat_id ?? '';
+  if (c.type === 'teams') return (c.config as TeamsChannelConfig).url_host ?? '';
   return (c.config as WebhookChannelConfig).url ?? '';
 }
 
@@ -112,6 +116,8 @@ function ChannelModal({
   const [silent, setSilent] = useState(false);
   const [touched, setTouched] = useState(false);
   const [testResult, setTestResult] = useState<TestResult | null>(null);
+  const [teamsUrl, setTeamsUrl] = useState('');
+  const { features } = useFeatures();
 
   useEffect(() => {
     if (!open) return;
@@ -130,6 +136,7 @@ function ChannelModal({
     setChatId(tc?.chat_id ?? '');
     setParseMode(tc ? (tc.parse_mode ?? '') : 'HTML');
     setSilent(tc?.disable_notification ?? false);
+    setTeamsUrl('');
     setTouched(false);
     setTestResult(null);
     test.reset();
@@ -157,6 +164,12 @@ function ChannelModal({
           ? null
           : t('telegram.chatIdInvalid');
 
+  // [2b-3] Teams: the URL is write-only (url_set / url_host / legacy in responses).
+  const teamsCfg = channel?.type === 'teams' ? (channel.config as TeamsChannelConfig) : null;
+  const teamsErr = type === 'teams' ? teamsUrlError(teamsUrl, !teamsCfg?.url_set) : null;
+  const teamsLegacy = teamsUrl.trim() ? isLegacyTeamsHost(urlHost(teamsUrl)) : !!teamsCfg?.legacy;
+  const teamsOff = type === 'teams' && !features.teams;
+
   const test = useMutation({
     mutationFn: () => endpoints.testChannel(channel!.id),
     onSuccess: setTestResult,
@@ -176,7 +189,7 @@ function ChannelModal({
   const submit = (e: FormEvent) => {
     e.preventDefault();
     setTouched(true);
-    if (tokenErr || chatErr) return;
+    if (tokenErr || chatErr || teamsErr) return;
     const telegram: TelegramChannelConfigInput = {
       chat_id: chatId.trim(),
       parse_mode: parseMode || null,
@@ -184,22 +197,26 @@ function ChannelModal({
     };
     // Write-only secret: omitted keeps the stored token on PATCH (api.md § telegram).
     if (botToken.trim()) telegram.bot_token = botToken.trim();
+    const teams: TeamsChannelConfigInput = {};
+    if (teamsUrl.trim()) teams.url = teamsUrl.trim();
     const config =
-      type === 'telegram'
-        ? telegram
-        : type === 'email'
-          ? {
-              to: to
-                .split(/[\s,;]+/)
-                .map((x) => x.trim())
-                .filter(Boolean),
-            }
-          : {
-              url: url.trim(),
-              headers: textToHeaders(headers),
-              verify_tls: verifyTls,
-              timeout_s: Number(timeout) || 10,
-            };
+      type === 'teams'
+        ? teams
+        : type === 'telegram'
+          ? telegram
+          : type === 'email'
+            ? {
+                to: to
+                  .split(/[\s,;]+/)
+                  .map((x) => x.trim())
+                  .filter(Boolean),
+              }
+            : {
+                url: url.trim(),
+                headers: textToHeaders(headers),
+                verify_tls: verifyTls,
+                timeout_s: Number(timeout) || 10,
+              };
     const body: ChannelInput = { name: name.trim(), enabled, config };
     if (!channel) body.type = type;
     m.mutate(body);
@@ -223,14 +240,55 @@ function ChannelModal({
             disabled={!!channel}
             onChange={(e) => setType(e.target.value as NotificationType)}
           >
-            {NOTIFICATION_TYPES.map((nt) => (
+            {NOTIFICATION_TYPES.filter(
+              (nt) => nt !== 'teams' || features.teams || channel?.type === 'teams',
+            ).map((nt) => (
               <option key={nt} value={nt}>
                 {t(`channels.${nt}`)}
               </option>
             ))}
           </Select>
         </Field>
-        {type === 'telegram' ? (
+        {type === 'teams' ? (
+          <>
+            {teamsOff && <FeatureOffNotice feature="teams" />}
+            <p className="text-xs text-slate-500">{t('teams.help')}</p>
+            <Field
+              label={t('teams.url')}
+              required={!teamsCfg?.url_set}
+              hint={
+                touched && teamsErr ? (
+                  <span className="text-red-600">{t(teamsErr)}</span>
+                ) : teamsCfg?.url_set ? (
+                  t('teams.storedHint', { host: teamsCfg.url_host ?? '' })
+                ) : (
+                  t('teams.urlHint')
+                )
+              }
+            >
+              <Input
+                type="password"
+                autoComplete="new-password"
+                value={teamsUrl}
+                placeholder={
+                  teamsCfg?.url_set ? t('secret.stored') : 'https://…logic.azure.com/workflows/…'
+                }
+                onChange={(e) => setTeamsUrl(e.target.value)}
+                dir="ltr"
+                aria-invalid={touched && !!teamsErr}
+              />
+            </Field>
+            {teamsLegacy && (
+              <div
+                role="alert"
+                className="rounded-md bg-amber-50 px-3 py-2 text-sm text-amber-900 ring-1 ring-inset ring-amber-200 dark:bg-amber-950/40 dark:text-amber-200 dark:ring-amber-900"
+                data-testid="teams-legacy"
+              >
+                {t('teams.legacy')}
+              </div>
+            )}
+          </>
+        ) : type === 'telegram' ? (
           <>
             <TelegramHelp />
             <Field
@@ -353,6 +411,7 @@ function ChannelModal({
           {channel && (
             <Button
               className="me-auto"
+              disabled={teamsOff}
               busy={test.isPending}
               title={t('channels.testSavedHint')}
               onClick={() => test.mutate()}
@@ -361,7 +420,7 @@ function ChannelModal({
             </Button>
           )}
           <Button onClick={onClose}>{t('common.cancel')}</Button>
-          <Button type="submit" variant="primary" busy={m.isPending}>
+          <Button type="submit" variant="primary" busy={m.isPending} disabled={teamsOff}>
             {t('common.save')}
           </Button>
         </div>
@@ -655,6 +714,7 @@ function RuleModal({
 
 export function NotificationsPage() {
   const { t } = useTranslation();
+  const { features } = useFeatures();
   const qc = useQueryClient();
   const toast = useToast();
   const channels = useQuery({ queryKey: qk.channels, queryFn: endpoints.channels });
@@ -729,6 +789,17 @@ export function NotificationsPage() {
                   <td className={td}>{t(`channels.${c.type}`)}</td>
                   <td className={`${td} max-w-xs truncate text-slate-500`}>
                     <Ltr>{channelTarget(c)}</Ltr>
+                    {c.type === 'teams' && (c.config as TeamsChannelConfig).legacy && (
+                      <span
+                        className="ms-1 text-xs text-amber-700 dark:text-amber-300"
+                        title={t('teams.legacy')}
+                      >
+                        ({t('teams.legacyShort')})
+                      </span>
+                    )}
+                    {c.type === 'teams' && !features.teams && (
+                      <span className="ms-1 text-xs text-slate-500">({t('teams.offShort')})</span>
+                    )}
                   </td>
                   <td className={td}>{c.enabled ? t('common.yes') : t('common.no')}</td>
                   <td className={`${td} whitespace-nowrap text-end`}>

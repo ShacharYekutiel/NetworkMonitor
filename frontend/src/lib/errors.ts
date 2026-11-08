@@ -20,6 +20,14 @@ export function errorMessage(t: TFunction, e: unknown, ctx: ErrorContext = {}): 
         .join('; ');
       return `${base} (${d})`;
     }
+    if (e.code === 'feature_disabled') {
+      const f = e.details?.find((d) => typeof d.feature === 'string')?.feature;
+      if (f)
+        return t('errors.feature_disabled_named', {
+          feature: t(`features.name.${f}`, { defaultValue: f }),
+        });
+      return base;
+    }
     if (e.code === 'too_many_hosts') {
       const d = e.details?.[0];
       if (d?.count !== undefined)
@@ -38,7 +46,9 @@ export function errorMessage(t: TFunction, e: unknown, ctx: ErrorContext = {}): 
       (e.code === 'snmp_error' ||
         e.code === 'smtp_error' ||
         e.code === 'webhook_error' ||
-        e.code === 'telegram_error') &&
+        e.code === 'telegram_error' ||
+        e.code === 'teams_error' || // [2b-3]
+        e.code === 'forward_error') &&
       e.message
     ) {
       return `${base}: ${e.message}`;

@@ -26,7 +26,9 @@
     "default": "Default",
     "optional": "Optional",
     "selectAll": "Select all",
-    "language": "Language"
+    "language": "Language",
+    "none": "None",
+    "refresh": "Refresh"
   },
   "status": {
     "up": "Up",
@@ -67,7 +69,10 @@
     "templates": "Templates",
     "maintenance": "Maintenance",
     "map": "Map",
-    "find": "Find"
+    "find": "Find",
+    "logs": "Logs",
+    "audit": "Audit log",
+    "tokens": "API tokens"
   },
   "tree": {
     "search": "Search groups, devices, sensors",
@@ -81,7 +86,9 @@
     "subtitle": "Sign in to monitor your network.",
     "username": "Username",
     "password": "Password",
-    "submit": "Sign in"
+    "submit": "Sign in",
+    "adHint": "Use your {{netbios}} account ({{netbios}}\\user or user@{{domain}})",
+    "foreignDomain": "\"{{domain}}\" is not this directory's domain. Use {{netbios}}\\user or your local user name."
   },
   "setup": {
     "title": "Welcome to NetworkMonitor",
@@ -150,7 +157,17 @@
     "resume": "Resume device",
     "disabledNote": "The device is paused, so all of its sensors are paused.",
     "deleteTitle": "Delete device",
-    "deleteConfirm": "Delete device \"{{name}}\" and all of its sensors? This cannot be undone."
+    "deleteConfirm": "Delete device \"{{name}}\" and all of its sensors? This cannot be undone.",
+    "tab": {
+      "ports": "Ports",
+      "sensors": "Sensors",
+      "logs": "Logs",
+      "timeline": "Timeline"
+    },
+    "sourceAddresses": "Additional source addresses",
+    "sourceAddressesHint": "Other IPs this device sends traps/syslog from (one per line, up to 16).",
+    "sourceAddressesErr": "Enter up to 16 IPv4/IPv6 addresses (no prefixes).",
+    "sourceConflict": "{{address}} is also used by {{device}}."
   },
   "snmp": {
     "title": "SNMP credentials",
@@ -217,7 +234,9 @@
     "deleteConfirm": "Delete sensor \"{{name}}\" and its history? This cannot be undone.",
     "runPausedHint": "The sensor is paused. Resume it (or its device) to run a check.",
     "diskName": "Disk {{descr}}",
-    "textOk": "Matches"
+    "textOk": "Matches",
+    "passiveNote": "Event sensor: driven by traps/syslog, not polled",
+    "passiveCreateHint": "Event sensors are not polled: their status comes from event rules (traps, syslog) or flapping detection. One per device and type."
   },
   "iface": {
     "name": "Interface",
@@ -279,7 +298,9 @@
     "system": "System",
     "discovery": "Discovery",
     "acknowledge": "Acknowledge",
-    "maintenance": "Maintenance"
+    "maintenance": "Maintenance",
+    "notification_sent": "Notification sent",
+    "port_change": "Port change"
   },
   "pagination": {
     "range": "{{from}}–{{to}} of {{total}}",
@@ -310,7 +331,8 @@
     "deleteTitle": "Delete channel",
     "telegram": "Telegram",
     "testSent": "Test message sent.",
-    "testSavedHint": "Sends a test with the saved settings — save first."
+    "testSavedHint": "Sends a test with the saved settings — save first.",
+    "teams": "Microsoft Teams"
   },
   "rules": {
     "title": "Alert rules",
@@ -374,6 +396,14 @@
       "retentionErr": "Enter 1–365.",
       "reverseDns": "Reverse DNS for IP addresses",
       "reverseDnsHint": "Look up host names (PTR) of the IPs learned from ARP."
+    },
+    "tab": {
+      "general": "General",
+      "features": "Features",
+      "ingest": "Traps & syslog",
+      "siem": "SIEM forwarding",
+      "ldap": "Active Directory",
+      "audit": "Audit"
     }
   },
   "users": {
@@ -390,7 +420,9 @@
     "newPassword": "New password",
     "passwordKeepHint": "Leave empty to keep the current password.",
     "you": "you",
-    "deleteTitle": "Delete user"
+    "deleteTitle": "Delete user",
+    "source": "Source",
+    "ldapManaged": "This user is managed in Active Directory: password, role and email come from AD. You can change the language, deactivate or delete the user (deleted users are re-created at their next login)."
   },
   "account": {
     "title": "My account",
@@ -400,7 +432,8 @@
     "currentPassword": "Current password",
     "newPassword": "New password",
     "confirmPassword": "Confirm new password",
-    "passwordChanged": "Password changed."
+    "passwordChanged": "Password changed.",
+    "ldapManaged": "Your account is managed in Active Directory. Change your password and email there."
   },
   "validation": {
     "required": "Required.",
@@ -456,7 +489,17 @@
     "topology_refresh_running": "A topology refresh is already running.",
     "link_not_manual": "Discovered links cannot be edited; only manual links can.",
     "ports_disabled": "Port inventory and ARP collection are both off for this device. Set them to On in the device settings.",
-    "ports_refresh_running": "The ports of this device are being read right now."
+    "ports_refresh_running": "The ports of this device are being read right now.",
+    "feature_disabled": "This feature is turned off.",
+    "feature_disabled_named": "{{feature}} is turned off (Settings → Features).",
+    "sensor_passive": "Event sensors are not polled and cannot be run or tested.",
+    "not_event_sensor": "This is not an event sensor.",
+    "builtin_rule": "Built-in rules cannot be deleted (disable them instead).",
+    "ldap_managed": "This user is managed in Active Directory.",
+    "directory_unavailable": "The directory (Active Directory) is not reachable. Try again later or sign in with a local account.",
+    "invalid_cursor": "The list position is no longer valid; reload the list.",
+    "teams_error": "Microsoft Teams rejected the message",
+    "forward_error": "Sending to the SIEM failed"
   },
   "sensorType": {
     "ping": "Ping",
@@ -469,7 +512,10 @@
     "dns": "DNS",
     "snmp_custom": "Custom SNMP OID",
     "snmp_disk": "Disk usage",
-    "snmp_walk_count": "SNMP row count"
+    "snmp_walk_count": "SNMP row count",
+    "trap": "SNMP traps",
+    "syslog": "Syslog",
+    "port_flap": "Port flapping"
   },
   "channel": {
     "latency_ms": "Latency",
@@ -498,7 +544,8 @@
     "disk_total_bytes": "Disk size",
     "rows": "Rows",
     "matched": "Matched",
-    "unmatched": "Not matched"
+    "unmatched": "Not matched",
+    "active": "Active conditions"
   },
   "sensorConfig": {
     "ping": {
@@ -1346,6 +1393,18 @@
       "lastSeen": "Last seen",
       "random": "random (locally administered)",
       "lastKnownIp": "last known IP (not in ARP now)"
+    },
+    "lag": {
+      "memberOf": "member of {{name}}",
+      "notActive": "{{name}} (not active)",
+      "members": "Members: {{list}}",
+      "memberOfPrefix": "Member of",
+      "membersPrefix": "Members:",
+      "inactive": "not active",
+      "stackOnly": "(from ifStack)",
+      "viaLag": "LAG",
+      "vlansFromLag": "VLANs inherited from the LAG",
+      "macViaLag": "Learned on the LAG"
     }
   },
   "health": {
@@ -1397,5 +1456,696 @@
     "effectiveOn": "on",
     "effectiveOff": "off",
     "effectiveAuto": "Auto — {{state}}: detected as {{cls}}"
+  },
+  "user": {
+    "source": {
+      "local": "Local",
+      "ldap": "AD"
+    }
+  },
+  "features": {
+    "title": "Features",
+    "intro": "Every feature of this release is off by default. Turning one on or off takes effect immediately, without a restart; stored data is kept while a feature is off.",
+    "on": "On",
+    "off": "Off",
+    "offLine": "{{name}}: this feature is turned off.",
+    "openSettings": "Turn on in Settings → Features",
+    "askAdmin": "Ask an administrator to turn it on.",
+    "name": {
+      "traps": "SNMP traps",
+      "syslog": "Syslog",
+      "event_alerts": "Event alerts",
+      "lag": "LAG membership",
+      "ldap": "Active Directory login",
+      "audit": "Audit log",
+      "timeline": "Device timeline",
+      "teams": "Microsoft Teams",
+      "flapping": "Port flapping detection",
+      "siem_forwarding": "SIEM forwarding",
+      "api_tokens": "API tokens"
+    },
+    "desc": {
+      "traps": "Receive SNMP traps (v1/v2c/v3) from devices, store and search them.",
+      "syslog": "Receive syslog messages (UDP and TCP), store and search them.",
+      "event_alerts": "Turn traps and syslog messages into alerts through event rules (event sensors per device).",
+      "lag": "Show link aggregation (LAG/trunk) membership in the ports view.",
+      "ldap": "Let Active Directory users sign in with their domain account (local accounts keep working).",
+      "audit": "Record who changed what, and every login, in a tamper-proof audit log.",
+      "timeline": "A per-device timeline of status changes, notifications, traps, syslog and changes.",
+      "teams": "Send notifications to a Microsoft Teams channel (Workflows webhook).",
+      "flapping": "Detect ports that go up and down repeatedly and hold back their link alerts.",
+      "siem_forwarding": "Forward received traps and syslog to a SIEM (RFC 5424 over UDP, TCP or TLS).",
+      "api_tokens": "Personal tokens for scripts and integrations (Authorization: Bearer)."
+    },
+    "hint": {
+      "needsIngest": "Needs SNMP traps or Syslog to be on to receive anything.",
+      "noTargets": "No forwarding targets yet: add them under SIEM forwarding.",
+      "flappingTraps": "Uses linkUp/linkDown traps when SNMP traps are on, plus interface sensors and the port inventory.",
+      "ldapConfig": "Complete the Active Directory settings first (service account, password, servers or domain, a group).",
+      "timelineSources": "Traps, syslog and audit entries appear when those features are on.",
+      "lagPorts": "Uses the port inventory (devices with ports enabled)."
+    },
+    "status": {
+      "on": "Active",
+      "listening": "Listening on {{proto}} {{port}}",
+      "error": "{{proto}} {{port}}: could not start — {{error}}",
+      "socketOff": "{{proto}} socket disabled by the server configuration",
+      "stopped": "{{proto}} {{port}}: not listening",
+      "forwardErrors": "Forwarding errors on {{n}} target(s)",
+      "targets": "Enabled targets: {{n}}"
+    },
+    "builtinTitle": "Enable the built-in rules?",
+    "builtinText": "NetworkMonitor ships ready-made event rules. Enable the selected ones now — no further configuration is needed.",
+    "builtinEnable": "Enable selected",
+    "builtinLater": "Not now",
+    "builtinEnabled": "Built-in rules enabled."
+  },
+  "syslogSeverity": {
+    "0": "Emergency",
+    "1": "Alert",
+    "2": "Critical",
+    "3": "Error",
+    "4": "Warning",
+    "5": "Notice",
+    "6": "Info",
+    "7": "Debug"
+  },
+  "syslogFacility": {
+    "0": "Kernel",
+    "1": "User",
+    "2": "Mail",
+    "3": "System daemons",
+    "4": "Security/auth",
+    "5": "Syslog",
+    "6": "Printer",
+    "7": "News",
+    "8": "UUCP",
+    "9": "Cron",
+    "10": "Security/auth (private)",
+    "11": "FTP",
+    "12": "NTP",
+    "13": "Log audit",
+    "14": "Log alert",
+    "15": "Clock",
+    "16": "Local 0",
+    "17": "Local 1",
+    "18": "Local 2",
+    "19": "Local 3",
+    "20": "Local 4",
+    "21": "Local 5",
+    "22": "Local 6",
+    "23": "Local 7"
+  },
+  "logs": {
+    "title": "Traps & Syslog",
+    "tab": {
+      "syslog": "Syslog",
+      "traps": "Traps",
+      "unknown": "Unknown sources",
+      "rules": "Rules"
+    },
+    "range": "Time range",
+    "preset": {
+      "15m": "15 min",
+      "1h": "1 h",
+      "24h": "24 h",
+      "7d": "7 d",
+      "custom": "Custom"
+    },
+    "rangeErr": {
+      "invalid": "Enter a valid start (and end) time.",
+      "order": "The end must be after the start.",
+      "tooLong": "The range may be at most 31 days."
+    },
+    "from": "From",
+    "to": "To",
+    "device": "Device",
+    "anyGroup": "Any group",
+    "unknownOnly": "Unknown sources only",
+    "severity": "Severity",
+    "anySeverity": "Any severity",
+    "andWorse": "{{sev}} and worse",
+    "facility": "Facility",
+    "any": "any",
+    "clearSelection": "Clear",
+    "program": "Program",
+    "text": "Text",
+    "textPlaceholder": "Search messages…",
+    "apply": "Apply",
+    "moreFilters": "More filters",
+    "lessFilters": "Fewer filters",
+    "sourceIp": "Source IP",
+    "hostname": "Host name",
+    "rule": "Rule",
+    "anyRule": "Any rule",
+    "live": "Live",
+    "liveHint": "Show new records as they arrive",
+    "liveNeedsOpenRange": "Live needs a range that ends now (a preset or a custom range without end)",
+    "newRecords": "{{n}} new — show",
+    "loadMore": "Load more",
+    "empty": "No syslog messages in this range.",
+    "total": "Total: {{n}}",
+    "topSources": "Top sources",
+    "topPrograms": "Top programs",
+    "col": {
+      "time": "Time",
+      "source": "Device / source",
+      "severity": "Severity",
+      "facility": "Facility",
+      "host": "Host",
+      "program": "Program",
+      "message": "Message"
+    },
+    "unknownShort": "unknown",
+    "syslogDetail": "Syslog message",
+    "deviceTime": "Device time",
+    "pid": "PID",
+    "msgid": "MSGID",
+    "transport": "Transport",
+    "structuredData": "Structured data",
+    "matchedRules": "Matched rules",
+    "truncated": "The message was truncated (too long).",
+    "createRule": "Create rule from this message"
+  },
+  "traps": {
+    "title": "Traps",
+    "detail": "Trap",
+    "empty": "No traps in this range.",
+    "oidPrefix": "Trap OID (prefix)",
+    "textPlaceholder": "Search trap summaries…",
+    "version": "Version",
+    "name": "Trap",
+    "summary": "Summary",
+    "inform": "inform",
+    "agentAddr": "Agent address",
+    "securityName": "Community / user",
+    "trapOid": "Trap OID",
+    "uptime": "Device uptime",
+    "varbinds": "Variable bindings",
+    "topTraps": "Top traps",
+    "createRule": "Create rule from this trap",
+    "vb": {
+      "name": "Name",
+      "oid": "OID",
+      "type": "Type",
+      "value": "Value"
+    }
+  },
+  "unknownSources": {
+    "intro": "Senders that are not a monitored device (by host or additional source address). Assign them to a device or ignore them.",
+    "days": "Period",
+    "lastDays": "Last {{n}} day(s)",
+    "none": "No unknown sources.",
+    "lastHostname": "Last host name",
+    "syslogCount": "Syslog",
+    "trapCount": "Traps",
+    "lastSeen": "Last seen",
+    "assign": "Assign to device",
+    "assignTitle": "Assign {{ip}} to a device",
+    "assignHint": "The address is added to the device's additional source addresses; new records are attributed to it.",
+    "assigned": "Source assigned.",
+    "ignore": "Ignore",
+    "ignored": "Source added to the ignore list.",
+    "ignoredBadge": "ignored",
+    "viewerHint": "Only administrators can assign or ignore sources."
+  },
+  "eventRules": {
+    "add": "Add rule",
+    "edit": "Edit event rule",
+    "none": "No event rules.",
+    "deleteTitle": "Delete event rule",
+    "kind": "Kind",
+    "kinds": {
+      "syslog": "Syslog",
+      "trap": "Trap"
+    },
+    "allKinds": "All kinds",
+    "builtin": "Built-in",
+    "builtinNoDelete": "Built-in rules can be disabled or reset, not deleted",
+    "priority": "Priority",
+    "priorityHint": "Lower first (0–100000).",
+    "orderHint": "Rules are evaluated top to bottom; the first matching rule raises the condition. Drag (or use the arrows) to reorder.",
+    "moveUp": "Move up",
+    "moveDown": "Move down",
+    "enableNamed": "Enable {{name}}",
+    "activeConditions": "Active: {{n}}",
+    "neverMatched": "never matched",
+    "editClearsConditions": "Saving changes removes this rule's active conditions.",
+    "scope": "Applies to",
+    "group": "Group",
+    "device": "Device",
+    "chooseGroup": "Choose a group",
+    "match": "Match",
+    "severityMax": "Severity",
+    "programs": "Programs",
+    "programsHint": "Comma separated, exact (case-insensitive); empty = any.",
+    "facilities": "Facilities",
+    "facilitiesHint": "None selected = any facility.",
+    "text": "Text",
+    "textHint": "Contained in the message (case-insensitive); empty = any.",
+    "textRegex": "Text is a regular expression",
+    "trapOids": "Trap OIDs",
+    "trapOidsHint": "One prefix per line; empty = any trap.",
+    "varbinds": "Variable conditions",
+    "varbindsHint": "All must hold (up to 8).",
+    "varbindOid": "Variable OID",
+    "varbindOp": "Condition",
+    "varbindValue": "Value",
+    "addVarbind": "Add condition",
+    "op": {
+      "eq": "equals",
+      "ne": "not equal",
+      "contains": "contains",
+      "regex": "matches regex",
+      "exists": "exists",
+      "absent": "is absent"
+    },
+    "ports": "Ports",
+    "portsAny": "Any port",
+    "portsImportant": "Important ports only",
+    "portsHint": "Important: uplinks, LAGs and ports with an interface sensor.",
+    "action": "Action",
+    "actions": {
+      "warning": "Warning",
+      "down": "Down",
+      "ignore": "Ignore (stop)"
+    },
+    "actionHint": {
+      "warning": "Raises a warning condition on the device's event sensor.",
+      "down": "Raises a down condition on the device's event sensor.",
+      "ignore": "Matching messages stop here; later rules are not evaluated."
+    },
+    "keyVarbind": "Key variable",
+    "keyVarbindHint": "Tracks instances separately (e.g. ifIndex: port 5 and port 7).",
+    "keyRegex": "Key (regex)",
+    "keyRegexHint": "Exactly one capture group, e.g. interface (\\S+)",
+    "clearing": "Clearing",
+    "clearingHint": "A condition must be able to end: clear on a matching message and/or automatically.",
+    "clearOnMatch": "Clear on a matching message (same key)",
+    "clearAfter": "Auto-clear after (minutes)",
+    "clearAfterHint": "Since the last match (1–10080).",
+    "test": "Test",
+    "testHint": "Run the rule against the stored records of the last 24 h (no side effects)",
+    "testSummary": "Scanned {{scanned}}, matched {{matched}}, cleared {{cleared}}.",
+    "result": {
+      "raise": "raise",
+      "clear": "clear",
+      "ignore": "ignore"
+    },
+    "reset": "Reset to default",
+    "resetDone": "Rule reset.",
+    "fixErrors": "Fix the highlighted fields.",
+    "err": {
+      "oid": "Use a numeric OID (1.3.6.1…).",
+      "varbinds": "At most 8 conditions.",
+      "regex": "Invalid regular expression (≤ 200 characters).",
+      "programs": "At most 16 programs.",
+      "textLong": "At most 200 characters.",
+      "nameLong": "At most 128 characters.",
+      "priority": "0–100000.",
+      "scopeGroup": "Choose a group.",
+      "scopeDevice": "Choose a device.",
+      "keyGroup": "The key regex needs exactly one capture group.",
+      "clearAfter": "1–10080 minutes.",
+      "needClear": "Warning/down rules need a clear match or an auto-clear time."
+    }
+  },
+  "conditions": {
+    "title": "Active conditions",
+    "none": "No active conditions — the sensor is up.",
+    "introGeneric": "The sensor's status is the worst active condition.",
+    "intro": {
+      "trap": "Conditions raised by trap rules. The sensor's status is the worst active condition.",
+      "syslog": "Conditions raised by syslog rules. The sensor's status is the worst active condition.",
+      "port_flap": "Ports that are flapping. Link alerts of these ports are held back until they are stable again."
+    },
+    "clear": "Clear",
+    "cleared": "Conditions cleared.",
+    "rule": "Rule",
+    "count": "Count",
+    "first": "First",
+    "last": "Last",
+    "expires": "Expires",
+    "noExpiry": "manual clear",
+    "key": "key {{key}}",
+    "ifIndex": "ifIndex {{key}}",
+    "transitions": "{{n}} changes"
+  },
+  "flapping": {
+    "title": "Port flapping",
+    "intro": "A port is flapping after {{n}} up/down changes within {{w}} min; it is stable again after {{q}} min without a change.",
+    "threshold": "Changes",
+    "thresholdHint": "3–50",
+    "thresholdErr": "3–50",
+    "window": "Within (minutes)",
+    "windowErr": "1–120",
+    "quiet": "Stable after (minutes)",
+    "quietHint": "1–1440",
+    "quietErr": "1–1440",
+    "badge": "Flapping"
+  },
+  "ingest": {
+    "title": "Ingest status",
+    "receiver": {
+      "trap": "Traps",
+      "syslog_udp": "Syslog",
+      "syslog_tcp": "Syslog"
+    },
+    "state": {
+      "listening": "listening",
+      "disabled": "off",
+      "error": "error"
+    },
+    "ratePerMin": "{{kind}}: {{n}}/min",
+    "natShort": "Possible NAT",
+    "nat": "Several devices seem to send from one address ({{addr}}) — probably NAT. Records from it cannot be attributed reliably.",
+    "noTrgm": "Text search is slower: the pg_trgm extension is not available.",
+    "receiverCol": "Receiver",
+    "port": "Port",
+    "stateCol": "State",
+    "since": "Since",
+    "received": "Received",
+    "stored": "Stored",
+    "forwarded": "Forwarded",
+    "dropped": "Dropped",
+    "drop": {
+      "rate_limited": "rate limit",
+      "queue_full": "queue full",
+      "too_large": "too large",
+      "parse_error": "parse error",
+      "ignored_source": "ignored source",
+      "unknown_source": "unknown source",
+      "bad_community": "bad community",
+      "v3_auth": "v3 authentication",
+      "unsupported": "unsupported",
+      "db_error": "database error"
+    },
+    "rateSyslog": "Syslog / min",
+    "rateTrap": "Traps / min",
+    "queue": "Queue",
+    "tcpConnections": "TCP connections",
+    "countersSince": "Counters since {{time}}",
+    "v3Failures": "Recent SNMPv3 authentication failures",
+    "engineId": "Engine ID",
+    "reason": "Reason"
+  },
+  "ingestSettings": {
+    "title": "Traps & syslog",
+    "trapRetention": "Keep traps (days)",
+    "syslogRetention": "Keep syslog (days)",
+    "retentionErr": "1–3650 days",
+    "unknownPolicy": "Unknown senders",
+    "unknown": {
+      "store": "Store",
+      "drop": "Drop"
+    },
+    "unknownHint": {
+      "store": "Stored without a device; assign them later.",
+      "drop": "Records from unknown senders are dropped (counted)."
+    },
+    "trapAuth": "Trap authentication",
+    "communityCheck": "Community check",
+    "check": {
+      "any": "Accept any community",
+      "known": "Only known communities"
+    },
+    "checkHint": {
+      "any": "v1/v2c traps are accepted with any community.",
+      "known": "v1/v2c traps with another community are dropped."
+    },
+    "knownNeedsList": "Add at least one community first.",
+    "communities": "Trap communities",
+    "communitiesStored": "Stored communities: {{n}} (never shown)",
+    "replaceCommunities": "Replace the stored list",
+    "communitiesPlaceholder": "One per line (empty = remove all)",
+    "communitiesErr": "At most 32 communities of 1–64 characters.",
+    "v3": {
+      "title": "SNMPv3 trap users",
+      "hint": "Keys are write-only: leave empty to keep the stored key.",
+      "add": "Add user",
+      "errName": "Enter a user name (≤ 64).",
+      "errDuplicate": "Duplicate user name.",
+      "errAuthKey": "Enter an auth key.",
+      "errPrivKey": "Enter a privacy key.",
+      "errKeyLength": "Keys need at least 8 characters."
+    },
+    "ignored": "Ignored sources",
+    "ignoredHint": "IPs or CIDRs (one per line, ≤ 256) whose traps/syslog are dropped.",
+    "ignoredInvalid": "Invalid: {{list}}",
+    "ignoredTooMany": "At most 256 entries.",
+    "linkScope": {
+      "title": "Link alerts",
+      "label": "Link-down and flapping alerts cover",
+      "important": "Important ports only",
+      "importantHint": "Uplinks, LAGs and ports with an interface sensor — no alert for every PC switched off at night.",
+      "all": "All ports",
+      "allHint": "Every port that goes down or flaps raises an alert."
+    }
+  },
+  "siem": {
+    "title": "SIEM forwarding",
+    "intro": "Accepted traps and syslog records are forwarded as RFC 5424 syslog, preserving the original sender (up to 4 targets).",
+    "none": "No targets.",
+    "add": "Add target",
+    "edit": "Edit target",
+    "deleteTitle": "Delete target",
+    "apply": "Save target",
+    "protocol": "Protocol",
+    "port": "Port",
+    "host": "Host",
+    "destination": "Destination",
+    "kinds": "Forward",
+    "minSeverity": "Severity",
+    "minSeverityHint": "Forward records of this severity and worse.",
+    "sources": "Sources",
+    "sourcesHint": "IPs/CIDRs (≤ 64); empty = all.",
+    "includeUnknown": "Include unknown sources",
+    "tlsVerify": "Verify the TLS certificate",
+    "tlsVerifyOff": "The certificate is not verified: the connection can be intercepted.",
+    "udpHint": "UDP gives no delivery guarantee; prefer TCP or TLS.",
+    "noVerify": "not verified",
+    "state": "State",
+    "counters": "Sent / dropped / errors / queue",
+    "countersLine": "{{sent}} / {{dropped}} / {{errors}} / {{queue}}",
+    "fw": {
+      "connected": "connected",
+      "connecting": "connecting",
+      "idle": "idle",
+      "error": "error",
+      "disabled": "disabled"
+    },
+    "test": "Test",
+    "testOk": "Test line sent.",
+    "err": {
+      "port": "1–65535",
+      "kinds": "Choose at least one.",
+      "sources": "Up to 64 IPs or CIDRs."
+    }
+  },
+  "ldap": {
+    "title": "Active Directory",
+    "intro": "AD users sign in with DOMAIN\\user or user@domain. Local accounts always keep working, and a local administrator must always exist. Test before you turn the feature on.",
+    "domain": "Domain",
+    "domainHint": "e.g. mnidom.net",
+    "netbios": "NetBIOS domain",
+    "netbiosHint": "e.g. MNIDOM",
+    "servers": "Domain controllers",
+    "serversHint": "host or host:port, one per line (≤ 8); empty = find by DNS. Use the names in the DC certificates.",
+    "security": "Security",
+    "securityHint": {
+      "ldaps": "LDAP over TLS on port 636.",
+      "starttls": "Port 389 with mandatory StartTLS (never plaintext)."
+    },
+    "tlsVerify": "Verify certificates",
+    "tlsVerifyOff": "Certificates are not verified: passwords could be intercepted.",
+    "timeout": "Timeout (s)",
+    "baseDn": "Base DN",
+    "baseDnDefault": "Default",
+    "bindDn": "Service account",
+    "bindDnHint": "DN or UPN, e.g. svc-netmon@mnidom.net",
+    "bindPassword": "Service account password",
+    "bindPasswordHint": "Stored encrypted; never shown again.",
+    "passwordUnreadable": "The stored service account password cannot be decrypted (the server key changed). Enter it again — AD logins fail until then.",
+    "adminGroup": "Administrators group",
+    "viewerGroup": "Viewers group",
+    "groupsHint": "Members (also nested) of the admin group become administrators, of the viewer group viewers.",
+    "testConnection": "Test connection",
+    "testHint": "Tests use the values in the form (not yet saved); they work while the feature is off.",
+    "testUserTitle": "Test user login",
+    "testUserHint": "Checks a user's sign-in step by step. No user is created; the password is not stored or logged.",
+    "testUser": "Test login",
+    "server": "Server",
+    "result": "Result",
+    "latency": "Latency",
+    "certificate": "Certificate",
+    "verified": "verified",
+    "notVerified": "not verified",
+    "ok": "OK",
+    "failed": "Failed",
+    "viaDns": "found by DNS",
+    "serviceBind": "Service account bind",
+    "userOk": "Login would succeed as {{role}}.",
+    "userFailed": "Login would fail: {{reason}}",
+    "step": {
+      "connect": "Connect",
+      "service_bind": "Service account",
+      "search_user": "Find user",
+      "account_state": "Account state",
+      "user_bind": "Password",
+      "groups": "Groups"
+    },
+    "user": {
+      "dn": "DN",
+      "displayName": "Display name",
+      "state": "Account",
+      "active": "active",
+      "disabled": "disabled",
+      "locked": "locked"
+    },
+    "reason": {
+      "bad_password": "wrong password",
+      "unknown_user": "unknown user",
+      "inactive": "deactivated in NetworkMonitor",
+      "empty_password": "empty password",
+      "not_in_group": "not in an allowed group",
+      "account_disabled": "account disabled",
+      "account_locked": "account locked",
+      "account_expired": "account expired",
+      "password_expired": "password expired",
+      "password_must_change": "password must be changed",
+      "not_permitted": "logon not permitted (time/workstation)",
+      "ambiguous_user": "ambiguous user name",
+      "ldap_disabled": "AD login is turned off",
+      "directory_unavailable": "directory unavailable",
+      "rate_limited": "too many attempts",
+      "token_invalid": "invalid API token"
+    },
+    "err": {
+      "server": "Use host or host:port.",
+      "tooManyServers": "At most 8 servers.",
+      "dn": "Not a valid DN (CN=…,DC=…).",
+      "timeout": "1–30 seconds."
+    }
+  },
+  "audit": {
+    "title": "Audit log",
+    "settingsTitle": "Audit log",
+    "retention": "Keep audit entries (days)",
+    "retentionHint": "30–3650; old entries are deleted by the retention job only.",
+    "retentionErr": "30–3650 days",
+    "export": "Export CSV",
+    "filteredDevice": "Device #{{id}}",
+    "actor": "User",
+    "action": "Action",
+    "entity": "Object",
+    "ip": "IP",
+    "details": "Details",
+    "anyAction": "Any action",
+    "anyEntity": "Any object",
+    "none": "No entries.",
+    "noChanges": "No field changes recorded.",
+    "field": "Field",
+    "old": "Before",
+    "new": "After",
+    "secret": "*** (changed)",
+    "changesCount": "Changed fields: {{n}}",
+    "actorType": {
+      "user": "user",
+      "token": "API token",
+      "system": "system",
+      "anonymous": "anonymous"
+    },
+    "source": {
+      "local": "local",
+      "ldap": "AD",
+      "token": "token"
+    },
+    "actionGroup": {
+      "auth": "Logins",
+      "device": "Devices",
+      "group": "Groups",
+      "sensor": "Sensors",
+      "alert_rule": "Alert rules",
+      "notification_channel": "Notification channels",
+      "maintenance_window": "Maintenance",
+      "event_rule": "Event rules",
+      "topology_link": "Topology links",
+      "discovery_profile": "Discovery profiles",
+      "discovery": "Discovery",
+      "user": "Users",
+      "api_token": "API tokens",
+      "settings": "Settings",
+      "feature": "Features",
+      "ingest": "Ingest"
+    },
+    "entityType": {
+      "device": "Device",
+      "group": "Group",
+      "sensor": "Sensor",
+      "alert_rule": "Alert rule",
+      "notification_channel": "Notification channel",
+      "maintenance_window": "Maintenance window",
+      "event_rule": "Event rule",
+      "topology_link": "Topology link",
+      "discovery_profile": "Discovery profile",
+      "user": "User",
+      "api_token": "API token"
+    }
+  },
+  "timeline": {
+    "kinds": "Kinds",
+    "empty": "Nothing in this range.",
+    "by": "by {{actor}}",
+    "kind": {
+      "status": "Status",
+      "notification": "Notification",
+      "ack": "Acknowledge",
+      "maintenance": "Maintenance",
+      "trap": "Trap",
+      "syslog": "Syslog",
+      "port": "Port",
+      "audit": "Change"
+    }
+  },
+  "tokens": {
+    "title": "API tokens",
+    "allTitle": "API tokens of all users",
+    "intro": "Personal tokens for scripts: send them as Authorization: Bearer. A token never has more rights than you.",
+    "create": "Create token",
+    "createdTitle": "Token created",
+    "none": "No tokens.",
+    "nameHint": "What the token is for, e.g. backup-script.",
+    "roleHint": "At most your own role.",
+    "expiresDays": "Valid for (days)",
+    "expiresErr": "1–365 days",
+    "showOnce": "Copy the token now — it is shown only this once.",
+    "copy": "Copy",
+    "copied": "Copied",
+    "usage": "Example:",
+    "prefix": "Token",
+    "state": "State",
+    "expires": "Expires",
+    "lastUsed": "Last used",
+    "never": "never",
+    "states": {
+      "active": "active",
+      "expired": "expired",
+      "revoked": "revoked"
+    },
+    "revoke": "Revoke",
+    "revokeTitle": "Revoke token",
+    "revokeConfirm": "Revoke \"{{name}}\"? Scripts using it stop working at once."
+  },
+  "teams": {
+    "help": "In Teams: channel → Workflows → \"Post to a channel when a webhook request is received\", then paste the URL here.",
+    "url": "Workflows webhook URL",
+    "urlHint": "https://… (kept secret, never shown again)",
+    "storedHint": "Stored URL on {{host}} — leave empty to keep it.",
+    "legacy": "Microsoft is retiring this connector type — create a Workflows webhook.",
+    "legacyShort": "legacy URL",
+    "offShort": "Teams is off",
+    "urlHttps": "The URL must start with https://",
+    "urlInvalid": "Not a valid URL.",
+    "urlLong": "At most 2048 characters."
   }
 }

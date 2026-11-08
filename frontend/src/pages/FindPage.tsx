@@ -63,6 +63,11 @@ function Row({ x }: { x: MacLocation }) {
         >
           <bdi dir="ltr">{x.port}</bdi>
         </Link>
+        {!!x.lag_members?.length && (
+          <div className="text-xs text-slate-500" data-testid="find-lag-members">
+            {t('ports.lag.members', { list: x.lag_members.join(', ') })}
+          </div>
+        )}
         {x.port_alias && (
           <div className="max-w-[12rem] truncate text-xs text-slate-500">
             <bdi dir="auto">{x.port_alias}</bdi>

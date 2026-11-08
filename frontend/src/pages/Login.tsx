@@ -5,6 +5,8 @@ import { endpoints } from '../api/endpoints';
 import { useAuth } from '../hooks/auth';
 import { Button, ErrorBox, Field, Input } from '../components/ui';
 import { AuthShell } from './AuthShell';
+import { useFeatures } from '../hooks/features';
+import { parseLogin } from '../lib/ldap';
 
 export function LoginPage() {
   const { t } = useTranslation();
@@ -15,6 +17,10 @@ export function LoginPage() {
   const [password, setPassword] = useState('');
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<unknown>(null);
+  const { features, ldap } = useFeatures();
+  const ad = features.ldap && ldap ? ldap : null;
+  // [2b-3] "OTHER\\user" can never sign in: say so before the round trip.
+  const parsed = ad ? parseLogin(username, ad.netbios_domain, ad.domain) : null;
 
   const submit = async (e: FormEvent) => {
     e.preventDefault();
@@ -42,9 +48,20 @@ export function LoginPage() {
             value={username}
             onChange={(e) => setUsername(e.target.value)}
             required
+            maxLength={256}
             dir="ltr"
           />
         </Field>
+        {ad && (
+          <p className="-mt-2 text-xs text-slate-500" data-testid="ldap-hint">
+            {t('login.adHint', { netbios: ad.netbios_domain, domain: ad.domain })}
+          </p>
+        )}
+        {parsed?.kind === 'foreign' && (
+          <p className="-mt-2 text-xs text-amber-700 dark:text-amber-300">
+            {t('login.foreignDomain', { domain: parsed.domain, netbios: ad?.netbios_domain ?? '' })}
+          </p>
+        )}
         <Field label={t('login.password')}>
           <Input
             type="password"
@@ -52,6 +69,7 @@ export function LoginPage() {
             value={password}
             onChange={(e) => setPassword(e.target.value)}
             required
+            maxLength={1024}
             dir="ltr"
           />
         </Field>

@@ -24,6 +24,9 @@ import { parseSearchInput } from '../lib/ports';
 import { TreeNav } from './Tree';
 import { GlobalMaintenanceBanner } from './Maintenance';
 import { cx } from './ui';
+import { AuditIcon, LogsIcon } from './icons';
+import { useFeatures } from '../hooks/features';
+import { ingestOn } from '../lib/features';
 
 function NavItem({ to, icon, label }: { to: string; icon: React.ReactNode; label: string }) {
   return (
@@ -48,6 +51,7 @@ function NavItem({ to, icon, label }: { to: string; icon: React.ReactNode; label
 function UserMenu() {
   const { t } = useTranslation();
   const { user, logout } = useAuth();
+  const { features } = useFeatures();
   const [open, setOpen] = useState(false);
   const ref = useRef<HTMLDivElement>(null);
   useEffect(() => {
@@ -71,7 +75,7 @@ function UserMenu() {
         <span className="flex h-6 w-6 items-center justify-center rounded-full bg-sky-600 text-xs font-semibold uppercase text-white">
           {user.username.slice(0, 1)}
         </span>
-        <span className="hidden sm:inline">{user.username}</span>
+        <span className="hidden sm:inline">{user.display_name || user.username}</span>
         <span className="hidden text-xs text-slate-500 md:inline">({t(`role.${user.role}`)})</span>
       </button>
       {open && (
@@ -87,6 +91,16 @@ function UserMenu() {
           >
             <KeyIcon size={14} /> {t('nav.account')}
           </Link>
+          {features.api_tokens && (
+            <Link
+              to="/tokens"
+              role="menuitem"
+              onClick={() => setOpen(false)}
+              className="flex items-center gap-2 px-3 py-1.5 text-sm hover:bg-slate-100 dark:hover:bg-slate-800"
+            >
+              <KeyIcon size={14} /> {t('nav.tokens')}
+            </Link>
+          )}
           <button
             type="button"
             role="menuitem"
@@ -140,6 +154,7 @@ function HeaderSearch() {
 export function Layout() {
   const { t } = useTranslation();
   const { isAdmin } = useAuth();
+  const { features } = useFeatures();
   const [collapsed, setCollapsed] = useLocalState('netmon.sidebarCollapsed', false);
   const [mobileOpen, setMobileOpen] = useState(false);
   const location = useLocation();
@@ -191,6 +206,9 @@ export function Layout() {
           <nav className="space-y-0.5 p-2">
             <NavItem to="/" icon={<DashboardIcon size={16} />} label={t('nav.dashboard')} />
             <NavItem to="/events" icon={<ListIcon size={16} />} label={t('nav.events')} />
+            {ingestOn(features) && (
+              <NavItem to="/logs" icon={<LogsIcon size={16} />} label={t('nav.logs')} />
+            )}
             <NavItem to="/topology" icon={<MapIcon size={16} />} label={t('nav.map')} />
             <NavItem to="/find" icon={<SearchIcon size={16} />} label={t('nav.find')} />
             <NavItem
@@ -211,6 +229,9 @@ export function Layout() {
                 />
                 <NavItem to="/settings" icon={<CogIcon size={16} />} label={t('nav.settings')} />
                 <NavItem to="/users" icon={<UsersIcon size={16} />} label={t('nav.users')} />
+                {features.audit && (
+                  <NavItem to="/audit" icon={<AuditIcon size={16} />} label={t('nav.audit')} />
+                )}
               </>
             )}
           </nav>

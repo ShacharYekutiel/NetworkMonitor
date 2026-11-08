@@ -21,6 +21,9 @@ import { UsersPage } from './pages/UsersPage';
 import { MaintenancePage } from './pages/MaintenancePage';
 import { TopologyPage } from './pages/TopologyPage';
 import { FindPage } from './pages/FindPage';
+import { LogsPage } from './pages/LogsPage';
+import { AuditPage } from './pages/AuditPage';
+import { TokensPage } from './pages/TokensPage';
 
 function AdminOnly({ children }: { children: ReactNode }) {
   const { isAdmin } = useAuth();
@@ -86,6 +89,16 @@ export function AppRoutes() {
         <Route path="maintenance" element={<MaintenancePage />} />
         <Route path="topology" element={<TopologyPage />} />
         <Route path="find" element={<FindPage />} />
+        <Route path="logs" element={<LogsPage />} />
+        <Route path="tokens" element={<TokensPage />} />
+        <Route
+          path="audit"
+          element={
+            <AdminOnly>
+              <AuditPage />
+            </AdminOnly>
+          }
+        />
         <Route
           path="discovery"
           element={
