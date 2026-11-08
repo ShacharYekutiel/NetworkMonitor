@@ -1,0 +1,15 @@
+[Unit]
+Description=NetworkMonitor daily backup (pg_dump + app data volume)
+Documentation=file:///opt/netmon/deploy/production/README.md
+After=docker.service
+Requires=docker.service
+
+[Service]
+Type=oneshot
+EnvironmentFile=-/etc/netmon-gitops/gitops.env
+Environment=HOME=/root
+ExecStart=/usr/local/lib/netmon-gitops/backup.sh
+TimeoutStartSec=2h
+Nice=10
+IOSchedulingClass=idle
+SyslogIdentifier=netmon-backup

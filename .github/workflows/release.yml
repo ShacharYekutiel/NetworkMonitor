@@ -1,9 +1,16 @@
 name: Release
 
 # Push a tag like v0.1.0 to publish:
-#   - the container image ghcr.io/<owner>/<repo>:<version> (+ :latest)
+#   - the container image ghcr.io/<owner>/<repo>:<version> (+ :X.Y, :latest)
 #   - a GitHub release with netmon-<version>.tar.gz / .zip for the native installers
 #     (wheel with the web UI bundled + deploy/ scripts).
+#   - a PR "Deploy vX.Y.Z to production" that changes only deploy/production/release.env
+#     (exact version + image digest). Merging it deploys (see docs/production.md).
+#
+# Note on ":latest": both this workflow (on v* tags) and image.yml (on every push to main)
+# move :latest, so it means "whichever ran last". Production never uses it: release.env
+# pins the exact version (+ digest) and deploy/production/ops/check-release.sh rejects
+# any other tag.
 on:
   push:
     tags: ["v*"]
@@ -17,6 +24,8 @@ jobs:
   image:
     runs-on: ubuntu-latest
     timeout-minutes: 45
+    outputs:
+      digest: ${{ steps.build.outputs.digest }}
     steps:
       - uses: actions/checkout@v4
 
@@ -39,7 +48,8 @@ jobs:
             type=raw,value=latest,enable=${{ startsWith(github.ref, 'refs/tags/v') }}
             type=sha
 
-      - uses: docker/build-push-action@v6
+      - id: build
+        uses: docker/build-push-action@v6
         with:
           context: .
           platforms: linux/amd64,linux/arm64
@@ -105,3 +115,88 @@ jobs:
             netmon-*.zip
             dist/netmon-*.whl
             SHA256SUMS
+
+  # Opens (or updates) a PR in this repo that bumps deploy/production/release.env to the
+  # new version + digest. Optional: set the repository variable PRODUCTION_BUMP_PR=false
+  # to skip it. Never fails the release: if GitHub refuses the PR (Settings -> Actions ->
+  # "Allow GitHub Actions to create and approve pull requests" is off), a warning with a
+  # link to open it by hand is printed instead.
+  # PRs opened with GITHUB_TOKEN do not trigger other workflows, so production.yml does not
+  # run on this PR by itself; the same checks run here before pushing, and production.yml
+  # runs again on the push to main after the merge (close/reopen the PR to run it on the PR).
+  production-bump-pr:
+    needs: image
+    if: startsWith(github.ref, 'refs/tags/v') && vars.PRODUCTION_BUMP_PR != 'false'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: write
+      pull-requests: write
+    env:
+      GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      DIGEST: ${{ needs.image.outputs.digest }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: main
+          fetch-depth: 0
+
+      - name: Update deploy/production/release.env
+        id: bump
+        run: |
+          set -euo pipefail
+          VERSION="${GITHUB_REF_NAME#v}"
+          IMAGE="ghcr.io/${GITHUB_REPOSITORY,,}:${VERSION}"
+          [[ "$DIGEST" =~ ^sha256:[0-9a-f]{64}$ ]] && IMAGE="${IMAGE}@${DIGEST}" ||
+            echo "::warning::no image digest from the image job; pinning the tag only"
+          f=deploy/production/release.env
+          sed -i -E "s#^NETMON_VERSION=.*#NETMON_VERSION=${VERSION}#; s#^NETMON_IMAGE=.*#NETMON_IMAGE=${IMAGE}#" "$f"
+          deploy/production/ops/check-release.sh "$f"
+          NETMON_ETC_DIR="$RUNNER_TEMP/etc" docker compose -f deploy/production/compose.yaml \
+            --env-file "$f" config -q
+          git diff --stat
+          {
+            echo "version=${VERSION}"
+            echo "image=${IMAGE}"
+            echo "branch=release/bump-v${VERSION}"
+            git diff --quiet && echo "changed=false" || echo "changed=true"
+          } >> "$GITHUB_OUTPUT"
+
+      - name: Push the bump branch
+        if: steps.bump.outputs.changed == 'true'
+        env:
+          BRANCH: ${{ steps.bump.outputs.branch }}
+          VERSION: ${{ steps.bump.outputs.version }}
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git switch -C "$BRANCH"
+          git commit -qam "Deploy v${VERSION} to production"
+          git push --force origin "$BRANCH"
+
+      - name: Open the PR
+        if: steps.bump.outputs.changed == 'true'
+        env:
+          BRANCH: ${{ steps.bump.outputs.branch }}
+          VERSION: ${{ steps.bump.outputs.version }}
+          IMAGE: ${{ steps.bump.outputs.image }}
+        run: |
+          if [ -n "$(gh pr list --head "$BRANCH" --state open --json number -q '.[].number')" ]; then
+            echo "PR for $BRANCH already open (branch updated)"; exit 0
+          fi
+          body="Bumps \`deploy/production/release.env\` to **v${VERSION}**:
+
+          \`\`\`
+          NETMON_IMAGE=${IMAGE}
+          \`\`\`
+
+          Merging this PR deploys it: the production server picks up the change within ~2 minutes
+          (pre-deploy DB dump, health check, automatic rollback of the containers on failure).
+          Release notes: ${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/releases/tag/${GITHUB_REF_NAME}"
+          if ! gh pr create --base main --head "$BRANCH" --title "Deploy v${VERSION} to production" --body "$body"; then
+            echo "::warning::Could not open the PR (allow GitHub Actions to create PRs in Settings -> Actions -> General). Open it by hand: ${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/compare/main...${BRANCH}?expand=1"
+          fi
+
+      - name: Nothing to bump
+        if: steps.bump.outputs.changed != 'true'
+        run: echo "deploy/production/release.env already pins ${{ steps.bump.outputs.image }}"

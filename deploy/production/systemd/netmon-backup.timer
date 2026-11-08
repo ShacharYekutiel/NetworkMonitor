@@ -1,0 +1,11 @@
+[Unit]
+Description=Daily NetworkMonitor backup at 02:17
+
+[Timer]
+OnCalendar=*-*-* 02:17:00
+# Run at the next boot if the server was off at 02:17.
+Persistent=true
+Unit=netmon-backup.service
+
+[Install]
+WantedBy=timers.target

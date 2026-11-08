@@ -1,0 +1,11 @@
+#!/usr/bin/env bash
+# Fake `curl` for tests/test-sync.sh: /api/health answers from the fake docker state;
+# anything else is a notification and is recorded in $FAKE_STATE/notifications.
+set -euo pipefail
+S="${FAKE_STATE:?}"
+if [[ " $* " == *"/api/health"* ]]; then
+  [[ -f $S/run/netmon && "$(cat "$S/netmon_image")" != "${FAKE_BAD_IMAGE:-none}" ]] || exit 22
+  echo '{"status": "ok", "version": "fake"}'
+else
+  echo "$*" >>"$S/notifications"
+fi

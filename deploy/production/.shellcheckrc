@@ -1,0 +1,2 @@
+# Resolve `. "$SELF_DIR/lib.sh"` relative to each script.
+source-path=SCRIPTDIR
