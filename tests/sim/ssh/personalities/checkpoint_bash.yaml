@@ -1,0 +1,19 @@
+# Check Point Gaia, login shell bash (expert): `show configuration` fails (exit 127), the driver's fallback
+# `clish -c "show configuration"` works.
+driver: checkpoint_gaia
+config_dir: checkpoint
+hostname: gw-bash
+banner: "This system is for authorized use only.\r\n"
+prompt: "[Expert@{hostname}:0]# "
+shell: true
+exec: true
+ansi: false
+press_any_key: false
+paging: null
+enable: null
+invalid: "-bash: {word}: command not found\r\n"
+commands: {}
+exec_commands:
+  'clish -c "show configuration"': "@config"
+exec_invalid: {stderr: "bash: {word}: command not found\n", status: 127}
+host_key_type: ssh-rsa

@@ -1,0 +1,7 @@
+# NetFlow v9 / IPFIX: the first datagram carries data before its template (-> counted no_template), then the
+# template and the same data again (-> stored once).
+name: s3
+sampling: 1
+template_first: false
+flows:
+  - {src: 10.0.3.1, dst: 10.0.3.9, sport: 50001, dport: 80, proto: 6, bytes: 7000, packets: 7, in_if: 7, out_if: 8}

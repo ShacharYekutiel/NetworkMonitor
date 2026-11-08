@@ -104,6 +104,18 @@ single specs can run on their own.
 | `35-vendor-templates` | **[2b-2]** Scan of .71-.73 + synthetic .101-.110: classification (rule 9a incl. net-snmp + `checkpoint` probe), suggestions; apply `checkpoint_gaia` (standalone + ClusterXL), `aruba_wifi` -> created / skipped (`not_applicable`, `probe_failed`, `no_rows`) + live values + health strip; apply dialog shows `not_applicable`; synthetic mechanics of all 10 new templates |
 | `36-viewer-2b2` | **[2b-2]** Viewer reads ports / port / search; 8 write endpoints -> 403; no Refresh / Start monitoring / Enable / Reload buttons; admin "Enable port inventory" PATCHes `on` |
 | `37-rtl-mobile-2b2` | **[2b-2]** 52-port faceplate at 390 px (en/he): scrolls inside its card, no page overflow, 22 px tiles, LTR; list / modal / Find / Templates at 390 px; no raw i18n keys; device form selects in Hebrew; screenshots to `$QA2B2_SHOT_DIR` |
+| `51-features-3` | **[3]** Fresh install: 8 phase-3 toggles OFF, `sso` null in settings/public, every gated endpoint 409 `feature_disabled` (kiosk 404, OIDC callback -> `sso_error=feature_disabled`), nav hidden, `/noc` and `/ack` "not available"; each toggle ON/OFF at runtime (SSO toggles 422 until configured), nav follows live without reload; Features tab headings |
+| `52-config-backup` | **[3]** SSH credentials on a group (write-only), driver override, `ssh/test` steps + masked preview + `502 ssh_error`, UI "Back up all" for Comware / ArubaOS / Check Point clish + bash (fallback), stored text == `tests/sim/ssh/expected/*`, unchanged run, change -> v2 `+2 -1` + diff (API + UI), download, ZIP export, search (text, regex, 422), read-only command log |
+| `53-config-backup-events` | **[3]** Host key rotated -> `host_key_changed` before auth, sensor down + condition `host_key`, system event, 400 while changed, `409 host_key_mismatch`, UI accept, reset pin; CFGMAN syslog x3 + built-in rule -> one backup after the 120 s debounce (test clock), `config_change` in the timeline, `config_change_alert` -> warning -> webhook |
+| `54-flows` | **[3]** Receivers on the 3 UDP ports, sFlow (127.0.0.91, 1:4096) + NetFlow v9 (.92) auto-accepted, unknown (.93) accept, (.94) ignore; talkers / applications / conversations / interfaces / series == `send_flows.py --expect`; sampling_seen; data before template; IPFIX options sampling; Flows page |
+| `55-new-devices` | **[3]** Lab 127.0.0.89 (`tests/sim/newdev`): learning 0, run 1 baseline, run 2 Intel MAC new with IP/hostname, HP OUI allowed, random/uplink/trunk ignored, flood guard 20 + "+6 more", one webhook WARNING, UI acknowledge, OFF removes conditions |
+| `56-sso-kerberos` | **[3]** (needs `krb5kdc`) keytab upload/parse/warnings, challenge, jdoe viewer / asmith admin / nogroup refused, NTLM (3 fixtures) `sso_ntlm` without challenge, garbage, 48 KB header, wrong realm, replay; Chromium with `--auth-server-allowlist` + KRB5CCNAME: auto sign-in, logout no re-login, `?sso=0`, no ticket -> form |
+| `57-sso-oidc` | **[3]** Mock Entra IdP: start (PKCE S256, state, nonce, Lax path-scoped cookie), admin via app role, viewer, no role -> `not_in_group`, groups + overage, 8 failing id_token modes, leeway and key rotation ok, Entra error not echoed, forged state, open-redirect `next`, OIDC session refused while OFF |
+| `58-reports` | **[3]** Weekly definition (validation, next_run_at, unique name), Run now over a real outage -> availability == contract formula on the sensor's events, email in the SMTP sink (subject, tables, no remote resources, text part, < 1 MB), HTML download, report page print media, Hebrew RTL preview |
+| `59-noc` | **[3]** Screen token once, hashed; kiosk view from 127.0.0.1 vs another source (404), wrong token, header useless on `/api/devices`; WS 4401 without/late/bad auth, `kiosk.refresh` on a status change; `/noc#token` without session or cookies, down device appears live; 10.9.9.9-only screen -> not available; regenerate; feature OFF -> 404/409; 429 after 30 failures |
+| `60-chat-ack` | **[3]** Telegram poller (getUpdates), link code -> `/link` via the mock -> linked + reply, single use; problem -> inline button, stranger press refused (show_alert), linked admin press -> acknowledged + `✓ admin hh:mm` markup, already acknowledged; Teams card `Action.OpenUrl` -> `/ack#` -> acknowledge with comment, `ack_stale` after recovery; forged link; 409 webhook conflict -> take over; chat_ack OFF -> no buttons |
+| `61-viewer-3` | **[3]** Viewer: backup metadata only, 24 admin endpoints 403, read endpoints 200, `storage_bytes` null; UI without content/diff/download/backup/search/run/acknowledge; ack page "admins only" via the webhook `ack_url` |
+| `62-rtl-mobile-3` | **[3]** Hebrew at 1440 and 390 px: config text `ltr` in an `rtl` page, `/config-backups` `/flows` `/new-devices` `/reports` without horizontal overflow, IPs/MACs `ltr` |
 | `18-discovery-rtl-mobile` | **[2a]** Discovery + results in Hebrew (RTL, translated classes/templates, LTR IPs), phone width without horizontal overflow (en/he); screenshots to `$QA2A_SHOT_DIR` (default `$SCREENSHOT_DIR/qa-2a`) |
 
 Timing: sensors use `interval_s = 10` (the API minimum). Waits are `expect.poll` / auto-retrying
@@ -227,6 +239,26 @@ snmpwalk -v2c -c public 127.0.0.84:1161 1.3.6.1.2.1.4.35.1.4        # ipNetToPhy
 `verify_2b2.py` walks every 2b-2 agent with pysnmp, applies an independent QA implementation of the contract
 parsers (portlist bit order, bridge-port mapping, VLAN sets, FDB Q-BRIDGE/BRIDGE, PoE mapping, ARP) and asserts
 the §11.6 tables and the vendor/synthetic key values; it checks the simulators, not the product.
+
+## Phase 3 simulators (architecture.md §13.11; started by `tests/e2e/run.sh` unless `E2E_PHASE3=0`)
+
+| Simulator | What | Self-check |
+|---|---|---|
+| `sim/ssh/fake_device.py` | asyncssh device lab 127.0.0.111-.122 tcp/8022: 8 personalities (`personalities/*.yaml`: Comware, ArubaOS-Switch with "Press any key" + ANSI, AOS-CX, Check Point clish / bash, Cisco IOS with enable, FortiGate, MikroTik), paging until the paging command, `% Invalid input`, password + public key (`client_key`), `legacy-only` / `legacy-strict`, `hang-after-login`, `huge` (9 MiB), host-key rotation, configs `configs/<driver>/v1|v2.txt` with volatile lines and secrets, JSON-lines command log, HTTP control | `selftest.py` (reference client), `engine_check.py` (runs the PRODUCT session engine + normaliser against the lab), `expected.py` (oracle: normalised expected configs + contract-gap check) |
+| `sim/flows/send_flows.py` | NetFlow v5 / v9 / IPFIX / sFlow v5 datagrams from scenario YAML (`scenarios/s1..s6`), template-first or data-first, options sampling, IPv6, bi-directional, egress, IPFIX varlen + enterprise fields, floods; `--expect` = exact 1-minute aggregates | `selftest.py` (independent decoder), `decoder_check.py` (PRODUCT decoders + MinuteAggregator), `bench.py` (records/s table for the PR) |
+| `sim/oidc/mock_idp.py` | Entra-shaped OIDC IdP (discovery, authorize with login_hint, token with PKCE + secret, JWKS), users with app roles / groups / overage, failure modes | — |
+| `sim/kdc/setup_kdc.sh`, `client_token.py` | MIT KDC realm `MNIDOM.TEST` (users jdoe/asmith/nogroup/olduser, HTTP/localhost + HTTP/127.0.0.1 keytab, RC4-only keytab), SPNEGO tokens via python-gssapi, NTLM / garbage / 48 KB fixtures | — |
+| `sim/telegram_mock.py` (extended) | `getUpdates` long poll fed by `POST /_inject` (presses, `/link`), `answerCallbackQuery`, `editMessageReplyMarkup`, `deleteWebhook`, reply_markup validation, `--conflict` / `/_control` 409 | — |
+| `sim/smtp_sink.py` | aiosmtpd sink + HTTP `/messages` (decoded subject, text/html parts, remote resources) | — |
+| `sim/kiosk_client.py` | NOC screen client from any loopback source address: view, WS (auth, no-auth, late auth), probe, hammer | — |
+| `sim/newdev/` | new-device access switch 127.0.0.89 (`run1` baseline, `run2` new MACs), lab component `snmp-newdev-access` | — |
+
+```bash
+S=$(mktemp -d); backend/.venv/bin/python tests/sim/ssh/fake_device.py --lab --state-dir $S --control-port 18622 &
+backend/.venv/bin/python tests/sim/ssh/selftest.py && backend/.venv/bin/python -W ignore tests/sim/ssh/engine_check.py
+backend/.venv/bin/python tests/sim/flows/selftest.py && backend/.venv/bin/python tests/sim/flows/decoder_check.py
+tests/sim/kdc/setup_kdc.sh start /tmp/kdc && backend/.venv/bin/python tests/sim/kdc/client_token.py spnego --kdc-dir /tmp/kdc
+```
 
 ## Other suites
 

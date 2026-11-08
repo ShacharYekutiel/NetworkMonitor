@@ -1,0 +1,9 @@
+# IPFIX with sampling options (305/306 = 1/99 -> rate 100), a variable-length field and an enterprise field.
+name: s5
+sampling: 100
+sampling_in: options
+ipfix_extras: true
+flows:
+  - {src: 10.0.5.1, dst: 10.0.5.9, sport: 51000, dport: 443, proto: 6, bytes: 1500, packets: 1, in_if: 1, out_if: 2}
+  - {src: 10.0.5.2, dst: 10.0.5.9, sport: 52000, dport: 80, proto: 6, bytes: 500, packets: 1, in_if: 1, out_if: 2, app_desc: "a-very-long-application-description-that-is-still-under-255-bytes"}
+  - {src: 10.0.5.3, dst: 10.0.5.53, sport: 60000, dport: 61000, proto: 17, bytes: 200, packets: 1, in_if: 1, out_if: 3}

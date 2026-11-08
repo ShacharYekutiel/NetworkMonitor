@@ -1,0 +1,21 @@
+# ArubaOS-Switch (2930F / 5400R). Driver hpe_arubaos_switch (shell, "Press any key", ANSI escapes).
+driver: hpe_arubaos_switch
+hostname: sw-aos1
+banner: "\x1b[1;24r\x1b[24;1HHPE Networking\r\n\r\nCopyright (C) 1991-2026 Hewlett Packard Enterprise Development LP\r\n\r\n                  RESTRICTED RIGHTS LEGEND\r\n\r\nWe'd like to keep you up to date about:\r\n  * Software feature updates\r\n  * New product announcements\r\n  * Special events\r\n\r\nPlease register your products now at:  https://asp.arubanetworks.com\r\n\r\n\r\n"
+prompt: "{hostname}# "
+shell: true
+exec: false
+exec_refusal: "Invalid input: exec"
+ansi: true
+press_any_key: "Press any key to continue"
+paging:
+  lines: 24
+  marker: "-- MORE --, next page: Space, next line: Enter, quit: Control-C"
+  disable: ["no page"]
+enable: null
+invalid: "Invalid input: {word}\r\n"
+commands:
+  "no page": ""
+  "show running-config": "@config"
+exec_commands: {}
+host_key_type: ssh-rsa

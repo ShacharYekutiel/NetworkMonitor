@@ -1,0 +1,52 @@
+; J9729A Configuration Editor; Created on release #WB.16.10.0009
+; Ver #14:01.4f.f8.1d.9b.3f.bf.bb.ef.7c.59.fc.6b.fb.9f.fc.ff.ff.37.ef:05
+hostname "sw-aos1"
+module 1 type j9729a
+module 2 type j9731a
+trunk 49-50 trk1 lacp
+console idle-timeout 600
+console idle-timeout serial-usb 600
+ip default-gateway 10.0.10.1
+ip ssh filetransfer
+interface 1
+   name "uplink-core"
+   exit
+interface 2
+   name "printer-floor2"
+   exit
+interface 3
+   name "pc-1234"
+   exit
+snmp-server community "Pr1vateCommunity" unrestricted
+snmp-server contact "it@mnidom.net"
+snmp-server location "Floor 2"
+radius-server host 10.0.0.20 key "R4diusSecret"
+oobm
+   ip address dhcp-bootp
+   exit
+vlan 1
+   name "DEFAULT_VLAN"
+   no untagged 3-48
+   untagged 1-2
+   ip address dhcp-bootp
+   exit
+vlan 10
+   name "servers"
+   tagged Trk1
+   no ip address
+   exit
+vlan 20
+   name "clients"
+   untagged 3-48
+   tagged Trk1
+   no ip address
+   exit
+spanning-tree
+spanning-tree Trk1 priority 4
+no tftp server
+loop-protect 3-48
+no autorun
+no dhcp config-file-update
+no dhcp image-file-update
+password manager user-name "admin" sha1 "8c6976e5b5410415bde908bd4dee15dfb167a9c8"
+password operator user-name "operator" sha1 "fe703d258c7ef5f50b71e06565a65aa07194907f"
