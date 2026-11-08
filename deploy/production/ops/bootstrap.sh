@@ -210,12 +210,20 @@ if [[ ${NETMON_NO_DEPLOY:-0} == 1 ]]; then
   echo "start later with: systemctl start netmon-gitops.service && systemctl start netmon-gitops.timer netmon-backup.timer"
   exit 0
 fi
+# Timers first: if the first deploy fails (e.g. the release image is not published yet, or
+# the proxy blocks ghcr.io), the timer keeps retrying every 2 minutes on its own.
+systemctl start netmon-gitops.timer netmon-backup.timer
 step "First deploy (this pulls the images; can take a few minutes)"
 if ! systemctl start netmon-gitops.service; then
   journalctl -u netmon-gitops -n 40 --no-pager || true
-  die "the first deploy failed - see: journalctl -u netmon-gitops -n 100"
+  cat <<EOF
+
+WARNING: the first deploy did not finish. The sync timer is running and retries every
+2 minutes (for example once the release image exists on ghcr.io). Follow it with:
+  journalctl -u netmon-gitops -f
+EOF
+  exit 1
 fi
-systemctl start netmon-gitops.timer netmon-backup.timer
 "$SELF_DIR/status.sh" || true
 
 cat <<EOF
