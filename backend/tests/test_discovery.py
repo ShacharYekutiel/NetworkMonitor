@@ -499,6 +499,31 @@ async def test_cancel_and_loop_responsive(rt, admin: httpx.AsyncClient) -> None:
     # name any callback that blocks the loop, so a failure says what blocked it
     loop = asyncio.get_running_loop()
     slow: list[str] = []
+    # watchdog: while the loop is stuck > 80 ms, sample the event-loop thread's stack
+    import sys
+    import traceback
+
+    loop_thread = threading.get_ident()
+    beat = [time.perf_counter()]
+    stacks: dict[str, int] = {}
+    stop = threading.Event()
+
+    async def heartbeat() -> None:
+        while not stop.is_set():
+            beat[0] = time.perf_counter()
+            await asyncio.sleep(0.01)
+
+    def watchdog() -> None:
+        while not stop.wait(0.02):
+            if time.perf_counter() - beat[0] > 0.08:
+                frame = sys._current_frames().get(loop_thread)
+                if frame is not None:
+                    tb = "".join(traceback.format_stack(frame, limit=12)[-8:])
+                    stacks[tb] = stacks.get(tb, 0) + 1
+
+    hb = asyncio.create_task(heartbeat())
+    wd = threading.Thread(target=watchdog, daemon=True)
+    wd.start()
 
     class _Slow(logging.Handler):
         def emit(self, record: logging.LogRecord) -> None:
@@ -532,6 +557,10 @@ async def test_cancel_and_loop_responsive(rt, admin: httpx.AsyncClient) -> None:
         await asyncio.sleep(0.05)
         lag = max(lag, time.perf_counter() - t0 - 0.05)
     loop.set_debug(False)
+    stop.set()
+    wd.join()
+    await hb
+    blocked_at = sorted(stacks.items(), key=lambda kv: -kv[1])[:3]
     logging.getLogger("asyncio").removeHandler(handler)
     # the API stays responsive while the scan runs
     t0 = time.perf_counter()
@@ -559,7 +588,10 @@ async def test_cancel_and_loop_responsive(rt, admin: httpx.AsyncClient) -> None:
     assert r.status_code == 202
     await wait_scan(admin, r.json()["id"])
     # checked last, so a slow runner cannot leave the scan running for the next tests
-    assert lag < 0.25, f"event loop blocked for {lag:.3f}s; slow callbacks: {slow}"
+    assert lag < 0.25, (
+        f"event loop blocked for {lag:.3f}s; slow callbacks: {slow}; "
+        f"loop thread stacks while blocked (samples): {blocked_at}"
+    )
 
 
 async def test_scan_validation(admin: httpx.AsyncClient, viewer: httpx.AsyncClient) -> None:
