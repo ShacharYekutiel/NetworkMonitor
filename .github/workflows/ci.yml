@@ -1,10 +1,14 @@
 name: CI
 
+# Runs once per commit: on pushes to main, and on pull requests for every other branch
+# (a branch without a PR is not checked; open a draft PR for long-lived phase branches).
+# Docs-only changes skip CI. Saves GitHub Actions minutes on the private repo.
 on:
   push:
-    branches: ["**"]
-    tags-ignore: ["**"]
+    branches: ["main"]
+    paths-ignore: ["docs/**", "**/*.md"]
   pull_request:
+    paths-ignore: ["docs/**", "**/*.md"]
   workflow_dispatch:
 
 permissions:
