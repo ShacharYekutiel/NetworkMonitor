@@ -42,6 +42,9 @@ start)
   dns_lookup_realm = false
   dns_canonicalize_hostname = false
   rdns = false
+  # krb5 >= 1.18 qualifies short names (localhost) with the DNS search domain; a CI
+  # runner's search domain then maps the host to a foreign realm
+  qualify_shortname = ""
   udp_preference_limit = 1
   allow_weak_crypto = true
   default_ccache_name = FILE:$DIR/ccache_default

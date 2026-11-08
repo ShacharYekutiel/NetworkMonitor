@@ -128,7 +128,7 @@ async def test_backup_versions_diff_search_export(
     did = d["id"]
     st = await status(admin, did)
     assert st["eligible"] and st["driver"] == "hpe_comware" and st["driver_source"] == "override"
-    await wait_for(lambda: sensor(admin, did))  # auto-created for eligible devices
+    await wait_for(lambda: sensor(admin, did), 20)  # auto-created for eligible devices
     r = await admin.post(f"/api/devices/{did}/config/backup")
     assert r.status_code == 202 and r.json() == {"queued": 1}
     await wait_for(lambda: _result(admin, did, "ok"), 20)
