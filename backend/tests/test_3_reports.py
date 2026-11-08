@@ -435,3 +435,40 @@ async def test_top_talkers_section(admin: httpx.AsyncClient, rt: Any, rep: Any, 
     assert hosts[0]["ip"] == "10.0.0.5" and hosts[0]["bytes"] == 9000
     apps = data["top_talkers"]["applications"]
     assert apps[0]["port"] == 443 and apps[0]["bytes"] == 8000
+
+
+async def test_maintenance_ended_before_period_and_orphans_do_not_cover(rt, admin) -> None:  # type: ignore[no-untyped-def]
+    """QA spec 58: a window that started AND ended before the period was taken as still open
+    (DISTINCT ON included the verb), and events of deleted devices / unknown "#<id>" windows
+    were read as GLOBAL windows - every device then looked 'in maintenance' all period."""
+    from netmon.reports.data import _maintenance_by_device
+
+    dev = await make_device(admin, name="mw-dev", host="10.9.9.1")
+    conn = await _db(rt)
+    try:
+        ins = (
+            "INSERT INTO events (time, kind, device_id, group_id, device_name, message) "
+            "VALUES ($1, 'maintenance', $2, NULL, $3, $4)"
+        )
+        # device window fully before the period: started, then ended
+        await conn.execute(ins, h(-5), dev["id"], "mw-dev", 'Maintenance "night" started')
+        await conn.execute(ins, h(-4), dev["id"], "mw-dev", 'Maintenance "night" ended')
+        # a deleted device's window (device_id NULL, device_name kept) left open
+        await conn.execute(ins, h(-3), None, "gone-dev", 'Maintenance "old" started')
+        # an unknown window written as "#<id>" with global scope
+        await conn.execute(ins, h(-2), None, None, 'Maintenance "#42" started')
+        # a real global window inside the period: 2 h
+        await conn.execute(ins, h(10), None, None, 'Maintenance "global" started')
+        await conn.execute(ins, h(12), None, None, 'Maintenance "global" ended')
+    finally:
+        await conn.close()
+
+    class D:
+        id = dev["id"]
+        group_id = dev["group_id"]
+
+    async with rt.sessionmaker() as session:
+        out = await _maintenance_by_device(session, [D], START, END)
+    ivs = out.get(dev["id"], [])
+    covered = sum((b - a).total_seconds() for a, b in ivs)
+    assert covered == 2 * 3600, ivs

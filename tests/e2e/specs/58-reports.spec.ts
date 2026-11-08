@@ -90,7 +90,8 @@ test('Run now (send): availability equals the formula on the sensor events; emai
   const row = full.data.availability.devices.find((d: any) => d.device_id === prob.device.id);
   expect(row, 'device row').toBeTruthy();
   expect(row.sensor_id).toBe(prob.sensor.id);
-  expect(row.outages).toBe(want.outages);
+  const diag = `row ${JSON.stringify(row)} oracle ${JSON.stringify(want)} period ${periodStart}..${periodEnd} events ${JSON.stringify((ev.items ?? ev).filter((e: any) => e.kind === 'status_change').map((e: any) => [e.time, e.old_status, e.new_status]))}`;
+  expect(row.outages, diag).toBe(want.outages);
   expect(Math.abs(row.downtime_s - want.down)).toBeLessThanOrEqual(3);
   expect(Math.abs(row.measured_s - want.measured), 'measured seconds (event times are ms, report s)').toBeLessThanOrEqual(3);
   // the window is only ~2 min, so 1 s of the measured/down tolerance above moves availability by ~1 %: check the

@@ -1,5 +1,5 @@
 // [3] New device on the network (docs/architecture.md §13.4, §13.11 spec 55; api.md "[3] New-device alerts").
-// Lab: tests/sim/newdev (access switch "newdev-access" on 127.0.0.89 — the contract's .88 is the 2b-3 LAG sim).
+// Lab: tests/sim/newdev (access switch "newdev-access" on 127.0.0.90 — the contract's .88 is the 2b-3 LAG sim, .89 the 2b-3 v3 trap source).
 // Enable with learning 0 days; run 1 baseline (first read of the switch), run 2 -> one alert for the Intel MAC
 // with IP/hostname, the allow-listed HP OUI "allowed", locally administered / uplink / trunk MACs ignored, the
 // flood guard (25 new MACs on port 5 -> 20 events + one summary), acknowledge as known clears the sensor, and
@@ -15,7 +15,7 @@ import { PHASE3, ensureDeviceAt, ensureGroupNamed, setFeatures, shot3, tx } from
 test.describe.configure({ mode: 'serial' });
 test.skip(!PHASE3, 'phase-3 simulators not running');
 
-const HOST = '127.0.0.89';
+const HOST = '127.0.0.90';
 const INTEL = '00:1b:21:aa:00:01';
 const HP = '3c:a8:2a:00:00:01';
 const LOCAL = '02:00:00:aa:00:02';
@@ -57,18 +57,25 @@ test('enable with learning 0 days; run 1 = baseline (first read of the switch, n
   // spec 51 already turned the feature on once (learning_until = first ON + 7 days): restart with 0 days
   const st = await api.post('/api/new-devices/restart-learning');
   expect(st.learning, 'learning period 0 days').toBe(false);
-  sensorBeforeDetection = (await newMacSensor())?.id ?? 0;
   const ch = await api.post('/api/notification-channels', { name: 'qa3-newdev-hook', type: 'webhook', config: { url: `${WEBHOOK_URL}/qa3-newdev` } });
   // global rule (the sensor may only appear with the first condition); records are filtered by device name
   await api.post('/api/alert-rules', { name: 'qa3 new devices', enabled: true, sensor_id: null, on_statuses: ['warning'], delay_s: 0, channel_ids: [ch.id] });
   await clearWebhookRecords();
-  const dp = await refreshPorts(api, sw.id);
+  // the inventory scheduler may already have a run of the new device in flight (started before the feature was ON,
+  // so it does not detect); a second refresh is then the first FDB read "since ON"
+  let dp = await refreshPorts(api, sw.id);
+  if ((await known()).length === 0) dp = await refreshPorts(api, sw.id);
   expect(dp.status.ok ?? true).toBe(true);
+  await expect.poll(async () => (await known()).length, { timeout: 20_000, message: 'baseline registered' }).toBeGreaterThan(0);
   const rows = await known();
   const macs = rows.map((r) => r.mac);
   for (const m of ['00:50:56:89:00:01', '3c:52:82:89:00:02', '00:23:24:89:00:04']) expect(macs, `baseline ${m}`).toContain(m);
   expect(rows.filter((r) => r.mac.startsWith('00:16:3e:89')), 'uplink/trunk MACs are never registered').toEqual([]);
   expect(rows.every((r) => r.state === 'baseline')).toBe(true);
+  // §13.4: the passive new_mac sensor exists for every in-scope switch while ON - here the switch became in scope
+  // (class detected, port inventory effective) after the feature was turned on; it must exist before any detection
+  await expect.poll(async () => (await newMacSensor())?.id ?? 0, { timeout: 30_000 }).toBeGreaterThan(0).catch(() => undefined);
+  sensorBeforeDetection = (await newMacSensor())?.id ?? 0;
   const s2 = await api.get('/api/new-devices/status');
   expect(s2.switches_baselined).toBeGreaterThanOrEqual(1);
   expect(s2.new_unacknowledged).toBe(0);
@@ -163,5 +170,5 @@ test('turning the feature OFF removes new_mac conditions and 409s the API; data 
   await setFeatures(api, { new_device_alerts: false });
   // contract (§13.4): the passive new_mac sensor is "auto-created for in-scope switches while ON" - i.e. before
   // the first detection (checked last so a deviation does not skip the rest of this serial file)
-  expect(sensorBeforeDetection, 'new_mac sensor existed right after turning the feature ON').toBeGreaterThan(0);
+  expect(sensorBeforeDetection, 'new_mac sensor existed after the baseline run (switch in scope, before any new MAC)').toBeGreaterThan(0);
 });

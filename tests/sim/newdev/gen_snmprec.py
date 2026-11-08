@@ -4,7 +4,7 @@
     python3 tests/sim/newdev/gen_snmprec.py     # rewrites run1/ run2/ public.snmprec (committed)
 
 ADDRESS: the contract puts the access switch on 127.0.0.88, which is already the 2b-3 ArubaOS LAG sim
-(tests/sim/lab.sh "snmp-lag-aos"), so it lives on **127.0.0.89** (component "snmp-newdev-access", LAB_3=1).
+(tests/sim/lab.sh "snmp-lag-aos"), and .89 is the 2b-3 SNMPv3 trap source device (tests/e2e/lib/lab2b3.ts), so it lives on **127.0.0.90** (component "snmp-newdev-access", LAB_3=1).
 The test swaps the recording between inventory runs: `$LAB_SH swap snmp-newdev-access tests/sim/newdev/run2`.
 
 "newdev-access" (ArubaOS-Switch 2930F, sysObjectID 1.3.6.1.4.1.11.2.3.7.11.181, v2c community public, udp/1161):

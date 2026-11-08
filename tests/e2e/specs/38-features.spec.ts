@@ -31,7 +31,8 @@ test('fresh install: every feature OFF in settings and /api/settings/public (als
   const s = await admin.get('/api/settings');
   for (const f of FEATURES) expect.soft(s[`feature_${f}_enabled`], `settings feature_${f}_enabled`).toBe(false);
   const pub = await publicFeatures(admin);
-  expect(Object.keys(pub).sort()).toEqual([...FEATURES].sort());
+  // [3] the 8 phase-3 toggles are listed too (api.md [3] Type changes)
+  expect(Object.keys(pub).sort()).toEqual([...FEATURES, ...['config_backup', 'flows', 'new_device_alerts', 'sso_kerberos', 'sso_oidc', 'reports', 'noc', 'chat_ack']].sort());
   for (const f of FEATURES) expect.soft(pub[f], `public features.${f}`).toBe(false);
   expect((await viewer.get('/api/settings/public')).features).toEqual(pub);
   const anon = await fetch(`${process.env.BASE_URL}/api/settings/public`);
@@ -83,7 +84,8 @@ test('OFF: endpoints answer 409 feature_disabled (with the documented exceptions
 
 test('OFF: no listener on the trap/syslog ports; health reports receivers disabled', async () => {
   const h = await admin.get('/api/health');
-  expect.soft(h.ingest).toEqual({ trap: 'disabled', syslog_udp: 'disabled', syslog_tcp: 'disabled' });
+  // [3] ingest also reports the flow receivers (api.md [3] Type changes)
+  expect.soft(h.ingest).toEqual({ trap: 'disabled', syslog_udp: 'disabled', syslog_tcp: 'disabled', netflow: 'disabled', ipfix: 'disabled', sflow: 'disabled' });
   expect.soft(typeof h.trgm).toBe('boolean');
   // TCP syslog: connection refused
   const refused = await new Promise<boolean>((res) => {
@@ -206,7 +208,7 @@ test('UI: Settings -> Features tab lists the 11 features; toggling one works; di
   await page.goto('/settings');
   await page.getByRole('tab', { name: tOr('settings.tab.features', 'Features') }).click();
   const toggles = page.getByRole('switch').or(page.getByRole('checkbox'));
-  await expect(toggles).toHaveCount(11);
+  await expect(toggles).toHaveCount(19); // 11 (2b-3) + 8 (phase 3)
   await shot2b3(page, '38-features-tab-off');
   await page.getByRole('switch', { name: tOr('features.name.audit', 'Audit log') }).click();
   await expect.poll(async () => (await publicFeatures(admin)).audit, { timeout: 10_000 }).toBe(true);

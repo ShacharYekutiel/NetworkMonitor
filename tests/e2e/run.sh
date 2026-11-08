@@ -73,7 +73,21 @@ CERTS_DIR="$WORK/certs"
 LAB_DIR="$WORK/lab"
 E2E_PHASE3="${E2E_PHASE3:-1}"
 if [ "$E2E_PHASE3" = "1" ]; then
-  NETFLOW_PORT="$(free_port udp)"; IPFIX_PORT="$(free_port udp)"; SFLOW_PORT="$(free_port udp)"
+  # flow sockets open only when the feature is turned on (minutes later): pick ports BELOW the ephemeral range
+  # (32768-60999) so outgoing SNMP/DNS sockets cannot grab them in the meantime
+  read -r NETFLOW_PORT IPFIX_PORT SFLOW_PORT < <("$PY" -c '
+import random, socket
+out = []
+while len(out) < 3:
+    p = random.randint(20000, 32000)
+    s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+    try:
+        s.bind(("127.0.0.1", p)); out.append(p) if p not in out else None
+    except OSError:
+        pass
+    finally:
+        s.close()
+print(*out)')
   SSH_CTL_PORT="$(free_port tcp)"; SMTP_PORT="$(free_port tcp)"; SMTP_HTTP_PORT="$(free_port tcp)"
   OIDC_PORT="$(free_port tcp)"
 fi

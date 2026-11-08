@@ -37,6 +37,8 @@ SECTION_FEATURE = {
 MAX_AVAIL_ROWS = 2000
 TOP_TALKERS_MAX_DAYS = 31
 _MAINT_RE = re.compile(r'^Maintenance "(.*)" (started|ended)$')
+# the window name of a maintenance event in SQL (the colon of "(?:" escaped for text())
+_NAME = r"""substring(message from '^Maintenance "(.*)" (?\:started|ended)$')"""
 
 
 async def scope_devices(
@@ -204,14 +206,17 @@ async def _maintenance_by_device(
     rows = (
         await session.execute(
             text(
-                """
-                (SELECT DISTINCT ON (coalesce(device_id, 0), coalesce(group_id, 0), message)
-                        time, device_id, group_id, message FROM events
+                f"""
+                (SELECT DISTINCT ON (coalesce(device_id, 0), coalesce(group_id, 0),
+                                     {_NAME})
+                        time, device_id, group_id, device_name, message FROM events
                  WHERE kind = 'maintenance' AND time < :start
                    AND time > :start - interval '400 days'
-                 ORDER BY coalesce(device_id, 0), coalesce(group_id, 0), message, time DESC)
+                 ORDER BY coalesce(device_id, 0), coalesce(group_id, 0),
+                          {_NAME},
+                          time DESC, id DESC)
                 UNION ALL
-                (SELECT time, device_id, group_id, message FROM events
+                (SELECT time, device_id, group_id, device_name, message FROM events
                  WHERE kind = 'maintenance' AND time >= :start AND time < :end)
                 """
             ),
@@ -227,6 +232,10 @@ async def _maintenance_by_device(
         if not m:
             continue
         name, verb = m.group(1), m.group(2)
+        if r.device_id is None and r.device_name:
+            continue  # a device window whose device was deleted since: not a global window
+        if re.fullmatch(r"#\d+", name):
+            continue  # an unknown / deleted window (written as "#<id>"), scope not known
         if r.time < start:
             if verb != "started":
                 continue
