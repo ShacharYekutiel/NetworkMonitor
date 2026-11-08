@@ -8,6 +8,8 @@
 # SNMP traps (UDP 162) and syslog (UDP+TCP 514) are published too; they are received only
 # after an administrator turns them on in Settings -> Features (deploy/README.md,
 # "Traps and syslog"; Docker Desktop loses the sender IP - see there).
+# [3] So are NetFlow/IPFIX (UDP 2055), IPFIX (UDP 4739) and sFlow (UDP 6343): received only
+# while the Flows feature is ON (deploy/README.md, "Flows").
 # After a `git pull`, update with: docker compose -f deploy/docker-compose.yml up -d --build
 #
 # Nothing has to be edited. The DB password is generated on the first `up` by the
@@ -96,6 +98,10 @@ services:
       NETMON_TRAP_PORT: "1162"
       NETMON_SYSLOG_PORT: "1514"
       NETMON_SYSLOG_TCP_PORT: "1514"
+      # [3] Flow receivers (Flows feature): > 1024, so published 1:1 (must match `ports:`).
+      NETMON_NETFLOW_PORT: "2055"
+      NETMON_IPFIX_PORT: "4739"
+      NETMON_SFLOW_PORT: "6343"
       TZ: ${TZ:-UTC}
     volumes:
       - netmon-data:/data
@@ -114,6 +120,13 @@ services:
       - "${NETMON_TRAP_HOST_PORT:-162}:1162/udp"
       - "${NETMON_SYSLOG_HOST_PORT:-514}:1514/udp"
       - "${NETMON_SYSLOG_HOST_PORT:-514}:1514/tcp"
+      # [3] Flow export (NetFlow v5/v9 + IPFIX, IPFIX, sFlow v5). Same source-IP notes as above
+      # (exporters are identified by their address). Override the host side in deploy/.env
+      # (NETMON_NETFLOW_HOST_PORT / NETMON_IPFIX_HOST_PORT / NETMON_SFLOW_HOST_PORT) if a
+      # collector (nfcapd, pmacct, ...) already uses them.
+      - "${NETMON_NETFLOW_HOST_PORT:-2055}:2055/udp"
+      - "${NETMON_IPFIX_HOST_PORT:-4739}:4739/udp"
+      - "${NETMON_SFLOW_HOST_PORT:-6343}:6343/udp"
     # Unprivileged ICMP (ping) for every GID inside the container.
     sysctls:
       net.ipv4.ping_group_range: "0 2147483647"

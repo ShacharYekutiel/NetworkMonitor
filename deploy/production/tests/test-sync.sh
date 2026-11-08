@@ -79,11 +79,11 @@ called "compose.*up -d --remove-orphans" || fail "no up"
 [[ "$(img)" == "$IMG:1.0.0" ]] || fail "image"
 ls "$NETMON_BACKUP_DIR"/pre-deploy-* >/dev/null 2>&1 && fail "pre-deploy dump without a DB"
 ok "first deploy: up, healthy, deployed_rev recorded, no dump (no DB yet)"
-for p in 162 514; do
+for p in 162 514 2055 4739 6343; do
   grep -qx -- "-D -p udp --dport $p" "$FAKE_STATE/conntrack" || fail "UDP conntrack entries for $p not cleared after netmon was (re)created"
 done
 : >"$FAKE_STATE/conntrack"
-ok "netmon (re)created: stale UDP conntrack entries for traps/syslog cleared"
+ok "netmon (re)created: stale UDP conntrack entries for traps/syslog/flows cleared"
 
 # 2. nothing changed
 run 0

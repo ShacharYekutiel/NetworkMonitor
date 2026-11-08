@@ -2,6 +2,8 @@
 # Daily backup (netmon-backup.timer, 02:17): into /var/backups/netmon/daily/
 #   netmon-db-<ts>.dump        pg_dump -Fc of the netmon database (TimescaleDB)
 #   netmon-data-<ts>.tar.gz    the app data volume (db_password, secret.key, templates, ...)
+#                              without run/ ([3] materialised Kerberos keytab, krb5.conf, replay
+#                              cache: recreated at start; the keytab is encrypted in the DB)
 #   netmon-meta-<ts>.txt       deployed revision + image (which app version wrote the dump)
 # Keeps NETMON_BACKUP_KEEP_DAYS (default 14) days. Backups contain secrets: root-only.
 # Restore: ops/restore.sh (manual, never automatic).
@@ -17,7 +19,7 @@ KEEP_DAYS="${NETMON_BACKUP_KEEP_DAYS:-14}"
 while (($#)); do
   case "$1" in
     --keep-days) KEEP_DAYS="${2:?}"; shift 2 ;;
-    -h | --help) sed -n '2,11p' "$0"; exit 0 ;;
+    -h | --help) sed -n '2,13p' "$0"; exit 0 ;;
     *) die "unknown argument: $1" ;;
   esac
 done
@@ -42,7 +44,7 @@ db_dump "$DIR/netmon-db-$TS.dump"
 
 (
   umask 077
-  compose run --rm --no-deps -T --entrypoint tar init -C /data -czf - . >"$DIR/netmon-data-$TS.tar.gz.partial"
+  compose run --rm --no-deps -T --entrypoint tar init -C /data -czf - --exclude ./run . >"$DIR/netmon-data-$TS.tar.gz.partial"
 )
 tar -tzf "$DIR/netmon-data-$TS.tar.gz.partial" >/dev/null
 mv "$DIR/netmon-data-$TS.tar.gz.partial" "$DIR/netmon-data-$TS.tar.gz"

@@ -1,7 +1,7 @@
 [Unit]
 # OPTIONAL and NOT enabled by bootstrap/sync: only after you have written
 # /etc/netmon-gitops/ingest-allow.conf, run: systemctl enable --now netmon-ingest-firewall
-Description=NetworkMonitor traps/syslog sender filter (iptables DOCKER-USER)
+Description=NetworkMonitor traps/syslog/flow sender filter (iptables DOCKER-USER)
 Documentation=file:///opt/netmon/deploy/production/README.md
 After=docker.service
 Requires=docker.service

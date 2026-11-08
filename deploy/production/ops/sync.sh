@@ -10,7 +10,8 @@
 # Deploy: checkout -> validate (check-release.sh, compose config) -> pg_dump BEFORE the
 # netmon image changes (/var/backups/netmon/pre-deploy-<rev>-<ts>.dump) -> pull -> up -d
 # --remove-orphans -> wait for health (containers + https://<fqdn>/api/health) -> clear
-# stale UDP conntrack entries for traps/syslog (162/514) when netmon was recreated.
+# stale UDP conntrack entries for traps/syslog/flows (162/514/2055/4739/6343) when netmon
+# was recreated.
 # On failure: the deploy/production tree is marked bad (not retried until a NEW change
 # lands under deploy/production) and the previous good revision is redeployed.
 # The database is NEVER restored automatically (migrations are forward-only); see
