@@ -63,3 +63,6 @@ jobs:
 
       - name: sync.sh logic (fake docker)
         run: tests/test-sync.sh
+
+      - name: install-cert.sh (PEM/DER/PKCS7 chains, leaf found by key, root left out)
+        run: tests/test-install-cert.sh
