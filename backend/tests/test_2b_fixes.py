@@ -303,7 +303,14 @@ async def test_h3_slow_channel_blocks_nothing(
     assert rows[0]["status"] == "up" and rows[0]["sending_since"] is not None
     assert time.monotonic() - t0 < 5
     release.set()
-    await rt.drain()
+    # the recovery goes out on the engine's next pass after the slow send returns; drain()
+    # can return before that pass (CI race), so poke the engine until it is sent
+    for _ in range(100):
+        await rt.drain()
+        if ("slow", "recovery") in sent:
+            break
+        rt.alerts.notify()
+        await asyncio.sleep(0.05)
     assert ("slow", "problem") in sent and ("slow", "recovery") in sent
     assert all(r["sending_since"] is None for r in await state(rt, other["id"]))
 

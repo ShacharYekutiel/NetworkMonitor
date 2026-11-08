@@ -7,7 +7,7 @@
   לעולם לא `latest`.
 - `compose.yaml` — ה-stack: ‏`init` ‏(יוצר סיסמת DB אקראית), ‏`db` ‏(TimescaleDB), ‏`netmon` ‏(האפליקציה,
   לא חשופה ישירות), ‏`proxy` ‏(Caddy: ‏HTTPS על 443, הפניה מ-80 ל-443, WebSocket).
-- `config/netmon.env` — הגדרות אפליקציה שאינן סודיות (אזור זמן `Asia/Jerusalem` וכו').
+- `config/settings.env` — הגדרות אפליקציה שאינן סודיות (אזור זמן `Asia/Jerusalem` וכו').
 - `caddy/Caddyfile` — הגדרות ה-reverse proxy.
 - `ops/` — סקריפטים לשרת: ‏`bootstrap.sh`, ‏`sync.sh`, ‏`backup.sh`, ‏`restore.sh`, ‏`make-csr.sh`,
   ‏`install-cert.sh`, ‏`status.sh`.

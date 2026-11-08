@@ -89,7 +89,7 @@ services:
       db:
         condition: service_healthy
     env_file:
-      - path: ./config/netmon.env
+      - path: ./config/settings.env
       - path: ${NETMON_ETC_DIR:-/etc/netmon-gitops}/app.env
         required: false
     environment:
