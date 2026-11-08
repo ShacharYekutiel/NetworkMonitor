@@ -17,6 +17,7 @@ import {
   Select,
 } from '../components/ui';
 import { errorMessage } from '../lib/errors';
+import { timeZones } from '../lib/maintenance';
 
 function SmtpCard({ settings }: { settings: Settings }) {
   const { t } = useTranslation();
@@ -174,8 +175,15 @@ function GeneralCard({ settings }: { settings: Settings }) {
   const [interval, setInterval] = useState(String(settings.default_interval_s));
   const [lang, setLang] = useState<Language>(settings.default_language);
   const [baseUrl, setBaseUrl] = useState(settings.public_base_url ?? '');
+  const [tz, setTz] = useState(settings.timezone ?? 'UTC');
+  const [topoMin, setTopoMin] = useState(String(settings.topology_refresh_min ?? 30));
+  const zones = timeZones(settings.timezone);
+  const topoN = Number(topoMin);
+  const topoOk = /^\d+$/.test(topoMin.trim()) && (topoN === 0 || (topoN >= 5 && topoN <= 1440));
 
   useEffect(() => {
+    setTz(settings.timezone ?? 'UTC');
+    setTopoMin(String(settings.topology_refresh_min ?? 30));
     setRetention(String(settings.retention_days));
     setEventRetention(String(settings.event_retention_days));
     setInterval(String(settings.default_interval_s));
@@ -200,6 +208,8 @@ function GeneralCard({ settings }: { settings: Settings }) {
       default_interval_s: Number(interval),
       default_language: lang,
       public_base_url: baseUrl.trim() || null,
+      timezone: tz,
+      topology_refresh_min: topoN,
     });
   };
 
@@ -259,10 +269,39 @@ function GeneralCard({ settings }: { settings: Settings }) {
               dir="ltr"
             />
           </Field>
+          <Field label={t('settings.timezone')} hint={t('settings.timezoneHint')}>
+            <Select value={tz} onChange={(e) => setTz(e.target.value)} dir="ltr">
+              {zones.map((z) => (
+                <option key={z} value={z}>
+                  {z}
+                </option>
+              ))}
+            </Select>
+          </Field>
+          <Field
+            label={t('settings.topologyRefresh')}
+            hint={
+              topoOk ? (
+                t('settings.topologyRefreshHint')
+              ) : (
+                <span className="text-red-600">{t('settings.topologyRefreshErr')}</span>
+              )
+            }
+          >
+            <Input
+              type="number"
+              min={0}
+              max={1440}
+              value={topoMin}
+              onChange={(e) => setTopoMin(e.target.value)}
+              dir="ltr"
+              aria-invalid={!topoOk}
+            />
+          </Field>
         </div>
         <ErrorBox error={save.error} />
         <div className="flex justify-end">
-          <Button type="submit" variant="primary" busy={save.isPending}>
+          <Button type="submit" variant="primary" busy={save.isPending} disabled={!topoOk}>
             {t('common.save')}
           </Button>
         </div>

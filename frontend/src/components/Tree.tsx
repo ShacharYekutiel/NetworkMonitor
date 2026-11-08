@@ -5,7 +5,7 @@ import type { TreeDevice, TreeGroup, TreeSensor } from '../api/types';
 import { useTree } from '../hooks/queries';
 import { useLocalState } from '../hooks/useLocalState';
 import { formatValue } from '../lib/format';
-import { ChevronIcon, FolderIcon, SearchIcon, ServerIcon } from './icons';
+import { CheckIcon, ChevronIcon, FolderIcon, SearchIcon, ServerIcon, WrenchIcon } from './icons';
 import { StatusDot } from './Status';
 import { cx, ErrorBox, Input, Spinner, Value } from './ui';
 
@@ -72,6 +72,7 @@ function filterGroups(groups: TreeGroup[], q: string): TreeGroup[] {
 }
 
 function SensorRow({ s, depth }: { s: TreeSensor; depth: number }) {
+  const { t } = useTranslation();
   return (
     <NavLink
       to={`/sensors/${s.id}`}
@@ -81,6 +82,14 @@ function SensorRow({ s, depth }: { s: TreeSensor; depth: number }) {
     >
       <StatusDot status={s.status} />
       <span className="min-w-0 flex-1 truncate">{s.name}</span>
+      {s.acknowledged && (
+        <CheckIcon
+          size={12}
+          className="shrink-0 text-emerald-600 dark:text-emerald-400"
+          aria-label={t('ack.acknowledged')}
+          aria-hidden={false}
+        />
+      )}
       <span className="shrink-0 text-xs tabular-nums text-slate-500">
         <Value text={formatValue(s.primary_value, s.primary_unit)} />
       </span>
@@ -101,6 +110,7 @@ function DeviceRow({
   toggle: (k: string) => void;
   forceOpen: boolean;
 }) {
+  const { t } = useTranslation();
   const key = `d${d.id}`;
   const open = forceOpen || !!expanded[key];
   return (
@@ -115,6 +125,14 @@ function DeviceRow({
           <StatusDot status={d.status} />
           <ServerIcon size={14} className="shrink-0 text-slate-500" />
           <span className="min-w-0 flex-1 truncate">{d.name}</span>
+          {d.in_maintenance && (
+            <WrenchIcon
+              size={12}
+              className="shrink-0 text-sky-600 dark:text-sky-400"
+              aria-label={t('maintenance.badge')}
+              aria-hidden={false}
+            />
+          )}
         </NavLink>
       </div>
       {open && d.sensors.map((s) => <SensorRow key={s.id} s={s} depth={depth} />)}

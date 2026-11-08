@@ -56,11 +56,15 @@ function describeEntryRaw(e: TemplateEntry, lang: string, t: TFunction): string 
       if (e.include_name_regex) s += ` — ${t('templates.matching', { re: e.include_name_regex })}`;
       return s;
     }
-    case 'snmp_table':
-      return t('templates.entryTable', {
+    case 'snmp_table': {
+      let s = t('templates.entryTable', {
         name: l10n(e.name, lang).replace('{label}', '…'),
         max: e.max,
       });
+      // [2b-1] enum status columns (fans/PSUs) are shown as such.
+      if (e.config?.value_type === 'enum') s += ` — ${t('templates.entryEnum')}`;
+      return s;
+    }
   }
 }
 
@@ -75,6 +79,8 @@ export function describeMatch(rules: TemplateMatchRule[], t: TFunction): string 
     if (r.vendors?.length) p.push(r.vendors.map(vendorLabel).join(' / '));
     if (r.any_open_ports?.length)
       p.push(t('templates.matchPorts', { ports: r.any_open_ports.join(', ') }));
+    if (r.enterprises?.length)
+      p.push(t('templates.matchEnterprises', { list: r.enterprises.join(', ') }));
     return p.length ? p.join(' + ') : t('templates.matchAny');
   });
   return isolateLtrRuns(parts.join(t('templates.or')));
@@ -82,6 +88,9 @@ export function describeMatch(rules: TemplateMatchRule[], t: TFunction): string 
 
 const VENDOR_LABELS: Record<string, string> = {
   hp: 'HP',
+  h3c: 'H3C',
+  aruba: 'Aruba',
+  supermicro: 'Supermicro',
   'd-link': 'D-Link',
   apc: 'APC',
   'tp-link': 'TP-Link',

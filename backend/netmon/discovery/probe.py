@@ -67,6 +67,7 @@ class ProbeResult:
     open_ports: list[int] = field(default_factory=list)
     probes: set[str] = field(default_factory=set)
     pf: bool = False
+    target_hostname: str | None = None  # [2b-1] the scan target was given by this name
 
     @property
     def found(self) -> bool:

@@ -8,6 +8,9 @@
 #   tests/sim/lab.sh status     per-component pid / alive / ready
 #   tests/sim/lab.sh env        print the export lines for the backend and the specs
 #   tests/sim/lab.sh restart
+#   tests/sim/lab.sh swap NAME [DATA_DIR]   restart one SNMP component, optionally with other data
+#                                           (e.g. swap snmp-access-2 tests/sim/hpe/access2_noprinter)
+#   tests/sim/lab.sh kill NAME / revive NAME   stop / start one component (outage simulation)
 #
 # Inventory (fixed addresses; scans use options.snmp_port = 1161):
 #   127.0.0.21  udp/1161  OPNsense      community public    tests/sim/discovery/opnsense/public.snmprec
@@ -17,6 +20,15 @@
 #   127.0.0.24  udp/1161  Cisco 2960-X  community public    tests/sim/discovery/switch/public.snmprec
 #   127.0.0.25  tcp/8080  HTTP-only host (tests/sim/http_target.py, GET / -> 200)
 #   127.0.0.1   tcp/$TELEGRAM_PORT  Telegram Bot API mock (tests/sim/telegram_mock.py)
+#   Phase 2b-1 (LAB_2B1=1, default; docs/architecture.md §10.4):
+#   127.0.0.31-.36 tcp/8080  toggle HTTP targets (http_target.py: POST /fail, /ok): .31 parent, .32/.33
+#                            children (dependencies), .34 maintenance, .35 acknowledge, .36 escalation
+#   127.0.0.41-.49, .61-.67  fingerprint hosts (tests/sim/fingerprint/fp_hosts.py, one process, --list)
+#   127.0.0.51  udp/1161  ArubaOS-Switch "core-sw"  tests/sim/hpe/arubaos/public.snmprec
+#   127.0.0.52  udp/1161  Comware "access-1"        tests/sim/hpe/comware/public.snmprec
+#   127.0.0.53  udp/1161  ArubaOS "access-2"        tests/sim/hpe/access2/public.snmprec (variant access2_noprinter)
+#   127.0.0.54  udp/1161  UniFi AP + LLDP           tests/sim/hpe/unifi_lldp/public.snmprec
+#   (all community public, v2c; 127.0.0.99 = the unmanaged LLDP neighbour, nothing listens there)
 #   with LAB_GENERIC=1 (default): Phase 1 SNMP agent 127.0.0.1 udp/$LAB_SNMP_PORT, HTTP toggle target
 #   127.0.0.1:$LAB_HTTP_PORT, webhook receiver 127.0.0.1:$LAB_HOOK_PORT.
 #
@@ -35,6 +47,7 @@ PY="${PY:-$ROOT/backend/.venv/bin/python}"
 LAB_DIR="${LAB_DIR:-${TMPDIR:-/tmp}/netmon-lab}"
 TELEGRAM_PORT="${TELEGRAM_PORT:-18081}"
 LAB_GENERIC="${LAB_GENERIC:-1}"
+LAB_2B1="${LAB_2B1:-1}"
 LAB_SNMP_PORT="${LAB_SNMP_PORT:-11161}"
 LAB_HTTP_PORT="${LAB_HTTP_PORT:-18083}"
 LAB_HOOK_PORT="${LAB_HOOK_PORT:-18082}"
@@ -51,6 +64,17 @@ components() {
   echo "printer-9100|tcp|127.0.0.23:9100|log|$PY $HERE/tcp_listener.py --host 127.0.0.23 --port 9100"
   echo "http-25|tcp|127.0.0.25:8080|http://127.0.0.25:8080/health|$PY $HERE/http_target.py --host 127.0.0.25 --port 8080"
   echo "telegram|tcp|127.0.0.1:$TELEGRAM_PORT|http://127.0.0.1:$TELEGRAM_PORT/health|$PY $HERE/telegram_mock.py --port $TELEGRAM_PORT"
+  if [ "$LAB_2B1" = "1" ]; then
+    local h="$HERE/hpe" n
+    for n in 31 32 33 34 35 36; do
+      echo "http-$n|tcp|127.0.0.$n:8080|http://127.0.0.$n:8080/health|$PY $HERE/http_target.py --host 127.0.0.$n --port 8080"
+    done
+    echo "fingerprint|tcp|127.0.0.41:80|log|$PY $HERE/fingerprint/fp_hosts.py"
+    echo "snmp-core-sw|udp|127.0.0.51:1161|log|$PY $HERE/snmp_agent.py --host 127.0.0.51 --port 1161 --data ${DATA_snmp_core_sw:-$h/arubaos}"
+    echo "snmp-access-1|udp|127.0.0.52:1161|log|$PY $HERE/snmp_agent.py --host 127.0.0.52 --port 1161 --data ${DATA_snmp_access_1:-$h/comware}"
+    echo "snmp-access-2|udp|127.0.0.53:1161|log|$PY $HERE/snmp_agent.py --host 127.0.0.53 --port 1161 --data ${DATA_snmp_access_2:-$h/access2}"
+    echo "snmp-ap-lldp|udp|127.0.0.54:1161|log|$PY $HERE/snmp_agent.py --host 127.0.0.54 --port 1161 --data ${DATA_snmp_ap_lldp:-$h/unifi_lldp}"
+  fi
   if [ "$LAB_GENERIC" = "1" ]; then
     echo "snmp-generic|udp|127.0.0.1:$LAB_SNMP_PORT|log|$PY $HERE/snmp_agent.py --port $LAB_SNMP_PORT"
     echo "http-target|tcp|127.0.0.1:$LAB_HTTP_PORT|http://127.0.0.1:$LAB_HTTP_PORT/health|$PY $HERE/http_target.py --port $LAB_HTTP_PORT"
@@ -141,6 +165,50 @@ do_stop() {
   done
 }
 
+component() { # name -> its line
+  local name rest
+  while IFS='|' read -r name rest; do
+    if [ "$name" = "$1" ]; then echo "$name|$rest"; fi
+  done < <(components)
+}
+
+stop_one() {
+  local f="$PIDS_DIR/$1.pid" pid
+  [ -f "$f" ] || return 0
+  pid="$(cat "$f")"
+  kill -TERM -- "-$pid" 2>/dev/null || kill -TERM "$pid" 2>/dev/null || true
+  for _ in $(seq 1 25); do kill -0 "$pid" 2>/dev/null || break; sleep 0.2; done
+  kill -KILL -- "-$pid" 2>/dev/null || true
+  rm -f "$f"
+}
+
+start_one() { # name; DATA_<name> may override the data dir (SNMP components)
+  local line name proto bind rd cmd
+  line="$(component "$1")"
+  [ -n "$line" ] || { echo "lab: unknown component $1" >&2; exit 2; }
+  IFS='|' read -r name proto bind rd cmd <<<"$line"
+  mkdir -p "$PIDS_DIR" "$LOG_DIR"
+  if alive "$name" && ready "$name" "$rd"; then echo "lab: $name already running"; return 0; fi
+  for _ in $(seq 1 50); do port_free "$proto" "$bind" && break; sleep 0.1; done
+  : >"$LOG_DIR/$name.log"
+  # shellcheck disable=SC2086
+  setsid $cmd >"$LOG_DIR/$name.log" 2>&1 < /dev/null &
+  echo $! >"$PIDS_DIR/$name.pid"
+  for _ in $(seq 1 150); do
+    if ready "$name" "$rd"; then echo "lab: $name ready ($proto $bind)"; return 0; fi
+    alive "$name" || break
+    sleep 0.2
+  done
+  echo "lab: $name FAILED" >&2; tail -20 "$LOG_DIR/$name.log" >&2; exit 1
+}
+
+do_swap() { # name [data dir]
+  local var="DATA_${1//-/_}"
+  stop_one "$1"
+  if [ -n "${2:-}" ]; then export "$var=$(cd "$2" && pwd)"; fi
+  start_one "$1"
+}
+
 do_status() {
   local rc=0 name proto bind rd cmd state
   while IFS='|' read -r name proto bind rd cmd; do
@@ -160,5 +228,8 @@ case "${1:-}" in
   restart) do_stop; do_start ;;
   status) do_status ;;
   env) print_env ;;
+  swap) do_swap "${2:?name}" "${3:-}" ;;
+  kill) stop_one "${2:?name}"; echo "lab: stopped ${2}" ;;
+  revive) start_one "${2:?name}" ;;
   *) echo "usage: $0 start|stop|status|restart|env" >&2; exit 2 ;;
 esac

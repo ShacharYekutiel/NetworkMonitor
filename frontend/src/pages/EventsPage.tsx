@@ -44,6 +44,7 @@ export function EventsPage() {
     sensor_id: num('sensor_id'),
     since: localToIso(get('since')),
     until: localToIso(get('until')),
+    in_maintenance: get('in_maintenance') ? get('in_maintenance') === 'true' : undefined,
     page,
     page_size: PAGE_SIZE,
   };
@@ -65,7 +66,7 @@ export function EventsPage() {
     <div className="space-y-4">
       <PageHeader title={t('events.title')} />
       <Card>
-        <div className="grid grid-cols-1 gap-3 sm:grid-cols-3 lg:grid-cols-6">
+        <div className="grid grid-cols-1 gap-3 sm:grid-cols-3 lg:grid-cols-7">
           <Field label={t('events.kind')}>
             <Select value={get('kind')} onChange={(e) => set('kind', e.target.value)}>
               <option value="">{t('common.all')}</option>
@@ -112,6 +113,16 @@ export function EventsPage() {
               onChange={(e) => set('until', e.target.value)}
               dir="ltr"
             />
+          </Field>
+          <Field label={t('events.maintenance')}>
+            <Select
+              value={get('in_maintenance')}
+              onChange={(e) => set('in_maintenance', e.target.value)}
+            >
+              <option value="">{t('common.all')}</option>
+              <option value="true">{t('events.inMaintenance')}</option>
+              <option value="false">{t('events.notInMaintenance')}</option>
+            </Select>
           </Field>
           <div className="flex items-end">
             <Button onClick={() => setParams(new URLSearchParams(), { replace: true })}>

@@ -35,6 +35,31 @@ export function patchTreeDevice(
   return { groups };
 }
 
+/** [2b-1] Patches device flags (maintenance, effective parent) without touching status. */
+export function patchTreeDeviceFlags(
+  tree: Tree,
+  id: number,
+  patch: Partial<Pick<TreeDevice, 'in_maintenance' | 'parent_device_id'>>,
+): Tree {
+  let changed = false;
+  const groups = mapGroups(tree.groups, (g) => {
+    if (!g.devices.some((d) => d.id === id)) return g;
+    changed = true;
+    return { ...g, devices: g.devices.map((d) => (d.id === id ? { ...d, ...patch } : d)) };
+  });
+  return changed ? { groups } : tree;
+}
+
+/** [2b-1] Every device of the tree (depth-first), with its group. */
+export function allDevices(groups: TreeGroup[]): { device: TreeDevice; group: TreeGroup }[] {
+  const out: { device: TreeDevice; group: TreeGroup }[] = [];
+  for (const g of groups) {
+    for (const d of g.devices) out.push({ device: d, group: g });
+    out.push(...allDevices(g.children));
+  }
+  return out;
+}
+
 export function patchTreeGroup(
   tree: Tree,
   id: number,

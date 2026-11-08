@@ -2,6 +2,32 @@ import { useState, type FormEvent } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useNavigate } from 'react-router-dom';
 import { endpoints } from '../api/endpoints';
+import { browserTimeZone } from '../lib/maintenance';
+import { isApiError } from '../api/client';
+
+type SetupBody = Parameters<typeof endpoints.setup>[0];
+
+/**
+ * POST /api/setup with the browser time zone (silently). If the server rejects the zone
+ * (422 on the timezone field), retry once without it, so setup can always complete.
+ */
+export async function setupWithTimezone(
+  body: Omit<SetupBody, 'timezone'>,
+  call: (b: SetupBody) => ReturnType<typeof endpoints.setup> = endpoints.setup,
+  tz: string | undefined = browserTimeZone(),
+): ReturnType<typeof endpoints.setup> {
+  if (!tz) return call(body);
+  try {
+    return await call({ ...body, timezone: tz });
+  } catch (e) {
+    const tzError =
+      isApiError(e) &&
+      e.status === 422 &&
+      (e.details ?? []).some((d) => (d.loc ?? []).includes('timezone') || d.field === 'timezone');
+    if (!tzError) throw e;
+    return call(body);
+  }
+}
 import type { Language } from '../api/types';
 import { useAuth } from '../hooks/auth';
 import { setLanguage } from '../i18n';
@@ -37,7 +63,7 @@ export function SetupPage() {
     setBusy(true);
     setError(null);
     try {
-      const r = await endpoints.setup({
+      const r = await setupWithTimezone({
         username,
         password,
         email: email.trim() || null,

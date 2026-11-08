@@ -224,3 +224,42 @@ export const StopIcon = (p: P) => (
     <rect x="6" y="6" width="12" height="12" rx="1" />
   </Svg>
 );
+
+// [2b-1]
+/** Raw SVG inner markup (24×24, stroke-based) shared by React icons and the topology symbols. */
+export const WRENCH_SVG =
+  '<path d="M14.7 6.3a4 4 0 00-5.4 5.2L3.6 17.2a1.6 1.6 0 002.2 2.2l5.7-5.7a4 4 0 005.2-5.4l-2.5 2.5-2.1-.5-.5-2.1z"/>';
+export const WrenchIcon = (p: P) => (
+  <Svg {...p}>
+    <path d="M14.7 6.3a4 4 0 00-5.4 5.2L3.6 17.2a1.6 1.6 0 002.2 2.2l5.7-5.7a4 4 0 005.2-5.4l-2.5 2.5-2.1-.5-.5-2.1z" />
+  </Svg>
+);
+export const MapIcon = (p: P) => (
+  <Svg {...p}>
+    <circle cx="5" cy="6" r="2.5" />
+    <circle cx="19" cy="6" r="2.5" />
+    <circle cx="12" cy="18" r="2.5" />
+    <path d="M7.5 6h9M6.2 8.2l4.6 7.6M17.8 8.2l-4.6 7.6" />
+  </Svg>
+);
+export const LinkIcon = (p: P) => (
+  <Svg {...p}>
+    <path d="M10 14a4 4 0 005.7 0l3-3a4 4 0 00-5.7-5.7l-1 1M14 10a4 4 0 00-5.7 0l-3 3a4 4 0 005.7 5.7l1-1" />
+  </Svg>
+);
+export const EscalateIcon = (p: P) => (
+  <Svg {...p}>
+    <path d="M12 19V5M5 12l7-7 7 7M5 21h14" />
+  </Svg>
+);
+export const FingerprintIcon = (p: P) => (
+  <Svg {...p}>
+    <path d="M12 11v3a8 8 0 01-1.5 4.5M8 12a4 4 0 018 0v1a12 12 0 01-.7 4M5 15a10 10 0 01-.5-3 7.5 7.5 0 0115 0v1M17.5 18.5l.3-1.5M7 19a8 8 0 001-3.5" />
+  </Svg>
+);
+export const ShieldCheckIcon = (p: P) => (
+  <Svg {...p}>
+    <path d="M12 3l7 3v5c0 4.5-3 8-7 10-4-2-7-5.5-7-10V6l7-3z" />
+    <path d="M9 12l2 2 4-4" />
+  </Svg>
+);

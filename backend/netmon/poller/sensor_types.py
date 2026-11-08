@@ -28,6 +28,7 @@ AUTO_SENSOR_TYPES = {"ping", "snmp_system", "snmp_cpu", "snmp_memory"}
 class ConfigField:
     key: str
     # int | str | bool | enum | int_list | str_nullable | int_nullable | headers | float
+    # | value_map ([2b-1])
     type: str
     required: bool = False
     default: Any = None
@@ -185,7 +186,10 @@ SENSOR_TYPES: dict[str, SensorTypeDef] = {
         [
             ConfigField("oid", "str", required=True),
             ConfigField(
-                "value_type", "enum", default="gauge", options=["gauge", "counter", "string"]
+                "value_type",
+                "enum",
+                default="gauge",
+                options=["gauge", "counter", "string", "enum"],
             ),
             ConfigField("unit", "str", default=""),
             ConfigField("multiplier", "float", default=1.0, min=-1e12, max=1e12),
@@ -193,6 +197,11 @@ SENSOR_TYPES: dict[str, SensorTypeDef] = {
             ConfigField("percent_of_oid", "str_nullable", default=None),
             ConfigField("expected", "str_nullable", default=None),
             ConfigField("match", "enum", default="equals", options=["equals", "contains"]),
+            # [2b-1] value_type enum
+            ConfigField("value_map", "value_map", default={}),
+            ConfigField(
+                "value_map_default", "enum", default="warning", options=["up", "warning", "down"]
+            ),
         ],
         [ChannelDef("value", "")],
     ),
@@ -326,6 +335,10 @@ def validate_config(
                     continue
                 for x in v:
                     _check_range(f, x, loc, errors)
+        elif f.type == "value_map":
+            v = _validate_value_map(v, loc, errors)
+            if v is None:
+                continue
         elif f.type == "headers":
             if not isinstance(v, dict) or not all(
                 isinstance(k, str) and isinstance(x, str) for k, x in v.items()
@@ -368,6 +381,13 @@ def _validate_snmp_custom(out: dict[str, Any], loc_prefix: str, errors: list) ->
         errors.append({"loc": ["body", loc_prefix, "label"], "msg": "must be 0-64 characters"})
     if out.get("multiplier") == 0:
         errors.append({"loc": ["body", loc_prefix, "multiplier"], "msg": "must not be 0"})
+    if out.get("value_type") == "enum" and not out.get("value_map"):
+        errors.append(
+            {
+                "loc": ["body", loc_prefix, "value_map"],
+                "msg": "required (non-empty) for value_type enum",
+            }
+        )
     if out.get("percent_of_oid") is not None and out.get("value_type") != "gauge":
         errors.append(
             {
@@ -375,6 +395,38 @@ def _validate_snmp_custom(out: dict[str, Any], loc_prefix: str, errors: list) ->
                 "msg": "only allowed when value_type is gauge",
             }
         )
+
+
+VALUE_MAP_MAX = 32
+_INT_KEY = re.compile(r"^-?\d{1,20}$")
+
+
+def _validate_value_map(v: Any, loc: list, errors: list) -> dict[str, Any] | None:
+    """{"<integer>": {"status": up|warning|down, "text": str (0-32)}}, at most 32 entries."""
+    if not isinstance(v, dict):
+        errors.append({"loc": loc, "msg": "must be an object"})
+        return None
+    if len(v) > VALUE_MAP_MAX:
+        errors.append({"loc": loc, "msg": f"at most {VALUE_MAP_MAX} entries"})
+        return None
+    out: dict[str, Any] = {}
+    for key, entry in v.items():
+        eloc = [*loc, key]
+        if not isinstance(key, str) or not _INT_KEY.match(key):
+            errors.append({"loc": eloc, "msg": "keys must be integers as decimal strings"})
+            continue
+        if not isinstance(entry, dict) or set(entry) - {"status", "text"}:
+            errors.append({"loc": eloc, "msg": "must be an object with status and text"})
+            continue
+        if entry.get("status") not in ("up", "warning", "down"):
+            errors.append({"loc": [*eloc, "status"], "msg": "must be one of up, warning, down"})
+            continue
+        txt = entry.get("text", "")
+        if not isinstance(txt, str) or len(txt) > 32:
+            errors.append({"loc": [*eloc, "text"], "msg": "must be a string of 0-32 characters"})
+            continue
+        out[str(int(key))] = {"status": entry["status"], "text": txt}
+    return out
 
 
 def _copy_default(v: Any) -> Any:

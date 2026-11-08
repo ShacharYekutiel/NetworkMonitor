@@ -13,7 +13,7 @@ import i18n from '../i18n';
 import { textDir } from '../components/ui';
 import { canRun } from './status';
 
-const counts = { up: 1, warning: 0, down: 0, paused: 0, unknown: 0, total: 1 };
+const counts = { up: 1, warning: 0, down: 0, paused: 0, unknown: 0, unreachable: 0, total: 1 };
 const tree: Tree = {
   groups: [
     {
@@ -41,6 +41,8 @@ const tree: Tree = {
           enabled: true,
           status: 'up',
           status_counts: counts,
+          in_maintenance: false,
+          parent_device_id: null,
           sensors: [
             {
               id: 7,
@@ -53,6 +55,7 @@ const tree: Tree = {
               primary_value: 1,
               primary_unit: 'ms',
               last_check_at: null,
+              acknowledged: false,
             },
           ],
         },

@@ -9,6 +9,7 @@ from typing import TYPE_CHECKING, Any
 
 from sqlalchemy import text
 
+from netmon.discovery.identify import identity_from_result
 from netmon.discovery.runner import EXISTING_DEVICE_SQL
 from netmon.discovery.serialize import ip_text
 from netmon.models import Device
@@ -158,6 +159,7 @@ async def _import_one(
             enabled=True,
             snmp_credentials=device_credentials(row, credentials, group_creds),
             sort_order=0,
+            identity=identity_from_result(row),
         )
         session.add(device)
         await session.flush()

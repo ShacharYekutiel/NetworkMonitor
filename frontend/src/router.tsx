@@ -18,6 +18,8 @@ import { SensorPage } from './pages/SensorPage';
 import { SettingsPage } from './pages/SettingsPage';
 import { SetupPage } from './pages/Setup';
 import { UsersPage } from './pages/UsersPage';
+import { MaintenancePage } from './pages/MaintenancePage';
+import { TopologyPage } from './pages/TopologyPage';
 
 function AdminOnly({ children }: { children: ReactNode }) {
   const { isAdmin } = useAuth();
@@ -80,6 +82,8 @@ export function AppRoutes() {
         <Route path="events" element={<EventsPage />} />
         <Route path="account" element={<AccountPage />} />
         <Route path="templates" element={<TemplatesPage />} />
+        <Route path="maintenance" element={<MaintenancePage />} />
+        <Route path="topology" element={<TopologyPage />} />
         <Route
           path="discovery"
           element={

@@ -27,7 +27,14 @@ async def add_status_change(
     new_status: str,
     message: str = "",
     time: datetime | None = None,
+    in_maintenance: bool = False,
 ) -> Event:
+    """Write a status_change event. [2b-1] Any status change clears the sensor's
+    acknowledgement (the publisher then broadcasts `sensor.ack` with null)."""
+    ack_cleared = False
+    if getattr(sensor, "ack_at", None) is not None and old_status != new_status:
+        clear_ack(sensor)
+        ack_cleared = True
     ev = Event(
         time=time or now_utc(),
         kind="status_change",
@@ -39,10 +46,21 @@ async def add_status_change(
         old_status=old_status,
         new_status=new_status,
         message=message or "",
+        in_maintenance=bool(in_maintenance),
     )
     session.add(ev)
     await session.flush()
+    if ack_cleared:
+        ev.ack_cleared = True  # type: ignore[attr-defined]  # transient, read by published()
     return ev
+
+
+def clear_ack(sensor: Any) -> None:
+    sensor.ack_at = None
+    sensor.ack_user_id = None
+    sensor.ack_by = None
+    sensor.ack_comment = ""
+    sensor.ack_status = None
 
 
 async def add_event(session: AsyncSession, kind: str, message: str, **fields: Any) -> Event:
@@ -54,16 +72,23 @@ async def add_event(session: AsyncSession, kind: str, message: str, **fields: An
 
 def published(rt: Runtime, events: list[Event]) -> None:
     """Call after commit: broadcast events and hand status changes to the alert engine."""
-    changed = False
+    changes: list[Event] = []
     for ev in events:
         data = event_out(ev)
         rt.hub.broadcast("event.created", data)
         if ev.kind == "status_change":
-            changed = True
+            changes.append(ev)
+            if getattr(ev, "ack_cleared", False):
+                rt.hub.broadcast(
+                    "sensor.ack",
+                    {"id": ev.sensor_id, "device_id": ev.device_id, "acknowledgement": None},
+                )
             if rt.alerts is not None:
-                rt.alerts.on_status_change(data)
-    if changed:
+                rt.alerts.on_status_change(data, ev.time)
+    if changes:
         rt.request_rollup()
+        if getattr(rt, "dependencies_enabled", True):
+            rt.cascade.submit(changes)
 
 
 async def write_system_event(rt: Runtime, message: str, **fields: Any) -> None:

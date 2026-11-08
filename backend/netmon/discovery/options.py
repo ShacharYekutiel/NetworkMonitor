@@ -20,6 +20,9 @@ DEFAULT_OPTIONS: dict[str, Any] = {
     "tcp_ports": DEFAULT_TCP_PORTS,
     "tcp_timeout_ms": 1000,
     "dns": True,
+    # [2b-1]
+    "fingerprint": True,
+    "fingerprint_timeout_ms": 2000,
 }
 V3_FIELDS = (
     "v3_username",
@@ -87,6 +90,8 @@ def public_options(opts: dict[str, Any]) -> dict[str, Any]:
         "tcp_ports": list(full["tcp_ports"] or []),
         "tcp_timeout_ms": full["tcp_timeout_ms"],
         "dns": bool(full["dns"]),
+        "fingerprint": bool(full["fingerprint"]),
+        "fingerprint_timeout_ms": full["fingerprint_timeout_ms"],
     }
 
 

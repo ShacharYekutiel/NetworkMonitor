@@ -1,11 +1,13 @@
 import type { Status, StatusCounts } from '../api/types';
 
-export const STATUSES: Status[] = ['down', 'warning', 'unknown', 'up', 'paused'];
+/** Every status, worst first (data-model.md § 2b-1 status severity). */
+export const STATUSES: Status[] = ['down', 'warning', 'unreachable', 'unknown', 'up', 'paused'];
 
-/** Severity per data-model.md: down > warning > unknown > up > paused. */
+/** Severity per data-model.md [2b-1]: down > warning > unreachable > unknown > up > paused. */
 export const SEVERITY: Record<Status, number> = {
-  down: 4,
-  warning: 3,
+  down: 5,
+  warning: 4,
+  unreachable: 3,
   unknown: 2,
   up: 1,
   paused: 0,
@@ -27,9 +29,18 @@ export function worstStatus(statuses: Status[]): Status {
   return active.reduce((w, s) => (severity(s) > severity(w) ? s : w), active[0]);
 }
 
+/** A problem is down/warning; `unreachable` is not (its cause is the parent). */
 export function isProblem(s: Status): boolean {
   return s === 'down' || s === 'warning';
 }
+
+/** Acknowledge is allowed only for down/warning (409 not_acknowledgeable otherwise). */
+export function canAcknowledge(s: { status: Status }): boolean {
+  return s.status === 'down' || s.status === 'warning';
+}
+
+/** Display order of status counters/tiles/bars (problems first, up and paused last). */
+export const COUNT_ORDER: Status[] = ['down', 'warning', 'unreachable', 'unknown', 'paused', 'up'];
 
 /** Tailwind classes per status (conventions.md). */
 export const STATUS_DOT: Record<Status, string> = {
@@ -38,6 +49,7 @@ export const STATUS_DOT: Record<Status, string> = {
   down: 'bg-red-600',
   paused: 'bg-gray-400',
   unknown: 'bg-slate-500',
+  unreachable: 'bg-violet-500',
 };
 
 export const STATUS_TEXT: Record<Status, string> = {
@@ -46,6 +58,7 @@ export const STATUS_TEXT: Record<Status, string> = {
   down: 'text-red-600 dark:text-red-500',
   paused: 'text-gray-400',
   unknown: 'text-slate-500 dark:text-slate-400',
+  unreachable: 'text-violet-500',
 };
 
 export const STATUS_BADGE: Record<Status, string> = {
@@ -54,6 +67,7 @@ export const STATUS_BADGE: Record<Status, string> = {
   down: 'bg-red-600 text-white',
   paused: 'bg-gray-400 text-white',
   unknown: 'bg-slate-500 text-white',
+  unreachable: 'bg-violet-500 text-white',
 };
 
 export const STATUS_HEX: Record<Status, string> = {
@@ -62,6 +76,7 @@ export const STATUS_HEX: Record<Status, string> = {
   down: '#dc2626',
   paused: '#9ca3af',
   unknown: '#64748b',
+  unreachable: '#8b5cf6',
 };
 
 export function statusClass(s: string, map: Record<Status, string>): string {
@@ -69,7 +84,7 @@ export function statusClass(s: string, map: Record<Status, string>): string {
 }
 
 export function emptyCounts(): StatusCounts {
-  return { up: 0, warning: 0, down: 0, paused: 0, unknown: 0, total: 0 };
+  return { up: 0, warning: 0, down: 0, paused: 0, unknown: 0, unreachable: 0, total: 0 };
 }
 
 export function countStatuses(statuses: Status[]): StatusCounts {

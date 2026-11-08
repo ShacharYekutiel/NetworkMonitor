@@ -1,5 +1,18 @@
 import { api } from './client';
 import type {
+  DependencyBulkItem,
+  DependencyInput,
+  DependencySuggestions,
+  DeviceIdentity,
+  LayoutPosition,
+  MaintenanceActive,
+  MaintenanceWindow,
+  MaintenanceWindowInput,
+  Occurrence,
+  TopologyGraph,
+  TopologyLink,
+  TopologyLinkInput,
+  TopologyRefresh,
   AlertRule,
   ApplyTemplateResult,
   DeviceTemplate,
@@ -63,6 +76,14 @@ export const qk = {
   discoveryScan: (id: number) => ['discoveryScan', id] as const,
   /** All results of a scan (unfiltered; filters are applied client-side so WS rows merge in). */
   discoveryResults: (scanId: number) => ['discoveryResults', scanId] as const,
+  // [2b-1]
+  maintenanceWindows: (params?: object) => ['maintenanceWindows', params ?? {}] as const,
+  maintenanceWindow: (id: number) => ['maintenanceWindow', id] as const,
+  occurrences: (id: number, days: number) => ['occurrences', id, days] as const,
+  maintenanceActive: ['maintenanceActive'] as const,
+  topology: (params?: object) => ['topology', params ?? {}] as const,
+  topologyLinks: (params?: object) => ['topologyLinks', params ?? {}] as const,
+  dependencySuggestions: (root?: number | null) => ['dependencySuggestions', root ?? null] as const,
 };
 
 export type GroupInput = {
@@ -71,6 +92,8 @@ export type GroupInput = {
   description?: string;
   snmp_credentials?: SnmpCredentialsInput | null;
   sort_order?: number;
+  /** [2b-1] */
+  dependency?: DependencyInput;
 };
 
 export type DeviceInput = {
@@ -82,6 +105,8 @@ export type DeviceInput = {
   snmp_credentials?: SnmpCredentialsInput | null;
   sort_order?: number;
   auto_sensors?: SensorType[];
+  /** [2b-1] */
+  dependency?: DependencyInput;
 };
 
 export type SensorInput = {
@@ -103,6 +128,8 @@ export type EventQuery = {
   status?: string;
   since?: string;
   until?: string;
+  /** [2b-1] */
+  in_maintenance?: boolean;
   page?: number;
   page_size?: number;
 };
@@ -159,17 +186,44 @@ async function allResults(scanId: number, q: ResultsQuery = {}): Promise<Discove
   return out;
 }
 export type AlertRuleInput = Partial<
-  Pick<AlertRule, 'name' | 'sensor_id' | 'on_statuses' | 'delay_s' | 'enabled' | 'channel_ids'>
+  Pick<
+    AlertRule,
+    | 'name'
+    | 'sensor_id'
+    | 'on_statuses'
+    | 'delay_s'
+    | 'enabled'
+    | 'channel_ids'
+    | 'escalation_after_s'
+    | 'escalation_channel_ids'
+    | 'repeat_every_s'
+  >
 >;
+
+export type MaintenanceQuery = {
+  scope?: string;
+  group_id?: number;
+  device_id?: number;
+  active?: boolean;
+  include_past?: boolean;
+};
+
+export type TopologyQuery = { group_id?: number; include_stale?: boolean };
 
 export const endpoints = {
   // setup / auth
   setupStatus: () =>
     api.get<{ setup_required: boolean }>('/setup/status', undefined, { skipAuthRedirect: true }),
-  setup: (body: { username: string; password: string; email: string | null; language: Language }) =>
-    api.post<{ user: User }>('/setup', body, { skipAuthRedirect: true }),
+  setup: (body: {
+    username: string;
+    password: string;
+    email: string | null;
+    language: Language;
+    /** [2b-1] optional IANA zone (the browser's) */
+    timezone?: string;
+  }) => api.post<{ user: User }>('/setup', body, { skipAuthRedirect: true }),
   publicSettings: () =>
-    api.get<{ default_language: Language }>('/settings/public', undefined, {
+    api.get<{ default_language: Language; timezone?: string }>('/settings/public', undefined, {
       skipAuthRedirect: true,
     }),
   me: () => api.get<{ user: User }>('/auth/me', undefined, { skipAuthRedirect: true }),
@@ -218,6 +272,7 @@ export const endpoints = {
     status?: string;
     type?: string;
     q?: string;
+    acknowledged?: boolean;
   }) => api.get<Page<Sensor>>('/sensors', { page_size: 1000, ...params }),
   sensor: (id: number) => api.get<Sensor>(`/sensors/${id}`),
   createSensor: (body: SensorInput) => api.post<Sensor>('/sensors', body),
@@ -279,4 +334,45 @@ export const endpoints = {
   settings: () => api.get<Settings>('/settings'),
   updateSettings: (body: SettingsInput) => api.put<Settings>('/settings', body),
   testSmtp: (to: string) => api.post<TestResult>('/settings/smtp/test', { to }),
+
+  // [2b-1] dependencies
+  bulkDependencies: (items: DependencyBulkItem[]) =>
+    api.post<{ updated: number[] }>('/devices/dependencies', { items }),
+  identifyDevice: (id: number) => api.post<DeviceIdentity>(`/devices/${id}/identify`),
+
+  // [2b-1] acknowledge
+  acknowledge: (id: number, comment: string) =>
+    api.post<Sensor>(`/sensors/${id}/acknowledge`, comment ? { comment } : {}),
+  unacknowledge: (id: number) => api.del<Sensor>(`/sensors/${id}/acknowledge`),
+
+  // [2b-1] maintenance windows
+  maintenanceWindows: (q: MaintenanceQuery = {}) =>
+    api.get<Page<MaintenanceWindow>>('/maintenance-windows', { page_size: 1000, ...q }),
+  maintenanceWindow: (id: number) => api.get<MaintenanceWindow>(`/maintenance-windows/${id}`),
+  createMaintenanceWindow: (body: MaintenanceWindowInput) =>
+    api.post<MaintenanceWindow>('/maintenance-windows', body),
+  updateMaintenanceWindow: (id: number, body: MaintenanceWindowInput) =>
+    api.patch<MaintenanceWindow>(`/maintenance-windows/${id}`, body),
+  deleteMaintenanceWindow: (id: number) => api.del(`/maintenance-windows/${id}`),
+  occurrences: (id: number, days = 14) =>
+    api.get<{ items: Occurrence[] }>(`/maintenance-windows/${id}/occurrences`, { days }),
+  maintenanceActive: () => api.get<MaintenanceActive>('/maintenance/active'),
+
+  // [2b-1] topology
+  topology: (q: TopologyQuery = {}) => api.get<TopologyGraph>('/topology', q),
+  refreshTopology: () => api.post<TopologyRefresh>('/topology/refresh'),
+  topologyLinks: (q: { device_id?: number; source?: string; stale?: boolean } = {}) =>
+    api.get<Page<TopologyLink>>('/topology/links', { page_size: 1000, ...q }),
+  createTopologyLink: (body: TopologyLinkInput) => api.post<TopologyLink>('/topology/links', body),
+  updateTopologyLink: (id: number, body: Partial<TopologyLinkInput>) =>
+    api.patch<TopologyLink>(`/topology/links/${id}`, body),
+  deleteTopologyLink: (id: number) => api.del(`/topology/links/${id}`),
+  deleteStaleLinks: () => api.del<{ deleted: number }>('/topology/links', { stale: true }),
+  saveLayout: (positions: LayoutPosition[]) => api.put<void>('/topology/layout', { positions }),
+  resetLayout: () => api.del('/topology/layout'),
+  dependencySuggestions: (root_device_id?: number | null) =>
+    api.get<DependencySuggestions>(
+      '/topology/dependency-suggestions',
+      root_device_id ? { root_device_id } : undefined,
+    ),
 };

@@ -32,6 +32,13 @@ class Group(TimestampMixin, Base):
     description: Mapped[str] = mapped_column(Text, nullable=False, default="")
     snmp_credentials: Mapped[dict[str, Any] | None] = mapped_column(JSONB(none_as_null=True))
     sort_order: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    dependency_mode: Mapped[str] = mapped_column(Text, nullable=False, default="inherit")
+    dependency_device_id: Mapped[int | None] = mapped_column(
+        ForeignKey("devices.id", ondelete="SET NULL", use_alter=True), nullable=True
+    )
+    dependency_sensor_id: Mapped[int | None] = mapped_column(
+        ForeignKey("sensors.id", ondelete="SET NULL", use_alter=True), nullable=True
+    )
 
 
 class Device(TimestampMixin, Base):
@@ -47,6 +54,16 @@ class Device(TimestampMixin, Base):
     enabled: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
     snmp_credentials: Mapped[dict[str, Any] | None] = mapped_column(JSONB(none_as_null=True))
     sort_order: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    dependency_mode: Mapped[str] = mapped_column(Text, nullable=False, default="inherit")
+    dependency_device_id: Mapped[int | None] = mapped_column(
+        ForeignKey("devices.id", ondelete="SET NULL", use_alter=True), nullable=True
+    )
+    dependency_sensor_id: Mapped[int | None] = mapped_column(
+        ForeignKey("sensors.id", ondelete="SET NULL", use_alter=True), nullable=True
+    )
+    identity: Mapped[dict[str, Any] | None] = mapped_column(JSONB(none_as_null=True))
+    lldp_chassis_id: Mapped[str | None] = mapped_column(String(255))
+    lldp_sys_name: Mapped[str | None] = mapped_column(String(255))
 
 
 class Sensor(TimestampMixin, Base):
@@ -67,6 +84,13 @@ class Sensor(TimestampMixin, Base):
     last_status_change_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     state: Mapped[dict[str, Any]] = mapped_column(JSONB, nullable=False, default=dict)
     sort_order: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    ack_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    ack_user_id: Mapped[int | None] = mapped_column(
+        ForeignKey("users.id", ondelete="SET NULL"), nullable=True
+    )
+    ack_by: Mapped[str | None] = mapped_column(String(64))
+    ack_comment: Mapped[str] = mapped_column(Text, nullable=False, default="")
+    ack_status: Mapped[str | None] = mapped_column(Text)
 
     channels: Mapped[list[SensorChannel]] = relationship(
         back_populates="sensor",
@@ -118,3 +142,4 @@ class Event(Base):
     old_status: Mapped[str | None] = mapped_column(Text)
     new_status: Mapped[str | None] = mapped_column(Text)
     message: Mapped[str] = mapped_column(Text, nullable=False, default="")
+    in_maintenance: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)

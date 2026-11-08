@@ -2,11 +2,17 @@ import { useEffect, useMemo, useState, type FormEvent } from 'react';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { useTranslation } from 'react-i18next';
 import { endpoints, qk, type DeviceInput, type GroupInput } from '../api/endpoints';
-import type { Device, Group, SensorType } from '../api/types';
+import type { Device, DependencyInput, Group, SensorType } from '../api/types';
 import { useTree } from '../hooks/queries';
 import { snmpFormFrom, snmpFormToInput } from '../lib/snmp';
 import { descendantGroupIds, findGroup, flattenGroups } from '../lib/tree';
 import { SnmpEditor } from './SnmpEditor';
+import {
+  DependencyEditor,
+  dependencyInputFrom,
+  dependencyToInput,
+  useDeviceNames,
+} from './Dependency';
 import { useToast } from './toast';
 import { Button, Checkbox, ErrorBox, Field, Input, Modal, Select, Textarea } from './ui';
 
@@ -15,11 +21,14 @@ export function GroupSelect({
   onChange,
   exclude = [],
   allowRoot,
+  rootLabel,
 }: {
   value: number | null;
   onChange: (v: number | null) => void;
   exclude?: number[];
   allowRoot?: boolean;
+  /** label of the empty option (default: "none — top level") */
+  rootLabel?: string;
 }) {
   const { t } = useTranslation();
   const { data } = useTree();
@@ -29,7 +38,7 @@ export function GroupSelect({
       value={value === null ? '' : String(value)}
       onChange={(e) => onChange(e.target.value === '' ? null : Number(e.target.value))}
     >
-      {allowRoot && <option value="">{t('groups.noParent')}</option>}
+      {allowRoot && <option value="">{rootLabel ?? t('groups.noParent')}</option>}
       {opts.map(({ group, depth }) => (
         <option key={group.id} value={group.id}>
           {'  '.repeat(depth)}
@@ -60,9 +69,12 @@ export function GroupFormModal({
   const [description, setDescription] = useState('');
   const [sortOrder, setSortOrder] = useState('0');
   const [snmp, setSnmp] = useState(snmpFormFrom(null));
+  const [dep, setDep] = useState<DependencyInput>(dependencyInputFrom(null));
+  const deviceName = useDeviceNames();
 
   useEffect(() => {
     if (!open) return;
+    setDep(dependencyInputFrom(group?.dependency));
     setName(group?.name ?? '');
     setParent(group ? group.parent_id : (parentId ?? null));
     setDescription(group?.description ?? '');
@@ -96,6 +108,7 @@ export function GroupFormModal({
       description,
       sort_order: Number(sortOrder) || 0,
       snmp_credentials: snmpFormToInput(snmp),
+      dependency: dependencyToInput(dep),
     });
   };
 
@@ -137,10 +150,16 @@ export function GroupFormModal({
           existing={group?.snmp_credentials ?? null}
           inheritLabel={t('snmp.inheritParent')}
         />
-        <ErrorBox error={m.error} />
+        <DependencyEditor value={dep} onChange={setDep} forGroup />
+        <ErrorBox error={m.error} context={{ deviceName }} />
         <div className="flex justify-end gap-2">
           <Button onClick={onClose}>{t('common.cancel')}</Button>
-          <Button type="submit" variant="primary" busy={m.isPending}>
+          <Button
+            type="submit"
+            variant="primary"
+            busy={m.isPending}
+            disabled={dep.mode === 'device' && dep.device_id === null}
+          >
             {t('common.save')}
           </Button>
         </div>
@@ -157,12 +176,15 @@ export function DeviceFormModal({
   device,
   groupId,
   onCreated,
+  initial,
 }: {
   open: boolean;
   onClose: () => void;
   device?: Device;
   groupId?: number;
   onCreated?: (d: Device) => void;
+  /** [2b-1] prefill for a new device (e.g. "Add as device" from the topology map) */
+  initial?: { name?: string; host?: string; description?: string };
 }) {
   const { t } = useTranslation();
   const qc = useQueryClient();
@@ -176,13 +198,16 @@ export function DeviceFormModal({
   const [sortOrder, setSortOrder] = useState('0');
   const [snmp, setSnmp] = useState(snmpFormFrom(null));
   const [auto, setAuto] = useState<SensorType[]>(['ping']);
+  const [dep, setDep] = useState<DependencyInput>(dependencyInputFrom(null));
+  const deviceName = useDeviceNames();
 
   useEffect(() => {
     if (!open) return;
     setGroup(device?.group_id ?? groupId ?? tree?.groups[0]?.id ?? null);
-    setName(device?.name ?? '');
-    setHost(device?.host ?? '');
-    setDescription(device?.description ?? '');
+    setName(device?.name ?? initial?.name ?? '');
+    setHost(device?.host ?? initial?.host ?? '');
+    setDescription(device?.description ?? initial?.description ?? '');
+    setDep(dependencyInputFrom(device?.dependency));
     setEnabled(device?.enabled ?? true);
     setSortOrder(String(device?.sort_order ?? 0));
     setSnmp(snmpFormFrom(device?.snmp_credentials ?? null));
@@ -215,6 +240,7 @@ export function DeviceFormModal({
       enabled,
       sort_order: Number(sortOrder) || 0,
       snmp_credentials: snmpFormToInput(snmp),
+      dependency: dependencyToInput(dep),
     };
     if (!device) body.auto_sensors = auto;
     m.mutate(body);
@@ -270,6 +296,12 @@ export function DeviceFormModal({
           existing={device?.snmp_credentials ?? null}
           inheritLabel={t('snmp.inheritGroup')}
         />
+        <DependencyEditor
+          value={dep}
+          onChange={setDep}
+          selfDeviceId={device?.id}
+          effective={device ? device.effective_dependency : undefined}
+        />
         {!device && (
           <fieldset className="rounded-md border border-slate-200 p-3 dark:border-slate-700">
             <legend className="px-1 text-xs font-semibold text-slate-600 dark:text-slate-400">
@@ -287,10 +319,15 @@ export function DeviceFormModal({
             </div>
           </fieldset>
         )}
-        <ErrorBox error={m.error} />
+        <ErrorBox error={m.error} context={{ deviceName }} />
         <div className="flex justify-end gap-2">
           <Button onClick={onClose}>{t('common.cancel')}</Button>
-          <Button type="submit" variant="primary" busy={m.isPending} disabled={group === null}>
+          <Button
+            type="submit"
+            variant="primary"
+            busy={m.isPending}
+            disabled={group === null || (dep.mode === 'device' && dep.device_id === null)}
+          >
             {t('common.save')}
           </Button>
         </div>

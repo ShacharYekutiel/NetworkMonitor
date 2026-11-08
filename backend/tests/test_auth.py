@@ -20,7 +20,10 @@ async def test_setup_flow(client: httpx.AsyncClient) -> None:
     assert r.json()["error"]["code"] == "setup_required"
     # exempt endpoints
     assert (await client.get("/api/health")).status_code == 200
-    assert (await client.get("/api/settings/public")).json() == {"default_language": "en"}
+    assert (await client.get("/api/settings/public")).json() == {
+        "default_language": "en",
+        "timezone": (await client.get("/api/settings/public")).json()["timezone"],
+    }
     r = await client.get("/api/auth/me")
     assert r.status_code == 401
 
@@ -44,7 +47,7 @@ async def test_setup_flow(client: httpx.AsyncClient) -> None:
     assert "secure" not in cookie  # plain http
 
     assert (await client.get("/api/setup/status")).json() == {"setup_required": False}
-    assert (await client.get("/api/settings/public")).json() == {"default_language": "he"}
+    assert (await client.get("/api/settings/public")).json()["default_language"] == "he"
     r = await client.get("/api/groups")
     assert [g["name"] for g in r.json()["items"]] == ["Default"]
     r = await client.post("/api/setup", json=ADMIN)

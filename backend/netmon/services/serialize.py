@@ -70,6 +70,8 @@ def snmp_out(creds: dict[str, Any] | None) -> dict[str, Any] | None:
 
 
 def group_out(g: Any, inv: Inventory | None) -> dict[str, Any]:
+    from netmon.services.dependencies import dependency_out
+
     return {
         "id": g.id,
         "parent_id": g.parent_id,
@@ -81,13 +83,17 @@ def group_out(g: Any, inv: Inventory | None) -> dict[str, Any]:
         "status_counts": dict(inv.group_counts.get(g.id, empty_counts()))
         if inv
         else empty_counts(),
+        "dependency": dependency_out(inv or Inventory(), g),
         "created_at": iso(g.created_at),
         "updated_at": iso(g.updated_at),
     }
 
 
-def device_out(d: Any, inv: Inventory) -> dict[str, Any]:
+def device_out(d: Any, inv: Inventory, maint: Any = None) -> dict[str, Any]:
+    from netmon.services.dependencies import dependency_out, effective_dependency_out
+
     source, gid = inv.effective_snmp(d.id) if d.id in inv.devices else ("default", None)
+    in_maint = bool(maint is not None and maint.in_maintenance(d.id))
     return {
         "id": d.id,
         "group_id": d.group_id,
@@ -101,6 +107,13 @@ def device_out(d: Any, inv: Inventory) -> dict[str, Any]:
         "sort_order": d.sort_order,
         "status": inv.device_status.get(d.id, "unknown"),
         "status_counts": dict(inv.device_counts.get(d.id, empty_counts())),
+        "dependency": dependency_out(inv, d),
+        "effective_dependency": effective_dependency_out(inv, d.id)
+        if d.id in inv.devices
+        else None,
+        "in_maintenance": in_maint,
+        "maintenance": maint.maintenance_ref(d.id) if in_maint else None,
+        "identity": d.identity,
         "created_at": iso(d.created_at),
         "updated_at": iso(d.updated_at),
     }
@@ -137,8 +150,23 @@ def public_config(type_: str, config: dict[str, Any], reveal_secrets: bool) -> d
     return out
 
 
+def acknowledgement_out(s: Any) -> dict[str, Any] | None:
+    if getattr(s, "ack_at", None) is None:
+        return None
+    return {
+        "by": s.ack_by,
+        "at": iso(s.ack_at),
+        "comment": s.ack_comment or "",
+        "status": s.ack_status,
+    }
+
+
 def sensor_out(
-    s: Any, device_name: str, group_id: int, reveal_secrets: bool = True
+    s: Any,
+    device_name: str,
+    group_id: int,
+    reveal_secrets: bool = True,
+    in_maintenance: bool = False,
 ) -> dict[str, Any]:
     tdef = SENSOR_TYPES.get(s.type)
     return {
@@ -158,6 +186,8 @@ def sensor_out(
         "primary_channel": tdef.primary_channel if tdef else "",
         "channels": [channel_out(c) for c in ordered_channels(s)],
         "sort_order": s.sort_order,
+        "acknowledgement": acknowledgement_out(s),
+        "in_maintenance": bool(in_maintenance),
         "created_at": iso(s.created_at),
         "updated_at": iso(s.updated_at),
     }
@@ -176,6 +206,7 @@ def event_out(e: Any) -> dict[str, Any]:
         "old_status": e.old_status,
         "new_status": e.new_status,
         "message": e.message,
+        "in_maintenance": bool(getattr(e, "in_maintenance", False)),
     }
 
 

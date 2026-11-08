@@ -1,7 +1,8 @@
-# NetworkMonitor — API Contract (Phase 1 + Phase 2a)
+# NetworkMonitor — API Contract (Phase 1 + Phase 2a + Phase 2b-1)
 
 Items marked **[2a]** are the Phase 2a contract (discovery, device templates, `snmp_custom`/`snmp_disk`,
 Telegram). The Phase 2a endpoints are specified in [§ Phase 2a](#2a-phase-2a-endpoints).
+Items marked **[2b-1]** are specified in [§ Phase 2b-1](#2b-1-phase-2b-1-contract).
 
 This file is the contract between the backend (`backend/netmon/schemas`) and the frontend
 (`frontend/src/api/types.ts`). **Field names are exact.** For the table semantics see
@@ -196,6 +197,7 @@ unreachable.
 
 - `database`: `"ok"` | `"error"`.
 - `poller`: `"running"` | `"stopped"`.
+- **[2b-1]** `test_mode`: `true` only when `NETMON_TEST_MODE=1` (the test clock is enabled), else `false`.
 
 ### Setup
 
@@ -914,3 +916,303 @@ Sent to admin sockets only.
 
 The client should refetch `GET /api/discovery/scans/{id}` and the results after a reconnect or after
 `discovery.finished`.
+
+---
+
+## [2b-1] Phase 2b-1 contract
+
+Dependencies + `unreachable`, maintenance windows, acknowledge, escalation, fingerprinting / re-identify, HPE
+templates, topology. Table semantics: [data-model.md § Phase 2b-1](data-model.md#2b-1-phase-2b-1-additions).
+All Phase 1/2a conventions apply. Everything below is **additive**: new keys appear in existing responses,
+existing keys keep their meaning (except `Status` gaining a value).
+
+### [2b-1] Errors
+| HTTP | code | When |
+|---|---|---|
+| 400 | `dependency_cycle` | A dependency change (device, group, device move, group move, bulk apply) would create a cycle. `details: [{"device_ids": [3, 7, 3]}]` |
+| 409 | `not_acknowledgeable` | Acknowledge on a sensor whose status is not `down`/`warning` |
+| 409 | `topology_refresh_running` | Refresh requested while one runs (`details: [{"refresh_id": 12}]`) |
+| 400 | `link_not_manual` | PATCH of a discovered (lldp/cdp) link |
+
+### [2b-1] Type changes
+```ts
+type Status = "up" | "warning" | "down" | "paused" | "unknown" | "unreachable";        // [2b-1] unreachable
+type StatusCounts = { up: number; warning: number; down: number; paused: number; unknown: number;
+  unreachable: number; total: number };                                              // [2b-1] unreachable
+
+type Acknowledgement = { by: string | null;        // username snapshot
+  at: string; comment: string; status: "down" | "warning" };
+
+type Dependency = { mode: "inherit" | "none" | "device"; device_id: number | null; device_name: string | null;
+  sensor_id: number | null; sensor_name: string | null };
+type EffectiveDependency = { device_id: number; device_name: string;
+  sensor_id: number | null; sensor_name: string | null;   // the resolved dependency sensor (null = whole device)
+  source: "device" | "group"; group_id: number | null;    // group_id set when source = "group"
+  parent_down: boolean };
+type MaintenanceRef = { window_id: number; name: string; ends_at: string };
+
+type DeviceIdentity = { device_class: DeviceClass; vendor: string | null; model: string | null;
+  confidence: "high" | "medium" | "low"; classified_by: "snmp" | "fingerprint" | "ports" | "none";
+  suggested_template: string; snmp_ok: boolean; sys_object_id: string | null; sys_descr: string | null;
+  open_ports: number[]; fingerprint: Fingerprint | null; identified_at: string };
+type Fingerprint = {
+  http: { port: number; scheme: "http" | "https"; status: number | null; title: string | null; server: string | null;
+          realm: string | null; markers: string[]; redirects: number; error: string | null }[];
+  ssh: { port: number; banner: string | null } | null;
+  telnet: { port: number; banner: string | null } | null };
+```
+
+- `Sensor` gains `acknowledgement: Acknowledgement | null`, `in_maintenance: boolean`.
+- `Device` gains `dependency: Dependency`, `effective_dependency: EffectiveDependency | null`,
+  `in_maintenance: boolean`, `maintenance: MaintenanceRef | null`, `identity: DeviceIdentity | null`.
+- `Group` gains `dependency: Dependency` (`mode: "inherit"` at a root means none).
+- `Event` gains `in_maintenance: boolean`; `kind` gains `"acknowledge" | "maintenance"`.
+- `AlertRule` gains `escalation_after_s: number | null`, `escalation_channel_ids: number[]`,
+  `repeat_every_s: number | null`.
+- `Settings` gains `timezone: string` and `topology_refresh_min: number`.
+- `DiscoveryResult` gains `fingerprint: Fingerprint | null`, `model: string | null`,
+  `classified_by: "snmp" | "fingerprint" | "ports" | "none"`, `confidence: "high" | "medium" | "low"`.
+- `ScanOptions` gains `fingerprint: boolean` (default true) and `fingerprint_timeout_ms: number`
+  (default 2000, 500–5000).
+- `DeviceTemplate.match[]` gains `enterprises: number[] | null`. `TemplateEntry` kind `snmp_table` gains
+  `skip_zero: boolean`, `filters: {oid: string; in: number[] | null; not_in: number[] | null}[]`,
+  `interval_s: number | null`.
+- `config_fields[].type` gains `value_map`; `snmp_custom.value_type` gains `"enum"` with config keys
+  `value_map: Record<string, {status: "up" | "warning" | "down"; text: string}>` and
+  `value_map_default: "up" | "warning" | "down"`.
+- Tree (`GET /api/tree`): devices gain `in_maintenance: boolean`, `parent_device_id: number | null`
+  (effective); sensors gain `acknowledged: boolean`. `status_counts` include `unreachable`.
+
+Query filters: `GET /api/sensors` and `GET /api/devices` accept `status=unreachable`; `GET /api/sensors`
+gains `acknowledged` (bool). `GET /api/events` accepts `kind=acknowledge|maintenance` and gains
+`in_maintenance` (bool).
+
+### [2b-1] Dependencies
+
+Device/group create and PATCH accept:
+
+```json
+{ "dependency": { "mode": "device", "device_id": 2, "sensor_id": null } }
+```
+
+- `mode` required in the object; `device_id` required for `device` and must exist (422,
+  loc `["body","dependency","device_id"]`); `sensor_id` optional, must belong to `device_id` (422). For
+  `inherit`/`none` the ids must be null (422). Omitted `dependency` on create = `{"mode":"inherit"}`.
+- Device example response fragment:
+
+```json
+{ "dependency": { "mode": "inherit", "device_id": null, "device_name": null, "sensor_id": null, "sensor_name": null },
+  "effective_dependency": { "device_id": 2, "device_name": "branch-gw", "sensor_id": 11, "sensor_name": "Ping",
+                            "source": "group", "group_id": 4, "parent_down": false },
+  "in_maintenance": false, "maintenance": null }
+```
+
+- A cycle → `400 dependency_cycle`. Devices/groups mutations broadcast `config.changed` as today.
+- **Bulk apply** `POST /api/devices/dependencies` (admin):
+  `{"items": [{"device_id": 5, "dependency": {"mode":"device","device_id":1,"sensor_id":null}}]}` (1–1000
+  items, unique `device_id`). Atomic: all or nothing, cycles checked on the final state. `200 {"updated": [5, ...]}`.
+  One `config.changed {"entity":"device","id":<id>,"action":"updated"}` per changed device.
+
+### [2b-1] Acknowledge (admin)
+
+| Method & path | Request | Response |
+|---|---|---|
+| `POST /api/sensors/{id}/acknowledge` | `{"comment": "Replacing PSU, ETA 14:00"}` (`comment` optional, ≤ 1000 chars) | `200 Sensor`. `409 not_acknowledgeable` unless the status is `down`/`warning`. Re-ack replaces the comment. |
+| `DELETE /api/sensors/{id}/acknowledge` | — | `200 Sensor` (idempotent: not acknowledged → 200 unchanged, no event) |
+
+Both write an `acknowledge` event (`event.created`) and broadcast `sensor.ack`. Viewers → `403 forbidden`.
+
+```json
+{ "acknowledgement": { "by": "admin", "at": "2026-11-05T09:12:00Z", "comment": "Replacing PSU", "status": "down" } }
+```
+
+### [2b-1] Maintenance windows
+
+```ts
+type MaintenanceWindow = { id: number; name: string; enabled: boolean;
+  scope: "global" | "group" | "device"; group_id: number | null; group_name: string | null;
+  device_id: number | null; device_name: string | null;
+  kind: "once" | "weekly";
+  starts_at: string | null; ends_at: string | null;                 // once
+  weekdays: number[] | null; start_time: string | null;             // weekly: ISO 1=Mon..7=Sun, "HH:MM" local
+  duration_min: number | null;                                      // weekly
+  timezone: string;                                                 // settings.timezone, informational
+  comment: string;
+  active_now: boolean;
+  occurrence_start: string | null; occurrence_end: string | null;   // current occurrence if active, else next; null = none left
+  created_by: string | null; created_at: string; updated_at: string };
+```
+
+| Method & path | Role | Request | Response |
+|---|---|---|---|
+| `GET /api/maintenance-windows` | viewer | Query: `scope`, `group_id`, `device_id`, `active` (bool), `include_past` (bool, default true) | Page of `MaintenanceWindow`, sorted: active first, then `occurrence_start` asc (nulls last), then `id` |
+| `POST /api/maintenance-windows` | admin | see below | `201 MaintenanceWindow` |
+| `GET /api/maintenance-windows/{id}` | viewer | — | `MaintenanceWindow` |
+| `PATCH /api/maintenance-windows/{id}` | admin | subset; `scope`/`kind` changes must send the matching fields | `MaintenanceWindow` |
+| `DELETE /api/maintenance-windows/{id}` | admin | — | `204` |
+| `GET /api/maintenance-windows/{id}/occurrences` | viewer | Query `days` 1–90 (default 14) | `{"items":[{"start":"...","end":"..."}]}` (≤ 100, from now; a current occurrence is included) |
+| `GET /api/maintenance/active` | viewer | — | `{"now":"...","windows": MaintenanceWindow[], "device_ids": number[]}` (devices currently covered) |
+
+Create examples:
+
+```json
+{ "name": "Firmware night", "scope": "group", "group_id": 4, "kind": "once",
+  "starts_at": "2026-11-10T22:00:00Z", "ends_at": "2026-11-11T02:00:00Z", "comment": "HPE firmware 16.11" }
+```
+```json
+{ "name": "Weekly backup", "scope": "device", "device_id": 9, "kind": "weekly",
+  "weekdays": [7], "start_time": "02:00", "duration_min": 90 }
+```
+
+- `enabled` defaults true, `comment` "". Validation (422 with loc): scope/id consistency (the other id must be
+  null; the referenced group/device must exist), `once`: `starts_at < ends_at`, span ≤ 366 d, weekly fields
+  null; `weekly`: `weekdays` 1–7 distinct non-empty, `start_time` `^([01]\d|2[0-3]):[0-5]\d$`, `duration_min`
+  1–10080, once fields null. A `once` window entirely in the past is allowed (record).
+- Mutations broadcast `config.changed {"entity":"maintenance_window",...}`; the tracker re-evaluates
+  immediately (`maintenance.changed` follows when coverage changed).
+
+### [2b-1] Escalation fields (alert rules)
+
+```json
+{ "name": "Core down", "sensor_id": null, "on_statuses": ["down","up"], "delay_s": 60, "enabled": true,
+  "channel_ids": [1], "escalation_after_s": 900, "escalation_channel_ids": [4], "repeat_every_s": 3600 }
+```
+
+Defaults: `null`, `[]`, `null`. Validation in [data-model.md](data-model.md#escalation-and-persistent-alert-state).
+PATCH: `escalation_channel_ids` replaces the set; sending `escalation_after_s: null` also clears
+`escalation_channel_ids`.
+
+### [2b-1] Notification payload additions
+Every sensor notification (webhook body; email/Telegram use the same data) gains three keys; the test payload
+has them as `null`/`false`/`null`:
+
+```json
+{ "event": "sensor.escalation", "stage": "escalation", "after_maintenance": false,
+  "problem_since": "2026-11-05T08:40:00Z", "...": "Phase 1 keys unchanged" }
+```
+
+| stage | `event` | Sent to | Subject en / he |
+|---|---|---|---|
+| `problem` | `sensor.status_changed` | rule channels | `[NetworkMonitor] DOWN: core-sw / Ping` (unchanged); after maintenance: `[NetworkMonitor] DOWN (after maintenance): …` / `… (לאחר תחזוקה)` |
+| `recovery` | `sensor.status_changed` (`new_status: "up"`) | every channel in `notified_channel_ids` | unchanged |
+| `escalation` | `sensor.escalation` | `escalation_channel_ids` | `[NetworkMonitor] ESCALATION DOWN: core-sw / Ping` / `[NetworkMonitor] הסלמה DOWN: …` |
+| `reminder` | `sensor.reminder` | rule channels | `[NetworkMonitor] REMINDER DOWN: …` / `[NetworkMonitor] תזכורת DOWN: …` |
+
+`event_id`, `old_status`, `new_status`, `message`, `time` refer to the status_change event that opened (or
+changed) the problem — for `recovery`, to the `up` event (so `time` is the recovery time). `problem_since` is
+always the **start of the problem**, also in `recovery` payloads (downtime = `time − problem_since`). Email/Telegram bodies gain a row "Problem since" / "בעיה מאז" (in `settings.timezone`).
+
+### [2b-1] Dashboard
+`GET /api/dashboard` gains:
+
+```json
+{ "problem_sensors": [ /* down/warning, NOT acknowledged (Phase 1 order) */ ],
+  "acknowledged_sensors": [ /* Sensor × up to 20, acknowledged, down then warning, oldest ack first */ ],
+  "acknowledged_count": 2,
+  "unreachable_devices": [ { "id": 7, "name": "ap-2", "host": "10.0.1.20", "parent_device_id": 2, "parent_device_name": "branch-gw" } ],
+  "maintenance": { "active_window_ids": [3], "device_count": 12 } }
+```
+`unreachable_devices`: devices whose rollup status is `unreachable`, up to 50, by name. `sensor_counts` /
+`device_counts` include `unreachable`.
+
+### [2b-1] Settings
+- `timezone` (IANA, validated), `topology_refresh_min` (0 or 5–1440). A change of `topology_refresh_min`
+  reschedules the topology loop; a change of `timezone` re-evaluates maintenance immediately.
+- `POST /api/setup` accepts optional `"timezone"`; an invalid zone is **ignored** (the default — `TZ` if valid,
+  else `UTC` — is stored, a warning is logged, setup succeeds), since the wizard sends the browser zone without
+  a field to correct it. `PUT /api/settings` still answers 422 for an invalid zone. `GET /api/settings/public` gains
+  `timezone` (viewers need it to render windows).
+
+### [2b-1] Re-identify
+**`POST /api/devices/{id}/identify`** (admin, no body): runs the discovery probe against `device.host`: SNMP
+identity + subtree probes with the device's effective credentials (retries 0, 25 s SNMP budget), TCP connect
+to the default discovery port list, fingerprinting, classification, template suggestion. No ping, no DNS. Total
+budget 40 s. Stores the result in `devices.identity` and returns `200 DeviceIdentity`. Broadcasts
+`config.changed` (device updated). Applying the suggested template is a separate call (existing
+`apply-template`). Discovery import also fills `identity` from the result.
+
+### [2b-1] Discovery fingerprinting
+- Runs after the TCP probe for found hosts with open 80/443/8080/8443/22/23, when `options.fingerprint`.
+  Each probe has `fingerprint_timeout_ms` (connect + read); all of a host's fingerprint probes run
+  concurrently and share the scan's TCP connect semaphore (256).
+- HTTP: `GET /` with `Host: <ip or target hostname>`, `User-Agent: NetworkMonitor/<version> (discovery)`,
+  `Accept: text/html`, no cookies/credentials, TLS verification **off** (fingerprinting only; the TLS setting
+  of sensors is unaffected), at most **2** redirects and only when the `Location` resolves to the **same host**
+  (same IP literal or the same target hostname) on a port in {80, 443, 8080, 8443}; anything else stops (the
+  last response is used). Body read is capped at **64 KiB** (streamed; the rest is discarded).
+- SSH: connect, read one line (no client banner is sent). Telnet: connect, read (nothing sent).
+- Results: `fingerprint` on the result row and the WS `discovery.result`.
+
+### [2b-1] Topology
+
+```ts
+type TopologyNode =
+  | { key: string; kind: "device"; device_id: number; name: string; host: string; group_id: number;
+      status: Status; in_maintenance: boolean; device_class: DeviceClass | null;   // from identity
+      x: number | null; y: number | null; in_filter: boolean }
+  | { key: string; kind: "neighbor"; neighbor_id: number; name: string;          // sys_name, else chassis id
+      chassis_id: string; mgmt_address: string | null; sys_descr: string | null;
+      x: number | null; y: number | null; in_filter: true };
+type LinkEnd = { node: string; device_id: number | null; neighbor_id: number | null;
+  if_index: number | null; port: string;
+  sensor_id: number | null;            // snmp_interface sensor of that device with this if_index
+  sensor_status: Status | null; oper_status: number | null;     // last oper_status channel value (1 = up)
+  in_bps: number | null; out_bps: number | null; in_util_pct: number | null; out_util_pct: number | null };
+type TopologyLink = { id: number; source: "lldp" | "cdp" | "manual"; a: LinkEnd; b: LinkEnd;
+  stale: boolean; missed_refreshes: number; first_seen: string; last_seen: string };
+type TopologyRefresh = { id: number; trigger: "manual" | "scheduled"; status: "running" | "completed" | "failed";
+  started_at: string; finished_at: string | null; devices_total: number; devices_ok: number;
+  devices_failed: number; links_found: number; error: string | null };
+```
+
+| Method & path | Role | Request | Response |
+|---|---|---|---|
+| `GET /api/topology` | viewer | Query: `group_id` (recursive), `include_stale` (bool, default true) | `{"nodes": TopologyNode[], "links": TopologyLink[], "last_refresh": TopologyRefresh \| null, "refresh_running": boolean}` |
+| `POST /api/topology/refresh` | admin | — | `202 TopologyRefresh` (`running`). `409 topology_refresh_running`. |
+| `GET /api/topology/links` | admin | Query: `device_id`, `source`, `stale` | Page of `TopologyLink`, sorted by `id` |
+| `POST /api/topology/links` | admin | `{"a_device_id":1,"a_if_index":24,"a_port":"24","b_device_id":5,"b_neighbor_id":null,"b_if_index":null,"b_port":"uplink"}` | `201 TopologyLink` (`source: "manual"`). Exactly one of b ids (422); `a_port` defaults to the ifName of `a_if_index` when given. |
+| `PATCH /api/topology/links/{id}` | admin | subset of the create fields | `TopologyLink`; discovered link → `400 link_not_manual` |
+| `DELETE /api/topology/links/{id}` | admin | — | `204` (any source; a discovered one returns on the next refresh if still reported) |
+| `DELETE /api/topology/links?stale=true` | admin | — | `200 {"deleted": n}` (removes all stale links; `stale=true` is required, else 422) |
+| `PUT /api/topology/layout` | admin | `{"positions": [{"node": "d:12", "x": 120.5, "y": -40}]}` (1–5000; unknown keys ignored) | `204`. Upsert. |
+| `DELETE /api/topology/layout` | admin | — | `204` (clears all positions → auto-layout) |
+| `GET /api/topology/dependency-suggestions` | admin | Query `root_device_id` (optional) | see below |
+
+Graph rules:
+- With `group_id`: device nodes of the group subtree (`in_filter: true`) plus every node linked to them
+  (`in_filter: false` for devices outside the group); only links touching an in-filter device.
+- Discovered links identical (same endpoints and ports) to a manual link are omitted. Position = the layout
+  row, else `null`.
+- Node keys: `d:<device_id>`, `n:<neighbor_id>`.
+
+Dependency suggestions response:
+
+```json
+{ "root_device_id": 1,
+  "items": [ { "device_id": 5, "device_name": "sw-floor2", "suggested_parent_id": 1, "suggested_parent_name": "core-sw",
+               "current": { "mode": "inherit", "device_id": null, "device_name": null, "sensor_id": null, "sensor_name": null },
+               "effective_parent_id": null, "hops": 1 } ] }
+```
+Only devices reached from the root are listed (root excluded), sorted by `hops`, then name. Apply via
+`POST /api/devices/dependencies`.
+
+### [2b-1] Test clock (QA only)
+With env **`NETMON_TEST_MODE=1`** only (otherwise the routes answer `404 not_found`):
+`PUT /api/test/clock` (admin) `{"offset_s": 3600}` → `200 {"now": "...", "offset_s": 3600}`. It shifts
+`rt.clock.now()` (used by the maintenance tracker, the alert loop, `active_now`/occurrences and the event times
+written by those two components) and wakes both loops. `offset_s` −31536000…31536000; `0` resets. The poller,
+JWT expiry and DB `now()` are not affected. Never enabled by installers or compose. When enabled, the server
+logs a `WARNING` at startup ("NETMON_TEST_MODE is enabled: PUT /api/test/clock is available — never use this
+in production"), writes the same text as a `system` event, and `GET /api/health` reports `"test_mode": true`.
+
+### [2b-1] WebSocket additions
+
+| type | data | When / who |
+|---|---|---|
+| `sensor.update` | unchanged shape; `status` may be `unreachable`; gains `"acknowledged": bool` | all |
+| `sensor.ack` | `{"id":7,"device_id":3,"acknowledgement": Acknowledgement \| null}` | ack, unack, auto-clear; all |
+| `maintenance.changed` | `{"active_window_ids":[3],"entered_device_ids":[9,10],"left_device_ids":[]}` | coverage changed (window boundary, CRUD, timezone change); all. Clients refetch tree/devices/sensors/dashboard. |
+| `topology.updated` | `{"reason":"refresh"\|"link"\|"layout","refresh_id":12\|null}` | refresh finished (also failed), link CRUD, layout save/reset; all. Clients refetch `GET /api/topology`. |
+| `topology.refresh` | `{"refresh": TopologyRefresh}` | refresh started and finished; admins only |
+| `config.changed` | `entity` gains `"maintenance_window"`, `"topology_link"` | as today |
+| `device.status` / `group.status` | `status_counts` include `unreachable` | as today |

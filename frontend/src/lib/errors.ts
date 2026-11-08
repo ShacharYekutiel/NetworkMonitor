@@ -1,8 +1,13 @@
 import type { TFunction } from 'i18next';
 import { isApiError } from '../api/client';
 
+export type ErrorContext = {
+  /** Resolves device ids (e.g. a dependency_cycle path) to names. */
+  deviceName?: (id: number) => string | undefined;
+};
+
 /** Translates an error by its API code; falls back to the server message. */
-export function errorMessage(t: TFunction, e: unknown): string {
+export function errorMessage(t: TFunction, e: unknown, ctx: ErrorContext = {}): string {
   if (isApiError(e)) {
     const key = `errors.${e.code}`;
     const translated = t(key, { defaultValue: '' });
@@ -19,6 +24,14 @@ export function errorMessage(t: TFunction, e: unknown): string {
       const d = e.details?.[0];
       if (d?.count !== undefined)
         return t('errors.too_many_hosts_count', { hosts: d.count, max: d.max ?? 4096 });
+      return base;
+    }
+    if (e.code === 'dependency_cycle') {
+      const ids = e.details?.find((d) => Array.isArray(d.device_ids))?.device_ids;
+      if (ids?.length) {
+        const path = ids.map((id) => ctx.deviceName?.(id) ?? `#${id}`).join(' → ');
+        return t('errors.dependency_cycle_path', { path });
+      }
       return base;
     }
     if (

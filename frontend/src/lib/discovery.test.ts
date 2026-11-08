@@ -56,6 +56,8 @@ const opts: ScanOptions = {
   tcp_ports: [22, 80],
   tcp_timeout_ms: 1000,
   dns: true,
+  fingerprint: true,
+  fingerprint_timeout_ms: 2000,
 };
 
 function scan(p: Partial<DiscoveryScan> = {}): DiscoveryScan {
@@ -102,6 +104,10 @@ function result(p: Partial<DiscoveryResult> = {}): DiscoveryResult {
     existing_device_id: null,
     is_new: true,
     imported_device_id: null,
+    fingerprint: null,
+    model: null,
+    classified_by: 'ports',
+    confidence: 'low',
     ...p,
   };
 }

@@ -30,6 +30,11 @@ class AlertRule(TimestampMixin, Base):
     on_statuses: Mapped[list[str]] = mapped_column(ARRAY(Text), nullable=False)
     delay_s: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     enabled: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
+    escalation_after_s: Mapped[int | None] = mapped_column(Integer)
+    escalation_channel_ids: Mapped[list[int]] = mapped_column(
+        ARRAY(Integer), nullable=False, default=list
+    )
+    repeat_every_s: Mapped[int | None] = mapped_column(Integer)
 
 
 class AlertRuleChannel(Base):

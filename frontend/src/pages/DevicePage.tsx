@@ -23,11 +23,18 @@ import { useToast } from '../components/toast';
 import { Button, Card, ConfirmDialog, ErrorBox, Loading, Ltr, PageHeader } from '../components/ui';
 import { useAuth } from '../hooks/auth';
 import { errorMessage } from '../lib/errors';
+import { EffectiveDependencyText, ParentDownBanner } from '../components/Dependency';
+import { AddMaintenanceButton, MaintenanceBadge } from '../components/Maintenance';
+import { IdentityView } from '../components/discovery/Fingerprint';
+import { useDeviceTemplates } from '../components/Templates';
+import { FingerprintIcon } from '../components/icons';
+import type { DeviceIdentity } from '../api/types';
+import { l10n } from '../lib/templates';
 
 export function DevicePage() {
   const { id: idParam } = useParams();
   const id = Number(idParam);
-  const { t } = useTranslation();
+  const { t, i18n } = useTranslation();
   const { isAdmin } = useAuth();
   const navigate = useNavigate();
   const qc = useQueryClient();
@@ -47,6 +54,19 @@ export function DevicePage() {
   const [adding, setAdding] = useState(false);
   const [deleting, setDeleting] = useState(false);
   const [applying, setApplying] = useState(false);
+  const [applyTpl, setApplyTpl] = useState<string | undefined>(undefined);
+  const [identified, setIdentified] = useState<DeviceIdentity | null>(null);
+  const templates = useDeviceTemplates();
+  const identify = useMutation({
+    mutationFn: () => endpoints.identifyDevice(id),
+    onSuccess: (r) => {
+      setIdentified(r);
+      qc.setQueryData(qk.device(id), (old: typeof device.data) =>
+        old ? { ...old, identity: r } : old,
+      );
+    },
+    onError: (e) => toast.push('error', errorMessage(t, e)),
+  });
 
   const toggle = useMutation({
     mutationFn: (enabled: boolean) => endpoints.updateDevice(id, { enabled }),
@@ -71,6 +91,11 @@ export function DevicePage() {
   if (device.isLoading) return <Loading />;
   if (device.error || !device.data) return <ErrorBox error={device.error} />;
   const d = device.data;
+  const identity = identified ?? d.identity;
+  const tplName = (tid: string) => {
+    const tp = templates.data?.find((x) => x.id === tid);
+    return tp ? l10n(tp.name, i18n.language) : tid;
+  };
 
   return (
     <div className="space-y-4">
@@ -79,6 +104,9 @@ export function DevicePage() {
         title={
           <>
             <StatusDot status={d.status} className="h-3 w-3" /> {d.name}
+            {d.in_maintenance && (
+              <MaintenanceBadge endsAt={d.maintenance?.ends_at} name={d.maintenance?.name} />
+            )}
           </>
         }
         subtitle={
@@ -93,9 +121,18 @@ export function DevicePage() {
               <Button variant="primary" onClick={() => setAdding(true)}>
                 <PlusIcon size={14} /> {t('sensors.add')}
               </Button>
-              <Button onClick={() => setApplying(true)}>
+              <Button
+                onClick={() => {
+                  setApplyTpl(undefined);
+                  setApplying(true);
+                }}
+              >
                 <LayersIcon size={14} /> {t('templates.apply')}
               </Button>
+              <Button busy={identify.isPending} onClick={() => identify.mutate()}>
+                <FingerprintIcon size={14} /> {t('identify.action')}
+              </Button>
+              <AddMaintenanceButton defaults={{ scope: 'device', device_id: d.id, name: d.name }} />
               <Button busy={toggle.isPending} onClick={() => toggle.mutate(!d.enabled)}>
                 {d.enabled ? (
                   <PauseIcon size={14} />
@@ -114,6 +151,9 @@ export function DevicePage() {
           )
         }
       />
+      {d.effective_dependency?.parent_down && (
+        <ParentDownBanner effective={d.effective_dependency} />
+      )}
       <Card>
         <div className="flex flex-wrap items-center gap-4 text-sm">
           <StatusBadge status={d.status} />
@@ -127,7 +167,45 @@ export function DevicePage() {
         <div className="mt-3">
           <StatusBar counts={d.status_counts} />
         </div>
+        <p className="mt-3 text-xs text-slate-600 dark:text-slate-300">
+          <span className="font-medium text-slate-500">{t('dependency.parent')}:</span>{' '}
+          <EffectiveDependencyText effective={d.effective_dependency ?? null} bare />
+        </p>
       </Card>
+      {(identity || identify.isPending) && (
+        <Card
+          title={t('identify.title')}
+          actions={
+            isAdmin &&
+            identity && (
+              <Button
+                size="sm"
+                variant="primary"
+                onClick={() => {
+                  setApplyTpl(identity.suggested_template);
+                  setApplying(true);
+                }}
+              >
+                <LayersIcon size={12} /> {t('identify.applySuggested')}
+              </Button>
+            )
+          }
+        >
+          {identify.isPending ? (
+            <p className="flex items-center gap-2 text-sm text-slate-500">
+              <span className="inline-block h-4 w-4 animate-spin rounded-full border-2 border-sky-600 border-t-transparent" />
+              {t('identify.running')}
+            </p>
+          ) : (
+            identity && (
+              <IdentityView
+                identity={identity}
+                templateName={tplName(identity.suggested_template)}
+              />
+            )
+          )}
+        </Card>
+      )}
       <Card title={t('devices.sensors')} bodyClassName="p-0">
         {sensors.isLoading && <Loading />}
         <ErrorBox error={sensors.error} />
@@ -145,7 +223,12 @@ export function DevicePage() {
       <DeviceFormModal open={editing} onClose={() => setEditing(false)} device={d} />
       {isAdmin && <AddSensorModal open={adding} onClose={() => setAdding(false)} device={d} />}
       {isAdmin && (
-        <ApplyTemplateModal open={applying} onClose={() => setApplying(false)} device={d} />
+        <ApplyTemplateModal
+          open={applying}
+          onClose={() => setApplying(false)}
+          device={d}
+          initialTemplate={applyTpl}
+        />
       )}
       <ConfirmDialog
         open={deleting}

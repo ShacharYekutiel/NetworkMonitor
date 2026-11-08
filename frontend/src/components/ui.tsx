@@ -12,7 +12,7 @@ import {
 import { createPortal } from 'react-dom';
 import { useTranslation } from 'react-i18next';
 import { XIcon } from './icons';
-import { errorMessage } from '../lib/errors';
+import { errorMessage, type ErrorContext } from '../lib/errors';
 
 export function cx(...c: (string | false | null | undefined)[]): string {
   return c.filter(Boolean).join(' ');
@@ -228,7 +228,15 @@ export function Loading() {
   );
 }
 
-export function ErrorBox({ error, className }: { error: unknown; className?: string }) {
+export function ErrorBox({
+  error,
+  className,
+  context,
+}: {
+  error: unknown;
+  className?: string;
+  context?: ErrorContext;
+}) {
   const { t } = useTranslation();
   if (!error) return null;
   return (
@@ -239,7 +247,7 @@ export function ErrorBox({ error, className }: { error: unknown; className?: str
         className,
       )}
     >
-      {errorMessage(t, error)}
+      {errorMessage(t, error, context)}
     </div>
   );
 }

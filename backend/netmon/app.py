@@ -25,8 +25,11 @@ from netmon.api import (
     events,
     groups,
     health,
+    maintenance,
     sensors,
     templates,
+    testclock,
+    topology,
     ws,
 )
 from netmon.api import settings as settings_api
@@ -162,6 +165,9 @@ def create_app(
         settings_api.router,
         discovery.router,
         templates.router,
+        maintenance.router,
+        topology.router,
+        testclock.router,
         ws.router,
     ):
         app.include_router(r)

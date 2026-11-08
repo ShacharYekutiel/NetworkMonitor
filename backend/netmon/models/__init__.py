@@ -7,6 +7,7 @@ from netmon.models.discovery import (
     DiscoveryScan,
 )
 from netmon.models.inventory import Device, Event, Group, Sensor, SensorChannel
+from netmon.models.phase2b import MaintenanceWindow, TopologyLayout, TopologyLink, TopologyNeighbor
 from netmon.models.settings import Setting
 from netmon.models.users import User
 
@@ -21,9 +22,13 @@ __all__ = [
     "DiscoveryScan",
     "Event",
     "Group",
+    "MaintenanceWindow",
     "NotificationChannel",
     "Sensor",
     "SensorChannel",
     "Setting",
+    "TopologyLayout",
+    "TopologyLink",
+    "TopologyNeighbor",
     "User",
 ]

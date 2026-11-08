@@ -35,6 +35,7 @@ class Scheduler:
         self._heap: list[tuple[float, int, int]] = []  # (when, sensor_id, gen)
         self._entries: dict[int, _Entry] = {}
         self._running: set[int] = set()
+        self._followup: set[int] = set()  # [2b-1] run once more after the current run
         self._tasks: set[asyncio.Task[None]] = set()
         self._gen = 0
         self._wake = asyncio.Event()
@@ -117,6 +118,31 @@ class Scheduler:
         for sid in sensor_ids:
             self.remove(sid)
 
+    def run_soon(self, sensor_ids: list[int], jitter_s: float = 5.0) -> None:
+        """[2b-1] One extra run of each sensor after a random 0..jitter_s delay. The regular
+        schedule is not moved; a sensor that is running at that moment is skipped."""
+        for sid in dict.fromkeys(sensor_ids):
+            delay = random.uniform(0, jitter_s) if jitter_s > 0 else 0.0
+            task = asyncio.create_task(self._soon(sid, delay))
+            self._tasks.add(task)
+            task.add_done_callback(self._tasks.discard)
+
+    async def _soon(self, sensor_id: int, delay: float) -> None:
+        if delay > 0:
+            await asyncio.sleep(delay)
+        if sensor_id in self._running:
+            # a check is in flight (it may have started before the reason for this extra
+            # run): run once more right after it
+            self._followup.add(sensor_id)
+            return
+        self._running.add(sensor_id)
+        await self._run_one(sensor_id, remove_on_pause=False)
+
+    async def idle(self) -> None:
+        """Wait for in-flight checks (tests)."""
+        while pending := [t for t in self._tasks if not t.done()]:
+            await asyncio.gather(*pending, return_exceptions=True)
+
     async def _loop(self) -> None:
         while True:
             self._wake.clear()
@@ -144,7 +170,7 @@ class Scheduler:
             with contextlib.suppress(TimeoutError):
                 await asyncio.wait_for(self._wake.wait(), timeout)
 
-    async def _run_one(self, sensor_id: int) -> None:
+    async def _run_one(self, sensor_id: int, remove_on_pause: bool = True) -> None:
         try:
             async with self.rt.sessionmaker() as session:
                 sensor = await session.get(Sensor, sensor_id)
@@ -153,7 +179,8 @@ class Scheduler:
                     return
                 device = await session.get(Device, sensor.device_id)
                 if device is None or effective_paused(sensor, device):
-                    self.remove(sensor_id)
+                    if remove_on_pause:
+                        self.remove(sensor_id)
                     return
                 ctx = await build_context(session, sensor, device)
             raw, duration, checked_at = await execute_check(ctx, self.rt.semaphore)
@@ -164,3 +191,8 @@ class Scheduler:
             log.exception("Check of sensor %s failed", sensor_id)
         finally:
             self._running.discard(sensor_id)
+            if sensor_id in self._followup:
+                self._followup.discard(sensor_id)
+                task = asyncio.create_task(self._soon(sensor_id, 0.0))
+                self._tasks.add(task)
+                task.add_done_callback(self._tasks.discard)

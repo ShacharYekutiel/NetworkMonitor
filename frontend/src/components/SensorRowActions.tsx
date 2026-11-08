@@ -8,6 +8,7 @@ import { PauseIcon, PlayIcon, RefreshIcon } from './icons';
 import { useSensorActions } from './SensorForms';
 import { useToast } from './toast';
 import { Button } from './ui';
+import { AckAction } from './Acknowledge';
 
 export function useRunNow() {
   const { t } = useTranslation();
@@ -33,6 +34,9 @@ export function SensorRowActions({ sensor }: { sensor: Sensor }) {
   const { toggle } = useSensorActions();
   return (
     <span className="inline-flex gap-1">
+      {(sensor.acknowledgement || sensor.status === 'down' || sensor.status === 'warning') && (
+        <AckAction sensor={sensor} />
+      )}
       <Button
         size="sm"
         variant="ghost"

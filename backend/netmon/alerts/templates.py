@@ -2,8 +2,14 @@
 
 from __future__ import annotations
 
+import contextvars
 import html
+from datetime import datetime
 from typing import Any
+from zoneinfo import ZoneInfo
+
+# [2b-1] the zone used to render "Problem since" (settings.timezone), set by the alert engine
+DISPLAY_TZ: contextvars.ContextVar[str] = contextvars.ContextVar("netmon_display_tz", default="UTC")
 
 STATUS_NAMES = {
     "en": {
@@ -12,6 +18,7 @@ STATUS_NAMES = {
         "down": "DOWN",
         "paused": "PAUSED",
         "unknown": "UNKNOWN",
+        "unreachable": "UNREACHABLE",
     },
     "he": {
         "up": "תקין",
@@ -19,6 +26,7 @@ STATUS_NAMES = {
         "down": "תקלה",
         "paused": "מושהה",
         "unknown": "לא ידוע",
+        "unreachable": "לא נגיש",
     },
 }
 
@@ -32,6 +40,10 @@ LABELS = {
         "message": "Message",
         "time": "Time",
         "rule": "Rule",
+        "problem_since": "Problem since",
+        "escalation": "ESCALATION",
+        "reminder": "REMINDER",
+        "after_maintenance": " (after maintenance)",
         "link": "Open in NetworkMonitor",
         "test_subject": "[NetworkMonitor] Test notification",
         "test_body": "This is a test notification from NetworkMonitor.",
@@ -47,6 +59,10 @@ LABELS = {
         "message": "הודעה",
         "time": "זמן",
         "rule": "כלל",
+        "problem_since": "בעיה מאז",
+        "escalation": "הסלמה",
+        "reminder": "תזכורת",
+        "after_maintenance": " (לאחר תחזוקה)",
         "link": "פתיחה ב-NetworkMonitor",
         "test_subject": "[NetworkMonitor] הודעת בדיקה",
         "test_body": "זוהי הודעת בדיקה מ-NetworkMonitor.",
@@ -95,10 +111,31 @@ def subject(payload: dict[str, Any], lang: str) -> str:
             name=(payload.get("profile") or {}).get("name", "?"),
             count=new_hosts_count(payload),
         )
-    status = STATUS_NAMES[lang].get(payload.get("new_status") or "", payload.get("new_status"))
+    # status names in the subject stay as in Phase 1 (DOWN/WARNING/UP in both languages)
+    status = STATUS_NAMES["en"].get(payload.get("new_status") or "", payload.get("new_status"))
+    if lang != "en":
+        status = STATUS_NAMES[lang].get(payload.get("new_status") or "", status)
     device = (payload.get("device") or {}).get("name", "?")
     sensor = (payload.get("sensor") or {}).get("name", "?")
-    return f"[NetworkMonitor] {status}: {device} / {sensor}"
+    stage = payload.get("stage")
+    lb = LABELS[lang]
+    if stage in ("escalation", "reminder"):
+        status = f"{lb[stage]} {STATUS_NAMES['en'].get(payload.get('new_status') or '', status)}"
+    suffix = lb["after_maintenance"] if payload.get("after_maintenance") else ""
+    return f"[NetworkMonitor] {status}{suffix}: {device} / {sensor}"
+
+
+def format_local(value: str | None, tz_name: str | None = None) -> str:
+    """ISO-8601 UTC -> `YYYY-MM-DD HH:MM (Zone)` in the display zone."""
+    if not value:
+        return ""
+    try:
+        dt = datetime.fromisoformat(value.replace("Z", "+00:00"))
+        name = tz_name or DISPLAY_TZ.get()
+        local = dt.astimezone(ZoneInfo(name))
+    except (ValueError, OSError, KeyError):
+        return value
+    return f"{local:%Y-%m-%d %H:%M} ({name})"
 
 
 def _rows(payload: dict[str, Any], lang: str) -> list[tuple[str, str]]:
@@ -117,6 +154,8 @@ def _rows(payload: dict[str, Any], lang: str) -> list[tuple[str, str]]:
     if payload.get("message"):
         rows.append((lb["message"], payload["message"]))
     rows.append((lb["time"], payload.get("time") or ""))
+    if payload.get("problem_since") and payload.get("stage") != "recovery":
+        rows.append((lb["problem_since"], format_local(payload["problem_since"])))
     if payload.get("rule"):
         rows.append((lb["rule"], payload["rule"]["name"]))
     return rows

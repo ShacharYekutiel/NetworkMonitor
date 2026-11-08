@@ -3,6 +3,9 @@ import { useTranslation } from 'react-i18next';
 import type { Sensor } from '../api/types';
 import { formatRelative, sensorValueText } from '../lib/format';
 import { StatusBadge } from './Status';
+import { AckBadge } from './Acknowledge';
+import { StatusMessage } from './Dependency';
+import { MaintenanceBadge } from './Maintenance';
 import { Empty, Table, td, th, Value } from './ui';
 
 export function primaryChannel(s: Sensor) {
@@ -40,7 +43,11 @@ export function SensorTable({
           return (
             <tr key={s.id} className="hover:bg-slate-50 dark:hover:bg-slate-800/40">
               <td className={td}>
-                <StatusBadge status={s.status} />
+                <span className="inline-flex items-center gap-1">
+                  <StatusBadge status={s.status} />
+                  {s.acknowledgement && <AckBadge ack={s.acknowledgement} compact />}
+                  {s.in_maintenance && <MaintenanceBadge compact />}
+                </span>
               </td>
               {showDevice && (
                 <td className={`${td} whitespace-nowrap`}>
@@ -68,7 +75,11 @@ export function SensorTable({
                 className={`${td} max-w-xs truncate text-slate-500`}
                 title={s.status_message}
               >
-                {s.status_message}
+                <StatusMessage
+                  message={s.status_message}
+                  status={s.status}
+                  deviceId={s.device_id}
+                />
               </td>
               <td className={`${td} whitespace-nowrap text-slate-500`}>
                 {formatRelative(s.last_check_at)}

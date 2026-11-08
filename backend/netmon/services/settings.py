@@ -26,11 +26,22 @@ DEFAULTS: dict[str, Any] = {
     "default_interval_s": 60,
     "default_language": "en",
     "public_base_url": None,
+    # [2b-1]; the timezone default is computed (TZ when valid, else UTC), see defaults()
+    "timezone": None,
+    "topology_refresh_min": 30,
 }
 
 
-async def get_all(session: AsyncSession) -> dict[str, Any]:
+def defaults() -> dict[str, Any]:
+    from netmon.services.maintenance import default_timezone
+
     out = copy.deepcopy(DEFAULTS)
+    out["timezone"] = default_timezone()
+    return out
+
+
+async def get_all(session: AsyncSession) -> dict[str, Any]:
+    out = defaults()
     for row in (await session.execute(select(Setting))).scalars():
         if row.key == "smtp" and isinstance(row.value, dict):
             out["smtp"] = {**out["smtp"], **row.value}
@@ -42,7 +53,7 @@ async def get_all(session: AsyncSession) -> dict[str, Any]:
 async def get(session: AsyncSession, key: str) -> Any:
     row = await session.get(Setting, key)
     if row is None:
-        return copy.deepcopy(DEFAULTS[key])
+        return defaults()[key]
     if key == "smtp":
         return {**DEFAULTS["smtp"], **row.value}
     return row.value
@@ -56,7 +67,7 @@ async def put(session: AsyncSession, key: str, value: Any) -> None:
 
 async def ensure_defaults(session: AsyncSession) -> None:
     existing = set((await session.execute(select(Setting.key))).scalars())
-    for key, value in DEFAULTS.items():
+    for key, value in defaults().items():
         if key not in existing:
             await put(session, key, copy.deepcopy(value))
 
@@ -84,4 +95,6 @@ def settings_out(values: dict[str, Any]) -> dict[str, Any]:
         "default_interval_s": values["default_interval_s"],
         "default_language": values["default_language"],
         "public_base_url": values["public_base_url"],
+        "timezone": values["timezone"],
+        "topology_refresh_min": values["topology_refresh_min"],
     }

@@ -6,7 +6,8 @@ from dataclasses import dataclass, field
 from datetime import datetime
 from typing import Any
 
-SEVERITY = {"down": 4, "warning": 3, "unknown": 2, "up": 1, "paused": 0}
+SEVERITY = {"down": 5, "warning": 4, "unreachable": 3, "unknown": 2, "up": 1, "paused": 0}
+PROBLEM_STATUSES = ("down", "warning")
 
 
 def worst(statuses: list[str], default: str = "unknown") -> str:
@@ -36,6 +37,8 @@ class CheckResult:
     values: dict[str, float | None] = field(default_factory=dict)
     new_state: dict[str, Any] | None = None
     config_update: dict[str, Any] | None = None
+    # [2b-1] an ok result whose sensor status is decided by the plugin (snmp_custom enum)
+    status_override: str | None = None
 
 
 @dataclass
@@ -112,6 +115,8 @@ def evaluate(
             result.config_update,
         )
     statuses = [c.status for c in chans if c.status != "unknown"]
+    if result.status_override in ("up", "warning", "down"):
+        statuses.append(result.status_override)
     status = worst(statuses, default="up")
     message = result.message
     if status in ("down", "warning"):
@@ -120,7 +125,8 @@ def evaluate(
             for c in chans
             if c.status == status and c.value is not None
         ]
-        message = ", ".join(breaches)
+        if breaches:
+            message = ", ".join(breaches)
     return EvaluatedResult(
         True,
         status,

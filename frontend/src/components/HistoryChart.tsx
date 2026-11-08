@@ -5,14 +5,16 @@ import {
   DataZoomComponent,
   GridComponent,
   LegendComponent,
+  MarkLineComponent,
   TooltipComponent,
 } from 'echarts/components';
 import { CanvasRenderer } from 'echarts/renderers';
 import { useTranslation } from 'react-i18next';
-import type { HistoryPoint } from '../api/types';
+import type { HistoryPoint, NmEvent, Status } from '../api/types';
 import { useTheme } from '../hooks/theme';
 import { formatValue } from '../lib/format';
-import { toSeries } from '../lib/history';
+import { eventMarkers, toSeries } from '../lib/history';
+import { STATUS_HEX, STATUS_DOT, statusClass } from '../lib/status';
 
 echarts.use([
   LineChart,
@@ -20,6 +22,7 @@ echarts.use([
   TooltipComponent,
   LegendComponent,
   DataZoomComponent,
+  MarkLineComponent,
   CanvasRenderer,
 ]);
 
@@ -30,6 +33,7 @@ export function HistoryChart({
   label,
   from,
   to,
+  events,
 }: {
   points: HistoryPoint[];
   bucketS: number;
@@ -37,6 +41,8 @@ export function HistoryChart({
   label: string;
   from: string;
   to: string;
+  /** [2b-1] status_change events drawn as coloured markers (incl. unreachable). */
+  events?: NmEvent[];
 }) {
   const ref = useRef<HTMLDivElement>(null);
   const chart = useRef<echarts.ECharts | null>(null);
@@ -56,10 +62,13 @@ export function HistoryChart({
     };
   }, []);
 
+  const markers = eventMarkers(events ?? [], from, to);
+
   useEffect(() => {
     const c = chart.current;
     if (!c) return;
     const { avg, low, band } = toSeries(points, bucketS);
+    const marks = eventMarkers(events ?? [], from, to);
     const text = dark ? '#cbd5e1' : '#475569';
     const grid = dark ? '#1e293b' : '#e2e8f0';
     const line = '#0284c7';
@@ -150,13 +159,50 @@ export function HistoryChart({
             lineStyle: { color: line, width: 1.6 },
             itemStyle: { color: line },
             connectNulls: false,
+            markLine: marks.length
+              ? {
+                  silent: false,
+                  symbol: 'none',
+                  animation: false,
+                  label: { show: false },
+                  tooltip: {
+                    formatter: (p: { data?: { name?: string } }) => p.data?.name ?? '',
+                  },
+                  data: marks.map((m) => ({
+                    xAxis: m.t,
+                    name: `${new Date(m.t).toLocaleString(locale)}: ${m.old ? `${t(`status.${m.old}`)} → ` : ''}${t(`status.${m.status}`)}`,
+                    lineStyle: {
+                      color: STATUS_HEX[m.status] ?? STATUS_HEX.unknown,
+                      type: 'dashed',
+                      width: 1.2,
+                      opacity: 0.9,
+                    },
+                  })),
+                }
+              : undefined,
           },
         ],
       },
       true,
     );
-  }, [points, bucketS, unit, dark, t, i18n.language, from, to]);
+  }, [points, bucketS, unit, dark, t, i18n.language, from, to, events]);
 
+  const legend = [...new Set(markers.map((m) => m.status))] as Status[];
   // ECharts time axes stay left-to-right in both languages (conventions.md).
-  return <div dir="ltr" ref={ref} className="h-72 w-full" role="img" aria-label={label} />;
+  return (
+    <div>
+      <div dir="ltr" ref={ref} className="h-72 w-full" role="img" aria-label={label} />
+      {legend.length > 0 && (
+        <div className="mt-1 flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-slate-500">
+          <span>{t('chart.statusChanges')}:</span>
+          {legend.map((s) => (
+            <span key={s} className="inline-flex items-center gap-1">
+              <span className={`inline-block h-0.5 w-3 ${statusClass(s, STATUS_DOT)}`} />
+              {t(`status.${s}`)}
+            </span>
+          ))}
+        </div>
+      )}
+    </div>
+  );
 }

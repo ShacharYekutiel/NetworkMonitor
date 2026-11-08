@@ -7,6 +7,7 @@ import { Breadcrumbs } from '../components/Breadcrumbs';
 import { DeviceFormModal, GroupFormModal } from '../components/EntityForms';
 import { EditIcon, PlusIcon, TrashIcon } from '../components/icons';
 import { StatusBadge, StatusBar, StatusCountPills, StatusDot } from '../components/Status';
+import { AddMaintenanceButton, MaintenanceBadge } from '../components/Maintenance';
 import { useToast } from '../components/toast';
 import {
   Button,
@@ -80,6 +81,7 @@ export function GroupPage() {
               <Button onClick={() => setAddSub(true)}>
                 <PlusIcon size={14} /> {t('groups.addSub')}
               </Button>
+              <AddMaintenanceButton defaults={{ scope: 'group', group_id: g.id, name: g.name }} />
               <Button onClick={() => setEditing(true)}>
                 <EditIcon size={14} /> {t('common.edit')}
               </Button>
@@ -101,6 +103,25 @@ export function GroupPage() {
             {t('snmp.label')}:{' '}
             {g.snmp_credentials ? g.snmp_credentials.version : t('snmp.inherited')}
           </span>
+          {g.dependency && (
+            <span className="text-xs text-slate-500">
+              {t('dependency.title')}:{' '}
+              {g.dependency.mode === 'device' && g.dependency.device_id !== null ? (
+                <Link
+                  className="text-sky-700 hover:underline dark:text-sky-400"
+                  to={`/devices/${g.dependency.device_id}`}
+                >
+                  {g.dependency.device_name}
+                </Link>
+              ) : (
+                t(
+                  g.dependency.mode === 'none'
+                    ? 'dependency.modes.none'
+                    : 'dependency.modes.inheritParent',
+                )
+              )}
+            </span>
+          )}
         </div>
         <div className="mt-3">
           <StatusBar counts={g.status_counts} />
@@ -168,6 +189,15 @@ export function GroupPage() {
                     >
                       {d.name}
                     </Link>
+                    {d.in_maintenance && (
+                      <span className="ms-1.5">
+                        <MaintenanceBadge
+                          compact
+                          endsAt={d.maintenance?.ends_at}
+                          name={d.maintenance?.name}
+                        />
+                      </span>
+                    )}
                   </td>
                   <td className={`${td} text-slate-500`}>
                     <Ltr>{d.host}</Ltr>
