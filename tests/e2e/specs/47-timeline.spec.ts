@@ -93,5 +93,5 @@ test('UI: device Timeline tab with chips and Load more', async ({ page }) => {
   await shot2b3(page, '47-timeline');
   const chip = page.getByRole('button', { name: tOr('timeline.kind.syslog', 'Syslog') }).or(page.getByRole('checkbox', { name: tOr('timeline.kind.syslog', 'Syslog') }));
   await chip.first().click();
-  await expect(page.getByRole('button', { name: tOr('timeline.loadMore', 'Load more') }).or(page.getByText(M).first())).toBeVisible();
+  await expect(page.getByRole('button', { name: tOr('timeline.loadMore', 'Load more') }).or(page.getByText(M).first()).first()).toBeVisible();
 });
