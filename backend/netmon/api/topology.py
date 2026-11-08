@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import re
 from typing import Any
 
 from fastapi import APIRouter, Query, Response
@@ -10,12 +11,35 @@ from sqlalchemy import text
 from netmon.api.deps import DB, RT, Admin, Page, Viewer
 from netmon.api.errors import ApiError, not_found, validation_error
 from netmon.models import Device, TopologyLink, TopologyNeighbor
+from netmon.ports import oui
+from netmon.ports.eligibility import effective_class
+from netmon.ports.read import port_names
+from netmon.ports.view import display_port
 from netmon.schemas import LayoutIn, TopologyLinkIn
 from netmon.services.dependencies import dependency_out, effective_parent
 from netmon.services.serialize import iso, page
 from netmon.services.status import load_inventory
 from netmon.topology.refresh import RefreshRunningError, refresh_out
 from netmon.topology.suggest import suggest_dependencies
+
+_MAC = re.compile(r"^[0-9a-f]{2}([:-][0-9a-f]{2}){5}$", re.I)
+_VENDOR_NOISE = re.compile(
+    r"[,.]|\b(inc|ltd|llc|co|corp|corporation|limited|gmbh|technologies|technology)\b", re.I
+)
+
+
+def neighbor_label(chassis_id: str) -> str:
+    """[2b-2] An LLDP neighbour without sysName: "Vendor …ee:ff" from the OUI table when the
+    chassis id is a MAC (servers with lldpd, phones), else the chassis id as is."""
+    if not _MAC.match(chassis_id or ""):
+        return chassis_id
+    vendor = oui.vendor(chassis_id)
+    if not vendor:
+        return chassis_id
+    words = _VENDOR_NOISE.sub(" ", vendor).split() or [vendor]
+    short = " ".join(words[:2]) if len(" ".join(words[:2])) <= 16 else words[0]
+    return f"{short[:20]} …{chassis_id[-5:].lower()}"
+
 
 router = APIRouter()
 
@@ -79,12 +103,36 @@ def _end(
     }
 
 
-def link_out(ln: Any, ifaces: dict[tuple[int, int], dict[str, Any]]) -> dict[str, Any]:
+def link_out(
+    ln: Any,
+    ifaces: dict[tuple[int, int], dict[str, Any]],
+    names: dict[tuple[int, int], str] | None = None,
+) -> dict[str, Any]:
+    """[2b-2] `names`: current port names (netmon.ports.read.port_names); an end whose stored
+    port is empty or the bare index shows the current name (the stored value is kept)."""
+    names = names or {}
+
+    def port(dev: int | None, idx: int | None, stored: str) -> str:
+        name = names.get((dev, idx)) if dev is not None and idx is not None else None
+        return display_port(stored, idx, name)
+
     return {
         "id": ln.id,
         "source": ln.source,
-        "a": _end(ln.a_device_id, None, ln.a_if_index, ln.a_port, ifaces),
-        "b": _end(ln.b_device_id, ln.b_neighbor_id, ln.b_if_index, ln.b_port, ifaces),
+        "a": _end(
+            ln.a_device_id,
+            None,
+            ln.a_if_index,
+            port(ln.a_device_id, ln.a_if_index, ln.a_port),
+            ifaces,
+        ),
+        "b": _end(
+            ln.b_device_id,
+            ln.b_neighbor_id,
+            ln.b_if_index,
+            port(ln.b_device_id, ln.b_if_index, ln.b_port),
+            ifaces,
+        ),
         "stale": ln.stale,
         "missed_refreshes": ln.missed_refreshes,
         "first_seen": iso(ln.first_seen),
@@ -138,8 +186,9 @@ async def graph(
             device_ids.add(ln.b_device_id)
         if ln.b_neighbor_id is not None:
             neighbor_ids.add(ln.b_neighbor_id)
+    # [2b-2] same class as the device list: identity, else the port inventory's detection
     classes = {
-        r.id: (r.identity or {}).get("device_class")
+        r.id: effective_class(r.identity, inv.detected_class.get(r.id))
         for r in await session.execute(text("SELECT id, identity FROM devices"))
     }
     nodes: list[dict[str, Any]] = []
@@ -173,7 +222,7 @@ async def graph(
                     "key": f"n:{nb.id}",
                     "kind": "neighbor",
                     "neighbor_id": nb.id,
-                    "name": nb.sys_name or nb.chassis_id,
+                    "name": nb.sys_name or neighbor_label(nb.chassis_id),
                     "chassis_id": nb.chassis_id,
                     "mgmt_address": nb.mgmt_address,
                     "sys_descr": nb.sys_descr,
@@ -183,9 +232,10 @@ async def graph(
                 }
             )
     ifaces = await _iface_data(session)
+    names = await port_names(session)
     return {
         "nodes": nodes,
-        "links": [link_out(ln, ifaces) for ln in links],
+        "links": [link_out(ln, ifaces, names) for ln in links],
         "last_refresh": await _last_refresh(session),
         "refresh_running": rt.topology is not None and rt.topology.running_id is not None,
     }
@@ -237,12 +287,23 @@ async def list_links(
         )
     ).all()
     ifaces = await _iface_data(session)
-    return page([link_out(r, ifaces) for r in rows], total, pg.page, pg.page_size)
+    names = await port_names(session)
+    return page([link_out(r, ifaces, names) for r in rows], total, pg.page, pg.page_size)
 
 
 async def _default_port(session: DB, device_id: int, if_index: int | None) -> str:
+    """ifName from the 2b-2 port inventory, else the snmp_interface sensor's if_name, else the
+    index."""
     if if_index is None:
         return ""
+    port = (
+        await session.execute(
+            text("SELECT name FROM switch_ports WHERE device_id = :d AND if_index = :i"),
+            {"d": device_id, "i": if_index},
+        )
+    ).scalar()
+    if port:
+        return str(port)
     name = (
         await session.execute(
             text(
@@ -307,7 +368,7 @@ async def _link_json(session: DB, link_id: int) -> dict:
         await session.execute(text("SELECT * FROM topology_links WHERE id = :id"), {"id": link_id})
     ).first()
     assert row is not None
-    return link_out(row, await _iface_data(session))
+    return link_out(row, await _iface_data(session), await port_names(session))
 
 
 def _changed(rt: RT, link_id: int, action: str) -> None:

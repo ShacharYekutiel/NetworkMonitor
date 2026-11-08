@@ -58,6 +58,14 @@ async def put_settings(body: SettingsPut, _: Admin, rt: RT, session: DB) -> dict
     if "topology_refresh_min" in fields and body.topology_refresh_min is not None:
         topo_changed = body.topology_refresh_min != current["topology_refresh_min"]
         await settings_svc.put(session, "topology_refresh_min", body.topology_refresh_min)
+    for key in (  # [2b-2]; the port scheduler reads them on every pass
+        "port_inventory_min",
+        "uplink_mac_threshold",
+        "port_mac_retention_days",
+        "reverse_dns",
+    ):
+        if key in fields and getattr(body, key) is not None:
+            await settings_svc.put(session, key, getattr(body, key))
     await session.commit()
     values = await settings_svc.get_all(session)
     if retention_changed and rt.timescale_enabled and rt.engine is not None:

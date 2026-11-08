@@ -78,6 +78,7 @@ class Runtime:
         self.maintenance: Any = None  # netmon.services.maintenance.MaintenanceTracker
         self.topology: Any = None  # netmon.topology.refresh.TopologyRunner
         self.topology_scheduler: Any = None
+        self.ports: Any = None  # [2b-2] netmon.ports.scheduler.PortInventory
         self.dependencies_enabled = True
         from netmon.services.dependencies import Cascade
 
@@ -130,6 +131,20 @@ class Runtime:
         if n:
             log.warning("Marked %d interrupted topology refresh(es) as failed", n)
         await self._mark_stale_sensors()
+        # [2b-2] template library (built-in + ${NETMON_DATA_DIR}/templates), before discovery
+        from netmon.templates import registry as template_registry
+
+        try:
+            await template_registry.reload(self, broadcast=False)
+        except Exception:  # noqa: BLE001 - the server always starts
+            log.exception("Loading the template library failed")
+        # [2b-2] the OUI vendor table (~40k rows) is parsed once, off the event loop
+        from netmon.ports import oui
+
+        await asyncio.to_thread(oui.table)
+        from netmon.ports.scheduler import PortInventory
+
+        self.ports = PortInventory(self)
         self.alerts = AlertEngine(self)
         from netmon.discovery.runner import ScanRunner
         from netmon.discovery.scheduler import DiscoveryScheduler
@@ -153,6 +168,7 @@ class Runtime:
 
             self.topology_scheduler = TopologyScheduler(self)
             await self.topology_scheduler.start()
+            await self.ports.start()  # [2b-2] port inventory scheduler
         self._tasks.append(asyncio.create_task(self._rollup_loop(), name="netmon-rollup"))
         if maintenance:
             self._tasks.append(asyncio.create_task(retention.loop(self), name="netmon-retention"))
@@ -176,6 +192,9 @@ class Runtime:
         log.info("NetworkMonitor %s started (timescale=%s)", self.version, self.timescale_enabled)
 
     async def stop(self) -> None:
+        if self.ports is not None:
+            with contextlib.suppress(Exception):
+                await self.ports.stop()
         if self.topology_scheduler is not None:
             await self.topology_scheduler.stop()
             self.topology_scheduler = None

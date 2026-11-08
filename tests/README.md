@@ -11,7 +11,8 @@ tests/
 │   ├── lib/helpers.ts   API client, login helpers, polling waits, simulator controls
 │   ├── lib/lab.ts       Phase 2a: discovery lab expectations, Telegram mock, scan waits, extra hosts
 │   ├── lib/lab2b.ts     Phase 2b-1: test clock, backend restart, lab component control, toggle targets
-│   └── specs/           01-… 27-… (run in file order, one worker)
+│   ├── lib/lab2b2.ts    Phase 2b-2: port lab setup (idempotent), refresh waits, search, user template dir, i18n
+│   └── specs/           01-… 37-… (run in file order, one worker)
 └── sim/
     ├── lab.sh                Phase 2a lab launcher (start/stop/status/env)
     ├── snmp_agent.py         snmpsim launcher (--host/--port/--data; prints READY)
@@ -19,6 +20,10 @@ tests/
     ├── discovery/            per-device snmprec data of the discovery lab (+ gen_snmprec.py)
     ├── fingerprint/fp_hosts.py  [2b-1] HTTP(S)/SSH/telnet fingerprint hosts 127.0.0.41-49, 61-67
     ├── hpe/                  [2b-1] HPE ArubaOS/Comware + LLDP tree snmprec data (+ gen_snmprec.py)
+    ├── ports/                [2b-2] port-inventory switches + ARP sources (+ gen_snmprec.py, ptr.json)
+    ├── vendors/              [2b-2] Check Point / ClusterXL / Aruba Instant + synthetic per-template sims
+    ├── templates/user/       [2b-2] user template directory fixtures (10 files, 7 expected errors)
+    ├── verify_2b2.py         [2b-2] standalone pysnmp check of every 2b-2 sim against the contract tables
     ├── telegram_mock.py      Telegram Bot API mock
     ├── tcp_listener.py       raw TCP accept-and-close listener (printer port 9100)
     ├── http_target.py        HTTP target whose health can be toggled (--host/--port)
@@ -89,6 +94,16 @@ single specs can run on their own.
 | `25-topology` | **[2b-1]** LLDP refresh: 3 deduplicated links with the right ifIndexes (Comware `lldpLocPortNum != ifIndex`), neighbour printer-3f; map renders (+ dark); refresh 409; manual links (UI/API, PATCH, `link_not_manual`, survive refresh); promotion of the neighbour; stale after 3 refreshes (agent data swap) + bulk delete; suggestions (root core) -> Apply selected -> dependencies; layout + group filter + `topology.updated` |
 | `26-viewer-2b1` | **[2b-1]** Viewer reads map/maintenance; 15 write endpoints -> 403; no admin buttons on map/maintenance/sensor/device pages |
 | `27-rtl-mobile-2b1` | **[2b-1]** Hebrew (`dir=rtl`, no English leftovers, LTR IPs) on maintenance/topology/dashboard/device/sensor; 390 px without horizontal overflow (en/he); screenshots to `$QA2B1_SHOT_DIR` |
+| `28-ports-faceplate` | **[2b-2]** Class detection + effective flags; the §11.6 expected port tables (AOS/CW/CX: state, speed, duplex, VLAN/mode/PVID, PoE, MACs + OUI + ARP IP + PTR, uplink by MAC count / neighbour, alert, last change, rates); health strip of the 2b-1 HPE sims; faceplate layout per parser (odd top / even bottom, uplink block, member 2, module block), tile states/colours/icons/badges, aria-labels, legend, LTR inside Hebrew |
+| `29-port-modal` | **[2b-2]** Port modal fields (state, link, PoE, traffic, MAC table with vendor/IP/hostname, random MAC), uplink "Show all MACs" (`include_uplink_macs`), neighbour + AP links, Start monitoring -> `snmp_interface` sensor, close by X / Esc / backdrop, `?port=` deep link, focus trap |
+| `30-ports-list` | **[2b-2]** Default columns, physical-only toggle, connected texts, sticky Port column, one filter (MAC in 3 notations, IP, hostname, vendor, neighbour, alias), column chooser persisted in localStorage (+ corrupt value), row click -> modal |
+| `31-ports-refresh` | **[2b-2]** Job status (timestamps, counts, next run, `arp_sources`), never-run shape, 409 `ports_disabled` / `ports_refresh_running`, flags auto/on/off + 422, settings validation (interval 0 -> no next run), uplink threshold boundary, Refresh button -> WS `ports.updated` -> refetch (also for another device), failed run (agent killed) keeps the snapshot |
+| `32-mac-presence` | **[2b-2]** MAC removed from the switch (lab swap `arubaos_nomac7`) -> `present:false`, `mac_count` 0, `last_seen` kept; back -> present, `first_seen` kept; retention setting; device delete cascades |
+| `33-mac-search` | **[2b-2]** `/api/search/mac` exact / notations / prefix / IP, best access port vs uplink rows, ARP hits, invalid/local ARP dropped, 422 validation; Find page (best row, port link -> modal, `?ip=`, invalid input) |
+| `34-template-library` | **[2b-2]** 19 built-ins in order, confidence on vendor OIDs, the nine converted templates equal `backend/tests/fixtures/templates_2b1.json`; user dir fixtures -> 3 user templates, override, 7 errors (exact messages/paths), `templates.reloaded`, errors panel / badges in the UI, Reload button, delete override, Comware suggestion, user template apply, viewer view |
+| `35-vendor-templates` | **[2b-2]** Scan of .71-.73 + synthetic .101-.110: classification (rule 9a incl. net-snmp + `checkpoint` probe), suggestions; apply `checkpoint_gaia` (standalone + ClusterXL), `aruba_wifi` -> created / skipped (`not_applicable`, `probe_failed`, `no_rows`) + live values + health strip; apply dialog shows `not_applicable`; synthetic mechanics of all 10 new templates |
+| `36-viewer-2b2` | **[2b-2]** Viewer reads ports / port / search; 8 write endpoints -> 403; no Refresh / Start monitoring / Enable / Reload buttons; admin "Enable port inventory" PATCHes `on` |
+| `37-rtl-mobile-2b2` | **[2b-2]** 52-port faceplate at 390 px (en/he): scrolls inside its card, no page overflow, 22 px tiles, LTR; list / modal / Find / Templates at 390 px; no raw i18n keys; device form selects in Hebrew; screenshots to `$QA2B2_SHOT_DIR` |
 | `18-discovery-rtl-mobile` | **[2a]** Discovery + results in Hebrew (RTL, translated classes/templates, LTR IPs), phone width without horizontal overflow (en/he); screenshots to `$QA2A_SHOT_DIR` (default `$SCREENSHOT_DIR/qa-2a`) |
 
 Timing: sensors use `interval_s = 10` (the API minimum). Waits are `expect.poll` / auto-retrying
@@ -179,6 +194,39 @@ snmpwalk -v2c -c public 127.0.0.52:1161 1.3.6.1.4.1.25506.2.6.1.1.1.1.19     # E
 snmpwalk -v2c -c public 127.0.0.53:1161 1.0.8802.1.1.2.1.4                  # lldpRemTable + ManAddr
 curl -sk https://127.0.0.42/ -L ; curl -s -m2 http://127.0.0.49/ ; nc 127.0.0.44 22
 ```
+
+## Phase 2b-2 lab (`tests/sim/lab.sh`, `LAB_2B2=1` default; architecture.md §11.6)
+
+`run.sh` also passes `NETMON_TEST_PTR_FILE=tests/sim/ports/ptr.json` to the backend (reverse DNS test hook:
+`10.0.0.11` -> `pc-reception.lan`, `10.0.0.12` -> `phone-12.lan`; no DNS stub) and exports `E2E_DATA_DIR`
+(the backend's `NETMON_DATA_DIR`, for the user template directory) and `QA2B2_SHOT_DIR`.
+
+**Addresses differ from the contract:** §11.6 puts the port sims on 127.0.0.61-.65, which are the 2b-1
+fingerprint hosts that spec 23 scans with SNMP on; the lab uses .81-.85 with the contract data unchanged.
+
+| Address (contract) | Simulates | Notes |
+|---|---|---|
+| `127.0.0.81` (.61) | ArubaOS-Switch 2930F `port-aos`: ports 1-10, `Trk1`, `DEFAULT_VLAN`; Q-BRIDGE static, no dot1dBasePortIfIndex, dot1q FDB (self entry, 7 MACs on trunk 9), PoE group 1, EtherLike duplex | variant `arubaos_nomac7` (presence test) |
+| `127.0.0.82` (.62) | Comware `port-cw`: 1/0/1-4, Ten-Gig 49/50, member 2 `2/0/1-2`, `Vlan-interface1`, `NULL0`, `InLoopBack0`, `M-GigabitEthernet0/0/0`; dot1dBasePortIfIndex, fdbId 1010 = VLAN 10 | QA extra: LLDP on port 2 -> the 2b-1 UniFi AP `U6-Lite-Office` (.54) = AP tile |
+| `127.0.0.83` (.63) | Aruba CX 6300M `port-cx`: no static VLAN table (current table), no dot1qPvid, no dot1q FDB (dot1d fallback), `mgmt` | |
+| `127.0.0.84` (.64) | OPNsense-style ARP router `fw-arp`: ipNetToPhysicalTable (dynamic, static, invalid, local, IPv6 rows) | |
+| `127.0.0.85` (.65) | `Linux gw2 5.10`: ipNetToMediaTable only (class server -> `arp_collect: on`) | |
+| `127.0.0.86` | ArubaOS 52-port `port-aos52` (49-52 at 10 G) | QA extra (phone overflow test) |
+| `127.0.0.71` / `.72` / `.73` | Check Point `gw-hq` (2620) / ClusterXL member `gw-cl1` (net-snmp Linux OID + svn subtree, haInstalled 1) / Aruba Instant `instant-vc` (3 APs, 5 clients) | |
+| `127.0.0.101-.110` | synthetic sims for `aruba_cx`, `aruba_wifi`, `checkpoint_gaia`, `fortinet_fortigate`, `cisco_ios`, `paloalto_panos`, `mikrotik_routeros`, `apc_ups`, `hpe_ilo`, `dell_idrac` (every OID of the template, from the contract tables) | |
+
+```bash
+python3 tests/sim/ports/gen_snmprec.py && python3 tests/sim/vendors/gen_snmprec.py   # regenerate (committed)
+tests/sim/lab.sh start && backend/.venv/bin/python -I tests/sim/verify_2b2.py           # OK: ... match the contract
+tests/sim/lab.sh swap snmp-port-aos tests/sim/ports/arubaos_nomac7                     # MAC of port 7 gone
+snmpwalk -v2c -c public 127.0.0.81:1161 1.3.6.1.2.1.17.7.1.4.3.1    # Q-BRIDGE static (PortList FD 80 = 1-6,8,9)
+snmpwalk -v2c -c public 127.0.0.83:1161 1.3.6.1.2.1.17.4.3.1        # dot1d FDB fallback
+snmpwalk -v2c -c public 127.0.0.84:1161 1.3.6.1.2.1.4.35.1.4        # ipNetToPhysicalPhysAddress
+```
+
+`verify_2b2.py` walks every 2b-2 agent with pysnmp, applies an independent QA implementation of the contract
+parsers (portlist bit order, bridge-port mapping, VLAN sets, FDB Q-BRIDGE/BRIDGE, PoE mapping, ARP) and asserts
+the §11.6 tables and the vendor/synthetic key values; it checks the simulators, not the product.
 
 ## Other suites
 

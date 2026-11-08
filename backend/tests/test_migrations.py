@@ -19,6 +19,7 @@ from tests.conftest import TEST_DATABASE_URL, _plain, db_url_for, make_settings,
 from tests.test_poller import _check_history
 
 pytestmark = requires_db
+HEAD = "0005"  # [2b-2] head revision after run_migrations()
 
 
 async def _tables(url: str) -> set[str]:
@@ -271,7 +272,7 @@ async def test_migration_0003_up_down(mode: str, rt) -> None:  # type: ignore[no
         assert DISCOVERY_TABLES <= await _tables(url)
         conn = await asyncpg.connect(_plain(url))
         try:
-            assert await conn.fetchval("SELECT version_num FROM alembic_version") == "0004"
+            assert await conn.fetchval("SELECT version_num FROM alembic_version") == HEAD
             await conn.execute(
                 "INSERT INTO sensors (device_id, name, type, config) "
                 "VALUES ($1, 'x', 'snmp_disk', '{}')",
@@ -370,7 +371,7 @@ async def test_migration_0004_up_down_up(mode: str, rt) -> None:  # type: ignore
         assert "alert_notified" not in await _tables(url)
         conn = await asyncpg.connect(_plain(url))
         try:
-            assert await conn.fetchval("SELECT version_num FROM alembic_version") == "0004"
+            assert await conn.fetchval("SELECT version_num FROM alembic_version") == HEAD
             rows = await conn.fetch("SELECT * FROM alert_state ORDER BY sensor_id")
             assert [(r["sensor_id"], r["status"]) for r in rows] == [(s1, "down"), (s2, "warning")]
             assert rows[0]["notified_channel_ids"] == sorted([c1, c2])
@@ -477,7 +478,7 @@ async def test_migration_0004_up_down_up(mode: str, rt) -> None:  # type: ignore
         await run_migrations(engine)  # and up again
         conn = await asyncpg.connect(_plain(url))
         try:
-            assert await conn.fetchval("SELECT version_num FROM alembic_version") == "0004"
+            assert await conn.fetchval("SELECT version_num FROM alembic_version") == HEAD
             rows = await conn.fetch("SELECT sensor_id, status FROM alert_state ORDER BY 1")
             assert [(r["sensor_id"], r["status"]) for r in rows] == [(s1, "down"), (s2, "down")]
         finally:

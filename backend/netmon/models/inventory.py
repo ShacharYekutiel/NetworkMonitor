@@ -64,6 +64,9 @@ class Device(TimestampMixin, Base):
     identity: Mapped[dict[str, Any] | None] = mapped_column(JSONB(none_as_null=True))
     lldp_chassis_id: Mapped[str | None] = mapped_column(String(255))
     lldp_sys_name: Mapped[str | None] = mapped_column(String(255))
+    # [2b-2] auto | on | off
+    port_inventory: Mapped[str] = mapped_column(Text, nullable=False, default="auto")
+    arp_collect: Mapped[str] = mapped_column(Text, nullable=False, default="auto")
 
 
 class Sensor(TimestampMixin, Base):

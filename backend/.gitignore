@@ -9,5 +9,6 @@ dist/
 .mypy_cache/
 .devdata/
 data/
+!netmon/data/
 netmon/static/*
 !netmon/static/.gitkeep

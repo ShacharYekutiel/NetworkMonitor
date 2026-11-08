@@ -1,0 +1,8 @@
+{
+  "schema": 1,
+  "id": "acme_json",
+  "name": {"en": "ACME JSON (QA)"},
+  "priority": 5,
+  "match": [{"requires_snmp": false, "any_open_ports": [9]}],
+  "entries": [{"kind": "sensor", "type": "ping", "name": {"en": "Ping"}}]
+}

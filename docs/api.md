@@ -1,8 +1,9 @@
-# NetworkMonitor — API Contract (Phase 1 + Phase 2a + Phase 2b-1)
+# NetworkMonitor — API Contract (Phase 1 + Phase 2a + Phase 2b-1 + Phase 2b-2)
 
 Items marked **[2a]** are the Phase 2a contract (discovery, device templates, `snmp_custom`/`snmp_disk`,
 Telegram). The Phase 2a endpoints are specified in [§ Phase 2a](#2a-phase-2a-endpoints).
 Items marked **[2b-1]** are specified in [§ Phase 2b-1](#2b-1-phase-2b-1-contract).
+Items marked **[2b-2]** are specified in [§ Phase 2b-2](#2b-2-phase-2b-2-contract).
 
 This file is the contract between the backend (`backend/netmon/schemas`) and the frontend
 (`frontend/src/api/types.ts`). **Field names are exact.** For the table semantics see
@@ -1170,7 +1171,7 @@ type TopologyRefresh = { id: number; trigger: "manual" | "scheduled"; status: "r
 | `GET /api/topology` | viewer | Query: `group_id` (recursive), `include_stale` (bool, default true) | `{"nodes": TopologyNode[], "links": TopologyLink[], "last_refresh": TopologyRefresh \| null, "refresh_running": boolean}` |
 | `POST /api/topology/refresh` | admin | — | `202 TopologyRefresh` (`running`). `409 topology_refresh_running`. |
 | `GET /api/topology/links` | admin | Query: `device_id`, `source`, `stale` | Page of `TopologyLink`, sorted by `id` |
-| `POST /api/topology/links` | admin | `{"a_device_id":1,"a_if_index":24,"a_port":"24","b_device_id":5,"b_neighbor_id":null,"b_if_index":null,"b_port":"uplink"}` | `201 TopologyLink` (`source: "manual"`). Exactly one of b ids (422); `a_port` defaults to the ifName of `a_if_index` when given. |
+| `POST /api/topology/links` | admin | `{"a_device_id":1,"a_if_index":24,"a_port":"24","b_device_id":5,"b_neighbor_id":null,"b_if_index":null,"b_port":"uplink"}` | `201 TopologyLink` (`source: "manual"`). Exactly one of b ids (422); `a_port` defaults to the ifName of `a_if_index` when given. A port stored as the index default (or null) is **resolved when read** — `switch_ports.name`, else the `snmp_interface` sensor's `if_name`, else the index — so a link created before the first port-inventory run shows the name once the inventory exists. |
 | `PATCH /api/topology/links/{id}` | admin | subset of the create fields | `TopologyLink`; discovered link → `400 link_not_manual` |
 | `DELETE /api/topology/links/{id}` | admin | — | `204` (any source; a discovered one returns on the next refresh if still reported) |
 | `DELETE /api/topology/links?stale=true` | admin | — | `200 {"deleted": n}` (removes all stale links; `stale=true` is required, else 422) |
@@ -1216,3 +1217,246 @@ in production"), writes the same text as a `system` event, and `GET /api/health`
 | `topology.refresh` | `{"refresh": TopologyRefresh}` | refresh started and finished; admins only |
 | `config.changed` | `entity` gains `"maintenance_window"`, `"topology_link"` | as today |
 | `device.status` / `group.status` | `status_counts` include `unreachable` | as today |
+
+---
+
+## [2b-2] Phase 2b-2 contract
+
+Switch ports view (port inventory, MAC/IP search) and the vendor template library. Table semantics and
+algorithms: [data-model.md § Phase 2b-2](data-model.md#2b-2-phase-2b-2-additions). All Phase 1/2a/2b-1
+conventions apply. Everything is **additive**: new keys in existing responses, new endpoints, new WS types.
+No endpoint performs SNMP on a GET: ports data is read from the last snapshot.
+
+### [2b-2] Errors
+| HTTP | code | When |
+|---|---|---|
+| 409 | `ports_disabled` | `POST /api/devices/{id}/ports/refresh` on a device whose port inventory and ARP collection are both not effective (`details: [{"port_inventory": "auto", "arp_collect": "auto", "effective_class": "server"}]`) |
+| 409 | `ports_refresh_running` | A run for this device is in progress (`details: [{"device_id": 3}]`) |
+| 404 | `not_found` | `GET /api/devices/{id}/ports/{if_index}` for an ifIndex not in the snapshot |
+| 422 | `validation_error` | `GET /api/search/mac` without exactly one of `q` / `ip`, a `q` that is not 6–12 hex digits after removing separators, or an invalid `ip` |
+
+### [2b-2] Type changes
+```ts
+type SensorType = /* … */ | "snmp_walk_count";                       // [2b-2]
+type InventoryMode = "auto" | "on" | "off";
+type TemplateSkipReason = "exists" | "probe_failed" | "snmp_error" | "max_reached" | "no_rows"
+  | "not_applicable";                                                // [2b-2]
+```
+
+- `Device` gains `port_inventory: InventoryMode`, `arp_collect: InventoryMode`, `ports_effective: boolean`,
+  `arp_effective: boolean`, `effective_class: DeviceClass` (identity class, else detected class, else
+  `"unknown"`). Device create / PATCH accept `port_inventory` and `arp_collect` (422 on other values; omitted on
+  create = `"auto"`). A change makes the device due at once (first run within ~60 s).
+- `Settings` gains `port_inventory_min: number` (0 or 5–1440), `uplink_mac_threshold: number` (1–1000),
+  `port_mac_retention_days: number` (1–365), `reverse_dns: boolean`. A change of `port_inventory_min`
+  takes effect on the next scheduler pass.
+- `GET /api/sensor-types` lists `snmp_walk_count` (config `oid` str, `count_values` int_list, `label` str,
+  `max_rows` int; channels `rows`, `matched`, `unmatched`, unit `#`, primary `matched`) and the new
+  `snmp_custom` field `percent_base` (enum `["total","sum"]`, default `"total"`).
+- `ApplyTemplateResult.skipped[].reason` may be `not_applicable`.
+- `DeviceTemplate`, `TemplateEntry` and the match rule gain keys (below).
+
+### [2b-2] Ports
+
+```ts
+type PortKind = "physical" | "lag" | "vlan" | "mgmt" | "other";
+type PortState = "up" | "down" | "admin_down" | "absent";
+type ConnectedKind = "none" | "client" | "ap" | "switch";
+type IfStatus = "up" | "down" | "testing" | "unknown" | "dormant" | "notPresent" | "lowerLayerDown";
+type SourceState = "ok" | "empty" | "error" | "skipped" | "unmapped";
+
+type PortPoe = { admin_enabled: boolean | null;
+  detection: "disabled" | "searching" | "delivering" | "fault" | "test" | "other_fault" | null;
+  power_class: number | null;          // 0–4
+  power_w: number | null };            // null on every device in 2b-2 (no vendor column yet)
+
+type PortMac = { mac: string;          // "aa:bb:cc:dd:ee:ff"
+  vlan: number | null; vendor: string | null; locally_administered: boolean;
+  ip: string | null; ips: string[];    // ip = newest (may be a last-known, non-present one; then ips = [])
+  hostname: string | null;             // reverse DNS of ip
+  device_id: number | null; device_name: string | null;   // a monitored device whose host equals ip
+  first_seen: string; last_seen: string };
+
+type PortNeighbor = { link_id: number; source: "lldp" | "cdp" | "manual"; kind: "device" | "neighbor";
+  device_id: number | null; neighbor_id: number | null;
+  name: string;                        // device name, else neighbour sys_name, else chassis id
+  port: string;                        // the remote port text
+  device_class: DeviceClass | null;    // effective class (devices only)
+  status: Status | null;               // device rollup status (devices only)
+  mgmt_address: string | null };
+
+type Port = { if_index: number; name: string; descr: string; alias: string; kind: PortKind;
+  if_type: number | null; admin_status: IfStatus; oper_status: IfStatus;
+  state: PortState; alert: boolean; alert_reasons: ("sensor" | "errors" | "poe_fault")[];
+  speed_bps: number | null; duplex: "full" | "half" | "unknown" | null; mac: string | null;
+  last_change_at: string | null;
+  pvid: number | null; mode: "access" | "trunk" | null; untagged_vlans: number[]; tagged_vlans: number[];
+  poe: PortPoe | null;                 // null = no PoE row for this port
+  in_bps: number | null; out_bps: number | null;
+  in_errors_delta: number | null; out_errors_delta: number | null;
+  is_uplink: boolean; uplink_reason: "neighbor" | "mac_count" | null;
+  connected_kind: ConnectedKind; trunk: boolean;
+  neighbor: PortNeighbor | null;       // primary neighbour
+  mac_count: number;
+  first_mac: PortMac | null;           // null for uplinks
+  macs: PortMac[];                     // all present MACs; [] for uplinks (count only)
+  sensor_id: number | null; sensor_status: Status | null;  // linked snmp_interface sensor
+  collected_at: string };
+
+type PortDetail = Port & {
+  neighbors: PortNeighbor[];           // all non-stale neighbours of the port
+  macs_hidden: boolean;                // true when is_uplink and include_uplink_macs was not set
+  sensor: Sensor | null };             // the full linked sensor (channels with last values)
+
+type HealthItem = { category: "cpu" | "memory" | "temperature" | "poe" | "psu" | "fan";
+  status: Status; value: number | null; unit: string; text: string;
+  sensor_ids: number[]; primary_sensor_id: number };
+
+type PortInventoryStatus = { last_run_at: string | null; last_ok_at: string | null;
+  duration_ms: number | null; error: string | null; running: boolean; next_run_at: string | null;
+  sources: { if_xtable: SourceState; duplex: SourceState; bridge: SourceState; vlans: SourceState;
+             fdb: SourceState; poe: SourceState; arp: SourceState };
+  fdb_mib: "q_bridge" | "bridge" | null; vlan_mib: "static" | "current" | null;
+  ports: number; macs: number; arp_entries: number;
+  arp_sources: number };               // devices currently collecting ARP (global; 0 → no IPs anywhere)
+// next_run_at = last_run_at + port_inventory_min (now when never run); null when the interval is 0 or nothing is effective.
+// running = a run of this device is in progress (in-memory).
+
+type DevicePorts = { device_id: number; ports_effective: boolean; arp_effective: boolean;
+  port_inventory: InventoryMode; arp_collect: InventoryMode; effective_class: DeviceClass;
+  status: PortInventoryStatus;         // never-run devices: nulls, zeros, sources all "skipped"
+  settings: { interval_min: number; uplink_mac_threshold: number };
+  health: HealthItem[];
+  ports: Port[] };                     // all kinds, sorted by if_index; the last snapshot even when no longer effective
+```
+
+| Method & path | Role | Request | Response |
+|---|---|---|---|
+| `GET /api/devices/{id}/ports` | viewer | Query `kind` (repeatable; default all) | `200 DevicePorts` |
+| `GET /api/devices/{id}/ports/{if_index}` | viewer | Query `include_uplink_macs` (bool, default false; then the MAC list is returned for uplinks too, capped at 1000) | `200 PortDetail`, `404 not_found` |
+| `POST /api/devices/{id}/ports/refresh` | admin | — (no body) | `202 {"device_id": 3, "queued": true}`. Runs ports (if effective) and ARP (if effective) for this device now; `409 ports_disabled`, `409 ports_refresh_running`. `ports.updated` follows. When the device needs class detection (no identity, `detected_at` missing/old) the detection runs inside the request first (SNMP, 10 s budget), so the `202` / `409 ports_disabled` can take up to ≈ 10 s. |
+| `GET /api/search/mac` | viewer | Query **exactly one** of `q` (MAC in any notation — `aa:bb:cc:dd:ee:ff`, `aa-bb-…`, `aabb.ccdd.eeff`, `aabbccddeeff` — or a prefix of 6–11 hex digits) and `ip` (IPv4) | `200 MacSearchResult` |
+
+`GET /api/devices/{id}/ports` example (trimmed):
+
+```json
+{ "device_id": 3, "ports_effective": true, "arp_effective": false,
+  "port_inventory": "auto", "arp_collect": "auto", "effective_class": "switch",
+  "status": { "last_run_at": "2026-11-05T10:00:00Z", "last_ok_at": "2026-11-05T10:00:00Z", "duration_ms": 2140,
+              "error": null, "running": false, "next_run_at": "2026-11-05T10:10:00Z",
+              "sources": { "if_xtable": "ok", "duplex": "ok", "bridge": "ok", "vlans": "ok", "fdb": "ok",
+                           "poe": "ok", "arp": "skipped" },
+              "fdb_mib": "q_bridge", "vlan_mib": "static", "ports": 13, "macs": 14, "arp_entries": 0,
+              "arp_sources": 2 },
+  "settings": { "interval_min": 10, "uplink_mac_threshold": 5 },
+  "health": [ { "category": "cpu", "status": "up", "value": 7, "unit": "%", "text": "", "sensor_ids": [41], "primary_sensor_id": 41 },
+              { "category": "psu", "status": "down", "value": null, "unit": "", "text": "0/1", "sensor_ids": [44], "primary_sensor_id": 44 } ],
+  "ports": [
+    { "if_index": 1, "name": "1", "descr": "1", "alias": "Reception PC", "kind": "physical", "if_type": 6,
+      "admin_status": "up", "oper_status": "up", "state": "up", "alert": false, "alert_reasons": [],
+      "speed_bps": 1000000000, "duplex": "full", "mac": "00:1a:1e:00:01:01", "last_change_at": "2026-11-05T07:13:20Z",
+      "pvid": 1, "mode": "access", "untagged_vlans": [1], "tagged_vlans": [],
+      "poe": { "admin_enabled": true, "detection": "delivering", "power_class": 3, "power_w": null },
+      "in_bps": 18233.6, "out_bps": 90211.2, "in_errors_delta": 0, "out_errors_delta": 0,
+      "is_uplink": false, "uplink_reason": null, "connected_kind": "client", "trunk": false,
+      "neighbor": null, "mac_count": 1,
+      "first_mac": { "mac": "00:50:56:01:00:01", "vlan": 1, "vendor": "VMware, Inc.", "locally_administered": false,
+                     "ip": "10.0.0.11", "ips": ["10.0.0.11"], "hostname": "pc-reception.lan",
+                     "device_id": null, "device_name": null,
+                     "first_seen": "2026-11-04T08:00:00Z", "last_seen": "2026-11-05T10:00:00Z" },
+      "macs": [ { "mac": "00:50:56:01:00:01", "...": "same as first_mac" } ],
+      "sensor_id": null, "sensor_status": null, "collected_at": "2026-11-05T10:00:00Z" },
+    { "if_index": 10, "name": "10", "...": "...", "state": "up", "is_uplink": true, "uplink_reason": "neighbor",
+      "connected_kind": "switch", "trunk": true,
+      "neighbor": { "link_id": 7, "source": "lldp", "kind": "device", "device_id": 5, "neighbor_id": null,
+                    "name": "access-1", "port": "Ten-GigabitEthernet1/0/49", "device_class": "switch",
+                    "status": "up", "mgmt_address": "10.0.0.5" },
+      "mac_count": 2, "first_mac": null, "macs": [] } ] }
+```
+
+Search result:
+
+```ts
+type MacLocation = { mac: string; vendor: string | null; locally_administered: boolean;
+  ip: string | null; ips: string[]; hostname: string | null;
+  device_id: number; device_name: string; device_host: string;
+  if_index: number; port: string; port_alias: string; vlan: number | null;
+  is_uplink: boolean; present: boolean; first_seen: string; last_seen: string;
+  best: boolean };                     // the most likely access port of this MAC (≤ 1 per MAC)
+type ArpHit = { ip: string; mac: string; hostname: string | null; source_device_id: number;
+  source_device_name: string; present: boolean; first_seen: string; last_seen: string };
+type MacSearchResult = { query: { mac: string | null; mac_prefix: string | null; ip: string | null };
+  items: MacLocation[];                // ≤ 200
+  arp: ArpHit[] };                     // ≤ 50; the ARP rows behind the answer
+```
+
+- `q` with 12 hex digits → exact MAC (`query.mac` normalised); 6–11 → prefix on the hex digits
+  (`query.mac_prefix` lower-case hex, e.g. `"00505601"`). The server turns the prefix into the stored colon
+  form and searches `mac LIKE '00:50:56:01%'` (odd digit count: `'0050560'` → `'00:50:56:0%'`), served by the
+  index `ix_port_macs_mac_prefix` (`varchar_pattern_ops`, migration 0005); never `replace(mac, ':', '')`. `ip` → the MACs that `arp_entries` maps that IP to
+  (present first, then newest), then their locations (`query.ip`).
+- `items` sort: `best` desc, `present` desc, `is_uplink` asc, `last_seen` desc, `device_name`, `if_index`.
+  `best` = for each MAC, its first row in that order if it is `present` and not an uplink.
+- Uplink status in search uses the same rule as the port view.
+
+### [2b-2] Device templates
+
+```ts
+type TemplateRule = { device_classes: DeviceClass[] | null; vendors: string[] | null; requires_snmp: boolean;
+  any_open_ports: number[] | null; enterprises: number[] | null;
+  sys_object_id_prefixes: string[] | null;            // [2b-2]
+  sys_descr_regex: string | null };                    // [2b-2]
+type TemplateFilter = { oid: string; in: number[] | null; not_in: number[] | null };
+type Confidence = "high" | "medium" | "low";
+type TemplateEntry =
+  | { kind: "sensor"; type: SensorType; name: L10n; config: Record<string, unknown>; channels: ChannelOverride[];
+      interval_s: number | null; probe: boolean;
+      when: TemplateFilter[];                          // [2b-2]
+      confidence: Confidence | null; notes: string }   // [2b-2]
+  | { kind: "snmp_interfaces"; oper_up_only: boolean; exclude_if_types: number[]; include_name_regex: string | null;
+      exclude_name_regex: string | null; max: number; channels: ChannelOverride[];
+      confidence: Confidence | null; notes: string }
+  | { kind: "snmp_table"; walk_oid: string; label_oid: string | null; label2_oid: string | null;
+      percent_of_column: string | null; name: L10n; config: Record<string, unknown>; channels: ChannelOverride[];
+      max: number; skip_zero: boolean; filters: TemplateFilter[]; interval_s: number | null;
+      confidence: Confidence | null; notes: string };
+type DeviceTemplate = { id: string; name: L10n; description: L10n; requires_snmp: boolean; priority: number;
+  match: TemplateRule[]; entries: TemplateEntry[];
+  version: number; verified: boolean; verified_note: string; vendor: string | null;   // [2b-2]
+  source: "builtin" | "user"; overrides_builtin: boolean; file: string };             // [2b-2]
+type TemplateLoadError = { source: "builtin" | "user"; file: string; template_id: string | null;
+  path: string; message: string };
+type TemplateLibraryStatus = { loaded_at: string; builtin_count: number; user_count: number;
+  overridden: string[];                // ids of built-ins replaced by user files, sorted
+  user_dir: string;                    // absolute path of ${NETMON_DATA_DIR}/templates (admins only, else "")
+  errors: TemplateLoadError[] };       // admins only, else []
+```
+
+| Method & path | Role | Response |
+|---|---|---|
+| `GET /api/device-templates` | viewer | `{"items": DeviceTemplate[], "library": TemplateLibraryStatus}` — items sorted by `priority` desc, then `id`. `library.errors`/`user_dir` are filled for admins only. |
+| `GET /api/device-templates/{id}` | viewer | `DeviceTemplate` (unchanged otherwise) |
+| `POST /api/device-templates/reload` | admin | — (no body). Re-reads the built-in library and the user directory, swaps the registry atomically. `200 TemplateLibraryStatus` (always 200: a bad file — invalid syntax, too large, too deeply nested, any validation error — is only an entry in `errors`, never a 500, and never removes the other templates). Broadcasts `templates.reloaded`. |
+| `POST /api/devices/{id}/apply-template` | admin | unchanged; `template_id` is validated against the **current** registry (user templates included). |
+
+`POST /api/discovery/import` validates `template_id` against the current registry too (unknown → 422, loc as
+today).
+
+### [2b-2] WebSocket additions
+
+| type | data | When / who |
+|---|---|---|
+| `ports.updated` | `{"device_id": 3, "ok": true, "collected_at": "2026-11-05T10:00:00Z", "arp_source": false}` | After every port/ARP run of a device (scheduled or manual), also failed ones (`ok: false`); all. `arp_source` = this run collected ARP for the device (`arp_effective`), so clients know without their own cache. Clients refetch `GET /api/devices/{id}/ports` (and an open port modal). |
+| `templates.reloaded` | `{"loaded_at": "...", "count": 19, "error_count": 0}` | After `POST /api/device-templates/reload` (not at startup); all. Clients invalidate the templates queries. |
+| `config.changed` | unchanged; a device PATCH of `port_inventory` / `arp_collect` is a normal `device` update | as today |
+
+**Client behaviour on `ports.updated`** (replaces the earlier "refetch everything" recommendation — with many
+switches that refetched every few seconds):
+- `data.device_id` = the device whose ports view / port modal is open → refetch `GET /api/devices/{id}/ports`
+  and the open port detail at once;
+- `data.arp_source` is true (an **ARP source**; older servers without the key: `arp_effective` from the cached `/api/devices`) → IPs/hostnames shown
+  elsewhere may have changed: mark the open ports view / port detail stale, refetch them **debounced** (trailing,
+  at most once per 30 s, only while a view/detail is open, so a wall-screen dashboard with no focus events also
+  updates) and also on the next window focus;
+- any other device → nothing;
+- MAC/IP search results (`mac-search`) are **not** invalidated (the user re-runs the search).

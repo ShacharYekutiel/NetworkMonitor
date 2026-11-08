@@ -2,7 +2,7 @@ import { createContext, useContext, useEffect, useMemo, useState, type ReactNode
 import { useQueryClient } from '@tanstack/react-query';
 import { LiveSocket, type WsState } from '../api/ws';
 import { qk } from '../api/endpoints';
-import { applyLiveMessage, InvalidationBatcher } from '../lib/liveCache';
+import { applyLiveMessage, cancelArpRefetch, InvalidationBatcher } from '../lib/liveCache';
 import { useAuth } from './auth';
 
 const Ctx = createContext<WsState>('closed');
@@ -31,6 +31,10 @@ export function LiveProvider({ children }: { children: ReactNode }) {
           void qc.invalidateQueries({ queryKey: ['sensors'] });
           void qc.invalidateQueries({ queryKey: ['sensor'] });
           void qc.invalidateQueries({ queryKey: ['device'] });
+          // [2b-2] port runs and template reloads may have happened meanwhile.
+          void qc.invalidateQueries({ queryKey: ['device-ports'] });
+          void qc.invalidateQueries({ queryKey: ['port-detail'] });
+          void qc.invalidateQueries({ queryKey: qk.deviceTemplates });
         },
       }),
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -48,6 +52,7 @@ export function LiveProvider({ children }: { children: ReactNode }) {
       offState();
       socket.stop();
       batch.dispose();
+      cancelArpRefetch(qc);
     };
   }, [authState, socket, qc]);
 

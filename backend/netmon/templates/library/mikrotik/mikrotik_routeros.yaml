@@ -1,0 +1,86 @@
+# MikroTik RouterOS (MIKROTIK-MIB health 1.3.6.1.4.1.14988.1.1.3), HOST-RESOURCES, IF-MIB.
+# Rows 5-7 (scalars) and the gauge table (RouterOS >= 6.47 / 7) may both exist on some models.
+schema: 1
+id: mikrotik_routeros
+version: 1
+vendor: mikrotik
+verified: false
+verified_note: ""
+name: {en: "MikroTik RouterOS", he: "MikroTik RouterOS"}
+description:
+  en: "Ping, system, CPU, memory, temperature, voltage, fans and active interfaces"
+  he: "פינג, מערכת, מעבד, זיכרון, טמפרטורה, מתח, מאווררים וממשקים פעילים"
+requires_snmp: true
+priority: 50
+match:
+  - {requires_snmp: true, enterprises: [14988]}
+entries:
+  - {kind: sensor, type: ping, name: {en: Ping, he: פינג}}
+  - {kind: sensor, type: snmp_system, name: {en: System, he: מערכת}}
+  - {kind: sensor, type: snmp_cpu, name: {en: CPU Load, he: עומס מעבד}, probe: true}
+  - {kind: sensor, type: snmp_memory, name: {en: Memory, he: זיכרון}, probe: true}
+  - kind: sensor
+    type: snmp_custom
+    name: {en: Temperature, he: טמפרטורה}
+    config:
+      oid: '1.3.6.1.4.1.14988.1.1.3.10.0'             # mtxrHlTemperature (dC)
+      value_type: gauge
+      multiplier: 0.1
+      unit: '°C'
+      label: Temperature
+    channels: [{key: value, warning_max: 60, down_max: 75}]
+    probe: true
+    confidence: medium
+    notes: "Absent on many RouterOS 7 models."
+  - kind: sensor
+    type: snmp_custom
+    name: {en: CPU temperature, he: טמפרטורת מעבד}
+    config:
+      oid: '1.3.6.1.4.1.14988.1.1.3.11.0'             # mtxrHlProcessorTemperature (dC)
+      value_type: gauge
+      multiplier: 0.1
+      unit: '°C'
+      label: CPU temperature
+    channels: [{key: value, warning_max: 70, down_max: 85}]
+    probe: true
+    confidence: medium
+  - kind: sensor
+    type: snmp_custom
+    name: {en: Voltage, he: מתח}
+    config:
+      oid: '1.3.6.1.4.1.14988.1.1.3.8.0'              # mtxrHlVoltage (dV)
+      value_type: gauge
+      multiplier: 0.1
+      unit: V
+      label: Voltage
+    probe: true
+    confidence: medium
+  - kind: snmp_table
+    walk_oid: '1.3.6.1.4.1.14988.1.1.3.100.1.3'       # mtxrGaugeValue
+    label_oid: '1.3.6.1.4.1.14988.1.1.3.100.1.2'      # mtxrGaugeName
+    name: {en: '{label}', he: '{label}'}
+    config: {value_type: gauge, unit: '°C'}
+    channels: [{key: value, warning_max: 70, down_max: 85}]
+    filters: [{oid: '1.3.6.1.4.1.14988.1.1.3.100.1.4', in: [1]}]   # mtxrGaugeUnit celsius(1)
+    max: 8
+    confidence: medium
+    notes: "Gauge table, temperature rows."
+  - kind: snmp_table
+    walk_oid: '1.3.6.1.4.1.14988.1.1.3.100.1.3'
+    label_oid: '1.3.6.1.4.1.14988.1.1.3.100.1.2'
+    name: {en: '{label}', he: '{label}'}
+    config: {value_type: gauge, unit: V, multiplier: 0.1}
+    filters: [{oid: '1.3.6.1.4.1.14988.1.1.3.100.1.4', in: [3]}]   # dV(3)
+    max: 8
+    confidence: medium
+    notes: "Gauge table, voltage rows."
+  - kind: snmp_table
+    walk_oid: '1.3.6.1.4.1.14988.1.1.3.100.1.3'
+    label_oid: '1.3.6.1.4.1.14988.1.1.3.100.1.2'
+    name: {en: '{label}', he: '{label}'}
+    config: {value_type: gauge, unit: rpm}
+    filters: [{oid: '1.3.6.1.4.1.14988.1.1.3.100.1.4', in: [2]}]   # rpm(2)
+    max: 8
+    confidence: medium
+    notes: "Gauge table, fan rows."
+  - {kind: snmp_interfaces, oper_up_only: true, exclude_if_types: [1, 24, 53, 131, 136], max: 32}

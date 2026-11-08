@@ -1,0 +1,83 @@
+# Aruba CX switch (enterprise 47196). ARUBAWIRED-* MIBs are NOT used yet (column layout and value
+# types unconfirmed): standard MIBs only (HOST-RESOURCES/UCD, ENTITY-SENSOR-MIB RFC 3433,
+# ENTITY-MIB, POWER-ETHERNET-MIB, IF-MIB). Completed after the owner's snmpwalk (§ 11.8).
+schema: 1
+id: aruba_cx
+version: 1
+vendor: aruba
+verified: false
+verified_note: ""
+name: {en: "Aruba CX switch", he: "מתג Aruba CX"}
+description:
+  en: "Ping, system, CPU, memory, temperature and sensor status, PoE and active ports"
+  he: "פינג, מערכת, מעבד, זיכרון, טמפרטורה ומצב חיישנים, PoE ופורטים פעילים"
+requires_snmp: true
+priority: 50
+match:
+  - {requires_snmp: true, enterprises: [47196]}
+entries:
+  - {kind: sensor, type: ping, name: {en: Ping, he: פינג}}
+  - {kind: sensor, type: snmp_system, name: {en: System, he: מערכת}}
+  - kind: sensor
+    type: snmp_cpu
+    name: {en: CPU Load, he: עומס מעבד}
+    probe: true
+    confidence: low
+    notes: "HOST-RESOURCES / UCD (generic); CX support unknown."
+  - kind: sensor
+    type: snmp_memory
+    name: {en: Memory, he: זיכרון}
+    probe: true
+    confidence: low
+    notes: "HOST-RESOURCES (generic); CX support unknown."
+  - kind: snmp_table
+    walk_oid: '1.3.6.1.2.1.99.1.1.1.4'          # entPhySensorValue
+    label_oid: '1.3.6.1.2.1.47.1.1.1.1.7'       # entPhysicalName
+    name: {en: 'Temperature {label}', he: 'טמפרטורה {label}'}
+    config: {value_type: gauge, unit: '°C'}
+    channels: [{key: value, warning_max: 65, down_max: 80}]
+    filters: [{oid: '1.3.6.1.2.1.99.1.1.1.1', in: [8]}]   # entPhySensorType celsius(8)
+    max: 16
+    confidence: medium
+    notes: "ENTITY-SENSOR-MIB: MIB high, CX support medium. Scale/precision (.2/.3) ignored (low)."
+  - kind: snmp_table
+    walk_oid: '1.3.6.1.2.1.99.1.1.1.5'          # entPhySensorOperStatus
+    label_oid: '1.3.6.1.2.1.47.1.1.1.1.7'       # entPhysicalName
+    name: {en: '{label} status', he: '{label} מצב'}
+    config:
+      value_type: enum
+      value_map:                                 # EntitySensorStatus
+        1: {status: up, text: ok}
+        2: {status: warning, text: unavailable}
+        3: {status: down, text: nonoperational}
+      value_map_default: warning
+    max: 32
+    interval_s: 300
+    confidence: medium
+    notes: "ENTITY-SENSOR-MIB: MIB high, CX support medium."
+  - kind: snmp_table
+    walk_oid: '1.3.6.1.2.1.105.1.3.1.1.4'             # pethMainPseConsumptionPower
+    percent_of_column: '1.3.6.1.2.1.105.1.3.1.1.2'    # pethMainPsePower
+    name: {en: 'PoE {index} usage', he: 'PoE {index} ניצול'}
+    config: {value_type: gauge, unit: '%'}
+    channels: [{key: value, warning_max: 80, down_max: 95}]
+    filters: [{oid: '1.3.6.1.2.1.105.1.3.1.1.2', not_in: [0]}]
+    max: 8
+    confidence: high
+    notes: "POWER-ETHERNET-MIB (RFC 3621); identical to hpe_arubaos_switch."
+  - kind: snmp_table
+    walk_oid: '1.3.6.1.2.1.105.1.3.1.1.4'
+    name: {en: 'PoE {index} power', he: 'PoE {index} הספק'}
+    config: {value_type: gauge, unit: W}
+    filters: [{oid: '1.3.6.1.2.1.105.1.3.1.1.2', not_in: [0]}]
+    max: 8
+    confidence: high
+  - kind: snmp_table
+    walk_oid: '1.3.6.1.2.1.105.1.3.1.1.2'
+    name: {en: 'PoE {index} budget', he: 'PoE {index} תקציב'}
+    config: {value_type: gauge, unit: W}
+    max: 8
+    skip_zero: true
+    interval_s: 3600
+    confidence: high
+  - {kind: snmp_interfaces, oper_up_only: true, exclude_if_types: [1, 24, 53, 131, 136], max: 52}

@@ -1,10 +1,12 @@
-# NetworkMonitor — Data Model (Phase 1 + Phase 2a + Phase 2b-1)
+# NetworkMonitor — Data Model (Phase 1 + Phase 2a + Phase 2b-1 + Phase 2b-2)
 
 Sections and rows marked **[2a]** belong to the Phase 2a contract (auto-discovery, device templates,
 `snmp_custom` / `snmp_disk` sensors, Telegram channel). Everything else is the Phase 1 contract and is unchanged.
 Phase 2a schema changes are all in **migration `0003`** (see [§ Phase 2a migration](#phase-2a-migration-0003)).
 Sections marked **[2b-1]** (dependencies, `unreachable`, maintenance, acknowledge, escalation, fingerprinting,
 HPE switch templates, topology) are in [§ Phase 2b-1](#2b-1-phase-2b-1-additions), migration `0004`.
+Sections marked **[2b-2]** (switch ports view, template library, vendor templates) are in
+[§ Phase 2b-2](#2b-2-phase-2b-2-additions), migration `0005`.
 
 PostgreSQL ≥ 14 holds the data, and TimescaleDB is optional (see [architecture.md §6](architecture.md)). Alembic
 migrations own the schema.
@@ -823,7 +825,7 @@ Templates live in `netmon/templates/builtin.py` as data and are read-only. The A
 |---|---|---|
 | `sensor` | `type`, `name` (en/he), `config`, `channels` (threshold overrides, as in POST /api/sensors), `interval_s` (int \| null = default), `probe` (bool) | Creates one sensor. With `probe: true`, the backend first runs the check once (exactly like `POST /api/sensors/test`) and creates the sensor only if the result has `ok: true`. |
 | `snmp_interfaces` | `oper_up_only` (bool), `exclude_if_types` (int[]), `include_name_regex` (str \| null), `exclude_name_regex` (str \| null), `max` (int), `channels` | Enumerates interfaces like `GET /api/devices/{id}/snmp/interfaces`. Keeps interfaces with `oper_status = up` (if `oper_up_only`), `type` not in `exclude_if_types`, name (ifName, else ifDescr) matching include and not matching exclude (Python `re.search`, case-insensitive). Sorted by `if_index`; the first `max` are created as `snmp_interface` with `{"if_index", "if_name"}` and name = if_name. |
-| `snmp_table` | `walk_oid`, `label_oid` (\| null), `label2_oid` (\| null), `percent_of_column` (\| null), `name` (en/he, with `{label}` and `{index}` placeholders), `config` (snmp_custom config without `oid`/`percent_of_oid`/`label`), `channels`, `max` | Walks `walk_oid`. For each row suffix `S` (sorted, first `max`): creates an `snmp_custom` sensor with `oid = walk_oid + "." + S`, `percent_of_oid = percent_of_column + "." + S` (when set), `label` = text of `label_oid.S` (+ `" (" + label2_oid.S + ")"` when label2 is set and non-empty), falling back to `S`. Name = `name` with `{label}`/`{index}` substituted, cut to 128 chars. |
+| `snmp_table` | `walk_oid`, `label_oid` (\| null), `label2_oid` (\| null), `percent_of_column` (\| null), `name` (en/he, with `{label}` and `{index}` placeholders), `config` (snmp_custom config without `oid`/`percent_of_oid`/`label`), `channels`, `max` | Walks `walk_oid`. For each row suffix `S` (sorted, first `max`): creates an `snmp_custom` sensor with `oid = walk_oid + "." + S`, `percent_of_oid = percent_of_column + "." + S` (when set), `label` = text of `label_oid.S` (+ `" (" + label2_oid.S + ")"` when label2 is set and non-empty), falling back to `S`. **Unique labels (2b-2, owner's IRF test):** when several selected rows share a label, and `label_oid` is ENTITY-MIB `entPhysicalName`, each gets `" · " + unit`, where unit is the chassis (`entPhysicalClass` 3) it sits in via `entPhysicalContainedIn`: the chassis name when all chassis names differ, else `Unit n` / `יחידה n` (chassis in index order); only when the device has more than one chassis. Labels still shared then get `" #n"`. Re-applying renames an existing sensor (same identity) whose name is still the old ambiguous one; a name the user changed is kept (skip reason `exists`, message `Renamed`). Name = `name` with `{label}`/`{index}` substituted, cut to 128 chars. |
 
 ### Idempotency ("apply" adds only what is missing)
 A template entry is skipped with reason `exists` when the device already has a sensor with the same identity:
@@ -1583,3 +1585,845 @@ copy `alert_state` rows with `status IN ('down','warning') AND cardinality(notif
 `UPDATE events SET old_status='down' WHERE old_status='unreachable'` (same for `new_status`),
 `DELETE FROM events WHERE kind IN ('acknowledge','maintenance')`; restore the old checks. Settings rows
 `timezone`/`topology_refresh_min` are harmless and stay.
+
+---
+
+# **[2b-2]** Phase 2b-2 additions
+
+Scope: the **switch ports view** (port inventory job, MAC table, ARP, reverse DNS, OUI vendors, uplink detection,
+health strip) and the **vendor template library** (templates as YAML data files, user overrides, reload,
+`verified` / `confidence`, new vendor templates, new sensor type `snmp_walk_count`, small `snmp_custom` /
+template additions). All schema changes are in **migration `0005`**
+([§ Phase 2b-2 migration](#2b-2-phase-2b-2-migration-0005)). Everything is **additive** to 2b-1: no column
+changes meaning, no row is rewritten.
+
+API shapes: [api.md § Phase 2b-2](api.md#2b-2-phase-2b-2-contract). Components and the faceplate parser:
+[architecture.md § 11](architecture.md#11-phase-2b-2-switch-ports-view-vendor-template-library).
+
+## [2b-2] Enum changes
+
+| Name | Values |
+|---|---|
+| `sensor_type` | … 2a/2b-1 values, **[2b-2]** `snmp_walk_count` |
+| `skip_reason` | `exists`, `probe_failed`, `snmp_error`, `max_reached`, `no_rows`, **[2b-2]** `not_applicable` |
+| **[2b-2]** `inventory_mode` | `auto`, `on`, `off` (for `devices.port_inventory` and `devices.arp_collect`) |
+| **[2b-2]** `port_kind` | `physical`, `lag`, `vlan`, `mgmt`, `other` |
+| **[2b-2]** `port_state` | `up`, `down`, `admin_down`, `absent` (computed, not stored) |
+| **[2b-2]** `port_mode` | `access`, `trunk` |
+| **[2b-2]** `duplex` | `full`, `half`, `unknown` |
+| **[2b-2]** `poe_detection` | `disabled`, `searching`, `delivering`, `fault`, `test`, `other_fault` |
+| **[2b-2]** `connected_kind` | `none`, `client`, `ap`, `switch` (computed) |
+| **[2b-2]** `uplink_reason` | `neighbor`, `mac_count` (computed) |
+| **[2b-2]** `health_category` | `cpu`, `memory`, `temperature`, `poe`, `psu`, `fan` (computed) |
+| **[2b-2]** `source_state` | `ok`, `empty`, `error`, `skipped`, `unmapped` |
+| **[2b-2]** `template_source` | `builtin`, `user` |
+| `confidence` (2b-1) | `high`, `medium`, `low` — now also used per template entry |
+
+`device_class` is **unchanged** (no `firewall` / `ups` class): `router` keeps covering firewalls and
+gateways; UPS / BMC templates match by enterprise / sysObjectID, not by class.
+
+## [2b-2] Devices: inventory flags
+
+`devices` gains:
+
+| Column | Type | Constraints |
+|---|---|---|
+| port_inventory | text | NOT NULL DEFAULT `auto`, CHECK in inventory_mode (`devices_port_inventory_check`) |
+| arp_collect | text | NOT NULL DEFAULT `auto`, CHECK in inventory_mode (`devices_arp_collect_check`) |
+
+**Effective class** of a device (used by `auto`, by uplink detection and by the neighbour icon):
+`devices.identity.device_class` when `identity` is not null, else `port_inventory_status.detected_class`
+(below), else `unknown`.
+
+**Eligibility** (evaluated by the scheduler on every pass, and by the API for `ports_effective` /
+`arp_effective`):
+
+| Flag | `on` | `auto` | `off` |
+|---|---|---|---|
+| ports (`port_inventory`) | device `enabled` | device `enabled` AND ≥ 1 sensor of a `requires_snmp` type AND effective class = `switch` | never |
+| ARP (`arp_collect`) | device `enabled` | device `enabled` AND ≥ 1 `requires_snmp` sensor AND effective class = `router` | never |
+
+**Class detection for devices without `identity`** (manually added, or imported before 2b-1): for an `auto`
+device with ≥ 1 SNMP sensor whose `identity` is null and whose `detected_at` is null or older than 24 h, the
+scheduler GETs `sysDescr.0`, `sysObjectID.0`, `sysName.0` (effective credentials **with the device's own
+`retries`**) plus **one GETNEXT with the five `SUBTREE_PROBES` varbinds** (as discovery, so a Check Point
+gateway behind the net-snmp Linux sysObjectID is found by the `checkpoint` probe), and runs the pure
+`classify()` rules 1–12 (no FreeBSD walk, `snmp_ok = true`). The class is written to
+`port_inventory_status.detected_class` / `detected_at`. 10 s budget per device.
+**Detection failure** (SNMP error / timeout): the previous `detected_class` is **kept** (only a device that never
+had a class gets `unknown`), and `detected_at = now − 23 h` so detection retries in ≈ 1 h; a failure never
+demotes a known class. A later identify / import that fills `identity` takes precedence.
+`PATCH /api/devices/{id}` clears `detected_at` (and makes the device due) only on a **real change**: `host`
+differs from the stored host, or the merged `snmp_credentials` (after secret merging) differ from the stored
+credentials. Re-sending unchanged credentials (the device form always sends them) changes nothing.
+
+## [2b-2] `switch_ports` (latest snapshot per port)
+
+One row per ifTable row of an inventoried device. Only the latest snapshot is kept: each **successful** run
+upserts every row it saw and deletes the device's rows it did not see.
+
+| Column | Type | Constraints / meaning |
+|---|---|---|
+| device_id | integer | NOT NULL, FK `devices.id` ON DELETE CASCADE |
+| if_index | integer | NOT NULL. PK `(device_id, if_index)` |
+| name | varchar(255) | NOT NULL DEFAULT '' — ifName, else ifDescr |
+| descr | varchar(255) | NOT NULL DEFAULT '' — ifDescr |
+| alias | varchar(255) | NOT NULL DEFAULT '' — ifAlias |
+| if_type | integer | NULL — ifType |
+| kind | text | NOT NULL CHECK in port_kind (rule below) |
+| admin_status | text | NOT NULL — IF-MIB name (`up`, `down`, `testing`, `unknown`, `dormant`, `notPresent`, `lowerLayerDown`), as in `services/snmp_enum.IF_STATUS`; unknown codes → `unknown` |
+| oper_status | text | NOT NULL — same names |
+| speed_bps | bigint | NULL — ifHighSpeed × 10⁶ when > 0, else ifSpeed when > 0, else NULL |
+| duplex | text | NULL CHECK in duplex — dot3StatsDuplexStatus: 1 → `unknown`, 2 → `half`, 3 → `full`; no row → NULL |
+| mac | varchar(17) | NULL — ifPhysAddress, `aa:bb:cc:dd:ee:ff`; not 6 octets → NULL |
+| last_change_at | timestamptz | NULL — see [last change](#last-change) |
+| bridge_port | integer | NULL — dot1dBasePort mapped to this ifIndex |
+| pvid | integer | NULL — dot1qPvid of `bridge_port` |
+| mode | text | NULL CHECK in port_mode |
+| untagged_vlans | integer[] | NOT NULL DEFAULT '{}' — sorted asc |
+| tagged_vlans | integer[] | NOT NULL DEFAULT '{}' — sorted asc |
+| poe_admin_enabled | boolean | NULL (no PoE row for the port → all `poe_*` NULL) |
+| poe_detection | text | NULL CHECK in poe_detection |
+| poe_class | smallint | NULL — 0–4 |
+| poe_power_w | double precision | NULL — vendor per-port power, see [PoE](#poe-per-port) |
+| in_octets / out_octets | numeric(20,0) | NULL — raw counters of this snapshot (HC when available) |
+| counter_bits | smallint | NULL — 32 or 64 (which counters the octets are) |
+| in_errors / out_errors | bigint | NULL — raw ifInErrors / ifOutErrors |
+| in_bps / out_bps | double precision | NULL — rate since the previous snapshot |
+| in_errors_delta / out_errors_delta | bigint | NULL — errors since the previous snapshot |
+| mac_count | integer | NOT NULL DEFAULT 0 — present learned MACs on this port |
+| collected_at | timestamptz | NOT NULL — time of the run that wrote the row |
+
+Index: none beyond the PK.
+
+**`kind`** (pure `netmon.ports.collect.port_kind(if_type, name)`), first match wins:
+1. `name` matches `(?i)^(m-gigabitethernet|mgmt|management|oobm|mgmteth|ma\d)` → `mgmt`;
+2. `if_type` ∈ {6 ethernetCsmacd, 62 fastEther, 69 fastEtherFX, 117 gigabitEthernet} → `physical`;
+3. `if_type` ∈ {161 ieee8023adLag, 54 propMultiplexor} → `lag` (ArubaOS `Trk*`, Comware `Bridge-Aggregation*`;
+   medium);
+4. `if_type` ∈ {53 propVirtual, 136 l3ipvlan, 135 l2vlan} → `vlan`;
+5. else `other`.
+
+**Rates.** With the previous row of the same port (same `counter_bits`):
+`Δt = collected_at − previous.collected_at` (seconds, must be > 0); `Δ = octets − previous.octets`; `Δ < 0` with
+32 bits → `Δ + 2³²`; `Δ < 0` with 64 bits → rate NULL; `in_bps = Δ × 8 / Δt` (rounded to 1 decimal). No
+previous row, a changed `counter_bits`, or a missing counter → NULL. Error deltas: `Δ ≥ 0` → Δ, `Δ < 0` →
+NULL (counter reset / 32-bit wrap is not corrected for errors). Counters come from ifHCInOctets/ifHCOutOctets
+when that column answered for the port (`counter_bits = 64`), else ifInOctets/ifOutOctets (32).
+
+### Last change
+`ifLastChange` (TimeTicks of sysUpTime at the last oper change). With `sysUpTime.0` from the same run:
+`ifLastChange = 0` or `ifLastChange > sysUpTime` → NULL; else
+`last_change_at = collected_at − (sysUpTime − ifLastChange) / 100 s`. (sysUpTime wraps after 497 days; the
+value is then wrong, accepted.)
+
+## [2b-2] `port_macs` (MAC table with first/last seen)
+
+| Column | Type | Constraints / meaning |
+|---|---|---|
+| id | bigint | PK, GENERATED ALWAYS AS IDENTITY |
+| device_id | integer | NOT NULL, FK `devices.id` ON DELETE CASCADE |
+| if_index | integer | NOT NULL — the port it was last learned on |
+| mac | varchar(17) | NOT NULL — `aa:bb:cc:dd:ee:ff` |
+| vlan | integer | NULL — NULL when the FDB came from BRIDGE-MIB (no VLAN) |
+| present | boolean | NOT NULL DEFAULT true — in the latest successful FDB read |
+| first_seen | timestamptz | NOT NULL — first seen **on this port** |
+| last_seen | timestamptz | NOT NULL |
+
+Indexes: `ux_port_macs_key` UNIQUE on `(device_id, mac, COALESCE(vlan, -1))`, `ix_port_macs_mac` on `(mac)`,
+`ix_port_macs_mac_prefix` on `(mac varchar_pattern_ops)` (MAC prefix search),
+`ix_port_macs_device_if` on `(device_id, if_index)` WHERE `present`.
+
+Write rules for a run whose FDB read succeeded (`sources.fdb` = `ok` or `empty`):
+- every learned entry → upsert by key: `present = true`, `last_seen = now`; a new row gets `first_seen = now`; an
+  existing row whose `if_index` changed (the MAC moved) gets the new `if_index` and `first_seen = now`;
+- every other row of the device with `present = true` → `present = false` (`last_seen` kept);
+- `switch_ports.mac_count` = number of present rows per port.
+A run whose FDB read failed (`error`) leaves `port_macs` and `mac_count` untouched.
+**Retention:** a daily task deletes rows with `present = false AND last_seen < now − port_mac_retention_days`.
+
+## [2b-2] `arp_entries` (MAC → IP from L3 devices)
+
+| Column | Type | Constraints / meaning |
+|---|---|---|
+| source_device_id | integer | NOT NULL, FK `devices.id` ON DELETE CASCADE |
+| ip | varchar(45) | NOT NULL — IPv4 dotted text (IPv6 entries are ignored in 2b-2). PK `(source_device_id, ip)` |
+| mac | varchar(17) | NOT NULL |
+| if_index | integer | NULL |
+| present | boolean | NOT NULL DEFAULT true |
+| first_seen, last_seen | timestamptz | NOT NULL (`first_seen` resets when the IP's MAC changes) |
+
+Indexes: `ix_arp_entries_mac` on `(mac)`, `ix_arp_entries_ip` on `(ip)`. Same present/retention rules as
+`port_macs` (keyed by IP), using `port_mac_retention_days`.
+
+**MAC → IP** (read side): the present rows for that MAC over all sources; `ip` = the one with the newest
+`last_seen` (ties: lowest IP numerically), `ips` = all of them sorted numerically. If none is present, the
+newest non-present row is used for `ip` (shown as last known), and `ips` is `[]`.
+
+## [2b-2] `dns_cache` (reverse DNS)
+
+| Column | Type | Constraints |
+|---|---|---|
+| ip | varchar(45) | PK |
+| name | varchar(255) | NULL (NULL = no PTR / lookup failed) |
+| resolved_at | timestamptz | NOT NULL |
+
+- Filled **only by the inventory job** (never on an API request), after the ARP read, for IPs of present
+  `arp_entries` whose cache row is missing, older than 24 h (name found) or older than 1 h (no name).
+- Lookup: `socket.getnameinfo((ip, 0), socket.NI_NAMEREQD)` (system resolver, works on Windows) run in a
+  **dedicated module-level `ThreadPoolExecutor(max_workers=8)`** (`loop.run_in_executor(_dns_pool, …)`), never
+  the default executor (pysnmp resolves every SNMP target through `loop.getaddrinfo` on the default executor;
+  slow PTR lookups there would stall all polling). 2 s timeout, at most 8 concurrent **in total** (one
+  module-level `asyncio.Semaphore(8)` shared by all devices), at most 256 lookups per job pass. The trailing dot is stripped; names are lower-cased.
+- Off when `settings.reverse_dns = false` (the cache is then not read either: `hostname` is null).
+- Test hook: with `NETMON_TEST_MODE=1`, `NETMON_TEST_PTR_FILE` (a JSON object `{"10.0.0.11": "pc.lan"}`)
+  replaces the resolver; IPs missing from the file resolve to no name.
+- Rows older than 7 days are deleted by the daily task.
+
+## [2b-2] `port_inventory_status`
+
+| Column | Type | Constraints / meaning |
+|---|---|---|
+| device_id | integer | PK, FK `devices.id` ON DELETE CASCADE |
+| last_run_at | timestamptz | NULL — start of the last run (ok or not) |
+| last_ok_at | timestamptz | NULL — start of the last run whose ifTable read succeeded |
+| duration_ms | integer | NULL |
+| error | text | NULL — last failure (`Timeout`, `ifTable not available`, SNMP error text), NULL after an ok run |
+| ports | integer | NOT NULL DEFAULT 0 |
+| macs | integer | NOT NULL DEFAULT 0 — present `port_macs` rows |
+| arp_entries | integer | NOT NULL DEFAULT 0 — present `arp_entries` rows with this device as source |
+| sources | jsonb | NOT NULL DEFAULT '{}' — see below |
+| detected_class | text | NULL CHECK in device_class |
+| detected_at | timestamptz | NULL |
+
+`sources` keys (each a `source_state`): `if_xtable`, `duplex`, `bridge`, `vlans`, `fdb`, `poe`, `arp`, plus
+`fdb_mib` (`"q_bridge"` \| `"bridge"` \| null) and `vlan_mib` (`"static"` \| `"current"` \| null). `skipped` =
+not attempted (v1 for ifXTable; ARP not enabled; ports not enabled on an ARP-only device). `empty` = the walk
+answered with no rows (the MIB is not implemented). `unmapped` = PoE rows exist but could not be mapped to
+ifIndexes.
+
+## [2b-2] Settings keys
+| Key | Type | Default | Limits | Meaning |
+|---|---|---|---|---|
+| `port_inventory_min` | int | `10` | `0` (off) or 5–1440 | Interval of the port inventory / ARP job per device |
+| `uplink_mac_threshold` | int | `5` | 1–1000 | A port with **more than** this many present MACs is an uplink |
+| `port_mac_retention_days` | int | `30` | 1–365 | Retention of non-present `port_macs` / `arp_entries` rows |
+| `reverse_dns` | bool | `true` | | Reverse DNS for ARP IPs |
+
+## [2b-2] Port inventory: SNMP data
+
+All walks use the device's effective credentials and the shared SNMP client (`snmp_walk`, per-v3-credential
+engines). Walk caps: ifTable/ifXTable/dot1d/dot1q/PoE columns 5000 rows each, FDB and ARP 20000 rows each.
+A walk that returns **exactly the cap** is treated as truncated: that source is `error` (the previous data is
+kept, a WARNING is logged), so a truncated FDB/ARP never marks the tail `present = false`.
+
+| # | Object | OID | Index | Required | Confidence |
+|---|---|---|---|---|---|
+| 1 | sysUpTime.0 | `1.3.6.1.2.1.1.3.0` (GET) | scalar | no | high |
+| 2 | ifDescr / ifType / ifSpeed / ifPhysAddress / ifAdminStatus / ifOperStatus / ifLastChange | `1.3.6.1.2.1.2.2.1` `.2` `.3` `.5` `.6` `.7` `.8` `.9` | ifIndex | **ifDescr yes** (no rows or an error → run failed) | high |
+| 3 | ifInOctets / ifInErrors / ifOutOctets / ifOutErrors | `1.3.6.1.2.1.2.2.1` `.10` `.14` `.16` `.20` | ifIndex | no | high |
+| 4 | ifName / ifHCInOctets / ifHCOutOctets / ifHighSpeed / ifAlias | `1.3.6.1.2.1.31.1.1.1` `.1` `.6` `.10` `.15` `.18` | ifIndex | no (skipped on v1) | high |
+| 5 | dot3StatsDuplexStatus | `1.3.6.1.2.1.10.7.2.1.19` | dot3StatsIndex = ifIndex | no | high |
+| 6 | dot1dBasePortIfIndex | `1.3.6.1.2.1.17.1.4.1.2` | dot1dBasePort | no | high |
+| 7 | dot1qPvid | `1.3.6.1.2.1.17.7.1.4.5.1.1` | dot1dBasePort | no | high |
+| 8 | dot1qVlanStaticEgressPorts / UntaggedPorts | `1.3.6.1.2.1.17.7.1.4.3.1.2` / `.4` | dot1qVlanIndex | no | high |
+| 8b | fallback: dot1qVlanCurrentEgressPorts / UntaggedPorts | `1.3.6.1.2.1.17.7.1.4.2.1.4` / `.5` | dot1qVlanTimeMark.dot1qVlanIndex | used only when 8 has no rows | high |
+| 9 | dot1qVlanFdbId | `1.3.6.1.2.1.17.7.1.4.2.1.3` | TimeMark.VlanIndex → FdbId | no | high |
+| 10 | dot1qTpFdbPort / dot1qTpFdbStatus | `1.3.6.1.2.1.17.7.1.2.2.1.2` / `.3` | dot1qFdbId.<6 MAC octets> | no | high |
+| 10b | fallback: dot1dTpFdbPort / dot1dTpFdbStatus | `1.3.6.1.2.1.17.4.3.1.2` / `.3` | <6 MAC octets> | used only when 10 has no rows | high |
+| 11 | pethPsePortAdminEnable / DetectionStatus / PowerClassifications | `1.3.6.1.2.1.105.1.1.1.3` / `.6` / `.10` | pethPsePortGroupIndex.pethPsePortIndex | no | high |
+| 12 | ipNetToPhysicalPhysAddress / Type | `1.3.6.1.2.1.4.35.1.4` / `.6` | ifIndex.addrType.addrLen.<addr octets> | ARP sources only | high |
+| 12b | fallback: ipNetToMediaPhysAddress / Type | `1.3.6.1.2.1.4.22.1.2` / `.4` | ifIndex.a.b.c.d | used only when 12 gives no IPv4 rows | high |
+
+Vendor notes: **Cisco IOS** keeps the FDB per VLAN (`community@vlan` / v3 context): the MAC table is usually
+empty → `sources.fdb = empty` (documented limitation, no context support in 2b-2). **Aruba CX** Q-BRIDGE and
+FDB support: medium (the CX sim exercises both fallbacks). **Comware** fdbId ≠ VLAN on some releases: handled by
+#9.
+
+### Pure parsers (`netmon.ports.collect`, exhaustively unit-tested)
+- **`portlist(octets: bytes) -> set[int]`** (Q-BRIDGE PortList): bit 7 (MSB) of octet 0 = bridge port 1, bit 0
+  of octet 0 = port 8, MSB of octet 1 = port 9, … A non-bytes value → empty set.
+- **Bridge port → ifIndex:** from #6. When #6 has no rows, bridge port `n` → ifIndex `n` if that ifIndex
+  exists (ArubaOS-Switch style; `sources.bridge = empty`).
+- **VLANs per port** (bridge port `p`): `untagged_vlans = {v : p ∈ Untagged_v}`,
+  `tagged_vlans = {v : p ∈ Egress_v \ Untagged_v}`; `mode = trunk` if `tagged_vlans` ≠ ∅, else `access` if
+  `untagged_vlans` ≠ ∅, else NULL. `pvid` = #7 for `p`; when #7 is missing and exactly one untagged VLAN exists,
+  that VLAN. Ports without a bridge port: all NULL / empty.
+- **FDB** (#10): suffix = `fdbId.m1.m2.m3.m4.m5.m6`; keep rows with status **learned(3)** only; bridge port 0 or
+  unmapped → dropped. `vlan` = the VLAN whose dot1qVlanFdbId (#9) equals `fdbId` (lowest VLAN when several);
+  when #9 has no rows, `vlan = fdbId`. **Fallback** (#10b): suffix = `m1…m6`, status learned(3) only,
+  `vlan = NULL`. Duplicate (mac, vlan) rows → the first by suffix order wins.
+- **ARP** (#12): suffix `ifIndex.1.4.a.b.c.d` = IPv4 (addrType 1 = ipv4, length 4); other addrTypes ignored.
+  (Some agents omit the length arc: `ifIndex.1.a.b.c.d` is also accepted.) Keep Type ∈ {3 dynamic, 4 static}
+  (drop 1 other, 2 invalid, 5 local). MAC must be 6 octets and not `00:00:00:00:00:00` / `ff:ff:ff:ff:ff:ff`.
+  **Fallback** (#12b): suffix `ifIndex.a.b.c.d`, Type ∈ {3, 4} (drop 1 other, 2 invalid).
+- **MAC text:** 6 octets → lower-case `aa:bb:cc:dd:ee:ff`. **Locally administered** = bit 0x02 of the first
+  octet (random/private MACs of phones and VMs).
+
+### PoE per port
+- `pethPsePortDetectionStatus`: 1 disabled, 2 searching, 3 delivering (deliveringPower), 4 fault, 5 test,
+  6 other_fault. `pethPsePortAdminEnable`: 1 → true, 2 → false. `pethPsePortPowerClassifications`: 1–5 →
+  class 0–4.
+- **(group, port) → ifIndex** (pure `map_pse_ports(keys, ports)`), first rule that maps every row:
+  1. every PSE `port` value is distinct and is the ifIndex of a `physical` port → ifIndex = `port`
+     (ArubaOS-Switch standalone; Comware, medium);
+  2. else, using the **name tail** of each physical port — member = the first number in the name when the name
+     has ≥ 2 numbers, else 1; port number = the last number — (group, port) → the physical port with
+     member = `group` and port number = `port` (ArubaOS stacks `2/14`, CX `1/1/14`; medium);
+  3. else nothing is mapped and `sources.poe = unmapped`.
+- **`poe_power_w`** (per-port power): RFC 3621 has no per-port power column. No vendor OID is used in 2b-2 (the
+  architect is not confident about the HP-ICF-POE-MIB / HH3C PSE port power columns) → always NULL. The code
+  keeps a table `PORT_POWER_OIDS: dict[str, tuple[str, float]]` (vendor slug → column OID indexed like
+  pethPsePortTable, multiplier to W), **empty in 2b-2**; the owner's snmpwalk (architecture § 11.8) fills it.
+
+### Uplinks, neighbours and tile fields (computed on read, pure `netmon.ports.view`)
+Inputs: the port row, non-stale `topology_links` of the device, the effective class of linked devices, the
+linked interface sensor, `settings.uplink_mac_threshold`.
+
+- **Neighbours of a port**: non-stale links (any source, manual included) where (`a_device_id` = device AND
+  (`a_if_index` = if_index OR (`a_if_index` IS NULL AND lower(`a_port`) ∈ {lower(name), lower(descr)}))) or
+  the same on the `b_*` side. Sorted: device neighbours before unmanaged neighbours, then link id. The
+  **primary neighbour** is the first.
+- **is_uplink** = some neighbour is a device whose effective class ∈ {`switch`, `router`, `access_point`}
+  (`uplink_reason = neighbor`), else `mac_count > uplink_mac_threshold` (`uplink_reason = mac_count`), else false
+  (`uplink_reason = null`).
+- **state**: `admin_status = down` → `admin_down`; else `oper_status = up` → `up`; else
+  `oper_status = notPresent` → `absent`; else `down`.
+- **alert** (never for `admin_down`) = any of the `alert_reasons`, in this order:
+  `sensor` (the linked `snmp_interface` sensor is `down` or `warning`), `errors`
+  (`in_errors_delta + out_errors_delta > 0`, NULLs as 0), `poe_fault` (`poe_detection` ∈ {`fault`,
+  `other_fault`}).
+- **connected_kind**: state ≠ `up` → `none`; primary neighbour is a device of class `switch` or `router` →
+  `switch`; class `access_point` → `ap`; otherwise → `client` (also for a MAC-count uplink and for unmanaged
+  LLDP neighbours such as phones).
+- **trunk** = `mode = trunk`.
+- **Linked sensor**: the `snmp_interface` sensor of the device with `config.if_index = if_index` (lowest id).
+- **MAC list of a port**: present `port_macs` rows sorted by `vlan` (NULL first), then `mac`. Hidden (count
+  only) when `is_uplink`. **first_mac** (summary) = the first of the list ordered by (has an IP desc,
+  `last_seen` desc, `mac`); null for uplinks.
+- **Read cost:** `GET /api/devices/{id}/ports` loads MAC details (ARP/IP, DNS, OUI, monitored device) only for
+  ports that are not uplinks (uplink ports need only `mac_count`); the port detail with
+  `include_uplink_macs=true` loads them for that port (capped at 1000). The device map used for neighbours is
+  built once per request, not per port / search row.
+
+### Health strip (computed on read, pure `netmon.ports.health.categorize(sensor) -> category | None`)
+Over the device's sensors, first matching rule wins (regexes case-insensitive, on the sensor **name**):
+
+| # | Rule | Category |
+|---|---|---|
+| 1 | name `^poe\b` | `poe` |
+| 2 | `snmp_custom` and (name `temp\|טמפרטורה` or `config.unit` ∈ {`°C`, `C`}) | `temperature` |
+| 3 | type `snmp_cpu`, or type `snmp_custom` and name `\bcpu\b\|מעבד` | `cpu` |
+| 4 | type `snmp_memory`, or `snmp_custom` and name `\bmem(ory)?\b\|זיכרון` | `memory` |
+| 5 | `snmp_custom` and name `\bfans?\b\|cooling\|מאוורר` | `fan` |
+| 6 | `snmp_custom` and name `power supply\|\bpsu\b\|\bpower\b\|ספק כוח` | `psu` |
+
+One item per category that has ≥ 1 sensor, order cpu, memory, temperature, poe, psu, fan:
+- `status` = worst (severity) over the category's non-paused sensors (`paused` when all are paused);
+- `value`/`unit`: cpu, memory, poe → the max primary-channel `last_value` over sensors whose unit is `%`
+  (null if none), unit `%`; temperature → max over sensors with unit `°C`/`C`, unit `°C`; psu, fan → null, `""`;
+- `text`: psu, fan, and temperature without a value → `"<n up>/<n total>"`; others `""`;
+- `sensor_ids` sorted by id; `primary_sensor_id` = the worst sensor (ties: higher value, then lowest id).
+Temperature is checked before cpu/memory so readings named after a component ("Temperature CPU" on Check Point,
+"CPU temperature" on MikroTik) land in `temperature`; a status sensor without `temp`/°C such as HPE `CPU Board`
+stays `cpu` (2b-2 QA finding #3).
+These rules cover the 2b-1 HPE names (`Fan Sensor`, `Power Supply Sensor`, `Over-temperature Sensor`,
+`CPU Board`, `PSU 1`, `PoE 1 usage`, …) and the 2b-2 templates. Renamed sensors may leave the strip.
+
+### OUI vendor lookup (`netmon.ports.oui`)
+- Data: **`backend/netmon/data/oui.tsv.gz`** (package data). Gzip (deterministic: `mtime=0`) of UTF-8 text,
+  sorted by prefix, one line per IEEE **MA-L** assignment: `AABBCC<TAB>Organization Name`. Lines starting with
+  `#` are header comments: `# source: https://standards-oui.ieee.org/oui/oui.csv`, `# retrieved: <date>`,
+  `# entries: <n>`. Names: whitespace collapsed, trimmed, cut to 64 chars. Expected size ≈ 38 000 lines,
+  **≈ 0.4–0.6 MB** gzipped (QA asserts < 1 MB).
+- Source and licence: the IEEE Registration Authority public MA-L listing (`oui.csv`), freely downloadable
+  from IEEE; it is factual registry data. The same file is redistributed by permissively licensed projects
+  (e.g. Python `netaddr`, BSD). The repo's `NOTICE`/README credits "OUI data © IEEE Registration Authority,
+  from the public MA-L listing". (Not legal advice: the owner may confirm.) MA-M / MA-S (28/36-bit blocks) are
+  **not** included in 2b-2.
+- Lookup: first 3 octets → name, else null. Loaded lazily once per process (dict ≈ 4 MB). A locally
+  administered MAC returns null vendor (`locally_administered: true` in the API) without a lookup.
+- Updates: maintainers run `python backend/scripts/update_oui.py` (stdlib only: urllib, csv, gzip; honours
+  `HTTPS_PROXY`), which downloads `oui.csv`, writes the file and prints the entry count. **No runtime
+  download.**
+
+## [2b-2] New sensor type `snmp_walk_count`
+Counts the rows of one table column, and the rows whose integer value is in a set (e.g. "APs up", "VPN tunnels
+up", "Wi-Fi clients"). `requires_snmp: true`.
+
+Config:
+
+| Key | Type | Default | Meaning |
+|---|---|---|---|
+| `oid` | str | **required** | Numeric column OID (same regex as `snmp_custom.oid`, leading dot stripped) |
+| `count_values` | int_list | null | Values counted as `matched`; null = every row matches |
+| `label` | str | `""` | 0–64 chars |
+| `max_rows` | int | `5000` | 1–10000 (walk cap) |
+
+Channels (primary `matched`), unit `#`, no default thresholds: `rows`, `matched`, `unmatched`.
+
+- Walk error/timeout → check failed (message = the SNMP error). No rows → ok, all channels 0.
+- An integer value in `count_values` → matched; anything else (other integers, non-integers) → unmatched.
+  `count_values = null` → `matched = rows`, `unmatched = 0`.
+- `status_message` = `"<label or oid>: <matched> of <rows>"`.
+- Idempotency identity: `(type, oid, tuple(sorted(count_values)) | None)`.
+- **Template probe rule:** a `probe: true` entry of this type is created only when the probe is ok **and**
+  `rows ≥ 1`; otherwise it is skipped `probe_failed` with message `No rows`.
+- Default name (API): `Count <oid>`. i18n `sensorType.snmp_walk_count` = "SNMP row count" / "ספירת שורות SNMP".
+
+## [2b-2] `snmp_custom`: `percent_base`
+New config key `percent_base`: `"total"` (default, unchanged 2a behaviour: `raw / divisor × 100`) or `"sum"`:
+`value = raw / (raw + other) × 100`, where `percent_of_oid` names the *other part* (e.g. free memory next to
+used memory, CISCO-MEMORY-POOL has no total column). With `"sum"`: `raw < 0`, `other < 0` or
+`raw + other ≤ 0` → ok, no value (as `percent_of_oid` today). The key is stored only when given (absent = `"total"`, so the stored config of existing
+sensors is unchanged). `"sum"` without `percent_of_oid` → 422 (loc
+`["body","config","percent_base"]`). A PATCH changing the **effective** `percent_base` resets `sensors.state`
+(compared normalised: `config.get("percent_base") or "total"` on both sides, so writing `"total"` to a sensor
+that had no key is not a change). Not part of the
+idempotency identity. `GET /api/sensor-types` lists it as type `enum`, options `["total","sum"]`.
+
+## [2b-2] Template library (data files)
+
+Templates move from `netmon/templates/builtin.py` to YAML files. **Behaviour of the nine 2a/2b-1 templates is
+identical** (same entries, order, configs, thresholds, names, priorities, match).
+
+### Format decision: YAML
+YAML (PyYAML ≥ 6, **`yaml.safe_load` only**) over JSON because templates are hand-written by maintainers and
+users: comments carry the per-OID notes, regexes need no double escaping, value maps can be shared inside a
+file with anchors (`&map` / `*map`), and diffs stay readable. New backend dependency `PyYAML>=6.0.1` (wheels for
+Windows/Linux/macOS). `.json` files are also accepted (parsed with `json.loads`, same schema) for generated
+templates (the later UI editor).
+
+YAML pitfalls the loader **defends against** (the schema below rejects them): unquoted `on`/`off`/`yes`/`no`
+become booleans; unquoted `1.3.6.1…` OIDs are strings already but `1.10` would be a float → OIDs must be
+strings (quote them: `'1.3.6.1.2.1.1.3.0'`); value-map keys may be YAML ints or strings and are normalised to
+decimal strings.
+
+### Locations, precedence
+- **Built-in library:** `backend/netmon/templates/library/<vendor>/<id>.yaml` (package data;
+  `pyproject.toml` `package-data` gains `templates/library/*/*.yaml` and `data/*.gz`).
+  Vendor folders: `generic`, `ubiquiti`, `opnsense`, `hpe`, `aruba`, `checkpoint`, `fortinet`, `cisco`,
+  `paloalto`, `mikrotik`, `apc`, `dell`.
+- **User directory:** `${NETMON_DATA_DIR}/templates/` (created empty at startup if missing), read recursively,
+  files `*.yaml`, `*.yml`, `*.json` (case-insensitive extension), max 200 files, each ≤ 256 KiB.
+- A **user template replaces the built-in template with the same id** entirely (`source: "user"`,
+  `overrides_builtin: true`). A user file that fails validation does not override (the built-in stays, the
+  error is reported).
+- The file name stem must equal `id` (`hpe/hpe_comware.yaml` → `hpe_comware`).
+- Duplicate ids inside one source: files are processed in sorted relative-path order (forward slashes); the
+  first valid one wins, later ones are errors.
+- Loaded at startup and by `POST /api/device-templates/reload`. The registry is swapped atomically; a reload
+  never touches existing sensors.
+- Final list order (API, suggestion): `priority` desc, then `id` asc. (Same order as 2b-1 for the nine
+  existing templates.)
+
+### Schema (`schema: 1`)
+Unknown keys anywhere → error. "default" = value used when the key is absent.
+
+**Template (top level)**
+
+| Key | Type | Default | Rules |
+|---|---|---|---|
+| `schema` | int | **required** | must be `1` (else `unsupported schema version: <n>`) |
+| `id` | str | **required** | `^[a-z][a-z0-9_]{1,31}$`, equals the file stem |
+| `version` | int | `1` | ≥ 1; bumped by the author on every change (informational) |
+| `name` | `{en, he}` | **required** | `en` required (1–128 chars); `he` optional, default = `en` |
+| `description` | `{en, he}` | `{en:"", he:""}` | ≤ 500 chars each; `he` default = `en` |
+| `vendor` | str \| null | null | informational slug |
+| `verified` | bool | `false` | true only after a test on real equipment |
+| `verified_note` | str | `""` | ≤ 200 chars, e.g. `"2930F WC.16.11, 2026-11"` |
+| `requires_snmp` | bool | `false` | |
+| `priority` | int | **required** | 0–1000 |
+| `match` | rule[] | **required** | 1–20 rules |
+| `entries` | entry[] | **required** | 1–100 entries |
+
+**Match rule** (all keys optional; absent = null = "any", except `requires_snmp` default false). A rule matches
+when every non-null field matches; a template matches when any rule matches.
+
+| Key | Type | Matches when |
+|---|---|---|
+| `device_classes` | device_class[] | result class in list |
+| `vendors` | str[] | result vendor in list |
+| `requires_snmp` | bool | true → `snmp_ok` |
+| `any_open_ports` | int[] | ≥ 1 of them open |
+| `enterprises` | int[] | (2b-1) enterprise of sysObjectID in list |
+| **[2b-2]** `sys_object_id_prefixes` | str[] | sysObjectID (leading dot stripped) equals a prefix or starts with `prefix + "."` (prefixes: numeric OIDs, no trailing dot) |
+| **[2b-2]** `sys_descr_regex` | str | `re.search(regex, sys_descr or "", re.IGNORECASE)` (must compile) |
+
+`suggest()` / `template_matches()` / `rule_matches()` gain the keyword argument `sys_descr: str | None = None`;
+`classify.suggest_template()` passes the result's `sys_descr`.
+
+**Entries — common keys** (in addition to the 2a/2b-1 fields)
+
+| Key | Type | Default | Meaning |
+|---|---|---|---|
+| `kind` | `sensor` \| `snmp_interfaces` \| `snmp_table` | **required** | |
+| `confidence` | `high` \| `medium` \| `low` \| null | null | Confidence in the OID(s) of this entry. **Required (non-null) for entries that read a vendor OID** (an OID under `1.3.6.1.4.1.`), i.e. `snmp_custom`/`snmp_walk_count` sensors and `snmp_table`s with a vendor `walk_oid`; null allowed elsewhere. |
+| `notes` | str | `""` | ≤ 500 chars, English, shown in the template details (maintainer notes, MIB name) |
+
+**`sensor` entry**: `type` (required, a sensor type), `name` (required `{en, he?}`), `config` (`{}`),
+`channels` (`[]`), `interval_s` (null, else 10–86400), `probe` (false), **[2b-2]** `when` (`[]`).
+`config` must pass `validate_config(type, config)` and `channels` `validate_channel_overrides`.
+
+**[2b-2] `when`** (sensor entries only): list of `{oid, in, not_in}` (same shape as `snmp_table.filters`, but
+`oid` is a complete instance OID). At apply time each OID is GET (one GET for all); the entry is created only
+when every value is an integer passing `in`/`not_in`. Otherwise it is skipped with reason **`not_applicable`**,
+message `Condition not met: <oid>` (missing OID / SNMP error → also `not_applicable`). Order per entry:
+`exists` check → `when` → `probe`. `when` GETs share the apply budget and the per-device probe semaphore.
+
+**`snmp_interfaces` entry**: `oper_up_only` (true), `exclude_if_types` (`[24]`), `include_name_regex` (null),
+`exclude_name_regex` (**absent → `IF_EXCLUDE`**, explicit `null` → none), `max` (**required**, 1–1000),
+`channels` (`[]`).
+
+**`snmp_table` entry**: `walk_oid` (**required**), `name` (**required**), `config` (**required**; validated as
+`snmp_custom` config with a dummy `oid`, without `oid`/`percent_of_oid`/`label`), `label_oid` (null),
+`label2_oid` (null), `percent_of_column` (null), `channels` (`[]`), `max` (8, 1–1000), `skip_zero` (false),
+`filters` (`[]`), `interval_s` (null).
+
+All OIDs: strings matching `^\.?[0-2](\.\d+){1,127}$` (leading dot stripped). Regexes must compile.
+`value_map` keys must be integers (YAML int or decimal string).
+
+The in-memory / API template dict = the 2b-1 dict **plus** `version`, `verified`, `verified_note`, `vendor`,
+`source`, `overrides_builtin`, `file` (path relative to its root, forward slashes), entries plus `confidence`,
+`notes`, sensor entries plus `when`, rules plus `sys_object_id_prefixes`, `sys_descr_regex`. Absent keys are
+filled with their defaults, so every key is always present.
+
+### Load errors
+Pure `netmon.templates.library.load_dir(root, source) -> (templates, errors)`; any error rejects the **whole
+file** (other files still load). The per-file handler also catches `RecursionError` (deeply nested YAML/JSON →
+`invalid YAML: nesting too deep` / `invalid JSON: nesting too deep`) and, as a safety net, any other exception
+(`invalid value: <exception text>`), so no file can make a reload fail or drop the other user templates. The
+size cap (`file too large`, 256 KiB) is checked before reading.
+
+```json
+{ "source": "user", "file": "acme/acme_ups.yaml", "template_id": "acme_ups",
+  "path": "entries[2].config.value_map", "message": "value_map keys must be integers" }
+```
+
+`template_id` is null when the id could not be read; `path` is `""` for file-level errors. Messages (English,
+fixed prefixes so tests can match): `invalid YAML: <parser message>` / `invalid JSON: …`, `file too large`,
+`too many files` (once, for the files beyond 200), `not a mapping`, `unsupported schema version: <n>`,
+`missing key: <key>`, `unknown key: <key>`, `invalid value: <detail>`, `id must match the file name (expected
+"<stem>")`, `duplicate id "<id>" (also in <file>)`, `invalid OID: <oid>`, `invalid regex: <detail>`, `unknown
+sensor type: <type>`, `invalid config: <validate_config message>`, `invalid channels: <message>`,
+`confidence required for vendor OIDs`. The **built-in library must load with zero errors** (a unit test);
+at runtime built-in errors are logged at ERROR and reported like user errors.
+
+### Module layout and compatibility
+- `netmon/templates/library.py`: schema validation + `load_dir()` (reads files; otherwise pure).
+- `netmon/templates/registry.py`: `Registry` (templates sorted, `by_id`, `errors`, `loaded_at`), `reload(rt)`,
+  `current()`. Reload is synchronous file I/O run via `asyncio.to_thread`.
+- `netmon/templates/builtin.py` keeps the pure helpers `enterprise()`, `rule_matches()`,
+  `template_matches()`, `suggest()`, `IF_EXCLUDE`, `SKIP_REASONS` (+ `not_applicable`) and the functions
+  `list_templates()` / `get_template(id)` (deep copies from `registry.current()`). `TEMPLATES` stays a
+  module-level **list that is updated in place** on every (re)load; `BY_ID` likewise (dict updated in place).
+  `TEMPLATE_IDS` (frozenset) is **removed**: `api/discovery.py` validates with `registry.current().by_id`.
+  At import, `builtin.py` loads the built-in library (package files only, no user dir) so pure unit tests work
+  without a runtime.
+- Tests: `test_discovery_units.py::test_templates_data` is **updated** for 2b-2 (the id list gains the new
+  templates in the order above; the key sets gain the new keys). All other existing tests stay unchanged and
+  must pass. **Identity proof:** before deleting the Python data, a fixture
+  `backend/tests/fixtures/templates_2b1.json` is generated from the 2b-1 `builtin.TEMPLATES`; a test asserts that
+  the loaded nine templates, with every 2b-2-only key removed, equal the fixture exactly (including order).
+
+### Example file
+```yaml
+# backend/netmon/templates/library/hpe/hpe_arubaos_switch.yaml
+schema: 1
+id: hpe_arubaos_switch
+version: 2
+vendor: hp
+verified: false            # flip after the owner's 2b-1 test (architecture § 11.8)
+verified_note: ""
+name: {en: "HPE ArubaOS-Switch / ProCurve", he: "מתג HPE ArubaOS"}
+description:
+  en: "Ping, system, CPU, memory, hardware health, PoE and active ports"
+  he: "פינג, מערכת, מעבד, זיכרון, תקינות חומרה, PoE ופורטים פעילים"
+requires_snmp: true
+priority: 50
+match:
+  - {device_classes: [switch], requires_snmp: true, enterprises: [11]}
+entries:
+  - {kind: sensor, type: ping, name: {en: Ping, he: פינג}}
+  - {kind: sensor, type: snmp_system, name: {en: System, he: מערכת}}
+  - kind: sensor
+    type: snmp_custom
+    name: {en: CPU, he: מעבד}
+    config: {oid: '1.3.6.1.4.1.11.2.14.11.5.1.9.6.1.0', value_type: gauge, unit: '%', label: CPU}
+    channels: [{key: value, warning_max: 80, down_max: 95}]
+    probe: true
+    confidence: high
+    notes: "hpSwitchCpuStat (STATISTICS-MIB). May be absent on OfficeConnect 1820/1920S."
+  - kind: snmp_table
+    walk_oid: '1.3.6.1.4.1.11.2.14.11.1.2.6.1.4'      # hpicfSensorStatus
+    label_oid: '1.3.6.1.4.1.11.2.14.11.1.2.6.1.7'     # hpicfSensorDescr
+    name: {en: '{label}', he: '{label}'}
+    config:
+      value_type: enum
+      value_map: &hpicf
+        1: {status: warning, text: unknown}
+        2: {status: down, text: bad}
+        3: {status: warning, text: warning}
+        4: {status: up, text: good}
+      value_map_default: warning
+    filters: [{oid: '1.3.6.1.4.1.11.2.14.11.1.2.6.1.4', not_in: [5]}]
+    max: 16
+    interval_s: 300
+    confidence: medium
+  # … memory, PoE ×3, snmp_interfaces exactly as in 2b-1 …
+  - {kind: snmp_interfaces, oper_up_only: true, exclude_if_types: [1, 24, 53, 131, 136], max: 52}
+```
+
+### Converted templates (identical behaviour)
+| id | file | verified |
+|---|---|---|
+| `generic_ping` | `generic/generic_ping.yaml` | true (no OIDs) |
+| `http_server` | `generic/http_server.yaml` | true (no OIDs) |
+| `generic_snmp` | `generic/generic_snmp.yaml` | true (standard MIBs) |
+| `nas_server` | `generic/nas_server.yaml` | false |
+| `printer` | `generic/printer.yaml` | false |
+| `unifi_ap` | `ubiquiti/unifi_ap.yaml` | false |
+| `opnsense` | `opnsense/opnsense.yaml` | false |
+| `hpe_arubaos_switch` | `hpe/hpe_arubaos_switch.yaml` | false (until the owner confirms) |
+| `hpe_comware` | `hpe/hpe_comware.yaml` | false (until the owner confirms) |
+
+Confidence values for the converted vendor rows are the ones in the 2b-1 tables (`medium-high` → `medium`).
+
+## [2b-2] Classification changes
+- **Vendor table additions:**
+
+  | Enterprise | Vendor slug | Default class (rule 10) | Confidence | Notes |
+  |---|---|---|---|---|
+  | 232 | hp | server | high | Compaq/HPE server management (iLO, Insight agents) |
+  | 2620 | checkpoint | router | high | Check Point (Gaia) |
+
+- **Subtree probe addition:** `checkpoint` = `1.3.6.1.4.1.2620.1.6` (svn MIB; present on every Gaia gateway,
+  also when sysObjectID is the net-snmp Linux OID). The probe GETNEXT carries five varbinds.
+- **New rule 9a** (after rule 9, before rule 10): enterprise 2620 **or** probe `checkpoint` → `router` /
+  `checkpoint`. `classified_by = snmp`, `confidence = high` (like rules 1–10).
+- **Fingerprint rule F23a** (after F23): T or M `check point|gaia portal|\bgaia\b` → router / checkpoint,
+  medium. Markers gain `check point`, `gaia`.
+- Rule 10's switch regex is unchanged (Aruba CX `Swch` in sysDescr is covered by enterprise 47196's default
+  class `switch`).
+- **Rule 10 exception for enterprise 14823 (Aruba Wi-Fi)**, evaluated in rule 10 **before** the switch regex
+  (the regex's `arubaos` would otherwise turn every Instant AP / controller into a switch): sysDescr matches
+  `(?i)\(MODEL:\s*S\d{4}|\bswitch\b` (Mobility Access Switch S1500/S2500/S3500) → `switch` / `aruba`; else →
+  `access_point` / `aruba` (Instant / AOS10 APs `MODEL: 515`, `IAP-…`; Mobility Controllers `MODEL:
+  Aruba7010…`, no controller class). Rule number 10, confidence medium. Unit vectors: `ArubaOS (MODEL: 515),
+  Version 8.10.0.6` → access_point; `ArubaOS (MODEL: Aruba7010-US), Version 8.7.1.0` → access_point;
+  `ArubaOS (MODEL: S2500-24P), Version 7.4` → switch. Class detection (§ Devices: inventory flags) uses the
+  same rule.
+
+## [2b-2] New vendor templates
+
+All ship `verified: false`. Priority **50** (like the HPE templates; the enterprise/sysObjectID rules do not
+overlap, and 50 beats `nas_server` 40 and `generic_snmp` 20). Every vendor row is `probe: true`, a `when`
+condition, or an `snmp_table` (no rows → `no_rows`), so missing objects never create sensors. Confidence as in
+2b-1: **high** = matches the published MIB as far as the architect knows; **medium** = believed correct, verify;
+**low** = unsure (expect corrections). Thresholds are generic defaults.
+
+Shared value maps (YAML anchors inside each file):
+
+- `CONDITION_MAP` (CPQ* condition): `1 warning other`, `2 up ok`, `3 warning degraded`, `4 down failed`; default `warning`.
+- `DELL_STATUS_MAP` (ObjectStatusEnum): `1 warning other`, `2 warning unknown`, `3 up ok`, `4 warning nonCritical`, `5 down critical`, `6 down nonRecoverable`; default `warning`.
+- `CISCO_ENVMON_MAP` (CiscoEnvMonState): `1 up normal`, `2 warning warning`, `3 down critical`, `4 down shutdown`, `6 down notFunctioning`; default `warning` (`5 notPresent` is filtered).
+- `ENTITY_SENSOR_MAP` (EntitySensorStatus): `1 up ok`, `2 warning unavailable`, `3 down nonoperational`; default `warning`.
+
+`IFX` below = `snmp_interfaces` with `oper_up_only: true`, `exclude_if_types: [1, 24, 53, 131, 136]`,
+IF_EXCLUDE; `max` as stated.
+
+### `aruba_cx` — Aruba CX switch (`aruba/aruba_cx.yaml`)
+Match: `requires_snmp`, `enterprises [47196]`. Name en "Aruba CX switch" / he "מתג Aruba CX".
+**ARUBAWIRED-\* MIBs are not used**: the architect is not confident about their column layout and value types;
+the template uses standard MIBs only and is completed after the owner's snmpwalk (§ 11.8).
+
+| # | Entry | Details | Confidence |
+|---|---|---|---|
+| 1–2 | Ping, System | | |
+| 3 | CPU Load (`snmp_cpu`, probe) | HOST-RESOURCES / UCD (generic) | **low** (CX support unknown) |
+| 4 | Memory (`snmp_memory`, probe) | generic | **low** |
+| 5 | `Temperature {label}` (`snmp_table`) | walk entPhySensorValue `1.3.6.1.2.1.99.1.1.1.4`, label entPhysicalName `1.3.6.1.2.1.47.1.1.1.1.7`, `filters [{oid: 1.3.6.1.2.1.99.1.1.1.1, in: [8]}]` (type celsius), gauge `°C`, 65/80, max 16 | MIB high; CX support **medium**; scale/precision (`.2`/`.3`) ignored (low) |
+| 6 | `{label} status` (`snmp_table`) | walk entPhySensorOperStatus `1.3.6.1.2.1.99.1.1.1.5`, label entPhysicalName, enum `ENTITY_SENSOR_MAP`, max 32, interval 300 | MIB high; CX support **medium** |
+| 7–9 | PoE usage / power / budget | identical to `hpe_arubaos_switch` rows 6–8 | high |
+| 10 | IFX max 52 | | high |
+
+### `aruba_wifi` — Aruba Instant / Mobility Controller (`aruba/aruba_wifi.yaml`)
+Match: `requires_snmp`, `enterprises [14823]`. Name "Aruba Wi-Fi (Instant / controller)" / "Aruba Wi-Fi
+(Instant / בקר)". One template for both product lines: every row is probed, so the MIB that answers wins
+(Instant virtual controller: AI-AP-MIB `1.3.6.1.4.1.14823.2.3.3.1`; Mobility Controller: WLSX-WLAN-MIB /
+WLSX-SWITCH-MIB `1.3.6.1.4.1.14823.2.2.1`). Poll the **Instant virtual controller IP** (it answers for the
+cluster).
+
+| # | Entry | Details | Confidence |
+|---|---|---|---|
+| 1–2 | Ping, System | | |
+| 3 | CPU Load, Memory (generic, probe) | | low |
+| 4 | `APs up` (`snmp_walk_count`, probe) | Instant aiAPStatus `1.3.6.1.4.1.14823.2.3.3.1.2.1.1.11`, `count_values [1]` (up(1), down(2)), label `APs up`, channel `unmatched` warning_max 0 | MIB root medium; column **low** |
+| 5 | `AP {label}` (`snmp_table`) | walk aiAPStatus `…2.1.1.11`, label aiAPName `…2.1.1.2`, enum `{1 up "up", 2 down "down"}` default warning, max 64, interval 300 | **low** |
+| 6 | `Wi-Fi clients` (`snmp_walk_count`, probe) | Instant aiClientIPAddress `1.3.6.1.4.1.14823.2.3.3.1.2.4.1.3`, `count_values` null (counts clients; a non-index column, since the MAC index column `…4.1.1` may be not-accessible) | **low** |
+| 7 | `APs up` (`snmp_walk_count`, probe) | controller wlanAPStatus `1.3.6.1.4.1.14823.2.2.1.5.2.1.4.1.19`, `count_values [1]`, `unmatched` warning_max 0 | **low** |
+| 8 | `AP {label}` (`snmp_table`) | walk wlanAPStatus `…5.2.1.4.1.19`, label wlanAPName `…5.2.1.4.1.3`, same enum, max 64, interval 300 | **low** |
+| 9 | `Wi-Fi clients` (`snmp_custom` gauge, probe) | wlsxSwitchTotalNumStationsAssociated `1.3.6.1.4.1.14823.2.2.1.1.3.2.0`, unit `clients` | **low** |
+| 10 | IFX max 8 | | high |
+
+Rows 4 and 7 have different OIDs, so both are idempotent separately; on a given device only one family answers.
+**Clients per AP is not included** (the architect is not confident about the AI-AP-MIB radio table columns);
+it is added after the owner's snmpwalk.
+
+### `checkpoint_gaia` — Check Point Gaia firewall (`checkpoint/checkpoint_gaia.yaml`)
+Match: `requires_snmp`, `vendors [checkpoint]`; and `requires_snmp`, `enterprises [2620]`. Name "Check Point
+Gaia firewall" / "חומת אש Check Point Gaia". CHECKPOINT-MIB root `1.3.6.1.4.1.2620`.
+
+| # | Entry | Details | Confidence |
+|---|---|---|---|
+| 1–2 | Ping, System | | |
+| 3 | `CPU` (`snmp_custom` gauge, probe) | procUsage `1.3.6.1.4.1.2620.1.6.7.2.4.0`, `%`, 80/95 | medium-high → `medium` |
+| 4 | `Memory` (`snmp_custom` gauge, probe) | memActiveReal64 `1.3.6.1.4.1.2620.1.6.7.4.4.0`, `percent_of_oid` memTotalReal64 `…7.4.3.0`, `%`, 85/95 | medium |
+| 5 | `Concurrent connections` (gauge, probe) | fwNumConn `1.3.6.1.4.1.2620.1.1.25.3.0`, unit `conn` | **high** |
+| 6 | `Connection table usage` (gauge, probe) | fwNumConn with `percent_of_oid` fwConnTableLimit `1.3.6.1.4.1.2620.1.1.25.10.0`, `%`, 80/95. Limit 0 ("automatic") → no value (ok) | medium |
+| 7 | `ClusterXL state` (`snmp_custom` string, no `expected`) | haState `1.3.6.1.4.1.2620.1.5.6.0` (`active`, `standby`, …), label `ClusterXL`; `when [{oid: 1.3.6.1.4.1.2620.1.5.2.0, in: [1]}]` (haInstalled) | haState **high**; haInstalled = 1 on members **medium** |
+| 8 | `ClusterXL status` (`snmp_custom` enum) | haStatCode `1.3.6.1.4.1.2620.1.5.101.0`, map `{0 up OK, 1 warning warning, 2 down problem}`, default `down`; same `when`; interval 60 | **low-medium** → `low` |
+| 9 | `VPN tunnels up` (`snmp_walk_count`, probe) | tunnelState `1.3.6.1.4.1.2620.500.9002.1.3`, `count_values [3]` (active(3); destroy(4), idle(129), phase1(130), down(131), init(132)), `unmatched` warning_max 0. Lists **permanent tunnels** only | **low** |
+| 10 | `Temperature {label}` (`snmp_table`) | walk tempertureSensorValue `1.3.6.1.4.1.2620.1.6.7.8.1.1.3` (DisplayString, parsed as number), label `…8.1.1.2`, gauge `°C`, 70/85, max 16 | medium (appliances only; VMs → `no_rows`) |
+| 11 | `{label}` fans (`snmp_table`) | walk fanSpeedSensorStatus `1.3.6.1.4.1.2620.1.6.7.8.2.1.6`, label `…8.2.1.2`, enum `{0 up normal, 1 down abnormal, 2 warning unknown}`, default warning, max 16, interval 300 | **low-medium** → `low` |
+| 12 | `Power supply {label}` (`snmp_table`) | walk powerSupplyStatus `1.3.6.1.4.1.2620.1.6.7.9.1.1.2` (DisplayString), label powerSupplyIndex `…9.1.1.1`, `value_type: string`, `expected: "Up"`, `match: equals`, max 8, interval 300 | medium |
+| 13 | Disk `/` (`snmp_disk`, probe) | HOST-RESOURCES | high |
+| 14 | Disk `/var/log` (`snmp_disk`, probe) | Gaia log partition | high |
+| 15 | IFX max 32 | | high |
+
+### `fortinet_fortigate` (`fortinet/fortinet_fortigate.yaml`)
+Match: `requires_snmp`, `enterprises [12356]`. FORTINET-FORTIGATE-MIB `1.3.6.1.4.1.12356.101`.
+
+| # | Entry | Details | Confidence |
+|---|---|---|---|
+| 1–2 | Ping, System | | |
+| 3 | `CPU` (gauge, probe) | fgSysCpuUsage `1.3.6.1.4.1.12356.101.4.1.3.0`, `%`, 80/95 | high |
+| 4 | `Memory` (gauge, probe) | fgSysMemUsage `…101.4.1.4.0`, `%`, 85/95 | high |
+| 5 | `Sessions` (gauge, probe) | fgSysSesCount `…101.4.1.8.0`, unit `sessions` | high |
+| 6 | `Disk` (gauge, probe) | fgSysDiskUsage `…101.4.1.6.0` `percent_of_oid` fgSysDiskCapacity `…101.4.1.7.0`, `%`, 85/95 (capacity 0 → no value) | high |
+| 7 | `HA mode` (enum, probe) | fgHaSystemMode `1.3.6.1.4.1.12356.101.13.1.1.0`, `{1 up standalone, 2 up active-active, 3 up active-passive}` | high |
+| 8 | `HA sync {label}` (`snmp_table`) | walk fgHaStatsSyncStatus `1.3.6.1.4.1.12356.101.13.2.1.1.12`, label fgHaStatsHostname `…13.2.1.1.11`, enum `{0 warning unsynchronized, 1 up synchronized}`, max 8 | medium |
+| 9 | `VPN tunnels up` (`snmp_walk_count`, probe) | fgVpnTunEntStatus `1.3.6.1.4.1.12356.101.12.2.2.1.20`, `count_values [2]` (down(1), up(2)), `unmatched` warning_max 0 | medium |
+| 10 | IFX max 32 | | high |
+
+### `cisco_ios` — Cisco IOS / IOS-XE (`cisco/cisco_ios.yaml`)
+Match: `requires_snmp`, `enterprises [9]`.
+
+| # | Entry | Details | Confidence |
+|---|---|---|---|
+| 1–2 | Ping, System | | |
+| 3 | `CPU {index}` (`snmp_table`) | walk cpmCPUTotal5minRev `1.3.6.1.4.1.9.9.109.1.1.1.1.8`, `%`, 80/95, max 8 | high |
+| 4 | `Memory {label}` (`snmp_table`) | walk ciscoMemoryPoolUsed `1.3.6.1.4.1.9.9.48.1.1.1.5`, `percent_of_column` ciscoMemoryPoolFree `…48.1.1.1.6`, config `percent_base: sum`, label ciscoMemoryPoolName `…48.1.1.1.2`, `%`, 85/95, max 4 | high (IOS); IOS-XE pools medium |
+| 5 | `Temperature {label}` (`snmp_table`) | walk ciscoEnvMonTemperatureStatusValue `1.3.6.1.4.1.9.9.13.1.3.1.3`, label `…13.1.3.1.2`, `skip_zero`, `°C`, 65/80, max 16 | high |
+| 6 | `{label}` temperature state | walk ciscoEnvMonTemperatureState `…13.1.3.1.6`, label `…3.1.2`, enum `CISCO_ENVMON_MAP`, filter `not_in [5]`, max 16, interval 300 | high |
+| 7 | `{label}` fan | walk ciscoEnvMonFanState `…13.1.4.1.3`, label `…4.1.2`, same map/filter, max 16, interval 300 | high |
+| 8 | `{label}` power supply | walk ciscoEnvMonSupplyState `…13.1.5.1.3`, label `…5.1.2`, same map/filter, max 8, interval 300 | high |
+| 9 | IFX max 52 | | high |
+
+### `paloalto_panos` (`paloalto/paloalto_panos.yaml`)
+Match: `requires_snmp`, `enterprises [25461]`.
+
+| # | Entry | Details | Confidence |
+|---|---|---|---|
+| 1–2 | Ping, System | | |
+| 3 | `CPU {index}` (`snmp_table`) | walk hrProcessorLoad `1.3.6.1.2.1.25.3.3.1.2`, `%`, 80/95, max 4 (management/data plane rows) | MIB high; row meaning medium |
+| 4 | `Session utilization` (gauge, probe) | panSessionUtilization `1.3.6.1.4.1.25461.2.1.2.3.1.0`, `%`, 80/95 | high |
+| 5 | `Active sessions` (gauge, probe) | panSessionActive `…25461.2.1.2.3.3.0`, unit `sessions` | high |
+| 6 | `HA state` (string, probe) | panSysHAState `…25461.2.1.2.1.11.0`, label `HA` | medium |
+| 7 | `HA peer state` (string, probe) | panSysHAPeerState `…25461.2.1.2.1.12.0`, label `HA peer` | medium |
+| 8 | IFX max 32 | | high |
+
+### `mikrotik_routeros` (`mikrotik/mikrotik_routeros.yaml`)
+Match: `requires_snmp`, `enterprises [14988]`. MIKROTIK-MIB `1.3.6.1.4.1.14988.1.1.3` (health).
+
+| # | Entry | Details | Confidence |
+|---|---|---|---|
+| 1–4 | Ping, System, CPU Load (probe), Memory (probe) | HOST-RESOURCES | high |
+| 5 | `Temperature` (gauge, probe) | mtxrHlTemperature `1.3.6.1.4.1.14988.1.1.3.10.0`, multiplier 0.1, `°C`, 60/75 | medium (absent on many RouterOS 7 models) |
+| 6 | `CPU temperature` (gauge, probe) | mtxrHlProcessorTemperature `…1.1.3.11.0`, ×0.1, `°C`, 70/85 | medium |
+| 7 | `Voltage` (gauge, probe) | mtxrHlVoltage `…1.1.3.8.0`, ×0.1, unit `V` | medium |
+| 8 | `{label}` temperature (`snmp_table`) | walk mtxrGaugeValue `1.3.6.1.4.1.14988.1.1.3.100.1.3`, label mtxrGaugeName `…100.1.2`, filter mtxrGaugeUnit `…100.1.4` `in [1]` (celsius), `°C`, 70/85, max 8 | medium (RouterOS ≥ 6.47 / 7) |
+| 9 | `{label}` voltage | same walk, filter `in [3]` (dV), ×0.1, `V`, max 8 | medium |
+| 10 | `{label}` fan | same walk, filter `in [2]` (rpm), unit `rpm`, max 8 | medium |
+| 11 | IFX max 32 | | high |
+
+Rows 5–7 and 8–10 may both exist on some models (different OIDs → duplicates of the same reading); accepted for
+an unverified template.
+
+### `apc_ups` — APC UPS (`apc/apc_ups.yaml`)
+Match: `requires_snmp`, `enterprises [318]`. PowerNet-MIB `1.3.6.1.4.1.318.1.1.1`. No interfaces.
+
+| # | Entry | Details | Confidence |
+|---|---|---|---|
+| 1–2 | Ping, System | | |
+| 3 | `Battery capacity` (gauge, probe) | upsAdvBatteryCapacity `1.3.6.1.4.1.318.1.1.1.2.2.1.0`, `%`, **warning_min 50 / down_min 20** | high |
+| 4 | `Runtime remaining` (gauge, probe) | upsAdvBatteryRunTimeRemaining `…1.1.1.2.2.3.0` (TimeTicks), multiplier `0.0001666667` (→ minutes), unit `min`, **warning_min 15 / down_min 5** | high |
+| 5 | `Output load` (gauge, probe) | upsAdvOutputLoad `…1.1.1.4.2.3.0`, `%`, 80/95 | high |
+| 6 | `Output status` (enum, probe, interval 30) | upsBasicOutputStatus `…1.1.1.4.1.1.0`: `1 warning unknown`, `2 up on line`, **`3 down on battery`**, `4 warning smart boost`, `5 warning timed sleeping`, `6 warning software bypass`, `7 down off`, `8 warning rebooting`, `9 warning switched bypass`, `10 down hardware failure bypass`, `11 down sleeping until power return`, `12 warning smart trim`, `13 up eco mode`, `14 warning hot standby`, `15 warning battery test`; default warning | high (1–12), medium (13–15) |
+| 7 | `Battery status` (enum, probe) | upsBasicBatteryStatus `…1.1.1.2.1.1.0`: `1 warning unknown`, `2 up normal`, `3 down low`, `4 down fault`; default warning | high |
+| 8 | `Battery replacement` (enum, probe, interval 3600) | upsAdvBatteryReplaceIndicator `…1.1.1.2.2.4.0`: `1 up ok`, `2 warning replace battery`; default warning | high |
+| 9 | `Battery temperature` (gauge, probe) | upsAdvBatteryTemperature `…1.1.1.2.2.2.0`, `°C`, 40/50 | high |
+
+"Alerting defaults" = these thresholds/maps: on battery → sensor `down` → the global alert rules notify.
+
+### `hpe_ilo` — HPE iLO / ProLiant (`hpe/hpe_ilo.yaml`)
+Match: `requires_snmp`, `enterprises [232]`; and `requires_snmp`, `sys_descr_regex: 'Integrated Lights-Out|\biLO ?\d'`.
+
+| # | Entry | Details | Confidence |
+|---|---|---|---|
+| 1–2 | Ping, System | | |
+| 3 | `Server health` (enum, probe) | cpqHeMibCondition `1.3.6.1.4.1.232.6.1.3.0`, `CONDITION_MAP` | high |
+| 4 | `Power supply {index}` (`snmp_table`) | walk cpqHeFltTolPowerSupplyCondition `1.3.6.1.4.1.232.6.2.9.3.1.4`, filter cpqHeFltTolPowerSupplyPresent `…9.3.1.3` `in [3]`, `CONDITION_MAP`, max 8, interval 300 | medium |
+| 5 | `Fan {index}` (`snmp_table`) | walk cpqHeFltTolFanCondition `1.3.6.1.4.1.232.6.2.6.7.1.9`, filter cpqHeFltTolFanPresent `…6.7.1.4` `in [3]`, `CONDITION_MAP`, max 16, interval 300 | medium |
+| 6 | `Temperature {index}` (`snmp_table`) | walk cpqHeTemperatureCelsius `1.3.6.1.4.1.232.6.2.6.8.1.4`, `skip_zero`, gauge `°C`, no thresholds (server-specific), max 32 | medium |
+| 7 | `Disk {index}` (`snmp_table`) | walk cpqDaPhyDrvCondition `1.3.6.1.4.1.232.3.2.5.1.1.37`, `CONDITION_MAP`, max 32, interval 300 | medium (Smart Array) |
+| 8 | Web `https://{host}/` (`http`, `verify_tls: false`, probe) | | |
+
+### `dell_idrac` — Dell iDRAC (`dell/dell_idrac.yaml`)
+Match: `requires_snmp`, `sys_object_id_prefixes ['1.3.6.1.4.1.674.10892.5']`; and `requires_snmp`,
+`enterprises [674]`, `sys_descr_regex: 'idrac'`. IDRAC-MIB-SMIv2 `1.3.6.1.4.1.674.10892.5`.
+
+| # | Entry | Details | Confidence |
+|---|---|---|---|
+| 1–2 | Ping, System | | |
+| 3 | `System status` (enum, probe) | globalSystemStatus `1.3.6.1.4.1.674.10892.5.2.1.0`, `DELL_STATUS_MAP` | high |
+| 4 | `{label}` power supply | walk powerSupplyStatus `1.3.6.1.4.1.674.10892.5.4.600.12.1.5`, label powerSupplyLocationName `…600.12.1.8`, `DELL_STATUS_MAP`, max 8, interval 300 | medium |
+| 5 | `{label}` fan | walk coolingDeviceStatus `…5.4.700.12.1.5`, label coolingDeviceLocationName `…700.12.1.8`, `DELL_STATUS_MAP`, max 16, interval 300 | medium |
+| 6 | `{label}` (temperature) | walk temperatureProbeReading `…5.4.700.20.1.6`, ×0.1, label temperatureProbeLocationName `…700.20.1.8`, `skip_zero`, `°C`, no thresholds, max 16 | medium |
+| 7 | `Disk {label}` | walk physicalDiskComponentStatus `1.3.6.1.4.1.674.10892.5.5.1.20.130.4.1.24`, label physicalDiskName `…130.4.1.2`, `DELL_STATUS_MAP`, max 32, interval 300 | medium |
+| 8 | Web `https://{host}/` (`http`, `verify_tls: false`, probe) | | |
+
+Final library order (priority desc, id asc): `opnsense` (90), `unifi_ap` (80), `printer` (60), `apc_ups`,
+`aruba_cx`, `aruba_wifi`, `checkpoint_gaia`, `cisco_ios`, `dell_idrac`, `fortinet_fortigate`,
+`hpe_arubaos_switch`, `hpe_comware`, `hpe_ilo`, `mikrotik_routeros`, `paloalto_panos` (50), `nas_server` (40),
+`generic_snmp` (20), `http_server` (10), `generic_ping` (0).
+
+## [2b-2] Phase 2b-2 migration (`0005`)
+File `backend/netmon/migrations/versions/0005_phase2b2.py`, `revision = "0005"`, `down_revision = "0004"`.
+Plain PostgreSQL DDL only (no Timescale calls; none of the new tables is a hypertable).
+
+`upgrade()`:
+1. `ALTER TABLE sensors DROP CONSTRAINT IF EXISTS sensors_type_check`, re-add with the 10 types of 0003 +
+   `'snmp_walk_count'`.
+2. `ALTER TABLE devices ADD COLUMN port_inventory text NOT NULL DEFAULT 'auto' CONSTRAINT
+   devices_port_inventory_check CHECK (port_inventory IN ('auto','on','off'))`; same for `arp_collect`
+   (`devices_arp_collect_check`).
+3. `CREATE TABLE switch_ports (…)` with `PRIMARY KEY (device_id, if_index)` and the checks
+   `switch_ports_kind_check`, `switch_ports_duplex_check`, `switch_ports_mode_check`,
+   `switch_ports_poe_detection_check`, `switch_ports_counter_bits_check` (`IN (32,64)`),
+   `switch_ports_poe_class_check` (`BETWEEN 0 AND 4`).
+4. `CREATE TABLE port_macs (…)`; `CREATE UNIQUE INDEX ux_port_macs_key ON port_macs (device_id, mac,
+   (COALESCE(vlan, -1)))`; `CREATE INDEX ix_port_macs_mac ON port_macs (mac)`; `CREATE INDEX
+   ix_port_macs_mac_prefix ON port_macs (mac varchar_pattern_ops)` (prefix search, any collation); `CREATE INDEX
+   ix_port_macs_device_if ON port_macs (device_id, if_index) WHERE present`.
+5. `CREATE TABLE arp_entries (…, PRIMARY KEY (source_device_id, ip))`; `ix_arp_entries_mac`, `ix_arp_entries_ip`.
+6. `CREATE TABLE dns_cache (…)`.
+7. `CREATE TABLE port_inventory_status (…)` with `port_inventory_status_detected_class_check` (the 8
+   device classes).
+
+`downgrade()` (reverse order): drop `port_inventory_status`, `dns_cache`, `arp_entries`, `port_macs`,
+`switch_ports`; `ALTER TABLE devices DROP COLUMN arp_collect, DROP COLUMN port_inventory`;
+`DELETE FROM sensors WHERE type = 'snmp_walk_count'` (channels/measurements cascade or are removed with them as
+in 0003's downgrade); restore `sensors_type_check` with the 10 types. Settings rows
+(`port_inventory_min`, `uplink_mac_threshold`, `port_mac_retention_days`, `reverse_dns`) are harmless and stay.
+`snmp_custom` sensors with `config.percent_base` keep the key (ignored by 2b-1 code).

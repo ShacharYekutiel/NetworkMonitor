@@ -1,0 +1,21 @@
+# Generic SNMP device: standard MIBs only (MIB-II, HOST-RESOURCES / UCD, IF-MIB).
+schema: 1
+id: generic_snmp
+version: 1
+vendor: null
+verified: true             # standard MIBs
+verified_note: "Standard MIBs (HOST-RESOURCES, UCD-SNMP, IF-MIB)"
+name: {en: "Generic SNMP device", he: "התקן SNMP כללי"}
+description:
+  en: "Ping, system, CPU, memory and active interfaces"
+  he: "פינג, מערכת, מעבד, זיכרון וממשקים פעילים"
+requires_snmp: true
+priority: 20
+match:
+  - {requires_snmp: true}
+entries:
+  - {kind: sensor, type: ping, name: {en: Ping, he: פינג}}
+  - {kind: sensor, type: snmp_system, name: {en: System, he: מערכת}}
+  - {kind: sensor, type: snmp_cpu, name: {en: CPU Load, he: עומס מעבד}, probe: true}
+  - {kind: sensor, type: snmp_memory, name: {en: Memory, he: זיכרון}, probe: true}
+  - {kind: snmp_interfaces, oper_up_only: true, exclude_if_types: [24], max: 32}

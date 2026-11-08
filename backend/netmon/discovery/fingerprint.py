@@ -31,7 +31,7 @@ MARKERS = (
     "easy smart, omada, procurve, aruba, arubaos, officeconnect, comware, h3c, hpe, cisco, "
     "netgear, prosafe, d-link, dlink, zyxel, fortinet, fortigate, synology, diskstation, qnap, "
     "laserjet, officejet, brother, canon, kyocera, ricoh, epson, xerox, lexmark, ilo, idrac, "
-    "supermicro, megarac"
+    "supermicro, megarac, check point, gaia"
 ).split(", ")
 _MARKER_RE = {m: re.compile(rf"\b{re.escape(m)}\b", re.IGNORECASE) for m in MARKERS}
 _TITLE_RE = re.compile(rb"<title[^>]*>(.*?)</title\s*>", re.IGNORECASE | re.DOTALL)

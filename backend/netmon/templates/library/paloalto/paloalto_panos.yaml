@@ -1,0 +1,56 @@
+# Palo Alto Networks PAN-OS (PAN-COMMON-MIB 1.3.6.1.4.1.25461.2.1.2), HOST-RESOURCES.
+schema: 1
+id: paloalto_panos
+version: 1
+vendor: paloalto
+verified: false
+verified_note: ""
+name: {en: "Palo Alto PAN-OS firewall", he: "חומת אש Palo Alto PAN-OS"}
+description:
+  en: "Ping, system, CPU, sessions, HA state and active interfaces"
+  he: "פינג, מערכת, מעבד, סשנים, מצב HA וממשקים פעילים"
+requires_snmp: true
+priority: 50
+match:
+  - {requires_snmp: true, enterprises: [25461]}
+entries:
+  - {kind: sensor, type: ping, name: {en: Ping, he: פינג}}
+  - {kind: sensor, type: snmp_system, name: {en: System, he: מערכת}}
+  - kind: snmp_table
+    walk_oid: '1.3.6.1.2.1.25.3.3.1.2'                # hrProcessorLoad
+    name: {en: 'CPU {index}', he: 'מעבד {index}'}
+    config: {value_type: gauge, unit: '%'}
+    channels: [{key: value, warning_max: 80, down_max: 95}]
+    max: 4
+    confidence: medium
+    notes: "MIB high; row meaning (management / data plane) medium."
+  - kind: sensor
+    type: snmp_custom
+    name: {en: Session utilization, he: ניצול סשנים}
+    config: {oid: '1.3.6.1.4.1.25461.2.1.2.3.1.0', value_type: gauge, unit: '%', label: Sessions}
+    channels: [{key: value, warning_max: 80, down_max: 95}]
+    probe: true
+    confidence: high
+    notes: "panSessionUtilization."
+  - kind: sensor
+    type: snmp_custom
+    name: {en: Active sessions, he: סשנים פעילים}
+    config: {oid: '1.3.6.1.4.1.25461.2.1.2.3.3.0', value_type: gauge, unit: sessions, label: Active}
+    probe: true
+    confidence: high
+    notes: "panSessionActive."
+  - kind: sensor
+    type: snmp_custom
+    name: {en: HA state, he: מצב HA}
+    config: {oid: '1.3.6.1.4.1.25461.2.1.2.1.11.0', value_type: string, label: HA}
+    probe: true
+    confidence: medium
+    notes: "panSysHAState."
+  - kind: sensor
+    type: snmp_custom
+    name: {en: HA peer state, he: מצב עמית HA}
+    config: {oid: '1.3.6.1.4.1.25461.2.1.2.1.12.0', value_type: string, label: HA peer}
+    probe: true
+    confidence: medium
+    notes: "panSysHAPeerState."
+  - {kind: snmp_interfaces, oper_up_only: true, exclude_if_types: [1, 24, 53, 131, 136], max: 32}

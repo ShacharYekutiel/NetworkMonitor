@@ -20,6 +20,7 @@ import { SetupPage } from './pages/Setup';
 import { UsersPage } from './pages/UsersPage';
 import { MaintenancePage } from './pages/MaintenancePage';
 import { TopologyPage } from './pages/TopologyPage';
+import { FindPage } from './pages/FindPage';
 
 function AdminOnly({ children }: { children: ReactNode }) {
   const { isAdmin } = useAuth();
@@ -84,6 +85,7 @@ export function AppRoutes() {
         <Route path="templates" element={<TemplatesPage />} />
         <Route path="maintenance" element={<MaintenancePage />} />
         <Route path="topology" element={<TopologyPage />} />
+        <Route path="find" element={<FindPage />} />
         <Route
           path="discovery"
           element={

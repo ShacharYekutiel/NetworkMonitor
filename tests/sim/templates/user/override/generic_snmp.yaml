@@ -1,0 +1,11 @@
+# QA fixture: invalid override of generic_snmp (sensor type foo) -> "unknown sensor type: foo";
+# generic_snmp must stay source builtin
+schema: 1
+id: generic_snmp
+name: {en: "Generic SNMP (broken override)"}
+requires_snmp: true
+priority: 20
+match:
+  - {requires_snmp: true}
+entries:
+  - {kind: sensor, type: foo, name: {en: Foo}}

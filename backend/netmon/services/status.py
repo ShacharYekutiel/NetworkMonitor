@@ -64,6 +64,7 @@ class Inventory:
     group_status: dict[int, str] = field(default_factory=dict)
     group_counts: dict[int, dict[str, int]] = field(default_factory=dict)
     group_has_members: dict[int, bool] = field(default_factory=dict)
+    detected_class: dict[int, str | None] = field(default_factory=dict)  # [2b-2]
 
     def ancestors(self, group_id: int) -> list[int]:
         """[group_id, parent, grandparent, ...]"""
@@ -200,6 +201,10 @@ async def load_inventory(session: AsyncSession) -> Inventory:
             "sort_order": row.sort_order,
             "acknowledged": row.acked,
         }
+    for row in await session.execute(  # [2b-2]
+        text("SELECT device_id, detected_class FROM port_inventory_status")
+    ):
+        inv.detected_class[row.device_id] = row.detected_class
     inv.compute()
     return inv
 

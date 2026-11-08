@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { useNavigate, useParams } from 'react-router-dom';
+import { useNavigate, useParams, useSearchParams } from 'react-router-dom';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useTranslation } from 'react-i18next';
 import { endpoints, qk } from '../api/endpoints';
@@ -30,6 +30,10 @@ import { useDeviceTemplates } from '../components/Templates';
 import { FingerprintIcon } from '../components/icons';
 import type { DeviceIdentity } from '../api/types';
 import { l10n } from '../lib/templates';
+import { PortsTab } from '../components/ports/PortsTab';
+import { PortIcon } from '../components/icons';
+import { cx } from '../components/ui';
+import { useSensorTypes } from '../hooks/queries';
 
 export function DevicePage() {
   const { id: idParam } = useParams();
@@ -56,6 +60,8 @@ export function DevicePage() {
   const [applying, setApplying] = useState(false);
   const [applyTpl, setApplyTpl] = useState<string | undefined>(undefined);
   const [identified, setIdentified] = useState<DeviceIdentity | null>(null);
+  const [params, setParams] = useSearchParams();
+  const sensorTypes = useSensorTypes();
   const templates = useDeviceTemplates();
   const identify = useMutation({
     mutationFn: () => endpoints.identifyDevice(id),
@@ -92,6 +98,31 @@ export function DevicePage() {
   if (device.error || !device.data) return <ErrorBox error={device.error} />;
   const d = device.data;
   const identity = identified ?? d.identity;
+  // [2b-2] Ports tab: every device with an SNMP sensor; default when the inventory is effective.
+  const snmpTypes = new Set(
+    sensorTypes.data?.filter((x) => x.requires_snmp).map((x) => x.type) ??
+      sensors.data?.items.filter((x) => x.type.startsWith('snmp_')).map((x) => x.type) ??
+      [],
+  );
+  const hasPorts = d.ports_effective || !!sensors.data?.items.some((x) => snmpTypes.has(x.type));
+  const tabParam = params.get('tab');
+  const tab: 'ports' | 'sensors' = !hasPorts
+    ? 'sensors'
+    : tabParam === 'ports' || tabParam === 'sensors'
+      ? tabParam
+      : d.ports_effective
+        ? 'ports'
+        : 'sensors';
+  const setTab = (next: 'ports' | 'sensors') =>
+    setParams(
+      (prev) => {
+        const p = new URLSearchParams();
+        p.set('tab', next);
+        if (next === 'ports' && prev.get('view')) p.set('view', prev.get('view') as string);
+        return p;
+      },
+      { replace: true },
+    );
   const tplName = (tid: string) => {
     const tp = templates.data?.find((x) => x.id === tid);
     return tp ? l10n(tp.name, i18n.language) : tid;
@@ -206,19 +237,51 @@ export function DevicePage() {
           )}
         </Card>
       )}
-      <Card title={t('devices.sensors')} bodyClassName="p-0">
-        {sensors.isLoading && <Loading />}
-        <ErrorBox error={sensors.error} />
-        {sensors.data && (
-          <SensorTable
-            sensors={sensors.data.items}
-            actions={isAdmin ? (s) => <SensorRowActions sensor={s} /> : undefined}
-          />
-        )}
-      </Card>
-      <Card title={t('devices.recentEvents')} bodyClassName="p-0">
-        {events.data ? <EventsTable events={events.data.items} /> : <Loading />}
-      </Card>
+      {hasPorts && (
+        <div
+          role="tablist"
+          aria-label={t('ports.tabs')}
+          className="flex gap-1 border-b border-slate-200 dark:border-slate-800"
+        >
+          {(['ports', 'sensors'] as const).map((k) => (
+            <button
+              key={k}
+              type="button"
+              role="tab"
+              aria-selected={tab === k}
+              onClick={() => setTab(k)}
+              className={cx(
+                '-mb-px inline-flex items-center gap-1.5 border-b-2 px-3 py-2 text-sm font-medium',
+                tab === k
+                  ? 'border-sky-600 text-sky-700 dark:border-sky-400 dark:text-sky-300'
+                  : 'border-transparent text-slate-600 hover:text-slate-900 dark:text-slate-400 dark:hover:text-slate-200',
+              )}
+            >
+              {k === 'ports' && <PortIcon size={15} />}
+              {k === 'ports' ? t('ports.tab') : t('devices.sensors')}
+            </button>
+          ))}
+        </div>
+      )}
+      {tab === 'ports' ? (
+        <PortsTab device={d} />
+      ) : (
+        <>
+          <Card title={t('devices.sensors')} bodyClassName="p-0">
+            {sensors.isLoading && <Loading />}
+            <ErrorBox error={sensors.error} />
+            {sensors.data && (
+              <SensorTable
+                sensors={sensors.data.items}
+                actions={isAdmin ? (s) => <SensorRowActions sensor={s} /> : undefined}
+              />
+            )}
+          </Card>
+          <Card title={t('devices.recentEvents')} bodyClassName="p-0">
+            {events.data ? <EventsTable events={events.data.items} /> : <Loading />}
+          </Card>
+        </>
+      )}
 
       <DeviceFormModal open={editing} onClose={() => setEditing(false)} device={d} />
       {isAdmin && <AddSensorModal open={adding} onClose={() => setAdding(false)} device={d} />}

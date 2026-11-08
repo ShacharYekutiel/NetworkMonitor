@@ -25,7 +25,7 @@ from netmon.schemas import (
     ScanOptionsIn,
 )
 from netmon.services.serialize import now_utc, page
-from netmon.templates.builtin import TEMPLATE_IDS
+from netmon.templates import registry as template_registry
 
 router = APIRouter()
 
@@ -393,7 +393,7 @@ async def import_scan(scan_id: int, body: ImportRequest, user: Admin, rt: RT, se
     bad = [
         {"loc": ["body", "items", i, "template_id"], "msg": "unknown template"}
         for i, it in enumerate(body.items)
-        if it.template_id not in TEMPLATE_IDS
+        if it.template_id not in template_registry.current().by_id
     ]
     if bad:
         raise ApiError(422, "validation_error", "Unknown template", bad)

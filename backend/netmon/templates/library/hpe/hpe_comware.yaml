@@ -1,0 +1,99 @@
+# HPE Comware / H3C (enterprise 25506): HH3C-ENTITY-EXT-MIB (hh3cEntityExtStateTable, indexed by
+# entPhysicalIndex), ENTITY-MIB names/classes, POWER-ETHERNET-MIB (RFC 3621), IF-MIB.
+schema: 1
+id: hpe_comware
+version: 3
+vendor: h3c
+verified: false            # flip after the owner's 2b-1 test (architecture § 11.8)
+verified_note: ""
+name: {en: "HPE Comware / H3C switch", he: "מתג HPE Comware"}
+description:
+  en: "Ping, system, CPU, memory, hardware health, PoE and active ports"
+  he: "פינג, מערכת, מעבד, זיכרון, תקינות חומרה, PoE ופורטים פעילים"
+requires_snmp: true
+priority: 50
+match:
+  - {device_classes: [switch], requires_snmp: true, enterprises: [25506]}
+entries:
+  - {kind: sensor, type: ping, name: {en: Ping, he: פינג}}
+  - {kind: sensor, type: snmp_system, name: {en: System, he: מערכת}}
+  - kind: snmp_table
+    walk_oid: '1.3.6.1.4.1.25506.2.6.1.1.1.1.6'    # hh3cEntityExtCpuUsage
+    label_oid: '1.3.6.1.2.1.47.1.1.1.1.7'          # entPhysicalName
+    name: {en: 'CPU {label}', he: 'מעבד {label}'}
+    config: {value_type: gauge, unit: '%'}
+    channels: [{key: value, warning_max: 80, down_max: 95}]
+    max: 8
+    filters: [{oid: '1.3.6.1.4.1.25506.2.6.1.1.1.1.6', not_in: [65535]}]  # 65535 = no sensor on this entity
+    skip_zero: true
+    confidence: high
+    notes: "OID high; non-zero row selection medium (a board at exactly 0 % is skipped; re-apply adds it)."
+  - kind: snmp_table
+    walk_oid: '1.3.6.1.4.1.25506.2.6.1.1.1.1.8'    # hh3cEntityExtMemUsage
+    label_oid: '1.3.6.1.2.1.47.1.1.1.1.7'          # entPhysicalName
+    name: {en: 'Memory {label}', he: 'זיכרון {label}'}
+    config: {value_type: gauge, unit: '%'}
+    channels: [{key: value, warning_max: 85, down_max: 95}]
+    max: 8
+    filters: [{oid: '1.3.6.1.4.1.25506.2.6.1.1.1.1.8', not_in: [65535]}]  # 65535 = no sensor on this entity
+    skip_zero: true
+    confidence: high
+    notes: "As the CPU row."
+  - kind: snmp_table
+    walk_oid: '1.3.6.1.4.1.25506.2.6.1.1.1.1.12'   # hh3cEntityExtTemperature
+    label_oid: '1.3.6.1.2.1.47.1.1.1.1.7'          # entPhysicalName
+    name: {en: 'Temperature {label}', he: 'טמפרטורה {label}'}
+    config: {value_type: gauge, unit: '°C'}
+    channels: [{key: value, warning_max: 65, down_max: 80}]
+    max: 16
+    filters: [{oid: '1.3.6.1.4.1.25506.2.6.1.1.1.1.12', not_in: [65535]}]  # 65535 = no sensor on this entity
+    skip_zero: true
+    confidence: medium
+    notes: "Generic thresholds (Comware's own threshold column .13 is not used)."
+  - kind: snmp_table
+    walk_oid: '1.3.6.1.4.1.25506.2.6.1.1.1.1.19'   # hh3cEntityExtErrorStatus
+    label_oid: '1.3.6.1.2.1.47.1.1.1.1.7'          # entPhysicalName
+    name: {en: '{label}', he: '{label}'}
+    config:
+      value_type: enum
+      value_map:
+        2: {status: up, text: normal}
+      value_map_default: down     # every other value is a fault (postFailure(3), fanError(41), ...)
+    filters:
+      - {oid: '1.3.6.1.2.1.47.1.1.1.1.5', in: [6, 7]}             # entPhysicalClass powerSupply/fan
+      - {oid: '1.3.6.1.4.1.25506.2.6.1.1.1.1.19', not_in: [1, 4]} # skip notSupported/entityAbsent
+    max: 16
+    interval_s: 300
+    confidence: medium
+    notes: "entPhysicalClass values high (ENTITY-MIB); ErrorStatus column .19 medium."
+  - kind: snmp_table
+    walk_oid: '1.3.6.1.2.1.105.1.3.1.1.4'             # pethMainPseConsumptionPower
+    percent_of_column: '1.3.6.1.2.1.105.1.3.1.1.2'    # pethMainPsePower
+    name: {en: 'PoE {index} usage', he: 'PoE {index} ניצול'}
+    config: {value_type: gauge, unit: '%'}
+    channels: [{key: value, warning_max: 80, down_max: 95}]
+    filters: [{oid: '1.3.6.1.2.1.105.1.3.1.1.2', not_in: [0]}]
+    max: 8
+    confidence: medium
+    notes: "POWER-ETHERNET-MIB (RFC 3621): MIB high, Comware support medium."
+  - kind: snmp_table
+    walk_oid: '1.3.6.1.2.1.105.1.3.1.1.4'
+    name: {en: 'PoE {index} power', he: 'PoE {index} הספק'}
+    config: {value_type: gauge, unit: W}
+    filters: [{oid: '1.3.6.1.2.1.105.1.3.1.1.2', not_in: [0]}]
+    max: 8
+    confidence: medium
+    notes: "POWER-ETHERNET-MIB consumption (W)."
+  - kind: snmp_table
+    walk_oid: '1.3.6.1.2.1.105.1.3.1.1.2'
+    name: {en: 'PoE {index} budget', he: 'PoE {index} תקציב'}
+    config: {value_type: gauge, unit: W}
+    max: 8
+    skip_zero: true
+    interval_s: 3600
+    confidence: medium
+    notes: "POWER-ETHERNET-MIB nominal power (W)."
+  - kind: snmp_interfaces
+    oper_up_only: true
+    exclude_if_types: [1, 24, 53, 131, 136]   # Vlan-interface* 136, NULL0 1, InLoopBack0 24
+    max: 52

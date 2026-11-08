@@ -29,6 +29,11 @@ DEFAULTS: dict[str, Any] = {
     # [2b-1]; the timezone default is computed (TZ when valid, else UTC), see defaults()
     "timezone": None,
     "topology_refresh_min": 30,
+    # [2b-2] switch ports view
+    "port_inventory_min": 10,
+    "uplink_mac_threshold": 5,
+    "port_mac_retention_days": 30,
+    "reverse_dns": True,
 }
 
 
@@ -97,4 +102,8 @@ def settings_out(values: dict[str, Any]) -> dict[str, Any]:
         "public_base_url": values["public_base_url"],
         "timezone": values["timezone"],
         "topology_refresh_min": values["topology_refresh_min"],
+        "port_inventory_min": values["port_inventory_min"],
+        "uplink_mac_threshold": values["uplink_mac_threshold"],
+        "port_mac_retention_days": values["port_mac_retention_days"],
+        "reverse_dns": values["reverse_dns"],
     }

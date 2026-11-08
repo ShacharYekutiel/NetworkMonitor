@@ -2,7 +2,8 @@ import { useEffect, useMemo, useState, type FormEvent } from 'react';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { useTranslation } from 'react-i18next';
 import { endpoints, qk, type DeviceInput, type GroupInput } from '../api/endpoints';
-import type { Device, DependencyInput, Group, SensorType } from '../api/types';
+import { INVENTORY_MODES } from '../api/types';
+import type { Device, DependencyInput, Group, InventoryMode, SensorType } from '../api/types';
 import { useTree } from '../hooks/queries';
 import { snmpFormFrom, snmpFormToInput } from '../lib/snmp';
 import { descendantGroupIds, findGroup, flattenGroups } from '../lib/tree';
@@ -199,6 +200,8 @@ export function DeviceFormModal({
   const [snmp, setSnmp] = useState(snmpFormFrom(null));
   const [auto, setAuto] = useState<SensorType[]>(['ping']);
   const [dep, setDep] = useState<DependencyInput>(dependencyInputFrom(null));
+  const [portInv, setPortInv] = useState<InventoryMode>('auto');
+  const [arp, setArp] = useState<InventoryMode>('auto');
   const deviceName = useDeviceNames();
 
   useEffect(() => {
@@ -212,6 +215,8 @@ export function DeviceFormModal({
     setSortOrder(String(device?.sort_order ?? 0));
     setSnmp(snmpFormFrom(device?.snmp_credentials ?? null));
     setAuto(['ping']);
+    setPortInv(device?.port_inventory ?? 'auto');
+    setArp(device?.arp_collect ?? 'auto');
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open, device, groupId]);
 
@@ -242,6 +247,9 @@ export function DeviceFormModal({
       snmp_credentials: snmpFormToInput(snmp),
       dependency: dependencyToInput(dep),
     };
+    // [2b-2] Sent only when changed (a change makes the device due for a port run at once).
+    if (portInv !== (device?.port_inventory ?? 'auto')) body.port_inventory = portInv;
+    if (arp !== (device?.arp_collect ?? 'auto')) body.arp_collect = arp;
     if (!device) body.auto_sensors = auto;
     m.mutate(body);
   };
@@ -302,6 +310,13 @@ export function DeviceFormModal({
           selfDeviceId={device?.id}
           effective={device ? device.effective_dependency : undefined}
         />
+        <InventoryFields
+          device={device}
+          portInventory={portInv}
+          arpCollect={arp}
+          onPortInventory={setPortInv}
+          onArpCollect={setArp}
+        />
         {!device && (
           <fieldset className="rounded-md border border-slate-200 p-3 dark:border-slate-700">
             <legend className="px-1 text-xs font-semibold text-slate-600 dark:text-slate-400">
@@ -333,5 +348,73 @@ export function DeviceFormModal({
         </div>
       </form>
     </Modal>
+  );
+}
+
+/** [2b-2] Port inventory / ARP collection modes with the effective state of a saved device. */
+function InventoryFields({
+  device,
+  portInventory,
+  arpCollect,
+  onPortInventory,
+  onArpCollect,
+}: {
+  device?: Device;
+  portInventory: InventoryMode;
+  arpCollect: InventoryMode;
+  onPortInventory: (m: InventoryMode) => void;
+  onArpCollect: (m: InventoryMode) => void;
+}) {
+  const { t } = useTranslation();
+  const effective = (
+    mode: InventoryMode,
+    saved: InventoryMode | undefined,
+    on: boolean | undefined,
+  ) => {
+    // The effective state is known only for the saved mode.
+    if (!device || saved !== mode || on === undefined) return t('device.inventoryHint');
+    const state = on ? t('device.effectiveOn') : t('device.effectiveOff');
+    return mode === 'auto'
+      ? t('device.effectiveAuto', { state, cls: t(`deviceClass.${device.effective_class}`) })
+      : state;
+  };
+  return (
+    <fieldset className="rounded-md border border-slate-200 p-3 dark:border-slate-700">
+      <legend className="px-1 text-xs font-semibold text-slate-600 dark:text-slate-400">
+        {t('device.inventory')}
+      </legend>
+      <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+        <Field
+          label={t('device.portInventory')}
+          hint={effective(portInventory, device?.port_inventory, device?.ports_effective)}
+        >
+          <Select
+            value={portInventory}
+            onChange={(e) => onPortInventory(e.target.value as InventoryMode)}
+          >
+            {INVENTORY_MODES.map((m) => (
+              <option key={m} value={m}>
+                {t(`inventoryMode.${m}`)}
+              </option>
+            ))}
+          </Select>
+        </Field>
+        <Field
+          label={t('device.arpCollect')}
+          hint={effective(arpCollect, device?.arp_collect, device?.arp_effective)}
+        >
+          <Select
+            value={arpCollect}
+            onChange={(e) => onArpCollect(e.target.value as InventoryMode)}
+          >
+            {INVENTORY_MODES.map((m) => (
+              <option key={m} value={m}>
+                {t(`inventoryMode.${m}`)}
+              </option>
+            ))}
+          </Select>
+        </Field>
+      </div>
+    </fieldset>
   );
 }

@@ -1,0 +1,76 @@
+# Dell iDRAC (IDRAC-MIB-SMIv2 1.3.6.1.4.1.674.10892.5).
+schema: 1
+id: dell_idrac
+version: 1
+vendor: dell
+verified: false
+verified_note: ""
+name: {en: "Dell iDRAC", he: "Dell iDRAC"}
+description:
+  en: "Ping, system, global status, power supplies, fans, temperatures, disks and the iDRAC web page"
+  he: "פינג, מערכת, מצב כללי, ספקי כוח, מאווררים, טמפרטורות, דיסקים ודף ה-iDRAC"
+requires_snmp: true
+priority: 50
+match:
+  - {requires_snmp: true, sys_object_id_prefixes: ['1.3.6.1.4.1.674.10892.5']}
+  - {requires_snmp: true, enterprises: [674], sys_descr_regex: 'idrac'}
+entries:
+  - {kind: sensor, type: ping, name: {en: Ping, he: פינג}}
+  - {kind: sensor, type: snmp_system, name: {en: System, he: מערכת}}
+  - kind: sensor
+    type: snmp_custom
+    name: {en: System status, he: מצב מערכת}
+    config:
+      oid: '1.3.6.1.4.1.674.10892.5.2.1.0'            # globalSystemStatus
+      value_type: enum
+      value_map: &dell_status                         # ObjectStatusEnum
+        1: {status: warning, text: other}
+        2: {status: warning, text: unknown}
+        3: {status: up, text: ok}
+        4: {status: warning, text: nonCritical}
+        5: {status: down, text: critical}
+        6: {status: down, text: nonRecoverable}
+      value_map_default: warning
+      label: System
+    probe: true
+    confidence: high
+  - kind: snmp_table
+    walk_oid: '1.3.6.1.4.1.674.10892.5.4.600.12.1.5'  # powerSupplyStatus
+    label_oid: '1.3.6.1.4.1.674.10892.5.4.600.12.1.8' # powerSupplyLocationName
+    name: {en: '{label}', he: '{label}'}
+    config: {value_type: enum, value_map: *dell_status, value_map_default: warning}
+    max: 8
+    interval_s: 300
+    confidence: medium
+    notes: "Power supplies."
+  - kind: snmp_table
+    walk_oid: '1.3.6.1.4.1.674.10892.5.4.700.12.1.5'  # coolingDeviceStatus
+    label_oid: '1.3.6.1.4.1.674.10892.5.4.700.12.1.8' # coolingDeviceLocationName
+    name: {en: '{label}', he: '{label}'}
+    config: {value_type: enum, value_map: *dell_status, value_map_default: warning}
+    max: 16
+    interval_s: 300
+    confidence: medium
+    notes: "Fans."
+  - kind: snmp_table
+    walk_oid: '1.3.6.1.4.1.674.10892.5.4.700.20.1.6'  # temperatureProbeReading (0.1 °C)
+    label_oid: '1.3.6.1.4.1.674.10892.5.4.700.20.1.8' # temperatureProbeLocationName
+    name: {en: '{label}', he: '{label}'}
+    config: {value_type: gauge, unit: '°C', multiplier: 0.1}
+    max: 16
+    skip_zero: true
+    confidence: medium
+    notes: "Temperatures; no thresholds (server specific)."
+  - kind: snmp_table
+    walk_oid: '1.3.6.1.4.1.674.10892.5.5.1.20.130.4.1.24'  # physicalDiskComponentStatus
+    label_oid: '1.3.6.1.4.1.674.10892.5.5.1.20.130.4.1.2'  # physicalDiskName
+    name: {en: 'Disk {label}', he: 'דיסק {label}'}
+    config: {value_type: enum, value_map: *dell_status, value_map_default: warning}
+    max: 32
+    interval_s: 300
+    confidence: medium
+  - kind: sensor
+    type: http
+    name: {en: Web GUI, he: ממשק ניהול}
+    config: {url: 'https://{host}/', verify_tls: false}
+    probe: true

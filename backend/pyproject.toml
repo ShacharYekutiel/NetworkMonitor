@@ -32,6 +32,8 @@ dependencies = [
     "truststore>=0.10",
     # [2b-1] IANA zone database for zoneinfo (Windows and slim images have none)
     "tzdata>=2024.1",
+    # [2b-2] template library files (yaml.safe_load only)
+    "PyYAML>=6.0.1",
 ]
 
 [project.optional-dependencies]
@@ -55,7 +57,15 @@ version = { attr = "netmon.__version__" }
 include = ["netmon*"]
 
 [tool.setuptools.package-data]
-netmon = ["static/*", "static/**/*", "migrations/*.py", "migrations/*.mako", "migrations/versions/*.py"]
+netmon = [
+    "static/*",
+    "static/**/*",
+    "migrations/*.py",
+    "migrations/*.mako",
+    "migrations/versions/*.py",
+    "templates/library/*/*.yaml",
+    "data/*.gz",
+]
 
 [tool.ruff]
 line-length = 100

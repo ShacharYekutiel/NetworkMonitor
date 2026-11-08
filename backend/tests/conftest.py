@@ -35,7 +35,7 @@ TABLES = (
     "alert_state, alert_rule_channels, alert_rules, notification_channels, events, "
     "measurements, sensor_channels, sensors, devices, groups, users, settings, "
     "maintenance_windows, topology_links, topology_neighbors, topology_layout, "
-    "topology_refreshes"
+    "topology_refreshes, dns_cache"
 )
 
 

@@ -263,3 +263,43 @@ export const ShieldCheckIcon = (p: P) => (
     <path d="M9 12l2 2 4-4" />
   </Svg>
 );
+
+// [2b-2] ports view
+/** An Ethernet port (front panel tab). */
+export const PortIcon = (p: P) => (
+  <Svg {...p}>
+    <rect x="3" y="5" width="18" height="14" rx="1.5" />
+    <path d="M7 19v-4h2v-2h6v2h2v4M9 9h.01M12 9h.01M15 9h.01" />
+  </Svg>
+);
+/** A crossed-out port: administratively disabled. */
+export const BanIcon = (p: P) => (
+  <Svg {...p}>
+    <circle cx="12" cy="12" r="8" />
+    <path d="M6.5 6.5l11 11" />
+  </Svg>
+);
+/** Stacked lines: trunk (tagged VLANs). */
+export const TrunkIcon = (p: P) => (
+  <Svg {...p}>
+    <path d="M4 7h16M4 12h16M4 17h16" />
+  </Svg>
+);
+export const PanelIcon = (p: P) => (
+  <Svg {...p}>
+    <rect x="2" y="6" width="20" height="12" rx="1.5" />
+    <path d="M5 9.5h2v2H5zM9 9.5h2v2H9zM13 9.5h2v2h-2zM5 13h2v2H5zM9 13h2v2H9zM13 13h2v2h-2zM18 9.5h1.5v5.5H18z" />
+  </Svg>
+);
+export const ColumnsIcon = (p: P) => (
+  <Svg {...p}>
+    <rect x="3" y="4" width="18" height="16" rx="1.5" />
+    <path d="M9 4v16M15 4v16" />
+  </Svg>
+);
+export const AlertIcon = (p: P) => (
+  <Svg {...p}>
+    <path d="M12 3l9.5 17h-19z" />
+    <path d="M12 10v4M12 17h.01" />
+  </Svg>
+);

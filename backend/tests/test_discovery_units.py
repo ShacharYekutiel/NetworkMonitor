@@ -352,17 +352,28 @@ def test_enterprise() -> None:
 # ------------------------------------------------------------------ templates
 def test_templates_data() -> None:
     ids = [t["id"] for t in list_templates()]
-    assert ids == [
+    assert ids == [  # [2b-2] priority desc, then id
         "opnsense",
         "unifi_ap",
         "printer",
+        "apc_ups",
+        "aruba_cx",
+        "aruba_wifi",
+        "checkpoint_gaia",
+        "cisco_ios",
+        "dell_idrac",
+        "fortinet_fortigate",
         "hpe_arubaos_switch",
         "hpe_comware",
+        "hpe_ilo",
+        "mikrotik_routeros",
+        "paloalto_panos",
         "nas_server",
         "generic_snmp",
         "http_server",
         "generic_ping",
     ]
+    common = {"kind", "confidence", "notes"}  # [2b-2]
     for t in TEMPLATES:
         assert set(t) == {
             "id",
@@ -372,6 +383,14 @@ def test_templates_data() -> None:
             "priority",
             "match",
             "entries",
+            # [2b-2]
+            "version",
+            "verified",
+            "verified_note",
+            "vendor",
+            "source",
+            "overrides_builtin",
+            "file",
         }
         assert set(t["name"]) == {"en", "he"} and set(t["description"]) == {"en", "he"}
         for rule in t["match"]:
@@ -381,12 +400,15 @@ def test_templates_data() -> None:
                 "requires_snmp",
                 "any_open_ports",
                 "enterprises",
+                "sys_object_id_prefixes",  # [2b-2]
+                "sys_descr_regex",  # [2b-2]
             }
         for e in t["entries"]:
             keys = {
-                "sensor": {"kind", "type", "name", "config", "channels", "interval_s", "probe"},
-                "snmp_interfaces": {
-                    "kind",
+                "sensor": common
+                | {"type", "name", "config", "channels", "interval_s", "probe", "when"},
+                "snmp_interfaces": common
+                | {
                     "oper_up_only",
                     "exclude_if_types",
                     "include_name_regex",
@@ -394,8 +416,8 @@ def test_templates_data() -> None:
                     "max",
                     "channels",
                 },
-                "snmp_table": {
-                    "kind",
+                "snmp_table": common
+                | {
                     "walk_oid",
                     "label_oid",
                     "label2_oid",

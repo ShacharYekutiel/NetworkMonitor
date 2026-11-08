@@ -35,7 +35,8 @@ export const LAB_EXPECTED: Record<
   '127.0.0.21': { device_class: 'router', vendor: 'opnsense', suggested_template: 'opnsense', snmp_credential: 'group', sys_name: 'OPNsense.localdomain', open_ports: [] },
   '127.0.0.22': { device_class: 'access_point', vendor: 'ubiquiti', suggested_template: 'unifi_ap', snmp_credential: 'group', sys_name: 'U6-Lite-Office', open_ports: [] },
   '127.0.0.23': { device_class: 'printer', vendor: 'brother', suggested_template: 'printer', snmp_credential: 'extra', sys_name: 'BRN3C2AF4', open_ports: [9100] },
-  '127.0.0.24': { device_class: 'switch', vendor: 'cisco', suggested_template: 'generic_snmp', snmp_credential: 'group', sys_name: 'sw-core-2960x', open_ports: [] },
+  // [2b-2] cisco_ios (enterprise 9, priority 50) now wins over generic_snmp (architecture §9.6 table predates it)
+  '127.0.0.24': { device_class: 'switch', vendor: 'cisco', suggested_template: 'cisco_ios', snmp_credential: 'group', sys_name: 'sw-core-2960x', open_ports: [] },
   '127.0.0.25': { device_class: 'unknown', vendor: null, suggested_template: 'http_server', snmp_credential: null, open_ports: [8080] },
 };
 

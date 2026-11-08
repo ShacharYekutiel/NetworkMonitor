@@ -1,0 +1,5 @@
+# QA fixture: invalid YAML (unclosed flow mapping) -> "invalid YAML: ...", template_id null
+schema: 1
+id: broken
+name: {en: "Broken"
+priority: 1

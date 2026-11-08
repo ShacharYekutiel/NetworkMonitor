@@ -31,15 +31,19 @@ export function setUnauthorizedHandler(h: UnauthorizedHandler | null): void {
   onUnauthorized = h;
 }
 
-export type Query = Record<string, string | number | boolean | null | undefined>;
+type QueryValue = string | number | boolean | null | undefined;
+/** Arrays are sent as repeated keys (e.g. `kind=physical&kind=lag`). */
+export type Query = Record<string, QueryValue | readonly QueryValue[]>;
 
 export function buildUrl(path: string, query?: Query): string {
   const base = path.startsWith('/api') ? path : `/api${path.startsWith('/') ? '' : '/'}${path}`;
   if (!query) return base;
   const params = new URLSearchParams();
-  for (const [k, v] of Object.entries(query)) {
-    if (v === undefined || v === null || v === '') continue;
-    params.append(k, String(v));
+  for (const [k, raw] of Object.entries(query)) {
+    for (const v of Array.isArray(raw) ? raw : [raw]) {
+      if (v === undefined || v === null || v === '') continue;
+      params.append(k, String(v));
+    }
   }
   const qs = params.toString();
   return qs ? `${base}?${qs}` : base;

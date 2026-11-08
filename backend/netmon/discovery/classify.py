@@ -15,12 +15,13 @@ ENTERPRISE_PREFIX = "1.3.6.1.4.1."
 NET_SNMP_PREFIX = "1.3.6.1.4.1.8072.3.2."
 FREEBSD_OID = "1.3.6.1.4.1.8072.3.2.8"
 
-# probe name -> subtree OID (one GETNEXT with all four varbinds after the identity GET)
+# probe name -> subtree OID (one GETNEXT with all five varbinds after the identity GET)
 SUBTREE_PROBES: dict[str, str] = {
     "unifi_vap": "1.3.6.1.4.1.41112.1.6",
     "printer_mib": "1.3.6.1.2.1.43",
     "synology": "1.3.6.1.4.1.6574",
     "qnap": "1.3.6.1.4.1.24681",
+    "checkpoint": "1.3.6.1.4.1.2620.1.6",  # [2b-2] svn MIB (also behind the net-snmp Linux OID)
 }
 
 # enterprise -> (vendor slug | None, plain default class for rule 10 | None)
@@ -28,6 +29,7 @@ VENDORS: dict[int, tuple[str | None, str | None]] = {
     9: ("cisco", "router"),
     11: ("hp", "switch"),
     171: ("d-link", "switch"),
+    232: ("hp", "server"),  # [2b-2] Compaq/HPE server management (iLO, Insight agents)
     253: ("xerox", None),
     311: ("microsoft", None),
     318: ("apc", "unknown"),
@@ -40,6 +42,7 @@ VENDORS: dict[int, tuple[str | None, str | None]] = {
     1602: ("canon", None),
     2011: ("huawei", "router"),
     2435: ("brother", None),
+    2620: ("checkpoint", "router"),  # [2b-2] Check Point (Gaia)
     2636: ("juniper", "router"),
     4413: ("broadcom", "switch"),
     4526: ("netgear", "switch"),
@@ -80,6 +83,7 @@ RE_V_SWITCH = re.compile(
     r"|officeconnect|comware|arubaos|aruba.*switch",
     _I,
 )
+RE_ARUBA_SWITCH = re.compile(r"\(MODEL:\s*S\d{4}|\bswitch\b", _I)  # Mobility Access Switch
 RE_V_AP = re.compile(r"\b(access point|aironet)\b|\bAP\d", _I)
 RE_G_SWITCH = re.compile(r"switch", _I)
 RE_G_ROUTER = re.compile(r"router|routeros|gateway", _I)
@@ -164,9 +168,16 @@ def classify_rule(
         # 9 FreeBSD with pflog0
         if pf and is_freebsd(oid, descr):
             return "router", "freebsd", 9
+        # [2b-2] 9a Check Point (enterprise or the svn subtree probe); reported as rule 9
+        if ent == 2620 or "checkpoint" in probes:
+            return "router", "checkpoint", 9
         # 10 vendor table with a plain default class
         if ent is not None and ent in VENDORS and VENDORS[ent][1] is not None:
             slug, default_class = VENDORS[ent]
+            if ent == 14823:  # [2b-2] Aruba (HPE) wireless: "ArubaOS" must not mean switch
+                if RE_ARUBA_SWITCH.search(descr):
+                    return "switch", "aruba", 10
+                return "access_point", "aruba", 10
             if RE_V_SWITCH.search(descr):
                 return "switch", slug, 10
             if RE_V_AP.search(descr):
@@ -223,7 +234,7 @@ def classify(
 
 def suggest_template(result: Any) -> str:
     """Template id for a classified result (an object or a dict with device_class, vendor,
-    snmp_ok, open_ports and optionally sys_object_id)."""
+    snmp_ok, open_ports and optionally sys_object_id and sys_descr)."""
 
     def get(key: str) -> Any:
         if isinstance(result, dict):
@@ -236,6 +247,7 @@ def suggest_template(result: Any) -> str:
         snmp_ok=bool(get("snmp_ok")),
         open_ports=list(get("open_ports") or []),
         sys_object_id=get("sys_object_id"),
+        sys_descr=get("sys_descr"),
     )
 
 
@@ -362,6 +374,8 @@ def classify_fingerprint(fp: dict[str, Any] | None) -> FpMatch | None:
             return FpMatch("printer", word, "medium", "F22")
     if f.tm(r"fortigate|fortinet") or f.s(r"^xxxxxxxx-xxxxx$"):
         return FpMatch("router", "fortinet", "medium", "F23")
+    if f.tm(r"check point|gaia portal|\bgaia\b"):  # [2b-2]
+        return FpMatch("router", "checkpoint", "medium", "F23a")
     if f.b(r"Cisco-\d") or f.s(r"cisco") or f.t(r"cisco"):
         cls = "switch" if f.t(r"\bSG\d{3}|\bCBS\d{3}|catalyst|switch") else "router"
         return FpMatch(cls, "cisco", "medium", "F24")

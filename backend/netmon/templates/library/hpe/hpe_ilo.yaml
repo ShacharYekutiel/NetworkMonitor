@@ -1,0 +1,71 @@
+# HPE iLO / ProLiant (Compaq/HPE Insight MIBs, enterprise 232): CPQHLTH-MIB, CPQIDA-MIB.
+schema: 1
+id: hpe_ilo
+version: 1
+vendor: hp
+verified: false
+verified_note: ""
+name: {en: "HPE iLO / ProLiant", he: "HPE iLO / ProLiant"}
+description:
+  en: "Ping, system, server health, power supplies, fans, temperatures, disks and the iLO web page"
+  he: "פינג, מערכת, תקינות שרת, ספקי כוח, מאווררים, טמפרטורות, דיסקים ודף ה-iLO"
+requires_snmp: true
+priority: 50
+match:
+  - {requires_snmp: true, enterprises: [232]}
+  - {requires_snmp: true, sys_descr_regex: 'Integrated Lights-Out|\biLO ?\d'}
+entries:
+  - {kind: sensor, type: ping, name: {en: Ping, he: פינג}}
+  - {kind: sensor, type: snmp_system, name: {en: System, he: מערכת}}
+  - kind: sensor
+    type: snmp_custom
+    name: {en: Server health, he: תקינות שרת}
+    config:
+      oid: '1.3.6.1.4.1.232.6.1.3.0'                  # cpqHeMibCondition
+      value_type: enum
+      value_map: &condition                           # CPQ* condition
+        1: {status: warning, text: other}
+        2: {status: up, text: ok}
+        3: {status: warning, text: degraded}
+        4: {status: down, text: failed}
+      value_map_default: warning
+      label: Health
+    probe: true
+    confidence: high
+  - kind: snmp_table
+    walk_oid: '1.3.6.1.4.1.232.6.2.9.3.1.4'           # cpqHeFltTolPowerSupplyCondition
+    name: {en: 'Power supply {index}', he: 'ספק כוח {index}'}
+    config: {value_type: enum, value_map: *condition, value_map_default: warning}
+    filters: [{oid: '1.3.6.1.4.1.232.6.2.9.3.1.3', in: [3]}]   # ...Present: present(3)
+    max: 8
+    interval_s: 300
+    confidence: medium
+  - kind: snmp_table
+    walk_oid: '1.3.6.1.4.1.232.6.2.6.7.1.9'           # cpqHeFltTolFanCondition
+    name: {en: 'Fan {index}', he: 'מאוורר {index}'}
+    config: {value_type: enum, value_map: *condition, value_map_default: warning}
+    filters: [{oid: '1.3.6.1.4.1.232.6.2.6.7.1.4', in: [3]}]   # cpqHeFltTolFanPresent
+    max: 16
+    interval_s: 300
+    confidence: medium
+  - kind: snmp_table
+    walk_oid: '1.3.6.1.4.1.232.6.2.6.8.1.4'           # cpqHeTemperatureCelsius
+    name: {en: 'Temperature {index}', he: 'טמפרטורה {index}'}
+    config: {value_type: gauge, unit: '°C'}
+    max: 32
+    skip_zero: true
+    confidence: medium
+    notes: "No thresholds: they are server specific."
+  - kind: snmp_table
+    walk_oid: '1.3.6.1.4.1.232.3.2.5.1.1.37'          # cpqDaPhyDrvCondition
+    name: {en: 'Disk {index}', he: 'דיסק {index}'}
+    config: {value_type: enum, value_map: *condition, value_map_default: warning}
+    max: 32
+    interval_s: 300
+    confidence: medium
+    notes: "Smart Array physical drives."
+  - kind: sensor
+    type: http
+    name: {en: Web GUI, he: ממשק ניהול}
+    config: {url: 'https://{host}/', verify_tls: false}
+    probe: true

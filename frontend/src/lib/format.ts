@@ -40,6 +40,9 @@ export function formatValue(v: number | null | undefined, unit: string): string 
       return String(Math.round(v));
     case '%':
       return `${formatNumber(v, 1)}%`;
+    case '#':
+      // [2b-2] snmp_walk_count row counts
+      return formatNumber(v, 0);
     case 'd':
       return `${formatNumber(v, 1)} ${i18n.t('units.days')}`;
     default:

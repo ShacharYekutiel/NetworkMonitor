@@ -3,6 +3,7 @@ import { qk } from '../api/endpoints';
 import type {
   Dashboard,
   Device,
+  DevicePorts,
   DiscoveryResult,
   DiscoveryScan,
   Group,
@@ -181,6 +182,8 @@ export function applyLiveMessage(
           batch.add(['devices']);
           batch.add(['sensors']);
           batch.add(['snmpInterfaces', id]);
+          // [2b-2] port_inventory / arp_collect changes are normal device updates.
+          batch.add(qk.devicePorts(id));
           break;
         case 'sensor':
           batch.add(['sensor', id]);
@@ -264,6 +267,16 @@ export function applyLiveMessage(
         old ? { ...old, last_refresh: r, refresh_running: r.status === 'running' } : old,
       );
       if (r.status !== 'running') batch.add(['topology']);
+      break;
+    }
+    case 'ports.updated': {
+      applyPortsUpdated(qc, msg.data, batch);
+      notifyPortsUpdated(msg.data);
+      break;
+    }
+    case 'templates.reloaded': {
+      batch.add(qk.deviceTemplates);
+      batch.add(['deviceTemplate']);
       break;
     }
     case 'discovery.progress': {
@@ -373,4 +386,90 @@ export function dependentDeviceIds(qc: QueryClient, parentId: number): number[] 
   for (const [, d] of qc.getQueriesData<Device>({ queryKey: ['device'] }))
     if (d && d.effective_dependency?.device_id === parentId) ids.add(d.id);
   return [...ids];
+}
+
+/**
+ * [2b-2] ports.updated (a port/ARP run of one device finished).
+ * - That device's ports view and port modals are invalidated; only an open (observed) view
+ *   refetches, closed ones are just marked stale.
+ * - When the device is a known ARP source, IPs on every other switch may have changed: all ports
+ *   views/modals are marked stale (refetched on window focus or remount), and open ones refetch
+ *   once ARP_REFETCH_MS after the first such update of a burst (scheduleArpRefetch).
+ * - MAC searches are not invalidated (a new search or a remount refetches them).
+ * A WebSocket reconnect still refetches everything (hooks/live.tsx).
+ */
+export function applyPortsUpdated(
+  qc: QueryClient,
+  d: { device_id: number; arp_source?: boolean },
+  batch: InvalidationBatcher,
+): void {
+  batch.add(qk.devicePorts(d.device_id));
+  batch.add(['port-detail', d.device_id]);
+  // The server says whether the device collects ARP; older servers omit it → cached device data.
+  const arp = typeof d.arp_source === 'boolean' ? d.arp_source : isArpSource(qc, d.device_id);
+  if (arp) {
+    void qc.invalidateQueries({ queryKey: ['device-ports'], refetchType: 'none' });
+    void qc.invalidateQueries({ queryKey: ['port-detail'], refetchType: 'none' });
+    scheduleArpRefetch(qc);
+  }
+}
+
+/** [2b-2] Delay of the refetch of open ports views after an ARP source's run. */
+export const ARP_REFETCH_MS = 30_000;
+const arpTimers = new WeakMap<QueryClient, ReturnType<typeof setTimeout>>();
+
+/**
+ * Open ports views / port modals (active observers) refetch once, ARP_REFETCH_MS after the first
+ * ARP-source update of a burst (later updates in the window join it), so a wall-screen dashboard
+ * that never gets a focus event still shows fresh IPs. Closed queries are not refetched.
+ */
+export function scheduleArpRefetch(qc: QueryClient): void {
+  if (arpTimers.has(qc)) return;
+  arpTimers.set(
+    qc,
+    setTimeout(() => {
+      arpTimers.delete(qc);
+      void qc.refetchQueries({ queryKey: ['device-ports'], type: 'active' });
+      void qc.refetchQueries({ queryKey: ['port-detail'], type: 'active' });
+    }, ARP_REFETCH_MS),
+  );
+}
+
+/** Cancels a pending ARP refetch (socket stopped / tests). */
+export function cancelArpRefetch(qc: QueryClient): void {
+  const t = arpTimers.get(qc);
+  if (t) clearTimeout(t);
+  arpTimers.delete(qc);
+}
+
+/** Whether a device collects ARP, from any cached copy of it (unknown → false). */
+export function isArpSource(qc: QueryClient, deviceId: number): boolean {
+  if (qc.getQueryData<Device>(qk.device(deviceId))?.arp_effective) return true;
+  if (qc.getQueryData<DevicePorts>(qk.devicePorts(deviceId))?.arp_effective) return true;
+  for (const [, page] of qc.getQueriesData<Page<Device>>({ queryKey: ['devices'] }))
+    if (page?.items?.some((x) => x.id === deviceId && x.arp_effective)) return true;
+  return false;
+}
+
+/** refetchOnWindowFocus for ports queries: only those marked stale by an ARP source's run. */
+export function refetchIfInvalidated(query: { state: { isInvalidated: boolean } }): boolean {
+  return query.state.isInvalidated;
+}
+
+// [2b-2] ports.updated listeners (the Refresh button stops its spinner on its device's message).
+export type PortsUpdated = {
+  device_id: number;
+  ok: boolean;
+  collected_at: string;
+  arp_source?: boolean;
+};
+const portsListeners = new Set<(d: PortsUpdated) => void>();
+
+export function onPortsUpdated(l: (d: PortsUpdated) => void): () => void {
+  portsListeners.add(l);
+  return () => portsListeners.delete(l);
+}
+
+function notifyPortsUpdated(d: PortsUpdated) {
+  portsListeners.forEach((l) => l(d));
 }

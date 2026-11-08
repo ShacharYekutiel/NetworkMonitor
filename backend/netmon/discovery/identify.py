@@ -119,6 +119,7 @@ async def identify_device(rt: Runtime, host: str, creds: dict[str, Any]) -> dict
             "snmp_ok": res.snmp_ok,
             "open_ports": res.open_ports,
             "sys_object_id": res.sys_object_id,
+            "sys_descr": res.sys_descr,
         }
     )
     return identity_out(c, res, template, fp)

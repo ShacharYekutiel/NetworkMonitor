@@ -446,7 +446,8 @@ def test_template_suggestion_by_enterprise() -> None:
 
     assert sug("1.3.6.1.4.1.11.2.3.7.11.181") == "hpe_arubaos_switch"
     assert sug("1.3.6.1.4.1.25506.11.1.177", vendor="h3c") == "hpe_comware"
-    assert sug("1.3.6.1.4.1.47196.4.1", vendor="aruba") == "generic_snmp"  # CX: no template
+    # [2b-2] Aruba CX now has its own template (was generic_snmp in 2b-1)
+    assert sug("1.3.6.1.4.1.47196.4.1", vendor="aruba") == "aruba_cx"
     assert sug("1.3.6.1.4.1.11.2.3.9.1", cls="printer") == "printer"  # JetDirect
     assert sug(None) == "generic_snmp"
 

@@ -1,0 +1,36 @@
+# Server / NAS: HOST-RESOURCES CPU, memory and the usual disks (Linux, Synology, Windows).
+schema: 1
+id: nas_server
+version: 1
+vendor: null
+verified: false
+verified_note: ""
+name: {en: "Server / NAS", he: "שרת / NAS"}
+description:
+  en: "Ping, system, CPU, memory, disks (/, /volume1, C:\\) and active interfaces"
+  he: "פינג, מערכת, מעבד, זיכרון, דיסקים (/, /volume1, C:\\) וממשקים פעילים"
+requires_snmp: true
+priority: 40
+match:
+  - {device_classes: [server, nas, workstation], requires_snmp: true}
+entries:
+  - {kind: sensor, type: ping, name: {en: Ping, he: פינג}}
+  - {kind: sensor, type: snmp_system, name: {en: System, he: מערכת}}
+  - {kind: sensor, type: snmp_cpu, name: {en: CPU Load, he: עומס מעבד}, probe: true}
+  - {kind: sensor, type: snmp_memory, name: {en: Memory, he: זיכרון}, probe: true}
+  - kind: sensor
+    type: snmp_disk
+    name: {en: Disk /, he: דיסק /}
+    config: {storage_descr: /}
+    probe: true
+  - kind: sensor
+    type: snmp_disk
+    name: {en: Disk /volume1, he: דיסק /volume1}
+    config: {storage_descr: /volume1}
+    probe: true
+  - kind: sensor
+    type: snmp_disk
+    name: {en: 'Disk C:\', he: 'דיסק C:\'}
+    config: {storage_descr: 'C:\'}
+    probe: true
+  - {kind: snmp_interfaces, oper_up_only: true, exclude_if_types: [24], max: 8}

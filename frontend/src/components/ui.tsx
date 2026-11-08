@@ -287,6 +287,8 @@ export function Modal({
   children,
   footer,
   wide,
+  closeOnBackdrop,
+  testId,
 }: {
   open: boolean;
   title: ReactNode;
@@ -294,9 +296,14 @@ export function Modal({
   children: ReactNode;
   footer?: ReactNode;
   wide?: boolean;
+  /** [2b-2] a click on the backdrop closes the dialog (read-only dialogs; forms keep their data) */
+  closeOnBackdrop?: boolean;
+  testId?: string;
 }) {
   const { t } = useTranslation();
   const titleId = useId();
+  // A press that starts inside the dialog (e.g. selecting text) must not close it on release outside.
+  const downOnBackdrop = useRef(false);
   const dialogRef = useRef<HTMLDivElement>(null);
   const onCloseRef = useRef(onClose);
   onCloseRef.current = onClose;
@@ -341,20 +348,31 @@ export function Modal({
   if (!open) return null;
   // Rendered into <body> so the fixed overlay is not affected by the parent's layout (e.g. space-y margins).
   return createPortal(
-    <div className="fixed inset-0 z-50 m-0 flex items-start justify-center overflow-y-auto bg-slate-900/50 p-4 pt-16">
+    <div
+      className="fixed inset-0 z-50 m-0 flex items-start justify-center overflow-y-auto bg-slate-900/50 p-4 pt-16"
+      data-testid={testId ? `${testId}-backdrop` : undefined}
+      onMouseDown={(e) => {
+        downOnBackdrop.current = e.target === e.currentTarget;
+      }}
+      onClick={(e) => {
+        if (closeOnBackdrop && downOnBackdrop.current && e.target === e.currentTarget) onClose();
+        downOnBackdrop.current = false;
+      }}
+    >
       <div
         ref={dialogRef}
         role="dialog"
         aria-modal="true"
         aria-labelledby={titleId}
+        data-testid={testId}
         tabIndex={-1}
         className={cx(
           'w-full rounded-lg bg-white shadow-xl ring-1 ring-slate-200 focus:outline-none dark:bg-slate-900 dark:ring-slate-700',
           wide ? 'max-w-3xl' : 'max-w-lg',
         )}
       >
-        <header className="flex items-center justify-between border-b border-slate-200 px-4 py-3 dark:border-slate-800">
-          <h3 id={titleId} className="text-base font-semibold">
+        <header className="flex items-center justify-between gap-2 border-b border-slate-200 px-4 py-3 dark:border-slate-800">
+          <h3 id={titleId} className="min-w-0 text-base font-semibold">
             {title}
           </h3>
           <button

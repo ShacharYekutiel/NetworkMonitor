@@ -552,6 +552,12 @@ export function defaultSensorName(
     if (label) return label.slice(0, 128);
     if (config.oid) return `SNMP ${String(config.oid)}`.slice(0, 128);
   }
+  // [2b-2] like the API default: the label, else "Count <oid>".
+  if (type === 'snmp_walk_count') {
+    const label = String(config.label ?? '').trim();
+    if (label) return label.slice(0, 128);
+    if (config.oid) return `Count ${String(config.oid)}`.slice(0, 128);
+  }
   if (type === 'snmp_disk' && config.storage_descr)
     return t('sensors.diskName', { descr: String(config.storage_descr) }).slice(0, 128);
   return typed || t(`sensorType.${type}`);

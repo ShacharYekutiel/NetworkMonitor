@@ -60,7 +60,13 @@ def _close_engine(engine: Any) -> None:
         pass
 
 
-def _get_engine(creds: dict[str, Any] | None = None) -> Any:
+_engine_locks: dict[str, asyncio.Lock] = {}
+
+
+async def _get_engine(creds: dict[str, Any] | None = None) -> Any:
+    """The engine for these credentials. A new SnmpEngine loads pysnmp's MIB modules (~60 ms,
+    several times that on a slow host), so it is built in a worker thread: building it in the
+    event loop froze the whole server on the first query and on every new v3 credential set."""
     global _engine_loop
     from pysnmp.hlapi.v3arch.asyncio import SnmpEngine
 
@@ -68,14 +74,24 @@ def _get_engine(creds: dict[str, Any] | None = None) -> Any:
     if _engine_loop is not loop:
         # New event loop (tests, restart): engines are bound to the loop they ran on.
         _engines.clear()
+        _engine_locks.clear()
         _engine_loop = loop
     key = "v12" if not creds or creds.get("version") != "v3" else _v3_fingerprint(creds)
     engine = _engines.pop(key, None)
     if engine is None:
-        engine = SnmpEngine()
-        if len(_engines) >= _MAX_V3_ENGINES + 1:
-            oldest = next(k for k in _engines if k != "v12")
-            _close_engine(_engines.pop(oldest))
+        lock = _engine_locks.setdefault(key, asyncio.Lock())
+        async with lock:  # concurrent first queries with one credential set build one engine
+            engine = _engines.pop(key, None)
+            if engine is None:
+                engine = await asyncio.to_thread(SnmpEngine)
+                if _engine_loop is not loop:  # the loop changed while building
+                    _engines.clear()
+                    _engine_loop = loop
+                if len(_engines) >= _MAX_V3_ENGINES + 1:
+                    oldest = next((k for k in _engines if k != "v12"), None)
+                    if oldest is not None:
+                        _close_engine(_engines.pop(oldest))
+                        _engine_locks.pop(oldest, None)
     _engines[key] = engine  # re-insert: most recently used last
     return engine
 
@@ -167,7 +183,7 @@ async def snmp_get(host: str, creds: dict[str, Any], oids: list[str]) -> dict[st
     """GET several OIDs at once. Returns {oid: value_or_None}. noSuchName (v1) -> SnmpError."""
     from pysnmp.hlapi.v3arch import asyncio as h
 
-    engine = _get_engine(creds)
+    engine = await _get_engine(creds)
     target = await _target(host, creds)
     try:
         err_ind, err_status, err_index, var_binds = await h.get_cmd(
@@ -197,7 +213,7 @@ async def snmp_walk(
     """Walk a subtree. Returns [(oid, value)]."""
     from pysnmp.hlapi.v3arch import asyncio as h
 
-    engine = _get_engine(creds)
+    engine = await _get_engine(creds)
     target = await _target(host, creds)
     auth = _auth_data(creds)
     obj = h.ObjectType(h.ObjectIdentity(base_oid))
@@ -287,7 +303,7 @@ async def snmp_get_typed(
     `NoSuchObject` / `NoSuchInstance` / `EndOfMibView`, or `noSuchName` (SNMP v1)."""
     from pysnmp.hlapi.v3arch import asyncio as h
 
-    engine = _get_engine(creds)
+    engine = await _get_engine(creds)
     target = await _target(host, creds)
     try:
         err_ind, err_status, err_index, var_binds = await h.get_cmd(
@@ -321,7 +337,7 @@ async def snmp_getnext(
     order. v1 noSuchName (end of MIB) yields an empty list."""
     from pysnmp.hlapi.v3arch import asyncio as h
 
-    engine = _get_engine(creds)
+    engine = await _get_engine(creds)
     target = await _target(host, creds)
     try:
         err_ind, err_status, _err_index, var_binds = await h.next_cmd(

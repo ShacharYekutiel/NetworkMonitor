@@ -14,6 +14,7 @@ from netmon.poller.checks import (
     snmp_interface,
     snmp_memory,
     snmp_system,
+    snmp_walk_count,
     tcp_port,
 )
 from netmon.poller.types import CheckContext, CheckResult
@@ -29,4 +30,5 @@ PLUGINS: dict[str, Callable[[CheckContext], Awaitable[CheckResult]]] = {
     "dns": dns.run,
     "snmp_custom": snmp_custom.run,
     "snmp_disk": snmp_disk.run,
+    "snmp_walk_count": snmp_walk_count.run,  # [2b-2]
 }

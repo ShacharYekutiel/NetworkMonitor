@@ -214,6 +214,8 @@ export function visibleConfigFields(
     const vt = String(raw.value_type ?? 'gauge');
     return fields.filter((f) => {
       if (f.key === 'percent_of_oid') return vt === 'gauge';
+      // [2b-2] how percent_of_oid is used (gauge only, like percent_of_oid)
+      if (f.key === 'percent_base') return vt === 'gauge';
       if (f.key === 'expected' || f.key === 'match') return vt === 'string';
       // [2b-1] enum: value map + default status; the raw integer is used (no multiplier/unit).
       if (f.key === 'value_map' || f.key === 'value_map_default') return vt === 'enum';
@@ -241,6 +243,10 @@ export function buildSensorConfig(
     if (vt !== 'gauge' && fields.some((f) => f.key === 'percent_of_oid'))
       res.config.percent_of_oid = null;
     if (vt !== 'string' && fields.some((f) => f.key === 'expected')) res.config.expected = null;
+    // [2b-2] percent_base is sent for gauges only ("sum" needs percent_of_oid, 422 otherwise).
+    if (vt !== 'gauge') delete res.config.percent_base;
+    else if (res.config.percent_base === 'sum' && !res.config.percent_of_oid)
+      res.errors.percent_base = 'validation.percentBaseSum';
     // [2b-1] value_map is required non-empty for enum (422 otherwise).
     if (vt === 'enum') {
       const m = res.config.value_map as ValueMap | undefined;
@@ -249,5 +255,7 @@ export function buildSensorConfig(
     }
     if (typeof res.config.oid === 'string') res.config.oid = res.config.oid.trim();
   }
+  if (type === 'snmp_walk_count' && typeof res.config.oid === 'string')
+    res.config.oid = res.config.oid.trim().replace(/^\./, '');
   return res;
 }

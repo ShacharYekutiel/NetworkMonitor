@@ -66,7 +66,8 @@
     "discovery": "גילוי",
     "templates": "תבניות",
     "maintenance": "תחזוקה",
-    "map": "מפה"
+    "map": "מפה",
+    "find": "חיפוש"
   },
   "tree": {
     "search": "חיפוש קבוצות, התקנים וחיישנים",
@@ -364,7 +365,22 @@
     "timezoneHint": "משמש לחלונות תחזוקה שבועיים ולשעות בהתראות.",
     "topologyRefresh": "רענון טופולוגיה (דקות)",
     "topologyRefreshHint": "כל כמה זמן נקראים שכני LLDP/CDP. 0 = כבוי.",
-    "topologyRefreshErr": "0 (כבוי) או 5 עד 1440."
+    "topologyRefreshErr": "0 (כבוי) או 5 עד 1440.",
+    "ports": {
+      "title": "פורטים",
+      "intro": "מלאי הפורטים קורא מכל מתג את הממשקים, ה-VLAN, טבלת ה-MAC וה-PoE, ו-ARP מנתבים.",
+      "interval": "מרווח קריאה (דקות)",
+      "intervalHint": "0 = כבוי (רענון ידני עדיין עובד), אחרת 5–1440",
+      "intervalErr": "הזינו 0 או 5–1440.",
+      "threshold": "סף MAC ל-Uplink",
+      "thresholdHint": "פורט עם יותר כתובות MAC מזה נחשב Uplink ‏(1–1000).",
+      "thresholdErr": "הזינו 1–1000.",
+      "retention": "היסטוריית MAC/ARP (ימים)",
+      "retentionHint": "כמה זמן נשמרות כתובות MAC ו-IP שנעלמו (1–365).",
+      "retentionErr": "הזינו 1–365.",
+      "reverseDns": "DNS הפוך לכתובות IP",
+      "reverseDnsHint": "חיפוש שמות מארח (PTR) של כתובות ה-IP שנלמדו מ-ARP."
+    }
   },
   "users": {
     "title": "משתמשים",
@@ -401,7 +417,8 @@
     "interval": "בין 10 ל-86400 שניות.",
     "username": "3–64 תווים: אותיות לטיניות, ספרות, נקודה, קו תחתון ומקף.",
     "passwordLength": "8–128 תווים.",
-    "passwordMismatch": "הסיסמאות אינן תואמות."
+    "passwordMismatch": "הסיסמאות אינן תואמות.",
+    "percentBaseSum": "„סכום” דורש את ה-OID של האחוז."
   },
   "units": {
     "days": "ימים",
@@ -446,7 +463,9 @@
     "dependency_cycle_path": "התלות הזו יוצרת לולאה: {{path}}.",
     "not_acknowledgeable": "אפשר לאשר רק חיישנים בתקלה או באזהרה.",
     "topology_refresh_running": "רענון טופולוגיה כבר פועל.",
-    "link_not_manual": "אי אפשר לערוך קישורים שהתגלו; רק קישורים ידניים."
+    "link_not_manual": "אי אפשר לערוך קישורים שהתגלו; רק קישורים ידניים.",
+    "ports_disabled": "מלאי הפורטים ואיסוף ה-ARP כבויים שניהם בהתקן הזה. הגדירו אותם כפעיל בהגדרות ההתקן.",
+    "ports_refresh_running": "הפורטים של ההתקן הזה נקראים ממש עכשיו."
   },
   "sensorType": {
     "ping": "Ping",
@@ -458,7 +477,8 @@
     "tcp_port": "פורט TCP",
     "dns": "DNS",
     "snmp_custom": "OID SNMP מותאם",
-    "snmp_disk": "שימוש בדיסק"
+    "snmp_disk": "שימוש בדיסק",
+    "snmp_walk_count": "ספירת שורות SNMP"
   },
   "channel": {
     "latency_ms": "זמן תגובה",
@@ -484,7 +504,10 @@
     "disk_used_pct": "ניצול דיסק",
     "disk_used_bytes": "שטח בשימוש",
     "disk_free_bytes": "שטח פנוי",
-    "disk_total_bytes": "גודל הדיסק"
+    "disk_total_bytes": "גודל הדיסק",
+    "rows": "שורות",
+    "matched": "תואמות",
+    "unmatched": "לא תואמות"
   },
   "sensorConfig": {
     "ping": {
@@ -534,11 +557,18 @@
       "expected": "טקסט צפוי",
       "match": "התאמה",
       "value_map": "מיפוי ערכים",
-      "value_map_default": "מצב לערכים אחרים"
+      "value_map_default": "מצב לערכים אחרים",
+      "percent_base": "בסיס האחוז"
     },
     "snmp_disk": {
       "storage_descr": "אחסון (תיאור)",
       "storage_index": "אינדקס אחסון"
+    },
+    "snmp_walk_count": {
+      "oid": "OID של העמודה",
+      "count_values": "ערכים שנספרים כתואמים",
+      "label": "תווית",
+      "max_rows": "מספר שורות מרבי"
     }
   },
   "sensorConfigHint": {
@@ -564,10 +594,14 @@
       "multiplier": "מוחל על הערך הגולמי (מד) או על הקצב (מונה), למשל 8 להמרת אוקטטים ל-bit/s, ‏0.1 לעשיריות",
       "label": "רשות; מוצגת בהודעת הסטטוס",
       "percent_of_oid": "רשות; ערך = גולמי ÷ OID זה × 100 (המכפיל לא מוחל)",
-      "expected": "ריק = כל טקסט תקין; אחרת הערך חייב להתאים"
+      "expected": "ריק = כל טקסט תקין; אחרת הערך חייב להתאים",
+      "percent_base": "סה״כ: ערך ÷ OID המחלק. סכום: ערך ÷ (ערך + ה-OID האחר), למשל בשימוש לצד פנוי."
     },
     "snmp_disk": {
       "storage_descr": "בדיוק כפי שההתקן מדווח, למשל / או C:\\"
+    },
+    "snmp_walk_count": {
+      "count_values": "מספרים שלמים מופרדים בפסיקים; ריק = כל השורות תואמות."
     }
   },
   "deviceClass": {
@@ -591,12 +625,19 @@
       "match": {
         "equals": "שווה ל",
         "contains": "מכיל"
+      },
+      "percent_base": {
+        "total": "המחלק הוא הסך הכולל",
+        "sum": "המחלק הוא החלק האחר (סכום)"
       }
     }
   },
   "sensorConfigPlaceholder": {
     "snmp_custom": {
       "oid": "1.3.6.1.4.1.…"
+    },
+    "snmp_walk_count": {
+      "count_values": "1, 3"
     }
   },
   "storage": {
@@ -670,10 +711,41 @@
       "snmp_error": "שאילתת SNMP נכשלה",
       "max_reached": "הגיע למגבלה",
       "no_rows": "לא נמצא דבר בהתקן",
-      "other": "דולג"
+      "other": "דולג",
+      "not_applicable": "לא רלוונטי להתקן הזה"
     },
     "entryEnum": "מצב לפי מיפוי ערכים",
-    "matchEnterprises": "enterprise {{list}}"
+    "matchEnterprises": "enterprise {{list}}",
+    "verified": "נבדקה",
+    "unverified": "לא נבדקה",
+    "renamed": "השם תוקן כדי להבדיל בין יחידות",
+    "unverifiedHint": "עוד לא נבדקה על ציוד אמיתי; ייתכן שה-OID ידרשו תיקון.",
+    "verifiedOn": "נבדקה על",
+    "source": {
+      "builtin": "מובנית",
+      "user": "משתמש"
+    },
+    "overrides": "מחליפה תבנית מובנית",
+    "reload": "טעינה מחדש של תבניות",
+    "reloadDone": "התבניות נטענו מחדש: {{builtin}} מובנות, {{user}} של משתמש, {{errors}} שגיאות.",
+    "loadErrors_one": "קובץ תבנית אחד לא נטען",
+    "loadErrors_two": "2 קובצי תבנית לא נטענו",
+    "loadErrors_other": "{{count}} קובצי תבנית לא נטענו",
+    "library": "ספריית תבניות",
+    "libraryLine": "{{builtin}} תבניות מובנות ו-{{user}} של משתמש, {{errors}} שגיאות טעינה",
+    "loadedAt": "נטענה {{time}}",
+    "overriddenList": "תבניות מובנות שהוחלפו בקובצי משתמש",
+    "userDir": "תיקיית תבניות המשתמש",
+    "userDirHint": "העתיקו קובץ תבנית מובנית לתיקייה הזו, ערכו אותו ולחצו „טעינה מחדש של תבניות”. השאירו את אותו id כדי להחליף תבנית מובנית, או השתמשו ב-id חדש.",
+    "version": "גרסה {{version}}",
+    "vendorGeneric": "כללי",
+    "confidenceTitle": "רמת הוודאות ב-OID של הרשומה הזו",
+    "when": "רק כאשר",
+    "whenIn": "באחד מ-{{list}}",
+    "whenNotIn": "לא באחד מ-{{list}}",
+    "whenAny": "עונה",
+    "matchOidPrefixes": "sysObjectID {{list}}",
+    "matchDescr": "sysDescr תואם {{re}}"
   },
   "discovery": {
     "title": "גילוי",
@@ -1039,6 +1111,7 @@
     "refreshFailed_other": "{{count}} התקנים נכשלו",
     "group": "קבוצה",
     "includeStale": "כולל קישורים ישנים",
+    "showNeighbors": "הצגת שכנים לא מנוהלים",
     "showTraffic": "הצגת תעבורה",
     "saveLayout": "שמירת פריסה",
     "layoutSaved": "הפריסה נשמרה.",
@@ -1114,5 +1187,242 @@
     "applied_other": "התלות הוגדרה ב-{{count}} התקנים.",
     "allGroups": "כל הקבוצות",
     "refreshNow": "רענון טופולוגיה עכשיו"
+  },
+  "ports": {
+    "tab": "פורטים",
+    "tabs": "תצוגות התקן",
+    "view": {
+      "faceplate": "לוח קדמי",
+      "list": "רשימת פורטים"
+    },
+    "viewToggle": "תצוגת פורטים",
+    "refresh": "רענון פורטים",
+    "refreshFailed": "קריאת הפורטים נכשלה; ראו את שורת המצב.",
+    "collecting": "קורא פורטים…",
+    "neverRun": "הפורטים עוד לא נקראו.",
+    "statusLine": "עודכן {{ago}} · הקריאה הבאה {{next}}",
+    "statusLineNoNext": "עודכן {{ago}}",
+    "autoOff": "הקריאה האוטומטית כבויה",
+    "lastError": "שגיאה אחרונה",
+    "hint": {
+      "fdbEmpty": "המתג הזה לא מדווח את טבלת ה-MAC שלו ב-SNMP.",
+      "noArp": "אין מקור ARP: כתובות IP אינן זמינות. הפעילו „איסוף ARP” בנתב או בחומת אש.",
+      "poeUnmapped": "לא ניתן היה להתאים את נתוני ה-PoE לפורטים."
+    },
+    "notEffective": "מלאי הפורטים אינו פעיל בהתקן הזה (מצב: {{mode}}, זוהה כ: {{cls}}).",
+    "notEffectiveAuto": "במצב אוטומטי נאספים רק מתגים עם חיישן SNMP.",
+    "enable": "הפעלת מלאי פורטים",
+    "enabledToast": "מלאי הפורטים הופעל; הקריאה הראשונה תתחיל תוך דקה.",
+    "noPorts": "ההתקן לא דיווח על פורטים.",
+    "noSnapshot": "אין עדיין נתוני פורטים. הקריאה הראשונה תרוץ בעוד כמה דקות.",
+    "noPhysical": "אין פורטים פיזיים להצגה.",
+    "fallbackNote": "שמות הפורטים אינם בתבנית מוכרת, ולכן הם מוצגים לפי סדר ifIndex.",
+    "member": "חבר {{n}}",
+    "uplinkGroup": "פורטי Uplink / SFP",
+    "legend": {
+      "empty": "ריק",
+      "connected": "מחובר",
+      "alert": "מחובר, התראה",
+      "emptyAlert": "ריק, התראה",
+      "disabled": "מושבת",
+      "client": "לקוח",
+      "ap": "נקודת גישה",
+      "switch": "מתג / Uplink",
+      "trunk": "Trunk",
+      "macCount": "כתובות MAC שנלמדו (Uplink)"
+    },
+    "portN": "פורט {{name}}",
+    "vlanN": "VLAN {{vlan}}",
+    "alert": "התראה",
+    "state": {
+      "up": "פעיל",
+      "down": "אין קישור",
+      "admin_down": "מושבת",
+      "absent": "לא קיים"
+    },
+    "ifStatus": {
+      "up": "פעיל",
+      "down": "למטה",
+      "testing": "בבדיקה",
+      "unknown": "לא ידוע",
+      "dormant": "רדום",
+      "notPresent": "לא קיים",
+      "lowerLayerDown": "שכבה תחתונה למטה"
+    },
+    "connectedKind": {
+      "none": "כלום",
+      "client": "לקוח",
+      "ap": "נקודת גישה",
+      "switch": "מתג"
+    },
+    "mode": {
+      "access": "Access",
+      "trunk": "Trunk"
+    },
+    "duplex": {
+      "full": "מלא",
+      "half": "חצי",
+      "unknown": "לא ידוע"
+    },
+    "kind": {
+      "physical": "פיזי",
+      "lag": "Trunk / LAG",
+      "vlan": "ממשק VLAN",
+      "mgmt": "ניהול",
+      "other": "אחר"
+    },
+    "macCount_one": "MAC אחד",
+    "macCount_two": "2 כתובות MAC",
+    "macCount_other": "{{count}} כתובות MAC",
+    "poeOn": "פעיל",
+    "poeOnClass": "פעיל · מחלקה {{cls}}",
+    "columns": "עמודות",
+    "col": {
+      "port": "פורט",
+      "status": "מצב",
+      "connected": "מחובר",
+      "vlan": "VLAN",
+      "mode": "מצב פורט",
+      "speed": "מהירות",
+      "poe": "PoE (W)",
+      "rxtx": "Rx / Tx",
+      "alias": "כינוי",
+      "duplex": "דופלקס",
+      "mac": "MAC",
+      "ip": "IP",
+      "hostname": "שם מארח",
+      "vendor": "יצרן",
+      "errors": "שגיאות (Δ)",
+      "lastChange": "שינוי אחרון",
+      "ifIndex": "ifIndex",
+      "kind": "סוג"
+    },
+    "filter": "סינון פורטים",
+    "filterPlaceholder": "סינון: פורט, כינוי, MAC, IP, שם מארח, יצרן, שכן…",
+    "physicalOnly": "פורטים פיזיים בלבד",
+    "shown": "{{shown}} מתוך {{total}} פורטים",
+    "noMatch": "אין פורט שמתאים לסינון.",
+    "alertReason": {
+      "sensor": "התראת חיישן ממשק",
+      "errors": "שגיאות",
+      "poe_fault": "תקלת PoE"
+    },
+    "uplinkReason": {
+      "neighbor": "Uplink (שכן LLDP)",
+      "mac_count": "Uplink (הרבה כתובות MAC)"
+    },
+    "section": {
+      "state": "מצב",
+      "link": "קישור",
+      "poe": "PoE",
+      "traffic": "תעבורה ושגיאות",
+      "history": "24 השעות האחרונות",
+      "connected": "מה מחובר"
+    },
+    "field": {
+      "admin": "ניהולי",
+      "oper": "תפעולי",
+      "lastChange": "שינוי אחרון",
+      "ifIndex": "ifIndex",
+      "kind": "סוג",
+      "mac": "MAC של הפורט",
+      "speed": "מהירות",
+      "duplex": "דופלקס",
+      "mode": "מצב פורט",
+      "pvid": "VLAN (PVID)",
+      "untagged": "VLAN לא מתויגים",
+      "tagged": "VLAN מתויגים",
+      "poeAdmin": "PoE",
+      "poeDetection": "זיהוי",
+      "poeClass": "מחלקה",
+      "poePower": "הספק",
+      "rx": "Rx",
+      "tx": "Tx",
+      "errors": "שגיאות (במרווח האחרון)"
+    },
+    "poeEnabled": "מופעל",
+    "poeDisabled": "מושבת",
+    "poeDetection": {
+      "disabled": "מושבת",
+      "searching": "מחפש",
+      "delivering": "מספק חשמל",
+      "fault": "תקלה",
+      "test": "בדיקה",
+      "other_fault": "תקלה אחרת"
+    },
+    "noPoe": "אין PoE בפורט הזה.",
+    "noSensor": "הפורט לא מנוטר בחיישן, ולכן אין היסטוריה.",
+    "startMonitoring": "התחלת ניטור",
+    "openSensor": "פתיחת החיישן",
+    "remotePort": "פורט",
+    "noNeighbor": "אין שכן LLDP/CDP.",
+    "uplinkMacs_one": "נלמד MAC אחד (Uplink)",
+    "uplinkMacs_two": "נלמדו 2 כתובות MAC (Uplink)",
+    "uplinkMacs_other": "נלמדו {{count}} כתובות MAC (Uplink)",
+    "showAllMacs": "הצגת כל כתובות ה-MAC",
+    "noMacs": "לא נלמדו כתובות MAC בפורט הזה.",
+    "mac": {
+      "mac": "MAC",
+      "vendor": "יצרן",
+      "vlan": "VLAN",
+      "ip": "IP",
+      "hostname": "שם מארח",
+      "device": "התקן",
+      "firstSeen": "נראה לראשונה",
+      "lastSeen": "נראה לאחרונה",
+      "random": "אקראית (מנוהלת מקומית)",
+      "lastKnownIp": "IP אחרון ידוע (לא ב-ARP כעת)"
+    }
+  },
+  "health": {
+    "cpu": "מעבד",
+    "memory": "זיכרון",
+    "temperature": "טמפרטורה",
+    "poe": "PoE",
+    "psu": "ספקי כוח",
+    "fan": "מאווררים"
+  },
+  "find": {
+    "title": "חיפוש MAC / IP",
+    "subtitle": "איפה מחובר התקן? מחפש בטבלאות ה-MAC של כל המתגים.",
+    "placeholder": "aa:bb:cc:dd:ee:ff, aabb.ccdd.eeff, קידומת (005056) או כתובת IPv4",
+    "headerPlaceholder": "חיפוש MAC / IP…",
+    "label": "כתובת MAC או IP",
+    "search": "חיפוש",
+    "invalidHint": "הזינו MAC (6–12 ספרות הקסדצימליות) או כתובת IPv4.",
+    "forIp": "תוצאות עבור IP {{ip}}",
+    "forMac": "תוצאות עבור MAC {{mac}}",
+    "forPrefix": "תוצאות עבור קידומת MAC {{prefix}}",
+    "count_one": "מיקום אחד",
+    "count_two": "2 מיקומים",
+    "count_other": "{{count}} מיקומים",
+    "bestTitle": "פורט הגישה הסביר ביותר:",
+    "best": "הסביר ביותר",
+    "none": "לא נמצא דבר.",
+    "switch": "מתג",
+    "port": "פורט",
+    "portType": "סוג פורט",
+    "presence": "נוכח",
+    "present": "כעת",
+    "gone": "כבר לא",
+    "uplink": "Uplink",
+    "access": "גישה",
+    "arpTitle": "רשומות ARP",
+    "arpSource": "נלמד מ",
+    "help": "טבלאות ה-MAC נקראות עם מלאי הפורטים של כל מתג; כתובות IP מגיעות מנתבים וחומות אש עם „איסוף ARP”."
+  },
+  "inventoryMode": {
+    "auto": "אוטומטי",
+    "on": "פעיל",
+    "off": "כבוי"
+  },
+  "device": {
+    "inventory": "פורטים ו-ARP",
+    "portInventory": "מלאי פורטים",
+    "arpCollect": "איסוף ARP",
+    "inventoryHint": "אוטומטי: פורטים במתגים, ARP בנתבים/חומות אש (דרוש חיישן SNMP).",
+    "effectiveOn": "פעיל",
+    "effectiveOff": "כבוי",
+    "effectiveAuto": "אוטומטי — {{state}}: זוהה כ{{cls}}"
   }
 }

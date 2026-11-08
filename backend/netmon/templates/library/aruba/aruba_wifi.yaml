@@ -1,0 +1,83 @@
+# Aruba Instant (AI-AP-MIB 1.3.6.1.4.1.14823.2.3.3.1) and Mobility Controller (WLSX-WLAN-MIB /
+# WLSX-SWITCH-MIB 1.3.6.1.4.1.14823.2.2.1). Every row is probed: the MIB that answers wins.
+# Poll the Instant virtual controller IP (it answers for the cluster).
+schema: 1
+id: aruba_wifi
+version: 2
+vendor: aruba
+verified: false
+verified_note: ""
+name: {en: "Aruba Wi-Fi (Instant / controller)", he: "Aruba Wi-Fi (Instant / בקר)"}
+description:
+  en: "Ping, system, APs up, AP status and Wi-Fi clients"
+  he: "פינג, מערכת, נקודות גישה פעילות, מצב נקודות גישה ולקוחות Wi-Fi"
+requires_snmp: true
+priority: 50
+match:
+  - {requires_snmp: true, enterprises: [14823]}
+entries:
+  - {kind: sensor, type: ping, name: {en: Ping, he: פינג}}
+  - {kind: sensor, type: snmp_system, name: {en: System, he: מערכת}}
+  - {kind: sensor, type: snmp_cpu, name: {en: CPU Load, he: עומס מעבד}, probe: true, confidence: low}
+  - {kind: sensor, type: snmp_memory, name: {en: Memory, he: זיכרון}, probe: true, confidence: low}
+  # --- Instant (virtual controller)
+  - kind: sensor
+    type: snmp_walk_count
+    name: {en: APs up, he: נקודות גישה פעילות}
+    config: {oid: '1.3.6.1.4.1.14823.2.3.3.1.2.1.1.11', count_values: [1], label: APs up}
+    channels: [{key: unmatched, warning_max: 0}]
+    probe: true
+    confidence: low
+    notes: "AI-AP-MIB aiAPStatus: up(1), down(2). MIB root medium, column low."
+  - kind: snmp_table
+    walk_oid: '1.3.6.1.4.1.14823.2.3.3.1.2.1.1.11'    # aiAPStatus
+    label_oid: '1.3.6.1.4.1.14823.2.3.3.1.2.1.1.2'    # aiAPName
+    name: {en: 'AP {label}', he: 'נקודת גישה {label}'}
+    config:
+      value_type: enum
+      value_map: &ap_status
+        1: {status: up, text: up}
+        2: {status: down, text: down}
+      value_map_default: warning
+    max: 64
+    interval_s: 300
+    confidence: low
+    notes: "aiAPTable is indexed by the AP MAC."
+  - kind: sensor
+    type: snmp_walk_count
+    name: {en: Wi-Fi clients, he: לקוחות Wi-Fi}
+    config: {oid: '1.3.6.1.4.1.14823.2.3.3.1.2.4.1.3', label: Wi-Fi clients}   # aiClientIPAddress
+    probe: true
+    confidence: low
+    notes: >-
+      AI-AP-MIB aiClientIPAddress: counts the client rows (a value column; the index column
+      aiClientMACAddress is not-accessible). low-medium: needs the owner's snmpwalk.
+  # --- Mobility Controller
+  - kind: sensor
+    type: snmp_walk_count
+    name: {en: APs up, he: נקודות גישה פעילות}
+    config: {oid: '1.3.6.1.4.1.14823.2.2.1.5.2.1.4.1.19', count_values: [1], label: APs up}
+    channels: [{key: unmatched, warning_max: 0}]
+    probe: true
+    confidence: low
+    notes: "WLSX-WLAN-MIB wlanAPStatus: up(1), down(2)."
+  - kind: snmp_table
+    walk_oid: '1.3.6.1.4.1.14823.2.2.1.5.2.1.4.1.19'  # wlanAPStatus
+    label_oid: '1.3.6.1.4.1.14823.2.2.1.5.2.1.4.1.3'  # wlanAPName
+    name: {en: 'AP {label}', he: 'נקודת גישה {label}'}
+    config: {value_type: enum, value_map: *ap_status, value_map_default: warning}
+    max: 64
+    interval_s: 300
+    confidence: low
+  - kind: sensor
+    type: snmp_custom
+    name: {en: Wi-Fi clients, he: לקוחות Wi-Fi}
+    config:
+      oid: '1.3.6.1.4.1.14823.2.2.1.1.3.2.0'          # wlsxSwitchTotalNumStationsAssociated
+      value_type: gauge
+      unit: clients
+      label: Wi-Fi clients
+    probe: true
+    confidence: low
+    notes: "WLSX-SWITCH-MIB total stations associated (controller)."
+  - {kind: snmp_interfaces, oper_up_only: true, exclude_if_types: [1, 24, 53, 131, 136], max: 8}

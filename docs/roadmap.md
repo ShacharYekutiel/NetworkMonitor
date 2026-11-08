@@ -101,6 +101,12 @@ Controller, Central); Check Point on appliance or VM, ClusterXL or not, SNMP v3 
 ## Phase 2b-3
 - SNMP traps (v1/v2c/v3) on UDP 162 and syslog (UDP/TCP 514), standard ports.
 - Syslog search/filter, match rules that raise alerts, retention 30 days (configurable).
+- Ports view: **LAG membership** (design gap found in the 2b-2 review). Today the physical members of a
+  `Trk*` / `Bridge-Aggregation*` / Port-channel show no VLANs or MACs (the switch reports them on the LAG
+  ifIndex, which is list-only). Read IEEE8023-LAG-MIB `dot3adAggPortAttachedAggID`
+  (`1.2.840.10006.300.43.1.2.1.1.13`, index = member ifIndex → LAG ifIndex), else IF-MIB `ifStackTable`
+  (`1.3.6.1.2.1.31.1.2.1.3`), so member ports inherit the LAG's VLANs, MAC list/`mac_count` and uplink state,
+  and the faceplate/list show "member of Trk1".
 
 ## Later / ideas
 - Per-port PoE status table.

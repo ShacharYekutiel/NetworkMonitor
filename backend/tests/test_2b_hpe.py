@@ -16,7 +16,7 @@ from tests.snmpsim_agents import Record, interfaces, start_agent, system
 
 pytestmark = requires_db
 
-ARUBA_IP, COMWARE_IP = "127.0.6.51", "127.0.6.52"
+ARUBA_IP, COMWARE_IP, IRF_IP = "127.0.6.51", "127.0.6.52", "127.0.6.54"
 ARUBA_DESCR = (
     "Aruba JL256A 2930F-48G-4SFP+ Switch, revision WC.16.11.0012, ROM WC.16.01.0010 "
     "(/ws/swbuildm/rel_orlando_qaoff/code/build/bom(swbuildm_rel_orlando_qaoff_rel_orlando))"
@@ -88,6 +88,51 @@ def comware_records() -> list[Record]:
     return recs
 
 
+def irf_records() -> list[Record]:
+    """A two-member IRF stack (as the owner's FF 5945): every member reports the same entity
+    names, so the template must tell them apart by the chassis each entity sits in."""
+    recs: list[Record] = system(
+        "HPE Comware Platform Software, Software Version 7.1.070, Release 6710 "
+        "HPE FF 5945 4-slot Switch",
+        "1.3.6.1.4.1.25506.11.1.239",
+        "core-irf",
+    )
+    recs += interfaces(
+        [(1, "Ten-GigabitEthernet1/0/1", 6, 1), (2, "Ten-GigabitEthernet2/0/1", 6, 1)]
+    )
+    ents = []
+    for base in (0, 100):
+        chassis = base + 1
+        ents += [
+            (chassis, 3, "HPE FF 5945 4-slot Switch", 0),
+            (base + 2, 9, "Board", chassis),
+            (base + 3, 6, "PSU 1", chassis),
+            (base + 4, 6, "PSU 2", chassis),
+            (base + 5, 7, "FAN 1", chassis),
+            (base + 6, 9, "Slot 1", base + 2),
+            (base + 7, 9, "Slot 1", base + 2),
+        ]
+    for idx, cls, name, parent in ents:
+        recs += [
+            (f"{ENT}.4.{idx}", 2, str(parent)),
+            (f"{ENT}.5.{idx}", 2, str(cls)),
+            (f"{ENT}.7.{idx}", 4, name),
+        ]
+    vals: dict[int, dict[int, int]] = {6: {}, 8: {}, 12: {}, 19: {}}
+    for base in (0, 100):
+        vals[6][base + 2] = 10 + base // 100
+        vals[8][base + 2] = 40
+        for i in (2, 6, 7):
+            vals[12][base + i] = 40 + i
+        vals[12][base + 3] = 65535  # Comware: "no sensor here" (owner's FF 5945 PSUs)
+        vals[6][base + 1] = 65535
+        for i in (3, 4, 5):
+            vals[19][base + i] = 2
+    for col, by_idx in vals.items():
+        recs += [(f"{HH3C}.{col}.{i}", 2, str(v)) for i, v in sorted(by_idx.items())]
+    return recs
+
+
 def _free_udp_port(ip: str) -> int:
     s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
     s.bind((ip, 0))
@@ -100,7 +145,11 @@ def _free_udp_port(ip: str) -> int:
 def agents() -> Iterator[dict[str, int]]:
     started = []
     ports: dict[str, int] = {}
-    for ip, recs in ((ARUBA_IP, aruba_records()), (COMWARE_IP, comware_records())):
+    for ip, recs in (
+        (ARUBA_IP, aruba_records()),
+        (COMWARE_IP, comware_records()),
+        (IRF_IP, irf_records()),
+    ):
         port = _free_udp_port(ip)
         a = start_agent(ip, port, {"public": recs})
         if a is None:
@@ -232,3 +281,51 @@ async def test_comware_template(admin: httpx.AsyncClient, agents: dict[str, int]
         "h3c",
         "hpe_comware",
     )
+
+
+async def test_comware_irf_stack_names_are_unique(
+    admin: httpx.AsyncClient, agents: dict[str, int]
+) -> None:
+    """Owner's office test (HPE FF 5945 IRF): the same entPhysicalName on every member produced
+    duplicate sensor names. Rows that share a name get their stack unit, then "#n"."""
+    dev = await _device(admin, IRF_IP, agents[IRF_IP], "core-irf")
+    res = await _apply(admin, dev["id"], "hpe_comware")
+    names = [c["name"] for c in res["created"]]
+    assert names == [
+        "Ping",
+        "System",
+        "CPU Board · Unit 1",
+        "CPU Board · Unit 2",
+        "Memory Board · Unit 1",
+        "Memory Board · Unit 2",
+        "Temperature Board · Unit 1",
+        "Temperature Slot 1 · Unit 1 #1",
+        "Temperature Slot 1 · Unit 1 #2",
+        "Temperature Board · Unit 2",
+        "Temperature Slot 1 · Unit 2 #1",
+        "Temperature Slot 1 · Unit 2 #2",
+        "PSU 1 · Unit 1",
+        "PSU 2 · Unit 1",
+        "FAN 1 · Unit 1",
+        "PSU 1 · Unit 2",
+        "PSU 2 · Unit 2",
+        "FAN 1 · Unit 2",
+        "Ten-GigabitEthernet1/0/1",
+        "Ten-GigabitEthernet2/0/1",
+    ]
+    assert not any("65535" in str(c) for c in res["created"])
+    by_name = {c["name"]: c["sensor_id"] for c in res["created"]}
+    cpu2 = (await admin.get(f"/api/sensors/{by_name['CPU Board · Unit 2']}")).json()
+    assert cpu2["config"]["oid"] == f"{HH3C}.6.102" and cpu2["config"]["label"] == "Board · Unit 2"
+
+    # sensors created before this fix carry the ambiguous name: re-applying repairs them, but
+    # never a name the user chose
+    psu, fan = by_name["PSU 1 · Unit 2"], by_name["FAN 1 · Unit 2"]
+    assert (await admin.patch(f"/api/sensors/{psu}", json={"name": "PSU 1"})).status_code == 200
+    assert (await admin.patch(f"/api/sensors/{fan}", json={"name": "Rear fan"})).status_code == 200
+    again = await _apply(admin, dev["id"], "hpe_comware")
+    assert again["created"] == []
+    renamed = [s["name"] for s in again["skipped"] if s.get("message") == "Renamed"]
+    assert renamed == ["PSU 1 · Unit 2"]
+    assert (await admin.get(f"/api/sensors/{psu}")).json()["name"] == "PSU 1 · Unit 2"
+    assert (await admin.get(f"/api/sensors/{fan}")).json()["name"] == "Rear fan"

@@ -8,6 +8,7 @@ import { useToast } from '../components/toast';
 import {
   Button,
   Card,
+  Checkbox,
   ErrorBox,
   Field,
   Input,
@@ -18,6 +19,7 @@ import {
 } from '../components/ui';
 import { errorMessage } from '../lib/errors';
 import { timeZones } from '../lib/maintenance';
+import { portSettingsErrors } from '../lib/ports';
 
 function SmtpCard({ settings }: { settings: Settings }) {
   const { t } = useTranslation();
@@ -310,6 +312,117 @@ function GeneralCard({ settings }: { settings: Settings }) {
   );
 }
 
+function PortsCard({ settings }: { settings: Settings }) {
+  const { t } = useTranslation();
+  const qc = useQueryClient();
+  const toast = useToast();
+  const [interval, setInterval] = useState(String(settings.port_inventory_min ?? 10));
+  const [threshold, setThreshold] = useState(String(settings.uplink_mac_threshold ?? 5));
+  const [retention, setRetention] = useState(String(settings.port_mac_retention_days ?? 30));
+  const [rdns, setRdns] = useState(settings.reverse_dns ?? true);
+  useEffect(() => {
+    setInterval(String(settings.port_inventory_min ?? 10));
+    setThreshold(String(settings.uplink_mac_threshold ?? 5));
+    setRetention(String(settings.port_mac_retention_days ?? 30));
+    setRdns(settings.reverse_dns ?? true);
+  }, [settings]);
+  const err = portSettingsErrors({ interval, threshold, retention });
+  const invalid = err.interval || err.threshold || err.retention;
+  const save = useMutation({
+    mutationFn: (body: SettingsInput) => endpoints.updateSettings(body),
+    onSuccess: (r) => {
+      qc.setQueryData(qk.settings, r);
+      void qc.invalidateQueries({ queryKey: ['device-ports'] });
+      toast.push('success', t('common.saved'));
+    },
+  });
+  const submit = (e: FormEvent) => {
+    e.preventDefault();
+    if (invalid) return;
+    save.mutate({
+      port_inventory_min: Number(interval),
+      uplink_mac_threshold: Number(threshold),
+      port_mac_retention_days: Number(retention),
+      reverse_dns: rdns,
+    });
+  };
+  const hint = (bad: boolean, ok: string, errKey: string) =>
+    bad ? <span className="text-red-600">{t(errKey)}</span> : ok;
+  return (
+    <Card title={t('settings.ports.title')}>
+      <form onSubmit={submit} className="space-y-4" data-testid="ports-settings">
+        <p className="text-xs text-slate-500">{t('settings.ports.intro')}</p>
+        <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
+          <Field
+            label={t('settings.ports.interval')}
+            hint={hint(
+              err.interval,
+              t('settings.ports.intervalHint'),
+              'settings.ports.intervalErr',
+            )}
+          >
+            <Input
+              type="number"
+              min={0}
+              max={1440}
+              value={interval}
+              onChange={(e) => setInterval(e.target.value)}
+              dir="ltr"
+              aria-invalid={err.interval}
+            />
+          </Field>
+          <Field
+            label={t('settings.ports.threshold')}
+            hint={hint(
+              err.threshold,
+              t('settings.ports.thresholdHint'),
+              'settings.ports.thresholdErr',
+            )}
+          >
+            <Input
+              type="number"
+              min={1}
+              max={1000}
+              value={threshold}
+              onChange={(e) => setThreshold(e.target.value)}
+              dir="ltr"
+              aria-invalid={err.threshold}
+            />
+          </Field>
+          <Field
+            label={t('settings.ports.retention')}
+            hint={hint(
+              err.retention,
+              t('settings.ports.retentionHint'),
+              'settings.ports.retentionErr',
+            )}
+          >
+            <Input
+              type="number"
+              min={1}
+              max={365}
+              value={retention}
+              onChange={(e) => setRetention(e.target.value)}
+              dir="ltr"
+              aria-invalid={err.retention}
+            />
+          </Field>
+        </div>
+        <div>
+          <Checkbox label={t('settings.ports.reverseDns')} checked={rdns} onChange={setRdns} />
+          <p className="ms-6 mt-0.5 text-xs text-slate-500">{t('settings.ports.reverseDnsHint')}</p>
+        </div>
+        <ErrorBox error={save.error} />
+        <div className="flex justify-end">
+          <Button type="submit" variant="primary" busy={save.isPending} disabled={invalid}>
+            {t('common.save')}
+          </Button>
+        </div>
+      </form>
+    </Card>
+  );
+}
+
 export function SettingsPage() {
   const { t } = useTranslation();
   const q = useQuery({ queryKey: qk.settings, queryFn: endpoints.settings });
@@ -334,6 +447,7 @@ export function SettingsPage() {
       {q.data && (
         <>
           <GeneralCard settings={q.data} />
+          <PortsCard settings={q.data} />
           <SmtpCard settings={q.data} />
         </>
       )}

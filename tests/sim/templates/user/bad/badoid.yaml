@@ -1,0 +1,15 @@
+# QA fixture: entry 0 walk_oid "abc" -> "invalid OID: abc", path entries[0].walk_oid
+schema: 1
+id: badoid
+name: {en: "Bad OID"}
+requires_snmp: true
+priority: 1
+match:
+  - {requires_snmp: true}
+entries:
+  - kind: snmp_table
+    walk_oid: abc
+    name: {en: 'Row {index}'}
+    config: {value_type: gauge}
+    confidence: low
+  - {kind: sensor, type: ping, name: {en: Ping}}

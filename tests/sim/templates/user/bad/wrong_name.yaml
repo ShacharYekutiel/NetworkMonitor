@@ -1,0 +1,9 @@
+# QA fixture: id differs from the file stem -> 'id must match the file name (expected "wrong_name")'
+schema: 1
+id: other_id
+name: {en: "Wrong name"}
+priority: 1
+match:
+  - {requires_snmp: false}
+entries:
+  - {kind: sensor, type: ping, name: {en: Ping}}

@@ -1,0 +1,84 @@
+# HPE ArubaOS-Switch / ProCurve (enterprise 11): STATISTICS-MIB, NETSWITCH-MIB,
+# HP-ICF-CHASSIS (hpicfSensorTable), POWER-ETHERNET-MIB (RFC 3621), IF-MIB.
+schema: 1
+id: hpe_arubaos_switch
+version: 2
+vendor: hp
+verified: false            # flip after the owner's 2b-1 test (architecture § 11.8)
+verified_note: ""
+name: {en: "HPE ArubaOS-Switch / ProCurve", he: "מתג HPE ArubaOS"}
+description:
+  en: "Ping, system, CPU, memory, hardware health, PoE and active ports"
+  he: "פינג, מערכת, מעבד, זיכרון, תקינות חומרה, PoE ופורטים פעילים"
+requires_snmp: true
+priority: 50
+match:
+  - {device_classes: [switch], requires_snmp: true, enterprises: [11]}
+entries:
+  - {kind: sensor, type: ping, name: {en: Ping, he: פינג}}
+  - {kind: sensor, type: snmp_system, name: {en: System, he: מערכת}}
+  - kind: sensor
+    type: snmp_custom
+    name: {en: CPU, he: מעבד}
+    config: {oid: '1.3.6.1.4.1.11.2.14.11.5.1.9.6.1.0', value_type: gauge, unit: '%', label: CPU}
+    channels: [{key: value, warning_max: 80, down_max: 95}]
+    probe: true
+    confidence: high
+    notes: "hpSwitchCpuStat (STATISTICS-MIB). May be absent on OfficeConnect 1820/1920S (low there)."
+  - kind: snmp_table
+    walk_oid: '1.3.6.1.4.1.11.2.14.11.5.1.1.2.1.1.1.7'           # hpLocalMemAllocBytes
+    percent_of_column: '1.3.6.1.4.1.11.2.14.11.5.1.1.2.1.1.1.5'  # hpLocalMemTotalBytes
+    name: {en: 'Memory {index}', he: 'זיכרון {index}'}
+    config: {value_type: gauge, unit: '%'}
+    channels: [{key: value, warning_max: 85, down_max: 95}]
+    max: 8
+    confidence: medium
+    notes: "NETSWITCH-MIB hpLocalMemEntry (.5 Total, .6 Free, .7 Alloc); index = slot / stack member."
+  - kind: snmp_table
+    walk_oid: '1.3.6.1.4.1.11.2.14.11.1.2.6.1.4'      # hpicfSensorStatus
+    label_oid: '1.3.6.1.4.1.11.2.14.11.1.2.6.1.7'     # hpicfSensorDescr
+    name: {en: '{label}', he: '{label}'}
+    config:
+      value_type: enum
+      value_map:
+        1: {status: warning, text: unknown}
+        2: {status: down, text: bad}
+        3: {status: warning, text: warning}
+        4: {status: up, text: good}
+      value_map_default: warning
+    filters: [{oid: '1.3.6.1.4.1.11.2.14.11.1.2.6.1.4', not_in: [5]}]   # skip notPresent(5)
+    max: 16
+    interval_s: 300
+    confidence: medium
+    notes: "HP-ICF-CHASSIS hpicfSensorEntry (.4 Status, .7 Descr); enum values medium-high."
+  - kind: snmp_table
+    walk_oid: '1.3.6.1.2.1.105.1.3.1.1.4'             # pethMainPseConsumptionPower
+    percent_of_column: '1.3.6.1.2.1.105.1.3.1.1.2'    # pethMainPsePower
+    name: {en: 'PoE {index} usage', he: 'PoE {index} ניצול'}
+    config: {value_type: gauge, unit: '%'}
+    channels: [{key: value, warning_max: 80, down_max: 95}]
+    filters: [{oid: '1.3.6.1.2.1.105.1.3.1.1.2', not_in: [0]}]
+    max: 8
+    confidence: high
+    notes: "POWER-ETHERNET-MIB (RFC 3621) pethMainPseTable; present on PoE models only."
+  - kind: snmp_table
+    walk_oid: '1.3.6.1.2.1.105.1.3.1.1.4'             # pethMainPseConsumptionPower
+    name: {en: 'PoE {index} power', he: 'PoE {index} הספק'}
+    config: {value_type: gauge, unit: W}
+    filters: [{oid: '1.3.6.1.2.1.105.1.3.1.1.2', not_in: [0]}]
+    max: 8
+    confidence: high
+    notes: "POWER-ETHERNET-MIB consumption (W)."
+  - kind: snmp_table
+    walk_oid: '1.3.6.1.2.1.105.1.3.1.1.2'             # pethMainPsePower (nominal)
+    name: {en: 'PoE {index} budget', he: 'PoE {index} תקציב'}
+    config: {value_type: gauge, unit: W}
+    max: 8
+    skip_zero: true
+    interval_s: 3600
+    confidence: high
+    notes: "POWER-ETHERNET-MIB nominal power (W)."
+  - kind: snmp_interfaces
+    oper_up_only: true
+    exclude_if_types: [1, 24, 53, 131, 136]   # other, loopback, propVirtual/VLAN, tunnel, l3ipvlan
+    max: 52
