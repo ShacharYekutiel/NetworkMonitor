@@ -5,6 +5,9 @@
 #   docker compose -f deploy/docker-compose.yml up -d
 #
 # then open http://<server>:8080 and complete the setup wizard.
+# SNMP traps (UDP 162) and syslog (UDP+TCP 514) are published too; they are received only
+# after an administrator turns them on in Settings -> Features (deploy/README.md,
+# "Traps and syslog"; Docker Desktop loses the sender IP - see there).
 # After a `git pull`, update with: docker compose -f deploy/docker-compose.yml up -d --build
 #
 # Nothing has to be edited. The DB password is generated on the first `up` by the
@@ -88,6 +91,11 @@ services:
       NETMON_DB_PASSWORD_FILE: /data/db_password
       NETMON_DATA_DIR: /data
       NETMON_PORT: "8080"
+      # [2b-3] SNMP trap / syslog receivers inside the container (must match `ports:`).
+      # They listen only while the Traps / Syslog features are ON (Settings -> Features).
+      NETMON_TRAP_PORT: "1162"
+      NETMON_SYSLOG_PORT: "1514"
+      NETMON_SYSLOG_TCP_PORT: "1514"
       TZ: ${TZ:-UTC}
     volumes:
       - netmon-data:/data
@@ -96,6 +104,16 @@ services:
       - ./certs:/etc/netmon/certs:ro
     ports:
       - "${NETMON_HTTP_PORT:-8080}:8080"
+      # [2b-3] SNMP traps (UDP 162) and syslog (UDP + TCP 514) on the standard host ports;
+      # change them in deploy/.env (NETMON_TRAP_HOST_PORT / NETMON_SYSLOG_HOST_PORT) if
+      # something else on the host already uses them (snmptrapd, rsyslog, Windows SNMPTRAP).
+      # Linux Docker Engine keeps the sender's IP for traffic from other machines.
+      # Docker Desktop (Windows/macOS) does NOT: every message then seems to come from one
+      # internal address and the Logs page shows a NAT warning. Test traps/syslog on Linux
+      # or with the native Windows installer instead (deploy/README.md).
+      - "${NETMON_TRAP_HOST_PORT:-162}:1162/udp"
+      - "${NETMON_SYSLOG_HOST_PORT:-514}:1514/udp"
+      - "${NETMON_SYSLOG_HOST_PORT:-514}:1514/tcp"
     # Unprivileged ICMP (ping) for every GID inside the container.
     sysctls:
       net.ipv4.ping_group_range: "0 2147483647"

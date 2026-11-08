@@ -58,3 +58,38 @@ One Ubuntu server, Docker, no Kubernetes. The server's desired state is the fold
 Changes to `compose.yaml`, `config/`, `caddy/` or `ops/` follow the same path (PR → merge →
 deploy). `.github/workflows/production.yml` validates every PR touching `deploy/production/`
 (shellcheck, release.env, compose config, `caddy validate`, systemd units, sync logic tests).
+
+## Traps, syslog and Active Directory (phase 2b-3)
+
+All 2b-3 features are **off** after the upgrade and are turned on in the UI (*Settings → Features*); none of
+them needs a server change or a deploy. Operator details (Hebrew), device examples and commands:
+[deploy/production/README.md](../deploy/production/README.md#snmp-traps-ו-syslog-שלב-2b-3).
+
+- **Ports.** `compose.yaml` publishes `162:1162/udp` (traps), `514:1514/udp` and `514:1514/tcp` (syslog) on the
+  `netmon` service and sets `NETMON_TRAP_PORT=1162`, `NETMON_SYSLOG_PORT=1514`, `NETMON_SYSLOG_TCP_PORT=1514`
+  (the image defaults are the same; the app stays non-root, uid 10001). The receivers open their sockets only
+  while the feature is ON (`/api/health` → `ingest`, *Settings → Features* status line).
+- **Sender IP.** Published ports use iptables DNAT, which keeps the source address of external senders, so
+  messages are attributed by IP. Traffic from the Docker host itself goes through `docker-proxy` and arrives from
+  the bridge gateway (`172.x.0.1`): test from another machine. Docker Desktop (Windows/macOS) never keeps the
+  sender IP (the UI then shows a NAT warning); it is not used in production.
+- **UDP conntrack.** A sender that kept sending while the container was replaced can keep a stale conntrack
+  entry. `ops/sync.sh` runs `conntrack -D -p udp --dport 162` / `514` (best effort, when the `conntrack` package
+  is installed — `bootstrap.sh` installs it) after a deploy or drift repair that recreated the `netmon` container.
+- **Firewall.** ufw does **not** filter Docker-published ports (Docker's `FORWARD`/`DOCKER` chains run first).
+  Restrict senders in the `DOCKER-USER` chain on the *original* port, e.g.
+  `iptables -I DOCKER-USER -p udp -m conntrack --ctstate DNAT --ctdir ORIGINAL --ctorigdstport 514 ! -s 10.0.0.0/8 -j DROP`.
+  `ops/ingest-firewall.sh` (optional, not applied automatically) maintains a `NETMON-INGEST` chain from
+  `/etc/netmon-gitops/ingest-allow.conf`; `netmon-ingest-firewall.service` (installed, not enabled) re-applies it
+  at boot and Docker restarts. `--ctstate DNAT` keeps the app's outgoing SIEM forwarding to remote port 514
+  unaffected. The app's ignore list is a second layer.
+- **Conflicts.** `ss -lunpt '( sport = :162 or sport = :514 )'` must show only `docker-proxy` (no `snmptrapd`,
+  no rsyslog `imudp`/`imtcp` on 514). `ops/status.sh` shows the listeners and the sender filter.
+- **Disk.** Syslog at `warning` from ~30 switches ≈ 1 msg/s ≈ 75 MB/day (≈ 2.2 GB for the default 30 days);
+  `informational` everywhere is ~10× that.
+- **Active Directory (LDAPS).** The DC certificate is verified against the same trust set as HTTPS: the image's
+  OS store, certifi and `/etc/netmon-gitops/ca/` (mounted as `/etc/netmon/certs`, the default
+  `NETMON_EXTRA_CA_DIR`). The corporate root CA installed by `bootstrap.sh` is enough; DC names in the settings
+  must match their certificates. `ldap3` is a regular dependency of the image.
+- **pg_trgm** (log text search) ships with the TimescaleDB image; the app creates the extension at startup
+  (`/api/health` → `"trgm": true`).

@@ -19,8 +19,10 @@
 #   3. Creates the DB role + database `netmon` with a random password and writes
 #      /var/lib/netmon/netmon.env (DATABASE_URL=..., mode 0600).
 #   4. Installs the app (with the web UI bundled) into the venv.
-#   5. Installs netmon.service (CAP_NET_RAW ambient capability), enables and starts it.
-#   6. Prints the URL.
+#   5. Installs netmon.service (CAP_NET_RAW + CAP_NET_BIND_SERVICE ambient capabilities:
+#      ping fallback, SNMP traps on UDP 162 and syslog on UDP/TCP 514), enables and starts it.
+#   6. Prints the URL, the firewall lines for traps/syslog and any port conflict
+#      (snmptrapd / rsyslog already listening on 162 / 514).
 # Corporate TLS inspection: certificates in deploy/certs/ (see deploy/certs/README.md) are
 # added to the system trust store first, so apt/dnf, pip, npm and the app trust them.
 # =============================================================================
@@ -62,7 +64,8 @@ Options:
                         script lives in, or a wheel shipped next to it)
   --port <n>            HTTP port (default 8080, or the port of the existing installation)
   --no-timescale        Do not try to install TimescaleDB (plain PostgreSQL mode)
-  --no-firewall         Do not open the port in firewalld / ufw
+  --no-firewall         Do not open the HTTP port in firewalld / ufw (traps/syslog ports
+                        are never opened automatically; the installer prints the lines)
   -h, --help            Show this help
 EOF
 }
@@ -648,6 +651,25 @@ if [ "$TIMESCALE" -eq 1 ]; then
     || warn "CREATE EXTENSION timescaledb failed; the app will use plain PostgreSQL mode."
 fi
 
+# [2b-3] pg_trgm (contrib) indexes the syslog/trap text search. It is a trusted extension,
+# but creating it here as the superuser also covers servers where the app role may not.
+pg_trgm_available() {
+  [ "$(psql_super -Atc "SELECT count(*) FROM pg_available_extensions WHERE name = 'pg_trgm'" 2>/dev/null)" = 1 ]
+}
+if ! pg_trgm_available; then
+  log "Installing the PostgreSQL contrib package (pg_trgm)"
+  case "$PG_FLAVOUR" in
+    debian) apt_install "postgresql-contrib-${PG_MAJOR}" >/dev/null 2>&1 || apt_install postgresql-contrib >/dev/null 2>&1 || true ;;
+    pgdg-rpm) dnf_install "postgresql${PG_MAJOR}-contrib" >/dev/null 2>&1 || true ;;
+    *) dnf_install postgresql-contrib >/dev/null 2>&1 || true ;;
+  esac
+fi
+if psql_super -d "$DB_NAME" -c "CREATE EXTENSION IF NOT EXISTS pg_trgm" >/dev/null 2>&1; then
+  ok "pg_trgm extension ready"
+else
+  warn "pg_trgm is not available (PostgreSQL contrib package missing): log search will be slower."
+fi
+
 # Password logins over loopback for the netmon role (RHEL's initdb defaults to `ident`).
 HBA_FILE="$(psql_super -Atc 'SHOW hba_file')"
 if ! grep -qF "$HBA_MARKER" "$HBA_FILE"; then
@@ -742,3 +764,44 @@ echo "  Health:   http://${HOST_IP}:${PORT}/api/health"
 echo "  Service:  systemctl status netmon   |   logs: journalctl -u netmon -f"
 echo "  Data:     ${DATA_DIR}   (config: ${ENV_FILE})"
 [ "$TIMESCALE" -eq 1 ] || echo "  Storage:  plain PostgreSQL mode (TimescaleDB not installed)"
+
+# ============================================================================= traps / syslog
+# [2b-3] The receivers listen on UDP 162 (traps) and UDP/TCP 514 (syslog) only while the
+# Traps / Syslog features are ON (Settings -> Features). Nothing is opened in the firewall
+# automatically: restrict senders to the device networks with the lines printed here.
+lan_cidr() {
+  # The connected IPv4 network of the interface that holds the default route.
+  local dev
+  dev="$(ip -o -4 route show default 2>/dev/null | awk '{for (i = 1; i < NF; i++) if ($i == "dev") {print $(i + 1); exit}}')"
+  [ -n "$dev" ] || return 0
+  ip -o -4 route show dev "$dev" scope link proto kernel 2>/dev/null | awk '{print $1; exit}'
+}
+LAN="$(lan_cidr || true)"
+LAN="${LAN:-<device-network/prefix>}"
+echo
+echo "  SNMP traps (UDP 162) and syslog (UDP+TCP 514): turn them on in Settings -> Features,"
+echo "  then point the devices at ${HOST_IP} (examples: deploy/README.md, 'Traps and syslog')."
+if have ufw && ufw status 2>/dev/null | grep -q '^Status: active'; then
+  echo "  ufw is active; allow the device networks (repeat per network):"
+  echo "      ufw allow from ${LAN} to any port 162 proto udp"
+  echo "      ufw allow from ${LAN} to any port 514 proto udp"
+  echo "      ufw allow from ${LAN} to any port 514 proto tcp"
+elif have firewall-cmd && firewall-cmd --state >/dev/null 2>&1; then
+  echo "  firewalld is active; allow the device networks (repeat per network):"
+  for rule in "port port=162 protocol=udp" "port port=514 protocol=udp" "port port=514 protocol=tcp"; do
+    echo "      firewall-cmd --permanent --add-rich-rule='rule family=ipv4 source address=${LAN} ${rule} accept'"
+  done
+  echo "      firewall-cmd --reload"
+fi
+
+# Another program holding the ports makes the receiver report "Address already in use".
+if have ss; then
+  CONFLICTS="$(ss -H -lunpt '( sport = :162 or sport = :514 )' 2>/dev/null | grep -v '"netmon"' | grep -v 'pid='"$(systemctl show -p MainPID --value netmon.service 2>/dev/null || echo 0)"',' || true)"
+  if [ -n "$CONFLICTS" ]; then
+    warn "Another program already listens on UDP 162 / UDP-TCP 514; NetworkMonitor cannot receive traps/syslog there:"
+    printf '%s\n' "$CONFLICTS" | sed 's/^/      /' >&2
+    case "$CONFLICTS" in *snmptrapd*) warn "  snmptrapd: sudo systemctl disable --now snmptrapd" ;; esac
+    case "$CONFLICTS" in *rsyslogd*) warn "  rsyslog: remove the imudp/imtcp port 514 input (/etc/rsyslog.conf, /etc/rsyslog.d/) and: sudo systemctl restart rsyslog" ;; esac
+    case "$CONFLICTS" in *syslog-ng*) warn "  syslog-ng: remove the network() / udp() / tcp() source on port 514 and restart syslog-ng" ;; esac
+  fi
+fi

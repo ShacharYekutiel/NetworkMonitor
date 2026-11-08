@@ -131,7 +131,7 @@ echo "$n local CA certificate(s) made available to the app"
 step "Packages (docker.io, docker-compose-v2 from the Ubuntu archive)"
 export DEBIAN_FRONTEND=noninteractive
 apt-get update -q
-apt-get install -y -q docker.io docker-compose-v2 git curl openssl ca-certificates util-linux
+apt-get install -y -q docker.io docker-compose-v2 git curl openssl ca-certificates util-linux conntrack
 systemctl daemon-reload
 systemctl enable docker >/dev/null
 # Restart so the daemon picks up the proxy drop-in and the (possibly new) CA store.
