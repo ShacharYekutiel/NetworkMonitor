@@ -1,9 +1,10 @@
-# NetworkMonitor — API Contract (Phase 1 + Phase 2a + Phase 2b-1 + Phase 2b-2)
+# NetworkMonitor — API Contract (Phase 1 + Phase 2a + Phase 2b-1 + Phase 2b-2 + Phase 2b-3)
 
 Items marked **[2a]** are the Phase 2a contract (discovery, device templates, `snmp_custom`/`snmp_disk`,
 Telegram). The Phase 2a endpoints are specified in [§ Phase 2a](#2a-phase-2a-endpoints).
 Items marked **[2b-1]** are specified in [§ Phase 2b-1](#2b-1-phase-2b-1-contract).
 Items marked **[2b-2]** are specified in [§ Phase 2b-2](#2b-2-phase-2b-2-contract).
+Items marked **[2b-3]** are specified in [§ Phase 2b-3](#2b-3-phase-2b-3-contract).
 
 This file is the contract between the backend (`backend/netmon/schemas`) and the frontend
 (`frontend/src/api/types.ts`). **Field names are exact.** For the table semantics see
@@ -1460,3 +1461,342 @@ switches that refetched every few seconds):
   updates) and also on the next window focus;
 - any other device → nothing;
 - MAC/IP search results (`mac-search`) are **not** invalidated (the user re-runs the search).
+
+---
+
+## [2b-3] Phase 2b-3 contract
+
+Feature toggles, traps, syslog, event rules/sensors, flapping, SIEM forwarding, LAG, Active Directory login,
+audit log, device timeline, Microsoft Teams, API tokens. Table semantics: [data-model.md § Phase
+2b-3](data-model.md#2b-3-phase-2b-3-additions); flows: architecture.md § 12. All earlier conventions apply.
+Everything is **additive**. Every feature is **OFF by default**; a disabled feature's endpoints answer `409
+feature_disabled` (data-model § Feature toggles lists the exceptions).
+
+### [2b-3] Errors
+| HTTP | code | When |
+|---|---|---|
+| 409 | `feature_disabled` | The endpoint belongs to a feature that is OFF. `details: [{"feature": "traps"}]` |
+| 409 | `sensor_passive` | `POST /api/sensors/{id}/run` / `POST /api/sensors/test` for `trap` / `syslog` / `port_flap` |
+| 400 | `not_event_sensor` | `/clear` or `/conditions` on a sensor that is not an event sensor |
+| 409 | `builtin_rule` | `DELETE` of a built-in event rule |
+| 409 | `ldap_managed` | Password / role / email change of an LDAP user (`PATCH /api/users/{id}`, `POST /api/auth/change-password`, `PATCH /api/auth/me` email) |
+| 409 | `last_admin` | (extended) the action would leave no active **local** admin |
+| 503 | `directory_unavailable` | AD login when no DC answered, the service bind failed, or the bind password is unreadable |
+| 429 | `rate_limited` | (extended) also: 5 failed directory logins per username in 15 min; 20 invalid API tokens per IP in 5 min |
+| 400 | `invalid_cursor` | A malformed or foreign `cursor` |
+| 502 | `teams_error` | Teams test send failed (`message` = HTTP status + first 200 chars of the body; the URL never appears) |
+| 502 | `forward_error` | SIEM test send failed (connect/TLS error text) |
+| 403 | `forbidden` | (extended) an API token used on `/api/auth/*`, `/api/users*`, `/api/tokens*` |
+
+### [2b-3] Type changes
+```ts
+type SensorType = /* … */ | "trap" | "syslog" | "port_flap";
+type NotificationType = "email" | "webhook" | "telegram" | "teams";
+type EventKind = /* … */ | "notification_sent" | "port_change";
+type FeatureName = "traps" | "syslog" | "event_alerts" | "lag" | "ldap" | "audit" | "timeline" | "teams"
+  | "flapping" | "siem_forwarding" | "api_tokens";
+type Features = Record<FeatureName, boolean>;
+
+type User = { /* Phase 1 fields */ source: "local" | "ldap"; display_name: string | null;
+  ldap_synced_at: string | null };
+```
+- `Device` gains `source_addresses: string[]` (create/PATCH; ≤ 16 IPv4/IPv6 addresses, 422 otherwise),
+  `source_address_conflicts: {address: string; device_id: number; device_name: string}[]` (read-only),
+  `event_sensor_optout: ("trap" | "syslog" | "port_flap")[]` (read-only; managed by sensor create/delete).
+- `SensorTypeInfo` (`GET /api/sensor-types`) gains `passive: boolean`; the three event types are listed.
+- `Sensor` for event types: `config` `{}`, `channels` = `[{"key":"active",…}]`; PATCH accepts `name`,
+  `enabled`, `sort_order` only (other keys ignored). `POST /api/sensors` with an event type creates it (one per
+  device per type, `409 conflict` `details: [{"field":"type"}]`) and removes it from `event_sensor_optout`;
+  `DELETE` of an event sensor adds the type to `event_sensor_optout`.
+- `Port` (2b-2) gains (null/[]/false while `lag` is OFF):
+  `lag: {if_index: number; name: string; attached: boolean | null} | null`, `lag_members: number[]`,
+  `vlans_from_lag: boolean`; `PortMac` gains `via_lag: boolean`; `PortInventoryStatus.sources` gains `lag:
+  SourceState` and the status gains `lag_mib: "ieee8023" | "if_stack" | "both" | null`; `MacLocation` gains
+  `lag_members: string[]`.
+- `AlertPayload` (webhook/Telegram/email/Teams) gains `"after_flapping": boolean` (like `after_maintenance`).
+- `GET /api/health` gains `"trgm": bool` and `"ingest": {"trap": ReceiverState, "syslog_udp": ReceiverState,
+  "syslog_tcp": ReceiverState}` with `ReceiverState = "listening" | "disabled" | "error"`.
+
+### [2b-3] Feature toggles and settings
+- `GET /api/settings/public` gains `features: Features` and `ldap: {"domain": "mnidom.net", "netbios_domain":
+  "MNIDOM"} | null` (null while `ldap` is OFF).
+- `Settings` gains every key of data-model § Settings keys. Changes go through `PUT /api/settings` (partial
+  merge). `feature_*_enabled` changes are applied at runtime and broadcast as `features.changed`. Turning
+  `ldap` ON validates the stored `ldap` config (422 with the missing fields).
+- Secret handling (same rules as § Secret fields):
+  - `trap_communities`: response `null` + `trap_communities_count`; request omitted/`null` keep, list (also
+    `[]`) replaces.
+  - `trap_v3_users[]`: each `auth_key`/`priv_key` `null` + `auth_key_set`/`priv_key_set` in responses; in a
+    request, an entry with the same `username` as a stored entry keeps a key given as `null`/omitted, `""`
+    clears, a string replaces; the list replaces the stored list.
+  - `ldap.bind_password`: response `null` + `bind_password_set` + `bind_password_unreadable`; request rules as
+    `smtp.password`. `ldap` is merged field by field.
+- `siem_targets[]` has no secrets.
+
+```json
+{ "feature_traps_enabled": true, "feature_syslog_enabled": true, "feature_event_alerts_enabled": true,
+  "feature_lag_enabled": true, "feature_ldap_enabled": false, "feature_audit_enabled": true,
+  "feature_timeline_enabled": true, "feature_teams_enabled": false, "feature_flapping_enabled": true,
+  "feature_siem_forwarding_enabled": false, "feature_api_tokens_enabled": false,
+  "trap_retention_days": 30, "syslog_retention_days": 30, "audit_retention_days": 365,
+  "trap_community_check": "any", "trap_communities": null, "trap_communities_count": 0,
+  "trap_v3_users": [ { "username": "netmon-trap", "security_level": "authPriv", "auth_protocol": "SHA",
+     "auth_key": null, "auth_key_set": true, "priv_protocol": "AES128", "priv_key": null, "priv_key_set": true } ],
+  "ingest_unknown_sources": "store", "ingest_ignored_sources": ["10.9.0.0/16"],
+  "flap_threshold": 5, "flap_window_min": 10, "flap_quiet_min": 15,
+  "siem_targets": [ { "id": "a1b2c3", "name": "QRadar", "enabled": true, "host": "siem.mnidom.net", "port": 6514,
+     "protocol": "tls", "tls_verify": true, "kinds": ["syslog","trap"], "min_severity": 7, "sources": [],
+     "include_unknown": false } ],
+  "ldap": { "servers": ["dc1.mnidom.net","dc2.mnidom.net"], "security": "ldaps", "tls_verify": true,
+     "domain": "mnidom.net", "netbios_domain": "MNIDOM", "base_dn": "DC=mnidom,DC=net",
+     "bind_dn": "svc-netmon@mnidom.net", "bind_password": null, "bind_password_set": true,
+     "bind_password_unreadable": false,
+     "admin_group_dn": "CN=NetMon-Admins,OU=Groups,DC=mnidom,DC=net",
+     "viewer_group_dn": "CN=NetMon-Viewers,OU=Groups,DC=mnidom,DC=net", "timeout_s": 5 } }
+```
+
+### [2b-3] Cursor pages (traps, syslog, timeline)
+These large, append-only collections use **keyset pagination** instead of the page envelope (exact counts are
+too expensive): query `limit` (1–500, default 100) and `cursor` (opaque string from the previous response);
+response `{"items": [...], "next_cursor": "…" | null, "limit": 100}`, sorted `time DESC, id DESC`. Counts come
+from the `/stats` endpoints. Time range: `since` / `until` (ISO); `since` defaults to `until − 24 h`
+(`until` defaults to now); a range longer than 31 days → 422.
+
+### [2b-3] Traps (viewer; feature `traps`)
+```ts
+type TrapVarbind = { oid: string; name: string | null; type: string; value: string; display: string };
+type Trap = { id: number; time: string; source_ip: string; agent_addr: string | null;
+  device_id: number | null; device_name: string | null;
+  version: "v1" | "v2c" | "v3"; pdu: "trap" | "inform"; security_name: string | null;
+  trap_oid: string; trap_name: string | null; uptime_ticks: number | null;
+  summary: string; varbinds: TrapVarbind[]; matched_rule_ids: number[] };
+```
+| Method & path | Request | Response |
+|---|---|---|
+| `GET /api/traps` | Query: `device_id`, `group_id` (recursive), `unknown` (bool: only unattributed), `source_ip`, `trap_oid` (prefix), `rule_id` (in `matched_rule_ids`), `q` (substring of `summary`, 1–200 chars, case-insensitive), `since`, `until`, `cursor`, `limit` | cursor page of `Trap` |
+| `GET /api/traps/{id}` | — | `Trap`, `404` |
+| `GET /api/traps/stats` | same filters (no cursor) | `TrapStats` |
+
+```ts
+type TrapStats = { since: string; until: string; bucket_s: number;   // 60 | 300 | 900 | 3600 | 21600 | 86400 (≈ 60 buckets)
+  buckets: { t: string; count: number }[]; total: number;
+  top_sources: { device_id: number | null; device_name: string | null; source_ip: string; count: number }[];  // ≤ 10
+  top_traps: { trap_oid: string; trap_name: string | null; count: number }[] };                              // ≤ 10
+```
+
+### [2b-3] Syslog (viewer; feature `syslog`)
+```ts
+type SyslogMessage = { id: number; time: string; device_time: string | null; source_ip: string;
+  device_id: number | null; device_name: string | null; transport: "udp" | "tcp";
+  format: "rfc5424" | "rfc3164" | "raw"; facility: number; severity: number;
+  hostname: string; program: string; pid: string; msgid: string; structured_data: string | null;
+  message: string; truncated: boolean; matched_rule_ids: number[] };
+type SyslogStats = { since: string; until: string; bucket_s: number;
+  buckets: { t: string; counts: number[] }[];        // 8 entries, index = severity
+  total: number; by_severity: number[];              // 8
+  top_sources: { device_id: number | null; device_name: string | null; source_ip: string; count: number }[];
+  top_programs: { program: string; count: number }[] };
+```
+| Method & path | Request | Response |
+|---|---|---|
+| `GET /api/syslog` | Query: `device_id`, `group_id`, `unknown`, `source_ip`, `severity_max` (0–7), `facility` (repeatable), `program` (repeatable, case-insensitive exact), `hostname`, `rule_id`, `q` (substring of `message`, 1–200), `since`, `until`, `cursor`, `limit` | cursor page of `SyslogMessage` |
+| `GET /api/syslog/{id}` | — | `SyslogMessage` |
+| `GET /api/syslog/stats` | same filters | `SyslogStats` |
+
+### [2b-3] Ingest status, unknown sources, forwarding (feature: `traps` or `syslog`; forwarding: `siem_forwarding`)
+```ts
+type ReceiverStatus = { kind: "trap" | "syslog_udp" | "syslog_tcp"; port: number; enabled: boolean;
+  state: "listening" | "disabled" | "error"; error: string | null; since: string | null };
+type IngestCounters = { received: number; stored: number; forwarded: number;
+  dropped: { rate_limited: number; queue_full: number; too_large: number; parse_error: number;
+    ignored_source: number; unknown_source: number; bad_community: number; v3_auth: number;
+    unsupported: number; db_error: number } };
+type ForwarderStatus = { id: string; name: string; state: "connected" | "connecting" | "idle" | "error" | "disabled";
+  sent: number; dropped: number; errors: number; queue: number; last_error: string | null };
+type IngestStatus = { receivers: ReceiverStatus[]; counters_since: string;
+  counters: { trap: IngestCounters; syslog: IngestCounters };
+  rate_per_min: { trap: number; syslog: number };          // last 5 min average
+  queue: { trap: number; syslog: number; capacity: number };
+  tcp_connections: number; nat_suspected: boolean; nat_address: string | null;
+  v3_failures: { time: string; source_ip: string; engine_id: string; username: string; reason: string }[];   // admins only, else []
+  forwarders: ForwarderStatus[];                            // admins only, else []
+  trgm: boolean; timescale: boolean };
+type UnknownSource = { source_ip: string; syslog_count: number; trap_count: number; last_seen: string;
+  last_hostname: string; ignored: boolean };
+```
+| Method & path | Role | Request | Response |
+|---|---|---|---|
+| `GET /api/ingest/status` | viewer | — | `IngestStatus` |
+| `GET /api/ingest/unknown-sources` | viewer | Query `days` (1–30, default 7) | `{"items": UnknownSource[]}` (≤ 200, by `last_seen` desc) |
+| `POST /api/ingest/unknown-sources/assign` | admin | `{"source_ip": "10.0.0.12", "device_id": 3}` | `200 {"device_id": 3, "source_addresses": ["10.0.0.12"], "reassigning": true}`; `422` invalid IP / already a source of this device; `404` device. Audited `ingest.assign_source`; `config.changed` device. |
+| `POST /api/ingest/forwarders/test` | admin | `{"target_id": "a1b2c3"}` or `{"target": SiemTarget}` (unsaved) | `200 {"ok": true, "message": "sent"}`; `502 forward_error` |
+
+"Ignore source" is `PUT /api/settings {"ingest_ignored_sources": [...]}` (the UI appends).
+
+### [2b-3] Event rules (read: viewer; write: admin; feature: `traps` or `syslog`)
+```ts
+type TrapMatch = { trap_oids: string[]; varbinds: { oid: string; op: "eq" | "ne" | "contains" | "regex" | "exists" | "absent"; value: string | null }[];
+  ports: "any" | "important" };
+type SyslogMatch = { severity_max: number | null; facilities: number[]; programs: string[];
+  text: string | null; text_regex: boolean };
+type EventRule = { id: number; name: string; kind: "trap" | "syslog"; enabled: boolean;
+  builtin: string | null;                       // builtin_key
+  priority: number; scope: "global" | "group" | "device"; group_id: number | null; device_id: number | null;
+  scope_name: string | null;                    // group or device name
+  match: TrapMatch | SyslogMatch; action: "warning" | "down" | "ignore";
+  key_varbind_oid: string | null; key_regex: string | null;
+  clear_match: TrapMatch | SyslogMatch | null; clear_after_min: number | null;
+  active_conditions: number; last_matched_at: string | null; created_at: string; updated_at: string };
+```
+| Method & path | Request | Response |
+|---|---|---|
+| `GET /api/event-rules` | Query `kind` | `{"items": EventRule[]}` sorted `priority, id` (not paginated; ≤ 500 rules, enforced on create → 422) |
+| `POST /api/event-rules` | `EventRule` writable fields (`name`, `kind`, `enabled`?, `priority`?, `scope`, `group_id`, `device_id`, `match`, `action`, `key_varbind_oid`?, `key_regex`?, `clear_match`?, `clear_after_min`?) | `201 EventRule` |
+| `GET /api/event-rules/{id}` | — | `EventRule` |
+| `PATCH /api/event-rules/{id}` | subset (`kind` immutable → 422). Removes the rule's conditions. | `EventRule` |
+| `DELETE /api/event-rules/{id}` | — | `204`; `409 builtin_rule` |
+| `POST /api/event-rules/{id}/reset` | — (built-in only, else 404) | `EventRule` |
+| `POST /api/event-rules/test` | `{"rule": <writable fields>, "hours": 24}` (1–168) | `{"scanned": 1000, "matched": 12, "cleared": 3, "items": [ {"kind": "trap", "id": 991, "time": "...", "device_name": "sw1", "text": "linkDown …", "result": "raise" \| "clear" \| "ignore", "key": "5"} ]}` — newest stored records of that kind (≤ 5000 scanned, ≤ 50 items), no side effects; scope respected |
+
+Validation (422, `details` with `loc`): data-model § Event rules. `config.changed` entity `event_rule`.
+
+### [2b-3] Event sensors (feature `event_alerts`, except `/conditions` and `/clear`)
+```ts
+type EventCondition = { id: number; source: "rule" | "flap"; rule_id: number | null; rule_name: string | null;
+  key: string; status: "warning" | "down"; first_at: string; last_at: string; count: number; message: string;
+  last_kind: "trap" | "syslog" | null; last_ref_id: number | null; expires_at: string | null };
+```
+| Method & path | Role | Response |
+|---|---|---|
+| `GET /api/sensors/{id}/conditions` | viewer | `{"items": EventCondition[]}` (worst, newest first); `400 not_event_sensor` |
+| `POST /api/sensors/{id}/clear` | admin | `200 Sensor` (status `up`); audited `sensor.clear_events` |
+
+### [2b-3] Microsoft Teams channel (feature `teams`)
+`notification_channels.type = "teams"`, `config`: `{"url": "https://prod-12.westeurope.logic.azure.com/workflows/…/triggers/manual/paths/invoke?api-version=…&sig=…"}`.
+- `url` is **secret**: responses `"url": null, "url_set": true, "url_host": "prod-12.westeurope.logic.azure.com",
+  "legacy": false`; requests follow § Secret fields; required on create; must be `https://`, ≤ 2048 chars.
+  `legacy = true` when the host ends with `webhook.office.com` or `outlook.office.com` (UI warning).
+- Test: `POST /api/notification-channels/{id}/test` → `200` / `502 teams_error`.
+- Body sent (problem example, `en`):
+```json
+{ "type": "message",
+  "attachments": [ { "contentType": "application/vnd.microsoft.card.adaptive", "contentUrl": null,
+    "content": { "$schema": "http://adaptivecards.io/schemas/adaptive-card.json", "type": "AdaptiveCard",
+      "version": "1.4", "msteams": { "width": "Full" },
+      "body": [
+        { "type": "TextBlock", "text": "DOWN: core-sw / Ping", "weight": "Bolder", "size": "Medium",
+          "color": "Attention", "wrap": true },
+        { "type": "FactSet", "facts": [
+          { "title": "Status", "value": "up → down" }, { "title": "Device", "value": "core-sw (10.0.0.2)" },
+          { "title": "Sensor", "value": "Ping" }, { "title": "Message", "value": "Host unreachable" },
+          { "title": "Since", "value": "2026-11-08 12:00 (Asia/Jerusalem)" }, { "title": "Rule", "value": "All down" } ] } ],
+      "actions": [ { "type": "Action.OpenUrl", "title": "Open in NetworkMonitor", "url": "https://netmon.mnidom.net/sensors/7" } ] } } ] }
+```
+  `color`: `Attention` down, `Warning` warning/escalation/reminder, `Good` recovery; the title prefix follows the
+  existing stage subjects (`ESCALATION:`, `REMINDER:`, `RECOVERED:`); Hebrew texts when `default_language = he`
+  (then `"version": "1.5"` and `"rtl": true` on the card, which Teams supports; otherwise 1.4). `actions` is omitted without
+  `public_base_url`. Test send: title "NetworkMonitor test message", no facts.
+
+### [2b-3] LAG
+No new endpoints; fields above. `lag` OFF → the fields are null/[]/false and walks #13/#14 are not sent.
+
+### [2b-3] Active Directory (feature `ldap`; test endpoints work while OFF)
+**Login:** `POST /api/auth/login` request unchanged (`username` now 1–256 chars, `password` 0–1024). Errors:
+`401 invalid_credentials` (every credential/account/group reason — the reason is only in the audit log),
+`429 rate_limited`, `503 directory_unavailable`. Response `{"user": User}` (`source: "ldap"` for AD users).
+Login failure reasons (audit `reason`): `bad_password`, `unknown_user`, `inactive`, `empty_password`,
+`not_in_group`, `account_disabled`, `account_locked`, `account_expired`, `password_expired`,
+`password_must_change`, `not_permitted`, `ambiguous_user`, `ldap_disabled`, `directory_unavailable`,
+`rate_limited`, `token_invalid`.
+
+| Method & path | Role | Request | Response |
+|---|---|---|---|
+| `POST /api/ldap/test` | admin | `{"ldap": <partial LDAP settings>}` or `{}` (stored); merged over the stored config, secret rules apply | `200 LdapTestResult` |
+| `POST /api/ldap/test-user` | admin | `{"username": "jdoe", "password": "…", "ldap": <optional partial>}` | `200 LdapUserTestResult` (no user is created; counts toward the directory guard; the password is never logged or audited) |
+
+```ts
+type LdapServerResult = { server: string;           // "dc1.mnidom.net:636"
+  ok: boolean; security: "ldaps" | "starttls"; latency_ms: number | null;
+  tls: { subject: string; issuer: string; not_after: string; verified: boolean } | null;
+  active_directory: boolean;                         // rootDSE supportedCapabilities has 1.2.840.113556.1.4.800
+  error: string | null };                            // e.g. "certificate verify failed: hostname mismatch"
+type LdapTestResult = { ok: boolean; discovered_via_dns: boolean; servers: LdapServerResult[];
+  service_bind: { ok: boolean; error: string | null };
+  base_dn: { ok: boolean; error: string | null };
+  admin_group: { dn: string; found: boolean } | null; viewer_group: { dn: string; found: boolean } | null;
+  message: string };
+type LdapUserTestResult = { ok: boolean;
+  steps: { step: "connect" | "service_bind" | "search_user" | "account_state" | "user_bind" | "groups";
+           ok: boolean; detail: string; server: string | null }[];
+  user: { dn: string; sam_account_name: string; user_principal_name: string | null; display_name: string | null;
+          mail: string | null; disabled: boolean; locked: boolean } | null;
+  role: "admin" | "viewer" | null; reason: string | null };   // reason code as above
+```
+
+**Users API changes:** `User` gains `source`, `display_name`, `ldap_synced_at`. `POST /api/users` creates
+local users only. `PATCH /api/users/{id}` for an LDAP user: `is_active`, `language` allowed; `password`,
+`role`, `email` → `409 ldap_managed`. `POST /api/auth/change-password` for an LDAP user → `409 ldap_managed`.
+`last_admin` counts active **local** admins. Session cookie: for LDAP users the sliding renewal stops at 12 h
+after the login (then 401 → login page).
+
+### [2b-3] Audit log (admin; feature `audit`)
+```ts
+type AuditEntry = { id: number; time: string; actor_type: "user" | "token" | "system" | "anonymous";
+  actor_user_id: number | null; actor_name: string; token_id: number | null; ip: string | null;
+  action: string; entity_type: string | null; entity_id: number | null; entity_name: string | null;
+  device_id: number | null; source: "local" | "ldap" | "token" | null; reason: string | null;
+  changes: Record<string, [unknown, unknown]> };
+```
+| Method & path | Request | Response |
+|---|---|---|
+| `GET /api/audit` | Query: `since`, `until`, `actor` (substring of `actor_name`), `actor_user_id`, `action` (exact or prefix ending in `.`, e.g. `device.`), `entity_type`, `entity_id`, `device_id`, `ip`, `page`, `page_size` | page envelope of `AuditEntry`, `time DESC, id DESC` (counts are cheap here: indexed, bounded volume) |
+| `GET /api/audit/export.csv` | same filters | `200 text/csv; charset=utf-8` with BOM, `Content-Disposition: attachment; filename="netmon-audit-<from>-<to>.csv"`, columns `time,actor_type,actor_name,ip,action,entity_type,entity_id,entity_name,source,reason,changes` (`changes` as compact JSON), ≤ 100 000 rows (header `X-Netmon-Truncated: true` when cut), streamed |
+
+### [2b-3] Device timeline (viewer; feature `timeline`)
+```ts
+type TimelineKind = "status" | "notification" | "ack" | "maintenance" | "trap" | "syslog" | "port" | "audit";
+type TimelineItem = { kind: TimelineKind; id: number; time: string;
+  title: string;                         // short English fallback; the UI builds texts from the fields
+  status: Status | null; old_status: Status | null;     // status, port, notification
+  severity: number | null;               // syslog
+  sensor_id: number | null; sensor_name: string | null;
+  message: string;                       // event message / trap summary / syslog message (≤ 500) / audit action
+  ref: { type: "event" | "trap" | "syslog" | "audit"; id: number };
+  actor: string | null };                // ack / audit
+```
+`GET /api/devices/{id}/timeline` — query `kinds` (repeatable; default all available: `trap`/`syslog` only when
+those features are ON, `audit` only for admins with `audit` ON, `port` always selectable), `since`, `until`,
+`cursor`, `limit` (1–200, default 50) → cursor page of `TimelineItem` (`time DESC`, ties by kind order above,
+then `id DESC`). `404` device.
+
+### [2b-3] API tokens (feature `api_tokens`)
+```ts
+type ApiToken = { id: number; name: string; prefix: string; role: "admin" | "viewer";
+  user_id: number; username: string; created_at: string; expires_at: string;
+  last_used_at: string | null; last_used_ip: string | null; revoked_at: string | null;
+  state: "active" | "expired" | "revoked" };
+```
+| Method & path | Role | Request | Response |
+|---|---|---|---|
+| `GET /api/tokens` | viewer (session only) | Query `all` (admin: every user's tokens) | `{"items": ApiToken[]}` (own; newest first) |
+| `POST /api/tokens` | viewer (session only) | `{"name": "backup-script", "role": "viewer", "expires_days": 90}` (`role` ≤ own role → else 422; 1–365) | `201 {"token": "nmt_…", "item": ApiToken}` — the only time the token text is returned |
+| `DELETE /api/tokens/{id}` | owner or admin (session only) | — | `204` (sets `revoked_at`; idempotent) |
+
+Usage: `Authorization: Bearer nmt_…` on any other `/api/*` endpoint, with the effective role min(token role,
+owner's role). Bearer requests skip the CSRF Origin check, never set cookies, and get `401 unauthenticated`
+when the token is unknown/expired/revoked or the feature is OFF.
+
+### [2b-3] WebSocket additions
+
+**Client → server:** `{"type":"subscribe","topics":["syslog","trap"]}`, `{"type":"unsubscribe","topics":[…]}`
+→ server answers `{"type":"subscribed","data":{"topics":["syslog"]}}`. Unknown topics are ignored. Topics of a
+disabled feature are accepted but receive nothing.
+
+| type | data | When / who |
+|---|---|---|
+| `syslog.batch` | `{"items": SyslogMessage[], "skipped": 0}` | ≤ 1/s while new records exist; subscribers of `syslog` only |
+| `trap.batch` | `{"items": Trap[], "skipped": 0}` | same for `trap` |
+| `features.changed` | `{"features": Features}` | after a toggle change; all. Clients refetch `/api/settings/public`. |
+| `ingest.receiver` | `{"receiver": ReceiverStatus}` | a receiver changed state (listening/error/disabled); admins only |
+| `config.changed` | `entity` gains `"event_rule"`, `"api_token"` (owner's sockets and admins) | as today |
+| `sensor.update` | unchanged; event sensors send it on status/condition changes | all |

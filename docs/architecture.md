@@ -1,4 +1,4 @@
-# NetworkMonitor — Architecture (Phase 1 / MVP + Phase 2a + Phase 2b-1 + Phase 2b-2)
+# NetworkMonitor — Architecture (Phase 1 / MVP + Phase 2a + Phase 2b-1 + Phase 2b-2 + Phase 2b-3)
 
 Phase 2a (auto-discovery, device templates, `snmp_custom`/`snmp_disk`, Telegram) is described in
 [§ 9](#9-phase-2a-discovery-templates-custom-snmp-telegram); items elsewhere marked **[2a]** belong to it.
@@ -6,6 +6,10 @@ Phase 2b-1 (dependencies, maintenance windows, acknowledge, escalation, fingerpr
 topology) is described in [§ 10](#10-phase-2b-1-dependencies-maintenance-acknowledge-escalation-fingerprinting-hpe-topology).
 Phase 2b-2 (switch ports view, vendor template library) is described in
 [§ 11](#11-phase-2b-2-switch-ports-view-vendor-template-library); items marked **[2b-2]** belong to it.
+Phase 2b-3 (feature toggles, SNMP traps, syslog, event alerts, port flapping, SIEM forwarding, LAG membership,
+Active Directory login, audit log, device timeline, Microsoft Teams, API tokens) is described in
+[§ 12](#12-phase-2b-3-traps-syslog-event-alerts-lag-active-directory-audit-timeline-teams-flapping-siem-forwarding-api-tokens);
+items marked **[2b-3]** belong to it.
 
 NetworkMonitor is a license-free, PRTG-like network monitor. One Python process serves the REST API, the
 WebSocket, the built React SPA, and runs the poller and the alert engine. PostgreSQL holds everything, and
@@ -181,6 +185,10 @@ native installers) → defaults. **The end user never edits any of these.** Inst
 | **[2a]** `NETMON_DISCOVERY_RATE` | `100` | Max new hosts started per second by a scan (1–1000) |
 | **[2b-1]** `TZ` | unset | Only used as the default of the `timezone` setting when it is a valid IANA name |
 | **[2b-1]** `NETMON_TEST_MODE` | `0` | `1` enables `PUT /api/test/clock` (QA only; never set by installers/compose). When on: startup `WARNING` log + `system` event, and `/api/health` reports `"test_mode": true`. |
+| **[2b-3]** `NETMON_TRAP_PORT` | `162` (Docker image: `1162`) | UDP port of the SNMP trap receiver (only opened while the `traps` feature is ON); `0` = never |
+| **[2b-3]** `NETMON_SYSLOG_PORT` | `514` (Docker image: `1514`) | UDP syslog port (feature `syslog`); `0` = never |
+| **[2b-3]** `NETMON_SYSLOG_TCP_PORT` | = `NETMON_SYSLOG_PORT` | TCP syslog port; `0` = never |
+| **[2b-3]** `NETMON_INGEST_HOST` | `0.0.0.0` | Bind address of the trap/syslog receivers |
 
 Runtime settings (SMTP, retention, default interval, default language) live in the DB `settings` table and are
 edited in the UI. They are **not** env vars.
@@ -1062,3 +1070,728 @@ Please verify and report (screenshots of the port list + the outputs below are e
 | All 2b-1/2b-2 templates | after testing, tell the architect which templates may be marked `verified: true` (with model/firmware for `verified_note`) |
 
 Open questions carried from the roadmap: the Aruba product lines; Check Point appliance/VM, ClusterXL, SNMPv3.
+
+## 12. Phase 2b-3: traps, syslog, event alerts, LAG, Active Directory, audit, timeline, Teams, flapping, SIEM forwarding, API tokens
+
+Contract details: [data-model.md § Phase 2b-3](data-model.md#2b-3-phase-2b-3-additions) (tables, settings,
+parsers, rule semantics, migration `0006`) and [api.md § Phase 2b-3](api.md#2b-3-phase-2b-3-contract) (types,
+endpoints, errors, WS). Backend, frontend, QA and devops implement in parallel against those files and this
+section. Sections are marked **[2b-3]**. Everything is additive to 2b-2. The product stays **read-only towards
+devices** (it only receives traps/syslog; it never configures a device).
+
+### 12.0 Feature toggles (owner rule, applies to every 2b-3 feature) [2b-3]
+Every new feature of this phase is behind a boolean setting, **OFF by default** (also after upgrading an
+existing install). The keys and exact OFF behaviour are in data-model § Feature toggles. Common rules:
+
+| Aspect | Rule |
+|---|---|
+| Storage | `settings` keys `feature_<name>_enabled` (bool, default `false`), changed with `PUT /api/settings` (admin), audited (when the audit log is on). |
+| Visibility | `GET /api/settings/public` returns `features: {<name>: bool}` to everyone (the SPA needs it before and after login). |
+| Runtime | `rt.features` (`netmon.services.features.FeatureManager`) holds the current values. A change is applied **without a restart**: `PUT /api/settings` commits, then calls `rt.features.apply(changed)` which starts/stops receivers, loops and caches (each start/stop ≤ 5 s; a failing start — e.g. port in use — leaves the toggle ON and reports the error in `GET /api/ingest/status` and a `system` event). Then `features.changed` is broadcast. |
+| OFF = | no socket opened, no loop/job running, no SNMP walk issued, no rows written by that feature; its API endpoints answer **`409 feature_disabled`** (`details: [{"feature": "<name>"}]`) except where data-model says otherwise (settings, LDAP test endpoints); the SPA hides the nav entry and shows the feature's settings section and its other entry points **disabled with a one-line explanation** and a link to *Settings → Features* (admins) / "Ask an administrator" (viewers). |
+| Existing data | kept when a feature is turned off; **retention keeps running** for it; visible again when it is turned back on. |
+| Settings page | new tab **Features**: one row per feature (name, he/en description, toggle, status line such as "Listening on UDP 162" or the start error, and dependency hints, e.g. "Event alerts need traps or syslog to be on"). |
+
+Feature names: `traps`, `syslog`, `event_alerts`, `lag`, `ldap`, `audit`, `timeline`, `teams`, `flapping`,
+`siem_forwarding`, `api_tokens`.
+
+### 12.1 Components [2b-3]
+| Component | Module | Responsibility |
+|---|---|---|
+| Features | `netmon.services.features` | `FeatureManager`: load, `enabled(name)`, `apply(changed)` (start/stop the components below), `feature_disabled(name)` dependency for routers (raises `409 feature_disabled`). |
+| Trap receiver | `netmon.ingest.trap_receiver` | asyncio UDP endpoint; per-source/global rate limit; v1/v2c decoding (low-level pysnmp `proto.api`, no engine), v2c INFORM response, v3 via a dedicated `SnmpEngine` with lazily registered USM users (§ 12.2.3). |
+| Syslog receiver | `netmon.ingest.syslog_receiver` | UDP endpoint + TCP server (RFC 6587 framing), limits, hands raw frames to the parser. |
+| Parsers | `netmon.ingest.syslog_parse`, `netmon.ingest.trap_decode`, `netmon.ingest.oid_names` | **Pure**: `parse_syslog(data, received_at, tz) -> SyslogRecord`, varbind rendering, v1→v2 conversion, OID names (longest prefix). Exhaustively unit-tested with the vectors in data-model. |
+| Attribution | `netmon.ingest.attribution` | In-memory `SourceMap` (IP → device id) rebuilt on device changes and every 10 min; pure `attribute(record, map) -> device_id | None`. |
+| Pipeline | `netmon.ingest.pipeline` | Bounded queues, parse workers, rule evaluation, batch writer (`INSERT … SELECT FROM unnest(…) RETURNING id`), WS live batches, counters, forwarding hand-off. |
+| Event rules | `netmon.ingest.rules` (pure matching), `netmon.ingest.event_sensors` (I/O) | Rule cache, `evaluate(record, rules, ctx) -> Outcome`, event-sensor conditions and status changes through the normal status-change path (§ 12.3), expiry loop. |
+| Flapping | `netmon.ingest.flapping` | Port transition tracker (traps, interface sensors, port inventory), `port_flap` event sensors, alert suppression hand-off (§ 12.4). |
+| Forwarder | `netmon.ingest.forward` | One task per SIEM target: bounded queue, RFC 5424 rendering, UDP/TCP/TLS, reconnect with backoff (§ 12.5). |
+| LAG | `netmon.ports.collect` (walks #13/#14 + pure `resolve_lag`), `netmon.ports.view` (inheritance) | § 12.6. |
+| Directory auth | `netmon.auth.ldap` (ldap3 in threads), `netmon.auth.ldap_pure` (pure: name parsing, RFC 4515 escaping, UAC decisions, AD error mapping) | § 12.7. |
+| Settings crypto | `netmon.services.crypto` | AES-256-GCM with a key derived (HKDF-SHA256, info `netmon/settings/v1`) from `secret.key`; used for `ldap.bind_password`. |
+| Audit | `netmon.services.audit` | `record(session, ctx, action, entity, changes)` in the **same transaction** as the change; secret redaction; CSV export; retention (§ 12.8). |
+| Timeline | `netmon.services.timeline` | Per-device k-way merge over events, traps, syslog, audit (§ 12.9). |
+| Teams | `netmon.alerts.teams` | Adaptive Card payload + POST to a Workflows webhook (§ 12.10). |
+| API tokens | `netmon.auth.tokens` | Token create/hash/verify, `Authorization: Bearer` in `authenticate()`, last-used stamping (§ 12.11). |
+| Retention | `netmon.services.retention` | Adds traps, syslog (fallback mode / no Timescale policy) and audit retention to the hourly loop. |
+
+Repository additions: `backend/netmon/ingest/`, `backend/netmon/auth/` (`ldap.py`, `ldap_pure.py`,
+`tokens.py`), `services/features.py`, `services/crypto.py`, `services/audit.py`, `services/timeline.py`,
+`alerts/teams.py`, routers `api/ingest.py` (traps, syslog, rules, unknown sources, status), `api/audit.py`,
+`api/tokens.py`, `api/ldap.py`, `frontend/src/pages/LogsPage.tsx`, `AuditPage.tsx`,
+`frontend/src/components/{logs,timeline,features}/*`, `tests/sim/ingest/`, `tests/sim/ldap/`.
+New dependency: **`ldap3>=2.9.1`** (pure Python, LGPL-3.0; used unmodified as a library, no paid licence).
+
+**Startup order** (additions in bold): migrations → Timescale bootstrap (**+ `traps`/`syslog_messages`
+hypertables and retention policies**) → **`pg_trgm` bootstrap** → … → maintenance tracker → alert engine →
+**FeatureManager.start()** (starts, per enabled feature: forwarders → pipeline/writer → event-rule cache +
+expiry loop → flapping tracker → trap/syslog receivers last) → topology / port inventory schedulers → poller.
+**Shutdown:** receivers stop first (sockets closed, TCP connections closed), the pipeline flushes for ≤ 5 s
+(what is left is dropped and counted), forwarders get ≤ 2 s, then the rest as today.
+
+### 12.2 Ingestion pipeline (traps and syslog) [2b-3]
+
+```
+ UDP 162 ─► TrapReceiver ─┐ rate limit (per source, global) ─► raw queue (bounded) ─► decode ─┐
+ UDP 514 ─► SyslogUDP ────┤                                                                   ├─► attribute ─► ignore list / unknown policy
+ TCP 514 ─► SyslogTCP ────┘   (framing, size caps)                                            │        │
+                                                                                               │        ├─► SIEM forwarders (put_nowait, never block)
+                                                                                               │        ├─► rule evaluation (in memory) ─► condition changes
+                                                                                               │        └─► write queue (bounded) ─► batch INSERT … RETURNING id
+                                                                                               │                 │
+                                                                     event sensors: one short transaction per flush (status_change events → alert engine)
+                                                                                                                 └─► WS live batches (≤ 1/s per topic, subscribers only)
+```
+
+#### 12.2.1 Receivers, ports, privileges
+- Listening ports come from env (process config, set by installers/compose, never by the end user):
+  `NETMON_TRAP_PORT` (default **162**; the Docker image sets **1162**), `NETMON_SYSLOG_PORT` (UDP, default
+  **514**; image **1514**), `NETMON_SYSLOG_TCP_PORT` (default = `NETMON_SYSLOG_PORT`), `NETMON_INGEST_HOST`
+  (default `0.0.0.0`). `0` disables that socket regardless of the feature toggle. See § 4.
+- Sockets are opened only while the feature is ON. A bind failure (permission denied, address in use) never
+  stops the server: the receiver state becomes `error` with the OS message, a `system` event is written
+  (`Syslog receiver cannot listen on UDP 514: [Errno 98] Address already in use`), and the FeatureManager
+  retries every 60 s while the toggle stays ON.
+- UDP sockets request `SO_RCVBUF` 4 MiB (best effort). IPv4-mapped IPv6 sources are normalised to IPv4.
+
+#### 12.2.2 Flood protection and limits (constants in `netmon.ingest.limits`)
+| Limit | Traps | Syslog |
+|---|---|---|
+| Per source IP (token bucket) | 50 msg/s, burst 200 | 200 msg/s, burst 1000 |
+| Global (token bucket) | 500 msg/s, burst 2000 | 2000 msg/s, burst 10000 |
+| Raw queue (per kind) | 20 000 frames | 20 000 frames |
+| Write queue (per kind) | 10 000 records | 10 000 records |
+| Max datagram / frame | 65 535 B (UDP) | 65 535 B UDP; TCP frame > 65 536 B → connection closed |
+| Stored size | ≤ 128 varbinds, each value ≤ 1024 chars, summary ≤ 1000 chars | message ≤ 8192 B UTF-8 (cut at a character boundary, `truncated = true`) |
+| TCP | — | ≤ 512 connections total, ≤ 32 per source IP, idle timeout 900 s |
+| Tracked sources (rate buckets) | 4096 (LRU) | 4096 (LRU) |
+
+Every drop increments a per-kind counter by reason (`rate_limited`, `queue_full`, `too_large`, `parse_error`,
+`ignored_source`, `unknown_source`, `bad_community`, `v3_auth`, `unsupported`, `db_error`), exposed by
+`GET /api/ingest/status`. Per source, at most one `system` event per hour "Dropping syslog from 10.0.0.5: rate
+limit exceeded" (≤ 10 such events per hour in total). TCP readers wait up to 2 s for room in the raw queue
+(natural back-pressure for short bursts), then drop. Nothing ever blocks the event loop: decoding of one
+datagram is bounded by the size caps; v3 decryption goes through pysnmp on the loop (≈ sub-ms per trap,
+bounded by the 500/s global cap).
+
+**Writer:** one task per kind drains the write queue in batches of ≤ 1000 records or every 0.5 s, inserts with
+`INSERT … SELECT FROM unnest($1::timestamptz[], …) RETURNING id` in one transaction, then applies the
+batch's event-sensor changes (§ 12.3) in a second short transaction. A DB error: retry once after 1 s, then the
+batch is dropped (`db_error`), WARNING log rate-limited to 1/min. When the DB is down the queues fill and new
+records are dropped — there is no disk spool (by design: simple, bounded).
+
+#### 12.2.3 Trap decoding
+- **Versions:** v1 Trap, v2c Trap, v2c **InformRequest** (answered with a Response PDU echoing request-id and
+  varbinds), v3 Trap (noAuthNoPriv / authNoPriv / authPriv). **v3 Inform is not supported** in 2b-3
+  (`unsupported` counter; devices are configured to send traps).
+- **v1 → v2 conversion** (RFC 3584 § 3.1): `snmpTrapOID` = `1.3.6.1.6.3.1.1.5.(generic+1)` for generic 0–5,
+  else `<enterprise>.0.<specific>`; `uptime_ticks` = time-stamp; `agent_addr` stored; varbind
+  `snmpTrapEnterprise.0` (`1.3.6.1.6.3.1.1.4.3.0`) = enterprise is appended. v2c/v3: `sysUpTime.0` and
+  `snmpTrapOID.0` are taken out of the varbind list into `uptime_ticks` / `trap_oid`.
+- **Community check** (`trap_community_check`): `any` (default, zero config: every community accepted) or
+  `known` (communities of all device/group credentials + `trap_communities`; others dropped, `bad_community`).
+  The community itself is never stored or logged.
+- **v3 USM users and engine IDs.** For traps the sending agent is authoritative, so keys are localised with
+  the *agent's* engine ID, which the receiver does not know in advance. Design: no engine-ID configuration at
+  all. Candidate users = every distinct v3 credential in `devices`/`groups` `snmp_credentials` (username +
+  protocols + passphrases) plus `trap_v3_users` (settings). The receiver reads `msgAuthoritativeEngineID` and
+  `msgUserName` from the cleartext v3 header (pyasn1 decode of `SNMPv3Message` / `UsmSecurityParameters`); when
+  that (engine ID, user) pair is not registered yet in the receiver's `SnmpEngine`, it registers the user for
+  that engine ID (pysnmp `add_v3_user(…, securityEngineId=<engine id>)`, passphrases localised by pysnmp), then
+  hands the datagram to the engine's message dispatcher; the notification callback produces the record.
+  Candidate choice when one username has several key sets: the credentials of the device the **source IP**
+  maps to, else the first `trap_v3_users` entry with that name, else the first device/group credential with
+  that name (lowest group id, then device id). Registered pairs: LRU of 1024; any credential/settings change
+  rebuilds the engine. Auth/decrypt failures and unknown users → `v3_auth` counter and an entry in
+  `v3_failures` (last 20: source IP, engine ID hex, username, reason) shown on the ingest status card, which is
+  how the owner debugs "engine-ID issues". The exact pysnmp entry points are the backend's choice; the
+  behaviour above and the QA tests (§ 12.13: distinct engine IDs, wrong key, unknown user, authNoPriv,
+  authPriv SHA/AES128, SHA256/AES256) are binding.
+- **Varbind rendering** (pure): `value` = raw text (integers decimal; OctetString as UTF-8 when it decodes and
+  is printable, else `0x` + hex; 6-byte non-printable OctetString → `aa:bb:cc:dd:ee:ff`; OID dotted; IpAddress
+  dotted; TimeTicks/Counter/Gauge decimal; Null/noSuch* → `""`), `display` = value with the enum name for the
+  known IF-MIB status columns (`down(2)`), `name` = OID name (below) or null. NUL characters are replaced by
+  U+FFFD everywhere (PostgreSQL text cannot hold NUL).
+- **OID names** (`netmon.ingest.oid_names`, pure, longest-prefix match, the remainder appended as
+  `name.suffix`, e.g. `ifIndex.5`): exact list in data-model § OID name table (SNMPv2-MIB traps, IF-MIB,
+  BRIDGE-MIB, ENTITY-MIB, LLDP-MIB, POWER-ETHERNET-MIB, NET-SNMP notifications, vendor enterprise roots HP,
+  H3C/Comware, Aruba, Aruba CX, Check Point, Cisco, net-snmp). No MIB compiler; a user-extensible name file is
+  "Later".
+- **Summary** (≤ 1000 chars): `<trap_name or trap_oid>` + ` name=display` for the first 8 varbinds; when an
+  `ifIndex` varbind exists and the device has a `switch_ports` row for it, ` port=<name>` is appended
+  (`linkDown ifIndex=5 ifAdminStatus=up(1) ifOperStatus=down(2) port=GigabitEthernet1/0/5`).
+
+#### 12.2.4 Syslog parsing (pure `parse_syslog`)
+Formats: RFC 5424 (`<PRI>1 TIMESTAMP HOST APP PROCID MSGID SD MSG`), RFC 3164 / BSD (`<PRI>Mmm dd hh:mm:ss
+HOST TAG[PID]: MSG`, lenient: optional year after the time (Comware) or before it, missing host, missing tag),
+the HPE Comware `%%vvMODULE/sev/DIGEST(x):` and ArubaOS-Switch `<5-digit event id> tag:` conventions, and raw
+text (no PRI → facility 1 user, severity 5 notice, RFC 3164 § 4.3.3). 3164 timestamps have no zone or year:
+they are read in `settings.timezone`, the year is the current one unless that lands more than 1 day in the
+future (then the previous year). `time` (stored, sorted, retained) is always the **receive** time;
+`device_time` is the parsed device timestamp (nullable) because device clocks are often wrong. Rules and test
+vectors: data-model § Syslog parsing.
+
+TCP framing (RFC 6587), decided per frame: a frame starting with a digit is **octet-counted** (`LEN SP MSG`,
+LEN ≤ 65 536); otherwise **non-transparent**, terminated by LF (a trailing CR is stripped). TLS syslog (6514)
+is not received in 2b-3 (it is supported for *forwarding*, § 12.5).
+
+#### 12.2.5 Attribution (source → device)
+Order, first hit wins:
+1. **Source IP** (UDP/TCP peer) in the `SourceMap`: devices' `source_addresses` (explicit, highest), then a
+   literal-IP `host`, then the A/AAAA records of a hostname `host` (resolved at rebuild in threads, 2 s timeout,
+   8 in parallel). Several devices on one IP → the higher precedence class, then the enabled device, then the
+   lowest id.
+2. Traps: v1 `agent_addr`, then the `snmpTrapAddress.0` varbind (`1.3.6.1.6.3.18.1.3.0`, set by trap relays).
+3. Syslog: `hostname` equals (case-insensitive) a device `host`, a device `name`, or a device `name`'s first
+   label — only when exactly one device matches.
+4. Otherwise **unknown source**: `device_id` NULL, `source_ip` kept. Policy `ingest_unknown_sources`: `store`
+   (default; listed under *Unknown sources* with "Assign to device" / "Ignore" actions) or `drop` (counted).
+   Sources in `ingest_ignored_sources` (IPs / CIDRs) are dropped before parsing (`ignored_source`).
+   "Assign to device" appends the IP to the device's `source_addresses` and re-attributes stored rows of that
+   IP with `device_id IS NULL` in background batches of 10 000 (no rule re-evaluation).
+
+**NAT detection:** when ≥ 90 % of the last 200 records come from one IP in `172.16.0.0/12` or
+`192.168.65.0/24` that is no device, `nat_suspected = true` in the ingest status and the UI warns: "All
+messages arrive from 172.17.0.1 — the sender address is being rewritten (Docker Desktop / userland proxy). See
+the deployment notes." (§ 12.12).
+
+Device delete: a background task sets `device_id = NULL` on that device's traps/syslog rows (batches of 10 000),
+so the history stays visible as an unknown source.
+
+#### 12.2.6 Retention and storage
+`traps` and `syslog_messages` are hypertables in Timescale mode (chunks 7 days / 1 day, no compression — rows
+are updated by "assign" and device delete), with retention policies from `trap_retention_days` /
+`syslog_retention_days` (default 30, re-applied on change). Fallback mode (or a failed policy API): the hourly
+retention loop deletes in batches of 50 000 like `measurements`. Text search uses **`pg_trgm`** GIN indexes
+(data-model § Text search: why trigram, not tsvector). Retention runs whether or not the feature is ON.
+
+**Sizing** (heap + indexes incl. trigram, measured order of magnitude ≈ 0.8–1 KB per syslog row, ≈ 1.5 KB per
+trap with varbinds):
+
+| Load | Per day | 30 days |
+|---|---|---|
+| 1 syslog msg/s (≈ 30 switches at `warning`) | ≈ 75 MB | ≈ 2.2 GB |
+| 10 syslog msg/s (`informational` everywhere) | ≈ 750 MB | ≈ 22 GB |
+| 1 000 traps/day | ≈ 1.5 MB | ≈ 45 MB |
+
+Recommendation: send syslog at level `warning` (Comware `informational` logs every CLI login/command).
+
+#### 12.2.7 Live view
+WS clients subscribe explicitly (`{"type":"subscribe","topics":["syslog","trap"]}`); the server sends
+`syslog.batch` / `trap.batch` at most once per second per topic with ≤ 200 newest records (`skipped` = how many
+were left out). Live tail filtering is client-side; subscriptions are per socket and lost on reconnect (the
+client re-sends). Viewers may subscribe. Nothing is sent while the feature is OFF.
+
+### 12.3 Event sensors and rules (integration with the existing alert engine) [2b-3]
+Feature `event_alerts` (needs `traps` and/or `syslog` to receive anything).
+
+**Model (decided):** traps and syslog never alert directly. Each device gets **passive event sensors** — type
+`trap` ("SNMP traps"), type `syslog` ("Syslog"), and (flapping, § 12.4) `port_flap` ("Port flapping") — whose
+status is driven by **conditions** raised by **event rules**. Because they are ordinary sensors, every
+existing mechanism applies unchanged: `status_change` events, alert rules (global rules match them; per-sensor
+rules can target them), delays, escalation, reminders, acknowledge (auto-cleared on status change),
+maintenance suppression and after-maintenance sends, rollups, tree, dashboard, webhook/email/Telegram/Teams.
+
+- **Passive sensor type:** not scheduled by the poller (`Scheduler.start/upsert` skip passive types), no
+  measurements, one channel `active` (number of active conditions, unit `#`, no thresholds),
+  `interval_s` stored as 60 and ignored, `POST /run` and `/test` → `409 sensor_passive`. Excluded from:
+  startup stale marking (`_mark_stale_sensors`), the dependency "primary availability" choice, the
+  whole-device "parent down" test, and the dependency cascade (an event sensor never becomes `unreachable`: a
+  device that sends a trap is reachable).
+- **Creation:** when an attributed message arrives from an enabled device that has no sensor of that type, the
+  type is not in `devices.event_sensor_optout`, and `event_alerts` is ON → the sensor is created (status `up`,
+  message "Receiving traps" / "Receiving syslog") in the event transaction; `config.changed` sensor created.
+  Deleting an event sensor adds its type to `event_sensor_optout` (it is not re-created); creating one manually
+  (`POST /api/sensors` with the type, at most one per device per type → `409 conflict`) removes it. Templates
+  and discovery never create them.
+- **Rules** (`event_rules`): ordered by `(priority, id)`; scope global / group (with subgroups) / device; a
+  `match` (trap: trap OID prefixes, varbind conditions, port filter; syslog: max severity, facilities,
+  programs, text contains/regex), an `action` (`warning`, `down`, or `ignore` = stop, no alert), an optional
+  **key** (trap: value of a varbind, e.g. ifIndex; syslog: capture group 1 of a regex) so one rule can track
+  several instances (port 5 and port 7), and **clearing** (`clear_match` with the same key, and/or
+  `clear_after_min` since the last match). Evaluation per message (pure `rules.evaluate`, data-model § Rule
+  evaluation): 1) every rule whose `clear_match` matches clears its condition for that key; 2) the first rule
+  (in order) whose `match` matches raises/refreshes its condition (or stops on `ignore`).
+- **Status:** worst active condition (`down` > `warning`), none → `up`. `status_message` =
+  `"<rule name>: <summary>"` of the worst, most recent condition, plus `" (+N more)"`. Status changes are
+  applied exactly like a check result (sensor row locked, `status_change` event with `in_maintenance`,
+  `sensor.update`, `events_svc.published` → alert engine, rollup). A new condition while the status stays the
+  same updates only `status_message`, the `active` channel and `sensor.update` (no notification).
+- **Expiry loop:** wakes at the earliest `expires_at`, at least every 30 s, and on `rt.clock` changes (tests);
+  removes expired conditions and recomputes sensors. Time comes from `rt.clock`.
+- **Manual clear:** `POST /api/sensors/{id}/clear` (admin) removes all conditions → `up` (event message
+  `Cleared by admin`). Pausing an event sensor clears its conditions; resuming sets `up`.
+- **Rule edits:** update/disable/delete of a rule removes that rule's conditions (sensors recomputed). Built-in
+  rules (seeded, `builtin_key` set) can be edited/disabled and reset, not deleted.
+- **Built-in rules** (seeded **disabled**; the feature itself is OFF by default too): Link down (ifAdminStatus
+  ≠ down, **important ports only**, cleared by linkUp of the same ifIndex or after 24 h), SNMP authentication
+  failure (60 min), Device restarted (coldStart/warmStart, 30 min), Syslog error or worse (severity ≤ 3,
+  30 min). Turning `event_alerts` ON for the first time shows a dialog "Enable the built-in rules?" (all
+  checked) — one click, zero further configuration. Exact definitions: data-model § Built-in rules.
+- **Important ports** (port filter `important`, avoids an alert for every PC switched off at night): the
+  trap's ifIndex has an `snmp_interface` sensor, or is a LAG / LAG member, or is an uplink per the 2b-2 view
+  rule; a device with neither port inventory data nor interface sensors → every port is important; a trap
+  without an ifIndex varbind → important.
+- Unknown sources, disabled devices and paused event sensors never raise conditions (messages are still
+  stored). Turning `event_alerts` OFF stops evaluation, deletes all conditions and sets every event sensor to
+  `up` with message "Event alerts are turned off" (status_change events written; recoveries for notified
+  problems are sent as usual). The sensors themselves are kept.
+- Flapping links: the flapping detector (§ 12.4) suppresses per-port link alerts; alert-rule `delay_s` remains
+  the generic tool against short glitches.
+
+### 12.4 Port flapping detection [2b-3]
+Feature `flapping`. Inputs (each normalised to a **transition** `(device_id, if_index, up|down, time)`):
+1. linkDown / linkUp traps with an ifIndex varbind (needs `traps`);
+2. `snmp_interface` sensors: the processor reports a change of the `oper_status` channel value (1 ↔ other)
+   for `config.if_index`;
+3. port inventory: `oper_status` changes of `physical`/`lag` ports between two consecutive successful
+   snapshots (coarse, every `port_inventory_min`).
+A transition in the same direction as the previous one for that port within 60 s is a duplicate (the same
+event seen by two sources) and ignored.
+
+Algorithm (`netmon.ingest.flapping`, pure core `FlapTracker.add(t) -> FlapChange | None` + I/O):
+- per port a deque of transition times (≤ 64; ≤ 10 000 ports tracked, LRU); **flapping starts** when ≥
+  `flap_threshold` (default **5**) transitions fall within `flap_window_min` (default **10**);
+- on start: a condition (source `flap`, key = ifIndex) on the device's `port_flap` event sensor (auto-created
+  like the other event sensors, but independent of `event_alerts`) with status **warning**, message
+  `Port GigabitEthernet1/0/5 is flapping (6 changes in 10 min)`; existing Link-down conditions of that key are
+  removed; the port is added to `rt.flapping.suppressed` (`(device_id, if_index)` and the matching
+  `snmp_interface` sensor ids);
+- while flapping: Link-down rule matches for that port raise nothing (the message is still stored and marked
+  `matched_rule_ids`); the alert engine treats problems of the suppressed interface sensors like maintenance —
+  problem/escalation/reminder sends are skipped and `alert_state.flap_suppressed = true`; the condition's
+  `count`/`last_at` and message are updated;
+- **flapping ends** after `flap_quiet_min` (default **15**) without a transition: the condition is removed
+  (sensor recovers → normal recovery notification), the port leaves `suppressed`, and suppressed alert rows that
+  are still active and not acknowledged are re-armed once, exactly like "leaving maintenance" (problem sent once
+  with `after_flapping: true` in the payload; escalation timer restarted);
+- the deques are in memory (lost on restart; acceptable); conditions are persisted; at startup, flap conditions
+  older than `flap_quiet_min` since `last_at` expire through the normal expiry loop.
+Turning `flapping` OFF clears all flap conditions and the suppression set (re-arm as above).
+
+### 12.5 SIEM forwarding [2b-3]
+Feature `siem_forwarding`. Settings `siem_targets` (≤ 4 targets: host, port, `udp` | `tcp` | `tls`,
+`tls_verify`, filters: kinds, `min_severity`, source CIDRs, include unknown sources, enabled).
+- What is forwarded: every **accepted** record (after rate limiting, the ignore list and the unknown-source
+  policy; before and independent of the DB write — forwarding works while the DB is down), filtered per target.
+- **Format:** RFC 5424, preserving the origin. Syslog: original PRI, original `device_time` (else receive
+  time) as TIMESTAMP, original `hostname` (else the source IP) as HOSTNAME, original APP-NAME / PROCID / MSGID
+  (`-` when empty), original structured data, then the IANA-registered SD element
+  `[origin ip="<source ip>" software="NetworkMonitor" swVersion="<version>"]`, then the message (UTF-8, no BOM).
+  Traps: PRI facility 16 (local0), severity 5 (notice) or 4 (warning) / 2 (critical) when a rule raised
+  `warning` / `down` for it, APP-NAME `snmptrap`, MSGID = `trap_name` (else `-`), HOSTNAME = device host (else
+  source IP), message = the trap summary, plus `[origin ip=…]`. (Re-sending traps as SNMP is not offered:
+  SIEMs ingest syslog; one format keeps it simple.)
+- **Transport:** UDP (one datagram per record, cut to 8 KiB), TCP and TLS with **octet-counting** framing
+  (RFC 6587 / RFC 5425); TLS uses `tlsutil.client_ssl_context()` (corporate CA trusted), `tls_verify: false`
+  allowed with a UI warning. Reconnect with backoff 1, 2, 5, 10, 30 s.
+- **Never blocks ingestion:** each target has its own task and a bounded queue (10 000 records); a full
+  queue drops the new record (`dropped` counter per target); per-target counters (`sent`, `dropped`, `errors`,
+  `state`, `last_error`) in `GET /api/ingest/status`. `POST /api/ingest/forwarders/test` sends one test line.
+
+### 12.6 LAG membership in the ports view [2b-3]
+Feature `lag` (walks run only while ON; while OFF the view ignores stored LAG data).
+- **Walks** (after #2, ports effective only, cap 5000 rows each): **#13** IEEE8023-LAG-MIB
+  `dot3adAggPortAttachedAggID` `1.2.840.10006.300.43.1.2.1.1.13` (index = member ifIndex, value = aggregator
+  ifIndex, 0 = not attached); **#14** IF-MIB `ifStackStatus` `1.3.6.1.2.1.31.1.2.1.3` (index =
+  `higherLayer.lowerLayer`, value 1 = active).
+- **Pure `resolve_lag(ports, lacp_rows, stack_rows) -> {member_if_index: (lag_if_index, attached)}`** per
+  physical port p: (1) #13 has a row for p with value v ≠ 0 and v is the ifIndex of a `lag` port → `(v,
+  true)`; (2) else an #14 row `(h, p)` with value 1 where h is a `lag` port (several → lowest h) → `(h, false)`
+  when #13 has a row for p (configured but not attached, e.g. link down), `(h, null)` when #13 has no row for
+  p; (3) else not a member. Rows with index 0, non-physical members or non-`lag` aggregators are ignored.
+  `sources.lag` = `ok` (some rows used) / `empty` / `error`; `lag_mib` = `ieee8023` | `if_stack` | `both` |
+  null.
+- **Stored:** `switch_ports.lag_if_index`, `lag_attached`. **Inheritance is computed on read** (pure
+  `netmon.ports.view`), unit vectors in data-model § LAG:
+  - LAG row L: `lag_members` = its members (sorted); neighbours(L) = own links ∪ links of all members;
+    uplink rule on these neighbours and L's own `mac_count`.
+  - Member M of L: `lag = {if_index, name, attached}`; **VLANs** — when M has no bridge port or no VLAN of
+    its own, `pvid/mode/untagged/tagged` are L's (`vlans_from_lag: true`); **MACs** — `mac_count` = own + L's,
+    `macs`/`first_mac` include L's MACs (each `PortMac.via_lag = true`); **uplink** = own rule OR L's
+    (`uplink_reason` own first); **connected_kind/neighbor** = own primary neighbour, else L's.
+  - MAC search: a MAC learned on L is shown with `port` = L's name and `lag_members` = member names; uplink as
+    L.
+- **UI:** list — Port column shows a chip `Trk1` on members; LAG rows show "Members: 23, 24"; modal section
+  "Member of Trk1" (link opens the LAG row's modal; "not active" when `attached = false`). Faceplate — members of
+  one LAG get a 3 px bar under their tiles in a per-LAG colour (fixed palette of 6, by LAG ifIndex order) and
+  the legend lists `Trk1: 23, 24`; the tile `aria-label` adds "member of Trk1".
+
+### 12.7 Active Directory login (LDAP) [2b-3]
+Feature `ldap`. Active Directory (and Samba AD) only; generic LDAP servers are not a goal.
+
+**Configuration** (settings `ldap`, admin UI *Settings → Active Directory*, with **Test connection** and **Test
+user login**; the test endpoints work while the feature is OFF so the admin can verify before enabling):
+servers (failover list; empty → DNS SRV `_ldap._tcp.dc._msdcs.<domain>` via dnspython), security `ldaps`
+(default, 636) or `starttls` (389, StartTLS mandatory — never plaintext), `tls_verify` (default true), domain
+(`mnidom.net`), NetBIOS domain (`MNIDOM`), base DN (default derived from the domain), service account bind DN
+or UPN + password (**AES-GCM encrypted** with the `secret.key`-derived key, write-only in the API), admin group
+DN, viewer group DN, timeout. Shapes: data-model § LDAP settings.
+
+**Login sequence** (`POST /api/auth/login`, unchanged request):
+```
+browser ─► API: {username, password}
+API: IP+username throttle (existing 10/5 min) ─► 429
+API: local user with lower(username), source=local?  ── yes ─► argon2 verify (LDAP never contacted) ─► 200 / 401
+     │ no
+     ├─ feature ldap OFF ─► burn_verify ─► 401 invalid_credentials (audit unknown_user)
+     ├─ parse name: "user" | "DOMAIN\user" (DOMAIN must equal netbios_domain or the domain's first label) | "user@suffix"
+     ├─ empty password ─► 401 (never sent to AD: an empty simple bind is an anonymous bind and "succeeds")
+     ├─ per-username directory guard (5 failures / 15 min, all IPs) ─► 429 (protects AD lockout thresholds)
+     └─ thread (semaphore 4, budget min(3×timeout_s + 2, 30) s):
+          for server in [last good server (10 min memory), others in order]:
+              connect (connect_timeout = receive_timeout = timeout_s), LDAPS or StartTLS, verify cert + hostname
+              bind service account ─ fail ─► next server / "directory_unavailable"
+          search base_dn SUBTREE (&(objectCategory=person)(objectClass=user)(sAMAccountName=<esc>))
+                 [UPN form: (userPrincipalName=<esc>), then sAMAccountName=<local part> when the suffix is the domain]
+                 attrs: sAMAccountName userPrincipalName displayName mail objectGUID userAccountControl
+                        msDS-User-Account-Control-Computed accountExpires distinguishedName; sizeLimit 2
+          0 hits ─► fail unknown_user; 2 hits ─► fail ambiguous_user
+          UAC: ACCOUNTDISABLE 0x2 ─► account_disabled; computed LOCKOUT 0x10 ─► account_locked;
+               computed PASSWORD_EXPIRED 0x800000 ─► password_expired; accountExpires past ─► account_expired
+          bind as user DN with the password (same server) ─ 49 ─► map AD "data XXX" (52e bad_password,
+               775 account_locked, 532 password_expired, 533 account_disabled, 701 account_expired,
+               773 password_must_change, 530/531 not_permitted)
+          groups (service connection): base=<user DN> scope BASE filter
+               (memberOf:1.2.840.113556.1.4.1941:=<admin group DN, escaped>) ─ hit ─► admin
+               else same with the viewer group ─ hit ─► viewer, else ─► fail not_in_group
+     ├─ fail ─► 401 invalid_credentials (+ throttles, audit with the reason)
+     ├─ no server reachable / service bind failed / bind password unreadable ─► 503 directory_unavailable
+     └─ ok ─► upsert app user by objectGUID (else by lower(sAMAccountName) with source=ldap; else create):
+              username = lower(sAMAccountName), role from groups (re-evaluated at every login),
+              display_name, email = mail, ldap_dn; is_active=false in the app ─► 401 inactive
+              ─► 200 {user} + session cookie (auth time in the JWT, § sessions)
+```
+- **Escaping:** every user-supplied value and every DN placed in a filter is escaped per **RFC 4515**
+  (`\` `*` `(` `)` NUL → `\5c` `\2a` `\28` `\29` `\00`; `ldap3.utils.conv.escape_filter_chars`); usernames are
+  1–256 chars without control characters; the search never uses a user value as a DN.
+- **TLS trust:** the same set as `tlsutil` (OS store, certifi, `NETMON_EXTRA_CA_FILE`, `NETMON_EXTRA_CA_DIR`).
+  ldap3's `Tls(ca_certs_data=…)` replaces the default store, so the backend passes a full PEM bundle from the
+  new helper `tlsutil.trust_bundle_pem()` (OS store — Windows `ssl.enum_certificates("ROOT"/"CA")`, else the
+  default verify file/dir — + certifi + extras), `validate=CERT_REQUIRED`, hostname checked: `servers` must use
+  the DC names in their certificates (`dc1.mnidom.net`, not an IP). Production already mounts the corporate CA
+  at `/etc/netmon/certs`.
+- **Never blocks local users:** the local path never touches LDAP; LDAP work runs in threads behind a
+  semaphore with hard socket timeouts, so a dead DC costs only the LDAP attempt itself (≤ budget) and the event
+  loop never waits.
+- **Break-glass:** at least one active **local** admin must always exist (`409 last_admin` now protects the
+  last active local admin); setup creates a local admin; LDAP misconfiguration can never disable local logins.
+- **Local/AD name clash:** a local account with the same name always wins (AD is not tried); the admin renames
+  or deletes the local account to let the AD user in. Creating a local user whose name an LDAP user already has
+  → `409 conflict`.
+- **LDAP-managed users:** password change, role change and email change are refused (`409 ldap_managed`);
+  admins may deactivate (blocks login regardless of AD), change language, delete (re-created on next login).
+- **Sessions:** same JWT cookie; claims gain `src` (`local`|`ldap`) and `at` (auth time). For `ldap` users the
+  sliding renewal never extends past `at + 12 h`: they log in again at least every 12 h, which re-checks AD
+  (disabled account, removed from group). Role changes found at login bump `token_version` (other sessions of
+  that user end).
+- **Audit:** every login attempt (success/failure, source local/ldap, reason, IP) when `audit` is ON (§ 12.8).
+- **Library:** ldap3 with `client_strategy=SYNC`, `auto_referrals=False`, `raise_exceptions=False`, called
+  only via `asyncio.to_thread`.
+
+### 12.8 Audit log [2b-3]
+Feature `audit`. Append-only table `audit_log` (data-model): who (user or API token, IP), what (`action`,
+entity type/id/name), and a redacted `changes` diff. Written by `services.audit.record()` **in the same
+transaction** as the change (no change without its record). Covered actions: create/update/delete of devices,
+groups, sensors, alert rules, notification channels, maintenance windows, event rules, topology links,
+discovery profiles; template apply and discovery import; settings changes (per key; secrets appear only as
+`"***"` changed/unchanged, never values — includes `ldap.bind_password`, SMTP password, communities, v3 keys,
+Teams URLs, bot tokens); user create/update/delete/role change (also LDAP auto-create and role changes found at
+login); API token create/revoke; acknowledge/unacknowledge; manual event clear; feature toggles; logins and
+logouts (local/ldap/token, success/failure with reason). Immutability: a DB trigger rejects every `UPDATE` and
+every `DELETE` except from the retention job (which sets `SET LOCAL netmon.audit_purge = 'on'`). Retention
+`audit_retention_days` (default 365). Admin-only list with filters and a streamed **CSV export** (≤ 100 000 rows,
+UTF-8 with BOM for Excel).
+
+### 12.9 Device timeline [2b-3]
+Feature `timeline`. `GET /api/devices/{id}/timeline` merges, newest first, without a new table:
+
+| Kind | Source (existing index) |
+|---|---|
+| `status` | `events` kind `status_change` (`ix (device_id, time DESC)`) |
+| `notification` | `events` kinds `notification_sent` **(new kind: one row per successful send stage)** and `notification` (failures) |
+| `ack` | `events` kind `acknowledge` |
+| `maintenance` | `events` kind `maintenance` where `device_id` = D, or group scope with D's group/ancestors, or global (new partial index `ix_events_maintenance (time DESC) WHERE kind = 'maintenance'`) |
+| `trap` / `syslog` | `traps` / `syslog_messages` (`(device_id, time DESC)`) — when those features have data |
+| `port` | `events` kind `port_change` **(new kind)**: port inventory oper up/down transitions between consecutive snapshots of physical/lag ports, ≤ 200 per run, written only while `timeline` is ON |
+| `audit` | `audit_log` rows for this device and its sensors (`ix (entity_type, entity_id, time DESC)` + `device_id` column) — only when `audit` is ON |
+
+Algorithm: one query per requested kind with the same `(since, until, cursor)` bound and `LIMIT limit+1`,
+k-way merge in Python by `(time DESC, kind rank, id DESC)`, cursor = that triple (base64). Default range 24 h,
+max 31 days, `limit` ≤ 200. UI: device page tab **Timeline** (kind filter chips, time range, "Load more",
+coloured icons per kind; rows link to the sensor, trap/syslog detail, audit entry).
+
+### 12.10 Microsoft Teams channel [2b-3]
+Feature `teams`. New `notification_type` `teams`. Microsoft is retiring Office 365 connectors / "Incoming
+Webhook" URLs (`*.webhook.office.com`); the channel targets the **Teams Workflows** template "Post to a
+channel when a webhook request is received" (Power Automate; URLs on `*.logic.azure.com` or
+`*.environment.api.powerplatform.com`). The URL carries a signature, so it is a **secret** (write-only,
+`url_set`). Legacy `webhook.office.com` URLs are accepted with a UI warning "Microsoft is retiring this
+connector type — create a Workflows webhook".
+- Payload: `{"type":"message","attachments":[{"contentType":"application/vnd.microsoft.card.adaptive",
+  "contentUrl":null,"content":<Adaptive Card 1.4>}]}`; card = title TextBlock (`DOWN: core-sw / Ping`, colour
+  `attention`/`warning`/`good`), FactSet (Status, Device, Sensor, Message, Since, Rule, stage), `Action.OpenUrl`
+  "Open in NetworkMonitor" when `public_base_url` is set; texts in `settings.default_language`; card ≤ 24 KB
+  (message cut). Exact JSON: api.md § Teams.
+- Sending: `httpx` POST, `verify = tlsutil.httpx_verify(True)`, `trust_env=True` (HTTPS proxy from env),
+  timeout 15 s; 2xx (Workflows answers 202) = success; else `notification` event and `502 teams_error` on test.
+  While `teams` is OFF existing Teams channels are skipped at send time with a `notification` event "Teams
+  notifications are turned off".
+
+### 12.11 API tokens [2b-3]
+Feature `api_tokens`. Personal tokens for scripts/integrations.
+- Token text `nmt_` + 43 chars (`secrets.token_urlsafe(32)`), shown **once** in the create response; stored as
+  SHA-256 hex (high-entropy secret, so a fast hash is correct) + an 8-char display prefix.
+- Role `viewer` | `admin`, never above the creator's role; effective role per request = min(token role, the
+  owner's current role); the owner inactive/deleted, the token revoked or expired → `401 unauthenticated`.
+  Expiry required, 1–365 days (default 90). Any user manages their own tokens; admins list and revoke all.
+- Use: `Authorization: Bearer nmt_…` on `/api/*`. If the header is present the cookie is ignored. Tokens are
+  refused (`403 forbidden`) on `/api/auth/*`, `/api/users*`, `/api/tokens*` (a token cannot mint tokens or
+  change users/passwords), and are not accepted on `/ws` or by the SPA. The CSRF `Origin` check does not apply
+  to bearer requests (no ambient credential). Invalid-token attempts are throttled (20 per 5 min per IP → 429).
+  `last_used_at`/`last_used_ip` are stamped at most once per minute. Create/revoke/use-failure are audited;
+  successful uses are not (volume), but every change made with a token is audited with `actor_type = token`.
+- While `api_tokens` is OFF every bearer request gets `401 unauthenticated` (tokens kept).
+
+### 12.12 Deployment [2b-3]
+**Docker image / compose.** The app stays non-root (uid 10001). The image sets `NETMON_TRAP_PORT=1162`,
+`NETMON_SYSLOG_PORT=1514` and `EXPOSE 1162/udp 1514/udp 1514/tcp`. `deploy/production/compose.yaml`
+un-comments the placeholders: `162:1162/udp`, `514:1514/udp`, `514:1514/tcp` on the `netmon` service
+(the features stay OFF until the owner enables them; nothing listens until then). `deploy/docker-compose.yml`
+publishes the same, host ports overridable by `NETMON_TRAP_HOST_PORT` / `NETMON_SYSLOG_HOST_PORT`.
+
+**Source IP preservation** (verified behaviour of Docker's default bridge networking): published ports are
+implemented with iptables DNAT in `PREROUTING`, which keeps the sender's source address for **external**
+traffic. Caveats to document in `deploy/production/README.md`:
+- Traffic from the Docker host itself (or hairpin) goes through `docker-proxy` (userland proxy) and arrives
+  from the bridge gateway (`172.x.0.1`) — test from another machine.
+- **Docker Desktop (Windows/macOS) does not preserve the source IP** (vpnkit/WSL2 port forwarding): every
+  message appears to come from one internal address; attribution then relies on `agent_addr` /
+  `snmpTrapAddress` / syslog hostname only. The UI shows the NAT warning (§ 12.2.5). Test 2b-3 on the Ubuntu
+  server or with the native Windows installer.
+- UDP conntrack: a sender that kept sending while the container was down can keep a stale conntrack entry
+  (same 5-tuple, syslog uses source port 514). Docker flushes UDP conntrack entries for published ports when it
+  sets up the mapping; if traps still stop after a restart: `conntrack -D -p udp --dport 162` (and 514).
+  `ops/sync.sh` runs this best-effort after a deploy that recreated the `netmon` container (when `conntrack`
+  is installed).
+- **ufw does not filter Docker-published ports** (Docker's FORWARD/DOCKER chains are evaluated before ufw).
+  To restrict senders use the `DOCKER-USER` chain with the original port, e.g.
+  `iptables -I DOCKER-USER -p udp -m conntrack --ctorigdstport 514 ! -s 10.0.0.0/8 -j DROP`
+  (optional script `ops/ingest-firewall.sh`, documented, not applied automatically), and/or the app's ignore
+  list.
+- Check that nothing else listens on the host: `ss -lunpt '( sport = :162 or sport = :514 )'` (snmptrapd,
+  rsyslog `imudp`).
+
+**Native Linux** (`deploy/linux`): listens on 162/514 directly; `netmon.service` gets
+`AmbientCapabilities=CAP_NET_RAW CAP_NET_BIND_SERVICE` and the same in `CapabilityBoundingSet` (no root, no port
+redirect needed). Installer prints the ufw lines: `ufw allow from <LAN> to any port 162 proto udp`, same for
+514/udp and 514/tcp. Conflicts: warns when `snmptrapd`/`rsyslog` listen on those ports.
+
+**Native Windows** (`deploy/windows`): binds 162/514 directly (no privileged ports on Windows). The installer
+adds firewall rules `NetworkMonitor-Traps` (UDP 162), `NetworkMonitor-Syslog-UDP` (UDP 514),
+`NetworkMonitor-Syslog-TCP` (TCP 514) (removed by the uninstaller), and warns when the Windows **SNMP Trap**
+service (`SNMPTRAP`) is running (it holds UDP 162) with the command to stop/disable it (`-DisableWindowsSnmpTrap`
+switch does it).
+
+**Device configuration examples** (README + the Logs page help; syntax varies by firmware — verify on the
+device; replace 10.0.0.50 by the NetworkMonitor server):
+
+| Device | Syslog | Traps |
+|---|---|---|
+| HPE Comware 7 (FF 5945 IRF) | `info-center enable` · `info-center loghost 10.0.0.50 facility local7` · `info-center source default loghost level warning` · `info-center loghost source Vlan-interface<mgmt>` | v2c: `snmp-agent target-host trap address udp-domain 10.0.0.50 params securityname <community> v2c` · `snmp-agent trap enable` · `snmp-agent trap source Vlan-interface<mgmt>`. v3: `snmp-agent usm-user v3 <user> <group> simple authentication-mode sha <pw> privacy-mode aes128 <pw>` + `… params securityname <user> v3 privacy` (the same user/keys as for polling work for traps) |
+| ArubaOS-Switch | `logging 10.0.0.50` · `logging severity warning` · `logging facility local7` | `snmp-server host 10.0.0.50 community <community> trap-level all` · `snmp-server enable traps link-change <ports>` (v3: `snmpv3 notify` / `snmpv3 targetaddress` — see the switch guide) |
+| Check Point Gaia (clish) | `add syslog log-remote-address 10.0.0.50 level warning` · `save config` (Gaia OS messages only — **not** Log Exporter firewall traffic logs, which would flood the receiver) | `add snmp traps receiver 10.0.0.50 version v2 community <community>` · `set snmp traps trap <name> enable` · `save config` |
+
+Source address: the device should send from the address it is monitored on; otherwise add the other address
+in the device form (*Additional source addresses*) or use "Assign to device" on the Unknown sources tab.
+
+### 12.13 Frontend (high level) [2b-3]
+- **Features tab** (§ 12.0) in Settings; `features` from `/api/settings/public` in a context; `features.changed`
+  refetches it. Disabled features: nav entries hidden; settings sections greyed with the explanation.
+- **Traps & Syslog page** (`/logs`, nav "Logs"): tabs *Syslog* | *Traps* | *Unknown sources* | *Rules*. Syslog:
+  filter bar (time range presets 15 min/1 h/24 h/7 d/custom, device/group picker, "unknown sources" toggle,
+  severity "and worse" select, facility multi-select, program, text), histogram (ECharts stacked bars by
+  severity from `/stats`), table (time, device or source IP, severity badge, facility, host, program, message;
+  monospace message, `dir="ltr"`), row click → detail drawer (all fields, structured data, matched rules, "Create
+  rule from this message"). **Live** toggle: subscribes, prepends matching records (client-side filter), pauses
+  while scrolled away from the top ("N new — show"). "Load more" uses `next_cursor`. Traps: same pattern (columns
+  time, device/source, version, trap name, summary; drawer with the varbind table name/OID/type/value).
+  Unknown sources: table with counts/last seen/last hostname, *Assign to device* (device picker), *Ignore*.
+  Rules: ordered list (drag to reorder → `priority`), built-in badge, enable toggle, active-condition count,
+  editor (kind, scope, match builder, action, key, clear match, auto-clear), **Test** (shows matches in the last
+  24 h). Severity colours: 0–2 red-600, 3 orange-500, 4 amber-500, 5–6 sky-600, 7 slate-500.
+- **Device page:** tab *Logs* (same tables pre-filtered by device) when traps/syslog are on; tab *Timeline*
+  (§ 12.9); event sensors show "Active conditions" (from `/conditions`) and an admin *Clear* button instead of
+  a chart; device form gets *Additional source addresses* (IPs).
+- **Ports view:** LAG chips/bars/modal section (§ 12.6).
+- **Settings:** sections *Traps & syslog* (retention, community check, communities, v3 trap users,
+  unknown-source policy, ignored sources, ingest status card with receiver states, counters, v3 failures, NAT
+  warning), *Flapping* (threshold/window/quiet), *SIEM forwarding* (targets table + Test), *Active Directory*
+  (form + Test connection result table per server + Test user login steps), *Audit* (retention).
+- **Login page:** when `features.ldap`, hint "Use your MNIDOM account (MNIDOM\\user or user@mnidom.net)".
+- **Users page:** source badge (Local / AD), display name; LDAP users have no password/role controls.
+  *API tokens* page under the account menu (list, create dialog showing the token once with copy button, revoke);
+  admins see all tokens on the Users page.
+- **Audit page** (`/audit`, admin): filters (time, user, action, entity), table, row expand shows the diff,
+  *Export CSV* (same filters).
+- **Notification channels:** type *Microsoft Teams* (URL field, legacy warning, Test).
+- New i18n keys (en + he): `features.*`, `logs.*`, `syslogSeverity.0-7`, `syslogFacility.0-23`, `traps.*`,
+  `rules.*`, `unknownSources.*`, `ingest.*`, `timeline.*`, `audit.*`, `ldap.*`, `tokens.*`, `flapping.*`,
+  `siem.*`, `channel.teams`, `sensorType.trap|syslog|port_flap`, `channel.active`, `ports.lag.*`, `errors.*` for
+  every new code, `user.source.local|ldap`.
+
+### 12.14 QA simulators and tests [2b-3]
+**Senders** (`tests/sim/ingest/`, Python, no root; the app listens on free ports given by `run.sh` via
+`NETMON_TRAP_PORT` / `NETMON_SYSLOG_PORT`; loopback source addresses 127.0.0.x simulate devices — Linux routes
+all of 127/8 locally, so binding the sending socket to 127.0.0.81 works):
+- `send_trap.py --to 127.0.0.1:<port> --from 127.0.0.81 --version v1|v2c|v3 [--inform] [--community c]
+  [--user u --auth SHA --auth-key k --priv AES128 --priv-key k --engine-id 0x80…] --oid <trapOID>
+  --varbind OID=type:value …` (pysnmp; v1 builds the v1 PDU with agent-addr). Net-snmp `snmptrap` (`apt
+  install snmp`) is an optional cross-check: `snmptrap -v 2c -c public 127.0.0.1:<port> '' 1.3.6.1.6.3.1.1.5.3
+  1.3.6.1.2.1.2.2.1.1.5 i 5`, `snmptrap -v 3 -e 0x8000000001020304 -u netmon -l authPriv -a SHA -A … -x AES -X
+  … 127.0.0.1:<port> '' 1.3.6.1.6.3.1.1.5.4 …`.
+- `send_syslog.py --to 127.0.0.1:<port> --from 127.0.0.81 --udp|--tcp [--framing octet|lf] [--rate N]
+  [--file vectors.txt] [--raw-hex …]`; util-linux `logger` as a cross-check (`logger -n 127.0.0.1 -P <port>
+  -d --rfc3164 "msg"`, `-T --octet-count --rfc5424`; it cannot choose the source address).
+- `siem_sink.py`: UDP/TCP/TLS listener that records forwarded lines (JSON lines file) for assertions.
+
+**Fake Active Directory** (`tests/sim/ldap/fake_ad.py`, chosen because it runs in GitHub Actions and on
+Windows dev machines without Docker; OpenLDAP lacks `1.2.840.113556.1.4.1941`, `sAMAccountName` and
+`userAccountControl`, and ldap3's MOCK strategy tests neither TLS nor timeouts): an asyncio LDAPv3 server using
+ldap3's own ASN.1 definitions (`ldap3.protocol.rfc4511`, pyasn1) to decode requests and encode responses.
+Supports: simple Bind (DN, UPN or `DOMAIN\user`; empty password = anonymous success, like AD), rootDSE,
+Search (base/one/sub; filters and/or/not/equality/present/substrings and **extensibleMatch
+`1.2.840.113556.1.4.1941`** on `memberOf`/`member` with transitive closure; attribute selection incl. `1.1`;
+sizeLimit), StartTLS extended op, LDAPS listener, Unbind/Abandon; AD-style bind errors
+(`80090308: LdapErr: DSID-0C09044E, comment: AcceptSecurityContext error, data 52e, v4563`); modes `--hang`
+(accept, never answer) and per-run fixture `--data mnidom.yaml`. `make_certs.py` (cryptography) creates a test
+CA, a server cert for `localhost`/`127.0.0.1`/`dc1.test` and a wrong-name cert; the backend trusts the CA via
+`NETMON_EXTRA_CA_FILE`. Fixture users (password `Passw0rd!` unless stated): `svc-netmon` (service), `jdoe` ∈
+`NetMon-Viewers` → viewer; `asmith` ∈ `IT-Team` ∈ `NetMon-Admins` (nested) → admin; `nogroup` → denied
+`not_in_group`; `olduser` UAC 514 → `account_disabled`; `lockeduser` computed 0x10, bind `data 775` →
+`account_locked`; `expired` computed 0x800000 → `password_expired`; `jdoe` UPN `John.Doe@mnidom.net`
+(case-insensitive). Backend pytest starts it in-process on free ports; `run.sh` starts it for E2E. An optional
+manual workflow against a Samba AD DC container may be added; it is not required.
+
+**LAG sims** (`tests/sim/ports/`, generator as 2b-2):
+- `127.0.0.86` **ArubaOS LAG**: sysObjectID/sysDescr as .81; ifIndex 1–4 named `1`…`4` (type 6, all up), 11
+  `Trk1` (type 161). dot1dBasePortIfIndex bp 1 → 1, 2 → 2, 11 → 11 (members 3/4 have no bridge port).
+  Q-BRIDGE static: VLAN 1 egress = untagged = {1, 2, 11}; VLAN 10 egress {11}; VLAN 20 egress {11}; pvid 1.
+  FDB (learned): `00:50:56:86:00:01` → bp 1; `02:00:00:00:86:01`, `…:86:02` → bp 11. LAG-MIB
+  `dot3adAggPortAttachedAggID`: .1 = 0, .2 = 0, .3 = 11, .4 = 11. No ifStackTable.
+- `127.0.0.87` **Comware LAG**: sysObjectID as .82; ifIndex 1, 2 `GigabitEthernet1/0/1`/`2`, 49, 50
+  `Ten-GigabitEthernet1/0/49`/`50` (50 oper down), 600 `Bridge-Aggregation1` (type 161). bp 1 → 1, 2 → 2,
+  3 → 600, 4 → 49, 5 → 50. VLAN 1 untagged {1, 2, 3}, VLAN 30 egress {3}; pvid bp 3 = 1. FDB `00:0c:29:87:00:01`
+  → bp 3, fdb 30. **No LAG-MIB**; ifStackStatus rows `600.49` = 1, `600.50` = 1, `0.600` = 1, `49.0` = 1.
+- Manual topology link .87 ifIndex 49 ↔ .86 ifIndex 3.
+
+Expected (`GET …/ports`, `lag` ON): .86 port 3 — `lag {11, "Trk1", attached true}`, `vlans_from_lag true`,
+mode trunk, untagged [1], tagged [10, 20], `mac_count 2`, uplink `neighbor` (.87), connected_kind `switch`,
+`macs []`; port 4 — same LAG/VLANs, uplink `neighbor` via the LAG (reason `neighbor`), neighbor = .87;
+port 1 — not a member, 1 MAC; `Trk1` — `lag_members [3, 4]`, uplink true. `sources.lag ok`, `lag_mib
+ieee8023`. .87 port 49 — `lag {600, "Bridge-Aggregation1", attached null}`, trunk, untagged [1], tagged [30],
+`mac_count 1` (`via_lag true`, vlan 30), uplink `neighbor`; port 50 — member, state down; `lag_mib if_stack`.
+`lag` OFF → no `lag`/`lag_members`, members show their own (empty) VLANs, walks #13/#14 not sent (snmpsim log).
+MAC search `02:00:00:00:86:01` → port `Trk1`, `lag_members ["3","4"]`.
+
+**Backend tests (pytest, required in CI):** every pure parser with the data-model vectors (syslog formats,
+framing, varbind rendering, v1 conversion, OID names, rule matching, keys, clears, important-port rule,
+flapping tracker, LAG resolution and inheritance, LDAP name parsing, RFC 4515 escaping incl. `*)(uid=*`
+injection, UAC/AD error mapping, RFC 5424 forward rendering, Teams card, audit redaction); receivers end to end
+with the senders (v1/v2c/v3 incl. two engine IDs with one user, wrong keys → `v3_auth`, inform answered,
+community check `known`); TCP framing mixed in one connection, 70 KiB frame → closed; flood: 3000 syslog msgs
+from one source in < 1 s → stored ≤ 1250, `rate_limited` ≥ 1750, server responsive (`/api/health` < 200 ms
+during the flood); queue full when the DB is paused (`pg_terminate`/lock) → `queue_full`/`db_error`, recovery
+afterwards; feature toggles (each OFF → sockets closed (connect refused / no listener), `409 feature_disabled`,
+data kept; ON again without restart); migration `0006` up/down on Timescale and fallback DBs with rows present;
+audit trigger rejects UPDATE/DELETE; LDAP against the fake AD (all fixture users, three name forms, LDAPS and
+StartTLS, wrong-name cert → `directory_unavailable`, failover first server closed port, `--hang` server →
+LDAP user 503 within budget while a local admin login completes in < 1 s, empty password never reaches the
+server (fake records binds), directory guard 429 after 5 failures, bind password stored encrypted (raw settings
+row has no plaintext), `ldap_managed` refusals, session not renewed past 12 h with the test clock); API tokens
+(once-only display, hash stored, role cap, revoked/expired 401, refused on `/api/tokens` and `/api/users`, OFF →
+401); Teams against an httpx mock (payload shape, 202 success, 400 → `teams_error`); SIEM forwarding to
+`siem_sink.py` (UDP/TCP/TLS, original hostname/timestamp kept, filter, sink down → `dropped` grows while
+ingestion continues).
+
+**E2E specs** (Playwright, `tests/e2e/specs/`, one worker, after 37):
+- `38-features.spec.ts` — fresh install: all 11 toggles OFF, nav hidden, endpoints 409; turn each ON/OFF
+  without restart (traps: sender gets through only while ON).
+- `39-syslog.spec.ts` — vectors over UDP/TCP from 127.0.0.81 (device from the ports lab) → global and device
+  views, every filter, histogram, detail drawer, live tail receives without reload, `next_cursor` paging.
+- `40-traps.spec.ts` — v1/v2c/v3 (device creds; settings trap user; unknown user → v3 failure card), varbind
+  names, agent-addr attribution, inform.
+- `41-event-alerts.spec.ts` — enable feature + built-ins; linkDown on an important port (port with interface
+  sensor) → `trap` sensor warning → webhook DOWN; linkDown on an unimportant port → nothing; linkUp → recovery;
+  syslog `<187>` (err) → `syslog` sensor warning, auto-clear after 30 min via the test clock; ack; maintenance
+  suppression; custom rule with key regex; ignore rule; rule Test preview; disable built-in clears conditions;
+  delete event sensor → not re-created.
+- `42-unknown-sources.spec.ts` — 127.0.0.99 → unknown list → assign → re-attributed + next messages; ignore →
+  dropped counter; policy `drop`.
+- `43-flapping.spec.ts` — 6 linkDown/linkUp pairs in 2 min → one `port_flap` warning, no per-link alerts,
+  webhook gets one message; quiet period (test clock) → recovery.
+- `44-lag.spec.ts` — .86/.87 faceplate bars + legend, list chips, modal "Member of Trk1", toggle OFF hides.
+- `45-ad-login.spec.ts` — configure AD (fake), Test connection table, Test user steps, login `jdoe`,
+  `MNIDOM\jdoe`, `John.Doe@mnidom.net` → viewer; `asmith` → admin; denied users show the generic error; local
+  admin works with the fake AD stopped and with `--hang`; LDAP user profile has no password change.
+- `46-audit.spec.ts` — actions produce entries (device create/update/delete, settings with secret redacted,
+  ack, login failure), filters, CSV download content.
+- `47-timeline.spec.ts` — device with status changes, a trap, a syslog line, an ack and a maintenance window →
+  merged order, kind filters, Load more.
+- `48-teams-tokens-siem.spec.ts` — Teams channel against the mock (`tests/sim/teams_mock.py`), Test button;
+  token create (shown once), curl-style request with Bearer, revoke; SIEM target to `siem_sink.py`, Test.
+- `49-viewer-2b3.spec.ts` — viewer: reads logs/timeline, no rules edit/assign/ignore/clear, no audit, own tokens
+  only with role viewer.
+- `50-rtl-mobile-2b3.spec.ts` — Hebrew/RTL and 390 px width for the new pages (logs stay `dir="ltr"` inside
+  message cells).
+
+### 12.15 Security and failure modes [2b-3]
+| Risk / failure | Handling |
+|---|---|
+| Spoofed UDP traps/syslog | Accepted data is informational; alerts only via explicit rules on known devices; optional community check, ignore list, firewall (`DOCKER-USER`). |
+| Floods / huge messages | Token buckets, bounded queues, size caps, counters (§ 12.2.2); the event loop never blocks. |
+| Malformed packets | Decoders never raise past the receiver (`parse_error`); pyasn1 decode errors caught per datagram. |
+| NUL / invalid UTF-8 / control chars | Replaced (U+FFFD); React escapes on render; messages never rendered as HTML. |
+| SQL injection via search | Parameters only; ILIKE patterns escape `\ % _`. |
+| ReDoS in admin regexes | Admin-only input, ≤ 200 chars, compiled at save (422 on error), applied to ≤ 8 KiB text. |
+| LDAP injection | RFC 4515 escaping of every value and DN in filters; fixed attribute lists; no user value as base DN. |
+| Anonymous bind via empty password | Rejected before contacting AD. |
+| AD lockout through brute force | Per-username directory guard (5/15 min) + existing IP throttle. |
+| Dead / slow DC | Timeouts, failover with last-good memory, thread semaphore; local logins unaffected; 503 `directory_unavailable`. |
+| Wrong DC certificate | Login fails closed (no plaintext fallback); Test connection shows the TLS error. |
+| Bind password at rest | AES-256-GCM with a key derived from `secret.key`; never returned; lost `secret.key` → "re-enter the bind password" (settings flag + system event). |
+| Token theft | Hashed at rest, shown once, expiry mandatory, revocable, role-capped, no access to auth/users/tokens endpoints. |
+| Audit tampering | Append-only trigger; only the retention job may delete old rows. |
+| Teams URL leak | Secret field (write-only), redacted in audit and logs. |
+| SIEM target down | Per-target bounded queue, drops counted, ingestion unaffected. |
+| Port in use / no privilege | Receiver state `error`, system event, retry; server keeps running. |
+| DB down | Ingest queues fill then drop (`db_error`/`queue_full`); forwarding continues. |
+
+### 12.16 Owner notes and verification [2b-3]
+- Everything new is OFF after the upgrade. Turn on in *Settings → Features*: Traps, Syslog, then Event alerts
+  (accept the built-in rules), then the rest as needed.
+- Point devices to the server (§ 12.12 table) from the address they are monitored on. Test from the Ubuntu
+  server or a native Windows install — **not Docker Desktop** (sender addresses are lost there).
+- AD: create a read-only service account (e.g. `svc-netmon`, password never expires, no special rights) and two
+  groups (e.g. `NetMon-Admins`, `NetMon-Viewers`; nested groups work; do **not** use *Domain Users* — the primary
+  group is not visible to the nested-membership query). Check LDAPS on a DC: `openssl s_client -connect
+  dc1.mnidom.net:636 -showcerts` (certificate from Mnidom-PKI-SERV-CA). Keep the local admin account as
+  break-glass.
+- Please verify and report: Comware/ArubaOS syslog lines appear with correct program/severity (send 3 sample
+  lines from *Logs*: copy as text); linkDown/linkUp traps carry ifIndex; a v3 trap from the FF 5945 arrives
+  (else the *v3 failures* card text); `Trk*` / `Bridge-Aggregation*` members show "member of"
+  (`lag_mib` on the ports status line tells which MIB answered); AD login with your account and a viewer test
+  account; one Teams test message in the ops channel.
+
+**Open questions** (work starts on the recommended defaults):
+
+| # | Question | Default |
+|---|---|---|
+| Q1 | Link-down alerts for all ports or only important ports (uplinks, LAGs, ports with an interface sensor)? | Important ports only |
+| Q2 | Where will you test 2b-3 (Docker Desktop loses sender IPs)? | Native Windows installer on the office PC, then production |
+| Q3 | Check Point: Gaia OS syslog only, or also firewall traffic logs (Log Exporter; very high volume)? | Gaia OS syslog only |
+| Q4 | AD users must log in again every 12 h (re-checks group/disabled state) — acceptable? | Yes, 12 h |
+| Q5 | Retention: traps 30 days (like syslog), audit 365 days? | 30 / 365 |
+| Q6 | AD details: DC names, LDAPS (636) enabled on the DCs?, names of the admin/viewer groups | LDAPS; groups `NetMon-Admins` / `NetMon-Viewers` |
+| Q7 | SIEM: which product/host/protocol (UDP/TCP/TLS)? | Configurable; none until you add a target |
