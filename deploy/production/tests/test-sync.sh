@@ -31,6 +31,9 @@ git init -q --bare -b main "$T/origin.git"
 git clone -q "$T/origin.git" "$T/work" 2>/dev/null
 mkdir -p "$T/work/deploy" "$T/work/src"
 cp -a "$PROD_SRC" "$T/work/deploy/production"
+# a fixed starting release, independent of the real (digest-pinned) release.env
+printf 'NETMON_VERSION=1.0.0\nNETMON_IMAGE=ghcr.io/shacharyekutiel/networkmonitor:1.0.0\n' \
+  >"$T/work/deploy/production/release.env"
 echo v1 >"$T/work/src/app.py"
 git -C "$T/work" add -A
 git -C "$T/work" commit -qm initial
