@@ -20,6 +20,7 @@ if TYPE_CHECKING:
 log = logging.getLogger("netmon.dependencies")
 
 DOWNISH = ("down", "unreachable")
+PASSIVE_TYPES = ("trap", "syslog", "port_flap")  # [2b-3] excluded from dependency decisions
 RECHECK_JITTER_S = 5.0
 UNREACHABLE_PREFIX = "Unreachable (parent {name} down): "
 
@@ -92,6 +93,7 @@ def parent_down(inv: Inventory, eff: EffectiveParent) -> bool:
         inv.sensors[x]["status"]
         for x in _sensors_of(inv, eff.device_id)
         if inv.sensors[x]["status"] != "paused"
+        and inv.sensors[x].get("type") not in PASSIVE_TYPES  # [2b-3] event sensors
     ]
     return bool(statuses) and all(st in DOWNISH for st in statuses)
 
@@ -257,7 +259,11 @@ async def parent_state(session: AsyncSession, device: Any) -> ParentState | None
     if sid is not None:
         ids = [sid]
     else:
-        ids = [x for x, m in meta.items() if m.enabled and m.status != "paused"]
+        ids = [
+            x
+            for x, m in meta.items()
+            if m.enabled and m.status != "paused" and m.type not in PASSIVE_TYPES
+        ]
     holds = [int(meta[x].interval_s) + _timeout_s(meta[x].interval_s) for x in ids]
     changes = [meta[x].last_status_change_at for x in ids if meta[x].last_status_change_at]
     return ParentState(
@@ -375,7 +381,11 @@ async def _cascade(rt: Runtime, changed: dict[int, set[int]], cache: Cascade | N
         if sid is not None and sid not in changed[eff.device_id]:
             continue
         if parent_down(inv, eff):
-            if any(inv.sensors[s]["status"] == "down" for s in inv.device_sensors.get(cid, [])):
+            if any(
+                inv.sensors[s]["status"] == "down"
+                and inv.sensors[s].get("type") not in PASSIVE_TYPES
+                for s in inv.device_sensors.get(cid, [])
+            ):
                 to_unreachable[cid] = inv.devices[eff.device_id]["name"]
         else:
             recheck += [
@@ -392,7 +402,12 @@ async def _cascade(rt: Runtime, changed: dict[int, set[int]], cache: Cascade | N
                 (
                     await session.execute(
                         select(Sensor)
-                        .where(Sensor.device_id.in_(list(to_unreachable)), Sensor.status == "down")
+                        .where(
+                            Sensor.device_id.in_(list(to_unreachable)),
+                            Sensor.status == "down",
+                            # [2b-3] an event sensor never becomes unreachable
+                            Sensor.type.not_in(PASSIVE_TYPES),
+                        )
                         .with_for_update()
                     )
                 )

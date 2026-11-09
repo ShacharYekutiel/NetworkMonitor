@@ -169,3 +169,26 @@ both Timescale mode and fallback mode, and on Windows paths (no POSIX-only calls
   `cisco_ios`), `test_2b_units.py` (Aruba CX now suggests `aruba_cx`), `conftest.py` (`dns_cache` added to the
   truncated tables: it has no FK to `devices`, so the CASCADE truncate does not reach it). Reviewed and approved
   by the architect (2b-2 review); any other existing test that fails is a regression.
+
+## Phase 2b-3 notes
+- Every 2b-3 feature checks `rt.features.enabled(name)`; routers use the `feature_disabled(name)` dependency.
+  A feature must be startable and stoppable at runtime (no restart), and OFF must leave no socket, task or job
+  running for it. Tests cover OFF, ON and ON → OFF → ON for each feature.
+- Keep pure and exhaustively unit-tested: `netmon.ingest.syslog_parse`, `trap_decode`, `oid_names`, `rules`,
+  `attribution.attribute`, `flapping.FlapTracker`, `forward.render_5424`, `netmon.auth.ldap_pure`,
+  `netmon.ports.collect.resolve_lag` and the LAG part of `netmon.ports.view`, `alerts.teams.build_card`,
+  `services.audit.redact`. I/O lives in the receivers, pipeline, forwarder, `auth/ldap.py`.
+- New dependency `ldap3>=2.9.1` (LGPL-3.0, used unmodified). ldap3 is called only inside `asyncio.to_thread`;
+  never build an LDAP filter by string concatenation without `escape_filter_chars`.
+- Ingest code must never block the event loop or wait on the DB inside a receiver callback; every queue is
+  bounded and every drop is counted.
+- `audit.record()` runs inside the same transaction as the change; never write secret values into `changes`.
+- Pydantic models (`extra="forbid"`): `EventRuleIn`, `TrapMatchIn`, `SyslogMatchIn`, `SiemTargetIn`,
+  `TrapV3UserIn`, `LdapSettingsIn`, `LdapTestIn`, `LdapUserTestIn`, `AssignSourceIn`, `ApiTokenIn`,
+  `ForwardTestIn`; device create/PATCH gain `source_addresses`.
+- Frontend: extend `types.ts` / `endpoints.ts` / `ws.ts` exactly as api.md § 2b-3; a `FeaturesProvider` from
+  `/api/settings/public` (refetch on `features.changed`) gates nav entries and pages; logs, varbinds, IPs and
+  OIDs render in `dir="ltr"` cells; the WS `subscribe` message is re-sent after every reconnect.
+- Existing test changes allowed in 2b-3 (contract changes on purpose): `test_migrations.py` (head `0006`),
+  sensor-type list tests (three passive types), `User`/`Device`/`Port` shape tests (new keys),
+  `last_admin` tests (local admins), event-kind lists. Any other failing existing test is a regression.

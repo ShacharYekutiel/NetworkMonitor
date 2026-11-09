@@ -17,7 +17,7 @@ export FAKE_STATE="$T/fake" NETMON_ALLOW_NON_ROOT=1 NETMON_INSTALL_OPS=0
 export NETMON_REPO_DIR="$T/clone" NETMON_ETC_DIR="$T/etc" NETMON_STATE_DIR="$T/state"
 export NETMON_BACKUP_DIR="$T/backups" NETMON_LOCK_FILE="$T/lock"
 export NETMON_HEALTH_TIMEOUT=2 NETMON_HEALTH_POLL=1
-export DOCKER="$HERE/fake-bin/docker" CURL="$HERE/fake-bin/curl"
+export DOCKER="$HERE/fake-bin/docker" CURL="$HERE/fake-bin/curl" CONNTRACK="$HERE/fake-bin/conntrack"
 export GIT_AUTHOR_NAME=test GIT_AUTHOR_EMAIL=t@example.com GIT_COMMITTER_NAME=test GIT_COMMITTER_EMAIL=t@example.com
 unset JOURNAL_STREAM
 mkdir -p "$FAKE_STATE" "$NETMON_ETC_DIR/tls"
@@ -79,10 +79,16 @@ called "compose.*up -d --remove-orphans" || fail "no up"
 [[ "$(img)" == "$IMG:1.0.0" ]] || fail "image"
 ls "$NETMON_BACKUP_DIR"/pre-deploy-* >/dev/null 2>&1 && fail "pre-deploy dump without a DB"
 ok "first deploy: up, healthy, deployed_rev recorded, no dump (no DB yet)"
+for p in 162 514; do
+  grep -qx -- "-D -p udp --dport $p" "$FAKE_STATE/conntrack" || fail "UDP conntrack entries for $p not cleared after netmon was (re)created"
+done
+: >"$FAKE_STATE/conntrack"
+ok "netmon (re)created: stale UDP conntrack entries for traps/syslog cleared"
 
 # 2. nothing changed
 run 0
 called "up -d" && fail "redeployed without a change"
+[[ -s $FAKE_STATE/conntrack ]] && fail "conntrack flushed without a recreated container"
 ok "unchanged: no deploy"
 
 # 3. code-only commit

@@ -1,4 +1,4 @@
-# NetworkMonitor — Data Model (Phase 1 + Phase 2a + Phase 2b-1 + Phase 2b-2)
+# NetworkMonitor — Data Model (Phase 1 + Phase 2a + Phase 2b-1 + Phase 2b-2 + Phase 2b-3)
 
 Sections and rows marked **[2a]** belong to the Phase 2a contract (auto-discovery, device templates,
 `snmp_custom` / `snmp_disk` sensors, Telegram channel). Everything else is the Phase 1 contract and is unchanged.
@@ -7,6 +7,9 @@ Sections marked **[2b-1]** (dependencies, `unreachable`, maintenance, acknowledg
 HPE switch templates, topology) are in [§ Phase 2b-1](#2b-1-phase-2b-1-additions), migration `0004`.
 Sections marked **[2b-2]** (switch ports view, template library, vendor templates) are in
 [§ Phase 2b-2](#2b-2-phase-2b-2-additions), migration `0005`.
+Sections marked **[2b-3]** (feature toggles, traps, syslog, event rules, flapping, SIEM forwarding, LAG,
+Active Directory, audit log, timeline, Teams, API tokens) are in [§ Phase 2b-3](#2b-3-phase-2b-3-additions),
+migration `0006`.
 
 PostgreSQL ≥ 14 holds the data, and TimescaleDB is optional (see [architecture.md §6](architecture.md)). Alembic
 migrations own the schema.
@@ -2427,3 +2430,499 @@ Plain PostgreSQL DDL only (no Timescale calls; none of the new tables is a hyper
 in 0003's downgrade); restore `sensors_type_check` with the 10 types. Settings rows
 (`port_inventory_min`, `uplink_mac_threshold`, `port_mac_retention_days`, `reverse_dns`) are harmless and stay.
 `snmp_custom` sensors with `config.percent_base` keep the key (ignored by 2b-1 code).
+
+# **[2b-3]** Phase 2b-3 additions
+
+Scope: feature toggles, SNMP trap and syslog reception (storage, parsing, attribution), event rules and
+passive event sensors, port flapping, SIEM forwarding, LAG membership, Active Directory login, audit log,
+device timeline, Microsoft Teams channel, API tokens. All schema changes are in **migration `0006`**
+([§ Phase 2b-3 migration](#2b-3-phase-2b-3-migration-0006)). Everything is additive; `users.password_hash`
+becomes nullable (LDAP users).
+
+API shapes: [api.md § Phase 2b-3](api.md#2b-3-phase-2b-3-contract). Components, pipeline, flows:
+[architecture.md § 12](architecture.md#12-phase-2b-3-traps-syslog-event-alerts-lag-active-directory-audit-timeline-teams-flapping-siem-forwarding-api-tokens).
+
+## [2b-3] Enum changes
+
+| Name | Values |
+|---|---|
+| `sensor_type` | … 2b-2 values, **[2b-3]** `trap`, `syslog`, `port_flap` (passive event sensors) |
+| `notification_type` | `email`, `webhook`, `telegram`, **[2b-3]** `teams` |
+| `event_kind` | … 2b-1 values, **[2b-3]** `notification_sent`, `port_change` |
+| **[2b-3]** `user_source` | `local`, `ldap` |
+| **[2b-3]** `event_rule_kind` | `trap`, `syslog` |
+| **[2b-3]** `event_rule_action` | `warning`, `down`, `ignore` |
+| **[2b-3]** `rule_scope` | `global`, `group`, `device` |
+| **[2b-3]** `condition_source` | `rule`, `flap` |
+| **[2b-3]** `trap_version` | `v1`, `v2c`, `v3` |
+| **[2b-3]** `trap_pdu` | `trap`, `inform` |
+| **[2b-3]** `syslog_format` | `rfc5424`, `rfc3164`, `raw` |
+| **[2b-3]** `transport` | `udp`, `tcp` |
+| **[2b-3]** `actor_type` | `user`, `token`, `system`, `anonymous` |
+| **[2b-3]** `feature` | `traps`, `syslog`, `event_alerts`, `lag`, `ldap`, `audit`, `timeline`, `flapping`, `siem_forwarding` |
+
+Syslog severity 0–7 (emerg, alert, crit, err, warning, notice, info, debug); facility 0–23 (RFC 5424 table).
+
+## [2b-3] Feature toggles
+
+Settings keys `feature_<name>_enabled` (bool), **default `false`** for every feature, also on upgraded
+installs (no migration writes them). Turning one ON/OFF takes effect at runtime (architecture § 12.0).
+
+| Key | ON | OFF means exactly |
+|---|---|---|
+| `feature_traps_enabled` | trap UDP socket open, decoding, storage | socket closed; `/api/traps*` 409; no trap rows written; v3 engine dropped |
+| `feature_syslog_enabled` | syslog UDP+TCP sockets, storage | sockets and TCP connections closed; `/api/syslog*` 409 |
+| (traps or syslog) | | `/api/ingest/*` and `/api/event-rules*` answer 409 only when **both** are OFF |
+| `feature_event_alerts_enabled` | rules evaluated, `trap`/`syslog` event sensors created/updated, expiry loop | no evaluation; all `rule` conditions deleted, `trap`/`syslog` sensors set `up` ("Event alerts are turned off"); rule CRUD stays available (prepare before enabling); `/clear` and `/conditions` still work |
+| `feature_flapping_enabled` | transition tracking, `port_flap` sensors, suppression | no tracking; `flap` conditions deleted (sensors `up`), suppression set emptied with re-arm |
+| `feature_siem_forwarding_enabled` | forwarder tasks per enabled target | tasks stopped, queues discarded; `POST /api/ingest/forwarders/test` 409; targets stay in settings |
+| `feature_lag_enabled` | walks #13/#14, LAG fields in ports/search | walks not sent; `lag`, `lag_members`, `vlans_from_lag`, `via_lag` returned as null/[]/false; stored columns untouched |
+| `feature_ldap_enabled` | AD login | login is local-only (LDAP users get 401 `invalid_credentials`, audit reason `ldap_disabled`); `POST /api/ldap/test*` **still allowed** |
+| `feature_audit_enabled` | `audit_log` written | nothing written; `/api/audit*` 409; retention still deletes old rows |
+| `feature_timeline_enabled` | timeline endpoint; `port_change` events written | endpoint 409; no `port_change` events (the other event kinds, incl. `notification_sent`, are always written) |
+
+Not toggles (owner decision): the Microsoft Teams channel type and API tokens are **always available**.
+Rows `feature_teams_enabled` / `feature_api_tokens_enabled` left by earlier builds are ignored when reading
+settings (no migration removes them); `PUT /api/settings` accepts and ignores those keys like any unknown key
+(they are not stored and not returned).
+
+## [2b-3] `traps` (a hypertable when Timescale is available)
+
+| Column | Type | Constraints / meaning |
+|---|---|---|
+| id | bigint | GENERATED ALWAYS AS IDENTITY. PK `(id, time)` (a hypertable needs the time column in unique keys) |
+| time | timestamptz | NOT NULL — receive time |
+| source_ip | inet | NOT NULL — UDP peer (IPv4-mapped IPv6 normalised) |
+| agent_addr | inet | NULL — v1 agent-addr |
+| device_id | integer | NULL — attributed device. **No FK** (like `measurements`); device delete → background `UPDATE … SET device_id = NULL` |
+| version | text | NOT NULL CHECK in trap_version |
+| pdu | text | NOT NULL CHECK in trap_pdu |
+| security_name | varchar(64) | NULL — v3 user name (the community is never stored) |
+| trap_oid | varchar(255) | NOT NULL — snmpTrapOID (v1 converted, RFC 3584) |
+| trap_name | varchar(128) | NULL — OID name (below) |
+| uptime_ticks | bigint | NULL |
+| varbinds | jsonb | NOT NULL DEFAULT `'[]'` — `[{"oid","name","type","value","display"}]`, ≤ 128, without sysUpTime.0 / snmpTrapOID.0 |
+| summary | text | NOT NULL (≤ 1000 chars, architecture § 12.2.3) |
+| matched_rule_ids | integer[] | NOT NULL DEFAULT '{}' — rules that cleared or raised a condition (or `ignore`d) for this record |
+
+Indexes: `ix_traps_time (time DESC)`, `ix_traps_device_time (device_id, time DESC)`, `ix_traps_unknown
+(source_ip, time DESC) WHERE device_id IS NULL`, `ix_traps_oid (trap_oid varchar_pattern_ops)`; trigram
+`ix_traps_summary_trgm USING gin (summary gin_trgm_ops)` (bootstrap, see Text search). `type` in varbinds is the
+SMI name: `Integer`, `OctetString`, `ObjectIdentifier`, `IpAddress`, `Counter32`, `Gauge32`, `TimeTicks`,
+`Counter64`, `Opaque`, `Null`, `noSuchObject`, `noSuchInstance`, `endOfMibView`.
+
+## [2b-3] `syslog_messages` (a hypertable when Timescale is available)
+
+| Column | Type | Constraints / meaning |
+|---|---|---|
+| id | bigint | identity; PK `(id, time)` |
+| time | timestamptz | NOT NULL — receive time |
+| device_time | timestamptz | NULL — parsed device timestamp |
+| source_ip | inet | NOT NULL |
+| device_id | integer | NULL, no FK (as traps) |
+| transport | text | NOT NULL CHECK in transport |
+| format | text | NOT NULL CHECK in syslog_format |
+| facility | smallint | NOT NULL CHECK 0–23 |
+| severity | smallint | NOT NULL CHECK 0–7 |
+| hostname | varchar(255) | NOT NULL DEFAULT '' |
+| program | varchar(128) | NOT NULL DEFAULT '' — APP-NAME / TAG / Comware module |
+| pid | varchar(128) | NOT NULL DEFAULT '' — PROCID / `[pid]` |
+| msgid | varchar(64) | NOT NULL DEFAULT '' — MSGID / Comware digest / ArubaOS event id |
+| structured_data | text | NULL — RFC 5424 SD text as received |
+| message | text | NOT NULL — ≤ 8192 bytes UTF-8 |
+| truncated | boolean | NOT NULL DEFAULT false |
+| matched_rule_ids | integer[] | NOT NULL DEFAULT '{}' |
+
+Indexes: `ix_syslog_time (time DESC)`, `ix_syslog_device_time (device_id, time DESC)`, `ix_syslog_unknown
+(source_ip, time DESC) WHERE device_id IS NULL`; trigram `ix_syslog_message_trgm USING gin (message
+gin_trgm_ops)` (bootstrap).
+
+### Timescale / fallback
+`netmon.db.timescale.bootstrap()` additionally runs, in Timescale mode:
+`create_hypertable('traps', 'time', chunk_time_interval => INTERVAL '7 days', if_not_exists => TRUE,
+migrate_data => TRUE, create_default_indexes => FALSE)` and the same for `syslog_messages` with `INTERVAL '1
+day'`; retention policies `trap_retention_days` / `syslog_retention_days` (re-applied on `PUT /api/settings`
+change). No compression. Fallback (or policy API missing): the hourly loop deletes `time < now() − N days` in
+batches of 50 000 (same SQL pattern as measurements). The `measurements`-style BRIN index on `time` is added in
+fallback mode only.
+
+### Text search: trigram, not tsvector
+Log lines are full of tokens that a text-search parser breaks or stems (`GigabitEthernet1/0/5`,
+`%%10IFNET/4/PHY_UPDOWN`, IPs, MACs, `sshd[2211]`); operators expect grep-like substring search. **`pg_trgm`**
+GIN indexes serve `ILIKE '%text%'` for any substring ≥ 3 characters, language-independent, and need no extra
+column. `pg_trgm` is a contrib extension shipped with PostgreSQL packages (Docker `postgres`/`timescaledb`
+images, Debian/Ubuntu, the EDB Windows installer) and is **trusted** since PG 13 (the DB owner may create it).
+Bootstrap (`netmon.db.extensions.ensure_trgm()` after migrations, in a savepoint): `CREATE EXTENSION IF NOT
+EXISTS pg_trgm`, then `CREATE INDEX IF NOT EXISTS` the two trigram indexes. On failure: WARNING, flag
+`rt.trgm_enabled = false` (reported by `/api/health`); text search still works (sequential scan bounded by the
+time range). Queries: `message ILIKE '%' || :q || '%'` with `\`, `%`, `_` escaped in `:q`.
+
+## [2b-3] Syslog parsing (pure `netmon.ingest.syslog_parse.parse_syslog`)
+
+Input: raw bytes (one datagram or TCP frame), receive time, time zone. Pre-processing: strip trailing `\n`,
+`\r`, `\0`; decode UTF-8 with `errors="replace"`; replace NUL with U+FFFD; cut the message part to 8192 bytes.
+
+1. **PRI:** `^<(\d{1,3})>` with value 0–191 → facility = v // 8, severity = v % 8. Missing/invalid → facility
+   1, severity 5, `format = raw`, `message` = the whole line, other fields empty. Stop.
+2. **RFC 5424:** after PRI `1 ` → `TIMESTAMP SP HOSTNAME SP APP-NAME SP PROCID SP MSGID SP SD [SP MSG]`; `-` =
+   empty/null; TIMESTAMP RFC 3339 → `device_time`; SD = `-` or one or more `[...]` elements (respecting `\]`
+   escapes) → `structured_data`; MSG with a leading UTF-8 BOM stripped. Malformed header → fall through to 3.
+3. **RFC 3164 (lenient):** optional timestamp `Mmm dd hh:mm:ss` (day may be space-padded; optional `.fff`;
+   optional ` yyyy` after the time (Comware) or `yyyy ` before the time); then optional HOSTNAME = next token
+   unless that token ends with `:` or matches the TAG pattern followed by `:`; then:
+   - **Comware:** `^%%(\d{2})?([A-Za-z0-9_-]+)/(\d)/([A-Za-z0-9_]+)(\([a-z]\))?:\s?(.*)$` → `program` = group 2,
+     `msgid` = group 4, `message` = group 6 (the in-text severity is informational; PRI stays authoritative);
+   - **ArubaOS-Switch:** `^(\d{5}) ([^\s:\[]{1,48}):\s?(.*)$` → `msgid` = event id, `program`, `message`
+     (medium confidence; verified on the owner's switches);
+   - **TAG:** `^([^\s:\[]{1,48})(\[([^\]]{1,128})\])?:\s?(.*)$` → `program`, `pid`, `message`;
+   - else `program` = '', `message` = rest.
+   No year → current year in `tz`, minus one if that is > 1 day in the future. No timestamp → `device_time`
+   null. `format = rfc3164`.
+
+**Test vectors** (tz `Asia/Jerusalem`, received `2026-11-08T10:00:05Z`):
+
+| # | Input | facility / severity | Expected fields |
+|---|---|---|---|
+| S1 | `<165>1 2026-11-08T10:00:00.003Z sw1.mnidom.net evntslog 1234 ID47 [exampleSDID@32473 iut="3"] \xEF\xBB\xBFAn application event` | 20 / 5 | rfc5424, device_time `2026-11-08T10:00:00.003Z`, hostname `sw1.mnidom.net`, program `evntslog`, pid `1234`, msgid `ID47`, sd `[exampleSDID@32473 iut="3"]`, message `An application event` |
+| S2 | `<34>1 - - - - - - plain` | 4 / 2 | rfc5424, all empty, device_time null, sd null, message `plain` |
+| S3 | `<34>Oct 11 22:14:15 mymachine su: 'su root' failed for lonvick on /dev/pts/8` | 4 / 2 | rfc3164, hostname `mymachine`, program `su`, message `'su root' failed for lonvick on /dev/pts/8`, device_time 2026-10-11T19:14:15Z (Oct 11 2026 is before the receive date, so the current year; IDT +3) |
+| S4 | `<30>Nov  8 09:05:01 gw-hq sshd[2211]: Accepted password for admin` | 3 / 6 | hostname `gw-hq`, program `sshd`, pid `2211`, device_time `2026-11-08T07:05:01Z` (IST +2) |
+| S5 | `<188>Nov  8 12:00:00 2026 FF5945-IRF %%10IFNET/4/PHY_UPDOWN: Physical state on the interface Ten-GigabitEthernet1/0/49 changed to down.` | 23 / 4 | hostname `FF5945-IRF`, program `IFNET`, msgid `PHY_UPDOWN`, message `Physical state on the interface Ten-GigabitEthernet1/0/49 changed to down.` |
+| S6 | `<190>Nov  8 12:00:00 10.0.0.2 00076 ports: port 5 is now on-line` | 23 / 6 | hostname `10.0.0.2`, msgid `00076`, program `ports`, message `port 5 is now on-line` |
+| S7 | `<13>Nov  8 12:00:00 su: test` | 1 / 5 | hostname '', program `su`, message `test` |
+| S8 | `<13>hello world` | 1 / 5 | rfc3164, device_time null, hostname '', program '', message `hello world` |
+| S9 | `just text` | 1 / 5 | raw, message `just text` |
+| S10 | `<999>x` | 1 / 5 | raw, message `<999>x` |
+| S11 | `<14>Nov  8 12:00:00 host app: a\x00b` + 9000 × `x` | 1 / 6 | message has U+FFFD for NUL, ≤ 8192 bytes, truncated true |
+
+**TCP framing vectors** (one connection): `27 <13>1 - h a - - - octet one` then `<13>lf one\n` then `<13>lf
+two\r\n` → three records (`octet one`, `lf one`, `lf two`); `99999999 x` → connection closed (`too_large`).
+
+## [2b-3] OID name table (`netmon.ingest.oid_names`, longest prefix)
+
+| OID | Name |
+|---|---|
+| `1.3.6.1.6.3.1.1.5.1` … `.6` | `coldStart`, `warmStart`, `linkDown`, `linkUp`, `authenticationFailure`, `egpNeighborLoss` |
+| `1.3.6.1.2.1.1.3.0` / `1.3.6.1.6.3.1.1.4.1.0` / `1.3.6.1.6.3.1.1.4.3.0` | `sysUpTime.0` / `snmpTrapOID.0` / `snmpTrapEnterprise.0` |
+| `1.3.6.1.6.3.18.1.3.0` / `1.3.6.1.6.3.18.1.4.0` | `snmpTrapAddress.0` / `snmpTrapCommunity.0` |
+| `1.3.6.1.2.1.1.1.0` / `1.3.6.1.2.1.1.5.0` | `sysDescr.0` / `sysName.0` |
+| `1.3.6.1.2.1.2.2.1.1` / `.2` / `.3` / `.7` / `.8` | `ifIndex` / `ifDescr` / `ifType` / `ifAdminStatus` / `ifOperStatus` (status display `up(1)`, `down(2)`, `testing(3)`, `unknown(4)`, `dormant(5)`, `notPresent(6)`, `lowerLayerDown(7)`) |
+| `1.3.6.1.2.1.31.1.1.1.1` / `.18` | `ifName` / `ifAlias` |
+| `1.3.6.1.2.1.17.0.1` / `.2` | `newRoot` / `topologyChange` |
+| `1.3.6.1.2.1.47.2.0.1` | `entConfigChange` |
+| `1.0.8802.1.1.2.0.0.1` | `lldpRemTablesChange` |
+| `1.3.6.1.2.1.105.0.1` / `.2` / `.3` | `pethPsePortOnOffNotification` / `pethMainPowerUsageOnNotification` / `pethMainPowerUsageOffNotification` |
+| `1.3.6.1.4.1.8072.4.0.1` / `.2` / `.3` | `nsNotifyStart` / `nsNotifyShutdown` / `nsNotifyRestart` |
+| `1.3.6.1.4.1.11` / `.25506` / `.14823` / `.47196` / `.2620` / `.9` / `.8072` | vendor roots `hp` / `h3c` / `aruba` / `arubaCx` / `checkpoint` / `cisco` / `netSnmp` (remainder appended: `h3c.2.6.2.0.1`) |
+
+## [2b-3] Attribution, sources
+
+`devices` gains:
+
+| Column | Type | Constraints |
+|---|---|---|
+| source_addresses | inet[] | NOT NULL DEFAULT '{}' — ≤ 16 additional sender IPs (no prefixes), unique per device |
+| event_sensor_optout | text[] | NOT NULL DEFAULT '{}' — subset of {`trap`,`syslog`,`port_flap`}: event sensors deleted by a user and not to be re-created |
+
+Rules: architecture § 12.2.5. The `SourceMap` is in memory; an IP in another device's `source_addresses`
+is allowed (precedence decides) but the API returns a warning list in the device response
+(`source_address_conflicts`).
+
+## [2b-3] Event rules
+
+### `event_rules`
+| Column | Type | Constraints |
+|---|---|---|
+| id | integer | PK |
+| name | varchar(128) | NOT NULL |
+| kind | text | NOT NULL CHECK in event_rule_kind |
+| enabled | boolean | NOT NULL DEFAULT true |
+| builtin_key | varchar(64) | NULL, UNIQUE — set on seeded rules |
+| priority | integer | NOT NULL DEFAULT 100 (0–100000; lower first; ties by id) |
+| scope | text | NOT NULL DEFAULT `global` CHECK in rule_scope |
+| group_id | integer | NULL FK `groups.id` ON DELETE CASCADE — iff scope group (subgroups included) |
+| device_id | integer | NULL FK `devices.id` ON DELETE CASCADE — iff scope device |
+| match | jsonb | NOT NULL — `TrapMatch` / `SyslogMatch` by kind |
+| action | text | NOT NULL CHECK in event_rule_action |
+| key_varbind_oid | varchar(255) | NULL — trap rules only |
+| key_regex | varchar(200) | NULL — syslog rules only; exactly one capture group |
+| clear_match | jsonb | NULL — same shape as `match`; only with action warning/down |
+| clear_after_min | integer | NULL CHECK 1–10080; only with action warning/down |
+| last_matched_at | timestamptz | NULL (updated at most once per minute) |
+| created_at, updated_at | timestamptz | |
+
+Table CHECK: scope/group/device consistency as `maintenance_windows`. API validation (422): action `ignore`
+has no key/clear; warning/down rules need `clear_match` or `clear_after_min` (a condition must be able to end;
+manual clear exists but is not enough); regexes compile (Python `re`, `IGNORECASE`), ≤ 200 chars; OIDs
+numeric dotted.
+
+```json
+// TrapMatch
+{ "trap_oids": ["1.3.6.1.6.3.1.1.5.3"],                 // prefixes of trap_oid; [] = any trap
+  "varbinds": [ { "oid": "1.3.6.1.2.1.2.2.1.7", "op": "ne", "value": "2" } ],   // all must hold, ≤ 8
+  "ports": "important" }                                 // "any" | "important"
+// SyslogMatch
+{ "severity_max": 3,                                     // 0–7 or null (any); matches severity <= value
+  "facilities": [], "programs": [],                      // [] = any; programs case-insensitive exact, ≤ 16
+  "text": null, "text_regex": false }                    // contains (case-insensitive) or regex
+```
+Varbind ops on the **first** varbind whose OID equals or starts with `oid.`: `eq` / `ne` (raw `value` string
+equality), `contains` (case-insensitive), `regex` (search), `exists`, `absent`. A missing varbind: `ne` and
+`absent` true, everything else false.
+
+### Rule evaluation (pure `netmon.ingest.rules.evaluate(record, rules, ctx) -> Outcome`)
+Inputs: the record (device attributed, event sensor not paused, device enabled), the enabled rules of that kind
+in scope for the device sorted by `(priority, id)`, `ctx` (important-port predicate, flapping ports).
+1. **Key** of a rule for the record: trap — `value` of the first varbind matching `key_varbind_oid` (absent →
+   `""`); syslog — group 1 of `key_regex` searched in `message` (no match → `""`); no key field → `""`.
+   Keys are cut to 128 chars.
+2. **Clears:** every rule with a `clear_match` that matches → clear `(rule, key)`.
+3. **Raise:** the first rule whose `match` matches (incl. the port filter): `ignore` → stop; `warning`/`down` →
+   if `(device, ifIndex key)` is currently flapping and the rule's `key_varbind_oid` is the ifIndex column
+   (`1.3.6.1.2.1.2.2.1.1`) → no condition (suppressed); else upsert condition `(rule, key)`.
+4. `matched_rule_ids` = clearing rules + the raising/ignoring rule (in that order, distinct).
+
+**Important port** (`ports: "important"`, the ifIndex is the value of varbind `1.3.6.1.2.1.2.2.1.1`): no such
+varbind → important; else important when an `snmp_interface` sensor of the device has `config.if_index` =
+ifIndex, or the `switch_ports` row has kind `lag` or `lag_if_index` not null, or the port is an uplink per
+data-model § Uplinks; a device with no `switch_ports` rows and no `snmp_interface` sensors → important.
+
+### Built-in rules (seeded by `0006`, **enabled = false**)
+| builtin_key | name (en / he) | kind | priority | match | action | key | clear |
+|---|---|---|---|---|---|---|---|
+| `trap_link_down` | Link down / קישור נפל | trap | 1000 | `{"trap_oids":["1.3.6.1.6.3.1.1.5.3"],"varbinds":[{"oid":"1.3.6.1.2.1.2.2.1.7","op":"ne","value":"2"}],"ports":"important"}` | warning | `key_varbind_oid` `1.3.6.1.2.1.2.2.1.1` | `clear_match {"trap_oids":["1.3.6.1.6.3.1.1.5.4"],"varbinds":[],"ports":"any"}`, `clear_after_min` 1440 |
+| `trap_auth_failure` | SNMP authentication failure / כשל אימות SNMP | trap | 1010 | `{"trap_oids":["1.3.6.1.6.3.1.1.5.5"],"varbinds":[],"ports":"any"}` | warning | — | 60 |
+| `trap_restart` | Device restarted / ההתקן הופעל מחדש | trap | 1020 | `{"trap_oids":["1.3.6.1.6.3.1.1.5.1","1.3.6.1.6.3.1.1.5.2"],"varbinds":[],"ports":"any"}` | warning | — | 30 |
+| `syslog_error` | Syslog error or worse / שגיאת Syslog ומעלה | syslog | 1030 | `{"severity_max":3,"facilities":[],"programs":[],"text":null,"text_regex":false}` | warning | — | 30 |
+
+The name is stored in the default language at seed time; `POST /api/event-rules/{id}/reset` restores the row
+above (name in the current `default_language`, `enabled` unchanged). The API returns `name` of a built-in
+rule in the requesting user's language (he/en) while the stored name is one of the two default names.
+
+### `event_conditions`
+| Column | Type | Constraints |
+|---|---|---|
+| id | bigint | PK identity |
+| sensor_id | integer | NOT NULL FK `sensors.id` ON DELETE CASCADE |
+| source | text | NOT NULL CHECK in condition_source |
+| rule_id | integer | NULL FK `event_rules.id` ON DELETE CASCADE — required iff source = rule |
+| key | varchar(128) | NOT NULL DEFAULT '' (flap: the ifIndex as text) |
+| status | text | NOT NULL CHECK in (`warning`,`down`) |
+| first_at | timestamptz | NOT NULL |
+| last_at | timestamptz | NOT NULL |
+| count | integer | NOT NULL DEFAULT 1 (matches, or transitions for flap) |
+| message | text | NOT NULL (≤ 500) |
+| last_kind | text | NULL CHECK in (`trap`,`syslog`) |
+| last_ref_id | bigint | NULL — id of the last trap/syslog row (no FK) |
+| expires_at | timestamptz | NULL |
+
+Unique index `ux_event_conditions_key (sensor_id, source, COALESCE(rule_id, 0), key)`; index `(expires_at)
+WHERE expires_at IS NOT NULL`. At most 256 conditions per sensor (the oldest `last_at` is removed first).
+Condition `expires_at` = `last_at + clear_after_min` (rule) or `last_at + flap_quiet_min` (flap).
+
+### Event sensor types (`poller/sensor_types.py`)
+`trap`, `syslog`, `port_flap`: `requires_snmp false`, **`passive true`** (new `SensorTypeDef` field, served by
+`/api/sensor-types`), no config fields, one channel `active` (unit `#`, no thresholds, primary). The channel's
+`last_value` = active conditions; its `status` = the sensor status. Default names: `SNMP traps`, `Syslog`,
+`Port flapping`. Unique index `ux_sensors_event_type (device_id, type) WHERE type IN
+('trap','syslog','port_flap')`. `alert_state` gains `flap_suppressed boolean NOT NULL DEFAULT false`
+(architecture § 12.4).
+
+## [2b-3] Port flapping
+Settings `flap_threshold` (int, 3–50, default 5), `flap_window_min` (1–120, default 10), `flap_quiet_min`
+(1–1440, default 15). Pure tracker vectors (threshold 5, window 10, quiet 15; times in minutes): transitions
+at 0 d, 1 u, 2 d, 3 u → none; + 4 d → **start** (5 in 10 min); 4.5 d → duplicate (same direction < 60 s) ignored;
+transitions until 9, then none → **end** at 24; 0 d, 3 u, 6 d, 9 u, 12 d → none (only 4 within any 10 min).
+
+## [2b-3] SIEM forwarding target (settings `siem_targets`, list ≤ 4)
+```json
+{ "id": "a1b2c3", "name": "QRadar", "enabled": true, "host": "siem.mnidom.net", "port": 6514,
+  "protocol": "tls", "tls_verify": true,
+  "kinds": ["syslog", "trap"], "min_severity": 7, "sources": [], "include_unknown": false }
+```
+`id`: server-generated 6 hex chars (kept across edits; new entries without id get one). `protocol` `udp` |
+`tcp` | `tls`; `port` 1–65535; `min_severity` 0–7 (forward records with severity ≤ value; traps: 5, or 4/2 when a
+rule raised warning/down); `sources`: IPs/CIDRs (≤ 64; [] = all); `include_unknown`: forward unknown sources.
+Rendering: architecture § 12.5. Example syslog S5 forwarded: `<188>1 2026-11-08T10:00:00Z FF5945-IRF IFNET -
+PHY_UPDOWN [origin ip="10.0.0.12" software="NetworkMonitor" swVersion="1.1.0"] Physical state on the interface
+Ten-GigabitEthernet1/0/49 changed to down.`; TCP/TLS frame = `<length> <message>`.
+
+## [2b-3] LAG membership (`switch_ports` gains)
+
+| Column | Type | Constraints |
+|---|---|---|
+| lag_if_index | integer | NULL — aggregator ifIndex of this physical port |
+| lag_attached | boolean | NULL — true: attached (LAG-MIB); false: configured (ifStack) but LAG-MIB reports not attached; null: membership known from ifStack only |
+
+`port_inventory_status.sources` gains key `lag` (`source_state`) and `lag_mib` (`"ieee8023"` \| `"if_stack"` \|
+`"both"` \| null). Walks and `resolve_lag`: architecture § 12.6.
+
+| # | Object | OID | Index | Confidence |
+|---|---|---|---|---|
+| 13 | dot3adAggPortAttachedAggID | `1.2.840.10006.300.43.1.2.1.1.13` | member ifIndex → aggregator ifIndex (0 = none) | high (MIB); vendor support medium (static ArubaOS trunks may be absent → #14) |
+| 14 | ifStackStatus | `1.3.6.1.2.1.31.1.2.1.3` | higher.lower ifIndex, value 1 active | high |
+
+**Pure vectors:** physical {1, 2, 3, 4}, lag {11}; #13 `{3: 11, 4: 11, 1: 0}`, #14 `{}` → 3 → (11, true), 4 →
+(11, true); #13 `{3: 11, 4: 0}`, #14 `{(11,3): 1, (11,4): 1}` → 3 (11, true), 4 (11, false); #13 `{}`, #14
+`{(11,4): 1, (0,11): 1, (4,0): 1}` → 4 (11, null); #13 `{3: 99}` (99 not a lag) → none; #14 `{(11,3): 2}` →
+none; #14 `{(12,3):1, (11,3):1}` with lags {11, 12} → (11, null).
+Inheritance vectors: member without bridge port, LAG untagged [1] tagged [10, 20] → member inherits
+(`vlans_from_lag: true`); member with own untagged [5] → keeps [5]; member mac_count 0 + LAG 2 → 2; LAG uplink
+by neighbour on member 3 → members 3 and 4 uplink.
+
+## [2b-3] Users, Active Directory
+
+`users` changes:
+
+| Column | Type | Constraints |
+|---|---|---|
+| password_hash | text | now **NULL** allowed |
+| source | text | NOT NULL DEFAULT `local` CHECK in user_source |
+| external_id | varchar(64) | NULL — AD objectGUID (lower-case hex, 32 chars). Unique index WHERE NOT NULL |
+| display_name | varchar(256) | NULL |
+| ldap_dn | text | NULL |
+| ldap_synced_at | timestamptz | NULL — last successful AD login |
+
+CHECK `users_source_password_check`: `(source = 'local') = (password_hash IS NOT NULL)`. Username: local
+users keep `^[A-Za-z0-9._-]{3,64}$`; LDAP users store lower(sAMAccountName) (1–64 chars, any printable except
+`"/\[]:;|=,+*?<>@`), still unique on `lower(username)`. Migration `0006` replaces the 0001 inline check
+`users_username_check` by `(source = 'local' AND <local pattern>) OR (source = 'ldap' AND <ldap rule>)`.
+
+### LDAP settings (key `ldap`)
+```json
+{ "servers": ["dc1.mnidom.net", "dc2.mnidom.net:636"],   // ≤ 8; host | host:port | [v6]:port; [] = DNS SRV
+  "security": "ldaps",                                    // "ldaps" (default port 636) | "starttls" (389)
+  "tls_verify": true,
+  "domain": "mnidom.net", "netbios_domain": "MNIDOM",
+  "base_dn": "DC=mnidom,DC=net",                          // "" → derived from domain
+  "bind_dn": "svc-netmon@mnidom.net",                     // DN or UPN
+  "bind_password_enc": "v1:…",                            // stored only; API exposes bind_password (write-only)
+  "admin_group_dn": "CN=NetMon-Admins,OU=Groups,DC=mnidom,DC=net",
+  "viewer_group_dn": "CN=NetMon-Viewers,OU=Groups,DC=mnidom,DC=net",
+  "timeout_s": 5 }                                        // 1–30
+```
+Default: servers [], security ldaps, tls_verify true, other strings "", timeout 5, no password. Validation when
+`feature_ldap_enabled` is turned on or `ldap` is saved while it is on (422): `bind_dn`, a stored password,
+servers or domain, base DN (given or derivable), at least one group DN. Group DNs and base DN must parse as DNs
+(`ldap3.utils.dn.parse_dn`).
+
+**Encryption** (`netmon.services.crypto`): key = HKDF-SHA256(`secret.key` bytes, salt none, info
+`b"netmon/settings/v1"`, 32 bytes); value = `"v1:" + base64url(nonce12 ‖ AESGCM(ciphertext ‖ tag))`, AAD
+`b"ldap.bind_password"`. Decryption failure (secret.key replaced) → treated as unset, `bind_password_unreadable:
+true` in the API, one `system` event, LDAP logins → 503 `directory_unavailable`.
+
+**Pure helpers** (`netmon.auth.ldap_pure`) with vectors: `parse_login("jdoe")` → sam `jdoe`;
+`("MNIDOM\\jdoe")` → sam `jdoe`; `("mnidom\\jdoe")` → sam (case-insensitive); `("OTHER\\jdoe")` → not a
+directory name; `("John.Doe@MNIDOM.NET")` → upn `John.Doe@MNIDOM.NET`, fallback sam `John.Doe`;
+`("x@other.com")` → upn only; `escape("a*)(uid=*")` → `a\2a\29\28uid=\2a`; `escape("CN=A\\,B")` →
+`CN=A\5c,B`; UAC 512 → ok, 514 → disabled, computed 0x10 → locked, 0x800000 → password_expired;
+`accountExpires` 0 and 9223372036854775807 → never; AD message `…data 775,…` → `account_locked`.
+
+## [2b-3] `audit_log`
+| Column | Type | Constraints |
+|---|---|---|
+| id | bigint | PK identity |
+| time | timestamptz | NOT NULL DEFAULT now() |
+| actor_type | text | NOT NULL CHECK in actor_type (`anonymous` = failed login) |
+| actor_user_id | integer | NULL (no FK: survives user deletion) |
+| actor_name | varchar(256) | NOT NULL DEFAULT '' — username snapshot, or the name typed at a failed login (cut to 256) |
+| token_id | integer | NULL — API token used |
+| ip | varchar(45) | NULL — client IP (rightmost X-Forwarded-For when the proxy is trusted) |
+| action | varchar(64) | NOT NULL — dotted, list below |
+| entity_type | varchar(32) | NULL |
+| entity_id | bigint | NULL |
+| entity_name | varchar(256) | NULL |
+| device_id | integer | NULL — the device concerned (devices, sensors, acks, event clears) for the timeline |
+| source | text | NULL CHECK in (`local`,`ldap`,`token`) — logins |
+| reason | varchar(64) | NULL — login failure reason codes (api.md) |
+| changes | jsonb | NOT NULL DEFAULT '{}' — `{"field": [old, new]}`; secrets as `["***","***"]` when changed (never values); create = new values; delete = old values (secrets omitted) |
+
+Indexes: `(time DESC)`, `(actor_user_id, time DESC)`, `(entity_type, entity_id, time DESC)`, `(device_id, time
+DESC) WHERE device_id IS NOT NULL`, `(action, time DESC)`.
+Trigger `audit_log_immutable` (plpgsql, migration `0006`): `BEFORE UPDATE` → raise; `BEFORE DELETE` → raise
+unless `current_setting('netmon.audit_purge', true) = 'on'`. Retention (hourly loop): `SET LOCAL
+netmon.audit_purge = 'on'; DELETE … WHERE time < now() − audit_retention_days` (batches of 50 000).
+
+Actions: `auth.login`, `auth.login_failed`, `auth.logout`, `<entity>.create|update|delete` for `device`,
+`group`, `sensor`, `alert_rule`, `notification_channel`, `maintenance_window`, `event_rule`, `topology_link`,
+`discovery_profile`, `user`, `api_token` (create/revoke = `api_token.create|revoke`), `device.apply_template`,
+`discovery.import`, `settings.update` (entity null, `changes` per key; the `ldap` object diffed per field),
+`feature.enable|disable` (entity_name = feature), `sensor.acknowledge|unacknowledge|clear_events`,
+`user.ldap_create`, `user.ldap_role_change`, `ingest.assign_source`.
+
+## [2b-3] `api_tokens`
+| Column | Type | Constraints |
+|---|---|---|
+| id | integer | PK |
+| user_id | integer | NOT NULL FK `users.id` ON DELETE CASCADE |
+| name | varchar(128) | NOT NULL (unique per user, case-insensitive) |
+| prefix | varchar(12) | NOT NULL — `nmt_` + first 8 chars of the secret part (display) |
+| token_hash | char(64) | NOT NULL UNIQUE — SHA-256 hex of the full token |
+| role | text | NOT NULL CHECK in role |
+| created_at | timestamptz | NOT NULL |
+| expires_at | timestamptz | NOT NULL — 1–365 days after creation |
+| last_used_at | timestamptz | NULL |
+| last_used_ip | varchar(45) | NULL |
+| revoked_at | timestamptz | NULL |
+
+Expired/revoked tokens are deleted 30 days after expiry/revocation by the daily cleanup.
+
+## [2b-3] Events additions
+- `notification_sent`: one row per successful send of a stage (problem, escalation, reminder, recovery) per
+  rule: `sensor_id`/`device_id`/`group_id`/names set, `old_status`/`new_status` = the notified transition,
+  message `Sent DOWN to Ops mail, Ops Teams (rule "All down")`. Written always (needed by the timeline, cheap).
+- `port_change`: `device_id` set, `sensor_id` = the port's linked interface sensor or NULL, `old_status` /
+  `new_status` = `up`/`down`, message `Port 5 (GigabitEthernet1/0/5) down`; only while `timeline` is ON, ≤ 200
+  per run, physical/lag ports, not on the first snapshot of a device.
+- Index `ix_events_maintenance (time DESC) WHERE kind = 'maintenance'`.
+
+## [2b-3] Settings keys
+| Key | Type | Default | Limits / meaning |
+|---|---|---|---|
+| `feature_*_enabled` (11 keys) | bool | `false` | § Feature toggles |
+| `trap_retention_days` | int | 30 | 1–3650 |
+| `syslog_retention_days` | int | 30 | 1–3650 |
+| `trap_community_check` | `"any"` \| `"known"` | `"any"` | |
+| `trap_communities` | str[] | [] | ≤ 32, each 1–64; **secret list** (write-only) |
+| `trap_v3_users` | object[] | [] | ≤ 32 `{username, security_level, auth_protocol, auth_key, priv_protocol, priv_key}` (same value sets as SnmpCredentials; keys secret) |
+| `ingest_unknown_sources` | `"store"` \| `"drop"` | `"store"` | |
+| `ingest_ignored_sources` | str[] | [] | ≤ 256 IPs or CIDRs |
+| `flap_threshold`, `flap_window_min`, `flap_quiet_min` | int | 5, 10, 15 | § Port flapping |
+| `event_linkdown_scope` | `"important"` \| `"all"` | `"important"` | link-down / flapping alert scope (architecture § 12.3, § 12.4); other values → 422 |
+| `siem_targets` | object[] | [] | § SIEM |
+| `ldap` | object | above | § LDAP settings |
+| `audit_retention_days` | int | 365 | 30–3650 |
+
+Process env (not settings): `NETMON_TRAP_PORT`, `NETMON_SYSLOG_PORT`, `NETMON_SYSLOG_TCP_PORT`,
+`NETMON_INGEST_HOST` (architecture § 4 / § 12.2.1).
+
+## [2b-3] Phase 2b-3 migration (`0006`)
+File `backend/netmon/migrations/versions/0006_phase2b3.py`, `revision = "0006"`, `down_revision = "0005"`.
+Plain PostgreSQL DDL (+ one plpgsql trigger function); no Timescale or extension calls.
+
+`upgrade()`:
+1. `sensors_type_check` re-added with the 11 types of 0005 + `'trap','syslog','port_flap'`;
+   `CREATE UNIQUE INDEX ux_sensors_event_type …`.
+2. `notification_channels_type_check` + `'teams'`; `events_kind_check` + `'notification_sent','port_change'`;
+   `CREATE INDEX ix_events_maintenance …`.
+3. `users`: `ALTER COLUMN password_hash DROP NOT NULL`, add `source` (+ check), `external_id` (+ unique partial
+   index `ux_users_external_id`), `display_name`, `ldap_dn`, `ldap_synced_at`, `users_source_password_check`.
+4. `devices`: add `source_addresses inet[] NOT NULL DEFAULT '{}'`, `event_sensor_optout text[] NOT NULL DEFAULT
+   '{}'`.
+5. `switch_ports`: add `lag_if_index integer`, `lag_attached boolean`.
+6. `alert_state`: add `flap_suppressed boolean NOT NULL DEFAULT false`.
+7. `CREATE TABLE traps`, `syslog_messages` with their checks and btree indexes (trigram indexes are created by
+   the bootstrap).
+8. `CREATE TABLE event_rules` (+ checks), seed the 4 built-in rules (English names, `enabled = false`);
+   `CREATE TABLE event_conditions` (+ indexes).
+9. `CREATE TABLE audit_log` (+ indexes), `CREATE FUNCTION netmon_audit_immutable()` and the trigger.
+10. `CREATE TABLE api_tokens`.
+
+`downgrade()` (reverse): drop `api_tokens`, the audit trigger/function and `audit_log`, `event_conditions`,
+`event_rules`, `syslog_messages`, `traps`; drop the new columns of `alert_state`, `switch_ports`, `devices`;
+`DELETE FROM users WHERE source = 'ldap'` (their FKs are SET NULL/CASCADE as today), drop the user columns,
+`SET NOT NULL` on `password_hash`; `DELETE FROM events WHERE kind IN ('notification_sent','port_change')`,
+restore `events_kind_check`; `DELETE FROM notification_channels WHERE type = 'teams'` (rule links cascade),
+restore its check; drop `ix_events_maintenance`, `ux_sensors_event_type`; `DELETE FROM sensors WHERE type IN
+('trap','syslog','port_flap')`, restore `sensors_type_check`. Settings rows stay (harmless). A Timescale
+hypertable is dropped by `DROP TABLE` like a plain table.

@@ -1,0 +1,6 @@
+#!/usr/bin/env bash
+# Fake `conntrack` for tests/test-sync.sh: records its arguments in $FAKE_STATE/conntrack.
+# Like the real tool, `-D` exits 1 when no entry matched.
+set -euo pipefail
+echo "$*" >>"${FAKE_STATE:?}/conntrack"
+exit 1

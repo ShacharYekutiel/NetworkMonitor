@@ -175,3 +175,46 @@ def mac_sort_key(m: dict[str, Any]) -> tuple[int, int, str]:
     """MAC list of a port: vlan (NULL first), then mac."""
     v = m.get("vlan")
     return (0 if v is None else 1, v or 0, m["mac"])
+
+
+# ------------------------------------------------------------------ [2b-3] LAG inheritance
+def lag_groups(rows: list[dict[str, Any]]) -> tuple[dict[int, list[int]], dict[int, int]]:
+    """(members by LAG ifIndex (sorted), LAG ifIndex by member) from the stored
+    `lag_if_index` of physical ports whose aggregator is a `lag` row of the device."""
+    lags = {int(r["if_index"]) for r in rows if r.get("kind") == "lag"}
+    members: dict[int, list[int]] = {}
+    lag_of: dict[int, int] = {}
+    for r in rows:
+        lag = r.get("lag_if_index")
+        if r.get("kind") == "physical" and lag is not None and int(lag) in lags:
+            members.setdefault(int(lag), []).append(int(r["if_index"]))
+            lag_of[int(r["if_index"])] = int(lag)
+    for lag in lags:
+        members.setdefault(lag, [])
+    return {k: sorted(v) for k, v in members.items()}, lag_of
+
+
+def merge_neighbors(*lists: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Union of neighbour lists (by link id), in the PortNeighbor order."""
+    seen: dict[int, dict[str, Any]] = {}
+    for lst in lists:
+        for n in lst:
+            seen.setdefault(int(n["link_id"]), n)
+    out = list(seen.values())
+    out.sort(key=lambda n: (0 if n["kind"] == "device" else 1, n["link_id"]))
+    return out
+
+
+def has_own_vlans(row: dict[str, Any]) -> bool:
+    return row.get("bridge_port") is not None and bool(
+        list(row.get("untagged_vlans") or []) or list(row.get("tagged_vlans") or [])
+    )
+
+
+def member_vlans(member: dict[str, Any], lag: dict[str, Any]) -> tuple[dict[str, Any], bool]:
+    """A member without a bridge port or without VLANs of its own shows its LAG's
+    pvid/mode/untagged/tagged (`vlans_from_lag`)."""
+    keys = ("pvid", "mode", "untagged_vlans", "tagged_vlans")
+    if has_own_vlans(member):
+        return {k: member.get(k) for k in keys}, False
+    return {k: lag.get(k) for k in keys}, True

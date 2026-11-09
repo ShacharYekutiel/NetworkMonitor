@@ -23,6 +23,12 @@ classification results. The lab therefore uses 127.0.0.81-.85 (same data, same o
   127.0.0.85  arp_legacy/     (contract .65) "Linux gw2 5.10": ipNetToMediaTable only
   127.0.0.86  arubaos52/      QA extra: ArubaOS 2930F-48G-4SFP+ "port-aos52", 52 physical ports (49-52 10G)
                               for the RTL/mobile faceplate overflow test
+  Phase 2b-3 LAG sims (docs/architecture.md §12.14). The contract puts the ArubaOS LAG sim on .86, which is
+  already the 2b-2 52-port sim above, so it lives on .88 (QA defect report); the Comware one is on .87:
+  127.0.0.88  lag_aos/        (contract .86) ArubaOS "lag-aos": ifIndex 1-4 + Trk1 (11); LAG-MIB
+                              dot3adAggPortAttachedAggID .3/.4 -> 11; no ifStackTable
+  127.0.0.87  lag_cw/         (contract .87) Comware "lag-cw": 1, 2, 49, 50 (50 down), Bridge-Aggregation1 (600);
+                              no LAG-MIB; ifStackStatus 600.49, 600.50, 0.600, 49.0 = active(1)
   ptr.json                    NETMON_TEST_PTR_FILE (10.0.0.11 pc-reception.lan, 10.0.0.12 phone-12.lan)
 
 snmprec tags: 2 Integer32, 4 OctetString, 4x hex OctetString, 6 OID, 64 IpAddress, 65 Counter32,
@@ -416,6 +422,51 @@ aos52 = (
     + pvids({p: 1 for p in range(1, 53)})
 )
 write("arubaos52/public.snmprec", aos52)
+
+# ------------------------------------------------------------------ [2b-3] LAG sims (§12.14)
+LAG_AGG = "1.2.840.10006.300.43.1.2.1.1.13"  # dot3adAggPortAttachedAggID (walk #13)
+IF_STACK = "1.3.6.1.2.1.31.1.2.1.3"  # ifStackStatus (walk #14)
+
+# 127.0.0.88 (contract .86) ArubaOS LAG: Trk1 = ports 3+4 (LAG-MIB only)
+lag_aos = (
+    system(ARUBA_DESCR, "1.3.6.1.4.1.11.2.3.7.11.181", "lag-aos", 60_000_000)
+    + interfaces([dict(idx=n, name=str(n), mac=f"001a1e0088{n:02x}") for n in range(1, 5)]
+                 + [dict(idx=11, name="Trk1", type=161, speed=2 * G, high=2000, mac="001a1e00880b")])
+    + base_ports({1: 1, 2: 2, 11: 11})
+    + vlan_static(
+        {
+            1: ({1, 2, 11}, {1, 2, 11}, "DEFAULT_VLAN"),
+            10: ({11}, set(), "OFFICE"),
+            20: ({11}, set(), "VOICE"),
+        },
+        2,
+    )
+    + pvids({1: 1, 2: 1, 11: 1})
+    + fdb_q([(1, "00:50:56:86:00:01", 1, 3), (1, "02:00:00:00:86:01", 11, 3), (10, "02:00:00:00:86:02", 11, 3)])
+    + [(f"{LAG_AGG}.{m}", "2", str(a)) for m, a in ((1, 0), (2, 0), (3, 11), (4, 11))]
+)
+write("lag_aos/public.snmprec", lag_aos)
+
+# 127.0.0.87 (contract .87) Comware LAG: Bridge-Aggregation1 = 49 + 50 (ifStackTable only)
+lag_cw = (
+    system(COMWARE_DESCR, "1.3.6.1.4.1.25506.11.1.177", "lag-cw", 45_000_000)
+    + interfaces([
+        dict(idx=1, name="GigabitEthernet1/0/1", descr="GigabitEthernet1/0/1 Interface", mac="3c8c40008701"),
+        dict(idx=2, name="GigabitEthernet1/0/2", descr="GigabitEthernet1/0/2 Interface", mac="3c8c40008702"),
+        dict(idx=49, name="Ten-GigabitEthernet1/0/49", descr="Ten-GigabitEthernet1/0/49 Interface", mac="3c8c40008731", **TEN_G),
+        dict(idx=50, name="Ten-GigabitEthernet1/0/50", descr="Ten-GigabitEthernet1/0/50 Interface", mac="3c8c40008732",
+             oper=2, speed=0, high=0),
+        dict(idx=600, name="Bridge-Aggregation1", descr="Bridge-Aggregation1 Interface", type=161,
+             speed=4_294_967_295, high=10_000, mac="3c8c40008760"),
+    ])
+    + base_ports({1: 1, 2: 2, 3: 600, 4: 49, 5: 50})
+    + vlan_static({1: ({1, 2, 3}, {1, 2, 3}, "VLAN 0001"), 30: ({3}, set(), "VLAN 0030")}, 1)
+    + [(f"{DOT1Q_CURRENT}.3.0.1", "66", "1"), (f"{DOT1Q_CURRENT}.3.0.30", "66", "30")]
+    + pvids({1: 1, 2: 1, 3: 1})
+    + fdb_q([(30, "00:0c:29:87:00:01", 3, 3)])
+    + [(f"{IF_STACK}.{h}.{low}", "2", "1") for h, low in ((600, 49), (600, 50), (0, 600), (49, 0))]
+)
+write("lag_cw/public.snmprec", lag_cw)
 
 (HERE / "ptr.json").write_text(json.dumps({"10.0.0.11": "pc-reception.lan", "10.0.0.12": "phone-12.lan"}, indent=2) + "\n")
 print("wrote ptr.json")

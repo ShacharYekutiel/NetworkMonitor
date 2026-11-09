@@ -28,4 +28,9 @@ async def health(rt: RT) -> dict:
         "sensors_scheduled": sched.scheduled_count if sched is not None else 0,
         "uptime_s": rt.uptime_s(),
         "test_mode": bool(rt.settings.netmon_test_mode),
+        # [2b-3]
+        "trgm": bool(getattr(rt, "trgm_enabled", False)),
+        "ingest": rt.ingest.receiver_states()
+        if getattr(rt, "ingest", None) is not None
+        else {"trap": "disabled", "syslog_udp": "disabled", "syslog_tcp": "disabled"},
     }

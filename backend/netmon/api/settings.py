@@ -5,32 +5,46 @@ from fastapi import APIRouter
 from netmon.alerts import templates
 from netmon.alerts.email import SmtpError, send_email
 from netmon.api.common import merge_secret
-from netmon.api.deps import DB, RT, Admin
+from netmon.api.deps import DB, RT, Admin, Audit, feature_on
 from netmon.api.errors import ApiError
 from netmon.db.timescale import reapply_retention
 from netmon.schemas import SettingsPut, SmtpTestIn
+from netmon.services import audit
 from netmon.services import settings as settings_svc
 
 router = APIRouter()
 
 
 @router.get("/api/settings/public")
-async def public_settings(session: DB) -> dict:
-    return {
+async def public_settings(rt: RT, session: DB) -> dict:
+    out = {
         "default_language": await settings_svc.get(session, "default_language"),
         "timezone": await settings_svc.get(session, "timezone"),
     }
+    # [2b-3] the login page shows the AD domain hint (null while AD login is off)
+    ldap_public = None
+    if feature_on(rt, "ldap"):
+        stored = await settings_svc.get(session, "ldap")
+        ldap_public = {
+            "domain": stored.get("domain") or "",
+            "netbios_domain": stored.get("netbios_domain") or "",
+        }
+    out["ldap"] = ldap_public
+    out["features"] = rt.features.snapshot()  # [2b-3]
+    return out
 
 
 @router.get("/api/settings")
-async def get_settings(_: Admin, session: DB) -> dict:
-    return settings_svc.settings_out(await settings_svc.get_all(session))
+async def get_settings(_: Admin, rt: RT, session: DB) -> dict:
+    return settings_svc.settings_out(await settings_svc.get_all(session), rt.secret_key)
 
 
 @router.put("/api/settings")
-async def put_settings(body: SettingsPut, _: Admin, rt: RT, session: DB) -> dict:
+async def put_settings(body: SettingsPut, _: Admin, rt: RT, session: DB, ctx: Audit) -> dict:
     current = await settings_svc.get_all(session)
     fields = body.model_fields_set
+    await _put_2b3_auth(body, fields, current, rt, session)
+    await _put_2b3_ingest(body, fields, current, session)
     retention_changed = False
     if "smtp" in fields and body.smtp is not None:
         smtp = dict(current["smtp"])
@@ -66,6 +80,8 @@ async def put_settings(body: SettingsPut, _: Admin, rt: RT, session: DB) -> dict
     ):
         if key in fields and getattr(body, key) is not None:
             await settings_svc.put(session, key, getattr(body, key))
+    # [2b-3] audit (same transaction): feature toggles and changed keys, secrets redacted
+    await audit.record_settings(session, ctx, current, await settings_svc.get_all(session))
     await session.commit()
     values = await settings_svc.get_all(session)
     if retention_changed and rt.timescale_enabled and rt.engine is not None:
@@ -74,7 +90,141 @@ async def put_settings(body: SettingsPut, _: Admin, rt: RT, session: DB) -> dict
         await rt.maintenance.reload()  # weekly windows move with the zone
     if topo_changed and rt.topology_scheduler is not None:
         await rt.topology_scheduler.reschedule()
-    return settings_svc.settings_out(values)
+    await _apply_2b3_ingest(rt, current, values)
+    return settings_svc.settings_out(values, rt.secret_key)
+
+
+async def _put_2b3_auth(
+    body: SettingsPut, fields: set[str], current: dict, rt: RT, session: DB
+) -> None:
+    """[2b-3] `ldap` (field-by-field merge, write-only bind password, AES-GCM at rest; 422 with
+    the missing fields when it is saved while AD login is on or AD login is turned on) and
+    `audit_retention_days`."""
+    from netmon.auth import ldap_config
+
+    new_ldap = current["ldap"]
+    if "ldap" in fields and body.ldap is not None:
+        new_ldap = ldap_config.merge(current["ldap"], body.ldap, rt.secret_key)
+        await settings_svc.put(session, "ldap", new_ldap)
+    toggled = (
+        getattr(body, "feature_ldap_enabled", None) if "feature_ldap_enabled" in fields else None
+    )
+    ldap_on = bool(current.get("feature_ldap_enabled")) if toggled is None else bool(toggled)
+    if ldap_on and ("ldap" in fields or (toggled and not current.get("feature_ldap_enabled"))):
+        errors = ldap_config.validation_errors(new_ldap, rt.secret_key)
+        if errors:
+            raise ApiError(
+                422, "validation_error", "The Active Directory settings are incomplete", errors
+            )
+    if "audit_retention_days" in fields and body.audit_retention_days is not None:
+        await settings_svc.put(session, "audit_retention_days", body.audit_retention_days)
+
+
+INGEST_PLAIN_KEYS = (
+    "trap_retention_days",
+    "syslog_retention_days",
+    "trap_community_check",
+    "ingest_unknown_sources",
+    "ingest_ignored_sources",
+    "flap_threshold",
+    "flap_window_min",
+    "flap_quiet_min",
+    "event_linkdown_scope",
+)
+
+
+async def _put_2b3_ingest(body: SettingsPut, fields: set[str], current: dict, session: DB) -> None:
+    """[2b-3] feature toggles and the ingestion keys (secret lists write-only)."""
+    from netmon.ingest.forward import new_target_id
+    from netmon.services.features import FEATURES, setting_key
+
+    for name in FEATURES:
+        key = setting_key(name)
+        if key in fields and getattr(body, key) is not None:
+            await settings_svc.put(session, key, bool(getattr(body, key)))
+    for key in INGEST_PLAIN_KEYS:
+        if key in fields and getattr(body, key) is not None:
+            await settings_svc.put(session, key, getattr(body, key))
+    # trap_communities: omitted/null keep, a list (also []) replaces
+    if "trap_communities" in fields and body.trap_communities is not None:
+        await settings_svc.put(session, "trap_communities", list(body.trap_communities))
+    # trap_v3_users: the list replaces; a key given as null/omitted keeps the stored key of the
+    # entry with the same user name, "" clears, a string replaces
+    if "trap_v3_users" in fields and body.trap_v3_users is not None:
+        stored = {u.get("username"): u for u in current.get("trap_v3_users") or []}
+        users = []
+        for u in body.trap_v3_users:
+            old = stored.get(u.username) or {}
+            item = u.model_dump()
+            for k in ("auth_key", "priv_key"):
+                item[k] = merge_secret(item.get(k), old.get(k))
+            users.append(item)
+        await settings_svc.put(session, "trap_v3_users", users)
+    if "siem_targets" in fields and body.siem_targets is not None:
+        known = {t.get("id") for t in current.get("siem_targets") or []}
+        targets = []
+        for t in body.siem_targets:
+            item = t.model_dump()
+            if not item.get("id") or item["id"] not in known:
+                item["id"] = item.get("id") or new_target_id()
+            targets.append(item)
+        ids = [t["id"] for t in targets]
+        if len(set(ids)) != len(ids):
+            raise ApiError(
+                422,
+                "validation_error",
+                "Duplicate SIEM target id",
+                [{"loc": ["body", "siem_targets"], "msg": "ids must be unique"}],
+            )
+        await settings_svc.put(session, "siem_targets", targets)
+
+
+async def _apply_2b3_ingest(rt: RT, before: dict, after: dict) -> None:
+    """[2b-3] after the commit: runtime toggles, retention policies, ingest configuration."""
+    from netmon.db.timescale import reapply_ingest_retention
+    from netmon.services.features import FEATURES, setting_key
+
+    changed_features = {
+        n: bool(after[setting_key(n)])
+        for n in FEATURES
+        if bool(before.get(setting_key(n))) != bool(after.get(setting_key(n)))
+    }
+    ingest = getattr(rt, "ingest", None)
+    if ingest is not None:
+        cfg_keys = (
+            "trap_community_check",
+            "trap_communities",
+            "trap_v3_users",
+            "ingest_unknown_sources",
+            "ingest_ignored_sources",
+            "event_linkdown_scope",
+            "flap_threshold",
+            "flap_window_min",
+            "flap_quiet_min",
+            "timezone",
+        )
+        if any(before.get(k) != after.get(k) for k in cfg_keys):
+            await ingest.reload_config()
+            if any(before.get(k) != after.get(k) for k in ("trap_communities", "trap_v3_users")):
+                await ingest.rebuild_sources()
+        if (
+            before.get("siem_targets") != after.get("siem_targets")
+            and ingest.forwarding_on
+            and "siem_forwarding" not in changed_features
+        ):
+            await ingest.set_forwarding(True)
+    if (
+        rt.timescale_enabled
+        and rt.engine is not None
+        and any(
+            before.get(k) != after.get(k) for k in ("trap_retention_days", "syslog_retention_days")
+        )
+    ):
+        rt.ingest_retention_policy_ok = await reapply_ingest_retention(
+            rt.engine, int(after["trap_retention_days"]), int(after["syslog_retention_days"])
+        )
+    if changed_features:
+        await rt.features.apply(changed_features)
 
 
 @router.post("/api/settings/smtp/test")

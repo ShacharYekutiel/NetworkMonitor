@@ -64,4 +64,6 @@ jobs:
           docker pull "$IMG"
           docker run --rm --entrypoint netmon "$IMG" --help >/dev/null
           docker run --rm --entrypoint python "$IMG" -c "import netmon, pathlib; p = pathlib.Path(netmon.__file__).parent / 'static' / 'index.html'; assert p.is_file(), p; print('ok', p)"
+          # [2b-3] AD login dependency and the unprivileged in-container ingest ports.
+          docker run --rm --entrypoint python "$IMG" -c "import os, ldap3; assert os.environ['NETMON_TRAP_PORT'] == '1162' and os.environ['NETMON_SYSLOG_PORT'] == '1514'; print('ok ldap3', ldap3.__version__)"
           echo "Published: ${{ steps.meta.outputs.tags }}" | tr '\n' ' '

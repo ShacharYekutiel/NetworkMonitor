@@ -60,8 +60,10 @@ installs PostgreSQL from the distribution, or from the PGDG repository when the 
 on RHEL. It installs TimescaleDB from the official Timescale repository, best effort. Python ≥ 3.12 comes from
 the distribution; when the distribution has none (Debian 12, Ubuntu 22.04), a standalone build is installed under
 `/opt/netmon/python`. The script then creates the `netmon` user, the venv in `/opt/netmon/venv` and
-`/var/lib/netmon/netmon.env` (mode 0600). It installs `netmon.service` with `AmbientCapabilities=CAP_NET_RAW`,
-opens the port in firewalld/ufw, and prints the URL.
+`/var/lib/netmon/netmon.env` (mode 0600). It installs `netmon.service` with
+`AmbientCapabilities=CAP_NET_RAW CAP_NET_BIND_SERVICE` (ping fallback; traps on UDP 162 and syslog on UDP/TCP 514
+without root), opens the HTTP port in firewalld/ufw, and prints the URL, the firewall lines for traps/syslog and
+any port conflict (see [Traps and syslog](#traps-and-syslog)).
 Options: `--port N`, `--no-timescale`, `--no-firewall`, `--wheel FILE`, `--source DIR`.
 
 ### 3. Native Windows (service)
@@ -79,7 +81,44 @@ SYSTEM and Administrators), and writes `netmon.env`. It registers the `NetworkMo
 taken from `deploy\windows\nssm.exe` if you put one there; otherwise it is downloaded. The service runs as
 LocalSystem with automatic start. The script then opens TCP 8080 in Windows Firewall and prints the URL. If
 PostgreSQL was already installed, pass `-PostgresSuperPassword` or type the password when prompted. Other options:
-`-Port`, `-Wheel`, `-SourceDir`, `-SkipTimescale`, `-NssmPath`.
+`-Port`, `-Wheel`, `-SourceDir`, `-SkipTimescale`, `-NssmPath`, `-IngestRemoteAddress`, `-DisableWindowsSnmpTrap`.
+It also adds the firewall rules `NetworkMonitor-Traps` (UDP 162), `NetworkMonitor-Syslog-UDP` (UDP 514) and
+`NetworkMonitor-Syslog-TCP` (TCP 514) (removed by `uninstall.ps1`; `-IngestRemoteAddress 10.0.0.0/8,LocalSubnet`
+limits the senders) and warns when the Windows **SNMP Trap** service (`SNMPTRAP`) holds UDP 162:
+`Stop-Service SNMPTRAP; Set-Service SNMPTRAP -StartupType Disabled`, or re-run with `-DisableWindowsSnmpTrap`.
+
+### Traps and syslog
+
+NetworkMonitor receives SNMP traps on **UDP 162** and syslog on **UDP and TCP 514**. Everything is **off** after
+install or upgrade, and nothing listens on those ports until an administrator turns on **Traps** / **Syslog** in
+*Settings → Features* (no server change, no restart). The status line there says "Listening on UDP 162" or the
+error (for example "Address already in use" when another program holds the port).
+
+| | Docker (`deploy/docker-compose.yml`) | Native Linux | Native Windows |
+|---|---|---|---|
+| Ports | host 162/udp → container 1162, host 514/udp+tcp → 1514 (the app is non-root). Other host ports: `NETMON_TRAP_HOST_PORT`, `NETMON_SYSLOG_HOST_PORT` in `deploy/.env` | 162 / 514 directly (`CAP_NET_BIND_SERVICE`, no root) | 162 / 514 directly |
+| Sender IP kept | yes for other machines on **Linux Docker Engine**; **no on Docker Desktop** (below) | yes | yes |
+| Firewall | ufw does **not** filter published Docker ports; see [production/README.md](production/README.md) (`DOCKER-USER`) | `ufw allow from <LAN> to any port 162 proto udp` (and 514 udp, 514 tcp) — the installer prints them | rules added by the installer |
+| Conflicts | `ss -lunpt '( sport = :162 or sport = :514 )'` (snmptrapd, rsyslog `imudp`) | same; the installer warns | Windows `SNMPTRAP` service; the installer warns |
+
+**Docker Desktop (Windows/macOS) does not keep the sender's IP address.** Its port forwarding (vpnkit / WSL2) makes
+every message look as if it came from one internal address, so messages cannot be matched to devices by address
+(only by the trap agent address or the syslog hostname), and the Logs page shows a NAT warning. Test traps and syslog
+on a Linux server (Docker Engine) or with the native Windows installer. Also on Linux, a test sent **from the Docker
+host itself** arrives from the bridge gateway (`172.x.0.1`): send from another machine.
+
+**Device configuration examples** (syntax varies by model and firmware — **verify on the device**; replace
+`10.0.0.50` with the NetworkMonitor server). Send syslog at level `warning`: `informational` logs every CLI login
+and command and fills the disk quickly (about 75 MB/day per message per second).
+
+| Device | Syslog | Traps |
+|---|---|---|
+| HPE Comware 7 (e.g. FlexFabric 5945 IRF) | `info-center enable`<br>`info-center loghost 10.0.0.50 facility local7`<br>`info-center source default loghost level warning`<br>`info-center loghost source Vlan-interface<mgmt>` | v2c: `snmp-agent target-host trap address udp-domain 10.0.0.50 params securityname <community> v2c`<br>`snmp-agent trap enable`<br>`snmp-agent trap source Vlan-interface<mgmt>`<br>v3: `snmp-agent usm-user v3 <user> <group> simple authentication-mode sha <pw> privacy-mode aes128 <pw>` + `snmp-agent target-host trap address udp-domain 10.0.0.50 params securityname <user> v3 privacy` (the same user/keys as for polling work for traps) |
+| ArubaOS-Switch | `logging 10.0.0.50`<br>`logging severity warning`<br>`logging facility local7` | `snmp-server host 10.0.0.50 community <community> trap-level all`<br>`snmp-server enable traps link-change <ports>`<br>v3: `snmpv3 notify` / `snmpv3 targetaddress` (see the switch guide) |
+| Check Point Gaia (clish) | `add syslog log-remote-address 10.0.0.50 level warning`<br>`save config`<br>(Gaia OS messages only — **not** Log Exporter firewall traffic logs, which would flood the receiver) | `add snmp traps receiver 10.0.0.50 version v2 community <community>`<br>`set snmp traps trap <name> enable`<br>`save config` |
+
+The device should send from the address NetworkMonitor monitors it on. Otherwise add the other address in the device
+form (*Additional source addresses*) or use "Assign to device" on the *Unknown sources* tab of the Logs page.
 
 ### Backup and restore
 
@@ -261,8 +300,9 @@ sudo ./install.sh                       # from an extracted release tarball
 <span dir="ltr">`/var/lib/netmon`</span> ועל הסיסמה. הסקריפט מתקין PostgreSQL, ומנסה להתקין TimescaleDB מהמאגר
 הרשמי. אם ההתקנה של TimescaleDB נכשלת, ההתקנה ממשיכה במצב PostgreSQL רגיל. הסקריפט מתקין גם Python 3.12 ומעלה.
 אחר כך הוא יוצר את המשתמש `netmon`, את סביבת ה-venv בתיקייה <span dir="ltr">`/opt/netmon/venv`</span> ואת הקובץ
-`netmon.env` עם סיסמה אקראית. בסוף הוא מתקין את השירות `netmon.service` עם ההרשאה `CAP_NET_RAW`, מפעיל אותו
-ומדפיס את הכתובת.
+`netmon.env` עם סיסמה אקראית. בסוף הוא מתקין את השירות `netmon.service` עם ההרשאות `CAP_NET_RAW` ו-`CAP_NET_BIND_SERVICE`
+(קבלת traps ו-syslog בפורטים 162 ו-514 בלי root), מפעיל אותו ומדפיס את הכתובת, את שורות ה-firewall ל-traps/syslog
+והתנגשויות פורטים (ראו "Traps ו-syslog" למטה).
 
 ### 3. Windows (שירות)
 
@@ -281,6 +321,25 @@ powershell -ExecutionPolicy Bypass -File .\deploy\windows\install.ps1
 <span dir="ltr">`%ProgramData%\NetworkMonitor`</span>. הוא רושם שירות Windows בשם `NetworkMonitor` (באמצעות
 NSSM), פותח את פורט 8080 בחומת האש ומדפיס את הכתובת. אם PostgreSQL כבר היה מותקן, הסקריפט יבקש את סיסמת המשתמש
 `postgres`. אפשר גם להעביר אותה בפרמטר `-PostgresSuperPassword`.
+הסקריפט מוסיף גם כללי חומת אש ל-traps ‏(UDP 162) ול-syslog ‏(UDP/TCP 514), ומזהיר אם שירות **SNMP Trap** של
+Windows ‏(`SNMPTRAP`) תופס את UDP 162. הפרמטר `-DisableWindowsSnmpTrap` עוצר ומנטרל אותו.
+
+### Traps ו-syslog
+
+NetworkMonitor מקבל SNMP traps ב-**UDP 162** ו-syslog ב-**UDP ו-TCP 514**. אחרי התקנה או שדרוג הכול **כבוי**,
+ושום דבר לא מאזין בפורטים האלה עד שמנהל מפעיל **Traps** / **Syslog** ב-*הגדרות ← תכונות* (בלי שינוי בשרת ובלי
+הפעלה מחדש).
+
+- **Docker:** הפורטים 162 ו-514 במחשב מועברים לפורטים 1162 ו-1514 בקונטיינר (האפליקציה לא רצה כ-root). אם תוכנה
+  אחרת במחשב כבר משתמשת בהם, אפשר לשנות ב-<span dir="ltr">`deploy/.env`</span>
+  (`NETMON_TRAP_HOST_PORT`, ‏`NETMON_SYSLOG_HOST_PORT`).
+- **Docker Desktop ‏(Windows/macOS) לא שומר את כתובת ה-IP של השולח.** כל ההודעות נראות כאילו הגיעו מכתובת פנימית
+  אחת, ולכן אי אפשר לשייך אותן למכשירים לפי כתובת, ובדף הלוגים מופיעה אזהרת NAT. בודקים traps ו-syslog על שרת
+  לינוקס או עם ההתקנה הרגילה של Windows.
+- **ufw לא מסנן פורטים ש-Docker מפרסם.** ראו [production/README.md](production/README.md) ‏(`DOCKER-USER`).
+- דוגמאות הגדרה ל-HPE Comware, ‏ArubaOS-Switch ו-Check Point Gaia נמצאות בחלק האנגלי
+  ([Traps and syslog](#traps-and-syslog)). התחביר משתנה לפי דגם וגרסה — **יש לבדוק על המכשיר**. מומלץ לשלוח syslog
+  ברמת `warning`.
 
 ### גיבוי ושחזור
 

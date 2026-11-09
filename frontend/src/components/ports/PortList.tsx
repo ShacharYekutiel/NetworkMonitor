@@ -19,6 +19,7 @@ import { AlertIcon, ColumnsIcon, SearchIcon } from '../icons';
 import { Button, Checkbox, cx, Empty, Input } from '../ui';
 import { TileGlyph } from './Faceplate';
 import { usePortText } from './text';
+import { lagMemberNames } from '../../lib/lag';
 
 const thBase =
   'whitespace-nowrap border-b border-slate-200 px-3 py-2 text-start text-xs font-medium uppercase tracking-wide text-slate-500 dark:border-slate-800';
@@ -154,7 +155,16 @@ export function PortList({
         return <span className="text-slate-400">—</span>;
       }
       case 'vlan':
-        return p.pvid ?? '—';
+        return (
+          <span>
+            {p.pvid ?? '—'}
+            {p.vlans_from_lag && (
+              <span className="ms-1 text-[10px] text-slate-500" title={t('ports.lag.vlansFromLag')}>
+                ({t('ports.lag.viaLag')})
+              </span>
+            )}
+          </span>
+        );
       case 'mode':
         return text.mode(p);
       case 'speed':
@@ -277,6 +287,32 @@ export function PortList({
                       >
                         <bdi dir="ltr">{p.name || p.descr || p.if_index}</bdi>
                       </button>
+                      {p.lag && (
+                        <span
+                          className={cx(
+                            'ms-1.5 rounded px-1 text-[10px] font-semibold',
+                            p.lag.attached === false
+                              ? 'bg-slate-100 text-slate-500 line-through dark:bg-slate-800'
+                              : 'bg-violet-100 text-violet-800 dark:bg-violet-900/50 dark:text-violet-200',
+                          )}
+                          title={
+                            p.lag.attached === false
+                              ? t('ports.lag.notActive', { name: p.lag.name })
+                              : t('ports.lag.memberOf', { name: p.lag.name })
+                          }
+                          data-testid="lag-chip"
+                        >
+                          <bdi dir="ltr">{p.lag.name}</bdi>
+                        </span>
+                      )}
+                      {p.kind === 'lag' && !!p.lag_members?.length && (
+                        <div
+                          className="text-xs font-normal text-slate-500"
+                          data-testid="lag-members"
+                        >
+                          {t('ports.lag.members', { list: lagMemberNames(p, ports).join(', ') })}
+                        </div>
+                      )}
                       {p.alias && !columns.includes('alias') && (
                         <div className="max-w-[10rem] truncate text-xs font-normal text-slate-500">
                           <bdi dir="auto">{p.alias}</bdi>

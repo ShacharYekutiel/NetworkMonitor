@@ -1,11 +1,21 @@
-import { createContext, useContext, useEffect, useMemo, useState, type ReactNode } from 'react';
+import {
+  createContext,
+  useContext,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type ReactNode,
+} from 'react';
 import { useQueryClient } from '@tanstack/react-query';
 import { LiveSocket, type WsState } from '../api/ws';
+import type { WsMessage } from '../api/types';
 import { qk } from '../api/endpoints';
 import { applyLiveMessage, cancelArpRefetch, InvalidationBatcher } from '../lib/liveCache';
 import { useAuth } from './auth';
 
 const Ctx = createContext<WsState>('closed');
+const SocketCtx = createContext<LiveSocket | null>(null);
 
 export function LiveProvider({ children }: { children: ReactNode }) {
   const qc = useQueryClient();
@@ -35,6 +45,11 @@ export function LiveProvider({ children }: { children: ReactNode }) {
           void qc.invalidateQueries({ queryKey: ['device-ports'] });
           void qc.invalidateQueries({ queryKey: ['port-detail'] });
           void qc.invalidateQueries({ queryKey: qk.deviceTemplates });
+          // [2b-3] feature toggles, rules, conditions and ingest state may have changed meanwhile.
+          void qc.invalidateQueries({ queryKey: qk.publicSettings });
+          void qc.invalidateQueries({ queryKey: ['event-rules'] });
+          void qc.invalidateQueries({ queryKey: ['conditions'] });
+          void qc.invalidateQueries({ queryKey: qk.ingestStatus });
         },
       }),
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -56,7 +71,38 @@ export function LiveProvider({ children }: { children: ReactNode }) {
     };
   }, [authState, socket, qc]);
 
-  return <Ctx.Provider value={wsState}>{children}</Ctx.Provider>;
+  return (
+    <SocketCtx.Provider value={socket}>
+      <Ctx.Provider value={wsState}>{children}</Ctx.Provider>
+    </SocketCtx.Provider>
+  );
+}
+
+/**
+ * [2b-3] Receives every WS message of the given types while mounted; when `topic` is set the
+ * server topic is subscribed for that time (reference-counted, re-sent after reconnects).
+ */
+export function useLiveMessages(
+  types: WsMessage['type'][],
+  handler: (msg: WsMessage) => void,
+  topic?: string | null,
+): void {
+  const socket = useContext(SocketCtx);
+  const ref = useRef(handler);
+  ref.current = handler;
+  const key = types.join(',');
+  useEffect(() => {
+    if (!socket) return;
+    const wanted = new Set(key.split(','));
+    const off = socket.subscribe((m) => {
+      if (wanted.has(m.type)) ref.current(m);
+    });
+    const release = topic ? socket.subscribeTopic(topic) : null;
+    return () => {
+      off();
+      release?.();
+    };
+  }, [socket, key, topic]);
 }
 
 export function useLiveState(): WsState {

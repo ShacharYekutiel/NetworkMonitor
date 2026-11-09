@@ -10,6 +10,7 @@ from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from netmon.models import Setting
+from netmon.services.features import FEATURES
 
 DEFAULTS: dict[str, Any] = {
     "smtp": {
@@ -34,7 +35,38 @@ DEFAULTS: dict[str, Any] = {
     "uplink_mac_threshold": 5,
     "port_mac_retention_days": 30,
     "reverse_dns": True,
+    # [2b-3] Active Directory (data-model § LDAP settings) and audit retention
+    "ldap": {
+        "servers": [],
+        "security": "ldaps",
+        "tls_verify": True,
+        "domain": "",
+        "netbios_domain": "",
+        "base_dn": "",
+        "bind_dn": "",
+        "bind_password_enc": None,
+        "admin_group_dn": "",
+        "viewer_group_dn": "",
+        "timeout_s": 5,
+    },
+    "audit_retention_days": 365,
+    # [2b-3] feature toggles (all OFF by default, also after an upgrade) and ingestion
+    **{f"feature_{n}_enabled": False for n in FEATURES},
+    "trap_retention_days": 30,
+    "syslog_retention_days": 30,
+    "trap_community_check": "any",
+    "trap_communities": [],
+    "trap_v3_users": [],
+    "ingest_unknown_sources": "store",
+    "ingest_ignored_sources": [],
+    "flap_threshold": 5,
+    "flap_window_min": 10,
+    "flap_quiet_min": 15,
+    "event_linkdown_scope": "important",
+    "siem_targets": [],
 }
+
+MERGED_OBJECTS = ("smtp", "ldap")  # stored objects merged over their defaults
 
 
 def defaults() -> dict[str, Any]:
@@ -48,8 +80,8 @@ def defaults() -> dict[str, Any]:
 async def get_all(session: AsyncSession) -> dict[str, Any]:
     out = defaults()
     for row in (await session.execute(select(Setting))).scalars():
-        if row.key == "smtp" and isinstance(row.value, dict):
-            out["smtp"] = {**out["smtp"], **row.value}
+        if row.key in MERGED_OBJECTS and isinstance(row.value, dict):
+            out[row.key] = {**out[row.key], **row.value}
         elif row.key in out:
             out[row.key] = row.value
     return out
@@ -59,8 +91,8 @@ async def get(session: AsyncSession, key: str) -> Any:
     row = await session.get(Setting, key)
     if row is None:
         return defaults()[key]
-    if key == "smtp":
-        return {**DEFAULTS["smtp"], **row.value}
+    if key in MERGED_OBJECTS and isinstance(row.value, dict):
+        return {**copy.deepcopy(DEFAULTS[key]), **row.value}
     return row.value
 
 
@@ -77,7 +109,11 @@ async def ensure_defaults(session: AsyncSession) -> None:
             await put(session, key, copy.deepcopy(value))
 
 
-def settings_out(values: dict[str, Any]) -> dict[str, Any]:
+def settings_out(values: dict[str, Any], secret_key: str | None = None) -> dict[str, Any]:
+    """API shape. `secret_key` lets the [2b-3] `ldap` object report an unreadable stored bind
+    password (`bind_password_unreadable`)."""
+    from netmon.auth.ldap_config import ldap_out
+
     smtp = dict(values["smtp"])
     smtp["password_set"] = bool(smtp.get("password"))
     smtp["password"] = None
@@ -106,4 +142,46 @@ def settings_out(values: dict[str, Any]) -> dict[str, Any]:
         "uplink_mac_threshold": values["uplink_mac_threshold"],
         "port_mac_retention_days": values["port_mac_retention_days"],
         "reverse_dns": values["reverse_dns"],
+        # [2b-3]
+        "ldap": ldap_out(values["ldap"], secret_key),
+        "audit_retention_days": values["audit_retention_days"],
+        **ingest_settings_out(values),
     }
+
+
+def ingest_settings_out(values: dict[str, Any]) -> dict[str, Any]:
+    """[2b-3] feature toggles and ingestion keys (secrets write-only)."""
+    out: dict[str, Any] = {
+        f"feature_{n}_enabled": bool(values[f"feature_{n}_enabled"]) for n in FEATURES
+    }
+    users = [
+        {
+            "username": u.get("username"),
+            "security_level": u.get("security_level"),
+            "auth_protocol": u.get("auth_protocol"),
+            "auth_key": None,
+            "auth_key_set": bool(u.get("auth_key")),
+            "priv_protocol": u.get("priv_protocol"),
+            "priv_key": None,
+            "priv_key_set": bool(u.get("priv_key")),
+        }
+        for u in values.get("trap_v3_users") or []
+    ]
+    out.update(
+        {
+            "trap_retention_days": values["trap_retention_days"],
+            "syslog_retention_days": values["syslog_retention_days"],
+            "trap_community_check": values["trap_community_check"],
+            "trap_communities": None,
+            "trap_communities_count": len(values.get("trap_communities") or []),
+            "trap_v3_users": users,
+            "ingest_unknown_sources": values["ingest_unknown_sources"],
+            "ingest_ignored_sources": list(values.get("ingest_ignored_sources") or []),
+            "flap_threshold": values["flap_threshold"],
+            "flap_window_min": values["flap_window_min"],
+            "flap_quiet_min": values["flap_quiet_min"],
+            "event_linkdown_scope": values["event_linkdown_scope"],
+            "siem_targets": list(values.get("siem_targets") or []),
+        }
+    )
+    return out

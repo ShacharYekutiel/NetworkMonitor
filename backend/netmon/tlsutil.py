@@ -117,3 +117,116 @@ def client_ssl_context() -> ssl.SSLContext:
 def httpx_verify(verify_tls: bool = True) -> ssl.SSLContext | bool:
     """Value for httpx's ``verify=``: the shared context, or False when disabled."""
     return client_ssl_context() if verify_tls else False
+
+
+# ---------------------------------------------------------------- [2b-3] PEM trust bundle
+_PEM_RE_BEGIN = "-----BEGIN CERTIFICATE-----"
+_PEM_RE_END = "-----END CERTIFICATE-----"
+
+
+def _pem_blocks(data: bytes) -> list[str]:
+    """PEM certificate blocks in ``data``; a DER file becomes one PEM block."""
+    if _PEM_RE_BEGIN.encode() in data:
+        text = data.decode("ascii", "ignore")
+        out = []
+        pos = 0
+        while True:
+            start = text.find(_PEM_RE_BEGIN, pos)
+            if start < 0:
+                break
+            end = text.find(_PEM_RE_END, start)
+            if end < 0:
+                break
+            end += len(_PEM_RE_END)
+            out.append(text[start:end])
+            pos = end
+        return out
+    if data[:1] == b"\x30":  # DER SEQUENCE
+        try:
+            return [ssl.DER_cert_to_PEM_cert(data).strip()]
+        except (ValueError, TypeError):
+            return []
+    return []
+
+
+def _read_file_blocks(path: str) -> list[str]:
+    try:
+        with open(path, "rb") as fh:
+            return _pem_blocks(fh.read())
+    except OSError:
+        return []
+
+
+def _os_store_blocks() -> list[str]:
+    blocks: list[str] = []
+    enum = getattr(ssl, "enum_certificates", None)  # Windows only
+    if enum is not None:
+        for store in ("ROOT", "CA"):
+            try:
+                for cert, encoding, _trust in enum(store):
+                    if encoding == "x509_asn":
+                        blocks.append(ssl.DER_cert_to_PEM_cert(cert).strip())
+            except (OSError, ssl.SSLError, ValueError):  # pragma: no cover - Windows
+                continue
+        return blocks
+    paths = ssl.get_default_verify_paths()
+    for cafile in (os.environ.get(paths.openssl_cafile_env), paths.cafile):
+        if cafile and os.path.isfile(cafile):
+            blocks.extend(_read_file_blocks(cafile))
+            break
+    capath = os.environ.get(paths.openssl_capath_env) or paths.capath
+    if capath and os.path.isdir(capath) and not blocks:
+        try:
+            names = sorted(os.listdir(capath))
+        except OSError:
+            names = []
+        for name in names:
+            full = os.path.join(capath, name)
+            if os.path.isfile(full):
+                blocks.extend(_read_file_blocks(full))
+    return blocks
+
+
+def _certifi_blocks() -> list[str]:
+    try:
+        import certifi
+    except ImportError:  # pragma: no cover
+        return []
+    return _read_file_blocks(certifi.where())
+
+
+def _extra_blocks() -> list[str]:
+    blocks: list[str] = []
+    for path in extra_ca_files():
+        got = _read_file_blocks(path)
+        if not got:
+            log.warning("Ignoring %s=%s: no certificate found", EXTRA_CA_ENV, path)
+        blocks.extend(got)
+    ca_dir = extra_ca_dir()
+    if ca_dir:
+        try:
+            names = sorted(os.listdir(ca_dir))
+        except OSError:
+            names = []
+        for name in names:
+            if name.lower().endswith(CA_SUFFIXES):
+                blocks.extend(_read_file_blocks(os.path.join(ca_dir, name)))
+    return blocks
+
+
+@functools.cache
+def trust_bundle_pem() -> str:
+    """One PEM bundle with the same trust set as :func:`client_ssl_context`: the OS store
+    (Windows ROOT/CA stores, else the default verify file/dir), certifi and the extra CAs
+    (``NETMON_EXTRA_CA_FILE`` / ``NETMON_EXTRA_CA_DIR``). Libraries that take CA data and
+    *replace* the default store (ldap3 ``Tls(ca_certs_data=…)``) use this. Duplicates are
+    removed. Call ``trust_bundle_pem.cache_clear()`` after changing the environment."""
+    seen: set[str] = set()
+    out: list[str] = []
+    for block in (*_os_store_blocks(), *_certifi_blocks(), *_extra_blocks()):
+        key = "".join(block.split())
+        if key in seen:
+            continue
+        seen.add(key)
+        out.append(block)
+    return "\n".join(out) + ("\n" if out else "")

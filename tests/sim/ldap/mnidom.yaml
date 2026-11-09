@@ -1,0 +1,76 @@
+# Fake Active Directory fixture (docs/architecture.md §12.14). Loaded by tests/sim/ldap/fake_ad.py.
+#
+# Every user's password is `default_password` unless `password` is given. DNs are built as
+#   users:  CN=<cn or sam>,<ou or users_ou>,<base_dn>
+#   groups: CN=<name>,<ou or groups_ou>,<base_dn>
+# `groups` lists DIRECT memberships (user -> group, group -> group); `member` / `memberOf` are derived.
+# `uac` = userAccountControl (512 normal, 514 = 512 | ACCOUNTDISABLE), `computed` =
+# msDS-User-Account-Control-Computed (0x10 LOCKOUT, 0x800000 PASSWORD_EXPIRED), `bind_error` = the AD
+# "data XXX" code returned to a simple bind with the right password (52e is always returned for a wrong one,
+# except that `bind_error_always: true` returns it for any password, like a locked account in AD).
+domain: mnidom.net
+netbios_domain: MNIDOM
+base_dn: DC=mnidom,DC=net
+users_ou: OU=Users,OU=Mnidom
+groups_ou: OU=Groups
+default_password: Passw0rd!
+
+groups:
+  - name: NetMon-Admins
+    description: NetworkMonitor administrators
+  - name: NetMon-Viewers
+    description: NetworkMonitor viewers
+  - name: IT-Team
+    groups: [NetMon-Admins]          # nested: IT-Team is a member of NetMon-Admins
+  - name: Helpdesk
+    groups: [IT-Team]                # two levels: Helpdesk -> IT-Team -> NetMon-Admins
+  - name: Domain Users
+
+users:
+  - sam: svc-netmon
+    cn: svc-netmon
+    ou: OU=Service Accounts,OU=Mnidom
+    display_name: NetworkMonitor service account
+    groups: [Domain Users]
+  - sam: jdoe
+    cn: John Doe
+    upn: John.Doe@mnidom.net
+    display_name: John Doe
+    mail: john.doe@mnidom.net
+    groups: [NetMon-Viewers, Domain Users]
+  - sam: asmith
+    cn: Alice Smith
+    display_name: Alice Smith
+    mail: alice.smith@mnidom.net
+    groups: [IT-Team, Domain Users]
+  - sam: bhelp
+    cn: Bob Help
+    display_name: Bob Help
+    groups: [Helpdesk]
+  - sam: nogroup
+    cn: No Group
+    display_name: No Group
+    groups: [Domain Users]
+  - sam: olduser
+    cn: Old User
+    display_name: Old User
+    uac: 514
+    bind_error: "533"
+    groups: [NetMon-Viewers]
+  - sam: lockeduser
+    cn: Locked User
+    display_name: Locked User
+    computed: 0x10
+    bind_error: "775"
+    bind_error_always: true
+    groups: [NetMon-Viewers]
+  - sam: expired
+    cn: Expired Password
+    display_name: Expired Password
+    computed: 0x800000
+    bind_error: "532"
+    groups: [NetMon-Viewers]
+  - sam: "star*user"
+    cn: Star User
+    display_name: Star User
+    groups: [NetMon-Viewers]

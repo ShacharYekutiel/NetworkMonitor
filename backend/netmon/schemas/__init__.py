@@ -9,6 +9,9 @@ from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
+from netmon.auth.ldap_config import LdapSettingsIn
+from netmon.schemas.ingest import IngestSettingsMixin, source_addresses
+
 USERNAME_RE = re.compile(r"^[A-Za-z0-9._-]{3,64}$")
 EMAIL_RE = re.compile(r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
 
@@ -63,8 +66,9 @@ class SetupIn(_In):
 
 
 class LoginIn(_In):
-    username: str = Field(max_length=64)
-    password: str = Field(max_length=128)
+    # [2b-3] AD names: `user`, `DOMAIN\\user`, `user@suffix` (1-256 chars)
+    username: str = Field(min_length=1, max_length=256)
+    password: str = Field(max_length=1024)
 
 
 class MePatch(_In):
@@ -212,8 +216,10 @@ class DeviceCreate(_In):
     dependency: DependencyIn | None = None
     port_inventory: InventoryMode = "auto"  # [2b-2]
     arp_collect: InventoryMode = "auto"  # [2b-2]
+    source_addresses: list[str] = Field(default_factory=list)  # [2b-3]
 
     _h = field_validator("host")(lambda cls, v: _host(v))
+    _sa = field_validator("source_addresses")(lambda cls, v: source_addresses(v))
 
 
 class DevicePatch(_In):
@@ -227,6 +233,9 @@ class DevicePatch(_In):
     dependency: DependencyIn | None = None
     port_inventory: InventoryMode | None = None  # [2b-2]
     arp_collect: InventoryMode | None = None  # [2b-2]
+    source_addresses: list[str] | None = None  # [2b-3]
+
+    _sa = field_validator("source_addresses")(lambda cls, v: source_addresses(v))
 
     @field_validator("port_inventory", "arp_collect")
     @classmethod
@@ -279,7 +288,7 @@ class SensorTestIn(_In):
 
 
 # ---------------------------------------------------------------- notifications / alerts
-ChannelType = Literal["email", "webhook", "telegram"]
+ChannelType = Literal["email", "webhook", "telegram", "teams"]
 
 
 class NotificationChannelCreate(_In):
@@ -354,6 +363,27 @@ class TelegramConfig(BaseModel):
         v = v.strip()
         if not TELEGRAM_CHAT_RE.match(v):
             raise ValueError("must be a numeric chat id or @channelname")
+        return v
+
+
+class TeamsConfig(BaseModel):
+    """[2b-3] Teams Workflows webhook. `url` is a write-only secret (None = keep on PATCH)."""
+
+    model_config = ConfigDict(extra="forbid")
+    url: str | None = Field(default=None, max_length=2048)
+    # response-only keys a client may echo back; ignored
+    url_set: bool | None = None
+    url_host: str | None = None
+    legacy: bool | None = None
+
+    @field_validator("url")
+    @classmethod
+    def _url(cls, v: str | None) -> str | None:
+        if v is None or v == "":
+            return v
+        v = validate_http_url(v)
+        if not v.lower().startswith("https://"):
+            raise ValueError("must start with https://")
         return v
 
 
@@ -484,7 +514,7 @@ class SmtpIn(_In):
         return _email(v)
 
 
-class SettingsPut(_In):
+class SettingsPut(_In, IngestSettingsMixin):
     smtp: SmtpIn | None = None
     retention_days: int | None = Field(default=None, ge=1, le=3650)
     event_retention_days: int | None = Field(default=None, ge=1, le=3650)
@@ -498,6 +528,9 @@ class SettingsPut(_In):
     uplink_mac_threshold: int | None = Field(default=None, ge=1, le=1000)
     port_mac_retention_days: int | None = Field(default=None, ge=1, le=365)
     reverse_dns: bool | None = None
+    # [2b-3] Active Directory (merged field by field) and audit retention
+    ldap: LdapSettingsIn | None = None
+    audit_retention_days: int | None = Field(default=None, ge=30, le=3650)
 
     _tzv = field_validator("timezone")(lambda cls, v: _tz(v))
 

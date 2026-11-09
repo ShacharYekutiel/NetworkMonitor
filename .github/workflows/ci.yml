@@ -68,6 +68,15 @@ jobs:
           python -m pip install --upgrade pip
           pip install -e ".[dev]"
 
+      # [2b-3] The syslog/trap text search uses pg_trgm (contrib). Both service images ship
+      # it; fail fast with a clear message if an image ever drops it.
+      - name: DB service provides pg_trgm
+        env:
+          PGPASSWORD: netmon
+        run: |
+          test "$(psql -h localhost -U netmon -d netmon -Atc "SELECT count(*) FROM pg_available_extensions WHERE name = 'pg_trgm'")" = 1 \
+            || { echo "::error::pg_trgm is not available in ${{ matrix.db.image }}"; exit 1; }
+
       - name: Lint (ruff)
         run: |
           ruff format --check .
@@ -187,6 +196,27 @@ jobs:
           done
           [ "$s" = healthy ]
 
+      # [2b-3] Ports 162/udp and 514/udp+tcp are published, but nothing listens until the
+      # features are turned on through the API (= Settings -> Features), without a restart.
+      - name: Traps and syslog (published ports, feature toggles)
+        run: |
+          set -eu
+          # AD login dependency (ldap3) made it into the image.
+          $COMPOSE exec -T netmon python -c 'import ldap3; print("ldap3", ldap3.__version__)'
+          curl -fsS http://localhost:8080/api/health -o health.json
+          python3 - <<'EOF'
+          import json
+          h = json.load(open("health.json"))
+          assert h["trgm"] is True, h
+          assert all(v == "disabled" for v in h["ingest"].values()), h
+          print("ingest off by default:", h["ingest"])
+          EOF
+          curl -fsS -b cookies.txt -X PUT -H 'Content-Type: application/json' \
+            -d '{"feature_traps_enabled": true, "feature_syslog_enabled": true}' \
+            http://localhost:8080/api/settings -o /dev/null
+          python3 .github/scripts/ingest-check.py listening
+          python3 .github/scripts/ingest-check.py send-and-find
+
       - name: Restart keeps data and password
         run: |
           $COMPOSE down
@@ -194,6 +224,8 @@ jobs:
           curl -fsS --retry 30 --retry-delay 2 --retry-all-errors http://localhost:8080/api/health
           # Same DB password (init keeps it) and the admin created above still exists.
           curl -fsS http://localhost:8080/api/setup/status | grep -q '"setup_required":false'
+          # [2b-3] The feature toggles survive the restart: the receivers listen again.
+          python3 .github/scripts/ingest-check.py listening
 
       - name: Logs
         if: always()

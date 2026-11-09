@@ -37,6 +37,8 @@ export type ApiErrorDetail = {
   effective_class?: string;
   /** [2b-2] ports_refresh_running */
   device_id?: number;
+  /** [2b-3] feature_disabled */
+  feature?: string;
 };
 export type ApiErrorEnvelope = {
   error: { code: string; message: string; details: ApiErrorDetail[] | null };
@@ -51,7 +53,13 @@ export type User = {
   is_active: boolean;
   last_login_at: string | null;
   created_at: string;
+  /** [2b-3] (absent on older servers → local) */
+  source?: UserSource;
+  display_name?: string | null;
+  ldap_synced_at?: string | null;
 };
+/** [2b-3] */
+export type UserSource = 'local' | 'ldap';
 
 export type SnmpVersion = 'v1' | 'v2c' | 'v3';
 export type SnmpSecurityLevel = 'noAuthNoPriv' | 'authNoPriv' | 'authPriv';
@@ -128,6 +136,12 @@ export type Device = {
   ports_effective: boolean;
   arp_effective: boolean;
   effective_class: DeviceClass;
+  /** [2b-3] additional sender IPs (≤ 16) */
+  source_addresses?: string[];
+  /** [2b-3] read-only */
+  source_address_conflicts?: { address: string; device_id: number; device_name: string }[];
+  /** [2b-3] read-only */
+  event_sensor_optout?: EventSensorType[];
   created_at: string;
   updated_at: string;
 };
@@ -147,7 +161,13 @@ export type SensorType =
   | 'dns'
   | 'snmp_custom' // [2a]
   | 'snmp_disk' // [2a]
-  | 'snmp_walk_count'; // [2b-2]
+  | 'snmp_walk_count' // [2b-2]
+  | 'trap' // [2b-3] passive event sensors
+  | 'syslog'
+  | 'port_flap';
+/** [2b-3] */
+export type EventSensorType = 'trap' | 'syslog' | 'port_flap';
+export const EVENT_SENSOR_TYPES: EventSensorType[] = ['trap', 'syslog', 'port_flap'];
 
 export const SENSOR_TYPES: SensorType[] = [
   'ping',
@@ -161,6 +181,9 @@ export const SENSOR_TYPES: SensorType[] = [
   'snmp_custom',
   'snmp_disk',
   'snmp_walk_count',
+  'trap',
+  'syslog',
+  'port_flap',
 ];
 
 export type Channel = {
@@ -212,7 +235,9 @@ export type EventKind =
   | 'system'
   | 'discovery'
   | 'acknowledge' // [2b-1]
-  | 'maintenance'; // [2b-1]
+  | 'maintenance' // [2b-1]
+  | 'notification_sent' // [2b-3]
+  | 'port_change'; // [2b-3]
 export const EVENT_KINDS: EventKind[] = [
   'status_change',
   'notification',
@@ -220,6 +245,8 @@ export const EVENT_KINDS: EventKind[] = [
   'discovery',
   'acknowledge',
   'maintenance',
+  'notification_sent',
+  'port_change',
 ];
 
 export type NmEvent = {
@@ -255,6 +282,9 @@ export type Health = {
   poller: 'running' | 'stopped';
   sensors_scheduled: number;
   uptime_s: number;
+  /** [2b-3] */
+  trgm?: boolean;
+  ingest?: { trap: ReceiverState; syslog_udp: ReceiverState; syslog_tcp: ReceiverState };
 };
 
 // Tree
@@ -334,6 +364,8 @@ export type SensorTypeDef = {
   primary_channel: string;
   config_fields: ConfigField[];
   channels: ChannelDef[];
+  /** [2b-3] event sensors: not polled, no run/test */
+  passive?: boolean;
 };
 
 export type SnmpInterface = {
@@ -404,14 +436,22 @@ export type TelegramChannelConfigInput = {
   parse_mode: 'HTML' | null;
   disable_notification: boolean;
 };
-export type NotificationType = 'email' | 'webhook' | 'telegram';
-export const NOTIFICATION_TYPES: NotificationType[] = ['email', 'webhook', 'telegram'];
+/** [2b-3] url is a write-only secret */
+export type TeamsChannelConfig = {
+  url: null;
+  url_set: boolean;
+  url_host: string | null;
+  legacy: boolean;
+};
+export type TeamsChannelConfigInput = { url?: string | null };
+export type NotificationType = 'email' | 'webhook' | 'telegram' | 'teams';
+export const NOTIFICATION_TYPES: NotificationType[] = ['email', 'webhook', 'telegram', 'teams'];
 export type NotificationChannel = {
   id: number;
   name: string;
   type: NotificationType;
   enabled: boolean;
-  config: EmailChannelConfig | WebhookChannelConfig | TelegramChannelConfig;
+  config: EmailChannelConfig | WebhookChannelConfig | TelegramChannelConfig | TeamsChannelConfig;
   created_at: string;
   updated_at: string;
 };
@@ -463,9 +503,15 @@ export type Settings = {
   port_mac_retention_days: number;
   /** [2b-2] */
   reverse_dns: boolean;
-};
-export type SettingsInput = Partial<Omit<Settings, 'smtp'>> & {
+} & Partial<Settings2b3>;
+export type SettingsInput = Partial<
+  Omit<Settings, 'smtp' | 'trap_communities' | 'trap_v3_users' | 'ldap' | 'trap_communities_count'>
+> & {
   smtp?: Partial<Omit<SmtpSettings, 'password' | 'password_set'>> & { password?: string | null };
+  /** [2b-3] omitted/null keep, a list (also []) replaces */
+  trap_communities?: string[] | null;
+  trap_v3_users?: TrapV3UserInput[];
+  ldap?: LdapSettingsInput;
 };
 
 export type TestResult = { ok: boolean; message: string };
@@ -511,7 +557,9 @@ export type WsMessage =
           | 'notification_channel'
           | 'discovery_profile'
           | 'maintenance_window' // [2b-1]
-          | 'topology_link'; // [2b-1]
+          | 'topology_link' // [2b-1]
+          | 'event_rule' // [2b-3]
+          | 'api_token'; // [2b-3]
         id: number;
         action: 'created' | 'updated' | 'deleted';
       };
@@ -555,7 +603,13 @@ export type WsMessage =
       ts: string;
       data: { loaded_at: string; count: number; error_count: number };
     }
-  | { type: 'pong'; ts: string; data: Record<string, never> };
+  | { type: 'pong'; ts: string; data: Record<string, never> }
+  // [2b-3]
+  | { type: 'subscribed'; ts: string; data: { topics: string[] } }
+  | { type: 'syslog.batch'; ts: string; data: { items: SyslogMessage[]; skipped: number } }
+  | { type: 'trap.batch'; ts: string; data: { items: Trap[]; skipped: number } }
+  | { type: 'features.changed'; ts: string; data: { features: Features } }
+  | { type: 'ingest.receiver'; ts: string; data: { receiver: ReceiverStatus } };
 
 // ---------------------------------------------------------------------------
 // [2a] Discovery, device templates, snmp storage
@@ -1153,6 +1207,8 @@ export type PortMac = {
   device_name: string | null;
   first_seen: string;
   last_seen: string;
+  /** [2b-3] learned on the port's LAG */
+  via_lag?: boolean;
 };
 
 export type PortNeighbor = {
@@ -1210,6 +1266,10 @@ export type Port = {
   sensor_id: number | null;
   sensor_status: Status | null;
   collected_at: string;
+  /** [2b-3] LAG membership (null/[]/false while the `lag` feature is off) */
+  lag?: { if_index: number; name: string; attached: boolean | null } | null;
+  lag_members?: number[];
+  vlans_from_lag?: boolean;
 };
 
 export type PortDetail = Port & {
@@ -1255,7 +1315,11 @@ export type PortInventoryStatus = {
     fdb: SourceState;
     poe: SourceState;
     arp: SourceState;
+    /** [2b-3] */
+    lag?: SourceState;
   };
+  /** [2b-3] */
+  lag_mib?: 'ieee8023' | 'if_stack' | 'both' | null;
   fdb_mib: 'q_bridge' | 'bridge' | null;
   vlan_mib: 'static' | 'current' | null;
   ports: number;
@@ -1298,6 +1362,8 @@ export type MacLocation = {
   last_seen: string;
   /** the most likely access port of this MAC (≤ 1 per MAC) */
   best: boolean;
+  /** [2b-3] member port names when `port` is a LAG */
+  lag_members?: string[];
 };
 export type ArpHit = {
   ip: string;
@@ -1315,4 +1381,480 @@ export type MacSearchResult = {
   items: MacLocation[];
   /** ≤ 50 */
   arp: ArpHit[];
+};
+
+// ---------------------------------------------------------------------------
+// [2b-3] Feature toggles, traps, syslog, event rules, ingest, LDAP, audit, timeline, tokens
+
+export type FeatureName =
+  | 'traps'
+  | 'syslog'
+  | 'event_alerts'
+  | 'lag'
+  | 'ldap'
+  | 'audit'
+  | 'timeline'
+  | 'flapping'
+  | 'siem_forwarding';
+export const FEATURE_NAMES: FeatureName[] = [
+  'traps',
+  'syslog',
+  'event_alerts',
+  'flapping',
+  'siem_forwarding',
+  'lag',
+  'ldap',
+  'audit',
+  'timeline',
+];
+export type Features = Record<FeatureName, boolean>;
+
+export type PublicSettings = {
+  default_language: Language;
+  timezone?: string;
+  /** [2b-3] */
+  features?: Partial<Features>;
+  ldap?: { domain: string; netbios_domain: string } | null;
+};
+
+export type ReceiverState = 'listening' | 'disabled' | 'error';
+
+/** Cursor page (traps, syslog, timeline). */
+export type CursorPage<T> = { items: T[]; next_cursor: string | null; limit: number };
+
+export type TrapVarbind = {
+  oid: string;
+  name: string | null;
+  type: string;
+  value: string;
+  display: string;
+};
+export type TrapVersion = 'v1' | 'v2c' | 'v3';
+export type Trap = {
+  id: number;
+  time: string;
+  source_ip: string;
+  agent_addr: string | null;
+  device_id: number | null;
+  device_name: string | null;
+  version: TrapVersion;
+  pdu: 'trap' | 'inform';
+  security_name: string | null;
+  trap_oid: string;
+  trap_name: string | null;
+  uptime_ticks: number | null;
+  summary: string;
+  varbinds: TrapVarbind[];
+  matched_rule_ids: number[];
+};
+export type TopSource = {
+  device_id: number | null;
+  device_name: string | null;
+  source_ip: string;
+  count: number;
+};
+export type TrapStats = {
+  since: string;
+  until: string;
+  bucket_s: number;
+  buckets: { t: string; count: number }[];
+  total: number;
+  top_sources: TopSource[];
+  top_traps: { trap_oid: string; trap_name: string | null; count: number }[];
+};
+
+export type SyslogMessage = {
+  id: number;
+  time: string;
+  device_time: string | null;
+  source_ip: string;
+  device_id: number | null;
+  device_name: string | null;
+  transport: 'udp' | 'tcp';
+  format: 'rfc5424' | 'rfc3164' | 'raw';
+  facility: number;
+  severity: number;
+  hostname: string;
+  program: string;
+  pid: string;
+  msgid: string;
+  structured_data: string | null;
+  message: string;
+  truncated: boolean;
+  matched_rule_ids: number[];
+};
+export type SyslogStats = {
+  since: string;
+  until: string;
+  bucket_s: number;
+  /** counts: 8 entries, index = severity */
+  buckets: { t: string; counts: number[] }[];
+  total: number;
+  by_severity: number[];
+  top_sources: TopSource[];
+  top_programs: { program: string; count: number }[];
+};
+
+export type IngestReceiverKind = 'trap' | 'syslog_udp' | 'syslog_tcp';
+export type ReceiverStatus = {
+  kind: IngestReceiverKind;
+  port: number;
+  enabled: boolean;
+  state: ReceiverState;
+  error: string | null;
+  since: string | null;
+};
+export const DROP_REASONS = [
+  'rate_limited',
+  'queue_full',
+  'too_large',
+  'parse_error',
+  'ignored_source',
+  'unknown_source',
+  'bad_community',
+  'v3_auth',
+  'unsupported',
+  'db_error',
+] as const;
+export type DropReason = (typeof DROP_REASONS)[number];
+export type IngestCounters = {
+  received: number;
+  stored: number;
+  forwarded: number;
+  dropped: Record<DropReason, number>;
+};
+export type ForwarderState = 'connected' | 'connecting' | 'idle' | 'error' | 'disabled';
+export type ForwarderStatus = {
+  id: string;
+  name: string;
+  state: ForwarderState;
+  sent: number;
+  dropped: number;
+  errors: number;
+  queue: number;
+  last_error: string | null;
+};
+export type IngestStatus = {
+  receivers: ReceiverStatus[];
+  counters_since: string;
+  counters: { trap: IngestCounters; syslog: IngestCounters };
+  rate_per_min: { trap: number; syslog: number };
+  queue: { trap: number; syslog: number; capacity: number };
+  tcp_connections: number;
+  nat_suspected: boolean;
+  nat_address: string | null;
+  v3_failures: {
+    time: string;
+    source_ip: string;
+    engine_id: string;
+    username: string;
+    reason: string;
+  }[];
+  forwarders: ForwarderStatus[];
+  trgm: boolean;
+  timescale: boolean;
+};
+export type UnknownSource = {
+  source_ip: string;
+  syslog_count: number;
+  trap_count: number;
+  last_seen: string;
+  last_hostname: string;
+  ignored: boolean;
+};
+
+export type EventRuleKind = 'trap' | 'syslog';
+export type EventRuleAction = 'warning' | 'down' | 'ignore';
+export const EVENT_RULE_ACTIONS: EventRuleAction[] = ['warning', 'down', 'ignore'];
+export type RuleScope = 'global' | 'group' | 'device';
+export type VarbindOp = 'eq' | 'ne' | 'contains' | 'regex' | 'exists' | 'absent';
+export const VARBIND_OPS: VarbindOp[] = ['eq', 'ne', 'contains', 'regex', 'exists', 'absent'];
+export type TrapMatch = {
+  trap_oids: string[];
+  varbinds: { oid: string; op: VarbindOp; value: string | null }[];
+  ports: 'any' | 'important';
+};
+export type SyslogMatch = {
+  severity_max: number | null;
+  facilities: number[];
+  programs: string[];
+  text: string | null;
+  text_regex: boolean;
+};
+export type EventRule = {
+  id: number;
+  name: string;
+  kind: EventRuleKind;
+  enabled: boolean;
+  builtin: string | null;
+  priority: number;
+  scope: RuleScope;
+  group_id: number | null;
+  device_id: number | null;
+  scope_name: string | null;
+  match: TrapMatch | SyslogMatch;
+  action: EventRuleAction;
+  key_varbind_oid: string | null;
+  key_regex: string | null;
+  clear_match: TrapMatch | SyslogMatch | null;
+  clear_after_min: number | null;
+  active_conditions: number;
+  last_matched_at: string | null;
+  created_at: string;
+  updated_at: string;
+};
+export type EventRuleInput = {
+  name?: string;
+  kind?: EventRuleKind;
+  enabled?: boolean;
+  priority?: number;
+  scope?: RuleScope;
+  group_id?: number | null;
+  device_id?: number | null;
+  match?: TrapMatch | SyslogMatch;
+  action?: EventRuleAction;
+  key_varbind_oid?: string | null;
+  key_regex?: string | null;
+  clear_match?: TrapMatch | SyslogMatch | null;
+  clear_after_min?: number | null;
+};
+export type RuleTestItem = {
+  kind: EventRuleKind;
+  id: number;
+  time: string;
+  device_name: string | null;
+  text: string;
+  result: 'raise' | 'clear' | 'ignore';
+  key: string;
+};
+export type RuleTestResult = {
+  scanned: number;
+  matched: number;
+  cleared: number;
+  items: RuleTestItem[];
+};
+
+export type EventCondition = {
+  id: number;
+  source: 'rule' | 'flap';
+  rule_id: number | null;
+  rule_name: string | null;
+  key: string;
+  status: 'warning' | 'down';
+  first_at: string;
+  last_at: string;
+  count: number;
+  message: string;
+  last_kind: EventRuleKind | null;
+  last_ref_id: number | null;
+  expires_at: string | null;
+};
+
+export type SiemProtocol = 'udp' | 'tcp' | 'tls';
+export type SiemTarget = {
+  /** server-generated; absent on a new entry */
+  id?: string;
+  name: string;
+  enabled: boolean;
+  host: string;
+  port: number;
+  protocol: SiemProtocol;
+  tls_verify: boolean;
+  kinds: EventRuleKind[];
+  min_severity: number;
+  sources: string[];
+  include_unknown: boolean;
+};
+
+export type TrapV3User = {
+  username: string;
+  security_level: SnmpSecurityLevel;
+  auth_protocol: SnmpAuthProtocol | null;
+  auth_key: null;
+  auth_key_set: boolean;
+  priv_protocol: SnmpPrivProtocol | null;
+  priv_key: null;
+  priv_key_set: boolean;
+};
+export type TrapV3UserInput = {
+  username: string;
+  security_level: SnmpSecurityLevel;
+  auth_protocol: SnmpAuthProtocol | null;
+  /** null/omitted keep (same username), "" clears, a string replaces */
+  auth_key?: string | null;
+  priv_protocol: SnmpPrivProtocol | null;
+  priv_key?: string | null;
+};
+
+export type LdapSecurity = 'ldaps' | 'starttls';
+export type LdapSettings = {
+  servers: string[];
+  security: LdapSecurity;
+  tls_verify: boolean;
+  domain: string;
+  netbios_domain: string;
+  base_dn: string;
+  bind_dn: string;
+  bind_password: null;
+  bind_password_set: boolean;
+  bind_password_unreadable: boolean;
+  admin_group_dn: string;
+  viewer_group_dn: string;
+  timeout_s: number;
+};
+export type LdapSettingsInput = Partial<
+  Omit<LdapSettings, 'bind_password' | 'bind_password_set' | 'bind_password_unreadable'>
+> & { bind_password?: string | null };
+
+export type Settings2b3 = {
+  feature_traps_enabled: boolean;
+  feature_syslog_enabled: boolean;
+  feature_event_alerts_enabled: boolean;
+  feature_lag_enabled: boolean;
+  feature_ldap_enabled: boolean;
+  feature_audit_enabled: boolean;
+  feature_timeline_enabled: boolean;
+  feature_flapping_enabled: boolean;
+  feature_siem_forwarding_enabled: boolean;
+  trap_retention_days: number;
+  syslog_retention_days: number;
+  audit_retention_days: number;
+  trap_community_check: 'any' | 'known';
+  trap_communities: null;
+  trap_communities_count: number;
+  trap_v3_users: TrapV3User[];
+  ingest_unknown_sources: 'store' | 'drop';
+  ingest_ignored_sources: string[];
+  flap_threshold: number;
+  flap_window_min: number;
+  flap_quiet_min: number;
+  /** [2b-3] owner decision: link-down/up and flapping alerts for important ports only, or all */
+  event_linkdown_scope: 'important' | 'all';
+  siem_targets: SiemTarget[];
+  ldap: LdapSettings;
+};
+
+export type LdapServerResult = {
+  server: string;
+  ok: boolean;
+  security: LdapSecurity;
+  latency_ms: number | null;
+  tls: { subject: string; issuer: string; not_after: string; verified: boolean } | null;
+  active_directory: boolean;
+  error: string | null;
+};
+export type LdapTestResult = {
+  ok: boolean;
+  discovered_via_dns: boolean;
+  servers: LdapServerResult[];
+  service_bind: { ok: boolean; error: string | null };
+  base_dn: { ok: boolean; error: string | null };
+  admin_group: { dn: string; found: boolean } | null;
+  viewer_group: { dn: string; found: boolean } | null;
+  message: string;
+};
+export type LdapStep =
+  'connect' | 'service_bind' | 'search_user' | 'account_state' | 'user_bind' | 'groups';
+export const LDAP_STEPS: LdapStep[] = [
+  'connect',
+  'service_bind',
+  'search_user',
+  'account_state',
+  'user_bind',
+  'groups',
+];
+export type LdapUserTestResult = {
+  ok: boolean;
+  steps: { step: LdapStep; ok: boolean; detail: string; server: string | null }[];
+  user: {
+    dn: string;
+    sam_account_name: string;
+    user_principal_name: string | null;
+    display_name: string | null;
+    mail: string | null;
+    disabled: boolean;
+    locked: boolean;
+  } | null;
+  role: Role | null;
+  reason: string | null;
+};
+export const LOGIN_FAILURE_REASONS = [
+  'bad_password',
+  'unknown_user',
+  'inactive',
+  'empty_password',
+  'not_in_group',
+  'account_disabled',
+  'account_locked',
+  'account_expired',
+  'password_expired',
+  'password_must_change',
+  'not_permitted',
+  'ambiguous_user',
+  'ldap_disabled',
+  'directory_unavailable',
+  'rate_limited',
+  'token_invalid',
+] as const;
+
+export type ActorType = 'user' | 'token' | 'system' | 'anonymous';
+export type AuditEntry = {
+  id: number;
+  time: string;
+  actor_type: ActorType;
+  actor_user_id: number | null;
+  actor_name: string;
+  token_id: number | null;
+  ip: string | null;
+  action: string;
+  entity_type: string | null;
+  entity_id: number | null;
+  entity_name: string | null;
+  device_id: number | null;
+  source: 'local' | 'ldap' | 'token' | null;
+  reason: string | null;
+  changes: Record<string, [unknown, unknown]>;
+};
+
+export type TimelineKind =
+  'status' | 'notification' | 'ack' | 'maintenance' | 'trap' | 'syslog' | 'port' | 'audit';
+export const TIMELINE_KINDS: TimelineKind[] = [
+  'status',
+  'notification',
+  'ack',
+  'maintenance',
+  'trap',
+  'syslog',
+  'port',
+  'audit',
+];
+export type TimelineItem = {
+  kind: TimelineKind;
+  id: number;
+  time: string;
+  title: string;
+  status: Status | null;
+  old_status: Status | null;
+  severity: number | null;
+  sensor_id: number | null;
+  sensor_name: string | null;
+  message: string;
+  ref: { type: 'event' | 'trap' | 'syslog' | 'audit'; id: number };
+  actor: string | null;
+};
+
+export type ApiTokenState = 'active' | 'expired' | 'revoked';
+export type ApiToken = {
+  id: number;
+  name: string;
+  prefix: string;
+  role: Role;
+  user_id: number;
+  username: string;
+  created_at: string;
+  expires_at: string;
+  last_used_at: string | null;
+  last_used_ip: string | null;
+  revoked_at: string | null;
+  state: ApiTokenState;
 };

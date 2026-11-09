@@ -34,6 +34,52 @@ import { PortsTab } from '../components/ports/PortsTab';
 import { PortIcon } from '../components/icons';
 import { cx } from '../components/ui';
 import { useSensorTypes } from '../hooks/queries';
+import { useFeatures } from '../hooks/features';
+import { ClockIcon, LogsIcon } from '../components/icons';
+import { TimelineTab } from '../components/timeline/TimelineTab';
+import { SyslogView } from '../components/logs/SyslogView';
+import { TrapsView } from '../components/logs/TrapsView';
+
+type DeviceTab = 'ports' | 'sensors' | 'logs' | 'timeline';
+
+/** [2b-3] Device "Logs" tab: syslog / traps tables pre-filtered by the device. */
+function DeviceLogs({ deviceId }: { deviceId: number }) {
+  const { t } = useTranslation();
+  const { features } = useFeatures();
+  const [kind, setKind] = useState<'syslog' | 'traps'>(features.syslog ? 'syslog' : 'traps');
+  const k =
+    kind === 'syslog' && !features.syslog
+      ? 'traps'
+      : kind === 'traps' && !features.traps
+        ? 'syslog'
+        : kind;
+  return (
+    <div className="space-y-3">
+      {features.syslog && features.traps && (
+        <div
+          className="inline-flex rounded-md ring-1 ring-slate-300 dark:ring-slate-600"
+          role="group"
+        >
+          {(['syslog', 'traps'] as const).map((x) => (
+            <button
+              key={x}
+              type="button"
+              aria-pressed={k === x}
+              onClick={() => setKind(x)}
+              className={cx(
+                'px-3 py-1 text-xs first:rounded-s-md last:rounded-e-md',
+                k === x ? 'bg-sky-600 text-white' : 'hover:bg-slate-100 dark:hover:bg-slate-800',
+              )}
+            >
+              {t(`logs.tab.${x}`)}
+            </button>
+          ))}
+        </div>
+      )}
+      {k === 'syslog' ? <SyslogView deviceId={deviceId} /> : <TrapsView deviceId={deviceId} />}
+    </div>
+  );
+}
 
 export function DevicePage() {
   const { id: idParam } = useParams();
@@ -63,6 +109,7 @@ export function DevicePage() {
   const [params, setParams] = useSearchParams();
   const sensorTypes = useSensorTypes();
   const templates = useDeviceTemplates();
+  const { features } = useFeatures();
   const identify = useMutation({
     mutationFn: () => endpoints.identifyDevice(id),
     onSuccess: (r) => {
@@ -105,15 +152,20 @@ export function DevicePage() {
       [],
   );
   const hasPorts = d.ports_effective || !!sensors.data?.items.some((x) => snmpTypes.has(x.type));
-  const tabParam = params.get('tab');
-  const tab: 'ports' | 'sensors' = !hasPorts
-    ? 'sensors'
-    : tabParam === 'ports' || tabParam === 'sensors'
+  const tabParam = params.get('tab') as DeviceTab | null;
+  const tabs: DeviceTab[] = [
+    ...(hasPorts ? (['ports'] as const) : []),
+    'sensors',
+    ...(features.traps || features.syslog ? (['logs'] as const) : []),
+    ...(features.timeline ? (['timeline'] as const) : []),
+  ];
+  const tab: DeviceTab =
+    tabParam && tabs.includes(tabParam)
       ? tabParam
-      : d.ports_effective
+      : hasPorts && d.ports_effective
         ? 'ports'
         : 'sensors';
-  const setTab = (next: 'ports' | 'sensors') =>
+  const setTab = (next: DeviceTab) =>
     setParams(
       (prev) => {
         const p = new URLSearchParams();
@@ -237,13 +289,13 @@ export function DevicePage() {
           )}
         </Card>
       )}
-      {hasPorts && (
+      {tabs.length > 1 && (
         <div
           role="tablist"
           aria-label={t('ports.tabs')}
           className="flex gap-1 border-b border-slate-200 dark:border-slate-800"
         >
-          {(['ports', 'sensors'] as const).map((k) => (
+          {tabs.map((k) => (
             <button
               key={k}
               type="button"
@@ -258,14 +310,17 @@ export function DevicePage() {
               )}
             >
               {k === 'ports' && <PortIcon size={15} />}
-              {k === 'ports' ? t('ports.tab') : t('devices.sensors')}
+              {k === 'logs' && <LogsIcon size={15} />}
+              {k === 'timeline' && <ClockIcon size={15} />}
+              {t(`devices.tab.${k}`)}
             </button>
           ))}
         </div>
       )}
-      {tab === 'ports' ? (
-        <PortsTab device={d} />
-      ) : (
+      {tab === 'logs' && <DeviceLogs deviceId={d.id} />}
+      {tab === 'timeline' && <TimelineTab deviceId={d.id} />}
+      {tab === 'ports' && <PortsTab device={d} />}
+      {tab === 'sensors' && (
         <>
           <Card title={t('devices.sensors')} bodyClassName="p-0">
             {sensors.isLoading && <Loading />}

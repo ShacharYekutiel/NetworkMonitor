@@ -63,12 +63,14 @@ def build_payload(
     stage: str | None = None,
     after_maintenance: bool = False,
     problem_since: str | None = None,
+    after_flapping: bool = False,
 ) -> dict[str, Any]:
     if event is None:
         return {
             "event": "test",
             "stage": None,
             "after_maintenance": False,
+            "after_flapping": False,
             "problem_since": None,
             "event_id": None,
             "time": test_time,
@@ -89,6 +91,7 @@ def build_payload(
         "event": STAGE_EVENTS.get(stage, "sensor.status_changed"),
         "stage": stage,
         "after_maintenance": bool(after_maintenance),
+        "after_flapping": bool(after_flapping),  # [2b-3]
         "problem_since": problem_since,
         "event_id": event["id"],
         "time": event["time"],
@@ -106,8 +109,12 @@ def build_payload(
 async def send_to_channel(
     channel: dict[str, Any], payload: dict[str, Any], smtp: dict[str, Any], lang: str
 ) -> None:
-    """Raises SmtpError / WebhookError / TelegramError."""
-    if channel["type"] == "telegram":
+    """Raises SmtpError / WebhookError / TelegramError / TeamsError."""
+    if channel["type"] == "teams":  # [2b-3]
+        from netmon.alerts import teams
+
+        await teams.send(channel["config"], payload, lang)
+    elif channel["type"] == "telegram":
         cfg = channel["config"]
         parse_mode = cfg.get("parse_mode", "HTML")
         await send_telegram(cfg, templates.telegram_text(payload, lang, parse_mode), parse_mode)
@@ -345,6 +352,70 @@ class AlertEngine:
         if n:
             self.notify()
 
+    async def left_flapping(self, sensor_ids: list[int] | None, all_rows: bool = False) -> None:
+        """[2b-3] A port stopped flapping (or the feature was turned off): its suppressed rows
+        that are still active and not acknowledged are re-armed once, like leaving
+        maintenance (problem sent once with `after_flapping`, escalation restarted)."""
+        if not all_rows and not sensor_ids:
+            return
+        now = self.rt.clock.now()
+        maint = getattr(self.rt, "maintenance", None)
+        cond = "" if all_rows else " AND s.sensor_id = ANY(:ids)"
+        async with self._lock:
+            async with self.rt.sessionmaker() as session:
+                rows = (
+                    await session.execute(
+                        text(
+                            "SELECT s.rule_id, s.sensor_id, s.due_at, s.escalated_at, "
+                            "s.escalation_due_at, s.primary_sent_at, se.status AS sensor_status, "
+                            "se.ack_at, se.device_id, r.enabled, r.on_statuses, "
+                            "r.sensor_id AS rule_sensor_id, r.escalation_after_s, "
+                            "r.escalation_channel_ids FROM alert_state s "
+                            "JOIN sensors se ON se.id = s.sensor_id "
+                            "JOIN alert_rules r ON r.id = s.rule_id "
+                            "WHERE s.flap_suppressed AND s.status IN ('down','warning')"
+                            f"{cond} FOR UPDATE OF s"
+                        ),
+                        {} if all_rows else {"ids": list(sensor_ids or [])},
+                    )
+                ).all()
+                n = 0
+                for r in rows:
+                    key = {"r": r.rule_id, "s": r.sensor_id}
+                    active = _active(r.enabled, r.on_statuses, r.rule_sensor_id, r)
+                    in_maint = bool(maint is not None and maint.in_maintenance(r.device_id))
+                    if active and r.ack_at is None and not in_maint:
+                        esc = None
+                        if (
+                            r.escalation_after_s
+                            and list(r.escalation_channel_ids or [])
+                            and r.escalated_at is None
+                        ):
+                            esc = now + timedelta(seconds=int(r.escalation_after_s))
+                        resend = r.primary_sent_at is None
+                        due = r.due_at if r.due_at is not None else (now if resend else None)
+                        await session.execute(
+                            text(
+                                "UPDATE alert_state SET due_at = :due, "
+                                "escalation_due_at = COALESCE(:esc, escalation_due_at), "
+                                "flap_suppressed = :keep, updated_at = now() "
+                                "WHERE rule_id = :r AND sensor_id = :s"
+                            ),
+                            {**key, "due": due, "esc": esc, "keep": resend},
+                        )
+                    else:
+                        await session.execute(
+                            text(
+                                "UPDATE alert_state SET flap_suppressed = false, "
+                                "updated_at = now() WHERE rule_id = :r AND sensor_id = :s"
+                            ),
+                            key,
+                        )
+                    n += 1
+                await session.commit()
+        if n:
+            self.notify()
+
     # ---------------------------------------------------------------- loop
     async def recover_inflight(self) -> int:
         """Startup: rows whose send was interrupted by the previous process (marker still
@@ -467,12 +538,18 @@ class AlertEngine:
         try:
             await self._send_all(plans, channels, cfg, rows)
         finally:
+            sent_events: list[Any] = []
             try:
                 async with self._lock:
                     async with self.rt.sessionmaker() as session:
                         for p in plans:
                             await _apply_results(session, p, now)
+                        sent_events = await _notification_sent_events(
+                            session, plans, rows, channels, now
+                        )
                         await session.commit()
+                if sent_events:
+                    events_svc.published(self.rt, sent_events)
             finally:
                 self._pass_end()
         return len(rows)
@@ -554,8 +631,17 @@ class AlertEngine:
                         "message": e.message,
                     }
             cfg = await settings_svc.get_all(session)
+            flapping = getattr(self.rt, "flapping", None)
+            flap_ids = set(flapping.suppressed_sensors) if flapping is not None else set()
             plans = [
-                self._plan(r, now, events, cfg, bool(maint and maint.in_maintenance(r.device_id)))
+                self._plan(
+                    r,
+                    now,
+                    events,
+                    cfg,
+                    bool(maint and maint.in_maintenance(r.device_id)),
+                    r.sensor_id in flap_ids,
+                )
                 for r in rows
             ]
             chan_ids = sorted({c for p in plans for s in p.sends for c in s.channels})
@@ -588,6 +674,7 @@ class AlertEngine:
         events: dict[int, dict[str, Any]],
         cfg: dict[str, Any],
         in_maint: bool,
+        in_flap: bool = False,
     ) -> _Plan:
         p = _Plan(r.rule_id, r.sensor_id, event_id=r.event_id)
         active = _active(r.rule_enabled, r.on_statuses, r.rule_sensor_id, r)
@@ -611,7 +698,7 @@ class AlertEngine:
                 "message": r.status_message or "",
             }
 
-        def payload(stage: str, after: bool = False) -> dict[str, Any]:
+        def payload(stage: str, after: bool = False, flap: bool = False) -> dict[str, Any]:
             return build_payload(
                 event,
                 ctx["sensor"],
@@ -622,6 +709,7 @@ class AlertEngine:
                 stage=stage,
                 after_maintenance=after,
                 problem_since=iso(r.problem_since),
+                after_flapping=flap,
             )
 
         def due(v: datetime | None) -> bool:
@@ -636,16 +724,16 @@ class AlertEngine:
                 pass
             elif in_maint:
                 p.updates["maintenance_suppressed"] = True
+            elif in_flap:  # [2b-3] a flapping port: like maintenance, re-armed when it ends
+                p.updates["flap_suppressed"] = True
             else:
                 after = bool(r.maintenance_suppressed)
-                p.sends.append(
-                    _Send(
-                        "problem:after" if after else "problem",
-                        rule_chans,
-                        payload("problem", after),
-                    )
-                )
+                flap = bool(getattr(r, "flap_suppressed", False))
+                stage_key = "problem:after" if after else ("problem:flap" if flap else "problem")
+                p.sends.append(_Send(stage_key, rule_chans, payload("problem", after, flap)))
                 p.updates["maintenance_suppressed"] = False
+                if flap:
+                    p.updates["flap_suppressed"] = False
                 if r.repeat_every_s:
                     p.updates["next_reminder_at"] = now + timedelta(seconds=int(r.repeat_every_s))
         elif r.status == "up" and due(r.due_at):
@@ -667,14 +755,16 @@ class AlertEngine:
             p.updates["escalation_due_at"] = None
             esc_chans = list(r.escalation_channel_ids or [])
             if active and not acked and r.escalation_after_s and esc_chans:
-                if in_maint:
+                if in_flap and not in_maint:
+                    p.updates["flap_suppressed"] = True
+                elif in_maint:
                     p.updates["maintenance_suppressed"] = True
                 else:
                     p.sends.append(_Send("escalation", esc_chans, payload("escalation")))
                     p.updates["escalated_at"] = now
         if due(r.next_reminder_at):
             if active and not acked and r.repeat_every_s:
-                if not in_maint:
+                if not in_maint and not in_flap:
                     stage = f"reminder:{int(r.reminders_sent) + 1}"
                     p.sends.append(_Send(stage, rule_chans, payload("reminder")))
                 p.updates["next_reminder_at"] = now + timedelta(seconds=int(r.repeat_every_s))
@@ -742,6 +832,46 @@ class AlertEngine:
                 time=self.rt.clock.now(),
             )
             return False
+
+
+STAGE_LABELS = {"escalation": "ESCALATION", "reminder": "REMINDER", "recovery": "RECOVERED"}
+
+
+async def _notification_sent_events(
+    session: Any,
+    plans: list[_Plan],
+    rows: list[Any],
+    channels: dict[int, dict[str, Any]],
+    now: datetime,
+) -> list[Any]:
+    """[2b-3] One `notification_sent` event per successful send stage per rule (the device
+    timeline needs them)."""
+    out = []
+    for p, r in zip(plans, rows, strict=True):
+        for snd in p.sends:
+            if not snd.ok:
+                continue
+            stage = snd.stage.split(":", 1)[0]
+            payload = snd.payload
+            label = STAGE_LABELS.get(stage) or str(payload.get("new_status") or "").upper()
+            names = ", ".join(channels[c]["name"] for c in snd.ok if c in channels)
+            msg = f'Sent {label} to {names} (rule "{r.rule_name}")'
+            out.append(
+                await events_svc.add_event(
+                    session,
+                    "notification_sent",
+                    msg[:1000],
+                    time=now,
+                    sensor_id=r.sensor_id,
+                    device_id=r.device_id,
+                    group_id=r.gid,
+                    sensor_name=r.sname,
+                    device_name=r.dname,
+                    old_status=payload.get("old_status"),
+                    new_status=payload.get("new_status"),
+                )
+            )
+    return out
 
 
 def _active(enabled: bool, on_statuses: Any, rule_sensor_id: int | None, r: Any) -> bool:

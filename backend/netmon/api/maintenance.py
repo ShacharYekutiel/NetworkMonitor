@@ -8,11 +8,12 @@ from typing import Any
 from fastapi import APIRouter, Query, Response
 from sqlalchemy import select
 
-from netmon.api.common import commit_or_conflict
-from netmon.api.deps import DB, RT, Admin, Page, Viewer
+from netmon.api.common import commit_or_conflict, flush_or_conflict
+from netmon.api.deps import DB, RT, Admin, Audit, Page, Viewer
 from netmon.api.errors import ApiError, not_found, validation_error
 from netmon.models import Device, Group, MaintenanceWindow, User
 from netmon.schemas import MaintenanceWindowIn
+from netmon.services import audit
 from netmon.services import maintenance as msvc
 from netmon.services import settings as settings_svc
 from netmon.services.serialize import iso, page
@@ -230,13 +231,23 @@ async def _out_one(rt: RT, session: DB, w: MaintenanceWindow) -> dict:
     return window_out(w, await _tz(session), rt.clock.now(), await _names(session, [w]))
 
 
+def _entity(w: MaintenanceWindow) -> audit.Entity:
+    return audit.entity("maintenance_window", w.id, w.name, device_id=w.device_id)
+
+
 @router.post("/api/maintenance-windows", status_code=201)
-async def create_window(body: MaintenanceWindowIn, user: Admin, rt: RT, session: DB) -> dict:
+async def create_window(
+    body: MaintenanceWindowIn, user: Admin, rt: RT, session: DB, ctx: Audit
+) -> dict:
     data = _merge(body, None)
     await _validate(session, data)
     w = MaintenanceWindow(created_by=user.id)
     _assign(w, data)
     session.add(w)
+    await flush_or_conflict(session)
+    await audit.record(
+        session, ctx, "maintenance_window.create", _entity(w), audit.created(_stored(w))
+    )
     await commit_or_conflict(session)
     await session.refresh(w)
     await _after_change(rt, w.id, "created")
@@ -253,16 +264,20 @@ async def get_window(window_id: int, _: Viewer, rt: RT, session: DB) -> dict:
 
 @router.patch("/api/maintenance-windows/{window_id}")
 async def patch_window(
-    window_id: int, body: MaintenanceWindowIn, _: Admin, rt: RT, session: DB
+    window_id: int, body: MaintenanceWindowIn, _: Admin, rt: RT, session: DB, ctx: Audit
 ) -> dict:
     w = await session.get(MaintenanceWindow, window_id)
     if w is None:
         raise not_found("Maintenance window")
     if "name" in body.model_fields_set and body.name is None:
         raise validation_error(["body", "name"], "must not be null")
-    data = _merge(body, _stored(w))
+    before = _stored(w)
+    data = _merge(body, before)
     await _validate(session, data)
     _assign(w, data)
+    changes = audit.diff(before, _stored(w))
+    if changes:
+        await audit.record(session, ctx, "maintenance_window.update", _entity(w), changes)
     await commit_or_conflict(session)
     await session.refresh(w)
     await _after_change(rt, w.id, "updated")
@@ -270,10 +285,13 @@ async def patch_window(
 
 
 @router.delete("/api/maintenance-windows/{window_id}", status_code=204)
-async def delete_window(window_id: int, _: Admin, rt: RT, session: DB) -> Response:
+async def delete_window(window_id: int, _: Admin, rt: RT, session: DB, ctx: Audit) -> Response:
     w = await session.get(MaintenanceWindow, window_id)
     if w is None:
         raise not_found("Maintenance window")
+    await audit.record(
+        session, ctx, "maintenance_window.delete", _entity(w), audit.deleted(_stored(w))
+    )
     await session.delete(w)
     await session.commit()
     await _after_change(rt, window_id, "deleted")

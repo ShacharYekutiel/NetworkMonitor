@@ -201,6 +201,7 @@ def port_mac_out(row: dict[str, Any], det: dict[str, Any]) -> dict[str, Any]:
         "device_name": det.get("device_name"),
         "first_seen": iso(row["first_seen"]),
         "last_seen": iso(row["last_seen"]),
+        "via_lag": False,  # [2b-3]
         "_last_seen": row["last_seen"],
     }
 
@@ -209,19 +210,67 @@ def _public_mac(m: dict[str, Any]) -> dict[str, Any]:
     return {k: v for k, v in m.items() if not k.startswith("_")}
 
 
+@dataclass
+class LagCtx:
+    """[2b-3] The device's LAG structure (only while the `lag` feature is ON)."""
+
+    rows: dict[int, dict[str, Any]]
+    members: dict[int, list[int]]
+    lag_of: dict[int, int]
+    macs: dict[int, list[dict[str, Any]]] = field(default_factory=dict)  # PortMacs by ifIndex
+
+
+def lag_ctx(rows: list[dict[str, Any]]) -> LagCtx:
+    members, lag_of = view.lag_groups(rows)
+    return LagCtx({int(r["if_index"]): r for r in rows}, members, lag_of)
+
+
+def lag_neighbors(ctx: Context, device_id: int, lag: LagCtx, lag_if: int) -> list[dict[str, Any]]:
+    """neighbours(L) = own links of L and of all its members."""
+    lists = [neighbors_of(ctx, device_id, lag.rows[lag_if])]
+    lists += [neighbors_of(ctx, device_id, lag.rows[m]) for m in lag.members.get(lag_if, [])]
+    return view.merge_neighbors(*lists)
+
+
 def port_out(
     device_id: int,
     row: dict[str, Any],
     ctx: Context,
     macs: list[dict[str, Any]],
     sensor: tuple[int, str] | None,
+    lag: LagCtx | None = None,
 ) -> dict[str, Any]:
     """Port (api.md). `macs`: PortMac dicts (with `_last_seen`) of the present rows; `sensor`:
-    the linked snmp_interface sensor (id, status)."""
+    the linked snmp_interface sensor (id, status); `lag`: the LAG structure while the `lag`
+    feature is ON (members inherit VLANs, MACs and uplink state from their LAG)."""
     state = view.port_state(row["admin_status"], row["oper_status"])
     nbs = neighbors_of(ctx, device_id, row)
     primary = nbs[0] if nbs else None
     is_up, reason = view.uplink(nbs, row["mac_count"], ctx.threshold)
+    idx = int(row["if_index"])
+    lag_ref: dict[str, Any] | None = None
+    lag_members: list[int] = []
+    vlans_from_lag = False
+    mac_count = int(row["mac_count"])
+    vlan_vals = {k: row[k] for k in ("pvid", "mode", "untagged_vlans", "tagged_vlans")}
+    if lag is not None and idx in lag.members:  # a LAG row
+        lag_members = list(lag.members[idx])
+        nbs = lag_neighbors(ctx, device_id, lag, idx)
+        primary = nbs[0] if nbs else None
+        is_up, reason = view.uplink(nbs, mac_count, ctx.threshold)
+    elif lag is not None and idx in lag.lag_of:  # a member of L
+        lag_if = lag.lag_of[idx]
+        lrow = lag.rows[lag_if]
+        lag_ref = {"if_index": lag_if, "name": lrow["name"], "attached": row.get("lag_attached")}
+        l_nbs = lag_neighbors(ctx, device_id, lag, lag_if)
+        l_up, l_reason = view.uplink(l_nbs, int(lrow["mac_count"]), ctx.threshold)
+        if not is_up and l_up:
+            is_up, reason = True, l_reason
+        if primary is None and l_nbs:
+            primary = l_nbs[0]
+        vlan_vals, vlans_from_lag = view.member_vlans(row, lrow)
+        mac_count += int(lrow["mac_count"])
+        macs = list(macs) + [{**m, "via_lag": True} for m in lag.macs.get(lag_if, [])]
     reasons = view.alert_reasons(
         state,
         sensor[1] if sensor else None,
@@ -251,10 +300,10 @@ def port_out(
         "duplex": row["duplex"],
         "mac": row["mac"],
         "last_change_at": iso(row["last_change_at"]),
-        "pvid": row["pvid"],
-        "mode": row["mode"],
-        "untagged_vlans": list(row["untagged_vlans"] or []),
-        "tagged_vlans": list(row["tagged_vlans"] or []),
+        "pvid": vlan_vals["pvid"],
+        "mode": vlan_vals["mode"],
+        "untagged_vlans": list(vlan_vals["untagged_vlans"] or []),
+        "tagged_vlans": list(vlan_vals["tagged_vlans"] or []),
         "poe": {
             "admin_enabled": row["poe_admin_enabled"],
             "detection": row["poe_detection"],
@@ -270,14 +319,17 @@ def port_out(
         "is_uplink": is_up,
         "uplink_reason": reason,
         "connected_kind": view.connected_kind(state, primary),
-        "trunk": row["mode"] == "trunk",
+        "trunk": vlan_vals["mode"] == "trunk",
         "neighbor": primary,
-        "mac_count": row["mac_count"],
+        "mac_count": mac_count,
         "first_mac": _public_mac(first) if first else None,
         "macs": [] if is_up else [_public_mac(m) for m in macs_sorted],
         "sensor_id": sensor[0] if sensor else None,
         "sensor_status": sensor[1] if sensor else None,
         "collected_at": iso(row["collected_at"]),
+        "lag": lag_ref,  # [2b-3]
+        "lag_members": lag_members,
+        "vlans_from_lag": vlans_from_lag,
         "_neighbors": nbs,
         "_macs_all": macs_sorted,
     }
@@ -359,13 +411,22 @@ async def device_health(session: Any, device_id: int) -> list[dict[str, Any]]:
 
 
 def status_out(
-    row: Any, flags: DeviceFlags, running: bool, now: datetime, interval: int, arp_sources: int
+    row: Any,
+    flags: DeviceFlags,
+    running: bool,
+    now: datetime,
+    interval: int,
+    arp_sources: int,
+    lag_on: bool = False,
 ) -> dict[str, Any]:
     sources = {k: "skipped" for k in ALL_SOURCES}
-    fdb_mib = vlan_mib = None
+    fdb_mib = vlan_mib = lag_mib = None
     if row is not None and isinstance(row.sources, dict):
         sources.update({k: row.sources[k] for k in ALL_SOURCES if k in row.sources})
         fdb_mib, vlan_mib = row.sources.get("fdb_mib"), row.sources.get("vlan_mib")
+        lag_mib = row.sources.get("lag_mib")
+    if not lag_on:  # [2b-3] stored LAG data is ignored while the feature is OFF
+        sources["lag"], lag_mib = "skipped", None
     return {
         "last_run_at": iso(row.last_run_at) if row is not None else None,
         "last_ok_at": iso(row.last_ok_at) if row is not None else None,
@@ -376,6 +437,7 @@ def status_out(
         "sources": sources,
         "fdb_mib": fdb_mib,
         "vlan_mib": vlan_mib,
+        "lag_mib": lag_mib,
         "ports": row.ports if row is not None else 0,
         "macs": row.macs if row is not None else 0,
         "arp_entries": row.arp_entries if row is not None else 0,

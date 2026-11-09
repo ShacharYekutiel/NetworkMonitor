@@ -44,6 +44,7 @@ class PortMac(_Out):
     device_name: str | None
     first_seen: str
     last_seen: str
+    via_lag: bool  # [2b-3]
 
 
 class PortNeighbor(_Out):
@@ -57,6 +58,12 @@ class PortNeighbor(_Out):
     device_class: DeviceClass | None
     status: Status | None
     mgmt_address: str | None
+
+
+class PortLag(_Out):
+    if_index: int
+    name: str
+    attached: bool | None
 
 
 class Port(_Out):
@@ -95,6 +102,9 @@ class Port(_Out):
     sensor_id: int | None
     sensor_status: Status | None
     collected_at: str
+    lag: PortLag | None  # [2b-3]
+    lag_members: list[int]
+    vlans_from_lag: bool
 
 
 class PortDetail(Port):
@@ -121,6 +131,7 @@ class PortSources(_Out):
     fdb: SourceState
     poe: SourceState
     arp: SourceState
+    lag: SourceState  # [2b-3]
 
 
 class PortInventoryStatus(_Out):
@@ -133,6 +144,7 @@ class PortInventoryStatus(_Out):
     sources: PortSources
     fdb_mib: Literal["q_bridge", "bridge"] | None
     vlan_mib: Literal["static", "current"] | None
+    lag_mib: Literal["ieee8023", "if_stack", "both"] | None  # [2b-3]
     ports: int
     macs: int
     arp_entries: int
@@ -176,6 +188,7 @@ class MacLocation(_Out):
     first_seen: str
     last_seen: str
     best: bool
+    lag_members: list[str]  # [2b-3]
 
 
 class ArpHit(_Out):

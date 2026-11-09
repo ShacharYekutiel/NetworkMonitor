@@ -9,10 +9,11 @@ from netmon.models.discovery import (
 from netmon.models.inventory import Device, Event, Group, Sensor, SensorChannel
 from netmon.models.phase2b import MaintenanceWindow, TopologyLayout, TopologyLink, TopologyNeighbor
 from netmon.models.settings import Setting
-from netmon.models.users import User
+from netmon.models.users import ApiToken, User
 
 __all__ = [
     "AlertRule",
+    "ApiToken",
     "AlertRuleChannel",
     "Base",
     "Device",
