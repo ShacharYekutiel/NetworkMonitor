@@ -417,6 +417,17 @@ async def test_top_talkers_section(admin: httpx.AsyncClient, rt: Any, rep: Any, 
             t,
             eid,
         )
+        if getattr(rt, "flows_rollup", None) == "cagg":
+            # rows inserted below the continuous aggregates' watermark (an earlier flows test
+            # may have refreshed past this hour) appear only after a refresh, as the
+            # production refresh policy (every 15 min, last 6 h) does
+            for fam in ("host", "app"):
+                await conn.execute(
+                    f"CALL refresh_continuous_aggregate('flow_{fam}_1h', $1::timestamptz, "
+                    "$2::timestamptz)",
+                    t - timedelta(hours=1),
+                    t + timedelta(hours=2),
+                )
     finally:
         await conn.close()
     body = {**BODY, "name": "Flows", "sections": ["top_talkers"], "email_to": []}
