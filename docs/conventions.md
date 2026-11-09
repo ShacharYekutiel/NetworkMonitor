@@ -221,3 +221,50 @@ both Timescale mode and fallback mode, and on Windows paths (no POSIX-only calls
 - Existing test changes allowed in phase 3 (contract changes on purpose): `test_migrations.py` (head `0007`),
   sensor-type lists (two more passive types), feature lists (17 names; Teams and API tokens are no longer toggles), `User`/`Device`/`Group` shape tests (new
   keys), event-kind lists, event-rule action lists. Any other failing existing test is a regression.
+
+## Phase 3b notes
+- Every 3b feature follows the 2b-3 toggle rules (OFF by default, runtime start/stop, `409 feature_disabled`, OFF
+  leaves no task, queue, poll handler or credential in memory). Tests cover OFF, ON and ON → OFF → ON for each of the
+  11 features, and the idle state (ON with a missing dependency).
+- **Configure-first UX rule** (owner; applies to `assistant` and `ai_knowledge`, and to any future feature that needs
+  configuration before it can work): the settings form is always shown; the enable switch sits at the **bottom** of
+  the form next to *Test connection*; it is locked until a test of the **current form values** succeeded in the current
+  page session; the server enforces it with a `test_id` bound to the user and the hash of the connection fields.
+- **The model never changes anything.** Never add a tool that writes, sends, acknowledges, runs a command or SQL, or
+  reads a secret. A new tool needs: an args model with `extra="forbid"`, a feature gate, a pure `project_*` function
+  listing every field explicitly, caps, `ref`s, an entry in api.md § [3b] Tools, and a projection test with seeded
+  secret markers. Tool handlers use a read-only transaction (`SET TRANSACTION READ ONLY`) and `statement_timeout`.
+  Drafts are returned, never saved; saving goes through the normal endpoints.
+- Every string that leaves for Bedrock passes `netmon.assistant.redact.apply()`; never build a prompt from raw rows.
+  Tool results go back as Converse `json` blocks, never concatenated into prompt text.
+- Keep pure and exhaustively unit-tested: `netmon.assistant.sigv4`, `eventstream`, `redact`, `prompt`, `context`,
+  `links`, `pricing`, `usage` cap arithmetic, `bedrock.map_error`, `features.correlate.cluster`,
+  `features.diffexplain.risk_flags`, `features.digest.signature`/`compare`, `features.templates.compact_walk`,
+  `detect_language`. I/O lives in `credentials`, `bedrock`, the agent, the tools and the feature runners.
+- **No new runtime dependency:** Bedrock is called with httpx (`trust_env` per `proxy_mode`,
+  `verify=tlsutil.httpx_verify(True)`) and our own SigV4; `cryptography` signs Roles Anywhere requests. `botocore` is a
+  **dev/test-only** dependency (signature cross-check in the mock). Never import boto3/botocore from `netmon/`.
+- Never log AWS credentials, `Authorization`, `X-Amz-Security-Token`, `X-Amz-X509`, prompts, questions or answers
+  (the audit log is the record); log only codes, sizes, durations and token counts.
+- Never hard-code a model id or a price; tests use `eu.anthropic.claude-test-v1:0` against the mock only. Never call
+  real AWS in CI.
+- AI output is rendered with the restricted Markdown renderer (frontend: `markdown-it` with `html: false`, images
+  disabled, link validator allowing only server-issued `nm:` refs and KB source URLs; MIT licence, the only new
+  frontend dependency). Every AI text carries the "AI-generated" label (i18n `assistant.aiGenerated`).
+- Background AI work must never sit in the alert send path or the report compute path: enqueue after the send/compute,
+  bounded queues, deadlines, skip on any error (counted, not raised).
+- SSE endpoints: `StreamingResponse` with `text/event-stream`; the run lives in a background task registered in
+  `rt.assistant.runs`; the HTTP disconnect does not cancel it; cancellation only through the cancel endpoint, delete,
+  shutdown or feature OFF.
+- Pydantic models (`extra="forbid"`): `AssistantSettingsIn`, `AssistantTestIn`, `AskIn`, `FeedbackIn`,
+  `ConversationPatch`, `ExplainIn`, `DiffExplainIn`, `DigestRunIn`, `RuleDraftIn`, `WalkIn`, `TemplateDraftIn`,
+  `UserTemplateIn`, `KnowledgeSettingsIn`, one args model per tool; alert-rule create/PATCH gain `ai_note`, report
+  create/PATCH gain `ai_summary`, Telegram config gains `ai_ask`, email config gains `ai_note_email`.
+- Frontend: extend `types.ts` / `endpoints.ts` / `ws.ts` exactly as api.md § Phase 3b; an `sse.ts` helper (fetch +
+  ReadableStream parser, `Last-Event-ID` re-attach, abort) — not `EventSource`; answers use `dir="auto"` per block,
+  IPs/MACs/OIDs/code `dir="ltr"`; the bottom switch component `ConfigureFirstSwitch` is shared by both
+  configure-first forms.
+- Existing test changes allowed in 3b (contract changes on purpose): `test_migrations.py` (head `0008`), feature lists
+  (28 names), `AlertRule`/`Report`/`ReportRun`/`ReportData`/channel-config shape tests (new keys), audit `source`
+  values, `test_audit` (turning `audit` OFF while `assistant` is ON is refused). Any other failing existing test is a
+  regression.
