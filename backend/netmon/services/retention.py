@@ -65,7 +65,7 @@ async def run_once(rt: Runtime) -> dict[str, int]:
     if removed_m or removed_e:
         log.info("Retention removed %d measurements and %d events", removed_m, removed_e)
     out = {"measurements": removed_m, "events": removed_e}
-    out.update(await _run_2b3_auth(rt, cfg))
+    out.update(await _run_2b3_auth(rt))
     out.update(await _run_2b3_ingest(rt, cfg))
     out.update(await _run_3_config_newdev(rt))
     # [3] flow rollup (fallback mode) and retention, whether or not `flows` is ON
@@ -113,15 +113,20 @@ async def _run_2b3_ingest(rt: Runtime, cfg: dict) -> dict[str, int]:
     return out
 
 
-async def _run_2b3_auth(rt: Runtime, cfg: dict) -> dict[str, int]:
+async def _run_2b3_auth(rt: Runtime) -> dict[str, int]:
     """[2b-3] Audit retention (runs whether or not the audit log is on) and the cleanup of
-    API tokens expired/revoked more than 30 days ago."""
+    API tokens expired/revoked more than 30 days ago.
+
+    The retention period is read on its own, not from the full settings dict (which also
+    holds the SMTP password), so nothing derived from secrets reaches the log line below."""
     from netmon.auth import tokens
     from netmon.services import audit
 
     out = {"audit": 0, "api_tokens": 0}
     try:
-        out["audit"] = await audit.purge_old(rt, int(cfg.get("audit_retention_days") or 365))
+        async with rt.sessionmaker() as session:
+            days = int(await settings_svc.get(session, "audit_retention_days") or 365)
+        out["audit"] = await audit.purge_old(rt, days)
     except Exception as exc:  # noqa: BLE001
         log.warning("Audit retention failed: %s", exc)
     try:
