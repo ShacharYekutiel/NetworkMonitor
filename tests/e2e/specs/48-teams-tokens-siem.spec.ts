@@ -172,6 +172,12 @@ test.describe('API tokens', () => {
 // ------------------------------------------------------------------------------------------------ SIEM
 test.describe('SIEM forwarding', () => {
   test.describe.configure({ mode: 'serial' });
+  // leave the receivers OFF for later specs (51: enabling config backup with syslog ON opens
+  // the "enable the built-in triggers?" dialog over the switch)
+  test.afterAll(async () => {
+    await clearSiem();
+    await featureOff(admin, 'siem_forwarding', 'syslog', 'traps');
+  });
 
   const target = (o: Record<string, unknown>) => ({ name: 'QA sink', enabled: true, host: '127.0.0.1', port: SIEM_TCP_PORT, protocol: 'tcp', tls_verify: true, kinds: ['syslog', 'trap'], min_severity: 7, sources: [], include_unknown: false, ...o });
 
