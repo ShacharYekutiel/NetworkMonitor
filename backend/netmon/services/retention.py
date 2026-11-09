@@ -130,9 +130,9 @@ async def _run_2b3_auth(rt: Runtime) -> dict[str, int]:
     except Exception as exc:  # noqa: BLE001
         log.warning("API token cleanup failed: %s", exc)
     if out["audit"] or out["api_tokens"]:
-        log.info(
-            "Retention removed %d audit entries and %d API tokens", out["audit"], out["api_tokens"]
-        )
+        # no counts in this line: CodeQL treats values derived from the token/auth cleanup
+        # as sensitive (clear-text logging); the counts are returned to the caller
+        log.info("Retention removed old audit entries and expired API tokens")
     return out
 
 
