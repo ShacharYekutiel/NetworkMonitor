@@ -106,9 +106,6 @@ async def _channel(
     elif ch.type == "teams":
         from netmon.alerts import teams
 
-        features = getattr(rt, "features", None)
-        if features is not None and not features.enabled("teams"):
-            raise RuntimeError(teams.OFF_MESSAGE)
         await teams.send_teams(cfg, render.teams_card(data, name, lang, schedule, link))
     elif ch.type == "telegram":
         from netmon.alerts.telegram import send_telegram

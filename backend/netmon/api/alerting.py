@@ -14,7 +14,7 @@ from netmon.alerts.teams import TeamsError
 from netmon.alerts.telegram import TelegramError
 from netmon.alerts.webhook import WebhookError
 from netmon.api.common import commit_or_conflict, flush_or_conflict
-from netmon.api.deps import DB, RT, Admin, Audit, Page, feature_on
+from netmon.api.deps import DB, RT, Admin, Audit, Page
 from netmon.api.errors import ApiError, conflict, not_found, validation_error
 from netmon.models import AlertRule, AlertRuleChannel, NotificationChannel, Sensor
 from netmon.schemas import (
@@ -76,13 +76,6 @@ def validate_channel_config(
     return out
 
 
-def _require_teams(rt: RT, type_: str) -> None:
-    if type_ == "teams" and not feature_on(rt, "teams"):
-        raise ApiError(
-            409, "feature_disabled", "Teams notifications are turned off", [{"feature": "teams"}]
-        )
-
-
 CHANNEL_SECRETS = {"teams": ("config.url",), "telegram": ("config.bot_token",)}
 
 
@@ -122,7 +115,6 @@ async def list_channels(_: Admin, session: DB, pg: Page) -> dict:
 async def create_channel(
     body: NotificationChannelCreate, _: Admin, rt: RT, session: DB, ctx: Audit
 ) -> dict:
-    _require_teams(rt, body.type)
     cfg = validate_channel_config(body.type, body.config)
     await _unique_channel_name(session, body.name.strip())
     ch = NotificationChannel(
@@ -159,7 +151,6 @@ async def patch_channel(
     ch = await session.get(NotificationChannel, channel_id)
     if ch is None:
         raise not_found("Notification channel")
-    _require_teams(rt, ch.type)
     before = _channel_values(ch)
     fields = body.model_fields_set
     if "type" in fields and body.type is not None and body.type != ch.type:
@@ -206,7 +197,6 @@ async def test_channel(channel_id: int, _: Admin, rt: RT, session: DB) -> dict:
     ch = await session.get(NotificationChannel, channel_id)
     if ch is None:
         raise not_found("Notification channel")
-    _require_teams(rt, ch.type)
     cfg = await settings_svc.get_all(session)
     payload = build_payload(None, None, None, None, None, None, test_time=iso(now_utc()))
     channel = {"id": ch.id, "name": ch.name, "type": ch.type, "config": dict(ch.config)}

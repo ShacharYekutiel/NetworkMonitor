@@ -221,7 +221,7 @@ async def _put_3c(body: SettingsPut, fields: set[str], current: dict, rt: RT, se
 
 async def _put_3_plain(body: SettingsPut, fields: set[str], current: dict, session: DB) -> None:
     """[3] config backup and new-device keys (the feature toggles are written with the 2b-3
-    ones: FEATURES covers all 19)."""
+    ones: FEATURES covers all 17)."""
     keys = (*settings_svc.CONFIG_BACKUP_KEYS, *settings_svc.NEWDEV_KEYS)
     new = {k: getattr(body, k) for k in keys if k in fields and getattr(body, k) is not None}
     lo = new.get("config_backup_min_versions", current["config_backup_min_versions"])

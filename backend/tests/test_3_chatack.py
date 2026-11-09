@@ -57,7 +57,7 @@ async def test_gating_and_tokens_refused(admin: httpx.AsyncClient, feats: Any, r
     r = await admin.post("/api/chat-ack/resolve", json={"token": "a1.x"})
     assert r.status_code == 409 and r.json()["error"]["code"] == "feature_disabled"
     assert (await admin.get("/api/chat-links")).status_code == 409
-    feats(chat_ack=True, api_tokens=True)
+    feats(chat_ack=True)
     r = await admin.post("/api/tokens", json={"name": "t", "role": "admin", "expires_days": 30})
     assert r.status_code == 201, r.text
     tok = r.json()["token"]

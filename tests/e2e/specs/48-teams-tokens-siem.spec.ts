@@ -10,6 +10,7 @@ import {
 
 // [2b-3] 48 — Microsoft Teams channel against tests/sim/teams_mock.py (architecture.md §12.10, api.md [2b-3]
 // Teams), API tokens (§12.11), SIEM forwarding to tests/sim/ingest/siem_sink.py (§12.5).
+// Teams and API tokens are always available (owner decision: no feature toggles).
 test.describe.configure({ mode: 'default' });
 
 let admin: Api;
@@ -27,7 +28,6 @@ test.describe('Teams', () => {
   let ch: any;
 
   test('create: URL is secret (url_host, legacy flag), https only; Test posts an Adaptive Card', async () => {
-    await featureOn(admin, 'teams');
     await teamsStatus(202);
     await clearTeams();
     expect((await raw(admin, 'POST', '/api/notification-channels', { name: 'x', type: 'teams', enabled: true, config: { url: 'http://localhost/x' } })).status).toBe(422);
@@ -60,7 +60,7 @@ test.describe('Teams', () => {
     }
   });
 
-  test('an alert is delivered as a card with facts; OFF -> skipped with a notification event', async () => {
+  test('an alert is delivered as a card with facts', async () => {
     await featureOn(admin, 'traps', 'event_alerts');
     await waitReceivers(admin, ['trap'], 'listening');
     const ld = (await admin.get('/api/event-rules')).items.find((r: any) => r.builtin === 'trap_link_down');
@@ -79,18 +79,10 @@ test.describe('Teams', () => {
       const facts = card.body[1].facts.map((f: any) => f.title);
       expect(facts).toEqual(expect.arrayContaining(['Status', 'Device', 'Sensor', 'Message', 'Since', 'Rule']));
       expect(JSON.stringify(card).length).toBeLessThanOrEqual(24 * 1024);
-      // OFF: skipped, notification event written
-      await featureOff(admin, 'teams');
-      await clearTeams();
-      await raw(admin, 'POST', `/api/sensors/${s.id}/clear`);
-      await sleep(4000);
-      expect(await teamsRecords()).toEqual([]);
-      const ev = await admin.get(`/api/events?kind=notification&page_size=20`);
-      expect(ev.items.some((e: any) => /Teams notifications are turned off/.test(e.message))).toBe(true);
-      expect((await raw(admin, 'POST', `/api/notification-channels/${ch.id}/test`)).status).toBe(409);
+      // no toggle: the Test button works with every other feature state
+      expect((await raw(admin, 'POST', `/api/notification-channels/${ch.id}/test`)).status).toBe(200);
     } finally {
       await admin.del(`/api/alert-rules/${rule.id}`);
-      await featureOn(admin, 'teams');
     }
   });
 
@@ -98,6 +90,7 @@ test.describe('Teams', () => {
     await loginViaApi(page, undefined, '/notifications');
     await expect(page.getByText(ch.name)).toBeVisible();
     await expect(page.getByText(tOr('channel.teams', 'Microsoft Teams')).first()).toBeVisible();
+    await expect(page.getByText(/Teams is off/)).toHaveCount(0);
     await shot2b3(page, '48-teams-channel');
   });
 });
@@ -111,7 +104,6 @@ test.describe('API tokens', () => {
     fetch(`${process.env.BASE_URL}${path}`, { ...init, headers: { ...(init.headers ?? {}), Authorization: `Bearer ${tok}`, 'Content-Type': 'application/json' } });
 
   test('create shows the token once; list never; bearer works with role cap', async () => {
-    await featureOn(admin, 'api_tokens');
     const name = `qa48-${marker()}`;
     const r = await admin.post('/api/tokens', { name, role: 'viewer', expires_days: 30 });
     token = r.token;
@@ -142,7 +134,7 @@ test.describe('API tokens', () => {
     await admin.del(`/api/tokens/${ai.id}`);
   });
 
-  test('viewer cannot mint an admin token; expiry range; revoke -> 401; OFF -> 401; bad tokens throttled eventually', async () => {
+  test('viewer cannot mint an admin token; expiry range; revoke -> 401; bad tokens throttled eventually', async () => {
     const v = await apiAs(VIEWER);
     expect((await raw(v, 'POST', '/api/tokens', { name: 'up', role: 'admin', expires_days: 1 })).status).toBe(422);
     expect((await raw(admin, 'POST', '/api/tokens', { name: 'z', role: 'viewer', expires_days: 366 })).status).toBe(422);
@@ -154,9 +146,6 @@ test.describe('API tokens', () => {
     else expect(va.status).toBe(403);
     expect((await v.get('/api/tokens')).items.every((t: any) => t.user_id === vt.item.user_id)).toBe(true);
     expect((await admin.get('/api/tokens?all=true')).items.some((t: any) => t.id === vt.item.id)).toBe(true);
-    await featureOff(admin, 'api_tokens');
-    expect((await bearer('/api/devices')).status).toBe(401);
-    await featureOn(admin, 'api_tokens');
     expect((await bearer('/api/devices')).status).toBe(200);
     await admin.del(`/api/tokens/${item.id}`);
     expect((await admin.get('/api/tokens')).items.find((t: any) => t.id === item.id).state).toBe('revoked');
@@ -164,8 +153,11 @@ test.describe('API tokens', () => {
     expect((await raw(admin, 'DELETE', `/api/tokens/${item.id}`)).status).toBe(204); // idempotent
   });
 
-  test('UI: API tokens page: create dialog shows the token once with copy, revoke', async ({ page }) => {
-    await loginViaApi(page, undefined, '/tokens');
+  test('UI: API tokens in the account menu (no toggle); create dialog shows the token once with copy', async ({ page }) => {
+    await loginViaApi(page);
+    await page.locator('header button[aria-haspopup="menu"]').click();
+    await page.getByRole('menuitem', { name: tOr('nav.tokens', 'API tokens') }).click();
+    await expect(page).toHaveURL(/\/tokens/);
     await page.getByRole('button', { name: tOr('tokens.create', 'Create token') }).click();
     const d = page.getByRole('dialog');
     await d.getByRole('textbox').first().fill(`qa48-ui-${marker()}`);

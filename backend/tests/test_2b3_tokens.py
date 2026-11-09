@@ -1,5 +1,6 @@
 """[2b-3] API tokens: once-only display, hashed storage, role cap, effective role, revoked /
-expired / inactive owner → 401, barred endpoints, no CSRF check, throttle, OFF → 401/409."""
+expired / inactive owner → 401, barred endpoints, no CSRF check, throttle. Always available
+(no feature toggle)."""
 
 from __future__ import annotations
 
@@ -29,16 +30,10 @@ async def _create(c: httpx.AsyncClient, **kw: Any) -> dict:
     return r.json()
 
 
-async def test_off(admin: httpx.AsyncClient, app: Any, feats: Any) -> None:
-    feats(api_tokens=True)
+async def test_always_available(admin: httpx.AsyncClient, app: Any, feats: Any) -> None:
+    """No toggle: with every feature OFF tokens can be created, listed and used."""
     tok = (await _create(admin))["token"]
-    feats(api_tokens=False)
-    r = await admin.get("/api/tokens")
-    assert r.status_code == 409 and r.json()["error"]["details"] == [{"feature": "api_tokens"}]
-    async with _bearer(app, tok) as c:
-        r = await c.get("/api/devices")
-        assert r.status_code == 401 and r.json()["error"]["code"] == "unauthenticated"
-    feats(api_tokens=True)  # tokens kept
+    assert (await admin.get("/api/tokens")).status_code == 200
     async with _bearer(app, tok) as c:
         assert (await c.get("/api/devices")).status_code == 200
 
@@ -46,7 +41,7 @@ async def test_off(admin: httpx.AsyncClient, app: Any, feats: Any) -> None:
 async def test_create_use_list_revoke(
     admin: httpx.AsyncClient, app: Any, feats: Any, rt: Any
 ) -> None:
-    feats(api_tokens=True, audit=True)
+    feats(audit=True)
     body = await _create(admin, name="backup-script", role="admin", expires_days=30)
     token, item = body["token"], body["item"]
     assert token.startswith("nmt_") and len(token) == 47
@@ -131,7 +126,6 @@ async def test_create_use_list_revoke(
 async def test_role_cap_and_effective_role(
     admin: httpx.AsyncClient, viewer: httpx.AsyncClient, app: Any, feats: Any
 ) -> None:
-    feats(api_tokens=True)
     r = await viewer.post("/api/tokens", json={"name": "v", "role": "admin"})
     assert r.status_code == 422
     vtok = (await _create(viewer, name="v"))["token"]
@@ -178,7 +172,6 @@ async def test_role_cap_and_effective_role(
 async def test_expiry_and_cookie_ignored(
     admin: httpx.AsyncClient, app: Any, feats: Any, rt: Any
 ) -> None:
-    feats(api_tokens=True)
     tok = (await _create(admin, expires_days=1))["token"]
     async with _bearer(app, tok) as c:
         assert (await c.get("/api/devices")).status_code == 200
@@ -201,7 +194,7 @@ async def test_expiry_and_cookie_ignored(
 async def test_invalid_token_throttle_and_audit(
     admin: httpx.AsyncClient, app: Any, feats: Any, rt: Any
 ) -> None:
-    feats(api_tokens=True, audit=True)
+    feats(audit=True)
     async with _bearer(app, "nmt_" + "x" * 43) as c:
         for _ in range(20):
             assert (await c.get("/api/devices")).status_code == 401

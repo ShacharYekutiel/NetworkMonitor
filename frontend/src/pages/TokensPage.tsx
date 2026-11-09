@@ -17,7 +17,6 @@ import {
   Select,
 } from '../components/ui';
 import { useAuth } from '../hooks/auth';
-import { FeatureOffNotice, useFeatures } from '../hooks/features';
 import { expiresDaysOk, tokenNameOk, tokenRoles } from '../lib/tokens';
 
 /** Copies text; falls back to selecting the field when the Clipboard API is unavailable (http). */
@@ -155,7 +154,6 @@ function CreateTokenModal({ open, onClose }: { open: boolean; onClose: () => voi
 /** [2b-3] Personal API tokens (account menu). */
 export function TokensPage() {
   const { t } = useTranslation();
-  const { features, loaded } = useFeatures();
   const [creating, setCreating] = useState(false);
   return (
     <div className="space-y-4">
@@ -163,22 +161,14 @@ export function TokensPage() {
         title={t('tokens.title')}
         subtitle={t('tokens.intro')}
         actions={
-          features.api_tokens && (
-            <Button variant="primary" onClick={() => setCreating(true)}>
-              <PlusIcon size={14} /> {t('tokens.create')}
-            </Button>
-          )
+          <Button variant="primary" onClick={() => setCreating(true)}>
+            <PlusIcon size={14} /> {t('tokens.create')}
+          </Button>
         }
       />
-      {loaded && !features.api_tokens ? (
-        <FeatureOffNotice feature="api_tokens" />
-      ) : (
-        loaded && (
-          <Card bodyClassName="p-0">
-            <TokensTable />
-          </Card>
-        )
-      )}
+      <Card bodyClassName="p-0">
+        <TokensTable />
+      </Card>
       <CreateTokenModal open={creating} onClose={() => setCreating(false)} />
     </div>
   );

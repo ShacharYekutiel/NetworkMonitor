@@ -17,7 +17,7 @@ test.beforeAll(async () => {
   lab = await ensurePortLab(admin);
   await ensureViewer(admin);
   viewer = await apiAs(VIEWER);
-  await featureOn(admin, 'traps', 'syslog', 'event_alerts', 'timeline', 'audit', 'api_tokens');
+  await featureOn(admin, 'traps', 'syslog', 'event_alerts', 'timeline', 'audit');
   await waitReceivers(admin, ['syslog_udp'], 'listening');
 });
 

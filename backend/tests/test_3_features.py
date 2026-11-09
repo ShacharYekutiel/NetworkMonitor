@@ -17,7 +17,7 @@ P3 = ("config_backup", "flows", "new_device_alerts", "sso_kerberos", "sso_oidc",
 
 
 def test_registry() -> None:
-    assert PHASE3_FEATURES == P3 and len(FEATURES) == 19
+    assert PHASE3_FEATURES == P3 and len(FEATURES) == 17
 
 
 async def test_defaults_and_toggle(rt: Runtime, admin: httpx.AsyncClient) -> None:

@@ -103,13 +103,13 @@ export function featureHints(name: FeatureName, f: Features, s?: Settings): Feat
   return out;
 }
 
-/** [3] Headings of the Features page (architecture.md § 13.0): 19 features in 5 groups. */
+/** [3] Headings of the Features page (architecture.md § 13.0): 17 features in 5 groups (Teams and API tokens are not toggles). */
 export const FEATURE_GROUPS: { key: string; names: FeatureName[] }[] = [
   { key: 'monitoring', names: ['flapping', 'timeline', 'reports', 'noc'] },
   { key: 'logs', names: ['traps', 'syslog', 'event_alerts', 'siem_forwarding', 'audit'] },
   { key: 'network', names: ['lag', 'config_backup', 'flows', 'new_device_alerts'] },
-  { key: 'access', names: ['ldap', 'sso_kerberos', 'sso_oidc', 'api_tokens'] },
-  { key: 'notifications', names: ['teams', 'chat_ack'] },
+  { key: 'access', names: ['ldap', 'sso_kerberos', 'sso_oidc'] },
+  { key: 'notifications', names: ['chat_ack'] },
 ];
 
 /** [3] Phase-3 features (their status lines come from their own status endpoints). */

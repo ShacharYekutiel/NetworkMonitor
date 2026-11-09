@@ -30,7 +30,8 @@ export const SHOT_DIR_2B3 = process.env.QA2B3_SHOT_DIR ?? join(__dirname, '..', 
 export const VECTORS = join(SIM_DIR, 'ingest', 'vectors.txt');
 
 export const FEATURES = [
-  'traps', 'syslog', 'event_alerts', 'lag', 'ldap', 'audit', 'timeline', 'teams', 'flapping', 'siem_forwarding', 'api_tokens',
+  // owner decision: Teams channels and API tokens are always available (not toggles)
+  'traps', 'syslog', 'event_alerts', 'lag', 'ldap', 'audit', 'timeline', 'flapping', 'siem_forwarding',
 ] as const;
 export type Feature = (typeof FEATURES)[number];
 

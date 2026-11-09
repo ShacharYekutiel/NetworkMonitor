@@ -1102,8 +1102,13 @@ existing install). The keys and exact OFF behaviour are in data-model § Feature
 | Existing data | kept when a feature is turned off; **retention keeps running** for it; visible again when it is turned back on. |
 | Settings page | new tab **Features**: one row per feature (name, he/en description, toggle, status line such as "Listening on UDP 162" or the start error, and dependency hints, e.g. "Event alerts need traps or syslog to be on"). |
 
-Feature names: `traps`, `syslog`, `event_alerts`, `lag`, `ldap`, `audit`, `timeline`, `teams`, `flapping`,
-`siem_forwarding`, `api_tokens`.
+Feature names (9): `traps`, `syslog`, `event_alerts`, `lag`, `ldap`, `audit`, `timeline`, `flapping`,
+`siem_forwarding`.
+
+Owner decision: the **Microsoft Teams channel** (§ 12.10) and **API tokens** (§ 12.11) are *not* toggles —
+they are always available. Stored `feature_teams_enabled` / `feature_api_tokens_enabled` rows from earlier
+builds are ignored (no migration); `PUT /api/settings` ignores those keys like any other unknown key
+(accepted, not stored, not returned).
 
 ### 12.1 Components [2b-3]
 | Component | Module | Responsibility |
@@ -1542,7 +1547,8 @@ max 31 days, `limit` ≤ 200. UI: device page tab **Timeline** (kind filter chip
 coloured icons per kind; rows link to the sensor, trap/syslog detail, audit entry).
 
 ### 12.10 Microsoft Teams channel [2b-3]
-Feature `teams`. New `notification_type` `teams`. Microsoft is retiring Office 365 connectors / "Incoming
+Always available (no feature toggle, § 12.0). New `notification_type` `teams`, offered next to email,
+webhook and Telegram. Microsoft is retiring Office 365 connectors / "Incoming
 Webhook" URLs (`*.webhook.office.com`); the channel targets the **Teams Workflows** template "Post to a
 channel when a webhook request is received" (Power Automate; URLs on `*.logic.azure.com` or
 `*.environment.api.powerplatform.com`). The URL carries a signature, so it is a **secret** (write-only,
@@ -1555,11 +1561,10 @@ connector type — create a Workflows webhook".
   (message cut). Exact JSON: api.md § Teams.
 - Sending: `httpx` POST, `verify = tlsutil.httpx_verify(True)`, `trust_env=True` (HTTPS proxy from env),
   timeout 15 s; 2xx (Workflows answers 202) = success; else `notification` event and `502 teams_error` on test.
-  While `teams` is OFF existing Teams channels are skipped at send time with a `notification` event "Teams
-  notifications are turned off".
 
 ### 12.11 API tokens [2b-3]
-Feature `api_tokens`. Personal tokens for scripts/integrations.
+Always available (no feature toggle, § 12.0): every user reaches *API tokens* from the account menu.
+Personal tokens for scripts/integrations.
 - Token text `nmt_` + 43 chars (`secrets.token_urlsafe(32)`), shown **once** in the create response; stored as
   SHA-256 hex (high-entropy secret, so a fast hash is correct) + an 8-char display prefix.
 - Role `viewer` | `admin`, never above the creator's role; effective role per request = min(token role, the
@@ -1571,7 +1576,6 @@ Feature `api_tokens`. Personal tokens for scripts/integrations.
   to bearer requests (no ambient credential). Invalid-token attempts are throttled (20 per 5 min per IP → 429).
   `last_used_at`/`last_used_ip` are stamped at most once per minute. Create/revoke/use-failure are audited;
   successful uses are not (volume), but every change made with a token is audited with `actor_type = token`.
-- While `api_tokens` is OFF every bearer request gets `401 unauthenticated` (tokens kept).
 
 ### 12.12 Deployment [2b-3]
 **Docker image / compose.** The app stays non-root (uid 10001). The image sets `NETMON_TRAP_PORT=1162`,
@@ -1729,13 +1733,13 @@ StartTLS, wrong-name cert → `directory_unavailable`, failover first server clo
 LDAP user 503 within budget while a local admin login completes in < 1 s, empty password never reaches the
 server (fake records binds), directory guard 429 after 5 failures, bind password stored encrypted (raw settings
 row has no plaintext), `ldap_managed` refusals, session not renewed past 12 h with the test clock); API tokens
-(once-only display, hash stored, role cap, revoked/expired 401, refused on `/api/tokens` and `/api/users`, OFF →
-401); Teams against an httpx mock (payload shape, 202 success, 400 → `teams_error`); SIEM forwarding to
+(once-only display, hash stored, role cap, revoked/expired 401, refused on `/api/tokens` and `/api/users`, always
+available); Teams against an httpx mock (payload shape, 202 success, 400 → `teams_error`); SIEM forwarding to
 `siem_sink.py` (UDP/TCP/TLS, original hostname/timestamp kept, filter, sink down → `dropped` grows while
 ingestion continues).
 
 **E2E specs** (Playwright, `tests/e2e/specs/`, one worker, after 37):
-- `38-features.spec.ts` — fresh install: all 11 toggles OFF, nav hidden, endpoints 409; turn each ON/OFF
+- `38-features.spec.ts` — fresh install: all 9 toggles OFF (Teams and API tokens are not toggles), nav hidden, endpoints 409; turn each ON/OFF
   without restart (traps: sender gets through only while ON).
 - `39-syslog.spec.ts` — vectors over UDP/TCP from 127.0.0.81 (device from the ports lab) → global and device
   views, every filter, histogram, detail drawer, live tail receives without reload, `next_cursor` paging.
@@ -1843,8 +1847,9 @@ login buttons, the kiosk URL, the chat buttons) are inert while their toggle is 
 | `noc` | kiosk screens (`/noc`), kiosk API and WS | — |
 | `chat_ack` | "Acknowledge" button in Telegram (callback) and Teams/email (link to the ack page), Telegram account linking, the Telegram update poller | `public_base_url` for the Teams/email link; a Telegram channel with `ack_buttons` |
 
-Phase-3 OFF behaviour, exactly: data-model § [3] Feature toggles. The Features page groups the 19 features
-(2b-3 + phase 3) under headings *Monitoring*, *Logs & events*, *Network*, *Access*, *Notifications*.
+Phase-3 OFF behaviour, exactly: data-model § [3] Feature toggles. The Features page groups the 17 features
+(9 of 2b-3 + 8 of phase 3; Teams and API tokens are always available, not toggles) under headings
+*Monitoring*, *Logs & events*, *Network*, *Access*, *Notifications*.
 
 ### 13.1 Components [3]
 | Component | Module | Responsibility |

@@ -1,6 +1,6 @@
 """[2b-3] Microsoft Teams channel: write-only URL, legacy flag, test send against an httpx mock
-(payload shape, 202 success, 400 → 502 teams_error without the URL), OFF → 409 and skipped
-sends recorded as a `notification` event."""
+(payload shape, 202 success, 400 → 502 teams_error without the URL). Teams is always available
+(no feature toggle): a stored legacy `feature_teams_enabled=false` changes nothing."""
 
 from __future__ import annotations
 
@@ -50,16 +50,37 @@ async def _create(admin: httpx.AsyncClient, url: str = URL) -> httpx.Response:
     )
 
 
-async def test_off_409(admin: httpx.AsyncClient, feats: Any) -> None:
-    feats(teams=False)
+async def test_always_available_legacy_toggle_ignored(
+    admin: httpx.AsyncClient, feats: Any, rt: Any
+) -> None:
+    """A row left by the removed toggle is ignored; PUT /api/settings ignores the key."""
+    conn = await asyncpg.connect(_plain(rt.settings.database_url))
+    try:
+        for k in ("feature_teams_enabled", "feature_api_tokens_enabled"):
+            await conn.execute(
+                "INSERT INTO settings (key, value) VALUES ($1, 'false'::jsonb) "
+                "ON CONFLICT (key) DO UPDATE SET value = 'false'::jsonb",
+                k,
+            )
+    finally:
+        await conn.close()
+    s = (await admin.get("/api/settings")).json()
+    assert "feature_teams_enabled" not in s and "feature_api_tokens_enabled" not in s
+    pub = (await admin.get("/api/settings/public")).json()
+    assert "teams" not in pub["features"] and "api_tokens" not in pub["features"]
+    r = await admin.put(
+        "/api/settings", json={"feature_teams_enabled": True, "feature_api_tokens_enabled": False}
+    )
+    assert r.status_code == 200, r.text
+    assert "feature_teams_enabled" not in r.json()
     r = await _create(admin)
-    assert r.status_code == 409 and r.json()["error"]["details"] == [{"feature": "teams"}]
+    assert r.status_code == 201, r.text
 
 
 async def test_channel_crud_secret_url(
     admin: httpx.AsyncClient, feats: Any, teams_mock: dict, rt: Any
 ) -> None:
-    feats(teams=True, audit=True)
+    feats(audit=True)
     r = await admin.post(
         "/api/notification-channels", json={"name": "T", "type": "teams", "config": {}}
     )
@@ -117,16 +138,9 @@ async def test_channel_crud_secret_url(
     finally:
         await conn.close()
     assert rows and all("TOPSECRETSIG" not in r["c"] and "webhookb2" not in r["c"] for r in rows)
-    # OFF: test and patch refused, existing channel kept
-    feats(teams=False)
-    assert (await admin.post(f"/api/notification-channels/{ch['id']}/test")).status_code == 409
-    r = await admin.patch(f"/api/notification-channels/{ch['id']}", json={"name": "z"})
-    assert r.status_code == 409
-    assert (await admin.get(f"/api/notification-channels/{ch['id']}")).status_code == 200
 
 
-async def test_send_skipped_while_off(admin: httpx.AsyncClient, feats: Any, rt: Any) -> None:
-    feats(teams=False)
+async def test_send_always_delivered(admin: httpx.AsyncClient, feats: Any, rt: Any) -> None:
     calls: list[Any] = []
 
     async def sender(*a: Any) -> None:
@@ -135,19 +149,6 @@ async def test_send_skipped_while_off(admin: httpx.AsyncClient, feats: Any, rt: 
     rt.alerts.sender = sender
     channel = {"id": 1, "name": "Ops Teams", "type": "teams", "config": {"url": URL}}
     r = SimpleNamespace(sensor_id=None, device_id=None, gid=None, sname=None, dname=None)
-    ok = await rt.alerts._send_one(  # noqa: SLF001
-        channel, {"event": "test"}, {"smtp": {}, "default_language": "en"}, r
-    )
-    assert ok is False and calls == []
-    conn = await asyncpg.connect(_plain(rt.settings.database_url))
-    try:
-        msg = await conn.fetchval(
-            "SELECT message FROM events WHERE kind = 'notification' ORDER BY id DESC LIMIT 1"
-        )
-    finally:
-        await conn.close()
-    assert msg == "Ops Teams: Teams notifications are turned off"
-    feats(teams=True)
     ok = await rt.alerts._send_one(  # noqa: SLF001
         channel, {"event": "test"}, {"smtp": {}, "default_language": "en"}, r
     )

@@ -8,7 +8,7 @@ without a restart. Routers guard their endpoints with the `feature_disabled(...)
     router = APIRouter(dependencies=[Depends(feature_disabled("audit"))])
     @router.get("/api/x", dependencies=[Depends(feature_disabled("traps", "syslog"))])  # any-of
 
-or call `require(rt, "teams")` / `rt.features.enabled("teams")` inline. A disabled feature
+or call `require(rt, "lag")` / `rt.features.enabled("lag")` inline. A disabled feature
 answers `409 feature_disabled` with `details: [{"feature": "<name>"}]`.
 
 Other modules can react to a change with `rt.features.add_listener(callback)`; the callback
@@ -49,10 +49,8 @@ FEATURES: tuple[str, ...] = (
     "ldap",
     "audit",
     "timeline",
-    "teams",
     "flapping",
     "siem_forwarding",
-    "api_tokens",
     # [3] phase 3 (architecture § 13.0)
     "config_backup",
     "flows",
@@ -63,7 +61,11 @@ FEATURES: tuple[str, ...] = (
     "noc",
     "chat_ack",
 )
-PHASE3_FEATURES: tuple[str, ...] = FEATURES[11:]
+PHASE3_FEATURES: tuple[str, ...] = FEATURES[FEATURES.index("config_backup") :]
+# Teams notifications and API tokens were toggles before; they are now always available. A
+# stored `feature_teams_enabled` / `feature_api_tokens_enabled` row is ignored (settings
+# `get_all` only reads known keys) and `PUT /api/settings` ignores those keys like any other
+# unknown key.
 APPLY_TIMEOUT_S = 5.0
 
 Listener = Callable[[str, bool], Awaitable[None] | None]

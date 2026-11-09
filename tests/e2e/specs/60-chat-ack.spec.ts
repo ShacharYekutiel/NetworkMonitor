@@ -26,7 +26,7 @@ const ackToken = (s: string) => (s.match(/a1\.[A-Za-z0-9_-]{38}/) ?? [])[0];
 test.beforeAll(async () => {
   api = await apiAs();
   await api.put('/api/settings', { public_base_url: BASE_URL });
-  await setFeatures(api, { chat_ack: true, teams: true });
+  await setFeatures(api, { chat_ack: true });
   const tg = await api.post('/api/notification-channels', {
     name: 'qa3-tg-ack', type: 'telegram', enabled: true,
     config: { bot_token: TG_VALID_TOKEN, chat_id: TG_CHAT_OK, parse_mode: 'HTML', disable_notification: false, ack_buttons: true, ack_link: false },

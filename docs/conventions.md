@@ -219,5 +219,5 @@ both Timescale mode and fallback mode, and on Windows paths (no POSIX-only calls
 - Frontend: extend `types.ts` / `endpoints.ts` / `ws.ts` exactly as api.md § Phase 3; `/noc` and `/ack` are
   routes outside the authenticated shell; configs, diffs, IPs, MACs and flow keys render `dir="ltr"`.
 - Existing test changes allowed in phase 3 (contract changes on purpose): `test_migrations.py` (head `0007`),
-  sensor-type lists (two more passive types), feature lists (19 names), `User`/`Device`/`Group` shape tests (new
+  sensor-type lists (two more passive types), feature lists (17 names; Teams and API tokens are no longer toggles), `User`/`Device`/`Group` shape tests (new
   keys), event-kind lists, event-rule action lists. Any other failing existing test is a regression.

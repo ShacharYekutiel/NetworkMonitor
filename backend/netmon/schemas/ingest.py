@@ -69,10 +69,8 @@ class IngestSettingsMixin(BaseModel):
     feature_ldap_enabled: bool | None = None
     feature_audit_enabled: bool | None = None
     feature_timeline_enabled: bool | None = None
-    feature_teams_enabled: bool | None = None
     feature_flapping_enabled: bool | None = None
     feature_siem_forwarding_enabled: bool | None = None
-    feature_api_tokens_enabled: bool | None = None
     trap_retention_days: int | None = Field(default=None, ge=1, le=3650)
     syslog_retention_days: int | None = Field(default=None, ge=1, le=3650)
     trap_community_check: Literal["any", "known"] | None = None

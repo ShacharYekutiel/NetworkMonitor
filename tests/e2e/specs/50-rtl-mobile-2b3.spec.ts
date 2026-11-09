@@ -15,7 +15,7 @@ const M = marker('qa50');
 test.beforeAll(async () => {
   admin = await apiAs();
   lab = await ensurePortLab(admin);
-  await featureOn(admin, 'traps', 'syslog', 'event_alerts', 'timeline', 'audit', 'api_tokens');
+  await featureOn(admin, 'traps', 'syslog', 'event_alerts', 'timeline', 'audit');
   await waitReceivers(admin, ['syslog_udp'], 'listening');
   sendSyslog({ from: SRC.aos, messages: [`<187>Nov  8 12:00:00 sw rtl: ${M} interface Ten-GigabitEthernet1/0/49 down`] });
   await waitItems(admin, 'syslog', { q: M }, (it) => it.length === 1);

@@ -1494,8 +1494,8 @@ feature_disabled` (data-model § Feature toggles lists the exceptions).
 type SensorType = /* … */ | "trap" | "syslog" | "port_flap";
 type NotificationType = "email" | "webhook" | "telegram" | "teams";
 type EventKind = /* … */ | "notification_sent" | "port_change";
-type FeatureName = "traps" | "syslog" | "event_alerts" | "lag" | "ldap" | "audit" | "timeline" | "teams"
-  | "flapping" | "siem_forwarding" | "api_tokens";
+type FeatureName = "traps" | "syslog" | "event_alerts" | "lag" | "ldap" | "audit" | "timeline"
+  | "flapping" | "siem_forwarding";   // Teams channels and API tokens are always available (no toggle)
 type Features = Record<FeatureName, boolean>;
 
 type User = { /* Phase 1 fields */ source: "local" | "ldap"; display_name: string | null;
@@ -1522,7 +1522,9 @@ type User = { /* Phase 1 fields */ source: "local" | "ldap"; display_name: strin
 - `GET /api/settings/public` gains `features: Features` and `ldap: {"domain": "mnidom.net", "netbios_domain":
   "MNIDOM"} | null` (null while `ldap` is OFF).
 - `Settings` gains every key of data-model § Settings keys. Changes go through `PUT /api/settings` (partial
-  merge). `feature_*_enabled` changes are applied at runtime and broadcast as `features.changed`. Turning
+  merge). `feature_*_enabled` changes are applied at runtime and broadcast as `features.changed`. Unknown
+  keys are ignored (not stored, no 422) — this includes `feature_teams_enabled` / `feature_api_tokens_enabled`
+  from earlier builds (Teams and API tokens are no longer toggles). Turning
   `ldap` ON validates the stored `ldap` config (422 with the missing fields).
 - Secret handling (same rules as § Secret fields):
   - `trap_communities`: response `null` + `trap_communities_count`; request omitted/`null` keep, list (also
@@ -1537,8 +1539,8 @@ type User = { /* Phase 1 fields */ source: "local" | "ldap"; display_name: strin
 ```json
 { "feature_traps_enabled": true, "feature_syslog_enabled": true, "feature_event_alerts_enabled": true,
   "feature_lag_enabled": true, "feature_ldap_enabled": false, "feature_audit_enabled": true,
-  "feature_timeline_enabled": true, "feature_teams_enabled": false, "feature_flapping_enabled": true,
-  "feature_siem_forwarding_enabled": false, "feature_api_tokens_enabled": false,
+  "feature_timeline_enabled": true, "feature_flapping_enabled": true,
+  "feature_siem_forwarding_enabled": false,
   "trap_retention_days": 30, "syslog_retention_days": 30, "audit_retention_days": 365,
   "trap_community_check": "any", "trap_communities": null, "trap_communities_count": 0,
   "trap_v3_users": [ { "username": "netmon-trap", "security_level": "authPriv", "auth_protocol": "SHA",
@@ -1674,12 +1676,13 @@ type EventCondition = { id: number; source: "rule" | "flap"; rule_id: number | n
 | `GET /api/sensors/{id}/conditions` | viewer | `{"items": EventCondition[]}` (worst, newest first); `400 not_event_sensor` |
 | `POST /api/sensors/{id}/clear` | admin | `200 Sensor` (status `up`); audited `sensor.clear_events` |
 
-### [2b-3] Microsoft Teams channel (feature `teams`)
+### [2b-3] Microsoft Teams channel (always available)
 `notification_channels.type = "teams"`, `config`: `{"url": "https://prod-12.westeurope.logic.azure.com/workflows/…/triggers/manual/paths/invoke?api-version=…&sig=…"}`.
 - `url` is **secret**: responses `"url": null, "url_set": true, "url_host": "prod-12.westeurope.logic.azure.com",
   "legacy": false`; requests follow § Secret fields; required on create; must be `https://`, ≤ 2048 chars.
   `legacy = true` when the host ends with `webhook.office.com` or `outlook.office.com` (UI warning).
 - Test: `POST /api/notification-channels/{id}/test` → `200` / `502 teams_error`.
+- No feature toggle: create/patch/test/send never answer `409 feature_disabled`.
 - Body sent (problem example, `en`):
 ```json
 { "type": "message",
@@ -1772,7 +1775,9 @@ those features are ON, `audit` only for admins with `audit` ON, `port` always se
 `cursor`, `limit` (1–200, default 50) → cursor page of `TimelineItem` (`time DESC`, ties by kind order above,
 then `id DESC`). `404` device.
 
-### [2b-3] API tokens (feature `api_tokens`)
+### [2b-3] API tokens (always available)
+No feature toggle: `/api/tokens*` never answer `409 feature_disabled` and `Authorization: Bearer` is always
+accepted (subject to the rules below).
 ```ts
 type ApiToken = { id: number; name: string; prefix: string; role: "admin" | "viewer";
   user_id: number; username: string; created_at: string; expires_at: string;

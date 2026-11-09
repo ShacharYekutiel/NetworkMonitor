@@ -45,7 +45,6 @@ import { isTelegramChatId, isTelegramToken } from '../lib/telegram';
 import { ChatAckFields } from '../components/chatack/ChannelAckFields';
 import type { TeamsChannelConfig, TeamsChannelConfigInput } from '../api/types';
 import { isLegacyTeamsHost, teamsUrlError, urlHost } from '../lib/teams';
-import { useFeatures, FeatureOffNotice } from '../hooks/features';
 
 function channelTarget(c: NotificationChannel): string {
   if (c.type === 'email') return (c.config as EmailChannelConfig).to?.join(', ') ?? '';
@@ -121,7 +120,6 @@ function ChannelModal({
   // [3] chat acknowledge
   const [ackButtons, setAckButtons] = useState(false);
   const [ackLink, setAckLink] = useState(false);
-  const { features } = useFeatures();
 
   useEffect(() => {
     if (!open) return;
@@ -176,7 +174,6 @@ function ChannelModal({
   const teamsCfg = channel?.type === 'teams' ? (channel.config as TeamsChannelConfig) : null;
   const teamsErr = type === 'teams' ? teamsUrlError(teamsUrl, !teamsCfg?.url_set) : null;
   const teamsLegacy = teamsUrl.trim() ? isLegacyTeamsHost(urlHost(teamsUrl)) : !!teamsCfg?.legacy;
-  const teamsOff = type === 'teams' && !features.teams;
 
   const test = useMutation({
     mutationFn: () => endpoints.testChannel(channel!.id),
@@ -255,9 +252,7 @@ function ChannelModal({
               setAckLink(v === 'teams');
             }}
           >
-            {NOTIFICATION_TYPES.filter(
-              (nt) => nt !== 'teams' || features.teams || channel?.type === 'teams',
-            ).map((nt) => (
+            {NOTIFICATION_TYPES.map((nt) => (
               <option key={nt} value={nt}>
                 {t(`channels.${nt}`)}
               </option>
@@ -266,7 +261,6 @@ function ChannelModal({
         </Field>
         {type === 'teams' ? (
           <>
-            {teamsOff && <FeatureOffNotice feature="teams" />}
             <p className="text-xs text-slate-500">{t('teams.help')}</p>
             <Field
               label={t('teams.url')}
@@ -436,7 +430,6 @@ function ChannelModal({
           {channel && (
             <Button
               className="me-auto"
-              disabled={teamsOff}
               busy={test.isPending}
               title={t('channels.testSavedHint')}
               onClick={() => test.mutate()}
@@ -445,7 +438,7 @@ function ChannelModal({
             </Button>
           )}
           <Button onClick={onClose}>{t('common.cancel')}</Button>
-          <Button type="submit" variant="primary" busy={m.isPending} disabled={teamsOff}>
+          <Button type="submit" variant="primary" busy={m.isPending}>
             {t('common.save')}
           </Button>
         </div>
@@ -739,7 +732,6 @@ function RuleModal({
 
 export function NotificationsPage() {
   const { t } = useTranslation();
-  const { features } = useFeatures();
   const qc = useQueryClient();
   const toast = useToast();
   const channels = useQuery({ queryKey: qk.channels, queryFn: endpoints.channels });
@@ -821,9 +813,6 @@ export function NotificationsPage() {
                       >
                         ({t('teams.legacyShort')})
                       </span>
-                    )}
-                    {c.type === 'teams' && !features.teams && (
-                      <span className="ms-1 text-xs text-slate-500">({t('teams.offShort')})</span>
                     )}
                   </td>
                   <td className={td}>{c.enabled ? t('common.yes') : t('common.no')}</td>

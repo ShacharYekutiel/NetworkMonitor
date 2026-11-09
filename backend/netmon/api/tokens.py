@@ -1,11 +1,11 @@
-"""[2b-3] API tokens (feature `api_tokens`; session only — a token cannot manage tokens)."""
+"""[2b-3] API tokens (always available; session only — a token cannot manage tokens)."""
 
 from __future__ import annotations
 
 from datetime import timedelta
 from typing import Literal
 
-from fastapi import APIRouter, Depends, Response
+from fastapi import APIRouter, Response
 from pydantic import BaseModel, ConfigDict, Field
 from sqlalchemy import func, select
 from sqlalchemy.exc import IntegrityError
@@ -15,9 +15,8 @@ from netmon.api.errors import ApiError, conflict, not_found, validation_error
 from netmon.auth import tokens as tokens_svc
 from netmon.models import ApiToken, User
 from netmon.services import audit
-from netmon.services.features import feature_disabled
 
-router = APIRouter(dependencies=[Depends(feature_disabled("api_tokens"))])
+router = APIRouter()
 
 
 class ApiTokenIn(BaseModel):
