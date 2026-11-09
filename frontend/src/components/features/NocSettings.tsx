@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState, type FormEvent } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useTranslation } from 'react-i18next';
 import { endpoints3, qk3 } from '../../api/endpoints3';
-import type { Language } from '../../api/types';
+import type { Language, Settings } from '../../api/types';
 import type { KioskScreen, KioskTokenResponse, KioskWidget } from '../../api/types3';
 import { KIOSK_WIDGETS } from '../../api/types3';
 import { useFeatures } from '../../hooks/features';
@@ -31,7 +31,7 @@ import {
   td,
   th,
 } from '../ui';
-import { FeatureSection } from './common';
+import { FeatureTab } from './FeatureToggle';
 
 export function QrCode({ text, size = 192 }: { text: string; size?: number }) {
   const m = useMemo(() => qrMatrix(text), [text]);
@@ -300,7 +300,7 @@ function ScreenModal({
 }
 
 /** [3] Settings → NOC screens */
-export function NocTab() {
+export function NocTab({ settings }: { settings: Settings }) {
   const { t } = useTranslation();
   const { features } = useFeatures();
   const qc = useQueryClient();
@@ -331,7 +331,7 @@ export function NocTab() {
     },
   });
   return (
-    <FeatureSection feature="noc">
+    <FeatureTab feature="noc" settings={settings}>
       <Card
         title={t('kiosk.title')}
         bodyClassName="p-0"
@@ -459,6 +459,6 @@ export function NocTab() {
         busy={remove.isPending}
         error={remove.error}
       />
-    </FeatureSection>
+    </FeatureTab>
   );
 }

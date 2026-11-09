@@ -1502,11 +1502,11 @@
   },
   "features": {
     "title": "Features",
-    "intro": "Every feature of this release is off by default. Turning one on or off takes effect immediately, without a restart; stored data is kept while a feature is off.",
+    "intro": "Every feature of this release is off by default. Turning one on or off takes effect immediately, without a restart; stored data is kept while a feature is off. Features with a settings tab of their own are switched in that tab.",
     "on": "On",
     "off": "Off",
     "offLine": "{{name}}: this feature is turned off.",
-    "openSettings": "Turn on in Settings → Features",
+    "openSettings": "Turn on in Settings → {{tab}}",
     "askAdmin": "Ask an administrator to turn it on.",
     "name": {
       "traps": "SNMP traps",
@@ -1604,7 +1604,16 @@
       "notifications": "Notifications"
     },
     "backupBuiltinTitle": "Enable the built-in config-change triggers?",
-    "backupBuiltinText": "These rules start a backup when a device reports a configuration change in syslog. Enable the selected ones now."
+    "backupBuiltinText": "These rules start a backup when a device reports a configuration change in syslog. Enable the selected ones now.",
+    "ownTabTitle": "Features switched in their own tab",
+    "ownTabIntro": "Read-only overview. Each of these is turned on and off in its own settings tab.",
+    "configuredIn": "Configured in the {{tab}} tab",
+    "toggleOne": "Feature on/off",
+    "toggleMany": "Features on/off",
+    "enableNeedsTest": "Test the connection to enable",
+    "enableNeedsSave": "Save the settings and test the connection to enable",
+    "enableNeedsKeytab": "Upload a keytab to enable",
+    "enableNeedsLdap": "Turn on Active Directory login first"
   },
   "syslogSeverity": {
     "0": "Emergency",

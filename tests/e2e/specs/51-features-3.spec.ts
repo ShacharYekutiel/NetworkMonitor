@@ -101,14 +101,54 @@ test('each phase-3 toggle goes ON and OFF at runtime (no restart), nav follows l
   expect((await raw(api, 'GET', '/api/health')).status).toBe(200);
 });
 
-test('Features page lists the 8 new toggles under the five headings', async ({ page }) => {
+test('Features page: the 8 phase-3 features appear in the read-only overview (five headings), each linking to its tab', async ({ page }) => {
   await loginViaApi(page, undefined, '/settings?tab=features');
   for (const h of ['Monitoring', 'Logs & events', 'Network', 'Access', 'Notifications']) {
     await expect(page.getByRole('heading', { name: h }).first(), `heading ${h}`).toBeVisible({ timeout: 15_000 });
   }
+  const overview = page.getByTestId('features-overview');
   for (const n of P3_FEATURES) {
     const label = tx(`features.name.${n}`, new RegExp(n.replace(/_/g, '.?'), 'i'));
-    await expect(page.getByText(label).first(), `toggle ${n}`).toBeVisible();
+    const row = overview.locator(`[data-feature-overview="${n}"]`);
+    await expect(row.getByText(label).first(), `overview ${n}`).toBeVisible();
+    await expect(row.getByRole('link')).toBeVisible();
   }
+  // switched only in their own tab: no phase-3 switch on the Features tab
+  for (const n of P3_FEATURES) await expect(page.locator(`[data-feature="${n}"]`)).toHaveCount(0);
   await shot3(page, '51-features-tab');
+});
+
+test('own tabs: toggle card at the top, settings only while ON (Config backup)', async ({ page }) => {
+  const api = await apiAs();
+  await setFeatures(api, { config_backup: false });
+  await loginViaApi(page, undefined, '/settings?tab=features');
+  await page.getByTestId('features-overview').locator('[data-feature-overview="config_backup"]').getByRole('link').click();
+  await expect(page).toHaveURL(/tab=backup/);
+  const card = page.getByTestId('feature-toggles');
+  const sw = card.locator('[data-feature="config_backup"]').getByRole('switch');
+  await expect(sw).toHaveAttribute('aria-checked', 'false');
+  const title = page.getByRole('heading', { name: tx('settings3.backupTitle', /configuration backup/i) });
+  await expect(title).toHaveCount(0);
+  await shot3(page, '51-backup-tab-off');
+  await sw.click();
+  await expect.poll(async () => (await features(api)).config_backup, { timeout: 10_000 }).toBe(true);
+  await expect(title).toBeVisible();
+  await sw.click();
+  await expect.poll(async () => (await features(api)).config_backup, { timeout: 10_000 }).toBe(false);
+  await expect(title).toHaveCount(0);
+});
+
+test('SSO tab is configure-first: both forms shown while OFF, switches at their bottom stay locked until validated', async ({ page }) => {
+  const api = await apiAs();
+  await setFeatures(api, { sso_kerberos: false, sso_oidc: false });
+  await loginViaApi(page, undefined, '/settings?tab=sso');
+  await expect(page.getByRole('heading', { name: tx('kerberos.title', /kerberos/i) })).toBeVisible({ timeout: 15_000 });
+  await expect(page.getByRole('heading', { name: tx('oidc.title', /entra|microsoft/i) })).toBeVisible();
+  const krb = page.locator('[data-testid="feature-toggles"][data-feature="sso_kerberos"]');
+  const oidc = page.locator('[data-testid="feature-toggles"][data-feature="sso_oidc"]');
+  await expect(krb.getByRole('switch')).toBeDisabled();
+  await expect(krb.getByTestId('enable-hint')).toBeVisible();
+  await expect(oidc.getByRole('switch')).toBeDisabled();
+  await expect(oidc.getByTestId('enable-hint')).toHaveText(tx('features.enableNeedsTest', /test the connection to enable/i));
+  await shot3(page, '51-sso-tab-off');
 });

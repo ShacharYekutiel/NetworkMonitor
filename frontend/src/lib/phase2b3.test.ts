@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { ApiError } from '../api/client';
+import { FEATURE_NAMES } from '../api/types';
 import type { EventRule, Port, Settings, SyslogMessage, Trap, ApiToken } from '../api/types';
 import { changeRows, auditTone, changeText } from './audit';
 import {
@@ -18,17 +19,23 @@ import {
   disabledFeature,
   featureHints,
   featureStatus,
+  featuresOfTab,
+  featureTab,
   ingestOn,
   ldapMissing,
+  movedFeatures,
   normalizeFeatures,
+  SETTINGS_TABS,
 } from './features';
 import { parseSources, v3Input, v3RowError, v3Rows, newV3Row } from './ingestSettings';
 import { lagColorByMember, lagGroups, lagMemberNames, LAG_PALETTE } from './lag';
 import {
   baseDnFromDomain,
   isLdapServer,
+  ldapEnableState,
   ldapForm,
   ldapInput,
+  ldapKey,
   looksLikeDn,
   parseLogin,
 } from './ldap';
@@ -108,6 +115,19 @@ function trap(p: Partial<Trap> = {}): Trap {
 }
 
 describe('[2b-3] features', () => {
+  it('switches each feature in exactly one tab: its own settings tab, else Features', () => {
+    expect(featuresOfTab('ldap')).toEqual(['ldap']);
+    expect(featuresOfTab('siem')).toEqual(['siem_forwarding']);
+    expect(featuresOfTab('audit')).toEqual(['audit']);
+    expect(featuresOfTab('ingest')).toEqual(['traps', 'syslog', 'event_alerts', 'flapping']);
+    expect(featuresOfTab('features')).toEqual(['lag', 'timeline', 'teams', 'api_tokens']);
+    expect(featuresOfTab('general')).toEqual([]);
+    const all = SETTINGS_TABS.flatMap((t) => featuresOfTab(t));
+    expect([...all].sort()).toEqual([...FEATURE_NAMES].sort());
+    expect(movedFeatures()).not.toContain('lag');
+    expect(movedFeatures().every((n) => featureTab(n) !== 'features')).toBe(true);
+    expect(movedFeatures().length + featuresOfTab('features').length).toBe(FEATURE_NAMES.length);
+  });
   it('defaults every feature to off and fills missing keys', () => {
     expect(Object.values(ALL_OFF).every((v) => v === false)).toBe(true);
     const f = normalizeFeatures({ traps: true, ldap: 'yes' as unknown as boolean });
@@ -470,6 +490,38 @@ describe('[2b-3] LAG', () => {
 });
 
 describe('[2b-3] Active Directory', () => {
+  it('configure-first switch: unlocked only by a successful test of the stored settings', () => {
+    const l = {
+      servers: ['dc1.mnidom.net'],
+      security: 'ldaps',
+      tls_verify: true,
+      domain: 'mnidom.net',
+      netbios_domain: 'MNIDOM',
+      base_dn: '',
+      bind_dn: 'svc@mnidom.net',
+      bind_password: null,
+      bind_password_set: true,
+      bind_password_unreadable: false,
+      admin_group_dn: 'CN=A,DC=mnidom,DC=net',
+      viewer_group_dn: '',
+      timeout_s: 5,
+    } as unknown as Parameters<typeof ldapForm>[0];
+    const form = ldapForm(l);
+    const key = ldapKey(ldapInput(form));
+    expect(ldapEnableState({ on: false, form, stored: l, verifiedKey: null })).toBe('test');
+    expect(ldapEnableState({ on: false, form, stored: l, verifiedKey: key })).toBe('ok');
+    // unsaved edits (or a typed password) need a save first
+    const dirty = { ...form, domain: 'other.net' };
+    expect(ldapEnableState({ on: false, form: dirty, stored: l, verifiedKey: key })).toBe('save');
+    const pw = { ...form, password: 'x' };
+    expect(ldapEnableState({ on: false, form: pw, stored: l, verifiedKey: key })).toBe('save');
+    // a test of other values does not unlock; turning OFF is always possible
+    const other = ldapKey(ldapInput(dirty));
+    expect(ldapEnableState({ on: false, form, stored: l, verifiedKey: other })).toBe('test');
+    expect(ldapEnableState({ on: true, form: dirty, stored: l, verifiedKey: null })).toBe('ok');
+    // the secret is not part of the key
+    expect(ldapKey({ ...ldapInput(form), bind_password: 'secret' })).toBe(key);
+  });
   it('parses login names like the server (data-model vectors)', () => {
     expect(parseLogin('jdoe', 'MNIDOM', 'mnidom.net')).toEqual({ kind: 'sam', sam: 'jdoe' });
     expect(parseLogin('MNIDOM\\jdoe', 'MNIDOM', 'mnidom.net')).toEqual({

@@ -1,8 +1,8 @@
 import { expect, test } from '@playwright/test';
-import { ADMIN, Api, apiAs, loginViaUi } from '../lib/helpers';
+import { ADMIN, Api, apiAs, loginViaApi, loginViaUi } from '../lib/helpers';
 import { raw } from '../lib/lab';
 import {
-  AD, LDAPS_PORT, LDAP_DEAD_PORT, LDAP_PLAIN_PORT, LDAP_WRONG_PORT, adBinds, adHang, adStart, adStop, clearAdBinds, featureOn,
+  AD, LDAPS_PORT, LDAP_DEAD_PORT, LDAP_PLAIN_PORT, LDAP_WRONG_PORT, adBinds, adHang, adStart, adStop, clearAdBinds, featureOff, featureOn,
   ldapConfig, publicFeatures, shot2b3, tOr, tryLogin,
 } from '../lib/lab2b3';
 
@@ -59,6 +59,36 @@ test('Test user login: steps, role, reason; no user created', async () => {
   const no = await admin.post('/api/ldap/test-user', { username: 'nogroup', password: AD.password });
   expect(no).toMatchObject({ ok: false, role: null, reason: 'not_in_group' });
   expect((await admin.get('/api/users?page_size=1000')).items.some((u: any) => u.username === 'asmith')).toBe(false);
+});
+
+test('UI: AD is configure-first: form shown while OFF, switch at the bottom unlocked by a successful Test connection', async ({ page }) => {
+  expect((await publicFeatures(admin)).ldap).toBe(false);
+  await loginViaApi(page, undefined, '/settings?tab=ldap');
+  const form = page.getByTestId('ldap-settings');
+  await expect(form).toBeVisible();
+  await expect(form.getByPlaceholder('mnidom.net', { exact: true })).toHaveValue('mnidom.net');
+  // nothing at the top: the switch is inside the form, next to Test connection
+  const sw = form.getByTestId('feature-toggles').getByRole('switch', { name: tOr('features.name.ldap', 'Active Directory login') });
+  await expect(sw).toBeDisabled();
+  await expect(form.getByTestId('enable-hint')).toHaveText(tOr('features.enableNeedsTest', 'Test the connection to enable'));
+  await shot2b3(page, '45-ad-off-locked');
+  // an unsaved edit needs a save first
+  await form.getByPlaceholder('MNIDOM', { exact: true }).fill('MNIDOMX');
+  await expect(form.getByTestId('enable-hint')).toHaveText(tOr('features.enableNeedsSave', 'Save the settings and test the connection to enable'));
+  await form.getByPlaceholder('MNIDOM', { exact: true }).fill('MNIDOM');
+  await form.getByRole('button', { name: tOr('ldap.testConnection', 'Test connection') }).click();
+  await expect(page.getByRole('table').filter({ hasText: `localhost:${LDAPS_PORT}` })).toBeVisible({ timeout: 15_000 });
+  await expect(sw).toBeEnabled();
+  await sw.click();
+  await expect.poll(async () => (await publicFeatures(admin)).ldap, { timeout: 10_000 }).toBe(true);
+  await expect(sw).toHaveAttribute('aria-checked', 'true');
+  await expect(form).toBeVisible();
+  await shot2b3(page, '45-ad-on');
+  // OFF again from the same switch (the stored settings stay)
+  await sw.click();
+  await expect.poll(async () => (await publicFeatures(admin)).ldap, { timeout: 10_000 }).toBe(false);
+  await expect(form.getByPlaceholder('mnidom.net', { exact: true })).toHaveValue('mnidom.net');
+  await featureOff(admin, 'ldap');
 });
 
 test('LDAP users get 401 while the feature is OFF; ON publishes the domain hint', async () => {
@@ -215,6 +245,9 @@ test('UI: login hint, AD login, Settings -> Active Directory test table, profile
   await expect(page.getByRole('navigation').first()).toBeVisible();
   await page.goto('/settings');
   await page.getByRole('tab', { name: tOr('settings.tab.ldap', 'Active Directory') }).click();
+  // the AD switch lives at the bottom of its form, next to Test connection (and is on here)
+  const adSwitch = page.getByTestId('ldap-settings').getByTestId('feature-toggles').getByRole('switch', { name: tOr('features.name.ldap', 'Active Directory login') });
+  await expect(adSwitch).toHaveAttribute('aria-checked', 'true');
   await page.getByRole('button', { name: tOr('ldap.testConnection', 'Test connection') }).click();
   await expect(page.getByRole('table').filter({ hasText: `localhost:${LDAPS_PORT}` })).toBeVisible({ timeout: 15_000 });
   await shot2b3(page, '45-ad-settings-test');

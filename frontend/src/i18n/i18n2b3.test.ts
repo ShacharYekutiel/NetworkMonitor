@@ -39,6 +39,15 @@ describe('i18n [2b-3]', () => {
         'timelineSources',
         'lagPorts',
       ].map((h) => `features.hint.${h}`),
+      ...[
+        'ownTabTitle',
+        'ownTabIntro',
+        'configuredIn',
+        'toggleOne',
+        'toggleMany',
+        'enableNeedsTest',
+        'enableNeedsSave',
+      ].map((k) => `features.${k}`),
       ...['on', 'listening', 'error', 'socketOff', 'stopped', 'forwardErrors', 'targets'].map(
         (s) => `features.status.${s}`,
       ),

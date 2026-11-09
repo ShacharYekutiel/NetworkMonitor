@@ -2,7 +2,7 @@ import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { useTranslation } from 'react-i18next';
 import { endpoints, qk } from '../../api/endpoints';
 import type { FeatureName, Settings, SettingsInput } from '../../api/types';
-import { useFeatures, FeatureOffNotice } from '../../hooks/features';
+import { featuresFromSettings } from '../../lib/features';
 import { useToast } from '../toast';
 import { cx } from '../ui';
 
@@ -63,25 +63,19 @@ export function Toggle({
 }
 
 /**
- * A settings section of a feature: while the feature is OFF it is shown greyed with the one-line
- * explanation; it stays editable so an admin can prepare it before turning the feature on.
+ * A settings section of a feature: shown only while the feature is ON (owner decision: an OFF
+ * feature's tab shows just its description and switch; the stored settings are kept).
  */
 export function FeatureSection({
   feature,
+  settings,
   children,
 }: {
   feature: FeatureName | FeatureName[];
+  settings: Settings;
   children: React.ReactNode;
 }) {
-  const { features } = useFeatures();
+  const f = featuresFromSettings(settings);
   const names = Array.isArray(feature) ? feature : [feature];
-  const on = names.some((n) => features[n]);
-  return (
-    <div className="space-y-3">
-      {!on && <FeatureOffNotice feature={feature} />}
-      <div className={cx(!on && 'opacity-70')} data-feature-off={!on || undefined}>
-        {children}
-      </div>
-    </div>
-  );
+  return names.some((n) => f[n]) ? <>{children}</> : null;
 }

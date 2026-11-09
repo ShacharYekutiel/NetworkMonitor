@@ -2,15 +2,22 @@ import { useEffect, useRef, useState, type FormEvent } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useTranslation } from 'react-i18next';
 import { endpoints3, qk3 } from '../../api/endpoints3';
+import type { Settings } from '../../api/types';
 import type {
   KerberosSettings,
   OidcRoleSource,
   OidcSettings,
   OidcTestResult,
 } from '../../api/types3';
-import { useFeatures } from '../../hooks/features';
 import { formatDateTime } from '../../lib/format';
-import { oidcMissing, parseRealms, parseValues, realmsError } from '../../lib/sso';
+import {
+  kerberosEnableState,
+  oidcEnableState,
+  oidcMissing,
+  parseRealms,
+  parseValues,
+  realmsError,
+} from '../../lib/sso';
 import { SecretField } from '../SnmpEditor';
 import { useToast } from '../toast';
 import {
@@ -29,7 +36,7 @@ import {
   td,
   th,
 } from '../ui';
-import { FeatureSection } from './common';
+import { InlineFeatureSwitch } from './FeatureToggle';
 
 function StateBadge({ k }: { k: KerberosSettings }) {
   const { t } = useTranslation();
@@ -49,7 +56,7 @@ function StateBadge({ k }: { k: KerberosSettings }) {
   );
 }
 
-function KerberosCard() {
+function KerberosCard({ settings }: { settings: Settings }) {
   const { t } = useTranslation();
   const qc = useQueryClient();
   const toast = useToast();
@@ -93,6 +100,11 @@ function KerberosCard() {
     if (!realmErr) save.mutate();
   };
   const k = q.data;
+  const kGate = kerberosEnableState({
+    on: settings.feature_sso_kerberos_enabled === true,
+    keytabEntries: k?.keytab_set ? k.keytab_entries.length : 0,
+    ldapOn: settings.feature_ldap_enabled === true,
+  });
   return (
     <Card title={t('kerberos.title')} actions={k && <StateBadge k={k} />}>
       {q.isLoading && <Loading />}
@@ -202,6 +214,16 @@ function KerberosCard() {
             <ErrorBox error={upload.error ?? del.error} />
             <p className="text-xs text-slate-500">{t('kerberos.testHint')}</p>
           </div>
+          <div className="border-t border-slate-200 pt-3 dark:border-slate-800">
+            <InlineFeatureSwitch
+              name="sso_kerberos"
+              settings={settings}
+              blocked={kGate !== 'ok'}
+              hint={
+                kGate === 'ldap' ? t('features.enableNeedsLdap') : t('features.enableNeedsKeytab')
+              }
+            />
+          </div>
         </div>
       )}
     </Card>
@@ -220,7 +242,7 @@ function OidcTestView({ r }: { r: OidcTestResult }) {
   );
 }
 
-function OidcCard() {
+function OidcCard({ settings }: { settings: Settings }) {
   const { t } = useTranslation();
   const qc = useQueryClient();
   const toast = useToast();
@@ -265,6 +287,7 @@ function OidcCard() {
       qc.setQueryData(qk3.oidc, o);
       void qc.invalidateQueries({ queryKey: ['publicSettings'] });
       toast.push('success', t('common.saved'));
+      setResult(null); // the stored settings changed: test them again
     },
   });
   const test = useMutation({
@@ -273,6 +296,22 @@ function OidcCard() {
     onSuccess: setResult,
   });
   const o = q.data;
+  const dirty =
+    !!o &&
+    (tenant !== o.tenant_id ||
+      client !== o.client_id ||
+      !!secret ||
+      clearSecret ||
+      expires !== (o.client_secret_expires_at?.slice(0, 10) ?? '') ||
+      source !== o.role_source ||
+      admins !== o.admin_values.join('\n') ||
+      viewers !== o.viewer_values.join('\n') ||
+      label !== (o.button_label ?? ''));
+  const oGate = oidcEnableState({
+    on: settings.feature_sso_oidc_enabled === true,
+    dirty,
+    tested: !!result,
+  });
   const missing = oidcMissing({
     tenant_id: tenant,
     client_id: client,
@@ -372,10 +411,20 @@ function OidcCard() {
           )}
           <ErrorBox error={save.error ?? test.error} />
           {result && <OidcTestView r={result} />}
-          <div className="flex flex-wrap justify-end gap-2">
-            <Button className="me-auto" busy={test.isPending} onClick={() => test.mutate()}>
+          <div className="flex flex-wrap items-start gap-x-4 gap-y-2">
+            <Button busy={test.isPending} onClick={() => test.mutate()}>
               {t('oidc.test')}
             </Button>
+            <div className="me-auto pt-1">
+              <InlineFeatureSwitch
+                name="sso_oidc"
+                settings={settings}
+                blocked={oGate !== 'ok'}
+                hint={
+                  oGate === 'save' ? t('features.enableNeedsSave') : t('features.enableNeedsTest')
+                }
+              />
+            </div>
             <Button type="submit" variant="primary" busy={save.isPending}>
               {t('common.save')}
             </Button>
@@ -386,23 +435,15 @@ function OidcCard() {
   );
 }
 
-/** [3] Settings → Single sign-on (both work while their feature is OFF, to prepare). */
-export function SsoTab() {
-  const { t } = useTranslation();
-  const { features } = useFeatures();
+/**
+ * [3] Settings → Single sign-on. Configure-first: both forms are always shown (prepare while OFF);
+ * each switch sits at the bottom of its form and unlocks for a validated configuration.
+ */
+export function SsoTab({ settings }: { settings: Settings }) {
   return (
     <div className="space-y-6">
-      <FeatureSection feature="sso_kerberos">
-        {!features.ldap && (
-          <p className="mb-2 text-xs text-amber-700 dark:text-amber-300">
-            {t('features.hint.kerberosLdap')}
-          </p>
-        )}
-        <KerberosCard />
-      </FeatureSection>
-      <FeatureSection feature="sso_oidc">
-        <OidcCard />
-      </FeatureSection>
+      <KerberosCard settings={settings} />
+      <OidcCard settings={settings} />
     </div>
   );
 }

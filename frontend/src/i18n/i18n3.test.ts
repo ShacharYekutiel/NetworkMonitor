@@ -112,6 +112,8 @@ describe('i18n [3]', () => {
       ...['sso', 'backup', 'flows', 'newDevices', 'reports', 'noc', 'chatAck'].map(
         (s) => `settings.tab.${s}`,
       ),
+      'features.enableNeedsKeytab',
+      'features.enableNeedsLdap',
       'devices.tab.config',
       'user.source.oidc',
       'eventKind.config_change',

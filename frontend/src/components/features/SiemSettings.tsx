@@ -27,6 +27,7 @@ import {
   th,
 } from '../ui';
 import { FeatureSection, useSaveSettings } from './common';
+import { FeatureToggleCard } from './FeatureToggle';
 import { useIngestStatus } from './IngestStatus';
 
 function TestButton({
@@ -367,8 +368,11 @@ export function SiemCard({ settings }: { settings: Settings }) {
 
 export function SiemTab({ settings }: { settings: Settings }) {
   return (
-    <FeatureSection feature="siem_forwarding">
-      <SiemCard settings={settings} />
-    </FeatureSection>
+    <div className="space-y-6">
+      <FeatureToggleCard names={['siem_forwarding']} settings={settings} />
+      <FeatureSection feature="siem_forwarding" settings={settings}>
+        <SiemCard settings={settings} />
+      </FeatureSection>
+    </div>
   );
 }

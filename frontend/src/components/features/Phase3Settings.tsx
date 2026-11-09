@@ -12,7 +12,8 @@ import { flattenGroups } from '../../lib/tree';
 import { learningProgress } from '../../lib/newDevices';
 import { useToast } from '../toast';
 import { Button, Card, Checkbox, ErrorBox, Field, FieldGroup, Input, Textarea } from '../ui';
-import { FeatureSection, useSaveSettings } from './common';
+import { useSaveSettings } from './common';
+import { FeatureTab } from './FeatureToggle';
 
 type NumKey = {
   [K in keyof Settings3]: Settings3[K] extends number ? K : never;
@@ -164,7 +165,7 @@ function SettingsForm({
 export function BackupSettingsTab({ settings }: { settings: Settings }) {
   const { t } = useTranslation();
   return (
-    <FeatureSection feature="config_backup">
+    <FeatureTab feature="config_backup" settings={settings}>
       <SettingsForm
         settings={settings}
         title={t('settings3.backupTitle')}
@@ -182,7 +183,7 @@ export function BackupSettingsTab({ settings }: { settings: Settings }) {
         ]}
         bools={['config_backup_mask_secrets', 'config_change_alert']}
       />
-    </FeatureSection>
+    </FeatureTab>
   );
 }
 
@@ -216,7 +217,7 @@ export function FlowSettingsTab({ settings }: { settings: Settings }) {
   useEffect(() => setOv(overridesText(settings.flow_app_overrides)), [settings]);
   const parsed = parseOverrides(ov);
   return (
-    <FeatureSection feature="flows">
+    <FeatureTab feature="flows" settings={settings}>
       <SettingsForm
         settings={settings}
         title={t('settings3.flowsTitle')}
@@ -254,7 +255,7 @@ export function FlowSettingsTab({ settings }: { settings: Settings }) {
           </Field>
         }
       />
-    </FeatureSection>
+    </FeatureTab>
   );
 }
 
@@ -287,7 +288,7 @@ export function NewDeviceSettingsTab({ settings }: { settings: Settings }) {
   const [scope, setScope] = useState<number[]>(settings.newdev_scope_group_ids ?? []);
   useEffect(() => setScope(settings.newdev_scope_group_ids ?? []), [settings]);
   return (
-    <FeatureSection feature="new_device_alerts">
+    <FeatureTab feature="new_device_alerts" settings={settings}>
       <SettingsForm
         settings={settings}
         title={t('settings3.newdevTitle')}
@@ -313,7 +314,7 @@ export function NewDeviceSettingsTab({ settings }: { settings: Settings }) {
           </>
         }
       />
-    </FeatureSection>
+    </FeatureTab>
   );
 }
 
@@ -321,14 +322,14 @@ export function NewDeviceSettingsTab({ settings }: { settings: Settings }) {
 export function ReportSettingsTab({ settings }: { settings: Settings }) {
   const { t } = useTranslation();
   return (
-    <FeatureSection feature="reports">
+    <FeatureTab feature="reports" settings={settings}>
       <SettingsForm
         settings={settings}
         title={t('settings3.reportsTitle')}
         prefix="settings3"
         nums={[{ key: 'report_retention_days', min: 30, max: 3650 }]}
       />
-    </FeatureSection>
+    </FeatureTab>
   );
 }
 
@@ -358,7 +359,7 @@ export function ChatAckSettingsTab({ settings }: { settings: Settings }) {
     },
   });
   return (
-    <FeatureSection feature="chat_ack">
+    <FeatureTab feature="chat_ack" settings={settings}>
       <div className="space-y-4">
         <SettingsForm
           settings={settings}
@@ -439,7 +440,7 @@ export function ChatAckSettingsTab({ settings }: { settings: Settings }) {
           </Card>
         )}
       </div>
-    </FeatureSection>
+    </FeatureTab>
   );
 }
 

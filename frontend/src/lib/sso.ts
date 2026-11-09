@@ -102,3 +102,29 @@ export function safeNext(path: string | null | undefined): string {
     return '/';
   return path;
 }
+
+/**
+ * Configure-first switches (owner decision): Kerberos and OIDC are switched at the bottom of their
+ * always-visible forms; the switch unlocks only for a validated stored configuration (turning OFF
+ * is always possible). Kerberos: a keytab with entries and AD login on (the server's 422 rules).
+ */
+export function kerberosEnableState(o: {
+  on: boolean;
+  keytabEntries: number;
+  ldapOn: boolean;
+}): 'ok' | 'keytab' | 'ldap' {
+  if (o.on) return 'ok';
+  if (!o.keytabEntries) return 'keytab';
+  return o.ldapOn ? 'ok' : 'ldap';
+}
+
+/** OIDC: a successful "Test" of the stored settings (after the last save), no unsaved edits. */
+export function oidcEnableState(o: {
+  on: boolean;
+  dirty: boolean;
+  tested: boolean;
+}): 'ok' | 'save' | 'test' {
+  if (o.on) return 'ok';
+  if (o.dirty) return 'save';
+  return o.tested ? 'ok' : 'test';
+}

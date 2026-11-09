@@ -30,8 +30,8 @@ import {
 } from '../ui';
 import { FeatureSection, useSaveSettings } from './common';
 import { IngestStatusCard } from './IngestStatus';
-import { useFeatures } from '../../hooks/features';
-import { ingestOn } from '../../lib/features';
+import { FeatureToggleCard } from './FeatureToggle';
+import { featuresFromSettings, featuresOfTab, ingestOn } from '../../lib/features';
 
 const LEVELS: SnmpSecurityLevel[] = ['noAuthNoPriv', 'authNoPriv', 'authPriv'];
 const AUTH: SnmpAuthProtocol[] = ['MD5', 'SHA', 'SHA224', 'SHA256', 'SHA384', 'SHA512'];
@@ -509,16 +509,17 @@ export function AuditRetentionCard({ settings }: { settings: Settings }) {
   );
 }
 
-/** Settings tab "Traps & syslog": settings, ingest status, flapping. */
+/** Settings tab "Traps & syslog": switches at the top; settings, status and flapping while on. */
 export function IngestTab({ settings }: { settings: Settings }) {
-  const { features } = useFeatures();
+  const f = featuresFromSettings(settings);
   return (
     <div className="space-y-6">
-      <FeatureSection feature={['traps', 'syslog']}>
+      <FeatureToggleCard names={featuresOfTab('ingest')} settings={settings} />
+      <FeatureSection feature={['traps', 'syslog']} settings={settings}>
         <IngestSettingsCard settings={settings} />
       </FeatureSection>
-      {ingestOn(features) && <IngestStatusCard />}
-      <FeatureSection feature="flapping">
+      {ingestOn(f) && <IngestStatusCard />}
+      <FeatureSection feature="flapping" settings={settings}>
         <FlappingCard settings={settings} />
       </FeatureSection>
     </div>

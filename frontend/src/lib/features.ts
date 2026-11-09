@@ -183,3 +183,59 @@ export function featureStatus(
       return [{ key: 'features.status.on', tone: 'ok' }];
   }
 }
+
+/** Settings tabs (`/settings?tab=…`). */
+export const SETTINGS_TABS = [
+  'general',
+  'features',
+  'ingest',
+  'siem',
+  'ldap',
+  'sso', // [3]
+  'backup',
+  'flows',
+  'newDevices',
+  'reports',
+  'noc',
+  'chatAck',
+  'audit',
+] as const;
+export type SettingsTab = (typeof SETTINGS_TABS)[number];
+
+/**
+ * Owner decision: a feature that has a settings tab of its own is turned on/off at the top of that
+ * tab (and only there); the others stay on the Features tab.
+ */
+export const FEATURE_TABS: Partial<Record<FeatureName, SettingsTab>> = {
+  traps: 'ingest',
+  syslog: 'ingest',
+  event_alerts: 'ingest',
+  flapping: 'ingest',
+  siem_forwarding: 'siem',
+  ldap: 'ldap',
+  audit: 'audit',
+  // [3]
+  sso_kerberos: 'sso',
+  sso_oidc: 'sso',
+  config_backup: 'backup',
+  flows: 'flows',
+  new_device_alerts: 'newDevices',
+  reports: 'reports',
+  noc: 'noc',
+  chat_ack: 'chatAck',
+};
+
+/** The settings tab holding the feature's toggle. */
+export function featureTab(name: FeatureName): SettingsTab {
+  return FEATURE_TABS[name] ?? 'features';
+}
+
+/** Features toggled on the given tab, in FEATURE_NAMES order. */
+export function featuresOfTab(tab: SettingsTab): FeatureName[] {
+  return FEATURE_NAMES.filter((n) => featureTab(n) === tab);
+}
+
+/** Features toggled in a tab of their own (the read-only overview on the Features tab). */
+export function movedFeatures(): FeatureName[] {
+  return FEATURE_NAMES.filter((n) => featureTab(n) !== 'features');
+}

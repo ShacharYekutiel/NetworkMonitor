@@ -32,6 +32,8 @@ import {
 } from './newDevices';
 import {
   isGuid,
+  kerberosEnableState,
+  oidcEnableState,
   oidcMissing,
   parseRealms,
   readSkip,
@@ -64,7 +66,15 @@ import {
   visibleWidgets,
 } from './kiosk';
 import { qrInternals, qrMatrix, qrVersionFor } from './qr';
-import { FEATURE_GROUPS, featureHints, ALL_OFF } from './features';
+import {
+  FEATURE_GROUPS,
+  featureHints,
+  featuresOfTab,
+  featureTab,
+  movedFeatures,
+  ALL_OFF,
+  SETTINGS_TABS,
+} from './features';
 import {
   flowStatusLines,
   kerberosStatusLines,
@@ -299,6 +309,16 @@ describe('[3] new devices', () => {
 });
 
 describe('[3] single sign-on', () => {
+  it('configure-first switches unlock only for a validated configuration', () => {
+    expect(kerberosEnableState({ on: false, keytabEntries: 0, ldapOn: true })).toBe('keytab');
+    expect(kerberosEnableState({ on: false, keytabEntries: 2, ldapOn: false })).toBe('ldap');
+    expect(kerberosEnableState({ on: false, keytabEntries: 2, ldapOn: true })).toBe('ok');
+    expect(kerberosEnableState({ on: true, keytabEntries: 0, ldapOn: false })).toBe('ok');
+    expect(oidcEnableState({ on: false, dirty: false, tested: false })).toBe('test');
+    expect(oidcEnableState({ on: false, dirty: true, tested: true })).toBe('save');
+    expect(oidcEnableState({ on: false, dirty: false, tested: true })).toBe('ok');
+    expect(oidcEnableState({ on: true, dirty: true, tested: false })).toBe('ok');
+  });
   it('reads the callback error code', () => {
     expect(ssoErrorFromSearch('?sso_error=sso_conflict')).toBe('sso_conflict');
     expect(ssoErrorFromSearch('?sso_error=whatever')).toBe('sso_failed');
@@ -543,6 +563,20 @@ describe('[3] QR code (byte mode, level M)', () => {
 });
 
 describe('[3] Features page', () => {
+  it('switches every phase-3 feature in its own tab; the overview lists them', () => {
+    expect(featuresOfTab('sso')).toEqual(['sso_kerberos', 'sso_oidc']);
+    expect(featuresOfTab('backup')).toEqual(['config_backup']);
+    expect(featuresOfTab('flows')).toEqual(['flows']);
+    expect(featuresOfTab('newDevices')).toEqual(['new_device_alerts']);
+    expect(featuresOfTab('reports')).toEqual(['reports']);
+    expect(featuresOfTab('noc')).toEqual(['noc']);
+    expect(featuresOfTab('chatAck')).toEqual(['chat_ack']);
+    expect(featuresOfTab('features')).toEqual(['lag', 'timeline', 'teams', 'api_tokens']);
+    expect(movedFeatures()).toHaveLength(15);
+    const all = SETTINGS_TABS.flatMap((t) => featuresOfTab(t));
+    expect([...all].sort()).toEqual([...FEATURE_NAMES].sort());
+    expect(featureTab('chat_ack')).toBe('chatAck');
+  });
   it('groups every feature exactly once under 5 headings', () => {
     const all = FEATURE_GROUPS.flatMap((g) => g.names);
     expect(FEATURE_GROUPS).toHaveLength(5);

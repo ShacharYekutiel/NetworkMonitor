@@ -200,19 +200,51 @@ test('viewer cannot change toggles (403)', async () => {
   expect((await publicFeatures(admin)).traps).toBe(false);
 });
 
-test('UI: Settings -> Features tab lists the 11 features; toggling one works; disabled features hide nav entries', async ({ page }) => {
+test('UI: each feature is switched in one place (own tab, else Features); overview links; nav follows', async ({ page }) => {
   await loginViaApi(page);
   const nav = page.getByRole('navigation').first();
   await expect(nav.getByRole('link', { name: tOr('nav.logs', 'Logs') })).toHaveCount(0);
   await expect(nav.getByRole('link', { name: tOr('nav.audit', 'Audit') })).toHaveCount(0);
   await page.goto('/settings');
   await page.getByRole('tab', { name: tOr('settings.tab.features', 'Features') }).click();
+  // Features tab: only the features without a settings tab of their own have a switch here
+  const own = ['lag', 'timeline', 'teams', 'api_tokens'];
   const toggles = page.getByRole('switch').or(page.getByRole('checkbox'));
-  await expect(toggles).toHaveCount(19); // 11 (2b-3) + 8 (phase 3)
+  await expect(toggles).toHaveCount(own.length);
+  for (const f of own) await expect(page.locator(`[data-feature="${f}"]`).getByRole('switch')).toBeVisible();
+  // ... plus a read-only overview of the other 15 (7 of 2b-3 + all 8 of phase 3), each linking to its tab
+  const overview = page.getByTestId('features-overview');
+  await expect(overview.locator('[data-feature-overview]')).toHaveCount(FEATURES.length + 8 - own.length);
+  await expect(overview.getByRole('switch')).toHaveCount(0);
   await shot2b3(page, '38-features-tab-off');
-  await page.getByRole('switch', { name: tOr('features.name.audit', 'Audit log') }).click();
+  // Traps & syslog tab: traps, syslog, event alerts and flapping switches in the card at the top;
+  // while they are OFF the settings below are hidden, ON shows them
+  await page.getByRole('tab', { name: tOr('settings.tab.ingest', 'Traps & syslog') }).click();
+  const head = page.getByTestId('feature-toggles');
+  for (const f of ['traps', 'syslog', 'event_alerts', 'flapping'])
+    await expect(head.locator(`[data-feature="${f}"]`).getByRole('switch')).toBeVisible();
+  await expect(page.getByTestId('ingest-settings')).toHaveCount(0);
+  await expect(page.getByTestId('flapping-settings')).toHaveCount(0);
+  await shot2b3(page, '38-ingest-tab-off');
+  await head.getByRole('switch', { name: tOr('features.name.traps', 'SNMP traps') }).click();
+  await expect.poll(async () => (await publicFeatures(admin)).traps, { timeout: 10_000 }).toBe(true);
+  await expect(page.getByTestId('ingest-settings')).toBeVisible();
+  await expect(head.locator('[data-feature="traps"]')).toContainText(/Listening on UDP|מאזין ב-UDP/);
+  await expect(page.getByTestId('flapping-settings')).toHaveCount(0);
+  await head.getByRole('switch', { name: tOr('features.name.traps', 'SNMP traps') }).click();
+  await expect.poll(async () => (await publicFeatures(admin)).traps, { timeout: 10_000 }).toBe(false);
+  await expect(page.getByTestId('ingest-settings')).toHaveCount(0);
+  // the overview link takes the admin to the Audit tab, where the switch lives
+  await page.getByRole('tab', { name: tOr('settings.tab.features', 'Features') }).click();
+  await overview.locator('[data-feature-overview="audit"]').getByRole('link').click();
+  await expect(page).toHaveURL(/tab=audit/);
+  await expect(page.getByLabel(tOr('audit.retention', 'Keep audit entries (days)'))).toHaveCount(0);
+  await page.getByTestId('feature-toggles').getByRole('switch', { name: tOr('features.name.audit', 'Audit log') }).click();
   await expect.poll(async () => (await publicFeatures(admin)).audit, { timeout: 10_000 }).toBe(true);
   await expect(nav.getByRole('link', { name: tOr('nav.audit', 'Audit') })).toBeVisible();
+  await expect(page.getByLabel(tOr('audit.retention', 'Keep audit entries (days)'))).toBeVisible();
+  await page.getByRole('tab', { name: tOr('settings.tab.features', 'Features') }).click();
+  await expect(overview.locator('[data-feature-overview="audit"]')).toContainText(tOr('features.on', 'On'));
   await featureOff(admin, 'audit');
   await expect(nav.getByRole('link', { name: tOr('nav.audit', 'Audit') })).toHaveCount(0, { timeout: 10_000 });
 });
