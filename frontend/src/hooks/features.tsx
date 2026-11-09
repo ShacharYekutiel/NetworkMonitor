@@ -3,7 +3,7 @@ import { useTranslation } from 'react-i18next';
 import { Link } from 'react-router-dom';
 import { endpoints, qk } from '../api/endpoints';
 import type { FeatureName, Features } from '../api/types';
-import { normalizeFeatures } from '../lib/features';
+import { featureTab, normalizeFeatures } from '../lib/features';
 import { useAuth } from './auth';
 
 /** [2b-3] Feature toggles from /api/settings/public (also before login); refetched on `features.changed`. */
@@ -29,8 +29,8 @@ export function useFeature(name: FeatureName): boolean {
 }
 
 /**
- * One-line explanation for an entry point of a disabled feature, with a link to
- * Settings → Features (admins) or "Ask an administrator" (viewers).
+ * One-line explanation for an entry point of a disabled feature, with a link to the settings tab
+ * holding its switch (admins) or "Ask an administrator" (viewers).
  */
 export function FeatureOffNotice({
   feature,
@@ -41,9 +41,9 @@ export function FeatureOffNotice({
 }) {
   const { t } = useTranslation();
   const { isAdmin } = useAuth();
-  const names = (Array.isArray(feature) ? feature : [feature])
-    .map((f) => t(`features.name.${f}`))
-    .join(' / ');
+  const list = Array.isArray(feature) ? feature : [feature];
+  const names = list.map((f) => t(`features.name.${f}`)).join(' / ');
+  const tab = featureTab(list[0]);
   return (
     <div
       role="note"
@@ -53,10 +53,10 @@ export function FeatureOffNotice({
       {t('features.offLine', { name: names })}{' '}
       {isAdmin ? (
         <Link
-          to="/settings?tab=features"
+          to={`/settings?tab=${tab}`}
           className="font-medium text-sky-700 hover:underline dark:text-sky-400"
         >
-          {t('features.openSettings')}
+          {t('features.openSettings', { tab: t(`settings.tab.${tab}`) })}
         </Link>
       ) : (
         <span className="text-slate-500">{t('features.askAdmin')}</span>

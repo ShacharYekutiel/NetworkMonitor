@@ -131,3 +131,28 @@ export function ldapFormErrors(f: LdapForm): Partial<Record<keyof LdapForm, stri
   if (!/^\d+$/.test(f.timeout_s.trim()) || t < 1 || t > 30) e.timeout_s = 'ldap.err.timeout';
   return e;
 }
+
+/** Identity of the stored connection settings a test applies to (the secret excluded). */
+export function ldapKey(i: LdapSettingsInput): string {
+  const rest: LdapSettingsInput = { ...i };
+  delete rest.bind_password;
+  return JSON.stringify(rest);
+}
+
+/**
+ * Configure-first AD switch (owner decision): it can be turned on only after the STORED settings
+ * passed "Test connection" in this session. `save`: the form has unsaved changes; `test`: no
+ * successful test of the stored settings yet; `ok`: may be switched (always when already on).
+ */
+export function ldapEnableState(o: {
+  on: boolean;
+  form: LdapForm;
+  stored: LdapSettings | undefined;
+  verifiedKey: string | null;
+}): 'ok' | 'save' | 'test' {
+  if (o.on) return 'ok';
+  const storedKey = ldapKey(ldapInput(ldapForm(o.stored)));
+  if (o.form.password || o.form.clearPassword || ldapKey(ldapInput(o.form)) !== storedKey)
+    return 'save';
+  return o.verifiedKey === storedKey ? 'ok' : 'test';
+}

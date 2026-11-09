@@ -26,10 +26,9 @@ import { AuditRetentionCard, IngestTab } from '../components/features/IngestSett
 import { LdapTab } from '../components/features/LdapSettings';
 import { SiemTab } from '../components/features/SiemSettings';
 import { FeatureSection } from '../components/features/common';
+import { FeatureToggleCard } from '../components/features/FeatureToggle';
+import { SETTINGS_TABS, type SettingsTab } from '../lib/features';
 import { TabBar } from '../components/TabBar';
-
-const SETTINGS_TABS = ['general', 'features', 'ingest', 'siem', 'ldap', 'audit'] as const;
-type SettingsTab = (typeof SETTINGS_TABS)[number];
 
 function SmtpCard({ settings }: { settings: Settings }) {
   const { t } = useTranslation();
@@ -476,9 +475,12 @@ export function SettingsPage() {
       {q.data && tab === 'siem' && <SiemTab settings={q.data} />}
       {q.data && tab === 'ldap' && <LdapTab settings={q.data} />}
       {q.data && tab === 'audit' && (
-        <FeatureSection feature="audit">
-          <AuditRetentionCard settings={q.data} />
-        </FeatureSection>
+        <>
+          <FeatureToggleCard names={['audit']} settings={q.data} />
+          <FeatureSection feature="audit" settings={q.data}>
+            <AuditRetentionCard settings={q.data} />
+          </FeatureSection>
+        </>
       )}
     </div>
   );

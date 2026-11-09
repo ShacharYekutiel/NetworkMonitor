@@ -1465,11 +1465,11 @@
   },
   "features": {
     "title": "Features",
-    "intro": "Every feature of this release is off by default. Turning one on or off takes effect immediately, without a restart; stored data is kept while a feature is off.",
+    "intro": "Every feature of this release is off by default. Turning one on or off takes effect immediately, without a restart; stored data is kept while a feature is off. Features with a settings tab of their own are switched in that tab.",
     "on": "On",
     "off": "Off",
     "offLine": "{{name}}: this feature is turned off.",
-    "openSettings": "Turn on in Settings → Features",
+    "openSettings": "Turn on in Settings → {{tab}}",
     "askAdmin": "Ask an administrator to turn it on.",
     "name": {
       "traps": "SNMP traps",
@@ -1518,7 +1518,14 @@
     "builtinText": "NetworkMonitor ships ready-made event rules. Enable the selected ones now — no further configuration is needed.",
     "builtinEnable": "Enable selected",
     "builtinLater": "Not now",
-    "builtinEnabled": "Built-in rules enabled."
+    "builtinEnabled": "Built-in rules enabled.",
+    "ownTabTitle": "Features switched in their own tab",
+    "ownTabIntro": "Read-only overview. Each of these is turned on and off in its own settings tab.",
+    "configuredIn": "Configured in the {{tab}} tab",
+    "toggleOne": "Feature on/off",
+    "toggleMany": "Features on/off",
+    "enableNeedsTest": "Test the connection to enable",
+    "enableNeedsSave": "Save the settings and test the connection to enable"
   },
   "syslogSeverity": {
     "0": "Emergency",

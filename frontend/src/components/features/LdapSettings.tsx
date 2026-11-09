@@ -2,11 +2,18 @@ import { useEffect, useState, type FormEvent } from 'react';
 import { useMutation } from '@tanstack/react-query';
 import { useTranslation } from 'react-i18next';
 import { endpoints } from '../../api/endpoints';
-import type { LdapTestResult, LdapUserTestResult, Settings } from '../../api/types';
+import type {
+  LdapSettingsInput,
+  LdapTestResult,
+  LdapUserTestResult,
+  Settings,
+} from '../../api/types';
 import { formatDateTime } from '../../lib/format';
 import {
   baseDnFromDomain,
+  ldapEnableState,
   ldapForm,
+  ldapKey,
   ldapFormErrors,
   ldapInput,
   type LdapForm,
@@ -27,7 +34,8 @@ import {
   td,
   th,
 } from '../ui';
-import { FeatureSection, useSaveSettings } from './common';
+import { useSaveSettings } from './common';
+import { InlineFeatureSwitch } from './FeatureToggle';
 
 function Ok({ ok }: { ok: boolean }) {
   const { t } = useTranslation();
@@ -217,18 +225,43 @@ export function LdapCard({ settings }: { settings: Settings }) {
   const errs = ldapFormErrors(f);
   const invalid = Object.keys(errs).length > 0;
   const save = useSaveSettings();
-  const test = useMutation({ mutationFn: () => endpoints.ldapTest(ldapInput(f)) });
+  // configure-first: the switch unlocks after a successful test of the stored settings
+  const [verified, setVerified] = useState<string | null>(null);
+  const [testedFull, setTestedFull] = useState<string | null>(null);
+  const test = useMutation({
+    mutationFn: (input: LdapSettingsInput) => endpoints.ldapTest(input),
+    onSuccess: (r, input) => {
+      setTestedFull(r.ok ? JSON.stringify(input) : null);
+      setVerified(r.ok ? ldapKey(input) : null);
+    },
+    onError: () => setVerified(null),
+  });
+  const enable = ldapEnableState({
+    on: settings.feature_ldap_enabled === true,
+    form: f,
+    stored,
+    verifiedKey: verified,
+  });
   const testU = useMutation({
     mutationFn: () => endpoints.ldapTestUser(testUser.trim(), testPw, ldapInput(f)),
     onSettled: () => setTestPw(''),
   });
   const submit = (e: FormEvent) => {
     e.preventDefault();
-    if (!invalid)
+    if (!invalid) {
+      const input = ldapInput(f);
       save.mutate(
-        { ldap: ldapInput(f) },
-        { onSuccess: () => set({ password: '', clearPassword: false }) },
+        { ldap: input },
+        {
+          onSuccess: (r) => {
+            set({ password: '', clearPassword: false });
+            // the saved values are exactly the tested ones -> the stored settings passed the test
+            const savedKey = ldapKey(ldapInput(ldapForm(r.ldap)));
+            setVerified(testedFull === JSON.stringify(input) ? savedKey : null);
+          },
+        },
       );
+    }
   };
   const hint = (k: keyof LdapForm, ok?: string) =>
     errs[k] ? <span className="text-red-600">{t(errs[k] as string)}</span> : ok;
@@ -359,15 +392,24 @@ export function LdapCard({ settings }: { settings: Settings }) {
           </div>
           {!f.tls_verify && <Notice>{t('ldap.tlsVerifyOff')}</Notice>}
           <ErrorBox error={save.error} />
-          <div className="flex flex-wrap justify-end gap-2">
+          <div className="flex flex-wrap items-start gap-x-4 gap-y-2">
             <Button
-              className="me-auto"
               busy={test.isPending}
               disabled={invalid}
-              onClick={() => test.mutate()}
+              onClick={() => test.mutate(ldapInput(f))}
             >
               {t('ldap.testConnection')}
             </Button>
+            <div className="me-auto pt-1">
+              <InlineFeatureSwitch
+                name="ldap"
+                settings={settings}
+                blocked={enable !== 'ok'}
+                hint={
+                  enable === 'save' ? t('features.enableNeedsSave') : t('features.enableNeedsTest')
+                }
+              />
+            </div>
             <Button type="submit" variant="primary" busy={save.isPending} disabled={invalid}>
               {t('common.save')}
             </Button>
@@ -421,10 +463,7 @@ export function LdapCard({ settings }: { settings: Settings }) {
   );
 }
 
+/** Configure-first: the form is always shown; the switch is at its bottom, next to Test connection. */
 export function LdapTab({ settings }: { settings: Settings }) {
-  return (
-    <FeatureSection feature="ldap">
-      <LdapCard settings={settings} />
-    </FeatureSection>
-  );
+  return <LdapCard settings={settings} />;
 }
