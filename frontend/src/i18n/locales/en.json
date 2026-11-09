@@ -1479,10 +1479,8 @@
       "ldap": "Active Directory login",
       "audit": "Audit log",
       "timeline": "Device timeline",
-      "teams": "Microsoft Teams",
       "flapping": "Port flapping detection",
-      "siem_forwarding": "SIEM forwarding",
-      "api_tokens": "API tokens"
+      "siem_forwarding": "SIEM forwarding"
     },
     "desc": {
       "traps": "Receive SNMP traps (v1/v2c/v3) from devices, store and search them.",
@@ -1492,10 +1490,8 @@
       "ldap": "Let Active Directory users sign in with their domain account (local accounts keep working).",
       "audit": "Record who changed what, and every login, in a tamper-proof audit log.",
       "timeline": "A per-device timeline of status changes, notifications, traps, syslog and changes.",
-      "teams": "Send notifications to a Microsoft Teams channel (Workflows webhook).",
       "flapping": "Detect ports that go up and down repeatedly and hold back their link alerts.",
-      "siem_forwarding": "Forward received traps and syslog to a SIEM (RFC 5424 over UDP, TCP or TLS).",
-      "api_tokens": "Personal tokens for scripts and integrations (Authorization: Bearer)."
+      "siem_forwarding": "Forward received traps and syslog to a SIEM (RFC 5424 over UDP, TCP or TLS)."
     },
     "hint": {
       "needsIngest": "Needs SNMP traps or Syslog to be on to receive anything.",
@@ -2150,7 +2146,6 @@
     "storedHint": "Stored URL on {{host}} — leave empty to keep it.",
     "legacy": "Microsoft is retiring this connector type — create a Workflows webhook.",
     "legacyShort": "legacy URL",
-    "offShort": "Teams is off",
     "urlHttps": "The URL must start with https://",
     "urlInvalid": "Not a valid URL.",
     "urlLong": "At most 2048 characters."

@@ -51,7 +51,6 @@ function NavItem({ to, icon, label }: { to: string; icon: React.ReactNode; label
 function UserMenu() {
   const { t } = useTranslation();
   const { user, logout } = useAuth();
-  const { features } = useFeatures();
   const [open, setOpen] = useState(false);
   const ref = useRef<HTMLDivElement>(null);
   useEffect(() => {
@@ -91,16 +90,14 @@ function UserMenu() {
           >
             <KeyIcon size={14} /> {t('nav.account')}
           </Link>
-          {features.api_tokens && (
-            <Link
-              to="/tokens"
-              role="menuitem"
-              onClick={() => setOpen(false)}
-              className="flex items-center gap-2 px-3 py-1.5 text-sm hover:bg-slate-100 dark:hover:bg-slate-800"
-            >
-              <KeyIcon size={14} /> {t('nav.tokens')}
-            </Link>
-          )}
+          <Link
+            to="/tokens"
+            role="menuitem"
+            onClick={() => setOpen(false)}
+            className="flex items-center gap-2 px-3 py-1.5 text-sm hover:bg-slate-100 dark:hover:bg-slate-800"
+          >
+            <KeyIcon size={14} /> {t('nav.tokens')}
+          </Link>
           <button
             type="button"
             role="menuitem"

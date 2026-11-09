@@ -110,25 +110,18 @@ async def _bearer_user(request: Request, rt: Runtime, session: AsyncSession, tok
     limiter = request.app.state.token_limiter
     if limiter.blocked(ip):
         raise ApiError(429, "rate_limited", "Too many invalid API tokens; try again later")
-    reason: str | None = None
-    if not feature_on(rt, "api_tokens"):
-        reason = "feature_disabled"
-    else:
-        try:
-            user, tok = await tokens_svc.verify(session, token, rt.clock.now())
-        except tokens_svc.TokenFailure as exc:
-            reason = exc.reason
-    if reason is not None:
-        if reason != "feature_disabled":
-            limiter.fail(ip)
-            await audit.record_now(
-                rt,
-                AuditCtx.anonymous(rt, token[:12] if token else "", ip),
-                "auth.login_failed",
-                source="token",
-                reason="token_invalid",
-            )
-        raise ApiError(401, "unauthenticated", "API token invalid, expired or revoked")
+    try:
+        user, tok = await tokens_svc.verify(session, token, rt.clock.now())
+    except tokens_svc.TokenFailure as exc:
+        limiter.fail(ip)
+        await audit.record_now(
+            rt,
+            AuditCtx.anonymous(rt, token[:12] if token else "", ip),
+            "auth.login_failed",
+            source="token",
+            reason="token_invalid",
+        )
+        raise ApiError(401, "unauthenticated", "API token invalid, expired or revoked") from exc
     role = tokens_svc.effective_role(tok.role, user.role)
     # the request sees the effective role; the instance is detached so it is never flushed
     session.expunge(user)

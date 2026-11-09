@@ -120,7 +120,11 @@ describe('[2b-3] features', () => {
     expect(featuresOfTab('siem')).toEqual(['siem_forwarding']);
     expect(featuresOfTab('audit')).toEqual(['audit']);
     expect(featuresOfTab('ingest')).toEqual(['traps', 'syslog', 'event_alerts', 'flapping']);
-    expect(featuresOfTab('features')).toEqual(['lag', 'timeline', 'teams', 'api_tokens']);
+    expect(featuresOfTab('features')).toEqual(['lag', 'timeline']);
+    // owner decision: Teams and API tokens are always available, not toggles
+    expect(FEATURE_NAMES).toHaveLength(9);
+    expect(FEATURE_NAMES as string[]).not.toContain('teams');
+    expect(FEATURE_NAMES as string[]).not.toContain('api_tokens');
     expect(featuresOfTab('general')).toEqual([]);
     const all = SETTINGS_TABS.flatMap((t) => featuresOfTab(t));
     expect([...all].sort()).toEqual([...FEATURE_NAMES].sort());
@@ -133,7 +137,8 @@ describe('[2b-3] features', () => {
     const f = normalizeFeatures({ traps: true, ldap: 'yes' as unknown as boolean });
     expect(f.traps).toBe(true);
     expect(f.ldap).toBe(false);
-    expect(f.api_tokens).toBe(false);
+    expect(f.timeline).toBe(false);
+    expect('api_tokens' in f).toBe(false);
     expect(normalizeFeatures(undefined)).toEqual(ALL_OFF);
   });
   it('reads the feature of a 409 feature_disabled error', () => {

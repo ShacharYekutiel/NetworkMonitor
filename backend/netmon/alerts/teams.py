@@ -20,7 +20,6 @@ log = logging.getLogger("netmon.alerts.teams")
 TIMEOUT_S = 15.0
 MAX_CARD_BYTES = 24 * 1024
 LEGACY_HOST_SUFFIXES = ("webhook.office.com", "outlook.office.com")
-OFF_MESSAGE = "Teams notifications are turned off"
 
 TEXTS = {
     "en": {

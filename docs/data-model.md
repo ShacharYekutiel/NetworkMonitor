@@ -2459,7 +2459,7 @@ API shapes: [api.md § Phase 2b-3](api.md#2b-3-phase-2b-3-contract). Components,
 | **[2b-3]** `syslog_format` | `rfc5424`, `rfc3164`, `raw` |
 | **[2b-3]** `transport` | `udp`, `tcp` |
 | **[2b-3]** `actor_type` | `user`, `token`, `system`, `anonymous` |
-| **[2b-3]** `feature` | `traps`, `syslog`, `event_alerts`, `lag`, `ldap`, `audit`, `timeline`, `teams`, `flapping`, `siem_forwarding`, `api_tokens` |
+| **[2b-3]** `feature` | `traps`, `syslog`, `event_alerts`, `lag`, `ldap`, `audit`, `timeline`, `flapping`, `siem_forwarding` |
 
 Syslog severity 0–7 (emerg, alert, crit, err, warning, notice, info, debug); facility 0–23 (RFC 5424 table).
 
@@ -2480,8 +2480,11 @@ installs (no migration writes them). Turning one ON/OFF takes effect at runtime 
 | `feature_ldap_enabled` | AD login | login is local-only (LDAP users get 401 `invalid_credentials`, audit reason `ldap_disabled`); `POST /api/ldap/test*` **still allowed** |
 | `feature_audit_enabled` | `audit_log` written | nothing written; `/api/audit*` 409; retention still deletes old rows |
 | `feature_timeline_enabled` | timeline endpoint; `port_change` events written | endpoint 409; no `port_change` events (the other event kinds, incl. `notification_sent`, are always written) |
-| `feature_teams_enabled` | `teams` channels created/sent | creating/patching a `teams` channel 409; sends skipped with a `notification` event "Teams notifications are turned off"; test 409 |
-| `feature_api_tokens_enabled` | `Authorization: Bearer` accepted | every bearer request 401; `/api/tokens*` 409; tokens kept (expiry still counts) |
+
+Not toggles (owner decision): the Microsoft Teams channel type and API tokens are **always available**.
+Rows `feature_teams_enabled` / `feature_api_tokens_enabled` left by earlier builds are ignored when reading
+settings (no migration removes them); `PUT /api/settings` accepts and ignores those keys like any unknown key
+(they are not stored and not returned).
 
 ## [2b-3] `traps` (a hypertable when Timescale is available)
 

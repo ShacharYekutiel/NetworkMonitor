@@ -109,7 +109,8 @@ Contract: architecture.md § 12, data-model.md § Phase 2b-3 (migration `0006`),
 
 **Owner rule:** every new feature is behind a toggle in *Settings → Features* and is **OFF by default**
 (also after an upgrade). Turning a feature on or off works without a restart; turning it off keeps its data
-(retention still applies).
+(retention still applies). Exception (later owner decision): the Microsoft Teams channel (10) and API tokens
+(11) are not toggles — they are always available.
 
 1. **SNMP traps** (v1/v2c/v3, v2c informs) on UDP 162: decoding with a small built-in OID-name table,
    attribution to devices by source IP / agent address, global and per-device views, live view.

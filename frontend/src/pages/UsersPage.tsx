@@ -24,7 +24,6 @@ import {
 } from '../components/ui';
 import { useAuth } from '../hooks/auth';
 import { formatDateTime } from '../lib/format';
-import { useFeatures } from '../hooks/features';
 import { TokensTable } from '../components/TokensTable';
 
 /** [2b-3] Local / AD badge. */
@@ -180,7 +179,6 @@ function UserModal({ open, onClose, user }: { open: boolean; onClose: () => void
 
 export function UsersPage() {
   const { t } = useTranslation();
-  const { features } = useFeatures();
   const qc = useQueryClient();
   const { user: me } = useAuth();
   const q = useQuery({ queryKey: qk.users, queryFn: endpoints.users });
@@ -272,11 +270,9 @@ export function UsersPage() {
           </Table>
         )}
       </Card>
-      {features.api_tokens && (
-        <Card title={t('tokens.allTitle')} bodyClassName="p-0">
-          <TokensTable all />
-        </Card>
-      )}
+      <Card title={t('tokens.allTitle')} bodyClassName="p-0">
+        <TokensTable all />
+      </Card>
       <UserModal
         open={editing !== null}
         onClose={() => setEditing(null)}

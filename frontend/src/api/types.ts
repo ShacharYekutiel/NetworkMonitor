@@ -1394,10 +1394,8 @@ export type FeatureName =
   | 'ldap'
   | 'audit'
   | 'timeline'
-  | 'teams'
   | 'flapping'
-  | 'siem_forwarding'
-  | 'api_tokens';
+  | 'siem_forwarding';
 export const FEATURE_NAMES: FeatureName[] = [
   'traps',
   'syslog',
@@ -1408,8 +1406,6 @@ export const FEATURE_NAMES: FeatureName[] = [
   'ldap',
   'audit',
   'timeline',
-  'teams',
-  'api_tokens',
 ];
 export type Features = Record<FeatureName, boolean>;
 
@@ -1718,10 +1714,8 @@ export type Settings2b3 = {
   feature_ldap_enabled: boolean;
   feature_audit_enabled: boolean;
   feature_timeline_enabled: boolean;
-  feature_teams_enabled: boolean;
   feature_flapping_enabled: boolean;
   feature_siem_forwarding_enabled: boolean;
-  feature_api_tokens_enabled: boolean;
   trap_retention_days: number;
   syslog_retention_days: number;
   audit_retention_days: number;

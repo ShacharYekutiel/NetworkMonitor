@@ -9,7 +9,7 @@ import {
 } from '../lib/lab2b3';
 
 // [2b-3] 38 — feature toggles (architecture.md §12.0, data-model § Feature toggles, api.md [2b-3]):
-// fresh install: all 11 toggles OFF, nav hidden, endpoints 409 feature_disabled; each toggle ON/OFF without a
+// fresh install: all 9 toggles OFF (Teams and API tokens are not toggles), nav hidden, endpoints 409 feature_disabled; each toggle ON/OFF without a
 // restart (traps: the sender gets through only while ON; sockets closed while OFF).
 test.describe.configure({ mode: 'default' });
 
@@ -32,6 +32,11 @@ test('fresh install: every feature OFF in settings and /api/settings/public (als
   for (const f of FEATURES) expect.soft(s[`feature_${f}_enabled`], `settings feature_${f}_enabled`).toBe(false);
   const pub = await publicFeatures(admin);
   expect(Object.keys(pub).sort()).toEqual([...FEATURES].sort());
+  expect(FEATURES).toHaveLength(9);
+  for (const gone of ['teams', 'api_tokens']) {
+    expect.soft(pub, `public features has no ${gone}`).not.toHaveProperty(gone);
+    expect.soft(s, `settings has no feature_${gone}_enabled`).not.toHaveProperty(`feature_${gone}_enabled`);
+  }
   for (const f of FEATURES) expect.soft(pub[f], `public features.${f}`).toBe(false);
   expect((await viewer.get('/api/settings/public')).features).toEqual(pub);
   const anon = await fetch(`${process.env.BASE_URL}/api/settings/public`);
@@ -65,18 +70,24 @@ test('OFF: endpoints answer 409 feature_disabled (with the documented exceptions
   await expectFeatureDisabled(admin, 'GET', '/api/audit', 'audit');
   await expectFeatureDisabled(admin, 'GET', '/api/audit/export.csv', 'audit');
   if (dev) await expectFeatureDisabled(admin, 'GET', `/api/devices/${dev.id}/timeline`, 'timeline');
-  await expectFeatureDisabled(admin, 'GET', '/api/tokens', 'api_tokens');
-  await expectFeatureDisabled(admin, 'POST', '/api/tokens', 'api_tokens', { name: 'x', role: 'viewer', expires_days: 1 });
-  await expectFeatureDisabled(admin, 'POST', '/api/notification-channels', 'teams', {
-    name: 'teams-off', type: 'teams', enabled: true, config: { url: 'https://prod-1.westeurope.logic.azure.com/workflows/x' },
+  // not toggles: API tokens and the Teams channel type work with every feature OFF
+  expect.soft((await raw(admin, 'GET', '/api/tokens')).status, 'GET /api/tokens with all OFF').toBe(200);
+  const tch = await raw(admin, 'POST', '/api/notification-channels', {
+    name: `qa38-teams-${Date.now()}`, type: 'teams', enabled: false, config: { url: 'https://prod-1.westeurope.logic.azure.com/workflows/x' },
   });
+  expect.soft(tch.status, `teams channel with all OFF: ${tch.text.slice(0, 200)}`).toBe(201);
+  if (tch.status === 201) await admin.del(`/api/notification-channels/${tch.body.id}`);
+  // the removed toggle keys are accepted and ignored by PUT /api/settings
+  const legacy = await raw(admin, 'PUT', '/api/settings', { feature_teams_enabled: false, feature_api_tokens_enabled: false });
+  expect.soft(legacy.status, legacy.text.slice(0, 200)).toBe(200);
+  expect.soft(legacy.body).not.toHaveProperty('feature_teams_enabled');
   // siem_forwarding OFF -> forwarder test 409 (ingest itself is also off here: either way 409 feature_disabled)
   const fw = await raw(admin, 'POST', '/api/ingest/forwarders/test', { target: { name: 'x', host: '127.0.0.1', port: 1, protocol: 'udp' } });
   expect.soft(fw.status).toBe(409);
   // exception: the LDAP test endpoints work while ldap is OFF (they must not answer 409)
   const lt = await raw(admin, 'POST', '/api/ldap/test', {});
   expect.soft(lt.status, `POST /api/ldap/test while OFF: ${lt.text.slice(0, 200)}`).not.toBe(409);
-  // exception: a bearer token while api_tokens is OFF -> 401 unauthenticated (not 409)
+  // an invalid bearer token -> 401 unauthenticated (never 409)
   const ctx = (await fetch(`${process.env.BASE_URL}/api/devices`, { headers: { Authorization: 'Bearer nmt_' + 'x'.repeat(43) } }));
   expect.soft(ctx.status).toBe(401);
 });
@@ -206,7 +217,8 @@ test('UI: each feature is switched in one place (own tab, else Features); overvi
   await page.goto('/settings');
   await page.getByRole('tab', { name: tOr('settings.tab.features', 'Features') }).click();
   // Features tab: only the features without a settings tab of their own have a switch here
-  const own = ['lag', 'timeline', 'teams', 'api_tokens'];
+  const own = ['lag', 'timeline'];
+  for (const gone of ['teams', 'api_tokens']) await expect(page.locator(`[data-feature="${gone}"]`)).toHaveCount(0);
   const toggles = page.getByRole('switch').or(page.getByRole('checkbox'));
   await expect(toggles).toHaveCount(own.length);
   for (const f of own) await expect(page.locator(`[data-feature="${f}"]`).getByRole('switch')).toBeVisible();

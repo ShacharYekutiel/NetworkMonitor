@@ -817,9 +817,6 @@ class AlertEngine:
         self, channel: dict[str, Any], payload: dict[str, Any], cfg: dict[str, Any], r: Any
     ) -> bool:
         try:
-            if channel["type"] == "teams" and not _teams_on(self.rt):
-                # [2b-3] feature `teams` OFF: skipped, recorded like a failed send
-                raise RuntimeError("Teams notifications are turned off")
             await self.sender(channel, payload, cfg["smtp"], cfg["default_language"])
             return True
         except Exception as exc:  # noqa: BLE001
@@ -875,11 +872,6 @@ async def _notification_sent_events(
                 )
             )
     return out
-
-
-def _teams_on(rt: Any) -> bool:
-    features = getattr(rt, "features", None)
-    return bool(features is not None and features.enabled("teams"))
 
 
 def _active(enabled: bool, on_statuses: Any, rule_sensor_id: int | None, r: Any) -> bool:

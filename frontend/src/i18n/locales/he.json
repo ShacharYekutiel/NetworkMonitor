@@ -1506,10 +1506,8 @@
       "ldap": "כניסה עם Active Directory",
       "audit": "יומן ביקורת",
       "timeline": "ציר זמן להתקן",
-      "teams": "Microsoft Teams",
       "flapping": "זיהוי ריצוד פורטים",
-      "siem_forwarding": "העברה ל-SIEM",
-      "api_tokens": "אסימוני API"
+      "siem_forwarding": "העברה ל-SIEM"
     },
     "desc": {
       "traps": "קבלת מלכודות SNMP ‏(v1/v2c/v3) מהתקנים, שמירה וחיפוש.",
@@ -1519,10 +1517,8 @@
       "ldap": "כניסה של משתמשי Active Directory עם חשבון התחום (חשבונות מקומיים ממשיכים לעבוד).",
       "audit": "תיעוד מי שינה מה, וכל כניסה, ביומן ביקורת שאינו ניתן לשינוי.",
       "timeline": "ציר זמן לכל התקן: שינויי מצב, התראות, מלכודות, Syslog ושינויים.",
-      "teams": "שליחת התראות לערוץ Microsoft Teams ‏(Workflows webhook).",
       "flapping": "זיהוי פורטים שעולים ונופלים שוב ושוב ועיכוב התראות הקישור שלהם.",
-      "siem_forwarding": "העברת מלכודות ו-Syslog שהתקבלו ל-SIEM ‏(RFC 5424 על UDP,‏ TCP או TLS).",
-      "api_tokens": "אסימונים אישיים לסקריפטים ולשילובים (Authorization: Bearer)."
+      "siem_forwarding": "העברת מלכודות ו-Syslog שהתקבלו ל-SIEM ‏(RFC 5424 על UDP,‏ TCP או TLS)."
     },
     "hint": {
       "needsIngest": "נדרשות מלכודות SNMP או Syslog פעילות כדי לקבל משהו.",
@@ -2177,7 +2173,6 @@
     "storedHint": "כתובת שמורה ב-{{host}} — השאירו ריק כדי לשמור אותה.",
     "legacy": "Microsoft מוציאה משימוש סוג מחבר זה — צרו Workflows webhook.",
     "legacyShort": "כתובת ישנה",
-    "offShort": "Teams כבוי",
     "urlHttps": "הכתובת חייבת להתחיל ב-https://",
     "urlInvalid": "כתובת לא תקינה.",
     "urlLong": "עד 2048 תווים."
