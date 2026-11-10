@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Link } from 'react-router-dom';
 import { Drawer } from '../Drawer';
@@ -33,8 +33,6 @@ export function ExplainButton({
     setOpen(true);
     void stream.explain(sensorId, eventId, refresh);
   };
-  const final = stream.live.final;
-  const cid = stream.live.conversationId;
   return (
     <>
       <Button
@@ -46,45 +44,89 @@ export function ExplainButton({
         <SparkIcon size={size === 'sm' ? 12 : 14} className="text-violet-600" />
         {label ?? t('explain.button')}
       </Button>
-      <Drawer
+      <ExplainDrawerView
         open={open}
         onClose={() => setOpen(false)}
-        title={t('explain.title')}
-        testId="explain-drawer"
-        footer={
-          <>
-            {final && (
-              <span className="me-auto self-center text-xs text-slate-500">
-                {t('explain.explainedAt', { time: formatDateTime(final.created_at) })}
-              </span>
-            )}
-            {final && (
-              <Button size="sm" onClick={() => start(true)}>
-                {t('explain.refresh')}
-              </Button>
-            )}
-            {cid !== null && (
-              <Link to={`/assistant/c/${cid}`} className={buttonClass('secondary', 'sm')}>
-                {t('assistant.continueInAsk')}
-              </Link>
-            )}
-          </>
-        }
-      >
-        <div className="space-y-3">
-          <AiNotice />
-          <PreStreamErrorBox error={stream.preError} />
-          {(stream.running || stream.live.messageId !== null || stream.live.error) && (
-            <AnswerBlock
-              live={stream.live}
-              running={stream.running}
-              onStop={() => void stream.stop()}
-              onRetry={() => start(true)}
-              compact
-            />
-          )}
-        </div>
-      </Drawer>
+        stream={stream}
+        onRefresh={() => start(true)}
+      />
     </>
+  );
+}
+
+function ExplainDrawerView({
+  open,
+  onClose,
+  stream,
+  onRefresh,
+}: {
+  open: boolean;
+  onClose: () => void;
+  stream: ReturnType<typeof useAnswerStream>;
+  onRefresh: () => void;
+}) {
+  const { t } = useTranslation();
+  const final = stream.live.final;
+  const cid = stream.live.conversationId;
+  return (
+    <Drawer
+      open={open}
+      onClose={onClose}
+      title={t('explain.title')}
+      testId="explain-drawer"
+      footer={
+        <>
+          {final && (
+            <span className="me-auto self-center text-xs text-slate-500">
+              {t('explain.explainedAt', { time: formatDateTime(final.created_at) })}
+            </span>
+          )}
+          {final && (
+            <Button size="sm" onClick={onRefresh}>
+              {t('explain.refresh')}
+            </Button>
+          )}
+          {cid !== null && (
+            <Link to={`/assistant/c/${cid}`} className={buttonClass('secondary', 'sm')}>
+              {t('assistant.continueInAsk')}
+            </Link>
+          )}
+        </>
+      }
+    >
+      <div className="space-y-3">
+        <AiNotice />
+        <PreStreamErrorBox error={stream.preError} />
+        {(stream.running || stream.live.messageId !== null || stream.live.error) && (
+          <AnswerBlock
+            live={stream.live}
+            running={stream.running}
+            onStop={() => void stream.stop()}
+            onRetry={onRefresh}
+            compact
+          />
+        )}
+      </div>
+    </Drawer>
+  );
+}
+
+/**
+ * [3b] The Explain drawer without its button (tree context menu): starts the explanation of
+ * `sensorId` when mounted; unmount it to close. The caller checks the feature / role.
+ */
+export function ExplainDrawer({ sensorId, onClose }: { sensorId: number; onClose: () => void }) {
+  const stream = useAnswerStream();
+  const { explain } = stream;
+  useEffect(() => {
+    void explain(sensorId, null, false);
+  }, [explain, sensorId]);
+  return (
+    <ExplainDrawerView
+      open
+      onClose={onClose}
+      stream={stream}
+      onRefresh={() => void explain(sensorId, null, true)}
+    />
   );
 }

@@ -3692,5 +3692,52 @@
       "report_summary": "סיכומי דוחות",
       "test": "בדיקות חיבור"
     }
+  },
+  "treeMenu": {
+    "label": {
+      "group": "קבוצה {{name}}",
+      "device": "התקן {{name}}",
+      "sensor": "חיישן {{name}}"
+    },
+    "action": {
+      "open": "פתיחה",
+      "openNewTab": "פתיחה בכרטיסייה חדשה",
+      "addDevice": "הוספת התקן כאן",
+      "addSubgroup": "הוספת תת-קבוצה",
+      "pauseAll": "השהיית כל ההתקנים",
+      "resumeAll": "חידוש כל ההתקנים",
+      "maintenance": "חלון תחזוקה…",
+      "discovery": "הרצת גילוי: {{name}}",
+      "addSensor": "הוספת חיישן…",
+      "applyTemplate": "החלת תבנית…",
+      "runAll": "הרצת כל החיישנים עכשיו",
+      "pause": "השהיה",
+      "resume": "חידוש",
+      "tabPorts": "לשונית פורטים",
+      "tabTimeline": "לשונית ציר זמן",
+      "tabConfig": "לשונית תצורה",
+      "explain": "הסבר בעזרת AI",
+      "copyIp": "העתקת כתובת IP",
+      "copyName": "העתקת השם",
+      "runNow": "הרצה עכשיו",
+      "acknowledge": "אישור תקלה…",
+      "edit": "עריכה…",
+      "delete": "מחיקה…"
+    },
+    "progress": {
+      "pausing": "משהה התקנים…",
+      "resuming": "מחדש התקנים…",
+      "running": "מריץ חיישנים…"
+    },
+    "done": {
+      "paused": "ההתקן הושהה",
+      "resumed": "ההתקן חודש",
+      "pausedAll": "הושהו {{ok}} מתוך {{total}} התקנים",
+      "resumedAll": "חודשו {{ok}} מתוך {{total}} התקנים",
+      "ranAll": "הורצו {{ok}} מתוך {{total}} חיישנים",
+      "discovery": "הגילוי התחיל",
+      "copied": "הועתק ללוח",
+      "copyFailed": "לא ניתן להעתיק ללוח"
+    }
   }
 }

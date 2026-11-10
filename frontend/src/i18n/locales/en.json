@@ -3659,5 +3659,52 @@
       "report_summary": "Report summaries",
       "test": "Connection tests"
     }
+  },
+  "treeMenu": {
+    "label": {
+      "group": "Group {{name}}",
+      "device": "Device {{name}}",
+      "sensor": "Sensor {{name}}"
+    },
+    "action": {
+      "open": "Open",
+      "openNewTab": "Open in new tab",
+      "addDevice": "Add device here",
+      "addSubgroup": "Add subgroup",
+      "pauseAll": "Pause all devices",
+      "resumeAll": "Resume all devices",
+      "maintenance": "Maintenance window…",
+      "discovery": "Run discovery: {{name}}",
+      "addSensor": "Add sensor…",
+      "applyTemplate": "Apply template…",
+      "runAll": "Run all sensors now",
+      "pause": "Pause",
+      "resume": "Resume",
+      "tabPorts": "Ports tab",
+      "tabTimeline": "Timeline tab",
+      "tabConfig": "Configuration tab",
+      "explain": "Explain with AI",
+      "copyIp": "Copy IP address",
+      "copyName": "Copy name",
+      "runNow": "Run now",
+      "acknowledge": "Acknowledge…",
+      "edit": "Edit…",
+      "delete": "Delete…"
+    },
+    "progress": {
+      "pausing": "Pausing devices…",
+      "resuming": "Resuming devices…",
+      "running": "Running sensors…"
+    },
+    "done": {
+      "paused": "Device paused",
+      "resumed": "Device resumed",
+      "pausedAll": "Paused {{ok}} of {{total}} devices",
+      "resumedAll": "Resumed {{ok}} of {{total}} devices",
+      "ranAll": "Ran {{ok}} of {{total}} sensors",
+      "discovery": "Discovery started",
+      "copied": "Copied to clipboard",
+      "copyFailed": "Could not copy to the clipboard"
+    }
   }
 }
