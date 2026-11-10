@@ -401,7 +401,13 @@ def load_texts(texts: list[tuple[str, str]]) -> Library:
             if drv.id in lib.drivers:
                 raise DriverError(f"duplicate driver id {drv.id!r}")
             lib.drivers[drv.id] = drv
-        except (DriverError, yaml.YAMLError) as exc:
+        except yaml.YAMLError as exc:
+            # no parser text in the API: file and line are enough to find the mistake
+            mark = getattr(exc, "problem_mark", None)
+            msg = f"invalid YAML at line {mark.line + 1}" if mark is not None else "invalid YAML"
+            lib.errors.append({"file": fname, "error": msg})
+            log.warning("Config backup driver %s skipped: %s", fname, msg)
+        except DriverError as exc:
             msg = str(exc).splitlines()[0][:300] if str(exc) else type(exc).__name__
             lib.errors.append({"file": fname, "error": msg})
             log.warning("Config backup driver %s skipped: %s", fname, msg)
