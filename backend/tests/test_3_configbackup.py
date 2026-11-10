@@ -631,3 +631,48 @@ async def test_sensor_sync_due_soon_after_boot(rt: Runtime, admin: httpx.AsyncCl
     cb = rt.configbackup
     cb.mark_dirty()
     assert 5.0 - cb._last_sensor_sync > SENSOR_SYNC_S  # e.g. 5 s after boot  # noqa: SLF001
+
+
+async def test_automatic_driver_reads_sysobjectid(
+    rt: Runtime, admin: httpx.AsyncClient, sim: Sim, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A device added by hand has no stored identity: "Automatic" reads the sysObjectID over
+    SNMP (owner's office test: Comware switch -> no_driver unless hpe_comware was chosen)."""
+    from netmon.configbackup import sysoid
+    from netmon.poller import snmp_client
+
+    calls: list[str] = []
+
+    async def fake_get(host: str, creds: dict[str, Any], oids: list[str]) -> dict[str, Any]:
+        calls.append(host)
+        return {sysoid.SYS_OBJECT_ID: "1.3.6.1.4.1.25506.11.1.240"}
+
+    monkeypatch.setattr(snmp_client, "snmp_get", fake_get)
+    sysoid.forget()
+    await features(admin, config_backup=True)
+    try:
+        # (the background sensor sync may already have read it; either way it resolves)
+        d = await ssh_device(admin, sim, name="auto", driver=None)
+        r = await admin.post(f"/api/devices/{d['id']}/ssh/test", json={})
+        assert r.status_code == 200, r.text
+        assert r.json()["ok"] and r.json()["driver"] == "hpe_comware"
+        st = await status(admin, d["id"])
+        assert st["driver"] == "hpe_comware" and st["driver_source"] == "sys_object_id"
+        # cached: the runner does not read it again
+        n = len(calls)
+        assert n >= 1
+        await rt.configbackup.attempt(d["id"], "manual")
+        assert len(calls) == n
+
+        # unreadable -> still no_driver (a separate device, so no in-flight probe of the
+        # first one can race the swapped stub)
+        async def dead_get(host: str, creds: dict[str, Any], oids: list[str]) -> dict[str, Any]:
+            raise snmp_client.SnmpError("timeout")
+
+        monkeypatch.setattr(snmp_client, "snmp_get", dead_get)
+        d2 = await ssh_device(admin, sim, name="auto2", driver=None)
+        await rt.configbackup.attempt(d2["id"], "manual")
+        assert (await status(admin, d2["id"]))["reason"] == "no_driver"
+        assert sysoid._cache[d2["id"]][0] is None  # noqa: SLF001
+    finally:
+        sysoid.forget()

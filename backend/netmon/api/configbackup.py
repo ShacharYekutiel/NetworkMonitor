@@ -20,7 +20,7 @@ from sqlalchemy import text
 
 from netmon.api.deps import DB, RT, Admin, Audit, Page, Viewer
 from netmon.api.errors import ApiError, not_found, validation_error
-from netmon.configbackup import credentials, drivers, normalize, service
+from netmon.configbackup import credentials, drivers, normalize, service, sysoid
 from netmon.configbackup.session import HostKeyInfo, SessionError, run_session
 from netmon.ingest.query import time_range
 from netmon.models import Device
@@ -574,6 +574,10 @@ def _ssh_error(code: str, message: str, step: str, steps: list[dict] | None = No
 @router.post("/api/devices/{device_id}/ssh/test")
 async def ssh_test(device_id: int, body: SshTestIn, _: Admin, rt: RT, session: DB) -> dict:
     c = await _ctx(rt, session, device_id)
+    if c.driver is None and not c.driver_override and body.driver is None:
+        # "Automatic" without a stored identity: read the sysObjectID over SNMP, then re-match
+        await sysoid.probe(rt, [device_id])
+        c = await _ctx(rt, session, device_id)
     stored = c.ssh
     if body.ssh_credentials is not None:
         stored = credentials.merge(body.ssh_credentials, stored, rt.secret_key)
