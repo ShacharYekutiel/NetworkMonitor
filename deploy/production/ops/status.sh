@@ -2,8 +2,9 @@
 # One-screen status of the production server:
 #   sudo /opt/netmon/deploy/production/ops/status.sh
 # deployed revision vs origin/main, pending/bad deploy/production changes, image version,
-# container health, /api/health, ingest/flow listeners, database size (largest tables and
-# the flow tables), time sync (Kerberos), last backups, certificate expiry, timers.
+# container health, /api/health, ingest/flow listeners, [3b] assistant (Bedrock) state and
+# outbound route, database size (largest tables and the flow tables), time sync (Kerberos,
+# AWS signing), last backups, certificate expiry, timers.
 set -uo pipefail
 
 SELF_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -43,9 +44,9 @@ for s in "${NETMON_SERVICES[@]}"; do printf '%s=%s ' "$s" "$(service_state "$s")
 echo
 
 h "Health (https://${NETMON_FQDN:-?}/api/health)"
-"$CURL" -sSk --noproxy '*' --max-time 5 --resolve "${NETMON_FQDN:-netmonitor}:443:127.0.0.1" \
-  "https://${NETMON_FQDN:-netmonitor}/api/health" 2>&1 || true
-echo
+health="$("$CURL" -sSk --noproxy '*' --max-time 5 --resolve "${NETMON_FQDN:-netmonitor}:443:127.0.0.1" \
+  "https://${NETMON_FQDN:-netmonitor}/api/health" 2>&1)" || true
+printf '%s\n' "$health"
 
 h "Traps / syslog (host 162/udp, 514/udp+tcp -> container 1162/1514)"
 # Receiver states are in /api/health ("ingest") above: "disabled" until the owner turns
@@ -61,6 +62,52 @@ h "Flows (host 2055/udp NetFlow+IPFIX, 4739/udp IPFIX, 6343/udp sFlow -> same po
 echo "host listeners (docker-proxy = published; anything else conflicts, e.g. nfcapd/pmacct):"
 ss -H -lunp '( sport = :2055 or sport = :4739 or sport = :6343 )' 2>/dev/null | sed 's/^/  /' || true
 "$SELF_DIR/ingest-firewall.sh" status 2>&1 | sed 's/^/sender filter (traps, syslog, flows): /' | head -n 16 || true
+
+h "Assistant (Amazon Bedrock) [3b]"
+# State in /api/health: disabled (feature OFF) / ready / degraded / error / unconfigured.
+# Details (last error code, certificate expiry, usage) in the UI: Settings -> Assistant.
+a_state="$(sed -n 's/.*"assistant"[[:space:]]*:[[:space:]]*"\([a-z_]*\)".*/\1/p' <<<"$health" | head -n1)"
+echo "state: ${a_state:-unknown (not in /api/health - older image or app not running)}"
+app_env="$NETMON_ETC_DIR/app.env"
+a_proxy="" a_noproxy=""
+if [[ -r $app_env ]]; then
+  a_proxy="$(env_get "$app_env" HTTPS_PROXY)"
+  a_noproxy="$(env_get "$app_env" NO_PROXY)"
+fi
+if [[ -z $a_proxy ]]; then
+  echo "outbound: no HTTPS_PROXY in app.env - AWS endpoints are reached directly"
+else
+  echo "outbound: proxy $(redact_url "$a_proxy") from app.env (used with 'Proxy: from environment')"
+  if no_proxy_match vpce-x.bedrock-runtime.us-east-1.vpce.amazonaws.com "$a_noproxy"; then
+    echo "  VPC endpoint names (*.vpce.amazonaws.com): direct (in NO_PROXY)"
+  else
+    echo "  VPC endpoint names (*.vpce.amazonaws.com): via the PROXY - add them if you use a VPC endpoint:"
+    echo "    sudo $SELF_DIR/assistant-net.sh no-proxy --restart .vpce.amazonaws.com"
+  fi
+fi
+# Optional host files for the IAM Roles Anywhere certificate (instead of the UI upload):
+# app.env NETMON_AWS_RA_CERT_FILE=/etc/netmon/aws/... -> host $NETMON_ETC_DIR/aws/...
+for var in NETMON_AWS_RA_CERT_FILE NETMON_AWS_RA_KEY_FILE NETMON_AWS_RA_CHAIN_FILE; do
+  cpath=""
+  [[ -r $app_env ]] && cpath="$(env_get "$app_env" "$var")"
+  [[ -n $cpath ]] || continue
+  hpath="$cpath"
+  [[ $cpath == /etc/netmon/aws/* ]] && hpath="$NETMON_ETC_DIR/aws/${cpath#/etc/netmon/aws/}"
+  if [[ ! -s $hpath ]]; then
+    echo "$var=$cpath: MISSING on the host ($hpath)"
+    continue
+  fi
+  printf '%s=%s (%s %s)\n' "$var" "$cpath" "$(stat -c '%a %u' "$hpath")" "$hpath"
+  if [[ $var == NETMON_AWS_RA_KEY_FILE ]]; then
+    [[ "$(stat -c '%a' "$hpath")" == 600 && "$(stat -c '%u' "$hpath")" == 10001 ]] ||
+      echo "  WARNING: the key must be mode 0600 owned by uid 10001 (sudo chown 10001 $hpath; sudo chmod 0600 $hpath)"
+  elif [[ $var == NETMON_AWS_RA_CERT_FILE ]]; then
+    openssl x509 -in "$hpath" -noout -subject -issuer -enddate 2>&1 | sed 's/^/  /'
+    openssl x509 -in "$hpath" -noout -checkend 2592000 >/dev/null 2>&1 ||
+      echo "  WARNING: expires within 30 days - renew it (README.md, Roles Anywhere, renewal)"
+  fi
+done
+echo "route check (DNS, direct/proxy, reachability): sudo $SELF_DIR/assistant-net.sh check [--host <vpce name>]"
 
 h "Database size"
 # Hypertables and continuous aggregates are measured with hypertable_size() (the parent
@@ -104,7 +151,7 @@ else
   echo "db container not running"
 fi
 
-h "Time (Kerberos SSO fails with a clock skew > 5 min)"
+h "Time (Kerberos SSO and AWS request signing fail with a clock skew > 5 min)"
 timedatectl show -p NTP -p NTPSynchronized 2>/dev/null | paste -sd' ' || true
 timedatectl show-timesync -p ServerName --value 2>/dev/null | sed 's/^/time server: /' || true
 

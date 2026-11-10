@@ -28,6 +28,12 @@
 #     keytab is uploaded in the UI and stored encrypted in the DB; the app materialises it
 #     under /data/run/ only while the feature is ON. asyncssh (config backup) is a core
 #     dependency (pure Python on top of `cryptography`).
+#   - [3b] "Ask the network" assistant (Amazon Bedrock): no new package. The app signs AWS
+#     requests itself (SigV4 and the IAM Roles Anywhere X.509 variant) on top of httpx and
+#     `cryptography`; botocore/boto3 are NOT installed (botocore is a CI test dependency
+#     only). Outbound HTTPS follows HTTPS_PROXY / NO_PROXY (or "Proxy: direct" in the
+#     assistant settings) and trusts the same CAs as above. Optional Roles Anywhere
+#     certificate host files: NETMON_AWS_RA_CERT_FILE / _KEY_FILE / _CHAIN_FILE.
 #
 # Corporate TLS inspection: drop the organisation's root CA (*.crt / *.pem / *.cer, PEM
 # or DER) into deploy/certs/ and rebuild. Every stage that reaches the network (npm, pip,

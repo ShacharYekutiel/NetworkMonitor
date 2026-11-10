@@ -138,6 +138,9 @@ preflight() {
     return 1
   }
   mkdir -p "$NETMON_ETC_DIR/ca"
+  # [3b] Bind-mounted read-only (optional Roles Anywhere cert files); 0755 so the app user
+  # can reach files the owner puts there with mode 0600 owner 10001.
+  [[ -d $NETMON_ETC_DIR/aws ]] || install -d -m 0755 "$NETMON_ETC_DIR/aws"
 }
 
 validate() {

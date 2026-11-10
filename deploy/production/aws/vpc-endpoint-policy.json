@@ -1,0 +1,21 @@
+{
+  "Version": "2012-10-17",
+  "Statement": [
+    {
+      "Sid": "OnlyTheNetMonitorIdentity",
+      "Effect": "Allow",
+      "Principal": "*",
+      "Action": [
+        "bedrock:InvokeModel",
+        "bedrock:InvokeModelWithResponseStream",
+        "bedrock:Retrieve"
+      ],
+      "Resource": "*",
+      "Condition": {
+        "ArnEquals": {
+          "aws:PrincipalArn": "arn:aws:iam::<ACCOUNT_ID>:role/<ROLE_NAME>"
+        }
+      }
+    }
+  ]
+}

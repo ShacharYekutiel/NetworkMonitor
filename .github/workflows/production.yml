@@ -2,7 +2,8 @@ name: Production config
 
 # Validates deploy/production/ (the GitOps folder the production server deploys from):
 # shellcheck, release.env format + version/image consistency (never :latest), compose
-# config, Caddyfile, systemd units, and the sync.sh decision logic (fake docker).
+# config, Caddyfile, systemd units, the sync.sh decision logic (fake docker), [3b] the
+# assistant network helper and the IAM policy templates in aws/.
 # Every PR (no path filter): `validate` is a required status check in the main ruleset, and a
 # required check that never runs blocks the merge. It takes about a minute.
 on:
@@ -67,3 +68,11 @@ jobs:
 
       - name: install-cert.sh (PEM/DER/PKCS7 chains, leaf found by key, root left out)
         run: tests/test-install-cert.sh
+
+      # [3b] Assistant: NO_PROXY routing helper and the IAM policy templates (JSON, least
+      # privilege, render-policies.py).
+      - name: assistant-net.sh + aws/ IAM policies
+        run: |
+          for f in aws/*.json; do python3 -m json.tool "$f" >/dev/null || { echo "::error file=deploy/production/$f::invalid JSON"; exit 1; }; done
+          python3 -m py_compile aws/render-policies.py
+          tests/test-assistant-net.sh
