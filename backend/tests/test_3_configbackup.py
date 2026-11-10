@@ -651,24 +651,28 @@ async def test_automatic_driver_reads_sysobjectid(
     sysoid.forget()
     await features(admin, config_backup=True)
     try:
+        # (the background sensor sync may already have read it; either way it resolves)
         d = await ssh_device(admin, sim, name="auto", driver=None)
-        assert (await status(admin, d["id"]))["reason"] == "no_driver"
         r = await admin.post(f"/api/devices/{d['id']}/ssh/test", json={})
         assert r.status_code == 200, r.text
         assert r.json()["ok"] and r.json()["driver"] == "hpe_comware"
         st = await status(admin, d["id"])
         assert st["driver"] == "hpe_comware" and st["driver_source"] == "sys_object_id"
         # cached: the runner does not read it again
+        n = len(calls)
+        assert n >= 1
         await rt.configbackup.attempt(d["id"], "manual")
-        assert calls == ["127.0.0.1"]
-        # unreadable -> still no_driver, retried only after the short TTL
-        sysoid.forget()
+        assert len(calls) == n
 
+        # unreadable -> still no_driver (a separate device, so no in-flight probe of the
+        # first one can race the swapped stub)
         async def dead_get(host: str, creds: dict[str, Any], oids: list[str]) -> dict[str, Any]:
             raise snmp_client.SnmpError("timeout")
 
         monkeypatch.setattr(snmp_client, "snmp_get", dead_get)
-        await rt.configbackup.attempt(d["id"], "manual")
-        assert (await status(admin, d["id"]))["reason"] == "no_driver"
+        d2 = await ssh_device(admin, sim, name="auto2", driver=None)
+        await rt.configbackup.attempt(d2["id"], "manual")
+        assert (await status(admin, d2["id"]))["reason"] == "no_driver"
+        assert sysoid._cache[d2["id"]][0] is None  # noqa: SLF001
     finally:
         sysoid.forget()
