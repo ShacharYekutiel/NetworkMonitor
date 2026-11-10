@@ -13,6 +13,13 @@ import {
 // restart (traps: the sender gets through only while ON; sockets closed while OFF).
 test.describe.configure({ mode: 'default' });
 
+const PHASE3_FEATURES = ['config_backup', 'flows', 'new_device_alerts', 'sso_kerberos', 'sso_oidc', 'reports', 'noc', 'chat_ack'];
+// [3b] data-model § [3b] feature toggles: the assistant and its 10 AI features (own tab: Assistant)
+const PHASE3B_FEATURES = [
+  'assistant', 'ai_explain_alert', 'ai_correlation', 'ai_alert_notes', 'ai_config_diff', 'ai_syslog_digest',
+  'ai_rule_drafts', 'ai_template_drafts', 'ai_knowledge', 'ai_chat_ask', 'ai_report_summary',
+];
+
 let admin: Api;
 let viewer: Api;
 
@@ -31,8 +38,8 @@ test('fresh install: every feature OFF in settings and /api/settings/public (als
   const s = await admin.get('/api/settings');
   for (const f of FEATURES) expect.soft(s[`feature_${f}_enabled`], `settings feature_${f}_enabled`).toBe(false);
   const pub = await publicFeatures(admin);
-  // [3] the 8 phase-3 toggles are listed too (api.md [3] Type changes)
-  expect(Object.keys(pub).sort()).toEqual([...FEATURES, ...['config_backup', 'flows', 'new_device_alerts', 'sso_kerberos', 'sso_oidc', 'reports', 'noc', 'chat_ack']].sort());
+  // [3] the 8 phase-3 toggles are listed too (api.md [3] Type changes); [3b] + the 11 assistant toggles
+  expect(Object.keys(pub).sort()).toEqual([...FEATURES, ...PHASE3_FEATURES, ...PHASE3B_FEATURES].sort());
   expect(FEATURES).toHaveLength(9);
   for (const gone of ['teams', 'api_tokens']) {
     expect.soft(pub, `public features has no ${gone}`).not.toHaveProperty(gone);
@@ -224,9 +231,11 @@ test('UI: each feature is switched in one place (own tab, else Features); overvi
   const toggles = page.getByRole('switch').or(page.getByRole('checkbox'));
   await expect(toggles).toHaveCount(own.length);
   for (const f of own) await expect(page.locator(`[data-feature="${f}"]`).getByRole('switch')).toBeVisible();
-  // ... plus a read-only overview of the other 15 (7 of 2b-3 + all 8 of phase 3), each linking to its tab
+  // ... plus a read-only overview of the others (7 of 2b-3 + all 8 of phase 3 + the 11 of 3b), each linking to its tab
   const overview = page.getByTestId('features-overview');
-  await expect(overview.locator('[data-feature-overview]')).toHaveCount(FEATURES.length + 8 - own.length);
+  await expect(overview.locator('[data-feature-overview]')).toHaveCount(
+    FEATURES.length + PHASE3_FEATURES.length + PHASE3B_FEATURES.length - own.length,
+  );
   await expect(overview.getByRole('switch')).toHaveCount(0);
   await shot2b3(page, '38-features-tab-off');
   // Traps & syslog tab: traps, syslog, event alerts and flapping switches in the card at the top;

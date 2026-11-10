@@ -49,7 +49,9 @@ async def count(c: httpx.AsyncClient, path: str, **params: Any) -> int:
 
 
 # ------------------------------------------------------------------ toggles
-async def test_features_off_by_default(rt: Runtime, admin: httpx.AsyncClient) -> None:
+async def test_features_off_by_default(
+    rt: Runtime, admin: httpx.AsyncClient, viewer: httpx.AsyncClient
+) -> None:
     pub = (await admin.get("/api/settings/public")).json()
     assert pub["features"] == dict.fromkeys(FEATURES, False)
     s = (await admin.get("/api/settings")).json()
@@ -70,6 +72,9 @@ async def test_features_off_by_default(rt: Runtime, admin: httpx.AsyncClient) ->
     assert r.json()["error"]["details"] == [{"feature": "traps"}]
     r = await admin.post("/api/ingest/forwarders/test", json={"target_id": "abcdef"})
     assert r.status_code == 409
+    # role before feature state: a viewer gets 403, not 409 (E2E 49)
+    r = await viewer.post("/api/ingest/forwarders/test", json={"target_id": "abcdef"})
+    assert r.status_code == 403
     h = (await admin.get("/api/health")).json()
     # [3] `ingest` also carries the flow receivers (netflow / ipfix / sflow)
     assert {k: h["ingest"][k] for k in ("trap", "syslog_udp", "syslog_tcp")} == {

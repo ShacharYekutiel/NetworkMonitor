@@ -217,7 +217,9 @@ test('usage page: this month\'s tokens grow by exactly the mock usage (cap formu
   const before = await api.get('/api/assistant/usage');
   const since = await lastSeq();
   await askOk(api, 'Which sensors are down?');
-  const calls = await modelCalls(since);
+  // every billed call counts, including the neutral audit-title call (purpose `title`)
+  const calls = await modelCalls(since, '', true);
+  expect(calls.some((c: any) => c.purpose === 'title'), 'audit-title call counted in usage').toBe(true);
   const t = calls.reduce((a, c) => a + c.usage.inputTokens + c.usage.outputTokens + c.usage.cacheWriteInputTokens + 0.1 * c.usage.cacheReadInputTokens, 0);
   const after = await api.get('/api/assistant/usage');
   expect(Math.abs(after.tokens - before.tokens - t), `tokens delta vs mock ${t}`).toBeLessThanOrEqual(1);
