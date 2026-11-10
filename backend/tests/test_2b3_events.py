@@ -249,8 +249,9 @@ async def test_important_ports_and_linkdown_scope(rt: Runtime, admin: httpx.Asyn
     send_udp(tp, link(LINK_DOWN, 7))  # unimportant port: nothing
     await wait_for(lambda: has(admin, "/api/traps", 1))
     await rt.drain()
-    ts = await sensor_of(admin, d["id"], "trap")
-    assert ts is not None and ts["status"] == "up"
+    # the trap event sensor is created asynchronously: wait for it instead of reading once
+    ts = await wait_for(lambda: sensor_of(admin, d["id"], "trap"))
+    assert ts["status"] == "up"
     t = (await admin.get("/api/traps")).json()["items"][0]
     assert t["summary"].endswith("port=Gi1/0/7") and t["matched_rule_ids"] == []
     send_udp(tp, link(LINK_DOWN, 5))  # interface sensor -> important
