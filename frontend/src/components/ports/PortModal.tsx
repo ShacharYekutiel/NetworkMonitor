@@ -3,7 +3,7 @@ import { Link } from 'react-router-dom';
 import { keepPreviousData, useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useTranslation } from 'react-i18next';
 import { endpoints, qk } from '../../api/endpoints';
-import type { PortDetail, PortMac, PortNeighbor, Sensor } from '../../api/types';
+import type { DevicePorts, PortDetail, PortMac, PortNeighbor, Sensor } from '../../api/types';
 import { formatDateTime, formatNumber, formatRelative, formatValue } from '../../lib/format';
 import { errorsDelta, formatSpeed, formatVlanList, tileView } from '../../lib/ports';
 import { useAuth } from '../../hooks/auth';
@@ -15,6 +15,7 @@ import { StatusDot } from '../Status';
 import { Button, cx, ErrorBox, Loading, Modal, Notice } from '../ui';
 import { TileGlyph } from './Faceplate';
 import { usePortText } from './text';
+import { NewdevPortToggle } from '../newdevices/NewdevPortToggle';
 
 function Section({
   title,
@@ -171,6 +172,14 @@ function MacTable({ macs }: { macs: PortMac[] }) {
             <tr key={`${m.mac}-${m.vlan}`}>
               <td className={cx(td, 'font-mono')}>
                 <bdi dir="ltr">{m.mac}</bdi>
+                {m.via_lag && (
+                  <span
+                    className="ms-1 font-sans text-[10px] text-violet-700 dark:text-violet-300"
+                    title={t('ports.lag.macViaLag')}
+                  >
+                    ({t('ports.lag.viaLag')})
+                  </span>
+                )}
               </td>
               <td className={td}>
                 {m.locally_administered ? (
@@ -223,16 +232,91 @@ function MacTable({ macs }: { macs: PortMac[] }) {
   );
 }
 
+/** [2b-3] "Member of Trk1" (link to the LAG) or, on a LAG row, its member ports. */
+function LagSection({
+  deviceId,
+  p,
+  onOpenPort,
+}: {
+  deviceId: number;
+  p: PortDetail;
+  onOpenPort?: (ifIndex: number) => void;
+}) {
+  const { t } = useTranslation();
+  const qc = useQueryClient();
+  const all = qc.getQueryData<DevicePorts>(qk.devicePorts(deviceId))?.ports ?? [];
+  const link = (ifIndex: number, label: string) =>
+    onOpenPort ? (
+      <button
+        type="button"
+        onClick={() => onOpenPort(ifIndex)}
+        className="text-sky-700 hover:underline dark:text-sky-400"
+      >
+        <bdi dir="ltr">{label}</bdi>
+      </button>
+    ) : (
+      <bdi dir="ltr">{label}</bdi>
+    );
+  if (p.lag)
+    return (
+      <div
+        className="rounded-md bg-violet-50 px-3 py-2 text-sm ring-1 ring-inset ring-violet-200 dark:bg-violet-950/30 dark:ring-violet-900"
+        data-testid="lag-section"
+      >
+        {t('ports.lag.memberOfPrefix')} {link(p.lag.if_index, p.lag.name)}
+        {p.lag.attached === false && (
+          <span className="ms-2 text-xs font-medium text-amber-700 dark:text-amber-300">
+            {t('ports.lag.inactive')}
+          </span>
+        )}
+        {p.lag.attached === null && (
+          <span className="ms-2 text-xs text-slate-500">{t('ports.lag.stackOnly')}</span>
+        )}
+        {p.vlans_from_lag && (
+          <div className="text-xs text-slate-500">{t('ports.lag.vlansFromLag')}</div>
+        )}
+      </div>
+    );
+  if (p.kind === 'lag' && p.lag_members?.length) {
+    const byIndex = new Map(all.map((x) => [x.if_index, x]));
+    return (
+      <div
+        className="rounded-md bg-violet-50 px-3 py-2 text-sm ring-1 ring-inset ring-violet-200 dark:bg-violet-950/30 dark:ring-violet-900"
+        data-testid="lag-section"
+      >
+        {t('ports.lag.membersPrefix')}{' '}
+        {[...p.lag_members]
+          .sort((a, b) => a - b)
+          .map((i, n) => {
+            const m = byIndex.get(i);
+            return (
+              <span key={i}>
+                {n > 0 && ', '}
+                {link(i, m ? m.name || m.descr || String(i) : String(i))}
+                {m?.lag?.attached === false && (
+                  <span className="text-xs text-amber-700"> ({t('ports.lag.inactive')})</span>
+                )}
+              </span>
+            );
+          })}
+      </div>
+    );
+  }
+  return null;
+}
+
 function Body({
   deviceId,
   p,
   showAll,
   onShowAll,
+  onOpenPort,
 }: {
   deviceId: number;
   p: PortDetail;
   showAll: boolean;
   onShowAll: () => void;
+  onOpenPort?: (ifIndex: number) => void;
 }) {
   const { t } = useTranslation();
   const { isAdmin } = useAuth();
@@ -275,6 +359,8 @@ function Body({
           </span>
         )}
       </div>
+
+      <LagSection deviceId={deviceId} p={p} onOpenPort={onOpenPort} />
 
       <div className="grid grid-cols-1 gap-5 sm:grid-cols-2">
         <Section title={t('ports.section.state')}>
@@ -459,10 +545,13 @@ export function PortModal({
   deviceId,
   ifIndex,
   onClose,
+  onOpenPort,
 }: {
   deviceId: number;
   ifIndex: number | null;
   onClose: () => void;
+  /** [2b-3] open another port's modal (LAG ⇄ members) */
+  onOpenPort?: (ifIndex: number) => void;
 }) {
   const { t } = useTranslation();
   const [showAllFor, setShowAllFor] = useState<number | null>(null);
@@ -507,7 +596,9 @@ export function PortModal({
             p={p}
             showAll={showAll}
             onShowAll={() => setShowAllFor(ifIndex)}
+            onOpenPort={onOpenPort}
           />
+          <NewdevPortToggle deviceId={deviceId} ifIndex={p.if_index} />
         </>
       )}
     </Modal>

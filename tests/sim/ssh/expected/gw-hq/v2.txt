@@ -1,0 +1,41 @@
+#
+# Language version: 15.1v1
+#
+#
+set net-access telnet off
+set core-dump enable
+set core-dump total 1000
+set core-dump per_process 2
+set clienv debug 0
+set clienv echo-cmd off
+set clienv output pretty
+set clienv prompt "%M"
+set clienv rows 0
+set clienv syntax-check off
+set dns mode default
+set dns primary 10.0.0.53
+set dns secondary 10.0.0.54
+set domainname mnidom.net
+set edition default 64-bit
+set expert-password-hash <secret removed>
+set format date dd-mmm-yyyy
+set format time 24-hour
+set hostname gw-hq
+set interface eth0 ipv4-address 10.0.0.71 mask-length 24
+set interface eth0 state on
+set interface eth1 ipv4-address 192.168.1.1 mask-length 24
+set interface eth1 state on
+set interface lo state on
+set ntp active on
+set ntp server primary 10.0.0.10 version 4
+set snmp agent on
+set snmp agent-version any
+set snmp community <secret removed> read-only
+set static-route default nexthop gateway address 10.0.0.1 on
+set timezone Asia / Jerusalem
+set user admin shell /etc/cli.sh
+set user admin password-hash <secret removed>
+set user netmon-backup shell /etc/cli.sh
+set user netmon-backup password-hash <secret removed>
+set web table-refresh-rate 15
+set web session-timeout 30

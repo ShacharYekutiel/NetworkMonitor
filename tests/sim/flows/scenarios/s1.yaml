@@ -1,0 +1,12 @@
+# NetFlow v9 (Check Point-like exporter 127.0.0.92), unsampled, template first. Includes the data-model
+# aggregation vector records A, B, C (exporter totals 1000 bytes of them).
+name: s1
+sampling: 1
+template_first: true
+flows:
+  - {src: 10.0.0.1, dst: 10.0.0.9, sport: 51000, dport: 443, proto: 6, bytes: 600, packets: 6, in_if: 1, out_if: 2}   # A
+  - {src: 10.0.0.2, dst: 10.0.0.9, sport: 52000, dport: 443, proto: 6, bytes: 300, packets: 3, in_if: 1, out_if: 2}   # B
+  - {src: 10.0.0.1, dst: 8.8.8.8, sport: 53000, dport: 53, proto: 17, bytes: 100, packets: 1, in_if: 1, out_if: 3}    # C
+  - {src: 10.0.0.5, dst: 10.0.0.10, sport: 50123, dport: 3389, proto: 6, bytes: 250000, packets: 400, in_if: 1, out_if: 2}
+  - {src: 10.0.0.6, dst: 10.0.0.10, sport: 50999, dport: 22, proto: 6, bytes: 50000, packets: 120, in_if: 1, out_if: 2}
+  - {src: 10.0.0.7, dst: 10.0.0.11, sport: 51500, dport: 445, proto: 6, bytes: 1200000, packets: 900, in_if: 4, out_if: 2}

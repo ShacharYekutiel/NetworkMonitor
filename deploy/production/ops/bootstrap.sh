@@ -78,6 +78,9 @@ PROXY_HTTPS="${PROXY_HTTPS:-$PROXY_HTTP}"
 PROXY_NO="${NO_PROXY:-${no_proxy:-}}"
 if [[ -n $PROXY_HTTPS ]]; then
   base_no="localhost,127.0.0.1,::1,$NETMON_FQDN,netmonitor"
+  # [3] The internal DNS domain (e.g. .mnidom.net: DCs, internal webhook targets) never goes
+  # through the proxy. The app's SSH, SNMP, flows and LDAP never use a proxy anyway.
+  [[ $NETMON_FQDN == *.* ]] && base_no+=",.${NETMON_FQDN#*.}"
   PROXY_NO="${PROXY_NO:+$PROXY_NO,}$base_no"
   write_root_file "$NETMON_ETC_DIR/proxy.env" "HTTPS_PROXY=$PROXY_HTTPS
 HTTP_PROXY=$PROXY_HTTP
@@ -91,8 +94,10 @@ Acquire::https::Proxy \"$PROXY_HTTPS\";" 0644
   write_root_file /etc/systemd/system/docker.service.d/http-proxy.conf "[Service]
 Environment=\"HTTPS_PROXY=$PROXY_HTTPS\" \"HTTP_PROXY=$PROXY_HTTP\" \"NO_PROXY=$PROXY_NO\"" 0644
   git -C "$REPO_DIR" config http.proxy "$PROXY_HTTPS"
-  # The app's outbound alerts (Telegram, e-mail relays, webhooks) need the proxy too.
-  # Created once; edit /etc/netmon-gitops/app.env afterwards if internal targets need NO_PROXY.
+  # The app's outbound HTTPS (Telegram alerts and the [3] Telegram long poll for chat
+  # acknowledge, Teams, webhooks, [3] Entra ID sign-in) needs the proxy too (httpx honours
+  # HTTPS_PROXY / NO_PROXY). Created once; edit /etc/netmon-gitops/app.env afterwards if
+  # internal webhook targets need NO_PROXY (README.md, "Outbound proxy").
   if [[ ! -e $NETMON_ETC_DIR/app.env ]]; then
     write_root_file "$NETMON_ETC_DIR/app.env" "# Server-specific settings for the netmon container (not in git).
 HTTPS_PROXY=$PROXY_HTTPS
@@ -131,7 +136,7 @@ echo "$n local CA certificate(s) made available to the app"
 step "Packages (docker.io, docker-compose-v2 from the Ubuntu archive)"
 export DEBIAN_FRONTEND=noninteractive
 apt-get update -q
-apt-get install -y -q docker.io docker-compose-v2 git curl openssl ca-certificates util-linux
+apt-get install -y -q docker.io docker-compose-v2 git curl openssl ca-certificates util-linux conntrack
 systemctl daemon-reload
 systemctl enable docker >/dev/null
 # Restart so the daemon picks up the proxy drop-in and the (possibly new) CA store.

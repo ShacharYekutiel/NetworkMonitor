@@ -10,10 +10,11 @@ from sqlalchemy import delete, func, select
 
 from netmon.alerts.email import SmtpError
 from netmon.alerts.engine import build_payload, send_to_channel
+from netmon.alerts.teams import TeamsError
 from netmon.alerts.telegram import TelegramError
 from netmon.alerts.webhook import WebhookError
-from netmon.api.common import commit_or_conflict
-from netmon.api.deps import DB, RT, Admin, Page
+from netmon.api.common import commit_or_conflict, flush_or_conflict
+from netmon.api.deps import DB, RT, Admin, Audit, Page
 from netmon.api.errors import ApiError, conflict, not_found, validation_error
 from netmon.models import AlertRule, AlertRuleChannel, NotificationChannel, Sensor
 from netmon.schemas import (
@@ -22,9 +23,11 @@ from netmon.schemas import (
     EmailConfig,
     NotificationChannelCreate,
     NotificationChannelPatch,
+    TeamsConfig,
     TelegramConfig,
     WebhookConfig,
 )
+from netmon.services import audit
 from netmon.services import settings as settings_svc
 from netmon.services.serialize import iso, notification_channel_out, now_utc, page
 
@@ -36,7 +39,12 @@ def validate_channel_config(
 ) -> dict[str, Any]:
     """Validate a channel config. For telegram, `bot_token` follows the secret rules against
     `stored` (omitted/null keep, a new string replaces, "" is rejected)."""
-    model: Any = {"email": EmailConfig, "webhook": WebhookConfig, "telegram": TelegramConfig}[type_]
+    model: Any = {
+        "email": EmailConfig,
+        "webhook": WebhookConfig,
+        "telegram": TelegramConfig,
+        "teams": TeamsConfig,
+    }[type_]
     try:
         out = model.model_validate(config).model_dump()
     except ValidationError as exc:
@@ -56,7 +64,27 @@ def validate_channel_config(
         if not token:
             raise validation_error(["body", "config", "bot_token"], "a bot token is required")
         out["bot_token"] = token
+    if type_ == "teams":  # [2b-3] url: write-only secret like bot_token
+        for k in ("url_set", "url_host", "legacy"):
+            out.pop(k, None)
+        url = out.get("url")
+        if url is None and stored is not None:
+            url = stored.get("url")
+        if not url:
+            raise validation_error(["body", "config", "url"], "a Teams Workflows URL is required")
+        out["url"] = url
     return out
+
+
+CHANNEL_SECRETS = {"teams": ("config.url",), "telegram": ("config.bot_token",)}
+
+
+def _channel_values(ch: NotificationChannel) -> dict[str, Any]:
+    return {"name": ch.name, "type": ch.type, "enabled": ch.enabled, "config": dict(ch.config)}
+
+
+def _channel_entity(ch: NotificationChannel) -> audit.Entity:
+    return audit.entity("notification_channel", ch.id, ch.name)
 
 
 async def _unique_channel_name(session: DB, name: str, exclude: int | None = None) -> None:
@@ -84,13 +112,24 @@ async def list_channels(_: Admin, session: DB, pg: Page) -> dict:
 
 
 @router.post("/api/notification-channels", status_code=201)
-async def create_channel(body: NotificationChannelCreate, _: Admin, rt: RT, session: DB) -> dict:
+async def create_channel(
+    body: NotificationChannelCreate, _: Admin, rt: RT, session: DB, ctx: Audit
+) -> dict:
     cfg = validate_channel_config(body.type, body.config)
     await _unique_channel_name(session, body.name.strip())
     ch = NotificationChannel(
         name=body.name.strip(), type=body.type, config=cfg, enabled=body.enabled
     )
     session.add(ch)
+    await flush_or_conflict(session)
+    await audit.record(
+        session,
+        ctx,
+        "notification_channel.create",
+        _channel_entity(ch),
+        audit.created(_channel_values(ch), CHANNEL_SECRETS.get(ch.type, ())),
+        secret_keys=CHANNEL_SECRETS.get(ch.type, ()),
+    )
     await commit_or_conflict(session)
     await session.refresh(ch)
     rt.config_changed("notification_channel", ch.id, "created")
@@ -107,11 +146,12 @@ async def get_channel(channel_id: int, _: Admin, session: DB) -> dict:
 
 @router.patch("/api/notification-channels/{channel_id}")
 async def patch_channel(
-    channel_id: int, body: NotificationChannelPatch, _: Admin, rt: RT, session: DB
+    channel_id: int, body: NotificationChannelPatch, _: Admin, rt: RT, session: DB, ctx: Audit
 ) -> dict:
     ch = await session.get(NotificationChannel, channel_id)
     if ch is None:
         raise not_found("Notification channel")
+    before = _channel_values(ch)
     fields = body.model_fields_set
     if "type" in fields and body.type is not None and body.type != ch.type:
         raise validation_error(["body", "type"], "the channel type cannot be changed")
@@ -122,6 +162,12 @@ async def patch_channel(
         ch.enabled = body.enabled
     if "config" in fields and body.config is not None:
         ch.config = validate_channel_config(ch.type, body.config, stored=dict(ch.config))
+    secrets = CHANNEL_SECRETS.get(ch.type, ())
+    changes = audit.diff(before, _channel_values(ch), secrets)
+    if changes:
+        await audit.record(
+            session, ctx, "notification_channel.update", _channel_entity(ch), changes
+        )
     await commit_or_conflict(session)
     await session.refresh(ch)
     rt.config_changed("notification_channel", ch.id, "updated")
@@ -129,10 +175,17 @@ async def patch_channel(
 
 
 @router.delete("/api/notification-channels/{channel_id}", status_code=204)
-async def delete_channel(channel_id: int, _: Admin, rt: RT, session: DB) -> Response:
+async def delete_channel(channel_id: int, _: Admin, rt: RT, session: DB, ctx: Audit) -> Response:
     ch = await session.get(NotificationChannel, channel_id)
     if ch is None:
         raise not_found("Notification channel")
+    await audit.record(
+        session,
+        ctx,
+        "notification_channel.delete",
+        _channel_entity(ch),
+        audit.deleted(_channel_values(ch), CHANNEL_SECRETS.get(ch.type, ())),
+    )
     await session.delete(ch)
     await session.commit()
     rt.config_changed("notification_channel", channel_id, "deleted")
@@ -157,6 +210,8 @@ async def test_channel(channel_id: int, _: Admin, rt: RT, session: DB) -> dict:
         raise ApiError(502, "webhook_error", str(exc)) from exc
     except TelegramError as exc:
         raise ApiError(502, "telegram_error", str(exc)) from None
+    except TeamsError as exc:
+        raise ApiError(502, "teams_error", str(exc)) from None
     return {"ok": True, "message": "sent"}
 
 
@@ -282,8 +337,36 @@ async def list_rules(_: Admin, session: DB, pg: Page, sensor_id: str | None = No
     return page([await _rule_out(session, r) for r in rows], total, pg.page, pg.page_size)
 
 
+def _rule_values(r: AlertRule, channel_ids: list[int]) -> dict[str, Any]:
+    return {
+        "name": r.name,
+        "sensor_id": r.sensor_id,
+        "on_statuses": list(r.on_statuses or []),
+        "delay_s": r.delay_s,
+        "enabled": r.enabled,
+        "channel_ids": sorted(channel_ids),
+        "escalation_after_s": r.escalation_after_s,
+        "escalation_channel_ids": sorted(r.escalation_channel_ids or []),
+        "repeat_every_s": r.repeat_every_s,
+    }
+
+
+async def _rule_channel_ids(session: DB, rule_id: int) -> list[int]:
+    return list(
+        (
+            await session.execute(
+                select(AlertRuleChannel.channel_id).where(AlertRuleChannel.rule_id == rule_id)
+            )
+        ).scalars()
+    )
+
+
+def _rule_entity(r: AlertRule) -> audit.Entity:
+    return audit.entity("alert_rule", r.id, r.name)
+
+
 @router.post("/api/alert-rules", status_code=201)
-async def create_rule(body: AlertRuleCreate, _: Admin, rt: RT, session: DB) -> dict:
+async def create_rule(body: AlertRuleCreate, _: Admin, rt: RT, session: DB, ctx: Audit) -> dict:
     channel_ids = _dedupe(body.channel_ids)
     await _check_refs(session, body.sensor_id, channel_ids)
     esc_ids = _dedupe(body.escalation_channel_ids)
@@ -310,6 +393,13 @@ async def create_rule(body: AlertRuleCreate, _: Admin, rt: RT, session: DB) -> d
     await session.flush()
     for cid in channel_ids:
         session.add(AlertRuleChannel(rule_id=r.id, channel_id=cid))
+    await audit.record(
+        session,
+        ctx,
+        "alert_rule.create",
+        _rule_entity(r),
+        audit.created(_rule_values(r, channel_ids)),
+    )
     await commit_or_conflict(session)
     await session.refresh(r)
     rt.config_changed("alert_rule", r.id, "created")
@@ -325,10 +415,14 @@ async def get_rule(rule_id: int, _: Admin, session: DB) -> dict:
 
 
 @router.patch("/api/alert-rules/{rule_id}")
-async def patch_rule(rule_id: int, body: AlertRulePatch, _: Admin, rt: RT, session: DB) -> dict:
+async def patch_rule(
+    rule_id: int, body: AlertRulePatch, _: Admin, rt: RT, session: DB, ctx: Audit
+) -> dict:
     r = await session.get(AlertRule, rule_id)
     if r is None:
         raise not_found("Alert rule")
+    old_channels = await _rule_channel_ids(session, r.id)
+    before = _rule_values(r, old_channels)
     fields = body.model_fields_set
     channel_ids = _dedupe(body.channel_ids) if body.channel_ids is not None else None
     if "channel_ids" in fields and body.channel_ids is None:
@@ -367,6 +461,11 @@ async def patch_rule(rule_id: int, body: AlertRulePatch, _: Admin, rt: RT, sessi
         await session.execute(delete(AlertRuleChannel).where(AlertRuleChannel.rule_id == r.id))
         for cid in channel_ids:
             session.add(AlertRuleChannel(rule_id=r.id, channel_id=cid))
+    changes = audit.diff(
+        before, _rule_values(r, channel_ids if channel_ids is not None else old_channels)
+    )
+    if changes:
+        await audit.record(session, ctx, "alert_rule.update", _rule_entity(r), changes)
     await commit_or_conflict(session)
     await session.refresh(r)
     rt.config_changed("alert_rule", r.id, "updated")
@@ -374,10 +473,17 @@ async def patch_rule(rule_id: int, body: AlertRulePatch, _: Admin, rt: RT, sessi
 
 
 @router.delete("/api/alert-rules/{rule_id}", status_code=204)
-async def delete_rule(rule_id: int, _: Admin, rt: RT, session: DB) -> Response:
+async def delete_rule(rule_id: int, _: Admin, rt: RT, session: DB, ctx: Audit) -> Response:
     r = await session.get(AlertRule, rule_id)
     if r is None:
         raise not_found("Alert rule")
+    await audit.record(
+        session,
+        ctx,
+        "alert_rule.delete",
+        _rule_entity(r),
+        audit.deleted(_rule_values(r, await _rule_channel_ids(session, r.id))),
+    )
     await session.delete(r)
     await session.commit()
     rt.config_changed("alert_rule", rule_id, "deleted")

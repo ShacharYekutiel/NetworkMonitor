@@ -42,9 +42,18 @@ export function usePortText() {
     if (p.state === 'up') parts.push(kindLabel(p));
     if (p.alert) parts.push(t('ports.alert'));
     if (p.pvid !== null) parts.push(t('ports.vlanN', { vlan: p.pvid }));
+    // [2b-3]
+    if (p.lag) parts.push(t('ports.lag.memberOf', { name: p.lag.name }));
     return parts.join(', ');
   };
   /** Translated column texts searched by the list filter (on top of the raw fields). */
-  const searchTexts = (p: Port) => [state(p), connected(p), mode(p), poe(p), kindLabel(p)];
+  const searchTexts = (p: Port) => [
+    state(p),
+    connected(p),
+    mode(p),
+    poe(p),
+    kindLabel(p),
+    p.lag?.name ?? '',
+  ];
   return { state, ifStatus, connected, poe, speed, rxtx, mode, ariaLabel, searchTexts, kindLabel };
 }

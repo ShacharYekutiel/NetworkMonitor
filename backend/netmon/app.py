@@ -16,25 +16,38 @@ from starlette.routing import Match
 from starlette.staticfiles import StaticFiles
 
 from netmon import __version__
-from netmon.api import (
+from netmon.api import (  # [3]
     alerting,
+    audit,
     auth,
+    chatack,
+    configbackup,
     dashboard,
     devices,
     discovery,
     events,
+    flows,
     groups,
     health,
+    ingest,
+    kiosk,
+    ldap,
     maintenance,
+    newdev,
     ports,
+    reports,
     sensors,
+    sso,
     templates,
     testclock,
+    timeline,
+    tokens,
     topology,
     ws,
 )
 from netmon.api import settings as settings_api
 from netmon.api.errors import error_response, install_error_handlers
+from netmon.auth.tokens import bearer_from_header, is_barred
 from netmon.config import Settings, load_settings
 from netmon.runtime import Runtime
 from netmon.services.auth import LoginLimiter, cookie_secure, set_session_cookie
@@ -43,6 +56,7 @@ log = logging.getLogger("netmon.app")
 
 MUTATING = {"POST", "PUT", "PATCH", "DELETE"}
 SETUP_EXEMPT_PREFIXES = ("/api/setup", "/api/auth/")
+UPLOAD_PATHS = {"/api/sso/kerberos/keytab"}  # [3] multipart/form-data uploads
 SETUP_EXEMPT_PATHS = {"/api/health", "/api/settings/public", "/api/setup"}
 
 PLACEHOLDER = """<!doctype html>
@@ -119,17 +133,32 @@ def create_app(
     )
     app.state.rt = rt
     app.state.login_limiter = LoginLimiter()
+    # [2b-3] API tokens and Active Directory
+    from netmon.auth.ldap import Directory
+    from netmon.auth.tokens import InvalidTokenLimiter, UseStamper
+
+    app.state.token_limiter = InvalidTokenLimiter()
+    app.state.token_stamper = UseStamper()
+    app.state.directory = Directory()
     install_error_handlers(app)
 
     @app.middleware("http")
     async def guard(request: Request, call_next: Any) -> Response:
         path = request.url.path
         trust = rt.settings.netmon_trust_proxy
+        # [2b-3] API tokens: never on auth/users/tokens; no ambient credential → no CSRF check
+        bearer = bearer_from_header(request.headers.get("authorization")) is not None
+        if bearer and path.startswith("/api/") and is_barred(path):
+            return error_response(403, "forbidden", "API tokens cannot be used on this endpoint")
         if request.method in MUTATING:
             origin = request.headers.get("origin")
-            if origin and not origin_matches(origin, request.headers, request.url.scheme, trust):
+            if (
+                origin
+                and not bearer
+                and not origin_matches(origin, request.headers, request.url.scheme, trust)
+            ):
                 return error_response(403, "forbidden", "Cross-origin request rejected")
-            if path.startswith("/api/"):
+            if path.startswith("/api/") and path not in UPLOAD_PATHS:
                 length = request.headers.get("content-length")
                 has_body = (length is not None and length.strip() not in ("", "0")) or (
                     "transfer-encoding" in request.headers
@@ -157,6 +186,9 @@ def create_app(
     for r in (
         health.router,
         auth.router,
+        ldap.router,  # [2b-3]
+        audit.router,  # [2b-3]
+        tokens.router,  # [2b-3]
         groups.router,
         devices.router,
         sensors.router,
@@ -169,6 +201,15 @@ def create_app(
         maintenance.router,
         topology.router,
         ports.router,
+        ingest.router,  # [2b-3]
+        flows.router,  # [3]
+        configbackup.router,  # [3]
+        newdev.router,  # [3]
+        sso.router,  # [3]
+        reports.router,  # [3]
+        kiosk.router,  # [3]
+        chatack.router,  # [3]
+        timeline.router,
         testclock.router,
         ws.router,
     ):

@@ -9,9 +9,10 @@ from fastapi import APIRouter, Query, Request, Response
 from sqlalchemy import func, select
 
 from netmon.api.common import csv_list, merge_snmp
-from netmon.api.deps import DB, RT, Admin, Page, Viewer
+from netmon.api.deps import DB, RT, Admin, Audit, Page, Viewer
 from netmon.api.errors import ApiError, not_found, validation_error
 from netmon.api.events import list_events_impl
+from netmon.ingest.event_sensors import IDLE_MESSAGES
 from netmon.models import Device, Sensor
 from netmon.poller.processor import execute_check, persist
 from netmon.poller.sensor_types import (
@@ -19,12 +20,14 @@ from netmon.poller.sensor_types import (
     SENSOR_TYPES_ORDER,
     default_sensor_name,
     get_type,
+    is_passive,
     validate_channel_overrides,
     validate_config,
 )
 from netmon.poller.snmp_client import DEFAULT_SNMP
 from netmon.poller.types import SEVERITY, CheckContext, evaluate
 from netmon.schemas import AcknowledgeIn, SensorCreate, SensorPatch, SensorTestIn
+from netmon.services import audit
 from netmon.services import events as events_svc
 from netmon.services import history as history_svc
 from netmon.services import settings as settings_svc
@@ -140,15 +143,52 @@ async def sensors_page(
     return page([_out(s, d, reveal, maint) for s, d in rows], total, page_no, page_size)
 
 
+SENSOR_AUDIT_FIELDS = ("name", "type", "device_id", "config", "interval_s", "enabled", "sort_order")
+
+
+def sensor_audit_values(s: Sensor) -> dict[str, Any]:
+    """[2b-3] Audited sensor fields (channel overrides as key → limits)."""
+    out: dict[str, Any] = {k: getattr(s, k) for k in SENSOR_AUDIT_FIELDS}
+    out["channels"] = {
+        str(c.get("key")): {k: v for k, v in c.items() if k != "key"}
+        for c in (s.channels or [])
+        if isinstance(c, dict)
+    }
+    return out
+
+
+def sensor_entity(s: Sensor) -> audit.Entity:
+    return audit.entity("sensor", s.id, s.name, device_id=s.device_id)
+
+
 @router.post("/api/sensors", status_code=201)
-async def create_sensor(body: SensorCreate, _: Admin, rt: RT, session: DB) -> dict:
+async def create_sensor(body: SensorCreate, _: Admin, rt: RT, session: DB, ctx: Audit) -> dict:
     tdef = get_type(body.type)
     device = await session.get(Device, body.device_id)
     if device is None:
         raise validation_error(["body", "device_id"], "device does not exist")
-    cfg = validate_config(tdef.type, body.config)
-    overrides = validate_channel_overrides(tdef.type, body.channels)
-    interval = body.interval_s or int(await settings_svc.get(session, "default_interval_s"))
+    passive = tdef.passive  # [2b-3] event sensor: one per device and type
+    if passive:
+        exists = (
+            await session.execute(
+                select(Sensor.id).where(Sensor.device_id == device.id, Sensor.type == tdef.type)
+            )
+        ).first()
+        if exists is not None:
+            raise ApiError(
+                409,
+                "conflict",
+                "The device already has an event sensor of this type",
+                [{"field": "type"}],
+            )
+        device.event_sensor_optout = [t for t in device.event_sensor_optout or [] if t != tdef.type]
+    cfg = validate_config(tdef.type, {} if passive else body.config)
+    overrides = {} if passive else validate_channel_overrides(tdef.type, body.channels)
+    interval = (
+        60
+        if passive
+        else body.interval_s or int(await settings_svc.get(session, "default_interval_s"))
+    )
     s = Sensor(
         device_id=device.id,
         name=(body.name or "").strip() or default_sensor_name(tdef.type, cfg),
@@ -156,13 +196,22 @@ async def create_sensor(body: SensorCreate, _: Admin, rt: RT, session: DB) -> di
         config=cfg,
         interval_s=interval,
         enabled=body.enabled,
-        status="unknown" if (body.enabled and device.enabled) else "paused",
-        status_message="",
+        status=(
+            ("up" if passive else "unknown") if (body.enabled and device.enabled) else "paused"
+        ),
+        status_message=IDLE_MESSAGES.get(tdef.type, "") if passive else "",
         state={},
         sort_order=body.sort_order,
         channels=build_channels(tdef.type, overrides, cfg),
     )
+    if passive:
+        for ch in s.channels:
+            ch.last_value, ch.status = 0.0, s.status if s.status == "up" else "unknown"
     session.add(s)
+    await session.flush()
+    await audit.record(
+        session, ctx, "sensor.create", sensor_entity(s), audit.created(sensor_audit_values(s))
+    )
     await session.commit()
     s, device = await _sensor_full(session, s.id)
     if rt.scheduler:
@@ -178,9 +227,14 @@ async def get_sensor(sensor_id: int, user: Viewer, rt: RT, session: DB) -> dict:
 
 
 @router.patch("/api/sensors/{sensor_id}")
-async def patch_sensor(sensor_id: int, body: SensorPatch, _: Admin, rt: RT, session: DB) -> dict:
+async def patch_sensor(
+    sensor_id: int, body: SensorPatch, _: Admin, rt: RT, session: DB, ctx: Audit
+) -> dict:
     s, d = await _sensor_full(session, sensor_id)
+    before = sensor_audit_values(s)
     fields = body.model_fields_set
+    if is_passive(s.type):  # [2b-3] event sensors: name, enabled, sort_order only
+        fields = fields & {"name", "enabled", "sort_order"}
     if "type" in fields and body.type is not None and body.type != s.type:
         raise ApiError(400, "invalid_sensor_type", "The sensor type cannot be changed")
     if "config" in fields and body.config is not None:
@@ -210,6 +264,12 @@ async def patch_sensor(sensor_id: int, body: SensorPatch, _: Admin, rt: RT, sess
     if "enabled" in fields and body.enabled is not None and body.enabled != s.enabled:
         s.enabled = body.enabled
         target = "paused" if not (s.enabled and d.enabled) else "unknown"
+        if is_passive(s.type):
+            # pausing clears the conditions; resuming starts from `up`
+            if rt.event_sensors is not None:
+                await rt.event_sensors.clear_in_session(session, s)
+            if target == "unknown":
+                target = "up"
         ev = await set_sensor_status(
             session,
             s,
@@ -219,6 +279,9 @@ async def patch_sensor(sensor_id: int, body: SensorPatch, _: Admin, rt: RT, sess
         )
         if ev is not None:
             evs.append(ev)
+    changes = audit.diff(before, sensor_audit_values(s))
+    if changes:
+        await audit.record(session, ctx, "sensor.update", sensor_entity(s), changes)
     await session.commit()
     events_svc.published(rt, evs)
     s, d = await _sensor_full(session, sensor_id)
@@ -240,7 +303,12 @@ def _ack_ws(rt: RT, s: Sensor) -> None:
 
 @router.post("/api/sensors/{sensor_id}/acknowledge")
 async def acknowledge(
-    sensor_id: int, user: Admin, rt: RT, session: DB, body: AcknowledgeIn | None = None
+    sensor_id: int,
+    user: Admin,
+    rt: RT,
+    session: DB,
+    ctx: Audit,
+    body: AcknowledgeIn | None = None,
 ) -> dict:
     body = body or AcknowledgeIn()
     s = (
@@ -275,6 +343,13 @@ async def acknowledge(
         new_status=s.status,
         in_maintenance=rt.maintenance is not None and rt.maintenance.in_maintenance(d.id),
     )
+    await audit.record(
+        session,
+        ctx,
+        "sensor.acknowledge",
+        sensor_entity(s),
+        {"status": [s.status, s.status], "comment": [None, comment]},
+    )
     await session.commit()
     events_svc.published(rt, [ev])
     _ack_ws(rt, s)
@@ -285,7 +360,7 @@ async def acknowledge(
 
 
 @router.delete("/api/sensors/{sensor_id}/acknowledge")
-async def unacknowledge(sensor_id: int, user: Admin, rt: RT, session: DB) -> dict:
+async def unacknowledge(sensor_id: int, user: Admin, rt: RT, session: DB, ctx: Audit) -> dict:
     s = (
         await session.execute(select(Sensor).where(Sensor.id == sensor_id).with_for_update())
     ).scalar_one_or_none()
@@ -309,6 +384,7 @@ async def unacknowledge(sensor_id: int, user: Admin, rt: RT, session: DB) -> dic
         new_status=s.status,
         in_maintenance=rt.maintenance is not None and rt.maintenance.in_maintenance(d.id),
     )
+    await audit.record(session, ctx, "sensor.unacknowledge", sensor_entity(s))
     await session.commit()
     events_svc.published(rt, [ev])
     _ack_ws(rt, s)
@@ -319,10 +395,17 @@ async def unacknowledge(sensor_id: int, user: Admin, rt: RT, session: DB) -> dic
 
 
 @router.delete("/api/sensors/{sensor_id}", status_code=204)
-async def delete_sensor(sensor_id: int, _: Admin, rt: RT, session: DB) -> Response:
+async def delete_sensor(sensor_id: int, _: Admin, rt: RT, session: DB, ctx: Audit) -> Response:
     s = await session.get(Sensor, sensor_id)
     if s is None:
         raise not_found("Sensor")
+    await audit.record(
+        session, ctx, "sensor.delete", sensor_entity(s), audit.deleted(sensor_audit_values(s))
+    )
+    if is_passive(s.type):  # [2b-3] a deleted event sensor is not re-created
+        dev = await session.get(Device, s.device_id)
+        if dev is not None and s.type not in (dev.event_sensor_optout or []):
+            dev.event_sensor_optout = [*(dev.event_sensor_optout or []), s.type]
     await session.delete(s)
     await session.commit()
     if rt.scheduler:
@@ -332,9 +415,17 @@ async def delete_sensor(sensor_id: int, _: Admin, rt: RT, session: DB) -> Respon
     return Response(status_code=204)
 
 
+def _passive_error() -> ApiError:
+    return ApiError(
+        409, "sensor_passive", "Event sensors are passive: they are driven by traps and syslog"
+    )
+
+
 @router.post("/api/sensors/test")
 async def test_sensor(body: SensorTestIn, _: Admin, rt: RT, session: DB) -> dict:
     tdef = get_type(body.type)
+    if tdef.passive:
+        raise _passive_error()
     cfg = validate_config(tdef.type, body.config)
     overrides = validate_channel_overrides(tdef.type, body.channels)
     creds: dict[str, Any] = {}
@@ -370,6 +461,8 @@ async def test_sensor(body: SensorTestIn, _: Admin, rt: RT, session: DB) -> dict
 @router.post("/api/sensors/{sensor_id}/run")
 async def run_sensor(sensor_id: int, _: Admin, rt: RT, session: DB) -> dict:
     s, d = await _sensor_full(session, sensor_id)
+    if is_passive(s.type):
+        raise _passive_error()
     if not (s.enabled and d.enabled):
         raise ApiError(
             409, "sensor_paused", "The sensor or its device is paused; resume it to run a check"

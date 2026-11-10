@@ -1,3 +1,5 @@
+import { useFeatures } from '../hooks/features';
+import { isIp, parseList } from '../lib/logs';
 import { useEffect, useMemo, useState, type FormEvent } from 'react';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { useTranslation } from 'react-i18next';
@@ -8,6 +10,9 @@ import { useTree } from '../hooks/queries';
 import { snmpFormFrom, snmpFormToInput } from '../lib/snmp';
 import { descendantGroupIds, findGroup, flattenGroups } from '../lib/tree';
 import { SnmpEditor } from './SnmpEditor';
+import { SshEditor } from './configbackup/SshEditor';
+import { sshFormErrors, sshFormFrom, sshFormToInput } from '../lib/configBackup';
+import type { BackupMode } from '../api/types3';
 import {
   DependencyEditor,
   dependencyInputFrom,
@@ -71,10 +76,12 @@ export function GroupFormModal({
   const [sortOrder, setSortOrder] = useState('0');
   const [snmp, setSnmp] = useState(snmpFormFrom(null));
   const [dep, setDep] = useState<DependencyInput>(dependencyInputFrom(null));
+  const [ssh, setSsh] = useState(sshFormFrom(null));
   const deviceName = useDeviceNames();
 
   useEffect(() => {
     if (!open) return;
+    setSsh(sshFormFrom(group?.ssh_credentials));
     setDep(dependencyInputFrom(group?.dependency));
     setName(group?.name ?? '');
     setParent(group ? group.parent_id : (parentId ?? null));
@@ -103,14 +110,18 @@ export function GroupFormModal({
 
   const submit = (e: FormEvent) => {
     e.preventDefault();
-    m.mutate({
+    if (sshFormErrors(ssh, group?.ssh_credentials).length) return;
+    const body: GroupInput = {
       name: name.trim(),
       parent_id: parent,
       description,
       sort_order: Number(sortOrder) || 0,
       snmp_credentials: snmpFormToInput(snmp),
       dependency: dependencyToInput(dep),
-    });
+    };
+    // [3] sent when set or when an existing value is removed (inherit)
+    if (ssh.own || group?.ssh_credentials) body.ssh_credentials = sshFormToInput(ssh);
+    m.mutate(body);
   };
 
   return (
@@ -150,6 +161,12 @@ export function GroupFormModal({
           onChange={setSnmp}
           existing={group?.snmp_credentials ?? null}
           inheritLabel={t('snmp.inheritParent')}
+        />
+        <SshEditor
+          value={ssh}
+          onChange={setSsh}
+          existing={group?.ssh_credentials}
+          inheritLabel={t('ssh.inheritParent')}
         />
         <DependencyEditor value={dep} onChange={setDep} forGroup />
         <ErrorBox error={m.error} context={{ deviceName }} />
@@ -202,6 +219,14 @@ export function DeviceFormModal({
   const [dep, setDep] = useState<DependencyInput>(dependencyInputFrom(null));
   const [portInv, setPortInv] = useState<InventoryMode>('auto');
   const [arp, setArp] = useState<InventoryMode>('auto');
+  const [sources, setSources] = useState('');
+  const [ssh, setSsh] = useState(sshFormFrom(null));
+  const [backupMode, setBackupMode] = useState<BackupMode>('auto');
+  const [driver, setDriver] = useState('');
+  const { features } = useFeatures();
+  const showSources = features.traps || features.syslog;
+  const srcList = parseList(sources);
+  const srcErr = srcList.length > 16 || srcList.some((x) => !isIp(x));
   const deviceName = useDeviceNames();
 
   useEffect(() => {
@@ -217,6 +242,10 @@ export function DeviceFormModal({
     setAuto(['ping']);
     setPortInv(device?.port_inventory ?? 'auto');
     setArp(device?.arp_collect ?? 'auto');
+    setSources((device?.source_addresses ?? []).join('\n'));
+    setSsh(sshFormFrom(device?.ssh_credentials));
+    setBackupMode(device?.config_backup ?? 'auto');
+    setDriver(device?.config_backup_driver ?? '');
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open, device, groupId]);
 
@@ -251,6 +280,17 @@ export function DeviceFormModal({
     if (portInv !== (device?.port_inventory ?? 'auto')) body.port_inventory = portInv;
     if (arp !== (device?.arp_collect ?? 'auto')) body.arp_collect = arp;
     if (!device) body.auto_sensors = auto;
+    // [3] SSH credentials / backup mode / driver: sent only when set or changed
+    if (sshFormErrors(ssh, device?.ssh_credentials).length) return;
+    if (ssh.own || device?.ssh_credentials) body.ssh_credentials = sshFormToInput(ssh);
+    if (backupMode !== (device?.config_backup ?? 'auto')) body.config_backup = backupMode;
+    if ((driver || null) !== (device?.config_backup_driver ?? null))
+      body.config_backup_driver = driver || null;
+    // [2b-3] sent only while traps/syslog are on (the field is hidden otherwise)
+    if (showSources) {
+      if (srcErr) return;
+      body.source_addresses = srcList;
+    }
     m.mutate(body);
   };
 
@@ -304,12 +344,53 @@ export function DeviceFormModal({
           existing={device?.snmp_credentials ?? null}
           inheritLabel={t('snmp.inheritGroup')}
         />
+        <SshEditor
+          value={ssh}
+          onChange={setSsh}
+          existing={device?.ssh_credentials}
+          inheritLabel={t('ssh.inheritGroup')}
+          deviceId={device?.id}
+          mode={backupMode}
+          onMode={setBackupMode}
+          driver={driver}
+          onDriver={setDriver}
+        />
         <DependencyEditor
           value={dep}
           onChange={setDep}
           selfDeviceId={device?.id}
           effective={device ? device.effective_dependency : undefined}
         />
+        {showSources && (
+          <Field
+            label={t('devices.sourceAddresses')}
+            hint={
+              srcErr ? (
+                <span className="text-red-600">{t('devices.sourceAddressesErr')}</span>
+              ) : (
+                t('devices.sourceAddressesHint')
+              )
+            }
+          >
+            <Textarea
+              rows={2}
+              value={sources}
+              onChange={(e) => setSources(e.target.value)}
+              dir="ltr"
+              className="font-mono"
+              placeholder="10.0.0.12"
+            />
+          </Field>
+        )}
+        {showSources && !!device?.source_address_conflicts?.length && (
+          <ul className="space-y-0.5 rounded-md bg-amber-50 px-3 py-2 text-xs text-amber-900 ring-1 ring-inset ring-amber-200 dark:bg-amber-950/40 dark:text-amber-200 dark:ring-amber-900">
+            {device.source_address_conflicts.map((c) => (
+              <li key={`${c.address}-${c.device_id}`}>
+                {t('devices.sourceConflict', { address: c.address, device: c.device_name })}
+              </li>
+            ))}
+          </ul>
+        )}
         <InventoryFields
           device={device}
           portInventory={portInv}
@@ -341,7 +422,11 @@ export function DeviceFormModal({
             type="submit"
             variant="primary"
             busy={m.isPending}
-            disabled={group === null || (dep.mode === 'device' && dep.device_id === null)}
+            disabled={
+              group === null ||
+              (dep.mode === 'device' && dep.device_id === null) ||
+              (showSources && srcErr)
+            }
           >
             {t('common.save')}
           </Button>

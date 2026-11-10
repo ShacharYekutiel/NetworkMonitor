@@ -24,6 +24,9 @@ import { parseSearchInput } from '../lib/ports';
 import { TreeNav } from './Tree';
 import { GlobalMaintenanceBanner } from './Maintenance';
 import { cx } from './ui';
+import { AuditIcon, BackupIcon, FlowIcon, LogsIcon, NewDeviceIcon, ReportIcon } from './icons';
+import { useFeatures } from '../hooks/features';
+import { ingestOn } from '../lib/features';
 
 function NavItem({ to, icon, label }: { to: string; icon: React.ReactNode; label: string }) {
   return (
@@ -71,7 +74,7 @@ function UserMenu() {
         <span className="flex h-6 w-6 items-center justify-center rounded-full bg-sky-600 text-xs font-semibold uppercase text-white">
           {user.username.slice(0, 1)}
         </span>
-        <span className="hidden sm:inline">{user.username}</span>
+        <span className="hidden sm:inline">{user.display_name || user.username}</span>
         <span className="hidden text-xs text-slate-500 md:inline">({t(`role.${user.role}`)})</span>
       </button>
       {open && (
@@ -86,6 +89,14 @@ function UserMenu() {
             className="flex items-center gap-2 px-3 py-1.5 text-sm hover:bg-slate-100 dark:hover:bg-slate-800"
           >
             <KeyIcon size={14} /> {t('nav.account')}
+          </Link>
+          <Link
+            to="/tokens"
+            role="menuitem"
+            onClick={() => setOpen(false)}
+            className="flex items-center gap-2 px-3 py-1.5 text-sm hover:bg-slate-100 dark:hover:bg-slate-800"
+          >
+            <KeyIcon size={14} /> {t('nav.tokens')}
           </Link>
           <button
             type="button"
@@ -140,6 +151,7 @@ function HeaderSearch() {
 export function Layout() {
   const { t } = useTranslation();
   const { isAdmin } = useAuth();
+  const { features } = useFeatures();
   const [collapsed, setCollapsed] = useLocalState('netmon.sidebarCollapsed', false);
   const [mobileOpen, setMobileOpen] = useState(false);
   const location = useLocation();
@@ -151,8 +163,8 @@ export function Layout() {
   };
 
   return (
-    <div className="flex h-screen flex-col overflow-hidden">
-      <header className="flex h-12 shrink-0 items-center gap-1 border-b sm:gap-2 border-slate-200 bg-white px-2 dark:border-slate-800 dark:bg-slate-900">
+    <div className="flex h-screen flex-col overflow-hidden print:block print:h-auto print:overflow-visible">
+      <header className="flex h-12 shrink-0 items-center gap-1 border-b print:hidden sm:gap-2 border-slate-200 bg-white px-2 dark:border-slate-800 dark:bg-slate-900">
         <button
           type="button"
           onClick={toggle}
@@ -172,7 +184,7 @@ export function Layout() {
         <ThemeToggle />
         <UserMenu />
       </header>
-      <div className="relative flex min-h-0 flex-1">
+      <div className="relative flex min-h-0 flex-1 print:block">
         {mobileOpen && (
           <div
             className="fixed inset-0 top-12 z-20 bg-slate-900/60 lg:hidden"
@@ -181,7 +193,7 @@ export function Layout() {
         )}
         <aside
           className={cx(
-            'z-30 flex w-72 shrink-0 flex-col border-e border-slate-200 bg-slate-100 shadow-xl dark:border-slate-800 dark:bg-slate-900 lg:shadow-none lg:dark:bg-slate-900/60',
+            'z-30 flex w-72 shrink-0 flex-col border-e print:hidden border-slate-200 bg-slate-100 shadow-xl dark:border-slate-800 dark:bg-slate-900 lg:shadow-none lg:dark:bg-slate-900/60',
             'fixed bottom-0 top-12 start-0 transition-transform lg:static lg:translate-x-0 lg:rtl:translate-x-0',
             mobileOpen ? 'translate-x-0' : '-translate-x-full rtl:translate-x-full',
             collapsed && 'lg:hidden',
@@ -191,7 +203,31 @@ export function Layout() {
           <nav className="space-y-0.5 p-2">
             <NavItem to="/" icon={<DashboardIcon size={16} />} label={t('nav.dashboard')} />
             <NavItem to="/events" icon={<ListIcon size={16} />} label={t('nav.events')} />
+            {ingestOn(features) && (
+              <NavItem to="/logs" icon={<LogsIcon size={16} />} label={t('nav.logs')} />
+            )}
             <NavItem to="/topology" icon={<MapIcon size={16} />} label={t('nav.map')} />
+            {/* [3] entries of features that are ON */}
+            {features.flows && (
+              <NavItem to="/flows" icon={<FlowIcon size={16} />} label={t('nav.flows')} />
+            )}
+            {features.new_device_alerts && (
+              <NavItem
+                to="/new-devices"
+                icon={<NewDeviceIcon size={16} />}
+                label={t('nav.newDevices')}
+              />
+            )}
+            {features.config_backup && (
+              <NavItem
+                to="/config-backups"
+                icon={<BackupIcon size={16} />}
+                label={t('nav.backups')}
+              />
+            )}
+            {features.reports && (
+              <NavItem to="/reports" icon={<ReportIcon size={16} />} label={t('nav.reports')} />
+            )}
             <NavItem to="/find" icon={<SearchIcon size={16} />} label={t('nav.find')} />
             <NavItem
               to="/maintenance"
@@ -211,6 +247,9 @@ export function Layout() {
                 />
                 <NavItem to="/settings" icon={<CogIcon size={16} />} label={t('nav.settings')} />
                 <NavItem to="/users" icon={<UsersIcon size={16} />} label={t('nav.users')} />
+                {features.audit && (
+                  <NavItem to="/audit" icon={<AuditIcon size={16} />} label={t('nav.audit')} />
+                )}
               </>
             )}
           </nav>
@@ -219,9 +258,11 @@ export function Layout() {
           </div>
           <TreeNav />
         </aside>
-        <main className="min-w-0 flex-1 overflow-y-auto">
-          <GlobalMaintenanceBanner />
-          <div className="p-4 lg:p-6">
+        <main className="min-w-0 flex-1 overflow-y-auto print:overflow-visible">
+          <div className="print:hidden">
+            <GlobalMaintenanceBanner />
+          </div>
+          <div className="p-4 print:p-0 lg:p-6">
             <Outlet />
           </div>
         </main>

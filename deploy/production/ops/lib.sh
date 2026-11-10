@@ -21,6 +21,7 @@ NETMON_HEALTH_TIMEOUT="${NETMON_HEALTH_TIMEOUT:-300}"
 NETMON_HEALTH_POLL="${NETMON_HEALTH_POLL:-5}"
 DOCKER="${DOCKER:-docker}"
 CURL="${CURL:-curl}"
+CONNTRACK="${CONNTRACK:-conntrack}"
 export NETMON_ETC_DIR
 
 # Services that must be running (and healthy) after a deploy. `init` is a one-shot.
@@ -111,6 +112,30 @@ running_image() { # service -> image reference the container was created from
   local cid
   cid="$(service_cid "$1")"
   [[ -n $cid ]] && "$DOCKER" inspect -f '{{.Config.Image}}' "$cid" 2>/dev/null
+}
+
+# [2b-3] A device that kept sending traps/syslog (UDP, fixed 5-tuple: syslog uses source
+# port 514) while the netmon container was being replaced can keep a conntrack entry that
+# points at the OLD container, so its messages vanish. [3] Flow exporters are the worst case
+# (a datagram every few seconds from one fixed source port, so the entry never times out).
+# After `up` recreated the netmon container, delete the UDP entries for the published ingest
+# ports (best effort; needs the `conntrack` tool: apt install conntrack).
+# $1 = netmon container id before `up`.
+# UDP ports published by compose.yaml for the ingest receivers (host side).
+NETMON_INGEST_UDP_PORTS=(162 514 2055 4739 6343)
+flush_ingest_conntrack() {
+  local before=${1:-} after p
+  after="$(service_cid netmon)"
+  [[ -n $after && $after != "$before" ]] || return 0
+  if ! command -v "$CONNTRACK" >/dev/null 2>&1; then
+    log "netmon container recreated; conntrack not installed, skipping the UDP ${NETMON_INGEST_UDP_PORTS[*]} conntrack flush"
+    return 0
+  fi
+  for p in "${NETMON_INGEST_UDP_PORTS[@]}"; do
+    # Exit status 1 = nothing matched: not an error.
+    "$CONNTRACK" -D -p udp --dport "$p" >/dev/null 2>&1 || true
+  done
+  log "netmon container recreated: cleared stale UDP conntrack entries for ports ${NETMON_INGEST_UDP_PORTS[*]}"
 }
 
 # Wait until every service is healthy and https://<fqdn>/api/health reports "ok".

@@ -98,6 +98,9 @@ DEVICE_CLASS_NAMES = {
 TELEGRAM_LIMIT = 4096
 
 
+ACK_LABEL = {"en": "Acknowledge", "he": "אישור טיפול"}  # [3] chat_ack
+
+
 def _lang(lang: str) -> str:
     return lang if lang in LABELS else "en"
 
@@ -201,6 +204,8 @@ def text_body(payload: dict[str, Any], lang: str) -> str:
     lines += [f"{k}: {v}" for k, v in _rows(payload, lang)]
     if payload.get("url"):
         lines.append(f"{LABELS[lang]['link']}: {payload['url']}")
+    if payload.get("ack_url"):  # [3] chat_ack: email `ack_link`
+        lines.append(f"{ACK_LABEL[lang]}: {payload['ack_url']}")
     return "\n".join(lines) + "\n"
 
 
@@ -226,9 +231,16 @@ def html_body(payload: dict[str, Any], lang: str) -> str:
         for k, v in _rows(payload, lang)
     )
     link = ""
+    if payload.get("ack_url"):  # [3] chat_ack: a button-styled "Acknowledge" link
+        ack = html.escape(payload["ack_url"])
+        link += (
+            f'<p><a href="{ack}" style="display:inline-block;padding:8px 16px;'
+            "background:#2563eb;color:#ffffff;text-decoration:none;border-radius:4px;"
+            f'font-weight:bold">{html.escape(ACK_LABEL[lang])}</a></p>'
+        )
     if payload.get("url"):
         url = html.escape(payload["url"])
-        link = f'<p><a href="{url}">{html.escape(LABELS[lang]["link"])}</a></p>'
+        link += f'<p><a href="{url}">{html.escape(LABELS[lang]["link"])}</a></p>'
     return (
         f'<!doctype html><html lang="{lang}" dir="{direction}"><body '
         f'style="font-family:sans-serif">{intro}<table>{rows}</table>{link}</body></html>'

@@ -6,12 +6,14 @@ from fastapi import APIRouter, Query, Response
 from sqlalchemy import or_, select, text, update
 
 from netmon.api.common import commit_or_conflict, csv_list, merge_snmp
-from netmon.api.deps import DB, RT, Admin, Page, Viewer
+from netmon.api.deps import DB, RT, Admin, Audit, Page, Viewer
 from netmon.api.errors import ApiError, not_found, validation_error
+from netmon.configbackup.credentials import merge as ssh_merge
 from netmon.models import Device, Group, Sensor
 from netmon.poller.sensor_types import AUTO_SENSOR_TYPES, default_sensor_name, validate_config
 from netmon.poller.snmp_client import SnmpError
 from netmon.schemas import DependencyBulkIn, DeviceCreate, DevicePatch
+from netmon.services import audit
 from netmon.services import dependencies as deps
 from netmon.services import events as events_svc
 from netmon.services import settings as settings_svc
@@ -26,6 +28,53 @@ from netmon.services.snmp_enum import enumerate_interfaces, enumerate_storage
 from netmon.services.status import load_inventory
 
 router = APIRouter()
+
+
+def check_driver(driver_id: str | None) -> str | None:
+    """[3] config_backup_driver override: null/"" = automatic; unknown ids -> 422."""
+    from netmon.configbackup import drivers
+
+    if not driver_id:
+        return None
+    if drivers.get(driver_id) is None:
+        raise validation_error(["body", "config_backup_driver"], "unknown config backup driver")
+    return driver_id
+
+
+DEVICE_AUDIT_FIELDS = (
+    "name",
+    "host",
+    "group_id",
+    "description",
+    "enabled",
+    "sort_order",
+    "snmp_credentials",
+    "port_inventory",
+    "arp_collect",
+    "dependency_mode",
+    "dependency_device_id",
+    "dependency_sensor_id",
+    "source_addresses",  # [2b-3]
+    # [3] (encrypted ssh_credentials fields are redacted by the audit)
+    "ssh_credentials",
+    "config_backup",
+    "config_backup_driver",
+    "newdev_excluded_ports",
+)
+
+
+def device_audit_values(d: Device) -> dict:
+    """[2b-3] Audited device fields (secrets in snmp_credentials are redacted by the audit)."""
+    out = {}
+    for k in DEVICE_AUDIT_FIELDS:
+        if hasattr(d, k):
+            v = getattr(d, k)
+            out[k] = [str(x) for x in v] if k == "source_addresses" and v is not None else v
+    return out
+
+
+def device_entity(d: Device) -> audit.Entity:
+    return audit.entity("device", d.id, d.name, device_id=d.id)
 
 
 @router.get("/api/devices")
@@ -55,7 +104,7 @@ async def list_devices(
 
 
 @router.post("/api/devices", status_code=201)
-async def create_device(body: DeviceCreate, _: Admin, rt: RT, session: DB) -> dict:
+async def create_device(body: DeviceCreate, _: Admin, rt: RT, session: DB, ctx: Audit) -> dict:
     if await session.get(Group, body.group_id) is None:
         raise validation_error(["body", "group_id"], "group does not exist")
     bad = [t for t in body.auto_sensors if t not in AUTO_SENSOR_TYPES]
@@ -77,6 +126,14 @@ async def create_device(body: DeviceCreate, _: Admin, rt: RT, session: DB) -> di
         sort_order=body.sort_order,
         port_inventory=body.port_inventory,
         arp_collect=body.arp_collect,
+        source_addresses=list(body.source_addresses),  # [2b-3]
+        # [3]
+        ssh_credentials=ssh_merge(body.ssh_credentials, None, rt.secret_key)
+        if body.ssh_credentials is not None
+        else None,
+        config_backup=body.config_backup,
+        config_backup_driver=check_driver(body.config_backup_driver),
+        newdev_excluded_ports=list(body.newdev_excluded_ports),
     )
     deps.apply_dependency(d, dep)
     session.add(d)
@@ -101,6 +158,15 @@ async def create_device(body: DeviceCreate, _: Admin, rt: RT, session: DB) -> di
         )
         session.add(s)
         created.append(s)
+    await audit.record(
+        session,
+        ctx,
+        "device.create",
+        device_entity(d),
+        audit.created(
+            {**device_audit_values(d), "auto_sensors": list(dict.fromkeys(body.auto_sensors))}
+        ),
+    )
     await commit_or_conflict(session)
     await session.refresh(d)
     if rt.scheduler:
@@ -121,10 +187,13 @@ async def get_device(device_id: int, _: Viewer, rt: RT, session: DB) -> dict:
 
 
 @router.patch("/api/devices/{device_id}")
-async def patch_device(device_id: int, body: DevicePatch, _: Admin, rt: RT, session: DB) -> dict:
+async def patch_device(
+    device_id: int, body: DevicePatch, _: Admin, rt: RT, session: DB, ctx: Audit
+) -> dict:
     d = await session.get(Device, device_id)
     if d is None:
         raise not_found("Device")
+    before = device_audit_values(d)
     fields = body.model_fields_set
     check_cycle = False
     identity_changed = False  # [2b-2] host / credentials: class detection must run again
@@ -163,6 +232,23 @@ async def patch_device(device_id: int, body: DevicePatch, _: Admin, rt: RT, sess
         if new_creds != d.snmp_credentials:  # unchanged credentials re-sent by a form: no-op
             d.snmp_credentials = new_creds
             identity_changed = True
+    if "source_addresses" in fields and body.source_addresses is not None:  # [2b-3]
+        d.source_addresses = list(body.source_addresses)
+    # [3] config backup / new-device alerts
+    if "ssh_credentials" in fields:
+        new_ssh = (
+            ssh_merge(body.ssh_credentials, d.ssh_credentials, rt.secret_key)
+            if body.ssh_credentials is not None
+            else None
+        )
+        if new_ssh != d.ssh_credentials:
+            d.ssh_credentials = new_ssh
+    if "config_backup" in fields and body.config_backup is not None:
+        d.config_backup = body.config_backup
+    if "config_backup_driver" in fields:
+        d.config_backup_driver = check_driver(body.config_backup_driver)
+    if "newdev_excluded_ports" in fields and body.newdev_excluded_ports is not None:
+        d.newdev_excluded_ports = list(body.newdev_excluded_ports)
     for key in ("port_inventory", "arp_collect"):  # [2b-2]
         value = getattr(body, key)
         if key in fields and value is not None and value != getattr(d, key):
@@ -185,6 +271,9 @@ async def patch_device(device_id: int, body: DevicePatch, _: Admin, rt: RT, sess
             d,
             in_maintenance=rt.maintenance is not None and rt.maintenance.in_maintenance(d.id),
         )
+    changes = audit.diff(before, device_audit_values(d))
+    if changes:
+        await audit.record(session, ctx, "device.update", device_entity(d), changes)
     await commit_or_conflict(session)
     await session.refresh(d)
     events_svc.published(rt, evs)
@@ -197,7 +286,9 @@ async def patch_device(device_id: int, body: DevicePatch, _: Admin, rt: RT, sess
 
 
 @router.post("/api/devices/dependencies")
-async def bulk_dependencies(body: DependencyBulkIn, _: Admin, rt: RT, session: DB) -> dict:
+async def bulk_dependencies(
+    body: DependencyBulkIn, _: Admin, rt: RT, session: DB, ctx: Audit
+) -> dict:
     """[2b-1] Atomic bulk apply; cycles are checked on the final state."""
     updated: list[int] = []
     for i, item in enumerate(body.items):
@@ -208,8 +299,16 @@ async def bulk_dependencies(body: DependencyBulkIn, _: Admin, rt: RT, session: D
             session, item.dependency, ["body", "items", i, "dependency"]
         )
         if (d.dependency_mode, d.dependency_device_id, d.dependency_sensor_id) != values:
+            before = device_audit_values(d)
             deps.apply_dependency(d, values)
             updated.append(d.id)
+            await audit.record(
+                session,
+                ctx,
+                "device.update",
+                device_entity(d),
+                audit.diff(before, device_audit_values(d)),
+            )
     await deps.check_no_cycle(session)
     await commit_or_conflict(session)
     for did in updated:
@@ -240,10 +339,13 @@ async def identify(device_id: int, _: Admin, rt: RT, session: DB) -> dict:
 
 
 @router.delete("/api/devices/{device_id}", status_code=204)
-async def delete_device(device_id: int, _: Admin, rt: RT, session: DB) -> Response:
+async def delete_device(device_id: int, _: Admin, rt: RT, session: DB, ctx: Audit) -> Response:
     d = await session.get(Device, device_id)
     if d is None:
         raise not_found("Device")
+    await audit.record(
+        session, ctx, "device.delete", device_entity(d), audit.deleted(device_audit_values(d))
+    )
     sensor_ids = list(
         (await session.execute(select(Sensor.id).where(Sensor.device_id == device_id))).scalars()
     )
@@ -253,6 +355,9 @@ async def delete_device(device_id: int, _: Admin, rt: RT, session: DB) -> Respon
     if rt.scheduler:
         rt.scheduler.remove_many(sensor_ids)
     rt.spawn(delete_sensor_measurements(rt, sensor_ids))
+    from netmon.api.ingest import detach_device  # [2b-3] traps/syslog -> unknown source
+
+    rt.spawn(detach_device(rt, device_id))
     rt.config_changed("device", device_id, "deleted")
     for did in dependents:
         rt.config_changed("device", did, "updated")

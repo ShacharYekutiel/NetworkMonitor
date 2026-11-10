@@ -34,14 +34,20 @@
 	}
 }
 
-# Full name (from site.env) and the org short DNS name. Both must be SANs of the cert.
-https://{$NETMON_FQDN}, https://netmonitor {
+# The app is served on the full name (from site.env) only.
+# Kerberos SSO, phase 3: the AD SPN exists for the full name only (HTTP/<fqdn>), so the
+# browser must always use it. No SSO directive is needed: reverse_proxy passes the
+# `Authorization: Negotiate` request header and the `WWW-Authenticate` response header
+# through unchanged; the OIDC callback is under /api; /noc and /ack are SPA routes.
+https://{$NETMON_FQDN} {
 	import app
 }
 
-# Anything else on 443 (IP address, other names): send the browser to the canonical name,
-# so the session cookie and the Origin check always use one host.
-https:// {
+# The org short DNS name (https://netmonitor, phase 3: moved here from the app block) and
+# anything else on 443 (IP address, other names): send the browser to the canonical name,
+# so SSO, the session cookie and the Origin check always use one host. The certificate
+# keeps DNS:netmonitor as a SAN, so the short name redirects without a warning.
+https://netmonitor, https:// {
 	tls /etc/caddy/tls/cert.pem /etc/caddy/tls/key.pem
 	redir https://{$NETMON_FQDN}{uri} permanent
 }

@@ -1,4 +1,4 @@
-# NetworkMonitor — Architecture (Phase 1 / MVP + Phase 2a + Phase 2b-1 + Phase 2b-2)
+# NetworkMonitor — Architecture (Phase 1 / MVP + Phase 2a + Phase 2b-1 + Phase 2b-2 + Phase 2b-3 + Phase 3)
 
 Phase 2a (auto-discovery, device templates, `snmp_custom`/`snmp_disk`, Telegram) is described in
 [§ 9](#9-phase-2a-discovery-templates-custom-snmp-telegram); items elsewhere marked **[2a]** belong to it.
@@ -6,6 +6,14 @@ Phase 2b-1 (dependencies, maintenance windows, acknowledge, escalation, fingerpr
 topology) is described in [§ 10](#10-phase-2b-1-dependencies-maintenance-acknowledge-escalation-fingerprinting-hpe-topology).
 Phase 2b-2 (switch ports view, vendor template library) is described in
 [§ 11](#11-phase-2b-2-switch-ports-view-vendor-template-library); items marked **[2b-2]** belong to it.
+Phase 2b-3 (feature toggles, SNMP traps, syslog, event alerts, port flapping, SIEM forwarding, LAG membership,
+Active Directory login, audit log, device timeline, Microsoft Teams, API tokens) is described in
+[§ 12](#12-phase-2b-3-traps-syslog-event-alerts-lag-active-directory-audit-timeline-teams-flapping-siem-forwarding-api-tokens);
+items marked **[2b-3]** belong to it.
+Phase 3 (network device config backup, NetFlow/IPFIX/sFlow, new-device alerts, SSO with Kerberos or Entra ID,
+reports, NOC wall screen, acknowledge from Telegram/Teams) is described in
+[§ 13](#13-phase-3-config-backup-flows-new-device-alerts-sso-reports-noc-mode-chat-acknowledge); items marked
+**[3]** belong to it.
 
 NetworkMonitor is a license-free, PRTG-like network monitor. One Python process serves the REST API, the
 WebSocket, the built React SPA, and runs the poller and the alert engine. PostgreSQL holds everything, and
@@ -53,7 +61,7 @@ Related contracts: [data-model.md](data-model.md), [api.md](api.md), [convention
 
 ### Libraries (fixed)
 FastAPI, uvicorn, SQLAlchemy 2 (async) + asyncpg, Alembic, pydantic v2 + pydantic-settings, PyJWT, argon2-cffi,
-pysnmp >= 7 (lextudio), icmplib, httpx, dnspython, aiosmtplib, **[2b-1]** tzdata (IANA zones on Windows/slim images).
+pysnmp >= 7 (lextudio), icmplib, httpx, dnspython, aiosmtplib, **[2b-1]** tzdata (IANA zones on Windows/slim images). **[2b-3]** ldap3. **[3]** asyncssh (config backup), gssapi (optional extra `kerberos`).
 Frontend: React 18, TypeScript, Vite, Tailwind CSS, React Router, TanStack Query, ECharts, i18next.
 
 ## 2. Process model
@@ -181,6 +189,16 @@ native installers) → defaults. **The end user never edits any of these.** Inst
 | **[2a]** `NETMON_DISCOVERY_RATE` | `100` | Max new hosts started per second by a scan (1–1000) |
 | **[2b-1]** `TZ` | unset | Only used as the default of the `timezone` setting when it is a valid IANA name |
 | **[2b-1]** `NETMON_TEST_MODE` | `0` | `1` enables `PUT /api/test/clock` (QA only; never set by installers/compose). When on: startup `WARNING` log + `system` event, and `/api/health` reports `"test_mode": true`. |
+| **[2b-3]** `NETMON_TRAP_PORT` | `162` (Docker image: `1162`) | UDP port of the SNMP trap receiver (only opened while the `traps` feature is ON); `0` = never |
+| **[2b-3]** `NETMON_SYSLOG_PORT` | `514` (Docker image: `1514`) | UDP syslog port (feature `syslog`); `0` = never |
+| **[2b-3]** `NETMON_SYSLOG_TCP_PORT` | = `NETMON_SYSLOG_PORT` | TCP syslog port; `0` = never |
+| **[2b-3]** `NETMON_INGEST_HOST` | `0.0.0.0` | Bind address of the trap/syslog receivers |
+| **[3]** `NETMON_NETFLOW_PORT` | `2055` | UDP port for NetFlow v5/v9 and IPFIX (feature `flows`); `0` = never |
+| **[3]** `NETMON_IPFIX_PORT` | `4739` | UDP port for IPFIX and NetFlow v9 (feature `flows`); `0` = never |
+| **[3]** `NETMON_SFLOW_PORT` | `6343` | UDP port for sFlow v5 (feature `flows`); `0` = never |
+| **[3]** `NETMON_FLOW_HOST` | `0.0.0.0` | Bind address of the flow receivers |
+| **[3]** `NETMON_OIDC_AUTHORITY` | `https://login.microsoftonline.com` | OIDC authority base (tests point it at the mock IdP) |
+| **[3]** `HTTPS_PROXY` / `NO_PROXY` | unset | Standard proxy variables, honoured by httpx (Telegram, Teams, OIDC, webhooks); set in production `app.env` (§ 13.9.1) |
 
 Runtime settings (SMTP, retention, default interval, default language) live in the DB `settings` table and are
 edited in the UI. They are **not** env vars.
@@ -1062,3 +1080,1643 @@ Please verify and report (screenshots of the port list + the outputs below are e
 | All 2b-1/2b-2 templates | after testing, tell the architect which templates may be marked `verified: true` (with model/firmware for `verified_note`) |
 
 Open questions carried from the roadmap: the Aruba product lines; Check Point appliance/VM, ClusterXL, SNMPv3.
+
+## 12. Phase 2b-3: traps, syslog, event alerts, LAG, Active Directory, audit, timeline, Teams, flapping, SIEM forwarding, API tokens
+
+Contract details: [data-model.md § Phase 2b-3](data-model.md#2b-3-phase-2b-3-additions) (tables, settings,
+parsers, rule semantics, migration `0006`) and [api.md § Phase 2b-3](api.md#2b-3-phase-2b-3-contract) (types,
+endpoints, errors, WS). Backend, frontend, QA and devops implement in parallel against those files and this
+section. Sections are marked **[2b-3]**. Everything is additive to 2b-2. The product stays **read-only towards
+devices** (it only receives traps/syslog; it never configures a device).
+
+### 12.0 Feature toggles (owner rule, applies to every 2b-3 feature) [2b-3]
+Every new feature of this phase is behind a boolean setting, **OFF by default** (also after upgrading an
+existing install). The keys and exact OFF behaviour are in data-model § Feature toggles. Common rules:
+
+| Aspect | Rule |
+|---|---|
+| Storage | `settings` keys `feature_<name>_enabled` (bool, default `false`), changed with `PUT /api/settings` (admin), audited (when the audit log is on). |
+| Visibility | `GET /api/settings/public` returns `features: {<name>: bool}` to everyone (the SPA needs it before and after login). |
+| Runtime | `rt.features` (`netmon.services.features.FeatureManager`) holds the current values. A change is applied **without a restart**: `PUT /api/settings` commits, then calls `rt.features.apply(changed)` which starts/stops receivers, loops and caches (each start/stop ≤ 5 s; a failing start — e.g. port in use — leaves the toggle ON and reports the error in `GET /api/ingest/status` and a `system` event). Then `features.changed` is broadcast. |
+| OFF = | no socket opened, no loop/job running, no SNMP walk issued, no rows written by that feature; its API endpoints answer **`409 feature_disabled`** (`details: [{"feature": "<name>"}]`) except where data-model says otherwise (settings, LDAP test endpoints); the SPA hides the nav entry and shows the feature's settings section and its other entry points **disabled with a one-line explanation** and a link to *Settings → Features* (admins) / "Ask an administrator" (viewers). |
+| Existing data | kept when a feature is turned off; **retention keeps running** for it; visible again when it is turned back on. |
+| Settings page | new tab **Features**: one row per feature (name, he/en description, toggle, status line such as "Listening on UDP 162" or the start error, and dependency hints, e.g. "Event alerts need traps or syslog to be on"). |
+
+Feature names (9): `traps`, `syslog`, `event_alerts`, `lag`, `ldap`, `audit`, `timeline`, `flapping`,
+`siem_forwarding`.
+
+Owner decision: the **Microsoft Teams channel** (§ 12.10) and **API tokens** (§ 12.11) are *not* toggles —
+they are always available. Stored `feature_teams_enabled` / `feature_api_tokens_enabled` rows from earlier
+builds are ignored (no migration); `PUT /api/settings` ignores those keys like any other unknown key
+(accepted, not stored, not returned).
+
+### 12.1 Components [2b-3]
+| Component | Module | Responsibility |
+|---|---|---|
+| Features | `netmon.services.features` | `FeatureManager`: load, `enabled(name)`, `apply(changed)` (start/stop the components below), `feature_disabled(name)` dependency for routers (raises `409 feature_disabled`). |
+| Trap receiver | `netmon.ingest.trap_receiver` | asyncio UDP endpoint; per-source/global rate limit; v1/v2c decoding (low-level pysnmp `proto.api`, no engine), v2c INFORM response, v3 via a dedicated `SnmpEngine` with lazily registered USM users (§ 12.2.3). |
+| Syslog receiver | `netmon.ingest.syslog_receiver` | UDP endpoint + TCP server (RFC 6587 framing), limits, hands raw frames to the parser. |
+| Parsers | `netmon.ingest.syslog_parse`, `netmon.ingest.trap_decode`, `netmon.ingest.oid_names` | **Pure**: `parse_syslog(data, received_at, tz) -> SyslogRecord`, varbind rendering, v1→v2 conversion, OID names (longest prefix). Exhaustively unit-tested with the vectors in data-model. |
+| Attribution | `netmon.ingest.attribution` | In-memory `SourceMap` (IP → device id) rebuilt on device changes and every 10 min; pure `attribute(record, map) -> device_id | None`. |
+| Pipeline | `netmon.ingest.pipeline` | Bounded queues, parse workers, rule evaluation, batch writer (`INSERT … SELECT FROM unnest(…) RETURNING id`), WS live batches, counters, forwarding hand-off. |
+| Event rules | `netmon.ingest.rules` (pure matching), `netmon.ingest.event_sensors` (I/O) | Rule cache, `evaluate(record, rules, ctx) -> Outcome`, event-sensor conditions and status changes through the normal status-change path (§ 12.3), expiry loop. |
+| Flapping | `netmon.ingest.flapping` | Port transition tracker (traps, interface sensors, port inventory), `port_flap` event sensors, alert suppression hand-off (§ 12.4). |
+| Forwarder | `netmon.ingest.forward` | One task per SIEM target: bounded queue, RFC 5424 rendering, UDP/TCP/TLS, reconnect with backoff (§ 12.5). |
+| LAG | `netmon.ports.collect` (walks #13/#14 + pure `resolve_lag`), `netmon.ports.view` (inheritance) | § 12.6. |
+| Directory auth | `netmon.auth.ldap` (ldap3 in threads), `netmon.auth.ldap_pure` (pure: name parsing, RFC 4515 escaping, UAC decisions, AD error mapping) | § 12.7. |
+| Settings crypto | `netmon.services.crypto` | AES-256-GCM with a key derived (HKDF-SHA256, info `netmon/settings/v1`) from `secret.key`; used for `ldap.bind_password`. |
+| Audit | `netmon.services.audit` | `record(session, ctx, action, entity, changes)` in the **same transaction** as the change; secret redaction; CSV export; retention (§ 12.8). |
+| Timeline | `netmon.services.timeline` | Per-device k-way merge over events, traps, syslog, audit (§ 12.9). |
+| Teams | `netmon.alerts.teams` | Adaptive Card payload + POST to a Workflows webhook (§ 12.10). |
+| API tokens | `netmon.auth.tokens` | Token create/hash/verify, `Authorization: Bearer` in `authenticate()`, last-used stamping (§ 12.11). |
+| Retention | `netmon.services.retention` | Adds traps, syslog (fallback mode / no Timescale policy) and audit retention to the hourly loop. |
+
+Repository additions: `backend/netmon/ingest/`, `backend/netmon/auth/` (`ldap.py`, `ldap_pure.py`,
+`tokens.py`), `services/features.py`, `services/crypto.py`, `services/audit.py`, `services/timeline.py`,
+`alerts/teams.py`, routers `api/ingest.py` (traps, syslog, rules, unknown sources, status), `api/audit.py`,
+`api/tokens.py`, `api/ldap.py`, `frontend/src/pages/LogsPage.tsx`, `AuditPage.tsx`,
+`frontend/src/components/{logs,timeline,features}/*`, `tests/sim/ingest/`, `tests/sim/ldap/`.
+New dependency: **`ldap3>=2.9.1`** (pure Python, LGPL-3.0; used unmodified as a library, no paid licence).
+
+**Startup order** (additions in bold): migrations → Timescale bootstrap (**+ `traps`/`syslog_messages`
+hypertables and retention policies**) → **`pg_trgm` bootstrap** → … → maintenance tracker → alert engine →
+**FeatureManager.start()** (starts, per enabled feature: forwarders → pipeline/writer → event-rule cache +
+expiry loop → flapping tracker → trap/syslog receivers last) → topology / port inventory schedulers → poller.
+**Shutdown:** receivers stop first (sockets closed, TCP connections closed), the pipeline flushes for ≤ 5 s
+(what is left is dropped and counted), forwarders get ≤ 2 s, then the rest as today.
+
+### 12.2 Ingestion pipeline (traps and syslog) [2b-3]
+
+```
+ UDP 162 ─► TrapReceiver ─┐ rate limit (per source, global) ─► raw queue (bounded) ─► decode ─┐
+ UDP 514 ─► SyslogUDP ────┤                                                                   ├─► attribute ─► ignore list / unknown policy
+ TCP 514 ─► SyslogTCP ────┘   (framing, size caps)                                            │        │
+                                                                                               │        ├─► SIEM forwarders (put_nowait, never block)
+                                                                                               │        ├─► rule evaluation (in memory) ─► condition changes
+                                                                                               │        └─► write queue (bounded) ─► batch INSERT … RETURNING id
+                                                                                               │                 │
+                                                                     event sensors: one short transaction per flush (status_change events → alert engine)
+                                                                                                                 └─► WS live batches (≤ 1/s per topic, subscribers only)
+```
+
+#### 12.2.1 Receivers, ports, privileges
+- Listening ports come from env (process config, set by installers/compose, never by the end user):
+  `NETMON_TRAP_PORT` (default **162**; the Docker image sets **1162**), `NETMON_SYSLOG_PORT` (UDP, default
+  **514**; image **1514**), `NETMON_SYSLOG_TCP_PORT` (default = `NETMON_SYSLOG_PORT`), `NETMON_INGEST_HOST`
+  (default `0.0.0.0`). `0` disables that socket regardless of the feature toggle. See § 4.
+- Sockets are opened only while the feature is ON. A bind failure (permission denied, address in use) never
+  stops the server: the receiver state becomes `error` with the OS message, a `system` event is written
+  (`Syslog receiver cannot listen on UDP 514: [Errno 98] Address already in use`), and the FeatureManager
+  retries every 60 s while the toggle stays ON.
+- UDP sockets request `SO_RCVBUF` 4 MiB (best effort). IPv4-mapped IPv6 sources are normalised to IPv4.
+
+#### 12.2.2 Flood protection and limits (constants in `netmon.ingest.limits`)
+| Limit | Traps | Syslog |
+|---|---|---|
+| Per source IP (token bucket) | 50 msg/s, burst 200 | 200 msg/s, burst 1000 |
+| Global (token bucket) | 500 msg/s, burst 2000 | 2000 msg/s, burst 10000 |
+| Raw queue (per kind) | 20 000 frames | 20 000 frames |
+| Write queue (per kind) | 10 000 records | 10 000 records |
+| Max datagram / frame | 65 535 B (UDP) | 65 535 B UDP; TCP frame > 65 536 B → connection closed |
+| Stored size | ≤ 128 varbinds, each value ≤ 1024 chars, summary ≤ 1000 chars | message ≤ 8192 B UTF-8 (cut at a character boundary, `truncated = true`) |
+| TCP | — | ≤ 512 connections total, ≤ 32 per source IP, idle timeout 900 s |
+| Tracked sources (rate buckets) | 4096 (LRU) | 4096 (LRU) |
+
+Every drop increments a per-kind counter by reason (`rate_limited`, `queue_full`, `too_large`, `parse_error`,
+`ignored_source`, `unknown_source`, `bad_community`, `v3_auth`, `unsupported`, `db_error`), exposed by
+`GET /api/ingest/status`. Per source, at most one `system` event per hour "Dropping syslog from 10.0.0.5: rate
+limit exceeded" (≤ 10 such events per hour in total). TCP readers wait up to 2 s for room in the raw queue
+(natural back-pressure for short bursts), then drop. Nothing ever blocks the event loop: decoding of one
+datagram is bounded by the size caps; v3 decryption goes through pysnmp on the loop (≈ sub-ms per trap,
+bounded by the 500/s global cap).
+
+**Writer:** one task per kind drains the write queue in batches of ≤ 1000 records or every 0.5 s, inserts with
+`INSERT … SELECT FROM unnest($1::timestamptz[], …) RETURNING id` in one transaction, then applies the
+batch's event-sensor changes (§ 12.3) in a second short transaction. A DB error: retry once after 1 s, then the
+batch is dropped (`db_error`), WARNING log rate-limited to 1/min. When the DB is down the queues fill and new
+records are dropped — there is no disk spool (by design: simple, bounded).
+
+#### 12.2.3 Trap decoding
+- **Versions:** v1 Trap, v2c Trap, v2c **InformRequest** (answered with a Response PDU echoing request-id and
+  varbinds), v3 Trap (noAuthNoPriv / authNoPriv / authPriv). **v3 Inform is not supported** in 2b-3
+  (`unsupported` counter; devices are configured to send traps).
+- **v1 → v2 conversion** (RFC 3584 § 3.1): `snmpTrapOID` = `1.3.6.1.6.3.1.1.5.(generic+1)` for generic 0–5,
+  else `<enterprise>.0.<specific>`; `uptime_ticks` = time-stamp; `agent_addr` stored; varbind
+  `snmpTrapEnterprise.0` (`1.3.6.1.6.3.1.1.4.3.0`) = enterprise is appended. v2c/v3: `sysUpTime.0` and
+  `snmpTrapOID.0` are taken out of the varbind list into `uptime_ticks` / `trap_oid`.
+- **Community check** (`trap_community_check`): `any` (default, zero config: every community accepted) or
+  `known` (communities of all device/group credentials + `trap_communities`; others dropped, `bad_community`).
+  The community itself is never stored or logged.
+- **v3 USM users and engine IDs.** For traps the sending agent is authoritative, so keys are localised with
+  the *agent's* engine ID, which the receiver does not know in advance. Design: no engine-ID configuration at
+  all. Candidate users = every distinct v3 credential in `devices`/`groups` `snmp_credentials` (username +
+  protocols + passphrases) plus `trap_v3_users` (settings). The receiver reads `msgAuthoritativeEngineID` and
+  `msgUserName` from the cleartext v3 header (pyasn1 decode of `SNMPv3Message` / `UsmSecurityParameters`); when
+  that (engine ID, user) pair is not registered yet in the receiver's `SnmpEngine`, it registers the user for
+  that engine ID (pysnmp `add_v3_user(…, securityEngineId=<engine id>)`, passphrases localised by pysnmp), then
+  hands the datagram to the engine's message dispatcher; the notification callback produces the record.
+  Candidate choice when one username has several key sets: the credentials of the device the **source IP**
+  maps to, else the first `trap_v3_users` entry with that name, else the first device/group credential with
+  that name (lowest group id, then device id). Registered pairs: LRU of 1024; any credential/settings change
+  rebuilds the engine. Auth/decrypt failures and unknown users → `v3_auth` counter and an entry in
+  `v3_failures` (last 20: source IP, engine ID hex, username, reason) shown on the ingest status card, which is
+  how the owner debugs "engine-ID issues". The exact pysnmp entry points are the backend's choice; the
+  behaviour above and the QA tests (§ 12.13: distinct engine IDs, wrong key, unknown user, authNoPriv,
+  authPriv SHA/AES128, SHA256/AES256) are binding.
+- **Varbind rendering** (pure): `value` = raw text (integers decimal; OctetString as UTF-8 when it decodes and
+  is printable, else `0x` + hex; 6-byte non-printable OctetString → `aa:bb:cc:dd:ee:ff`; OID dotted; IpAddress
+  dotted; TimeTicks/Counter/Gauge decimal; Null/noSuch* → `""`), `display` = value with the enum name for the
+  known IF-MIB status columns (`down(2)`), `name` = OID name (below) or null. NUL characters are replaced by
+  U+FFFD everywhere (PostgreSQL text cannot hold NUL).
+- **OID names** (`netmon.ingest.oid_names`, pure, longest-prefix match, the remainder appended as
+  `name.suffix`, e.g. `ifIndex.5`): exact list in data-model § OID name table (SNMPv2-MIB traps, IF-MIB,
+  BRIDGE-MIB, ENTITY-MIB, LLDP-MIB, POWER-ETHERNET-MIB, NET-SNMP notifications, vendor enterprise roots HP,
+  H3C/Comware, Aruba, Aruba CX, Check Point, Cisco, net-snmp). No MIB compiler; a user-extensible name file is
+  "Later".
+- **Summary** (≤ 1000 chars): `<trap_name or trap_oid>` + ` name=display` for the first 8 varbinds; when an
+  `ifIndex` varbind exists and the device has a `switch_ports` row for it, ` port=<name>` is appended
+  (`linkDown ifIndex=5 ifAdminStatus=up(1) ifOperStatus=down(2) port=GigabitEthernet1/0/5`).
+
+#### 12.2.4 Syslog parsing (pure `parse_syslog`)
+Formats: RFC 5424 (`<PRI>1 TIMESTAMP HOST APP PROCID MSGID SD MSG`), RFC 3164 / BSD (`<PRI>Mmm dd hh:mm:ss
+HOST TAG[PID]: MSG`, lenient: optional year after the time (Comware) or before it, missing host, missing tag),
+the HPE Comware `%%vvMODULE/sev/DIGEST(x):` and ArubaOS-Switch `<5-digit event id> tag:` conventions, and raw
+text (no PRI → facility 1 user, severity 5 notice, RFC 3164 § 4.3.3). 3164 timestamps have no zone or year:
+they are read in `settings.timezone`, the year is the current one unless that lands more than 1 day in the
+future (then the previous year). `time` (stored, sorted, retained) is always the **receive** time;
+`device_time` is the parsed device timestamp (nullable) because device clocks are often wrong. Rules and test
+vectors: data-model § Syslog parsing.
+
+TCP framing (RFC 6587), decided per frame: a frame starting with a digit is **octet-counted** (`LEN SP MSG`,
+LEN ≤ 65 536); otherwise **non-transparent**, terminated by LF (a trailing CR is stripped). TLS syslog (6514)
+is not received in 2b-3 (it is supported for *forwarding*, § 12.5).
+
+#### 12.2.5 Attribution (source → device)
+Order, first hit wins:
+1. **Source IP** (UDP/TCP peer) in the `SourceMap`: devices' `source_addresses` (explicit, highest), then a
+   literal-IP `host`, then the A/AAAA records of a hostname `host` (resolved at rebuild in threads, 2 s timeout,
+   8 in parallel). Several devices on one IP → the higher precedence class, then the enabled device, then the
+   lowest id.
+2. Traps: v1 `agent_addr`, then the `snmpTrapAddress.0` varbind (`1.3.6.1.6.3.18.1.3.0`, set by trap relays).
+3. Syslog: `hostname` equals (case-insensitive) a device `host`, a device `name`, or a device `name`'s first
+   label — only when exactly one device matches.
+4. Otherwise **unknown source**: `device_id` NULL, `source_ip` kept. Policy `ingest_unknown_sources`: `store`
+   (default; listed under *Unknown sources* with "Assign to device" / "Ignore" actions) or `drop` (counted).
+   Sources in `ingest_ignored_sources` (IPs / CIDRs) are dropped before parsing (`ignored_source`).
+   "Assign to device" appends the IP to the device's `source_addresses` and re-attributes stored rows of that
+   IP with `device_id IS NULL` in background batches of 10 000 (no rule re-evaluation).
+
+**NAT detection:** when ≥ 90 % of the last 200 records come from one IP in `172.16.0.0/12` or
+`192.168.65.0/24` that is no device, `nat_suspected = true` in the ingest status and the UI warns: "All
+messages arrive from 172.17.0.1 — the sender address is being rewritten (Docker Desktop / userland proxy). See
+the deployment notes." (§ 12.12).
+
+Device delete: a background task sets `device_id = NULL` on that device's traps/syslog rows (batches of 10 000),
+so the history stays visible as an unknown source.
+
+#### 12.2.6 Retention and storage
+`traps` and `syslog_messages` are hypertables in Timescale mode (chunks 7 days / 1 day, no compression — rows
+are updated by "assign" and device delete), with retention policies from `trap_retention_days` /
+`syslog_retention_days` (default 30, re-applied on change). Fallback mode (or a failed policy API): the hourly
+retention loop deletes in batches of 50 000 like `measurements`. Text search uses **`pg_trgm`** GIN indexes
+(data-model § Text search: why trigram, not tsvector). Retention runs whether or not the feature is ON.
+
+**Sizing** (heap + indexes incl. trigram, measured order of magnitude ≈ 0.8–1 KB per syslog row, ≈ 1.5 KB per
+trap with varbinds):
+
+| Load | Per day | 30 days |
+|---|---|---|
+| 1 syslog msg/s (≈ 30 switches at `warning`) | ≈ 75 MB | ≈ 2.2 GB |
+| 10 syslog msg/s (`informational` everywhere) | ≈ 750 MB | ≈ 22 GB |
+| 1 000 traps/day | ≈ 1.5 MB | ≈ 45 MB |
+
+Recommendation: send syslog at level `warning` (Comware `informational` logs every CLI login/command).
+
+#### 12.2.7 Live view
+WS clients subscribe explicitly (`{"type":"subscribe","topics":["syslog","trap"]}`); the server sends
+`syslog.batch` / `trap.batch` at most once per second per topic with ≤ 200 newest records (`skipped` = how many
+were left out). Live tail filtering is client-side; subscriptions are per socket and lost on reconnect (the
+client re-sends). Viewers may subscribe. Nothing is sent while the feature is OFF.
+
+### 12.3 Event sensors and rules (integration with the existing alert engine) [2b-3]
+Feature `event_alerts` (needs `traps` and/or `syslog` to receive anything).
+
+**Model (decided):** traps and syslog never alert directly. Each device gets **passive event sensors** — type
+`trap` ("SNMP traps"), type `syslog` ("Syslog"), and (flapping, § 12.4) `port_flap` ("Port flapping") — whose
+status is driven by **conditions** raised by **event rules**. Because they are ordinary sensors, every
+existing mechanism applies unchanged: `status_change` events, alert rules (global rules match them; per-sensor
+rules can target them), delays, escalation, reminders, acknowledge (auto-cleared on status change),
+maintenance suppression and after-maintenance sends, rollups, tree, dashboard, webhook/email/Telegram/Teams.
+
+- **Passive sensor type:** not scheduled by the poller (`Scheduler.start/upsert` skip passive types), no
+  measurements, one channel `active` (number of active conditions, unit `#`, no thresholds),
+  `interval_s` stored as 60 and ignored, `POST /run` and `/test` → `409 sensor_passive`. Excluded from:
+  startup stale marking (`_mark_stale_sensors`), the dependency "primary availability" choice, the
+  whole-device "parent down" test, and the dependency cascade (an event sensor never becomes `unreachable`: a
+  device that sends a trap is reachable).
+- **Creation:** when an attributed message arrives from an enabled device that has no sensor of that type, the
+  type is not in `devices.event_sensor_optout`, and `event_alerts` is ON → the sensor is created (status `up`,
+  message "Receiving traps" / "Receiving syslog") in the event transaction; `config.changed` sensor created.
+  Deleting an event sensor adds its type to `event_sensor_optout` (it is not re-created); creating one manually
+  (`POST /api/sensors` with the type, at most one per device per type → `409 conflict`) removes it. Templates
+  and discovery never create them.
+- **Rules** (`event_rules`): ordered by `(priority, id)`; scope global / group (with subgroups) / device; a
+  `match` (trap: trap OID prefixes, varbind conditions, port filter; syslog: max severity, facilities,
+  programs, text contains/regex), an `action` (`warning`, `down`, or `ignore` = stop, no alert), an optional
+  **key** (trap: value of a varbind, e.g. ifIndex; syslog: capture group 1 of a regex) so one rule can track
+  several instances (port 5 and port 7), and **clearing** (`clear_match` with the same key, and/or
+  `clear_after_min` since the last match). Evaluation per message (pure `rules.evaluate`, data-model § Rule
+  evaluation): 1) every rule whose `clear_match` matches clears its condition for that key; 2) the first rule
+  (in order) whose `match` matches raises/refreshes its condition (or stops on `ignore`).
+- **Status:** worst active condition (`down` > `warning`), none → `up`. `status_message` =
+  `"<rule name>: <summary>"` of the worst, most recent condition, plus `" (+N more)"`. Status changes are
+  applied exactly like a check result (sensor row locked, `status_change` event with `in_maintenance`,
+  `sensor.update`, `events_svc.published` → alert engine, rollup). A new condition while the status stays the
+  same updates only `status_message`, the `active` channel and `sensor.update` (no notification).
+- **Expiry loop:** wakes at the earliest `expires_at`, at least every 30 s, and on `rt.clock` changes (tests);
+  removes expired conditions and recomputes sensors. Time comes from `rt.clock`.
+- **Manual clear:** `POST /api/sensors/{id}/clear` (admin) removes all conditions → `up` (event message
+  `Cleared by admin`). Pausing an event sensor clears its conditions; resuming sets `up`.
+- **Rule edits:** update/disable/delete of a rule removes that rule's conditions (sensors recomputed). Built-in
+  rules (seeded, `builtin_key` set) can be edited/disabled and reset, not deleted.
+- **Built-in rules** (seeded **disabled**; the feature itself is OFF by default too): Link down (ifAdminStatus
+  ≠ down, **important ports only**, cleared by linkUp of the same ifIndex or after 24 h), SNMP authentication
+  failure (60 min), Device restarted (coldStart/warmStart, 30 min), Syslog error or worse (severity ≤ 3,
+  30 min). Turning `event_alerts` ON for the first time shows a dialog "Enable the built-in rules?" (all
+  checked) — one click, zero further configuration. Exact definitions: data-model § Built-in rules.
+- **Important ports** (port filter `important`, avoids an alert for every PC switched off at night): the
+  trap's ifIndex has an `snmp_interface` sensor, or is a LAG / LAG member, or is an uplink per the 2b-2 view
+  rule; a device with neither port inventory data nor interface sensors → every port is important; a trap
+  without an ifIndex varbind → important.
+- **Link-down scope** (owner decision, setting `event_linkdown_scope`): `important` (default, the rule
+  above) or `all` (every port with a linkDown/linkUp or ifOperStatus change). With `all` the port filter
+  `important` matches every port (built-in Link down rule and custom rules using it), and flapping (§ 12.4)
+  raises its condition for every port.
+- **Built-in rule names** are returned in the requesting user's language (he/en) while the stored name is
+  still one of the built-in default names; a renamed built-in and user rules are returned as typed.
+- Unknown sources, disabled devices and paused event sensors never raise conditions (messages are still
+  stored). Turning `event_alerts` OFF stops evaluation, deletes all conditions and sets every event sensor to
+  `up` with message "Event alerts are turned off" (status_change events written; recoveries for notified
+  problems are sent as usual). The sensors themselves are kept.
+- Flapping links: the flapping detector (§ 12.4) suppresses per-port link alerts; alert-rule `delay_s` remains
+  the generic tool against short glitches.
+
+### 12.4 Port flapping detection [2b-3]
+Feature `flapping`. Inputs (each normalised to a **transition** `(device_id, if_index, up|down, time)`):
+1. linkDown / linkUp traps with an ifIndex varbind (needs `traps`);
+2. `snmp_interface` sensors: the processor reports a change of the `oper_status` channel value (1 ↔ other)
+   for `config.if_index`;
+3. port inventory: `oper_status` changes of `physical`/`lag` ports between two consecutive successful
+   snapshots (coarse, every `port_inventory_min`).
+A transition in the same direction as the previous one for that port within 60 s is a duplicate (the same
+event seen by two sources) and ignored.
+
+Algorithm (`netmon.ingest.flapping`, pure core `FlapTracker.add(t) -> FlapChange | None` + I/O):
+- per port a deque of transition times (≤ 64; ≤ 10 000 ports tracked, LRU); **flapping starts** when ≥
+  `flap_threshold` (default **5**) transitions fall within `flap_window_min` (default **10**);
+- on start: a condition (source `flap`, key = ifIndex) on the device's `port_flap` event sensor (auto-created
+  like the other event sensors, but independent of `event_alerts`) with status **warning**, message
+  `Port GigabitEthernet1/0/5 is flapping (6 changes in 10 min)`; existing Link-down conditions of that key are
+  removed; the port is added to `rt.flapping.suppressed` (`(device_id, if_index)` and the matching
+  `snmp_interface` sensor ids);
+- while flapping: Link-down rule matches for that port raise nothing (the message is still stored and marked
+  `matched_rule_ids`); the alert engine treats problems of the suppressed interface sensors like maintenance —
+  problem/escalation/reminder sends are skipped and `alert_state.flap_suppressed = true`; the condition's
+  `count`/`last_at` and message are updated;
+- **flapping ends** after `flap_quiet_min` (default **15**) without a transition: the condition is removed
+  (sensor recovers → normal recovery notification), the port leaves `suppressed`, and suppressed alert rows that
+  are still active and not acknowledged are re-armed once, exactly like "leaving maintenance" (problem sent once
+  with `after_flapping: true` in the payload; escalation timer restarted);
+- the deques are in memory (lost on restart; acceptable); conditions are persisted; at startup, flap conditions
+  older than `flap_quiet_min` since `last_at` expire through the normal expiry loop.
+Turning `flapping` OFF clears all flap conditions and the suppression set (re-arm as above).
+**Alerting scope:** transitions are tracked for every port, but the flap condition (and the alert
+suppression) is raised only for ports inside `event_linkdown_scope` (§ 12.3: `important` by default, `all`
+= every port).
+
+### 12.5 SIEM forwarding [2b-3]
+Feature `siem_forwarding`. Settings `siem_targets` (≤ 4 targets: host, port, `udp` | `tcp` | `tls`,
+`tls_verify`, filters: kinds, `min_severity`, source CIDRs, include unknown sources, enabled).
+- What is forwarded: every **accepted** record (after rate limiting, the ignore list and the unknown-source
+  policy; before and independent of the DB write — forwarding works while the DB is down), filtered per target.
+- **Format:** RFC 5424, preserving the origin. Syslog: original PRI, original `device_time` (else receive
+  time) as TIMESTAMP, original `hostname` (else the source IP) as HOSTNAME, original APP-NAME / PROCID / MSGID
+  (`-` when empty), original structured data, then the IANA-registered SD element
+  `[origin ip="<source ip>" software="NetworkMonitor" swVersion="<version>"]`, then the message (UTF-8, no BOM).
+  Traps: PRI facility 16 (local0), severity 5 (notice) or 4 (warning) / 2 (critical) when a rule raised
+  `warning` / `down` for it, APP-NAME `snmptrap`, MSGID = `trap_name` (else `-`), HOSTNAME = device host (else
+  source IP), message = the trap summary, plus `[origin ip=…]`. (Re-sending traps as SNMP is not offered:
+  SIEMs ingest syslog; one format keeps it simple.)
+- **Transport:** UDP (one datagram per record, cut to 8 KiB), TCP and TLS with **octet-counting** framing
+  (RFC 6587 / RFC 5425); TLS uses `tlsutil.client_ssl_context()` (corporate CA trusted), `tls_verify: false`
+  allowed with a UI warning. Reconnect with backoff 1, 2, 5, 10, 30 s.
+- **Never blocks ingestion:** each target has its own task and a bounded queue (10 000 records); a full
+  queue drops the new record (`dropped` counter per target); per-target counters (`sent`, `dropped`, `errors`,
+  `state`, `last_error`) in `GET /api/ingest/status`. `POST /api/ingest/forwarders/test` sends one test line.
+
+### 12.6 LAG membership in the ports view [2b-3]
+Feature `lag` (walks run only while ON; while OFF the view ignores stored LAG data).
+- **Walks** (after #2, ports effective only, cap 5000 rows each): **#13** IEEE8023-LAG-MIB
+  `dot3adAggPortAttachedAggID` `1.2.840.10006.300.43.1.2.1.1.13` (index = member ifIndex, value = aggregator
+  ifIndex, 0 = not attached); **#14** IF-MIB `ifStackStatus` `1.3.6.1.2.1.31.1.2.1.3` (index =
+  `higherLayer.lowerLayer`, value 1 = active).
+- **Pure `resolve_lag(ports, lacp_rows, stack_rows) -> {member_if_index: (lag_if_index, attached)}`** per
+  physical port p: (1) #13 has a row for p with value v ≠ 0 and v is the ifIndex of a `lag` port → `(v,
+  true)`; (2) else an #14 row `(h, p)` with value 1 where h is a `lag` port (several → lowest h) → `(h, false)`
+  when #13 has a row for p (configured but not attached, e.g. link down), `(h, null)` when #13 has no row for
+  p; (3) else not a member. Rows with index 0, non-physical members or non-`lag` aggregators are ignored.
+  `sources.lag` = `ok` (some rows used) / `empty` / `error`; `lag_mib` = `ieee8023` | `if_stack` | `both` |
+  null.
+- **Stored:** `switch_ports.lag_if_index`, `lag_attached`. **Inheritance is computed on read** (pure
+  `netmon.ports.view`), unit vectors in data-model § LAG:
+  - LAG row L: `lag_members` = its members (sorted); neighbours(L) = own links ∪ links of all members;
+    uplink rule on these neighbours and L's own `mac_count`.
+  - Member M of L: `lag = {if_index, name, attached}`; **VLANs** — when M has no bridge port or no VLAN of
+    its own, `pvid/mode/untagged/tagged` are L's (`vlans_from_lag: true`); **MACs** — `mac_count` = own + L's,
+    `macs`/`first_mac` include L's MACs (each `PortMac.via_lag = true`); **uplink** = own rule OR L's
+    (`uplink_reason` own first); **connected_kind/neighbor** = own primary neighbour, else L's.
+  - MAC search: a MAC learned on L is shown with `port` = L's name and `lag_members` = member names; uplink as
+    L.
+- **UI:** list — Port column shows a chip `Trk1` on members; LAG rows show "Members: 23, 24"; modal section
+  "Member of Trk1" (link opens the LAG row's modal; "not active" when `attached = false`). Faceplate — members of
+  one LAG get a 3 px bar under their tiles in a per-LAG colour (fixed palette of 6, by LAG ifIndex order) and
+  the legend lists `Trk1: 23, 24`; the tile `aria-label` adds "member of Trk1".
+
+### 12.7 Active Directory login (LDAP) [2b-3]
+Feature `ldap`. Active Directory (and Samba AD) only; generic LDAP servers are not a goal.
+
+**Configuration** (settings `ldap`, admin UI *Settings → Active Directory*, with **Test connection** and **Test
+user login**; the test endpoints work while the feature is OFF so the admin can verify before enabling):
+servers (failover list; empty → DNS SRV `_ldap._tcp.dc._msdcs.<domain>` via dnspython), security `ldaps`
+(default, 636) or `starttls` (389, StartTLS mandatory — never plaintext), `tls_verify` (default true), domain
+(`mnidom.net`), NetBIOS domain (`MNIDOM`), base DN (default derived from the domain), service account bind DN
+or UPN + password (**AES-GCM encrypted** with the `secret.key`-derived key, write-only in the API), admin group
+DN, viewer group DN, timeout. Shapes: data-model § LDAP settings.
+
+**Login sequence** (`POST /api/auth/login`, unchanged request):
+```
+browser ─► API: {username, password}
+API: IP+username throttle (existing 10/5 min) ─► 429
+API: local user with lower(username), source=local?  ── yes ─► argon2 verify (LDAP never contacted) ─► 200 / 401
+     │ no
+     ├─ feature ldap OFF ─► burn_verify ─► 401 invalid_credentials (audit unknown_user)
+     ├─ parse name: "user" | "DOMAIN\user" (DOMAIN must equal netbios_domain or the domain's first label) | "user@suffix"
+     ├─ empty password ─► 401 (never sent to AD: an empty simple bind is an anonymous bind and "succeeds")
+     ├─ per-username directory guard (5 failures / 15 min, all IPs) ─► 429 (protects AD lockout thresholds)
+     └─ thread (semaphore 4, budget min(3×timeout_s + 2, 30) s):
+          for server in [last good server (10 min memory), others in order]:
+              connect (connect_timeout = receive_timeout = timeout_s), LDAPS or StartTLS, verify cert + hostname
+              bind service account ─ fail ─► next server / "directory_unavailable"
+          search base_dn SUBTREE (&(objectCategory=person)(objectClass=user)(sAMAccountName=<esc>))
+                 [UPN form: (userPrincipalName=<esc>), then sAMAccountName=<local part> when the suffix is the domain]
+                 attrs: sAMAccountName userPrincipalName displayName mail objectGUID userAccountControl
+                        msDS-User-Account-Control-Computed accountExpires distinguishedName; sizeLimit 2
+          0 hits ─► fail unknown_user; 2 hits ─► fail ambiguous_user
+          UAC: ACCOUNTDISABLE 0x2 ─► account_disabled; computed LOCKOUT 0x10 ─► account_locked;
+               computed PASSWORD_EXPIRED 0x800000 ─► password_expired; accountExpires past ─► account_expired
+          bind as user DN with the password (same server) ─ 49 ─► map AD "data XXX" (52e bad_password,
+               775 account_locked, 532 password_expired, 533 account_disabled, 701 account_expired,
+               773 password_must_change, 530/531 not_permitted)
+          groups (service connection): base=<user DN> scope BASE filter
+               (memberOf:1.2.840.113556.1.4.1941:=<admin group DN, escaped>) ─ hit ─► admin
+               else same with the viewer group ─ hit ─► viewer, else ─► fail not_in_group
+     ├─ fail ─► 401 invalid_credentials (+ throttles, audit with the reason)
+     ├─ no server reachable / service bind failed / bind password unreadable ─► 503 directory_unavailable
+     └─ ok ─► upsert app user by objectGUID (else by lower(sAMAccountName) with source=ldap; else create):
+              username = lower(sAMAccountName), role from groups (re-evaluated at every login),
+              display_name, email = mail, ldap_dn; is_active=false in the app ─► 401 inactive
+              ─► 200 {user} + session cookie (auth time in the JWT, § sessions)
+```
+- **Escaping:** every user-supplied value and every DN placed in a filter is escaped per **RFC 4515**
+  (`\` `*` `(` `)` NUL → `\5c` `\2a` `\28` `\29` `\00`; `ldap3.utils.conv.escape_filter_chars`); usernames are
+  1–256 chars without control characters; the search never uses a user value as a DN.
+- **TLS trust:** the same set as `tlsutil` (OS store, certifi, `NETMON_EXTRA_CA_FILE`, `NETMON_EXTRA_CA_DIR`).
+  ldap3's `Tls(ca_certs_data=…)` replaces the default store, so the backend passes a full PEM bundle from the
+  new helper `tlsutil.trust_bundle_pem()` (OS store — Windows `ssl.enum_certificates("ROOT"/"CA")`, else the
+  default verify file/dir — + certifi + extras), `validate=CERT_REQUIRED`, hostname checked: `servers` must use
+  the DC names in their certificates (`dc1.mnidom.net`, not an IP). Production already mounts the corporate CA
+  at `/etc/netmon/certs`.
+- **Never blocks local users:** the local path never touches LDAP; LDAP work runs in threads behind a
+  semaphore with hard socket timeouts, so a dead DC costs only the LDAP attempt itself (≤ budget) and the event
+  loop never waits.
+- **Break-glass:** at least one active **local** admin must always exist (`409 last_admin` now protects the
+  last active local admin); setup creates a local admin; LDAP misconfiguration can never disable local logins.
+- **Local/AD name clash:** a local account with the same name always wins (AD is not tried); the admin renames
+  or deletes the local account to let the AD user in. Creating a local user whose name an LDAP user already has
+  → `409 conflict`.
+- **LDAP-managed users:** password change, role change and email change are refused (`409 ldap_managed`);
+  admins may deactivate (blocks login regardless of AD), change language, delete (re-created on next login).
+- **Sessions:** same JWT cookie; claims gain `src` (`local`|`ldap`) and `at` (auth time). For `ldap` users the
+  sliding renewal never extends past `at + 12 h`: they log in again at least every 12 h, which re-checks AD
+  (disabled account, removed from group). Role changes found at login bump `token_version` (other sessions of
+  that user end).
+- **Audit:** every login attempt (success/failure, source local/ldap, reason, IP) when `audit` is ON (§ 12.8).
+- **Library:** ldap3 with `client_strategy=SYNC`, `auto_referrals=False`, `raise_exceptions=False`, called
+  only via `asyncio.to_thread`.
+
+### 12.8 Audit log [2b-3]
+Feature `audit`. Append-only table `audit_log` (data-model): who (user or API token, IP), what (`action`,
+entity type/id/name), and a redacted `changes` diff. Written by `services.audit.record()` **in the same
+transaction** as the change (no change without its record). Covered actions: create/update/delete of devices,
+groups, sensors, alert rules, notification channels, maintenance windows, event rules, topology links,
+discovery profiles; template apply and discovery import; settings changes (per key; secrets appear only as
+`"***"` changed/unchanged, never values — includes `ldap.bind_password`, SMTP password, communities, v3 keys,
+Teams URLs, bot tokens); user create/update/delete/role change (also LDAP auto-create and role changes found at
+login); API token create/revoke; acknowledge/unacknowledge; manual event clear; feature toggles; logins and
+logouts (local/ldap/token, success/failure with reason). Immutability: a DB trigger rejects every `UPDATE` and
+every `DELETE` except from the retention job (which sets `SET LOCAL netmon.audit_purge = 'on'`). Retention
+`audit_retention_days` (default 365). Admin-only list with filters and a streamed **CSV export** (≤ 100 000 rows,
+UTF-8 with BOM for Excel).
+
+### 12.9 Device timeline [2b-3]
+Feature `timeline`. `GET /api/devices/{id}/timeline` merges, newest first, without a new table:
+
+| Kind | Source (existing index) |
+|---|---|
+| `status` | `events` kind `status_change` (`ix (device_id, time DESC)`) |
+| `notification` | `events` kinds `notification_sent` **(new kind: one row per successful send stage)** and `notification` (failures) |
+| `ack` | `events` kind `acknowledge` |
+| `maintenance` | `events` kind `maintenance` where `device_id` = D, or group scope with D's group/ancestors, or global (new partial index `ix_events_maintenance (time DESC) WHERE kind = 'maintenance'`) |
+| `trap` / `syslog` | `traps` / `syslog_messages` (`(device_id, time DESC)`) — when those features have data |
+| `port` | `events` kind `port_change` **(new kind)**: port inventory oper up/down transitions between consecutive snapshots of physical/lag ports, ≤ 200 per run, written only while `timeline` is ON |
+| `audit` | `audit_log` rows for this device and its sensors (`ix (entity_type, entity_id, time DESC)` + `device_id` column) — only when `audit` is ON |
+
+Algorithm: one query per requested kind with the same `(since, until, cursor)` bound and `LIMIT limit+1`,
+k-way merge in Python by `(time DESC, kind rank, id DESC)`, cursor = that triple (base64). Default range 24 h,
+max 31 days, `limit` ≤ 200. UI: device page tab **Timeline** (kind filter chips, time range, "Load more",
+coloured icons per kind; rows link to the sensor, trap/syslog detail, audit entry).
+
+### 12.10 Microsoft Teams channel [2b-3]
+Always available (no feature toggle, § 12.0). New `notification_type` `teams`, offered next to email,
+webhook and Telegram. Microsoft is retiring Office 365 connectors / "Incoming
+Webhook" URLs (`*.webhook.office.com`); the channel targets the **Teams Workflows** template "Post to a
+channel when a webhook request is received" (Power Automate; URLs on `*.logic.azure.com` or
+`*.environment.api.powerplatform.com`). The URL carries a signature, so it is a **secret** (write-only,
+`url_set`). Legacy `webhook.office.com` URLs are accepted with a UI warning "Microsoft is retiring this
+connector type — create a Workflows webhook".
+- Payload: `{"type":"message","attachments":[{"contentType":"application/vnd.microsoft.card.adaptive",
+  "contentUrl":null,"content":<Adaptive Card 1.4>}]}`; card = title TextBlock (`DOWN: core-sw / Ping`, colour
+  `attention`/`warning`/`good`), FactSet (Status, Device, Sensor, Message, Since, Rule, stage), `Action.OpenUrl`
+  "Open in NetworkMonitor" when `public_base_url` is set; texts in `settings.default_language`; card ≤ 24 KB
+  (message cut). Exact JSON: api.md § Teams.
+- Sending: `httpx` POST, `verify = tlsutil.httpx_verify(True)`, `trust_env=True` (HTTPS proxy from env),
+  timeout 15 s; 2xx (Workflows answers 202) = success; else `notification` event and `502 teams_error` on test.
+
+### 12.11 API tokens [2b-3]
+Always available (no feature toggle, § 12.0): every user reaches *API tokens* from the account menu.
+Personal tokens for scripts/integrations.
+- Token text `nmt_` + 43 chars (`secrets.token_urlsafe(32)`), shown **once** in the create response; stored as
+  SHA-256 hex (high-entropy secret, so a fast hash is correct) + an 8-char display prefix.
+- Role `viewer` | `admin`, never above the creator's role; effective role per request = min(token role, the
+  owner's current role); the owner inactive/deleted, the token revoked or expired → `401 unauthenticated`.
+  Expiry required, 1–365 days (default 90). Any user manages their own tokens; admins list and revoke all.
+- Use: `Authorization: Bearer nmt_…` on `/api/*`. If the header is present the cookie is ignored. Tokens are
+  refused (`403 forbidden`) on `/api/auth/*`, `/api/users*`, `/api/tokens*` (a token cannot mint tokens or
+  change users/passwords), and are not accepted on `/ws` or by the SPA. The CSRF `Origin` check does not apply
+  to bearer requests (no ambient credential). Invalid-token attempts are throttled (20 per 5 min per IP → 429).
+  `last_used_at`/`last_used_ip` are stamped at most once per minute. Create/revoke/use-failure are audited;
+  successful uses are not (volume), but every change made with a token is audited with `actor_type = token`.
+
+### 12.12 Deployment [2b-3]
+**Docker image / compose.** The app stays non-root (uid 10001). The image sets `NETMON_TRAP_PORT=1162`,
+`NETMON_SYSLOG_PORT=1514` and `EXPOSE 1162/udp 1514/udp 1514/tcp`. `deploy/production/compose.yaml`
+un-comments the placeholders: `162:1162/udp`, `514:1514/udp`, `514:1514/tcp` on the `netmon` service
+(the features stay OFF until the owner enables them; nothing listens until then). `deploy/docker-compose.yml`
+publishes the same, host ports overridable by `NETMON_TRAP_HOST_PORT` / `NETMON_SYSLOG_HOST_PORT`.
+
+**Source IP preservation** (verified behaviour of Docker's default bridge networking): published ports are
+implemented with iptables DNAT in `PREROUTING`, which keeps the sender's source address for **external**
+traffic. Caveats to document in `deploy/production/README.md`:
+- Traffic from the Docker host itself (or hairpin) goes through `docker-proxy` (userland proxy) and arrives
+  from the bridge gateway (`172.x.0.1`) — test from another machine.
+- **Docker Desktop (Windows/macOS) does not preserve the source IP** (vpnkit/WSL2 port forwarding): every
+  message appears to come from one internal address; attribution then relies on `agent_addr` /
+  `snmpTrapAddress` / syslog hostname only. The UI shows the NAT warning (§ 12.2.5). Test 2b-3 on the Ubuntu
+  server or with the native Windows installer.
+- UDP conntrack: a sender that kept sending while the container was down can keep a stale conntrack entry
+  (same 5-tuple, syslog uses source port 514). Docker flushes UDP conntrack entries for published ports when it
+  sets up the mapping; if traps still stop after a restart: `conntrack -D -p udp --dport 162` (and 514).
+  `ops/sync.sh` runs this best-effort after a deploy that recreated the `netmon` container (when `conntrack`
+  is installed).
+- **ufw does not filter Docker-published ports** (Docker's FORWARD/DOCKER chains are evaluated before ufw).
+  To restrict senders use the `DOCKER-USER` chain with the original port, e.g.
+  `iptables -I DOCKER-USER -p udp -m conntrack --ctorigdstport 514 ! -s 10.0.0.0/8 -j DROP`
+  (optional script `ops/ingest-firewall.sh`, documented, not applied automatically), and/or the app's ignore
+  list.
+- Check that nothing else listens on the host: `ss -lunpt '( sport = :162 or sport = :514 )'` (snmptrapd,
+  rsyslog `imudp`).
+
+**Native Linux** (`deploy/linux`): listens on 162/514 directly; `netmon.service` gets
+`AmbientCapabilities=CAP_NET_RAW CAP_NET_BIND_SERVICE` and the same in `CapabilityBoundingSet` (no root, no port
+redirect needed). Installer prints the ufw lines: `ufw allow from <LAN> to any port 162 proto udp`, same for
+514/udp and 514/tcp. Conflicts: warns when `snmptrapd`/`rsyslog` listen on those ports.
+
+**Native Windows** (`deploy/windows`): binds 162/514 directly (no privileged ports on Windows). The installer
+adds firewall rules `NetworkMonitor-Traps` (UDP 162), `NetworkMonitor-Syslog-UDP` (UDP 514),
+`NetworkMonitor-Syslog-TCP` (TCP 514) (removed by the uninstaller), and warns when the Windows **SNMP Trap**
+service (`SNMPTRAP`) is running (it holds UDP 162) with the command to stop/disable it (`-DisableWindowsSnmpTrap`
+switch does it).
+
+**Device configuration examples** (README + the Logs page help; syntax varies by firmware — verify on the
+device; replace 10.0.0.50 by the NetworkMonitor server):
+
+| Device | Syslog | Traps |
+|---|---|---|
+| HPE Comware 7 (FF 5945 IRF) | `info-center enable` · `info-center loghost 10.0.0.50 facility local7` · `info-center source default loghost level warning` · `info-center loghost source Vlan-interface<mgmt>` | v2c: `snmp-agent target-host trap address udp-domain 10.0.0.50 params securityname <community> v2c` · `snmp-agent trap enable` · `snmp-agent trap source Vlan-interface<mgmt>`. v3: `snmp-agent usm-user v3 <user> <group> simple authentication-mode sha <pw> privacy-mode aes128 <pw>` + `… params securityname <user> v3 privacy` (the same user/keys as for polling work for traps) |
+| ArubaOS-Switch | `logging 10.0.0.50` · `logging severity warning` · `logging facility local7` | `snmp-server host 10.0.0.50 community <community> trap-level all` · `snmp-server enable traps link-change <ports>` (v3: `snmpv3 notify` / `snmpv3 targetaddress` — see the switch guide) |
+| Check Point Gaia (clish) | `add syslog log-remote-address 10.0.0.50 level warning` · `save config` (Gaia OS messages only — **not** Log Exporter firewall traffic logs, which would flood the receiver) | `add snmp traps receiver 10.0.0.50 version v2 community <community>` · `set snmp traps trap <name> enable` · `save config` |
+
+Source address: the device should send from the address it is monitored on; otherwise add the other address
+in the device form (*Additional source addresses*) or use "Assign to device" on the Unknown sources tab.
+
+### 12.13 Frontend (high level) [2b-3]
+- **Features tab** (§ 12.0) in Settings; `features` from `/api/settings/public` in a context; `features.changed`
+  refetches it. Disabled features: nav entries hidden; settings sections greyed with the explanation.
+- **Traps & Syslog page** (`/logs`, nav "Logs"): tabs *Syslog* | *Traps* | *Unknown sources* | *Rules*. Syslog:
+  filter bar (time range presets 15 min/1 h/24 h/7 d/custom, device/group picker, "unknown sources" toggle,
+  severity "and worse" select, facility multi-select, program, text), histogram (ECharts stacked bars by
+  severity from `/stats`), table (time, device or source IP, severity badge, facility, host, program, message;
+  monospace message, `dir="ltr"`), row click → detail drawer (all fields, structured data, matched rules, "Create
+  rule from this message"). **Live** toggle: subscribes, prepends matching records (client-side filter), pauses
+  while scrolled away from the top ("N new — show"). "Load more" uses `next_cursor`. Traps: same pattern (columns
+  time, device/source, version, trap name, summary; drawer with the varbind table name/OID/type/value).
+  Unknown sources: table with counts/last seen/last hostname, *Assign to device* (device picker), *Ignore*.
+  Rules: ordered list (drag to reorder → `priority`), built-in badge, enable toggle, active-condition count,
+  editor (kind, scope, match builder, action, key, clear match, auto-clear), **Test** (shows matches in the last
+  24 h). Severity colours: 0–2 red-600, 3 orange-500, 4 amber-500, 5–6 sky-600, 7 slate-500.
+- **Device page:** tab *Logs* (same tables pre-filtered by device) when traps/syslog are on; tab *Timeline*
+  (§ 12.9); event sensors show "Active conditions" (from `/conditions`) and an admin *Clear* button instead of
+  a chart; device form gets *Additional source addresses* (IPs).
+- **Ports view:** LAG chips/bars/modal section (§ 12.6).
+- **Settings:** sections *Traps & syslog* (retention, community check, communities, v3 trap users,
+  unknown-source policy, ignored sources, ingest status card with receiver states, counters, v3 failures, NAT
+  warning), *Flapping* (threshold/window/quiet), *SIEM forwarding* (targets table + Test), *Active Directory*
+  (form + Test connection result table per server + Test user login steps), *Audit* (retention).
+- **Login page:** when `features.ldap`, hint "Use your MNIDOM account (MNIDOM\\user or user@mnidom.net)".
+- **Users page:** source badge (Local / AD), display name; LDAP users have no password/role controls.
+  *API tokens* page under the account menu (list, create dialog showing the token once with copy button, revoke);
+  admins see all tokens on the Users page.
+- **Audit page** (`/audit`, admin): filters (time, user, action, entity), table, row expand shows the diff,
+  *Export CSV* (same filters).
+- **Notification channels:** type *Microsoft Teams* (URL field, legacy warning, Test).
+- New i18n keys (en + he): `features.*`, `logs.*`, `syslogSeverity.0-7`, `syslogFacility.0-23`, `traps.*`,
+  `rules.*`, `unknownSources.*`, `ingest.*`, `timeline.*`, `audit.*`, `ldap.*`, `tokens.*`, `flapping.*`,
+  `siem.*`, `channel.teams`, `sensorType.trap|syslog|port_flap`, `channel.active`, `ports.lag.*`, `errors.*` for
+  every new code, `user.source.local|ldap`.
+
+### 12.14 QA simulators and tests [2b-3]
+**Senders** (`tests/sim/ingest/`, Python, no root; the app listens on free ports given by `run.sh` via
+`NETMON_TRAP_PORT` / `NETMON_SYSLOG_PORT`; loopback source addresses 127.0.0.x simulate devices — Linux routes
+all of 127/8 locally, so binding the sending socket to 127.0.0.81 works):
+- `send_trap.py --to 127.0.0.1:<port> --from 127.0.0.81 --version v1|v2c|v3 [--inform] [--community c]
+  [--user u --auth SHA --auth-key k --priv AES128 --priv-key k --engine-id 0x80…] --oid <trapOID>
+  --varbind OID=type:value …` (pysnmp; v1 builds the v1 PDU with agent-addr). Net-snmp `snmptrap` (`apt
+  install snmp`) is an optional cross-check: `snmptrap -v 2c -c public 127.0.0.1:<port> '' 1.3.6.1.6.3.1.1.5.3
+  1.3.6.1.2.1.2.2.1.1.5 i 5`, `snmptrap -v 3 -e 0x8000000001020304 -u netmon -l authPriv -a SHA -A … -x AES -X
+  … 127.0.0.1:<port> '' 1.3.6.1.6.3.1.1.5.4 …`.
+- `send_syslog.py --to 127.0.0.1:<port> --from 127.0.0.81 --udp|--tcp [--framing octet|lf] [--rate N]
+  [--file vectors.txt] [--raw-hex …]`; util-linux `logger` as a cross-check (`logger -n 127.0.0.1 -P <port>
+  -d --rfc3164 "msg"`, `-T --octet-count --rfc5424`; it cannot choose the source address).
+- `siem_sink.py`: UDP/TCP/TLS listener that records forwarded lines (JSON lines file) for assertions.
+
+**Fake Active Directory** (`tests/sim/ldap/fake_ad.py`, chosen because it runs in GitHub Actions and on
+Windows dev machines without Docker; OpenLDAP lacks `1.2.840.113556.1.4.1941`, `sAMAccountName` and
+`userAccountControl`, and ldap3's MOCK strategy tests neither TLS nor timeouts): an asyncio LDAPv3 server using
+ldap3's own ASN.1 definitions (`ldap3.protocol.rfc4511`, pyasn1) to decode requests and encode responses.
+Supports: simple Bind (DN, UPN or `DOMAIN\user`; empty password = anonymous success, like AD), rootDSE,
+Search (base/one/sub; filters and/or/not/equality/present/substrings and **extensibleMatch
+`1.2.840.113556.1.4.1941`** on `memberOf`/`member` with transitive closure; attribute selection incl. `1.1`;
+sizeLimit), StartTLS extended op, LDAPS listener, Unbind/Abandon; AD-style bind errors
+(`80090308: LdapErr: DSID-0C09044E, comment: AcceptSecurityContext error, data 52e, v4563`); modes `--hang`
+(accept, never answer) and per-run fixture `--data mnidom.yaml`. `make_certs.py` (cryptography) creates a test
+CA, a server cert for `localhost`/`127.0.0.1`/`dc1.test` and a wrong-name cert; the backend trusts the CA via
+`NETMON_EXTRA_CA_FILE`. Fixture users (password `Passw0rd!` unless stated): `svc-netmon` (service), `jdoe` ∈
+`NetMon-Viewers` → viewer; `asmith` ∈ `IT-Team` ∈ `NetMon-Admins` (nested) → admin; `nogroup` → denied
+`not_in_group`; `olduser` UAC 514 → `account_disabled`; `lockeduser` computed 0x10, bind `data 775` →
+`account_locked`; `expired` computed 0x800000 → `password_expired`; `jdoe` UPN `John.Doe@mnidom.net`
+(case-insensitive). Backend pytest starts it in-process on free ports; `run.sh` starts it for E2E. An optional
+manual workflow against a Samba AD DC container may be added; it is not required.
+
+**LAG sims** (`tests/sim/ports/`, generator as 2b-2):
+- `127.0.0.86` **ArubaOS LAG**: sysObjectID/sysDescr as .81; ifIndex 1–4 named `1`…`4` (type 6, all up), 11
+  `Trk1` (type 161). dot1dBasePortIfIndex bp 1 → 1, 2 → 2, 11 → 11 (members 3/4 have no bridge port).
+  Q-BRIDGE static: VLAN 1 egress = untagged = {1, 2, 11}; VLAN 10 egress {11}; VLAN 20 egress {11}; pvid 1.
+  FDB (learned): `00:50:56:86:00:01` → bp 1; `02:00:00:00:86:01`, `…:86:02` → bp 11. LAG-MIB
+  `dot3adAggPortAttachedAggID`: .1 = 0, .2 = 0, .3 = 11, .4 = 11. No ifStackTable.
+- `127.0.0.87` **Comware LAG**: sysObjectID as .82; ifIndex 1, 2 `GigabitEthernet1/0/1`/`2`, 49, 50
+  `Ten-GigabitEthernet1/0/49`/`50` (50 oper down), 600 `Bridge-Aggregation1` (type 161). bp 1 → 1, 2 → 2,
+  3 → 600, 4 → 49, 5 → 50. VLAN 1 untagged {1, 2, 3}, VLAN 30 egress {3}; pvid bp 3 = 1. FDB `00:0c:29:87:00:01`
+  → bp 3, fdb 30. **No LAG-MIB**; ifStackStatus rows `600.49` = 1, `600.50` = 1, `0.600` = 1, `49.0` = 1.
+- Manual topology link .87 ifIndex 49 ↔ .86 ifIndex 3.
+
+Expected (`GET …/ports`, `lag` ON): .86 port 3 — `lag {11, "Trk1", attached true}`, `vlans_from_lag true`,
+mode trunk, untagged [1], tagged [10, 20], `mac_count 2`, uplink `neighbor` (.87), connected_kind `switch`,
+`macs []`; port 4 — same LAG/VLANs, uplink `neighbor` via the LAG (reason `neighbor`), neighbor = .87;
+port 1 — not a member, 1 MAC; `Trk1` — `lag_members [3, 4]`, uplink true. `sources.lag ok`, `lag_mib
+ieee8023`. .87 port 49 — `lag {600, "Bridge-Aggregation1", attached null}`, trunk, untagged [1], tagged [30],
+`mac_count 1` (`via_lag true`, vlan 30), uplink `neighbor`; port 50 — member, state down; `lag_mib if_stack`.
+`lag` OFF → no `lag`/`lag_members`, members show their own (empty) VLANs, walks #13/#14 not sent (snmpsim log).
+MAC search `02:00:00:00:86:01` → port `Trk1`, `lag_members ["3","4"]`.
+
+**Backend tests (pytest, required in CI):** every pure parser with the data-model vectors (syslog formats,
+framing, varbind rendering, v1 conversion, OID names, rule matching, keys, clears, important-port rule,
+flapping tracker, LAG resolution and inheritance, LDAP name parsing, RFC 4515 escaping incl. `*)(uid=*`
+injection, UAC/AD error mapping, RFC 5424 forward rendering, Teams card, audit redaction); receivers end to end
+with the senders (v1/v2c/v3 incl. two engine IDs with one user, wrong keys → `v3_auth`, inform answered,
+community check `known`); TCP framing mixed in one connection, 70 KiB frame → closed; flood: 3000 syslog msgs
+from one source in < 1 s → stored ≤ 1250, `rate_limited` ≥ 1750, server responsive (`/api/health` < 200 ms
+during the flood); queue full when the DB is paused (`pg_terminate`/lock) → `queue_full`/`db_error`, recovery
+afterwards; feature toggles (each OFF → sockets closed (connect refused / no listener), `409 feature_disabled`,
+data kept; ON again without restart); migration `0006` up/down on Timescale and fallback DBs with rows present;
+audit trigger rejects UPDATE/DELETE; LDAP against the fake AD (all fixture users, three name forms, LDAPS and
+StartTLS, wrong-name cert → `directory_unavailable`, failover first server closed port, `--hang` server →
+LDAP user 503 within budget while a local admin login completes in < 1 s, empty password never reaches the
+server (fake records binds), directory guard 429 after 5 failures, bind password stored encrypted (raw settings
+row has no plaintext), `ldap_managed` refusals, session not renewed past 12 h with the test clock); API tokens
+(once-only display, hash stored, role cap, revoked/expired 401, refused on `/api/tokens` and `/api/users`, always
+available); Teams against an httpx mock (payload shape, 202 success, 400 → `teams_error`); SIEM forwarding to
+`siem_sink.py` (UDP/TCP/TLS, original hostname/timestamp kept, filter, sink down → `dropped` grows while
+ingestion continues).
+
+**E2E specs** (Playwright, `tests/e2e/specs/`, one worker, after 37):
+- `38-features.spec.ts` — fresh install: all 9 toggles OFF (Teams and API tokens are not toggles), nav hidden, endpoints 409; turn each ON/OFF
+  without restart (traps: sender gets through only while ON).
+- `39-syslog.spec.ts` — vectors over UDP/TCP from 127.0.0.81 (device from the ports lab) → global and device
+  views, every filter, histogram, detail drawer, live tail receives without reload, `next_cursor` paging.
+- `40-traps.spec.ts` — v1/v2c/v3 (device creds; settings trap user; unknown user → v3 failure card), varbind
+  names, agent-addr attribution, inform.
+- `41-event-alerts.spec.ts` — enable feature + built-ins; linkDown on an important port (port with interface
+  sensor) → `trap` sensor warning → webhook DOWN; linkDown on an unimportant port → nothing; linkUp → recovery;
+  syslog `<187>` (err) → `syslog` sensor warning, auto-clear after 30 min via the test clock; ack; maintenance
+  suppression; custom rule with key regex; ignore rule; rule Test preview; disable built-in clears conditions;
+  delete event sensor → not re-created.
+- `42-unknown-sources.spec.ts` — 127.0.0.99 → unknown list → assign → re-attributed + next messages; ignore →
+  dropped counter; policy `drop`.
+- `43-flapping.spec.ts` — 6 linkDown/linkUp pairs in 2 min → one `port_flap` warning, no per-link alerts,
+  webhook gets one message; quiet period (test clock) → recovery.
+- `44-lag.spec.ts` — .86/.87 faceplate bars + legend, list chips, modal "Member of Trk1", toggle OFF hides.
+- `45-ad-login.spec.ts` — configure AD (fake), Test connection table, Test user steps, login `jdoe`,
+  `MNIDOM\jdoe`, `John.Doe@mnidom.net` → viewer; `asmith` → admin; denied users show the generic error; local
+  admin works with the fake AD stopped and with `--hang`; LDAP user profile has no password change.
+- `46-audit.spec.ts` — actions produce entries (device create/update/delete, settings with secret redacted,
+  ack, login failure), filters, CSV download content.
+- `47-timeline.spec.ts` — device with status changes, a trap, a syslog line, an ack and a maintenance window →
+  merged order, kind filters, Load more.
+- `48-teams-tokens-siem.spec.ts` — Teams channel against the mock (`tests/sim/teams_mock.py`), Test button;
+  token create (shown once), curl-style request with Bearer, revoke; SIEM target to `siem_sink.py`, Test.
+- `49-viewer-2b3.spec.ts` — viewer: reads logs/timeline, no rules edit/assign/ignore/clear, no audit, own tokens
+  only with role viewer.
+- `50-rtl-mobile-2b3.spec.ts` — Hebrew/RTL and 390 px width for the new pages (logs stay `dir="ltr"` inside
+  message cells).
+
+### 12.15 Security and failure modes [2b-3]
+| Risk / failure | Handling |
+|---|---|
+| Spoofed UDP traps/syslog | Accepted data is informational; alerts only via explicit rules on known devices; optional community check, ignore list, firewall (`DOCKER-USER`). |
+| Floods / huge messages | Token buckets, bounded queues, size caps, counters (§ 12.2.2); the event loop never blocks. |
+| Malformed packets | Decoders never raise past the receiver (`parse_error`); pyasn1 decode errors caught per datagram. |
+| NUL / invalid UTF-8 / control chars | Replaced (U+FFFD); React escapes on render; messages never rendered as HTML. |
+| SQL injection via search | Parameters only; ILIKE patterns escape `\ % _`. |
+| ReDoS in admin regexes | Admin-only input, ≤ 200 chars, compiled at save (422 on error), applied to ≤ 8 KiB text. |
+| LDAP injection | RFC 4515 escaping of every value and DN in filters; fixed attribute lists; no user value as base DN. |
+| Anonymous bind via empty password | Rejected before contacting AD. |
+| AD lockout through brute force | Per-username directory guard (5/15 min) + existing IP throttle. |
+| Dead / slow DC | Timeouts, failover with last-good memory, thread semaphore; local logins unaffected; 503 `directory_unavailable`. |
+| Wrong DC certificate | Login fails closed (no plaintext fallback); Test connection shows the TLS error. |
+| Bind password at rest | AES-256-GCM with a key derived from `secret.key`; never returned; lost `secret.key` → "re-enter the bind password" (settings flag + system event). |
+| Token theft | Hashed at rest, shown once, expiry mandatory, revocable, role-capped, no access to auth/users/tokens endpoints. |
+| Audit tampering | Append-only trigger; only the retention job may delete old rows. |
+| Teams URL leak | Secret field (write-only), redacted in audit and logs. |
+| SIEM target down | Per-target bounded queue, drops counted, ingestion unaffected. |
+| Port in use / no privilege | Receiver state `error`, system event, retry; server keeps running. |
+| DB down | Ingest queues fill then drop (`db_error`/`queue_full`); forwarding continues. |
+
+### 12.16 Owner notes and verification [2b-3]
+- Everything new is OFF after the upgrade. Turn on in *Settings → Features*: Traps, Syslog, then Event alerts
+  (accept the built-in rules), then the rest as needed.
+- Point devices to the server (§ 12.12 table) from the address they are monitored on. Test from the Ubuntu
+  server or a native Windows install — **not Docker Desktop** (sender addresses are lost there).
+- AD: create a read-only service account (e.g. `svc-netmon`, password never expires, no special rights) and two
+  groups (e.g. `NetMon-Admins`, `NetMon-Viewers`; nested groups work; do **not** use *Domain Users* — the primary
+  group is not visible to the nested-membership query). Check LDAPS on a DC: `openssl s_client -connect
+  dc1.mnidom.net:636 -showcerts` (certificate from Mnidom-PKI-SERV-CA). Keep the local admin account as
+  break-glass.
+- Please verify and report: Comware/ArubaOS syslog lines appear with correct program/severity (send 3 sample
+  lines from *Logs*: copy as text); linkDown/linkUp traps carry ifIndex; a v3 trap from the FF 5945 arrives
+  (else the *v3 failures* card text); `Trk*` / `Bridge-Aggregation*` members show "member of"
+  (`lag_mib` on the ports status line tells which MIB answered); AD login with your account and a viewer test
+  account; one Teams test message in the ops channel.
+
+**Open questions** (work starts on the recommended defaults):
+
+| # | Question | Default |
+|---|---|---|
+| Q1 | Link-down alerts for all ports or only important ports (uplinks, LAGs, ports with an interface sensor)? | Important ports only |
+| Q2 | Where will you test 2b-3 (Docker Desktop loses sender IPs)? | Native Windows installer on the office PC, then production |
+| Q3 | Check Point: Gaia OS syslog only, or also firewall traffic logs (Log Exporter; very high volume)? | Gaia OS syslog only |
+| Q4 | AD users must log in again every 12 h (re-checks group/disabled state) — acceptable? | Yes, 12 h |
+| Q5 | Retention: traps 30 days (like syslog), audit 365 days? | 30 / 365 |
+| Q6 | AD details: DC names, LDAPS (636) enabled on the DCs?, names of the admin/viewer groups | LDAPS; groups `NetMon-Admins` / `NetMon-Viewers` |
+| Q7 | SIEM: which product/host/protocol (UDP/TCP/TLS)? | Configurable; none until you add a target |
+
+## 13. Phase 3: config backup, flows, new-device alerts, SSO, reports, NOC mode, chat acknowledge
+
+Contract details: [data-model.md § Phase 3](data-model.md#3-phase-3-additions) (tables, settings, driver
+files, decoders, migration `0007`) and [api.md § Phase 3](api.md#3-phase-3-contract) (types, endpoints,
+errors, WS). Backend, frontend, QA and devops implement in parallel against those files and this section.
+Sections are marked **[3]**. Everything is additive to 2b-3. The product stays **read-only towards devices**:
+config backup logs in over SSH and runs only *show/display/export* commands (plus session-only paging
+commands); it never changes a configuration and there is **no restore**.
+
+### 13.0 Feature toggles (owner rule, applies to every phase-3 feature) [3]
+The § 12.0 mechanism applies unchanged to every phase-3 feature: `settings` key `feature_<name>_enabled`
+(default `false`, also after an upgrade), runtime start/stop through `rt.features.apply()` (≤ 5 s, no restart),
+`409 feature_disabled` on the feature's endpoints while OFF, the nav entry hidden and the settings section shown
+disabled with an explanation, data kept and **retention still running** while OFF, `features.changed` on WS,
+audited `feature.enable|disable`. **No exceptions** — also the pieces that look like "settings only" (SSO
+login buttons, the kiosk URL, the chat buttons) are inert while their toggle is OFF.
+
+| Feature name | What it gates | Needs (dependency hint on the Features page; the toggle can be ON without it, the feature then idles) |
+|---|---|---|
+| `config_backup` | SSH config collection (schedule, manual, syslog trigger), versions/diff/search/export, `config_backup` event sensors | SSH credentials on devices/groups; the syslog trigger needs `syslog` |
+| `flows` | NetFlow v5/v9, IPFIX, sFlow v5 receivers, aggregation, flow views | exporters configured on devices |
+| `new_device_alerts` | detection of never-seen MACs on access ports, `new_mac` event sensors, allow-list | 2b-2 port inventory (FDB) on the switches |
+| `sso_kerberos` | Windows integrated login (SPNEGO/Kerberos) | `ldap` ON and configured (roles come from the AD groups), an uploaded keytab |
+| `sso_oidc` | "Sign in with Microsoft" (Entra ID, OIDC code flow + PKCE) | Entra app registration, outbound HTTPS via the proxy |
+| `reports` | report definitions, scheduler, sends, report pages | SMTP and/or Teams/Telegram channels for scheduled sends |
+| `noc` | kiosk screens (`/noc`), kiosk API and WS | — |
+| `chat_ack` | "Acknowledge" button in Telegram (callback) and Teams/email (link to the ack page), Telegram account linking, the Telegram update poller | `public_base_url` for the Teams/email link; a Telegram channel with `ack_buttons` |
+
+Phase-3 OFF behaviour, exactly: data-model § [3] Feature toggles. The Features page groups the 17 features
+(9 of 2b-3 + 8 of phase 3; Teams and API tokens are always available, not toggles) under headings
+*Monitoring*, *Logs & events*, *Network*, *Access*, *Notifications*.
+
+### 13.1 Components [3]
+| Component | Module | Responsibility |
+|---|---|---|
+| SSH credentials | `netmon.configbackup.credentials` | `SshCredentials` jsonb on groups/devices (inheritance like SNMP credentials); secret fields AES-GCM encrypted with `netmon.services.crypto` (AAD per field). |
+| Driver library | `netmon.configbackup.drivers` (+ data files `configbackup/drivers/*.yaml`) | Load/validate driver YAML (pure `validate_driver`), match a device to a driver (pure `match_driver`). |
+| SSH session engine | `netmon.configbackup.session` | asyncssh connect (host-key policy § 13.2.3), shell or exec mode, prompt detection, paging commands, command run with timeouts, ANSI/backspace cleanup; returns raw text per command. |
+| Normalizer | `netmon.configbackup.normalize` | **Pure**: `normalize(raw, driver) -> NormalizedConfig` (strip echo/prompt, `ignore_lines`, mask secrets, line endings, trailing spaces), `sha256`, `diff(a, b)` (difflib), stats. Exhaustively unit-tested with the driver vectors. |
+| Backup runner | `netmon.configbackup.runner` | Schedule (daily, staggered), manual and syslog-triggered queue, global semaphore, per-device lock, store version on change, `config_backup_status`, event sensors/conditions, retention. |
+| Flow receivers | `netmon.flows.receiver` | UDP endpoints for NetFlow (v5/v9 and IPFIX auto-detected by the version field) and sFlow; rate limits; raw queue. |
+| Flow decoders | `netmon.flows.decode_netflow`, `decode_ipfix`, `decode_sflow`, `netmon.flows.templates` | **Pure**: datagram → `FlowRecord[]` with a per-exporter template cache object; sampling extraction; never raise past the caller. |
+| Flow aggregator | `netmon.flows.aggregate` | **Pure core** `MinuteAggregator.add(records)` / `flush(minute)` → rows for the four 1-minute tables (top-N + "other"); runs in the flow worker thread. |
+| Flow worker | `netmon.flows.worker` | One dedicated thread: drains the raw queue in batches, decodes, corrects sampling, aggregates, hands flushed rows to the loop (`call_soon_threadsafe`) → bounded write queue → batch writer. |
+| Services map | `netmon.flows.services` (+ `data/services.tsv`) | **Pure** `(protocol, src_port, dst_port) -> (service_port, app_name)`. |
+| Flow queries | `netmon.flows.query` | Top talkers / applications / conversations / interface series; picks 1-minute or 1-hour objects by range. |
+| New-device detector | `netmon.newdev.detector` (pure core `classify_sightings`) | Called by the port-inventory runner after a successful FDB write; access-port rule, learning period, allow-list, known-MAC register, events/conditions. |
+| Kerberos SSO | `netmon.auth.kerberos` (gssapi in threads), `netmon.auth.kerberos_pure` | SPNEGO accept, NTLM refusal, keytab parsing, principal → AD account (through `netmon.auth.ldap`), keytab materialisation. |
+| OIDC SSO | `netmon.auth.oidc` | Discovery/JWKS cache, authorize redirect, callback, id_token validation (PyJWT, already a dependency), user upsert. |
+| Reports | `netmon.reports.compute` (pure interval/availability maths), `netmon.reports.render` (HTML email + data JSON), `netmon.reports.scheduler`, `netmon.reports.send` | § 13.6. |
+| Kiosk | `netmon.kiosk` | Screen tokens, IP/CIDR guard, curated view builder, kiosk WS hub. |
+| Chat ack | `netmon.chatack.tokens` (pure HMAC tokens), `netmon.chatack.telegram_poller`, `netmon.chatack.linking`, `netmon.chatack.service` | § 13.8. |
+
+Repository additions: `backend/netmon/configbackup/` (incl. `drivers/*.yaml`), `backend/netmon/flows/`,
+`backend/netmon/newdev/`, `backend/netmon/reports/`, `backend/netmon/kiosk/`, `backend/netmon/chatack/`,
+`backend/netmon/auth/{kerberos,kerberos_pure,oidc}.py`, `backend/netmon/data/services.tsv`, routers
+`api/configbackup.py`, `api/flows.py`, `api/newdev.py`, `api/sso.py`, `api/reports.py`, `api/kiosk.py`,
+`api/chatack.py`; frontend pages `ConfigBackupsPage`, `FlowsPage`, `NewDevicesPage`, `ReportsPage`,
+`ReportPrintPage`, `KioskPage` (route `/noc`), `AckPage` (route `/ack`); `tests/sim/ssh/`, `tests/sim/flows/`,
+`tests/sim/kdc/`, `tests/sim/oidc/`, `tests/sim/telegram_mock.py` (extended).
+
+**New dependencies (licence check: all free for any use, used unmodified as libraries):**
+
+| Package | Licence | Why / notes |
+|---|---|---|
+| `asyncssh>=2.17` | **EPL-2.0 OR GPL-2.0-or-later** (dual; used under EPL-2.0, a weak copyleft that applies only to modifications of asyncssh itself) | Native asyncio SSH client (no threads), host-key callback for TOFU, exec and PTY shell, legacy algorithms selectable per connection. Needs `cryptography` (already present). Rejected: Netmiko (MIT, but synchronous over Paramiko/LGPL with hard-coded device classes), Scrapli (MIT, a framework on top of asyncssh we would not use). |
+| `gssapi>=1.8` (python-gssapi) | **ISC** | Kerberos/SPNEGO acceptor over MIT krb5 (`libgssapi-krb5-2`, MIT licence, Debian package). Optional extra `netmon[kerberos]`; the Docker image installs it (builder stage: `libkrb5-dev gcc` when no wheel exists for the platform). `pyspnego` (MIT) was evaluated and is **not needed**: MIT krb5 accepts SPNEGO tokens directly; NTLM refusal is a small pure check. |
+| (none for OIDC) | — | PyJWT (MIT, present) + `cryptography` verify RS256; httpx talks to Entra through the proxy. `authlib` not needed. |
+| (none for flows, reports, kiosk, chat ack) | — | Decoders are pure `struct` code; reports are HTML (no PDF engine, § 13.6.4). |
+
+**Startup order** (inside `FeatureManager.start()`, after the 2b-3 components, per enabled feature): flow
+writer → flow worker thread → flow receivers → config-backup runner (scheduler + trigger queue) → report
+scheduler → Telegram update poller → kiosk hub; the Kerberos keytab is materialised when `sso_kerberos` starts;
+OIDC discovery is fetched lazily on first use. **Shutdown:** flow receivers stop first, the worker flushes the
+current minute (≤ 3 s), running SSH sessions are cancelled (attempt result `cancelled`), the Telegram long
+poll is cancelled, then the 2b-3 order.
+
+### 13.2 Network device config backup (Oxidized-like) [3]
+Feature `config_backup`.
+
+#### 13.2.1 Scope and decisions
+- **SSH only.** Telnet is **not supported** (credentials in clear text on the wire; every device in the
+  owner's estate speaks SSH). A device without SSH fails with `connect_refused` and the UI says so.
+- **Read-only:** a driver may contain only backup commands (show/display/export) and `session_setup` commands
+  that change the **session** only (`screen-length disable`, `no page`, `terminal length 0`, `terminal width
+  0`, `set clienv rows 0`). Driver validation (pure `validate_driver`, unit-tested) rejects any command whose
+  first word is `save`, `write`, `commit`, `configure`, `config`, `conf`, `copy`, `delete`, `erase`, `reload`,
+  `reboot`, `reset`, `system-view`, `undo`, `set` (except the allow-listed `set clienv rows 0`), `add`,
+  `remove`, `/system`, and anything containing `;`, `|`, `&&` or a newline. Users cannot write commands in
+  phase 3 (driver files only; a driver editor is "Later").
+- **No restore**, no push, no "golden config" remediation.
+
+#### 13.2.2 Drivers (data-driven, like the 2b-2 template library)
+One YAML file per driver under `backend/netmon/configbackup/drivers/` (format, keys and the 7 shipped drivers:
+data-model § [3] Config backup drivers). A driver declares: match (template ids, sysObjectID prefixes),
+connection mode (`shell` = PTY interactive, or `exec` = one SSH exec channel per command), prompt regex,
+optional `enable` step, pre-prompt handling (`Press any key to continue`), session setup commands, the backup
+commands (optionally with an exec `fallback`), error patterns, `ignore_lines` (volatile lines such as
+timestamps), `secrets` (regexes whose group 1 is replaced by `<secret removed>`), legacy algorithm needs,
+timeouts, `confidence` (`verified` only after a test on real equipment).
+
+| Driver id | Devices | Mode | Command(s) | Confidence |
+|---|---|---|---|---|
+| `hpe_comware` | HPE Comware 7 (FF 5945 IRF, 5130, …) | shell | `screen-length disable` → `display current-configuration` | unverified → owner verifies |
+| `hpe_arubaos_switch` | ArubaOS-Switch (2930F, 5400R, …) | shell (any-key banner, ANSI cleanup) | `no page` → `show running-config` | unverified → owner verifies |
+| `aruba_cx` | AOS-CX | shell | `no page` → `show running-config` | unverified |
+| `checkpoint_gaia` | Check Point Gaia (clish or bash login shell) | exec | `show configuration` (fallback when the login shell is bash: `clish -c "show configuration"`) | unverified → owner verifies |
+| `cisco_ios` | IOS / IOS-XE | shell (enable) | `terminal length 0`, `terminal width 0` → `show running-config` | unverified |
+| `fortigate` | FortiOS (no VDOM support in phase 3) | exec | `show full-configuration` | unverified |
+| `mikrotik_routeros` | RouterOS 6/7 | exec | `/export` | unverified |
+
+**Driver resolution** for a device: `devices.config_backup_driver` when set (admin override), else the first
+driver (file order by `priority`) whose `match.templates` contains one of the device's applied template ids,
+else whose `match.sys_object_id` prefixes match `identity.sys_object_id` (pure `match_driver`, vectors in
+data-model). No driver → state `no_driver` (shown, not an error).
+
+#### 13.2.3 SSH session engine and host-key policy
+- asyncssh `connect(host, port, username, password | client_keys, known_hosts=([], [], []),
+  connect_timeout=15, login_timeout=30, keepalive_interval=15, agent_path=None, config=None,
+  client_host_keysign=False)` with our own host-key check (below) via a `SSHClient.validate_host_public_key`
+  override; no `~/.ssh` lookups. `known_hosts=([], [], [])` is an **empty** trust list (trusted host keys, CA
+  keys, revoked keys), which makes asyncssh pass every presented key to the callback; `known_hosts=None` would
+  instead **disable** host-key validation entirely (the callback would never run, TOFU/pinning would be void). Algorithms:
+  asyncssh defaults; when the driver or the device's `ssh_credentials.legacy_algorithms` says so, also
+  `diffie-hellman-group14-sha1`, `diffie-hellman-group1-sha1`, `ssh-rsa` host keys and `aes128-cbc`/`3des-cbc`
+  (old ArubaOS-Switch firmware).
+- **Shell mode:** PTY `vt100`, 511 columns × 1000 rows (avoids wrapping/paging on most devices before the paging
+  command runs); read until the driver `prompt` regex matches at the end of the buffer (after ANSI escape and
+  `\x08` cleanup); answer `pre_prompt` patterns (e.g. send `\n` to "Press any key"); run `enable` when the
+  prompt matches `enable.when` (password from `enable_password`, else none); send each setup command and wait
+  for the prompt (error patterns → fail `command_error`); send each backup command and collect output until the
+  prompt; send `exit`, close. **Exec mode:** one `conn.run(cmd, timeout)` per command, stdout collected;
+  non-zero exit status or an error pattern → the command's `fallback` if any, else fail.
+- **Timeouts:** per device total `config_backup_timeout_s` (default 120, 30–600); per prompt wait 30 s; output
+  cap **8 MiB** per command (larger → fail `too_large`, nothing stored).
+- **Host keys — TOFU with pinning** (table `ssh_host_keys`): the first successful connection pins the key
+  (algorithm + SHA-256 fingerprint + public key). Later connections must present the pinned key; the check
+  happens during key exchange, **before authentication**, so no credentials reach an impostor. A different key
+  → the attempt fails `host_key_changed`, nothing is sent, the device's `config_backup` sensor goes **down**
+  (condition `host_key`, never auto-cleared), a `system` event with both fingerprints is written, and further
+  attempts are skipped until an admin **accepts** the presented key (the UI shows old/new fingerprints;
+  audited) or **resets** the pin (next connection pins again). IRF stacks / HA pairs that share the key are
+  unaffected; a failover to a member with another key needs one accept (documented).
+- Credentials are decrypted only inside the session task and never logged; the `asyncssh` logger is set to
+  WARNING and its messages pass through the existing secret scrubber.
+
+#### 13.2.4 Scheduling, triggers, concurrency
+- **Eligible device:** enabled, `config_backup` ≠ `off`, effective SSH credentials exist, a driver resolves,
+  host key not in `changed` state. `config_backup = auto` (default) means "eligible when the rest holds": turning
+  the feature on and adding SSH credentials to a group is enough (zero per-device configuration).
+- **Daily schedule:** at `config_backup_time` (default `02:47`, `settings.timezone`) the runner queues every
+  eligible device, **staggered** evenly over `config_backup_window_min` (default 60) in device-id order. A missed
+  run (process down at that time) runs once at startup when the last scheduled run is older than 24 h.
+- **Manual:** "Back up now" per device and "Back up all" (admin), queued ahead of scheduled work.
+- **Syslog/trap trigger** (needs `syslog` or `traps` ON): event rules with the new action **`config_backup`**
+  (data-model § [3] Event rule action `config_backup`) are evaluated by the 2b-3 pipeline for attributed records
+  whenever `config_backup` is ON — **independently of `event_alerts`** — and never take part in the first-match
+  search of warning/down/ignore rules. A hit queues the device with a **debounce**: the backup starts 120 s after
+  the *last* trigger (a burst of CLI changes gives one backup); at most one triggered backup per device per 10
+  minutes (a trigger inside that window schedules exactly one more run at its end). The debounced due time is
+  stored in `config_backup_status.next_due_at` (shown by the API) and replaced by the next remaining due time
+  (or NULL) when the run is recorded. Built-in trigger rules,
+  seeded **disabled**: HPE Comware `CFGMAN` configuration changed, ArubaOS-Switch running/startup config
+  changed, Cisco IOS `%SYS-5-CONFIG_I` (data-model § [3] Built-in config-change rules). The backup's own login
+  runs session-only commands, so it does not re-trigger itself (QA asserts it with the SSH sim command log).
+- **Concurrency:** global semaphore `config_backup_concurrency` (default 4, 1–16); one session per device at a
+  time (a trigger for a running device sets "run again after"); network I/O is asyncio; normalising and diffing
+  a large config runs in `asyncio.to_thread`.
+- **Attempts:** each attempt updates `config_backup_status` (result `ok` | `unchanged` | `failed` |
+  `cancelled`, error code + message, duration, trigger). Error codes: `connect_timeout`, `connect_refused`,
+  `auth_failed`, `host_key_changed`, `prompt_timeout`, `command_error`, `too_large`, `no_driver`,
+  `no_credentials`, `cancelled`, `internal`. A **scheduled** attempt that failed with `connect_timeout`,
+  `connect_refused` or `prompt_timeout` is retried once after 15 min.
+
+#### 13.2.5 Versions, diff, masking, retention, search, export
+- **Normalisation** (pure, before hashing): CRLF/CR → LF; strip ANSI escapes and backspace overstrikes; remove
+  the command echo (first line equal to the command) and the trailing prompt line; drop lines matching the
+  driver's `ignore_lines` (e.g. Cisco `! Last configuration change at …`, MikroTik `# 2026-11-08 02:47:03 by
+  RouterOS 7.16`); strip trailing whitespace; collapse more than 2 trailing blank lines; one final newline; when
+  `config_backup_mask_secrets` (default **true**) replace the group-1 captures of the driver's `secrets` with
+  `<secret removed>`. Consequence (shown in the UI): a change of only a masked secret is not detected. With
+  more than one backup command the outputs are joined with a header line `# ==== <command> ====`.
+- **Store on change only:** `sha256(normalized)` equal to the latest version's → no new row, `last_unchanged_at`
+  updated (result `unchanged`). Otherwise a new `config_versions` row (text content — PostgreSQL TOAST
+  compresses it; `is_latest` moved in the same transaction; `lines`, `added`, `removed` vs the previous
+  version). The first version of a device is `initial` — never an alert or a `config_change` event.
+- **Diff on read:** unified diff (pure `difflib.unified_diff`, 3 context lines, in a thread, capped at 20 000
+  diff lines with `truncated: true`).
+- **Retention:** keep at most `config_backup_max_versions` per device (default **100**, 2–1000) and drop
+  versions older than `config_backup_retention_days` (default **365**, 7–3650) — but **always keep the latest
+  version and the newest `config_backup_min_versions` (default 10)**, whatever their age. Runs in the hourly
+  retention loop (also while the feature is OFF).
+- **Search:** `pg_trgm` GIN index on `content` of **latest versions only** (partial index `WHERE is_latest`,
+  created by the 2b-3 trigram bootstrap); `GET /api/config-backups/search?q=` returns devices with matching lines
+  (≤ 20 lines per device with line numbers, ≤ 200 devices; `regex=true` uses PostgreSQL `~*` with a 200-char
+  pattern compiled first in Python to reject invalid ones). Matching is **per line**: the stored config is one
+  text value, so the pattern is sent as `(?n)<pattern>` (newline-sensitive ARE: `^`/`$` match at line breaks,
+  `.` and `[^…]` do not cross them; a leading `(?flags)` of the pattern is merged into it, e.g. `(?ni)`); the
+  trigram index is still used. Lines are then matched in Python one by one; a device whose text matched only
+  across lines (explicit `\n`) has no matching line and is not listed. `all_versions=true` scans every version in a `since`
+  range (sequential; ≤ 31 days).
+- **Export:** one version as a `text/plain` attachment (`<device>_<yyyymmdd-hhmm>.cfg`); "Download all latest"
+  as a streamed ZIP (built in a thread, ≤ 2000 devices). Masked secrets stay masked; unmasked storage exists only
+  when the admin turned masking off (UI warning "Secrets will be stored in the database and in exports").
+- **Access:** viewers see backup status and version **metadata** only; content, diff, search and export are
+  **admin-only** (configurations are sensitive even with secrets masked). Every content read/export is audited
+  (`config.view`, `config.export`).
+
+#### 13.2.6 Events and alerts
+- New event kind `config_change` (device set; message `Configuration changed (+12 −3 lines), version 37`),
+  written for every stored non-initial version; shown in the timeline (kind `config`) and reports.
+- New passive event sensor type **`config_backup`** ("Configuration backup"), auto-created for eligible
+  devices while the feature is ON (opt-out as in 2b-3: deleting it adds `config_backup` to
+  `event_sensor_optout`). Conditions (2b-3 `event_conditions`, new sources):
+  - `backup_failed` (warning) after `config_backup_fail_threshold` consecutive failed attempts (default 2),
+    removed by the next success;
+  - `host_key` (down) on a host-key change, removed by accept/reset;
+  - `config_changed` (warning) on a stored change **only when `config_change_alert` is true** (default
+    **false**: event only), expires after `config_change_clear_min` (default 60).
+  Alerts then flow through the normal alert rules (delays, escalation, ack, maintenance, reports).
+- Turning the feature OFF stops the scheduler and trigger queue, cancels running sessions, removes all
+  `config_backup` conditions (sensors `up`, message "Configuration backup is turned off"); versions are kept.
+
+### 13.3 NetFlow / IPFIX / sFlow collector [3]
+Feature `flows`.
+
+#### 13.3.1 Receivers and ports
+| Env | Default (native and image) | Protocols accepted on it |
+|---|---|---|
+| `NETMON_NETFLOW_PORT` | 2055 | NetFlow v5, v9 **and** IPFIX (detected by the 16-bit version field: 5, 9, 10) |
+| `NETMON_IPFIX_PORT` | 4739 | the same detection (IPFIX's IANA port) |
+| `NETMON_SFLOW_PORT` | 6343 | sFlow v5 (32-bit version 5 + agent address type 1/2) |
+| `NETMON_FLOW_HOST` | `0.0.0.0` | bind address of the three sockets |
+
+All ports are > 1024, so the container publishes them 1:1 without remapping. `0` disables a socket. Sockets are
+open only while `flows` is ON; bind errors behave like § 12.2.1 (state `error`, `system` event, retry every
+60 s). `SO_RCVBUF` 8 MiB best effort. IPFIX over TCP/SCTP is not supported (UDP only).
+
+#### 13.3.2 Pipeline and limits
+```
+ UDP 2055/4739 ─► NetflowReceiver ─┐ per-exporter token bucket ─► raw queue (bounded, datagrams)
+ UDP 6343 ──────► SflowReceiver ───┘                                  │
+                          flow worker thread (1): decode ─► sampling correction ─► MinuteAggregator
+                                                                              │ minute close (+5 s grace)
+                          event loop: write queue (bounded) ◄── call_soon_threadsafe(rows)
+                                          │
+                          batch writer (INSERT … SELECT FROM unnest(…)) ─► flow_*_1m tables
+```
+- **Why a thread:** decoding is CPU-bound pure Python and must not run on the event loop. One worker thread
+  processes bounded batches (≤ 500 datagrams), and the global budget caps total CPU. A separate process is
+  "Later", only if measurements demand it.
+- **Budget (constants and settings in `netmon.flows.limits`):**
+
+| Limit | Value |
+|---|---|
+| Records per second, global (after decoding, before sampling correction) | `flow_max_records_per_s`, default **10 000**, max **50 000** (token bucket, burst 2×); excess → `over_budget` |
+| Datagrams per second per exporter | 2 000 (burst 4 000) → `rate_limited` |
+| Raw queue | 20 000 datagrams → `queue_full` |
+| Datagram size | ≤ 65 535 B; malformed → `parse_error` (per datagram, never raises) |
+| Exporters tracked | 256 → `exporter_limit` |
+| Templates cached | 64 per (exporter, observation domain), 4 096 total; idle expiry 30 min |
+| Distinct aggregation keys per minute (all tables) | 300 000 → new keys merge into the "other" rows (`aggregation_overflow`) |
+| Write queue | 50 flushes (one flush = one minute of one exporter) → `queue_full` |
+
+  Counters (as § 12.2.2): `received_datagrams`, `records`, `stored_rows`, dropped `rate_limited`, `queue_full`,
+  `parse_error`, `no_template`, `unknown_exporter`, `ignored_exporter`, `over_budget`, `unsupported`,
+  `exporter_limit`, `aggregation_overflow`, `db_error`; exposed by `GET /api/flows/status`. A DB error: retry
+  once after 1 s, then the flush is dropped (`db_error`).
+- **CPU/storage estimates** (QA's benchmark `tests/sim/flows/bench.py` confirms them and the numbers go into the
+  PR): decode + aggregate ≈ 10–20 µs per record in CPython 3.12 → 10 000 records/s ≈ 0.1–0.2 of one core;
+  memory ≈ 150 MB at the 300 000-key cap. Storage per **busy exporter** with the default top-N values:
+
+| Object | Rows/day | Size/day | Retention (setting) | Size at retention |
+|---|---|---|---|---|
+| `flow_conv_1m` (top 500 conversations/min) | ≤ 720 000 | ≈ 110 MB | 24 h (`flow_raw_retention_hours`) | ≈ 110 MB |
+| `flow_if_1m` (≈ 40 active interfaces × 2 directions) | ≈ 115 000 | ≈ 12 MB | 48 h (`flow_minute_retention_hours`) | ≈ 25 MB |
+| `flow_app_1m` (top 100 applications/min) | ≤ 144 000 | ≈ 15 MB | 48 h | ≈ 30 MB |
+| `flow_host_1m` (top 200 hosts/min/direction) | ≤ 576 000 | ≈ 65 MB | 48 h | ≈ 130 MB |
+| `flow_*_1h` (hourly, three objects) | ≈ 15 000 | ≈ 2 MB | 30 d (`flow_rollup_retention_days`) | ≈ 60 MB |
+
+  ≈ **0.4 GB per busy exporter** at steady state. Recommendation: in phase 3 export from the core (FF 5945 IRF,
+  sFlow) and the Check Point gateway (NetFlow v9/IPFIX), not from every access switch.
+
+#### 13.3.3 Decoding (pure)
+- **NetFlow v5:** 24-byte header (count ≤ 30, `sampling_interval`: low 14 bits = interval, top 2 bits = mode) +
+  48-byte records (src/dst IPv4, input/output ifIndex, packets, octets, ports, protocol, tcp flags, tos).
+- **NetFlow v9 (RFC 3954) / IPFIX (RFC 7011):** template sets (v9 id 0, IPFIX 2), options templates (v9 1,
+  IPFIX 3), data sets (id ≥ 256). Template key `(exporter address, source_id / observation domain, template
+  id)`; a redefinition replaces it; IPFIX template withdrawal (field count 0) honoured. Data without a known
+  template → `no_template` (no buffering; exporters repeat templates every few seconds). IPFIX variable-length
+  fields (length 65535 → 1- or 3-byte length prefix) and enterprise-specific fields (skipped by length) are
+  handled. Information elements used (IANA ids): 1 octetDeltaCount, 2 packetDeltaCount, 85/86 total counts
+  (only when deltas are absent), 23/24 v9 OUT_BYTES/OUT_PKTS (counted as a reverse record — bi-directional
+  exporters such as Check Point), 4 protocol, 7/11 ports, 8/12 IPv4, 27/28 IPv6, 10/14 ingress/egress ifIndex,
+  61 flowDirection (1 = egress: ingress/egress swapped for interface accounting), 6 tcpFlags. Sampling from
+  options data: 34 samplingInterval, 48/49/50 sampler id/mode/random interval (v9), 302/305/306 selectorId /
+  samplingPacketInterval / samplingPacketSpace (IPFIX: rate = (interval + space) / interval), matched by sampler
+  or selector id carried in the data record (48/302), else exporter-wide.
+- **sFlow v5:** datagram header (agent address v4/v6, sub-agent id), samples 1 (flow) and 3 (expanded flow) with
+  record 1 (raw packet header, header protocol 1 = Ethernet: Ethernet → optional 802.1Q → IPv4/IPv6 → TCP/UDP
+  ports); `frame_length` → bytes, packets = 1; input/output ifIndex from the sample (format bits ≠ 0 → 0).
+  Counter samples (2/4) and other records are skipped by length (SNMP already covers interface counters).
+- **Bucketing:** a record is counted in the **minute it was received**, not by its first/last-switched
+  timestamps — simple and robust against exporter clock errors. Long flows therefore appear at their export: the
+  deployment notes require an **active timeout ≤ 60 s** on NetFlow/IPFIX exporters (sFlow is per packet).
+
+#### 13.3.4 Sampling correction
+Effective rate per record, first hit: the exporter's `sampling_override` (admin) → sFlow `sampling_rate` of the
+sample → v9/IPFIX sampler options matched by id → exporter-wide options sampling → NetFlow v5 header interval
+→ 1. Bytes and packets are multiplied by the rate. The rate in use is shown per exporter (`sampling_seen`);
+the UI warns when rate = 1 and the exporter sends > 5 000 records/s ("unsampled export").
+
+#### 13.3.5 Exporters → devices, interfaces
+- An **exporter** is keyed by its address: sFlow **agent address** from the datagram, NetFlow/IPFIX the UDP
+  source. Attribution reuses the 2b-3 `SourceMap` (device `host`, `source_addresses`). Exporters often send from
+  a loopback or management address; the admin adds it as an *Additional source address* as for syslog.
+- Policy: an attributed exporter is **accepted automatically** (zero config); an unknown one is listed under
+  *Unknown exporters* (its data counted `unknown_exporter` and dropped) until the admin **accepts** it (with or
+  without a device) or **ignores** it. `flow_exporters` holds a row in every case.
+- **Interfaces:** `(exporter device, ifIndex)` → `switch_ports.name` (2b-2), else the `snmp_interface` sensor's
+  `if_name`, else `ifIndex N`; ifIndex 0 → "local / none". Speed for utilisation % from
+  `switch_ports.speed_bps`. Direction per interface: each record adds to `in` of its ingress ifIndex and to
+  `out` of its egress ifIndex (non-zero only). NetFlow/IPFIX exporters must export **ingress only** to avoid
+  double counting; the UI warns when flows with flowDirection = egress and ingress both arrive for one exporter.
+
+#### 13.3.6 Aggregation and storage
+Per exporter and minute the pure `MinuteAggregator` produces:
+- `flow_if_1m` — exact totals per `(if_index, direction)`;
+- `flow_app_1m` — per `(protocol, service_port)` (pure `services.service_port`, data-model § [3] Services map),
+  top `flow_top_apps` (default 100) by bytes + one "other" row (`port = -1`);
+- `flow_host_1m` — per `(ip, direction src|dst)`, top `flow_top_hosts` (default 200) per direction + "other"
+  (`other = true`);
+- `flow_conv_1m` — per `(in_if, out_if, src_ip, dst_ip, protocol, service_port, client side collapsed)`, top
+  `flow_top_conversations` (default 500) + "other".
+Each row has `bytes`, `packets`, `flows` (records counted). Top-N by bytes, ties by packets then key.
+`flow_if_1m` is exact; host/app/conversation tables are exact for their top entries and complete through their
+"other" rows (sums equal the exporter's total).
+
+**Hourly objects** `flow_if_1h`, `flow_app_1h`, `flow_host_1h` (no hourly conversations):
+- **Timescale mode:** the `flow_*_1m` tables become hypertables (chunk 6 h) and the bootstrap creates
+  **continuous aggregates** (`CREATE MATERIALIZED VIEW flow_if_1h WITH (timescaledb.continuous) AS SELECT
+  time_bucket('1 hour', time) AS time, exporter_id, … sum(bytes) …`), `timescaledb.materialized_only = false`
+  (real-time aggregation for the current hour), refresh policy `start_offset 6 h, end_offset 1 h,
+  schedule_interval 15 min` (well inside the 48 h minute retention, so dropping minute chunks never wipes
+  materialised hours), retention policies on the minute hypertables and on the aggregates. Hourly host rows keep
+  the per-minute top-N members (an approximation of the true hourly top list; documented).
+- **Fallback** (plain PostgreSQL, an Apache-only Timescale build, or any error creating the aggregates): the
+  bootstrap creates plain tables with the **same names and columns** and a PK; the hourly retention loop runs
+  `INSERT … SELECT date_bin('1 hour', time, '2000-01-01') … GROUP BY … ON CONFLICT (pk) DO UPDATE SET bytes =
+  EXCLUDED.bytes, …` for the last 3 complete hours (idempotent), then deletes expired rows in batches of 50 000;
+  the current hour is served from the 1-minute tables (the query layer unions it).
+- The migration creates only the 1-minute tables; the hourly objects are bootstrap-created (like the 2b-3
+  trigram indexes) and the mode is reported as `flows_rollup: "cagg" | "table" | null` in `/api/health`.
+- **Query layer:** ranges ≤ 48 h use the 1-minute tables (buckets auto-sized to ≈ 120 points: 1, 5, 15, 30 or
+  60 min), longer ranges the hourly objects (max range 31 days). Conversations: ≤ 24 h only.
+
+#### 13.3.7 Views (high level)
+Flows page: exporter / interface picker, time range, **Top talkers** (source / destination / both), **Top
+applications**, **Top conversations** (≤ 24 h), **Interface traffic** (in/out series, optional stack by
+application), totals. Every IP shows the reverse-DNS name from `dns_cache` (2b-2, cache only, no on-demand
+lookups) and links to the MAC search or the device when known. The 2b-2 port modal gains a *Flows* section for
+ports of an accepted exporter.
+
+### 13.4 New device on the network alert [3]
+Feature `new_device_alerts`. Input: the 2b-2 FDB data written by the port-inventory job.
+- **Known-MAC register** (`known_macs`): one row per MAC ever seen on an **access port** of an in-scope switch
+  while the feature was ON (it outlives `port_macs` retention). States `baseline` (learning period or first
+  inventory), `new` (detected and reported), `known` (acknowledged by an admin), `allowed` (matched the
+  allow-list at detection).
+- **Access port** (pure `is_access_port`, vectors in data-model): `switch_ports.kind = physical`, not a LAG member
+  (`lag_if_index` null — used whenever the column has data, regardless of the `lag` toggle), not an uplink per
+  the 2b-2 rule (`neighbor` or `mac_count > uplink_mac_threshold`), `mode` ≠ `trunk`, and not listed in the
+  device's `newdev_excluded_ports` (ifIndexes; e.g. a port to an unmanaged switch or a hypervisor).
+- **Detection** after every successful FDB write of a switch (pure core `classify_sightings(sightings, known,
+  allowlist, ctx) -> decisions`, then one transaction):
+  1. device not in scope (`newdev_scope_group_ids` non-empty and the device's group not in them or their
+     subgroups) → nothing;
+  2. locally administered MACs (bit 0x02 of the first octet: randomised and VM MACs) and multicast MACs →
+     ignored when `newdev_ignore_random_macs` (default **true**), not stored;
+  3. MAC in `known_macs` → `last_seen` and last location updated (a MAC that moved is not an alert in phase 3);
+  4. **first successful FDB read of this switch since the feature was turned on** → `baseline` (a newly
+     inventoried switch never floods);
+  5. inside the **learning period** (`newdev_learning_until` = `now + newdev_learning_days`, default **7**, set
+     the first time the feature is turned on; "Restart learning" resets it) → `baseline`;
+  6. MAC or its prefix in the **allow-list** (`mac_allowlist`: a full MAC, or a 24/28/36-bit prefix, with a
+     comment) → `allowed`, no alert;
+  7. otherwise → `new`: event **`new_device`** (`device_id` = the switch, message `New device 00:11:22:33:44:55
+     (Hewlett Packard) on sw-floor2 port 1/0/17, VLAN 20, 10.0.20.57 pc-1234.mnidom.net`) and a condition
+     (source `new_mac`, key = MAC, status **warning**) on the switch's passive **`new_mac`** event sensor ("New
+     devices", auto-created for in-scope switches while ON — when the feature is turned on, at start-up, on a
+     scope or device/group change and at each FDB run, like the `config_backup` sensor; a sensor the user
+     deleted is not re-created: device `event_sensor_optout`), expiring after `newdev_condition_clear_min`
+     (default 1440) or removed by *Acknowledge as known*.
+  8. **Flood guard:** more than 20 `new` MACs on one switch in one run → the first 20 as above and one summary
+     event `+N more new devices on sw-floor2`; all stored `new`.
+- **Enrichment** at detection (stored snapshot) and on read: OUI vendor (2b-2 `netmon.ports.oui`), IP from
+  `arp_entries` (2b-2 MAC→IP rule), hostname from `dns_cache`, switch, port name, VLAN.
+- **Acknowledge as known** (admin; single or bulk; optional comment) → state `known`, `ack_by/at/comment`,
+  condition removed (sensor recomputed), audited `newdev.acknowledge`. **Add vendor prefix to allow-list** from
+  the same row. **Forget** (admin) deletes a `known_macs` row (it will be detected again).
+- Turning the feature OFF: no detection, `new_mac` conditions removed (sensors `up`); `known_macs` kept.
+  Turning it ON again does **not** restart learning, but rule 4 applies again per switch, so MACs that appeared
+  while OFF are baselined instead of alerted (documented trade-off: no alert storm after a pause).
+
+### 13.5 Single sign-on [3]
+Two independent features, both OFF by default; the local and AD form login (2b-3) always remain.
+**Recommendation for the owner: Kerberos (`sso_kerberos`).** The PCs are domain-joined, AD is on-premises, the
+server is internal-only, and Kerberos needs no internet, no Entra licence and no app registration. OIDC is
+specified for when Entra ID exists and MFA or non-domain devices matter.
+
+#### 13.5.1 Kerberos / SPNEGO (`sso_kerberos`)
+**SPNEGO terminates in the app.** Caddy (official image, pinned) has no SPNEGO support; third-party plugins would
+need a custom Caddy build outside the GitOps pinning. Caddy's `reverse_proxy` forwards the `Authorization:
+Negotiate …` request header and the `WWW-Authenticate` response header unchanged, so no SSO directive is needed
+in Caddy (the only Caddyfile change is the short-name redirect of § 13.9.4). Kerberos is per request (not connection-bound like NTLM), so HTTP/2 browser → Caddy and HTTP/1.1
+Caddy → app are fine.
+
+```
+browser (domain PC; site trusted for Negotiate)                    app (behind Caddy)
+ SPA /login ─ GET /api/auth/sso/kerberos ─────────────────────────► no Authorization ─► 401 WWW-Authenticate: Negotiate
+ browser gets a service ticket for HTTP/netmonitor.mnidom.net from the DC
+ GET /api/auth/sso/kerberos  Authorization: Negotiate <SPNEGO(AP-REQ)> ─► gssapi accept in a thread (keytab; no KDC traffic)
+                                                                      ├─ NTLM token ─► 401 sso_ntlm (no new challenge)
+                                                                      ├─ bad / expired / replay / clock skew ─► 401 sso_failed
+                                                                      └─ principal jdoe@MNIDOM.NET
+                                 realm in kerberos.realms? ─ no ─► 401 sso_failed (audit reason sso_realm)
+                                 AD lookup by sAMAccountName with the 2b-3 service account (2b-3 path minus the user bind):
+                                 account disabled / locked / expired ─► 401; groups ─► role, or not_in_group ─► 401
+                                 upsert user as an AD user (source ldap) ─► 200 {user} + session cookie (+ mutual-auth token)
+```
+- **SPA behaviour:** when `features.sso_kerberos`, the login page calls `GET /api/auth/sso/kerberos` once
+  automatically (when `kerberos.auto_login`, default **true**) with a 5 s timeout, unless the user just logged
+  out (sessionStorage flag `netmon.sso.skip`, set by logout) or `?sso=0` is in the URL; success → the app;
+  failure → the normal form plus a button **"Sign in with Windows"** to retry. Browsers answer a Negotiate
+  challenge on `fetch` without UI when the site is trusted; otherwise the 401 reaches the SPA and the form is
+  shown. The endpoint **never** offers `Basic` or `NTLM`, so no credential dialog appears.
+- **Acceptor:** `gssapi.Credentials(usage="accept", store={"keytab": <path>})` with no name (any principal in
+  the keytab may be targeted), `SecurityContext(creds=…, usage="accept").step(token)` in `asyncio.to_thread`
+  behind a semaphore of 8. The process env gets `KRB5_CONFIG=${NETMON_DATA_DIR}/run/krb5.conf` (generated:
+  `default_realm`, `dns_canonicalize_hostname = false`, `rdns = false`, `ignore_acceptor_hostname = true`) and
+  `KRB5RCACHEDIR=${NETMON_DATA_DIR}/run` **before** `gssapi` is imported (replay cache on the data volume).
+  Clock skew tolerance: krb5 default 300 s — the server must run NTP (production: systemd-timesyncd pointing at
+  the DCs).
+- **NTLM refusal** (pure `kerberos_pure.token_mech`): a raw token starting `NTLMSSP\0`, or a SPNEGO NegTokenInit
+  whose mechToken is NTLMSSP or whose mech list offers only NTLM → refused (`sso_ntlm`, counted). NTLM cannot be
+  validated without a domain-joined server, and is weak.
+- **Keytab:** created by the AD admin (§ 13.9.4), **uploaded in the UI** (admin, ≤ 64 KiB), stored AES-GCM
+  encrypted in settings (`kerberos.keytab_enc`, AAD `kerberos.keytab`), written while the feature is ON to
+  `${NETMON_DATA_DIR}/run/http.keytab` (mode 0600, deleted on stop). The API shows the principals, kvno and
+  encryption types in it (pure keytab parser for format 0x0502 — key material is never returned) and warns when
+  only RC4 (etype 23) keys exist or no `HTTP/` principal is present.
+- **Session:** claims `src = "ldap"`, `am = "kerberos"`; the 2b-3 12 h hard limit for AD sessions applies; when
+  it ends the SPA's 401 handler tries SSO silently once before showing the login page.
+- **Platform:** Docker/Linux (and native Linux with `libgssapi-krb5-2`). On native Windows the feature reports
+  state `unavailable` ("Kerberos SSO needs the Linux/Docker installation") — an SSPI acceptor is "Later".
+- **Large tickets:** users in many groups send Negotiate headers of 10–40 KB. uvicorn runs with
+  `h11_max_incomplete_event_size = 65536`; httptools' header limit (80 KB) and Caddy's request header limit are
+  larger. QA sends a 48 KB header.
+
+#### 13.5.2 OpenID Connect with Microsoft Entra ID (`sso_oidc`)
+- **Flow:** authorization code + **PKCE (S256)**, confidential client (client secret, AES-GCM encrypted at
+  rest; certificate credentials are "Later"), scopes `openid profile email`, `response_mode=query`. The redirect
+  URI `https://netmonitor.mnidom.net/api/auth/oidc/callback` is reached by the **browser**, so the server needs
+  no inbound internet; it needs **outbound** HTTPS to `login.microsoftonline.com` (discovery, JWKS, token)
+  through the corporate proxy (`HTTPS_PROXY` in `app.env`, httpx `trust_env=True`, corporate CA via `tlsutil`).
+- `GET /api/auth/oidc/start?next=/path` → 302 to the authorize endpoint; `state` (32 random bytes), `nonce`, the
+  PKCE verifier and `next` travel in a short-lived cookie `netmon_oidc` (AES-GCM encrypted, HttpOnly, Secure,
+  **`SameSite=Lax`** — it must survive the top-level redirect back from Microsoft, which `Strict` would drop —
+  `Path=/api/auth/oidc`, 10 min).
+- `GET /api/auth/oidc/callback?code&state` → state check (constant time), token request (`authorization_code`,
+  `code_verifier`, client secret), **id_token validation**: RS256 against the tenant JWKS (cached 24 h; refetched
+  on an unknown `kid`, at most once per 5 min — except that a `kid` which is still unknown and has not itself
+  caused a refetch within 5 min may refetch once the cached JWKS is older than 60 s, so a bogus `kid` shortly
+  before a key rotation cannot block the new key for 5 min), `iss` = `https://login.microsoftonline.com/<tenant id>/v2.0`,
+  `aud` = client id, `tid` = tenant id, `exp`/`nbf`/`iat` with 300 s leeway, `nonce`. Any failure → redirect to
+  `/login?sso_error=<code>`; Entra `error` parameters are mapped, never echoed raw.
+- **User mapping:** `oid` → `users.external_id` with source **`oidc`**; username = lower(`preferred_username`)
+  (≤ 64 chars; a clash with an existing local/AD user → refused `sso_conflict`, the admin resolves it);
+  `display_name` = `name`, `email` = `email`. **Role:** app roles in `roles` (`NetMon.Admin` → admin,
+  `NetMon.Viewer` → viewer; recommended — no group-overage problem), or with `oidc.role_source = "groups"` the
+  configured group object ids in `groups` (a token with `_claim_names.groups`, i.e. overage, → refused
+  `oidc_group_overage` with a hint to use app roles). No role → `not_in_group`. Role re-evaluated at every login
+  (token_version bumped on change, as 2b-3).
+- **Success:** the callback answers `200 text/html` with a tiny same-origin page that has the `Set-Cookie` and
+  navigates to `next` by script — after a cross-site redirect chain the first document request would not carry
+  the `SameSite=Strict` session cookie, a same-origin navigation does. `next` must be a relative path starting
+  with `/` and not `//` or `/\` (open-redirect guard).
+- **Session:** claims `src = "oidc"`, `am = "oidc"`, hard re-login every 12 h (same rule as AD). Logout is local
+  (no RP-initiated logout in phase 3). LDAP-managed rules apply to OIDC users too (`409 ldap_managed`).
+- **Login page:** button "Sign in with Microsoft" when `features.sso_oidc`.
+
+### 13.6 Reports [3]
+Feature `reports`.
+
+#### 13.6.1 Definitions and schedule
+A report (`reports`) has a name, a language (en/he), a scope (everything, groups (recursive) or devices),
+sections (ordered subset of § 13.6.2), a schedule `weekly` (weekday 1–7 + time) | `monthly` (day 1–28 + time) |
+`none` (on demand only), recipients `email_to` (≤ 50 addresses, sent with the SMTP settings) and `channel_ids`
+(notification channels of type `email`, `teams`, `telegram`, `webhook`), and `enabled`.
+- **Period:** weekly → the previous full ISO week (Monday 00:00 → Monday 00:00) in `settings.timezone`; monthly →
+  the previous calendar month. On-demand runs take any range ≤ 92 days.
+- **Scheduler:** wakes at the earliest `next_run_at` (computed with `zoneinfo`, DST-safe), at least every 60 s and
+  on `rt.clock` changes. A run missed while the process was down runs at startup when < 24 h late, otherwise it
+  is skipped with a `system` event. Runs execute one at a time (`asyncio.Lock`); computation uses short read-only
+  queries; rendering runs in a thread.
+
+#### 13.6.2 Sections (each omitted with a one-line note when its source feature is OFF or has no data)
+| Section key | Content | Source |
+|---|---|---|
+| `availability` | Per device and per group: availability %, downtime (h:mm), outages, longest outage; the 20 worst devices first, then the full table (≤ 2000 rows); a group = time-weighted mean of its measured devices | `events` (status changes of each device's availability sensor) |
+| `top_alerts` | Top 20 sensors by problem notifications sent (`notification_sent`, stages problem/escalation) with total problem time | `events` |
+| `flapping_ports` | Top 20 ports by flapping episodes and transitions | `port_flap_episodes` (new, written by the 2b-3 flapping tracker; needs `flapping`) |
+| `port_errors` | Top 20 interfaces by errors in the period (interface sensors' error channels) + inventoried ports whose latest snapshot shows errors | `measurements`, `switch_ports` |
+| `config_changes` | Changes per device (count, last change, +/− lines) | `config_versions` (needs `config_backup`) |
+| `new_devices` | MACs detected (`new`) in the period with vendor/IP/switch/port and acknowledgement | `known_macs` (needs `new_device_alerts`) |
+| `top_talkers` | Top 10 hosts and applications by bytes | flow hourly objects (needs `flows`; ranges ≤ 31 days) |
+
+**Availability maths** (pure `reports.compute.availability`): the device's **availability sensor** = its primary
+availability sensor (2b-1: enabled `ping`, lowest `(sort_order, id)`), else its `snmp_system` sensor, else the
+device is listed as "not measured". Status intervals come from the sensor's `status_change` events (initial state
+= the `new_status` of the last change before the period start; none → `unknown` until the first event).
+**Measured time** = period − time `paused` − time `unknown` − time `unreachable` (the parent's outage, which is
+reported on the parent) − time **in maintenance** (the `in_maintenance` flag of the events and the maintenance
+`started`/`ended` events of windows covering the device). **Downtime** = time `down` outside maintenance.
+Availability = (measured − downtime) / measured × 100, rounded to 2 decimals; measured = 0 → `null` ("n/a").
+`warning` counts as available. Vectors: data-model § [3] Report vectors.
+
+#### 13.6.3 Delivery
+- **Email:** subject `[NetworkMonitor] Weekly report: <name> (03.11–09.11.2026)` (he: `דוח שבועי`); **HTML email**
+  (tables, inline CSS, no external images or scripts, bars drawn with table cells, `dir="rtl"` for Hebrew, ≤ 1 MB,
+  Outlook-safe markup) + a plain-text part with the headline numbers; a link "Open the full report" when
+  `public_base_url` is set.
+- **Teams:** an Adaptive Card (2b-3 transport) with the headline facts (overall availability, worst 5 devices,
+  alerts, config changes, new devices) and `Action.OpenUrl` to the report page. **Telegram:** a ≤ 4096-character
+  text summary with the same facts and the link. **Webhook:** JSON `{"event": "report", "report": {...}, "run":
+  {...}, "data": <the run's data>}`. **Email channel:** the HTML email to the channel's addresses.
+- Every run is stored (`report_runs`: data JSON, rendered HTML, per-recipient results) for
+  `report_retention_days` (default 400). Failed deliveries are listed on the run; "Resend" (admin).
+
+#### 13.6.4 Format decision: HTML email + printable page (no server-side PDF)
+PDF renderers are either heavy native stacks (WeasyPrint, BSD, needs Pango/Cairo libraries in the image),
+headless Chromium (≈ 300 MB and a browser to keep patched on the server), or low-level drawing libraries
+(ReportLab, BSD, every table drawn by hand; RTL needs extra work). The browser already renders and prints HTML,
+including Hebrew RTL, correctly. **Decision:** the email is HTML; the report page `/reports/runs/<id>` has a print
+stylesheet (A4, page breaks between sections, no navigation) and a **"Print / Save as PDF"** button
+(`window.print()`); `GET /api/reports/runs/{id}/html` downloads the same self-contained HTML file. Server-side PDF
+is "Later".
+
+### 13.7 NOC mode (wall screen) [3]
+Feature `noc`.
+- **Kiosk screens** (`kiosk_screens`, admin-managed, ≤ 20): name, **token** (`nmk_` + 43 chars, shown once,
+  stored as SHA-256; *Regenerate* issues a new one), **allowed sources** (IPs/CIDRs, **required, ≥ 1**), scope
+  group (optional), widgets (ordered subset of `summary`, `down_devices`, `problems`, `recent_alerts`, `map`,
+  `group_tiles`), language, `show_addresses` (default false), `refresh_s` (10–300, default 30), enabled,
+  `last_seen_at/ip`.
+- **URL:** `https://netmonitor.mnidom.net/noc#<token>` — the token is in the **fragment**, so it never reaches the
+  server, Caddy or proxy logs, or a `Referer`. The SPA's `/noc` route skips the login boot sequence, reads the
+  fragment, keeps the token in sessionStorage, removes it from the address bar (`history.replaceState`) and sends
+  it as the header `X-Netmon-Kiosk: <token>`.
+- **Guard** on every kiosk request: feature ON, token hash matches an enabled screen (lookup by hash, then
+  `hmac.compare_digest`), client IP (rightmost `X-Forwarded-For` when `NETMON_TRUST_PROXY`, else the peer) inside
+  the screen's allowed sources; otherwise **`404 not_found`** — wrong token, wrong IP and feature OFF look the same
+  to the client (no oracle); the reason is counted and logged at INFO without the token. 30 failed requests per IP
+  per 5 min → `429`.
+- **Data:** one curated endpoint `GET /api/kiosk/view` returns everything the screen shows for its scope: status
+  counts, down/unreachable devices (name, group, since, acknowledged), problem sensors (≤ 50), recent alerts (≤ 20
+  status changes), group tiles, and the topology map (positions from the saved 2b-1 layout, statuses). No
+  IPs/hosts unless `show_addresses`; no configuration, users, logs or settings. It is the **only** data a kiosk can
+  read: every other `/api/*` route ignores the kiosk header (and without a session answers 401).
+- **Live:** WebSocket `/ws/kiosk`; the first client message must be `{"type": "kiosk_auth", "token": "…"}` within
+  5 s (token never in the URL), else close 4401. The server sends `kiosk.refresh` (debounced 5 s) on any
+  status/ack/maintenance change in scope; the client refetches `/api/kiosk/view`. Fallback polling every
+  `refresh_s`. The screen shows a clock and "updated hh:mm:ss"; a stale banner after 3 × `refresh_s` without data.
+- **Look:** full-screen dark theme, large type (base 20 px, KPIs 64 px), status colours of the conventions, no
+  controls except a hidden fullscreen toggle; he/en per screen; no cookies.
+- Disabling a screen, regenerating its token or turning the feature OFF makes the next request 404 and closes its
+  WS connections (code 4403).
+
+### 13.8 Acknowledge from Telegram / Teams (and email) [3]
+Feature `chat_ack`. Acknowledging remains an **admin** action with the 2b-1 semantics (the acknowledge service
+used by `POST /api/sensors/{id}/acknowledge`: `acknowledge` event, `sensor.ack`, alert state); the audit entry
+records `via` (`telegram` | `link`).
+
+#### 13.8.1 Signed ack tokens (pure `chatack.tokens`)
+`token = "a1." + base64url(sensor_id u32 ‖ event_id u64 ‖ exp u32 (unix minutes) ‖ HMAC-SHA256(key, "a1" ‖ those 16
+bytes)[:12])` → 3 + 38 = 41 characters, fits Telegram's 64-byte `callback_data`. Key = HKDF-SHA256(`secret.key`,
+info `netmon/chat-ack/v1`). Lifetime `chat_ack_ttl_h` (default 168). The token **does not authenticate** anyone: it
+only names *which problem* (sensor + the problem's opening `status_change` event). The acting user is established
+separately (Telegram account link or web session). It is honoured only while the sensor is `down`/`warning` and its
+current problem started with `event_id` (the sensor's latest `status_change` event into a problem status) —
+otherwise "This problem is no longer active". Losing `secret.key` invalidates outstanding tokens (harmless).
+
+#### 13.8.2 Telegram (inline button + callback query)
+- Telegram channels gain `ack_buttons: bool` (default false). With `chat_ack` ON and the flag set, problem,
+  escalation and reminder messages carry `reply_markup {"inline_keyboard": [[{"text": "Acknowledge" | "אישור
+  טיפול", "callback_data": "<token>"}]]}`; recoveries carry none.
+- **Receiving presses without inbound internet: long polling.** One poller task per distinct bot token among
+  enabled telegram channels with `ack_buttons`: `getUpdates(offset, timeout=50, allowed_updates=["callback_query",
+  "message"])` through the proxy (httpx `trust_env=True`, read timeout 65 s); errors back off 5 → 60 s. The offset
+  is persisted (`telegram_poll_state`, keyed by SHA-256 of the bot token), so a press is processed once across
+  restarts. `409 Conflict` (a webhook is set, or another program polls this bot) → poller state `error` "This bot
+  has a webhook or another consumer — use a dedicated bot for NetworkMonitor"; the app never calls `deleteWebhook`
+  on its own; the channel form offers an explicit **"Take over this bot (delete its webhook)"** action (admin,
+  audited).
+- **Press handling:** verify the token → look up `from.id` in `chat_identities` → the linked user must be active
+  and **admin** → acknowledge (comment `Acknowledged from Telegram`) → `answerCallbackQuery` ("Acknowledged" or
+  the reason, `show_alert: true` for refusals: not linked, not admin, expired, no longer active, already
+  acknowledged) → `editMessageReplyMarkup` replaces the button with `✓ <username> 12:03` (a no-op callback
+  `"noop"`). Every press is audited (`chatack.press`, success or reason). Rate limit: 10 presses per Telegram user
+  per minute.
+- **Account linking:** in *My profile → Chat accounts* a user creates a **link code** (`NM-` + 8 base32 chars,
+  10 min, single use, stored hashed); they send `/link NM-XXXXXXXX` to the bot in a private chat (or
+  `/link@BotName NM-…` in a group with privacy mode) → the poller stores `(user, telegram, from.id, @username)` and
+  replies "Linked to NetworkMonitor user jdoe". `/unlink` in Telegram or *Unlink* in the profile removes it. Admins
+  see and can remove all links. Other messages are ignored (no reply).
+
+#### 13.8.3 Teams: what works with Workflows webhooks, and what does not
+- The 2b-3 Teams channel posts through a **Workflows** (Power Automate) webhook and the card is posted by the
+  *Workflows* bot. **`Action.Submit` / `Action.Execute` cannot work** there: they need a bot that receives the
+  invoke, and a Teams bot (Azure Bot Service) needs a **public HTTPS messaging endpoint** reachable from Microsoft,
+  which an internal-only server does not have. **`Action.Http`** exists only in Outlook actionable messages, not in
+  Teams. A Power Automate "post card and wait for a response" flow could catch the press, but would then have to
+  call NetworkMonitor, which the cloud cannot reach without an on-premises data gateway and a custom connector
+  (premium licence and extra infrastructure). These are **out of scope**.
+- **Feasible design (chosen): an `Action.OpenUrl` "Acknowledge" button** to `<public_base_url>/ack#<token>`. It
+  opens the internal site in the user's browser (it works on the office network or VPN — where NetworkMonitor is
+  reachable anyway); the **ack page** shows the problem (device, sensor, status, since, current state) and an
+  **Acknowledge** button with an optional comment; the user is identified by the normal web session (login page
+  first if needed; transparent with Kerberos SSO). Requires `public_base_url`; without it the button is omitted.
+  No account linking is needed for Teams. The UI states the limitation: "In Teams the Acknowledge button opens
+  NetworkMonitor in your browser; it works from the office network or VPN."
+- The same link button is available for **email** notifications (`ack_link: true` on email channels, default
+  false) and as a URL button for Telegram channels that have `ack_link: true` but not `ack_buttons`.
+
+#### 13.8.4 Ack page (`/ack`)
+SPA route outside the app shell; reads the fragment; `POST /api/chat-ack/resolve {"token"}` (any logged-in user;
+returns the problem summary and `can_acknowledge`); `POST /api/chat-ack/acknowledge {"token", "comment"}` (admin).
+An invalid or expired token → "This link has expired"; already acknowledged → who/when is shown.
+
+### 13.9 Deployment [3]
+
+#### 13.9.1 Ports, compose, image
+| Port | Proto | Feature | Container port | Notes |
+|---|---|---|---|---|
+| 2055 | UDP | `flows` (NetFlow v5/v9, IPFIX) | 2055 | > 1024: published 1:1, no remap |
+| 4739 | UDP | `flows` (IPFIX) | 4739 | |
+| 6343 | UDP | `flows` (sFlow) | 6343 | |
+| 22 (outbound) | TCP | `config_backup` | — | server → devices; no inbound port |
+| 443 (outbound, via proxy) | TCP | `sso_oidc`, `chat_ack` (Telegram), reports to Teams/Telegram | — | `HTTPS_PROXY` |
+
+- **Docker image:** `EXPOSE 2055/udp 4739/udp 6343/udp`; env defaults `NETMON_NETFLOW_PORT=2055`,
+  `NETMON_IPFIX_PORT=4739`, `NETMON_SFLOW_PORT=6343`; runtime package **`libgssapi-krb5-2`** (MIT krb5,
+  ≈ 3 MB) and the `kerberos` extra (`gssapi`); `asyncssh` is a core dependency. uvicorn is started with
+  `h11_max_incomplete_event_size=65536` (`netmon serve` passes it; § 13.5.1).
+- **`deploy/production/compose.yaml`:** the `netmon` service gains `2055:2055/udp`, `4739:4739/udp`,
+  `6343:6343/udp` next to the 2b-3 trap/syslog ports (nothing listens until `flows` is ON). Source-IP preservation,
+  Docker Desktop, conntrack and `DOCKER-USER` notes of § 12.12 apply unchanged (`ops/ingest-firewall.sh` gains the
+  three ports). `deploy/docker-compose.yml` publishes the same, overridable by `NETMON_NETFLOW_HOST_PORT`,
+  `NETMON_IPFIX_HOST_PORT`, `NETMON_SFLOW_HOST_PORT`.
+- **Outbound proxy:** `/etc/netmon-gitops/app.env` (host file, not in git) gets `HTTPS_PROXY=http://<proxy>:<port>`
+  and `NO_PROXY=localhost,127.0.0.1,db,.mnidom.net` plus the IPs/names of internal webhook targets. httpx calls
+  (Telegram, Teams, OIDC, webhooks) honour them (`trust_env=True`); asyncssh, SNMP, flows and LDAP never use a
+  proxy. The README documents that the proxy must allow **long-lived requests (≥ 70 s)** to `api.telegram.org`
+  (long polling); setting `telegram_poll_timeout_s` (10–50, default 50) shortens the poll if it does not.
+- **Caddy:** no SSO-specific directive — `Authorization: Negotiate` and `WWW-Authenticate` pass through
+  `reverse_proxy`; the OIDC callback is under `/api`; `/noc` and `/ack` are SPA routes (Caddy has no access log
+  configured, and the kiosk/ack tokens are in URL fragments anyway). One change: the short name
+  `https://netmonitor` moves from the app site block to the redirect block (→ the FQDN), so the browser always
+  uses the one name that has the Kerberos SPN (§ 13.9.4). `production.yml`'s `caddy validate` covers it.
+- **Native Linux:** ports > 1024 need no capability; the installer prints `ufw allow from <LAN> to any port 2055
+  proto udp` (and 4739, 6343) and installs `libgssapi-krb5-2`. **Native Windows:** firewall rules
+  `NetworkMonitor-NetFlow` (UDP 2055), `NetworkMonitor-IPFIX` (UDP 4739), `NetworkMonitor-sFlow` (UDP 6343);
+  Kerberos SSO unavailable (§ 13.5.1).
+- **Data:** `${NETMON_DATA_DIR}/run/` (keytab, krb5.conf, replay cache; 0700, recreated at start) — not backed up
+  (the keytab lives encrypted in the DB). Daily backups (production) already include the DB, so config versions,
+  flows rollups and reports are covered; flow 1-minute data is excluded from nothing (small enough).
+
+#### 13.9.2 Database growth (production sizing for the owner)
+Config versions ≈ 30 devices × 100 versions × ~40 KB (compressed ~10 KB) ≈ 30 MB. Flows ≈ 0.4 GB per busy
+exporter (§ 13.3.2). Reports ≈ 200 KB per run. `known_macs` ≈ 200 B per MAC. The production server's disk check
+(`ops/status.sh`) gains the flow tables in its size report.
+
+#### 13.9.3 Device configuration examples (README + in-app help; verify on the device; 10.0.0.50 = NetworkMonitor)
+| Device | Config backup account (read-only where the platform allows) | Flow export |
+|---|---|---|
+| HPE Comware 7 (FF 5945 IRF) | `local-user netmon-backup class manage` · `password simple <pw>` · `service-type ssh` · `authorization-attribute user-role network-operator` (verify `display current-configuration` is permitted for the role on your release; otherwise a custom role with `rule 1 permit command display current-configuration`) · `ssh user netmon-backup service-type stelnet authentication-type password` | sFlow: `sflow agent ip <mgmt ip>` · `sflow source ip <mgmt ip>` · `sflow collector 1 ip 10.0.0.50 port 6343 description netmon` · per uplink interface: `sflow sampling-rate 4096` · `sflow flow collector 1` |
+| ArubaOS-Switch | `show running-config` needs the **manager** level: create `password manager user-name netmon-backup plaintext <pw>` only if no manager account can be dedicated (the account is stored encrypted); `ip ssh` | `sflow 1 destination 10.0.0.50 6343` · `sflow 1 sampling <ports> 4096` (syntax varies by release) |
+| Check Point Gaia (clish) | `add rba role netmonRO domain-type System readonly-features configuration` (or the built-in `monitorRole`) · `add user netmon-backup uid 2600 homedir /home/netmon-backup` · `set user netmon-backup shell /etc/cli.sh` · `set user netmon-backup newpass <pw>` · `add rba user netmon-backup roles monitorRole` · `save config` | `add netflow collector ip 10.0.0.50 port 2055 export-format Netflow_V9` · `save config` (or `IPFIX` to port 4739); set the active timeout to 60 s where the version allows |
+| Cisco IOS | `username netmon-backup privilege 15 secret <pw>` (or privilege 1 + `enable` password in the credentials) | `flow exporter NETMON` · `destination 10.0.0.50` · `transport udp 2055` · `export-protocol netflow-v9` …, `cache timeout active 60` |
+
+#### 13.9.4 Kerberos SSO setup (AD admin, once)
+1. DNS: `netmonitor.mnidom.net` must be an **A record** (Chrome/Edge build the SPN from the canonical name; with a
+   CNAME the SPN of the target name would be requested).
+2. Create a service account, e.g. `svc-netmon-http` (password never expires; *This account supports Kerberos AES
+   256 bit encryption* checked; no other rights).
+3. SPN and keytab (on a DC, elevated): `setspn -S HTTP/netmonitor.mnidom.net MNIDOM\svc-netmon-http`, then
+   `ktpass /princ HTTP/netmonitor.mnidom.net@MNIDOM.NET /mapuser MNIDOM\svc-netmon-http /crypto AES256-SHA1
+   /ptype KRB5_NT_PRINCIPAL /pass <new password> /out netmon-http.keytab` (`ktpass` sets that password on the
+   account and maps the UPN to the principal, so the AES salt in the keytab matches AD). Only the FQDN gets an
+   SPN: the production Caddyfile is changed so that the short name `https://netmonitor` **redirects** to
+   `https://netmonitor.mnidom.net` (it moves from the app site block to the redirect block; the certificate keeps
+   both SANs) — one canonical host for SSO, cookies and the Origin check.
+4. Upload `netmon-http.keytab` in *Settings → Single sign-on → Kerberos*; check that the principal is listed with
+   etype 18 (aes256-cts); delete the file afterwards.
+5. Browsers (GPO): add `https://netmonitor.mnidom.net` to the **Local intranet** zone (*Site to Zone Assignment
+   List*, value 1) — used by Edge and Chrome on Windows — or set the Chrome/Edge policy `AuthServerAllowlist =
+   netmonitor.mnidom.net`. Firefox: `network.negotiate-auth.trusted-uris`.
+6. Server time: NTP to the DCs (`timedatectl`; skew > 5 min breaks Kerberos).
+7. `ldap` must be ON and configured (2b-3): SSO users get their role from the same AD groups.
+
+#### 13.9.5 Entra ID setup (only if `sso_oidc` is wanted)
+App registration (single tenant), platform *Web*, redirect URI `https://netmonitor.mnidom.net/api/auth/oidc/callback`,
+a client secret (note its expiry — the UI shows `client_secret_expires_at` entered by the admin and warns 30 days
+before), app roles `NetMon.Admin` / `NetMon.Viewer` assigned to users/groups in *Enterprise applications*, token
+configuration: optional claims `email`, `preferred_username`. Outbound proxy access to `login.microsoftonline.com`.
+
+### 13.10 Frontend (high level) [3]
+- **Features tab:** the 8 new toggles with dependency hints and status lines (`Listening on UDP 2055, 4739, 6343`,
+  `Next backup 02:47 (24 devices)`, `Learning until 15.11.2026`, `Kerberos: keytab with 2 principals`, `Telegram
+  poller: connected`).
+- **Config backups** (`/config-backups`, nav "Backups"): table of devices (driver, last attempt/result, last change,
+  versions, next run; filters by result/group), *Back up all*, *Search* box (results grouped by device with
+  highlighted lines, `dir="ltr"` monospace). Device page tab **Configuration**: version list (time, trigger,
+  +/−, initial badge), viewer with line numbers, **Diff** (any two versions; side-by-side ≥ 1200 px, unified
+  below), *Download*, *Back up now*, status card (driver, credentials source, host key fingerprint with
+  *Accept new key* / *Reset* when changed, last error). Group and device forms gain **SSH credentials** (username,
+  password or private key, enable password, port, legacy algorithms) with *Test* (connect + prompt + driver, no
+  backup stored) and *Backup* mode (`auto/on/off`) + driver override.
+- **Flows** (`/flows`): exporter list (status, rate, sampling, device link, *Accept* / *Ignore* for unknown),
+  views of § 13.3.7 with ECharts (bars for tops, stacked areas for interface traffic), byte units auto-scaled
+  (bits/s for rates), IPs `dir="ltr"`.
+- **New devices** (`/new-devices`): tabs *Detected* (new first; vendor, MAC, IP, hostname, switch/port, VLAN,
+  first seen; *Acknowledge as known*, bulk select, *Allow vendor*), *Known* (searchable register), *Allow-list*,
+  status card (learning progress bar, scope, excluded ports per device via the ports view modal: "Ignore new
+  devices on this port").
+- **Login page:** "Sign in with Windows" (Kerberos; auto attempt with a small spinner "Signing in with your
+  Windows account…") and "Sign in with Microsoft" (OIDC) when their features are ON; `sso_error` messages.
+- **Settings → Single sign-on:** Kerberos (realms, keytab upload/list, auto login, test hint "open
+  /api/auth/sso/kerberos/test from a domain PC"), OIDC (tenant id, client id, secret, role source, role/group ids,
+  *Test discovery*).
+- **Reports** (`/reports`): definitions list + editor (scope picker, sections checklist with drag order, schedule,
+  recipients, language), *Run now* (choose range, shows the result page), runs history with delivery results;
+  report page `/reports/runs/:id` (charts as HTML/CSS bars, print stylesheet, *Print / Save as PDF*, *Download
+  HTML*).
+- **NOC:** *Settings → NOC screens* (list, editor with widget order, allowed sources, *Show URL once* dialog with
+  copy button and QR code of the URL); kiosk page `/noc` (dark, large, auto layout: KPI row, down devices, problems,
+  recent alerts, map; RTL for Hebrew).
+- **Chat ack:** Telegram channel form (`ack_buttons`, `ack_link`, poller state, *Take over this bot*); email channel
+  `ack_link`; Teams channel `ack_link` (default true when `chat_ack` is ON); *My profile → Chat accounts* (link code
+  dialog with the exact `/link` command and the bot name, linked accounts, unlink); ack page `/ack`.
+- **Timeline** (2b-3) gains kinds `config` and `new_mac`; **Device page** gains a *New devices* count badge on
+  switches.
+- New i18n keys (en + he): `features.*` for the 8 features, `configBackup.*`, `driver.*`, `ssh.*`, `hostKey.*`,
+  `flows.*`, `exporter.*`, `newDevices.*`, `allowlist.*`, `sso.*`, `kerberos.*`, `oidc.*`, `reports.*`,
+  `reportSection.*`, `noc.*`, `kiosk.*`, `chatAck.*`, `sensorType.config_backup|new_mac`,
+  `eventKind.config_change|new_device`, `errors.*` for every new code.
+
+### 13.11 QA simulators and tests [3]
+**SSH device simulator** (`tests/sim/ssh/fake_device.py`, asyncssh server — dev dependency is the same library; no
+root; free ports; one process serves many personalities on 127.0.0.x addresses): personality YAML per driver
+(`comware.yaml`, `arubaos_switch.yaml`, `aruba_cx.yaml`, `checkpoint_clish.yaml`, `checkpoint_bash.yaml`,
+`cisco_ios.yaml`, `fortigate.yaml`, `mikrotik.yaml`): banner, prompt, *Press any key* (ArubaOS), ANSI escapes
+(ArubaOS), paging (`---- More ----` every 24 lines until the paging command was sent), enable step (Cisco),
+exec support or refusal, canned outputs (`configs/<driver>/v1.txt`, `v2.txt` — switch with a control file to
+simulate a change; volatile timestamp lines that must be ignored; secrets that must be masked), `% Invalid input`
+for unknown commands, password and public-key auth, `--legacy-only` (only `diffie-hellman-group14-sha1` + `ssh-rsa`),
+`--hang-after-login`, `--huge` (9 MiB output), host key file (rotate to simulate a change). Every received command
+is appended to a JSON-lines **command log** — the read-only guarantee is asserted from it (only allow-listed
+commands ever arrive).
+
+**Flow senders** (`tests/sim/flows/`): `send_flows.py --to 127.0.0.1:<port> --from 127.0.0.91 --proto
+v5|v9|ipfix|sflow --scenario s1.yaml` (scenario: flows with addresses/ports/bytes/packets/ifIndexes, sampling
+rate, template-first or data-before-template, options template with sampling, IPv6, bi-directional OUT_BYTES,
+egress direction); the scenario's **expected aggregates** are computed by the same file so tests compare exactly;
+`bench.py` (records/s and CPU per 10 000 records, prints the table for the PR). Optional cross-check with
+`softflowd` replaying a pcap (`softflowd -r test.pcap -n 127.0.0.1:2055 -v 9`) — not required in CI.
+
+**Kerberos** (`tests/sim/kdc/`, Linux only; tests skipped when `krb5kdc` is missing): `setup_kdc.sh` creates an MIT
+KDC realm `MNIDOM.TEST` in a temp dir (apt `krb5-kdc krb5-admin-server krb5-user` in GitHub Actions), principals
+`HTTP/localhost`, `HTTP/netmon.test`, users `jdoe`, `asmith`, `nogroup`, `olduser` matching the 2b-3 fake-AD
+fixture, exports the keytab; client tokens via `kinit` + python-gssapi initiator. An NTLM token fixture (captured
+bytes) for refusal tests.
+
+**OIDC mock IdP** (`tests/sim/oidc/mock_idp.py`, ASGI, RS256 key generated at start): discovery, authorize (auto
+login as a user chosen by `login_hint`, or a tiny form), token, JWKS; modes: wrong `iss`, wrong `aud`, expired,
+bad `nonce`, unknown `kid` then rotation, group overage, no roles. The backend's authority base comes from
+`NETMON_OIDC_AUTHORITY` (default `https://login.microsoftonline.com`; tests point it at the mock).
+
+**Telegram mock** (2a `tests/sim/telegram_mock.py`, extended): `getUpdates` long poll fed by `POST /_inject`
+(callback queries and `/link` messages), records `answerCallbackQuery`, `editMessageReplyMarkup`, `deleteWebhook`;
+mode `--conflict` answers `409`. **Teams mock** (2b-3) asserts the `Action.OpenUrl` ack URL.
+
+**New-device lab:** the 2b-2 port-sim generator gains `127.0.0.88` *Access switch* (ports 1–8 access, 9 uplink to
+.86 with LLDP, 10 trunk) whose FDB is rewritten between inventory runs (the test restarts that snmpsim process with
+the next recording): run 1 baseline MACs, run 2 adds `00:1b:21:aa:00:01` on port 3 (Intel → alert),
+`02:00:00:aa:00:02` (locally administered → ignored), a MAC on port 9 (uplink → ignored), `3c:a8:2a:00:00:01` on
+port 4 (OUI allow-listed → `allowed`), 25 MACs on port 5 (flood guard).
+
+**Backend tests (pytest, required in CI):** pure units with the data-model vectors — driver validation (forbidden
+commands), `match_driver`, `normalize` per driver (echo/prompt/ANSI/ignore/mask), diff stats, retention selection,
+host-key decisions, NetFlow v5/v9/IPFIX/sFlow decoders (incl. truncated and hostile datagrams: counts larger than
+data, zero-length templates, template id < 256, recursion-free option scopes), template cache expiry, sampling
+precedence, `service_port`, aggregator top-N/other sums, `is_access_port`, `classify_sightings` (every rule),
+allow-list prefixes, keytab parser, NTLM detection, OIDC claim validation, ack token encode/verify/expiry/tamper,
+availability maths, schedule computation across DST, kiosk CIDR guard; integration — config backup against the SSH
+sim for all 8 personalities (stored version equals the fixture after normalisation, unchanged second run, changed
+third run → `config_change` event + `+/−`, paging handled, legacy-only device with and without the flag, auth
+failure, hang → `prompt_timeout` within the timeout, huge → `too_large`, host key rotated → `host_key_changed`
+**before** any password is sent (the sim logs auth attempts), accept → next run ok, concurrency cap observed,
+syslog trigger with debounce (3 matching lines in 30 s → one backup 120 s after the last, test clock), command log
+contains only allow-listed commands); flows end to end per protocol with exact expected aggregates, data before
+template → `no_template` then ok, flood (50 000 records in 1 s) → `over_budget` while `/api/health` stays < 200 ms,
+DB paused → `db_error`/`queue_full` and recovery, Timescale cagg mode and fallback table mode give the same
+`/api/flows/top` answers for a 3-day range; new devices on the lab above; Kerberos (valid ticket → admin/viewer
+via fake AD, NTLM → `sso_ntlm`, wrong realm, replay, 48 KB header accepted); OIDC against the mock (every mode);
+reports (weekly run at the scheduled time with the test clock, email captured by aiosmtpd with the expected HTML
+tables, Teams/Telegram/webhook payloads, missed-run rule, availability vectors through the DB); kiosk (CIDR allow /
+deny, wrong token → 404, token refused on `/api/devices`, WS auth within 5 s, close on disable); chat ack (Telegram
+press by linked admin → acknowledged + markup edited; unlinked / viewer / expired / stale problem refused; link code
+single use and expiry; offset persisted across restart; 409 conflict state; ack page flow); feature toggles for all
+8 (OFF → sockets closed, loops stopped, 409; ON again without restart); migration `0007` up/down on Timescale and
+fallback with rows present.
+
+**E2E specs** (Playwright, `tests/e2e/specs/`, one worker, after 50):
+- `51-features-3.spec.ts` — fresh install: the 8 phase-3 toggles OFF, nav hidden, endpoints 409, `/noc` and `/ack`
+  show "not available"; each ON/OFF without restart.
+- `52-config-backup.spec.ts` — SSH credentials on a group, Test, *Back up all* against the SSH sim (Comware, ArubaOS,
+  Check Point), versions, viewer, diff after a simulated change, download, search across devices.
+- `53-config-backup-events.spec.ts` — host-key change → sensor down → accept; syslog Comware `CFGMAN` line with the
+  built-in rule enabled → backup after the debounce (test clock) → `config_change` in the timeline; optional alert
+  via webhook when `config_change_alert` is on.
+- `54-flows.spec.ts` — sFlow + NetFlow v9 scenarios from 127.0.0.91/.92 → exporter auto-accepted (device
+  attributed), unknown exporter accept/ignore, top talkers / apps / conversations / interface chart values equal
+  the scenario totals, sampling correction shown.
+- `55-new-devices.spec.ts` — enable with learning 0 days (test), lab run 1 baseline, run 2 → one alert (Intel MAC
+  with IP/hostname), allowed and ignored cases, flood summary, acknowledge as known clears the sensor, webhook got
+  one DOWN/WARNING message.
+- `56-sso-kerberos.spec.ts` (Linux CI with the KDC; Chromium `--auth-server-allowlist=localhost` and `KRB5CCNAME`)
+  — auto sign-in as `jdoe` (viewer), logout does not auto re-login, `?sso=0` shows the form, no ticket → form.
+- `57-sso-oidc.spec.ts` — "Sign in with Microsoft" against the mock → admin via app role; no role → error message;
+  open-redirect `next` refused.
+- `58-reports.spec.ts` — create weekly report, *Run now*, availability table matches the seeded events, print page
+  renders (A4 print media emulation), email captured, Hebrew report RTL.
+- `59-noc.spec.ts` — screen with `127.0.0.1/32` → `/noc#token` shows KPIs/down devices, a sensor going down appears
+  without reload; a screen allowing only `10.9.9.9/32` → "not available"; regenerate token → old URL stops.
+- `60-chat-ack.spec.ts` — link Telegram via code (mock), problem → message with button, injected press →
+  acknowledged in UI and timeline; Teams card has the ack URL → `/ack#…` → acknowledge with comment; expired link.
+- `61-viewer-3.spec.ts` — viewer: backup metadata only (no content/diff/search/export), flows and new devices read
+  only, reports read/print only, no NOC or SSO settings, ack page shows "admins only".
+- `62-rtl-mobile-3.spec.ts` — Hebrew/RTL and 390 px width for the new pages (configs, diffs, IPs, MACs stay `ltr`).
+
+### 13.12 Security and failure modes [3]
+| Risk / failure | Handling |
+|---|---|
+| Backup tool changes a device | Command allow-list enforced by driver validation; session-only setup commands; no user-supplied commands; QA asserts the sim command log. |
+| SSH MITM / impostor device | TOFU pinning, key checked before auth; change → down + manual accept. |
+| SSH credentials at rest | AES-256-GCM (`services.crypto`, AAD per field), write-only in the API, redacted in audit/logs; `secret.key` lost → "re-enter credentials" flag + `system` event, backups fail `no_credentials`. |
+| Secrets inside stored configs | Masked by default (driver regexes); content admin-only; reads/exports audited. |
+| Hanging / slow devices | Per-prompt and total timeouts, output cap, global semaphore; never blocks the loop. |
+| Flow floods / spoofed exporters | Per-exporter and global budgets, bounded queues, unknown exporters need acceptance, `DOCKER-USER` filtering; spoofed data only skews statistics (no alerts are driven by flows in phase 3). |
+| Malicious flow datagrams | Pure decoders with explicit length checks; any exception per datagram → `parse_error`; template cache bounded. |
+| Flow CPU starvation | Worker thread + hard records/s budget; benchmark in CI. |
+| New-device alert storm | First-read baseline per switch, learning period, flood guard, random-MAC filter. |
+| Kerberos: NTLM downgrade / credential prompts | NTLM refused; only `Negotiate` offered; never `Basic`. |
+| Kerberos: keytab theft | Encrypted in DB; materialised 0600 only while ON; principal's password rotation documented; RC4 warning. |
+| Kerberos: replay / skew | MIT krb5 replay cache on the data volume; NTP requirement. |
+| OIDC: CSRF / code injection / token substitution | `state` + PKCE + `nonce`, encrypted Lax cookie scoped to `/api/auth/oidc`, full id_token validation incl. `tid`. |
+| OIDC: open redirect | `next` must be a same-origin relative path. |
+| Kiosk token leak | Fragment (not logged), hashed at rest, IP allow-list mandatory, read-only curated data, 404 on any failure, regenerate. |
+| Ack token forgery / replay | HMAC-SHA256 (96-bit tag), expiry, bound to the problem's event id; identity from linked account or session; admin only; audited; idempotent. |
+| Telegram account hijack | Single-use 10-min link codes (hashed); link only through the bot chat; admins can remove links. |
+| Report data leaving the network | Recipients are admin-configured; HTML has no remote resources; Teams/Telegram receive summaries only (full report needs login). |
+| DB down | Flow writes dropped (`db_error`); backups fail `internal` and retry next schedule; reports retried at next scheduler pass (max 3 attempts within 6 h). |
+
+### 13.13 Owner notes and verification [3]
+- Everything new is OFF after the upgrade. Suggested order: *Config backup* (add SSH credentials to the switch
+  group, *Test*, *Back up all*), *New-device alerts* (7-day learning), *Flows* (core + Check Point), *Reports*,
+  *SSO (Kerberos)* after the AD steps in § 13.9.4, *NOC*, *Chat acknowledge*.
+- Please verify and report: a backup of the FF 5945 IRF, an ArubaOS-Switch and the Check Point (are volatile lines
+  left that change on every run? any secret not masked? — send the *Diff* of two runs without changes); the
+  Comware/ArubaOS syslog lines that appear when you change and save a config (copy them from *Logs*) so the
+  built-in trigger rules can be marked verified; sFlow from the FF 5945 shows sane top talkers (compare one host
+  with its interface counters); Kerberos sign-in from a domain PC in Edge and Chrome; a Telegram press and a Teams
+  ack link from the office.
+
+**Open questions** (work starts on the recommended defaults):
+
+| # | Question | Default |
+|---|---|---|
+| Q1 | Config-backup accounts: dedicated `netmon-backup` users per platform? ArubaOS-Switch needs a **manager**-level account to read the running config — acceptable? | Dedicated accounts; ArubaOS manager account stored encrypted |
+| Q2 | Mask secrets in stored configs (then a change of only a password/key is not detected)? | Mask |
+| Q3 | Backup schedule and retention | Daily 02:47, keep 100 versions / 365 days, always ≥ 10 |
+| Q4 | Config change: event only, or also an alert? Enable the built-in Comware/ArubaOS "config changed" syslog triggers when you turn the feature on? | Event only; offer to enable the trigger rules (one dialog, like 2b-3 built-ins) |
+| Q5 | Flows: which exporters and protocol, sampling rate? | FF 5945 IRF sFlow 1:4096 on uplinks + Check Point NetFlow v9; raw 24 h, minutes 48 h, hourly 30 d, budget 10 000 records/s |
+| Q6 | New devices: learning period, scope (all switches, or exclude the server room / hypervisor ports), ignore randomised MACs? | 7 days, all switches, exclude ports per device as needed, ignore randomised MACs |
+| Q7 | SSO: Kerberos only, or do you have Entra ID and also want "Sign in with Microsoft"? Is `netmonitor.mnidom.net` an A record and can the AD admin create the SPN/keytab (AES)? | Kerberos only (recommended); OIDC stays OFF |
+| Q8 | Kerberos: sign in automatically on the login page? | Yes |
+| Q9 | Reports: recipients, weekly/monthly timing; availability excludes maintenance and "unreachable" time — agreed? HTML email + printable page instead of PDF acceptable? | Weekly Monday 07:47 + monthly 1st 07:47 to the IT mailbox and Teams channel; exclusions as specified; HTML + print |
+| Q10 | NOC screen: which machine/browser and IP shows it, scope, show IP addresses? | One screen, whole tree, no addresses |
+| Q11 | Chat ack: a **dedicated** Telegram bot for NetworkMonitor (a bot cannot be long-polled by two programs)? Teams ack via a link that works only on the office network/VPN — acceptable? Ack link also in emails? | Dedicated bot; Teams link yes; email link off |
+| Q12 | Proxy address for `app.env`, and does it allow ~60 s long-poll requests to api.telegram.org? | Ask IT; poll timeout 50 s, reduce if cut |

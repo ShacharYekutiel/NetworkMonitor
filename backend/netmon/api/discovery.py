@@ -8,8 +8,8 @@ from typing import Any
 from fastapi import APIRouter, Query, Response
 from sqlalchemy import func, select, text
 
-from netmon.api.common import commit_or_conflict, csv_list
-from netmon.api.deps import DB, RT, Admin, Page
+from netmon.api.common import commit_or_conflict, csv_list, flush_or_conflict
+from netmon.api.deps import DB, RT, Admin, Audit, Page
 from netmon.api.errors import ApiError, conflict, not_found, validation_error
 from netmon.discovery import options as opts_mod
 from netmon.discovery.importer import import_results
@@ -24,6 +24,7 @@ from netmon.schemas import (
     ImportRequest,
     ScanOptionsIn,
 )
+from netmon.services import audit
 from netmon.services.serialize import now_utc, page
 from netmon.templates import registry as template_registry
 
@@ -151,8 +152,31 @@ async def list_profiles(_: Admin, session: DB, pg: Page) -> dict:
     return page([profile_out(p) for p in rows], total, pg.page, pg.page_size)
 
 
+PROFILE_AUDIT_FIELDS = (
+    "name",
+    "targets",
+    "group_id",
+    "options",
+    "schedule_enabled",
+    "schedule_every_hours",
+    "notify_new_hosts",
+    "notify_channel_ids",
+)
+
+
+def _profile_values(p: DiscoveryProfile) -> dict[str, Any]:
+    """[2b-3] Audited fields (credentials inside `options` are redacted by the audit)."""
+    return {k: getattr(p, k) for k in PROFILE_AUDIT_FIELDS}
+
+
+def _profile_entity(p: DiscoveryProfile) -> audit.Entity:
+    return audit.entity("discovery_profile", p.id, p.name)
+
+
 @router.post("/api/discovery/profiles", status_code=201)
-async def create_profile(body: DiscoveryProfileCreate, _: Admin, rt: RT, session: DB) -> dict:
+async def create_profile(
+    body: DiscoveryProfileCreate, _: Admin, rt: RT, session: DB, ctx: Audit
+) -> dict:
     _check_targets(body.targets)
     await _check_group(session, body.group_id)
     channel_ids = list(dict.fromkeys(body.notify_channel_ids))
@@ -172,6 +196,14 @@ async def create_profile(body: DiscoveryProfileCreate, _: Admin, rt: RT, session
         next_run_at=now_utc() + timedelta(minutes=1) if body.schedule_enabled else None,
     )
     session.add(p)
+    await flush_or_conflict(session)
+    await audit.record(
+        session,
+        ctx,
+        "discovery_profile.create",
+        _profile_entity(p),
+        audit.created(_profile_values(p)),
+    )
     await commit_or_conflict(session)
     await session.refresh(p)
     rt.config_changed("discovery_profile", p.id, "created")
@@ -188,11 +220,12 @@ async def get_profile(profile_id: int, _: Admin, session: DB) -> dict:
 
 @router.patch("/api/discovery/profiles/{profile_id}")
 async def patch_profile(
-    profile_id: int, body: DiscoveryProfilePatch, _: Admin, rt: RT, session: DB
+    profile_id: int, body: DiscoveryProfilePatch, _: Admin, rt: RT, session: DB, ctx: Audit
 ) -> dict:
     p = await session.get(DiscoveryProfile, profile_id)
     if p is None:
         raise not_found("Discovery profile")
+    before = _profile_values(p)
     fields = body.model_fields_set
     if "name" in fields and body.name:
         name = body.name.strip()
@@ -221,6 +254,9 @@ async def patch_profile(
         p.next_run_at = None
     elif not was_enabled or p.schedule_every_hours != old_every or p.next_run_at is None:
         p.next_run_at = now_utc() + timedelta(minutes=1)
+    changes = audit.diff(before, _profile_values(p))
+    if changes:
+        await audit.record(session, ctx, "discovery_profile.update", _profile_entity(p), changes)
     await commit_or_conflict(session)
     await session.refresh(p)
     rt.config_changed("discovery_profile", p.id, "updated")
@@ -228,10 +264,17 @@ async def patch_profile(
 
 
 @router.delete("/api/discovery/profiles/{profile_id}", status_code=204)
-async def delete_profile(profile_id: int, _: Admin, rt: RT, session: DB) -> Response:
+async def delete_profile(profile_id: int, _: Admin, rt: RT, session: DB, ctx: Audit) -> Response:
     p = await session.get(DiscoveryProfile, profile_id)
     if p is None:
         raise not_found("Discovery profile")
+    await audit.record(
+        session,
+        ctx,
+        "discovery_profile.delete",
+        _profile_entity(p),
+        audit.deleted(_profile_values(p)),
+    )
     await session.delete(p)
     await session.commit()
     rt.config_changed("discovery_profile", profile_id, "deleted")
@@ -386,7 +429,9 @@ async def list_results(
 
 
 @router.post("/api/discovery/scans/{scan_id}/import")
-async def import_scan(scan_id: int, body: ImportRequest, user: Admin, rt: RT, session: DB) -> dict:
+async def import_scan(
+    scan_id: int, body: ImportRequest, user: Admin, rt: RT, session: DB, ctx: Audit
+) -> dict:
     scan = await _get_scan(session, scan_id)
     if scan.status == "running":
         raise _scan_running(scan.id)
@@ -403,4 +448,20 @@ async def import_scan(scan_id: int, body: ImportRequest, user: Admin, rt: RT, se
     lang = user.language
     await session.commit()
     items = [i.model_dump() for i in body.items]
-    return await import_results(rt, scan, group_id, items, lang)
+    result = await import_results(rt, scan, group_id, items, lang)
+    # [2b-3] the import creates devices in its own transactions: one summary record after it
+    await audit.record_now(
+        rt,
+        ctx,
+        "discovery.import",
+        audit.entity("discovery_scan", scan.id, None),
+        {
+            "group_id": [None, group_id],
+            "created_device_ids": [
+                None,
+                [c.get("device_id") for c in result.get("created", []) if isinstance(c, dict)],
+            ],
+            "errors": [None, len(result.get("errors", []))],
+        },
+    )
+    return result

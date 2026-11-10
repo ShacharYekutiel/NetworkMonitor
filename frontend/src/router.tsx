@@ -21,6 +21,15 @@ import { UsersPage } from './pages/UsersPage';
 import { MaintenancePage } from './pages/MaintenancePage';
 import { TopologyPage } from './pages/TopologyPage';
 import { FindPage } from './pages/FindPage';
+import { LogsPage } from './pages/LogsPage';
+import { AuditPage } from './pages/AuditPage';
+import { TokensPage } from './pages/TokensPage';
+import { ConfigBackupsPage } from './pages/ConfigBackupsPage';
+import { FlowsPage } from './pages/FlowsPage';
+import { NewDevicesPage } from './pages/NewDevicesPage';
+import { ReportsPage } from './pages/ReportsPage';
+import { ReportRunPage } from './pages/ReportRunPage';
+import { AckPage } from './pages/AckPage';
 
 function AdminOnly({ children }: { children: ReactNode }) {
   const { isAdmin } = useAuth();
@@ -75,6 +84,8 @@ export function AppRoutes() {
     <Routes>
       <Route path="/login" element={<Navigate to="/" replace />} />
       <Route path="/setup" element={<Navigate to="/" replace />} />
+      {/* [3] outside the app shell */}
+      <Route path="/ack" element={<AckPage />} />
       <Route element={<Layout />}>
         <Route index element={<DashboardPage />} />
         <Route path="groups/:id" element={<GroupPage />} />
@@ -86,6 +97,22 @@ export function AppRoutes() {
         <Route path="maintenance" element={<MaintenancePage />} />
         <Route path="topology" element={<TopologyPage />} />
         <Route path="find" element={<FindPage />} />
+        <Route path="logs" element={<LogsPage />} />
+        <Route path="tokens" element={<TokensPage />} />
+        {/* [3] */}
+        <Route path="config-backups" element={<ConfigBackupsPage />} />
+        <Route path="flows" element={<FlowsPage />} />
+        <Route path="new-devices" element={<NewDevicesPage />} />
+        <Route path="reports" element={<ReportsPage />} />
+        <Route path="reports/runs/:id" element={<ReportRunPage />} />
+        <Route
+          path="audit"
+          element={
+            <AdminOnly>
+              <AuditPage />
+            </AdminOnly>
+          }
+        />
         <Route
           path="discovery"
           element={

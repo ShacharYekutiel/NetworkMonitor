@@ -11,6 +11,8 @@ import type {
   SnmpStorage,
 } from '../api/types';
 import { SENSOR_TYPES } from '../api/types';
+import { useFeatures } from '../hooks/features';
+import { isEventSensor } from './EventConditions';
 import { useSensorTypes } from '../hooks/queries';
 import {
   buildSensorConfig,
@@ -71,7 +73,17 @@ export function AddSensorModal({
   const [testResult, setTestResult] = useState<CheckResult | null>(null);
 
   const def = types.data?.find((x) => x.type === type);
-  const available = SENSOR_TYPES.filter((x) => types.data?.some((d) => d.type === x));
+  const { features } = useFeatures();
+  // [2b-3] event sensors (one per device and type) only while their feature is on
+  const available = SENSOR_TYPES.filter(
+    (x) =>
+      types.data?.some((d) => d.type === x) &&
+      ((x !== 'trap' && x !== 'syslog') || features.event_alerts) &&
+      (x !== 'port_flap' || features.flapping) &&
+      (x !== 'config_backup' || features.config_backup) &&
+      (x !== 'new_mac' || features.new_device_alerts),
+  );
+  const passive = !!def?.passive || isEventSensor({ type });
 
   useEffect(() => {
     if (!open) return;
@@ -164,23 +176,28 @@ export function AddSensorModal({
               </Field>
             )}
             {/* Shown for every type: interface sensors created by the picker use it too. */}
-            <Field
-              label={t('sensors.interval')}
-              hint={
-                intervalVal === 'invalid' ? t('validation.interval') : t('sensors.intervalDefault')
-              }
-            >
-              <Input
-                type="number"
-                min={10}
-                max={86400}
-                value={interval}
-                placeholder={t('common.default')}
-                onChange={(e) => setInterval(e.target.value)}
-                dir="ltr"
-              />
-            </Field>
+            {!passive && (
+              <Field
+                label={t('sensors.interval')}
+                hint={
+                  intervalVal === 'invalid'
+                    ? t('validation.interval')
+                    : t('sensors.intervalDefault')
+                }
+              >
+                <Input
+                  type="number"
+                  min={10}
+                  max={86400}
+                  value={interval}
+                  placeholder={t('common.default')}
+                  onChange={(e) => setInterval(e.target.value)}
+                  dir="ltr"
+                />
+              </Field>
+            )}
           </div>
+          {passive && <p className="text-xs text-slate-500">{t('sensors.passiveCreateHint')}</p>}
           {def.requires_snmp && (
             <p className="text-xs text-slate-500">
               {t('sensors.requiresSnmp', {
@@ -188,7 +205,27 @@ export function AddSensorModal({
               })}
             </p>
           )}
-          {type === 'snmp_interface' ? (
+          {passive ? (
+            <form
+              onSubmit={(e) => {
+                e.preventDefault();
+                create.mutate({
+                  device_id: device.id,
+                  type,
+                  name: name.trim() || t(`sensorType.${type}`),
+                });
+              }}
+              className="space-y-3"
+            >
+              <ErrorBox error={create.error} />
+              <div className="flex justify-end gap-2">
+                <Button onClick={close}>{t('common.cancel')}</Button>
+                <Button type="submit" variant="primary" busy={create.isPending}>
+                  {t('sensors.create')}
+                </Button>
+              </div>
+            </form>
+          ) : type === 'snmp_interface' ? (
             <InterfacePicker device={device} interval={intervalVal} onDone={close} />
           ) : (
             <form onSubmit={submit} className="space-y-4">
@@ -437,8 +474,13 @@ export function EditSensorModal({
   });
   const intervalVal = parseInterval(interval);
 
+  const passive = isEventSensor(sensor);
   const submit = (e: FormEvent) => {
     e.preventDefault();
+    if (passive) {
+      m.mutate({ name: name.trim(), sort_order: Number(sortOrder) || 0 });
+      return;
+    }
     if (!def || intervalVal === 'invalid' || intervalVal === undefined) return;
     const { config, errors: errs } = buildSensorConfig(sensor.type, def.config_fields, raw);
     setErrors(errs);
@@ -466,24 +508,26 @@ export function EditSensorModal({
                 maxLength={128}
               />
             </Field>
-            <Field
-              label={t('sensors.interval')}
-              hint={
-                intervalVal === 'invalid' || intervalVal === undefined
-                  ? t('validation.interval')
-                  : undefined
-              }
-              required
-            >
-              <Input
-                type="number"
-                min={10}
-                max={86400}
-                value={interval}
-                onChange={(e) => setInterval(e.target.value)}
-                dir="ltr"
-              />
-            </Field>
+            {!passive && (
+              <Field
+                label={t('sensors.interval')}
+                hint={
+                  intervalVal === 'invalid' || intervalVal === undefined
+                    ? t('validation.interval')
+                    : undefined
+                }
+                required
+              >
+                <Input
+                  type="number"
+                  min={10}
+                  max={86400}
+                  value={interval}
+                  onChange={(e) => setInterval(e.target.value)}
+                  dir="ltr"
+                />
+              </Field>
+            )}
             <Field label={t('common.sortOrder')}>
               <Input
                 type="number"

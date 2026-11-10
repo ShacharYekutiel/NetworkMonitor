@@ -28,4 +28,23 @@ async def health(rt: RT) -> dict:
         "sensors_scheduled": sched.scheduled_count if sched is not None else 0,
         "uptime_s": rt.uptime_s(),
         "test_mode": bool(rt.settings.netmon_test_mode),
+        # [2b-3]
+        "trgm": bool(getattr(rt, "trgm_enabled", False)),
+        "ingest": {
+            **(
+                rt.ingest.receiver_states()
+                if getattr(rt, "ingest", None) is not None
+                else {"trap": "disabled", "syslog_udp": "disabled", "syslog_tcp": "disabled"}
+            ),
+            # [3] flow receivers
+            **(
+                rt.flows.receiver_states()
+                if getattr(rt, "flows", None) is not None
+                else {"netflow": "disabled", "ipfix": "disabled", "sflow": "disabled"}
+            ),
+        },
+        "flows_rollup": getattr(rt, "flows_rollup", None),  # [3]
+        "kerberos": (  # [3]
+            rt.kerberos.health_state() if getattr(rt, "kerberos", None) is not None else "disabled"
+        ),
     }

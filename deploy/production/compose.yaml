@@ -5,8 +5,10 @@
 #     -f compose.yaml --env-file release.env config -q
 #
 # Based on deploy/docker-compose.yml (same init / db / netmon services and volume names),
-# with: the image pinned by release.env (no build), the app not published directly, and a
-# Caddy reverse proxy terminating HTTPS on 443 (80 -> 443 redirect).
+# with: the image pinned by release.env (no build), the web UI not published directly, a
+# Caddy reverse proxy terminating HTTPS on 443 (80 -> 443 redirect), the SNMP trap /
+# syslog receivers published on the standard ports 162/udp and 514/udp+tcp [2b-3], and the
+# flow receivers on 2055/udp (NetFlow/IPFIX), 4739/udp (IPFIX), 6343/udp (sFlow) [3].
 #
 # Host paths (root-only, never in git):
 #   ${NETMON_ETC_DIR:-/etc/netmon-gitops}/tls/{cert.pem,key.pem}  TLS cert (full chain) + key
@@ -97,6 +99,14 @@ services:
       NETMON_DB_PASSWORD_FILE: /data/db_password
       NETMON_DATA_DIR: /data
       NETMON_PORT: "8080"
+      # [2b-3] Receiver ports inside the container; must match `ports:` below.
+      NETMON_TRAP_PORT: "1162"
+      NETMON_SYSLOG_PORT: "1514"
+      NETMON_SYSLOG_TCP_PORT: "1514"
+      # [3] Flow receivers (Flows feature); published 1:1 below.
+      NETMON_NETFLOW_PORT: "2055"
+      NETMON_IPFIX_PORT: "4739"
+      NETMON_SFLOW_PORT: "6343"
       # Behind Caddy: trust X-Forwarded-* (Caddy overwrites client-supplied ones) and
       # always mark the session cookie Secure (the site is HTTPS-only).
       NETMON_TRUST_PROXY: "true"
@@ -108,17 +118,25 @@ services:
       - netmon-data:/data
       # Corporate root CAs (TLS-inspecting proxy) trusted by the app at runtime.
       - ${NETMON_ETC_DIR:-/etc/netmon-gitops}/ca:/etc/netmon/certs:ro
-    # Reachable only through Caddy (no `ports:`).
+    # The web UI/API is reachable only through Caddy (8080 is not published).
     expose:
       - "8080"
-    # [2b-3 placeholder] Inbound SNMP traps and syslog must keep the sender's IP address.
-    # Docker's published ports (iptables DNAT) preserve the source IP for external senders;
-    # the app must listen on these ports inside the container (non-root: map to >1024 or
-    # set net.ipv4.ip_unprivileged_port_start). Uncomment when phase 2b-3 ships:
-    # ports:
-    #   - "162:1162/udp"   # SNMP traps
-    #   - "514:1514/udp"   # syslog
-    #   - "514:1514/tcp"   # syslog
+    # [2b-3] Inbound SNMP traps and syslog. Published with iptables DNAT (Docker's default
+    # bridge networking), which keeps the sender's source IP for traffic from other
+    # machines, so messages are attributed to the right device. The app (non-root) listens
+    # on 1162 / 1514 inside the container, and ONLY while the owner has turned the Traps /
+    # Syslog feature on in Settings -> Features (no server change needed to turn them on).
+    # ufw does NOT filter these ports; see README.md "Traps and syslog" (DOCKER-USER,
+    # ops/ingest-firewall.sh) to restrict which networks may send.
+    ports:
+      - "162:1162/udp"   # SNMP traps (and v2c informs)
+      - "514:1514/udp"   # syslog
+      - "514:1514/tcp"   # syslog (RFC 6587 framing)
+      # [3] Flow export, same DNAT / source-IP / DOCKER-USER notes as above; nothing listens
+      # until the owner turns the Flows feature on (Settings -> Features).
+      - "2055:2055/udp"  # NetFlow v5/v9 and IPFIX
+      - "4739:4739/udp"  # IPFIX (IANA port)
+      - "6343:6343/udp"  # sFlow v5
     sysctls:
       net.ipv4.ping_group_range: "0 2147483647"
     healthcheck:

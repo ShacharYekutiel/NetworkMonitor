@@ -42,10 +42,14 @@ import {
 import { errorMessage } from '../lib/errors';
 import { headersToText, textToHeaders } from '../lib/sensorConfig';
 import { isTelegramChatId, isTelegramToken } from '../lib/telegram';
+import { ChatAckFields } from '../components/chatack/ChannelAckFields';
+import type { TeamsChannelConfig, TeamsChannelConfigInput } from '../api/types';
+import { isLegacyTeamsHost, teamsUrlError, urlHost } from '../lib/teams';
 
 function channelTarget(c: NotificationChannel): string {
   if (c.type === 'email') return (c.config as EmailChannelConfig).to?.join(', ') ?? '';
   if (c.type === 'telegram') return (c.config as TelegramChannelConfig).chat_id ?? '';
+  if (c.type === 'teams') return (c.config as TeamsChannelConfig).url_host ?? '';
   return (c.config as WebhookChannelConfig).url ?? '';
 }
 
@@ -112,6 +116,10 @@ function ChannelModal({
   const [silent, setSilent] = useState(false);
   const [touched, setTouched] = useState(false);
   const [testResult, setTestResult] = useState<TestResult | null>(null);
+  const [teamsUrl, setTeamsUrl] = useState('');
+  // [3] chat acknowledge
+  const [ackButtons, setAckButtons] = useState(false);
+  const [ackLink, setAckLink] = useState(false);
 
   useEffect(() => {
     if (!open) return;
@@ -130,6 +138,11 @@ function ChannelModal({
     setChatId(tc?.chat_id ?? '');
     setParseMode(tc ? (tc.parse_mode ?? '') : 'HTML');
     setSilent(tc?.disable_notification ?? false);
+    setTeamsUrl('');
+    // [3] defaults (data-model § Channel config additions): teams ack_link true, others false
+    const cfg = (channel?.config ?? {}) as { ack_buttons?: boolean; ack_link?: boolean };
+    setAckButtons(cfg.ack_buttons ?? false);
+    setAckLink(cfg.ack_link ?? (channel ? channel.type === 'teams' : false));
     setTouched(false);
     setTestResult(null);
     test.reset();
@@ -157,6 +170,11 @@ function ChannelModal({
           ? null
           : t('telegram.chatIdInvalid');
 
+  // [2b-3] Teams: the URL is write-only (url_set / url_host / legacy in responses).
+  const teamsCfg = channel?.type === 'teams' ? (channel.config as TeamsChannelConfig) : null;
+  const teamsErr = type === 'teams' ? teamsUrlError(teamsUrl, !teamsCfg?.url_set) : null;
+  const teamsLegacy = teamsUrl.trim() ? isLegacyTeamsHost(urlHost(teamsUrl)) : !!teamsCfg?.legacy;
+
   const test = useMutation({
     mutationFn: () => endpoints.testChannel(channel!.id),
     onSuccess: setTestResult,
@@ -176,30 +194,37 @@ function ChannelModal({
   const submit = (e: FormEvent) => {
     e.preventDefault();
     setTouched(true);
-    if (tokenErr || chatErr) return;
+    if (tokenErr || chatErr || teamsErr) return;
     const telegram: TelegramChannelConfigInput = {
       chat_id: chatId.trim(),
       parse_mode: parseMode || null,
       disable_notification: silent,
+      ack_buttons: ackButtons,
+      ack_link: ackLink,
     };
     // Write-only secret: omitted keeps the stored token on PATCH (api.md § telegram).
     if (botToken.trim()) telegram.bot_token = botToken.trim();
+    const teams: TeamsChannelConfigInput = { ack_link: ackLink };
+    if (teamsUrl.trim()) teams.url = teamsUrl.trim();
     const config =
-      type === 'telegram'
-        ? telegram
-        : type === 'email'
-          ? {
-              to: to
-                .split(/[\s,;]+/)
-                .map((x) => x.trim())
-                .filter(Boolean),
-            }
-          : {
-              url: url.trim(),
-              headers: textToHeaders(headers),
-              verify_tls: verifyTls,
-              timeout_s: Number(timeout) || 10,
-            };
+      type === 'teams'
+        ? teams
+        : type === 'telegram'
+          ? telegram
+          : type === 'email'
+            ? {
+                to: to
+                  .split(/[\s,;]+/)
+                  .map((x) => x.trim())
+                  .filter(Boolean),
+                ack_link: ackLink,
+              }
+            : {
+                url: url.trim(),
+                headers: textToHeaders(headers),
+                verify_tls: verifyTls,
+                timeout_s: Number(timeout) || 10,
+              };
     const body: ChannelInput = { name: name.trim(), enabled, config };
     if (!channel) body.type = type;
     m.mutate(body);
@@ -221,7 +246,11 @@ function ChannelModal({
           <Select
             value={type}
             disabled={!!channel}
-            onChange={(e) => setType(e.target.value as NotificationType)}
+            onChange={(e) => {
+              const v = e.target.value as NotificationType;
+              setType(v);
+              setAckLink(v === 'teams');
+            }}
           >
             {NOTIFICATION_TYPES.map((nt) => (
               <option key={nt} value={nt}>
@@ -230,7 +259,45 @@ function ChannelModal({
             ))}
           </Select>
         </Field>
-        {type === 'telegram' ? (
+        {type === 'teams' ? (
+          <>
+            <p className="text-xs text-slate-500">{t('teams.help')}</p>
+            <Field
+              label={t('teams.url')}
+              required={!teamsCfg?.url_set}
+              hint={
+                touched && teamsErr ? (
+                  <span className="text-red-600">{t(teamsErr)}</span>
+                ) : teamsCfg?.url_set ? (
+                  t('teams.storedHint', { host: teamsCfg.url_host ?? '' })
+                ) : (
+                  t('teams.urlHint')
+                )
+              }
+            >
+              <Input
+                type="password"
+                autoComplete="new-password"
+                value={teamsUrl}
+                placeholder={
+                  teamsCfg?.url_set ? t('secret.stored') : 'https://…logic.azure.com/workflows/…'
+                }
+                onChange={(e) => setTeamsUrl(e.target.value)}
+                dir="ltr"
+                aria-invalid={touched && !!teamsErr}
+              />
+            </Field>
+            {teamsLegacy && (
+              <div
+                role="alert"
+                className="rounded-md bg-amber-50 px-3 py-2 text-sm text-amber-900 ring-1 ring-inset ring-amber-200 dark:bg-amber-950/40 dark:text-amber-200 dark:ring-amber-900"
+                data-testid="teams-legacy"
+              >
+                {t('teams.legacy')}
+              </div>
+            )}
+          </>
+        ) : type === 'telegram' ? (
           <>
             <TelegramHelp />
             <Field
@@ -340,6 +407,16 @@ function ChannelModal({
               </div>
             </div>
           </>
+        )}
+        {type !== 'webhook' && (
+          <ChatAckFields
+            type={type}
+            channel={channel}
+            ackButtons={ackButtons}
+            ackLink={ackLink}
+            onAckButtons={setAckButtons}
+            onAckLink={setAckLink}
+          />
         )}
         <Checkbox label={t('common.enabled')} checked={enabled} onChange={setEnabled} />
         <ErrorBox error={m.error} />
@@ -729,6 +806,14 @@ export function NotificationsPage() {
                   <td className={td}>{t(`channels.${c.type}`)}</td>
                   <td className={`${td} max-w-xs truncate text-slate-500`}>
                     <Ltr>{channelTarget(c)}</Ltr>
+                    {c.type === 'teams' && (c.config as TeamsChannelConfig).legacy && (
+                      <span
+                        className="ms-1 text-xs text-amber-700 dark:text-amber-300"
+                        title={t('teams.legacy')}
+                      >
+                        ({t('teams.legacyShort')})
+                      </span>
+                    )}
                   </td>
                   <td className={td}>{c.enabled ? t('common.yes') : t('common.no')}</td>
                   <td className={`${td} whitespace-nowrap text-end`}>

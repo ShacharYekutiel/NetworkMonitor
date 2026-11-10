@@ -18,11 +18,20 @@
 #   2. Creates the system user `netmon`, /opt/netmon/venv and /var/lib/netmon (0750).
 #   3. Creates the DB role + database `netmon` with a random password and writes
 #      /var/lib/netmon/netmon.env (DATABASE_URL=..., mode 0600).
-#   4. Installs the app (with the web UI bundled) into the venv.
-#   5. Installs netmon.service (CAP_NET_RAW ambient capability), enables and starts it.
-#   6. Prints the URL.
+#   4. Installs the app (with the web UI bundled) into the venv, with the `kerberos` extra
+#      (python-gssapi, built against MIT krb5: libgssapi-krb5-2 / krb5-libs at runtime) for
+#      Kerberos SSO. If gssapi cannot be built the app is installed without it (warning;
+#      Kerberos SSO then reports "unavailable", everything else works).
+#   5. Installs netmon.service (CAP_NET_RAW + CAP_NET_BIND_SERVICE ambient capabilities:
+#      ping fallback, SNMP traps on UDP 162 and syslog on UDP/TCP 514), enables and starts it.
+#      [3] The flow receivers (UDP 2055/4739/6343) are > 1024 and need no capability.
+#   6. Prints the URL, the firewall lines for traps/syslog/flows and any port conflict
+#      (snmptrapd / rsyslog / nfcapd already listening on 162 / 514 / 2055 / 4739 / 6343).
 # Corporate TLS inspection: certificates in deploy/certs/ (see deploy/certs/README.md) are
 # added to the system trust store first, so apt/dnf, pip, npm and the app trust them.
+# Outbound proxy: when HTTPS_PROXY is set for the installer (sudo -E) or --https-proxy is
+# given, the service gets it too (drop-in 20-proxy.conf: Telegram / Teams / Entra ID /
+# webhooks; SSH, SNMP, flows and LDAP never use it). Kept on re-runs.
 # =============================================================================
 set -Eeuo pipefail
 
@@ -50,6 +59,9 @@ OPT_SOURCE=""
 OPT_PORT=""
 OPT_TIMESCALE=1
 OPT_FIREWALL=1
+OPT_KERBEROS=1
+OPT_HTTPS_PROXY="${HTTPS_PROXY:-${https_proxy:-}}"
+OPT_NO_PROXY="${NO_PROXY:-${no_proxy:-}}"
 
 usage() {
   cat <<EOF
@@ -62,7 +74,15 @@ Options:
                         script lives in, or a wheel shipped next to it)
   --port <n>            HTTP port (default 8080, or the port of the existing installation)
   --no-timescale        Do not try to install TimescaleDB (plain PostgreSQL mode)
-  --no-firewall         Do not open the port in firewalld / ufw
+  --no-firewall         Do not open the HTTP port in firewalld / ufw (traps/syslog/flow
+                        ports are never opened automatically; the installer prints the lines)
+  --no-kerberos         Do not install the Kerberos SSO support (python-gssapi and the
+                        compiler / krb5 headers needed to build it)
+  --https-proxy <url>   Outbound HTTPS proxy for the service (Telegram, Teams, Entra ID,
+                        webhooks), e.g. http://proxy.corp.local:8080. Default: HTTPS_PROXY
+                        of the installer's environment, else the one set by an earlier run
+  --no-proxy <list>     Extra NO_PROXY entries for the service (internal webhook targets),
+                        e.g. .corp.local,10.0.0.0/8
   -h, --help            Show this help
 EOF
 }
@@ -75,6 +95,9 @@ while [ $# -gt 0 ]; do
     --port) OPT_PORT="${2:?--port needs a value}"; shift 2 ;;
     --no-timescale) OPT_TIMESCALE=0; shift ;;
     --no-firewall) OPT_FIREWALL=0; shift ;;
+    --no-kerberos) OPT_KERBEROS=0; shift ;;
+    --https-proxy) OPT_HTTPS_PROXY="${2:?--https-proxy needs a value}"; shift 2 ;;
+    --no-proxy) OPT_NO_PROXY="${2:?--no-proxy needs a value}"; shift 2 ;;
     -h | --help) usage; exit 0 ;;
     *) echo "Unknown option: $1" >&2; usage >&2; exit 2 ;;
   esac
@@ -474,6 +497,34 @@ if ! find_python; then
 fi
 ok "Using $("$PYTHON" -V) at ${PYTHON}"
 
+# ============================================================================= Kerberos libs
+# [3] Kerberos SSO (feature `sso_kerberos`) uses python-gssapi over MIT krb5. PyPI has no
+# Linux wheels for gssapi, so pip compiles it: runtime library + krb5 headers, a C compiler
+# and the Python headers. Best effort: without them the app is installed without the extra.
+KRB_BUILD_OK=0
+if [ "$OPT_KERBEROS" -eq 1 ]; then
+  log "Installing the MIT Kerberos libraries (Kerberos SSO)"
+  PY_MM="$("$PYTHON" -c 'import sys; print("%d.%d" % sys.version_info[:2])')"
+  py_headers() {
+    "$PYTHON" -c 'import os, sys, sysconfig; sys.exit(0 if os.path.isfile(os.path.join(sysconfig.get_paths()["include"], "Python.h")) else 1)' 2>/dev/null
+  }
+  if [ "$FAMILY" = debian ]; then
+    apt_install libgssapi-krb5-2 >/dev/null 2>&1 || warn "could not install libgssapi-krb5-2"
+    apt_install libkrb5-dev gcc libc6-dev >/dev/null 2>&1 || true
+    py_headers || apt_install "python${PY_MM}-dev" >/dev/null 2>&1 || apt_install python3-dev >/dev/null 2>&1 || true
+  else
+    dnf_install krb5-libs >/dev/null 2>&1 || warn "could not install krb5-libs"
+    dnf_install krb5-devel gcc >/dev/null 2>&1 || true
+    py_headers || dnf_install "python${PY_MM}-devel" >/dev/null 2>&1 || dnf_install python3-devel >/dev/null 2>&1 || true
+  fi
+  if have krb5-config && have gcc && py_headers; then
+    KRB_BUILD_OK=1
+    ok "krb5 headers, compiler and Python headers present"
+  else
+    warn "Cannot build python-gssapi (missing krb5-config / gcc / Python.h): Kerberos SSO will be unavailable."
+  fi
+fi
+
 # ============================================================================= user & dirs
 log "Creating the system user and directories"
 if ! id -u "$APP_USER" >/dev/null 2>&1; then
@@ -594,6 +645,16 @@ fi
 [ -x "${VENV}/bin/python" ] || "$PYTHON" -m venv "$VENV"
 export PIP_DISABLE_PIP_VERSION_CHECK=1 PIP_NO_CACHE_DIR=1
 "${VENV}/bin/python" -m pip install -q --upgrade pip setuptools wheel
+KERBEROS=0
+if [ "$KRB_BUILD_OK" -eq 1 ]; then
+  # "<wheel or dir>[kerberos]": the app plus python-gssapi (compiled here).
+  if "${VENV}/bin/python" -m pip install -q --upgrade "${PKG}[kerberos]" \
+    && "${VENV}/bin/python" -c 'import gssapi.raw' >/dev/null 2>&1; then
+    KERBEROS=1
+  else
+    warn "python-gssapi could not be installed; continuing without Kerberos SSO."
+  fi
+fi
 "${VENV}/bin/python" -m pip install -q --upgrade "$PKG"
 # Same version on re-run: force the app itself to be replaced (dependencies stay).
 "${VENV}/bin/python" -m pip install -q --no-deps --force-reinstall "$PKG"
@@ -646,6 +707,25 @@ if [ "$TIMESCALE" -eq 1 ]; then
   # Created by the superuser here, so the app does not need superuser rights for it.
   psql_super -d "$DB_NAME" -c "CREATE EXTENSION IF NOT EXISTS timescaledb" >/dev/null 2>&1 \
     || warn "CREATE EXTENSION timescaledb failed; the app will use plain PostgreSQL mode."
+fi
+
+# [2b-3] pg_trgm (contrib) indexes the syslog/trap text search. It is a trusted extension,
+# but creating it here as the superuser also covers servers where the app role may not.
+pg_trgm_available() {
+  [ "$(psql_super -Atc "SELECT count(*) FROM pg_available_extensions WHERE name = 'pg_trgm'" 2>/dev/null)" = 1 ]
+}
+if ! pg_trgm_available; then
+  log "Installing the PostgreSQL contrib package (pg_trgm)"
+  case "$PG_FLAVOUR" in
+    debian) apt_install "postgresql-contrib-${PG_MAJOR}" >/dev/null 2>&1 || apt_install postgresql-contrib >/dev/null 2>&1 || true ;;
+    pgdg-rpm) dnf_install "postgresql${PG_MAJOR}-contrib" >/dev/null 2>&1 || true ;;
+    *) dnf_install postgresql-contrib >/dev/null 2>&1 || true ;;
+  esac
+fi
+if psql_super -d "$DB_NAME" -c "CREATE EXTENSION IF NOT EXISTS pg_trgm" >/dev/null 2>&1; then
+  ok "pg_trgm extension ready"
+else
+  warn "pg_trgm is not available (PostgreSQL contrib package missing): log search will be slower."
 fi
 
 # Password logins over loopback for the netmon role (RHEL's initdb defaults to `ident`).
@@ -701,6 +781,29 @@ cat >"${DROPIN_DIR}/10-postgresql.conf" <<EOF
 Wants=${PG_UNIT}
 After=${PG_UNIT}
 EOF
+# [3] Outbound proxy for the app's HTTPS clients (httpx honours HTTPS_PROXY / NO_PROXY).
+# The proxy must allow long requests (>= 70 s) to api.telegram.org (Telegram long polling).
+if [ -n "$OPT_HTTPS_PROXY" ]; then
+  case "$OPT_HTTPS_PROXY" in
+    *[[:space:]\"]*) die "--https-proxy must not contain spaces or quotes" ;;
+  esac
+  no_proxy_list="localhost,127.0.0.1,::1${OPT_NO_PROXY:+,${OPT_NO_PROXY}}"
+  case "$no_proxy_list" in
+    *[[:space:]\"]*) die "--no-proxy must not contain spaces or quotes" ;;
+  esac
+  log "Service outbound proxy: ${OPT_HTTPS_PROXY%%://*}://... (NO_PROXY=${no_proxy_list})"
+  # '%' is a systemd specifier (URL-encoded proxy passwords): escape it. Root-only (0600):
+  # the URL may carry proxy credentials.
+  px="${OPT_HTTPS_PROXY//%/%%}"
+  install -m 0600 /dev/null "${DROPIN_DIR}/20-proxy.conf"
+  cat >"${DROPIN_DIR}/20-proxy.conf" <<EOF
+# Generated by install.sh (--https-proxy / HTTPS_PROXY): outbound HTTPS of the app.
+[Service]
+Environment="HTTPS_PROXY=${px}" "HTTP_PROXY=${px}" "NO_PROXY=${no_proxy_list//%/%%}"
+EOF
+elif [ -f "${DROPIN_DIR}/20-proxy.conf" ]; then
+  ok "Keeping the service proxy from ${DROPIN_DIR}/20-proxy.conf"
+fi
 systemctl daemon-reload
 systemctl enable netmon.service >/dev/null 2>&1
 systemctl restart netmon.service
@@ -742,3 +845,56 @@ echo "  Health:   http://${HOST_IP}:${PORT}/api/health"
 echo "  Service:  systemctl status netmon   |   logs: journalctl -u netmon -f"
 echo "  Data:     ${DATA_DIR}   (config: ${ENV_FILE})"
 [ "$TIMESCALE" -eq 1 ] || echo "  Storage:  plain PostgreSQL mode (TimescaleDB not installed)"
+if [ "$KERBEROS" -eq 1 ]; then
+  echo "  Kerberos: SSO support installed (Settings -> Single sign-on; AD steps: deploy/README.md)"
+else
+  echo "  Kerberos: SSO support NOT installed (re-run without --no-kerberos once gcc/krb5 headers are available)"
+fi
+
+# ============================================================================= traps / syslog
+# [2b-3] The receivers listen on UDP 162 (traps) and UDP/TCP 514 (syslog) only while the
+# Traps / Syslog features are ON (Settings -> Features). Nothing is opened in the firewall
+# automatically: restrict senders to the device networks with the lines printed here.
+lan_cidr() {
+  # The connected IPv4 network of the interface that holds the default route.
+  local dev
+  dev="$(ip -o -4 route show default 2>/dev/null | awk '{for (i = 1; i < NF; i++) if ($i == "dev") {print $(i + 1); exit}}')"
+  [ -n "$dev" ] || return 0
+  ip -o -4 route show dev "$dev" scope link proto kernel 2>/dev/null | awk '{print $1; exit}'
+}
+LAN="$(lan_cidr || true)"
+LAN="${LAN:-<device-network/prefix>}"
+echo
+echo "  SNMP traps (UDP 162) and syslog (UDP+TCP 514): turn them on in Settings -> Features,"
+echo "  then point the devices at ${HOST_IP} (examples: deploy/README.md, 'Traps and syslog')."
+echo "  Flows (UDP 2055 NetFlow/IPFIX, 4739 IPFIX, 6343 sFlow): turn on 'Flows' in Settings -> Features,"
+echo "  then configure flow export on the devices (examples: deploy/README.md, 'Flows')."
+if have ufw && ufw status 2>/dev/null | grep -q '^Status: active'; then
+  echo "  ufw is active; allow the device networks (repeat per network):"
+  echo "      ufw allow from ${LAN} to any port 162 proto udp"
+  echo "      ufw allow from ${LAN} to any port 514 proto udp"
+  echo "      ufw allow from ${LAN} to any port 514 proto tcp"
+  echo "      ufw allow from ${LAN} to any port 2055 proto udp"
+  echo "      ufw allow from ${LAN} to any port 4739 proto udp"
+  echo "      ufw allow from ${LAN} to any port 6343 proto udp"
+elif have firewall-cmd && firewall-cmd --state >/dev/null 2>&1; then
+  echo "  firewalld is active; allow the device networks (repeat per network):"
+  for rule in "port port=162 protocol=udp" "port port=514 protocol=udp" "port port=514 protocol=tcp" \
+    "port port=2055 protocol=udp" "port port=4739 protocol=udp" "port port=6343 protocol=udp"; do
+    echo "      firewall-cmd --permanent --add-rich-rule='rule family=ipv4 source address=${LAN} ${rule} accept'"
+  done
+  echo "      firewall-cmd --reload"
+fi
+
+# Another program holding the ports makes the receiver report "Address already in use".
+if have ss; then
+  CONFLICTS="$(ss -H -lunpt '( sport = :162 or sport = :514 or sport = :2055 or sport = :4739 or sport = :6343 )' 2>/dev/null | grep -v '"netmon"' | grep -v 'pid='"$(systemctl show -p MainPID --value netmon.service 2>/dev/null || echo 0)"',' || true)"
+  if [ -n "$CONFLICTS" ]; then
+    warn "Another program already listens on UDP 162 / UDP-TCP 514 / UDP 2055-4739-6343; NetworkMonitor cannot receive traps/syslog/flows there:"
+    printf '%s\n' "$CONFLICTS" | sed 's/^/      /' >&2
+    case "$CONFLICTS" in *snmptrapd*) warn "  snmptrapd: sudo systemctl disable --now snmptrapd" ;; esac
+    case "$CONFLICTS" in *rsyslogd*) warn "  rsyslog: remove the imudp/imtcp port 514 input (/etc/rsyslog.conf, /etc/rsyslog.d/) and: sudo systemctl restart rsyslog" ;; esac
+    case "$CONFLICTS" in *syslog-ng*) warn "  syslog-ng: remove the network() / udp() / tcp() source on port 514 and restart syslog-ng" ;; esac
+    case "$CONFLICTS" in *nfcapd* | *sfcapd* | *pmacct* | *nfacctd* | *sfacctd* | *goflow*) warn "  another flow collector (nfdump / pmacct / goflow): stop it or move it to other ports" ;; esac
+  fi
+fi

@@ -63,10 +63,29 @@ jobs:
           cache: pip
           cache-dependency-path: backend/pyproject.toml
 
+      # [3] python-gssapi (Kerberos SSO, extra `kerberos`) has no Linux wheels: it is built
+      # against MIT krb5 (libkrb5-dev). The KDC simulator (tests/sim/kdc) needs an MIT KDC;
+      # its tests are skipped when krb5kdc is missing.
+      - name: System packages (MIT krb5 headers + KDC for the Kerberos tests)
+        run: |
+          sudo apt-get update -q
+          sudo DEBIAN_FRONTEND=noninteractive apt-get install -y -q --no-install-recommends \
+            libkrb5-dev krb5-kdc krb5-admin-server krb5-user
+
       - name: Install
         run: |
           python -m pip install --upgrade pip
-          pip install -e ".[dev]"
+          pip install -e ".[dev,kerberos]"
+          python -c "import asyncssh, gssapi; print('asyncssh', asyncssh.__version__, '/ gssapi ok')"
+
+      # [2b-3] The syslog/trap text search uses pg_trgm (contrib). Both service images ship
+      # it; fail fast with a clear message if an image ever drops it.
+      - name: DB service provides pg_trgm
+        env:
+          PGPASSWORD: netmon
+        run: |
+          test "$(psql -h localhost -U netmon -d netmon -Atc "SELECT count(*) FROM pg_available_extensions WHERE name = 'pg_trgm'")" = 1 \
+            || { echo "::error::pg_trgm is not available in ${{ matrix.db.image }}"; exit 1; }
 
       - name: Lint (ruff)
         run: |
@@ -187,6 +206,52 @@ jobs:
           done
           [ "$s" = healthy ]
 
+      # [2b-3] Ports 162/udp and 514/udp+tcp are published, but nothing listens until the
+      # features are turned on through the API (= Settings -> Features), without a restart.
+      - name: Traps and syslog (published ports, feature toggles)
+        run: |
+          set -eu
+          # AD login dependency (ldap3) made it into the image.
+          $COMPOSE exec -T netmon python -c 'import ldap3; print("ldap3", ldap3.__version__)'
+          curl -fsS http://localhost:8080/api/health -o health.json
+          python3 - <<'EOF'
+          import json
+          h = json.load(open("health.json"))
+          assert h["trgm"] is True, h
+          assert all(v == "disabled" for v in h["ingest"].values()), h
+          print("ingest off by default:", h["ingest"])
+          EOF
+          curl -fsS -b cookies.txt -X PUT -H 'Content-Type: application/json' \
+            -d '{"feature_traps_enabled": true, "feature_syslog_enabled": true}' \
+            http://localhost:8080/api/settings -o /dev/null
+          python3 .github/scripts/ingest-check.py listening
+          python3 .github/scripts/ingest-check.py send-and-find
+
+      # [3] Flow ports 2055/4739/6343 (UDP) are published 1:1; nothing listens until the
+      # Flows feature is on. Kerberos (gssapi + libgssapi-krb5-2) and asyncssh are in the
+      # image but idle while their features are off.
+      - name: Phase 3 (flows ports, Kerberos/SSH libraries, features off by default)
+        run: |
+          set -eu
+          $COMPOSE exec -T netmon sh -c 'pip check && python -c "import asyncssh, gssapi.raw; print(\"asyncssh\", asyncssh.__version__, \"/ gssapi ok\")"'
+          for p in 2055 4739 6343; do $COMPOSE port --protocol udp netmon "$p"; done
+          curl -fsS http://localhost:8080/api/health -o health.json
+          python3 - <<'EOF'
+          import json
+          h = json.load(open("health.json"))
+          assert {"netflow", "ipfix", "sflow"} <= set(h["ingest"]), h
+          assert all(h["ingest"][k] == "disabled" for k in ("netflow", "ipfix", "sflow")), h
+          assert h["kerberos"] == "disabled", h
+          assert "flows_rollup" in h, h
+          print("flows off by default:", {k: h["ingest"][k] for k in ("netflow", "ipfix", "sflow")},
+                "kerberos:", h["kerberos"], "flows_rollup:", h["flows_rollup"])
+          EOF
+          curl -fsS -b cookies.txt -X PUT -H 'Content-Type: application/json' \
+            -d '{"feature_flows_enabled": true}' \
+            http://localhost:8080/api/settings -o /dev/null
+          python3 .github/scripts/ingest-check.py flows-listening
+          python3 .github/scripts/ingest-check.py flows-pipeline
+
       - name: Restart keeps data and password
         run: |
           $COMPOSE down
@@ -194,6 +259,10 @@ jobs:
           curl -fsS --retry 30 --retry-delay 2 --retry-all-errors http://localhost:8080/api/health
           # Same DB password (init keeps it) and the admin created above still exists.
           curl -fsS http://localhost:8080/api/setup/status | grep -q '"setup_required":false'
+          # [2b-3] The feature toggles survive the restart: the receivers listen again.
+          python3 .github/scripts/ingest-check.py listening
+          # [3] Same for the flow receivers.
+          python3 .github/scripts/ingest-check.py flows-listening
 
       - name: Logs
         if: always()
@@ -213,6 +282,8 @@ jobs:
       - uses: actions/checkout@v4
       - name: shellcheck
         run: shellcheck -x deploy/*.sh deploy/linux/*.sh
+      - name: CI helper scripts (Python syntax)
+        run: python3 -m py_compile .github/scripts/*.py
       - name: PowerShell parse + PSScriptAnalyzer
         shell: pwsh
         run: |

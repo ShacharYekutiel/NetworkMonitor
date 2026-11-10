@@ -1,5 +1,28 @@
-import { api } from './client';
+import { api, buildUrl } from './client';
+import type { BackupMode, SshCredentialsInput } from './types3';
 import type {
+  ApiToken,
+  AuditEntry,
+  CursorPage,
+  EventCondition,
+  EventRule,
+  EventRuleInput,
+  EventRuleKind,
+  IngestStatus,
+  LdapSettingsInput,
+  LdapTestResult,
+  LdapUserTestResult,
+  PublicSettings,
+  RuleTestResult,
+  SiemTarget,
+  SyslogMessage,
+  SyslogStats,
+  TimelineItem,
+  TimelineKind,
+  Trap,
+  TrapStats,
+  UnknownSource,
+  TeamsChannelConfigInput,
   DependencyBulkItem,
   DependencyInput,
   DependencySuggestions,
@@ -96,6 +119,13 @@ export const qk = {
   portDetail: (deviceId: number, ifIndex: number, includeUplinkMacs = false) =>
     ['port-detail', deviceId, ifIndex, includeUplinkMacs] as const,
   macSearch: (q: MacSearchQuery) => ['mac-search', q] as const,
+  // [2b-3]
+  ingestStatus: ['ingest-status'] as const,
+  unknownSources: (days: number) => ['unknown-sources', days] as const,
+  eventRules: (kind?: EventRuleKind) => ['event-rules', kind ?? 'all'] as const,
+  conditions: (sensorId: number) => ['conditions', sensorId] as const,
+  tokens: (all: boolean) => ['tokens', all] as const,
+  audit: (q: object) => ['audit', q] as const,
 };
 
 /** [2b-2] exactly one of q / ip */
@@ -109,6 +139,8 @@ export type GroupInput = {
   sort_order?: number;
   /** [2b-1] */
   dependency?: DependencyInput;
+  /** [3] null = inherit */
+  ssh_credentials?: SshCredentialsInput | null;
 };
 
 export type DeviceInput = {
@@ -125,6 +157,13 @@ export type DeviceInput = {
   /** [2b-2] */
   port_inventory?: InventoryMode;
   arp_collect?: InventoryMode;
+  /** [2b-3] */
+  source_addresses?: string[];
+  /** [3] */
+  ssh_credentials?: SshCredentialsInput | null;
+  config_backup?: BackupMode;
+  config_backup_driver?: string | null;
+  newdev_excluded_ports?: number[];
 };
 
 export type SensorInput = {
@@ -162,7 +201,56 @@ export type UserInput = {
 };
 
 export type ChannelInput = Partial<Pick<NotificationChannel, 'name' | 'type' | 'enabled'>> & {
-  config?: NotificationChannel['config'] | TelegramChannelConfigInput;
+  config?: NotificationChannel['config'] | TelegramChannelConfigInput | TeamsChannelConfigInput;
+};
+
+/** [2b-3] shared filters of /api/syslog and /api/syslog/stats */
+export type SyslogQuery = {
+  device_id?: number;
+  group_id?: number;
+  unknown?: boolean;
+  source_ip?: string;
+  severity_max?: number;
+  facility?: number[];
+  program?: string[];
+  hostname?: string;
+  rule_id?: number;
+  q?: string;
+  since?: string;
+  until?: string;
+};
+/** [2b-3] shared filters of /api/traps and /api/traps/stats */
+export type TrapQuery = {
+  device_id?: number;
+  group_id?: number;
+  unknown?: boolean;
+  source_ip?: string;
+  trap_oid?: string;
+  rule_id?: number;
+  q?: string;
+  since?: string;
+  until?: string;
+};
+export type CursorQuery = { cursor?: string | null; limit?: number };
+export type AuditQuery = {
+  since?: string;
+  until?: string;
+  actor?: string;
+  actor_user_id?: number;
+  action?: string;
+  entity_type?: string;
+  entity_id?: number;
+  device_id?: number;
+  ip?: string;
+  page?: number;
+  page_size?: number;
+};
+export type TimelineQuery = {
+  kinds?: TimelineKind[];
+  since?: string;
+  until?: string;
+  cursor?: string | null;
+  limit?: number;
 };
 
 export type DiscoveryProfileInput = {
@@ -241,7 +329,7 @@ export const endpoints = {
     timezone?: string;
   }) => api.post<{ user: User }>('/setup', body, { skipAuthRedirect: true }),
   publicSettings: () =>
-    api.get<{ default_language: Language; timezone?: string }>('/settings/public', undefined, {
+    api.get<PublicSettings>('/settings/public', undefined, {
       skipAuthRedirect: true,
     }),
   me: () => api.get<{ user: User }>('/auth/me', undefined, { skipAuthRedirect: true }),
@@ -407,4 +495,67 @@ export const endpoints = {
       '/topology/dependency-suggestions',
       root_device_id ? { root_device_id } : undefined,
     ),
+
+  // [2b-3] traps, syslog, ingest
+  syslog: (q: SyslogQuery & CursorQuery) => api.get<CursorPage<SyslogMessage>>('/syslog', q),
+  syslogMessage: (id: number) => api.get<SyslogMessage>(`/syslog/${id}`),
+  syslogStats: (q: SyslogQuery) => api.get<SyslogStats>('/syslog/stats', q),
+  traps: (q: TrapQuery & CursorQuery) => api.get<CursorPage<Trap>>('/traps', q),
+  trap: (id: number) => api.get<Trap>(`/traps/${id}`),
+  trapStats: (q: TrapQuery) => api.get<TrapStats>('/traps/stats', q),
+  ingestStatus: () => api.get<IngestStatus>('/ingest/status'),
+  unknownSources: (days = 7) =>
+    api.get<{ items: UnknownSource[] }>('/ingest/unknown-sources', { days }),
+  assignSource: (source_ip: string, device_id: number) =>
+    api.post<{ device_id: number; source_addresses: string[]; reassigning: boolean }>(
+      '/ingest/unknown-sources/assign',
+      { source_ip, device_id },
+    ),
+  testForwarder: (body: { target_id: string } | { target: SiemTarget }) =>
+    api.post<{ ok: boolean; message: string }>('/ingest/forwarders/test', body),
+
+  // [2b-3] event rules and event sensors
+  eventRules: (kind?: EventRuleKind) =>
+    api.get<{ items: EventRule[] }>('/event-rules', kind ? { kind } : undefined),
+  eventRule: (id: number) => api.get<EventRule>(`/event-rules/${id}`),
+  createEventRule: (body: EventRuleInput) => api.post<EventRule>('/event-rules', body),
+  updateEventRule: (id: number, body: EventRuleInput) =>
+    api.patch<EventRule>(`/event-rules/${id}`, body),
+  deleteEventRule: (id: number) => api.del(`/event-rules/${id}`),
+  resetEventRule: (id: number) => api.post<EventRule>(`/event-rules/${id}/reset`),
+  testEventRule: (rule: EventRuleInput, hours = 24) =>
+    api.post<RuleTestResult>('/event-rules/test', { rule, hours }),
+  conditions: (sensorId: number) =>
+    api.get<{ items: EventCondition[] }>(`/sensors/${sensorId}/conditions`),
+  clearConditions: (sensorId: number) => api.post<Sensor>(`/sensors/${sensorId}/clear`),
+
+  // [2b-3] Active Directory
+  ldapTest: (ldap?: LdapSettingsInput) =>
+    api.post<LdapTestResult>('/ldap/test', ldap ? { ldap } : {}),
+  ldapTestUser: (username: string, password: string, ldap?: LdapSettingsInput) =>
+    api.post<LdapUserTestResult>(
+      '/ldap/test-user',
+      ldap
+        ? { username, password, ldap }
+        : {
+            username,
+            password,
+          },
+    ),
+
+  // [2b-3] audit, timeline, tokens
+  audit: (q: AuditQuery) => api.get<Page<AuditEntry>>('/audit', q),
+  auditExportUrl: (q: AuditQuery) => {
+    const rest: AuditQuery = { ...q };
+    delete rest.page;
+    delete rest.page_size;
+    return buildUrl('/audit/export.csv', rest);
+  },
+  timeline: (deviceId: number, q: TimelineQuery) =>
+    api.get<CursorPage<TimelineItem>>(`/devices/${deviceId}/timeline`, q),
+  tokens: (all = false) =>
+    api.get<{ items: ApiToken[] }>('/tokens', all ? { all: true } : undefined),
+  createToken: (body: { name: string; role: Role; expires_days: number }) =>
+    api.post<{ token: string; item: ApiToken }>('/tokens', body),
+  revokeToken: (id: number) => api.del(`/tokens/${id}`),
 };

@@ -14,6 +14,7 @@ from sqlalchemy import select
 
 from netmon.models import Device, Sensor
 from netmon.poller.processor import execute_check, persist
+from netmon.poller.sensor_types import PASSIVE_TYPES
 from netmon.services.sensors import build_context, effective_paused
 
 if TYPE_CHECKING:
@@ -60,7 +61,11 @@ class Scheduler:
             rows = await session.execute(
                 select(Sensor.id, Sensor.interval_s)
                 .join(Device, Device.id == Sensor.device_id)
-                .where(Sensor.enabled.is_(True), Device.enabled.is_(True))
+                .where(
+                    Sensor.enabled.is_(True),
+                    Device.enabled.is_(True),
+                    Sensor.type.not_in(PASSIVE_TYPES),  # [2b-3] event sensors are passive
+                )
             )
             now = self._loop_time()
             for sid, interval in rows:
@@ -89,12 +94,12 @@ class Scheduler:
         async with self.rt.sessionmaker() as session:
             row = (
                 await session.execute(
-                    select(Sensor.interval_s, Sensor.enabled, Device.enabled)
+                    select(Sensor.interval_s, Sensor.enabled, Device.enabled, Sensor.type)
                     .join(Device, Device.id == Sensor.device_id)
                     .where(Sensor.id == sensor_id)
                 )
             ).first()
-        if row is None or not row[1] or not row[2]:
+        if row is None or not row[1] or not row[2] or row[3] in PASSIVE_TYPES:
             self.remove(sensor_id)
             return
         interval = int(row[0])
@@ -178,6 +183,9 @@ class Scheduler:
                     self.remove(sensor_id)
                     return
                 device = await session.get(Device, sensor.device_id)
+                if sensor.type in PASSIVE_TYPES:
+                    self.remove(sensor_id)
+                    return
                 if device is None or effective_paused(sensor, device):
                     if remove_on_pause:
                         self.remove(sensor_id)

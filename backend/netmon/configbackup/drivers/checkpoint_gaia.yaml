@@ -1,0 +1,25 @@
+id: checkpoint_gaia
+name: 'Check Point Gaia'
+version: 1
+confidence: unverified
+priority: 200
+match:
+  templates: ['checkpoint_gaia']
+  sys_object_id: ['1.3.6.1.4.1.2620.']
+mode: exec
+prompt: null
+commands:
+  - command: 'show configuration'
+    fallback: 'clish -c "show configuration"'
+error_patterns: ['^CLINFR\d+\s+Invalid command']
+ignore_lines:
+  - '^# Exported by \S+ on '
+  - '^# Configuration of \S+$'
+secrets:
+  - 'password-hash (\S+)'
+  - '^set snmp community (\S+)'
+  - '^set expert-password-hash (\S+)'
+  - '\b(?:auth|privacy)-pass-(?:phrase|hash) (\S+)'
+  - '(?<![\w-])secret (\S+)'
+  - '^(?:add|set) aaa tacacs-servers .*?\bkey (\S+)'
+notes: 'The fallback covers accounts whose login shell is bash.'

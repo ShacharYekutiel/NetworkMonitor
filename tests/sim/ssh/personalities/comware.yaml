@@ -1,0 +1,21 @@
+# HPE Comware 7 (FF 5945 IRF / 5130). Driver hpe_comware (shell). docs/architecture.md §13.11
+driver: hpe_comware
+hostname: sw-cw1
+banner: "\r\n******************************************************************************\r\n* Copyright (c) 2004-2026 New H3C Technologies Co., Ltd. All rights reserved.*\r\n* Without the owner's prior written consent,                                 *\r\n* no decompiling or reverse-engineering shall be allowed.                    *\r\n******************************************************************************\r\n\r\n"
+prompt: "<{hostname}>"
+shell: true
+exec: false
+exec_refusal: "% Command execution is not supported on this channel."
+ansi: false
+press_any_key: false
+paging:
+  lines: 24
+  marker: "  ---- More ----"
+  disable: ["screen-length disable"]
+enable: null
+invalid: "\r\n          ^\r\n % Unrecognized command found at '^' position.\r\n"
+commands:
+  "screen-length disable": "Info: The configuration takes effect on the current user terminal interface only.\r\n"
+  "display current-configuration": "@config"
+exec_commands: {}
+host_key_type: ssh-ed25519

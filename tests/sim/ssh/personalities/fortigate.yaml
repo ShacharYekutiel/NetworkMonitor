@@ -1,0 +1,21 @@
+# FortiGate (FortiOS, no VDOMs). Driver fortigate (exec: `show full-configuration`).
+driver: fortigate
+hostname: fgt1
+banner: ""
+prompt: "{hostname} # "
+shell: true
+exec: true
+ansi: false
+press_any_key: false
+paging:
+  lines: 24
+  marker: "--More-- "
+  disable: []
+enable: null
+invalid: "Unknown action 0\r\n\r\nCommand fail. Return code -1\r\n"
+commands:
+  "show full-configuration": "@config"
+exec_commands:
+  "show full-configuration": "@config"
+exec_invalid: {stdout: "Unknown action 0\nCommand fail. Return code -1\n", status: 1}
+host_key_type: ssh-rsa

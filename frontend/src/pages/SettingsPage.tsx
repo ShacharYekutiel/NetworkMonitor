@@ -20,6 +20,24 @@ import {
 import { errorMessage } from '../lib/errors';
 import { timeZones } from '../lib/maintenance';
 import { portSettingsErrors } from '../lib/ports';
+import { useSearchParams } from 'react-router-dom';
+import { FeaturesTab } from '../components/features/FeaturesTab';
+import { AuditRetentionCard, IngestTab } from '../components/features/IngestSettings';
+import { LdapTab } from '../components/features/LdapSettings';
+import { SiemTab } from '../components/features/SiemSettings';
+import { FeatureSection } from '../components/features/common';
+import { FeatureToggleCard } from '../components/features/FeatureToggle';
+import { SETTINGS_TABS, type SettingsTab } from '../lib/features';
+import { TabBar } from '../components/TabBar';
+import {
+  BackupSettingsTab,
+  ChatAckSettingsTab,
+  FlowSettingsTab,
+  NewDeviceSettingsTab,
+  ReportSettingsTab,
+} from '../components/features/Phase3Settings';
+import { SsoTab } from '../components/features/SsoSettings';
+import { NocTab } from '../components/features/NocSettings';
 
 function SmtpCard({ settings }: { settings: Settings }) {
   const { t } = useTranslation();
@@ -427,6 +445,9 @@ export function SettingsPage() {
   const { t } = useTranslation();
   const q = useQuery({ queryKey: qk.settings, queryFn: endpoints.settings });
   const health = useQuery({ queryKey: ['health'], queryFn: endpoints.health });
+  const [params, setParams] = useSearchParams();
+  const p = params.get('tab') as SettingsTab | null;
+  const tab: SettingsTab = p && SETTINGS_TABS.includes(p) ? p : 'general';
   return (
     <div className="space-y-6">
       <PageHeader
@@ -442,13 +463,39 @@ export function SettingsPage() {
           })
         }
       />
+      <TabBar
+        tabs={[...SETTINGS_TABS]}
+        value={tab}
+        label={t('settings.title')}
+        onChange={(k) => setParams(k === 'general' ? {} : { tab: k }, { replace: true })}
+        render={(k) => t(`settings.tab.${k}`)}
+      />
       {q.isLoading && <Loading />}
       <ErrorBox error={q.error} />
-      {q.data && (
+      {q.data && tab === 'general' && (
         <>
           <GeneralCard settings={q.data} />
           <PortsCard settings={q.data} />
           <SmtpCard settings={q.data} />
+        </>
+      )}
+      {q.data && tab === 'features' && <FeaturesTab settings={q.data} />}
+      {q.data && tab === 'ingest' && <IngestTab settings={q.data} />}
+      {q.data && tab === 'siem' && <SiemTab settings={q.data} />}
+      {q.data && tab === 'ldap' && <LdapTab settings={q.data} />}
+      {q.data && tab === 'sso' && <SsoTab settings={q.data} />}
+      {q.data && tab === 'backup' && <BackupSettingsTab settings={q.data} />}
+      {q.data && tab === 'flows' && <FlowSettingsTab settings={q.data} />}
+      {q.data && tab === 'newDevices' && <NewDeviceSettingsTab settings={q.data} />}
+      {q.data && tab === 'reports' && <ReportSettingsTab settings={q.data} />}
+      {q.data && tab === 'noc' && <NocTab settings={q.data} />}
+      {q.data && tab === 'chatAck' && <ChatAckSettingsTab settings={q.data} />}
+      {q.data && tab === 'audit' && (
+        <>
+          <FeatureToggleCard names={['audit']} settings={q.data} />
+          <FeatureSection feature="audit" settings={q.data}>
+            <AuditRetentionCard settings={q.data} />
+          </FeatureSection>
         </>
       )}
     </div>

@@ -245,6 +245,8 @@ async def test_telegram_channel_api(admin: httpx.AsyncClient, tg: TelegramMock) 
         "chat_id": "-1001",
         "parse_mode": "HTML",
         "disable_notification": False,
+        "ack_buttons": False,  # [3] chat_ack
+        "ack_link": False,
     }
     assert VALID not in r.text
     r = await admin.post(f"/api/notification-channels/{ch['id']}/test")

@@ -15,7 +15,7 @@ from sqlalchemy import (
     Text,
     func,
 )
-from sqlalchemy.dialects.postgresql import JSONB
+from sqlalchemy.dialects.postgresql import ARRAY, INET, JSONB
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from netmon.models.base import Base, TimestampMixin
@@ -39,6 +39,8 @@ class Group(TimestampMixin, Base):
     dependency_sensor_id: Mapped[int | None] = mapped_column(
         ForeignKey("sensors.id", ondelete="SET NULL", use_alter=True), nullable=True
     )
+    # [3] config backup (secret fields AES-GCM encrypted, netmon.configbackup.credentials)
+    ssh_credentials: Mapped[dict[str, Any] | None] = mapped_column(JSONB(none_as_null=True))
 
 
 class Device(TimestampMixin, Base):
@@ -67,6 +69,22 @@ class Device(TimestampMixin, Base):
     # [2b-2] auto | on | off
     port_inventory: Mapped[str] = mapped_column(Text, nullable=False, default="auto")
     arp_collect: Mapped[str] = mapped_column(Text, nullable=False, default="auto")
+    # [2b-3] additional sender addresses (traps/syslog attribution) and deleted event sensors
+    source_addresses: Mapped[list[Any]] = mapped_column(
+        ARRAY(INET), nullable=False, default=list, server_default="{}"
+    )
+    event_sensor_optout: Mapped[list[str]] = mapped_column(
+        ARRAY(Text), nullable=False, default=list, server_default="{}"
+    )
+    # [3] config backup and new-device alerts
+    ssh_credentials: Mapped[dict[str, Any] | None] = mapped_column(JSONB(none_as_null=True))
+    config_backup: Mapped[str] = mapped_column(
+        Text, nullable=False, default="auto", server_default="auto"
+    )
+    config_backup_driver: Mapped[str | None] = mapped_column(String(64))
+    newdev_excluded_ports: Mapped[list[int]] = mapped_column(
+        ARRAY(Integer), nullable=False, default=list, server_default="{}"
+    )
 
 
 class Sensor(TimestampMixin, Base):

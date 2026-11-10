@@ -119,6 +119,7 @@ async def persist(
             if rows:
                 await session.execute(insert(_measurements()), rows)
         by_key = {c.key: c for c in sensor.channels}
+        flap = _oper_transition(sensor, by_key, ev)  # [2b-3] flapping input 2
         for c in ev.channels:
             row = by_key.get(c.key)
             if row is not None:
@@ -157,6 +158,8 @@ async def persist(
             "channels": [{"key": c.key, "value": c.value, "status": c.status} for c in ev.channels],
         }
     rt.hub.broadcast("sensor.update", update)
+    if flap is not None and getattr(rt, "flapping", None) is not None:
+        rt.flapping.transition(flap[0], flap[1], flap[2], flap[3])
     if event is not None:
         events_svc.published(rt, [event])
     if rt.scheduler is not None:
@@ -165,3 +168,22 @@ async def persist(
         if recheck_self:
             rt.scheduler.run_soon([sensor_id], jitter_s=dependencies.RECHECK_JITTER_S)
     return ev
+
+
+def _oper_transition(sensor: Sensor, by_key: dict, ev: EvaluatedResult) -> tuple | None:
+    """[2b-3] An snmp_interface `oper_status` change (1 <-> other) for config.if_index:
+    (device_id, if_index, up, port name) or None."""
+    if sensor.type != "snmp_interface" or not ev.ok:
+        return None
+    row = by_key.get("oper_status")
+    new = next((c.value for c in ev.channels if c.key == "oper_status"), None)
+    if row is None or row.last_value is None or new is None:
+        return None
+    was_up, is_up = int(row.last_value) == 1, int(new) == 1
+    if was_up == is_up:
+        return None
+    try:
+        idx = int((sensor.config or {}).get("if_index"))
+    except (TypeError, ValueError):
+        return None
+    return sensor.device_id, idx, is_up, (sensor.config or {}).get("if_name") or None

@@ -1,0 +1,18 @@
+# MikroTik RouterOS 7. Driver mikrotik_routeros (exec: `/export`; first line is a volatile timestamp).
+driver: mikrotik_routeros
+hostname: rb1
+banner: "\r\n  MikroTik RouterOS 7.16 (c) 1999-2026       https://www.mikrotik.com/\r\n\r\n"
+prompt: "[{user}@{hostname}] > "
+shell: true
+exec: true
+ansi: false
+press_any_key: false
+paging: null
+enable: null
+invalid: "bad command name {word} (line 1 column 1)\r\n"
+commands:
+  "/export": "@config"
+exec_commands:
+  "/export": "@config"
+exec_invalid: {stdout: "bad command name {word} (line 1 column 1)\n", status: 1}
+host_key_type: ssh-ed25519

@@ -60,9 +60,14 @@ installs PostgreSQL from the distribution, or from the PGDG repository when the 
 on RHEL. It installs TimescaleDB from the official Timescale repository, best effort. Python ≥ 3.12 comes from
 the distribution; when the distribution has none (Debian 12, Ubuntu 22.04), a standalone build is installed under
 `/opt/netmon/python`. The script then creates the `netmon` user, the venv in `/opt/netmon/venv` and
-`/var/lib/netmon/netmon.env` (mode 0600). It installs `netmon.service` with `AmbientCapabilities=CAP_NET_RAW`,
-opens the port in firewalld/ufw, and prints the URL.
-Options: `--port N`, `--no-timescale`, `--no-firewall`, `--wheel FILE`, `--source DIR`.
+`/var/lib/netmon/netmon.env` (mode 0600). It installs `netmon.service` with
+`AmbientCapabilities=CAP_NET_RAW CAP_NET_BIND_SERVICE` (ping fallback; traps on UDP 162 and syslog on UDP/TCP 514
+without root), opens the HTTP port in firewalld/ufw, and prints the URL, the firewall lines for traps/syslog/flows and
+any port conflict (see [Traps and syslog](#traps-and-syslog), [Flows](#flows-netflow--ipfix--sflow-phase-3)). For
+Kerberos SSO it installs `libgssapi-krb5-2` (RHEL: `krb5-libs`) and builds python-gssapi (gcc + krb5 headers); if
+that is not possible it warns and installs without Kerberos.
+Options: `--port N`, `--no-timescale`, `--no-firewall`, `--no-kerberos`, `--https-proxy URL`, `--no-proxy LIST`,
+`--wheel FILE`, `--source DIR`.
 
 ### 3. Native Windows (service)
 
@@ -79,7 +84,94 @@ SYSTEM and Administrators), and writes `netmon.env`. It registers the `NetworkMo
 taken from `deploy\windows\nssm.exe` if you put one there; otherwise it is downloaded. The service runs as
 LocalSystem with automatic start. The script then opens TCP 8080 in Windows Firewall and prints the URL. If
 PostgreSQL was already installed, pass `-PostgresSuperPassword` or type the password when prompted. Other options:
-`-Port`, `-Wheel`, `-SourceDir`, `-SkipTimescale`, `-NssmPath`.
+`-Port`, `-Wheel`, `-SourceDir`, `-SkipTimescale`, `-NssmPath`, `-IngestRemoteAddress`, `-DisableWindowsSnmpTrap`,
+`-HttpsProxy`, `-NoProxy`.
+It also adds the firewall rules `NetworkMonitor-Traps` (UDP 162), `NetworkMonitor-Syslog-UDP` (UDP 514),
+`NetworkMonitor-Syslog-TCP` (TCP 514) and, phase 3, `NetworkMonitor-NetFlow` (UDP 2055), `NetworkMonitor-IPFIX`
+(UDP 4739), `NetworkMonitor-sFlow` (UDP 6343) (removed by `uninstall.ps1`; `-IngestRemoteAddress 10.0.0.0/8,LocalSubnet`
+limits the senders) and warns when the Windows **SNMP Trap** service (`SNMPTRAP`) holds UDP 162:
+`Stop-Service SNMPTRAP; Set-Service SNMPTRAP -StartupType Disabled`, or re-run with `-DisableWindowsSnmpTrap`.
+
+### Traps and syslog
+
+NetworkMonitor receives SNMP traps on **UDP 162** and syslog on **UDP and TCP 514**. Everything is **off** after
+install or upgrade, and nothing listens on those ports until an administrator turns on **Traps** / **Syslog** in
+*Settings → Features* (no server change, no restart). The status line there says "Listening on UDP 162" or the
+error (for example "Address already in use" when another program holds the port).
+
+| | Docker (`deploy/docker-compose.yml`) | Native Linux | Native Windows |
+|---|---|---|---|
+| Ports | host 162/udp → container 1162, host 514/udp+tcp → 1514 (the app is non-root). Other host ports: `NETMON_TRAP_HOST_PORT`, `NETMON_SYSLOG_HOST_PORT` in `deploy/.env` | 162 / 514 directly (`CAP_NET_BIND_SERVICE`, no root) | 162 / 514 directly |
+| Sender IP kept | yes for other machines on **Linux Docker Engine**; **no on Docker Desktop** (below) | yes | yes |
+| Firewall | ufw does **not** filter published Docker ports; see [production/README.md](production/README.md) (`DOCKER-USER`) | `ufw allow from <LAN> to any port 162 proto udp` (and 514 udp, 514 tcp) — the installer prints them | rules added by the installer |
+| Conflicts | `ss -lunpt '( sport = :162 or sport = :514 )'` (snmptrapd, rsyslog `imudp`) | same; the installer warns | Windows `SNMPTRAP` service; the installer warns |
+
+**Docker Desktop (Windows/macOS) does not keep the sender's IP address.** Its port forwarding (vpnkit / WSL2) makes
+every message look as if it came from one internal address, so messages cannot be matched to devices by address
+(only by the trap agent address or the syslog hostname), and the Logs page shows a NAT warning. Test traps and syslog
+on a Linux server (Docker Engine) or with the native Windows installer. Also on Linux, a test sent **from the Docker
+host itself** arrives from the bridge gateway (`172.x.0.1`): send from another machine.
+
+**Device configuration examples** (syntax varies by model and firmware — **verify on the device**; replace
+`10.0.0.50` with the NetworkMonitor server). Send syslog at level `warning`: `informational` logs every CLI login
+and command and fills the disk quickly (about 75 MB/day per message per second).
+
+| Device | Syslog | Traps |
+|---|---|---|
+| HPE Comware 7 (e.g. FlexFabric 5945 IRF) | `info-center enable`<br>`info-center loghost 10.0.0.50 facility local7`<br>`info-center source default loghost level warning`<br>`info-center loghost source Vlan-interface<mgmt>` | v2c: `snmp-agent target-host trap address udp-domain 10.0.0.50 params securityname <community> v2c`<br>`snmp-agent trap enable`<br>`snmp-agent trap source Vlan-interface<mgmt>`<br>v3: `snmp-agent usm-user v3 <user> <group> simple authentication-mode sha <pw> privacy-mode aes128 <pw>` + `snmp-agent target-host trap address udp-domain 10.0.0.50 params securityname <user> v3 privacy` (the same user/keys as for polling work for traps) |
+| ArubaOS-Switch | `logging 10.0.0.50`<br>`logging severity warning`<br>`logging facility local7` | `snmp-server host 10.0.0.50 community <community> trap-level all`<br>`snmp-server enable traps link-change <ports>`<br>v3: `snmpv3 notify` / `snmpv3 targetaddress` (see the switch guide) |
+| Check Point Gaia (clish) | `add syslog log-remote-address 10.0.0.50 level warning`<br>`save config`<br>(Gaia OS messages only — **not** Log Exporter firewall traffic logs, which would flood the receiver) | `add snmp traps receiver 10.0.0.50 version v2 community <community>`<br>`set snmp traps trap <name> enable`<br>`save config` |
+
+The device should send from the address NetworkMonitor monitors it on. Otherwise add the other address in the device
+form (*Additional source addresses*) or use "Assign to device" on the *Unknown sources* tab of the Logs page.
+
+### Flows (NetFlow / IPFIX / sFlow) [phase 3]
+
+NetworkMonitor collects flow export on **UDP 2055** (NetFlow v5/v9 and IPFIX), **UDP 4739** (IPFIX) and **UDP 6343**
+(sFlow v5). As with traps/syslog, nothing listens until an administrator turns on **Flows** in *Settings → Features*.
+An exporter whose address belongs to a monitored device (its address or an *Additional source address*) is accepted
+automatically; any other exporter is listed under *Flows → Exporters* as pending and its data is dropped until it is
+accepted.
+
+| | Docker (`deploy/docker-compose.yml`) | Native Linux | Native Windows |
+|---|---|---|---|
+| Ports | published 1:1 (all > 1024). Other host ports: `NETMON_NETFLOW_HOST_PORT`, `NETMON_IPFIX_HOST_PORT`, `NETMON_SFLOW_HOST_PORT` in `deploy/.env` | 2055 / 4739 / 6343 directly (no capability needed) | the same |
+| Firewall | `DOCKER-USER` as for traps/syslog (production: `ops/ingest-firewall.sh` covers the flow ports) | `ufw allow from <LAN> to any port 2055 proto udp` (and 4739, 6343) — the installer prints them | rules `NetworkMonitor-NetFlow`, `NetworkMonitor-IPFIX`, `NetworkMonitor-sFlow` added by the installer (`-IngestRemoteAddress` applies) |
+| Conflicts | `ss -lunp '( sport = :2055 or sport = :4739 or sport = :6343 )'` (nfcapd, pmacct, …) | same; the installer warns | the installer warns |
+
+Docker Desktop loses the sender IP here too: NetFlow/IPFIX exporters are identified by their source address (sFlow by
+the agent address inside the datagram), so test flows on Linux or with the native Windows installer.
+
+Exporter examples (verify on the device; `10.0.0.50` = NetworkMonitor). NetFlow/IPFIX exporters must use an **active
+timeout ≤ 60 s** and export **ingress** only (otherwise traffic is counted twice). Recommended: export from the core
+and the firewall, not from every access switch (≈ 0.4 GB of database per busy exporter).
+
+| Device | Flow export |
+|---|---|
+| HPE Comware 7 (FF 5945 IRF), sFlow | `sflow agent ip <mgmt ip>`<br>`sflow source ip <mgmt ip>`<br>`sflow collector 1 ip 10.0.0.50 port 6343 description netmon`<br>per uplink interface: `sflow sampling-rate 4096` and `sflow flow collector 1` |
+| ArubaOS-Switch, sFlow | `sflow 1 destination 10.0.0.50 6343`<br>`sflow 1 sampling <ports> 4096` (syntax varies by release) |
+| Check Point Gaia (clish), NetFlow v9 / IPFIX | `add netflow collector ip 10.0.0.50 port 2055 export-format Netflow_V9`<br>`save config` (or `IPFIX` to port 4739); active timeout 60 s where the version allows |
+| Cisco IOS, NetFlow v9 | `flow exporter NETMON` / `destination 10.0.0.50` / `transport udp 2055` / `export-protocol netflow-v9`; flow monitor with `cache timeout active 60`, applied `ip flow monitor … input` |
+
+### Config backup, single sign-on, chat acknowledge [phase 3]
+
+- **Config backup** connects **out** to the devices over SSH (TCP 22); no inbound port. Credentials are entered in
+  the UI and stored encrypted (`secret.key`); nothing to configure on the server.
+- **Kerberos SSO (Windows integrated login)** works with **Docker and native Linux** (MIT krb5: the image ships
+  `libgssapi-krb5-2` and python-gssapi; `install.sh` installs `libgssapi-krb5-2`/`krb5-libs` and builds gssapi, or
+  warns and continues without it, see `--no-kerberos`). It is **not available on native Windows** (the feature reports
+  "unavailable"). The AD administrator creates an SPN and a keytab once (steps:
+  [docs/production.md](../docs/production.md#kerberos-sso-ad-administrator-once)); the keytab is **uploaded in the UI**
+  (*Settings → Single sign-on → Kerberos*) and stored encrypted in the database — no file on the host. The server
+  clock must be synchronised with the domain controllers (NTP; > 5 min skew breaks Kerberos).
+- **Sign in with Microsoft (Entra ID / OIDC)**, **Telegram/Teams acknowledge** and **reports to Teams/Telegram** need
+  outbound HTTPS. Behind a proxy the app needs `HTTPS_PROXY` / `NO_PROXY` in its process environment (`netmon.env`
+  is not enough): Docker — `environment:` of the `netmon` service (production: `/etc/netmon-gitops/app.env`); native
+  Linux — `sudo -E ./install.sh` with `HTTPS_PROXY` set, or `--https-proxy <url> [--no-proxy <list>]` (written to
+  `/etc/systemd/system/netmon.service.d/20-proxy.conf`, kept on re-runs); Windows — `install.ps1 -HttpsProxy <url>
+  [-NoProxy <list>]` (or `HTTPS_PROXY` in the installer's session; kept on re-runs). The proxy must allow long
+  requests (≥ 70 s) to `api.telegram.org` (long polling), or lower *Telegram poll timeout* in the settings. SSH,
+  SNMP, flows and LDAP never use the proxy.
 
 ### Backup and restore
 
@@ -261,8 +353,9 @@ sudo ./install.sh                       # from an extracted release tarball
 <span dir="ltr">`/var/lib/netmon`</span> ועל הסיסמה. הסקריפט מתקין PostgreSQL, ומנסה להתקין TimescaleDB מהמאגר
 הרשמי. אם ההתקנה של TimescaleDB נכשלת, ההתקנה ממשיכה במצב PostgreSQL רגיל. הסקריפט מתקין גם Python 3.12 ומעלה.
 אחר כך הוא יוצר את המשתמש `netmon`, את סביבת ה-venv בתיקייה <span dir="ltr">`/opt/netmon/venv`</span> ואת הקובץ
-`netmon.env` עם סיסמה אקראית. בסוף הוא מתקין את השירות `netmon.service` עם ההרשאה `CAP_NET_RAW`, מפעיל אותו
-ומדפיס את הכתובת.
+`netmon.env` עם סיסמה אקראית. בסוף הוא מתקין את השירות `netmon.service` עם ההרשאות `CAP_NET_RAW` ו-`CAP_NET_BIND_SERVICE`
+(קבלת traps ו-syslog בפורטים 162 ו-514 בלי root), מפעיל אותו ומדפיס את הכתובת, את שורות ה-firewall ל-traps/syslog
+והתנגשויות פורטים (ראו "Traps ו-syslog" למטה).
 
 ### 3. Windows (שירות)
 
@@ -281,6 +374,50 @@ powershell -ExecutionPolicy Bypass -File .\deploy\windows\install.ps1
 <span dir="ltr">`%ProgramData%\NetworkMonitor`</span>. הוא רושם שירות Windows בשם `NetworkMonitor` (באמצעות
 NSSM), פותח את פורט 8080 בחומת האש ומדפיס את הכתובת. אם PostgreSQL כבר היה מותקן, הסקריפט יבקש את סיסמת המשתמש
 `postgres`. אפשר גם להעביר אותה בפרמטר `-PostgresSuperPassword`.
+הסקריפט מוסיף גם כללי חומת אש ל-traps ‏(UDP 162) ול-syslog ‏(UDP/TCP 514), ומזהיר אם שירות **SNMP Trap** של
+Windows ‏(`SNMPTRAP`) תופס את UDP 162. הפרמטר `-DisableWindowsSnmpTrap` עוצר ומנטרל אותו.
+
+### Traps ו-syslog
+
+NetworkMonitor מקבל SNMP traps ב-**UDP 162** ו-syslog ב-**UDP ו-TCP 514**. אחרי התקנה או שדרוג הכול **כבוי**,
+ושום דבר לא מאזין בפורטים האלה עד שמנהל מפעיל **Traps** / **Syslog** ב-*הגדרות ← תכונות* (בלי שינוי בשרת ובלי
+הפעלה מחדש).
+
+- **Docker:** הפורטים 162 ו-514 במחשב מועברים לפורטים 1162 ו-1514 בקונטיינר (האפליקציה לא רצה כ-root). אם תוכנה
+  אחרת במחשב כבר משתמשת בהם, אפשר לשנות ב-<span dir="ltr">`deploy/.env`</span>
+  (`NETMON_TRAP_HOST_PORT`, ‏`NETMON_SYSLOG_HOST_PORT`).
+- **Docker Desktop ‏(Windows/macOS) לא שומר את כתובת ה-IP של השולח.** כל ההודעות נראות כאילו הגיעו מכתובת פנימית
+  אחת, ולכן אי אפשר לשייך אותן למכשירים לפי כתובת, ובדף הלוגים מופיעה אזהרת NAT. בודקים traps ו-syslog על שרת
+  לינוקס או עם ההתקנה הרגילה של Windows.
+- **ufw לא מסנן פורטים ש-Docker מפרסם.** ראו [production/README.md](production/README.md) ‏(`DOCKER-USER`).
+- דוגמאות הגדרה ל-HPE Comware, ‏ArubaOS-Switch ו-Check Point Gaia נמצאות בחלק האנגלי
+  ([Traps and syslog](#traps-and-syslog)). התחביר משתנה לפי דגם וגרסה — **יש לבדוק על המכשיר**. מומלץ לשלוח syslog
+  ברמת `warning`.
+
+### Flows ‏(NetFlow / IPFIX / sFlow) ‏[שלב 3]
+
+NetworkMonitor אוסף flow export ב-**UDP 2055** ‏(NetFlow v5/v9 ו-IPFIX), ‏**UDP 4739** ‏(IPFIX) ו-**UDP 6343** ‏(sFlow v5).
+כמו ב-traps/syslog, שום דבר לא מאזין עד שמנהל מפעיל **Flows** ב-*הגדרות ← תכונות*. ‏exporter שהכתובת שלו שייכת למכשיר
+מנוטר מתקבל אוטומטית; אחר מופיע ב-*Flows ← Exporters* כממתין, והנתונים שלו נזרקים עד שמאשרים אותו.
+
+- **Docker:** הפורטים מפורסמים 1:1 (כולם מעל 1024). שינוי בצד המחשב ב-<span dir="ltr">`deploy/.env`</span>
+  (`NETMON_NETFLOW_HOST_PORT`, ‏`NETMON_IPFIX_HOST_PORT`, ‏`NETMON_SFLOW_HOST_PORT`). גם כאן Docker Desktop לא שומר את
+  כתובת השולח.
+- **לינוקס:** ההתקנה מדפיסה את שורות ה-ufw/firewalld ‏(2055, ‏4739, ‏6343 ב-UDP). **Windows:** ההתקנה מוסיפה את
+  הכללים `NetworkMonitor-NetFlow`, ‏`NetworkMonitor-IPFIX`, ‏`NetworkMonitor-sFlow`.
+- דוגמאות הגדרה בחלק האנגלי ([Flows](#flows-netflow--ipfix--sflow-phase-3)). ב-NetFlow/IPFIX: ‏active timeout של
+  60 שניות לכל היותר, ו-ingress בלבד.
+
+### גיבוי קונפיגורציה, SSO ואישור מהצ'אט ‏[שלב 3]
+
+- **גיבוי קונפיגורציה** מתחבר **החוצה** למכשירים ב-SSH ‏(TCP 22). אין פורט נכנס, ואין מה להגדיר בשרת.
+- **Kerberos SSO** ‏(כניסה אוטומטית עם משתמש Windows) עובד ב-**Docker ובלינוקס** בלבד, **לא** בהתקנת Windows. מנהל
+  ה-AD יוצר SPN ו-keytab פעם אחת (ההוראות: [production/README.md](production/README.md)); את ה-keytab **מעלים בממשק**
+  והוא נשמר מוצפן במסד הנתונים — שום קובץ בשרת. השעון של השרת חייב להיות מסונכרן ל-DC‏ (NTP).
+- **Sign in with Microsoft**, אישור מ-Telegram/Teams ודוחות ל-Teams/Telegram צריכים HTTPS יוצא. מאחורי proxy מגדירים
+  `HTTPS_PROXY` / `NO_PROXY` בסביבת התהליך של האפליקציה: ב-Docker ב-`environment:`, בלינוקס `install.sh --https-proxy`
+  (או `sudo -E` עם `HTTPS_PROXY`), ב-Windows `install.ps1 -HttpsProxy`. ה-proxy חייב לאפשר בקשות ארוכות (70 שניות
+  ומעלה) ל-`api.telegram.org`.
 
 ### גיבוי ושחזור
 

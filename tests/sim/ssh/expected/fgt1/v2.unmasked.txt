@@ -1,0 +1,51 @@
+#config-version=FGT60F-7.2.8-FW-build1639-240313:opmode=0:vdom=0:user=netmon-backup
+#global_vdom=1
+config system global
+    set admintimeout 60
+    set alias "FGT60F"
+    set hostname "fgt1"
+    set timezone 78
+end
+config system admin
+    edit "admin"
+        set accprofile "super_admin"
+        set vdom "root"
+        set password ENC SH2xR3mpC8aWZqFdj9mVr1YeTEbm4fWqXoaFhhvMWl6pN0PvX0eY4AqAl8=
+    next
+    edit "netmon-backup"
+        set accprofile "prof_admin_ro"
+        set vdom "root"
+        set password ENC SH2bmV0bW9uYmFja3VwSGFzaGVkUGFzc3dvcmRGb3J0aUdhdGU=
+    next
+end
+config system interface
+    edit "wan1"
+        set vdom "root"
+        set ip 192.0.2.6 255.255.255.252
+        set allowaccess ping https ssh
+    next
+    edit "internal"
+        set vdom "root"
+        set ip 10.0.0.254 255.255.255.0
+        set allowaccess ping https ssh snmp
+    next
+end
+config system snmp community
+    edit 1
+        set name "FgtComm"
+    next
+end
+config vpn ipsec phase1-interface
+    edit "to-branch"
+        set interface "wan1"
+        set peertype any
+        set remote-gw 198.51.100.7
+        set psksecret ENC M2Nk3x7Yq0aZ4b5c6d7e8f9g0h1i2j3k4l5m6n7o8p9q0r1s2t3u==
+    next
+end
+config router static
+    edit 1
+        set gateway 192.0.2.5
+        set device "wan1"
+    next
+end

@@ -104,19 +104,95 @@ Controller, Central); Check Point on appliance or VM, ClusterXL or not, SNMP v3 
   pre-deploy dumps, automatic container rollback, daily backups). Tag `vX.Y.Z` opens the bump PR.
   See docs/production.md.
 
-## Phase 2b-3
-- SNMP traps (v1/v2c/v3) on UDP 162 and syslog (UDP/TCP 514), standard ports. Production:
-  uncomment the placeholder ports in `deploy/production/compose.yaml` (published ports keep the
-  sender IP).
-- Syslog search/filter, match rules that raise alerts, retention 30 days (configurable).
-- Ports view: **LAG membership** (design gap found in the 2b-2 review). Today the physical members of a
-  `Trk*` / `Bridge-Aggregation*` / Port-channel show no VLANs or MACs (the switch reports them on the LAG
-  ifIndex, which is list-only). Read IEEE8023-LAG-MIB `dot3adAggPortAttachedAggID`
-  (`1.2.840.10006.300.43.1.2.1.1.13`, index = member ifIndex → LAG ifIndex), else IF-MIB `ifStackTable`
-  (`1.3.6.1.2.1.31.1.2.1.3`), so member ports inherit the LAG's VLANs, MAC list/`mac_count` and uplink state,
-  and the faceplate/list show "member of Trk1".
+## Phase 2b-3 (branch `phase2b3`)
+Contract: architecture.md § 12, data-model.md § Phase 2b-3 (migration `0006`), api.md § Phase 2b-3.
+
+**Owner rule:** every new feature is behind a toggle in *Settings → Features* and is **OFF by default**
+(also after an upgrade). Turning a feature on or off works without a restart; turning it off keeps its data
+(retention still applies). Exception (later owner decision): the Microsoft Teams channel (10) and API tokens
+(11) are not toggles — they are always available.
+
+1. **SNMP traps** (v1/v2c/v3, v2c informs) on UDP 162: decoding with a small built-in OID-name table,
+   attribution to devices by source IP / agent address, global and per-device views, live view.
+   v3: no engine-ID configuration — device/group v3 credentials plus an optional list of trap users.
+2. **Syslog** on UDP and TCP 514 (RFC 3164 + RFC 5424, Comware / ArubaOS-Switch conventions, octet-counting and
+   newline framing), search and filters (device, severity, facility, program, text, time), live tail,
+   retention 30 days (configurable). Unknown senders are listed with "Assign to device" / "Ignore".
+3. **Event alerts:** match rules turn traps/syslog into the status of per-device event sensors ("SNMP traps",
+   "Syslog"), so all existing alerting applies (channels, delays, escalation, acknowledge, maintenance).
+   Built-in rules (offered when the feature is turned on): link down on important ports (cleared by link up),
+   SNMP authentication failure, device restarted, syslog error or worse.
+4. **Port flapping:** 5 link changes in 10 minutes on one port → one "flapping" warning instead of a flood;
+   clears after 15 quiet minutes.
+5. **SIEM forwarding:** received syslog and traps forwarded as RFC 5424 (original host and time kept) over
+   UDP/TCP/TLS, never slowing the receiver.
+6. **Ports view: LAG membership** (design gap found in the 2b-2 review): IEEE8023-LAG-MIB
+   `dot3adAggPortAttachedAggID` (`1.2.840.10006.300.43.1.2.1.1.13`), else IF-MIB `ifStackTable`
+   (`1.3.6.1.2.1.31.1.2.1.3`); member ports inherit the LAG's VLANs, MACs/`mac_count` and uplink state; the
+   faceplate and the list show "member of Trk1".
+7. **Login with Active Directory** (LDAPS / StartTLS, service account + user bind, nested groups for the admin
+   and viewer roles, disabled/locked accounts refused, users created at first login, local accounts always work
+   as break-glass), configured and tested in the UI.
+8. **Audit log:** who did what (configuration changes, acknowledges, settings without secrets, logins), admin
+   view with filters and CSV export, append-only.
+9. **Device timeline:** one chronological view per device (status changes, alerts sent, acknowledges,
+   maintenance, traps, syslog, port changes, audit entries).
+10. **Microsoft Teams** notification channel via Teams Workflows webhooks (the old Office 365 connectors are
+    being retired by Microsoft).
+11. **API tokens** for scripts (role-limited, expiring, revocable, shown once).
+12. **Deployment:** standard ports 162/514 published by Docker to unprivileged ports in the container (sender
+    address preserved for external traffic; Docker Desktop does not preserve it), native installers bind the
+    ports directly (Linux with `CAP_NET_BIND_SERVICE`), firewall notes, device configuration examples.
+
+Open questions for 2b-3 (defaults in architecture § 12.16): link-down alerts for important ports only; where
+2b-3 is tested (not Docker Desktop); Check Point OS syslog only; AD re-login every 12 h; retention traps 30 d /
+audit 365 d; AD server and group names; SIEM target.
+
+## Phase 3 (branch `phase3`, after 2b-3)
+Contract: architecture.md § 13, data-model.md § Phase 3 (migration `0007`), api.md § Phase 3.
+
+**Owner rule:** every feature below is behind its own toggle in *Settings → Features*, **OFF by default** (also
+after an upgrade), switched at runtime without a restart; OFF keeps the data (retention still runs).
+
+7. **Network device config backup** (Oxidized-like, toggle `config_backup`): SSH only (no Telnet), daily
+   (staggered) + on demand + triggered by syslog "configuration changed" messages (built-in rules for Comware,
+   ArubaOS-Switch and Cisco, disabled by default; debounced). Data-driven drivers for HPE Comware, ArubaOS-Switch,
+   Aruba CX, Check Point Gaia, Cisco IOS, FortiGate, MikroTik. SSH credentials per group/device, encrypted with the
+   secret key. Versions stored only on change, diff, secrets masked, 100 versions / 365 days (latest always kept),
+   search across configs, download and ZIP export. Host keys pinned on first use; a changed key stops backups and
+   raises an alert until accepted. "Config changed" event, optional alert. **Read-only: no restore.** Library
+   asyncssh (EPL-2.0/GPL-2.0, free).
+8. **NetFlow / IPFIX / sFlow** (toggle `flows`): UDP 2055 / 4739 / 6343, NetFlow v5/v9, IPFIX, sFlow v5,
+   templates, sampling correction, exporters mapped to devices and interfaces (ifIndex → port names). 1-minute
+   aggregates (top talkers, applications, conversations, per-interface traffic) kept 24–48 h, hourly rollups 30 days
+   (TimescaleDB continuous aggregates, plain-PostgreSQL fallback). Hard budget 10 000 records/s (configurable up
+   to 50 000), bounded queues, drop counters. ≈ 0.4 GB per busy exporter.
+9. **New device on the network** (toggle `new_device_alerts`): a MAC never seen before on an access port (not
+   uplink/LAG/trunk) → event + optional alert with vendor, IP, hostname, switch/port. 7-day learning period,
+   allow-list (MACs / vendor prefixes), "acknowledge as known", scope by group, randomised MACs ignored, no flood
+   when a switch is added.
+10. **Single sign-on:** Kerberos/SPNEGO for domain PCs (toggle `sso_kerberos`, **recommended**; handled by the
+    app, Caddy unchanged except the short-name redirect; keytab for `HTTP/netmonitor.mnidom.net` uploaded in the
+    UI; roles from the 2b-3 AD groups) and "Sign in with Microsoft" (Entra ID OIDC, toggle `sso_oidc`, optional).
+    The AD form login and local accounts stay.
+11. **Reports** (toggle `reports`): weekly/monthly and on demand — availability (SLA %) per device/group, top
+    alerts, flapping ports, port errors, config changes, new devices, top talkers. HTML email + Teams/Telegram
+    summary + a printable page ("Save as PDF" in the browser; no server-side PDF engine).
+12. **NOC mode** (toggle `noc`): read-only wall-screen dashboard at `/noc#<token>`, no login, limited to allowed
+    IPs/CIDRs and a long random token, live updates, dark large-font theme, he/en.
+13. **Acknowledge from Telegram/Teams** (toggle `chat_ack`): Telegram inline button (long polling through the
+    proxy; Telegram accounts linked to users with one-time codes); Teams button opens the NetworkMonitor ack page
+    (Teams Workflows cards cannot call back into an internal server — stated in the UI); optional link in email;
+    signed, expiring tokens; audited; admins only.
+
+Open questions for phase 3 (defaults in architecture § 13.13): backup accounts (ArubaOS needs a manager-level
+account); masking secrets; schedule/retention; config-change alert vs event; flow exporters and sampling;
+new-device learning period and scope; Kerberos vs Entra; reports recipients and timing; NOC screen; dedicated
+Telegram bot; proxy details.
 
 ## Later / ideas
 - Per-port PoE status table.
 - Template editor in the UI.
-- Remote probes for multiple sites; SLA reports; backup/restore from the UI.
+- Remote probes for multiple sites; backup/restore of NetworkMonitor itself from the UI.
+- Phase 3 follow-ups: config-backup driver editor, Telnet (only if a device needs it), server-side PDF reports,
+  Kerberos SSO on native Windows (SSPI), a flow worker process, alerts driven by flow thresholds.

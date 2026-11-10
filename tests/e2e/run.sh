@@ -13,8 +13,22 @@
 #   NETMON_TEST_PTR_FILE=tests/sim/ports/ptr.json ([2b-2] reverse DNS test hook, no DNS stub needed).
 #   Specs can restart the backend with $BACKEND_RESTART (same DB, data dir, port and env; waits for
 #   /api/health) and control single lab components with "$LAB_SH swap|kill|revive NAME" (LAB_DIR exported).
+#   [2b-3] (docs/architecture.md §12.14) receivers listen on free ports: NETMON_TRAP_PORT=$TRAP_PORT (udp),
+#   NETMON_SYSLOG_PORT=$SYSLOG_PORT (udp+tcp), NETMON_INGEST_HOST=127.0.0.1. Simulators: fake AD
+#   (tests/sim/ldap/fake_ad.py: LDAPS $LDAP_LDAPS_PORT, StartTLS $LDAP_PLAIN_PORT, control $LDAP_CONTROL_URL; a
+#   second instance with the wrong-name certificate on $LDAP_WRONG_PORT; $LDAP_DEAD_PORT has no listener),
+#   SIEM sink (tests/sim/ingest/siem_sink.py, $SIEM_UDP_PORT/$SIEM_TCP_PORT/$SIEM_TLS_PORT, $SIEM_CONTROL_URL),
+#   Teams mock (tests/sim/teams_mock.py, https://localhost:$TEAMS_PORT, $TEAMS_CONTROL_URL). Test CA:
+#   $CERTS_DIR/ca.pem, trusted by the backend through NETMON_EXTRA_CA_FILE.
 #   LAB_EXTERNAL=1 do not start the Phase 2a discovery lab (tests/sim/lab.sh); use one that is already
 #                  running (TELEGRAM_MOCK_URL, default http://127.0.0.1:18081)
+#   E2E_PHASE3=0   do not start the phase-3 simulators (default 1; docs/architecture.md §13.11):
+#                  SSH device lab (tests/sim/ssh/fake_device.py --lab, 127.0.0.111-.122 tcp/8022, control
+#                  $SSH_SIM_URL), SMTP sink ($SMTP_PORT, $SMTP_SINK_URL), OIDC mock IdP ($OIDC_MOCK_URL ->
+#                  NETMON_OIDC_AUTHORITY), MIT KDC when krb5kdc exists ($KDC_DIR, $KRB5_CONFIG), free UDP ports
+#                  for flows ($NETFLOW_PORT, $IPFIX_PORT, $SFLOW_PORT). The 2b-3 fake AD, Teams mock, CA and
+#                  syslog/trap ports are shared (aliases for lib/lab3.ts: LDAPS_PORT, TEAMS_MOCK_PORT,
+#                  FAKE_AD_URL, FAKE_AD_CA).
 set -euo pipefail
 
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -24,6 +38,19 @@ NETMON="${NETMON:-$ROOT/backend/.venv/bin/netmon}"
 PG_ADMIN_URL="${PG_ADMIN_URL:-postgresql://postgres:postgres@localhost:5432/postgres}"
 
 free_port() { "$PY" -c 'import socket,sys; t=socket.SOCK_DGRAM if sys.argv[1]=="udp" else socket.SOCK_STREAM; s=socket.socket(socket.AF_INET,t); s.bind(("127.0.0.1",0)); print(s.getsockname()[1])' "$1"; }
+# a port number free for both UDP and TCP (syslog listens on both with one number)
+free_port_both() { "$PY" -c '
+import socket
+while True:
+    t = socket.socket(); t.bind(("127.0.0.1", 0)); p = t.getsockname()[1]
+    u = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+    try:
+        u.bind(("127.0.0.1", p)); print(p); break
+    except OSError:
+        pass
+    finally:
+        u.close(); t.close()
+'; }
 
 TAG="$(date +%s)_$$"
 DB="netmon_e2e_${TAG}"
@@ -35,7 +62,35 @@ HTTP_PORT="$(free_port tcp)"
 HOOK_PORT="$(free_port tcp)"
 SNMP_PORT="$(free_port udp)"
 TELEGRAM_PORT="$(free_port tcp)"
+# [2b-3]
+TRAP_PORT="$(free_port udp)"
+SYSLOG_PORT="$(free_port_both)"
+LDAP_LDAPS_PORT="$(free_port tcp)"; LDAP_PLAIN_PORT="$(free_port tcp)"; LDAP_CONTROL_PORT="$(free_port tcp)"
+LDAP_WRONG_PORT="$(free_port tcp)"; LDAP_DEAD_PORT="$(free_port tcp)"
+SIEM_UDP_PORT="$(free_port udp)"; SIEM_TCP_PORT="$(free_port tcp)"; SIEM_TLS_PORT="$(free_port tcp)"
+SIEM_CONTROL_PORT="$(free_port tcp)"; TEAMS_PORT="$(free_port tcp)"; TEAMS_CONTROL_PORT="$(free_port tcp)"
+CERTS_DIR="$WORK/certs"
 LAB_DIR="$WORK/lab"
+E2E_PHASE3="${E2E_PHASE3:-1}"
+if [ "$E2E_PHASE3" = "1" ]; then
+  # flow sockets open only when the feature is turned on (minutes later): pick ports BELOW the ephemeral range
+  # (32768-60999) so outgoing SNMP/DNS sockets cannot grab them in the meantime
+  read -r NETFLOW_PORT IPFIX_PORT SFLOW_PORT < <("$PY" -c '
+import random, socket
+out = []
+while len(out) < 3:
+    p = random.randint(20000, 32000)
+    s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+    try:
+        s.bind(("127.0.0.1", p)); out.append(p) if p not in out else None
+    except OSError:
+        pass
+    finally:
+        s.close()
+print(*out)')
+  SSH_CTL_PORT="$(free_port tcp)"; SMTP_PORT="$(free_port tcp)"; SMTP_HTTP_PORT="$(free_port tcp)"
+  OIDC_PORT="$(free_port tcp)"
+fi
 DB_URL="$("$PY" - "$PG_ADMIN_URL" "$DB" <<'EOF'
 import sys
 from urllib.parse import urlsplit, urlunsplit
@@ -63,6 +118,7 @@ async def main():
 asyncio.run(main())
 EOF
   fi
+  if [ -f "$WORK/p3/kdc/kdc.pid" ]; then kill "$(cat "$WORK/p3/kdc/kdc.pid")" 2>/dev/null || true; fi
   rm -rf "$WORK"
   echo "e2e: logs in $LOGS (exit $rc)"
   exit $rc
@@ -93,6 +149,20 @@ echo "e2e: simulators (snmp udp/$SNMP_PORT, http :$HTTP_PORT, webhook :$HOOK_POR
 "$PY" "$ROOT/tests/sim/webhook_receiver.py" --port "$HOOK_PORT" --out "$WORK/webhooks.jsonl" \
   >"$LOGS/webhook_receiver.log" 2>&1 & PIDS+=($!)
 
+# [2b-3] test PKI + fake AD (x2), SIEM sink, Teams mock (docs/architecture.md §12.14)
+"$PY" "$ROOT/tests/sim/ldap/make_certs.py" "$CERTS_DIR" >/dev/null
+echo "e2e: 2b-3 sims (fake AD ldaps :$LDAP_LDAPS_PORT starttls :$LDAP_PLAIN_PORT, siem :$SIEM_TCP_PORT, teams :$TEAMS_PORT)"
+"$PY" "$ROOT/tests/sim/ldap/fake_ad.py" --certs "$CERTS_DIR" --ldaps-port "$LDAP_LDAPS_PORT" \
+  --ldap-port "$LDAP_PLAIN_PORT" --control-port "$LDAP_CONTROL_PORT" --record "$WORK/ldap-binds.jsonl" \
+  >"$LOGS/fake_ad.log" 2>&1 & PIDS+=($!)
+"$PY" "$ROOT/tests/sim/ldap/fake_ad.py" --certs "$CERTS_DIR" --ldaps-port "$LDAP_WRONG_PORT" --ldap-port -1 \
+  --wrong-cert >"$LOGS/fake_ad_wrong.log" 2>&1 & PIDS+=($!)
+"$PY" "$ROOT/tests/sim/ingest/siem_sink.py" --certs "$CERTS_DIR" --udp-port "$SIEM_UDP_PORT" --tcp-port "$SIEM_TCP_PORT" \
+  --tls-port "$SIEM_TLS_PORT" --control-port "$SIEM_CONTROL_PORT" --out "$WORK/siem.jsonl" \
+  >"$LOGS/siem_sink.log" 2>&1 & PIDS+=($!)
+"$PY" "$ROOT/tests/sim/teams_mock.py" --certs "$CERTS_DIR" --port "$TEAMS_PORT" --control-port "$TEAMS_CONTROL_PORT" \
+  --out "$WORK/teams.jsonl" >"$LOGS/teams_mock.log" 2>&1 & PIDS+=($!)
+
 # Phase 2a discovery lab: snmpsim agents on 127.0.0.21-24:1161, HTTP host 127.0.0.25:8080, printer
 # tcp/9100, Telegram Bot API mock (docs/architecture.md §9.6), plus the Phase 2b-1 lab (§10.4): toggle
 # HTTP targets 127.0.0.31-36:8080, fingerprint hosts 127.0.0.41-49/61-67, HPE/LLDP snmpsim 127.0.0.51-54.
@@ -107,6 +177,27 @@ else
   TELEGRAM_MOCK_URL="${TELEGRAM_MOCK_URL:-http://127.0.0.1:18081}"
 fi
 
+P3_ENV=""
+if [ "$E2E_PHASE3" = "1" ]; then
+  echo "e2e: phase-3 simulators (ssh lab ctl :$SSH_CTL_PORT, smtp :$SMTP_PORT, oidc :$OIDC_PORT; fake AD/Teams shared with 2b-3)"
+  P3="$WORK/p3"; mkdir -p "$P3"
+  "$PY" "$ROOT/tests/sim/ssh/fake_device.py" --lab --state-dir "$P3/ssh" --control-port "$SSH_CTL_PORT" \
+    >"$LOGS/ssh_sim.log" 2>&1 & PIDS+=($!)
+  "$PY" "$ROOT/tests/sim/smtp_sink.py" --smtp-port "$SMTP_PORT" --http-port "$SMTP_HTTP_PORT" --out "$P3/mails.jsonl" \
+    >"$LOGS/smtp_sink.log" 2>&1 & PIDS+=($!)
+  "$PY" "$ROOT/tests/sim/oidc/mock_idp.py" --port "$OIDC_PORT" >"$LOGS/oidc_mock.log" 2>&1 & PIDS+=($!)
+  KDC_DIR=""
+  if command -v krb5kdc >/dev/null 2>&1 || [ -x /usr/sbin/krb5kdc ]; then
+    if "$ROOT/tests/sim/kdc/setup_kdc.sh" start "$P3/kdc" >"$P3/kdc.env" 2>"$LOGS/kdc.log"; then
+      KDC_DIR="$P3/kdc"
+    else
+      echo "e2e: KDC failed to start (spec 56 will skip); see $LOGS/kdc.log"
+    fi
+  fi
+  P3_ENV="export NETMON_NETFLOW_PORT=$NETFLOW_PORT NETMON_IPFIX_PORT=$IPFIX_PORT NETMON_SFLOW_PORT=$SFLOW_PORT NETMON_FLOW_HOST=127.0.0.1
+export NETMON_OIDC_AUTHORITY=http://127.0.0.1:$OIDC_PORT"
+fi
+
 echo "e2e: netmon serve on :$APP_PORT (NETMON_TEST_MODE=1)"
 # The backend runs from a script so specs can restart it ($BACKEND_RESTART, used by the escalation
 # persistence spec). The current pid is in $WORK/backend.pid; the log is appended across restarts.
@@ -115,6 +206,9 @@ cat >"$WORK/backend.sh" <<BACKEND_EOF
 export DATABASE_URL="$DB_URL" NETMON_DATA_DIR="$WORK/data" NETMON_HOST=127.0.0.1 NETMON_PORT="$APP_PORT"
 export NETMON_LOG_LEVEL=info NETMON_TELEGRAM_API_BASE="$TELEGRAM_MOCK_URL" NETMON_TEST_MODE=1
 export NETMON_TEST_PTR_FILE="$ROOT/tests/sim/ports/ptr.json"
+export NETMON_TRAP_PORT="$TRAP_PORT" NETMON_SYSLOG_PORT="$SYSLOG_PORT" NETMON_SYSLOG_TCP_PORT="$SYSLOG_PORT"
+export NETMON_INGEST_HOST=127.0.0.1 NETMON_EXTRA_CA_FILE="$CERTS_DIR/ca.pem"
+$P3_ENV
 exec "$NETMON" serve >>"$LOGS/backend.log" 2>&1
 BACKEND_EOF
 cat >"$WORK/restart_backend.sh" <<RESTART_EOF
@@ -153,6 +247,15 @@ wait_for backend curl -fsS "http://127.0.0.1:$APP_PORT/api/health"
 wait_for http_target curl -fsS "http://127.0.0.1:$HTTP_PORT/health"
 wait_for webhook_receiver curl -fsS "http://127.0.0.1:$HOOK_PORT/health"
 wait_for snmpsim grep -q READY "$LOGS/snmpsim.log"
+wait_for fake_ad grep -q READY "$LOGS/fake_ad.log"
+wait_for fake_ad_wrong grep -q READY "$LOGS/fake_ad_wrong.log"
+wait_for siem_sink grep -q READY "$LOGS/siem_sink.log"
+wait_for teams_mock grep -q READY "$LOGS/teams_mock.log"
+if [ "$E2E_PHASE3" = "1" ]; then
+  wait_for ssh_sim curl -fsS "http://127.0.0.1:$SSH_CTL_PORT/health"
+  wait_for smtp_sink curl -fsS "http://127.0.0.1:$SMTP_HTTP_PORT/health"
+  wait_for oidc_mock curl -fsS "http://127.0.0.1:$OIDC_PORT/health"
+fi
 
 if [ ! -d "$HERE/node_modules/@playwright/test" ]; then
   (cd "$HERE" && npm install --silent)
@@ -167,10 +270,32 @@ export QA2B1_SHOT_DIR="${QA2B1_SHOT_DIR:-$SCREENSHOT_DIR/qa-2b1}"
 export QA2B2_SHOT_DIR="${QA2B2_SHOT_DIR:-$SCREENSHOT_DIR/qa-2b2}"
 # [2b-2] specs write user template files into ${NETMON_DATA_DIR}/templates and reload (spec 34).
 export E2E_DATA_DIR="$WORK/data"
+# [2b-3]
+export TRAP_PORT SYSLOG_PORT CERTS_DIR LDAP_LDAPS_PORT LDAP_PLAIN_PORT LDAP_WRONG_PORT LDAP_DEAD_PORT
+export LDAP_CONTROL_URL="http://127.0.0.1:$LDAP_CONTROL_PORT" SIEM_UDP_PORT SIEM_TCP_PORT SIEM_TLS_PORT
+export SIEM_CONTROL_URL="http://127.0.0.1:$SIEM_CONTROL_PORT" TEAMS_PORT TEAMS_CONTROL_URL="http://127.0.0.1:$TEAMS_CONTROL_PORT"
+export QA2B3_SHOT_DIR="${QA2B3_SHOT_DIR:-$SCREENSHOT_DIR/qa-2b3}"
+export QA3_SHOT_DIR="${QA3_SHOT_DIR:-$SCREENSHOT_DIR/qa-3}"
+if [ "$E2E_PHASE3" = "1" ]; then
+  # the fake AD, Teams mock and CA of the 2b-3 block are shared with the phase-3 specs (lib/lab3.ts names)
+  export NETFLOW_PORT IPFIX_PORT SFLOW_PORT SMTP_PORT LDAPS_PORT="$LDAP_LDAPS_PORT" TEAMS_MOCK_PORT="$TEAMS_PORT"
+  export SSH_SIM_URL="http://127.0.0.1:$SSH_CTL_PORT" SMTP_SINK_URL="http://127.0.0.1:$SMTP_HTTP_PORT"
+  export OIDC_MOCK_URL="http://127.0.0.1:$OIDC_PORT"
+  export FAKE_AD_URL="http://127.0.0.1:$LDAP_CONTROL_PORT" FAKE_AD_CA="$CERTS_DIR/ca.pem" P3_DIR="$P3"
+  if [ -n "$KDC_DIR" ]; then
+    export KDC_DIR KRB5_CONFIG="$KDC_DIR/krb5.conf" KDC_KEYTAB="$KDC_DIR/http.keytab"
+  fi
+fi
 echo "e2e: running playwright against $BASE_URL"
 set +e
 (cd "$HERE" && npx playwright test "$@")
 rc=$?
 set -e
 cp "$WORK/webhooks.jsonl" "$LOGS/webhooks.jsonl" 2>/dev/null || true
+for f in ldap-binds.jsonl siem.jsonl teams.jsonl; do cp "$WORK/$f" "$LOGS/$f" 2>/dev/null || true; done
+if [ "$E2E_PHASE3" = "1" ]; then
+  cp "$P3/ssh/commands.jsonl" "$LOGS/ssh_commands.jsonl" 2>/dev/null || true
+  cp "$P3/mails.jsonl" "$LOGS/mails.jsonl" 2>/dev/null || true
+  [ -n "${KDC_DIR:-}" ] && "$ROOT/tests/sim/kdc/setup_kdc.sh" stop "$KDC_DIR" >/dev/null 2>&1 || true
+fi
 exit $rc

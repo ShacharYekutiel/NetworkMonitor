@@ -18,6 +18,7 @@ GROUP_KEYS = {
     "created_at",
     "updated_at",
     "dependency",
+    "ssh_credentials",  # [3]
 }
 DEVICE_KEYS = {
     "id",
@@ -45,6 +46,17 @@ DEVICE_KEYS = {
     "ports_effective",
     "arp_effective",
     "effective_class",
+    # [2b-3]
+    "source_addresses",
+    "source_address_conflicts",
+    "event_sensor_optout",
+    # [3]
+    "ssh_credentials",
+    "effective_ssh_source",
+    "effective_ssh_group_id",
+    "config_backup",
+    "config_backup_driver",
+    "newdev_excluded_ports",
 }
 SENSOR_KEYS = {
     "id",
@@ -336,10 +348,16 @@ async def test_sensor_types_endpoint(viewer: httpx.AsyncClient) -> None:
         "snmp_custom",
         "snmp_disk",
         "snmp_walk_count",  # [2b-2]
+        "trap",  # [2b-3] passive event sensors
+        "syslog",
+        "port_flap",
+        "config_backup",  # [3]
+        "new_mac",
     ]
     ping = items[0]
     assert ping == {
         "type": "ping",
+        "passive": False,  # [2b-3]
         "requires_snmp": False,
         "primary_channel": "latency_ms",
         "config_fields": [

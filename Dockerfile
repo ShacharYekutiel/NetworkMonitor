@@ -12,6 +12,22 @@
 #   - DATABASE_URL=postgresql://netmon@db:5432/netmon, NETMON_DATA_DIR=/data
 #   - the DB password comes from NETMON_DB_PASSWORD_FILE (set by docker-compose)
 #   - the SPA is served from <site-packages>/netmon/static
+#   - [2b-3] SNMP traps / syslog receivers listen on unprivileged ports inside the
+#     container (NETMON_TRAP_PORT=1162, NETMON_SYSLOG_PORT=1514 UDP+TCP); compose
+#     publishes host 162/udp -> 1162 and 514/udp+tcp -> 1514. Nothing listens until the
+#     owner turns the Traps / Syslog features on in Settings -> Features.
+#   - LDAPS (Active Directory login) trusts the same CAs as HTTPS: the OS store (with
+#     deploy/certs baked in) + certifi + NETMON_EXTRA_CA_DIR (default /etc/netmon/certs,
+#     mounted by compose).
+#   - [3] NetFlow v5/v9 + IPFIX on UDP 2055, IPFIX on UDP 4739, sFlow on UDP 6343
+#     (NETMON_NETFLOW_PORT / NETMON_IPFIX_PORT / NETMON_SFLOW_PORT, all > 1024, published
+#     1:1). Nothing listens until the owner turns the Flows feature on.
+#   - [3] Kerberos SSO: the `kerberos` extra (python-gssapi) is installed and linked against
+#     MIT krb5 (runtime package libgssapi-krb5-2). gssapi has no Linux wheels, so the
+#     backend stage compiles it (libkrb5-dev + gcc, not copied into the runtime). The
+#     keytab is uploaded in the UI and stored encrypted in the DB; the app materialises it
+#     under /data/run/ only while the feature is ON. asyncssh (config backup) is a core
+#     dependency (pure Python on top of `cryptography`).
 #
 # Corporate TLS inspection: drop the organisation's root CA (*.crt / *.pem / *.cer, PEM
 # or DER) into deploy/certs/ and rebuild. Every stage that reaches the network (npm, pip,
@@ -118,15 +134,26 @@ COPY README.md /src/README.md
 # Packaging contract: the built SPA goes to backend/netmon/static before the install.
 RUN rm -rf /src/backend/netmon/static
 COPY --from=frontend /src/frontend/dist/ /src/backend/netmon/static/
+# [3] Build-only toolchain for python-gssapi (no Linux wheels on PyPI): krb5-config and the
+# GSSAPI headers come from libkrb5-dev. Stays in this stage; the runtime gets only the
+# shared libraries (libgssapi-krb5-2).
+RUN apt-get update \
+ && apt-get install -y --no-install-recommends gcc libc6-dev libkrb5-dev \
+ && rm -rf /var/lib/apt/lists/*
 RUN pip install --upgrade pip \
- && pip install /src/backend \
+ && pip install "/src/backend[kerberos]" \
  # Make sure the SPA ends up next to the installed package even if the package data
  # configuration does not include static/ (NETMON_FRONTEND_DIST default location).
  && PKG_DIR="$(python -c 'import netmon, pathlib; print(pathlib.Path(netmon.__file__).resolve().parent)')" \
  && rm -rf "$PKG_DIR/static" \
  && cp -a /src/backend/netmon/static "$PKG_DIR/static" \
  && test -f "$PKG_DIR/static/index.html" \
- && command -v netmon
+ && command -v netmon \
+ # Every dependency declared in backend/pyproject.toml (e.g. ldap3 for Active Directory
+ # login, phase 2b-3; asyncssh and the kerberos extra, phase 3) must be installed and
+ # consistent in the venv.
+ && pip check \
+ && python -c "import asyncssh, gssapi, ldap3; print('asyncssh', asyncssh.__version__, '/ gssapi ok')"
 
 # ---------------------------------------------------------------------------
 # Stage 3: runtime
@@ -139,8 +166,11 @@ LABEL org.opencontainers.image.title="NetworkMonitor" \
 # The OS trust store (inherited from pybase) already holds deploy/certs: apt and the app
 # (netmon/tlsutil.py, via truststore) trust the corporate CAs.
 # iputils-ping: last-resort ICMP fallback used by the ping check.
+# libgssapi-krb5-2: [3] MIT krb5 GSSAPI library (~3 MB) for Kerberos SSO (python-gssapi).
+# Without --no-install-recommends apt would pull krb5-config (debconf); the app writes its
+# own krb5.conf (KRB5_CONFIG=/data/run/krb5.conf), so no /etc/krb5.conf is needed.
 RUN apt-get update \
- && apt-get install -y --no-install-recommends iputils-ping tzdata \
+ && apt-get install -y --no-install-recommends iputils-ping tzdata libgssapi-krb5-2 \
  && rm -rf /var/lib/apt/lists/*
 
 ARG NETMON_UID=10001
@@ -153,6 +183,10 @@ RUN groupadd --system --gid "${NETMON_GID}" netmon \
  && chmod 0750 /data
 
 COPY --from=backend /opt/netmon/venv /opt/netmon/venv
+# The compiled gssapi extension must load against the runtime's shared libraries (a
+# missing libgssapi-krb5-2 would otherwise only show up when Kerberos SSO is turned on).
+RUN /opt/netmon/venv/bin/python -c "import gssapi.raw, asyncssh" \
+ && /opt/netmon/venv/bin/pip check
 
 ENV PATH=/opt/netmon/venv/bin:$PATH \
     PYTHONUNBUFFERED=1 \
@@ -160,12 +194,19 @@ ENV PATH=/opt/netmon/venv/bin:$PATH \
     DATABASE_URL=postgresql://netmon@db:5432/netmon \
     NETMON_DATA_DIR=/data \
     NETMON_HOST=0.0.0.0 \
-    NETMON_PORT=8080
+    NETMON_PORT=8080 \
+    NETMON_TRAP_PORT=1162 \
+    NETMON_SYSLOG_PORT=1514 \
+    NETMON_NETFLOW_PORT=2055 \
+    NETMON_IPFIX_PORT=4739 \
+    NETMON_SFLOW_PORT=6343
 
 VOLUME ["/data"]
 WORKDIR /data
 USER netmon:netmon
-EXPOSE 8080
+# 8080 web UI/API; 1162/udp SNMP traps; 1514/udp+tcp syslog; [3] 2055/udp NetFlow/IPFIX,
+# 4739/udp IPFIX, 6343/udp sFlow (receivers listen only while their features are ON).
+EXPOSE 8080 1162/udp 1514/udp 1514/tcp 2055/udp 4739/udp 6343/udp
 
 # /api/health returns 200 while the process is alive (status "degraded" if the DB is down).
 HEALTHCHECK --interval=30s --timeout=5s --start-period=90s --retries=3 \

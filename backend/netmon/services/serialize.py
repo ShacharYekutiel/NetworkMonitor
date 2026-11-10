@@ -45,6 +45,10 @@ def user_out(u: Any) -> dict[str, Any]:
         "is_active": u.is_active,
         "last_login_at": iso(u.last_login_at),
         "created_at": iso(u.created_at),
+        # [2b-3]
+        "source": getattr(u, "source", None) or "local",
+        "display_name": getattr(u, "display_name", None),
+        "ldap_synced_at": iso(getattr(u, "ldap_synced_at", None)),
     }
 
 
@@ -78,6 +82,7 @@ def group_out(g: Any, inv: Inventory | None) -> dict[str, Any]:
         "name": g.name,
         "description": g.description,
         "snmp_credentials": snmp_out(g.snmp_credentials),
+        "ssh_credentials": _ssh_out(getattr(g, "ssh_credentials", None)),  # [3]
         "sort_order": g.sort_order,
         "status": inv.group_status.get(g.id, "unknown") if inv else "unknown",
         "status_counts": dict(inv.group_counts.get(g.id, empty_counts()))
@@ -115,8 +120,48 @@ def device_out(d: Any, inv: Inventory, maint: Any = None) -> dict[str, Any]:
         "maintenance": maint.maintenance_ref(d.id) if in_maint else None,
         "identity": d.identity,
         **inventory_flags_out(d, inv),
+        **source_addresses_out(d, inv),
+        **phase3_device_out(d, inv),
         "created_at": iso(d.created_at),
         "updated_at": iso(d.updated_at),
+    }
+
+
+def _ssh_out(stored: Any) -> dict[str, Any] | None:
+    from netmon.configbackup.credentials import ssh_out
+
+    return ssh_out(stored)
+
+
+def phase3_device_out(d: Any, inv: Inventory) -> dict[str, Any]:
+    """[3] SSH credentials (+ effective source), config backup mode / driver override,
+    new-device excluded ports."""
+    source, gid = inv.effective_ssh(d.id) if d.id in inv.devices else ("none", None)
+    return {
+        "ssh_credentials": _ssh_out(getattr(d, "ssh_credentials", None)),
+        "effective_ssh_source": source,
+        "effective_ssh_group_id": gid,
+        "config_backup": getattr(d, "config_backup", "auto") or "auto",
+        "config_backup_driver": getattr(d, "config_backup_driver", None),
+        "newdev_excluded_ports": list(getattr(d, "newdev_excluded_ports", None) or []),
+    }
+
+
+def source_addresses_out(d: Any, inv: Inventory) -> dict[str, Any]:
+    """[2b-3] additional sender addresses, conflicts with other devices, deleted event
+    sensors."""
+    addrs = [str(a) for a in (getattr(d, "source_addresses", None) or [])]
+    conflicts = []
+    for addr in addrs:
+        for oid, o in sorted(inv.devices.items()):
+            if oid == d.id:
+                continue
+            if addr in (o.get("source_addresses") or []) or str(o.get("host") or "") == addr:
+                conflicts.append({"address": addr, "device_id": oid, "device_name": o["name"]})
+    return {
+        "source_addresses": addrs,
+        "source_address_conflicts": conflicts,
+        "event_sensor_optout": list(getattr(d, "event_sensor_optout", None) or []),
     }
 
 
@@ -235,7 +280,15 @@ def public_channel_config(type_: str, config: dict[str, Any]) -> dict[str, Any]:
             "chat_id": config.get("chat_id"),
             "parse_mode": config.get("parse_mode", "HTML"),
             "disable_notification": bool(config.get("disable_notification", False)),
+            "ack_buttons": bool(config.get("ack_buttons", False)),  # [3] chat_ack
+            "ack_link": bool(config.get("ack_link", False)),
         }
+    if type_ == "email":  # [3] chat_ack link flag (default false on older rows)
+        return {**config, "ack_link": bool(config.get("ack_link", False))}
+    if type_ == "teams":  # [2b-3] the Workflows URL is signed: write-only
+        from netmon.alerts.teams import config_out
+
+        return config_out(config)
     return dict(config)
 
 

@@ -9,7 +9,9 @@
 #
 # Deploy: checkout -> validate (check-release.sh, compose config) -> pg_dump BEFORE the
 # netmon image changes (/var/backups/netmon/pre-deploy-<rev>-<ts>.dump) -> pull -> up -d
-# --remove-orphans -> wait for health (containers + https://<fqdn>/api/health).
+# --remove-orphans -> wait for health (containers + https://<fqdn>/api/health) -> clear
+# stale UDP conntrack entries for traps/syslog/flows (162/514/2055/4739/6343) when netmon
+# was recreated.
 # On failure: the deploy/production tree is marked bad (not retried until a NEW change
 # lands under deploy/production) and the previous good revision is redeployed.
 # The database is NEVER restored automatically (migrations are forward-only); see
@@ -278,6 +280,8 @@ deploy() { # rev tree
     return 1
   fi
 
+  local old_cid
+  old_cid="$(service_cid netmon)"
   if ! compose up -d --remove-orphans; then
     rollback "$rev" "$tree" "docker compose up failed" "$dump"
     return 1
@@ -286,6 +290,7 @@ deploy() { # rev tree
     rollback "$rev" "$tree" "not healthy within ${NETMON_HEALTH_TIMEOUT}s" "$dump"
     return 1
   fi
+  flush_ingest_conntrack "$old_cid"
 
   state_set deployed_rev "$rev"
   state_set deployed_tree "$tree"
@@ -324,7 +329,10 @@ check() {
 
   warn "drift: ${drift[*]}; re-applying $(short "$deployed_rev")"
   preflight || return 1
+  local old_cid
+  old_cid="$(service_cid netmon)"
   if compose up -d --remove-orphans && wait_healthy; then
+    flush_ingest_conntrack "$old_cid"
     hist "DRIFT repaired (${drift[*]}) rev=$deployed_rev"
     log "drift repaired"
     state_del notified

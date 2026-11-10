@@ -11,6 +11,8 @@ import sys
 from netmon import __version__
 from netmon.config import load_settings
 
+H11_MAX_HEADER_BYTES = 65536  # [3] architecture § 13.5.1
+
 
 def _setup_logging(level: str) -> None:
     logging.basicConfig(
@@ -48,6 +50,7 @@ def cmd_serve(args: argparse.Namespace) -> int:
             log_level=settings.netmon_log_level,
             ws_ping_interval=30,
             ws_ping_timeout=30,
+            h11_max_incomplete_event_size=H11_MAX_HEADER_BYTES,
         )
         return 0
     from netmon.app import create_app
@@ -64,6 +67,8 @@ def cmd_serve(args: argparse.Namespace) -> int:
         # rewriting would trust the spoofable leftmost X-Forwarded-For entry.
         proxy_headers=False,
         workers=1,
+        # [3] Kerberos SSO: Negotiate headers of users in many groups are 10-40 KB
+        h11_max_incomplete_event_size=H11_MAX_HEADER_BYTES,
     )
     server = uvicorn.Server(config)
     server.run()
