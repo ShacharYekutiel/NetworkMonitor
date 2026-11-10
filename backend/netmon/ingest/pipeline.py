@@ -155,7 +155,7 @@ class Ingest:
         self._sources_dirty = asyncio.Event()
         self._drop_events: dict[str, float] = {}
         self._drop_window: deque[float] = deque()
-        self._db_warned = 0.0
+        self._db_warned = float("-inf")  # monotonic counts from boot: 0.0 hid early warnings
         self.events = EventSensors(rt)
         self.flapping = FlapManager(rt)
         rt.event_sensors = self.events
@@ -689,6 +689,23 @@ class Ingest:
                 record["matched_rule_ids"] = list(outcome.matched_rule_ids)
                 if outcome.raised is not None:
                     record["raised_status"] = outcome.raised[0].action
+        # [3] config-change triggers: evaluated whenever config_backup is ON, independently
+        # of event_alerts (architecture § 13.2.4)
+        backup = getattr(self.rt, "configbackup", None)
+        if (
+            backup is not None
+            and backup.enabled
+            and device_id is not None
+            and dev is not None
+            and dev.get("enabled", True)
+        ):
+            hits = rules.backup_triggers(record, self.events.rules_for(kind, device_id))
+            if hits:
+                record["matched_rule_ids"] = [
+                    *record["matched_rule_ids"],
+                    *(i for i in hits if i not in record["matched_rule_ids"]),
+                ]
+                backup.trigger(device_id, hits)
         if self.forwarding_on and self.forwarders:
             sent = False
             for f in self.forwarders.values():

@@ -2,7 +2,7 @@ import { useQuery } from '@tanstack/react-query';
 import { useTranslation } from 'react-i18next';
 import { Link } from 'react-router-dom';
 import { endpoints, qk } from '../api/endpoints';
-import type { FeatureName, Features } from '../api/types';
+import type { FeatureName, Features, PublicSettings } from '../api/types';
 import { featureTab, normalizeFeatures } from '../lib/features';
 import { useAuth } from './auth';
 
@@ -10,6 +10,8 @@ import { useAuth } from './auth';
 export function useFeatures(): {
   features: Features;
   ldap: { domain: string; netbios_domain: string } | null;
+  /** [3] SSO login options (null while the feature is OFF) */
+  sso: NonNullable<PublicSettings['sso']>;
   loaded: boolean;
 } {
   const q = useQuery({
@@ -20,6 +22,10 @@ export function useFeatures(): {
   return {
     features: normalizeFeatures(q.data?.features),
     ldap: q.data?.ldap ?? null,
+    sso: {
+      kerberos: q.data?.sso?.kerberos ?? null,
+      oidc: q.data?.sso?.oidc ?? null,
+    },
     loaded: !!q.data,
   };
 }

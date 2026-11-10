@@ -11,6 +11,7 @@ from typing import TYPE_CHECKING, Any
 from sqlalchemy import select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from netmon.poller.sensor_types import PASSIVE_TYPES  # [2b-3]/[3] no dependency decisions
 from netmon.services.status import Inventory
 
 if TYPE_CHECKING:
@@ -20,7 +21,6 @@ if TYPE_CHECKING:
 log = logging.getLogger("netmon.dependencies")
 
 DOWNISH = ("down", "unreachable")
-PASSIVE_TYPES = ("trap", "syslog", "port_flap")  # [2b-3] excluded from dependency decisions
 RECHECK_JITTER_S = 5.0
 UNREACHABLE_PREFIX = "Unreachable (parent {name} down): "
 

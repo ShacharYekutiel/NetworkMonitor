@@ -1,0 +1,34 @@
+#
+# model = RB5009UG+S+
+# serial number = HFA09ABC123
+/interface bridge
+add name=bridge1
+/interface ethernet
+set [ find default-name=ether1 ] comment=WAN
+set [ find default-name=ether2 ] comment=LAN
+/interface vlan
+add interface=bridge1 name=vlan10 vlan-id=10
+add interface=bridge1 name=vlan20 vlan-id=20
+/ip pool
+add name=dhcp-pool ranges=10.0.20.100-10.0.20.200
+/ip address
+add address=10.0.0.2/24 interface=bridge1 network=10.0.0.0
+add address=10.0.10.1/24 interface=vlan10 network=10.0.10.0
+add address=10.0.20.1/24 interface=vlan20 network=10.0.20.0
+/ip dns
+set servers=10.0.0.53
+/ip firewall filter
+add action=accept chain=input connection-state=established,related
+add action=drop chain=input in-interface=ether1
+/ip route
+add gateway=192.0.2.9
+/snmp
+set enabled=yes
+/system clock
+set time-zone-name=Asia/Jerusalem
+/system identity
+set name=rb1
+/system ntp client
+set enabled=yes
+/system ntp client servers
+add address=10.0.0.10

@@ -1,0 +1,29 @@
+# Cisco IOS / IOS-XE. Driver cisco_ios (shell, enable step).
+driver: cisco_ios
+hostname: r1
+banner: "\r\n\r\nUnauthorized access is prohibited.\r\n\r\n"
+prompt: "{hostname}>"
+shell: true
+exec: true
+ansi: false
+press_any_key: false
+paging:
+  lines: 24
+  marker: " --More-- "
+  disable: ["terminal length 0"]
+enable:
+  command: enable
+  password_prompt: "Password: "
+  privileged_prompt: "{hostname}#"
+  failure: "% Access denied\r\n"
+invalid: "                    ^\r\n% Invalid input detected at '^' marker.\r\n\r\n"
+privileged_only: ["show running-config"]
+not_privileged: "                    ^\r\n% Invalid input detected at '^' marker.\r\n\r\n"
+commands:
+  "terminal length 0": ""
+  "terminal width 0": ""
+  "show running-config": "@config"
+exec_commands:
+  "show running-config": "@config"
+exec_invalid: {stdout: "% Invalid input detected at '^' marker.\n", status: 1}
+host_key_type: ssh-rsa

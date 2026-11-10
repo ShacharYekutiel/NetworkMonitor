@@ -285,6 +285,7 @@ async def test_alert_rules_api_and_firing(
         "stage",
         "after_maintenance",
         "after_flapping",  # [2b-3]
+        "ack_url",  # [3] chat_ack
         "problem_since",
         "event_id",
         "time",

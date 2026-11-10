@@ -84,6 +84,18 @@ class Runtime:
 
         self.features = FeatureManager(self)
         self.ingest: Any = None  # netmon.ingest.pipeline.Ingest
+        self.flows: Any = None  # [3] netmon.flows.service.FlowCollector
+        self.flows_rollup: str | None = None  # [3] "cagg" | "table" | None
+        self.flows_policies_ok = False
+        self.configbackup: Any = None  # [3] netmon.configbackup.runner.ConfigBackupRunner
+        self.newdev: Any = None  # [3] netmon.newdev.service.NewDeviceDetector
+        # [3] SSO / reports / chat ack / kiosk (netmon.auth.sso_component.register_components)
+        self.kerberos: Any = None
+        self.oidc: Any = None
+        self.sso: Any = None
+        self.reports: Any = None
+        self.telegram_pollers: Any = None
+        self.kiosk: Any = None
         self.event_sensors: Any = None  # netmon.ingest.event_sensors.EventSensors
         self.flapping: Any = None  # netmon.ingest.flapping.FlapManager
         self.trgm_enabled = False
@@ -118,6 +130,9 @@ class Runtime:
         raise_nofile_limit()
         s.data_dir.mkdir(parents=True, exist_ok=True)
         self.secret_key = load_or_create_secret(s.data_dir)
+        from netmon.configbackup import credentials as ssh_credentials
+
+        ssh_credentials.configure(self.secret_key)  # [3]
         self.engine = make_engine(s.async_database_url)
         self.sessionmaker = make_sessionmaker(self.engine)
         await wait_for_db(self.engine)
@@ -186,6 +201,24 @@ class Runtime:
         from netmon.ingest.pipeline import Ingest
 
         self.ingest = Ingest(self)
+        # [3] flow collector: hourly objects bootstrapped whether or not `flows` is ON
+        from netmon.flows.service import FlowCollector
+
+        self.flows = FlowCollector(self)
+        await self.flows.bootstrap()
+        self.features.register(self.flows)
+        # [3] config backup runner, new-device detector
+        from netmon.configbackup.runner import ConfigBackupRunner
+        from netmon.newdev.service import NewDeviceDetector
+
+        self.configbackup = ConfigBackupRunner(self)
+        self.features.register(self.configbackup)
+        self.newdev = NewDeviceDetector(self)
+        self.features.register(self.newdev)
+        # [3] SSO, report scheduler, Telegram update poller, kiosk hub
+        from netmon.auth.sso_component import register_components
+
+        register_components(self)
         try:
             await self.features.start()
         except Exception:  # noqa: BLE001 - the server always starts
@@ -350,6 +383,7 @@ class Runtime:
         from sqlalchemy import select
 
         from netmon.models import Device, Sensor
+        from netmon.poller.sensor_types import PASSIVE_TYPES
         from netmon.services.sensors import set_sensor_status
 
         async with self.sessionmaker() as session:
@@ -363,7 +397,7 @@ class Runtime:
                         # down/warning keep their status so alerting stays consistent
                         # (no repeated DOWN, and a later recovery still sends UP)
                         Sensor.status == "up",
-                        Sensor.type.not_in(("trap", "syslog", "port_flap")),  # [2b-3] passive
+                        Sensor.type.not_in(PASSIVE_TYPES),  # [2b-3]/[3] passive
                         text(
                             "(sensors.last_check_at IS NULL OR sensors.last_check_at < "
                             "now() - make_interval(secs => sensors.interval_s * 3))"
@@ -445,9 +479,17 @@ class Runtime:
 
     def config_changed(self, entity: str, id_: int, action: str) -> None:
         self.hub.broadcast("config.changed", {"entity": entity, "id": id_, "action": action})
+        if entity == "notification_channel" and self.telegram_pollers is not None:
+            self.telegram_pollers.channels_changed()  # [3] chat_ack: pollers follow channels
         self.request_rollup()
         if entity in ("device", "group", "sensor", "event_rule") and self.ingest is not None:
             self.ingest.mark_sources_dirty()  # [2b-3] attribution / rule cache
+        if entity == "device" and self.flows is not None:
+            self.flows.mark_sources_dirty()  # [3] exporter attribution
+        if entity in ("device", "group") and self.configbackup is not None:
+            self.configbackup.mark_dirty()  # [3] config_backup sensors of new eligible devices
+        if entity in ("device", "group") and self.newdev is not None:
+            self.newdev.mark_dirty()  # [3] new_mac sensors of new in-scope switches
         if entity in ("device", "group"):
             self.cascade.invalidate()  # dependencies may have changed
             if self.maintenance is not None:

@@ -55,7 +55,8 @@ test.afterAll(async () => {
 
 test('built-in rules are seeded disabled with the contract definitions', async () => {
   const items = (await admin.get('/api/event-rules')).items;
-  const b = Object.fromEntries(items.filter((r: any) => r.builtin).map((r: any) => [r.builtin, r]));
+  // [3] the config-change trigger rules (action config_backup) are seeded too; they are checked by spec 53
+  const b = Object.fromEntries(items.filter((r: any) => r.builtin && r.action !== 'config_backup').map((r: any) => [r.builtin, r]));
   expect(Object.keys(b).sort()).toEqual(['syslog_error', 'trap_auth_failure', 'trap_link_down', 'trap_restart']);
   expect(b.trap_link_down).toMatchObject({
     name: 'Link down', kind: 'trap', priority: 1000, action: 'warning', key_varbind_oid: '1.3.6.1.2.1.2.2.1.1', clear_after_min: 1440,

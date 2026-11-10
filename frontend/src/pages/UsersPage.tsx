@@ -29,7 +29,8 @@ import { TokensTable } from '../components/TokensTable';
 /** [2b-3] Local / AD badge. */
 export function SourceBadge({ source }: { source?: User['source'] }) {
   const { t } = useTranslation();
-  const ldap = source === 'ldap';
+  // [3] oidc users are managed by Entra ID like AD users are by the directory
+  const ldap = source === 'ldap' || source === 'oidc';
   return (
     <span
       className={
@@ -38,7 +39,7 @@ export function SourceBadge({ source }: { source?: User['source'] }) {
           : 'rounded bg-slate-100 px-1.5 py-0.5 text-[11px] font-medium text-slate-600 dark:bg-slate-800 dark:text-slate-300'
       }
     >
-      {t(`user.source.${ldap ? 'ldap' : 'local'}`)}
+      {t(`user.source.${source === 'ldap' || source === 'oidc' ? source : 'local'}`)}
     </span>
   );
 }
@@ -83,7 +84,7 @@ function UserModal({ open, onClose, user }: { open: boolean; onClose: () => void
     : password.length >= 8 && password.length <= 128;
   const unameOk = user || USERNAME_RE.test(username);
 
-  const ldap = user?.source === 'ldap';
+  const ldap = user?.source === 'ldap' || user?.source === 'oidc';
   const submit = (e: FormEvent) => {
     e.preventDefault();
     if (ldap) {

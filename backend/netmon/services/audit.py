@@ -63,6 +63,14 @@ SECRET_NAMES = frozenset(
         "token_hash",
         "secret",
         "headers",  # webhook headers commonly carry Authorization values
+        # [3] SSH credentials (stored encrypted; never in the audit log either)
+        "private_key",
+        "passphrase",
+        "enable_password",
+        "password_enc",
+        "private_key_enc",
+        "passphrase_enc",
+        "enable_password_enc",
     }
 )
 

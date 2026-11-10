@@ -649,7 +649,11 @@ async def test_rule(body: EventRuleTestIn, _: Admin, rt: RT, session: DB) -> dic
         ctx = rules.Context(important=rt.ingest._important_fn(info))  # noqa: SLF001
         out = rules.evaluate(rec, [rule], ctx)
         result = key = None
-        if out.raised is not None or out.suppressed is not None:
+        if rule.action == rules.BACKUP_ACTION:  # [3] a hit queues a config backup
+            if rules.backup_triggers(rec, [rule]):
+                matched += 1
+                result, key = "raise", ""
+        elif out.raised is not None or out.suppressed is not None:
             matched += 1
             result, key = "raise", (out.raised or out.suppressed)[1]  # type: ignore[index]
         elif out.ignored is not None:

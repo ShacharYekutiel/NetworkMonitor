@@ -22,6 +22,8 @@
          UDP/TCP 514 (syslog) for the receivers, which listen only while the Traps /
          Syslog features are ON (Settings -> Features). Warns when the Windows "SNMP Trap"
          service (SNMPTRAP) or another program holds those ports.
+         [3] Also UDP 2055 (NetFlow/IPFIX), 4739 (IPFIX) and 6343 (sFlow) for the flow
+         receivers (Flows feature), with the same -IngestRemoteAddress restriction.
       6. Starts the service and prints the URL.
 
     Corporate TLS inspection: the app trusts the Windows certificate store, so a root CA
@@ -31,6 +33,11 @@
 
     The script is idempotent: re-running it upgrades the app and keeps the data,
     the database and the generated passwords.
+
+    Kerberos single sign-on (Windows integrated login) needs MIT krb5 and is available only
+    with the Docker / Linux installation: on this service the "Kerberos SSO" feature reports
+    "unavailable". Sign in with Microsoft (Entra ID / OIDC), config backup over SSH, flows and
+    all other phase-3 features work here.
 
 .PARAMETER Port
     HTTP port of the web UI / API. Default 8080 (or the port of an existing install).
@@ -57,12 +64,23 @@
     Path to an nssm.exe to use instead of the bundled / downloaded one.
 
 .PARAMETER IngestRemoteAddress
-    Who may send SNMP traps / syslog through Windows Firewall: "Any" (default),
-    "LocalSubnet", or a list of addresses / networks, e.g. 10.0.0.0/8,192.168.10.0/24.
+    Who may send SNMP traps / syslog / flow export (NetFlow, IPFIX, sFlow) through Windows
+    Firewall: "Any" (default), "LocalSubnet", or a list of addresses / networks, e.g.
+    10.0.0.0/8,192.168.10.0/24.
 
 .PARAMETER DisableWindowsSnmpTrap
     Stop the Windows "SNMP Trap" service (SNMPTRAP) and set it to Disabled, so that
     NetworkMonitor can receive traps on UDP 162. Without it the installer only warns.
+
+.PARAMETER HttpsProxy
+    Outbound HTTPS proxy for the service (Telegram, Teams, Sign in with Microsoft, webhooks),
+    e.g. http://proxy.corp.local:8080. Default: the value from an earlier run, else
+    HTTPS_PROXY of this PowerShell session. SSH, SNMP, flows and LDAP never use it. The proxy
+    must allow long requests (>= 70 s) to api.telegram.org (Telegram long polling).
+
+.PARAMETER NoProxy
+    Extra NO_PROXY entries for the service (internal webhook targets), e.g.
+    .corp.local,10.0.0.0/8. localhost and 127.0.0.1 are always included.
 
 .EXAMPLE
     powershell -ExecutionPolicy Bypass -File .\deploy\windows\install.ps1 -Port 8081
@@ -80,7 +98,9 @@ param(
     [string]$TimescaleVersion = '2.31.0',
     [string]$NssmPath = '',
     [string[]]$IngestRemoteAddress = @('Any'),
-    [switch]$DisableWindowsSnmpTrap
+    [switch]$DisableWindowsSnmpTrap,
+    [string]$HttpsProxy = '',
+    [string]$NoProxy = ''
 )
 
 Set-StrictMode -Version 2.0
@@ -106,7 +126,11 @@ $FirewallRule  = 'NetworkMonitor-HTTP'
 $IngestRules   = @(
     @{ Name = 'NetworkMonitor-Traps';      Protocol = 'UDP'; Port = 162; Display = 'NetworkMonitor SNMP traps (UDP 162)' },
     @{ Name = 'NetworkMonitor-Syslog-UDP'; Protocol = 'UDP'; Port = 514; Display = 'NetworkMonitor syslog (UDP 514)' },
-    @{ Name = 'NetworkMonitor-Syslog-TCP'; Protocol = 'TCP'; Port = 514; Display = 'NetworkMonitor syslog (TCP 514)' }
+    @{ Name = 'NetworkMonitor-Syslog-TCP'; Protocol = 'TCP'; Port = 514; Display = 'NetworkMonitor syslog (TCP 514)' },
+    # [3] Flow receivers (Flows feature).
+    @{ Name = 'NetworkMonitor-NetFlow';    Protocol = 'UDP'; Port = 2055; Display = 'NetworkMonitor NetFlow/IPFIX (UDP 2055)' },
+    @{ Name = 'NetworkMonitor-IPFIX';      Protocol = 'UDP'; Port = 4739; Display = 'NetworkMonitor IPFIX (UDP 4739)' },
+    @{ Name = 'NetworkMonitor-sFlow';      Protocol = 'UDP'; Port = 6343; Display = 'NetworkMonitor sFlow (UDP 6343)' }
 )
 $NssmUrls      = @('https://nssm.cc/ci/nssm-2.24-101-g897c7ad.zip', 'https://nssm.cc/release/nssm-2.24.zip')
 $SidSystem     = '*S-1-5-18'       # NT AUTHORITY\SYSTEM (SIDs: independent of the UI language)
@@ -631,12 +655,34 @@ try {
         Invoke-Native $nssm @('install', $ServiceName, $netmonExe, 'serve') | Out-Null
     }
     $serviceLog = Join-Path $LogDir 'service.log'
+    # [3] Outbound proxy (parameter > earlier run > this session's HTTPS_PROXY). NSSM keeps
+    # the service environment in the registry (REG_MULTI_SZ AppEnvironmentExtra).
+    $proxyEnv = @()
+    $prevEnv = @()
+    try {
+        $prevEnv = @((Get-ItemProperty -Path "HKLM:\SYSTEM\CurrentControlSet\Services\$ServiceName\Parameters" `
+                       -Name AppEnvironmentExtra -ErrorAction Stop).AppEnvironmentExtra)
+    } catch { }
+    $prevProxy = @($prevEnv | Where-Object { $_ -like 'HTTPS_PROXY=*' } | ForEach-Object { $_.Substring(12) }) | Select-Object -First 1
+    $prevNoProxy = @($prevEnv | Where-Object { $_ -like 'NO_PROXY=*' } | ForEach-Object { $_.Substring(9) }) | Select-Object -First 1
+    $proxy = ''
+    if ($HttpsProxy) { $proxy = $HttpsProxy }
+    elseif ($prevProxy) { $proxy = $prevProxy }
+    elseif ($env:HTTPS_PROXY) { $proxy = $env:HTTPS_PROXY }
+    if ($proxy) {
+        $noProxyList = 'localhost,127.0.0.1,::1'
+        if ($NoProxy) { $noProxyList = "$noProxyList,$NoProxy" }
+        elseif ($prevNoProxy) { $noProxyList = $prevNoProxy }
+        elseif ($env:NO_PROXY) { $noProxyList = "$noProxyList,$($env:NO_PROXY)" }
+        $proxyEnv = @("HTTPS_PROXY=$proxy", "HTTP_PROXY=$proxy", "NO_PROXY=$noProxyList")
+        Write-Ok "Service outbound proxy: $(($proxy -split '://')[0])://... (NO_PROXY=$noProxyList)"
+    }
     $settings = @(
         @('Application', $netmonExe),
         @('AppParameters', 'serve'),
         @('AppDirectory', $DataDir),
         (@('AppEnvironmentExtra', "NETMON_DATA_DIR=$DataDir", 'PYTHONUNBUFFERED=1', 'PYTHONIOENCODING=utf-8') +
-         @(if ($useCorpCa) { "NETMON_EXTRA_CA_FILE=$CorpCaFile" })),
+         @(if ($useCorpCa) { "NETMON_EXTRA_CA_FILE=$CorpCaFile" }) + $proxyEnv),
         @('DisplayName', 'NetworkMonitor'),
         @('Description', "NetworkMonitor - network monitoring web application (http://localhost:$Port)"),
         @('Start', 'SERVICE_AUTO_START'),
@@ -673,9 +719,10 @@ try {
     # Echo replies for the ping checks are inbound ICMP; Windows Firewall allows the replies to
     # our own requests automatically, so no ICMP rule is needed.
 
-    # [2b-3] SNMP traps / syslog. Nothing listens until the Traps / Syslog features are
-    # turned on in Settings -> Features; the rules only let the datagrams in.
-    Write-Step "Opening UDP 162 (traps) and UDP/TCP 514 (syslog) in Windows Firewall (from: $($IngestRemoteAddress -join ', '))"
+    # [2b-3] SNMP traps / syslog, [3] flows. Nothing listens until the Traps / Syslog / Flows
+    # features are turned on in Settings -> Features; the rules only let the datagrams in.
+    Write-Step ("Opening UDP 162 (traps), UDP/TCP 514 (syslog) and UDP 2055/4739/6343 (flows) in Windows Firewall " +
+                "(from: $($IngestRemoteAddress -join ', '))")
     foreach ($r in $IngestRules) {
         if (Get-NetFirewallRule -Name $r.Name -ErrorAction SilentlyContinue) {
             Set-NetFirewallRule -Name $r.Name -Enabled True -Action Allow -Direction Inbound -Profile Any `
@@ -737,8 +784,13 @@ try {
     if (-not $timescale) { Write-Host '  Storage:  plain PostgreSQL mode (TimescaleDB not installed)' }
     Write-Host "  Traps/syslog: turn them on in Settings -> Features, then point the devices at ${hostShown}"
     Write-Host '                (UDP 162 traps, UDP/TCP 514 syslog; examples in deploy\README.md).'
+    Write-Host '  Flows:    turn on "Flows" in Settings -> Features, then configure flow export on the devices'
+    Write-Host '            (UDP 2055 NetFlow/IPFIX, 4739 IPFIX, 6343 sFlow; examples in deploy\README.md).'
+    Write-Host '  SSO:      Kerberos (Windows integrated login) needs the Docker/Linux installation;'
+    Write-Host '            "Sign in with Microsoft" (Entra ID) works here.'
 
-    # [2b-3] Other programs listening on 162 / 514 (the service's own processes excluded).
+    # [2b-3] Other programs listening on 162 / 514, [3] 2055 / 4739 / 6343 (the service's own
+    # processes excluded).
     $own = @{}
     $svcCim = Get-CimInstance Win32_Service -Filter "Name='$ServiceName'" -ErrorAction SilentlyContinue
     $svcPid = if ($svcCim) { [int]$svcCim.ProcessId } else { 0 }
@@ -755,7 +807,7 @@ try {
         } while ($added)
     }
     $holders = @()
-    $holders += @(Get-NetUDPEndpoint -LocalPort 162, 514 -ErrorAction SilentlyContinue |
+    $holders += @(Get-NetUDPEndpoint -LocalPort 162, 514, 2055, 4739, 6343 -ErrorAction SilentlyContinue |
                   ForEach-Object { [pscustomobject]@{ Proto = 'UDP'; Port = $_.LocalPort; ProcId = $_.OwningProcess } })
     $holders += @(Get-NetTCPConnection -LocalPort 514 -State Listen -ErrorAction SilentlyContinue |
                   ForEach-Object { [pscustomobject]@{ Proto = 'TCP'; Port = $_.LocalPort; ProcId = $_.OwningProcess } })

@@ -23,7 +23,8 @@ permissions:
 jobs:
   image:
     runs-on: ubuntu-latest
-    timeout-minutes: 45
+    # [3] python-gssapi is compiled in the image (no Linux wheels); under QEMU for arm64.
+    timeout-minutes: 60
     outputs:
       digest: ${{ steps.build.outputs.digest }}
     steps:

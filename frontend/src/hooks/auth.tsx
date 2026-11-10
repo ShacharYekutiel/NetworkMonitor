@@ -12,6 +12,7 @@ import { setUnauthorizedHandler, isApiError } from '../api/client';
 import { endpoints } from '../api/endpoints';
 import type { Language, User } from '../api/types';
 import { setLanguage, storedLanguage } from '../i18n';
+import { writeSkip } from '../lib/sso';
 
 export type BootState = 'loading' | 'setup' | 'anonymous' | 'authenticated' | 'error';
 
@@ -94,6 +95,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }, []);
 
   const logout = useCallback(async () => {
+    // [3] the login page must not sign in again automatically (Kerberos) after a logout
+    writeSkip(typeof sessionStorage === 'undefined' ? null : sessionStorage, true);
     try {
       await endpoints.logout();
     } catch {

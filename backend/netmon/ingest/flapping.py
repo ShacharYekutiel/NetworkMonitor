@@ -127,6 +127,9 @@ class FlapManager:
         self.enabled = False
         self._lock = asyncio.Lock()
         self._names: dict[Port, str] = {}
+        from netmon.reports.episodes import EpisodeRecorder
+
+        self.episodes = EpisodeRecorder(rt)  # [3] port_flap_episodes (reports)
 
     def _now(self) -> float:
         return float(self.rt.clock.now().timestamp())
@@ -172,6 +175,7 @@ class FlapManager:
         """Feature OFF: no tracking; flap conditions deleted, suppression emptied with re-arm."""
         self.enabled = False
         ids = set(self.suppressed_sensors)
+        await self.episodes.end(None)  # [3]
         self.tracker.clear()
         self.suppressed.clear()
         self.suppressed_sensors.clear()
@@ -204,6 +208,11 @@ class FlapManager:
         change = self.tracker.add(port, "up" if up else "down", self._now())
         if change is not None:
             self.rt.spawn(self._apply(change))
+            self.rt.spawn(  # [3]
+                self.episodes.change(
+                    change.kind, port, change.count, change.at, self._names.get(port, "")
+                )
+            )
         return change
 
     async def _apply(self, change: FlapChange) -> None:
@@ -264,6 +273,7 @@ class FlapManager:
                 continue
             self.tracker.forget(port)
             rearm |= self.suppressed.pop(port, set())
+            await self.episodes.end([port])  # [3]
         self._rebuild_sensor_set()
         if rearm and self.rt.alerts is not None:
             await self.rt.alerts.left_flapping(sorted(rearm))
@@ -275,6 +285,7 @@ class FlapManager:
         for p in ports:
             self.tracker.forget(p)
             rearm |= self.suppressed.pop(p, set())
+        await self.episodes.end([p for p in self.episodes.open if p[0] == device_id])  # [3]
         self._rebuild_sensor_set()
         if rearm and self.rt.alerts is not None:
             await self.rt.alerts.left_flapping(sorted(rearm))

@@ -148,7 +148,51 @@ Open questions for 2b-3 (defaults in architecture § 12.16): link-down alerts fo
 2b-3 is tested (not Docker Desktop); Check Point OS syslog only; AD re-login every 12 h; retention traps 30 d /
 audit 365 d; AD server and group names; SIEM target.
 
+## Phase 3 (branch `phase3`, after 2b-3)
+Contract: architecture.md § 13, data-model.md § Phase 3 (migration `0007`), api.md § Phase 3.
+
+**Owner rule:** every feature below is behind its own toggle in *Settings → Features*, **OFF by default** (also
+after an upgrade), switched at runtime without a restart; OFF keeps the data (retention still runs).
+
+7. **Network device config backup** (Oxidized-like, toggle `config_backup`): SSH only (no Telnet), daily
+   (staggered) + on demand + triggered by syslog "configuration changed" messages (built-in rules for Comware,
+   ArubaOS-Switch and Cisco, disabled by default; debounced). Data-driven drivers for HPE Comware, ArubaOS-Switch,
+   Aruba CX, Check Point Gaia, Cisco IOS, FortiGate, MikroTik. SSH credentials per group/device, encrypted with the
+   secret key. Versions stored only on change, diff, secrets masked, 100 versions / 365 days (latest always kept),
+   search across configs, download and ZIP export. Host keys pinned on first use; a changed key stops backups and
+   raises an alert until accepted. "Config changed" event, optional alert. **Read-only: no restore.** Library
+   asyncssh (EPL-2.0/GPL-2.0, free).
+8. **NetFlow / IPFIX / sFlow** (toggle `flows`): UDP 2055 / 4739 / 6343, NetFlow v5/v9, IPFIX, sFlow v5,
+   templates, sampling correction, exporters mapped to devices and interfaces (ifIndex → port names). 1-minute
+   aggregates (top talkers, applications, conversations, per-interface traffic) kept 24–48 h, hourly rollups 30 days
+   (TimescaleDB continuous aggregates, plain-PostgreSQL fallback). Hard budget 10 000 records/s (configurable up
+   to 50 000), bounded queues, drop counters. ≈ 0.4 GB per busy exporter.
+9. **New device on the network** (toggle `new_device_alerts`): a MAC never seen before on an access port (not
+   uplink/LAG/trunk) → event + optional alert with vendor, IP, hostname, switch/port. 7-day learning period,
+   allow-list (MACs / vendor prefixes), "acknowledge as known", scope by group, randomised MACs ignored, no flood
+   when a switch is added.
+10. **Single sign-on:** Kerberos/SPNEGO for domain PCs (toggle `sso_kerberos`, **recommended**; handled by the
+    app, Caddy unchanged except the short-name redirect; keytab for `HTTP/netmonitor.mnidom.net` uploaded in the
+    UI; roles from the 2b-3 AD groups) and "Sign in with Microsoft" (Entra ID OIDC, toggle `sso_oidc`, optional).
+    The AD form login and local accounts stay.
+11. **Reports** (toggle `reports`): weekly/monthly and on demand — availability (SLA %) per device/group, top
+    alerts, flapping ports, port errors, config changes, new devices, top talkers. HTML email + Teams/Telegram
+    summary + a printable page ("Save as PDF" in the browser; no server-side PDF engine).
+12. **NOC mode** (toggle `noc`): read-only wall-screen dashboard at `/noc#<token>`, no login, limited to allowed
+    IPs/CIDRs and a long random token, live updates, dark large-font theme, he/en.
+13. **Acknowledge from Telegram/Teams** (toggle `chat_ack`): Telegram inline button (long polling through the
+    proxy; Telegram accounts linked to users with one-time codes); Teams button opens the NetworkMonitor ack page
+    (Teams Workflows cards cannot call back into an internal server — stated in the UI); optional link in email;
+    signed, expiring tokens; audited; admins only.
+
+Open questions for phase 3 (defaults in architecture § 13.13): backup accounts (ArubaOS needs a manager-level
+account); masking secrets; schedule/retention; config-change alert vs event; flow exporters and sampling;
+new-device learning period and scope; Kerberos vs Entra; reports recipients and timing; NOC screen; dedicated
+Telegram bot; proxy details.
+
 ## Later / ideas
 - Per-port PoE status table.
 - Template editor in the UI.
-- Remote probes for multiple sites; SLA reports; backup/restore from the UI.
+- Remote probes for multiple sites; backup/restore of NetworkMonitor itself from the UI.
+- Phase 3 follow-ups: config-backup driver editor, Telnet (only if a device needs it), server-side PDF reports,
+  Kerberos SSO on native Windows (SSPI), a flow worker process, alerts driven by flow thresholds.

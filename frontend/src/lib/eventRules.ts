@@ -12,6 +12,7 @@ import type {
   VarbindOp,
 } from '../api/types';
 import { isOid, parseList } from './logs';
+import { isPassiveAction } from '../api/types';
 
 /** IF-MIB ifIndex column: the key of the Link down rule and of flapping suppression. */
 export const IF_INDEX_OID = '1.3.6.1.2.1.2.2.1.1';
@@ -140,7 +141,7 @@ export function ruleToForm(r: EventRule | null, kind: EventRuleKind = 'syslog'):
 
 /** Writable fields for POST/PATCH and for /event-rules/test. */
 export function formToInput(f: RuleForm): EventRuleInput {
-  const active = f.action !== 'ignore';
+  const active = !isPassiveAction(f.action);
   return {
     name: f.name.trim(),
     kind: f.kind,
@@ -206,7 +207,7 @@ export function validateRule(f: RuleForm): RuleErrors {
   if (f.scope === 'group' && f.groupId === null) e.scope = 'eventRules.err.scopeGroup';
   if (f.scope === 'device' && f.deviceId === null) e.scope = 'eventRules.err.scopeDevice';
   validateMatch(f.kind, f.match, 'match', e);
-  if (f.action !== 'ignore') {
+  if (!isPassiveAction(f.action)) {
     if (f.kind === 'trap' && f.keyVarbindOid.trim() && !isOid(f.keyVarbindOid))
       e.key = 'eventRules.err.oid';
     if (f.kind === 'syslog' && f.keyRegex.trim()) {

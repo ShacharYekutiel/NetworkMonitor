@@ -29,6 +29,15 @@ import { FeatureSection } from '../components/features/common';
 import { FeatureToggleCard } from '../components/features/FeatureToggle';
 import { SETTINGS_TABS, type SettingsTab } from '../lib/features';
 import { TabBar } from '../components/TabBar';
+import {
+  BackupSettingsTab,
+  ChatAckSettingsTab,
+  FlowSettingsTab,
+  NewDeviceSettingsTab,
+  ReportSettingsTab,
+} from '../components/features/Phase3Settings';
+import { SsoTab } from '../components/features/SsoSettings';
+import { NocTab } from '../components/features/NocSettings';
 
 function SmtpCard({ settings }: { settings: Settings }) {
   const { t } = useTranslation();
@@ -474,6 +483,13 @@ export function SettingsPage() {
       {q.data && tab === 'ingest' && <IngestTab settings={q.data} />}
       {q.data && tab === 'siem' && <SiemTab settings={q.data} />}
       {q.data && tab === 'ldap' && <LdapTab settings={q.data} />}
+      {q.data && tab === 'sso' && <SsoTab settings={q.data} />}
+      {q.data && tab === 'backup' && <BackupSettingsTab settings={q.data} />}
+      {q.data && tab === 'flows' && <FlowSettingsTab settings={q.data} />}
+      {q.data && tab === 'newDevices' && <NewDeviceSettingsTab settings={q.data} />}
+      {q.data && tab === 'reports' && <ReportSettingsTab settings={q.data} />}
+      {q.data && tab === 'noc' && <NocTab settings={q.data} />}
+      {q.data && tab === 'chatAck' && <ChatAckSettingsTab settings={q.data} />}
       {q.data && tab === 'audit' && (
         <>
           <FeatureToggleCard names={['audit']} settings={q.data} />

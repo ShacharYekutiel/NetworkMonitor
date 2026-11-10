@@ -36,9 +36,14 @@ dependencies = [
     "PyYAML>=6.0.1",
     # [2b-3] Active Directory login (pure Python, LGPL-3.0, used unmodified as a library)
     "ldap3>=2.9.1",
+    # [3] config backup over SSH (EPL-2.0 OR GPL-2.0-or-later; used unmodified under EPL-2.0)
+    "asyncssh[bcrypt]>=2.17",
 ]
 
 [project.optional-dependencies]
+# [3] Kerberos SSO acceptor (python-gssapi, ISC; needs MIT krb5 libgssapi-krb5-2). Imported
+# lazily: the app runs without it (feature state "unavailable").
+kerberos = ["gssapi>=1.8"]
 dev = [
     "pytest>=8",
     "pytest-asyncio>=0.24",
@@ -67,6 +72,8 @@ netmon = [
     "migrations/versions/*.py",
     "templates/library/*/*.yaml",
     "data/*.gz",
+    "data/*.tsv",
+    "configbackup/drivers/*.yaml",
 ]
 
 [tool.ruff]

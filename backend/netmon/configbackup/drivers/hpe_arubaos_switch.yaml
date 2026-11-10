@@ -1,0 +1,28 @@
+id: hpe_arubaos_switch
+name: 'HPE ArubaOS-Switch'
+version: 1
+confidence: unverified
+priority: 110
+match:
+  templates: ['hpe_arubaos_switch']
+  sys_object_id: ['1.3.6.1.4.1.11.2.3.7.11.']
+mode: shell
+prompt: '^[\w.\-]{1,64}(\([\w\-]+\))?# ?$'
+pre_prompt:
+  - pattern: 'Press any key to continue'
+    send: "\n"
+enable: null
+session_setup: ['no page']
+commands:
+  - command: 'show running-config'
+error_patterns: ['^\s*Invalid input:']
+ignore_lines: ['^Running configuration:$']
+secrets:
+  - '^\s*password (?:manager|operator|port-access) .*?(?:sha1|sha256|plaintext) "?((?<=")[^"]+|[^"\s]+)'
+  - '\bpassword\b.*?\b(?:sha1|sha256|plaintext) "?((?<=")[^"]+|[^"\s]+)'
+  - '^\s*snmp-server community "([^"]+)"'
+  - '\bkey "?((?<=")[^"]+|[^"\s]+)'
+  - '\b(?:auth|priv)\s+(?:md5|sha\S*|des|3des|aes\S*)\s+"?((?<=")[^"]+|[^"\s]+)'
+strip_ansi: true
+legacy_algorithms: false
+notes: 'Needs a manager-level account. Old firmware may need legacy_algorithms in the credentials.'

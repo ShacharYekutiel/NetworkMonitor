@@ -79,7 +79,9 @@ export function AddSensorModal({
     (x) =>
       types.data?.some((d) => d.type === x) &&
       ((x !== 'trap' && x !== 'syslog') || features.event_alerts) &&
-      (x !== 'port_flap' || features.flapping),
+      (x !== 'port_flap' || features.flapping) &&
+      (x !== 'config_backup' || features.config_backup) &&
+      (x !== 'new_mac' || features.new_device_alerts),
   );
   const passive = !!def?.passive || isEventSensor({ type });
 

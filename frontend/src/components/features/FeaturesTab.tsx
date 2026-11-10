@@ -1,11 +1,11 @@
 import { useTranslation } from 'react-i18next';
 import { Link } from 'react-router-dom';
 import type { FeatureName, Settings } from '../../api/types';
-import { featuresFromSettings, featuresOfTab, featureTab, movedFeatures } from '../../lib/features';
+import { FEATURE_GROUPS, featuresFromSettings, featureTab } from '../../lib/features';
 import { Card, cx } from '../ui';
 import { FeatureToggleList } from './FeatureToggle';
 
-/** Read-only row of a feature toggled in its own tab: name, on/off and a link to that tab. */
+/** Read-only row of a feature switched in its own tab: name, on/off and a link to that tab. */
 function OverviewRow({ name, on }: { name: FeatureName; on: boolean }) {
   const { t } = useTranslation();
   const tab = featureTab(name);
@@ -32,13 +32,33 @@ function OverviewRow({ name, on }: { name: FeatureName; on: boolean }) {
   );
 }
 
+function GroupHeading({ id, k }: { id: string; k: string }) {
+  const { t } = useTranslation();
+  return (
+    <h3
+      id={id}
+      className="border-b border-slate-200 bg-slate-50 px-4 py-1.5 text-xs font-semibold uppercase tracking-wide text-slate-500 dark:border-slate-800 dark:bg-slate-800/40"
+    >
+      {t(`features.group.${k}`)}
+    </h3>
+  );
+}
+
 /**
  * [2b-3] Settings → Features: switches of the features without a settings tab of their own, plus a
- * read-only overview of the others (each is switched at the top of its own tab).
+ * read-only overview of the others (each is switched in its own tab), both grouped.
  */
 export function FeaturesTab({ settings }: { settings: Settings }) {
   const { t } = useTranslation();
   const f = featuresFromSettings(settings);
+  const here = FEATURE_GROUPS.map((g) => ({
+    key: g.key,
+    names: g.names.filter((n) => featureTab(n) === 'features'),
+  })).filter((g) => g.names.length);
+  const moved = FEATURE_GROUPS.map((g) => ({
+    key: g.key,
+    names: g.names.filter((n) => featureTab(n) !== 'features'),
+  })).filter((g) => g.names.length);
   return (
     <div className="space-y-6">
       <Card title={t('features.title')} bodyClassName="p-0">
@@ -46,21 +66,30 @@ export function FeaturesTab({ settings }: { settings: Settings }) {
           {t('features.intro')}
         </p>
         <div data-testid="features-list">
-          <FeatureToggleList names={featuresOfTab('features')} settings={settings} />
+          {here.map((g) => (
+            <section key={g.key} aria-labelledby={`fg-${g.key}`}>
+              <GroupHeading id={`fg-${g.key}`} k={g.key} />
+              <FeatureToggleList names={g.names} settings={settings} />
+            </section>
+          ))}
         </div>
       </Card>
       <Card title={t('features.ownTabTitle')} bodyClassName="p-0">
         <p className="border-b border-slate-200 px-4 py-2 text-xs text-slate-500 dark:border-slate-800">
           {t('features.ownTabIntro')}
         </p>
-        <ul
-          className="divide-y divide-slate-100 dark:divide-slate-800"
-          data-testid="features-overview"
-        >
-          {movedFeatures().map((n) => (
-            <OverviewRow key={n} name={n} on={f[n]} />
+        <div data-testid="features-overview">
+          {moved.map((g) => (
+            <section key={g.key} aria-labelledby={`fo-${g.key}`}>
+              <GroupHeading id={`fo-${g.key}`} k={g.key} />
+              <ul className="divide-y divide-slate-100 dark:divide-slate-800">
+                {g.names.map((n) => (
+                  <OverviewRow key={n} name={n} on={f[n]} />
+                ))}
+              </ul>
+            </section>
           ))}
-        </ul>
+        </div>
       </Card>
     </div>
   );

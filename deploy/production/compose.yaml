@@ -6,8 +6,9 @@
 #
 # Based on deploy/docker-compose.yml (same init / db / netmon services and volume names),
 # with: the image pinned by release.env (no build), the web UI not published directly, a
-# Caddy reverse proxy terminating HTTPS on 443 (80 -> 443 redirect), and the SNMP trap /
-# syslog receivers published on the standard ports 162/udp and 514/udp+tcp [2b-3].
+# Caddy reverse proxy terminating HTTPS on 443 (80 -> 443 redirect), the SNMP trap /
+# syslog receivers published on the standard ports 162/udp and 514/udp+tcp [2b-3], and the
+# flow receivers on 2055/udp (NetFlow/IPFIX), 4739/udp (IPFIX), 6343/udp (sFlow) [3].
 #
 # Host paths (root-only, never in git):
 #   ${NETMON_ETC_DIR:-/etc/netmon-gitops}/tls/{cert.pem,key.pem}  TLS cert (full chain) + key
@@ -102,6 +103,10 @@ services:
       NETMON_TRAP_PORT: "1162"
       NETMON_SYSLOG_PORT: "1514"
       NETMON_SYSLOG_TCP_PORT: "1514"
+      # [3] Flow receivers (Flows feature); published 1:1 below.
+      NETMON_NETFLOW_PORT: "2055"
+      NETMON_IPFIX_PORT: "4739"
+      NETMON_SFLOW_PORT: "6343"
       # Behind Caddy: trust X-Forwarded-* (Caddy overwrites client-supplied ones) and
       # always mark the session cookie Secure (the site is HTTPS-only).
       NETMON_TRUST_PROXY: "true"
@@ -127,6 +132,11 @@ services:
       - "162:1162/udp"   # SNMP traps (and v2c informs)
       - "514:1514/udp"   # syslog
       - "514:1514/tcp"   # syslog (RFC 6587 framing)
+      # [3] Flow export, same DNAT / source-IP / DOCKER-USER notes as above; nothing listens
+      # until the owner turns the Flows feature on (Settings -> Features).
+      - "2055:2055/udp"  # NetFlow v5/v9 and IPFIX
+      - "4739:4739/udp"  # IPFIX (IANA port)
+      - "6343:6343/udp"  # sFlow v5
     sysctls:
       net.ipv4.ping_group_range: "0 2147483647"
     healthcheck:

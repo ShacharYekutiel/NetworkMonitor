@@ -39,8 +39,10 @@ import { ClockIcon, LogsIcon } from '../components/icons';
 import { TimelineTab } from '../components/timeline/TimelineTab';
 import { SyslogView } from '../components/logs/SyslogView';
 import { TrapsView } from '../components/logs/TrapsView';
+import { ConfigTab } from '../components/configbackup/ConfigTab';
+import { NewDevicesBadge } from '../components/newdevices/NewDevicesBadge';
 
-type DeviceTab = 'ports' | 'sensors' | 'logs' | 'timeline';
+type DeviceTab = 'ports' | 'sensors' | 'logs' | 'timeline' | 'config';
 
 /** [2b-3] Device "Logs" tab: syslog / traps tables pre-filtered by the device. */
 function DeviceLogs({ deviceId }: { deviceId: number }) {
@@ -158,6 +160,7 @@ export function DevicePage() {
     'sensors',
     ...(features.traps || features.syslog ? (['logs'] as const) : []),
     ...(features.timeline ? (['timeline'] as const) : []),
+    ...(features.config_backup ? (['config'] as const) : []),
   ];
   const tab: DeviceTab =
     tabParam && tabs.includes(tabParam)
@@ -242,6 +245,7 @@ export function DevicePage() {
           <StatusBadge status={d.status} />
           {!d.enabled && <span className="text-slate-500">{t('devices.disabledNote')}</span>}
           <StatusCountPills counts={d.status_counts} />
+          <NewDevicesBadge device={d} />
           <span className="text-xs text-slate-500">
             {t('snmp.label')}: {t(`snmp.source.${d.effective_snmp_source}`)}
             {d.snmp_credentials && ` (${d.snmp_credentials.version})`}
@@ -312,6 +316,7 @@ export function DevicePage() {
               {k === 'ports' && <PortIcon size={15} />}
               {k === 'logs' && <LogsIcon size={15} />}
               {k === 'timeline' && <ClockIcon size={15} />}
+              {k === 'config' && <LayersIcon size={15} />}
               {t(`devices.tab.${k}`)}
             </button>
           ))}
@@ -319,6 +324,7 @@ export function DevicePage() {
       )}
       {tab === 'logs' && <DeviceLogs deviceId={d.id} />}
       {tab === 'timeline' && <TimelineTab deviceId={d.id} />}
+      {tab === 'config' && <ConfigTab device={d} />}
       {tab === 'ports' && <PortsTab device={d} />}
       {tab === 'sensors' && (
         <>

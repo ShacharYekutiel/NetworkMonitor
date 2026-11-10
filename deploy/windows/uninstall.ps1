@@ -68,7 +68,8 @@ if ($svc) {
 }
 
 # ----------------------------------------------------------------------------- firewall
-foreach ($rule in @($FirewallRule, 'NetworkMonitor-Traps', 'NetworkMonitor-Syslog-UDP', 'NetworkMonitor-Syslog-TCP')) {
+foreach ($rule in @($FirewallRule, 'NetworkMonitor-Traps', 'NetworkMonitor-Syslog-UDP', 'NetworkMonitor-Syslog-TCP',
+                    'NetworkMonitor-NetFlow', 'NetworkMonitor-IPFIX', 'NetworkMonitor-sFlow')) {
     if (Get-NetFirewallRule -Name $rule -ErrorAction SilentlyContinue) {
         Write-Step "Removing the firewall rule $rule"
         Remove-NetFirewallRule -Name $rule

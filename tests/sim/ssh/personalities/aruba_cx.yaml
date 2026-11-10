@@ -1,0 +1,21 @@
+# Aruba AOS-CX. Driver aruba_cx (shell).
+driver: aruba_cx
+hostname: sw-cx1
+banner: "\r\n"
+prompt: "{hostname}# "
+shell: true
+exec: false
+exec_refusal: "% Command not supported over exec"
+ansi: false
+press_any_key: false
+paging:
+  lines: 24
+  marker: "--MORE--"
+  disable: ["no page"]
+enable: null
+invalid: "Invalid input: {word}\r\n"
+commands:
+  "no page": ""
+  "show running-config": "@config"
+exec_commands: {}
+host_key_type: ecdsa-sha2-nistp256

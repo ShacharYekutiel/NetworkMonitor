@@ -67,6 +67,12 @@ async def run_once(rt: Runtime) -> dict[str, int]:
     out = {"measurements": removed_m, "events": removed_e}
     out.update(await _run_2b3_auth(rt))
     out.update(await _run_2b3_ingest(rt, cfg))
+    out.update(await _run_3_config_newdev(rt))
+    # [3] flow rollup (fallback mode) and retention, whether or not `flows` is ON
+    from netmon.flows import settings as flow_settings
+    from netmon.flows import storage as flow_storage
+
+    out.update(await flow_storage.run_retention(rt, flow_settings.values_of(cfg)))
     return out
 
 
@@ -133,6 +139,23 @@ async def _run_2b3_auth(rt: Runtime) -> dict[str, int]:
         # no counts in this line: CodeQL treats values derived from the token/auth cleanup
         # as sensitive (clear-text logging); the counts are returned to the caller
         log.info("Retention removed old audit entries and expired API tokens")
+    return out
+
+
+async def _run_3_config_newdev(rt: Runtime) -> dict[str, int]:
+    """[3] config versions (also while the feature is OFF) and the known-MAC register."""
+    from netmon.configbackup.runner import run_retention
+    from netmon.newdev.service import run_forget
+
+    out = {"config_versions": 0, "known_macs": 0}
+    try:
+        out["config_versions"] = await run_retention(rt)
+    except Exception as exc:  # noqa: BLE001
+        log.warning("Config version retention failed: %s", exc)
+    try:
+        out["known_macs"] = await run_forget(rt)
+    except Exception as exc:  # noqa: BLE001
+        log.warning("Known-MAC cleanup failed: %s", exc)
     return out
 
 

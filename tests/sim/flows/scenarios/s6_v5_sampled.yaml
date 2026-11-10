@@ -1,0 +1,6 @@
+# NetFlow v5 with the header sampling field 0x4064 (mode 1, interval 100) -> rate 100 (data-model vector).
+name: s6
+sampling: 100
+flows:
+  - {src: 10.0.6.1, dst: 10.0.6.9, sport: 51000, dport: 443, proto: 6, bytes: 1000, packets: 2, in_if: 1, out_if: 2}
+  - {src: 10.0.6.2, dst: 10.0.6.9, sport: 50000, dport: 8443, proto: 6, bytes: 500, packets: 1, in_if: 1, out_if: 2}

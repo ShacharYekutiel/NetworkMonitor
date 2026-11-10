@@ -13,6 +13,15 @@ answers `409 feature_disabled` with `details: [{"feature": "<name>"}]`.
 
 Other modules can react to a change with `rt.features.add_listener(callback)`; the callback
 (sync or async) gets `(name, on)` after the built-in start/stop of that feature.
+
+[3] Phase-3 runtime parts register as components (architecture § 13.1 startup order):
+
+    rt.features.register(component)   # before rt.features.start(), e.g. in Runtime.start()
+
+A component has `features: tuple[str, ...]` (the names it reacts to) and the async methods
+`start(snapshot: dict[str, bool])` (startup, called in registration order after the 2b-3
+ingest), `feature_changed(name, on)` (runtime toggle of one of its features) and `stop()`
+(shutdown, reverse registration order, before the 2b-3 ingest stops).
 """
 
 from __future__ import annotations
@@ -42,7 +51,17 @@ FEATURES: tuple[str, ...] = (
     "timeline",
     "flapping",
     "siem_forwarding",
+    # [3] phase 3 (architecture § 13.0)
+    "config_backup",
+    "flows",
+    "new_device_alerts",
+    "sso_kerberos",
+    "sso_oidc",
+    "reports",
+    "noc",
+    "chat_ack",
 )
+PHASE3_FEATURES: tuple[str, ...] = FEATURES[FEATURES.index("config_backup") :]
 # Teams notifications and API tokens were toggles before; they are now always available. A
 # stored `feature_teams_enabled` / `feature_api_tokens_enabled` row is ignored (settings
 # `get_all` only reads known keys) and `PUT /api/settings` ignores those keys like any other
@@ -94,6 +113,7 @@ class FeatureManager:
         self.rt = rt
         self.values: dict[str, bool] = dict.fromkeys(FEATURES, False)
         self._listeners: list[Listener] = []
+        self._components: list[Any] = []  # [3]
         self._lock = asyncio.Lock()
         self.started = False
 
@@ -106,6 +126,17 @@ class FeatureManager:
 
     def add_listener(self, callback: Listener) -> None:
         self._listeners.append(callback)
+
+    def register(self, component: Any) -> None:
+        """[3] A phase-3 runtime component (see the module docstring)."""
+        if component not in self._components:
+            self._components.append(component)
+
+    def component(self, cls_name: str) -> Any:
+        for c in self._components:
+            if type(c).__name__ == cls_name:
+                return c
+        return None
 
     async def load(self) -> dict[str, bool]:
         from netmon.services import settings as settings_svc
@@ -123,9 +154,19 @@ class FeatureManager:
         ingest = getattr(self.rt, "ingest", None)
         if ingest is not None:
             await ingest.start(self.snapshot())
+        for comp in list(self._components):  # [3] in registration order
+            try:
+                await comp.start(self.snapshot())
+            except Exception:  # noqa: BLE001 - the server always starts
+                log.exception("Starting %s failed", type(comp).__name__)
         self.started = True
 
     async def stop(self) -> None:
+        for comp in reversed(self._components):  # [3]
+            try:
+                await comp.stop()
+            except Exception:  # noqa: BLE001
+                log.exception("Stopping %s failed", type(comp).__name__)
         ingest = getattr(self.rt, "ingest", None)
         if ingest is not None:
             await ingest.stop()
@@ -154,6 +195,16 @@ class FeatureManager:
                 log.warning("Applying feature %s=%s took too long", name, on)
             except Exception:  # noqa: BLE001 - a toggle never breaks the request
                 log.exception("Applying feature %s=%s failed", name, on)
+        if self.started:
+            for comp in list(self._components):  # [3]
+                if name not in getattr(comp, "features", ()):
+                    continue
+                try:
+                    await asyncio.wait_for(comp.feature_changed(name, on), APPLY_TIMEOUT_S * 2)
+                except TimeoutError:
+                    log.warning("Applying feature %s=%s took too long", name, on)
+                except Exception:  # noqa: BLE001
+                    log.exception("Applying feature %s=%s failed", name, on)
         for cb in list(self._listeners):
             try:
                 res = cb(name, on)

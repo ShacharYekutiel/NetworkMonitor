@@ -10,6 +10,9 @@ import { useTree } from '../hooks/queries';
 import { snmpFormFrom, snmpFormToInput } from '../lib/snmp';
 import { descendantGroupIds, findGroup, flattenGroups } from '../lib/tree';
 import { SnmpEditor } from './SnmpEditor';
+import { SshEditor } from './configbackup/SshEditor';
+import { sshFormErrors, sshFormFrom, sshFormToInput } from '../lib/configBackup';
+import type { BackupMode } from '../api/types3';
 import {
   DependencyEditor,
   dependencyInputFrom,
@@ -73,10 +76,12 @@ export function GroupFormModal({
   const [sortOrder, setSortOrder] = useState('0');
   const [snmp, setSnmp] = useState(snmpFormFrom(null));
   const [dep, setDep] = useState<DependencyInput>(dependencyInputFrom(null));
+  const [ssh, setSsh] = useState(sshFormFrom(null));
   const deviceName = useDeviceNames();
 
   useEffect(() => {
     if (!open) return;
+    setSsh(sshFormFrom(group?.ssh_credentials));
     setDep(dependencyInputFrom(group?.dependency));
     setName(group?.name ?? '');
     setParent(group ? group.parent_id : (parentId ?? null));
@@ -105,14 +110,18 @@ export function GroupFormModal({
 
   const submit = (e: FormEvent) => {
     e.preventDefault();
-    m.mutate({
+    if (sshFormErrors(ssh, group?.ssh_credentials).length) return;
+    const body: GroupInput = {
       name: name.trim(),
       parent_id: parent,
       description,
       sort_order: Number(sortOrder) || 0,
       snmp_credentials: snmpFormToInput(snmp),
       dependency: dependencyToInput(dep),
-    });
+    };
+    // [3] sent when set or when an existing value is removed (inherit)
+    if (ssh.own || group?.ssh_credentials) body.ssh_credentials = sshFormToInput(ssh);
+    m.mutate(body);
   };
 
   return (
@@ -152,6 +161,12 @@ export function GroupFormModal({
           onChange={setSnmp}
           existing={group?.snmp_credentials ?? null}
           inheritLabel={t('snmp.inheritParent')}
+        />
+        <SshEditor
+          value={ssh}
+          onChange={setSsh}
+          existing={group?.ssh_credentials}
+          inheritLabel={t('ssh.inheritParent')}
         />
         <DependencyEditor value={dep} onChange={setDep} forGroup />
         <ErrorBox error={m.error} context={{ deviceName }} />
@@ -205,6 +220,9 @@ export function DeviceFormModal({
   const [portInv, setPortInv] = useState<InventoryMode>('auto');
   const [arp, setArp] = useState<InventoryMode>('auto');
   const [sources, setSources] = useState('');
+  const [ssh, setSsh] = useState(sshFormFrom(null));
+  const [backupMode, setBackupMode] = useState<BackupMode>('auto');
+  const [driver, setDriver] = useState('');
   const { features } = useFeatures();
   const showSources = features.traps || features.syslog;
   const srcList = parseList(sources);
@@ -225,6 +243,9 @@ export function DeviceFormModal({
     setPortInv(device?.port_inventory ?? 'auto');
     setArp(device?.arp_collect ?? 'auto');
     setSources((device?.source_addresses ?? []).join('\n'));
+    setSsh(sshFormFrom(device?.ssh_credentials));
+    setBackupMode(device?.config_backup ?? 'auto');
+    setDriver(device?.config_backup_driver ?? '');
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open, device, groupId]);
 
@@ -259,6 +280,12 @@ export function DeviceFormModal({
     if (portInv !== (device?.port_inventory ?? 'auto')) body.port_inventory = portInv;
     if (arp !== (device?.arp_collect ?? 'auto')) body.arp_collect = arp;
     if (!device) body.auto_sensors = auto;
+    // [3] SSH credentials / backup mode / driver: sent only when set or changed
+    if (sshFormErrors(ssh, device?.ssh_credentials).length) return;
+    if (ssh.own || device?.ssh_credentials) body.ssh_credentials = sshFormToInput(ssh);
+    if (backupMode !== (device?.config_backup ?? 'auto')) body.config_backup = backupMode;
+    if ((driver || null) !== (device?.config_backup_driver ?? null))
+      body.config_backup_driver = driver || null;
     // [2b-3] sent only while traps/syslog are on (the field is hidden otherwise)
     if (showSources) {
       if (srcErr) return;
@@ -316,6 +343,17 @@ export function DeviceFormModal({
           onChange={setSnmp}
           existing={device?.snmp_credentials ?? null}
           inheritLabel={t('snmp.inheritGroup')}
+        />
+        <SshEditor
+          value={ssh}
+          onChange={setSsh}
+          existing={device?.ssh_credentials}
+          inheritLabel={t('ssh.inheritGroup')}
+          deviceId={device?.id}
+          mode={backupMode}
+          onMode={setBackupMode}
+          driver={driver}
+          onDriver={setDriver}
         />
         <DependencyEditor
           value={dep}

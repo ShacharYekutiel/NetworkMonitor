@@ -1,4 +1,15 @@
 // Hand-written mirror of docs/api.md. Field names are exact.
+import type {
+  BackupMode,
+  BackupStatus,
+  ConfigVersion,
+  FlowExporter,
+  KnownMac,
+  ReportRun,
+  Settings3,
+  SshCredentials,
+} from './types3';
+export * from './types3';
 
 export type Status = 'up' | 'warning' | 'down' | 'paused' | 'unknown' | 'unreachable'; // [2b-1] unreachable
 export type ChannelStatus = 'up' | 'warning' | 'down' | 'unknown';
@@ -39,6 +50,11 @@ export type ApiErrorDetail = {
   device_id?: number;
   /** [2b-3] feature_disabled */
   feature?: string;
+  /** [3] config backup not eligible (`no_credentials`, …) */
+  reason?: string;
+  /** [3] ssh_error */
+  error?: string;
+  step?: string;
 };
 export type ApiErrorEnvelope = {
   error: { code: string; message: string; details: ApiErrorDetail[] | null };
@@ -59,7 +75,7 @@ export type User = {
   ldap_synced_at?: string | null;
 };
 /** [2b-3] */
-export type UserSource = 'local' | 'ldap';
+export type UserSource = 'local' | 'ldap' | 'oidc'; // [3] oidc
 
 export type SnmpVersion = 'v1' | 'v2c' | 'v3';
 export type SnmpSecurityLevel = 'noAuthNoPriv' | 'authNoPriv' | 'authPriv';
@@ -107,6 +123,8 @@ export type Group = {
   status_counts: StatusCounts;
   /** [2b-1] `inherit` at a root group means none. */
   dependency: Dependency;
+  /** [3] */
+  ssh_credentials?: SshCredentials | null;
   created_at: string;
   updated_at: string;
 };
@@ -142,6 +160,14 @@ export type Device = {
   source_address_conflicts?: { address: string; device_id: number; device_name: string }[];
   /** [2b-3] read-only */
   event_sensor_optout?: EventSensorType[];
+  /** [3] config backup */
+  ssh_credentials?: SshCredentials | null;
+  effective_ssh_source?: 'device' | 'group' | 'none';
+  effective_ssh_group_id?: number | null;
+  config_backup?: BackupMode;
+  config_backup_driver?: string | null;
+  /** [3] new-device alerts: ifIndexes excluded from detection */
+  newdev_excluded_ports?: number[];
   created_at: string;
   updated_at: string;
 };
@@ -164,7 +190,9 @@ export type SensorType =
   | 'snmp_walk_count' // [2b-2]
   | 'trap' // [2b-3] passive event sensors
   | 'syslog'
-  | 'port_flap';
+  | 'port_flap'
+  | 'config_backup' // [3]
+  | 'new_mac';
 /** [2b-3] */
 export type EventSensorType = 'trap' | 'syslog' | 'port_flap';
 export const EVENT_SENSOR_TYPES: EventSensorType[] = ['trap', 'syslog', 'port_flap'];
@@ -184,6 +212,8 @@ export const SENSOR_TYPES: SensorType[] = [
   'trap',
   'syslog',
   'port_flap',
+  'config_backup',
+  'new_mac',
 ];
 
 export type Channel = {
@@ -237,7 +267,9 @@ export type EventKind =
   | 'acknowledge' // [2b-1]
   | 'maintenance' // [2b-1]
   | 'notification_sent' // [2b-3]
-  | 'port_change'; // [2b-3]
+  | 'port_change' // [2b-3]
+  | 'config_change' // [3]
+  | 'new_device';
 export const EVENT_KINDS: EventKind[] = [
   'status_change',
   'notification',
@@ -247,6 +279,8 @@ export const EVENT_KINDS: EventKind[] = [
   'maintenance',
   'notification_sent',
   'port_change',
+  'config_change',
+  'new_device',
 ];
 
 export type NmEvent = {
@@ -284,7 +318,18 @@ export type Health = {
   uptime_s: number;
   /** [2b-3] */
   trgm?: boolean;
-  ingest?: { trap: ReceiverState; syslog_udp: ReceiverState; syslog_tcp: ReceiverState };
+  ingest?: {
+    trap: ReceiverState;
+    syslog_udp: ReceiverState;
+    syslog_tcp: ReceiverState;
+    /** [3] */
+    netflow?: ReceiverState;
+    ipfix?: ReceiverState;
+    sflow?: ReceiverState;
+  };
+  /** [3] */
+  flows_rollup?: 'cagg' | 'table' | null;
+  kerberos?: 'ready' | 'unavailable' | 'disabled' | 'error';
 };
 
 // Tree
@@ -414,7 +459,7 @@ export type UnreachableDevice = {
   parent_device_name: string | null;
 };
 
-export type EmailChannelConfig = { to: string[] };
+export type EmailChannelConfig = { to: string[]; /** [3] */ ack_link?: boolean };
 export type WebhookChannelConfig = {
   url: string;
   headers: Record<string, string>;
@@ -428,6 +473,9 @@ export type TelegramChannelConfig = {
   chat_id: string;
   parse_mode: 'HTML' | null;
   disable_notification: boolean;
+  /** [3] chat ack */
+  ack_buttons?: boolean;
+  ack_link?: boolean;
 };
 /** Request form: bot_token is a real string (or omitted/null = keep). */
 export type TelegramChannelConfigInput = {
@@ -435,6 +483,8 @@ export type TelegramChannelConfigInput = {
   chat_id: string;
   parse_mode: 'HTML' | null;
   disable_notification: boolean;
+  ack_buttons?: boolean;
+  ack_link?: boolean;
 };
 /** [2b-3] url is a write-only secret */
 export type TeamsChannelConfig = {
@@ -442,8 +492,10 @@ export type TeamsChannelConfig = {
   url_set: boolean;
   url_host: string | null;
   legacy: boolean;
+  /** [3] */
+  ack_link?: boolean;
 };
-export type TeamsChannelConfigInput = { url?: string | null };
+export type TeamsChannelConfigInput = { url?: string | null; ack_link?: boolean };
 export type NotificationType = 'email' | 'webhook' | 'telegram' | 'teams';
 export const NOTIFICATION_TYPES: NotificationType[] = ['email', 'webhook', 'telegram', 'teams'];
 export type NotificationChannel = {
@@ -503,7 +555,8 @@ export type Settings = {
   port_mac_retention_days: number;
   /** [2b-2] */
   reverse_dns: boolean;
-} & Partial<Settings2b3>;
+} & Partial<Settings2b3> &
+  Partial<Settings3>;
 export type SettingsInput = Partial<
   Omit<Settings, 'smtp' | 'trap_communities' | 'trap_v3_users' | 'ldap' | 'trap_communities_count'>
 > & {
@@ -559,7 +612,12 @@ export type WsMessage =
           | 'maintenance_window' // [2b-1]
           | 'topology_link' // [2b-1]
           | 'event_rule' // [2b-3]
-          | 'api_token'; // [2b-3]
+          | 'api_token' // [2b-3]
+          | 'report' // [3]
+          | 'kiosk_screen'
+          | 'flow_exporter'
+          | 'mac_allowlist'
+          | 'config_backup';
         id: number;
         action: 'created' | 'updated' | 'deleted';
       };
@@ -609,7 +667,26 @@ export type WsMessage =
   | { type: 'syslog.batch'; ts: string; data: { items: SyslogMessage[]; skipped: number } }
   | { type: 'trap.batch'; ts: string; data: { items: Trap[]; skipped: number } }
   | { type: 'features.changed'; ts: string; data: { features: Features } }
-  | { type: 'ingest.receiver'; ts: string; data: { receiver: ReceiverStatus } };
+  | { type: 'ingest.receiver'; ts: string; data: { receiver: ReceiverStatus } }
+  // [3]
+  | { type: 'config_backup.update'; ts: string; data: { device_id: number; status: BackupStatus } }
+  | {
+      type: 'config_backup.changed';
+      ts: string;
+      data: { device_id: number; version: ConfigVersion };
+    }
+  | { type: 'flows.exporter'; ts: string; data: { exporter: FlowExporter } }
+  | {
+      type: 'new_device.detected';
+      ts: string;
+      data: { items: KnownMac[]; summary_count: number };
+    }
+  | { type: 'report.run'; ts: string; data: { run: ReportRun } }
+  | {
+      type: 'chat_ack.poller';
+      ts: string;
+      data: { bot_username: string; state: 'polling' | 'error'; last_error: string | null };
+    };
 
 // ---------------------------------------------------------------------------
 // [2a] Discovery, device templates, snmp storage
@@ -1395,7 +1472,16 @@ export type FeatureName =
   | 'audit'
   | 'timeline'
   | 'flapping'
-  | 'siem_forwarding';
+  | 'siem_forwarding'
+  // [3]
+  | 'config_backup'
+  | 'flows'
+  | 'new_device_alerts'
+  | 'sso_kerberos'
+  | 'sso_oidc'
+  | 'reports'
+  | 'noc'
+  | 'chat_ack';
 export const FEATURE_NAMES: FeatureName[] = [
   'traps',
   'syslog',
@@ -1406,6 +1492,14 @@ export const FEATURE_NAMES: FeatureName[] = [
   'ldap',
   'audit',
   'timeline',
+  'config_backup',
+  'flows',
+  'new_device_alerts',
+  'sso_kerberos',
+  'sso_oidc',
+  'reports',
+  'noc',
+  'chat_ack',
 ];
 export type Features = Record<FeatureName, boolean>;
 
@@ -1415,6 +1509,11 @@ export type PublicSettings = {
   /** [2b-3] */
   features?: Partial<Features>;
   ldap?: { domain: string; netbios_domain: string } | null;
+  /** [3] null while the feature is OFF */
+  sso?: {
+    kerberos: { auto_login: boolean } | null;
+    oidc: { button_label: string } | null;
+  };
 };
 
 export type ReceiverState = 'listening' | 'disabled' | 'error';
@@ -1564,8 +1663,12 @@ export type UnknownSource = {
 };
 
 export type EventRuleKind = 'trap' | 'syslog';
-export type EventRuleAction = 'warning' | 'down' | 'ignore';
-export const EVENT_RULE_ACTIONS: EventRuleAction[] = ['warning', 'down', 'ignore'];
+export type EventRuleAction = 'warning' | 'down' | 'ignore' | 'config_backup'; // [3] config_backup
+export const EVENT_RULE_ACTIONS: EventRuleAction[] = ['warning', 'down', 'ignore', 'config_backup'];
+/** [3] actions without key/clear fields (they never raise a condition) */
+export function isPassiveAction(a: EventRuleAction): boolean {
+  return a === 'ignore' || a === 'config_backup';
+}
 export type RuleScope = 'global' | 'group' | 'device';
 export type VarbindOp = 'eq' | 'ne' | 'contains' | 'regex' | 'exists' | 'absent';
 export const VARBIND_OPS: VarbindOp[] = ['eq', 'ne', 'contains', 'regex', 'exists', 'absent'];
@@ -1636,7 +1739,7 @@ export type RuleTestResult = {
 
 export type EventCondition = {
   id: number;
-  source: 'rule' | 'flap';
+  source: 'rule' | 'flap' | 'backup_failed' | 'host_key' | 'config_changed' | 'new_mac'; // [3]
   rule_id: number | null;
   rule_name: string | null;
   key: string;
@@ -1817,7 +1920,16 @@ export type AuditEntry = {
 };
 
 export type TimelineKind =
-  'status' | 'notification' | 'ack' | 'maintenance' | 'trap' | 'syslog' | 'port' | 'audit';
+  | 'status'
+  | 'notification'
+  | 'ack'
+  | 'maintenance'
+  | 'trap'
+  | 'syslog'
+  | 'port'
+  | 'audit'
+  | 'config' // [3]
+  | 'new_mac';
 export const TIMELINE_KINDS: TimelineKind[] = [
   'status',
   'notification',
@@ -1827,6 +1939,8 @@ export const TIMELINE_KINDS: TimelineKind[] = [
   'syslog',
   'port',
   'audit',
+  'config',
+  'new_mac',
 ];
 export type TimelineItem = {
   kind: TimelineKind;

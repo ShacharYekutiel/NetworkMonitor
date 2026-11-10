@@ -10,7 +10,8 @@ import type {
   RuleTestResult,
   VarbindOp,
 } from '../../api/types';
-import { EVENT_RULE_ACTIONS, VARBIND_OPS } from '../../api/types';
+import { EVENT_RULE_ACTIONS, isPassiveAction, VARBIND_OPS } from '../../api/types';
+import { useFeatures } from '../../hooks/features';
 import {
   formToInput,
   IF_INDEX_OID,
@@ -303,6 +304,7 @@ export function RuleEditorModal({
   onSaved?: (r: EventRule) => void;
 }) {
   const { t } = useTranslation();
+  const { features } = useFeatures();
   const qc = useQueryClient();
   const toast = useToast();
   const [f, setF] = useState<RuleForm>(() => ruleToForm(rule ?? null));
@@ -356,7 +358,7 @@ export function RuleEditorModal({
     setTouched(true);
     if (!invalid) save.mutate();
   };
-  const active = f.action !== 'ignore';
+  const active = !isPassiveAction(f.action);
 
   return (
     <Modal
@@ -464,7 +466,9 @@ export function RuleEditorModal({
               value={f.action}
               onChange={(e) => set({ action: e.target.value as EventRuleAction })}
             >
-              {EVENT_RULE_ACTIONS.map((a) => (
+              {EVENT_RULE_ACTIONS.filter(
+                (a) => a !== 'config_backup' || features.config_backup || f.action === a,
+              ).map((a) => (
                 <option key={a} value={a}>
                   {t(`eventRules.actions.${a}`)}
                 </option>

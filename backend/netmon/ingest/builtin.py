@@ -69,7 +69,64 @@ BUILTIN_RULES: dict[str, dict[str, Any]] = {
         "clear_match": None,
         "clear_after_min": 30,
     },
+    # [3] config-change triggers (data-model "Built-in config-change rules"; seeded by 0007)
+    "syslog_comware_cfg_changed": {
+        "names": {"en": "Comware configuration changed", "he": "שינוי תצורה Comware"},
+        "kind": "syslog",
+        "priority": 2000,
+        "match": {
+            "severity_max": None,
+            "facilities": [],
+            "programs": ["CFGMAN"],
+            "text": None,
+            "text_regex": False,
+        },
+        "action": "config_backup",
+        "key_varbind_oid": None,
+        "key_regex": None,
+        "clear_match": None,
+        "clear_after_min": None,
+    },
+    "syslog_arubaos_cfg_changed": {
+        "names": {"en": "ArubaOS-Switch configuration changed", "he": "שינוי תצורה ArubaOS"},
+        "kind": "syslog",
+        "priority": 2010,
+        "match": {
+            "severity_max": None,
+            "facilities": [],
+            "programs": ["mgr"],
+            "text": "(running|startup) config(uration)? (file )?changed",
+            "text_regex": True,
+        },
+        "action": "config_backup",
+        "key_varbind_oid": None,
+        "key_regex": None,
+        "clear_match": None,
+        "clear_after_min": None,
+    },
+    "syslog_cisco_config_i": {
+        "names": {"en": "Cisco IOS configured", "he": "שינוי תצורה Cisco"},
+        "kind": "syslog",
+        "priority": 2020,
+        "match": {
+            "severity_max": None,
+            "facilities": [],
+            "programs": [],
+            "text": "%SYS-5-CONFIG_I",
+            "text_regex": False,
+        },
+        "action": "config_backup",
+        "key_varbind_oid": None,
+        "key_regex": None,
+        "clear_match": None,
+        "clear_after_min": None,
+    },
 }
+BACKUP_BUILTIN_KEYS = (
+    "syslog_comware_cfg_changed",
+    "syslog_arubaos_cfg_changed",
+    "syslog_cisco_config_i",
+)
 
 
 def builtin_values(key: str, language: str = "en") -> dict[str, Any]:

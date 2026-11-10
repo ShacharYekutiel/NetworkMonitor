@@ -24,8 +24,10 @@ SENSOR_TYPES_ORDER = [
     "trap",  # [2b-3] passive event sensors
     "syslog",
     "port_flap",
+    "config_backup",  # [3] passive event sensors
+    "new_mac",
 ]
-PASSIVE_TYPES = ("trap", "syslog", "port_flap")
+PASSIVE_TYPES = ("trap", "syslog", "port_flap", "config_backup", "new_mac")
 AUTO_SENSOR_TYPES = {"ping", "snmp_system", "snmp_cpu", "snmp_memory"}
 
 
@@ -563,6 +565,8 @@ DEFAULT_NAMES = {
     "trap": "SNMP traps",  # [2b-3]
     "syslog": "Syslog",
     "port_flap": "Port flapping",
+    "config_backup": "Configuration backup",  # [3]
+    "new_mac": "New devices",
 }
 
 

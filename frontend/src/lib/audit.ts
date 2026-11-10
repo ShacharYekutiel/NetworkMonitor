@@ -16,6 +16,15 @@ export const AUDIT_ACTION_PREFIXES = [
   'settings.',
   'feature.',
   'ingest.',
+  // [3]
+  'config.',
+  'flows.',
+  'newdev.',
+  'sso.',
+  'report.',
+  'kiosk_screen.',
+  'chatack.',
+  'channel.',
 ];
 export const AUDIT_ENTITY_TYPES = [
   'device',

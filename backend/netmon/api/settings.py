@@ -8,6 +8,7 @@ from netmon.api.common import merge_secret
 from netmon.api.deps import DB, RT, Admin, Audit, feature_on
 from netmon.api.errors import ApiError
 from netmon.db.timescale import reapply_retention
+from netmon.flows import settings as flow_settings
 from netmon.schemas import SettingsPut, SmtpTestIn
 from netmon.services import audit
 from netmon.services import settings as settings_svc
@@ -31,6 +32,9 @@ async def public_settings(rt: RT, session: DB) -> dict:
         }
     out["ldap"] = ldap_public
     out["features"] = rt.features.snapshot()  # [2b-3]
+    from netmon.api.sso import sso_public
+
+    out["sso"] = await sso_public(rt, session)  # [3]
     return out
 
 
@@ -45,6 +49,9 @@ async def put_settings(body: SettingsPut, _: Admin, rt: RT, session: DB, ctx: Au
     fields = body.model_fields_set
     await _put_2b3_auth(body, fields, current, rt, session)
     await _put_2b3_ingest(body, fields, current, session)
+    await _put_3_plain(body, fields, current, session)
+    await _put_3c(body, fields, current, rt, session)  # [3] SSO toggles, reports, chat ack
+    await flow_settings.put(body, fields, session)  # [3] flows
     retention_changed = False
     if "smtp" in fields and body.smtp is not None:
         smtp = dict(current["smtp"])
@@ -91,6 +98,8 @@ async def put_settings(body: SettingsPut, _: Admin, rt: RT, session: DB, ctx: Au
     if topo_changed and rt.topology_scheduler is not None:
         await rt.topology_scheduler.reschedule()
     await _apply_2b3_ingest(rt, current, values)
+    await _apply_3(rt, current, values)
+    await flow_settings.after_put(rt, current, values)  # [3] flows
     return settings_svc.settings_out(values, rt.secret_key)
 
 
@@ -177,6 +186,68 @@ async def _put_2b3_ingest(body: SettingsPut, fields: set[str], current: dict, se
                 [{"loc": ["body", "siem_targets"], "msg": "ids must be unique"}],
             )
         await settings_svc.put(session, "siem_targets", targets)
+
+
+async def _put_3c(body: SettingsPut, fields: set[str], current: dict, rt: RT, session: DB) -> None:
+    """[3] report / chat-ack keys; turning `sso_kerberos` ON needs a keytab and AD login,
+    `sso_oidc` ON needs complete OIDC settings (422 with the missing parts)."""
+    from netmon.api.sso import kerberos_enable_errors
+    from netmon.auth import oidc
+    from netmon.schemas.phase3c import PLAIN_KEYS
+    from netmon.services import settings_p3c
+
+    for key in PLAIN_KEYS:
+        if key in fields and getattr(body, key) is not None:
+            await settings_svc.put(session, key, getattr(body, key))
+
+    def turning_on(name: str) -> bool:
+        key = f"feature_{name}_enabled"
+        return bool(key in fields and getattr(body, key, None) and not current.get(key))
+
+    errors: list[dict] = []
+    if turning_on("sso_kerberos"):
+        ldap_key = "feature_ldap_enabled"
+        ldap_on = (
+            bool(getattr(body, ldap_key))
+            if ldap_key in fields and getattr(body, ldap_key) is not None
+            else bool(current.get(ldap_key))
+        )
+        errors += await kerberos_enable_errors(rt, session, ldap_on)
+    if turning_on("sso_oidc"):
+        errors += oidc.oidc_config_errors(await settings_p3c.get(session, "oidc"), rt.secret_key)
+    if errors:
+        raise ApiError(422, "validation_error", "Single sign-on is not configured", errors)
+
+
+async def _put_3_plain(body: SettingsPut, fields: set[str], current: dict, session: DB) -> None:
+    """[3] config backup and new-device keys (the feature toggles are written with the 2b-3
+    ones: FEATURES covers all 17)."""
+    keys = (*settings_svc.CONFIG_BACKUP_KEYS, *settings_svc.NEWDEV_KEYS)
+    new = {k: getattr(body, k) for k in keys if k in fields and getattr(body, k) is not None}
+    lo = new.get("config_backup_min_versions", current["config_backup_min_versions"])
+    hi = new.get("config_backup_max_versions", current["config_backup_max_versions"])
+    if lo > hi:
+        raise ApiError(
+            422,
+            "validation_error",
+            "config_backup_min_versions must not exceed config_backup_max_versions",
+            [{"loc": ["body", "config_backup_min_versions"], "msg": "must be <= max_versions"}],
+        )
+    for key, value in new.items():
+        await settings_svc.put(session, key, value)
+
+
+async def _apply_3(rt: RT, before: dict, after: dict) -> None:
+    """[3] after the commit: the config-backup runner and the new-device detector re-read
+    their settings."""
+    runner = getattr(rt, "configbackup", None)
+    if runner is not None and any(
+        before.get(k) != after.get(k) for k in (*settings_svc.CONFIG_BACKUP_KEYS, "timezone")
+    ):
+        await runner.settings_changed()
+    newdev = getattr(rt, "newdev", None)
+    if newdev is not None and any(before.get(k) != after.get(k) for k in settings_svc.NEWDEV_KEYS):
+        await newdev.settings_changed()
 
 
 async def _apply_2b3_ingest(rt: RT, before: dict, after: dict) -> None:

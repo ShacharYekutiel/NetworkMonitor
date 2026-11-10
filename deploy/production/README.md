@@ -6,12 +6,13 @@
 - `release.env` — **הקובץ שמשנים כדי לשדרג**: הגרסה המדויקת ותמונת ה-Docker ‏(אפשר עם digest).
   לעולם לא `latest`.
 - `compose.yaml` — ה-stack: ‏`init` ‏(יוצר סיסמת DB אקראית), ‏`db` ‏(TimescaleDB), ‏`netmon` ‏(האפליקציה;
-  ממשק הווב לא חשוף ישירות, ‏traps ב-UDP 162 ו-syslog ב-UDP/TCP 514 כן — ראו "SNMP traps ו-syslog"),
+  ממשק הווב לא חשוף ישירות, ‏traps ב-UDP 162 ו-syslog ב-UDP/TCP 514 כן — ראו "SNMP traps ו-syslog"; ‏flows
+  ב-UDP 2055/4739/6343 — ראו "שלב 3"),
   ‏`proxy` ‏(Caddy: ‏HTTPS על 443, הפניה מ-80 ל-443, WebSocket).
 - `config/settings.env` — הגדרות אפליקציה שאינן סודיות (אזור זמן `Asia/Jerusalem` וכו').
 - `caddy/Caddyfile` — הגדרות ה-reverse proxy.
 - `ops/` — סקריפטים לשרת: ‏`bootstrap.sh`, ‏`sync.sh`, ‏`backup.sh`, ‏`restore.sh`, ‏`make-csr.sh`,
-  ‏`install-cert.sh`, ‏`status.sh`, ‏`ingest-firewall.sh` ‏(אופציונלי: מי רשאי לשלוח traps/syslog).
+  ‏`install-cert.sh`, ‏`status.sh`, ‏`ingest-firewall.sh` ‏(אופציונלי: מי רשאי לשלוח traps/syslog/flows).
 - `systemd/` — ה-timers: סנכרון כל 2 דקות, גיבוי יומי ב-02:17; ‏`netmon-ingest-firewall.service` ‏(מותקן,
   **לא** מופעל — רק אם בוחרים בו).
 - `tests/` — בדיקת הלוגיקה של `sync.sh` בלי Docker ‏(רצה ב-CI).
@@ -253,10 +254,10 @@ NOTIFY_ON_SUCCESS=0       # 1 = גם הודעה על deploy מוצלח
 | `/etc/netmon-gitops/repo-token`, `ghcr-token`, `ghcr-user` | tokens ‏(root, 0600) |
 | `/etc/netmon-gitops/site.env` | `NETMON_FQDN` |
 | `/etc/netmon-gitops/tls/` | `cert.pem`, ‏`key.pem` (בשימוש), ‏`netmon.key`, ‏`netmon.csr` |
-| `/etc/netmon-gitops/proxy.env`, `app.env` | proxy (אם הוגדר); הגדרות מקומיות לאפליקציה |
+| `/etc/netmon-gitops/proxy.env`, `app.env` | proxy (אם הוגדר); הגדרות מקומיות לאפליקציה (`HTTPS_PROXY` / `NO_PROXY` ל-Telegram, ‏Teams, ‏Entra ID) |
 | `/etc/netmon-gitops/ca/` | תעודות CA שהאפליקציה סומכת עליהן (מועתקות מ-`/usr/local/share/ca-certificates`) |
 | `/etc/netmon-gitops/notify.env` | webhook להתראות (אופציונלי) |
-| `/etc/netmon-gitops/ingest-allow.conf` | הרשתות שרשאיות לשלוח traps/syslog (אופציונלי, `ingest-firewall.sh`) |
+| `/etc/netmon-gitops/ingest-allow.conf` | הרשתות שרשאיות לשלוח traps/syslog/flows (אופציונלי, `ingest-firewall.sh`) |
 | `/var/lib/netmon-gitops/` | `deployed_rev`, ‏`bad_trees`, ‏`history.log` |
 | `/usr/local/lib/netmon-gitops/` | העותק המותקן של `ops/` (ה-timer מריץ אותו; מתעדכן אחרי deploy תקין) |
 | `/var/backups/netmon/` | גיבויים |
@@ -283,6 +284,9 @@ sudo /usr/local/lib/netmon-gitops/sync.sh --dry-run   # מה הסנכרון הי
 | כל ה-syslog/traps "מגיעים" מ-`172.x.0.1` (אזהרת NAT בדף הלוגים) | שלחתם מהשרת עצמו (עובר דרך `docker-proxy`) — בודקים ממחשב אחר. |
 | traps/syslog ממכשיר מסוים הפסיקו להגיע אחרי deploy | רשומת conntrack ישנה. ‏`sync.sh` מנקה אותה אוטומטית (כשהחבילה `conntrack` מותקנת); ידנית: `sudo conntrack -D -p udp --dport 162` ‏(ו-514). |
 | בהגדרות ← תכונות: `Address already in use` | תוכנה אחרת בשרת תופסת את 162/514: ‏`sudo ss -lunpt '( sport = :162 or sport = :514 )'`. |
+| flows ממכשיר הפסיקו להגיע אחרי deploy | רשומת conntrack ישנה; ‏`sync.sh` מנקה גם את 2055/4739/6343. ידנית: `sudo conntrack -D -p udp --dport 6343` ‏(ו-2055, ‏4739). |
+| Kerberos SSO נכשל / הדפדפן מציג טופס | `status.sh` ← "Time" ‏(הפרש שעון מעל 5 דקות); הכתובת בדפדפן חייבת להיות ה-FQDN ‏(`https://netmonitor` מפנה אליו); האתר ב-Local intranet; ‏`setspn -L` מציג SPN אחד. |
+| אישור מ-Telegram לא עובד / Telegram "נתקע" | ה-proxy מנתק בקשות ארוכות: מורידים את *Telegram poll timeout* בהגדרות (10–50 שניות). ‏`HTTPS_PROXY` ב-`app.env`? |
 
 ## SNMP traps ו-syslog ‏(שלב 2b-3)
 
@@ -372,3 +376,107 @@ openssl s_client -connect dc1.mnidom.net:636 -showcerts </dev/null | head -n 20
 ```
 
 הכול מוגדר בממשק (*הגדרות ← Active Directory*); אין שום דבר להגדיר בשרת.
+
+## שלב 3: flows, גיבוי קונפיגורציה, SSO
+
+**אחרי השדרוג הכול כבוי.** מפעילים ב-*הגדרות ← תכונות*. בשרת יש רק ארבעה דברים: הפורטים של flows (כבר ב-`compose.yaml`),
+ההפניה של השם הקצר ב-Caddy (כבר ב-`caddy/Caddyfile`), ה-proxy של האפליקציה ב-`app.env` ‏(ידני, בשרת בלבד) ו-NTP.
+
+### Flows ‏(NetFlow / IPFIX / sFlow)
+
+`compose.yaml` מפרסם **UDP 2055** ‏(NetFlow v5/v9 ו-IPFIX), ‏**UDP 4739** ‏(IPFIX) ו-**UDP 6343** ‏(sFlow v5), אחד לאחד
+(כולם מעל 1024). שום דבר לא מאזין עד שמפעילים *Flows*. כל מה שנכתב למעלה על traps ו-syslog נכון גם כאן:
+
+- כתובת השולח נשמרת (DNAT); בדיקה מהשרת עצמו מגיעה מ-`172.x.0.1`. ‏exporter של NetFlow/IPFIX מזוהה לפי כתובת המקור,
+  ‏sFlow לפי ה-agent address שבתוך החבילה. exporter לא מוכר מופיע ב-*Flows ← Exporters* והנתונים שלו נזרקים עד שמאשרים.
+- **conntrack:** ‏exporter שולח כל כמה שניות מאותו פורט מקור, כך שרשומה ישנה לא פגה לעולם. ‏`sync.sh` מנקה עכשיו
+  גם את 2055/4739/6343 אחרי deploy שיצר מחדש את הקונטיינר.
+- **חומת אש:** ‏`ufw` לא מסנן. ‏`ops/ingest-firewall.sh` ‏(אופציונלי) מכסה גם את שלושת הפורטים, עם אותה רשימת רשתות
+  ב-`/etc/netmon-gitops/ingest-allow.conf`. אחרי עדכון: ‏`sudo systemctl restart netmon-ingest-firewall` ‏(אם הופעל).
+- **נפח:** כ-0.4GB לכל exporter עמוס (raw ‏24 שעות, דקות 48 שעות, שעות 30 יום). ‏`status.sh` מציג את גודל מסד
+  הנתונים ואת טבלאות ה-flows. מומלץ לייצא רק מה-core ‏(FF 5945 IRF, ‏sFlow) ומה-Check Point ‏(NetFlow v9).
+
+הגדרת המכשירים (דוגמאות — **יש לבדוק על המכשיר**; ‏`10.0.0.50` = השרת). ב-NetFlow/IPFIX: ‏active timeout של 60 שניות
+לכל היותר, ו-ingress בלבד (אחרת התעבורה נספרת פעמיים).
+
+| מכשיר | Flow export |
+|---|---|
+| HPE Comware 7 ‏(FF 5945 IRF), ‏sFlow | `sflow agent ip <mgmt ip>`<br>`sflow source ip <mgmt ip>`<br>`sflow collector 1 ip 10.0.0.50 port 6343 description netmon`<br>בכל ממשק uplink: `sflow sampling-rate 4096` ו-`sflow flow collector 1` |
+| ArubaOS-Switch, ‏sFlow | `sflow 1 destination 10.0.0.50 6343`<br>`sflow 1 sampling <ports> 4096` (התחביר משתנה לפי גרסה) |
+| Check Point Gaia ‏(clish) | `add netflow collector ip 10.0.0.50 port 2055 export-format Netflow_V9`<br>`save config` ‏(או `IPFIX` לפורט 4739) |
+
+### גיבוי קונפיגורציה
+
+השרת מתחבר **החוצה** למכשירים ב-SSH ‏(TCP 22) ומריץ רק פקודות show/display. אין פורט נכנס ואין מה להגדיר בשרת. את
+פרטי ההתחברות מזינים בממשק, והם נשמרים מוצפנים. חשבונות מומלצים לכל פלטפורמה: ‏`docs/architecture.md` §13.9.3.
+
+### השם הקצר `https://netmonitor` מפנה ל-FQDN
+
+עד עכשיו `https://netmonitor` הציג את האפליקציה. מעכשיו הוא **מפנה** ל-`https://netmonitor.mnidom.net`: ל-Kerberos
+יש SPN רק לשם המלא, וגם ה-cookie ובדיקת ה-Origin צריכים שם אחד. התעודה ממשיכה לכלול את שני השמות (אין שינוי
+ב-`make-csr.sh`), ולכן אין אזהרה. ב-Caddy אין שום הגדרה מיוחדת ל-SSO.
+
+### Kerberos SSO — הוראות למנהל ה-AD ‏(פעם אחת)
+
+1. **DNS:** ‏`netmonitor.mnidom.net` חייב להיות **רשומת A** ‏(לא CNAME — אחרת Chrome/Edge מבקשים כרטיס לשם היעד).
+2. **חשבון שירות**, למשל `svc-netmon-http`: הסיסמה לא פגה, מסומן *This account supports Kerberos AES 256 bit
+   encryption*, בלי הרשאות נוספות.
+3. **SPN ו-keytab** — על DC, ב-cmd עם הרשאות מנהל:
+
+<div dir="ltr">
+
+```
+setspn -S HTTP/netmonitor.mnidom.net MNIDOM\svc-netmon-http
+ktpass /princ HTTP/netmonitor.mnidom.net@MNIDOM.NET /mapuser MNIDOM\svc-netmon-http /crypto AES256-SHA1 /ptype KRB5_NT_PRINCIPAL /pass <new password> /out netmon-http.keytab
+setspn -L MNIDOM\svc-netmon-http
+```
+
+</div>
+
+   ‏`ktpass` קובע את הסיסמה הזו לחשבון וממפה אליו את ה-principal, כך שה-salt של מפתח ה-AES ב-keytab תואם ל-AD.
+   ‏`setspn -L` צריך להציג `HTTP/netmonitor.mnidom.net` אחד בלבד (`setspn -X` מוצא כפילויות). רק ל-FQDN יש SPN.
+4. **העלאה:** ‏*הגדרות ← Single sign-on ← Kerberos* ← מעלים את `netmon-http.keytab`. ה-principal צריך להופיע עם
+   etype 18 ‏(aes256-cts). אחר כך **מוחקים את הקובץ** — הוא שקול לסיסמת החשבון.
+   ה-keytab **לא נשמר בשרת**: הוא מוצפן במסד הנתונים (ונכלל בגיבוי היומי), ונכתב ל-`/data/run/http.keytab`
+   ‏(0600, בתוך ה-volume) רק כל עוד התכונה פעילה. ‏`run/` לא נכלל בגיבוי ה-volume ונוצר מחדש בכל הפעלה. החלפה: מריצים
+   `ktpass` שוב עם סיסמה חדשה ומעלים את ה-keytab החדש.
+5. **דפדפנים (GPO):** ‏`https://netmonitor.mnidom.net` באזור **Local intranet** ‏(*Site to Zone Assignment List*,
+   ערך `1`; משמש את Edge ו-Chrome ב-Windows), או מדיניות Chrome/Edge ‏`AuthServerAllowlist = netmonitor.mnidom.net`.
+   Firefox: ‏`network.negotiate-auth.trusted-uris`.
+6. **שעון:** הפרש של יותר מ-5 דקות שובר את Kerberos. מסנכרנים את השרת ל-DC:
+
+```bash
+sudo mkdir -p /etc/systemd/timesyncd.conf.d
+printf '[Time]\nNTP=dc1.mnidom.net dc2.mnidom.net\n' | sudo tee /etc/systemd/timesyncd.conf.d/netmon.conf
+sudo systemctl restart systemd-timesyncd && timedatectl timesync-status
+```
+
+7. *Active Directory* ‏(שלב 2b-3) חייב להיות פעיל ומוגדר: התפקיד של משתמשי SSO נקבע לפי אותן קבוצות AD.
+
+### Entra ID — רק אם רוצים "Sign in with Microsoft"
+
+App registration ‏(single tenant), פלטפורמה **Web**, ‏redirect URI
+`https://netmonitor.mnidom.net/api/auth/oidc/callback`; ‏client secret (מזינים בממשק את תאריך התפוגה שלו — מוצגת
+אזהרה 30 יום לפני); ‏app roles ‏`NetMon.Admin` / `NetMon.Viewer`, משויכים למשתמשים/קבוצות ב-*Enterprise
+applications*; ‏token configuration: ‏optional claims ‏`email`, ‏`preferred_username`. ה-proxy צריך לאפשר את
+`login.microsoftonline.com`.
+
+### proxy יוצא לאפליקציה (Telegram, ‏Teams, ‏Entra ID)
+
+האפליקציה (httpx) משתמשת ב-`HTTPS_PROXY` / `NO_PROXY` מהקובץ `/etc/netmon-gitops/app.env` ‏(בשרת בלבד, לא ב-git).
+SSH, ‏SNMP, ‏flows ו-LDAP לא עוברים דרך proxy לעולם. ‏`bootstrap.sh` יוצר את הקובץ רק בפעם הראשונה (בשרת חדש
+`NO_PROXY` כולל גם את הדומיין, למשל `.mnidom.net`). בשרת הקיים עורכים ידנית:
+
+<div dir="ltr">
+
+```
+HTTPS_PROXY=http://<proxy>:<port>
+HTTP_PROXY=http://<proxy>:<port>
+NO_PROXY=localhost,127.0.0.1,::1,db,netmon,proxy,.mnidom.net,<internal webhook targets>
+```
+
+</div>
+
+ואז: ‏`cd /opt/netmon/deploy/production && sudo docker compose --env-file release.env up -d netmon` ‏(יוצר מחדש את
+הקונטיינר עם הסביבה החדשה). ה-proxy חייב לאפשר **בקשות ארוכות (70 שניות ומעלה)** ל-`api.telegram.org` ‏(long polling
+של *Chat acknowledge*). אם הוא מנתק אותן, מורידים את *Telegram poll timeout* בהגדרות (10–50, ברירת מחדל 50).

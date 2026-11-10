@@ -1,0 +1,23 @@
+# Check Point Gaia, login shell clish. Driver checkpoint_gaia (exec: `show configuration`).
+driver: checkpoint_gaia
+config_dir: checkpoint
+hostname: gw-hq
+banner: "This system is for authorized use only.\r\n"
+prompt: "{hostname}> "
+shell: true
+exec: true
+ansi: false
+press_any_key: false
+paging:
+  lines: 24
+  marker: "-- More --"
+  disable: ["set clienv rows 0"]
+enable: null
+invalid: "CLINFR0329  Invalid command:'{line}'.\r\n"
+commands:
+  "set clienv rows 0": ""
+  "show configuration": "@config"
+exec_commands:
+  "show configuration": "@config"
+exec_invalid: {stderr: "CLINFR0329  Invalid command:'{line}'.\n", status: 1}
+host_key_type: ssh-rsa

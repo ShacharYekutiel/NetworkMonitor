@@ -1,0 +1,20 @@
+id: mikrotik_routeros
+name: 'MikroTik RouterOS'
+version: 1
+confidence: unverified
+priority: 500
+match:
+  templates: ['mikrotik', 'mikrotik_routeros']
+  sys_object_id: ['1.3.6.1.4.1.14988.']
+mode: exec
+prompt: null
+commands:
+  - command: '/export'
+error_patterns: ['^(bad command name|syntax error)']
+ignore_lines:
+  - '^# \S+ \d\d:\d\d:\d\d by RouterOS'
+  - '^# \d{4}-\d\d-\d\d \d\d:\d\d:\d\d by RouterOS'
+  - '^# software id = '
+secrets:
+  - '\b[\w-]*(?:password|secret|passphrase|pre-shared-key|private-key|auth-key|psk)=("[^"]*"|\S+)'
+notes: 'RouterOS 7 hides secrets in /export.'

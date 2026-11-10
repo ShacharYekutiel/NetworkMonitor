@@ -31,7 +31,8 @@ test('fresh install: every feature OFF in settings and /api/settings/public (als
   const s = await admin.get('/api/settings');
   for (const f of FEATURES) expect.soft(s[`feature_${f}_enabled`], `settings feature_${f}_enabled`).toBe(false);
   const pub = await publicFeatures(admin);
-  expect(Object.keys(pub).sort()).toEqual([...FEATURES].sort());
+  // [3] the 8 phase-3 toggles are listed too (api.md [3] Type changes)
+  expect(Object.keys(pub).sort()).toEqual([...FEATURES, ...['config_backup', 'flows', 'new_device_alerts', 'sso_kerberos', 'sso_oidc', 'reports', 'noc', 'chat_ack']].sort());
   expect(FEATURES).toHaveLength(9);
   for (const gone of ['teams', 'api_tokens']) {
     expect.soft(pub, `public features has no ${gone}`).not.toHaveProperty(gone);
@@ -94,7 +95,8 @@ test('OFF: endpoints answer 409 feature_disabled (with the documented exceptions
 
 test('OFF: no listener on the trap/syslog ports; health reports receivers disabled', async () => {
   const h = await admin.get('/api/health');
-  expect.soft(h.ingest).toEqual({ trap: 'disabled', syslog_udp: 'disabled', syslog_tcp: 'disabled' });
+  // [3] ingest also reports the flow receivers (api.md [3] Type changes)
+  expect.soft(h.ingest).toEqual({ trap: 'disabled', syslog_udp: 'disabled', syslog_tcp: 'disabled', netflow: 'disabled', ipfix: 'disabled', sflow: 'disabled' });
   expect.soft(typeof h.trgm).toBe('boolean');
   // TCP syslog: connection refused
   const refused = await new Promise<boolean>((res) => {
@@ -222,9 +224,9 @@ test('UI: each feature is switched in one place (own tab, else Features); overvi
   const toggles = page.getByRole('switch').or(page.getByRole('checkbox'));
   await expect(toggles).toHaveCount(own.length);
   for (const f of own) await expect(page.locator(`[data-feature="${f}"]`).getByRole('switch')).toBeVisible();
-  // ... plus a read-only overview of the other 7, each linking to its tab
+  // ... plus a read-only overview of the other 15 (7 of 2b-3 + all 8 of phase 3), each linking to its tab
   const overview = page.getByTestId('features-overview');
-  await expect(overview.locator('[data-feature-overview]')).toHaveCount(FEATURES.length - own.length);
+  await expect(overview.locator('[data-feature-overview]')).toHaveCount(FEATURES.length + 8 - own.length);
   await expect(overview.getByRole('switch')).toHaveCount(0);
   await shot2b3(page, '38-features-tab-off');
   // Traps & syslog tab: traps, syslog, event alerts and flapping switches in the card at the top;

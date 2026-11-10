@@ -40,6 +40,7 @@ TEXTS = {
         "after_maintenance": " (after maintenance)",
         "after_flapping": " (after flapping)",
         "open": "Open in NetworkMonitor",
+        "acknowledge": "Acknowledge",
         "test": "NetworkMonitor test message",
         "new_hosts": "New hosts discovered: {name} ({count})",
     },
@@ -61,6 +62,7 @@ TEXTS = {
         "after_maintenance": " (לאחר תחזוקה)",
         "after_flapping": " (לאחר ריפרוף)",
         "open": "פתיחה ב-NetworkMonitor",
+        "acknowledge": "אישור טיפול",
         "test": "הודעת בדיקה מ-NetworkMonitor",
         "new_hosts": "התגלו מארחים חדשים: {name} ({count})",
     },
@@ -88,7 +90,13 @@ def is_legacy(url: str | None) -> bool:
 def config_out(config: dict[str, Any]) -> dict[str, Any]:
     """API shape of a Teams channel config (the URL is write-only)."""
     url = config.get("url")
-    return {"url": None, "url_set": bool(url), "url_host": url_host(url), "legacy": is_legacy(url)}
+    return {
+        "url": None,
+        "url_set": bool(url),
+        "url_host": url_host(url),
+        "legacy": is_legacy(url),
+        "ack_link": bool(config.get("ack_link", True)),  # [3]
+    }
 
 
 def _color(payload: dict[str, Any]) -> str:
@@ -220,8 +228,15 @@ def build_card(payload: dict[str, Any], lang: str) -> dict[str, Any]:
     if facts:
         body.append({"type": "FactSet", "facts": facts})
     card["body"] = body
+    actions: list[dict[str, Any]] = []
+    if payload.get("ack_url"):  # [3] chat_ack: the ack page link (Action.Submit cannot work)
+        actions.append(
+            {"type": "Action.OpenUrl", "title": t["acknowledge"], "url": payload["ack_url"]}
+        )
     if payload.get("url"):
-        card["actions"] = [{"type": "Action.OpenUrl", "title": t["open"], "url": payload["url"]}]
+        actions.append({"type": "Action.OpenUrl", "title": t["open"], "url": payload["url"]})
+    if actions:
+        card["actions"] = actions
     out = _wrap(card)
     if _size(out) <= MAX_CARD_BYTES:
         return out
@@ -283,4 +298,6 @@ def _scrub(text: str, url: str) -> str:
 
 
 async def send(config: dict[str, Any], payload: dict[str, Any], lang: str) -> None:
+    if payload.get("ack_url") and not config.get("ack_link", True):  # [3] default true
+        payload = {**payload, "ack_url": None}
     await send_teams(config, build_card(payload, lang))

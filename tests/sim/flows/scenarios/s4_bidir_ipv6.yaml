@@ -1,0 +1,9 @@
+# NetFlow v9 bi-directional (OUT_BYTES/OUT_PKTS, Check Point style) plus IPv6 records and an egress-direction
+# record (flowDirection 1: ingress/egress swapped for interface accounting).
+name: s4
+sampling: 1
+bidirectional: true
+flows:
+  - {src: 10.0.4.1, dst: 10.0.4.9, sport: 50500, dport: 443, proto: 6, bytes: 4000, packets: 10, out_bytes: 90000, out_packets: 70, in_if: 1, out_if: 2}
+  - {src: "2001:db8::1", dst: "2001:db8::9", sport: 50600, dport: 443, proto: 6, bytes: 3000, packets: 5, in_if: 1, out_if: 2}
+  - {src: 10.0.4.2, dst: 10.0.4.10, sport: 50700, dport: 8443, proto: 6, bytes: 1000, packets: 2, in_if: 5, out_if: 6, direction: 1}

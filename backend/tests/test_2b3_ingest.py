@@ -71,7 +71,12 @@ async def test_features_off_by_default(rt: Runtime, admin: httpx.AsyncClient) ->
     r = await admin.post("/api/ingest/forwarders/test", json={"target_id": "abcdef"})
     assert r.status_code == 409
     h = (await admin.get("/api/health")).json()
-    assert h["ingest"] == {"trap": "disabled", "syslog_udp": "disabled", "syslog_tcp": "disabled"}
+    # [3] `ingest` also carries the flow receivers (netflow / ipfix / sflow)
+    assert {k: h["ingest"][k] for k in ("trap", "syslog_udp", "syslog_tcp")} == {
+        "trap": "disabled",
+        "syslog_udp": "disabled",
+        "syslog_tcp": "disabled",
+    }
     assert isinstance(h["trgm"], bool)
     d = await make_device(admin)
     r = await admin.get(f"/api/devices/{d['id']}/timeline")

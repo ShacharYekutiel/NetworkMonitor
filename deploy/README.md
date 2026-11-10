@@ -62,9 +62,12 @@ the distribution; when the distribution has none (Debian 12, Ubuntu 22.04), a st
 `/opt/netmon/python`. The script then creates the `netmon` user, the venv in `/opt/netmon/venv` and
 `/var/lib/netmon/netmon.env` (mode 0600). It installs `netmon.service` with
 `AmbientCapabilities=CAP_NET_RAW CAP_NET_BIND_SERVICE` (ping fallback; traps on UDP 162 and syslog on UDP/TCP 514
-without root), opens the HTTP port in firewalld/ufw, and prints the URL, the firewall lines for traps/syslog and
-any port conflict (see [Traps and syslog](#traps-and-syslog)).
-Options: `--port N`, `--no-timescale`, `--no-firewall`, `--wheel FILE`, `--source DIR`.
+without root), opens the HTTP port in firewalld/ufw, and prints the URL, the firewall lines for traps/syslog/flows and
+any port conflict (see [Traps and syslog](#traps-and-syslog), [Flows](#flows-netflow--ipfix--sflow-phase-3)). For
+Kerberos SSO it installs `libgssapi-krb5-2` (RHEL: `krb5-libs`) and builds python-gssapi (gcc + krb5 headers); if
+that is not possible it warns and installs without Kerberos.
+Options: `--port N`, `--no-timescale`, `--no-firewall`, `--no-kerberos`, `--https-proxy URL`, `--no-proxy LIST`,
+`--wheel FILE`, `--source DIR`.
 
 ### 3. Native Windows (service)
 
@@ -81,9 +84,11 @@ SYSTEM and Administrators), and writes `netmon.env`. It registers the `NetworkMo
 taken from `deploy\windows\nssm.exe` if you put one there; otherwise it is downloaded. The service runs as
 LocalSystem with automatic start. The script then opens TCP 8080 in Windows Firewall and prints the URL. If
 PostgreSQL was already installed, pass `-PostgresSuperPassword` or type the password when prompted. Other options:
-`-Port`, `-Wheel`, `-SourceDir`, `-SkipTimescale`, `-NssmPath`, `-IngestRemoteAddress`, `-DisableWindowsSnmpTrap`.
-It also adds the firewall rules `NetworkMonitor-Traps` (UDP 162), `NetworkMonitor-Syslog-UDP` (UDP 514) and
-`NetworkMonitor-Syslog-TCP` (TCP 514) (removed by `uninstall.ps1`; `-IngestRemoteAddress 10.0.0.0/8,LocalSubnet`
+`-Port`, `-Wheel`, `-SourceDir`, `-SkipTimescale`, `-NssmPath`, `-IngestRemoteAddress`, `-DisableWindowsSnmpTrap`,
+`-HttpsProxy`, `-NoProxy`.
+It also adds the firewall rules `NetworkMonitor-Traps` (UDP 162), `NetworkMonitor-Syslog-UDP` (UDP 514),
+`NetworkMonitor-Syslog-TCP` (TCP 514) and, phase 3, `NetworkMonitor-NetFlow` (UDP 2055), `NetworkMonitor-IPFIX`
+(UDP 4739), `NetworkMonitor-sFlow` (UDP 6343) (removed by `uninstall.ps1`; `-IngestRemoteAddress 10.0.0.0/8,LocalSubnet`
 limits the senders) and warns when the Windows **SNMP Trap** service (`SNMPTRAP`) holds UDP 162:
 `Stop-Service SNMPTRAP; Set-Service SNMPTRAP -StartupType Disabled`, or re-run with `-DisableWindowsSnmpTrap`.
 
@@ -119,6 +124,54 @@ and command and fills the disk quickly (about 75 MB/day per message per second).
 
 The device should send from the address NetworkMonitor monitors it on. Otherwise add the other address in the device
 form (*Additional source addresses*) or use "Assign to device" on the *Unknown sources* tab of the Logs page.
+
+### Flows (NetFlow / IPFIX / sFlow) [phase 3]
+
+NetworkMonitor collects flow export on **UDP 2055** (NetFlow v5/v9 and IPFIX), **UDP 4739** (IPFIX) and **UDP 6343**
+(sFlow v5). As with traps/syslog, nothing listens until an administrator turns on **Flows** in *Settings → Features*.
+An exporter whose address belongs to a monitored device (its address or an *Additional source address*) is accepted
+automatically; any other exporter is listed under *Flows → Exporters* as pending and its data is dropped until it is
+accepted.
+
+| | Docker (`deploy/docker-compose.yml`) | Native Linux | Native Windows |
+|---|---|---|---|
+| Ports | published 1:1 (all > 1024). Other host ports: `NETMON_NETFLOW_HOST_PORT`, `NETMON_IPFIX_HOST_PORT`, `NETMON_SFLOW_HOST_PORT` in `deploy/.env` | 2055 / 4739 / 6343 directly (no capability needed) | the same |
+| Firewall | `DOCKER-USER` as for traps/syslog (production: `ops/ingest-firewall.sh` covers the flow ports) | `ufw allow from <LAN> to any port 2055 proto udp` (and 4739, 6343) — the installer prints them | rules `NetworkMonitor-NetFlow`, `NetworkMonitor-IPFIX`, `NetworkMonitor-sFlow` added by the installer (`-IngestRemoteAddress` applies) |
+| Conflicts | `ss -lunp '( sport = :2055 or sport = :4739 or sport = :6343 )'` (nfcapd, pmacct, …) | same; the installer warns | the installer warns |
+
+Docker Desktop loses the sender IP here too: NetFlow/IPFIX exporters are identified by their source address (sFlow by
+the agent address inside the datagram), so test flows on Linux or with the native Windows installer.
+
+Exporter examples (verify on the device; `10.0.0.50` = NetworkMonitor). NetFlow/IPFIX exporters must use an **active
+timeout ≤ 60 s** and export **ingress** only (otherwise traffic is counted twice). Recommended: export from the core
+and the firewall, not from every access switch (≈ 0.4 GB of database per busy exporter).
+
+| Device | Flow export |
+|---|---|
+| HPE Comware 7 (FF 5945 IRF), sFlow | `sflow agent ip <mgmt ip>`<br>`sflow source ip <mgmt ip>`<br>`sflow collector 1 ip 10.0.0.50 port 6343 description netmon`<br>per uplink interface: `sflow sampling-rate 4096` and `sflow flow collector 1` |
+| ArubaOS-Switch, sFlow | `sflow 1 destination 10.0.0.50 6343`<br>`sflow 1 sampling <ports> 4096` (syntax varies by release) |
+| Check Point Gaia (clish), NetFlow v9 / IPFIX | `add netflow collector ip 10.0.0.50 port 2055 export-format Netflow_V9`<br>`save config` (or `IPFIX` to port 4739); active timeout 60 s where the version allows |
+| Cisco IOS, NetFlow v9 | `flow exporter NETMON` / `destination 10.0.0.50` / `transport udp 2055` / `export-protocol netflow-v9`; flow monitor with `cache timeout active 60`, applied `ip flow monitor … input` |
+
+### Config backup, single sign-on, chat acknowledge [phase 3]
+
+- **Config backup** connects **out** to the devices over SSH (TCP 22); no inbound port. Credentials are entered in
+  the UI and stored encrypted (`secret.key`); nothing to configure on the server.
+- **Kerberos SSO (Windows integrated login)** works with **Docker and native Linux** (MIT krb5: the image ships
+  `libgssapi-krb5-2` and python-gssapi; `install.sh` installs `libgssapi-krb5-2`/`krb5-libs` and builds gssapi, or
+  warns and continues without it, see `--no-kerberos`). It is **not available on native Windows** (the feature reports
+  "unavailable"). The AD administrator creates an SPN and a keytab once (steps:
+  [docs/production.md](../docs/production.md#kerberos-sso-ad-administrator-once)); the keytab is **uploaded in the UI**
+  (*Settings → Single sign-on → Kerberos*) and stored encrypted in the database — no file on the host. The server
+  clock must be synchronised with the domain controllers (NTP; > 5 min skew breaks Kerberos).
+- **Sign in with Microsoft (Entra ID / OIDC)**, **Telegram/Teams acknowledge** and **reports to Teams/Telegram** need
+  outbound HTTPS. Behind a proxy the app needs `HTTPS_PROXY` / `NO_PROXY` in its process environment (`netmon.env`
+  is not enough): Docker — `environment:` of the `netmon` service (production: `/etc/netmon-gitops/app.env`); native
+  Linux — `sudo -E ./install.sh` with `HTTPS_PROXY` set, or `--https-proxy <url> [--no-proxy <list>]` (written to
+  `/etc/systemd/system/netmon.service.d/20-proxy.conf`, kept on re-runs); Windows — `install.ps1 -HttpsProxy <url>
+  [-NoProxy <list>]` (or `HTTPS_PROXY` in the installer's session; kept on re-runs). The proxy must allow long
+  requests (≥ 70 s) to `api.telegram.org` (long polling), or lower *Telegram poll timeout* in the settings. SSH,
+  SNMP, flows and LDAP never use the proxy.
 
 ### Backup and restore
 
@@ -340,6 +393,31 @@ NetworkMonitor מקבל SNMP traps ב-**UDP 162** ו-syslog ב-**UDP ו-TCP 514*
 - דוגמאות הגדרה ל-HPE Comware, ‏ArubaOS-Switch ו-Check Point Gaia נמצאות בחלק האנגלי
   ([Traps and syslog](#traps-and-syslog)). התחביר משתנה לפי דגם וגרסה — **יש לבדוק על המכשיר**. מומלץ לשלוח syslog
   ברמת `warning`.
+
+### Flows ‏(NetFlow / IPFIX / sFlow) ‏[שלב 3]
+
+NetworkMonitor אוסף flow export ב-**UDP 2055** ‏(NetFlow v5/v9 ו-IPFIX), ‏**UDP 4739** ‏(IPFIX) ו-**UDP 6343** ‏(sFlow v5).
+כמו ב-traps/syslog, שום דבר לא מאזין עד שמנהל מפעיל **Flows** ב-*הגדרות ← תכונות*. ‏exporter שהכתובת שלו שייכת למכשיר
+מנוטר מתקבל אוטומטית; אחר מופיע ב-*Flows ← Exporters* כממתין, והנתונים שלו נזרקים עד שמאשרים אותו.
+
+- **Docker:** הפורטים מפורסמים 1:1 (כולם מעל 1024). שינוי בצד המחשב ב-<span dir="ltr">`deploy/.env`</span>
+  (`NETMON_NETFLOW_HOST_PORT`, ‏`NETMON_IPFIX_HOST_PORT`, ‏`NETMON_SFLOW_HOST_PORT`). גם כאן Docker Desktop לא שומר את
+  כתובת השולח.
+- **לינוקס:** ההתקנה מדפיסה את שורות ה-ufw/firewalld ‏(2055, ‏4739, ‏6343 ב-UDP). **Windows:** ההתקנה מוסיפה את
+  הכללים `NetworkMonitor-NetFlow`, ‏`NetworkMonitor-IPFIX`, ‏`NetworkMonitor-sFlow`.
+- דוגמאות הגדרה בחלק האנגלי ([Flows](#flows-netflow--ipfix--sflow-phase-3)). ב-NetFlow/IPFIX: ‏active timeout של
+  60 שניות לכל היותר, ו-ingress בלבד.
+
+### גיבוי קונפיגורציה, SSO ואישור מהצ'אט ‏[שלב 3]
+
+- **גיבוי קונפיגורציה** מתחבר **החוצה** למכשירים ב-SSH ‏(TCP 22). אין פורט נכנס, ואין מה להגדיר בשרת.
+- **Kerberos SSO** ‏(כניסה אוטומטית עם משתמש Windows) עובד ב-**Docker ובלינוקס** בלבד, **לא** בהתקנת Windows. מנהל
+  ה-AD יוצר SPN ו-keytab פעם אחת (ההוראות: [production/README.md](production/README.md)); את ה-keytab **מעלים בממשק**
+  והוא נשמר מוצפן במסד הנתונים — שום קובץ בשרת. השעון של השרת חייב להיות מסונכרן ל-DC‏ (NTP).
+- **Sign in with Microsoft**, אישור מ-Telegram/Teams ודוחות ל-Teams/Telegram צריכים HTTPS יוצא. מאחורי proxy מגדירים
+  `HTTPS_PROXY` / `NO_PROXY` בסביבת התהליך של האפליקציה: ב-Docker ב-`environment:`, בלינוקס `install.sh --https-proxy`
+  (או `sudo -E` עם `HTTPS_PROXY`), ב-Windows `install.ps1 -HttpsProxy`. ה-proxy חייב לאפשר בקשות ארוכות (70 שניות
+  ומעלה) ל-`api.telegram.org`.
 
 ### גיבוי ושחזור
 

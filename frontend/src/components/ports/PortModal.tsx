@@ -15,6 +15,7 @@ import { StatusDot } from '../Status';
 import { Button, cx, ErrorBox, Loading, Modal, Notice } from '../ui';
 import { TileGlyph } from './Faceplate';
 import { usePortText } from './text';
+import { NewdevPortToggle } from '../newdevices/NewdevPortToggle';
 
 function Section({
   title,
@@ -597,6 +598,7 @@ export function PortModal({
             onShowAll={() => setShowAllFor(ifIndex)}
             onOpenPort={onOpenPort}
           />
+          <NewdevPortToggle deviceId={deviceId} ifIndex={p.if_index} />
         </>
       )}
     </Modal>

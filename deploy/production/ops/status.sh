@@ -2,7 +2,8 @@
 # One-screen status of the production server:
 #   sudo /opt/netmon/deploy/production/ops/status.sh
 # deployed revision vs origin/main, pending/bad deploy/production changes, image version,
-# container health, /api/health, last backups, certificate expiry, timers.
+# container health, /api/health, ingest/flow listeners, database size (largest tables and
+# the flow tables), time sync (Kerberos), last backups, certificate expiry, timers.
 set -uo pipefail
 
 SELF_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -52,7 +53,60 @@ h "Traps / syslog (host 162/udp, 514/udp+tcp -> container 1162/1514)"
 echo "host listeners (docker-proxy = published; anything else conflicts):"
 ss -H -lunp '( sport = :162 or sport = :514 )' 2>/dev/null | sed 's/^/  /' || true
 ss -H -ltnp '( sport = :514 )' 2>/dev/null | sed 's/^/  /' || true
-"$SELF_DIR/ingest-firewall.sh" status 2>&1 | sed 's/^/sender filter: /' | head -n 12 || true
+
+h "Flows (host 2055/udp NetFlow+IPFIX, 4739/udp IPFIX, 6343/udp sFlow -> same ports)"
+# Receiver states are in /api/health ("ingest": netflow/ipfix/sflow): "disabled" until the
+# owner turns the Flows feature on. Unknown exporters are listed in the UI (Flows ->
+# Exporters) and dropped until accepted.
+echo "host listeners (docker-proxy = published; anything else conflicts, e.g. nfcapd/pmacct):"
+ss -H -lunp '( sport = :2055 or sport = :4739 or sport = :6343 )' 2>/dev/null | sed 's/^/  /' || true
+"$SELF_DIR/ingest-firewall.sh" status 2>&1 | sed 's/^/sender filter (traps, syslog, flows): /' | head -n 16 || true
+
+h "Database size"
+# Hypertables and continuous aggregates are measured with hypertable_size() (the parent
+# table of a hypertable is empty); everything else with pg_total_relation_size().
+db_cid="$(service_cid db)"
+if [[ -n $db_cid ]]; then
+  db_sql() { "$DOCKER" exec "$db_cid" psql -X -q -U netmon -d netmon -At -F $'\t' -c "$1" 2>/dev/null; }
+  echo "total: $(db_sql "SELECT pg_size_pretty(pg_database_size('netmon'))" || echo '?')"
+  sizes="$(db_sql "
+    WITH ht AS (
+      SELECT hypertable_name::text AS name,
+             hypertable_size(format('%I.%I', hypertable_schema, hypertable_name)::regclass) AS bytes
+      FROM timescaledb_information.hypertables WHERE hypertable_schema = 'public'
+    ), cagg AS (
+      SELECT view_name::text AS name,
+             hypertable_size(format('%I.%I', materialization_hypertable_schema,
+                                    materialization_hypertable_name)::regclass) AS bytes
+      FROM timescaledb_information.continuous_aggregates WHERE view_schema = 'public'
+    ), plain AS (
+      SELECT c.relname::text AS name, pg_total_relation_size(c.oid) AS bytes
+      FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace
+      WHERE n.nspname = 'public' AND c.relkind IN ('r', 'm') AND c.relname NOT IN (SELECT name FROM ht)
+    ), t AS (SELECT * FROM ht UNION ALL SELECT * FROM cagg UNION ALL SELECT * FROM plain)
+    SELECT name, pg_size_pretty(coalesce(bytes, 0)), coalesce(bytes, 0) FROM t ORDER BY 3 DESC" ||
+    db_sql "
+    SELECT c.relname, pg_size_pretty(pg_total_relation_size(c.oid)), pg_total_relation_size(c.oid)
+    FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace
+    WHERE n.nspname = 'public' AND c.relkind IN ('r', 'm') ORDER BY 3 DESC")"
+  if [[ -n $sizes ]]; then
+    echo "largest:"
+    head -n 8 <<<"$sizes" | awk -F'\t' '{printf "  %-32s %s\n", $1, $2}'
+    flows="$(awk -F'\t' '$1 ~ /^flow_/' <<<"$sizes")"
+    if [[ -n $flows ]]; then
+      echo "flow tables (minute data: 24-48 h, hourly: 30 d; ~0.4 GB per busy exporter):"
+      awk -F'\t' '{printf "  %-32s %s\n", $1, $2; s += $3} END {printf "  %-32s %.1f MB\n", "(all flow objects)", s / 1048576}' <<<"$flows"
+    fi
+  else
+    echo "(could not query the database)"
+  fi
+else
+  echo "db container not running"
+fi
+
+h "Time (Kerberos SSO fails with a clock skew > 5 min)"
+timedatectl show -p NTP -p NTPSynchronized 2>/dev/null | paste -sd' ' || true
+timedatectl show-timesync -p ServerName --value 2>/dev/null | sed 's/^/time server: /' || true
 
 h "Backups ($NETMON_BACKUP_DIR)"
 for pat in 'daily/netmon-db-*.dump' 'daily/netmon-data-*.tar.gz' 'pre-deploy-*.dump'; do

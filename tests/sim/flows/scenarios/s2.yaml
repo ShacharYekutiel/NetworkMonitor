@@ -1,0 +1,9 @@
+# sFlow v5 (FF 5945-like agent 127.0.0.91), sampling 1:4096, 802.1Q VLAN 20. The first flow is the data-model
+# decoder vector (frame 1514 x 4096 = 6 201 344 bytes, packets 4096 per sample).
+name: s2
+sampling: 4096
+vlan: 20
+flows:
+  - {src: 10.0.20.57, dst: 10.0.0.9, sport: 51000, dport: 443, proto: 6, frame_length: 1514, samples: 3, in_if: 3, out_if: 49}
+  - {src: 10.0.20.58, dst: 10.0.0.53, sport: 53001, dport: 53, proto: 17, frame_length: 90, samples: 2, in_if: 4, out_if: 49}
+  - {src: 10.0.0.9, dst: 10.0.20.57, sport: 443, dport: 51000, proto: 6, frame_length: 1514, samples: 5, in_if: 49, out_if: 3}

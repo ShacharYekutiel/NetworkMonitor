@@ -1,10 +1,11 @@
-# NetworkMonitor — API Contract (Phase 1 + Phase 2a + Phase 2b-1 + Phase 2b-2 + Phase 2b-3)
+# NetworkMonitor — API Contract (Phase 1 + Phase 2a + Phase 2b-1 + Phase 2b-2 + Phase 2b-3 + Phase 3)
 
 Items marked **[2a]** are the Phase 2a contract (discovery, device templates, `snmp_custom`/`snmp_disk`,
 Telegram). The Phase 2a endpoints are specified in [§ Phase 2a](#2a-phase-2a-endpoints).
 Items marked **[2b-1]** are specified in [§ Phase 2b-1](#2b-1-phase-2b-1-contract).
 Items marked **[2b-2]** are specified in [§ Phase 2b-2](#2b-2-phase-2b-2-contract).
 Items marked **[2b-3]** are specified in [§ Phase 2b-3](#2b-3-phase-2b-3-contract).
+Items marked **[3]** are specified in [§ Phase 3](#3-phase-3-contract).
 
 This file is the contract between the backend (`backend/netmon/schemas`) and the frontend
 (`frontend/src/api/types.ts`). **Field names are exact.** For the table semantics see
@@ -1807,3 +1808,343 @@ disabled feature are accepted but receive nothing.
 | `ingest.receiver` | `{"receiver": ReceiverStatus}` | a receiver changed state (listening/error/disabled); admins only |
 | `config.changed` | `entity` gains `"event_rule"`, `"api_token"` (owner's sockets and admins) | as today |
 | `sensor.update` | unchanged; event sensors send it on status/condition changes | all |
+
+## [3] Phase 3 contract
+
+Config backup, flows, new-device alerts, SSO (Kerberos, OIDC), reports, NOC kiosk, acknowledge from
+Telegram/Teams. Table semantics: [data-model.md § Phase 3](data-model.md#3-phase-3-additions); flows and
+decisions: architecture.md § 13. All earlier conventions apply. Everything is **additive** and every feature is
+**OFF by default**; a disabled feature's endpoints answer `409 feature_disabled` (exceptions: data-model § [3]
+Feature toggles; kiosk endpoints answer `404`).
+
+### [3] Errors
+| HTTP | code | When |
+|---|---|---|
+| 409 | `backup_running` | `POST …/config/backup` while a backup of that device runs (the request is merged; `details: [{"device_id": 3}]`) — informational, the UI shows "already running" |
+| 409 | `host_key_mismatch` | Accepting a host key whose fingerprint differs from the presented one (it changed again) |
+| 400 | `no_host_key_change` | Accept on a device whose host key is not in state `changed` |
+| 422 | `invalid_private_key` | SSH private key does not parse (no key material in the message) |
+| 502 | `ssh_error` | `POST …/ssh/test` failed: `message` = error code + detail (`auth_failed: Permission denied`), `details: [{"error": "auth_failed", "step": "auth"}]` |
+| 422 | `invalid_keytab` | Keytab upload not parseable / unsupported version |
+| 401 | `sso_failed` | Kerberos/OIDC sign-in failed (reason only in the audit log) |
+| 401 | `sso_ntlm` | The browser offered NTLM instead of Kerberos (`message` explains the intranet-zone/SPN setup) |
+| 409 | `sso_conflict` | OIDC user name clashes with a local/AD user (callback → `/login?sso_error=sso_conflict`) |
+| 502 | `oidc_error` | `POST /api/sso/oidc/test`: discovery/JWKS fetch failed (proxy/TLS text) |
+| 409 | `report_running` | `POST /api/reports/{id}/run` while that report runs |
+| 410 | `ack_expired` | Ack token expired |
+| 400 | `ack_invalid` | Ack token malformed or signature invalid |
+| 409 | `ack_stale` | The problem the token names is no longer active (recovered or a newer problem) |
+| 502 | `telegram_error` | (extended) "Take over this bot" / poller test failed |
+| 404 | `not_found` | (kiosk) any kiosk guard failure — deliberately indistinguishable |
+
+### [3] Type changes
+```ts
+type SensorType = /* … */ | "config_backup" | "new_mac";
+type EventKind = /* … */ | "config_change" | "new_device";
+type FeatureName = /* 2b-3 names */ | "config_backup" | "flows" | "new_device_alerts" | "sso_kerberos"
+  | "sso_oidc" | "reports" | "noc" | "chat_ack";
+type User = { /* 2b-3 */ source: "local" | "ldap" | "oidc" };
+type TimelineKind = /* 2b-3 */ | "config" | "new_mac";
+type EventCondition = { /* 2b-3 */ source: "rule" | "flap" | "backup_failed" | "host_key" | "config_changed" | "new_mac" };
+type EventRule = { /* 2b-3 */ action: "warning" | "down" | "ignore" | "config_backup" };
+type SshCredentials = { username: string; port: number;
+  password: null; password_set: boolean;                 // write-only (secret rules as SnmpCredentials)
+  private_key: null; private_key_set: boolean;
+  passphrase: null; passphrase_set: boolean;
+  enable_password: null; enable_password_set: boolean;
+  legacy_algorithms: boolean; credentials_unreadable: boolean };
+```
+- `Group` gains `ssh_credentials: SshCredentials | null`. `Device` gains `ssh_credentials: SshCredentials |
+  null`, `effective_ssh_source: "device" | "group" | "none"`, `effective_ssh_group_id: number | null`,
+  `config_backup: "auto" | "on" | "off"`, `config_backup_driver: string | null`, `newdev_excluded_ports:
+  number[]`. Create/PATCH accept them (secret rules as `snmp_credentials`).
+- `GET /api/settings/public` `features` gains the 8 names; gains `sso: {"kerberos": {"auto_login": true} | null,
+  "oidc": {"button_label": "Sign in with Microsoft"} | null}` (null while the feature is OFF).
+- `GET /api/health` gains `"flows_rollup": "cagg" | "table" | null` and `ingest` gains `"netflow"`, `"ipfix"`,
+  `"sflow"` receiver states; `"kerberos": "ready" | "unavailable" | "disabled" | "error"`.
+- `Settings` gains every key of data-model § [3] Settings keys (secret rules: `kerberos.keytab` is uploaded through
+  its own endpoint, never in `PUT /api/settings`; `oidc.client_secret` write-only with `client_secret_set`).
+- `AlertPayload` (webhook) gains `"ack_url": string | null` (set when `chat_ack` is ON and `public_base_url` is set,
+  stages problem/escalation/reminder).
+- `TelegramChannelConfig` gains `ack_buttons: boolean`, `ack_link: boolean`; Teams config gains `ack_link`; email
+  config gains `ack_link`.
+
+### [3] Config backup (feature `config_backup`)
+```ts
+type BackupStatus = { device_id: number; device_name: string; group_id: number;
+  eligible: boolean; reason: "ok" | "disabled_device" | "mode_off" | "no_credentials" | "no_driver" | "host_key_changed";
+  mode: "auto" | "on" | "off"; driver: string | null; driver_source: "override" | "template" | "sys_object_id" | null;
+  last_attempt_at: string | null; last_result: "ok" | "unchanged" | "failed" | "cancelled" | null;
+  last_error: string | null; last_message: string | null; last_trigger: "schedule" | "manual" | "event" | "retry" | null;
+  last_duration_ms: number | null; last_success_at: string | null; last_change_at: string | null;
+  consecutive_failures: number; next_due_at: string | null; running: boolean; versions: number;
+  host_key: HostKey | null };
+type HostKey = { algorithm: string; fingerprint: string; state: "pinned" | "changed"; pinned_at: string;
+  presented_algorithm: string | null; presented_fingerprint: string | null; changed_at: string | null;
+  accepted_by: string | null };
+type ConfigVersion = { id: number; device_id: number; version_no: number; collected_at: string;
+  trigger: "schedule" | "manual" | "event" | "retry"; driver: string; sha256: string; masked: boolean;
+  size_bytes: number; lines: number; added: number; removed: number; initial: boolean; is_latest: boolean };
+type ConfigDriver = { id: string; name: string; version: number; confidence: "verified" | "unverified";
+  mode: "shell" | "exec"; commands: string[]; match_templates: string[]; notes: string };
+type BackupRunnerStatus = { running: number; queued: number; concurrency: number; next_schedule_at: string | null;
+  last_schedule_at: string | null; eligible_devices: number; drivers: ConfigDriver[];
+  driver_errors: { file: string; error: string }[] };
+```
+| Method & path | Role | Request | Response |
+|---|---|---|---|
+| `GET /api/config-backups` | viewer | Query `group_id` (recursive), `result`, `q` (device name), `page`, `page_size` | page of `BackupStatus` (devices with mode ≠ off or with versions), by device name |
+| `GET /api/config-backups/status` | viewer | — | `BackupRunnerStatus` |
+| `POST /api/config-backups/run` | admin | `{"device_ids": [3, 4]}` or `{}` (all eligible) | `202 {"queued": 24}`; audited `config.backup_all` |
+| `GET /api/config-backups/search` | admin | Query `q` (2–200 chars), `regex` (bool), `group_id`, `all_versions` (bool), `since`, `until` | `{"items": [{"device_id": 3, "device_name": "sw1", "version_id": 88, "collected_at": "…", "matches": [{"line": 120, "text": " vlan 20"}], "more": false}], "truncated": false}` (≤ 200 devices, ≤ 20 lines each); `422` invalid regex |
+| `GET /api/config-backups/export.zip` | admin | Query `group_id` | `200 application/zip` streamed, `Content-Disposition: attachment; filename="netmon-configs-<yyyymmdd-hhmm>.zip"`, one `<device name>.cfg` per device (latest; names sanitised, duplicates suffixed `-<id>`); audited `config.export` |
+| `GET /api/devices/{id}/config` | viewer | — | `BackupStatus` |
+| `POST /api/devices/{id}/config/backup` | admin | — | `202 {"queued": 1}`; `409 backup_running` (merged); `400` with `details: [{"reason": "no_credentials"}]` when not eligible |
+| `GET /api/devices/{id}/config/versions` | viewer | `page`, `page_size` | page of `ConfigVersion`, newest first |
+| `GET /api/devices/{id}/config/versions/{vid}` | admin | — | `ConfigVersion & {"content": string}`; audited `config.view` (at most once per user/device/10 min) |
+| `GET /api/devices/{id}/config/versions/{vid}/download` | admin | — | `200 text/plain; charset=utf-8`, attachment `<device>_<yyyymmdd-hhmm>.cfg`; audited `config.export` |
+| `GET /api/devices/{id}/config/diff` | admin | Query `from` (version id), `to` (version id, default latest) | `{"from": ConfigVersion, "to": ConfigVersion, "diff": string, "added": 12, "removed": 3, "truncated": false}` (unified diff text) |
+| `POST /api/devices/{id}/config/host-key/accept` | admin | `{"fingerprint": "SHA256:…"}` | `200 HostKey`; `400 no_host_key_change`; `409 host_key_mismatch`; audited `config.host_key_accept` |
+| `DELETE /api/devices/{id}/config/host-key` | admin | — | `204` (pin reset); audited `config.host_key_reset` |
+| `POST /api/devices/{id}/ssh/test` | admin | `{"ssh_credentials": <partial, optional, merged over effective>, "driver": "<id>" \| null}` | `200 {"ok": true, "steps": [{"step": "connect" \| "host_key" \| "auth" \| "prompt" \| "setup" \| "command", "ok": true, "detail": "ssh-ed25519 SHA256:…", "ms": 120}], "driver": "hpe_comware", "output_preview": "first 20 lines, masked"}`; failure → `502 ssh_error`. Never stores a version. Allowed while the feature is OFF (explicit admin test, like the 2b-3 LDAP test endpoints); a pinned key is enforced; with no pin the key is pinned (TOFU) only while the feature is ON — while OFF the fingerprint is only reported. |
+
+`config.changed` entities gain `config_backup` (status changes: `{"entity": "config_backup", "id": <device id>}`).
+
+### [3] Flows (viewer; feature `flows`)
+```ts
+type FlowExporter = { id: number; address: string; device_id: number | null; device_name: string | null;
+  state: "accepted" | "pending" | "ignored"; protocols: ("netflow5" | "netflow9" | "ipfix" | "sflow5")[];
+  sampling_override: number | null; sampling_seen: number | null; first_seen: string; last_seen: string;
+  records_per_s: number;               // last 5 min
+  both_directions_warning: boolean; unsampled_warning: boolean };
+type FlowCounters = { received_datagrams: number; records: number; stored_rows: number;
+  dropped: { rate_limited: number; queue_full: number; parse_error: number; no_template: number;
+    unknown_exporter: number; ignored_exporter: number; over_budget: number; unsupported: number;
+    exporter_limit: number; aggregation_overflow: number; db_error: number } };
+type FlowStatus = { receivers: ReceiverStatus[];           // kinds "netflow" | "ipfix" | "sflow" (2b-3 shape)
+  counters_since: string; counters: FlowCounters; records_per_s: number; budget_per_s: number;
+  queue: number; queue_capacity: number; templates: number; rollup: "cagg" | "table" | null;
+  storage_bytes: number | null };                          // admins only (pg_total_relation_size), else null
+type FlowQuery = { exporter_id?: number; device_id?: number; if_index?: number; direction?: "in" | "out";
+  since?: string; until?: string; limit?: number };        // limit 1–100, default 10; range ≤ 31 d (conversations ≤ 24 h)
+type FlowTopItem = { key: string;                          // ip / "tcp/443" / conversation key
+  label: string;                                          // "10.0.0.9 (srv1.mnidom.net)" / "https (tcp/443)"
+  ip?: string; hostname?: string | null; device_id?: number | null;     // talkers
+  protocol?: number; port?: number; app?: string | null;                // applications
+  src_ip?: string; dst_ip?: string; src_port?: number; dst_port?: number; in_if?: number; out_if?: number;  // conversations
+  bytes: number; packets: number; flows: number; share: number };       // share of the total, 0–1
+type FlowTop = { since: string; until: string; source: "minute" | "hour"; total_bytes: number;
+  items: FlowTopItem[]; other_bytes: number };
+type FlowSeries = { since: string; until: string; bucket_s: number; source: "minute" | "hour";
+  interface: { exporter_id: number; if_index: number; name: string; speed_bps: number | null } | null;
+  series: { key: string; label: string; direction: "in" | "out"; points: [string, number][] }[] };  // bits/s per bucket
+```
+| Method & path | Role | Request | Response |
+|---|---|---|---|
+| `GET /api/flows/status` | viewer | — | `FlowStatus` |
+| `GET /api/flows/exporters` | viewer | Query `state` | `{"items": FlowExporter[]}` |
+| `PATCH /api/flows/exporters/{id}` | admin | `{"state": "accepted" \| "ignored", "device_id": 3 \| null, "sampling_override": 4096 \| null}` | `FlowExporter`; audited `flows.exporter_update` |
+| `DELETE /api/flows/exporters/{id}` | admin | — | `204` (its rows deleted in the background) |
+| `GET /api/flows/top/talkers` | viewer | `FlowQuery` + `side` (`src` \| `dst` \| `both`) | `FlowTop` |
+| `GET /api/flows/top/applications` | viewer | `FlowQuery` | `FlowTop` |
+| `GET /api/flows/top/conversations` | viewer | `FlowQuery` (range ≤ 24 h → else 422) | `FlowTop` |
+| `GET /api/flows/interfaces` | viewer | Query `exporter_id`, `since`, `until` | `{"items": [{"exporter_id": 1, "if_index": 5, "name": "Ten-GigabitEthernet1/0/49", "in_bytes": 0, "out_bytes": 0, "speed_bps": 10000000000}]}` (interfaces with traffic, by bytes desc) |
+| `GET /api/flows/series` | viewer | `FlowQuery` + `split` (`none` \| `app` \| `host`, top 8 + other) | `FlowSeries` |
+
+Requires `exporter_id` or `device_id` for interface-level queries; without both, tops are over all accepted
+exporters (each flow counted once per exporter — the UI shows "may double count when several exporters see the
+same traffic").
+
+### [3] New-device alerts (feature `new_device_alerts`)
+```ts
+type KnownMac = { mac: string; state: "baseline" | "new" | "known" | "allowed"; vendor: string | null;
+  locally_administered: boolean;
+  first_seen: string; first_device_id: number | null; first_device_name: string | null;
+  first_if_index: number | null; first_port_name: string | null; first_vlan: number | null;
+  first_ip: string | null; first_hostname: string | null;
+  last_seen: string; last_device_id: number | null; last_device_name: string | null;
+  last_port_name: string | null; last_vlan: number | null;
+  ip: string | null; hostname: string | null;                   // current (2b-2 MAC→IP, dns_cache)
+  detected_at: string | null; ack_at: string | null; ack_by: string | null; ack_comment: string };
+type AllowEntry = { id: number; prefix: string; bits: 24 | 28 | 36 | 48; vendor: string | null;
+  comment: string; created_by: string | null; created_at: string };
+type NewDeviceStatus = { learning: boolean; learning_until: string | null; scope_group_ids: number[];
+  switches_in_scope: number; switches_baselined: number; known: number; new_unacknowledged: number;
+  last_detection_at: string | null };
+```
+| Method & path | Role | Request | Response |
+|---|---|---|---|
+| `GET /api/new-devices/status` | viewer | — | `NewDeviceStatus` |
+| `GET /api/new-devices` | viewer | Query `state` (repeatable), `device_id`, `group_id`, `q` (MAC prefix / vendor / IP / hostname substring), `since` (detected or first seen), `page`, `page_size` | page of `KnownMac` (`new` first, then `detected_at`/`first_seen` desc) |
+| `POST /api/new-devices/acknowledge` | admin | `{"macs": ["00:1b:21:aa:00:01"], "comment": "New laptop for Dana"}` (1–500) | `{"acknowledged": 1}`; conditions removed; audited `newdev.acknowledge` |
+| `DELETE /api/new-devices/{mac}` | admin | — | `204` (forget); audited `newdev.forget` |
+| `POST /api/new-devices/restart-learning` | admin | — | `NewDeviceStatus` (learning until now + `newdev_learning_days`); audited |
+| `GET /api/new-devices/allowlist` | viewer | — | `{"items": AllowEntry[]}` |
+| `POST /api/new-devices/allowlist` | admin | `{"prefix": "3c:a8:2a", "comment": "HP printers"}` (MAC, OUI or 28/36-bit prefix; separators `:` `-` `.` or none accepted) | `201 AllowEntry`; `409 conflict` duplicate; `422` invalid |
+| `DELETE /api/new-devices/allowlist/{id}` | admin | — | `204` |
+
+Excluding ports: `PATCH /api/devices/{id}` `newdev_excluded_ports`.
+
+### [3] Single sign-on
+**Kerberos** (feature `sso_kerberos`):
+
+| Method & path | Role | Request | Response |
+|---|---|---|---|
+| `GET /api/auth/sso/kerberos` | public | header `Authorization: Negotiate <b64>` (optional) | no header → `401` `WWW-Authenticate: Negotiate`, error body `{"code": "sso_challenge"}`; valid → `200 {"user": User}` + session cookie (+ `WWW-Authenticate: Negotiate <mutual>` when the context produced a token); NTLM → `401 sso_ntlm` **without** a new challenge; invalid → `401 sso_failed` without a challenge; AD lookup failures as 2b-3 (`401 invalid_credentials` mapped to `sso_failed`, `503 directory_unavailable`); throttled with the 2b-3 IP throttle (failures only) |
+| `GET /api/sso/kerberos` | admin | — | `{"realms": ["MNIDOM.NET"], "auto_login": true, "keytab_set": true, "keytab_uploaded_at": "…", "keytab_entries": [{"principal": "HTTP/netmonitor.mnidom.net@MNIDOM.NET", "kvno": 3, "enctype": 18, "enctype_name": "aes256-cts-hmac-sha1-96"}], "warnings": ["rc4_only" \| "no_http_principal"], "platform_supported": true, "state": "ready" \| "unavailable" \| "disabled" \| "error", "error": null}` |
+| `PUT /api/sso/kerberos` | admin | `{"realms": [...], "auto_login": true}` | same shape |
+| `POST /api/sso/kerberos/keytab` | admin | `multipart/form-data` field `file` (≤ 64 KiB) | same shape; `422 invalid_keytab`; audited `sso.keytab_upload` (no content) |
+| `DELETE /api/sso/kerberos/keytab` | admin | — | same shape (feature turned OFF first → else `409 conflict`) |
+
+The `/api/sso/kerberos*` admin endpoints work while the feature is OFF (prepare before enabling); only
+`/api/auth/sso/kerberos` is gated.
+
+**OIDC** (feature `sso_oidc`; the `/api/sso/oidc*` admin endpoints work while OFF):
+
+| Method & path | Role | Request | Response |
+|---|---|---|---|
+| `GET /api/auth/oidc/start` | public | Query `next` (relative path, default `/`) | `302` to the authorize endpoint + `Set-Cookie: netmon_oidc=…`; OFF → `409` JSON |
+| `GET /api/auth/oidc/callback` | public | Query `code`, `state` (or `error`, `error_description`) | success: `200 text/html` (sets the session cookie, navigates to `next`); failure: `302 /login?sso_error=<code>` with code ∈ `sso_failed`, `sso_conflict`, `not_in_group`, `oidc_group_overage`, `oidc_error`, `feature_disabled`, `inactive` |
+| `GET /api/sso/oidc` | admin | — | `{"tenant_id": "…", "client_id": "…", "client_secret": null, "client_secret_set": true, "client_secret_expires_at": null, "role_source": "app_roles", "admin_values": [...], "viewer_values": [...], "button_label": null, "redirect_uri": "https://netmonitor.mnidom.net/api/auth/oidc/callback"}` (`redirect_uri` from `public_base_url`, else from the request) |
+| `PUT /api/sso/oidc` | admin | the writable fields (secret rules) | same shape |
+| `POST /api/sso/oidc/test` | admin | — | `200 {"ok": true, "issuer": "…", "jwks_keys": 3, "latency_ms": 420}`; `502 oidc_error` |
+
+Logout (`POST /api/auth/logout`) unchanged; the SPA sets `sessionStorage['netmon.sso.skip'] = '1'` so the login
+page does not sign in again automatically. Audit: `auth.login` with `source` `ldap` / `oidc` and new field value
+`method` in `changes` (`{"method": [null, "kerberos"]}`); failures `auth.login_failed` with reasons `sso_failed`,
+`sso_ntlm`, `sso_realm`, `sso_conflict`, `oidc_group_overage` + the 2b-3 reasons.
+
+### [3] Reports (feature `reports`)
+```ts
+type ReportSection = "availability" | "top_alerts" | "flapping_ports" | "port_errors" | "config_changes"
+  | "new_devices" | "top_talkers";
+type Report = { id: number; name: string; enabled: boolean; language: "en" | "he";
+  scope_group_ids: number[]; scope_device_ids: number[]; sections: ReportSection[];
+  schedule: "weekly" | "monthly" | "none"; weekday: number | null; month_day: number | null; send_time: string | null;
+  email_to: string[]; channel_ids: number[]; next_run_at: string | null;
+  last_run: { id: number; status: ReportRunStatus; finished_at: string | null } | null;
+  created_at: string; updated_at: string };
+type ReportRunStatus = "running" | "ok" | "partial" | "failed";
+type ReportRun = { id: number; report_id: number | null; report_name: string; trigger: "schedule" | "manual";
+  period_start: string; period_end: string; started_at: string; finished_at: string | null;
+  status: ReportRunStatus; language: "en" | "he"; created_by: string | null;
+  deliveries: { target: string; ok: boolean; error: string | null; at: string }[] };
+type AvailabilityRow = { device_id: number; device_name: string; group_name: string;
+  sensor_id: number | null; availability: number | null;  // percent, 2 decimals; null = n/a
+  measured_s: number; downtime_s: number; outages: number; longest_outage_s: number };
+type ReportData = { generated_at: string; period_start: string; period_end: string; timezone: string;
+  scope_label: string; sections: ReportSection[];
+  notes: { section: ReportSection; note: "feature_off" | "no_data" }[];
+  availability?: { overall: number | null; devices: AvailabilityRow[]; not_measured: { device_id: number; device_name: string }[];
+    groups: { group_id: number; group_name: string; availability: number | null; devices: number }[] };
+  top_alerts?: { sensor_id: number; sensor_name: string; device_name: string; notifications: number; problem_s: number }[];
+  flapping_ports?: { device_id: number; device_name: string; if_index: number; port_name: string; episodes: number; transitions: number }[];
+  port_errors?: { device_id: number; device_name: string; if_index: number | null; port_name: string; errors: number; source: "sensor" | "snapshot" }[];
+  config_changes?: { device_id: number; device_name: string; changes: number; last_change_at: string; added: number; removed: number }[];
+  new_devices?: { mac: string; vendor: string | null; ip: string | null; hostname: string | null; switch_name: string | null; port_name: string | null; detected_at: string; acknowledged: boolean }[];
+  top_talkers?: { hosts: FlowTopItem[]; applications: FlowTopItem[] } };
+```
+| Method & path | Role | Request | Response |
+|---|---|---|---|
+| `GET /api/reports` | viewer | — | `{"items": Report[]}` (≤ 100, by name) |
+| `POST /api/reports` | admin | writable fields | `201 Report`; validation per data-model (422); `config.changed` entity `report` |
+| `GET /api/reports/{id}` | viewer | — | `Report` |
+| `PATCH /api/reports/{id}` | admin | subset | `Report` (`next_run_at` recomputed) |
+| `DELETE /api/reports/{id}` | admin | — | `204` (runs kept with `report_id` null) |
+| `POST /api/reports/{id}/run` | admin | `{"period_start": "…", "period_end": "…", "send": false}` (default: the last scheduled period; ≤ 92 days) | `202 ReportRun` (`running`); `409 report_running` |
+| `POST /api/reports/preview` | admin | `{"report": <writable fields>, "period_start", "period_end"}` | `202 ReportRun` (not sent; `report_id` null) |
+| `GET /api/reports/runs` | viewer | Query `report_id`, `page`, `page_size` | page of `ReportRun`, newest first |
+| `GET /api/reports/runs/{id}` | viewer | — | `ReportRun & {"data": ReportData}` |
+| `GET /api/reports/runs/{id}/html` | viewer | — | `200 text/html; charset=utf-8`, attachment `netmon-report-<name>-<yyyymmdd>.html` (self-contained, the email body) |
+| `POST /api/reports/runs/{id}/resend` | admin | `{"targets": ["email:ops@mnidom.net", "channel:4"]}` (default: the failed ones) | `202 ReportRun` |
+
+WS: `report.run` `{"run": ReportRun}` on start/finish (admins and viewers).
+
+### [3] NOC kiosk (feature `noc`)
+Management (admin):
+
+| Method & path | Request | Response |
+|---|---|---|
+| `GET /api/kiosk-screens` | — | `{"items": KioskScreen[]}` |
+| `POST /api/kiosk-screens` | writable fields | `201 {"token": "nmk_…", "url": "https://netmonitor.mnidom.net/noc#nmk_…", "item": KioskScreen}` — token shown only here; `url` null without `public_base_url` (the UI builds it from `location.origin`) |
+| `PATCH /api/kiosk-screens/{id}` | subset | `KioskScreen` (open kiosk WS connections receive `kiosk.refresh`) |
+| `POST /api/kiosk-screens/{id}/regenerate` | — | `{"token", "url", "item"}`; old token invalid immediately (WS closed 4403) |
+| `DELETE /api/kiosk-screens/{id}` | — | `204` |
+
+```ts
+type KioskWidget = "summary" | "down_devices" | "problems" | "recent_alerts" | "map" | "group_tiles";
+type KioskScreen = { id: number; name: string; enabled: boolean; token_prefix: string;
+  allowed_sources: string[]; scope_group_id: number | null; scope_group_name: string | null;
+  widgets: KioskWidget[]; language: "en" | "he"; show_addresses: boolean; refresh_s: number;
+  last_seen_at: string | null; last_seen_ip: string | null; created_at: string; updated_at: string };
+type KioskView = { screen: { name: string; language: "en" | "he"; widgets: KioskWidget[]; refresh_s: number };
+  generated_at: string; timezone: string;
+  summary: { device_counts: StatusCounts; sensor_counts: StatusCounts; acknowledged: number; in_maintenance: number } | null;
+  down_devices: { id: number; name: string; group: string; host: string | null;      // host only with show_addresses
+    status: "down" | "unreachable"; since: string | null; acknowledged: boolean }[] | null;     // ≤ 100
+  problems: { sensor_id: number; sensor_name: string; device_name: string; status: Status; message: string;
+    since: string | null; acknowledged: boolean }[] | null;                                     // ≤ 50
+  recent_alerts: { time: string; device_name: string; sensor_name: string; old_status: Status | null;
+    new_status: Status | null; message: string }[] | null;                                      // ≤ 20
+  group_tiles: { id: number; name: string; status: Status; counts: StatusCounts }[] | null;     // top-level groups of the scope
+  map: { nodes: { id: number; name: string; status: Status; x: number | null; y: number | null; kind: string }[];
+         links: { a: number; b: number; status: "up" | "down" | "unknown" }[] } | null };
+```
+Kiosk access (no session; header `X-Netmon-Kiosk: nmk_…`; guard per architecture § 13.7; every failure `404
+not_found`, 30 failures per IP per 5 min → `429`):
+
+| Method & path | Response |
+|---|---|
+| `GET /api/kiosk/view` | `KioskView` (widgets not configured are `null`); `Cache-Control: no-store` |
+| WS `/ws/kiosk` | first client message `{"type": "kiosk_auth", "token": "nmk_…"}` within 5 s → `{"type": "kiosk.ready"}`; failure → close 4401; then server messages `{"type": "kiosk.refresh"}` (debounced 5 s) and close 4403 when the screen/feature is disabled or the token regenerated |
+
+### [3] Acknowledge from chat (feature `chat_ack`)
+| Method & path | Role | Request | Response |
+|---|---|---|---|
+| `POST /api/chat-ack/resolve` | viewer (session) | `{"token": "a1.…"}` | `200 {"sensor": Sensor, "device_name": "core-sw", "problem_since": "…", "event_id": 991, "active": true, "acknowledgement": Acknowledgement \| null, "can_acknowledge": true}`; `400 ack_invalid`; `410 ack_expired` (`active` false when stale — not an error here) |
+| `POST /api/chat-ack/acknowledge` | admin (session) | `{"token": "a1.…", "comment": "On it"}` (≤ 1000) | `200 Sensor`; `409 ack_stale`; `409 not_acknowledgeable`; already acknowledged → `200` unchanged (idempotent); audited `sensor.acknowledge` with `changes.via = [null, "link"]` |
+| `GET /api/chat-links` | viewer | Query `all` (admin) | `{"items": [{"id": 1, "user_id": 2, "username": "jdoe", "provider": "telegram", "display": "@jdoe", "linked_at": "…", "last_used_at": null}]}` |
+| `POST /api/chat-links/codes` | viewer (session) | `{"provider": "telegram"}` | `201 {"code": "NM-7KQ2MZ4P", "expires_at": "…", "bot_usernames": ["NetMonOpsBot"], "instructions": "/link NM-7KQ2MZ4P"}` |
+| `DELETE /api/chat-links/{id}` | owner or admin | — | `204`; audited `chatack.unlink` |
+| `GET /api/chat-ack/telegram/status` | admin | — | `{"pollers": [{"bot_username": "NetMonOpsBot", "channel_ids": [4], "state": "polling", "last_error": null, "updated_at": "…"}]}` |
+| `POST /api/notification-channels/{id}/telegram/take-over` | admin | — | `200 {"ok": true}` (calls `deleteWebhook`); `502 telegram_error`; audited |
+
+API tokens (2b-3) are refused on `/api/chat-ack/*` and `/api/chat-links*` (`403 forbidden`).
+
+**Telegram message additions** (problem/escalation/reminder, `chat_ack` ON): `sendMessage` gains `"reply_markup":
+{"inline_keyboard": [[{"text": "Acknowledge", "callback_data": "a1.…"}]]}` (`ack_buttons`) or `[[{"text":
+"Acknowledge", "url": "https://netmonitor.mnidom.net/ack#a1.…"}]]` (`ack_link`). After a press:
+`answerCallbackQuery {"callback_query_id", "text": "Acknowledged" | <reason>, "show_alert": <refusal>}` and
+`editMessageReplyMarkup {"chat_id", "message_id", "reply_markup": {"inline_keyboard": [[{"text": "✓ jdoe 12:03",
+"callback_data": "noop"}]]}}`. Reason texts (en/he): not linked → "Your Telegram account is not linked to
+NetworkMonitor (My profile → Chat accounts)", not admin → "Only administrators can acknowledge", expired / invalid /
+stale / already acknowledged.
+
+**Teams card addition:** `actions` gains, before "Open in NetworkMonitor", `{"type": "Action.OpenUrl", "title":
+"Acknowledge" | "אישור טיפול", "url": "https://netmonitor.mnidom.net/ack#a1.…"}` (`ack_link`, stages
+problem/escalation/reminder). **Email:** a button-styled link "Acknowledge" with the same URL (`ack_link`).
+**Webhook:** `ack_url` (see Type changes).
+
+### [3] Timeline
+`TimelineKind` gains `config` (from `config_change` events, `ref.type = "event"`; viewers see the item, the diff
+link is admin-only) and `new_mac` (from `new_device` events). Available when the respective features have data.
+
+### [3] Audit actions (feature `audit`)
+`config.view`, `config.export`, `config.backup_all`, `config.host_key_accept`, `config.host_key_reset`,
+`device.update` covers `ssh_credentials` (secrets as `***`), `flows.exporter_update`, `newdev.acknowledge`,
+`newdev.forget`, `newdev.restart_learning`, `newdev.allowlist_create|delete`, `sso.keytab_upload`,
+`sso.keytab_delete`, `sso.settings_update`, `report.create|update|delete|run|resend`,
+`kiosk_screen.create|update|delete|regenerate`, `chatack.press` (Telegram, with reason), `chatack.link`,
+`chatack.unlink`, `channel.telegram_take_over`; `sensor.acknowledge` gains `changes.via`.
+
+### [3] WebSocket additions
+| type | data | When / who |
+|---|---|---|
+| `config_backup.update` | `{"device_id": 3, "status": BackupStatus}` | attempt start/finish; all |
+| `config_backup.changed` | `{"device_id": 3, "version": ConfigVersion}` | a new non-initial version; all |
+| `flows.exporter` | `{"exporter": FlowExporter}` | new exporter / state change; admins |
+| `new_device.detected` | `{"items": KnownMac[], "summary_count": 0}` | after a detection run with new MACs; all |
+| `report.run` | `{"run": ReportRun}` | run start/finish; all |
+| `chat_ack.poller` | `{"bot_username": "…", "state": "polling" \| "error", "last_error": null}` | admins |
+| `config.changed` | `entity` gains `report`, `kiosk_screen`, `flow_exporter`, `mac_allowlist`, `config_backup` | as today |
+| `features.changed` | 8 new names | as 2b-3 |

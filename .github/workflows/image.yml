@@ -66,4 +66,9 @@ jobs:
           docker run --rm --entrypoint python "$IMG" -c "import netmon, pathlib; p = pathlib.Path(netmon.__file__).parent / 'static' / 'index.html'; assert p.is_file(), p; print('ok', p)"
           # [2b-3] AD login dependency and the unprivileged in-container ingest ports.
           docker run --rm --entrypoint python "$IMG" -c "import os, ldap3; assert os.environ['NETMON_TRAP_PORT'] == '1162' and os.environ['NETMON_SYSLOG_PORT'] == '1514'; print('ok ldap3', ldap3.__version__)"
+          # [3] Flow ports (published 1:1), Kerberos (gssapi against libgssapi-krb5-2), asyncssh,
+          # and a consistent venv.
+          docker run --rm --entrypoint python "$IMG" -c "import os; assert (os.environ['NETMON_NETFLOW_PORT'], os.environ['NETMON_IPFIX_PORT'], os.environ['NETMON_SFLOW_PORT']) == ('2055', '4739', '6343'); import asyncssh, gssapi.raw; print('ok asyncssh', asyncssh.__version__, '/ gssapi')"
+          docker run --rm --entrypoint pip "$IMG" check
+          docker image inspect -f '{{json .Config.ExposedPorts}}' "$IMG" | python3 -c "import json, sys; p = json.load(sys.stdin); missing = {'2055/udp', '4739/udp', '6343/udp'} - set(p); assert not missing, missing; print('exposed', sorted(p))"
           echo "Published: ${{ steps.meta.outputs.tags }}" | tr '\n' ' '

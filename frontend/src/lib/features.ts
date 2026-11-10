@@ -74,9 +74,55 @@ export function featureHints(name: FeatureName, f: Features, s?: Settings): Feat
     case 'lag':
       out.push({ key: 'features.hint.lagPorts', tone: 'info' });
       break;
+    // [3]
+    case 'config_backup':
+      out.push({ key: 'features.hint.sshCredentials', tone: 'info' });
+      if (!f.syslog) out.push({ key: 'features.hint.backupSyslog', tone: 'info' });
+      break;
+    case 'flows':
+      out.push({ key: 'features.hint.flowExporters', tone: 'info' });
+      break;
+    case 'new_device_alerts':
+      out.push({ key: 'features.hint.newdevFdb', tone: 'info' });
+      break;
+    case 'sso_kerberos':
+      if (!f.ldap) out.push({ key: 'features.hint.kerberosLdap', tone: 'warn' });
+      out.push({ key: 'features.hint.keytab', tone: 'info' });
+      break;
+    case 'sso_oidc':
+      out.push({ key: 'features.hint.oidcSetup', tone: 'info' });
+      break;
+    case 'reports':
+      out.push({ key: 'features.hint.reportsDelivery', tone: 'info' });
+      break;
+    case 'chat_ack':
+      if (s && !s.public_base_url) out.push({ key: 'features.hint.publicUrl', tone: 'warn' });
+      out.push({ key: 'features.hint.telegramButtons', tone: 'info' });
+      break;
   }
   return out;
 }
+
+/** [3] Headings of the Features page (architecture.md § 13.0): 17 features in 5 groups (Teams and API tokens are not toggles). */
+export const FEATURE_GROUPS: { key: string; names: FeatureName[] }[] = [
+  { key: 'monitoring', names: ['flapping', 'timeline', 'reports', 'noc'] },
+  { key: 'logs', names: ['traps', 'syslog', 'event_alerts', 'siem_forwarding', 'audit'] },
+  { key: 'network', names: ['lag', 'config_backup', 'flows', 'new_device_alerts'] },
+  { key: 'access', names: ['ldap', 'sso_kerberos', 'sso_oidc'] },
+  { key: 'notifications', names: ['chat_ack'] },
+];
+
+/** [3] Phase-3 features (their status lines come from their own status endpoints). */
+export const PHASE3_FEATURES: FeatureName[] = [
+  'config_backup',
+  'flows',
+  'new_device_alerts',
+  'sso_kerberos',
+  'sso_oidc',
+  'reports',
+  'noc',
+  'chat_ack',
+];
 
 /** Fields that turning `ldap` ON would reject (data-model § LDAP settings; 422 otherwise). */
 export function ldapMissing(l: NonNullable<Settings['ldap']>): string[] {
@@ -139,7 +185,21 @@ export function featureStatus(
 }
 
 /** Settings tabs (`/settings?tab=…`). */
-export const SETTINGS_TABS = ['general', 'features', 'ingest', 'siem', 'ldap', 'audit'] as const;
+export const SETTINGS_TABS = [
+  'general',
+  'features',
+  'ingest',
+  'siem',
+  'ldap',
+  'sso', // [3]
+  'backup',
+  'flows',
+  'newDevices',
+  'reports',
+  'noc',
+  'chatAck',
+  'audit',
+] as const;
 export type SettingsTab = (typeof SETTINGS_TABS)[number];
 
 /**
@@ -154,6 +214,15 @@ export const FEATURE_TABS: Partial<Record<FeatureName, SettingsTab>> = {
   siem_forwarding: 'siem',
   ldap: 'ldap',
   audit: 'audit',
+  // [3]
+  sso_kerberos: 'sso',
+  sso_oidc: 'sso',
+  config_backup: 'backup',
+  flows: 'flows',
+  new_device_alerts: 'newDevices',
+  reports: 'reports',
+  noc: 'noc',
+  chat_ack: 'chatAck',
 };
 
 /** The settings tab holding the feature's toggle. */

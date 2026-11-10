@@ -1,0 +1,22 @@
+id: aruba_cx
+name: 'Aruba AOS-CX'
+version: 1
+confidence: unverified
+priority: 120
+match:
+  templates: ['aruba_cx']
+  sys_object_id: ['1.3.6.1.4.1.47196.']
+mode: shell
+prompt: '^[\w.\-]{1,64}# ?$'
+pre_prompt: []
+enable: null
+session_setup: ['no page']
+commands:
+  - command: 'show running-config'
+error_patterns: ['^\s*Invalid input:']
+ignore_lines: ['^Current configuration:$']
+secrets:
+  - '\bciphertext (\S+)'
+  - '\bplaintext (\S+)'
+  - '^\s*snmp-server community (\S+)'
+notes: ''

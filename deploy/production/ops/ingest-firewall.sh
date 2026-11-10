@@ -1,12 +1,15 @@
 #!/usr/bin/env bash
-# NetworkMonitor — OPTIONAL sender filter for SNMP traps / syslog (phase 2b-3).
+# NetworkMonitor — OPTIONAL sender filter for SNMP traps / syslog (phase 2b-3) and flow
+# export (NetFlow / IPFIX / sFlow, phase 3).
 #
-# Why: the netmon container publishes 162/udp, 514/udp and 514/tcp. Docker implements
+# Why: the netmon container publishes 162/udp, 514/udp, 514/tcp and [3] 2055/udp, 4739/udp,
+# 6343/udp. Docker implements
 # published ports with iptables DNAT + its own FORWARD chains, which are evaluated BEFORE
 # ufw: `ufw deny 514` does NOT stop anyone from sending to NetworkMonitor. The supported
 # place for your own rules is Docker's DOCKER-USER chain. This script keeps one chain,
-# NETMON-INGEST, that accepts traps/syslog only from the networks you list and drops the
-# rest. The web UI (443 through Caddy) is not affected.
+# NETMON-INGEST, that accepts traps/syslog/flows only from the networks you list and drops
+# the rest. The web UI (443 through Caddy) is not affected. One allow list covers all six
+# ports (the device networks: switches, firewalls and other exporters).
 #
 # Nothing here is applied automatically. To use it:
 #   1. List the device networks, one IPv4 address or CIDR per line ('#' comments allowed):
@@ -22,10 +25,12 @@
 #
 # Rule matched in DOCKER-USER (original destination port, so it works after Docker's DNAT
 # 514 -> 1514; --ctstate DNAT limits it to traffic INTO published ports, so the app's own
-# outgoing SIEM forwarding to a remote port 514 is never touched):
+# outgoing SIEM forwarding to a remote port 514 is never touched). Ports published 1:1
+# (2055/4739/6343) go through the same DNAT, so the same match works for them:
 #   -p udp -m conntrack --ctstate DNAT --ctdir ORIGINAL --ctorigdstport 514 -j NETMON-INGEST
 # IPv4 only (Docker publishes IPv6 only when ip6tables is enabled in daemon.json).
-# The app's own ignore list (Settings -> Logs -> Unknown sources) is a second, softer layer.
+# The app's own ignore list (Settings -> Logs -> Unknown sources) and, for flows, exporter
+# acceptance (unknown exporters are dropped until an admin accepts them) are a second layer.
 set -euo pipefail
 
 SELF_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -37,10 +42,10 @@ CHAIN=NETMON-INGEST
 TAG=netmon-ingest
 ALLOW_FILE="${NETMON_INGEST_ALLOW_FILE:-$NETMON_ETC_DIR/ingest-allow.conf}"
 # protocol:port pairs published by compose.yaml (host side).
-PORTS=(udp:162 udp:514 tcp:514)
+PORTS=(udp:162 udp:514 tcp:514 udp:2055 udp:4739 udp:6343)
 
 usage() {
-  sed -n '2,30p' "$0"
+  sed -n '2,/^set -euo/{/^set -euo/d;p}' "$0"
   exit "${1:-0}"
 }
 
@@ -62,7 +67,7 @@ read_allow_list() {
 apply() {
   local cidrs=() c pp spec
   if (($#)); then cidrs=("$@"); else mapfile -t cidrs < <(read_allow_list); fi
-  ((${#cidrs[@]})) || die "the allow list is empty: refusing to drop traps/syslog from everyone"
+  ((${#cidrs[@]})) || die "the allow list is empty: refusing to drop traps/syslog/flows from everyone"
   for c in "${cidrs[@]}"; do valid_cidr "$c" || die "not an IPv4 address/CIDR: '$c'"; done
   "$IPTABLES" -n -L DOCKER-USER >/dev/null 2>&1 || die "iptables chain DOCKER-USER not found (is Docker running?)"
 
@@ -75,7 +80,7 @@ apply() {
     mapfile -t spec < <(jump_rule "${pp%%:*}" "${pp##*:}")
     "$IPTABLES" -C DOCKER-USER "${spec[@]}" 2>/dev/null || "$IPTABLES" -I DOCKER-USER 1 "${spec[@]}"
   done
-  log "traps/syslog accepted only from: ${cidrs[*]} (UDP 162, UDP/TCP 514)"
+  log "traps/syslog/flows accepted only from: ${cidrs[*]} (UDP 162, UDP/TCP 514, UDP 2055/4739/6343)"
 }
 
 remove() {
@@ -86,12 +91,12 @@ remove() {
   done
   "$IPTABLES" -F "$CHAIN" 2>/dev/null || true
   "$IPTABLES" -X "$CHAIN" 2>/dev/null || true
-  log "traps/syslog sender filter removed (every sender accepted again)"
+  log "traps/syslog/flows sender filter removed (every sender accepted again)"
 }
 
 status() {
   if ! "$IPTABLES" -n -L "$CHAIN" >/dev/null 2>&1; then
-    echo "not active: every sender may send traps/syslog (only the app's ignore list applies)"
+    echo "not active: every sender may send traps/syslog/flows (only the app's ignore list / exporter acceptance applies)"
     return 0
   fi
   echo "DOCKER-USER jumps:"

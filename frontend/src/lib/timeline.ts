@@ -10,6 +10,8 @@ export const TIMELINE_TONE: Record<TimelineKind, string> = {
   syslog: 'bg-amber-500',
   port: 'bg-cyan-600',
   audit: 'bg-slate-700',
+  config: 'bg-indigo-600',
+  new_mac: 'bg-rose-600',
 };
 
 /** Kinds offered as filter chips (trap/syslog/audit only while those features are on). */
@@ -18,18 +20,26 @@ export function availableKinds(f: {
   syslog: boolean;
   audit: boolean;
   isAdmin: boolean;
+  /** [3] */
+  config_backup?: boolean;
+  new_device_alerts?: boolean;
 }): TimelineKind[] {
   const out: TimelineKind[] = ['status', 'notification', 'ack', 'maintenance'];
   if (f.traps) out.push('trap');
   if (f.syslog) out.push('syslog');
   out.push('port');
   if (f.audit && f.isAdmin) out.push('audit');
+  if (f.config_backup) out.push('config');
+  if (f.new_device_alerts) out.push('new_mac');
   return out;
 }
 
 /** Where a row links to: the sensor page, or (null) an in-place detail (trap/syslog/audit). */
 export function timelineHref(item: TimelineItem, deviceId: number): string | null {
   if (item.kind === 'audit') return `/audit?device_id=${deviceId}`;
+  // [3] the diff is admin-only (TimelineTab hides the link for viewers)
+  if (item.kind === 'config') return `/devices/${deviceId}?tab=config`;
+  if (item.kind === 'new_mac') return '/new-devices';
   if (item.kind === 'trap' || item.kind === 'syslog') return null;
   if (item.sensor_id !== null) return `/sensors/${item.sensor_id}`;
   return null;

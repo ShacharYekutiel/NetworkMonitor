@@ -14,6 +14,9 @@ TRGM_INDEXES = (
     "CREATE INDEX IF NOT EXISTS ix_traps_summary_trgm ON traps USING gin (summary gin_trgm_ops)",
     "CREATE INDEX IF NOT EXISTS ix_syslog_message_trgm ON syslog_messages "
     "USING gin (message gin_trgm_ops)",
+    # [3] config search: latest versions only
+    "CREATE INDEX IF NOT EXISTS ix_config_versions_trgm ON config_versions "
+    "USING gin (content gin_trgm_ops) WHERE is_latest",
 )
 
 

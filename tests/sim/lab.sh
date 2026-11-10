@@ -42,6 +42,10 @@
 #   Phase 2b-3 (LAB_2B3=1, default; docs/architecture.md §12.14; udp/1161, community public, v2c):
 #   127.0.0.87  Comware LAG "lag-cw"  (Bridge-Aggregation1 = 49+50, ifStackTable)   tests/sim/ports/lag_cw
 #   127.0.0.88  ArubaOS LAG "lag-aos" (Trk1 = 3+4, LAG-MIB)  tests/sim/ports/lag_aos  (contract .86 = port-aos52)
+#   Phase 3 (LAB_3=1, default; docs/architecture.md §13.11; udp/1161, community public, v2c):
+#   127.0.0.90  new-device access switch "newdev-access" tests/sim/newdev/run1 (variant run2); contract .88 is
+#               already the 2b-3 lag-aos sim and .89 the 2b-3 SNMPv3 trap source (lib/lab2b3.ts SRC.v3dev). The SSH device lab (tests/sim/ssh, 127.0.0.111-.122
+#               tcp/8022) is started by tests/e2e/run.sh, not here.
 #   with LAB_GENERIC=1 (default): Phase 1 SNMP agent 127.0.0.1 udp/$LAB_SNMP_PORT, HTTP toggle target
 #   127.0.0.1:$LAB_HTTP_PORT, webhook receiver 127.0.0.1:$LAB_HOOK_PORT.
 #
@@ -63,6 +67,7 @@ LAB_GENERIC="${LAB_GENERIC:-1}"
 LAB_2B1="${LAB_2B1:-1}"
 LAB_2B2="${LAB_2B2:-1}"
 LAB_2B3="${LAB_2B3:-1}"
+LAB_3="${LAB_3:-1}"
 LAB_SNMP_PORT="${LAB_SNMP_PORT:-11161}"
 LAB_HTTP_PORT="${LAB_HTTP_PORT:-18083}"
 LAB_HOOK_PORT="${LAB_HOOK_PORT:-18082}"
@@ -115,6 +120,9 @@ COMPONENTS_EOF
   if [ "$LAB_2B3" = "1" ]; then
     echo "snmp-lag-cw|udp|127.0.0.87:1161|log|$PY $HERE/snmp_agent.py --host 127.0.0.87 --port 1161 --data ${DATA_snmp_lag_cw:-$HERE/ports/lag_cw}"
     echo "snmp-lag-aos|udp|127.0.0.88:1161|log|$PY $HERE/snmp_agent.py --host 127.0.0.88 --port 1161 --data ${DATA_snmp_lag_aos:-$HERE/ports/lag_aos}"
+  fi
+  if [ "$LAB_3" = "1" ]; then
+    echo "snmp-newdev-access|udp|127.0.0.90:1161|log|$PY $HERE/snmp_agent.py --host 127.0.0.90 --port 1161 --data ${DATA_snmp_newdev_access:-$HERE/newdev/run1}"
   fi
   if [ "$LAB_GENERIC" = "1" ]; then
     echo "snmp-generic|udp|127.0.0.1:$LAB_SNMP_PORT|log|$PY $HERE/snmp_agent.py --port $LAB_SNMP_PORT"
