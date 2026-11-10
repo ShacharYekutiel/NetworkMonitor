@@ -132,7 +132,7 @@ test('Teams card carries Action.OpenUrl "Acknowledge" -> /ack#token -> acknowled
   const ack = card.actions.find((a: any) => a.title === 'Acknowledge');
   expect(ack, 'Acknowledge action').toBeTruthy();
   expect(ack.type).toBe('Action.OpenUrl');
-  expect(ack.url).toMatch(new RegExp(`^${BASE_URL.replace(/[.]/g, '\\.')}/ack#a1\\.[A-Za-z0-9_-]{38}$`));
+  expect(ack.url).toMatch(new RegExp(`^${BASE_URL.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}/ack#a1\\.[A-Za-z0-9_-]{38}$`));
   expect(card.actions.indexOf(ack)).toBeLessThan(card.actions.findIndex((a: any) => /Open in NetworkMonitor/.test(a.title)));
   const tok = ackToken(ack.url)!;
   // resolve as any logged-in user

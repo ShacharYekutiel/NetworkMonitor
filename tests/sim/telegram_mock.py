@@ -114,7 +114,7 @@ def html_error(text: str) -> str | None:
     m = BARE_LT_RE.search(text)
     if m:
         return f"Unsupported start tag at byte offset {m.start()}"
-    outside_tags = re.sub(r"<[^>]*>", lambda m: " " * len(m.group(0)), text)
+    outside_tags = re.sub(r"<[^<>]*>", lambda m: " " * len(m.group(0)), text)
     for m in re.finditer(r"&", outside_tags):
         if not ENTITY_RE.match(outside_tags, m.start()):
             return f'Character entity expected at byte offset {m.start()}'

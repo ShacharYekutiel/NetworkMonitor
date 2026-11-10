@@ -214,8 +214,8 @@ def main() -> int:
                 path = HERE / "expected" / name / f"{v}{'' if mask else '.unmasked'}.txt"
                 text = expected(pers, v, name, mask)
                 if mask and leaked_secrets(text):
-                    print(f"CONTRACT GAP: {name} {v}: the driver regexes leave secrets unmasked: "
-                          f"{leaked_secrets(text)}")
+                    print(f"CONTRACT GAP: {name} {v}: the driver regexes leave "
+                          f"{len(leaked_secrets(text))} secret(s) unmasked")
                 if a.check:
                     if not path.exists() or path.read_text() != text:
                         print(f"stale: {path}")
