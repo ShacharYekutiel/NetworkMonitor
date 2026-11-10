@@ -17,7 +17,7 @@ from zoneinfo import ZoneInfo
 
 from sqlalchemy import text
 
-from netmon.configbackup import credentials, drivers, normalize, service
+from netmon.configbackup import credentials, drivers, normalize, service, sysoid
 from netmon.configbackup.session import HostKeyInfo, SessionError, run_session
 from netmon.services import events as events_svc
 from netmon.services import settings as settings_svc
@@ -313,8 +313,7 @@ class ConfigBackupRunner:
 
     async def schedule_pass(self, now: datetime) -> int:
         """Queue every eligible device, staggered over the window."""
-        async with self.rt.sessionmaker() as session:
-            ctxs = await service.load_contexts(session, self.rt.secret_key, None, with_status=False)
+        ctxs = await self._contexts(None, with_status=False)
         ids = [c.id for c in ctxs if c.eligible[0]]
         dues = stagger(ids, now, int(self.cfg.get("config_backup_window_min", 60)))
         for did, due in dues.items():
@@ -388,6 +387,17 @@ class ConfigBackupRunner:
         except Exception as exc:  # noqa: BLE001
             log.debug("Cannot update last_matched_at: %s", exc)
 
+    async def _contexts(self, ids: list[int] | None, **kw: Any) -> list[Any]:
+        """load_contexts + the live sysObjectID fallback for devices with no driver match."""
+        async with self.rt.sessionmaker() as session:
+            ctxs = await service.load_contexts(session, self.rt.secret_key, ids, **kw)
+        missing = sysoid.wanted(ctxs)
+        if missing:
+            await sysoid.probe(self.rt, missing)
+            async with self.rt.sessionmaker() as session:
+                ctxs = await service.load_contexts(session, self.rt.secret_key, ids, **kw)
+        return ctxs
+
     # ================================================================ sensors
     async def sync_sensors(self, *, recompute: bool = False) -> int:
         """Create the passive `config_backup` sensor of every eligible device (opt-out
@@ -396,8 +406,8 @@ class ConfigBackupRunner:
         es = self.rt.event_sensors
         if es is None:
             return 0
+        ctxs = await self._contexts(None, with_status=False)
         async with self.rt.sessionmaker() as session:
-            ctxs = await service.load_contexts(session, self.rt.secret_key, None, with_status=False)
             existing = set(
                 (
                     await session.execute(
@@ -434,8 +444,7 @@ class ConfigBackupRunner:
     async def attempt(self, device_id: int, trigger: str) -> dict[str, Any] | None:
         """Run one backup attempt and record it. Returns the stored status row."""
         rt = self.rt
-        async with rt.sessionmaker() as session:
-            ctxs = await service.load_contexts(session, rt.secret_key, [device_id])
+        ctxs = await self._contexts([device_id])
         if not ctxs:
             return None
         c = ctxs[0]

@@ -9,7 +9,7 @@ from typing import Any
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from netmon.configbackup import credentials, drivers
+from netmon.configbackup import credentials, drivers, sysoid
 from netmon.services.serialize import iso
 
 REASONS = ("ok", "disabled_device", "mode_off", "no_credentials", "no_driver", "host_key_changed")
@@ -114,7 +114,8 @@ async def load_contexts(
             mode=r.config_backup,
             driver_override=r.config_backup_driver,
             templates=templates,
-            sys_object_id=ident.get("sys_object_id"),
+            # stored identity first; else a live-read sysObjectID (sysoid.probe) if cached
+            sys_object_id=ident.get("sys_object_id") or sysoid.cached(r.id),
             ssh=stored,
             ssh_source=source,
             ssh_group_id=gid,
