@@ -62,7 +62,7 @@ Known ids: `anthropic.claude-sonnet-4-5-20250929-v1:0`, `anthropic.claude-haiku-
 The scenario's `purpose` is matched against the request's purpose, detected in this order:
 1. **Marker in the system prompt** (please emit one): a line `Purpose: <purpose>` (or `[purpose:<purpose>]`),
    `<purpose>` from data-model `assistant_purpose` (`ask`, `explain`, `incident`, `alert_note`, `diff_explain`,
-   `digest`, `rule_draft`, `template_draft`, `chat_ask`, `report_summary`, `test`).
+   `digest`, `rule_draft`, `template_draft`, `chat_ask`, `report_summary`, `test`, `title`).
 2. Forced tool: `ping` -> `test`, `propose_alert_rule`/`propose_event_rule` -> `rule_draft`, `propose_template` ->
    `template_draft`, `report_diff_explanation` -> `diff_explain`, `report_incident_summary` -> `incident`, ...
 3. Keywords in the system prompt (alert note, incident, digest, ...); otherwise `ask`.

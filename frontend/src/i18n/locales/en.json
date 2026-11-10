@@ -3115,7 +3115,8 @@
       "limit_reached": "I stopped after the lookup limit; the answer may be incomplete.",
       "truncated_context": "Older parts of the conversation were shortened to fit.",
       "retrying": "Amazon Bedrock was busy — retrying…",
-      "kb_unavailable": "The Knowledge Base could not be searched; answering without it."
+      "kb_unavailable": "The Knowledge Base could not be searched; answering without it.",
+      "usage_estimated": "Stopped early: the token usage of this answer is estimated."
     },
     "state": {
       "disabled": "Off",
@@ -3657,7 +3658,8 @@
       "template_draft": "Template drafts",
       "chat_ask": "Telegram /ask",
       "report_summary": "Report summaries",
-      "test": "Connection tests"
+      "test": "Connection tests",
+      "title": "Audit titles"
     }
   },
   "treeMenu": {

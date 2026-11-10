@@ -156,8 +156,12 @@ async def test_kb_injection_and_forged_kb_ref(rt: Any, admin: httpx.AsyncClient,
 
     e = ENTRIES["kb-passage"]
     passage = {"text": e["text"], "title": "evil runbook", "location": e["location"]}
-    async with httpx.AsyncClient() as mc:
-        await mc.post(f"{asst.url}/_kb", json={"add_passages": [{**passage, "score": 0.99}]})
+    # the mock's control endpoint (README "Other control endpoints"); no env proxy for localhost
+    async with httpx.AsyncClient(trust_env=False) as mc:
+        r = await mc.post(f"{asst.url}/_kb", json={"add_passages": [{**passage, "score": 0.99}]})
+    assert r.status_code == 200 and any(
+        p.get("title") == "evil runbook" for p in r.json()["passages"]
+    )
     kb = {"knowledge_base_id": "QAKBTEST01", "endpoint_url": asst.url, "results": 5}
     async with rt.sessionmaker() as s:
         await settings_svc.put(s, "assistant_kb", kb)

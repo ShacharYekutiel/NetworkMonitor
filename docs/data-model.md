@@ -3608,7 +3608,7 @@ additive. API shapes: [api.md § Phase 3b](api.md#3b-phase-3b-contract). Compone
 | Name | Values |
 |---|---|
 | `feature` | … 19 values of 2b-3 + 3, **[3b]** `assistant`, `ai_explain_alert`, `ai_correlation`, `ai_alert_notes`, `ai_config_diff`, `ai_syslog_digest`, `ai_rule_drafts`, `ai_template_drafts`, `ai_knowledge`, `ai_chat_ask`, `ai_report_summary` (28 toggles in total; Teams and API tokens are not toggles) |
-| **[3b]** `assistant_purpose` | `ask`, `explain`, `incident`, `alert_note`, `diff_explain`, `digest`, `rule_draft`, `template_draft`, `chat_ask`, `report_summary`, `test` |
+| **[3b]** `assistant_purpose` | `ask`, `explain`, `incident`, `alert_note`, `diff_explain`, `digest`, `rule_draft`, `template_draft`, `chat_ask`, `report_summary`, `test`, `title` (the neutral audit title of a question, light model) |
 | **[3b]** `assistant_channel` | `web`, `telegram` |
 | **[3b]** `conversation_kind` | `chat`, `explain`, `rule_draft`, `template_draft` |
 | **[3b]** `message_role` | `user`, `assistant` |
@@ -3761,7 +3761,7 @@ Indexes: `(user_id, last_message_at DESC)`, `(last_message_at)` (retention), `(r
 | converse_turns | jsonb | NULL — assistant only: the Converse messages of this exchange as sent (toolUse + toolResult blocks, redacted, capped); ≤ 512 KiB |
 | status | text | NOT NULL DEFAULT 'complete' CHECK in message_status |
 | error_code | varchar(64) | NULL |
-| notices | text[] | NOT NULL DEFAULT '{}' — `limit_reached`, `truncated_context`, `kb_unavailable`, … |
+| notices | text[] | NOT NULL DEFAULT '{}' — `limit_reached`, `truncated_context`, `kb_unavailable`, `usage_estimated` (no Bedrock usage metadata: tokens estimated), … |
 | stop_reason | varchar(32) | NULL — last Bedrock `stopReason` |
 | model_id | varchar(256) | NULL |
 | model_calls, tool_calls | integer | NOT NULL DEFAULT 0 |

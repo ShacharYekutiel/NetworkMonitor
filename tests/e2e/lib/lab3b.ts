@@ -60,9 +60,11 @@ export const mock = {
   credentials: () => j(`${BEDROCK_URL}/_credentials`),
   expire: (body: Record<string, unknown>) => j(`${BEDROCK_URL}/_credentials/expire`, 'POST', body),
 };
-/** Model calls (converse + converse_stream) since `seq`. */
-export async function modelCalls(since = 0, extra = ''): Promise<any[]> {
-  return mock.requests(`op=converse,converse_stream&since=${since}${extra ? `&${extra}` : ''}`);
+/** Model calls (converse + converse_stream) since `seq`. The neutral audit-title call (light model, purpose `title`,
+ *  made after a completed answer — owner rule: no question text in the audit) is excluded unless `withTitle`. */
+export async function modelCalls(since = 0, extra = '', withTitle = false): Promise<any[]> {
+  const all = await mock.requests(`op=converse,converse_stream&since=${since}${extra ? `&${extra}` : ''}`);
+  return withTitle ? all : all.filter((c: any) => c.purpose !== 'title');
 }
 export async function lastSeq(): Promise<number> {
   const all = await mock.requests();

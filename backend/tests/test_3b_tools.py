@@ -417,4 +417,4 @@ async def test_search_knowledge_against_mock(rt: Any, admin: httpx.AsyncClient, 
     assert res.refs[0] == "kb/1"
     asst.mode("kb_error", target="kb")
     res = await call(rt, "search_knowledge", {"query": "core switch runbook"})
-    assert not res.ok and res.error == "internal"
+    assert not res.ok and res.error == "kb_unavailable"

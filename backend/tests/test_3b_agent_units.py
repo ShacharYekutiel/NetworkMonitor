@@ -400,3 +400,45 @@ def test_sse_buffer_is_bounded() -> None:
         run.emit("delta", {"text": "x"})
     assert len(run.events) == agent.BUFFER_EVENTS
     assert run.events[0][0] == 51
+
+
+# --------------------------------------------------------------------------- neutral audit titles
+@pytest.mark.parametrize(
+    ("raw", "language", "expected"),
+    [
+        ("Devices down overview", "en", "Devices down overview"),
+        ('Title: "Core switch 10.1.2.3 outage"', "en", "Core switch outage"),
+        ("Port flaps on sw-core-01.corp.local for admin@example.com", "en", "Port flaps on for"),
+        ("MAC 00:11:22:aa:bb:cc location lookup", "en", "MAC location lookup"),
+        ("community public password=Hunter2 check", "en", "community check"),
+        ("one two three four five six seven eight", "en", "one two three four five six"),
+        ("IP-3 reachability QA3B-AUDIT-PROBE-4412", "en", "reachability"),
+        ("", "en", "Assistant question"),
+        ("10.0.0.1 192.168.1.1", "he", "שאלה לעוזר"),
+        ("מצב המתגים ברשת", "he", "מצב המתגים ברשת"),
+        ("first line\nsecond line", "en", "first line"),
+    ],
+)
+def test_neutral_title(raw: str, language: str, expected: str) -> None:
+    from netmon.assistant import conversations
+
+    out = conversations.neutral_title(raw, language)
+    assert out == expected
+    assert len(out) <= conversations.AUDIT_TITLE_LEN
+    assert len(out.split()) <= conversations.AUDIT_TITLE_WORDS
+
+
+def test_estimate_stream_usage() -> None:
+    from netmon.assistant import agent
+    from netmon.assistant.bedrock import StreamAssembler
+
+    req = {
+        "system": [{"text": "s" * 320}],
+        "messages": [{"role": "user", "content": [{"text": "q" * 320}]}],
+        "inferenceConfig": {"maxTokens": 100},
+    }
+    asm = StreamAssembler()
+    u = agent.estimate_stream_usage(req, "a" * 64, asm)
+    assert u["output_tokens"] == 20 and 200 <= u["input_tokens"] <= 260
+    assert u["cache_read_tokens"] == 0 and u["cache_write_tokens"] == 0
+    assert agent.estimate_stream_usage({}, "", asm)["input_tokens"] == 0

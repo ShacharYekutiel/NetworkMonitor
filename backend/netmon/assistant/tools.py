@@ -52,6 +52,7 @@ ERRORS = (
     "range_too_large",
     "timeout",
     "unknown_tool",
+    "kb_unavailable",
     "internal",
 )
 

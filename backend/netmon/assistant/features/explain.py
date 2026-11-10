@@ -122,6 +122,7 @@ async def explain_stream(
         purpose_block=PURPOSE_BLOCK,
         extra_context=context,
         title=question[:80],
+        audit_title="הסבר התראה" if lang == "he" else "Explain alert",
         ref_sensor_id=sensor_id,
         ref_event_id=ev_id,
         audit_ctx=ctx,

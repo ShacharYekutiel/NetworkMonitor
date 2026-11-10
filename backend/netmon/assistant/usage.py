@@ -31,7 +31,7 @@ from netmon.assistant.errors import AssistantError
 
 PURPOSES = (
     "ask", "explain", "incident", "alert_note", "diff_explain", "digest", "rule_draft",
-    "template_draft", "chat_ask", "report_summary", "test",
+    "template_draft", "chat_ask", "report_summary", "test", "title",
 )  # fmt: skip
 BACKGROUND_PURPOSES = frozenset({"alert_note", "incident", "digest", "report_summary"})
 # purposes counted against the per-admin daily question cap (§ 14.6.3)

@@ -22,7 +22,7 @@ SCENARIO_DIR = HERE / "scenarios"
 # Purpose detection (docs/data-model.md `assistant_purpose`). Preferred: an explicit marker line in the system
 # prompt, e.g. "Purpose: alert_note" or "[purpose:alert_note]". Fallbacks: forced tool names, then keywords.
 PURPOSES = ("ask", "explain", "incident", "alert_note", "diff_explain", "digest", "rule_draft", "template_draft",
-            "chat_ask", "report_summary", "test")
+            "chat_ask", "report_summary", "test", "title")
 MARKER_RE = re.compile(r"(?:^|\n|\[)\s*purpose\s*[:=]\s*`?([a-z_]+)`?", re.I)
 FORCED_PURPOSE = {"ping": "test", "propose_alert_rule": "rule_draft", "propose_event_rule": "rule_draft",
                   "propose_template": "template_draft", "report_diff_explanation": "diff_explain",

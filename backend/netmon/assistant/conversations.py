@@ -8,6 +8,7 @@ Plain SQL through the caller's session; the caller commits. Only the owner sees 
 from __future__ import annotations
 
 import json
+import re
 from datetime import datetime, timedelta
 from typing import Any
 
@@ -34,6 +35,55 @@ def _json(v: Any) -> Any:
         except ValueError:
             return v
     return v
+
+
+# --------------------------------------------------------------------------- audit titles
+# Owner rule: the audit log never holds question text. It gets a neutral topic title that the
+# light model writes (`purpose = title`), post-processed here; on any failure (or while it is
+# being generated) the generic fallback below.
+AUDIT_TITLE_WORDS = 6
+AUDIT_TITLE_LEN = 60
+FALLBACK_AUDIT_TITLES = {"en": "Assistant question", "he": "שאלה לעוזר"}
+_TITLE_STRIP = re.compile(r"[\"'`*_#<>\[\]{}()|~“”„«»]")
+_MAC_RE = re.compile(r"(?i)(?<![0-9a-f])(?:[0-9a-f]{2}[:-]){5}[0-9a-f]{2}(?![0-9a-f])"
+                     r"|(?<![0-9a-f.])(?:[0-9a-f]{4}\.){2}[0-9a-f]{4}(?![0-9a-f])")  # fmt: skip
+_TITLE_LABEL = re.compile(r"(?i)^\s*(?:title|כותרת)\s*[:：-]\s*")
+_BAD_TOKEN = re.compile(r"[\d.@/\\:=$%&+^]")
+
+
+def fallback_audit_title(language: str | None) -> str:
+    return FALLBACK_AUDIT_TITLES.get(language or "en", FALLBACK_AUDIT_TITLES["en"])
+
+
+def neutral_title(raw: str | None, language: str | None = "en") -> str:
+    """Post-process a model-written topic title for the audit log: one line, secrets / IPs /
+    MACs removed, every token that looks like an identifier (digits, dots, slashes, ``@``, ``:``
+    … — addresses, hostnames, serials, ids, paths) dropped, ≤ 6 words and ≤ 60 characters.
+    Empty → the generic fallback."""
+    t = redact.clean_control(raw or "").strip()
+    t = next((ln for ln in t.splitlines() if ln.strip()), "")
+    t = _TITLE_LABEL.sub("", t)
+    t = redact.redact_secrets(t)
+    for mark in redact.MARKS:
+        t = t.replace(mark, " ")
+    t = _MAC_RE.sub(" ", t)
+    t = redact._IPV4.sub(" ", t)
+    t = redact._IPV6.sub(" ", t)
+    t = redact.PLACEHOLDER.sub(" ", t)
+    t = _TITLE_STRIP.sub(" ", t)
+    words: list[str] = []
+    for w in t.split():
+        w = w.strip(",;!?-–—")
+        if not w or _BAD_TOKEN.search(w) or len(w) > 30:
+            continue
+        words.append(w)
+        if len(words) >= AUDIT_TITLE_WORDS:
+            break
+    out = " ".join(words)
+    if len(out) > AUDIT_TITLE_LEN:
+        out = out[:AUDIT_TITLE_LEN].rsplit(" ", 1)[0]
+    out = out.strip(" ,;:-–—")
+    return out or fallback_audit_title(language)
 
 
 def make_title(question: str) -> str:

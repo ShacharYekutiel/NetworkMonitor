@@ -217,9 +217,13 @@ def test_credentials_merge_rules() -> None:
         credentials.merge(In(password="x"), None, KEY)
     with pytest.raises(ApiError):  # no secret
         credentials.merge(In(username="u"), None, KEY)
-    s = credentials.merge(In(username="u", password="pw", enable_password="en"), None, KEY)
+    pw, en = "Plain-Pw-7f3a", "Plain-En-9c1d"  # distinctive: random ciphertext never contains them
+    s = credentials.merge(In(username="u", password=pw, enable_password=en), None, KEY)
     assert s["port"] == 22 and s["password_enc"].startswith("v1:")
-    assert "pw" not in str(s)
+    # no plaintext stored: neither secret appears as a value or inside any stored string
+    for v in s.values():
+        assert v not in (pw, en)
+        assert not (isinstance(v, str) and (pw in v or en in v))
     out = credentials.ssh_out(s, KEY)
     assert out["password"] is None and out["password_set"] and out["enable_password_set"]
     assert not out["private_key_set"] and not out["credentials_unreadable"]
@@ -229,8 +233,8 @@ def test_credentials_merge_rules() -> None:
     assert s3["enable_password_enc"] is None
     with pytest.raises(ApiError):  # clearing the only secret
         credentials.merge(In(password=""), s3, KEY)
-    c = credentials.decrypt(s3, KEY)
-    assert c.password == "pw" and c.username == "u" and "pw" not in repr(c)
+    c = credentials.decrypt(s3, KEY)  # decrypt round-trip
+    assert c.password == pw and c.username == "u" and pw not in repr(c)
     assert credentials.ssh_out(s3, "another-key")["credentials_unreadable"] is True
     with pytest.raises(credentials.CredentialsUnreadable):
         credentials.decrypt(s3, "another-key")

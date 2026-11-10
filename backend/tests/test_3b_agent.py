@@ -107,18 +107,32 @@ async def test_ask_one_tool_round_links_audit_ws(rt: Any, admin: httpx.AsyncClie
     ws = [m for m in seen if m["type"] == "assistant.message"]
     assert ws and ws[0]["data"]["status"] == "complete" and ws[0].get("user_id")
 
-    # audit: question (title only, never the text), tool call, answer
+    # audit: question / tool call / answer — owner rule: never the question text, nor the
+    # conversation title derived from it; a neutral title by the light model (purpose title)
     rows = await audit_rows(rt)
     acts = [r["action"] for r in rows]
     assert acts == ["assistant.question", "assistant.tool_call", "assistant.answer"]
-    qch = rows[0]["changes"]
-    assert "question" not in qch and qch["title"][1].startswith("Which devices are down?")
+    assert "Which devices" not in json.dumps(rows, ensure_ascii=False)
     assert "Hunter2" not in json.dumps(rows)
-    assert rows[1]["changes"]["tool"][1] == "list_problems"
-    assert rows[1]["changes"]["rows"][1] == 1
+    qch = rows[0]["changes"]
+    assert "question" not in qch and qch["title"][1] == "Assistant question"  # while generating
+    async with rt.sessionmaker() as session:
+        ename = (await session.execute(text(
+            "SELECT entity_name FROM audit_log WHERE action = 'assistant.question'"
+        ))).scalar()  # fmt: skip
+    assert ename == "Assistant question"
+    tc = rows[1]["changes"]
+    assert tc["tool"][1] == "list_problems" and tc["rows"][1] == 1 and "arguments" not in tc
+    assert tc["duration_ms"][1] is not None and tc["result_bytes"][1] > 0
     ans = rows[2]["changes"]
     assert ans["status"][1] == "complete" and ans["tools"][1] == ["list_problems"]
-    assert ans["input_tokens"][1] > 0
+    assert ans["title"][1] == "Network status question"  # the mock's light-model title
+    assert ans["input_tokens"][1] > 0 and ans["model_calls"][1] == 2
+    assert ans["usage_estimated"][1] is False
+    treq = [r for r in asst.requests("converse") if r["purpose"] == "title"]
+    assert len(treq) == 1 and "toolConfig" not in treq[0]["body"]
+    assert "Hunter2" not in json.dumps(treq[0]["body"])
+    assert "Never include IP addresses, hostnames" in treq[0]["body"]["system"][0]["text"]
 
     # usage counters
     async with rt.sessionmaker() as session:
@@ -126,6 +140,11 @@ async def test_ask_one_tool_round_links_audit_ws(rt: Any, admin: httpx.AsyncClie
             "SELECT sum(questions) q, sum(model_calls) m, sum(tool_calls) tc, "
             "sum(input_tokens) i FROM assistant_usage WHERE purpose = 'ask'"))).one()  # fmt: skip
     assert (u.q, u.m, u.tc) == (1, 2, 1) and u.i > 0
+    async with rt.sessionmaker() as session:
+        t = (await session.execute(text(
+            "SELECT questions, model_calls, input_tokens, output_tokens FROM assistant_usage "
+            "WHERE purpose = 'title'"))).one()  # fmt: skip
+    assert (t.questions, t.model_calls, t.input_tokens, t.output_tokens) == (0, 1, 90, 5)
 
 
 async def test_three_rounds_notes_and_followup(rt: Any, admin: httpx.AsyncClient, asst: Any):
@@ -266,6 +285,17 @@ async def test_cancel_mid_stream(rt: Any, admin: httpx.AsyncClient, asst: Any):
         await asyncio.sleep(0.05)
     assert req.get("closed_by_client") and not req.get("complete")
     assert "assistant.cancel" in [a["action"] for a in await audit_rows(rt)]
+    # § 14.3.3: no metadata event on a stopped stream → usage estimated, counted, marked
+    assert msg["usage"]["input_tokens"] > 0 and msg["usage"]["output_tokens"] > 0
+    assert "usage_estimated" in msg["notices"]
+    async with rt.sessionmaker() as session:
+        u = (await session.execute(text(
+            "SELECT sum(input_tokens) i, sum(output_tokens) o FROM assistant_usage "
+            "WHERE purpose = 'ask'"))).one()  # fmt: skip
+    assert u.i >= msg["usage"]["input_tokens"] and u.o >= msg["usage"]["output_tokens"]
+    ans = [a for a in await audit_rows(rt) if a["action"] == "assistant.answer"][-1]["changes"]
+    assert ans["usage_estimated"][1] is True and ans["title"][1] == "Assistant question"
+    assert not [r for r in asst.requests("converse") if r["purpose"] == "title"]  # no title call
 
 
 async def test_reattach_with_last_event_id(rt: Any, admin: httpx.AsyncClient, asst: Any):

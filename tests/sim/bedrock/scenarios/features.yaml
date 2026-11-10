@@ -176,3 +176,18 @@ scenarios:
     lang: he
     turns:
       - text: 'הזמינות בתקופה הייתה {{ $question | re("\"[a-z_]*(?:pct|percent|availability)[a-z_]*\":\s*(\d+(?:\.\d+)?)") | default("n/a") }} % למכשירים המנוטרים. התקלות העיקריות היו הפסקות קצרות.'
+
+  # ---------------------------------------------------------------- neutral audit title (owner rule: no question text)
+  - name: audit_title
+    purpose: title
+    turns:
+      - text: 'Network status question'
+    usage: {inputTokens: 90, outputTokens: 5}
+
+  - name: audit_title_he
+    purpose: title
+    priority: 5
+    lang: he
+    turns:
+      - text: 'שאלה על מצב הרשת'
+    usage: {inputTokens: 90, outputTokens: 5}

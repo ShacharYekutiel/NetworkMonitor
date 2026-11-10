@@ -3057,7 +3057,10 @@ lookups; the answer may be incomplete"). Timeout and cancel do not get this extr
   user's sockets only — the hub knows the user of each socket) tells other tabs that a message finished.
 - **Cancel:** `POST /api/assistant/messages/{id}/cancel` (owner) cancels the task within 1 s: the in-flight HTTP
   stream to Bedrock is closed (no more tokens billed after that point), running tools are cancelled, the partial
-  text is stored with status `cancelled`, usage counts what was consumed. The SPA's *Stop* button calls it.
+  text is stored with status `cancelled`, usage counts what was consumed. Bedrock reports usage only in the final
+  `metadata` event, so a stream that ends without it (cancel, broken stream) is **estimated** (request body and
+  streamed output at 3.2 characters per token), counted toward the caps like real usage, and marked: message notice
+  `usage_estimated`, `usage_estimated: true` in the `assistant.answer` audit row. The SPA's *Stop* button calls it.
 
 #### 14.3.4 Conversations and context management
 - Conversations are per user (`assistant_conversations`), listed newest first, renamable, deletable (one or all);
@@ -3152,7 +3155,8 @@ answer.
   `{"ok": false, "error": "invalid_arguments", "detail": "…"}` so the model can retry.
 - **Result envelope:** `{"ok": true, "tool": "...", "rows": 37, "truncated": false, "data": …, "untrusted_fields":
   ["message", "hostname"], "note": null}`; errors `{"ok": false, "error": "feature_disabled" | "not_found" |
-  "invalid_arguments" | "range_too_large" | "timeout" | "unknown_tool" | "internal"}`.
+  "invalid_arguments" | "range_too_large" | "timeout" | "unknown_tool" | "kb_unavailable" | "internal"}`
+  (`kb_unavailable`: the Knowledge Base `Retrieve` call failed — `search_knowledge` only).
 
 | Tool | Gate | Purpose (schemas and caps: api.md § [3b] Tools) |
 |---|---|---|
@@ -3278,9 +3282,9 @@ The assistant **requires the `audit` feature** (owner: every question audited in
 
 | Action | Actor | `changes` |
 |---|---|---|
-| `assistant.question` | user (or user via telegram) | `conversation_id`, `message_id`, `purpose`, `language`, `title` (the conversation title), `channel` (`web` / `telegram`). **Owner decision: the question text is never stored in the audit log** — it lives only in the conversation (`assistant_retention_days`, default 90) |
+| `assistant.question` | user (or user via telegram) | `conversation_id`, `message_id`, `purpose`, `language`, `title` (generic `"Assistant question"` / `"שאלה לעוזר"`, or a feature's fixed title such as `"Explain alert"` — never the conversation title, which is derived from the question), `channel` (`web` / `telegram`). **Owner decision: the question text is never stored in the audit log** — it lives only in the conversation (`assistant_retention_days`, default 90) |
 | `assistant.tool_call` | user | `message_id`, `tool`, `ok`, `error`, `rows`, `result_bytes`, `truncated`, `duration_ms` (no arguments: they can carry question text) |
-| `assistant.answer` | user | `message_id`, `status`, `stop_reason`, `model_id`, `model_calls`, `tool_calls`, token counts, `cost_estimate`, `duration_ms`, `error_code` |
+| `assistant.answer` | user | `message_id`, `title` (neutral topic title written by the light model after a complete / limit-reached answer, usage purpose `title`, ≤ 6 words, same language, no IPs / hostnames / usernames / MACs / numbers / secrets, post-processed with the redaction; generic fallback on failure, cancel or error), `status`, `stop_reason`, `model_id`, `model_calls`, `tool_calls`, token counts, `cost_estimate`, `duration_ms`, `error_code` |
 | `assistant.cancel` | user | `message_id` |
 | `assistant.feedback` | user | `message_id`, `rating` (comments are not audited) |
 | `assistant.conversation_delete` | user | `conversation_id` (or `all: n`) |

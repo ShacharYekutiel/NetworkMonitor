@@ -325,7 +325,7 @@ async def search_knowledge(ctx: ToolCtx, a: KnowledgeArgs) -> ToolOutput:
     except Exception as exc:  # noqa: BLE001 - the model gets an error envelope
         code = getattr(exc, "code", None)
         raise ToolError(
-            "internal", f"knowledge base unavailable ({code or type(exc).__name__})"
+            "kb_unavailable", f"knowledge base unavailable ({code or type(exc).__name__})"
         ) from None
     items = []
     for r in list(results or [])[:10]:

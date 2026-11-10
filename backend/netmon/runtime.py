@@ -496,6 +496,20 @@ class Runtime:
                 {"id": id_, "status": value[0], "status_counts": dict(counts)},
             )
 
+    def correlation_graph_changed(self) -> None:
+        """[3b] § 14.8.2: drop the correlation dependency/topology graph cache (60 s TTL stays
+        as the backstop)."""
+        ai = self.ai_features
+        corr = getattr(ai, "correlation", None) if ai is not None else None
+        if corr is not None:
+            corr.invalidate()
+
+    def topology_changed(self, reason: str, refresh_id: int | None = None) -> None:
+        """Topology links or layout changed: `topology.updated` + correlation graph refresh."""
+        self.hub.broadcast("topology.updated", {"reason": reason, "refresh_id": refresh_id})
+        if reason != "layout":
+            self.correlation_graph_changed()
+
     def config_changed(self, entity: str, id_: int, action: str) -> None:
         self.hub.broadcast("config.changed", {"entity": entity, "id": id_, "action": action})
         if entity == "notification_channel" and self.telegram_pollers is not None:
@@ -511,5 +525,6 @@ class Runtime:
             self.newdev.mark_dirty()  # [3] new_mac sensors of new in-scope switches
         if entity in ("device", "group"):
             self.cascade.invalidate()  # dependencies may have changed
+            self.correlation_graph_changed()  # [3b] § 14.8.2: dependency graph
             if self.maintenance is not None:
                 self.maintenance.request()  # coverage may have changed (moves, new devices)

@@ -685,14 +685,10 @@ class TemplateDrafts:
 
 
 def send_user(rt: Any, user_id: int, type_: str, data: dict[str, Any]) -> None:
-    hub = rt.hub
-    for name in ("send_user", "broadcast_user", "send_to_user"):
-        fn = getattr(hub, name, None)
-        if fn is not None:
-            with contextlib.suppress(Exception):
-                fn(user_id, type_, data)
-                return
-    hub.broadcast(type_, data, admin_only=True)
+    """`walk.update` goes only to the sockets of the admin who started the walk (api.md);
+    never broadcast to every admin."""
+    with contextlib.suppress(Exception):
+        rt.hub.send_to_user(user_id, type_, data)
 
 
 def _oid_names() -> dict[str, str]:

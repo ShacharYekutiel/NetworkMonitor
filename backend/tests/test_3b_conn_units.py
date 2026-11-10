@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import os
 import random
 from datetime import UTC, datetime, timedelta
 from decimal import Decimal
@@ -314,6 +315,8 @@ def _h(t: str) -> dict[str, str]:
             "aws_clock_skew",
         ),  # noqa: E501
         (424, "ModelErrorException", "x", "bedrock_unavailable"),
+        (429, "ModelNotReadyException", "Model is not ready", "bedrock_unavailable"),
+        (429, "ThrottlingException", "Too many requests", "bedrock_throttled"),
         (503, "ServiceUnavailableException", "x", "bedrock_unavailable"),
         (500, "InternalServerException", "x", "bedrock_unavailable"),
         (
@@ -579,8 +582,12 @@ def test_cert_upload_variants() -> None:
     )
     mat = certs.parse_upload(pfx, None, "Pfx-pass")
     assert mat.cert.serial_number == 0x1234 and mat.chain[0].subject == ca.subject
-    with pytest.raises(certs.CertError):
+    with pytest.raises(certs.CertError) as e:
         certs.parse_upload(pfx, None, "nope")
+    assert e.value.code == "invalid_private_key"  # wrong .pfx password (api.md)
+    with pytest.raises(certs.CertError) as e:
+        certs.parse_upload(b"\x00garbage-not-a-cert" * 4, None, None)
+    assert e.value.code == "invalid_certificate"
     # mismatching key, CA:TRUE, expired, no digital signature
     other = rsa.generate_private_key(public_exponent=65537, key_size=2048)
     with pytest.raises(certs.CertError) as e:
@@ -647,7 +654,10 @@ async def test_caching_provider_single_flight_and_refresh() -> None:
     assert p2.calls == 2
 
 
-async def test_default_chain_environment_and_none() -> None:
+async def test_default_chain_environment_and_none(monkeypatch: pytest.MonkeyPatch) -> None:
+    for k in [k for k in os.environ if k.startswith("AWS_")]:
+        monkeypatch.delenv(k, raising=False)  # explicit env dicts only; nothing from the host
+    assert DefaultChainProvider().env is os.environ  # default: the process environment
     env = {"AWS_ACCESS_KEY_ID": "AKIAENV", "AWS_SECRET_ACCESS_KEY": "x", "AWS_SESSION_TOKEN": "t"}
     c = await DefaultChainProvider(env).fetch()
     assert c.source == "environment" and c.session_token == "t"

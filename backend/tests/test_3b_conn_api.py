@@ -5,6 +5,7 @@ health state, usage caps, Knowledge Base, List models, access control, migration
 
 from __future__ import annotations
 
+import os
 import secrets
 import sys
 from datetime import UTC, datetime, timedelta
@@ -46,15 +47,11 @@ def mock(tmp_path_factory: pytest.TempPathFactory) -> Any:
 async def env(rt: Runtime, admin: httpx.AsyncClient, mock: Any, monkeypatch: pytest.MonkeyPatch):
     mock.reset()
     monkeypatch.setattr(rt.settings, "netmon_test_mode", True)
-    for k in (
-        "AWS_ACCESS_KEY_ID",
-        "AWS_SECRET_ACCESS_KEY",
-        "AWS_SESSION_TOKEN",
-        "AWS_CONTAINER_CREDENTIALS_FULL_URI",
-        "AWS_CONTAINER_CREDENTIALS_RELATIVE_URI",
-        "NETMON_AWS_RA_CERT_FILE",
-        "NETMON_AWS_RA_KEY_FILE",
-    ):
+    # the host's AWS_* variables (CI runners, developer shells) must not leak into the
+    # default-chain tests: clear every one of them
+    for k in [k for k in os.environ if k.startswith("AWS_")]:
+        monkeypatch.delenv(k, raising=False)
+    for k in ("NETMON_AWS_RA_CERT_FILE", "NETMON_AWS_RA_KEY_FILE"):
         monkeypatch.delenv(k, raising=False)
     svc = rt.assistant
     svc.tests.clear()

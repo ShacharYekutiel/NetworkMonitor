@@ -197,6 +197,7 @@ UNAVAILABLE_TYPES = {
     "internalServerException",
     "serviceUnavailableException",
 }
+_UNAVAILABLE_LOWER = {u.lower() for u in UNAVAILABLE_TYPES}
 
 
 def classify(
@@ -205,6 +206,9 @@ def classify(
     t = aws_type or ""
     tl = t.lower()
     kw: dict[str, Any] = {"aws_type": aws_type, "http_status": status}
+    # Unavailable types first: ModelNotReadyException arrives as HTTP 429 but is not throttling.
+    if t in UNAVAILABLE_TYPES or tl in _UNAVAILABLE_LOWER:
+        return make("bedrock_unavailable", **kw)
     if tl.startswith("throttling") or tl == "toomanyrequestsexception" or status == 429:
         return make("bedrock_throttled", **kw)
     if tl == "servicequotaexceededexception":

@@ -19,7 +19,7 @@ depends_on = None
 
 PURPOSES = (
     "'ask','explain','incident','alert_note','diff_explain','digest','rule_draft',"
-    "'template_draft','chat_ask','report_summary','test'"
+    "'template_draft','chat_ask','report_summary','test','title'"
 )
 CHANNELS = "'web','telegram'"
 CONVERSATION_KINDS = "'chat','explain','rule_draft','template_draft'"

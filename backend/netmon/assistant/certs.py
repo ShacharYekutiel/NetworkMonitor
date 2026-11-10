@@ -140,6 +140,23 @@ def order_chain(leaf: x509.Certificate, chain: list[x509.Certificate]) -> list[x
     return out + rest
 
 
+def _looks_like_pfx(data: bytes) -> bool:
+    """True when `data` is a DER SEQUENCE whose first element is INTEGER 3 (PFX version),
+    i.e. a PKCS#12 container (RFC 7292 §4) rather than garbage or a certificate."""
+    if len(data) < 8 or data[0] != 0x30:
+        return False
+    i = 1
+    first = data[i]
+    if first & 0x80:
+        n = first & 0x7F
+        if n == 0 or n > 4 or len(data) < 2 + n + 3:
+            return False
+        i += 1 + n
+    else:
+        i += 1
+    return data[i : i + 3] == b"\x02\x01\x03"
+
+
 def parse_upload(
     file_data: bytes,
     key_data: bytes | None = None,
@@ -170,9 +187,14 @@ def parse_upload(
             try:
                 pcert = x509.load_der_x509_certificate(file_data)
             except ValueError:
+                if _looks_like_pfx(file_data):
+                    # A well-formed PKCS#12 container that will not open: the password is wrong.
+                    raise CertError(
+                        "invalid_private_key",
+                        "The PKCS#12 file cannot be opened: wrong password",
+                    ) from None
                 raise CertError(
-                    "invalid_certificate",
-                    "Not a PEM certificate or a PKCS#12 file (or the password is wrong)",
+                    "invalid_certificate", "Not a PEM certificate or a PKCS#12 file"
                 ) from None
             pkey, extra = None, []
         if pcert is None:

@@ -256,6 +256,47 @@ async def test_correlation_incident_lifecycle_and_ai_summary(
     assert acts and acts[0]["actor_type"] == "system"
 
 
+async def test_correlation_graph_invalidated_on_dependency_and_topology_change(
+    rt: Any, admin: httpx.AsyncClient, asst: Any
+):
+    """§ 14.8.2: dependency edits and topology link changes drop the cached graph at once
+    (the 60 s TTL is only the backstop)."""
+    await on(rt, "ai_correlation")
+    inv = await _star(admin, rt)
+    corr = rt.ai_features.correlation
+    async with rt.sessionmaker() as session:
+        g = await corr.graph(session)
+    assert corr._graph is g
+    # dependency edit (bulk endpoint) → invalidated, new parent visible
+    r = await admin.post(
+        "/api/devices/dependencies",
+        json={"items": [{"device_id": inv["x"]["id"],
+                         "dependency": {"mode": "device", "device_id": inv["core"]["id"]}}]},
+    )  # fmt: skip
+    assert r.status_code == 200, r.text
+    assert corr._graph is None
+    async with rt.sessionmaker() as session:
+        g = await corr.graph(session)
+    assert corr._graph is g
+    # topology link created → invalidated
+    r = await admin.post(
+        "/api/topology/links",
+        json={"a_device_id": inv["a"]["id"], "b_device_id": inv["b"]["id"]},
+    )
+    assert r.status_code == 201, r.text
+    assert corr._graph is None
+    async with rt.sessionmaker() as session:
+        await corr.graph(session)
+    # layout changes do not touch the graph
+    r = await admin.delete("/api/topology/layout")
+    assert r.status_code == 204, r.text
+    assert corr._graph is not None
+    # group edit → invalidated
+    r = await admin.post("/api/groups", json={"name": "corr-g"})
+    assert r.status_code in (200, 201), r.text
+    assert corr._graph is None
+
+
 async def test_correlation_degrades_without_model(rt: Any, admin: httpx.AsyncClient, asst: Any):
     await on(rt, "ai_correlation")
     asst.mode("unavailable")
@@ -906,13 +947,37 @@ async def test_template_walk_draft_and_user_save(
     assert r.status_code == 422 and r.json()["error"]["details"] == [
         {"oid": "1.3.6.1.6.3.15", "reason": "never_walked"}
     ]
-    r = await admin.post(
-        "/api/assistant/template-drafts/walks",
-        json={"device_id": dev["id"], "presets": ["system", "enterprise"]},
-    )
-    assert r.status_code == 202, r.text
-    wid = r.json()["id"]
-    await tpl.idle()
+    me = (await admin.get("/api/auth/me")).json()
+    me_id = (me.get("user") or me)["id"]
+    wsq: asyncio.Queue[dict] = asyncio.Queue()
+    rt.hub.listeners.append(wsq)
+    broadcast_types: list[str] = []
+    orig_broadcast = rt.hub.broadcast
+
+    def spy(type_: str, *a: Any, **kw: Any) -> Any:
+        broadcast_types.append(type_)
+        return orig_broadcast(type_, *a, **kw)
+
+    rt.hub.broadcast = spy
+    try:
+        r = await admin.post(
+            "/api/assistant/template-drafts/walks",
+            json={"device_id": dev["id"], "presets": ["system", "enterprise"]},
+        )
+        assert r.status_code == 202, r.text
+        wid = r.json()["id"]
+        await tpl.idle()
+    finally:
+        rt.hub.broadcast = orig_broadcast
+        rt.hub.listeners.remove(wsq)
+    # walk.update only to the admin who started the walk (send_to_user), never to all admins
+    updates = []
+    while not wsq.empty():
+        m = wsq.get_nowait()
+        if m["type"] == "walk.update":
+            updates.append(m)
+    assert updates and all(m.get("user_id") == me_id for m in updates)
+    assert "walk.update" not in broadcast_types
     w = (await admin.get(f"/api/assistant/template-drafts/walks/{wid}")).json()
     assert (
         w["status"] == "ok" and w["total"] == 3 and walked == ["1.3.6.1.2.1.1", "1.3.6.1.4.1.99999"]

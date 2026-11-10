@@ -2478,8 +2478,12 @@ Refusals (en/he): not linked, not admin, group chat, feature off, cap reached (w
 (system), `assistant.alert_note` (system), `assistant.digest` (system or user for *Run now*),
 `assistant.report_summary` (system), `device_template.create_user`; `alert_rule.update` covers `ai_note`,
 `report.update` covers `ai_summary`. Field contents: architecture § 14.7. **Owner decision:** no question text in
-the audit log — `assistant.question` carries the conversation `title` (not the question), `assistant.tool_call` no
-arguments.
+the audit log — `assistant.question` / `assistant.answer` carry a **neutral audit `title`**, never the question
+and never a conversation title derived from it: the light model writes a ≤ 6-word topic title after the answer
+(usage purpose `title`; no IPs, hostnames, usernames, MACs, numbers or secrets — enforced again by post-processing);
+`assistant.question` (written while it is not yet known), failed/cancelled answers and any failure use the generic
+`"Assistant question"` / `"שאלה לעוזר"`; *Explain alert* uses `"Explain alert"`. `assistant.tool_call` has no
+arguments (tool name, size, duration only).
 
 ### [3b] WebSocket additions
 | type | data | When / who |
