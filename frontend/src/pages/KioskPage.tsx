@@ -65,6 +65,8 @@ type KState = {
   lastOk: number | null;
   notFound: boolean;
   failing: boolean;
+  /** HTTP status of the last failure (0 = network), null while OK. */
+  errorStatus: number | null;
 };
 
 function useKiosk(token: string | null): KState {
@@ -73,6 +75,7 @@ function useKiosk(token: string | null): KState {
     lastOk: null,
     notFound: false,
     failing: false,
+    errorStatus: null,
   });
   const refreshS = st.view?.screen.refresh_s ?? 30;
   const inflight = useRef<AbortController | null>(null);
@@ -83,11 +86,16 @@ function useKiosk(token: string | null): KState {
     inflight.current = ac;
     try {
       const view = await endpoints3.kioskView(token, ac.signal);
-      setSt({ view, lastOk: Date.now(), notFound: false, failing: false });
+      setSt({ view, lastOk: Date.now(), notFound: false, failing: false, errorStatus: null });
     } catch (e) {
       if (e instanceof DOMException && e.name === 'AbortError') return;
       const nf = isApiError(e) && e.status === 404;
-      setSt((s) => ({ ...s, notFound: nf, failing: true }));
+      setSt((s) => ({
+        ...s,
+        notFound: nf,
+        failing: true,
+        errorStatus: isApiError(e) ? e.status : 0,
+      }));
     }
   }, [token]);
 
@@ -443,6 +451,12 @@ export function KioskPage() {
       {token && st.notFound && (
         <p className="mt-24 text-center text-3xl text-slate-400" data-testid="kiosk-unavailable">
           {t('noc.unavailable')}
+          <span className="mt-4 block text-xl text-slate-500">{t('noc.unavailableHint')}</span>
+        </p>
+      )}
+      {token && !v && st.failing && !st.notFound && (
+        <p className="mt-24 text-center text-3xl text-slate-400" data-testid="kiosk-error">
+          {st.errorStatus === 429 ? t('noc.rateLimited') : t('noc.loadError')}
         </p>
       )}
       {stale && !st.notFound && (
