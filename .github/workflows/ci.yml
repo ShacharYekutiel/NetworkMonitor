@@ -1,9 +1,12 @@
 name: CI
 
+# Runs once per commit: on pushes to main, and on pull requests for every other branch
+# (a branch without a PR is not checked; open a draft PR for long-lived phase branches).
+# No path filters: these jobs are required status checks in the main ruleset, and a
+# required check that never runs blocks the merge.
 on:
   push:
-    branches: ["**"]
-    tags-ignore: ["**"]
+    branches: ["main"]
   pull_request:
   workflow_dispatch:
 

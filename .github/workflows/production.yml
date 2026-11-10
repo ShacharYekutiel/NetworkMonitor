@@ -3,12 +3,13 @@ name: Production config
 # Validates deploy/production/ (the GitOps folder the production server deploys from):
 # shellcheck, release.env format + version/image consistency (never :latest), compose
 # config, Caddyfile, systemd units, and the sync.sh decision logic (fake docker).
+# Every PR (no path filter): `validate` is a required status check in the main ruleset, and a
+# required check that never runs blocks the merge. It takes about a minute.
 on:
   push:
     branches: ["main"]
     paths: ["deploy/production/**", ".github/workflows/production.yml"]
   pull_request:
-    paths: ["deploy/production/**", ".github/workflows/production.yml"]
   workflow_dispatch:
 
 permissions:

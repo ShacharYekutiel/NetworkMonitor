@@ -1,0 +1,63 @@
+name: GHCR cleanup
+
+# Weekly: delete old per-commit images (tags "sha-<short>") from ghcr.io to save package
+# storage. A version is deleted only when ALL its tags start with "sha-", it is older than
+# KEEP_DAYS, and it is not among the KEEP_NEWEST newest such versions. Never touched:
+# version tags (1.0.0, 1.0), latest, main, phase* branch tags, and UNTAGGED versions (the
+# per-architecture parts of a multi-arch image are untagged; deleting them would break it,
+# e.g. production's 1.0.0). Run it by hand with dry_run=true to see what it would delete.
+on:
+  schedule:
+    - cron: "37 3 * * 0" # Sundays 03:37 UTC
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: "Only list what would be deleted"
+        type: boolean
+        default: true
+
+permissions:
+  packages: write
+
+jobs:
+  cleanup:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    env:
+      GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      KEEP_DAYS: "30"
+      KEEP_NEWEST: "20"
+      DRY_RUN: ${{ github.event_name == 'workflow_dispatch' && inputs.dry_run || false }}
+    steps:
+      - name: Delete old sha-* image versions
+        run: |
+          set -euo pipefail
+          owner="${GITHUB_REPOSITORY_OWNER}"
+          pkg="${GITHUB_REPOSITORY#*/}"; pkg="${pkg,,}"
+          kind=users
+          [[ "$(gh api "users/$owner" --jq .type)" == Organization ]] && kind=orgs
+          base="$kind/$owner/packages/container/$pkg/versions"
+          cutoff="$(date -u -d "-${KEEP_DAYS} days" +%Y-%m-%dT%H:%M:%SZ)"
+          # newest first; candidates: tagged, all tags sha-*, older than the cutoff
+          gh api --paginate "$base?per_page=100" \
+            --jq '.[] | select((.metadata.container.tags | length) > 0)
+                      | select(all(.metadata.container.tags[]; startswith("sha-")))
+                      | [.id, .created_at, (.metadata.container.tags | join(","))] | @tsv' \
+            > sha-versions.tsv || {
+              echo "::warning::cannot list package versions (does this repo have admin access to the package?)"; exit 0; }
+          sort -t$'\t' -k2,2r -o sha-versions.tsv sha-versions.tsv  # newest first
+          total="$(wc -l < sha-versions.tsv)"
+          tail -n +"$((KEEP_NEWEST + 1))" sha-versions.tsv | awk -F'\t' -v c="$cutoff" '$2 < c' > delete.tsv
+          echo "sha-only versions: $total; to delete (older than $KEEP_DAYS days, beyond the newest $KEEP_NEWEST): $(wc -l < delete.tsv)"
+          deleted=0
+          while IFS=$'\t' read -r id created tags; do
+            if [[ $DRY_RUN == true ]]; then
+              echo "would delete $id ($tags, $created)"
+            elif gh api -X DELETE "$base/$id" >/dev/null 2>&1; then
+              echo "deleted $id ($tags, $created)"; deleted=$((deleted + 1))
+            else
+              echo "::warning::could not delete $id ($tags): the repository needs the Admin role in the package's 'Manage Actions access'"
+              break
+            fi
+          done < delete.tsv
+          echo "deleted: $deleted (dry_run=$DRY_RUN)"
