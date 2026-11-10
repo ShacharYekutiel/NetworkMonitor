@@ -47,4 +47,9 @@ async def health(rt: RT) -> dict:
         "kerberos": (  # [3]
             rt.kerberos.health_state() if getattr(rt, "kerberos", None) is not None else "disabled"
         ),
+        "assistant": (  # [3b]
+            rt.assistant.health_state()
+            if getattr(rt, "assistant", None) is not None
+            else "disabled"
+        ),
     }

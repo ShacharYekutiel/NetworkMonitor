@@ -17,7 +17,7 @@ P3 = ("config_backup", "flows", "new_device_alerts", "sso_kerberos", "sso_oidc",
 
 
 def test_registry() -> None:
-    assert PHASE3_FEATURES == P3 and len(FEATURES) == 17
+    assert PHASE3_FEATURES == P3 and len(FEATURES) == 28  # [3b] + 11 assistant features
 
 
 async def test_defaults_and_toggle(rt: Runtime, admin: httpx.AsyncClient) -> None:

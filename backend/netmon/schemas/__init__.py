@@ -11,6 +11,7 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator, model_valida
 
 from netmon.auth.ldap_config import LdapSettingsIn
 from netmon.flows.settings import FlowSettingsMixin
+from netmon.schemas.assistant import Phase3bSettingsMixin
 from netmon.schemas.ingest import IngestSettingsMixin, source_addresses
 from netmon.schemas.phase3 import (
     ConfigBackupSettingsMixin,
@@ -341,6 +342,7 @@ class EmailConfig(BaseModel):
     model_config = ConfigDict(extra="forbid")
     to: list[str] = Field(min_length=1, max_length=20)
     ack_link: bool = False  # [3] chat_ack: "Acknowledge" link in problem mails
+    ai_note_email: bool = True  # [3b] AI note as a threaded reply (§ 14.8.3)
 
     @field_validator("to")
     @classmethod
@@ -382,6 +384,7 @@ class TelegramConfig(BaseModel):
     disable_notification: bool = False
     ack_buttons: bool = False  # [3] chat_ack: inline "Acknowledge" button (callback)
     ack_link: bool = False  # [3] chat_ack: URL button to the ack page (without ack_buttons)
+    ai_ask: bool = False  # [3b] `/ask` to this bot (feature ai_chat_ask, § 14.8.9)
 
     @field_validator("bot_token")
     @classmethod
@@ -433,6 +436,7 @@ class AlertRuleCreate(_In):
     escalation_after_s: int | None = Field(default=None, ge=60, le=604800)  # [2b-1]
     escalation_channel_ids: list[int] = Field(default_factory=list, max_length=100)
     repeat_every_s: int | None = Field(default=None, ge=300, le=604800)
+    ai_note: bool = False  # [3b] AI note after the problem notification (§ 14.8.3)
 
 
 class AlertRulePatch(_In):
@@ -445,6 +449,7 @@ class AlertRulePatch(_In):
     escalation_after_s: int | None = Field(default=None, ge=60, le=604800)  # [2b-1]
     escalation_channel_ids: list[int] | None = Field(default=None, max_length=100)
     repeat_every_s: int | None = Field(default=None, ge=300, le=604800)
+    ai_note: bool | None = None  # [3b]
 
 
 # ---------------------------------------------------------------- [2b-1] acknowledge
@@ -558,6 +563,7 @@ class SettingsPut(
     NewdevSettingsMixin,
     FlowSettingsMixin,
     Phase3CSettingsMixin,  # [3] reports / chat ack
+    Phase3bSettingsMixin,  # [3b] assistant toggles and scalar keys
 ):
     smtp: SmtpIn | None = None
     retention_days: int | None = Field(default=None, ge=1, le=3650)

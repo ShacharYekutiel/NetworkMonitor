@@ -2825,6 +2825,17 @@ listener → alert-note worker → digest scheduler; the Telegram `/ask` handler
   `global.…`) or an inference-profile / provisioned ARN (≤ 256 chars). It must be an **Anthropic Claude** model
   that supports Converse tool use and streaming. Optional `assistant.model_id_light` (cheaper model) is used for
   background purposes (alert notes, correlation, report summaries, digest) when set.
+- **Region and data location (owner decision, after the contract):** region, model / inference-profile id and
+  endpoint URL are settings. The owner's own AWS region is `il-central-1`, where Claude models are reachable only
+  through **global** cross-region inference (`global.` profiles; in-region / geographic profiles are not offered).
+  The **recommended default** is region **`us-east-1`** with a **US geographic profile (`us.` prefix)** so that
+  processing stays in US regions (`assistant.region` defaults to `us-east-1`; `model_id` has no default).
+  `il-central-1` + a `global.` profile stays a **fully supported** option. The settings API explains the
+  data-location trade-off per profile prefix (pure `netmon.assistant.profiles.classify`, `profile` /
+  `profile_scopes` in `AssistantSettings`): `global.` = may be processed in any commercial AWS region worldwide;
+  `us.` / `eu.` / `apac.` / … = only in regions of that geography; bare model id = in the selected region only;
+  ARN = where that profile routes. Choosing a `global.` profile is **not refused**: the settings and the Test
+  result carry the warning `global_inference_profile` (UI: amber note next to the model field).
 - **How the admin picks a model** (help text in the form + README): Bedrock console → region → *Model catalog* →
   Anthropic → a current Claude model → check *Model access* (Anthropic models need a one-time use-case form per
   AWS account) → *Cross-region inference* → copy the **inference profile ID** of the geography you accept (data is
@@ -2840,6 +2851,21 @@ listener → alert-note worker → digest scheduler; the Telegram `/ask` handler
   prefix (system + tools) so follow-up model calls in a question pay the cache-read rate; when the model rejects
   `cachePoint` (`ValidationException` naming cache/cachePoint) the client retries once without it and remembers
   "caching unsupported" for this settings generation (shown in the status).
+- **Compatibility fallbacks (implementation note):** current Claude generations reject sampling parameters
+  (`temperature`/`topP`) and a *forced* `toolChoice` (`tool` / `any`) on some models. The client handles both like
+  the `cachePoint` case: on a `ValidationException` naming them it retries once without `temperature` / with
+  `toolChoice: {"auto": {}}` and remembers it for the settings generation (`_meta.retries` /
+  the `retrying` stream event carry `sampling_unsupported` / `forced_tool_unsupported`). Callers that force a tool
+  (drafts, Test `ping`) must therefore also accept an answer without the tool call (Test: "tool use not used",
+  still `ok`; drafts: instruct the tool in the prompt as well).
+- **Interface for the agent loop and the AI features** (`rt.assistant`, `netmon.assistant.service`):
+  `rt.assistant.client` (`BedrockClient`: `converse(request, *, model_id=None, light=False, timeout=90)`,
+  `converse_stream(request, …)` → events `{"type", "data"}` incl. synthetic `retrying` and `stream_end`,
+  `converse_stream_collect`, `retrieve(query, kb)`, `list_models()`; `StreamAssembler` builds the message),
+  `rt.assistant.usage` (`check_and_reserve`, `check`, `record`, `record_error`, `background_allowed`,
+  `month_summary`, `report`), `rt.assistant.state()`, `rt.assistant.cfg` / `kb`, `rt.assistant.runs`,
+  `rt.assistant.disable_hooks`, `rt.assistant.status_providers`; feature gates `netmon.assistant.gates`
+  (`require_ai`, `idle_reasons`, `is_active`); errors `netmon.assistant.errors.AssistantError`.
 
 #### 14.2.2 Endpoint, proxy, TLS
 - **Endpoint:** `assistant.endpoint_url` empty → `https://bedrock-runtime.<region>.amazonaws.com`. Otherwise an
@@ -2894,6 +2920,16 @@ listener → alert-note worker → digest scheduler; the Telegram `/ask` handler
    - Certificate requirements (README): v3, `CA:FALSE`, key usage *Digital Signature*, signature SHA-256 or
      stronger, RSA ≥ 2048 or ECDSA P-256/P-384; EKU *Client Authentication* recommended; subject e.g.
      `CN=netmonitor-bedrock.mnidom.net` (usable in the role's trust-policy condition).
+   - **Generate CSR (owner decision, like the HTTPS `make-csr` flow):** `POST /api/assistant/cert/csr`
+     (`common_name`, `key_type` rsa 2048/3072/4096 | ec P-256/P-384, optional O / OU) generates the key **on the
+     server** (stored AES-256-GCM, AAD `b"assistant.ra_csr_key"`, never returned) and a CSR requesting *Digital
+     Signature*, *Client Authentication*, `CA:FALSE`; the admin downloads it (`GET /api/assistant/cert/csr`,
+     `netmonitor-bedrock.csr`), has Mnidom-PKI-SERV-CA issue the certificate, and uploads **only the certificate**
+     (`POST /api/assistant/cert` without `key`): the pending key is used when it matches (else `422
+     key_mismatch`), becomes the Roles Anywhere key and the CSR is cleared. Audited `assistant.csr_create` /
+     `assistant.csr_delete`.
+   - Recommended method: Roles Anywhere (trust anchor = Mnidom-PKI-SERV-CA). The static access key stays as the
+     simple alternative; the default chain is for future AWS hosting.
 2. **`access_key`:** `access_key_id` (shown) + `secret_access_key` (write-only, AES-256-GCM, AAD
    `b"assistant.secret_access_key"`, never returned; `secret_access_key_set`, `secret_access_key_unreadable`).
    For a dedicated IAM user with only the policy of § 14.9. The UI recommends Roles Anywhere and shows the key's
@@ -3215,8 +3251,10 @@ make no compliance statement of our own.
 - **Per-user daily questions** `assistant_daily_questions_per_user` (default 50, 1–1000; counts asks, explains,
   rule drafts, template drafts, `/ask`). Reset at local midnight (`settings.timezone`).
 - **Global monthly tokens** `assistant_monthly_token_cap` (default 5 000 000 input+output tokens, cache reads
-  counted at 10 %, 100 000–1 000 000 000) and optional **monthly cost cap** `assistant_monthly_cost_cap` (currency
-  units, null = none; only effective when prices are set). Month = calendar month in `settings.timezone`.
+  counted at 10 %, 100 000–1 000 000 000) and optional **monthly cost cap** `assistant_monthly_cost_cap` (owner
+  decision: an admin setting in **USD** — the prices' currency, default `USD`; null = none; only effective when
+  the admin entered prices). When set, questions stop at the cap and background work at
+  `assistant_background_stop_pct` (80 %) of it. Month = calendar month in `settings.timezone`.
 - **Background stop** `assistant_background_stop_pct` (default 80): background purposes (alert notes, correlation
   summaries, digest, report summaries) stop when the month reaches this share of a cap, keeping the rest for
   interactive use; interactive purposes stop at 100 % (`429 assistant_cap_reached` with which cap).
@@ -3240,20 +3278,21 @@ The assistant **requires the `audit` feature** (owner: every question audited in
 
 | Action | Actor | `changes` |
 |---|---|---|
-| `assistant.question` | user (or user via telegram) | `conversation_id`, `message_id`, `purpose`, `language`, `question` (text, cut to 1000 chars; `assistant_audit_question_text`, default true — false stores only the length), `channel` (`web` / `telegram`) |
-| `assistant.tool_call` | user | `message_id`, `tool`, `arguments` (redacted JSON, ≤ 2 KiB), `ok`, `error`, `rows`, `result_bytes`, `truncated`, `duration_ms` |
+| `assistant.question` | user (or user via telegram) | `conversation_id`, `message_id`, `purpose`, `language`, `title` (the conversation title), `channel` (`web` / `telegram`). **Owner decision: the question text is never stored in the audit log** — it lives only in the conversation (`assistant_retention_days`, default 90) |
+| `assistant.tool_call` | user | `message_id`, `tool`, `ok`, `error`, `rows`, `result_bytes`, `truncated`, `duration_ms` (no arguments: they can carry question text) |
 | `assistant.answer` | user | `message_id`, `status`, `stop_reason`, `model_id`, `model_calls`, `tool_calls`, token counts, `cost_estimate`, `duration_ms`, `error_code` |
 | `assistant.cancel` | user | `message_id` |
 | `assistant.feedback` | user | `message_id`, `rating` (comments are not audited) |
 | `assistant.conversation_delete` | user | `conversation_id` (or `all: n`) |
 | `assistant.test` | user | `ok`, `error_code`, `steps` (names + ok) |
-| `assistant.settings_update` | user | per field (secrets `***`); `assistant.cert_upload` / `assistant.cert_delete` (metadata only) |
+| `assistant.settings_update` | user | per field (secrets `***`); `assistant.cert_upload` / `assistant.cert_delete` (metadata only); `assistant.csr_create` / `assistant.csr_delete` (subject, key type) |
 | `assistant.explain_alert`, `assistant.diff_explain`, `assistant.rule_draft`, `assistant.template_walk`, `assistant.template_draft` | user | ids, purpose, usage, status |
 | `assistant.incident_summary`, `assistant.alert_note`, `assistant.digest`, `assistant.report_summary` | system | ids, model, usage, status, skip reason |
 | `assistant.kb_test` | user | `ok`, `error_code` |
 | `device_template.create_user` | user | template id, file name (§ 14.8.7; not an assistant action — the normal save) |
 
-Retention follows `audit_retention_days`. Conversations: `assistant_retention_days`; artifacts (explanations,
+The audit record of the assistant is therefore: who, when, conversation title, tools called, tokens / cost
+(`assistant.answer`). Retention follows `audit_retention_days`. Conversations: `assistant_retention_days`; artifacts (explanations,
 notes, incidents, digests, drafts): `assistant_artifact_retention_days` (default 180); SNMP walks: 7 days.
 
 ### 14.8 AI features [3b]
@@ -3590,7 +3629,7 @@ the Bedrock service as a second guard.
   caching) → at the **bottom**: *Test connection* button + the step results + the **enable switch** (locked with the
   hint "Run a successful test first" until then); *Data sharing* (send config excerpts, redact internal IPs + extra
   CIDRs, trade-off text, "Data handling" note with AWS links); *Limits & cost* (caps, prices, background stop %);
-  *Conversations* (retention, audit question text); *Capabilities* (one switch per AI feature with dependency hints
+  *Conversations* (retention); *Capabilities* (one switch per AI feature with dependency hints
   and per-feature settings: correlation window/min alerts/attach; alert-note timeout/cap; diff auto; digest time/
   language/recipients/channels; chat ask rate/IP redaction); *Knowledge Base* sub-form with its own Test + bottom
   switch.
@@ -3720,13 +3759,13 @@ rendered answer has no `<img>`, no external `href`, forged refs rendered as text
   `private`); the time to first answer text; a Hebrew question; that the usage page estimate is close to the AWS
   Cost Explorer figure after a few days.
 
-**Open questions** (work starts on the recommended defaults):
+**Owner decisions** (answered after the contract; applied in the sections above):
 
-| # | Question | Default |
+| # | Question | Decision |
 |---|---|---|
-| Q1 | AWS region and inference-profile geography for Bedrock (data processed only in that geography)? | Owner's main AWS region with a geographic (not `global.`) Claude inference profile |
-| Q2 | Monthly budget for the assistant (token cap / cost cap) and per-admin daily questions? | 5 M tokens / no cost cap until prices are entered; 50 questions per admin per day |
-| Q3 | Store the question text in the audit log (kept 365 days, survives conversation deletion)? | Yes, first 1000 characters |
-| Q4 | Redact internal IP addresses before sending (worse answers about addressing)? Keep placeholders in Telegram `/ask` answers? | No in the app (Direct Connect, own account); yes in Telegram |
-| Q5 | Certificate for Roles Anywhere: uploaded in the UI (encrypted in the DB) or host files renewed by AD CS auto-enrolment? Which CA is the trust anchor (issuing CA recommended)? | UI upload; Mnidom-PKI-SERV-CA as trust anchor |
-| Q6 | Is a Bedrock Knowledge Base with your runbooks/docs wanted now (needs an S3/SharePoint source and a vector store with a monthly cost)? | Not now; feature stays OFF |
+| Q1 | AWS region and inference-profile geography for Bedrock? | The owner's region `il-central-1` reaches Claude only through **global** cross-region inference. **Default recommendation: `us-east-1` with a `us.` geographic profile** (processing stays in US regions); `il-central-1` + `global.` profile fully supported (warning `global_inference_profile`, not blocked). The settings explain the data-location trade-off per prefix (§ 14.2.1). |
+| Q2 | Monthly budget? | Token caps kept (5 M tokens / month, 50 questions per admin per day); the monthly **USD cost cap** is an admin setting, effective once prices are entered (questions stop at the cap, background work at 80 %). |
+| Q3 | Store the question text in the audit log? | **No.** The audit log stores who, when, the conversation **title**, tools called, tokens / cost. Question text lives only in the conversation (90-day retention). |
+| Q4 | Redact internal IP addresses? | As proposed: off in the app, on for Telegram `/ask`. |
+| Q5 | Roles Anywhere certificate? | Roles Anywhere is the recommended method: certificate uploaded in the UI (encrypted), trust anchor Mnidom-PKI-SERV-CA; plus a **Generate CSR** action (key kept on the server). Static access key = simple alternative; default chain for future AWS hosting. |
+| Q6 | Knowledge Base now? | Implemented, OFF by default. |

@@ -225,6 +225,7 @@ async def test_alert_rules_api_and_firing(
         "escalation_after_s": None,
         "escalation_channel_ids": [],
         "repeat_every_s": None,
+        "ai_note": False,  # [3b]
         "created_at": rule["created_at"],
         "updated_at": rule["updated_at"],
     }

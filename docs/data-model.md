@@ -3647,8 +3647,11 @@ endpoints with a valid `test_id` (architecture § 14.2.6); `PUT /api/settings` s
 ### Assistant connection and data sharing (key `assistant`, object)
 ```json
 { "auth_mode": "roles_anywhere",                  // roles_anywhere | access_key | default_chain
-  "region": "eu-central-1",                       // required; [a-z]{2}(-gov)?-[a-z]+-\d
-  "model_id": "eu.anthropic.claude-…",            // required, 1–256 chars, [A-Za-z0-9.:/_-]
+  "region": "us-east-1",                          // required; [a-z]{2}(-gov)?-[a-z]+-\d; default us-east-1
+                                                   //   (owner: us-east-1 + us. profile recommended;
+                                                   //   il-central-1 + global. profile supported)
+  "model_id": "",                                  // required to enable, 1–256 chars, [A-Za-z0-9.:/_-];
+                                                   //   no default (never hard-coded); global. → warning
   "model_id_light": null,                          // optional, same syntax
   "endpoint_url": null,                            // null = https://bedrock-runtime.<region>.amazonaws.com
   "control_endpoint_url": null,                    // optional, for List models
@@ -3666,12 +3669,17 @@ endpoints with a valid `test_id` (architecture § 14.2.6); `PUT /api/settings` s
   "ra_cert_pem": null, "ra_chain_pem": null,       // public; stored as uploaded (normalised PEM)
   "ra_key_enc": null,                              // PKCS#8 PEM, AAD b"assistant.ra_key"; never returned
   "ra_cert_uploaded_at": null,
+  "ra_csr_pem": null, "ra_csr_subject": null,      // [3b owner] Generate CSR: pending CSR (public)
+  "ra_csr_key_enc": null,                          // its key, PKCS#8 PEM, AAD b"assistant.ra_csr_key"; never returned
+  "ra_csr_created_at": null,
+  "last_test": null,                               // {"ok", "at", "by", "error_code"} of the last Test
   "send_config_excerpts": false,
   "redact_internal_ips": false,
   "internal_cidrs": [],                            // ≤ 64 extra CIDRs treated as internal
   "chat_redact_ips": true,
   "prices": { "currency": "USD", "input_per_mtok": null, "output_per_mtok": null,
               "cache_read_per_mtok": null, "cache_write_per_mtok": null } }   // numbers ≥ 0, ≤ 1000
+                                                   // currency label, default USD (the cost cap is in it)
 ```
 Validation per auth mode when enabling/testing: `roles_anywhere` needs the three ARNs + a certificate and key
 (uploaded or host files); `access_key` needs both key fields; `default_chain` needs nothing else. ARNs' account
@@ -3697,7 +3705,7 @@ KB connection fields for its `test_id`: all of the above except `description`, p
 | `feature_*_enabled` (11 new keys) | bool | `false` | § [3b] Feature toggles |
 | `assistant_daily_questions_per_user` | int | 50 | 1–1000 |
 | `assistant_monthly_token_cap` | int | 5000000 | 100000–1000000000 (input + output + 10 % of cache reads + cache writes) |
-| `assistant_monthly_cost_cap` | number \| null | null | ≥ 0; effective only with prices |
+| `assistant_monthly_cost_cap` | number \| null | null | ≥ 0, USD (the prices' currency); admin setting, effective only with prices; questions stop at it, background work at `assistant_background_stop_pct` |
 | `assistant_background_stop_pct` | int | 80 | 10–100 |
 | `assistant_max_model_calls` | int | 8 | 2–15 |
 | `assistant_max_tool_calls` | int | 12 | 1–30 |
@@ -3707,7 +3715,6 @@ KB connection fields for its `test_id`: all of the above except `description`, p
 | `assistant_context_budget_tokens` | int | 40000 | 8000–150000 |
 | `assistant_retention_days` | int | 90 | 1–730 |
 | `assistant_artifact_retention_days` | int | 180 | 7–730 |
-| `assistant_audit_question_text` | bool | true | false = only the length is audited |
 | `correlation_window_min` | int | 5 | 1–30 |
 | `correlation_min_alerts` | int | 3 | 2–50 |
 | `correlation_attach_to_alert` | bool | false | |
@@ -4011,6 +4018,11 @@ PostgreSQL DDL only.
 5. `ALTER TABLE alert_rules ADD ai_note boolean NOT NULL DEFAULT false`; `ALTER TABLE reports ADD ai_summary boolean
    NOT NULL DEFAULT false`; `ALTER TABLE report_runs ADD ai_summary_status text NULL` (+ check).
 6. `audit_log_source_check` + `'telegram'`.
+
+Implementation additions (compatible with the tables above): index `ix_assistant_snmp_walks_device (device_id,
+started_at DESC)`; `assistant_incidents.ai_summaries` CHECK 0–5; `assistant_incident_members.status` / `time`
+nullable as listed. Owner decision (3b): no `assistant_audit_question_text` key — the question text is never
+written to the audit log (architecture § 14.7).
 
 `downgrade()` (reverse): `UPDATE audit_log SET source = NULL WHERE source = 'telegram'` (with the append-only
 trigger disabled for that statement, as in `0007`), restore the check; drop the columns of step 5; drop the tables of

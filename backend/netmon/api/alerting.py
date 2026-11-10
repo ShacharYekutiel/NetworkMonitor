@@ -245,6 +245,7 @@ async def _rule_out(session: DB, r: AlertRule) -> dict:
         "escalation_after_s": r.escalation_after_s,
         "escalation_channel_ids": sorted(r.escalation_channel_ids or []),
         "repeat_every_s": r.repeat_every_s,
+        "ai_note": bool(getattr(r, "ai_note", False)),  # [3b]
         "created_at": iso(r.created_at),
         "updated_at": iso(r.updated_at),
     }
@@ -348,6 +349,7 @@ def _rule_values(r: AlertRule, channel_ids: list[int]) -> dict[str, Any]:
         "escalation_after_s": r.escalation_after_s,
         "escalation_channel_ids": sorted(r.escalation_channel_ids or []),
         "repeat_every_s": r.repeat_every_s,
+        "ai_note": bool(r.ai_note),  # [3b] audited by alert_rule.update
     }
 
 
@@ -388,6 +390,7 @@ async def create_rule(body: AlertRuleCreate, _: Admin, rt: RT, session: DB, ctx:
         escalation_after_s=body.escalation_after_s,
         escalation_channel_ids=esc_ids,
         repeat_every_s=body.repeat_every_s,
+        ai_note=body.ai_note,
     )
     session.add(r)
     await session.flush()
@@ -448,6 +451,8 @@ async def patch_rule(
         r.escalation_channel_ids = _dedupe(body.escalation_channel_ids)
     if "repeat_every_s" in fields:
         r.repeat_every_s = body.repeat_every_s
+    if body.ai_note is not None:  # [3b]
+        r.ai_note = body.ai_note
     await _check_escalation(
         session,
         list(r.on_statuses),

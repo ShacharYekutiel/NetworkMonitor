@@ -2234,7 +2234,18 @@ type AssistantSettings = {
   prices: { currency: string; input_per_mtok: number | null; output_per_mtok: number | null;
             cache_read_per_mtok: number | null; cache_write_per_mtok: number | null };
   last_test: { ok: boolean; at: string; by: string; error_code: string | null } | null;
-  warnings: ("cert_expiring" | "vpce_via_proxy" | "stream_buffered" | "cache_unsupported" | "access_key_old" | "key_file_mode")[] };
+  warnings: ("cert_expiring" | "vpce_via_proxy" | "stream_buffered" | "cache_unsupported" | "access_key_old" | "key_file_mode"
+             | "global_inference_profile" | "arn_accounts_differ")[];
+  // [3b owner decisions] data location per profile prefix, CSR flow
+  profile: ProfileInfo; profile_light: ProfileInfo;            // classification of model_id / model_id_light
+  profile_scopes: { scope: "global" | "geo" | "in_region" | "arn"; prefix: string;
+                    explanation: { en: string; he: string } }[];   // the trade-off table shown in the form
+  recommended: { region: "us-east-1"; profile_prefix: "us" };
+  certificate_host_files: boolean;                             // NETMON_AWS_RA_CERT_FILE/_KEY_FILE in use
+  csr: { subject: string; created_at: string; pem: string; key_unreadable: boolean } | null };  // pending CSR
+type ProfileInfo = { scope: "global" | "geo" | "in_region" | "arn" | null; prefix: string | null;
+  geography: string | null; explanation: { en: string; he: string } | null;
+  warning: "global_inference_profile" | null };              // global. → warning only, never refused
 type CertInfo = { source: "uploaded" | "files"; subject: string; issuer: string; serial_hex: string; serial_decimal: string;
   not_before: string; not_after: string; key_type: "rsa" | "ec"; key_bits: number; sha256: string;
   chain: { subject: string; not_after: string }[]; uploaded_at: string | null; key_unreadable: boolean };
@@ -2245,6 +2256,8 @@ type AssistantTestResult = { ok: boolean; test_id: string | null; expires_at: st
   model_id: string; time_to_first_event_ms: number | null;
   usage: { input_tokens: number; output_tokens: number } | null; warnings: string[];
   error: { code: string; message: string } | null };
+// step error_code: a mapped AWS code (api.md [3b] Errors) or "validation_error" (config step); warnings as in
+// AssistantSettings (+ "stream_buffered", "global_inference_profile")
 ```
 | Method & path | Request | Response |
 |---|---|---|
@@ -2253,8 +2266,11 @@ type AssistantTestResult = { ok: boolean; test_id: string | null; expires_at: st
 | `POST /api/assistant/test` | `{"settings": <partial writable fields, optional>}` merged over stored | `200 AssistantTestResult` (also when `ok` is false — the step carries the code); `429 rate_limited` (10 per admin per 10 min); audited `assistant.test` |
 | `POST /api/assistant/cert` | `multipart/form-data`: `file` (PEM cert[+chain] or `.pfx`/`.p12`, ≤ 64 KiB), `key` (PEM, optional with PEM), `password` (optional) | `200 CertInfo`; `422 invalid_certificate` / `invalid_private_key` / `key_mismatch`; audited `assistant.cert_upload` (metadata) — refused `409 conflict` when host files are configured |
 | `DELETE /api/assistant/cert` | — | `204`; `409 conflict` while `assistant` is ON with `auth_mode = roles_anywhere`; audited |
+| `POST /api/assistant/cert/csr` | `{"common_name": "netmonitor-bedrock.mnidom.net", "key_type": "rsa" \| "ec", "key_size": 2048 \| 3072 \| 4096 \| 256 \| 384 \| null, "organization": null, "organizational_unit": null}` | `200 {"subject", "created_at", "pem"}` — key generated and kept on the server (encrypted, never returned); replaces a pending CSR; `409 conflict` with host files; audited `assistant.csr_create`. Then `POST /api/assistant/cert` with only `file` (the issued certificate) uses the pending key (`422 key_mismatch` when it does not match) and clears the CSR |
+| `GET /api/assistant/cert/csr` | — | `200 application/pkcs10` (`attachment; filename="netmonitor-bedrock.csr"`); `404` when none |
+| `DELETE /api/assistant/cert/csr` | — | `204` (discard the pending CSR and its key); audited `assistant.csr_delete` |
 | `POST /api/assistant/models` | `{"settings": <partial, optional>}` | `200 {"items": [{"id": "eu.anthropic.claude-…", "name": "…", "kind": "inference_profile" \| "foundation_model", "streaming": true, "status": "ACTIVE"}], "error": null}` (Anthropic only); on failure `200 {"items": [], "error": {"code", "message"}}` |
-| `GET /api/assistant/status` | — | `{"state", "state_error", "tools": [{"name": "search_syslog", "available": false, "reason": "feature_off:syslog"}], "features": [{"name": "ai_correlation", "enabled": true, "idle_reason": null, "status_line": "2 open incidents"}], "me": {"questions_today": 3, "daily_limit": 50, "running_message_id": null}, "month": UsageMonthSummary}` |
+| `GET /api/assistant/status` | — (409 while `assistant` is OFF) | `{"state", "state_error", "tools": [{"name": "search_syslog", "available": false, "reason": "feature_off:syslog"}], "features": [{"name": "ai_correlation", "enabled": true, "idle_reason": null, "status_line": "2 open incidents"}], "me": {"questions_today": 3, "daily_limit": 50, "running_message_id": null}, "month": UsageMonthSummary}` |
 
 ### [3b] Ask, stream, conversations
 | Method & path | Request | Response |
@@ -2456,11 +2472,14 @@ Refusals (en/he): not linked, not admin, group chat, feature off, cap reached (w
 ### [3b] Audit actions (feature `audit`, required by `assistant`)
 `assistant.question`, `assistant.tool_call`, `assistant.answer`, `assistant.cancel`, `assistant.feedback`,
 `assistant.conversation_delete`, `assistant.test`, `assistant.kb_test`, `assistant.settings_update`,
-`assistant.cert_upload`, `assistant.cert_delete`, `assistant.explain_alert`, `assistant.diff_explain`,
+`assistant.cert_upload`, `assistant.cert_delete`, `assistant.csr_create`, `assistant.csr_delete`,
+`assistant.explain_alert`, `assistant.diff_explain`,
 `assistant.rule_draft`, `assistant.template_walk`, `assistant.template_draft`, `assistant.incident_summary`
 (system), `assistant.alert_note` (system), `assistant.digest` (system or user for *Run now*),
 `assistant.report_summary` (system), `device_template.create_user`; `alert_rule.update` covers `ai_note`,
-`report.update` covers `ai_summary`. Field contents: architecture § 14.7.
+`report.update` covers `ai_summary`. Field contents: architecture § 14.7. **Owner decision:** no question text in
+the audit log — `assistant.question` carries the conversation `title` (not the question), `assistant.tool_call` no
+arguments.
 
 ### [3b] WebSocket additions
 | type | data | When / who |

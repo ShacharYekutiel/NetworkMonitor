@@ -18,6 +18,9 @@ from starlette.staticfiles import StaticFiles
 from netmon import __version__
 from netmon.api import (  # [3]
     alerting,
+    assistant_chat,  # [3b] ask / conversations (developer B)
+    assistant_features,  # [3b] AI features (developer C)
+    assistant_settings,  # [3b]
     audit,
     auth,
     chatack,
@@ -56,7 +59,8 @@ log = logging.getLogger("netmon.app")
 
 MUTATING = {"POST", "PUT", "PATCH", "DELETE"}
 SETUP_EXEMPT_PREFIXES = ("/api/setup", "/api/auth/")
-UPLOAD_PATHS = {"/api/sso/kerberos/keytab"}  # [3] multipart/form-data uploads
+# [3] multipart/form-data uploads; [3b] Roles Anywhere certificate
+UPLOAD_PATHS = {"/api/sso/kerberos/keytab", "/api/assistant/cert"}
 SETUP_EXEMPT_PATHS = {"/api/health", "/api/settings/public", "/api/setup"}
 
 PLACEHOLDER = """<!doctype html>
@@ -209,6 +213,9 @@ def create_app(
         reports.router,  # [3]
         kiosk.router,  # [3]
         chatack.router,  # [3]
+        assistant_chat.router,  # [3b]
+        assistant_settings.router,  # [3b] connection, test, certificate, usage, knowledge
+        assistant_features.router,  # [3b] explain, incidents, diffs, digests, drafts
         timeline.router,
         testclock.router,
         ws.router,

@@ -9,6 +9,7 @@ from sqlalchemy import select
 from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from netmon.assistant.config import SCALAR_DEFAULTS as ASSISTANT_DEFAULTS
 from netmon.flows.settings import DEFAULTS as FLOW_DEFAULTS
 from netmon.models import Setting
 from netmon.services.features import FEATURES
@@ -89,6 +90,9 @@ DEFAULTS: dict[str, Any] = {
     **FLOW_DEFAULTS,
     # [3] SSO objects, reports, chat acknowledge (netmon.services.settings_p3c)
     **P3C_DEFAULTS,
+    # [3b] assistant scalar keys (the `assistant` / `assistant_kb` objects are served by
+    # /api/assistant/settings and /api/assistant/knowledge, netmon.assistant.config)
+    **ASSISTANT_DEFAULTS,
 }
 
 # [3] plain keys written by PUT /api/settings as they come (validated by the schema mixins)
@@ -202,6 +206,7 @@ def settings_out(values: dict[str, Any], secret_key: str | None = None) -> dict[
             k: values[k]
             for k in ("report_retention_days", "chat_ack_ttl_h", "telegram_poll_timeout_s")
         },
+        **{k: values[k] for k in ASSISTANT_DEFAULTS},  # [3b]
     }
 
 

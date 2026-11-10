@@ -396,6 +396,14 @@ def _html(
             f'<p style="margin:0 0 16px 0;"><a href="{_e(link)}" style="color:#2563eb;">'
             f"{_e(t['open'])}</a></p>"
         )
+    if data.get("ai_summary"):  # [3b] § 14.8.10, labelled
+        label = "סיכום שנוצר ע״י AI" if rtl else "AI-generated summary"
+        parts.append(
+            '<div style="margin:0 0 16px 0;padding:8px 12px;background:#f3f4f6;'
+            'border-radius:6px;font-size:14px;">'
+            f'<p style="margin:0 0 4px 0;font-size:12px;color:#6b7280;">{_e(label)}</p>'
+            f'<p style="margin:0;">{_e(data["ai_summary"])}</p></div>'
+        )
     for sec in data.get("sections") or []:
         parts.append('<div class="section">')
         parts.append(

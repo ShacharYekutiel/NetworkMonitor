@@ -73,6 +73,19 @@ async def run_once(rt: Runtime) -> dict[str, int]:
     from netmon.flows import storage as flow_storage
 
     out.update(await flow_storage.run_retention(rt, flow_settings.values_of(cfg)))
+    # [3b] assistant conversations (`assistant_retention_days`), whether or not it is ON
+    try:
+        from netmon.assistant import agent as assistant_agent
+
+        out["assistant_conversations"] = await assistant_agent.purge_expired(rt)
+    except Exception:  # noqa: BLE001
+        log.exception("Assistant conversation retention failed")
+    # [3b] assistant usage counters: kept 730 days (data-model `assistant_usage`)
+    if getattr(rt, "assistant", None) is not None:
+        try:
+            out["assistant_usage"] = await rt.assistant.usage.purge(730)
+        except Exception:  # noqa: BLE001
+            log.exception("Assistant usage retention failed")
     return out
 
 

@@ -38,11 +38,11 @@ RETRY_DELAY_S = 1800.0
 REPORT_COLUMNS = (
     "id, name, enabled, language, scope_group_ids, scope_device_ids, sections, schedule, "
     "weekday, month_day, send_time, email_to, channel_ids, next_run_at, last_run_id, "
-    "created_at, updated_at"
+    "created_at, updated_at, ai_summary"
 )
 RUN_COLUMNS = (
     "id, report_id, report_name, trigger, period_start, period_end, started_at, finished_at, "
-    "status, language, deliveries, created_by"
+    "status, language, deliveries, created_by, ai_summary_status"
 )
 
 
@@ -63,6 +63,7 @@ def run_out(r: Any) -> dict[str, Any]:
         "language": r.language,
         "created_by": r.created_by,
         "deliveries": list(deliveries or []),
+        "ai_summary_status": getattr(r, "ai_summary_status", None),  # [3b]
     }
 
 
@@ -82,6 +83,7 @@ def report_dict(r: Any) -> dict[str, Any]:
         "email_to": list(r.email_to or []),
         "channel_ids": list(r.channel_ids or []),
         "next_run_at": r.next_run_at,
+        "ai_summary": bool(getattr(r, "ai_summary", False)),  # [3b] § 14.8.10
     }
 
 
@@ -380,6 +382,9 @@ class ReportService:
                     data = await report_data.gather(
                         session, report, start, end, tz, feats, self.rt.clock.now(), self.rt
                     )
+                ai = getattr(self.rt, "ai_features", None)  # [3b] § 14.8.10, never fails a report
+                if ai is not None:
+                    data["ai_summary"] = await ai.report_summary(report, run, data)
                 link = f"{base}/reports/runs/{run['id']}" if base else None
                 html_doc = await asyncio.to_thread(
                     render.html_report,

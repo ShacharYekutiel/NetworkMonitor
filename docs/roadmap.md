@@ -220,9 +220,10 @@ parts are skipped and alerts/reports are never delayed.
     documents; **`/ask` in Telegram** for linked admins (Teams cannot send messages to an internal server — not
     supported); **AI summary paragraph in reports** (per report opt-in).
 
-Open questions for 3b (defaults in architecture § 14.13): region and inference-profile geography; monthly budget and
-daily questions; question text in the audit log; IP redaction; Roles Anywhere certificate storage and trust anchor;
-whether a Knowledge Base is wanted now.
+Owner decisions for 3b (architecture § 14.13): `us-east-1` + `us.` inference profile recommended (`il-central-1` +
+`global.` supported); token caps + an admin USD cost cap; no question text in the audit log (title only); IP
+redaction off in the app, on in Telegram; Roles Anywhere recommended (UI upload or server-side CSR, trust anchor
+Mnidom-PKI-SERV-CA); Knowledge Base implemented, OFF.
 
 ## Later / ideas
 - Per-port PoE status table.

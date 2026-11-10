@@ -1,0 +1,89 @@
+# [3b] Config diff risk rules (architecture § 14.8.4, pure `diffexplain.risk_flags`).
+#
+# Each rule: id, severity (high | medium | info), side (added | removed | any), optional
+# drivers (config-backup driver names; omitted = every driver), regex (Python, matched
+# case-insensitively against the diff line without its +/- sign and leading spaces), title
+# en/he. Rules are tried in order; a diff line gets at most one flag (the first match), so put
+# specific rules before general ones.
+rules:
+  - id: snmp_community_added
+    severity: high
+    side: added
+    regex: '^(snmp-agent\s+community|snmp-server\s+community|snmp\s+community|snmp-server\s+host\s+\S+.*\bcommunity\b|snmp-agent\s+usm-user|snmp-server\s+user\b|snmpv3\s+user|set\s+snmp\s+community)'
+    title: {en: "SNMP community or v3 user added/changed", he: "נוספה/שונתה קהילת SNMP או משתמש v3"}
+  - id: mgmt_acl_removed
+    severity: high
+    side: removed
+    regex: '^(ssh\s+server\s+acl|telnet\s+server\s+acl|ssh\s+server\s+ipv6\s+acl|ip\s+ssh\s+access-class|access-class\s+\S+\s+in|ip\s+http\s+access-class|ip\s+authorized-managers|management-access|http\s+server\s+acl|snmp-agent\s+acl)'
+    title: {en: "Management access ACL removed", he: "הוסרה רשימת גישה לניהול"}
+  - id: mgmt_opened
+    severity: high
+    side: added
+    regex: '^(telnet\s+server\s+enable|telnet-server|ip\s+telnet\s+server|ip\s+http\s+server|ip\s+ssh\s+.*\bany\b|transport\s+input\s+(all|telnet)|ssh\s+server\s+enable\s+.*\bany\b|set\s+web\s+.*\ball\b|set\s+allowaccess\s+.*\b(telnet|http)\b)'
+    title: {en: "Management (SSH/Telnet/HTTP) opened", he: "נפתחה גישת ניהול (SSH/Telnet/HTTP)"}
+  - id: acl_permit_any
+    severity: high
+    side: added
+    regex: '^((ip\s+)?access-list\s+(\S+\s+)*(\d+\s+)?permit\s+(ip\s+)?any(\s+any)?\s*$|\d*\s*permit\s+ip\s+any\s+any|permit\s+any\s+any|rule\s+\d+\s+permit\s+ip\s*$|rule\s+\d+\s+permit\s*$|\d+\s+permit\s+any\s+any)'
+    title: {en: "ACL rule permitting any added", he: "נוסף כלל ACL שמתיר הכול"}
+  - id: acl_rule_removed
+    severity: medium
+    side: removed
+    regex: '^((ip\s+)?access-list\s+\S+|rule\s+\d+\s+(permit|deny)|\d+\s+(permit|deny)\s|(permit|deny)\s+(ip|tcp|udp|icmp|any)\b)'
+    title: {en: "ACL rule removed", he: "הוסר כלל ACL"}
+  - id: expert_password_changed
+    severity: high
+    side: added
+    drivers: [checkpoint_gaia]
+    regex: '^set\s+expert-password'
+    title: {en: "Expert password changed", he: "שונתה סיסמת expert"}
+  - id: privileged_user_added
+    severity: high
+    side: added
+    regex: '^(username\s+\S+\s+(.*\s)?privilege\s+15\b|username\s+\S+\s+(.*\s)?role\s+(network-admin|admin|administrator)\b|authorization-attribute\s+user-role\s+(network-admin|level-15)|user-role\s+network-admin|password\s+manager\s+user-name|add\s+user\s+\S+|set\s+user\s+\S+\s+(role|permission|password)|set\s+accprofile\s+super_admin|user\s+\S+\s+group\s+full)'
+    title: {en: "Privileged user added or privilege raised", he: "נוסף משתמש מורשה או הועלתה הרשאה"}
+  - id: local_user_added
+    severity: medium
+    side: added
+    regex: '^(username\s+\S+|local-user\s+\S+|user\s+\S+\s+(password|group)|user-name\s+\S+)'
+    title: {en: "Local user added or changed", he: "נוסף/שונה משתמש מקומי"}
+  - id: aaa_changed
+    severity: medium
+    side: any
+    regex: '^(aaa\s|radius-server\s|tacacs-server\s|radius\s+scheme|hwtacacs\s+scheme|tacacs\s+server|radius\s+server|domain\s+default\s+enable)'
+    title: {en: "AAA / RADIUS / TACACS changed", he: "שונו הגדרות AAA / RADIUS / TACACS"}
+  - id: syslog_host_removed
+    severity: medium
+    side: removed
+    regex: '^(logging\s+(host\s+|server\s+)?(\d{1,3}(\.\d{1,3}){3}|[0-9a-f:]*:[0-9a-f:]+)\b|info-center\s+loghost\s+|logging\s+server\s+|syslog\s+server\s+|set\s+syslog\s+remote)'
+    title: {en: "Syslog/logging host removed", he: "הוסר שרת syslog"}
+  - id: ntp_changed
+    severity: info
+    side: any
+    regex: '^(ntp(-service)?\s+(server|unicast-server|peer)\b|sntp\s+server|sntp-server|timesync\s|set\s+ntp\s|ntp\s+enable)'
+    title: {en: "NTP server changed", he: "שונה שרת NTP"}
+  - id: interface_shutdown
+    severity: medium
+    side: added
+    regex: '^(shutdown|disable)\s*$'
+    title: {en: "Interface shut down", he: "ממשק כובה"}
+  - id: interface_enabled
+    severity: info
+    side: added
+    regex: '^(undo\s+shutdown|no\s+shutdown|enable)\s*$'
+    title: {en: "Interface enabled (undo shutdown)", he: "ממשק הופעל"}
+  - id: vlan_removed
+    severity: medium
+    side: removed
+    regex: '^vlan\s+\d+(\s|$)'
+    title: {en: "VLAN removed", he: "הוסר VLAN"}
+  - id: vlan_removed_cmd
+    severity: medium
+    side: added
+    regex: '^(no|undo)\s+vlan\s+\d+'
+    title: {en: "VLAN removed", he: "הוסר VLAN"}
+  - id: routing_changed
+    severity: medium
+    side: any
+    regex: '^(ip\s+route(-static)?\s|ipv6\s+route(-static)?\s|ip\s+default-gateway\s|router\s+(ospf|bgp|eigrp|rip|isis)\b|ospf(\s+\d+)?\s*$|ospf\s+\d+|bgp\s+\d+|rip\s+\d+|set\s+static-route\s|route\s+add\s|network\s+\d+\.\d+\.\d+\.\d+)'
+    title: {en: "Routing changed", he: "שונה ניתוב"}

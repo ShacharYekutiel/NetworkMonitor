@@ -73,11 +73,13 @@ async def add_event(session: AsyncSession, kind: str, message: str, **fields: An
 def published(rt: Runtime, events: list[Event]) -> None:
     """Call after commit: broadcast events and hand status changes to the alert engine."""
     changes: list[Event] = []
+    change_data: list[dict[str, Any]] = []
     for ev in events:
         data = event_out(ev)
         rt.hub.broadcast("event.created", data)
         if ev.kind == "status_change":
             changes.append(ev)
+            change_data.append(data)
             if getattr(ev, "ack_cleared", False):
                 rt.hub.broadcast(
                     "sensor.ack",
@@ -86,6 +88,12 @@ def published(rt: Runtime, events: list[Event]) -> None:
             if rt.alerts is not None:
                 rt.alerts.on_status_change(data, ev.time)
     if changes:
+        ai = getattr(rt, "ai_features", None)  # [3b] correlation (§ 14.8.2), never the send path
+        if ai is not None:
+            try:
+                ai.on_events(change_data)
+            except Exception:  # noqa: BLE001
+                log.exception("AI correlation hook failed")
         rt.request_rollup()
         if getattr(rt, "dependencies_enabled", True):
             rt.cascade.submit(changes)

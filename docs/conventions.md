@@ -246,6 +246,14 @@ both Timescale mode and fallback mode, and on Windows paths (no POSIX-only calls
   **dev/test-only** dependency (signature cross-check in the mock). Never import boto3/botocore from `netmon/`.
 - Never log AWS credentials, `Authorization`, `X-Amz-Security-Token`, `X-Amz-X509`, prompts, questions or answers
   (the audit log is the record); log only codes, sizes, durations and token counts.
+- Connection layer (developer A) — use it, do not re-implement it: `rt.assistant.client` (`netmon.assistant.bedrock.
+  BedrockClient`: `converse` / `converse_stream` / `converse_stream_collect` / `retrieve` / `list_models`;
+  `StreamAssembler`), `rt.assistant.usage` (`netmon.assistant.usage.UsageService`: `check_and_reserve`, `check`,
+  `record`, `record_error`, `background_allowed`), `netmon.assistant.gates.require_ai`, `netmon.assistant.errors.
+  AssistantError` (`.to_api()`); settings objects via `netmon.assistant.config.load` / `load_kb` / `scalars`.
+- Owner decisions after the contract: default region `us-east-1` + `us.` profile (`il-central-1` + `global.`
+  supported, warning only); USD monthly cost cap; **no question text in the audit log** (title only); Roles
+  Anywhere recommended with a server-side *Generate CSR* action; Knowledge Base implemented, OFF.
 - Never hard-code a model id or a price; tests use `eu.anthropic.claude-test-v1:0` against the mock only. Never call
   real AWS in CI.
 - AI output is rendered with the restricted Markdown renderer (frontend: `markdown-it` with `html: false`, images

@@ -23,7 +23,10 @@ DISPLAY_LEN = 8
 STAMP_EVERY_S = 60.0
 CLEANUP_AFTER_DAYS = 30
 # paths a bearer token may never reach (a token cannot mint tokens or change users/passwords)
-BARRED_PREFIXES = ("/api/auth/", "/api/users", "/api/tokens")
+# [3b] the assistant and the AI features are session-only (questions cost money and belong
+# to a person; api.md "[3b] Phase 3b contract")
+BARRED_PREFIXES = ("/api/auth/", "/api/users", "/api/tokens", "/api/assistant", "/api/incidents")
+BARRED_PATHS = ("/api/users", "/api/tokens", "/api/device-templates/user")
 
 
 def generate() -> tuple[str, str, str]:
@@ -49,7 +52,7 @@ def bearer_from_header(value: str | None) -> str | None:
 
 
 def is_barred(path: str) -> bool:
-    return path.startswith(BARRED_PREFIXES) or path in ("/api/users", "/api/tokens")
+    return path.startswith(BARRED_PREFIXES) or path in BARRED_PATHS
 
 
 def effective_role(token_role: str, owner_role: str) -> str:

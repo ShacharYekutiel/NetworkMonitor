@@ -110,12 +110,16 @@ def build_payload(
 
 async def send_to_channel(
     channel: dict[str, Any], payload: dict[str, Any], smtp: dict[str, Any], lang: str
-) -> None:
+) -> dict[str, Any] | None:
     """Raises SmtpError / WebhookError / TelegramError / TeamsError.
 
     [3] chat_ack: `payload["ack_token"]` (internal, never sent) and `payload["ack_url"]` are set
     by `netmon.chatack.service.decorate_payload` while `chat_ack` is ON; each channel type uses
-    them per its config (`ack_buttons` / `ack_link`)."""
+    them per its config (`ack_buttons` / `ack_link`).
+
+    [3b] Returns a delivery receipt for the AI note follow-up (§ 14.8.3): telegram `{"chat_id",
+    "message_id", "text", "parse_mode", "reply_markup"}`, email `{"message_id", "subject",
+    "to"}`, teams `{}`, webhook None."""
     from netmon.chatack.service import channel_payload, telegram_markup
 
     payload = channel_payload(channel, payload)
@@ -123,25 +127,35 @@ async def send_to_channel(
         from netmon.alerts import teams
 
         await teams.send(channel["config"], payload, lang)
-    elif channel["type"] == "telegram":
+        return {}
+    if channel["type"] == "telegram":
         cfg = channel["config"]
         parse_mode = cfg.get("parse_mode", "HTML")
-        await send_telegram(
-            cfg,
-            templates.telegram_text(payload, lang, parse_mode),
-            parse_mode,
-            telegram_markup(cfg, payload, lang),
-        )
-    elif channel["type"] == "email":
-        await send_email(
+        text_ = templates.telegram_text(payload, lang, parse_mode)
+        markup = telegram_markup(cfg, payload, lang)
+        sent = await send_telegram(cfg, text_, parse_mode, markup)
+        if not isinstance(sent, dict) or sent.get("message_id") is None:
+            return {}
+        return {
+            "chat_id": str((sent.get("chat") or {}).get("id") or cfg.get("chat_id") or ""),
+            "message_id": sent.get("message_id"),
+            "text": text_,
+            "parse_mode": parse_mode,
+            "reply_markup": markup,
+        }
+    if channel["type"] == "email":
+        to = list(channel["config"].get("to") or [])
+        subject = templates.subject(payload, lang)
+        msg_id = await send_email(
             smtp,
-            list(channel["config"].get("to") or []),
-            templates.subject(payload, lang),
+            to,
+            subject,
             templates.text_body(payload, lang),
             templates.html_body(payload, lang),
         )
-    else:
-        await send_webhook(channel["config"], payload)
+        return {"message_id": msg_id, "subject": subject, "to": to}
+    await send_webhook(channel["config"], payload)
+    return None
 
 
 @dataclass
@@ -812,6 +826,7 @@ class AlertEngine:
                         continue
                     jobs[key] = (channels[cid], s.payload, r)
         results: dict[tuple[Any, ...], bool] = {}
+        receipts: dict[tuple[Any, ...], Any] = {}  # [3b] AI note follow-up
         if jobs:
             sem = asyncio.Semaphore(MAX_PARALLEL_SENDS)
             token = templates.DISPLAY_TZ.set(str(cfg.get("timezone") or "UTC"))
@@ -820,7 +835,7 @@ class AlertEngine:
                 async def one(key: tuple[Any, ...], job: Any) -> None:
                     channel, payload, r = job
                     async with sem:
-                        results[key] = await self._send_one(channel, payload, cfg, r)
+                        results[key] = await self._send_one(channel, payload, cfg, r, receipts, key)
 
                 await asyncio.gather(*(one(k, j) for k, j in jobs.items()))
             finally:
@@ -832,12 +847,26 @@ class AlertEngine:
         for p in plans:
             for s in p.sends:
                 s.ok = [cid for cid, key in s.keys.items() if self._sent.get(key, False)]
+        ai = getattr(self.rt, "ai_features", None)  # [3b] AI notes after the send (§ 14.8.3)
+        if ai is not None and receipts:
+            try:
+                ai.after_alert_sends(plans, rows, channels, receipts)
+            except Exception:  # noqa: BLE001 - the alert is already delivered
+                log.exception("Queuing AI notes failed")
 
     async def _send_one(
-        self, channel: dict[str, Any], payload: dict[str, Any], cfg: dict[str, Any], r: Any
+        self,
+        channel: dict[str, Any],
+        payload: dict[str, Any],
+        cfg: dict[str, Any],
+        r: Any,
+        receipts: dict[tuple[Any, ...], Any] | None = None,
+        key: tuple[Any, ...] | None = None,
     ) -> bool:
         try:
-            await self.sender(channel, payload, cfg["smtp"], cfg["default_language"])
+            receipt = await self.sender(channel, payload, cfg["smtp"], cfg["default_language"])
+            if receipts is not None and key is not None:
+                receipts[key] = receipt
             return True
         except Exception as exc:  # noqa: BLE001
             log.warning("Notification via %s failed: %s", channel["name"], exc)
