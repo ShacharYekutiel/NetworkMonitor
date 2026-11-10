@@ -1,4 +1,4 @@
-# NetworkMonitor — Data Model (Phase 1 + Phase 2a + Phase 2b-1 + Phase 2b-2 + Phase 2b-3 + Phase 3 + Phase 3b)
+# NetworkMonitor — Data Model (Phase 1 + Phase 2a + Phase 2b-1 + Phase 2b-2 + Phase 2b-3 + Phase 3 + Phase 3b + Phase 4)
 
 Sections and rows marked **[2a]** belong to the Phase 2a contract (auto-discovery, device templates,
 `snmp_custom` / `snmp_disk` sensors, Telegram channel). Everything else is the Phase 1 contract and is unchanged.
@@ -14,6 +14,9 @@ Sections marked **[3]** (config backup, flows, new-device alerts, SSO, reports, 
 are in [§ Phase 3](#3-phase-3-additions), migration `0007`.
 Sections marked **[3b]** (assistant on Amazon Bedrock and the AI features) are in
 [§ Phase 3b](#3b-phase-3b-additions), migration `0008`.
+Sections marked **[4]** (shared AWS connection, AWS cloud inventory and VPC Flow Logs, high availability, optics/PoE,
+certificates, compliance, on-call, S3 backups, traffic capture) are in [§ Phase 4](#4-phase-4-additions), migrations
+`0009`–`0018`.
 
 PostgreSQL ≥ 14 holds the data, and TimescaleDB is optional (see [architecture.md §6](architecture.md)). Alembic
 migrations own the schema.
@@ -4027,3 +4030,579 @@ written to the audit log (architecture § 14.7).
 `downgrade()` (reverse): `UPDATE audit_log SET source = NULL WHERE source = 'telegram'` (with the append-only
 trigger disabled for that statement, as in `0007`), restore the check; drop the columns of step 5; drop the tables of
 steps 4 → 1. Settings rows stay (harmless).
+
+# **[4]** Phase 4 additions
+
+Scope: shared AWS connection, AWS cloud inventory and VPC Flow Logs (4d, first), high availability (4a), optics/PoE,
+certificates, compliance, on-call, S3 backups, traffic capture (4c). Migrations **`0009`–`0018`**, one per PR in the
+merge order of [architecture § 15.15](architecture.md#1515-pr-split-and-team-plan-4) (a PR merged out of order renumbers
+before merge). Plain PostgreSQL DDL only in migrations; hypertables are created by the Timescale bootstrap (fallback:
+plain tables with `(…, time DESC)` + BRIN indexes, batched retention in the hourly loop), as in phase 3. API shapes:
+[api.md § Phase 4](api.md#4-phase-4-contract).
+
+## [4] Enum changes
+
+| Name | Values |
+|---|---|
+| `feature` | … 28 values of 3b, **[4]** `aws_inventory`, `aws_flow_logs`, `ha`, `cert_monitor`, `optics_dom`, `poe_ports`, `config_compliance`, `oncall`, `s3_backup`, `s3_config_export`, `packet_capture` (39) |
+| `sensor_type` | + `aws_dx_connection`, `aws_dx_vif`, `tls_cert`, `optics`, `poe_budget`, `config_compliance` |
+| **[4]** `aws_resource_type` | `vpc`, `subnet`, `route_table`, `eni`, `security_group`, `network_acl`, `igw`, `nat_gw`, `vpc_endpoint`, `peering`, `tgw`, `tgw_attachment`, `tgw_route_table`, `vgw`, `vpn`, `cgw`, `instance`, `flow_log`, `dx_connection`, `dx_vif`, `dx_gateway`, `dx_gateway_association` |
+| **[4]** `flowlog_source_kind` | `s3`, `cwl` |
+| **[4]** `flow_exporter_kind` | `device`, `aws_vpc` |
+| **[4]** `ha_role` | `single`, `active`, `standby`, `fenced` |
+| **[4]** `ha_event_kind` | `heartbeat_lost`, `heartbeat_restored`, `quorum_ok`, `quorum_failed`, `grant_requested`, `grant_refused`, `promoted`, `fenced`, `self_fenced`, `resumed`, `switchover_started`, `switchover_done`, `failover_forced`, `rejoin_requested`, `rejoined`, `rebuild`, `replay_done`, `dns_updated`, `dns_failed`, `witness_unreachable`, `witness_restored`, `replication_broken`, `replication_restored` |
+| **[4]** `optics_status` | `ok`, `warning`, `alarm`, `no_signal`, `unsupported` |
+| **[4]** `compliance_kind` | `must_contain`, `must_not_contain`, `block`, `count` |
+| **[4]** `compliance_status` | `pass`, `fail`, `not_applicable`, `error` |
+| **[4]** `severity4` | `low`, `medium`, `high`, `critical` |
+| **[4]** `backup_kind` | `db`, `config_export` |
+| **[4]** `run_status` | `running`, `ok`, `failed`, `cancelled` |
+| **[4]** `capture_source` | `device`, `mirror` |
+| **[4]** `capture_status` | `queued`, `starting`, `running`, `fetching`, `indexing`, `ready`, `failed`, `deleted` |
+| **[4]** `capture_stop_reason` | `duration`, `size`, `packets`, `rate_guard`, `user`, `error`, `feature_off`, `shutdown` |
+| **[4]** `mirror_kind` | `erspan`, `gre`, `aruba_udp`, `physical` |
+| `audit_log.source` | + `cli` (HA CLI actions) |
+
+## [4] Feature toggles
+
+Keys `feature_<name>_enabled` (bool, **default `false`**, also on upgraded installs). Configure-first features
+(`aws_inventory`, `aws_flow_logs`, `ha`, `s3_backup`, `packet_capture`) can be turned ON only through their own
+endpoint with a valid `test_id`; `PUT /api/settings` with `true` → `422 test_required`, `false` accepted.
+
+| Key | ON | OFF means exactly |
+|---|---|---|
+| `feature_aws_inventory_enabled` | inventory schedule, `/api/cloud/*` (inventory), DX sensors run | schedule stopped; `/api/cloud/*` 409 except settings/accounts/test; DX sensors `paused`-like status `unknown` with message "feature off"; data kept, change retention runs |
+| `feature_aws_flow_logs_enabled` | source polling, traffic views | polling stopped (cursors kept); traffic endpoints 409; aggregates kept (phase-3 retention) |
+| `feature_ha_enabled` | automatic failover armed, witness heartbeats, DNS updates, standby quorum/readiness probes, `/ha` actions except *Force failover* | no automatic failover, no witness traffic, no DNS updates; **replication and the standby's read-only mode continue** (they depend on the database role, not the toggle); `/ha` shows status; CLI `failover --force` still works |
+| `feature_cert_monitor_enabled` | `tls_cert` sensors run, inventory, daily check | sensors not scheduled; `/api/certificates*` 409; data kept |
+| `feature_optics_dom_enabled` | DOM columns read, `optics` sensors | not read; optics tabs hidden; samples kept |
+| `feature_poe_ports_enabled` | per-port PoE power read, samples, `poe_budget` sensors | power not read (2b-2 state/class unchanged); samples kept |
+| `feature_config_compliance_enabled` | evaluation, results, reports section, compliance sensors | no evaluation; `/api/compliance*` 409; results kept |
+| `feature_oncall_enabled` | paging engine, `escalation_policy_id` honoured | pending pages stopped (kept); rules with a policy notify their own channels only; `/api/oncall*` 409; data kept |
+| `feature_s3_backup_enabled` | schedule, *Back up now*, restore | schedule stopped; settings/test/list remain; restore 409 |
+| `feature_s3_config_export_enabled` | export on new versions + nightly reconciliation | no export; `config_export_state` kept |
+| `feature_packet_capture_enabled` | captures can start | running captures stopped (`feature_off`); files kept until expiry; analyzer of existing captures 409 |
+
+`feature_s3_config_export_enabled` ON requires a passing `s3_backup` test in the last 30 days (`last_test.ok`), else
+`422 feature_dependency`. `feature_config_compliance_enabled` ON while `config_backup` is OFF is allowed (idles).
+
+## [4] Shared AWS connection (key `aws`, object; migration `0009`)
+```json
+{ "auth_mode": "roles_anywhere",                 // roles_anywhere | access_key | default_chain
+  "default_region": "us-east-1",
+  "proxy_mode": "env", "proxy_url": null,
+  "endpoint_overrides": {                         // service → https URL (no path); ≤ 20 entries
+     "s3": "https://bucket.vpce-0abc-xyz.s3.il-central-1.vpce.amazonaws.com",
+     "ec2": null, "directconnect": null, "logs": null, "monitoring": null, "sts": null, "route53": null },
+  "access_key_id": null, "secret_access_key_enc": null, "access_key_created_at": null,   // AAD b"aws.secret_access_key"
+  "ra_region": null, "ra_endpoint_url": null, "ra_trust_anchor_arn": null, "ra_profile_arn": null,
+  "ra_role_arn": null, "ra_session_seconds": 3600,
+  "ra_cert_pem": null, "ra_chain_pem": null, "ra_key_enc": null,                           // AAD b"aws.ra_key"
+  "ra_cert_uploaded_at": null, "ra_csr_pem": null, "ra_csr_subject": null, "ra_csr_key_enc": null, "ra_csr_created_at": null,
+  "last_test": null, "reencrypted": false }
+```
+Migration `0009` copies the auth fields from `assistant` (same names; `default_region` = `assistant.region`;
+`proxy_mode`/`proxy_url` copied) with `reencrypted = false`; at the first start after `0009` the app decrypts each
+`*_enc` with the old AAD (`b"assistant.<field>"`), encrypts with `b"aws.<field>"`, sets `reencrypted = true` (one
+transaction; failure → `*_unreadable` as before). The `assistant` key keeps `region`, `model_id*`, `endpoint_url`,
+`control_endpoint_url`, `prompt_caching`, data-sharing options and prices; its auth fields are removed by the same
+startup step. Per-feature role ARNs live in each feature's settings (`role_arn`, nullable).
+
+## [4] Cloud (4d)
+
+### Settings key `aws_cloud` (object)
+```json
+{ "onprem_cidrs": ["10.0.0.0/8"],        // ≤ 64; used for "on-prem (DX/VPN)" classification
+  "dx_device_ids": [12],                 // devices drawn as the on-prem end of DX
+  "inventory_role_arn": null,            // optional per-feature role (base account)
+  "flowlogs_role_arn": null,
+  "last_test": null }
+```
+Scalar keys: `aws_inventory_interval_min` (15, 5–1440), `aws_change_retention_days` (180, 7–3650),
+`aws_flowlogs_poll_min` (5, 1–60), `aws_flowlogs_max_lag_h` (6, 1–168), `aws_flowlogs_max_records_per_poll`
+(2000000, 10000–20000000), `aws_reject_retention_days` (30, 1–365).
+
+### `aws_accounts`
+| Column | Type | Constraints |
+|---|---|---|
+| id | integer | PK identity |
+| account_id | char(12) | NOT NULL UNIQUE, digits |
+| name | varchar(128) | NOT NULL |
+| role_arn | varchar(2048) | NULL — assumed from the base credentials; NULL = the base account itself |
+| external_id | varchar(1224) | NULL |
+| regions | text[] | NOT NULL, 1–20, region syntax |
+| enabled | boolean | NOT NULL DEFAULT true |
+| status | jsonb | NOT NULL DEFAULT '{}' — per region: last refresh, duration, per-call errors `{"ec2:DescribeNatGateways": "UnauthorizedOperation"}` |
+
+### `aws_resources`
+| Column | Type | Constraints |
+|---|---|---|
+| id | bigint | PK identity |
+| account_id | char(12) | NOT NULL |
+| region | varchar(32) | NOT NULL (`global` for DX gateways) |
+| type | text | NOT NULL CHECK in aws_resource_type |
+| resource_id | varchar(255) | NOT NULL (`vpc-…`, `eni-…`, `dxcon-…`) |
+| parent_id | varchar(255) | NULL (subnet → vpc, eni → subnet, attachment → tgw, vif → connection/dxgw) |
+| name | varchar(256) | NULL — `Name` tag |
+| cidrs | cidr[] | NOT NULL DEFAULT '{}' |
+| state | varchar(64) | NULL |
+| data | jsonb | NOT NULL — projection (data-model of each type below) |
+| first_seen, last_seen | timestamptz | NOT NULL |
+| deleted_at | timestamptz | NULL |
+
+Unique `(account_id, region, type, resource_id)`; indexes `(type, account_id)`, `(parent_id)`.
+**Projections** (pure `cloud.project.<type>`; anything else from the API is dropped): `vpc` {is_default, cidr blocks};
+`subnet` {az, az_id, cidr, ipv6}; `route_table` {routes: [{dest, target_type, target_id, state}], associations};
+`eni` {subnet, private_ips, public_ip, instance_id, description, interface_type, sg_ids, status}; `security_group`
+{name, description, ingress/egress rules: proto, from/to port, cidrs, sg refs, prefix lists, description};
+`network_acl` {entries: rule no, egress, proto, ports, cidr, action, associations}; `tgw` {asn, options subset};
+`tgw_attachment` {tgw, resource type/id, state, association route table}; `dx_connection` {location, bandwidth,
+state, vlan, partner}; `dx_vif` {type, vlan, asn, amazon_asn, bgp_peers [{status, state, address family}], state,
+connection, dxgw/vgw}; `instance` {type, state, private_ips, eni_ids}; `flow_log` {resource, traffic_type,
+destination type/arn, log_format, aggregation interval}.
+
+### `aws_resource_changes`
+`id bigint PK`, `time timestamptz`, `account_id`, `region`, `type`, `resource_id`, `name`, `change` jsonb
+(`{"field": [old, new]}` from pure `cloud.diff`), `kind` (`created`, `updated`, `deleted`). Index `(time DESC)`,
+`(type, resource_id, time DESC)`. Retention `aws_change_retention_days`.
+
+### `aws_ip_index`
+`ip inet`, `account_id`, `vpc_id`, `eni_id`, `name` (instance name or ENI description), `kind` (`private`,
+`secondary`, `public`); PK `(ip, eni_id)`; rebuilt per refresh (delete + insert per account/region in one transaction).
+
+### `aws_eni_index`
+`vpc_resource_id bigint` FK `aws_resources.id` ON DELETE CASCADE, `eni_id varchar(32)`, `if_index integer` (1..,
+allocated per VPC, never reused), PK `(vpc_resource_id, eni_id)`, unique `(vpc_resource_id, if_index)`.
+
+### `flow_exporters` gains
+`kind text NOT NULL DEFAULT 'device' CHECK in flow_exporter_kind`, `aws_resource_id bigint NULL` FK
+`aws_resources.id` ON DELETE SET NULL (the VPC). For `aws_vpc` exporters `address` holds `0.0.0.0` and the name is
+the VPC name/id; interface names come from `aws_eni_index` + `aws_ip_index`.
+
+### `aws_flowlog_sources`
+| Column | Type | Constraints |
+|---|---|---|
+| id | integer | PK identity |
+| name | varchar(128) | NOT NULL |
+| kind | text | NOT NULL CHECK in flowlog_source_kind |
+| enabled | boolean | NOT NULL DEFAULT true |
+| account_id | char(12) | NOT NULL — the account that owns the bucket / log group |
+| region | varchar(32) | NOT NULL |
+| bucket | varchar(63) | NULL (s3) |
+| prefix | varchar(512) | NOT NULL DEFAULT '' (s3; ends before `AWSLogs/`) |
+| layout | text | NULL CHECK in (`plain`, `hive`, `hive_hourly`, `plain_hourly`) — detected by Test |
+| source_accounts | text[] | NOT NULL DEFAULT '{}' — accounts under `AWSLogs/` to read (empty = all found) |
+| source_regions | text[] | NOT NULL DEFAULT '{}' |
+| log_group | varchar(512) | NULL (cwl) |
+| stream_prefix | varchar(512) | NULL (cwl) |
+| fields | text[] | NULL — cwl field order (NULL = default v2) |
+| role_arn | varchar(2048) | NULL |
+| cursor | jsonb | NOT NULL DEFAULT '{}' — s3: `{"<account>/<region>/<yyyy/mm/dd[/hh]>": "<last key>"}`; cwl: `{"time_ms": …}` |
+| stats | jsonb | NOT NULL DEFAULT '{}' — objects, records, skipped, skipped_old, parse_errors, deferred, lag_s, last_poll, last_error |
+| last_test | jsonb | NULL |
+
+Validation: s3 needs `bucket` (S3 naming rules); cwl needs `log_group`.
+
+### `aws_flowlog_objects`
+`source_id` FK ON DELETE CASCADE, `key varchar(1024)`, `etag varchar(64)`, `processed_at`, `records integer`; PK
+`(source_id, key)`; deleted after 3 days.
+
+### `aws_flow_paths` (hypertable, chunk 1 day; retention = phase-3 1-minute retention, hourly rollup kept 30 days via the phase-3 rollup job)
+`time timestamptz` (minute), `account_id`, `vpc_id varchar(32)`, `path smallint` (1–8 AWS codes, 100 = on-prem,
+101 = VPC to VPC, 0 = unknown), `direction smallint` (0 egress, 1 ingress), `bytes bigint`, `packets bigint`,
+`flows integer`, `action smallint` (0 accept, 1 reject). Index `(vpc_id, time DESC)`.
+
+### `aws_flow_rejects` (hypertable, chunk 1 day, retention `aws_reject_retention_days`)
+`time` (minute), `account_id`, `vpc_id`, `eni_id`, `src inet`, `dst inet`, `dst_port integer`, `protocol smallint`,
+`flows integer`, `packets bigint`, `bytes bigint`. ≤ 200 rows per (minute, VPC) by packets (pure top-N).
+
+### Flow-log vectors (pure `parse_header`, `parse_record`, `count_side`, `spread`)
+- Default v2 line `2 123456789012 eni-0a1b2c3d 10.20.1.15 10.0.5.20 443 53122 6 10 8400 1700000000 1700000060 ACCEPT
+  OK` → record {account `123456789012`, eni `eni-0a1b2c3d`, src `10.20.1.15`, dst `10.0.5.20`, sport 443, dport
+  53122, proto 6, packets 10, bytes 8400, start 2023-11-14T22:13:20Z, end +60 s, action accept}.
+- `2 123456789012 eni-0a1b2c3d - - - - - - - 1700000000 1700000060 - NODATA` → `Skip(nodata)`; `… SKIPDATA` →
+  `Skip(skipdata)` counted.
+- Custom header `version vpc-id subnet-id instance-id interface-id account-id type srcaddr dstaddr srcport dstport
+  pkt-srcaddr pkt-dstaddr protocol bytes packets start end action tcp-flags log-status flow-direction traffic-path`
+  with a line whose `flow-direction` is `ingress` → `count_side = per_eni_only` (not in VPC totals); `egress` with
+  `traffic-path 3` → path 3 (VGW).
+- No `flow-direction`, ENI IPs {10.20.1.15}: src 10.20.1.15 → egress (counted); dst 10.20.1.15 → ingress (per-ENI
+  only); ENI unknown in the index → counted, flag `approximate`.
+- `spread(start=00:00:30, end=00:10:30, packets=11, bytes=1001)` over 11 minutes (00:00 … 00:10) → bytes 91 each,
+  packets 1 each; `spread(00:00:00, 00:01:00, 3, 10)` → one minute (00:00) with 3/10 (end is exclusive).
+- A line with too few fields → `parse_error` (counted, first 3 per object logged with the key, never the full line).
+
+## [4] High availability (4a)
+
+### Settings key `ha` (object, replicated; secrets AES-GCM with AAD `b"ha.<field>"`)
+```json
+{ "cluster_name": "netmon",
+  "witness_urls": [ {"url": "https://10.30.0.10:8443", "label": "private"},
+                    {"url": "https://203.0.113.10:8443", "label": "internet", "via": "proxy"} ],   // ≤ 3; via: direct|proxy
+  "auto_failover": true,
+  "heartbeat_s": 5,                        // 1–30
+  "failover_after_s": 60,                  // 20–600
+  "boot_wait_s": 120,                      // 30–900
+  "max_failover_lag_s": 300,               // 0–3600
+  "quorum_sample_size": 20,                // 3–100
+  "quorum_pct": 60,                        // 30–100
+  "quorum_min_ok": 3,                      // absolute minimum of reachable devices
+  "spool_max_gb": 10, "spool_hours": 72,
+  "notify_channel_ids": [],                // HA events to these channels (in addition to system events)
+  "dns": { "method": "none",               // none | ad_gss_tsig | route53
+           "record": "netmonitor.mnidom.net", "ttl": 60,
+           "node_addresses": {"office1": "10.0.0.50", "aws1": "10.20.1.50"},
+           "ad_servers": ["dc1.mnidom.net", "dc2.mnidom.net"], "ad_zone": "mnidom.net",
+           "ad_principal": "svc-netmon-dns@MNIDOM.NET", "ad_keytab_enc": null,
+           "route53_zone_id": null, "route53_record": null, "route53_role_arn": null },
+  "ca_cert_pem": null, "ca_key_enc": null,           // HA CA (§ 15.3.10)
+  "repl_password_enc": null,
+  "node_tokens_enc": null,                           // {"office1": "...", "aws1": "...", "witness": "..."}
+  "pairing": null,                                   // {"code_hash", "expires_at", "attempts"} while pending
+  "last_test": null }
+```
+Node-local (never in the DB): role file variables (architecture § 15.3.11), `/data/ha/state.json` `{"node",
+"epoch", "holder", "role", "fenced_reason", "needs_rejoin", "rejoin_request": null|"rewind"|"rebuild",
+"promoted_at", "replay_from"}`, `/data/ha/spool/`, `/data/ha/tls/` (node cert/key).
+
+### `ha_state` (single row, `id = 1`, written by the active node)
+`epoch bigint NOT NULL`, `holder varchar(64) NOT NULL`, `since timestamptz`, `previous_holder varchar(64) NULL`,
+`reason text` (`initial`, `failover`, `switchover`, `forced`), `granted_by text` (`witness`, `forced`).
+
+### `ha_nodes`
+`name varchar(64) PK`, `address inet`, `preferred_role text CHECK in ('primary','standby')`, `last_role text CHECK in
+ha_role`, `last_seen timestamptz`, `version varchar(32)`, `db_image varchar(256)`, `lag_bytes bigint NULL`,
+`lag_s real NULL`, `paths jsonb` (witness paths status), `quorum jsonb` (last sample result), `spool jsonb`.
+Written by the active node from its own state and the peer's heartbeats.
+
+### `ha_events`
+`id bigint PK`, `time timestamptz`, `node varchar(64)`, `kind text CHECK in ha_event_kind`, `epoch bigint`,
+`details jsonb`. Index `(time DESC)`. Standby-side events are journaled in its spool (`journal`) and inserted after
+a promotion, or sent to the active node in heartbeats (≤ 20 per heartbeat). Retention 365 days.
+
+### `ha_quorum_anchors`
+`device_id integer PK` FK `devices.id` ON DELETE CASCADE, `added_by`, `added_at`. ≤ 20.
+
+### `ha_replay_runs`
+`id`, `node`, `epoch`, `started_at`, `finished_at`, `replay_from`, `counts jsonb` (`{"trap": {"read", "inserted",
+"duplicates", "too_old", "rule_evaluated"}, …}`), `status run_status`, `error`.
+
+### Pure vectors
+- `witness_grant`: state {epoch 7, holder office1, last office1 heartbeat 70 s ago on any path}, candidate aws1 fresh
+  2 s, quorum 15/20 ok, lag 2 s, failover_after 60 → **grant 8**. Same with office1 heard 5 s ago via `internet`
+  only → refuse `holder_alive`. Quorum 8/20 (40 %) → refuse `no_quorum`. Lag 900 s → refuse `lag_too_high`. Request
+  for epoch 9 → refuse `epoch_mismatch`. A second request within 60 s → refuse `recent_grant`. `auto_failover` false →
+  refuse `auto_failover_off`.
+- `node_step` (active office1, epoch 7): peer unreachable, witness unreachable, own quorum 18/20 → `stay_active` +
+  alert `peer_and_witness_unreachable`; own quorum 2/20 for 60 s → `self_fence(isolated)`; witness says epoch 8 holder
+  aws1 → `fence(higher_epoch)`. Standby aws1: peer lost 61 s, quorum fails → `stay_standby(no_quorum)`; quorum ok →
+  `request_grant(8)`. Boot of office1 with local epoch 7, witness reports 8 → `fence`; nothing reachable for 120 s,
+  quorum ok → `start_active`.
+- Spool replay: replay_from 10:00:00; syslog records at 09:59:50 (skip `too_old`), 10:00:02 present in DB with equal
+  raw hash at 10:00:03 (skip `duplicate`), 10:00:05 absent (insert); at replay time 10:04:00 the 10:00:05 record is
+  < 5 min old → rules evaluated.
+
+## [4] Certificates (4c)
+
+### Sensor type `tls_cert` (config)
+| Key | Type | Default | Limits |
+|---|---|---|---|
+| `host` | str \| null | null (= device host) | |
+| `port` | int | 443 | 1–65535 |
+| `sni` | str \| null | null (= host when it is a name) | |
+| `starttls` | str | `none` | `none`, `smtp`, `imap`, `pop3`, `ftp`, `ldap`, `postgres` |
+| `verify_chain` | bool | true | |
+| `check_hostname` | bool | true | |
+| `warning_days` | int \| null | null (= `cert_warning_days`) | 1–365 |
+| `critical_days` | int \| null | null (= `cert_critical_days`) | 0–365 |
+| `timeout_s` | int | 10 | 1–60 |
+Channels: `days_left` (d, primary; warning `< warning_days`, down `< critical_days`), `chain_ok` (0/1, down when 0),
+`hostname_ok` (0/1, warning when 0), `key_bits` (bits). Default interval 3600 s.
+
+### `certificates`
+`sha256 char(64) PK`, `subject text`, `subject_cn varchar(256)`, `sans text[]`, `issuer text`, `serial_hex
+varchar(128)`, `not_before`, `not_after timestamptz`, `key_type varchar(16)`, `key_bits integer`, `sig_alg
+varchar(64)`, `self_signed boolean`, `is_ca boolean`, `first_seen`, `last_seen`. Index `(not_after)`.
+
+### `certificate_endpoints`
+`id bigint PK`, `cert_sha256` FK `certificates.sha256` ON DELETE CASCADE, `source text` (`tls_cert`, `http`, `ldap`,
+`siem`, `aws`, `self`, `ha`), `host varchar(255)`, `port integer`, `sni varchar(255)`, `sensor_id integer NULL` FK ON
+DELETE SET NULL, `device_id integer NULL` FK ON DELETE SET NULL, `chain_ok boolean`, `hostname_ok boolean`, `error
+varchar(256)`, `last_seen`. Unique `(source, host, port, sni)`; endpoints not seen for 30 days are deleted, then
+certificates without endpoints after another 30 days.
+
+Scalar keys: `cert_warning_days` (30, 1–365), `cert_critical_days` (7, 0–365), `cert_daily_check_time` (`"07:00"`).
+
+## [4] Optics and PoE (4c)
+
+### Template library: `dom:` and `poe:` sections (schema 1, additive)
+```yaml
+dom:
+  confidence: medium            # verified | medium | low
+  table: 1.3.6.1.4.1.25506.2.70.1.1.1           # hh3cTransceiverInfoTable (Comware; confirm with the owner's walk)
+  index: ifindex                # ifindex | entity (ENTITY-MIB alias mapping) | name_tail
+  columns:                      # column OID suffix or full OID; unit + scale
+    rx_power:   {oid: "<col>", unit: dbm, scale: 0.01}
+    tx_power:   {oid: "<col>", unit: dbm, scale: 0.01}
+    temperature: {oid: "<col>", unit: celsius, scale: 1}
+    voltage:    {oid: "<col>", unit: volt, scale: 0.01}
+    bias:       {oid: "<col>", unit: ma, scale: 0.01}
+    vendor: {oid: "<col>"}, serial: {oid: "<col>"}, wavelength_nm: {oid: "<col>"}, type: {oid: "<col>"}
+  thresholds:                   # optional, same unit rules
+    rx_low_alarm: {oid: "<col>", unit: dbm, scale: 0.01}
+    rx_low_warning: …, rx_high_warning: …, tx_low_warning: …, temp_high_warning: …
+  no_signal_below_dbm: -40
+poe:
+  confidence: low
+  port_power: {oid: "<col>", unit: mw, scale: 1}     # per pethPsePortTable index (group, port)
+  index: pse                                          # pse (map_pse_ports) | ifindex
+```
+`unit: uw|mw` power values convert to dBm with `10·log10(mW)`; `0` → `no_signal`. `<col>` placeholders are filled
+from the owner's snmpwalk; a section with an unfilled column is skipped with `unsupported` (load warning, not an
+error). The `entity` index uses ENTITY-SENSOR-MIB (`entPhySensorType` 14 dBm, 8 celsius, 4 voltsDC, 5 amperes;
+`entPhySensorScale` 9 = units, 8 = milli, 7 = micro; `entPhySensorPrecision` decimals).
+
+### `port_optics` (latest)
+`device_id`, `if_index` PK both; `status text CHECK in optics_status`, `rx_dbm`, `tx_dbm`, `temp_c`, `voltage_v`,
+`bias_ma` (real NULL), `thresholds jsonb`, `module jsonb` (`vendor`, `part`, `serial`, `wavelength_nm`, `type`),
+`baseline_rx_dbm real NULL` (7-day median, recomputed daily), `updated_at`.
+
+### `port_optics_samples` (hypertable, chunk 7 days, retention `optics_retention_days`)
+`time`, `device_id`, `if_index`, `rx_dbm`, `tx_dbm`, `temp_c`, `bias_ma`, `voltage_v`. Index `(device_id, if_index,
+time DESC)`.
+
+### `port_poe_samples` (hypertable, chunk 7 days, retention `poe_retention_days`)
+`time`, `device_id`, `if_index`, `power_w real NULL`, `class smallint NULL`, `detection smallint NULL`.
+
+### Optics vectors (pure `optics.evaluate`)
+Thresholds {rx_low_alarm −14.0, rx_low_warning −12.0}: rx −11.5 → ok; −12.5 → warning; −14.5 → alarm. No thresholds,
+`optics_rx_low_dbm` −20, drift 3, baseline −6.0: rx −8.9 → ok; −9.1 → warning (drift); −21 → warning (low). Port
+oper down and rx −40 → `no_signal`. Comware raw −1234 with scale 0.01 → −12.34 dBm; 0.5012 mW → −3.0 dBm (1
+decimal).
+
+Scalar keys: `optics_interval_s` (900, 300–86400), `optics_retention_days` (90, 7–730), `optics_rx_low_dbm` (−20,
+−40…0), `optics_drift_db` (3, 1–20), `poe_retention_days` (30, 1–365).
+
+## [4] Configuration compliance (4c)
+
+### `compliance_rules`
+| Column | Type | Constraints |
+|---|---|---|
+| id | integer | PK identity |
+| builtin_key | varchar(64) | NULL UNIQUE — seeded rules (`comware.ssh_enabled` …) |
+| name | varchar(128) | NOT NULL |
+| description | text | NOT NULL DEFAULT '' |
+| enabled | boolean | NOT NULL DEFAULT false (seeded) / true (created by admin) |
+| severity | text | NOT NULL CHECK in severity4 |
+| kind | text | NOT NULL CHECK in compliance_kind |
+| pattern | varchar(512) | NULL — must_contain / must_not_contain / count |
+| block_start | varchar(512) | NULL — block |
+| block_filter | varchar(512) | NULL |
+| require | text[] | NOT NULL DEFAULT '{}' (≤ 20 patterns) |
+| forbid | text[] | NOT NULL DEFAULT '{}' |
+| count_min, count_max | integer | NULL |
+| ignore_case | boolean | NOT NULL DEFAULT true |
+| scope | jsonb | NOT NULL DEFAULT '{}' — `{"group_ids": [], "device_ids": [], "drivers": [], "exclude_device_ids": []}`; empty = all devices with config backups |
+| remediation | jsonb | NOT NULL DEFAULT '{}' — `{"hpe_comware": "undo telnet server enable", "default": "…"}` |
+| created_at, updated_at | timestamptz | |
+Validation: patterns compile (Python `re`), each ≤ 512 chars; kind-specific fields required.
+
+### `compliance_results`
+`device_id`, `rule_id` PK both (FKs ON DELETE CASCADE); `config_version_id bigint NULL` FK ON DELETE SET NULL;
+`status text CHECK in compliance_status`; `details jsonb` (`{"lines": [{"no": 42, "text": "telnet server enable"}],
+"blocks_failed": [{"start_no": 80, "header": "interface GigabitEthernet1/0/5", "missing": ["stp edged-port"]}]}`, ≤
+20 entries); `evaluated_at`; `changed_at` (last status change).
+
+### `compliance_daily`
+`day date`, `device_id`, `passed`, `failed`, `failed_high` (high + critical), `applicable`, `score real`; PK `(day,
+device_id)`; retention 365 days.
+
+### Evaluator vectors (pure `compliance.evaluate`)
+- `must_not_contain` `^\s*telnet server enable` on Comware text with ` telnet server enable` at line 12 → fail, lines
+  [12]; without it → pass.
+- `block` start `^interface (GigabitEthernet|Ten-GigabitEthernet)`, filter `port access vlan`, require `stp
+  edged-port`: three interfaces, two access ports, one with `stp edged-port` → fail, one block listed; the trunk
+  interface is not checked.
+- `count` `^ntp-service unicast-server` min 2: one line → fail; two → pass.
+- Masked line ` snmp-agent community read cipher <secret removed>` matches `snmp-agent community read` → pass for a
+  presence rule.
+- Pattern `(a+)+$` on a 10 000-char line → `error` (`regex_timeout`), the run continues.
+
+Built-in rules seeded by `0016` (all `enabled = false`): `ssh_enabled`, `telnet_disabled`, `no_default_snmp_community`,
+`snmpv3_configured`, `ntp_configured`, `syslog_host_configured`, `snmp_trap_target_configured`, `login_banner`,
+`http_mgmt_disabled`, `aaa_configured`, `stp_edge_access_ports` — each per driver (`hpe_comware`,
+`hpe_arubaos_switch`, `aruba_cx`, `cisco_ios`) where it applies, ≈ 35 rows, with remediation text.
+
+## [4] On-call (4c)
+
+### `oncall_schedules`
+`id`, `name varchar(128) UNIQUE`, `description`, `timezone varchar(64) NULL` (NULL = setting `timezone`),
+`created_at`, `updated_at`.
+
+### `oncall_layers`
+`id`, `schedule_id` FK ON DELETE CASCADE, `position smallint`, `name`, `rotation text CHECK in ('daily','weekly',
+'custom')`, `rotation_days smallint NULL` (custom, 1–90), `handoff_time time`, `handoff_weekday smallint NULL`
+(weekly, 1 = Monday … 7), `start_date date`, `participants integer[]` (user ids, ordered, 1–50), `restrictions jsonb
+NULL` (`[{"weekdays": [5,6], "from": "18:00", "to": "08:00"}]` — local time windows; a window crossing midnight
+belongs to its start day).
+
+### `oncall_overrides`
+`id`, `schedule_id` FK CASCADE, `user_id` FK users ON DELETE CASCADE, `start_at`, `end_at` (end > start, ≤ 90 days),
+`reason varchar(256)`, `created_by`.
+
+### `escalation_policies` / `escalation_steps`
+Policies: `id`, `name UNIQUE`, `repeat int` (0–5), `description`. Steps: `id`, `policy_id` FK CASCADE, `position`,
+`delay_min int` (delay **before the next step**, 1–1440), `targets jsonb` (`[{"type": "schedule", "id": 3},
+{"type": "user", "id": 7}, {"type": "channel", "id": 12}]`, 1–10).
+
+### `user_contacts`
+`id`, `user_id` FK CASCADE, `kind text CHECK in ('email','telegram','teams_mention')`, `value varchar(256)` (email
+address; telegram: empty — uses the user's `chat_identities` link; teams_mention: display name + channel id
+`{"channel_id": 4, "name": "Shachar"}` as JSON text), `enabled`, `verified_at` (test page answered). Unique `(user_id,
+kind, value)`.
+
+### `oncall_pages`
+`id bigint`, `alert_state_id` (the 2b-1 persistent alert state / problem) UNIQUE, `policy_id`, `step_position`,
+`round smallint`, `next_at timestamptz NULL`, `paged jsonb` (`[{"user_id", "step", "at", "channels": [...]}]`),
+`acked_at`, `resolved_at`, `created_at`. Index `(next_at) WHERE next_at IS NOT NULL`.
+
+### `alert_rules` gains
+`escalation_policy_id integer NULL` FK `escalation_policies.id` ON DELETE SET NULL. 422 when set together with
+`escalation_after_s`.
+
+### Vectors (pure `oncall.who`, `oncall.shifts`; zone Asia/Jerusalem)
+Weekly layer, handoff Sunday 09:00, start 2026-10-04, participants [A, B]: 2026-10-24 (Sat) 12:00 → B; 2026-10-25
+(Sun) 08:59 → B, 09:00 → A (DST ended 2026-10-25 02:00 — the handoff stays at local 09:00). Weekend-night layer
+(restriction Fri/Sat 18:00–08:00, participants [C]) on top: Friday 20:00 → C; Saturday 07:59 → C; Saturday 08:00 →
+base layer. Override D 2026-10-26 10:00–12:00 → D in that window only.
+
+Scalar keys: `oncall_default_policy_id` (int \| null, null), `oncall_ical_enabled` (bool, true).
+
+## [4] S3 backups (4c)
+
+### Settings key `s3_backup` (object)
+```json
+{ "bucket": "mnidom-netmon-backup", "prefix": "netmonitor/", "region": "il-central-1",
+  "role_arn": null, "endpoint_url": null,
+  "sse": "sse_s3", "kms_key_arn": null,                 // sse_s3 | sse_kms
+  "storage_class": "STANDARD",                          // STANDARD | STANDARD_IA
+  "schedule_time": "02:47", "schedule_enabled": true,
+  "keep_daily": 14, "keep_monthly": 12,                 // 1–365 / 0–120; only when delete is allowed
+  "include_key": false, "passphrase_enc": null,         // AAD b"s3_backup.passphrase"
+  "config_export_mode": "all_versions",                 // all_versions | latest_only
+  "last_test": null }                                   // {"ok","at","by","warnings":["no_delete"]}
+```
+
+### `backup_runs`
+`id bigint`, `kind text CHECK in backup_kind`, `trigger text CHECK in ('schedule','manual','event','reconcile')`,
+`status text CHECK in run_status`, `started_at`, `finished_at`, `object_key varchar(1024)`, `size_bytes bigint`,
+`sha256 char(64)`, `items integer` (config export: versions uploaded), `error varchar(512)`, `user_id NULL`,
+`node varchar(64)`. Retention 365 days.
+
+### `restore_runs`
+`id`, `object_key`, `requested_by`, `requested_at`, `finished_at`, `status`, `previous_db varchar(128)` (name of the
+kept database), `backup_meta jsonb`, `error`. Written after the restart from `/data/restore/result.json`.
+
+### `config_export_state`
+`device_id PK` FK CASCADE, `last_version_id bigint`, `last_exported_at`, `errors integer`.
+
+### Object layout
+`<prefix>db/<yyyy>/<mm>/netmon-db-<yyyymmdd-hhmmss>-<app version>.dump`, `…-meta.json` (`{"app_version",
+"alembic", "timescaledb", "postgres", "size", "sha256", "node", "epoch", "created_at", "key_included"}`),
+`…-key.enc` (when `include_key`: `{"v":1,"kdf":"scrypt","n":131072,"r":8,"p":1,"salt":b64,"nonce":b64,"ct":b64}`);
+`<prefix>configs/<slug>-<device id>/<yyyymmddThhmmssZ>-<sha8>.cfg`, `…/latest.cfg`.
+
+## [4] Traffic capture (4c)
+
+### `capture_sources` (mirror)
+`id`, `name UNIQUE`, `kind text CHECK in mirror_kind`, `interface varchar(32)` (must be in the node's
+`NETMON_CAPTURE_IFACES`), `device_id NULL` FK SET NULL, `sender_ip inet NULL` (ERSPAN/GRE/UDP source), `udp_port int
+NULL` (aruba_udp), `erspan_session_id int NULL`, `description`, `enabled`, `last_test jsonb`.
+
+### Capture SSH credentials
+Device captures use `ssh_credentials`; a group/device may carry a separate set in
+`devices.capture_ssh_credentials` / `groups.capture_ssh_credentials` (jsonb, same shape and encryption as
+`ssh_credentials`, AAD `b"capture_ssh.<field>"`; NULL = use the backup credentials).
+
+### `captures`
+| Column | Type | Constraints |
+|---|---|---|
+| id | bigint | PK identity |
+| created_by | integer | NOT NULL FK users |
+| created_at | timestamptz | NOT NULL |
+| node | varchar(64) | NOT NULL — where the file lives |
+| source | text | NOT NULL CHECK in capture_source |
+| device_id | integer | NULL FK ON DELETE SET NULL |
+| interface | varchar(128) | NULL (device interface name) |
+| source_id | integer | NULL FK capture_sources ON DELETE SET NULL |
+| driver | varchar(64) | NULL |
+| filter | varchar(512) | NOT NULL DEFAULT '' (BPF) |
+| snaplen | integer | NOT NULL 64–65535 |
+| max_duration_s, max_bytes, max_packets | integer/bigint | NOT NULL within the hard limits |
+| justification | varchar(512) | NULL — required when snaplen > 128 |
+| status | text | NOT NULL CHECK in capture_status |
+| stop_reason | text | NULL CHECK in capture_stop_reason |
+| started_at, ended_at | timestamptz | NULL |
+| packets, bytes | bigint | NULL |
+| file_name | varchar(128) | NULL — `cap-<id>.pcapng` in the captures volume |
+| file_size | bigint | NULL |
+| file_sha256 | char(64) | NULL |
+| format | varchar(16) | NULL (`pcap`, `pcapng`, `snoop`) |
+| expires_at | timestamptz | NOT NULL |
+| error | varchar(512) | NULL |
+Index `(created_at DESC)`, `(expires_at)`.
+
+Scalar keys: `capture_default_duration_s` (60, 1–600), `capture_default_mb` (20, 1–200), `capture_default_packets`
+(100000, 100–1000000), `capture_default_snaplen` (128, 64–65535), `capture_retention_h` (24, 1–168),
+`capture_quota_mb` (2048, 100–20480), `capture_max_pps` (20000, 100–1000000), `capture_max_mbps` (50, 1–1000),
+`capture_max_running` (2, 1–4).
+
+### Capture driver data files (`backend/netmon/capture/drivers/*.yaml`, schema 1)
+```yaml
+id: hpe_comware_capture
+match: {drivers: [hpe_comware]}          # phase-3 config-backup driver ids
+mode: shell                               # shell | exec (as phase 3)
+precheck:
+  - {command: "dir flash:/", expect: "KB total"}           # free space parsed by free_regex
+free_regex: "(?P<total>[\\d,]+) KB total.*?\\((?P<free>[\\d,]+) KB free\\)"
+min_free_kb: 20480
+start: >-
+  packet-capture local interface {interface}{filter_clause} limit-frame-size {snaplen}
+  autostop duration {duration} autostop filesize {size_kb} write flash:/netmon-cap-{id}.pcap
+filter_clause: ' capture-filter "{filter}"'
+wait: {kind: duration, extra_s: 5, done_regex: "(?i)capture (stopped|finished)"}
+fetch: {method: sftp, path: "flash:/netmon-cap-{id}.pcap", sftp_path: "/netmon-cap-{id}.pcap"}
+cleanup: "delete /unreserved flash:/netmon-cap-{id}.pcap"
+errors: ["(?i)permission denied", "(?i)unrecognized command", "(?i)% ?(wrong|incomplete) parameter"]
+confidence: low                           # verify on the owner's firmware
+```
+Placeholders are substituted after validation: `interface` must exist in the device's `switch_ports` names (or
+match `^[A-Za-z][A-Za-z0-9/._:-]{0,63}$` for firewalls), `filter` only characters `[A-Za-z0-9 .:/()!&|<>=_-]` and
+quotes are refused, numbers are integers within limits — no shell metacharacters ever reach the device.
+
+## [4] Settings keys (summary)
+Objects: `aws`, `aws_cloud`, `ha`, `s3_backup` (only through their own endpoints; never in `GET /api/settings`).
+Scalars (in `GET/PUT /api/settings`): the 11 new `feature_*_enabled`, `aws_inventory_interval_min`,
+`aws_change_retention_days`, `aws_flowlogs_poll_min`, `aws_flowlogs_max_lag_h`, `aws_flowlogs_max_records_per_poll`,
+`aws_reject_retention_days`, `cert_warning_days`, `cert_critical_days`, `cert_daily_check_time`,
+`optics_interval_s`, `optics_retention_days`, `optics_rx_low_dbm`, `optics_drift_db`, `poe_retention_days`,
+`oncall_default_policy_id`, `oncall_ical_enabled`, `capture_*` (9 keys above).
+
+## [4] Phase 4 migrations (`0009`–`0018`)
+Each file `backend/netmon/migrations/versions/00NN_phase4_<name>.py`, `down_revision` = the previous number.
+
+| Rev | PR | `upgrade()` | `downgrade()` |
+|---|---|---|---|
+| `0009` | 4-0 shared AWS | insert settings row `aws` copied from `assistant` (auth fields, `reencrypted: false`); `audit_log_source_check` + `cli` | when `reencrypted` is false: delete the `aws` row (the 3b fields are still in `assistant`); when true: refused unless `NETMON_FORCE_DOWNGRADE=1`, which deletes it (the admin re-enters the AWS secrets in the 3b form); restore the check |
+| `0010` | 4d-1 inventory | `aws_accounts`, `aws_resources`, `aws_resource_changes`, `aws_ip_index`, `aws_eni_index`; `sensors_type_check` + `aws_dx_connection`, `aws_dx_vif` | reverse |
+| `0011` | 4d-2 flow logs | `aws_flowlog_sources`, `aws_flowlog_objects`, `aws_flow_paths`, `aws_flow_rejects`; `flow_exporters.kind`, `.aws_resource_id` | delete `aws_vpc` exporters (cascade their aggregates), drop columns and tables |
+| `0012` | 4c-2 certificates | `certificates`, `certificate_endpoints`; sensor type `tls_cert` | reverse (delete `tls_cert` sensors first) |
+| `0013` | 4c-1 optics/PoE | `port_optics`, `port_optics_samples`, `port_poe_samples`; sensor types `optics`, `poe_budget` | reverse |
+| `0014` | 4c-5 S3 | `backup_runs`, `restore_runs`, `config_export_state` | reverse |
+| `0015` | 4a-1 HA | `ha_state` (row `epoch 0, holder ''`), `ha_nodes`, `ha_events`, `ha_quorum_anchors`, `ha_replay_runs` | reverse (refused while `ha_state.epoch > 0` unless `NETMON_FORCE_DOWNGRADE=1`) |
+| `0016` | 4c-3 compliance | `compliance_rules` (+ built-in seed, disabled), `compliance_results`, `compliance_daily`; sensor type `config_compliance` | reverse |
+| `0017` | 4c-4 on-call | `oncall_schedules`, `oncall_layers`, `oncall_overrides`, `escalation_policies`, `escalation_steps`, `user_contacts`, `oncall_pages`; `alert_rules.escalation_policy_id` | reverse |
+| `0018` | 4c-6 capture | `capture_sources`, `captures`; `devices.capture_ssh_credentials`, `groups.capture_ssh_credentials` | reverse |
+Settings rows of removed features stay (harmless) as in earlier phases. Hypertables (`aws_flow_paths`,
+`aws_flow_rejects`, `port_optics_samples`, `port_poe_samples`) are created by the Timescale bootstrap with retention
+policies from the settings above.

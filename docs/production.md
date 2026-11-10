@@ -427,3 +427,62 @@ ARN to the VPC endpoint policy if one is used.
 | `bedrock_model_invalid` | Use the inference **profile** ID (`us.…` / `global.…`), not the bare model ID; profile exists in that region. |
 | `bedrock_access_denied` | Policy ARNs (region, account, profile ID, foundation-model ID); VPC endpoint policy; SCPs for cross-region inference. |
 | `stream_buffered` warning | The proxy buffers responses — use a VPC endpoint with *Proxy: direct*, or a proxy exception. |
+
+## Phase 4: AWS cloud view, high availability, backups to S3, traffic capture
+
+Everything new is **off** after the upgrade. Contract: [architecture.md § 15](architecture.md#15-phase-4-aws-cloud-view-and-vpc-flow-logs-high-availability-monitoring-depth-on-call-s3-backups-traffic-capture).
+A single server without `node.env` stays a single node exactly as today. The only change every server sees is one
+`db` restart at the first phase-4 deploy (new PostgreSQL flags: `wal_log_hints=on`, replication slots, `ssl`, hba
+file — needed only for HA, harmless otherwise).
+
+### AWS (cloud inventory, VPC Flow Logs, S3) — no server change
+- The 3b AWS authentication (IAM Roles Anywhere with the PKI certificate, or the access key) moves to
+  *Settings → AWS* automatically (migration `0009` + re-encryption at the first start); the assistant keeps working.
+- Each AWS feature can use its own role ARN in the same Roles Anywhere profile (least privilege). Policies:
+  `deploy/production/aws/cloud-readonly-policy.json`, `flowlogs-read-policy.json`, `s3-backup-policy.json`,
+  `route53-ha-dns-policy.json` (added by the phase-4 PRs, rendered by `aws/render-policies.py`).
+- Network: interface VPC endpoints over Direct Connect for `ec2`, `directconnect`, `logs`, `monitoring`, `sts`, `s3`
+  (and `rolesanywhere`), entered in *Settings → AWS → Endpoint overrides*; otherwise the outbound proxy
+  (`/etc/netmon-gitops/app.env`).
+- Cost: flow logs to S3 (text, gzip) are read once per object; data transfer from AWS over DX applies to the
+  compressed bytes. CloudWatch Logs as a source works but its ingestion is the expensive part (paid on the AWS side).
+
+### High availability (two nodes + witness)
+- **Files:** `deploy/production/nodes/<node>.env` (in git, static identity, no secrets) and on each server
+  `/etc/netmon-gitops/node.env` with `NETMON_NODE=<node>` (`ops/bootstrap.sh --node office1`). `sync.sh` then uses
+  `--env-file release.env --env-file nodes/<node>.env`. Both nodes always deploy the same `release.env`.
+- **Order** (`ops/ha-gate.sh`, called by `sync.sh`): a new **netmon** image deploys on the **active** node first and
+  on the standby after the active is healthy on it; a new **db** image deploys on the **standby** first. PostgreSQL
+  major upgrades are manual (`check-release.sh` refuses them while `nodes/*.env` exist unless
+  `NETMON_ALLOW_PG_MAJOR=1`).
+- **Join a standby:** on the active node *Settings → High availability → Prepare pairing* (one-time code), then on
+  the standby host `sudo /opt/netmon/deploy/production/ops/ha-join.sh --primary office1.mnidom.net --code …`
+  (copies `secret.key`, the DB and replication passwords and the HA certificates, runs `pg_basebackup`).
+- **Firewall:** `ops/ha-firewall.sh` opens 5432/tcp on the node address to the peer only; Caddy serves
+  `/api/ha/peer/*` and `/api/ha/pair` to the peer address only.
+- **Rejoin after a failover:** automatic (`HA_AUTO_REJOIN=1`): the timer runs `ops/ha-rejoin.sh` (exports the
+  divergent audit rows to `/var/backups/netmon/ha/`, then `pg_rewind`); `ops/ha-rejoin.sh --rebuild` by hand if
+  rewind is impossible.
+- **Backups:** `backup.sh` dumps the DB only on the active node; the standby archives its data volume only.
+- **Witness:** `deploy/witness/` (compose + `witness.cfn.yaml`), a `t4g.nano` in a separate VPC, port 8443 from the two
+  nodes and the proxy egress; alerts through SNS (and optional Teams/Telegram). It runs the same image version.
+- **DNS:** recommended — the active node updates `netmonitor.mnidom.net` in AD by secure dynamic update (GSS-TSIG)
+  with the dedicated account `svc-netmon-dns` that has Write on that record only (architecture § 15.11.4).
+  Alternative — CNAME to a Route 53 private zone record updated by the active node (does not resolve from the office
+  during a DX outage). Both nodes' certificates must contain `netmonitor.mnidom.net` and the node names.
+- **Devices** send traps/syslog/flows to **both** node addresses and allow SNMP from both; the system never changes
+  device configuration — the `/ha` page lists which devices already send to the standby.
+- **Status:** `ops/status.sh` (role, epoch, lag, witness, spool) and `ops/ha-status.sh` (JSON).
+
+### Backups to S3
+In-app (`s3_backup`): daily `pg_dump` streamed to S3 at 02:47, retention by S3 lifecycle or in the app, restore from
+the UI (maintenance mode, safety dump, database swap, restart). The host backups of `backup.sh` stay; `secret.key` is
+uploaded only wrapped with a passphrase (option). Bucket: versioning (+ Object Lock) recommended.
+
+### Traffic capture add-on (optional)
+Enable with `COMPOSE_PROFILES=capture` and `NETMON_CAPTURE_IFACES=ens224` (the mirror NIC, no IP) in the node's role
+file; `release.env` pins `NETMON_CAPTURE_IMAGE` (same version). Services: `capture-agent` (host network,
+`NET_RAW`/`NET_ADMIN`, only the listed interfaces) and `capture-decoder` (tshark, no network, no capabilities).
+ERSPAN/GRE mirrors from switches are configured by hand, once. On-device capture (Comware `packet-capture`, Check
+Point `tcpdump`) needs no add-on for download; on Comware a custom user role allowing only the capture commands may
+be needed (README example).

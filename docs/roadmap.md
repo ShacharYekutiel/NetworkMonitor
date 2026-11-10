@@ -225,10 +225,39 @@ Owner decisions for 3b (architecture § 14.13): `us-east-1` + `us.` inference pr
 redaction off in the app, on in Telegram; Roles Anywhere recommended (UI upload or server-side CSR, trust anchor
 Mnidom-PKI-SERV-CA); Knowledge Base implemented, OFF.
 
+## Phase 4 (branch `phase4`, from `phase3b`)
+Contract: architecture.md § 15, data-model.md § Phase 4 (migrations `0009`–`0018`), api.md § Phase 4. Owner summary
+(Hebrew): docs/phase4-summary.he.md.
+
+**Owner rules:** every feature behind its own toggle, **OFF by default**; nothing mandatory (a single server with
+everything OFF behaves as in 3b); configure-first features (AWS cloud, flow logs, HA, S3 backups, capture) show the
+form always with the switch at the bottom next to *Test connection*, unlocked only after a successful test in the
+current session; **the system never changes switch configuration**; all AWS features reuse the 3b AWS authentication
+and use read-only AWS permissions (S3 backups write only to their bucket prefix).
+
+Order (owner decision: the AWS VPC Flow Logs feature moved to the beginning):
+16. **Shared AWS connection** (*Settings → AWS*; the 3b Roles Anywhere / access key moved there).
+17. **4d — AWS cloud view and VPC Flow Logs:** read-only inventory (VPCs, subnets, ENIs, SGs, NACLs, routes, TGW,
+    DX connections/VIFs/gateways, endpoints) for several accounts/regions, cloud topology map, DX/VIF state sensors;
+    flow logs from S3 (recommended) or CloudWatch Logs into the phase-3 flow views, on-prem ↔ AWS traffic, rejected
+    flows, traffic paths.
+18. **4c — certificates** (30-day warning, inventory), **optics DOM + PoE per port**, **S3 backups** (scheduled DB
+    backups, restore from the UI, export of config versions).
+19. **4a — high availability:** office primary, standby on the DR site / AWS, PostgreSQL streaming replication,
+    witness in a separate AWS VPC (also alerts when a server dies), automatic failover guarded by a device quorum (a
+    Direct Connect outage never causes a takeover), epoch fencing, switchover/failover button + CLI, DNS by AD secure
+    dynamic update (Route 53 alternative), two-node GitOps, `/ha` status page.
+20. **4c — configuration compliance**, **on-call schedules and escalation**, **traffic capture** (on-device over SSH
+    and from a permanent mirror; browser analyzer with tshark in an isolated add-on container).
+- **4b — isolated zones / remote probes:** deferred (principle: the central server initiates the connection).
+
+Open questions for phase 4: architecture § 15.16 (Q1–Q7).
+
 ## Later / ideas
-- Per-port PoE status table.
 - Template editor in the UI.
-- Remote probes for multiple sites; backup/restore of NetworkMonitor itself from the UI.
+- Remote probes for multiple sites (phase 4b, deferred).
+- Phase 4 follow-ups: Transit Gateway flow logs, Parquet flow logs, AWS change alerts as event rules, SMS/voice paging,
+  S3 event notifications (SQS) instead of listing.
 - Phase 3 follow-ups: config-backup driver editor, Telnet (only if a device needs it), server-side PDF reports,
   Kerberos SSO on native Windows (SSPI), a flow worker process, alerts driven by flow thresholds.
 - Phase 3b follow-ups: model summarisation of long conversations, Teams inbound questions (needs a reachable bot
