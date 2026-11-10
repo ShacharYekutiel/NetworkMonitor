@@ -1,5 +1,6 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useTranslation } from 'react-i18next';
+import { endpoints, qk } from '../../api/endpoints';
 import { endpoints3, qk3 } from '../../api/endpoints3';
 import type { NotificationChannel, NotificationType } from '../../api/types';
 import { useFeatures } from '../../hooks/features';
@@ -32,6 +33,12 @@ export function ChatAckFields({
     queryFn: endpoints3.telegramStatus,
     enabled: features.chat_ack && isTelegram,
   });
+  const settings = useQuery({
+    queryKey: qk.settings,
+    queryFn: endpoints.settings,
+    enabled: features.chat_ack && (type === 'teams' || type === 'email'),
+  });
+  const noPublicUrl = settings.data !== undefined && !settings.data.public_base_url;
   const poller = poll.data?.pollers.find((p) => channel && p.channel_ids.includes(channel.id));
   const take = useMutation({
     mutationFn: () => endpoints3.takeOverBot((channel as NotificationChannel).id),
@@ -93,6 +100,14 @@ export function ChatAckFields({
           <p className="text-xs text-slate-500">
             {type === 'teams' ? t('chatAck.teamsLimit') : t('chatAck.emailHint')}
           </p>
+          {ackLink && noPublicUrl && (
+            <p
+              className="text-xs text-amber-700 dark:text-amber-300"
+              data-testid="ack-needs-public-url"
+            >
+              {t('chatAck.needsPublicUrl')}
+            </p>
+          )}
         </>
       )}
     </fieldset>
