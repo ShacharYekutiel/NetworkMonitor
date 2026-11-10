@@ -396,6 +396,8 @@ export type Report = {
   channel_ids: number[];
   next_run_at: string | null;
   last_run: { id: number; status: ReportRunStatus; finished_at: string | null } | null;
+  /** [3b] AI narrative summary (feature ai_report_summary) */
+  ai_summary?: boolean;
   created_at: string;
   updated_at: string;
 };
@@ -416,6 +418,9 @@ export type ReportRun = {
   language: Language;
   created_by: string | null;
   deliveries: ReportDelivery[];
+  /** [3b] */
+  ai_summary_status?:
+    'ok' | 'failed' | 'skipped_cap' | 'timeout' | 'unverified_numbers' | 'disabled' | null;
 };
 export type AvailabilityRow = {
   device_id: number;
@@ -429,6 +434,8 @@ export type AvailabilityRow = {
   longest_outage_s: number;
 };
 export type ReportData = {
+  /** [3b] AI-generated summary paragraph */
+  ai_summary?: string | null;
   generated_at: string;
   period_start: string;
   period_end: string;

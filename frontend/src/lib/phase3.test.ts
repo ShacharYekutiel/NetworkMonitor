@@ -572,16 +572,16 @@ describe('[3] Features page', () => {
     expect(featuresOfTab('noc')).toEqual(['noc']);
     expect(featuresOfTab('chatAck')).toEqual(['chat_ack']);
     expect(featuresOfTab('features')).toEqual(['lag', 'timeline']);
-    expect(movedFeatures()).toHaveLength(15);
+    expect(movedFeatures()).toHaveLength(26); // [3b] +11 in the Assistant tab
     const all = SETTINGS_TABS.flatMap((t) => featuresOfTab(t));
     expect([...all].sort()).toEqual([...FEATURE_NAMES].sort());
     expect(featureTab('chat_ack')).toBe('chatAck');
   });
-  it('groups every feature exactly once under 5 headings', () => {
+  it('groups every feature exactly once under 6 headings', () => {
     const all = FEATURE_GROUPS.flatMap((g) => g.names);
-    expect(FEATURE_GROUPS).toHaveLength(5);
+    expect(FEATURE_GROUPS).toHaveLength(6); // [3b] + Assistant (AI)
     expect([...all].sort()).toEqual([...FEATURE_NAMES].sort());
-    expect(new Set(all).size).toBe(17);
+    expect(new Set(all).size).toBe(28);
   });
   it('dependency hints', () => {
     expect(featureHints('sso_kerberos', ALL_OFF).map((h) => h.key)).toEqual([

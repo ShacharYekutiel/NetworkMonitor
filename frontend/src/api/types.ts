@@ -10,6 +10,8 @@ import type {
   SshCredentials,
 } from './types3';
 export * from './types3';
+export * from './types3b';
+import type { AssistantMessage, AssistantState, Incident, Settings3b, SnmpWalk } from './types3b';
 
 export type Status = 'up' | 'warning' | 'down' | 'paused' | 'unknown' | 'unreachable'; // [2b-1] unreachable
 export type ChannelStatus = 'up' | 'warning' | 'down' | 'unknown';
@@ -330,6 +332,8 @@ export type Health = {
   /** [3] */
   flows_rollup?: 'cagg' | 'table' | null;
   kerberos?: 'ready' | 'unavailable' | 'disabled' | 'error';
+  /** [3b] */
+  assistant?: AssistantState;
 };
 
 // Tree
@@ -459,7 +463,11 @@ export type UnreachableDevice = {
   parent_device_name: string | null;
 };
 
-export type EmailChannelConfig = { to: string[]; /** [3] */ ack_link?: boolean };
+export type EmailChannelConfig = {
+  to: string[];
+  /** [3] */ ack_link?: boolean;
+  /** [3b] */ ai_note_email?: boolean;
+};
 export type WebhookChannelConfig = {
   url: string;
   headers: Record<string, string>;
@@ -476,6 +484,8 @@ export type TelegramChannelConfig = {
   /** [3] chat ack */
   ack_buttons?: boolean;
   ack_link?: boolean;
+  /** [3b] /ask (feature ai_chat_ask) */
+  ai_ask?: boolean;
 };
 /** Request form: bot_token is a real string (or omitted/null = keep). */
 export type TelegramChannelConfigInput = {
@@ -485,6 +495,7 @@ export type TelegramChannelConfigInput = {
   disable_notification: boolean;
   ack_buttons?: boolean;
   ack_link?: boolean;
+  ai_ask?: boolean;
 };
 /** [2b-3] url is a write-only secret */
 export type TeamsChannelConfig = {
@@ -521,6 +532,8 @@ export type AlertRule = {
   escalation_after_s: number | null;
   escalation_channel_ids: number[];
   repeat_every_s: number | null;
+  /** [3b] AI note after the problem notification (feature ai_alert_notes) */
+  ai_note?: boolean;
   created_at: string;
   updated_at: string;
 };
@@ -556,7 +569,8 @@ export type Settings = {
   /** [2b-2] */
   reverse_dns: boolean;
 } & Partial<Settings2b3> &
-  Partial<Settings3>;
+  Partial<Settings3> &
+  Partial<Settings3b>;
 export type SettingsInput = Partial<
   Omit<Settings, 'smtp' | 'trap_communities' | 'trap_v3_users' | 'ldap' | 'trap_communities_count'>
 > & {
@@ -686,7 +700,21 @@ export type WsMessage =
       type: 'chat_ack.poller';
       ts: string;
       data: { bot_username: string; state: 'polling' | 'error'; last_error: string | null };
-    };
+    }
+  // [3b]
+  | {
+      type: 'assistant.message';
+      ts: string;
+      data: { conversation_id: number; message_id: number; status: AssistantMessage['status'] };
+    }
+  | {
+      type: 'assistant.state';
+      ts: string;
+      data: { state: AssistantState; error_code: string | null };
+    }
+  | { type: 'incident.update'; ts: string; data: { incident: Incident } }
+  | { type: 'digest.ready'; ts: string; data: { day: string; status: string } }
+  | { type: 'walk.update'; ts: string; data: { walk: SnmpWalk } };
 
 // ---------------------------------------------------------------------------
 // [2a] Discovery, device templates, snmp storage
@@ -1481,7 +1509,19 @@ export type FeatureName =
   | 'sso_oidc'
   | 'reports'
   | 'noc'
-  | 'chat_ack';
+  | 'chat_ack'
+  // [3b]
+  | 'assistant'
+  | 'ai_explain_alert'
+  | 'ai_correlation'
+  | 'ai_alert_notes'
+  | 'ai_config_diff'
+  | 'ai_syslog_digest'
+  | 'ai_rule_drafts'
+  | 'ai_template_drafts'
+  | 'ai_knowledge'
+  | 'ai_chat_ask'
+  | 'ai_report_summary';
 export const FEATURE_NAMES: FeatureName[] = [
   'traps',
   'syslog',
@@ -1500,6 +1540,18 @@ export const FEATURE_NAMES: FeatureName[] = [
   'reports',
   'noc',
   'chat_ack',
+  // [3b]
+  'assistant',
+  'ai_explain_alert',
+  'ai_correlation',
+  'ai_alert_notes',
+  'ai_config_diff',
+  'ai_syslog_digest',
+  'ai_rule_drafts',
+  'ai_template_drafts',
+  'ai_knowledge',
+  'ai_chat_ask',
+  'ai_report_summary',
 ];
 export type Features = Record<FeatureName, boolean>;
 

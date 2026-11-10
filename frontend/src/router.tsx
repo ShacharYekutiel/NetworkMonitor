@@ -30,6 +30,10 @@ import { NewDevicesPage } from './pages/NewDevicesPage';
 import { ReportsPage } from './pages/ReportsPage';
 import { ReportRunPage } from './pages/ReportRunPage';
 import { AckPage } from './pages/AckPage';
+import { AssistantPage } from './pages/AssistantPage';
+import { AssistantUsagePage } from './pages/AssistantUsagePage';
+import { IncidentPage } from './pages/IncidentPage';
+import { DigestPage } from './pages/DigestPage';
 
 function AdminOnly({ children }: { children: ReactNode }) {
   const { isAdmin } = useAuth();
@@ -105,6 +109,45 @@ export function AppRoutes() {
         <Route path="new-devices" element={<NewDevicesPage />} />
         <Route path="reports" element={<ReportsPage />} />
         <Route path="reports/runs/:id" element={<ReportRunPage />} />
+        {/* [3b] assistant (admins only) */}
+        {(['assistant', 'assistant/c/:id'] as const).map((p) => (
+          <Route
+            key={p}
+            path={p}
+            element={
+              <AdminOnly>
+                <AssistantPage />
+              </AdminOnly>
+            }
+          />
+        ))}
+        <Route
+          path="assistant/usage"
+          element={
+            <AdminOnly>
+              <AssistantUsagePage />
+            </AdminOnly>
+          }
+        />
+        {(['assistant/digests', 'assistant/digests/:day'] as const).map((p) => (
+          <Route
+            key={p}
+            path={p}
+            element={
+              <AdminOnly>
+                <DigestPage />
+              </AdminOnly>
+            }
+          />
+        ))}
+        <Route
+          path="incidents/:id"
+          element={
+            <AdminOnly>
+              <IncidentPage />
+            </AdminOnly>
+          }
+        />
         <Route
           path="audit"
           element={

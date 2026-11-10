@@ -1,6 +1,10 @@
 import { useEffect, useState, type FormEvent } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Trans, useTranslation } from 'react-i18next';
+import { useAiFeature } from '../components/assistant/common';
+import { DraftBanner, RuleDraftBox } from '../components/assistant/RuleDraft';
+import { alertDraftToForm } from '../lib/drafts';
+import type { RuleDraft } from '../api/types';
 import { endpoints, qk, type AlertRuleInput, type ChannelInput } from '../api/endpoints';
 import type {
   AlertRule,
@@ -120,6 +124,11 @@ function ChannelModal({
   // [3] chat acknowledge
   const [ackButtons, setAckButtons] = useState(false);
   const [ackLink, setAckLink] = useState(false);
+  // [3b] Telegram /ask and the email AI-note reply
+  const chatAskOn = useAiFeature('ai_chat_ask');
+  const notesOn = useAiFeature('ai_alert_notes');
+  const [aiAsk, setAiAsk] = useState(false);
+  const [aiNoteEmail, setAiNoteEmail] = useState(true);
 
   useEffect(() => {
     if (!open) return;
@@ -143,6 +152,9 @@ function ChannelModal({
     const cfg = (channel?.config ?? {}) as { ack_buttons?: boolean; ack_link?: boolean };
     setAckButtons(cfg.ack_buttons ?? false);
     setAckLink(cfg.ack_link ?? (channel ? channel.type === 'teams' : false));
+    const c3b = (channel?.config ?? {}) as { ai_ask?: boolean; ai_note_email?: boolean };
+    setAiAsk(c3b.ai_ask ?? false);
+    setAiNoteEmail(c3b.ai_note_email ?? true);
     setTouched(false);
     setTestResult(null);
     test.reset();
@@ -201,6 +213,7 @@ function ChannelModal({
       disable_notification: silent,
       ack_buttons: ackButtons,
       ack_link: ackLink,
+      ai_ask: aiAsk,
     };
     // Write-only secret: omitted keeps the stored token on PATCH (api.md § telegram).
     if (botToken.trim()) telegram.bot_token = botToken.trim();
@@ -218,6 +231,7 @@ function ChannelModal({
                   .map((x) => x.trim())
                   .filter(Boolean),
                 ack_link: ackLink,
+                ai_note_email: aiNoteEmail,
               }
             : {
                 url: url.trim(),
@@ -418,6 +432,22 @@ function ChannelModal({
             onAckLink={setAckLink}
           />
         )}
+        {type === 'telegram' && chatAskOn && (
+          <div>
+            <Checkbox label={t('channels.aiAsk')} checked={aiAsk} onChange={setAiAsk} />
+            <p className="ms-6 mt-0.5 text-xs text-slate-500">{t('channels.aiAskHint')}</p>
+          </div>
+        )}
+        {type === 'email' && notesOn && (
+          <div>
+            <Checkbox
+              label={t('channels.aiNoteEmail')}
+              checked={aiNoteEmail}
+              onChange={setAiNoteEmail}
+            />
+            <p className="ms-6 mt-0.5 text-xs text-slate-500">{t('channels.aiNoteEmailHint')}</p>
+          </div>
+        )}
         <Checkbox label={t('common.enabled')} checked={enabled} onChange={setEnabled} />
         <ErrorBox error={m.error} />
         <ErrorBox error={test.error} />
@@ -476,6 +506,29 @@ function RuleModal({
   const [channelIds, setChannelIds] = useState<number[]>([]);
   const [esc, setEsc] = useState<EscalationForm>(escalationForm());
   const [escOpen, setEscOpen] = useState(false);
+  // [3b] AI note opt-in and "describe the rule" drafts
+  const aiNotes = useAiFeature('ai_alert_notes');
+  const [aiNote, setAiNote] = useState(false);
+  const [draft, setDraft] = useState<RuleDraft | null>(null);
+  const applyDraft = (d: RuleDraft) => {
+    const f = alertDraftToForm(d.draft);
+    setDraft(d);
+    if (f.name !== undefined) setName(f.name);
+    if (f.sensor_id !== undefined) setSensorId(f.sensor_id);
+    if (f.on_statuses?.length) setStatuses(f.on_statuses);
+    if (f.delay_s !== undefined) setDelay(String(f.delay_s));
+    if (f.enabled !== undefined) setEnabled(f.enabled);
+    if (f.channel_ids)
+      setChannelIds(f.channel_ids.filter((id) => channels.some((c) => c.id === id)));
+    if (f.ai_note !== undefined) setAiNote(f.ai_note);
+    const ef = escalationForm({
+      escalation_after_s: f.escalation_after_s ?? null,
+      escalation_channel_ids: f.escalation_channel_ids ?? [],
+      repeat_every_s: f.repeat_every_s ?? null,
+    });
+    setEsc(ef);
+    setEscOpen(ef.escalate || ef.remind);
+  };
   const setE = <K extends keyof EscalationForm>(k: K, v: EscalationForm[K]) =>
     setEsc((x) => ({ ...x, [k]: v }));
 
@@ -490,6 +543,8 @@ function RuleModal({
     setDelay(String(rule?.delay_s ?? 0));
     setEnabled(rule?.enabled ?? true);
     setChannelIds(rule?.channel_ids ?? []);
+    setAiNote(rule?.ai_note ?? false);
+    setDraft(null);
   }, [open, rule]);
 
   const m = useMutation({
@@ -518,6 +573,7 @@ function RuleModal({
       enabled,
       channel_ids: channelIds,
       ...escResult.body,
+      ...(aiNotes ? { ai_note: aiNote } : {}),
     });
   };
   const EscErr = ({ k }: { k?: string }) =>
@@ -526,6 +582,8 @@ function RuleModal({
   return (
     <Modal open={open} onClose={onClose} title={rule ? t('rules.edit') : t('rules.add')}>
       <form onSubmit={submit} className="space-y-3">
+        {!rule && <RuleDraftBox kind="alert_rule" onDraft={applyDraft} />}
+        {draft && <DraftBanner draft={draft} onDismiss={() => setDraft(null)} />}
         <Field label={t('common.name')} required>
           <Input
             value={name}
@@ -717,6 +775,12 @@ function RuleModal({
             </div>
           )}
         </section>
+        {aiNotes && (
+          <div>
+            <Checkbox label={t('rules.aiNote')} checked={aiNote} onChange={setAiNote} />
+            <p className="ms-6 mt-0.5 text-xs text-slate-500">{t('rules.aiNoteHint')}</p>
+          </div>
+        )}
         <Checkbox label={t('common.enabled')} checked={enabled} onChange={setEnabled} />
         <ErrorBox error={m.error} />
         <div className="flex justify-end gap-2">

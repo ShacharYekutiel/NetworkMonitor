@@ -1,3 +1,4 @@
+import { ExplainButton } from '../components/assistant/ExplainButton';
 import { useEffect, useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import { keepPreviousData, useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
@@ -125,6 +126,9 @@ export function SensorPage() {
           isAdmin && (
             <>
               <AckAction sensor={s} size="md" />
+              {(s.status === 'down' || s.status === 'warning' || s.status === 'unreachable') && (
+                <ExplainButton sensorId={s.id} size="md" />
+              )}
               {!passive && (
                 <Button
                   variant="primary"

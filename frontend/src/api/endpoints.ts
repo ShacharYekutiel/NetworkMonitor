@@ -303,6 +303,7 @@ export type AlertRuleInput = Partial<
     | 'escalation_after_s'
     | 'escalation_channel_ids'
     | 'repeat_every_s'
+    | 'ai_note'
   >
 >;
 

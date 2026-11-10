@@ -38,6 +38,7 @@ import {
 } from '../components/features/Phase3Settings';
 import { SsoTab } from '../components/features/SsoSettings';
 import { NocTab } from '../components/features/NocSettings';
+import { AssistantSettingsTab } from '../components/assistant/AssistantSettingsTab';
 
 function SmtpCard({ settings }: { settings: Settings }) {
   const { t } = useTranslation();
@@ -490,6 +491,7 @@ export function SettingsPage() {
       {q.data && tab === 'reports' && <ReportSettingsTab settings={q.data} />}
       {q.data && tab === 'noc' && <NocTab settings={q.data} />}
       {q.data && tab === 'chatAck' && <ChatAckSettingsTab settings={q.data} />}
+      {q.data && tab === 'assistant' && <AssistantSettingsTab settings={q.data} />}
       {q.data && tab === 'audit' && (
         <>
           <FeatureToggleCard names={['audit']} settings={q.data} />
