@@ -11,9 +11,9 @@ Handoff for the frontend developer. The visual design of NetworkMonitor lives in
 | `tokens.json` | Source of truth for every colour (dark + light), font, spacing, radius, shadow, layout size | Never hard-code a value that exists here. |
 | `tokens.css` | `tokens.json` as CSS variables: light on `:root`, dark on `:root.dark` | Copy into the app (step 1). Regenerate if `tokens.json` changes. |
 | `kit.css` | Static CSS (`nm-*` classes) that the mockups are drawn with | **Reference only.** Read it for exact sizes/paddings; do not ship it — rebuild with Tailwind. |
-| `pages/*.html` | Static mockup of every screen (18) | Open in a browser. Dark by default; add `#light` to the URL for the light theme. |
+| `pages/*.html` | Static mockup of every screen (37, phases 1–3b) | Open in a browser. Dark by default; add `#light` to the URL for the light theme. |
 | `components/*.html` + `*.md` | Each building block with its usage notes | Same: open the `.html`, follow the `.md`. |
-| `assets/` | The logo mark and the 47 icons (same as `frontend/src/components/icons.tsx`) | Icons already exist in code; nothing to import. |
+| `assets/` | The logo mark and the 54 icons (same as `frontend/src/components/icons.tsx`) | Icons already exist in code; nothing to import. |
 
 Mockup data (device names, numbers) is illustrative. Strings in the mockups follow `en.json`/`he.json`; keep using
 `t()` and the existing keys.
@@ -47,18 +47,22 @@ Mockup data (device names, numbers) is illustrative. Strings in the mockups foll
 ### 2. Shell (one PR) — `components/Layout.tsx`, `Tree.tsx`, `Controls.tsx`, `Maintenance.tsx`
 
 Follow `pages/Dashboard.html` (RTL) and `components/AppShell.*`:
-- Header bar in `chrome` (dark in both themes), 52px: mark · wordmark · **health strip** · MAC/IP search · Live dot +
-  clock · language · theme · user. The health strip shows sensor counts per status — reuse the existing dashboard query /
-  live cache; it needs no new API.
-- Nav rail (76px, icon + short label, `chrome`) replaces the nav list; the device tree moves to a 248px "Inventory"
-  panel. Short rail labels need new i18n keys (`nav.short.*`) in **both** `he.json` and `en.json`.
-- Below 1024px the Inventory panel becomes a drawer (as the sidebar is today).
+- Header bar in `chrome`, 52px: mark · wordmark · **health strip** · MAC/IP search · Live dot + clock · language ·
+  theme · user. `chrome` follows the theme (near-black in dark, light paper in light). The health strip shows sensor
+  counts per status — reuse the existing dashboard query / live cache; it needs no new API.
+- Nav rail (76px, icon + short label, `chrome`) replaces the nav list, in four groups divided by hairlines:
+  Overview, Events, Logs, Map, Flows · New devices, Backups, Discover, Templates, Find · Maintenance, Reports ·
+  Alerts, Settings, Users, Audit. Keep today's visibility rules (admin-only items, `features.*` flags). The rail
+  scrolls when the window is short. Short rail labels need new i18n keys (`nav.short.*`) in **both** `he.json` and `en.json`.
+- The device tree moves to a 248px "Inventory" panel. It is open on device-centred pages and starts collapsed on
+  list pages (logs, flows, new devices, backups, reports, notifications, settings, users, audit); the user's choice is
+  remembered as today. Below 1024px it becomes a drawer.
 
 ### 3. Pages (one PR per row or two)
 
 | Mockup | Code |
 | --- | --- |
-| `Login.html`, `Setup.html` | `pages/Login.tsx`, `pages/Setup.tsx`, `pages/AuthShell.tsx` |
+| `Login.html`, `Setup.html` | `pages/Login.tsx` (incl. SSO), `pages/Setup.tsx`, `pages/AuthShell.tsx` |
 | `Dashboard.html` | `pages/Dashboard.tsx` |
 | `Group.html` | `pages/GroupPage.tsx` |
 | `Device.html`, `DeviceSensors.html` | `pages/DevicePage.tsx`, `components/ports/*`, `SensorTable.tsx`, `SensorRowActions.tsx` |
@@ -71,9 +75,22 @@ Follow `pages/Dashboard.html` (RTL) and `components/AppShell.*`:
 | `Templates.html` | `pages/TemplatesPage.tsx`, `Templates.tsx` |
 | `Notifications.html` | `pages/NotificationsPage.tsx` |
 | `Settings.html` | `pages/SettingsPage.tsx` |
-| `Users.html`, `Account.html` | `pages/UsersPage.tsx`, `pages/AccountPage.tsx` |
+| `Users.html`, `Account.html`, `Tokens.html` | `pages/UsersPage.tsx`, `pages/AccountPage.tsx`, `pages/TokensPage.tsx` |
+| `DeviceTimeline.html` | `components/timeline/TimelineTab.tsx` (Device page tab) |
+| `Logs.html`, `Traps.html`, `UnknownSources.html`, `EventRules.html` | `pages/LogsPage.tsx`, `components/logs/*` |
+| `Flows.html`, `FlowExporters.html` | `pages/FlowsPage.tsx` |
+| `NewDevices.html` | `pages/NewDevicesPage.tsx`, `components/newdevices/*` |
+| `ConfigBackups.html`, `ConfigDiff.html` | `pages/ConfigBackupsPage.tsx` |
+| `Reports.html`, `ReportRun.html` | `pages/ReportsPage.tsx`, `pages/ReportRunPage.tsx` |
+| `Audit.html` | `pages/AuditPage.tsx` |
+| `SettingsFeatures.html`, `SettingsSso.html`, `NocScreens.html` (+ `Settings.html` = General) | `pages/SettingsPage.tsx`, `components/features/*` — every other settings tab uses the same pattern: intro line, cards of fields, test action, Save |
+| `Kiosk.html` | `pages/KioskPage.tsx` (no app shell; larger type for wall screens) |
+| `ChatAck.html` | `pages/AckPage.tsx` (no app shell; phone-first) |
 
-ECharts (history chart, topology) cannot read CSS variables directly: read them once with
+Screens not drawn here (the sensor's active-conditions panel, the other settings tabs, edit dialogs) follow the
+nearest drawn pattern: panels, forms, tables and badges from `components/`.
+
+ECharts (history chart, topology, flows, histograms) cannot read CSS variables directly: read them once with
 `getComputedStyle(document.documentElement)` and rebuild the chart options when the theme changes.
 
 ## Rules
