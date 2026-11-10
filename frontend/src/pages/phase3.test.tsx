@@ -189,6 +189,22 @@ describe('[3] NOC kiosk page', () => {
     expect(await screen.findByTestId('kiosk-unavailable')).toBeTruthy();
     window.history.pushState(null, '', '/');
   });
+  it('explains a 429 instead of staying blank (office test: Docker Desktop source address)', async () => {
+    window.history.pushState(null, '', `/noc#nmk_${'y'.repeat(43)}`);
+    vi.stubGlobal('WebSocket', FakeWs);
+    mockFetch(() => ({
+      status: 429,
+      body: { error: { code: 'rate_limited', message: 'Too many requests', details: null } },
+    }));
+    render(
+      <QueryClientProvider client={new QueryClient()}>
+        <KioskPage />
+      </QueryClientProvider>,
+    );
+    const el = await screen.findByTestId('kiosk-error');
+    expect(el.textContent).toMatch(/too many|יותר מדי/i);
+    window.history.pushState(null, '', '/');
+  });
 });
 
 describe('[3] kiosk "Show URL once" dialog', () => {

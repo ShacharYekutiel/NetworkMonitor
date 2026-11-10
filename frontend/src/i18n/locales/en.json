@@ -2919,7 +2919,10 @@
     "stale": "No fresh data — the screen may be disconnected.",
     "unavailable": "This screen is not available.",
     "noToken": "Open this page with the screen's link.",
-    "fullscreen": "Full screen"
+    "fullscreen": "Full screen",
+    "unavailableHint": "Check that the screen is enabled and that this computer's address is in its allowed addresses.",
+    "rateLimited": "Too many failed attempts from this address. The screen will retry in a few minutes.",
+    "loadError": "Cannot reach the server. Retrying…"
   },
   "chatAck": {
     "pageTitle": "Acknowledge problem",
