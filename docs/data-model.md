@@ -1348,6 +1348,7 @@ the list (`null` = any). `suggest()` gains the `sys_object_id` argument. Existin
 | Field | Type | Default | Meaning |
 |---|---|---|---|
 | `skip_zero` | bool | false | Rows whose walked value is `0` or not numeric are ignored (not counted towards `max`). |
+| `entity_sensor_scale` | bool | false | **[1.2.1]** ENTITY-SENSOR-MIB tables: at apply time read `entPhySensorScale` (`…99.1.1.1.2`) and `entPhySensorPrecision` (`…99.1.1.1.3`) per row and store `multiplier = 10^(3·(scale−9) − precision)` (times the entry's own multiplier) in the sensor config. Unreadable/out-of-range values count as units / 0. Omitted from the parsed template when false. |
 | `filters` | `{"oid": str, "in": int[] \| null, "not_in": int[] \| null}[]` | `[]` | Each filter GETs `oid + "." + S` for the row suffix S; the row is kept only when the value (integer) is in `in` (when set) and not in `not_in` (when set). A missing/non-integer value drops the row. All filters must pass. |
 
 `config` of an `snmp_table` entry may contain every `snmp_custom` key except `oid`/`percent_of_oid`/`label`

@@ -121,6 +121,29 @@ def _remaining(ctx: _Ctx) -> float:
     return ctx.deadline - asyncio.get_running_loop().time()
 
 
+ENT_SENSOR_SCALE = "1.3.6.1.2.1.99.1.1.1.2"  # entPhySensorScale (EntitySensorDataScale)
+ENT_SENSOR_PRECISION = "1.3.6.1.2.1.99.1.1.1.3"  # entPhySensorPrecision (-8..9)
+
+
+def entity_sensor_multiplier(scale: Any, precision: Any) -> float:
+    """Factor turning an entPhySensorValue into base units: scale units(9) = 10^0, each step
+    10^3 (milli(8) = 10^-3, kilo(10) = 10^3); precision p = p decimal places (10^-p).
+    Unreadable or out-of-range values count as units / 0."""
+    try:
+        sc = int(scale)
+    except (TypeError, ValueError):
+        sc = 9
+    try:
+        pr = int(precision)
+    except (TypeError, ValueError):
+        pr = 0
+    if not 1 <= sc <= 17:
+        sc = 9
+    if not -8 <= pr <= 9:
+        pr = 0
+    return 10.0 ** (3 * (sc - 9) - pr)
+
+
 async def _walk_column(rt: Runtime, ctx: _Ctx, oid: str) -> dict[str, Any]:
     async with rt.semaphore:
         rows = await asyncio.wait_for(
@@ -287,6 +310,11 @@ async def _table_slots(rt: Runtime, entry: dict[str, Any], ctx: _Ctx) -> list[_S
         labels2 = (
             await _walk_column(rt, ctx, entry["label2_oid"]) if entry.get("label2_oid") else {}
         )
+        scales: dict[str, Any] = {}
+        precisions: dict[str, Any] = {}
+        if entry.get("entity_sensor_scale"):
+            scales = await _walk_column(rt, ctx, ENT_SENSOR_SCALE)
+            precisions = await _walk_column(rt, ctx, ENT_SENSOR_PRECISION)
     except TimeoutError:
         return [_Slot(skip=_skip(label, "snmp_custom", "probe_failed", "Timed out"))]
     except SnmpError as exc:
@@ -323,6 +351,11 @@ async def _table_slots(rt: Runtime, entry: dict[str, Any], ctx: _Ctx) -> list[_S
         cfg_in = {**(entry.get("config") or {}), "oid": f"{walk_oid}.{s}", "label": row_label}
         if entry.get("percent_of_column"):
             cfg_in["percent_of_oid"] = f"{str(entry['percent_of_column']).strip('.')}.{s}"
+        if entry.get("entity_sensor_scale"):
+            factor = entity_sensor_multiplier(scales.get(s), precisions.get(s))
+            mult = float(cfg_in.get("multiplier", 1.0)) * factor
+            if mult != 1.0:
+                cfg_in["multiplier"] = mult
         cfg = validate_config("snmp_custom", cfg_in)
         name = name_tpl.replace("{label}", row_label).replace("{index}", s)[:128]
         key = identity("snmp_custom", cfg)

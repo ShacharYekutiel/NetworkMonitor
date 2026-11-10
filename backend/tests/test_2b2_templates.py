@@ -543,3 +543,22 @@ def test_yaml_pitfalls(tmp_path: Path) -> None:
         "entries[0].walk_oid",
     )
     assert by["c/bool_name.yaml"]["path"] == "name.en"
+
+
+@pytest.mark.parametrize(
+    ("scale", "precision", "factor"),
+    [
+        (9, 0, 1.0),  # units
+        (9, 3, 0.001),  # Aruba CX: 23000 -> 23.000
+        (8, 0, 0.001),  # milli
+        (8, 1, 0.0001),
+        (10, 0, 1000.0),  # kilo
+        (9, -2, 100.0),
+        (None, None, 1.0),  # columns not readable
+        (99, 42, 1.0),  # out of range
+    ],
+)
+def test_entity_sensor_multiplier(scale: Any, precision: Any, factor: float) -> None:
+    from netmon.templates.apply import entity_sensor_multiplier
+
+    assert entity_sensor_multiplier(scale, precision) == pytest.approx(factor)

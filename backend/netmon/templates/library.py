@@ -274,6 +274,7 @@ TABLE_KEYS = (
     "skip_zero",
     "filters",
     "interval_s",
+    "entity_sensor_scale",
 )
 TABLE_FORBIDDEN_CONFIG = ("oid", "percent_of_oid", "label")
 
@@ -367,6 +368,10 @@ def _table_entry(e: dict[str, Any], path: str) -> dict[str, Any]:
         "filters": _filters(e.get("filters", []), _join(path, "filters")),
         "interval_s": _opt_int(e.get("interval_s"), _join(path, "interval_s"), 10, 86400),
     }
+    # ENTITY-SENSOR-MIB: scale each row by its entPhySensorScale/Precision (only when set,
+    # so existing templates keep their exact shape)
+    if _bool(e.get("entity_sensor_scale", False), _join(path, "entity_sensor_scale")):
+        out["entity_sensor_scale"] = True
     return _common(out, e, path, _vendor_oid(walk))
 
 
