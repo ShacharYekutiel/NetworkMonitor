@@ -2283,7 +2283,8 @@
       "report": "דוחות",
       "kiosk_screen": "מסכי NOC",
       "chatack": "אישור מהצ'אט",
-      "channel": "ערוצים"
+      "channel": "ערוצים",
+      "assistant": "עוזר AI"
     },
     "entityType": {
       "device": "התקן",
@@ -2296,7 +2297,9 @@
       "topology_link": "קישור טופולוגיה",
       "discovery_profile": "פרופיל גילוי",
       "user": "משתמש",
-      "api_token": "אסימון API"
+      "api_token": "אסימון API",
+      "assistant_conversation": "שיחה עם העוזר",
+      "assistant_message": "תשובת העוזר"
     }
   },
   "timeline": {

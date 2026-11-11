@@ -184,6 +184,7 @@ scenarios:
       - text: 'Network status question'
     usage: {inputTokens: 90, outputTokens: 5}
 
+  # a model that ignores "Write in English" (the app falls back to "Assistant question")
   - name: audit_title_he
     purpose: title
     priority: 5

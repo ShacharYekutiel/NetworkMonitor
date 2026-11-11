@@ -414,8 +414,8 @@ def test_sse_buffer_is_bounded() -> None:
         ("one two three four five six seven eight", "en", "one two three four five six"),
         ("IP-3 reachability QA3B-AUDIT-PROBE-4412", "en", "reachability"),
         ("", "en", "Assistant question"),
-        ("10.0.0.1 192.168.1.1", "he", "שאלה לעוזר"),
-        ("מצב המתגים ברשת", "he", "מצב המתגים ברשת"),
+        ("10.0.0.1 192.168.1.1", "he", "Assistant question"),  # audit log is English only
+        ("מצב המתגים ברשת", "he", "Assistant question"),  # a Hebrew title falls back (English only)
         ("first line\nsecond line", "en", "first line"),
     ],
 )

@@ -49,10 +49,12 @@ _MAC_RE = re.compile(r"(?i)(?<![0-9a-f])(?:[0-9a-f]{2}[:-]){5}[0-9a-f]{2}(?![0-9
                      r"|(?<![0-9a-f.])(?:[0-9a-f]{4}\.){2}[0-9a-f]{4}(?![0-9a-f])")  # fmt: skip
 _TITLE_LABEL = re.compile(r"(?i)^\s*(?:title|כותרת)\s*[:：-]\s*")
 _BAD_TOKEN = re.compile(r"[\d.@/\\:=$%&+^]")
+_NON_LATIN = re.compile(r"[^\x00-\x7F\u2010-\u2014]")
 
 
-def fallback_audit_title(language: str | None) -> str:
-    return FALLBACK_AUDIT_TITLES.get(language or "en", FALLBACK_AUDIT_TITLES["en"])
+def fallback_audit_title(language: str | None = None) -> str:
+    """Owner rule: the audit log is English only, whatever the question's language."""
+    return FALLBACK_AUDIT_TITLES["en"]
 
 
 def neutral_title(raw: str | None, language: str | None = "en") -> str:
@@ -83,6 +85,8 @@ def neutral_title(raw: str | None, language: str | None = "en") -> str:
     if len(out) > AUDIT_TITLE_LEN:
         out = out[:AUDIT_TITLE_LEN].rsplit(" ", 1)[0]
     out = out.strip(" ,;:-–—")
+    if _NON_LATIN.search(out):  # English only, even if the model answered in another language
+        return fallback_audit_title(language)
     return out or fallback_audit_title(language)
 
 

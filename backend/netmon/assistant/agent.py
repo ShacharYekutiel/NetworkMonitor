@@ -75,7 +75,8 @@ _LANG_NAMES = {"en": "English", "he": "Hebrew"}
 
 
 def title_system(language: str) -> str:
-    name = _LANG_NAMES.get(language, "English")
+    # owner rule: audit titles are English only (the conversation title keeps the user's language)
+    name = "English"
     return (
         "[purpose: title]\n"
         "Task: write a short, neutral topic title (at most 6 words) for the network-monitoring "
@@ -1289,7 +1290,7 @@ class _Loop:
                     session,
                     self.opts.audit_ctx,
                     "assistant.answer",
-                    audit.entity("assistant_message", run.message_id),
+                    audit.entity("assistant_message", run.message_id, audit_title),
                     {
                         "message_id": run.message_id,
                         "conversation_id": run.conversation_id,

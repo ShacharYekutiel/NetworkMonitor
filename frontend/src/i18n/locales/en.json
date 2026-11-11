@@ -2256,7 +2256,8 @@
       "report": "Reports",
       "kiosk_screen": "NOC screens",
       "chatack": "Chat acknowledge",
-      "channel": "Channels"
+      "channel": "Channels",
+      "assistant": "AI assistant"
     },
     "entityType": {
       "device": "Device",
@@ -2269,7 +2270,9 @@
       "topology_link": "Topology link",
       "discovery_profile": "Discovery profile",
       "user": "User",
-      "api_token": "API token"
+      "api_token": "API token",
+      "assistant_conversation": "Assistant conversation",
+      "assistant_message": "Assistant answer"
     }
   },
   "timeline": {
