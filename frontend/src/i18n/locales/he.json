@@ -566,7 +566,7 @@
     "bedrock_quota": "מכסת Bedrock של חשבון ה-AWS שלך נוצלה עבור מודל זה.",
     "bedrock_model_access": "המודל אינו מופעל בחשבון ה-AWS שלך באזור זה (Bedrock ← Model access).",
     "bedrock_access_denied": "AWS דחה את הגישה: לתפקיד/למשתמש אין bedrock:InvokeModel על המודל או הפרופיל.",
-    "bedrock_model_invalid": "מזהה המודל אינו תקף באזור זה. השתמש במזהה פרופיל הסקה (למשל us.anthropic…).",
+    "bedrock_model_invalid": "מזהה המודל אינו תקף באזור זה. השתמשו במזהה פרופיל הסקה שהקידומת שלו מתאימה לאזור (us. לאזורי us-*, ‏eu. לאזורי eu-*, ‏apac. לאזורי ap-*).",
     "bedrock_unavailable": "Amazon Bedrock לא הצליח לענות כרגע.",
     "bedrock_validation": "Amazon Bedrock דחה את הבקשה.",
     "aws_auth_failed": "AWS דחה את ההרשאות.",

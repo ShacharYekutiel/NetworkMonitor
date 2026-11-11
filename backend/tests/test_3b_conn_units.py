@@ -1015,3 +1015,19 @@ def test_expired_token_mapping() -> None:
 
     req = make("aws_session_token_required")
     assert "ASIA" in req.message and "session token" in req.message and req.is_error_state
+
+
+def test_model_errors_keep_the_aws_message() -> None:
+    from netmon.assistant.errors import classify
+
+    e = classify(
+        "ResourceNotFoundException",
+        "Model use case details have not been submitted for this account.",
+        404,
+        region="us-east-1",
+    )
+    assert e.code == "bedrock_model_access" and "use case details" in e.message
+    e = classify(
+        "ValidationException", "The provided model identifier is invalid.", 400, region="us-east-1"
+    )
+    assert e.code == "bedrock_model_invalid" and "provided model identifier is invalid" in e.message

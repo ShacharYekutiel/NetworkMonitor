@@ -557,7 +557,7 @@
     "bedrock_quota": "Your AWS account's Bedrock quota is exhausted for this model.",
     "bedrock_model_access": "This model is not enabled for your AWS account in this region (Bedrock → Model access).",
     "bedrock_access_denied": "AWS denied access: the role/user lacks bedrock:InvokeModel on this model or profile.",
-    "bedrock_model_invalid": "The model ID is not valid in this region. Use an inference profile ID (e.g. us.anthropic…).",
+    "bedrock_model_invalid": "The model ID is not valid in this region. Use an inference profile ID whose prefix matches the region (us. for us-*, eu. for eu-*, apac. for ap-*).",
     "bedrock_unavailable": "Amazon Bedrock could not answer right now.",
     "bedrock_validation": "Amazon Bedrock rejected the request.",
     "aws_auth_failed": "AWS rejected the credentials.",

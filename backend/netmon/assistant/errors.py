@@ -28,7 +28,8 @@ CODES: dict[str, tuple[int, str]] = {
     ),
     "bedrock_model_invalid": (
         502,
-        "The model ID is not valid in {region}. Use an inference profile ID (e.g. us.anthropic…).",
+        "The model ID is not valid in {region}. Use an inference profile ID whose prefix "
+        "matches the region (us. for us-*, eu. for eu-*, apac. for ap-*).",
     ),
     "bedrock_unavailable": (502, "Amazon Bedrock could not answer right now."),
     "bedrock_validation": (502, "{aws}"),
@@ -247,16 +248,27 @@ def classify(
             err.message = f"{err.message} ({_cut(message, 200)})"
         return err
     if tl == "resourcenotfoundexception":
-        return make("bedrock_model_invalid", region=region, **kw)
+        # e.g. "Model use case details have not been submitted" is a ResourceNotFound too
+        if _MODEL_ACCESS.search(message):
+            return _with_aws(make("bedrock_model_access", region=region, **kw), t, message)
+        return _with_aws(make("bedrock_model_invalid", region=region, **kw), t, message)
     if tl == "validationexception":
         if _MODEL_INVALID.search(message):
-            return make("bedrock_model_invalid", region=region, **kw)
+            return _with_aws(make("bedrock_model_invalid", region=region, **kw), t, message)
         return make("bedrock_validation", aws=message or t, **kw)
     if t in UNAVAILABLE_TYPES or (status is not None and status >= 500):
         return make("bedrock_unavailable", **kw)
     if status == 401:
         return make("aws_auth_failed", **kw)
     return make("bedrock_validation", aws=message or t or f"HTTP {status}", **kw)
+
+
+def _with_aws(err: AssistantError, aws_type: str, message: str) -> AssistantError:
+    """Keep AWS's own wording next to ours (owner's office test: "model ID is not valid"
+    alone hid the real reason). AWS error messages never contain credentials."""
+    if message:
+        err.message = f"{err.message} ({aws_type or 'AWS'}: {_cut(message, 240)})"
+    return err
 
 
 def map_error(
