@@ -260,20 +260,37 @@ function HeaderCell({ children, className }: { children: ReactNode; className?: 
   );
 }
 
+/** Pages that show the device tree context (the Inventory panel is open there by default). */
+export function isTreePage(pathname: string): boolean {
+  return (
+    pathname === '/' ||
+    pathname.startsWith('/groups/') ||
+    pathname.startsWith('/devices/') ||
+    pathname.startsWith('/sensors/')
+  );
+}
+
 export function Layout() {
   const { t } = useTranslation();
   const { isAdmin } = useAuth();
   const { features } = useFeatures();
   const counts = useSensorCounts();
-  const [collapsed, setCollapsed] = useLocalState('netmon.sidebarCollapsed', false);
+  const [treeCollapsed, setTreeCollapsed] = useLocalState('netmon.sidebarCollapsed', false);
   const [mobileOpen, setMobileOpen] = useState(false);
   const location = useLocation();
   useEffect(() => setMobileOpen(false), [location.pathname]);
+  // Design system: the Inventory panel belongs to the tree pages (dashboard, group, device,
+  // sensor). List pages start with it closed; opening it there lasts until the next page.
+  const treePage = isTreePage(location.pathname);
+  const [listOpen, setListOpen] = useState(false);
+  useEffect(() => setListOpen(false), [location.pathname]);
+  const collapsed = treePage ? treeCollapsed : !listOpen;
 
-  // ≥ 1024px the inventory panel is collapsible (remembered); below it is a drawer.
+  // ≥ 1024px the inventory panel is collapsible (remembered on tree pages); below: a drawer.
   const toggle = () => {
-    if (window.matchMedia('(min-width: 1024px)').matches) setCollapsed((c) => !c);
-    else setMobileOpen((o) => !o);
+    if (!window.matchMedia('(min-width: 1024px)').matches) setMobileOpen((o) => !o);
+    else if (treePage) setTreeCollapsed((c) => !c);
+    else setListOpen((o) => !o);
   };
 
   const downPill =
