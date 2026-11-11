@@ -1354,7 +1354,7 @@
       "lastChange": "Last change",
       "ifIndex": "ifIndex",
       "kind": "Kind",
-      "connIp": "IP",
+      "connIp": "Connected IP",
       "connName": "Name / neighbor"
     },
     "filter": "Filter ports",

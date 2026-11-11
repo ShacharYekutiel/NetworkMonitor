@@ -1379,7 +1379,7 @@
       "lastChange": "שינוי אחרון",
       "ifIndex": "ifIndex",
       "kind": "סוג",
-      "connIp": "IP",
+      "connIp": "IP מחובר",
       "connName": "שם / שכן"
     },
     "filter": "סינון פורטים",

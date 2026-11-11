@@ -113,7 +113,7 @@ describe('[1.3] C. ports: IP and Name/neighbor columns, CSV', () => {
       </Wrap>,
     );
     const headers = screen.getAllByRole('columnheader').map((h) => h.textContent);
-    expect(headers).toContain('IP');
+    expect(headers).toContain('Connected IP');
     expect(headers).toContain('Name / neighbor');
     const row = (name: string) => screen.getByText(name).closest('tr') as HTMLElement;
     const r1 = row('GE1/0/1');
@@ -133,7 +133,7 @@ describe('[1.3] C. ports: IP and Name/neighbor columns, CSV', () => {
       '/devices/42',
     );
     // IP column hidden on narrow screens; the IP repeats in the Name cell there
-    const ipTh = screen.getAllByRole('columnheader').find((h) => h.textContent === 'IP')!;
+    const ipTh = screen.getAllByRole('columnheader').find((h) => h.textContent === 'Connected IP')!;
     expect(ipTh.className).toContain('hidden sm:table-cell');
     expect(within(r48).getByTestId('port-conn-name').textContent).toContain('10.0.0.2');
   });
