@@ -14,18 +14,18 @@ import { availabilityTone, barPct, formatAvailability } from '../lib/reports';
 import { DeliveriesCell, RunStatusBadge } from './ReportsPage';
 
 const pth =
-  'border-b border-slate-300 px-2 py-1 text-start text-xs font-semibold text-slate-600 print:border-slate-400';
-const ptd = 'border-b border-slate-100 px-2 py-1 align-middle print:border-slate-300';
+  'border-b border-line-strong px-2 py-1 text-start text-xs font-semibold text-ink-muted print:border-line-strong';
+const ptd = 'border-b border-line px-2 py-1 align-middle print:border-line-strong';
 
 function Bar({ pct, tone = 'sky' }: { pct: number; tone?: 'sky' | 'green' | 'amber' | 'red' }) {
   const color = {
-    sky: 'bg-sky-500',
-    green: 'bg-green-500',
-    amber: 'bg-amber-500',
-    red: 'bg-red-500',
+    sky: 'bg-accent',
+    green: 'bg-status-up',
+    amber: 'bg-status-warning',
+    red: 'bg-status-down',
   }[tone];
   return (
-    <div className="h-2 w-28 overflow-hidden rounded bg-slate-200 print:border print:border-slate-300">
+    <div className="h-2 w-28 overflow-hidden rounded bg-surface-hover print:border print:border-line-strong">
       <div
         className={`h-full ${color}`}
         style={{ width: `${pct}%`, printColorAdjust: 'exact', WebkitPrintColorAdjust: 'exact' }}
@@ -41,12 +41,12 @@ function Avail({ v, tr }: { v: number | null; tr: TFunction }) {
     <span
       className={
         tone === 'ok'
-          ? 'text-green-700'
+          ? 'text-status-up'
           : tone === 'warn'
-            ? 'text-amber-700'
+            ? 'text-status-warning'
             : tone === 'bad'
-              ? 'font-semibold text-red-700'
-              : 'text-slate-500'
+              ? 'font-semibold text-status-down'
+              : 'text-ink-muted'
       }
     >
       <bdi dir="ltr">{s ?? tr('reports.na')}</bdi>
@@ -57,7 +57,7 @@ function Avail({ v, tr }: { v: number | null; tr: TFunction }) {
 function Section({ title, children }: { title: string; children: React.ReactNode }) {
   return (
     <section className="break-inside-avoid-page space-y-2">
-      <h2 className="border-b-2 border-slate-800 pb-1 text-lg font-semibold dark:border-slate-300 print:border-slate-800">
+      <h2 className="border-b-2 border-line-strong pb-1 text-lg font-semibold print:border-line-strong">
         {title}
       </h2>
       {children}
@@ -116,7 +116,7 @@ function ReportSectionView({
   if (note)
     return (
       <Section title={title}>
-        <p className="text-sm text-slate-500">{tr(`reports.note.${note.note}`)}</p>
+        <p className="text-sm text-ink-muted">{tr(`reports.note.${note.note}`)}</p>
       </Section>
     );
   switch (s) {
@@ -194,7 +194,7 @@ function ReportSectionView({
             </tbody>
           </table>
           {a.not_measured.length > 0 && (
-            <p className="text-xs text-slate-500">
+            <p className="text-xs text-ink-muted">
               {tr('reports.notMeasured')}: {a.not_measured.map((x) => x.device_name).join(', ')}
             </p>
           )}
@@ -409,7 +409,7 @@ export function ReportRunPage() {
   return (
     <div className="mx-auto max-w-5xl space-y-4" data-testid="report-page">
       <div className="flex flex-wrap items-center gap-2 print:hidden">
-        <Link to="/reports" className="text-sm text-sky-700 hover:underline dark:text-sky-400">
+        <Link to="/reports" className="text-sm text-accent-ink hover:underline">
           ← {t('reports.title')}
         </Link>
         <span className="flex-1" />
@@ -439,18 +439,18 @@ export function ReportRunPage() {
         <article
           dir={lang === 'he' ? 'rtl' : 'ltr'}
           lang={lang}
-          className="report-print space-y-6 rounded-lg bg-white p-6 text-slate-900 shadow-sm ring-1 ring-slate-200 print:p-0 print:shadow-none print:ring-0"
+          className="report-print space-y-6 rounded-lg bg-surface p-6 text-ink ring-1 ring-line print:p-0 print:shadow-none print:ring-0"
         >
           <header className="space-y-1">
             <h1 className="text-2xl font-bold">{run.report_name}</h1>
-            <p className="text-sm text-slate-600">
+            <p className="text-sm text-ink-muted">
               {tr('reports.periodLine', {
                 from: fmt(d.period_start),
                 to: fmt(d.period_end),
                 tz: d.timezone,
               })}
             </p>
-            <p className="text-sm text-slate-600">
+            <p className="text-sm text-ink-muted">
               {tr('reports.scopeLine', { scope: d.scope_label })} ·{' '}
               {tr('reports.generated', { time: fmt(d.generated_at) })}
             </p>
@@ -458,7 +458,7 @@ export function ReportRunPage() {
           {d.sections.map((s) => (
             <ReportSectionView key={s} s={s} d={d} tr={tr} fmt={fmt} />
           ))}
-          <footer className="border-t border-slate-200 pt-2 text-xs text-slate-500">
+          <footer className="border-t border-line pt-2 text-xs text-ink-muted">
             NetworkMonitor
           </footer>
         </article>

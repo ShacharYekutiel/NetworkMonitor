@@ -32,11 +32,11 @@ function StatusLine({ data }: { data: DevicePorts }) {
     });
   else line = t('ports.statusLineNoNext', { ago: formatRelative(s.last_ok_at ?? s.last_run_at) });
   return (
-    <div className="text-xs text-slate-500" data-testid="ports-status">
+    <div className="text-xs text-ink-muted" data-testid="ports-status">
       <span>{line}</span>
       {data.settings.interval_min === 0 && <span> · {t('ports.autoOff')}</span>}
       {s.error && (
-        <span className="text-red-600 dark:text-red-400">
+        <span className="text-status-down">
           {' '}
           · {t('ports.lastError')}: <bdi dir="ltr">{s.error}</bdi>
         </span>
@@ -58,7 +58,7 @@ function Hints({ data }: { data: DevicePorts }) {
       {hints.map((h) => (
         <li
           key={h}
-          className="rounded-md bg-amber-50 px-3 py-1.5 text-xs text-amber-900 ring-1 ring-inset ring-amber-200 dark:bg-amber-950/40 dark:text-amber-200 dark:ring-amber-900"
+          className="rounded-md bg-status-warning-soft px-3 py-1.5 text-xs text-status-warning"
         >
           {h}
         </li>
@@ -187,7 +187,7 @@ export function PortsTab({ device }: { device: Device }) {
                 </Button>
               )}
               <div
-                className="inline-flex overflow-hidden rounded-md border border-slate-300 dark:border-slate-600"
+                className="inline-flex gap-0.5 rounded-md border border-line-strong bg-surface-sunken p-0.5"
                 role="tablist"
                 aria-label={t('ports.viewToggle')}
               >
@@ -199,10 +199,10 @@ export function PortsTab({ device }: { device: Device }) {
                     aria-selected={view === v}
                     onClick={() => setParam('view', v === 'faceplate' ? null : v)}
                     className={cx(
-                      'inline-flex items-center gap-1.5 px-2.5 py-1 text-xs font-medium',
+                      'inline-flex h-6 items-center gap-1.5 rounded-sm px-2.5 text-xs font-medium',
                       view === v
-                        ? 'bg-sky-600 text-white'
-                        : 'bg-white text-slate-700 hover:bg-slate-50 dark:bg-slate-800 dark:text-slate-200 dark:hover:bg-slate-700',
+                        ? 'bg-surface-raised text-ink ring-1 ring-line-strong'
+                        : 'text-ink-muted hover:text-ink',
                     )}
                   >
                     {v === 'faceplate' ? <PanelIcon size={14} /> : <ListIcon size={14} />}
@@ -214,7 +214,7 @@ export function PortsTab({ device }: { device: Device }) {
           </div>
           <Hints data={data} />
           {data.ports.length === 0 ? (
-            <p className="py-6 text-center text-sm text-slate-500">
+            <p className="py-6 text-center text-sm text-ink-muted">
               {data.status.last_run_at ? t('ports.noPorts') : t('ports.noSnapshot')}
             </p>
           ) : view === 'faceplate' ? (

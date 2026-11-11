@@ -115,11 +115,9 @@ export function DependencyEditor({
   const exclude = useMemo(() => (selfDeviceId ? [selfDeviceId] : []), [selfDeviceId]);
   const modes: DependencyInput['mode'][] = ['inherit', 'none', 'device'];
   return (
-    <fieldset className="min-w-0 rounded-md border border-slate-200 p-3 dark:border-slate-700">
-      <legend className="px-1 text-xs font-semibold text-slate-600 dark:text-slate-400">
-        {t('dependency.title')}
-      </legend>
-      <p className="mb-2 text-xs text-slate-500">
+    <fieldset className="min-w-0 rounded-md border border-line p-3">
+      <legend className="px-1 text-xs font-semibold text-ink-muted">{t('dependency.title')}</legend>
+      <p className="mb-2 text-xs text-ink-muted">
         {forGroup ? t('dependency.groupHint') : t('dependency.deviceHint')}
       </p>
       <FieldGroup label={t('dependency.mode')}>
@@ -174,7 +172,7 @@ export function DependencyEditor({
         </div>
       )}
       {effective !== undefined && (
-        <p className="mt-2 text-xs text-slate-600 dark:text-slate-300">
+        <p className="mt-2 text-xs text-ink-muted">
           <EffectiveDependencyText effective={effective} />
         </p>
       )}
@@ -202,16 +200,16 @@ export function EffectiveDependencyText({
     <>
       {!bare && <>{t('dependency.effective')} </>}
       <Link
-        className="font-medium text-sky-700 hover:underline dark:text-sky-400"
+        className="font-medium text-accent-ink hover:underline"
         to={`/devices/${effective.device_id}`}
       >
         {effective.device_name}
       </Link>
-      {effective.sensor_name && <span className="text-slate-500"> / {effective.sensor_name}</span>}{' '}
+      {effective.sensor_name && <span className="text-ink-muted"> / {effective.sensor_name}</span>}{' '}
       {groupName ? (
-        <span className="text-slate-500">({t('dependency.fromGroup', { group: groupName })})</span>
+        <span className="text-ink-muted">({t('dependency.fromGroup', { group: groupName })})</span>
       ) : (
-        <span className="text-slate-500">({t('dependency.fromDevice')})</span>
+        <span className="text-ink-muted">({t('dependency.fromDevice')})</span>
       )}
     </>
   );
@@ -223,9 +221,9 @@ export function ParentDownBanner({ effective }: { effective: EffectiveDependency
   return (
     <div
       role="status"
-      className="rounded-md bg-violet-50 px-3 py-2 text-sm text-violet-900 ring-1 ring-inset ring-violet-200 dark:bg-violet-950 dark:text-violet-100 dark:ring-violet-800"
+      className="rounded-md bg-status-unreachable-soft px-3 py-2 text-sm text-status-unreachable"
     >
-      <span className="me-1 inline-block h-2.5 w-2.5 rounded-full bg-violet-500 align-middle" />
+      <span className="me-1 inline-block h-2.5 w-2.5 rounded-full bg-status-unreachable align-middle" />
       {t('dependency.parentDownPrefix')}{' '}
       <Link className="font-semibold underline" to={`/devices/${effective.device_id}`}>
         {effective.device_name}
@@ -285,7 +283,7 @@ export function StatusMessage({
         components={{
           p: parentId ? (
             <Link
-              className="font-medium text-violet-700 underline dark:text-violet-300"
+              className="font-medium text-status-unreachable underline"
               to={`/devices/${parentId}`}
             />
           ) : (

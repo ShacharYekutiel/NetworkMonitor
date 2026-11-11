@@ -60,9 +60,7 @@ function AssignModal({ src, onClose }: { src: UnknownSource | null; onClose: () 
       }
     >
       <div className="space-y-3">
-        <p className="text-sm text-slate-600 dark:text-slate-300">
-          {t('unknownSources.assignHint')}
-        </p>
+        <p className="text-sm text-ink-muted">{t('unknownSources.assignHint')}</p>
         <DevicePicker value={device} onChange={setDevice} label={t('logs.device')} />
         <ErrorBox error={m.error} />
       </div>
@@ -100,9 +98,7 @@ export function UnknownSourcesView() {
   return (
     <div className="space-y-3" data-testid="unknown-sources">
       <div className="flex flex-wrap items-center gap-2">
-        <p className="flex-1 text-sm text-slate-600 dark:text-slate-300">
-          {t('unknownSources.intro')}
-        </p>
+        <p className="flex-1 text-sm text-ink-muted">{t('unknownSources.intro')}</p>
         <Select
           value={String(days)}
           onChange={(e) => setDays(Number(e.target.value))}
@@ -138,7 +134,7 @@ export function UnknownSourcesView() {
                   <td className={`${td} font-mono`}>
                     <bdi dir="ltr">{s.source_ip}</bdi>
                     {s.ignored && (
-                      <span className="ms-2 rounded bg-slate-100 px-1 text-[10px] text-slate-500 dark:bg-slate-800">
+                      <span className="ms-2 rounded bg-surface-sunken px-1 text-[10px] text-ink-muted">
                         {t('unknownSources.ignoredBadge')}
                       </span>
                     )}

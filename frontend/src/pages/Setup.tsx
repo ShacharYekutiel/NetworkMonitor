@@ -87,10 +87,8 @@ export function SetupPage() {
           <li
             key={s}
             className={cx(
-              'flex-1 rounded border-t-4 pt-1',
-              i <= step
-                ? 'border-sky-600 text-sky-700 dark:text-sky-400'
-                : 'border-slate-200 text-slate-500 dark:border-slate-700',
+              'flex-1 border-t-[3px] pt-1.5 font-medium',
+              i <= step ? 'border-accent text-ink' : 'border-line-strong text-ink-subtle',
             )}
           >
             {i + 1}. {s}

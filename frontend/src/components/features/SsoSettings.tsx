@@ -44,11 +44,9 @@ function StateBadge({ k }: { k: KerberosSettings }) {
     <span
       className={cx(
         'rounded px-1.5 py-0.5 text-xs font-medium',
-        k.state === 'ready' &&
-          'bg-green-100 text-green-800 dark:bg-green-900/40 dark:text-green-200',
-        k.state === 'error' && 'bg-red-100 text-red-800 dark:bg-red-900/40 dark:text-red-200',
-        (k.state === 'disabled' || k.state === 'unavailable') &&
-          'bg-slate-100 text-slate-700 dark:bg-slate-800 dark:text-slate-300',
+        k.state === 'ready' && 'bg-status-up-soft text-status-up',
+        k.state === 'error' && 'bg-status-down-soft text-status-down',
+        (k.state === 'disabled' || k.state === 'unavailable') && 'bg-surface-sunken text-ink',
       )}
     >
       {t(`kerberos.state.${k.state}`)}
@@ -111,10 +109,10 @@ function KerberosCard({ settings }: { settings: Settings }) {
       <ErrorBox error={q.error} />
       {k && (
         <div className="space-y-4">
-          <p className="text-sm text-slate-600 dark:text-slate-300">{t('kerberos.intro')}</p>
+          <p className="text-sm text-ink-muted">{t('kerberos.intro')}</p>
           {!k.platform_supported && <Notice>{t('kerberos.unsupported')}</Notice>}
           {k.error && (
-            <p className="text-sm text-red-600" dir="auto">
+            <p className="text-sm text-status-down" dir="auto">
               {k.error}
             </p>
           )}
@@ -123,7 +121,7 @@ function KerberosCard({ settings }: { settings: Settings }) {
               label={t('kerberos.realms')}
               hint={
                 realmErr ? (
-                  <span className="text-red-600">{t(realmErr)}</span>
+                  <span className="text-status-down">{t(realmErr)}</span>
                 ) : (
                   t('kerberos.realmsHint')
                 )
@@ -143,11 +141,11 @@ function KerberosCard({ settings }: { settings: Settings }) {
               </Button>
             </div>
           </form>
-          <div className="space-y-2 border-t border-slate-200 pt-3 dark:border-slate-800">
+          <div className="space-y-2 border-t border-line pt-3">
             <h3 className="text-sm font-semibold">{t('kerberos.keytab')}</h3>
             {k.keytab_set ? (
               <>
-                <p className="text-xs text-slate-500">
+                <p className="text-xs text-ink-muted">
                   {t('kerberos.uploadedAt', { date: formatDateTime(k.keytab_uploaded_at) })}
                 </p>
                 <Table>
@@ -178,10 +176,10 @@ function KerberosCard({ settings }: { settings: Settings }) {
                 </Table>
               </>
             ) : (
-              <p className="text-sm text-slate-500">{t('kerberos.noKeytab')}</p>
+              <p className="text-sm text-ink-muted">{t('kerberos.noKeytab')}</p>
             )}
             {k.warnings.map((w) => (
-              <p key={w} className="text-xs text-amber-700 dark:text-amber-300">
+              <p key={w} className="text-xs text-status-warning">
                 {t(`kerberos.warning.${w}`)}
               </p>
             ))}
@@ -198,7 +196,7 @@ function KerberosCard({ settings }: { settings: Settings }) {
                 }}
               />
               {upload.isPending && (
-                <span className="text-xs text-slate-500">{t('common.loading')}</span>
+                <span className="text-xs text-ink-muted">{t('common.loading')}</span>
               )}
               {k.keytab_set && (
                 <Button
@@ -212,9 +210,9 @@ function KerberosCard({ settings }: { settings: Settings }) {
               )}
             </div>
             <ErrorBox error={upload.error ?? del.error} />
-            <p className="text-xs text-slate-500">{t('kerberos.testHint')}</p>
+            <p className="text-xs text-ink-muted">{t('kerberos.testHint')}</p>
           </div>
-          <div className="border-t border-slate-200 pt-3 dark:border-slate-800">
+          <div className="border-t border-line pt-3">
             <InlineFeatureSwitch
               name="sso_kerberos"
               settings={settings}
@@ -332,7 +330,7 @@ function OidcCard({ settings }: { settings: Settings }) {
           }}
           className="space-y-3"
         >
-          <p className="text-sm text-slate-600 dark:text-slate-300">{t('oidc.intro')}</p>
+          <p className="text-sm text-ink-muted">{t('oidc.intro')}</p>
           <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
             <Field label={t('oidc.tenant')}>
               <Input
@@ -403,7 +401,7 @@ function OidcCard({ settings }: { settings: Settings }) {
             </Field>
           </div>
           {missing.length > 0 && (
-            <ul className="text-xs text-amber-700 dark:text-amber-300" data-testid="oidc-missing">
+            <ul className="text-xs text-status-warning" data-testid="oidc-missing">
               {missing.map((m) => (
                 <li key={m}>{t(m)}</li>
               ))}

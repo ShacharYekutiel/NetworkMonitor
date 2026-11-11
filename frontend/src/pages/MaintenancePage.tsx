@@ -25,6 +25,8 @@ import {
   Loading,
   Ltr,
   PageHeader,
+  Chip,
+  CountPill,
 } from '../components/ui';
 import { useAuth } from '../hooks/auth';
 import { errorMessage } from '../lib/errors';
@@ -37,10 +39,7 @@ function ScopeText({ w }: { w: MaintenanceWindow }) {
     return (
       <span>
         {t('maintenance.scopes.group')}:{' '}
-        <Link
-          className="text-sky-700 hover:underline dark:text-sky-400"
-          to={`/groups/${w.group_id}`}
-        >
+        <Link className="text-accent-ink hover:underline" to={`/groups/${w.group_id}`}>
           {w.group_name ?? `#${w.group_id}`}
         </Link>
       </span>
@@ -48,10 +47,7 @@ function ScopeText({ w }: { w: MaintenanceWindow }) {
   return (
     <span>
       {t('maintenance.scopes.device')}:{' '}
-      <Link
-        className="text-sky-700 hover:underline dark:text-sky-400"
-        to={`/devices/${w.device_id}`}
-      >
+      <Link className="text-accent-ink hover:underline" to={`/devices/${w.device_id}`}>
         {w.device_name ?? `#${w.device_id}`}
       </Link>
     </span>
@@ -94,14 +90,14 @@ function WindowRow({
     onError: (e) => toast.push('error', errorMessage(t, e)),
   });
   return (
-    <li className={cx('px-4 py-3', !w.enabled && 'opacity-60')}>
+    <li className={cx('px-4 py-3 text-[13px] hover:bg-surface-hover', !w.enabled && 'opacity-60')}>
       <div className="flex flex-wrap items-start gap-x-4 gap-y-2">
         <button
           type="button"
           onClick={() => setOpen((o) => !o)}
           aria-expanded={open}
           aria-label={t('maintenance.occurrences')}
-          className="mt-0.5 rounded p-0.5 text-slate-500 hover:bg-slate-100 dark:hover:bg-slate-800"
+          className="mt-0.5 rounded p-0.5 text-ink-muted hover:bg-surface-hover"
         >
           <ChevronIcon
             size={14}
@@ -110,36 +106,32 @@ function WindowRow({
         </button>
         <div className="min-w-0 flex-1 basis-56">
           <div className="flex flex-wrap items-center gap-2">
-            <span dir="auto" className="font-medium">
+            <span dir="auto" className="font-semibold">
               {w.name}
             </span>
             {w.active_now && (
-              <span className="inline-flex items-center gap-1 rounded bg-sky-600 px-1.5 py-0.5 text-xs font-medium text-white">
-                <WrenchIcon size={11} /> {t('maintenance.activeBadge')}
-              </span>
+              <Chip tone="accent">
+                <WrenchIcon size={12} /> {t('maintenance.activeBadge')}
+              </Chip>
             )}
-            {!w.enabled && (
-              <span className="rounded bg-gray-400 px-1.5 py-0.5 text-xs font-medium text-white">
-                {t('maintenance.disabled')}
-              </span>
-            )}
+            {!w.enabled && <Chip>{t('maintenance.disabled')}</Chip>}
           </div>
-          <div className="mt-0.5 text-xs text-slate-600 dark:text-slate-300">
+          <div className="mt-0.5 text-xs text-ink-muted">
             <ScopeText w={w} />
           </div>
-          <div className="mt-0.5 text-xs text-slate-500">
+          <div className="mt-0.5 text-xs text-ink-muted">
             <bdi>{schedule(w)}</bdi>
           </div>
           {w.comment && (
-            <div dir="auto" className="mt-0.5 text-xs italic text-slate-500">
+            <div dir="auto" className="mt-0.5 text-xs text-ink-muted">
               {w.comment}
             </div>
           )}
         </div>
-        <div className="min-w-0 basis-48 text-xs text-slate-600 dark:text-slate-300">
+        <div className="min-w-0 basis-48 text-xs text-ink-muted">
           {w.occurrence_start ? (
             <>
-              <div className="text-slate-500">
+              <div className="text-ink-muted">
                 {w.active_now
                   ? t('maintenance.currentOccurrence')
                   : t('maintenance.nextOccurrence')}
@@ -150,7 +142,7 @@ function WindowRow({
               </bdi>
             </>
           ) : (
-            <span className="text-slate-500">{t('maintenance.noneLeft')}</span>
+            <span className="text-ink-muted">{t('maintenance.noneLeft')}</span>
           )}
         </div>
         {isAdmin && (
@@ -182,7 +174,7 @@ function WindowRow({
       </div>
       {open && (
         <div className="mt-2 ps-7">
-          <div className="mb-1 text-xs font-semibold text-slate-600 dark:text-slate-300">
+          <div className="mb-1 text-xs font-semibold text-ink-muted">
             {t('maintenance.occurrences')}
           </div>
           <Occurrences id={w.id} />
@@ -229,9 +221,7 @@ export function MaintenancePage() {
       title={
         <span className="inline-flex items-center gap-2">
           {t(`maintenance.sections.${key}`)}
-          <span className="rounded bg-slate-200 px-1.5 text-xs tabular-nums dark:bg-slate-700">
-            {items.length}
-          </span>
+          <CountPill n={items.length} />
         </span>
       }
       bodyClassName="p-0"
@@ -244,7 +234,7 @@ export function MaintenancePage() {
       }
     >
       {key === 'past' && !showPast ? null : items.length ? (
-        <ul className="divide-y divide-slate-100 dark:divide-slate-800">
+        <ul className="divide-y divide-line">
           {items.map((w) => (
             <WindowRow key={w.id} w={w} onEdit={setEdit} onDelete={setDel} />
           ))}

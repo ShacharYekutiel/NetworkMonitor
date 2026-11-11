@@ -41,7 +41,7 @@ export function SensorTable({
         {sensors.map((s) => {
           const pc = primaryChannel(s);
           return (
-            <tr key={s.id} className="hover:bg-slate-50 dark:hover:bg-slate-800/40">
+            <tr key={s.id} className="hover:bg-surface-hover">
               <td className={td}>
                 <span className="inline-flex items-center gap-1">
                   <StatusBadge status={s.status} />
@@ -58,13 +58,13 @@ export function SensorTable({
               )}
               <td className={td}>
                 <Link
-                  className="font-medium text-sky-700 hover:underline dark:text-sky-400"
+                  className="font-medium text-accent-ink hover:underline"
                   to={`/sensors/${s.id}`}
                 >
                   {s.name}
                 </Link>
               </td>
-              <td className={`${td} whitespace-nowrap text-slate-500`}>
+              <td className={`${td} whitespace-nowrap text-ink-muted`}>
                 {t(`sensorType.${s.type}`)}
               </td>
               <td className={`${td} whitespace-nowrap tabular-nums`}>
@@ -72,7 +72,7 @@ export function SensorTable({
               </td>
               <td
                 dir="auto"
-                className={`${td} max-w-xs truncate text-slate-500`}
+                className={`${td} max-w-xs truncate text-ink-muted`}
                 title={s.status_message}
               >
                 <StatusMessage
@@ -81,7 +81,7 @@ export function SensorTable({
                   deviceId={s.device_id}
                 />
               </td>
-              <td className={`${td} whitespace-nowrap text-slate-500`}>
+              <td className={`${td} whitespace-nowrap text-ink-muted`}>
                 {formatRelative(s.last_check_at)}
               </td>
               {actions && <td className={`${td} whitespace-nowrap text-end`}>{actions(s)}</td>}

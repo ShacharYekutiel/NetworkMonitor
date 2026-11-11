@@ -43,23 +43,23 @@ export function Drawer({
   if (!open) return null;
   return createPortal(
     <div className="fixed inset-0 z-50 flex justify-end" data-testid={testId}>
-      <div className="absolute inset-0 bg-slate-900/40" onClick={onClose} aria-hidden="true" />
+      <div className="absolute inset-0 bg-overlay" onClick={onClose} aria-hidden="true" />
       <div
         ref={ref}
         role="dialog"
         aria-modal="true"
         aria-labelledby={titleId}
         tabIndex={-1}
-        className="relative flex h-full w-full max-w-2xl flex-col bg-white shadow-xl ring-1 ring-slate-200 focus:outline-none dark:bg-slate-900 dark:ring-slate-700"
+        className="relative flex h-full w-full max-w-2xl flex-col bg-surface shadow-pop ring-1 ring-line focus:outline-none"
       >
-        <header className="flex items-center justify-between gap-2 border-b border-slate-200 px-4 py-3 dark:border-slate-800">
+        <header className="flex items-center justify-between gap-2 border-b border-line px-4 py-3">
           <h3 id={titleId} className="min-w-0 truncate text-base font-semibold">
             {title}
           </h3>
           <button
             type="button"
             onClick={onClose}
-            className="rounded p-1 text-slate-500 hover:bg-slate-100 dark:hover:bg-slate-800"
+            className="rounded p-1 text-ink-muted hover:bg-surface-hover"
             aria-label={t('common.close')}
           >
             <XIcon />
@@ -67,7 +67,7 @@ export function Drawer({
         </header>
         <div className="min-h-0 flex-1 overflow-y-auto p-4">{children}</div>
         {footer && (
-          <footer className="flex flex-wrap justify-end gap-2 border-t border-slate-200 px-4 py-3 dark:border-slate-800">
+          <footer className="flex flex-wrap justify-end gap-2 border-t border-line px-4 py-3">
             {footer}
           </footer>
         )}
@@ -83,7 +83,7 @@ export function DetailRows({ rows }: { rows: [ReactNode, ReactNode][] }) {
     <dl className="grid grid-cols-[auto_1fr] gap-x-4 gap-y-1.5 text-sm">
       {rows.map(([k, v], i) => (
         <div key={i} className="contents">
-          <dt className="whitespace-nowrap text-slate-500">{k}</dt>
+          <dt className="whitespace-nowrap text-ink-muted">{k}</dt>
           <dd className="min-w-0 break-words">{v}</dd>
         </div>
       ))}

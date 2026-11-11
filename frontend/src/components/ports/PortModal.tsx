@@ -28,9 +28,7 @@ function Section({
 }) {
   return (
     <section className={cx('min-w-0', className)}>
-      <h4 className="mb-1.5 text-xs font-semibold uppercase tracking-wide text-slate-500">
-        {title}
-      </h4>
+      <h4 className="mb-1.5 text-xs font-semibold text-ink-muted">{title}</h4>
       {children}
     </section>
   );
@@ -41,8 +39,8 @@ function Rows({ rows }: { rows: [ReactNode, ReactNode][] }) {
     <dl className="grid grid-cols-[auto_minmax(0,1fr)] gap-x-3 gap-y-1 text-sm">
       {rows.map(([k, v], i) => (
         <div key={i} className="contents">
-          <dt className="text-slate-500">{k}</dt>
-          <dd className="min-w-0 break-words text-slate-800 dark:text-slate-200">{v}</dd>
+          <dt className="text-ink-muted">{k}</dt>
+          <dd className="min-w-0 break-words text-ink">{v}</dd>
         </div>
       ))}
     </dl>
@@ -76,12 +74,12 @@ function TrafficChart({ sensor }: { sensor: Sensor }) {
               className={cx(
                 'rounded px-2 py-1 text-xs',
                 channel === c
-                  ? 'bg-sky-100 font-medium text-sky-900 dark:bg-sky-900/50 dark:text-sky-100'
-                  : 'text-slate-600 hover:bg-slate-100 dark:text-slate-300 dark:hover:bg-slate-800',
+                  ? 'bg-accent-soft font-medium text-accent-ink'
+                  : 'text-ink-muted hover:bg-surface-hover',
               )}
             >
               {t(`channel.${c}`)}{' '}
-              <bdi dir="ltr" className="tabular-nums text-slate-500">
+              <bdi dir="ltr" className="tabular-nums text-ink-muted">
                 {formatValue(last?.last_value, last?.unit ?? '')}
               </bdi>
             </button>
@@ -89,7 +87,7 @@ function TrafficChart({ sensor }: { sensor: Sensor }) {
         })}
         <Link
           to={`/sensors/${sensor.id}`}
-          className="ms-auto text-xs text-sky-700 hover:underline dark:text-sky-400"
+          className="ms-auto text-xs text-accent-ink hover:underline"
         >
           {t('ports.openSensor')}
         </Link>
@@ -120,7 +118,7 @@ function NeighborRow({ n }: { n: PortNeighbor }) {
       {n.kind === 'device' && n.device_id ? (
         <Link
           to={`/devices/${n.device_id}`}
-          className="font-medium text-sky-700 hover:underline dark:text-sky-400"
+          className="font-medium text-accent-ink hover:underline"
         >
           <bdi dir="auto">{n.name}</bdi>
         </Link>
@@ -130,16 +128,16 @@ function NeighborRow({ n }: { n: PortNeighbor }) {
         </bdi>
       )}
       {n.port && (
-        <span className="text-slate-500">
+        <span className="text-ink-muted">
           {t('ports.remotePort')} <bdi dir="ltr">{n.port}</bdi>
         </span>
       )}
       {n.mgmt_address && (
-        <bdi dir="ltr" className="text-xs text-slate-500">
+        <bdi dir="ltr" className="text-xs text-ink-muted">
           {n.mgmt_address}
         </bdi>
       )}
-      <span className="rounded bg-slate-100 px-1 text-[10px] font-medium uppercase text-slate-600 dark:bg-slate-800 dark:text-slate-300">
+      <span className="rounded bg-surface-sunken px-1 text-[10px] font-medium text-ink-muted">
         {t(`topology.source.${n.source}`)}
       </span>
     </li>
@@ -149,9 +147,8 @@ function NeighborRow({ n }: { n: PortNeighbor }) {
 function MacTable({ macs }: { macs: PortMac[] }) {
   const { t } = useTranslation();
   const th =
-    'whitespace-nowrap border-b border-slate-200 px-2 py-1.5 text-start text-[11px] font-medium uppercase tracking-wide text-slate-500 dark:border-slate-800';
-  const td =
-    'whitespace-nowrap border-b border-slate-100 px-2 py-1.5 align-top dark:border-slate-800/70';
+    'whitespace-nowrap border-b border-line px-2 py-1.5 text-start text-[11px] font-medium text-ink-muted';
+  const td = 'whitespace-nowrap border-b border-line px-2 py-1.5 align-top';
   return (
     <div className="overflow-x-auto" data-testid="mac-table">
       <table className="w-full text-xs">
@@ -174,7 +171,7 @@ function MacTable({ macs }: { macs: PortMac[] }) {
                 <bdi dir="ltr">{m.mac}</bdi>
                 {m.via_lag && (
                   <span
-                    className="ms-1 font-sans text-[10px] text-violet-700 dark:text-violet-300"
+                    className="ms-1 font-sans text-[10px] text-accent-ink"
                     title={t('ports.lag.macViaLag')}
                   >
                     ({t('ports.lag.viaLag')})
@@ -183,7 +180,7 @@ function MacTable({ macs }: { macs: PortMac[] }) {
               </td>
               <td className={td}>
                 {m.locally_administered ? (
-                  <span className="text-slate-500">{t('ports.mac.random')}</span>
+                  <span className="text-ink-muted">{t('ports.mac.random')}</span>
                 ) : (
                   <bdi dir="auto">{m.vendor ?? '—'}</bdi>
                 )}
@@ -193,7 +190,7 @@ function MacTable({ macs }: { macs: PortMac[] }) {
                 {m.ip ? (
                   <bdi
                     dir="ltr"
-                    className={m.ips.length ? undefined : 'text-slate-400'}
+                    className={m.ips.length ? undefined : 'text-ink-subtle'}
                     title={m.ips.length ? m.ips.join(', ') : t('ports.mac.lastKnownIp')}
                   >
                     {m.ip}
@@ -208,10 +205,7 @@ function MacTable({ macs }: { macs: PortMac[] }) {
               </td>
               <td className={td}>
                 {m.device_id ? (
-                  <Link
-                    to={`/devices/${m.device_id}`}
-                    className="text-sky-700 hover:underline dark:text-sky-400"
-                  >
+                  <Link to={`/devices/${m.device_id}`} className="text-accent-ink hover:underline">
                     <bdi dir="auto">{m.device_name ?? `#${m.device_id}`}</bdi>
                   </Link>
                 ) : (
@@ -250,7 +244,7 @@ function LagSection({
       <button
         type="button"
         onClick={() => onOpenPort(ifIndex)}
-        className="text-sky-700 hover:underline dark:text-sky-400"
+        className="text-accent-ink hover:underline"
       >
         <bdi dir="ltr">{label}</bdi>
       </button>
@@ -259,31 +253,25 @@ function LagSection({
     );
   if (p.lag)
     return (
-      <div
-        className="rounded-md bg-violet-50 px-3 py-2 text-sm ring-1 ring-inset ring-violet-200 dark:bg-violet-950/30 dark:ring-violet-900"
-        data-testid="lag-section"
-      >
+      <div className="rounded-lg bg-accent-soft px-3 py-2 text-sm" data-testid="lag-section">
         {t('ports.lag.memberOfPrefix')} {link(p.lag.if_index, p.lag.name)}
         {p.lag.attached === false && (
-          <span className="ms-2 text-xs font-medium text-amber-700 dark:text-amber-300">
+          <span className="ms-2 text-xs font-medium text-status-warning">
             {t('ports.lag.inactive')}
           </span>
         )}
         {p.lag.attached === null && (
-          <span className="ms-2 text-xs text-slate-500">{t('ports.lag.stackOnly')}</span>
+          <span className="ms-2 text-xs text-ink-muted">{t('ports.lag.stackOnly')}</span>
         )}
         {p.vlans_from_lag && (
-          <div className="text-xs text-slate-500">{t('ports.lag.vlansFromLag')}</div>
+          <div className="text-xs text-ink-muted">{t('ports.lag.vlansFromLag')}</div>
         )}
       </div>
     );
   if (p.kind === 'lag' && p.lag_members?.length) {
     const byIndex = new Map(all.map((x) => [x.if_index, x]));
     return (
-      <div
-        className="rounded-md bg-violet-50 px-3 py-2 text-sm ring-1 ring-inset ring-violet-200 dark:bg-violet-950/30 dark:ring-violet-900"
-        data-testid="lag-section"
-      >
+      <div className="rounded-lg bg-accent-soft px-3 py-2 text-sm" data-testid="lag-section">
         {t('ports.lag.membersPrefix')}{' '}
         {[...p.lag_members]
           .sort((a, b) => a - b)
@@ -294,7 +282,7 @@ function LagSection({
                 {n > 0 && ', '}
                 {link(i, m ? m.name || m.descr || String(i) : String(i))}
                 {m?.lag?.attached === false && (
-                  <span className="text-xs text-amber-700"> ({t('ports.lag.inactive')})</span>
+                  <span className="text-xs text-status-warning"> ({t('ports.lag.inactive')})</span>
                 )}
               </span>
             );
@@ -339,21 +327,21 @@ function Body({
     },
   });
   const errs = errorsDelta(p);
-  const dash = <span className="text-slate-400">—</span>;
+  const dash = <span className="text-ink-subtle">—</span>;
 
   return (
     <div className="space-y-5">
       <div className="flex flex-wrap items-center gap-2 text-sm">
         <TileGlyph kind={v.kind} icon={v.icon} trunk={v.trunk} badge={v.badge} />
         <span className="font-medium">{text.state(p)}</span>
-        {p.state === 'up' && <span className="text-slate-500">· {text.kindLabel(p)}</span>}
+        {p.state === 'up' && <span className="text-ink-muted">· {text.kindLabel(p)}</span>}
         {p.is_uplink && (
-          <span className="rounded bg-sky-50 px-1.5 py-0.5 text-[11px] font-medium text-sky-800 ring-1 ring-inset ring-sky-200 dark:bg-sky-950 dark:text-sky-300 dark:ring-sky-900">
+          <span className="rounded bg-accent-soft px-1.5 py-0.5 text-[11px] font-medium text-accent-ink">
             {t(`ports.uplinkReason.${p.uplink_reason ?? 'neighbor'}`)}
           </span>
         )}
         {p.alert && (
-          <span className="inline-flex items-center gap-1 rounded bg-orange-50 px-1.5 py-0.5 text-[11px] font-medium text-orange-800 ring-1 ring-inset ring-orange-200 dark:bg-orange-950/50 dark:text-orange-300 dark:ring-orange-900">
+          <span className="inline-flex items-center gap-1 rounded bg-status-warning-soft px-1.5 py-0.5 text-[11px] font-medium text-status-warning">
             <AlertIcon size={12} />
             {p.alert_reasons.map((r) => t(`ports.alertReason.${r}`)).join(', ')}
           </span>
@@ -437,7 +425,7 @@ function Body({
                     <span
                       className={
                         p.poe.detection === 'fault' || p.poe.detection === 'other_fault'
-                          ? 'font-medium text-orange-600 dark:text-orange-400'
+                          ? 'font-medium text-status-warning'
                           : undefined
                       }
                     >
@@ -459,7 +447,7 @@ function Body({
               ]}
             />
           ) : (
-            <p className="text-sm text-slate-500">{t('ports.noPoe')}</p>
+            <p className="text-sm text-ink-muted">{t('ports.noPoe')}</p>
           )}
         </Section>
         <Section title={t('ports.section.traffic')}>
@@ -472,7 +460,7 @@ function Body({
                 errs === null ? (
                   dash
                 ) : (
-                  <span className={errs > 0 ? 'font-medium text-orange-600' : undefined}>
+                  <span className={errs > 0 ? 'font-medium text-status-warning' : undefined}>
                     {errs}
                   </span>
                 ),
@@ -481,7 +469,7 @@ function Body({
           />
           {!p.sensor && (
             <div className="mt-2 space-y-1.5">
-              <p className="text-xs text-slate-500">{t('ports.noSensor')}</p>
+              <p className="text-xs text-ink-muted">{t('ports.noSensor')}</p>
               {isAdmin && (
                 <Button
                   size="sm"
@@ -519,7 +507,7 @@ function Body({
               ))}
             </ul>
           ) : (
-            <p className="text-sm text-slate-500">{t('ports.noNeighbor')}</p>
+            <p className="text-sm text-ink-muted">{t('ports.noNeighbor')}</p>
           )}
           {p.is_uplink && (p.macs_hidden || showAll) && (
             <div className="flex flex-wrap items-center gap-2 text-sm">
@@ -533,7 +521,7 @@ function Body({
           )}
           {!p.macs_hidden && p.macs.length > 0 && <MacTable macs={p.macs} />}
           {!p.macs_hidden && p.macs.length === 0 && !p.is_uplink && (
-            <p className="text-sm text-slate-500">{t('ports.noMacs')}</p>
+            <p className="text-sm text-ink-muted">{t('ports.noMacs')}</p>
           )}
         </div>
       </Section>
@@ -576,7 +564,7 @@ export function PortModal({
           <span className="flex min-w-0 flex-wrap items-baseline gap-x-2">
             <bdi dir="ltr">{t('ports.portN', { name: p.name || p.descr || p.if_index })}</bdi>
             {p.alias && (
-              <bdi dir="auto" className="truncate text-sm font-normal text-slate-500">
+              <bdi dir="auto" className="truncate text-sm font-normal text-ink-muted">
                 {p.alias}
               </bdi>
             )}

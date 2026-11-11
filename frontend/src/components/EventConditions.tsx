@@ -23,8 +23,8 @@ export function isEventSensor(s: Pick<Sensor, 'type'>): boolean {
 export function FlappingBadge() {
   const { t } = useTranslation();
   return (
-    <span className="inline-flex items-center gap-1 rounded bg-amber-100 px-1.5 py-0.5 text-[11px] font-semibold text-amber-800 dark:bg-amber-900/50 dark:text-amber-200">
-      <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-amber-500" />
+    <span className="inline-flex items-center gap-1 rounded bg-status-warning-soft px-1.5 py-0.5 text-[11px] font-semibold text-status-warning">
+      <span className="h-1.5 w-1.5 rounded-full bg-status-warning" />
       {t('flapping.badge')}
     </span>
   );
@@ -46,7 +46,7 @@ function ConditionRow({ c }: { c: EventCondition }) {
           <span className="font-medium">{c.rule_name ?? `#${c.rule_id}`}</span>
         )}
         {c.key && (
-          <span className="ms-1.5 text-xs text-slate-500">
+          <span className="ms-1.5 text-xs text-ink-muted">
             {c.source === 'flap'
               ? t('conditions.ifIndex', { key: c.key })
               : t('conditions.key', { key: c.key })}
@@ -66,7 +66,7 @@ function ConditionRow({ c }: { c: EventCondition }) {
         {formatRelative(c.last_at)}
       </td>
       <td
-        className={cx(td, 'whitespace-nowrap text-xs text-slate-500')}
+        className={cx(td, 'whitespace-nowrap text-xs text-ink-muted')}
         title={formatDateTime(c.expires_at)}
       >
         {c.expires_at ? formatRelative(c.expires_at) : t('conditions.noExpiry')}
@@ -113,7 +113,7 @@ export function EventConditionsCard({ sensor }: { sensor: Sensor }) {
         )
       }
     >
-      <p className="px-4 py-2 text-xs text-slate-500">
+      <p className="px-4 py-2 text-xs text-ink-muted">
         {t(`conditions.intro.${sensor.type}`, { defaultValue: '' }) || t('conditions.introGeneric')}
       </p>
       {q.isLoading && <Loading />}

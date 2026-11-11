@@ -32,7 +32,7 @@ function CodeDialog({ code, onClose }: { code: ChatLinkCode | null; onClose: () 
         <div className="flex items-center gap-2">
           <code
             dir="ltr"
-            className="flex-1 rounded bg-slate-100 px-3 py-2 text-center font-mono text-lg dark:bg-slate-800"
+            className="flex-1 rounded bg-surface-sunken px-3 py-2 text-center font-mono text-lg"
           >
             {code.instructions}
           </code>
@@ -44,10 +44,10 @@ function CodeDialog({ code, onClose }: { code: ChatLinkCode | null; onClose: () 
             {copied ? t('kiosk.copied') : t('kiosk.copy')}
           </Button>
         </div>
-        <p className="text-xs text-slate-500">
+        <p className="text-xs text-ink-muted">
           {t('chatAck.codeExpires', { time: formatDateTime(code.expires_at) })}
         </p>
-        <p className="text-xs text-slate-500">{t('chatAck.codeGroupHint')}</p>
+        <p className="text-xs text-ink-muted">{t('chatAck.codeGroupHint')}</p>
       </div>
     </Modal>
   );
@@ -86,15 +86,15 @@ export function ChatAccountsCard() {
         </Button>
       }
     >
-      <p className="mb-3 text-xs text-slate-500">{t('chatAck.accountsIntro')}</p>
+      <p className="mb-3 text-xs text-ink-muted">{t('chatAck.accountsIntro')}</p>
       <ErrorBox error={q.error ?? create.error ?? unlink.error} />
       {q.data && !q.data.items.length && <Empty>{t('chatAck.noLinks')}</Empty>}
-      <ul className="divide-y divide-slate-100 text-sm dark:divide-slate-800">
+      <ul className="divide-y divide-line text-sm">
         {q.data?.items.map((l) => (
           <li key={l.id} className="flex flex-wrap items-center gap-2 py-1.5">
             <span className="font-medium">Telegram</span>
             <bdi dir="ltr">{l.display}</bdi>
-            <span className="text-xs text-slate-500">
+            <span className="text-xs text-ink-muted">
               {t('chatAck.linkedAt', { date: formatDateTime(l.linked_at) })}
               {l.last_used_at &&
                 ` · ${t('chatAck.lastUsed', { date: formatDateTime(l.last_used_at) })}`}

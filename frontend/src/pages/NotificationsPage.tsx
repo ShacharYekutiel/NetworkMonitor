@@ -64,8 +64,8 @@ function Tx({ k }: { k: string }) {
 function TelegramHelp() {
   const { t } = useTranslation();
   return (
-    <details className="rounded-md bg-slate-50 px-3 py-2 text-xs text-slate-600 ring-1 ring-inset ring-slate-200 dark:bg-slate-800/60 dark:text-slate-300 dark:ring-slate-700">
-      <summary className="cursor-pointer select-none font-medium text-slate-700 dark:text-slate-200">
+    <details className="rounded-md bg-surface-sunken px-3 py-2 text-xs text-ink-muted ring-1 ring-inset ring-line">
+      <summary className="cursor-pointer select-none font-medium text-ink">
         {t('telegram.helpTitle')}
       </summary>
       <ol className="mt-2 list-decimal space-y-1 ps-5">
@@ -77,7 +77,7 @@ function TelegramHelp() {
           <Tx k="telegram.help3" />
           <code
             dir="ltr"
-            className="mt-1 block break-all rounded bg-white px-1.5 py-0.5 text-left dark:bg-slate-900"
+            className="mt-1 block break-all rounded bg-surface px-1.5 py-0.5 text-left"
           >
             https://api.telegram.org/bot&lt;TOKEN&gt;/getUpdates
           </code>
@@ -261,13 +261,13 @@ function ChannelModal({
         </Field>
         {type === 'teams' ? (
           <>
-            <p className="text-xs text-slate-500">{t('teams.help')}</p>
+            <p className="text-xs text-ink-muted">{t('teams.help')}</p>
             <Field
               label={t('teams.url')}
               required={!teamsCfg?.url_set}
               hint={
                 touched && teamsErr ? (
-                  <span className="text-red-600">{t(teamsErr)}</span>
+                  <span className="text-status-down">{t(teamsErr)}</span>
                 ) : teamsCfg?.url_set ? (
                   t('teams.storedHint', { host: teamsCfg.url_host ?? '' })
                 ) : (
@@ -290,7 +290,7 @@ function ChannelModal({
             {teamsLegacy && (
               <div
                 role="alert"
-                className="rounded-md bg-amber-50 px-3 py-2 text-sm text-amber-900 ring-1 ring-inset ring-amber-200 dark:bg-amber-950/40 dark:text-amber-200 dark:ring-amber-900"
+                className="rounded-md bg-status-warning-soft px-3 py-2 text-sm text-status-warning"
                 data-testid="teams-legacy"
               >
                 {t('teams.legacy')}
@@ -305,7 +305,7 @@ function ChannelModal({
               required={!tokenSet}
               hint={
                 touched && tokenErr ? (
-                  <span className="text-red-600">{tokenErr}</span>
+                  <span className="text-status-down">{tokenErr}</span>
                 ) : tokenSet ? (
                   t('secret.keepHint')
                 ) : (
@@ -328,7 +328,7 @@ function ChannelModal({
               required
               hint={
                 touched && chatErr ? (
-                  <span className="text-red-600">{chatErr}</span>
+                  <span className="text-status-down">{chatErr}</span>
                 ) : (
                   <Tx k="telegram.chatIdHint" />
                 )
@@ -521,7 +521,7 @@ function RuleModal({
     });
   };
   const EscErr = ({ k }: { k?: string }) =>
-    k ? <span className="text-red-600">{t(k)}</span> : null;
+    k ? <span className="text-status-down">{t(k)}</span> : null;
 
   return (
     <Modal open={open} onClose={onClose} title={rule ? t('rules.edit') : t('rules.add')}>
@@ -585,10 +585,10 @@ function RuleModal({
               ))}
             </div>
           ) : (
-            <p className="text-sm text-slate-500">{t('rules.noChannels')}</p>
+            <p className="text-sm text-ink-muted">{t('rules.noChannels')}</p>
           )}
         </FieldGroup>
-        <section className="rounded-md border border-slate-200 dark:border-slate-700">
+        <section className="rounded-md border border-line">
           <button
             type="button"
             onClick={() => setEscOpen((o) => !o)}
@@ -604,14 +604,14 @@ function RuleModal({
             <EscalateIcon size={14} />
             {t('escalation.title')}
             {(esc.escalate || esc.remind) && (
-              <span className="ms-auto rounded bg-sky-100 px-1.5 text-xs font-medium text-sky-800 dark:bg-sky-900 dark:text-sky-100">
+              <span className="ms-auto rounded bg-accent-soft px-1.5 text-xs font-medium text-accent-ink">
                 {t('escalation.on')}
               </span>
             )}
           </button>
           {escOpen && (
-            <div className="space-y-3 border-t border-slate-200 p-3 dark:border-slate-700">
-              <p className="text-xs text-slate-500">{t('escalation.help')}</p>
+            <div className="space-y-3 border-t border-line p-3">
+              <p className="text-xs text-ink-muted">{t('escalation.help')}</p>
               {escErrors.statuses && (
                 <p className="text-xs">
                   <EscErr k={escErrors.statuses} />
@@ -646,7 +646,7 @@ function RuleModal({
                         className="!w-28"
                         aria-invalid={!!escErrors.escalation_after}
                       />
-                      <span className="text-sm text-slate-500">{t('escalation.minutes')}</span>
+                      <span className="text-sm text-ink-muted">{t('escalation.minutes')}</span>
                     </div>
                   </Field>
                   <FieldGroup
@@ -709,7 +709,7 @@ function RuleModal({
                         className="!w-28"
                         aria-invalid={!!escErrors.repeat_every}
                       />
-                      <span className="text-sm text-slate-500">{t('escalation.minutes')}</span>
+                      <span className="text-sm text-ink-muted">{t('escalation.minutes')}</span>
                     </div>
                   </Field>
                 </div>
@@ -804,13 +804,10 @@ export function NotificationsPage() {
                 <tr key={c.id}>
                   <td className={`${td} font-medium`}>{c.name}</td>
                   <td className={td}>{t(`channels.${c.type}`)}</td>
-                  <td className={`${td} max-w-xs truncate text-slate-500`}>
+                  <td className={`${td} max-w-xs truncate text-ink-muted`}>
                     <Ltr>{channelTarget(c)}</Ltr>
                     {c.type === 'teams' && (c.config as TeamsChannelConfig).legacy && (
-                      <span
-                        className="ms-1 text-xs text-amber-700 dark:text-amber-300"
-                        title={t('teams.legacy')}
-                      >
+                      <span className="ms-1 text-xs text-status-warning" title={t('teams.legacy')}>
                         ({t('teams.legacyShort')})
                       </span>
                     )}
@@ -881,7 +878,7 @@ export function NotificationsPage() {
                       {r.name}
                       {(r.escalation_after_s != null || r.repeat_every_s != null) && (
                         <span
-                          className="text-sky-600 dark:text-sky-400"
+                          className="text-accent-ink"
                           title={[
                             r.escalation_after_s != null &&
                               t('escalation.summary', {

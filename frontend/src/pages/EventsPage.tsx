@@ -65,8 +65,9 @@ export function EventsPage() {
   return (
     <div className="space-y-4">
       <PageHeader title={t('events.title')} />
-      <Card>
-        <div className="grid grid-cols-1 gap-3 sm:grid-cols-3 lg:grid-cols-7">
+      <Card bodyClassName="p-0">
+        {/* Filter toolbar above the table (design system: DataTable toolbar). */}
+        <div className="grid grid-cols-1 items-end gap-x-2 gap-y-2.5 border-b border-line px-3.5 py-2.5 sm:grid-cols-3 lg:grid-cols-[repeat(6,minmax(0,1fr))_auto] [&_input]:h-[30px] [&_input]:py-1 [&_input]:text-[13px] [&_select]:h-[30px] [&_select]:py-1 [&_select]:text-[13px] [&_label>span]:mb-1">
           <Field label={t('events.kind')}>
             <Select value={get('kind')} onChange={(e) => set('kind', e.target.value)}>
               <option value="">{t('common.all')}</option>
@@ -125,19 +126,21 @@ export function EventsPage() {
             </Select>
           </Field>
           <div className="flex items-end">
-            <Button onClick={() => setParams(new URLSearchParams(), { replace: true })}>
+            <Button
+              variant="ghost"
+              size="sm"
+              onClick={() => setParams(new URLSearchParams(), { replace: true })}
+            >
               {t('common.clearFilters')}
             </Button>
           </div>
         </div>
         {(query.device_id || query.sensor_id) && (
-          <p className="mt-2 text-xs text-slate-500">
+          <p className="border-b border-line bg-accent-soft px-3.5 py-2 text-xs text-ink">
             {query.device_id && t('events.filteredDevice', { id: query.device_id })}{' '}
             {query.sensor_id && t('events.filteredSensor', { id: query.sensor_id })}
           </p>
         )}
-      </Card>
-      <Card bodyClassName="p-0">
         {q.isLoading && <Loading />}
         <ErrorBox error={q.error} className="m-3" />
         {q.data && (

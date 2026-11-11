@@ -5,7 +5,8 @@ import { GridComponent, TooltipComponent } from 'echarts/components';
 import { CanvasRenderer } from 'echarts/renderers';
 import { useTranslation } from 'react-i18next';
 import { useTheme } from '../../hooks/theme';
-import { SEVERITY_HEX, severityTone } from '../../lib/logs';
+import { SEVERITY_HEX, severityHex, severityTone } from '../../lib/logs';
+import { chartTokens } from '../../lib/chartTokens';
 
 echarts.use([BarChart, GridComponent, TooltipComponent, CanvasRenderer]);
 
@@ -46,18 +47,30 @@ export function Histogram({
   useEffect(() => {
     const c = chart.current;
     if (!c) return;
-    const text = dark ? '#cbd5e1' : '#475569';
-    const grid = dark ? '#1e293b' : '#e2e8f0';
+    const tk = chartTokens(dark);
+    const text = tk.inkSubtle;
+    const grid = tk.chartGrid;
+    // Series colours are given as light-theme tokens (SEVERITY_HEX): map them to this theme.
+    const live = severityHex(tk);
+    const themed = (c: string) => {
+      const k = (Object.keys(SEVERITY_HEX) as (keyof typeof SEVERITY_HEX)[]).find(
+        (x) => SEVERITY_HEX[x] === c,
+      );
+      return k ? live[k] : c;
+    };
     const locale = i18n.language === 'he' ? 'he-IL' : 'en-GB';
     const ts = times.map((x) => Date.parse(x) + (bucketS * 1000) / 2);
     c.setOption(
       {
         animation: false,
-        textStyle: { color: text },
+        textStyle: { color: text, fontFamily: tk.fontSans },
         grid: { left: 40, right: 12, top: 8, bottom: 24 },
         tooltip: {
           trigger: 'axis',
-          axisPointer: { type: 'shadow' },
+          backgroundColor: tk.surfaceRaised,
+          borderColor: tk.border,
+          textStyle: { color: tk.ink, fontSize: 12 },
+          axisPointer: { type: '' },
           formatter: (params: unknown) => {
             const ps = params as {
               dataIndex: number;
@@ -84,6 +97,8 @@ export function Histogram({
           axisLine: { lineStyle: { color: grid } },
           axisLabel: {
             color: text,
+            fontFamily: tk.fontMono,
+            fontSize: 10.5,
             hideOverlap: true,
             formatter: {
               day: '{d}/{M}',
@@ -97,7 +112,7 @@ export function Histogram({
         yAxis: {
           type: 'value',
           minInterval: 1,
-          axisLabel: { color: text },
+          axisLabel: { color: text, fontFamily: tk.fontMono, fontSize: 10.5 },
           splitLine: { lineStyle: { color: grid } },
         },
         series: series.map((s) => ({
@@ -105,7 +120,7 @@ export function Histogram({
           type: 'bar',
           stack: 'all',
           barMaxWidth: 24,
-          itemStyle: { color: s.color },
+          itemStyle: { color: themed(s.color) },
           data: s.data.map((v, i) => [ts[i], v]),
         })),
       },

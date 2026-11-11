@@ -74,7 +74,7 @@ describe('status helpers', () => {
       unknown: 'bg-status-unknown',
       unreachable: 'bg-status-unreachable',
     });
-    expect(STATUS_HEX.unreachable).toBe('#8b5cf6');
+    expect(STATUS_HEX.unreachable).toBe('#6b4fd8'); // light-theme token
     expect(STATUS_BADGE.unreachable).toBe('bg-status-unreachable text-on-status');
     expect(STATUS_SOFT.unreachable).toBe('bg-status-unreachable-soft text-status-unreachable');
     expect(STATUS_TEXT.unreachable).toBe('text-status-unreachable');

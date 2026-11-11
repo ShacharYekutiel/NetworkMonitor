@@ -197,9 +197,9 @@ export function AddSensorModal({
               </Field>
             )}
           </div>
-          {passive && <p className="text-xs text-slate-500">{t('sensors.passiveCreateHint')}</p>}
+          {passive && <p className="text-xs text-ink-muted">{t('sensors.passiveCreateHint')}</p>}
           {def.requires_snmp && (
-            <p className="text-xs text-slate-500">
+            <p className="text-xs text-ink-muted">
               {t('sensors.requiresSnmp', {
                 source: t(`snmp.source.${device.effective_snmp_source}`),
               })}
@@ -349,7 +349,7 @@ function InterfacePicker({
         value={filter}
         onChange={(e) => setFilter(e.target.value)}
       />
-      <div className="max-h-80 overflow-y-auto rounded ring-1 ring-slate-200 dark:ring-slate-700">
+      <div className="max-h-80 overflow-y-auto rounded ring-1 ring-line">
         <Table>
           <thead>
             <tr>
@@ -393,7 +393,7 @@ function InterfacePicker({
                     <div className="font-medium">
                       <Ltr>{i.name}</Ltr>
                     </div>
-                    <div className="text-xs text-slate-500">
+                    <div className="text-xs text-ink-muted">
                       <Ltr>{i.descr}</Ltr>
                     </div>
                   </td>
@@ -402,10 +402,10 @@ function InterfacePicker({
                     <Value text={formatValue(i.speed_bps, 'bit/s')} />
                   </td>
                   <td className={`${td} whitespace-nowrap text-xs`}>
-                    <span className={i.oper_status === 'up' ? 'text-green-600' : 'text-slate-500'}>
+                    <span className={i.oper_status === 'up' ? 'text-status-up' : 'text-ink-muted'}>
                       {i.admin_status}/{i.oper_status}
                     </span>
-                    {exists && <span className="ms-2 text-slate-500">({t('iface.exists')})</span>}
+                    {exists && <span className="ms-2 text-ink-muted">({t('iface.exists')})</span>}
                   </td>
                 </tr>
               );
@@ -415,7 +415,7 @@ function InterfacePicker({
       </div>
       <ErrorBox error={add.error} />
       <div className="flex items-center justify-end gap-2">
-        <span className="text-sm text-slate-500">
+        <span className="text-sm text-ink-muted">
           {t('iface.selected', { count: selected.length })}
         </span>
         <Button onClick={onDone}>{t('common.cancel')}</Button>
@@ -682,10 +682,8 @@ function StoragePicker({
     );
 
   return (
-    <div className="space-y-2 rounded-md p-3 ring-1 ring-slate-200 dark:ring-slate-700">
-      <div className="text-xs font-medium text-slate-600 dark:text-slate-400">
-        {t('storage.title')}
-      </div>
+    <div className="space-y-2 rounded-md p-3 ring-1 ring-line">
+      <div className="text-xs font-medium text-ink-muted">{t('storage.title')}</div>
       {q.isLoading && <Loading />}
       {q.error && (
         <div className="space-y-2">
@@ -735,10 +733,10 @@ function StoragePicker({
                     <td className={`${td} max-w-[16rem] break-all`}>
                       <Ltr>{r.descr}</Ltr>
                       {exists && (
-                        <span className="ms-2 text-xs text-slate-500">({t('iface.exists')})</span>
+                        <span className="ms-2 text-xs text-ink-muted">({t('iface.exists')})</span>
                       )}
                     </td>
-                    <td className={`${td} whitespace-nowrap text-xs text-slate-500`}>
+                    <td className={`${td} whitespace-nowrap text-xs text-ink-muted`}>
                       {t(`storage.types.${r.type}`)}
                     </td>
                     <td className={`${td} whitespace-nowrap tabular-nums`}>
@@ -771,7 +769,7 @@ function StoragePicker({
         <>
           <ErrorBox error={add.error} />
           <div className="flex flex-wrap items-center justify-end gap-2">
-            <span className="me-auto text-xs text-slate-500">{t('storage.manualHint')}</span>
+            <span className="me-auto text-xs text-ink-muted">{t('storage.manualHint')}</span>
             <Button
               variant="primary"
               disabled={!sel.length || interval === 'invalid'}
@@ -784,7 +782,7 @@ function StoragePicker({
         </>
       )}
       {mode === 'multi' && (q.error || (q.data && !rows.length)) && (
-        <p className="text-xs text-slate-500">{t('storage.manualHint')}</p>
+        <p className="text-xs text-ink-muted">{t('storage.manualHint')}</p>
       )}
       {mode === 'single' && (
         <div className="flex justify-end">

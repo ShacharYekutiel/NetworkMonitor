@@ -235,13 +235,13 @@ test('tile states, icons and badges (AOS + CW AP port) + legend', async ({ page 
     expect({ 1: await kind(1), 4: await kind(4), 5: await kind(5), 6: await kind(6), 8: await kind(8), 9: await kind(9), 10: await kind(10) }).toEqual({
       1: 'up', 4: 'alert', 5: 'disabled', 6: 'empty', 8: 'emptyAlert', 9: 'up', 10: 'up',
     });
-    // contract colours (§11.5 table)
+    // contract colours (§11.5 table) — design-system tokens since the redesign
     const glyph = (i: number) => tile(page, i).locator(':scope > span').first();
-    await expect(glyph(1)).toHaveClass(/bg-green-500/);
-    await expect(glyph(4)).toHaveClass(/bg-orange-500/);
-    await expect(glyph(5)).toHaveClass(/bg-gray-200/);
-    await expect(glyph(6)).toHaveClass(/bg-white/);
-    await expect(glyph(8)).toHaveClass(/bg-orange-200/);
+    await expect(glyph(1)).toHaveClass(/bg-status-up/);
+    await expect(glyph(4)).toHaveClass(/bg-status-down/);
+    await expect(glyph(5)).toHaveClass(/bg-port-disabled/);
+    await expect(glyph(6)).toHaveClass(/bg-port-empty/);
+    await expect(glyph(8)).toHaveClass(/ring-status-down/);
     // icons: client monitor on 1, crossed-out on 5, none on 6 / 8 (peach, no icon), switch on 10
     await expect(glyph(1).locator('svg')).toHaveCount(1);
     await expect(glyph(5).locator('svg')).toHaveCount(1);

@@ -29,6 +29,8 @@ const VARIANTS: Record<Variant, string> = {
 const BUTTON_BASE =
   'inline-flex items-center justify-center gap-1.5 whitespace-nowrap rounded-md font-semibold transition-colors focus:outline-none focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-focus';
 const BUTTON_SIZE = { sm: 'h-[26px] px-[9px] text-xs', md: 'h-[34px] px-3.5 text-[13px]' };
+/** Square icon-only buttons (always with an aria-label). */
+export const ICON_BUTTON = { sm: '!w-[26px] !px-0', md: '!w-[34px] !px-0' };
 
 export const Button = forwardRef<
   HTMLButtonElement,
@@ -67,24 +69,30 @@ export function buttonClass(variant: Variant = 'secondary', size: 'sm' | 'md' = 
 }
 
 const inputBase =
-  'block w-full rounded-md border border-line-strong bg-surface-sunken px-2.5 py-1.5 text-sm text-ink placeholder:text-ink-subtle focus:border-transparent focus:outline focus:outline-2 focus:-outline-offset-1 focus:outline-focus disabled:border-dashed disabled:text-ink-subtle';
+  'block rounded-md border border-line-strong bg-surface-sunken px-2.5 py-1.5 text-sm text-ink placeholder:text-ink-subtle focus:border-transparent focus:outline focus:outline-2 focus:-outline-offset-1 focus:outline-focus disabled:border-dashed disabled:text-ink-subtle';
+
+/** Full width unless the caller sets a width (`w-44` would otherwise lose to `w-full`). */
+function fieldClass(className: string | undefined, extra?: string): string {
+  const sized = !!className && /(^|\s)!?w-/.test(className);
+  return cx(inputBase, !sized && 'w-full', extra, className);
+}
 
 export const Input = forwardRef<HTMLInputElement, InputHTMLAttributes<HTMLInputElement>>(
   function Input({ className, ...rest }, ref) {
-    return <input ref={ref} className={cx(inputBase, className)} {...rest} />;
+    return <input ref={ref} className={fieldClass(className)} {...rest} />;
   },
 );
 
 export function Select({ className, children, ...rest }: SelectHTMLAttributes<HTMLSelectElement>) {
   return (
-    <select className={cx(inputBase, 'pe-8', className)} {...rest}>
+    <select className={fieldClass(className, 'pe-8')} {...rest}>
       {children}
     </select>
   );
 }
 
 export function Textarea({ className, ...rest }: TextareaHTMLAttributes<HTMLTextAreaElement>) {
-  return <textarea className={cx(inputBase, className)} {...rest} />;
+  return <textarea className={fieldClass(className)} {...rest} />;
 }
 
 export function Field({
@@ -443,20 +451,28 @@ export function PageHeader({
   subtitle,
   actions,
   breadcrumbs,
+  meta,
 }: {
   title: ReactNode;
   subtitle?: ReactNode;
   actions?: ReactNode;
   breadcrumbs?: ReactNode;
+  /** A row of facts under the subtitle (design system: PageHeader "meta"). */
+  meta?: ReactNode;
 }) {
   return (
     <div className="mb-4 flex flex-wrap items-end justify-between gap-3">
       <div className="min-w-0">
         {breadcrumbs && <div className="mb-2 text-xs text-ink-subtle">{breadcrumbs}</div>}
-        <h1 className="flex items-center gap-2.5 truncate text-2xl font-semibold leading-[30px] tracking-[-0.01em]">
+        <h1 className="flex min-w-0 items-center gap-2.5 truncate text-2xl font-semibold leading-[30px] tracking-[-0.01em]">
           {title}
         </h1>
         {subtitle && <div className="mt-1.5 text-[13px] text-ink-muted">{subtitle}</div>}
+        {meta && (
+          <div className="mt-2.5 flex flex-wrap items-center gap-x-[22px] gap-y-1.5 text-[13px] text-ink-muted">
+            {meta}
+          </div>
+        )}
       </div>
       {actions && <div className="flex flex-wrap items-center gap-2">{actions}</div>}
     </div>
@@ -515,5 +531,65 @@ export function TruncLtr({
     <div dir="ltr" title={title} className={cx('truncate text-left rtl:text-right', className)}>
       {children}
     </div>
+  );
+}
+
+/** A tab of a role=tablist row (design system: Tabs). */
+export function tabClass(on: boolean): string {
+  return cx(
+    '-mb-px inline-flex items-center gap-2 whitespace-nowrap border-b-2 px-3.5 py-2.5 text-sm leading-4',
+    on
+      ? 'border-accent-ink font-semibold text-ink'
+      : 'border-transparent font-medium text-ink-muted hover:text-ink',
+  );
+}
+
+/** Segmented control: the group and its options (design system: SegmentedControl). */
+export const SEG_GROUP =
+  'inline-flex gap-0.5 self-start rounded-md border border-line-strong bg-surface-sunken p-0.5';
+export function segClass(on: boolean): string {
+  return cx(
+    'h-6 whitespace-nowrap rounded-sm px-2.5 text-xs font-medium',
+    on ? 'bg-surface-raised text-ink ring-1 ring-line-strong' : 'text-ink-muted hover:text-ink',
+  );
+}
+
+/** Chip: a small neutral or accent label (design system: StatusBadge "chip"). */
+export const CHIP =
+  'inline-flex h-[22px] items-center gap-[5px] whitespace-nowrap rounded-sm px-2 text-xs font-medium';
+export const CHIP_TONE = {
+  neutral: 'border border-line bg-surface-sunken text-ink-muted',
+  accent: 'bg-accent-soft text-accent-ink',
+  ack: 'bg-ack-soft text-ack',
+} as const;
+export function Chip({
+  tone = 'neutral',
+  children,
+  className,
+  title,
+}: {
+  tone?: keyof typeof CHIP_TONE;
+  children: ReactNode;
+  className?: string;
+  title?: string;
+}) {
+  return (
+    <span title={title} className={cx(CHIP, CHIP_TONE[tone], className)}>
+      {children}
+    </span>
+  );
+}
+
+/** A count next to a card title (neutral pill, mono numerals). */
+export function CountPill({ n, className }: { n: number; className?: string }) {
+  return (
+    <span
+      className={cx(
+        'inline-flex h-[18px] min-w-[20px] items-center justify-center rounded-sm border border-line bg-surface-sunken px-[5px] font-mono text-[11px] font-semibold tabular-nums text-ink-muted',
+        className,
+      )}
+    >
+      {n}
+    </span>
   );
 }

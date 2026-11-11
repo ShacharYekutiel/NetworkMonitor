@@ -21,7 +21,7 @@ export function SeverityBadge({ severity }: { severity: number }) {
   return (
     <span
       className={cx(
-        'inline-block min-w-[3.5rem] rounded px-1.5 py-0.5 text-center text-[11px] font-semibold',
+        "inline-flex items-center gap-1.5 whitespace-nowrap text-xs font-medium leading-none text-ink before:h-3.5 before:w-[3px] before:rounded-xs before:content-['']",
         SEVERITY_BADGE[severityTone(severity)],
       )}
       title={`${severity}`}
@@ -47,7 +47,7 @@ export function SourceCell({
       <Link
         to={`/devices/${r.device_id}`}
         onClick={(e) => e.stopPropagation()}
-        className="text-sky-700 hover:underline dark:text-sky-400"
+        className="text-accent-ink hover:underline"
         title={r.source_ip}
       >
         <bdi dir="auto">{r.device_name ?? `#${r.device_id}`}</bdi>
@@ -58,7 +58,7 @@ export function SourceCell({
       <bdi dir="ltr" className="font-mono text-xs">
         {r.source_ip}
       </bdi>
-      <span className="rounded bg-slate-100 px-1 text-[10px] text-slate-500 dark:bg-slate-800">
+      <span className="rounded bg-surface-sunken px-1 text-[10px] text-ink-muted">
         {t('logs.unknownShort')}
       </span>
     </span>
@@ -86,7 +86,7 @@ export function TimeRangeSelect({
   return (
     <div className="flex flex-wrap items-center gap-1.5">
       <div
-        className="inline-flex rounded-md ring-1 ring-slate-300 dark:ring-slate-600"
+        className="inline-flex gap-0.5 self-start rounded-md border border-line-strong bg-surface-sunken p-0.5"
         role="group"
         aria-label={t('logs.range')}
       >
@@ -97,10 +97,10 @@ export function TimeRangeSelect({
             aria-pressed={filter.preset === p}
             onClick={() => onChange({ preset: p })}
             className={cx(
-              'px-2 py-1 text-xs first:rounded-s-md last:rounded-e-md',
+              'h-6 whitespace-nowrap rounded-sm px-2.5 text-xs font-medium',
               filter.preset === p
-                ? 'bg-sky-600 text-white'
-                : 'hover:bg-slate-100 dark:hover:bg-slate-800',
+                ? 'bg-surface-raised text-ink ring-1 ring-line-strong'
+                : 'text-ink-muted hover:text-ink',
             )}
           >
             {t(`logs.preset.${p}`)}
@@ -117,7 +117,7 @@ export function TimeRangeSelect({
             className="w-auto"
             dir="ltr"
           />
-          <span className="text-slate-400">–</span>
+          <span className="text-ink-subtle">–</span>
           <Input
             type="datetime-local"
             value={filter.to}
@@ -179,7 +179,7 @@ export function FacilityPicker({
         <label key={f} className="inline-flex items-center gap-1.5 text-xs">
           <input
             type="checkbox"
-            className="h-3.5 w-3.5 rounded border-slate-300 text-sky-600 dark:border-slate-600 dark:bg-slate-900"
+            className="h-3.5 w-3.5 rounded border-line-strong text-accent-ink"
             checked={value.includes(f)}
             onChange={(e) =>
               onChange(e.target.checked ? [...value, f] : value.filter((x) => x !== f))
@@ -205,22 +205,20 @@ export function TopList({
   const max = Math.max(1, ...items.map((x) => x.count));
   return (
     <div className="min-w-0">
-      <div className="mb-1 text-xs font-medium text-slate-500">{title}</div>
+      <div className="mb-1 text-xs font-medium text-ink-muted">{title}</div>
       {items.length === 0 ? (
-        <div className="text-xs text-slate-400">{t('common.none')}</div>
+        <div className="text-xs text-ink-subtle">{t('common.none')}</div>
       ) : (
         <ul className="space-y-0.5">
           {items.map((x) => (
             <li key={x.key} className="relative flex items-center justify-between gap-2 text-xs">
               <span
-                className="absolute inset-y-0 start-0 rounded bg-sky-100 dark:bg-sky-950/60"
+                className="absolute inset-y-0 start-0 rounded bg-accent-soft"
                 style={{ width: `${(x.count / max) * 100}%` }}
                 aria-hidden="true"
               />
               <span className="relative min-w-0 truncate ps-1">{x.label}</span>
-              <span className="relative pe-1 tabular-nums text-slate-600 dark:text-slate-300">
-                {x.count}
-              </span>
+              <span className="relative pe-1 tabular-nums text-ink-muted">{x.count}</span>
             </li>
           ))}
         </ul>

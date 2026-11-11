@@ -34,9 +34,9 @@ function Lines({ lines }: { lines: StatusLine[] }) {
           key={i}
           className={cx(
             'text-xs',
-            l.tone === 'ok' && 'text-green-700 dark:text-green-400',
-            l.tone === 'error' && 'text-red-600 dark:text-red-400',
-            l.tone === 'muted' && 'text-slate-500',
+            l.tone === 'ok' && 'text-status-up',
+            l.tone === 'error' && 'text-status-down',
+            l.tone === 'muted' && 'text-ink-muted',
           )}
         >
           {t(l.key, l.params)}
@@ -112,7 +112,7 @@ function Phase3Lines({ name, on }: { name: FeatureName; on: boolean }) {
   return (
     <>
       <Lines lines={lines} />
-      {!!err && <p className="text-xs text-slate-500">{t('features.status.unknown')}</p>}
+      {!!err && <p className="text-xs text-ink-muted">{t('features.status.unknown')}</p>}
     </>
   );
 }
@@ -215,16 +215,11 @@ export function FeatureRow({
       <div className="min-w-0 flex-1 space-y-0.5">
         <div className="flex flex-wrap items-baseline gap-2">
           <span className="font-medium">{t(`features.name.${name}`)}</span>
-          <span
-            className={cx(
-              'text-xs',
-              f[name] ? 'text-green-700 dark:text-green-400' : 'text-slate-500',
-            )}
-          >
+          <span className={cx('text-xs', f[name] ? 'text-status-up' : 'text-ink-muted')}>
             {f[name] ? t('features.on') : t('features.off')}
           </span>
         </div>
-        <p className="text-sm text-slate-600 dark:text-slate-300">{t(`features.desc.${name}`)}</p>
+        <p className="text-sm text-ink-muted">{t(`features.desc.${name}`)}</p>
         {PHASE3_FEATURES.includes(name) ? (
           <Phase3Lines name={name} on={f[name]} />
         ) : (
@@ -233,10 +228,7 @@ export function FeatureRow({
         {hints.map((h) => (
           <p
             key={h.key}
-            className={cx(
-              'text-xs',
-              h.tone === 'warn' ? 'text-amber-700 dark:text-amber-300' : 'text-slate-500',
-            )}
+            className={cx('text-xs', h.tone === 'warn' ? 'text-status-warning' : 'text-ink-muted')}
           >
             {t(h.key)}
           </p>
@@ -311,7 +303,7 @@ export function FeatureToggleList({
   const ft = useFeatureToggle();
   return (
     <>
-      <ul className="divide-y divide-slate-100 dark:divide-slate-800">
+      <ul className="divide-y divide-line">
         {names.map((n) => (
           <FeatureRow
             key={n}
@@ -385,9 +377,7 @@ export function InlineFeatureSwitch({
           disabled={!on && blocked}
         />
         <span className="text-sm font-medium">{t(`features.name.${name}`)}</span>
-        <span
-          className={cx('text-xs', on ? 'text-green-700 dark:text-green-400' : 'text-slate-500')}
-        >
+        <span className={cx('text-xs', on ? 'text-status-up' : 'text-ink-muted')}>
           {on ? t('features.on') : t('features.off')}
         </span>
       </div>
@@ -397,7 +387,7 @@ export function InlineFeatureSwitch({
         on && <Lines lines={lines} />
       )}
       {!on && blocked && hint && (
-        <p className="text-xs text-amber-700 dark:text-amber-300" data-testid="enable-hint">
+        <p className="text-xs text-status-warning" data-testid="enable-hint">
           {hint}
         </p>
       )}

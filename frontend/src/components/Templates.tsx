@@ -33,10 +33,9 @@ export function useTemplateLibrary() {
 }
 
 const CONFIDENCE_TONE: Record<Confidence, string> = {
-  high: 'bg-green-50 text-green-800 ring-green-200 dark:bg-green-950/50 dark:text-green-300 dark:ring-green-900',
-  medium:
-    'bg-amber-50 text-amber-800 ring-amber-200 dark:bg-amber-950/50 dark:text-amber-300 dark:ring-amber-900',
-  low: 'bg-orange-50 text-orange-800 ring-orange-200 dark:bg-orange-950/50 dark:text-orange-300 dark:ring-orange-900',
+  high: 'bg-status-up-soft text-status-up',
+  medium: 'bg-status-warning-soft text-status-warning',
+  low: 'bg-status-warning-soft text-status-warning',
 };
 
 /** [2b-2] Confidence chip of a template entry. */
@@ -46,7 +45,7 @@ export function ConfidenceChip({ confidence }: { confidence: Confidence }) {
     <span
       title={t('templates.confidenceTitle')}
       className={cx(
-        'inline-flex shrink-0 items-center whitespace-nowrap rounded px-1.5 py-px text-[11px] font-medium ring-1 ring-inset',
+        'inline-flex shrink-0 items-center whitespace-nowrap rounded-sm px-1.5 py-px text-[11px] font-medium',
         CONFIDENCE_TONE[confidence] ?? CONFIDENCE_TONE.low,
       )}
     >
@@ -63,10 +62,10 @@ export function VerifiedBadge({ tpl }: { tpl: DeviceTemplate }) {
     <span
       title={tpl.verified_note || (ok ? undefined : t('templates.unverifiedHint'))}
       className={cx(
-        'inline-flex items-center gap-1 whitespace-nowrap rounded px-1.5 py-0.5 text-[11px] font-medium ring-1 ring-inset',
+        'inline-flex items-center gap-1 whitespace-nowrap rounded-sm px-1.5 py-0.5 text-[11px] font-medium',
         ok
-          ? 'bg-green-50 text-green-800 ring-green-200 dark:bg-green-950/50 dark:text-green-300 dark:ring-green-900'
-          : 'bg-gray-100 text-gray-600 ring-gray-200 dark:bg-slate-800 dark:text-slate-300 dark:ring-slate-700',
+          ? 'bg-status-up-soft text-status-up'
+          : 'border border-line bg-surface-sunken text-ink-muted',
       )}
     >
       {ok && <CheckIcon size={11} />}
@@ -123,19 +122,19 @@ export function SkippedList({ skipped, compact }: { skipped: SkippedSensor[]; co
             className={cx(
               'font-medium',
               g.reason === 'exists' || g.reason === 'not_applicable'
-                ? 'text-slate-500'
-                : 'text-amber-700 dark:text-amber-400',
+                ? 'text-ink-muted'
+                : 'text-status-warning',
             )}
           >
             {t(skipReasonKey(g.reason))} ({g.items.length})
           </div>
-          <ul className="ms-4 list-disc space-y-0.5 text-slate-600 dark:text-slate-300">
+          <ul className="ms-4 list-disc space-y-0.5 text-ink-muted">
             {g.items.map((s, i) => (
               <li key={`${s.name}-${i}`}>
                 <bdi dir="auto">{s.name}</bdi>{' '}
-                <span className="text-slate-500">({t(`sensorType.${s.type}`)})</span>
+                <span className="text-ink-muted">({t(`sensorType.${s.type}`)})</span>
                 {s.message && (
-                  <span className="text-slate-500">
+                  <span className="text-ink-muted">
                     {' '}
                     —{' '}
                     {s.message === 'Renamed' ? (
@@ -172,14 +171,11 @@ export function ApplyResultView({ result }: { result: ApplyTemplateResult }) {
           <ul className="space-y-0.5">
             {result.created.map((c) => (
               <li key={c.sensor_id} className="flex items-center gap-1.5">
-                <CheckIcon size={14} className="shrink-0 text-green-600" />
-                <Link
-                  to={`/sensors/${c.sensor_id}`}
-                  className="text-sky-700 hover:underline dark:text-sky-400"
-                >
+                <CheckIcon size={14} className="shrink-0 text-status-up" />
+                <Link to={`/sensors/${c.sensor_id}`} className="text-accent-ink hover:underline">
                   <bdi dir="auto">{c.name}</bdi>
                 </Link>
-                <span className="text-slate-500">({t(`sensorType.${c.type}`)})</span>
+                <span className="text-ink-muted">({t(`sensorType.${c.type}`)})</span>
               </li>
             ))}
           </ul>
@@ -273,14 +269,12 @@ export function ApplyTemplateModal({
             </Field>
           )}
           {tpl && (
-            <div className="rounded-md bg-slate-50 p-3 text-sm ring-1 ring-inset ring-slate-200 dark:bg-slate-800/50 dark:ring-slate-700">
-              <p className="text-slate-700 dark:text-slate-200">
-                {l10n(tpl.description, i18n.language)}
-              </p>
-              <div className="mt-2 text-xs font-medium text-slate-500">
+            <div className="rounded-md bg-surface-sunken p-3 text-sm ring-1 ring-inset ring-line">
+              <p className="text-ink">{l10n(tpl.description, i18n.language)}</p>
+              <div className="mt-2 text-xs font-medium text-ink-muted">
                 {t('templates.creates')}
               </div>
-              <ul className="ms-4 mt-1 list-disc text-xs text-slate-600 dark:text-slate-300">
+              <ul className="ms-4 mt-1 list-disc text-xs text-ink-muted">
                 {tpl.entries.map((e, i) => (
                   <li key={i}>
                     <bdi dir="auto">{describeEntry(e, i18n.language, t)}</bdi>
@@ -288,7 +282,7 @@ export function ApplyTemplateModal({
                 ))}
               </ul>
               {tpl.requires_snmp && (
-                <p className="mt-2 text-xs text-slate-500">
+                <p className="mt-2 text-xs text-ink-muted">
                   {t('sensors.requiresSnmp', {
                     source: t(`snmp.source.${device.effective_snmp_source}`),
                   })}
@@ -296,8 +290,8 @@ export function ApplyTemplateModal({
               )}
             </div>
           )}
-          <p className="text-xs text-slate-500">{t('templates.applyHint')}</p>
-          {apply.isPending && <p className="text-xs text-slate-500">{t('templates.applying')}</p>}
+          <p className="text-xs text-ink-muted">{t('templates.applyHint')}</p>
+          {apply.isPending && <p className="text-xs text-ink-muted">{t('templates.applying')}</p>}
           <ErrorBox error={apply.error} />
         </div>
       )}

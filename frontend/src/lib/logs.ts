@@ -1,4 +1,5 @@
 // [2b-3] Traps & syslog: pure helpers (filters, live matching, severities, facilities).
+import { LIGHT_TOKENS, type ChartTokens } from './chartTokens';
 import type { CursorQuery, SyslogQuery, TrapQuery } from '../api/endpoints';
 import type { SyslogMessage, Trap } from '../api/types';
 
@@ -42,7 +43,10 @@ export const FACILITY_CODES = [
   'local7',
 ];
 
-/** Severity colours (architecture.md § 12.13): 0–2 red-600, 3 orange-500, 4 amber-500, 5–6 sky-600, 7 slate-500. */
+/**
+ * Severity tones (architecture.md § 12.13): 0–2 red, 3 orange, 4 amber, 5–6 blue, 7 grey — drawn
+ * with the design tokens (down, warning, warning, unknown, paused).
+ */
 export function severityTone(sev: number): 'red' | 'orange' | 'amber' | 'sky' | 'slate' {
   if (sev <= 2) return 'red';
   if (sev === 3) return 'orange';
@@ -50,19 +54,25 @@ export function severityTone(sev: number): 'red' | 'orange' | 'amber' | 'sky' | 
   if (sev <= 6) return 'sky';
   return 'slate';
 }
-export const SEVERITY_HEX: Record<ReturnType<typeof severityTone>, string> = {
-  red: '#dc2626',
-  orange: '#f97316',
-  amber: '#f59e0b',
-  sky: '#0284c7',
-  slate: '#64748b',
-};
+/** Severity colours of a theme (histogram bars). */
+export function severityHex(tk: ChartTokens): Record<ReturnType<typeof severityTone>, string> {
+  return {
+    red: tk.status.down,
+    orange: tk.status.warning,
+    amber: tk.status.warning,
+    sky: tk.status.unknown,
+    slate: tk.status.paused,
+  };
+}
+/** Light-theme values (code without a theme). */
+export const SEVERITY_HEX = severityHex(LIGHT_TOKENS);
+/** Severity marker (design system: a 3px bar before the word, `nm-sev`). */
 export const SEVERITY_BADGE: Record<ReturnType<typeof severityTone>, string> = {
-  red: 'bg-red-600 text-white',
-  orange: 'bg-orange-500 text-white',
-  amber: 'bg-amber-500 text-slate-900',
-  sky: 'bg-sky-600 text-white',
-  slate: 'bg-slate-500 text-white',
+  red: 'before:bg-status-down',
+  orange: 'before:bg-status-warning',
+  amber: 'before:bg-status-warning',
+  sky: 'before:bg-status-unknown',
+  slate: 'before:bg-status-paused',
 };
 
 export type TimePreset = '15m' | '1h' | '24h' | '7d' | 'custom';

@@ -71,7 +71,7 @@ export function AccountPage() {
               disabled={ldap}
             />
           </Field>
-          <p className="text-xs text-slate-500">{t('account.languageHint')}</p>
+          <p className="text-xs text-ink-muted">{t('account.languageHint')}</p>
           <ErrorBox error={profile.error} />
           <div className="flex justify-end">
             <Button type="submit" variant="primary" busy={profile.isPending} disabled={ldap}>

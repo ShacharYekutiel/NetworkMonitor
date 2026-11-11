@@ -8,7 +8,14 @@ import { Breadcrumbs } from '../components/Breadcrumbs';
 import { CheckResultView } from '../components/CheckResultView';
 import { EventsTable } from '../components/EventList';
 import { HistoryChart } from '../components/HistoryChart';
-import { EditIcon, PauseIcon, PlayIcon, RefreshIcon, TrashIcon } from '../components/icons';
+import {
+  EditIcon,
+  PauseIcon,
+  PlayIcon,
+  PulseIcon,
+  RefreshIcon,
+  TrashIcon,
+} from '../components/icons';
 import { EditSensorModal, useSensorActions } from '../components/SensorForms';
 import { StatusBadge, StatusDot } from '../components/Status';
 import { ThresholdEditor } from '../components/ThresholdEditor';
@@ -22,7 +29,9 @@ import {
   Loading,
   Ltr,
   PageHeader,
+  SEG_GROUP,
   cx,
+  segClass,
   Value,
 } from '../components/ui';
 import { useAuth } from '../hooks/auth';
@@ -117,10 +126,55 @@ export function SensorPage() {
         }
         title={
           <>
-            <StatusDot status={s.status} className="h-3 w-3" /> {s.name}
+            <PulseIcon size={22} className="shrink-0 text-ink-subtle" />
+            <span className="truncate">{s.name}</span>
+            <StatusBadge status={s.status} labelled />
+            {s.acknowledgement && <AckBadge ack={s.acknowledgement} />}
+            {s.in_maintenance && (
+              <MaintenanceBadge
+                endsAt={device.data?.maintenance?.ends_at}
+                name={device.data?.maintenance?.name}
+              />
+            )}
           </>
         }
         subtitle={t(`sensorType.${s.type}`)}
+        meta={
+          <>
+            <span>
+              {t('sensors.since')}:{' '}
+              <b className="font-mono text-[12.5px] font-medium text-ink">
+                <Ltr>{formatDateTime(s.last_status_change_at)}</Ltr>
+              </b>
+            </span>
+            <span>
+              {t('sensors.lastCheck')}:{' '}
+              <b className="font-medium text-ink" title={formatDateTime(s.last_check_at)}>
+                {formatRelative(s.last_check_at)}
+              </b>
+            </span>
+            {!passive && (
+              <span>
+                {t('sensors.interval')}:{' '}
+                <b className="font-mono text-[12.5px] font-medium text-ink">
+                  <Ltr>{s.interval_s}</Ltr>
+                </b>
+              </span>
+            )}
+            {s.status_message && (
+              <span>
+                {t('sensors.message')}:{' '}
+                <StatusMessage
+                  message={s.status_message}
+                  status={s.status}
+                  deviceId={s.device_id}
+                  className="font-medium text-ink"
+                />
+              </span>
+            )}
+            {passive && <span>{t('sensors.passiveNote')}</span>}
+          </>
+        }
         actions={
           isAdmin && (
             <>
@@ -155,79 +209,43 @@ export function SensorPage() {
         }
       />
 
-      <Card>
-        <div className="flex flex-wrap items-center gap-x-6 gap-y-2 text-sm">
-          <span className="inline-flex flex-wrap items-center gap-1.5">
-            <StatusBadge status={s.status} />
-            {s.acknowledgement && <AckBadge ack={s.acknowledgement} />}
-            {s.in_maintenance && (
-              <MaintenanceBadge
-                endsAt={device.data?.maintenance?.ends_at}
-                name={device.data?.maintenance?.name}
-              />
-            )}
-          </span>
-          {s.status_message && (
-            <StatusMessage
-              message={s.status_message}
-              status={s.status}
-              deviceId={s.device_id}
-              className="text-slate-600 dark:text-slate-300"
-            />
-          )}
-          <span className="text-slate-500">
-            {t('sensors.lastCheck')}:{' '}
-            <span title={formatDateTime(s.last_check_at)}>{formatRelative(s.last_check_at)}</span>
-          </span>
-          <span className="text-slate-500">
-            {t('sensors.since')}: {formatDateTime(s.last_status_change_at)}
-          </span>
-          {!passive && (
-            <span className="text-slate-500">
-              {t('sensors.interval')}: <Ltr>{s.interval_s}</Ltr>
-            </span>
-          )}
-          {passive && <span className="text-slate-500">{t('sensors.passiveNote')}</span>}
+      {(s.acknowledgement || lastRun) && (
+        <div className="space-y-3">
+          {s.acknowledgement && <AckDetails ack={s.acknowledgement} />}
+          {lastRun && <CheckResultView result={lastRun} />}
         </div>
-        {s.acknowledgement && (
-          <div className="mt-2">
-            <AckDetails ack={s.acknowledgement} />
-          </div>
-        )}
-        {lastRun && (
-          <div className="mt-3">
-            <CheckResultView result={lastRun} />
-          </div>
-        )}
-      </Card>
+      )}
 
-      <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-6">
+      {/* Channel tiles: one strip divided by hairlines; the selected channel drives the chart. */}
+      <div className="grid grid-cols-[repeat(auto-fit,minmax(150px,1fr))] gap-px overflow-hidden rounded-lg border border-line bg-line">
         {s.channels.map((c) => {
           // [2b-1] enum: the tile shows the sensor status (the channel itself stays "up").
           const cs =
             s.type === 'snmp_custom' && s.config.value_type === 'enum' && c.key === 'value'
               ? s.status
               : c.status;
+          const selected = c.key === activeChannel;
           return (
             <button
               key={c.key}
               type="button"
               onClick={() => setChannel(c.key)}
+              aria-pressed={selected}
               className={cx(
-                'rounded-lg bg-white p-3 text-start shadow-sm ring-1 transition dark:bg-slate-900',
-                c.key === activeChannel
-                  ? 'ring-2 ring-sky-500'
-                  : 'ring-slate-200 hover:ring-sky-300 dark:ring-slate-800',
+                'min-w-0 px-4 pb-2.5 pt-3 text-start transition-colors',
+                selected
+                  ? 'bg-surface-raised shadow-[inset_0_-2px_0_var(--accent-ink)]'
+                  : 'bg-surface hover:bg-surface-hover',
               )}
             >
-              <div className="flex items-center gap-1.5 text-xs text-slate-500">
+              <div className="flex items-center gap-[7px] text-[13px] font-medium leading-4 text-ink-muted">
                 <StatusDot status={cs} />
                 <span className="truncate">{t(`channel.${c.key}`, { defaultValue: c.key })}</span>
               </div>
               <div
                 className={cx(
-                  'mt-1 text-lg font-semibold tabular-nums',
-                  statusClass(cs, STATUS_TEXT),
+                  'mt-2 truncate font-display text-[30px] font-semibold leading-9 tabular-nums',
+                  cs === 'up' ? 'text-ink' : statusClass(cs, STATUS_TEXT),
                 )}
               >
                 <Value text={sensorValueText(s, c.key, c.last_value, c.unit)} />
@@ -239,26 +257,18 @@ export function SensorPage() {
 
       {passive && <EventConditionsCard sensor={s} />}
       {!passive && (
-        <>
+        <div className="grid grid-cols-1 items-start gap-4 xl:grid-cols-[minmax(0,1fr)_320px]">
           <Card
             title={`${t('sensors.history')}: ${t(`channel.${activeChannel}`, { defaultValue: activeChannel })}`}
             actions={
-              <div
-                className="inline-flex rounded-md ring-1 ring-slate-300 dark:ring-slate-600"
-                role="group"
-              >
+              <div className={SEG_GROUP} role="group">
                 {RANGES.map((r) => (
                   <button
                     key={r}
                     type="button"
                     onClick={() => setRange(r)}
                     aria-pressed={r === range}
-                    className={cx(
-                      'px-2.5 py-1 text-xs first:rounded-s-md last:rounded-e-md',
-                      r === range
-                        ? 'bg-sky-600 text-white'
-                        : 'hover:bg-slate-100 dark:hover:bg-slate-800',
-                    )}
+                    className={segClass(r === range)}
                   >
                     {t(`range.${r}`)}
                   </button>
@@ -284,47 +294,49 @@ export function SensorPage() {
             )}
           </Card>
 
-          <Card title={t('thresholds.title')}>
-            <ThresholdEditor sensor={s} readOnly={!isAdmin} />
-          </Card>
+          <div className="flex min-w-0 flex-col gap-4">
+            <Card title={t('thresholds.title')}>
+              <ThresholdEditor sensor={s} readOnly={!isAdmin} />
+            </Card>
 
-          <Card title={t('sensors.settings')}>
-            <dl className="grid grid-cols-1 gap-x-6 gap-y-2 text-sm sm:grid-cols-2 lg:grid-cols-3">
-              {Object.entries(s.config)
-                .filter(
-                  ([k]) =>
-                    !(
-                      (k === 'value_map' || k === 'value_map_default') &&
-                      s.config.value_type === 'enum'
-                    ),
-                )
-                .map(([k, v]) => (
-                  <div key={k} className="flex gap-2">
-                    <dt className="text-slate-500">
-                      {t(`sensorConfig.${s.type}.${k}`, { defaultValue: k })}:
-                    </dt>
-                    <dd className="min-w-0 break-all">
-                      <Ltr>
-                        {v === null || v === ''
-                          ? '—'
-                          : typeof v === 'object'
-                            ? JSON.stringify(v)
-                            : t(`sensorConfigOption.${s.type}.${k}.${String(v)}`, {
-                                defaultValue: String(v),
-                              })}
-                      </Ltr>
-                    </dd>
-                  </div>
-                ))}
-              {!Object.keys(s.config).length && (
-                <div className="text-slate-500">{t('sensors.noConfig')}</div>
+            <Card title={t('sensors.settings')}>
+              <dl className="grid grid-cols-[max-content_minmax(0,1fr)] gap-x-[18px] gap-y-2 text-[13px]">
+                {Object.entries(s.config)
+                  .filter(
+                    ([k]) =>
+                      !(
+                        (k === 'value_map' || k === 'value_map_default') &&
+                        s.config.value_type === 'enum'
+                      ),
+                  )
+                  .map(([k, v]) => (
+                    <div key={k} className="contents">
+                      <dt className="text-ink-muted">
+                        {t(`sensorConfig.${s.type}.${k}`, { defaultValue: k })}:
+                      </dt>
+                      <dd className="min-w-0 break-all font-mono text-[12.5px]">
+                        <Ltr>
+                          {v === null || v === ''
+                            ? '—'
+                            : typeof v === 'object'
+                              ? JSON.stringify(v)
+                              : t(`sensorConfigOption.${s.type}.${k}.${String(v)}`, {
+                                  defaultValue: String(v),
+                                })}
+                        </Ltr>
+                      </dd>
+                    </div>
+                  ))}
+                {!Object.keys(s.config).length && (
+                  <div className="col-span-2 text-ink-muted">{t('sensors.noConfig')}</div>
+                )}
+              </dl>
+              {s.type === 'snmp_custom' && s.config.value_type === 'enum' && (
+                <ValueMapTable sensor={s} />
               )}
-            </dl>
-            {s.type === 'snmp_custom' && s.config.value_type === 'enum' && (
-              <ValueMapTable sensor={s} />
-            )}
-          </Card>
-        </>
+            </Card>
+          </div>
+        </div>
       )}
 
       <Card title={t('sensors.events')} bodyClassName="p-0">
@@ -355,12 +367,12 @@ function ValueMapTable({ sensor }: { sensor: import('../api/types').Sensor }) {
   const unmapped = rawKey !== null && !rows.some((r) => r.value === rawKey);
   return (
     <div className="mt-4">
-      <div className="mb-1 text-xs font-semibold text-slate-600 dark:text-slate-300">
+      <div className="mb-1 text-xs font-semibold text-ink-muted">
         {t('sensorConfig.snmp_custom.value_map')}
       </div>
       <table className="text-sm">
         <thead>
-          <tr className="text-xs text-slate-500">
+          <tr className="text-xs text-ink-muted">
             <th className="pe-4 text-start font-medium">{t('valueMap.value')}</th>
             <th className="pe-4 text-start font-medium">{t('valueMap.status')}</th>
             <th className="text-start font-medium">{t('valueMap.text')}</th>
@@ -368,10 +380,7 @@ function ValueMapTable({ sensor }: { sensor: import('../api/types').Sensor }) {
         </thead>
         <tbody>
           {rows.map((r) => (
-            <tr
-              key={r.value}
-              className={cx(r.value === rawKey && 'bg-sky-50 font-semibold dark:bg-sky-950/50')}
-            >
+            <tr key={r.value} className={cx(r.value === rawKey && 'bg-accent-soft font-semibold')}>
               <td className="pe-4 font-mono">
                 <Ltr>{r.value}</Ltr>
               </td>
@@ -381,17 +390,17 @@ function ValueMapTable({ sensor }: { sensor: import('../api/types').Sensor }) {
               <td dir="auto">{r.text}</td>
             </tr>
           ))}
-          <tr className={cx(unmapped && 'bg-sky-50 font-semibold dark:bg-sky-950/50')}>
-            <td className="pe-4 text-slate-500">{t('valueMap.other')}</td>
+          <tr className={cx(unmapped && 'bg-accent-soft font-semibold')}>
+            <td className="pe-4 text-ink-muted">{t('valueMap.other')}</td>
             <td className="pe-4 py-0.5">
               <StatusBadge status={String(sensor.config.value_map_default ?? 'warning')} />
             </td>
-            <td className="text-slate-500">{t('valueMap.unexpected')}</td>
+            <td className="text-ink-muted">{t('valueMap.unexpected')}</td>
           </tr>
         </tbody>
       </table>
       {current && raw !== null && (
-        <p className="mt-1 text-xs text-slate-500">
+        <p className="mt-1 text-xs text-ink-muted">
           {t('valueMap.current')}: <Ltr className="font-mono">{Math.round(raw)}</Ltr> →{' '}
           {current.text || t('valueMap.unexpected')} ({t(`status.${current.status}`)})
         </p>

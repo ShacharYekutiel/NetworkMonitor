@@ -76,27 +76,27 @@ export function SshTestView({ r }: { r: SshTestResult }) {
         {r.steps.map((s) => (
           <li key={s.step} className="flex flex-wrap items-center gap-2">
             {s.ok ? (
-              <CheckIcon size={14} className="text-green-600" aria-label={t('ldap.ok')} />
+              <CheckIcon size={14} className="text-status-up" aria-label={t('ldap.ok')} />
             ) : (
-              <XIcon size={14} className="text-red-600" aria-label={t('ldap.failed')} />
+              <XIcon size={14} className="text-status-down" aria-label={t('ldap.failed')} />
             )}
             <span className="font-medium">{t(`ssh.step.${s.step}`)}</span>
-            <bdi dir="ltr" className="font-mono text-xs text-slate-500">
+            <bdi dir="ltr" className="font-mono text-xs text-ink-muted">
               {s.detail}
             </bdi>
-            <span className="text-xs tabular-nums text-slate-400">{s.ms} ms</span>
+            <span className="text-xs tabular-nums text-ink-subtle">{s.ms} ms</span>
           </li>
         ))}
       </ul>
       {r.driver && (
-        <p className="text-xs text-slate-500">
+        <p className="text-xs text-ink-muted">
           {t('driver.label')}: <bdi dir="ltr">{r.driver}</bdi>
         </p>
       )}
       {r.output_preview && (
         <pre
           dir="ltr"
-          className="max-h-48 overflow-auto rounded bg-slate-900 p-2 text-left font-mono text-xs text-slate-100"
+          className="max-h-48 overflow-auto rounded bg-surface-sunken p-2 text-left font-mono text-xs text-ink"
         >
           {r.output_preview}
         </pre>
@@ -156,18 +156,18 @@ export function SshEditor({
     <details
       open={open}
       onToggle={(e) => setOpen((e.currentTarget as HTMLDetailsElement).open)}
-      className="rounded-md border border-slate-200 p-3 dark:border-slate-700"
+      className="rounded-md border border-line p-3"
       data-testid="ssh-editor"
     >
-      <summary className="cursor-pointer text-xs font-semibold text-slate-600 dark:text-slate-400">
+      <summary className="cursor-pointer text-xs font-semibold text-ink-muted">
         {t('ssh.title')}
         {existing?.credentials_unreadable && (
-          <span className="ms-2 text-red-600">{t('ssh.unreadable')}</span>
+          <span className="ms-2 text-status-down">{t('ssh.unreadable')}</span>
         )}
       </summary>
       <div className="mt-3 space-y-3">
         {!features.config_backup && (
-          <p className="text-xs text-slate-500">{t('ssh.prepareHint')}</p>
+          <p className="text-xs text-ink-muted">{t('ssh.prepareHint')}</p>
         )}
         <Checkbox label={inheritLabel} checked={!value.own} onChange={(v) => set('own', !v)} />
         {value.own && (
@@ -225,9 +225,9 @@ export function SshEditor({
                 onChange={(v) => set('legacy_algorithms', v)}
               />
             </div>
-            <p className="text-xs text-slate-500 sm:col-span-2">{t('ssh.legacyHint')}</p>
+            <p className="text-xs text-ink-muted sm:col-span-2">{t('ssh.legacyHint')}</p>
             {errs.length > 0 && (
-              <ul className="text-xs text-red-600 sm:col-span-2">
+              <ul className="text-xs text-status-down sm:col-span-2">
                 {errs.map((e) => (
                   <li key={e}>{t(e)}</li>
                 ))}
@@ -281,7 +281,7 @@ export function SshEditor({
               >
                 {t('ssh.test')}
               </Button>
-              <span className="text-xs text-slate-500">{t('ssh.testHint')}</span>
+              <span className="text-xs text-ink-muted">{t('ssh.testHint')}</span>
             </div>
             <ErrorBox error={test.error} />
             {result && <SshTestView r={result} />}

@@ -59,7 +59,7 @@ function DeviceLogs({ deviceId }: { deviceId: number }) {
     <div className="space-y-3">
       {features.syslog && features.traps && (
         <div
-          className="inline-flex rounded-md ring-1 ring-slate-300 dark:ring-slate-600"
+          className="inline-flex gap-0.5 rounded-md border border-line-strong bg-surface-sunken p-0.5"
           role="group"
         >
           {(['syslog', 'traps'] as const).map((x) => (
@@ -69,8 +69,10 @@ function DeviceLogs({ deviceId }: { deviceId: number }) {
               aria-pressed={k === x}
               onClick={() => setKind(x)}
               className={cx(
-                'px-3 py-1 text-xs first:rounded-s-md last:rounded-e-md',
-                k === x ? 'bg-sky-600 text-white' : 'hover:bg-slate-100 dark:hover:bg-slate-800',
+                'h-6 rounded-sm px-2.5 text-xs font-medium',
+                k === x
+                  ? 'bg-surface-raised text-ink ring-1 ring-line-strong'
+                  : 'text-ink-muted hover:text-ink',
               )}
             >
               {t(`logs.tab.${x}`)}
@@ -243,10 +245,10 @@ export function DevicePage() {
       <Card>
         <div className="flex flex-wrap items-center gap-4 text-sm">
           <StatusBadge status={d.status} />
-          {!d.enabled && <span className="text-slate-500">{t('devices.disabledNote')}</span>}
+          {!d.enabled && <span className="text-ink-muted">{t('devices.disabledNote')}</span>}
           <StatusCountPills counts={d.status_counts} />
           <NewDevicesBadge device={d} />
-          <span className="text-xs text-slate-500">
+          <span className="text-xs text-ink-muted">
             {t('snmp.label')}: {t(`snmp.source.${d.effective_snmp_source}`)}
             {d.snmp_credentials && ` (${d.snmp_credentials.version})`}
           </span>
@@ -254,8 +256,8 @@ export function DevicePage() {
         <div className="mt-3">
           <StatusBar counts={d.status_counts} />
         </div>
-        <p className="mt-3 text-xs text-slate-600 dark:text-slate-300">
-          <span className="font-medium text-slate-500">{t('dependency.parent')}:</span>{' '}
+        <p className="mt-3 text-xs text-ink-muted">
+          <span className="font-medium text-ink-muted">{t('dependency.parent')}:</span>{' '}
           <EffectiveDependencyText effective={d.effective_dependency ?? null} bare />
         </p>
       </Card>
@@ -279,8 +281,8 @@ export function DevicePage() {
           }
         >
           {identify.isPending ? (
-            <p className="flex items-center gap-2 text-sm text-slate-500">
-              <span className="inline-block h-4 w-4 animate-spin rounded-full border-2 border-sky-600 border-t-transparent" />
+            <p className="flex items-center gap-2 text-sm text-ink-muted">
+              <span className="inline-block h-4 w-4 animate-spin rounded-full border-2 border-accent border-t-transparent" />
               {t('identify.running')}
             </p>
           ) : (
@@ -297,7 +299,7 @@ export function DevicePage() {
         <div
           role="tablist"
           aria-label={t('ports.tabs')}
-          className="flex gap-1 border-b border-slate-200 dark:border-slate-800"
+          className="flex overflow-x-auto border-b border-line"
         >
           {tabs.map((k) => (
             <button
@@ -307,10 +309,10 @@ export function DevicePage() {
               aria-selected={tab === k}
               onClick={() => setTab(k)}
               className={cx(
-                '-mb-px inline-flex items-center gap-1.5 border-b-2 px-3 py-2 text-sm font-medium',
+                '-mb-px inline-flex items-center gap-2 whitespace-nowrap border-b-2 px-3.5 py-2.5 text-sm leading-4',
                 tab === k
-                  ? 'border-sky-600 text-sky-700 dark:border-sky-400 dark:text-sky-300'
-                  : 'border-transparent text-slate-600 hover:text-slate-900 dark:text-slate-400 dark:hover:text-slate-200',
+                  ? 'border-accent-ink font-semibold text-ink'
+                  : 'border-transparent font-medium text-ink-muted hover:text-ink',
               )}
             >
               {k === 'ports' && <PortIcon size={15} />}

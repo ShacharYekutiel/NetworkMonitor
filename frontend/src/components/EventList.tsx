@@ -9,7 +9,11 @@ import { Empty, Table, td, th } from './ui';
 
 export function EventKindLabel({ kind }: { kind: NmEvent['kind'] }) {
   const { t } = useTranslation();
-  return <span className="text-xs text-slate-500">{t(`eventKind.${kind}`)}</span>;
+  return (
+    <span className="inline-flex h-[22px] items-center whitespace-nowrap rounded-sm border border-line bg-surface-sunken px-2 text-xs font-medium text-ink-muted">
+      {t(`eventKind.${kind}`)}
+    </span>
+  );
 }
 
 export function StatusTransition({ ev }: { ev: NmEvent }) {
@@ -18,7 +22,7 @@ export function StatusTransition({ ev }: { ev: NmEvent }) {
     <span className="inline-flex items-center gap-1">
       {ev.old_status && ev.old_status !== ev.new_status && <StatusBadge status={ev.old_status} />}
       {ev.old_status && ev.old_status !== ev.new_status && (
-        <ChevronIcon size={12} className="text-slate-400 rtl:rotate-180" />
+        <ChevronIcon size={12} className="text-ink-subtle rtl:rotate-180" />
       )}
       <StatusBadge status={ev.new_status} />
     </span>
@@ -49,8 +53,11 @@ export function EventsTable({
       </thead>
       <tbody>
         {events.map((ev) => (
-          <tr key={ev.id} className="hover:bg-slate-50 dark:hover:bg-slate-800/40">
-            <td className={`${td} whitespace-nowrap tabular-nums`} title={formatRelative(ev.time)}>
+          <tr key={ev.id} className="hover:bg-surface-hover">
+            <td
+              className={`${td} whitespace-nowrap font-mono text-[12.5px] tabular-nums text-ink-subtle`}
+              title={formatRelative(ev.time)}
+            >
               {formatDateTime(ev.time)}
             </td>
             {showKind && (
@@ -66,10 +73,10 @@ export function EventsTable({
             <td className={td}>
               <StatusTransition ev={ev} />
             </td>
-            <td dir="auto" className={`${td} min-w-48 text-slate-600 dark:text-slate-300`}>
+            <td dir="auto" className={`${td} min-w-48 text-ink-muted`}>
               {ev.in_maintenance && (
                 <span
-                  className="me-1 inline-flex align-[-2px] text-sky-600 dark:text-sky-400"
+                  className="me-1 inline-flex align-[-2px] text-accent-ink"
                   title={t('events.inMaintenance')}
                   aria-label={t('events.inMaintenance')}
                 >
@@ -92,14 +99,11 @@ export function EventsTable({
 export function EventSource({ ev }: { ev: NmEvent }) {
   const { t } = useTranslation();
   if (!ev.device_name && !ev.sensor_name)
-    return <span className="text-slate-400">{t('events.system')}</span>;
+    return <span className="text-ink-subtle">{t('events.system')}</span>;
   return (
     <span className="whitespace-nowrap">
       {ev.device_id && ev.device_name ? (
-        <Link
-          className="text-sky-700 hover:underline dark:text-sky-400"
-          to={`/devices/${ev.device_id}`}
-        >
+        <Link className="text-ink hover:underline" to={`/devices/${ev.device_id}`}>
           {ev.device_name}
         </Link>
       ) : (
@@ -107,12 +111,9 @@ export function EventSource({ ev }: { ev: NmEvent }) {
       )}
       {ev.sensor_name && (
         <>
-          <span className="mx-1 text-slate-400">/</span>
+          <span className="mx-1 text-ink-subtle">/</span>
           {ev.sensor_id ? (
-            <Link
-              className="text-sky-700 hover:underline dark:text-sky-400"
-              to={`/sensors/${ev.sensor_id}`}
-            >
+            <Link className="text-accent-ink hover:underline" to={`/sensors/${ev.sensor_id}`}>
               {ev.sensor_name}
             </Link>
           ) : (

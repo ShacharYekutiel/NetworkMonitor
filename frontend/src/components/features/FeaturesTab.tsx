@@ -16,15 +16,15 @@ function OverviewRow({ name, on }: { name: FeatureName; on: boolean }) {
     >
       <span
         aria-hidden
-        className={cx('h-2 w-2 shrink-0 rounded-full', on ? 'bg-green-600' : 'bg-slate-400')}
+        className={cx('h-2 w-2 shrink-0 rounded-full', on ? 'bg-status-up' : 'bg-status-paused')}
       />
       <span className="font-medium">{t(`features.name.${name}`)}</span>
-      <span className={cx('text-xs', on ? 'text-green-700 dark:text-green-400' : 'text-slate-500')}>
+      <span className={cx('text-xs', on ? 'text-status-up' : 'text-ink-muted')}>
         {on ? t('features.on') : t('features.off')}
       </span>
       <Link
         to={`/settings?tab=${tab}`}
-        className="ms-auto text-xs font-medium text-sky-700 hover:underline dark:text-sky-400"
+        className="ms-auto text-xs font-medium text-accent-ink hover:underline"
       >
         {t('features.configuredIn', { tab: t(`settings.tab.${tab}`) })}
       </Link>
@@ -37,7 +37,7 @@ function GroupHeading({ id, k }: { id: string; k: string }) {
   return (
     <h3
       id={id}
-      className="border-b border-slate-200 bg-slate-50 px-4 py-1.5 text-xs font-semibold uppercase tracking-wide text-slate-500 dark:border-slate-800 dark:bg-slate-800/40"
+      className="border-b border-line bg-surface-sunken px-4 py-1.5 text-xs font-semibold text-ink-muted"
     >
       {t(`features.group.${k}`)}
     </h3>
@@ -62,7 +62,7 @@ export function FeaturesTab({ settings }: { settings: Settings }) {
   return (
     <div className="space-y-6">
       <Card title={t('features.title')} bodyClassName="p-0">
-        <p className="border-b border-slate-200 px-4 py-2 text-xs text-slate-500 dark:border-slate-800">
+        <p className="border-b border-line px-4 py-2 text-xs text-ink-muted">
           {t('features.intro')}
         </p>
         <div data-testid="features-list">
@@ -75,14 +75,14 @@ export function FeaturesTab({ settings }: { settings: Settings }) {
         </div>
       </Card>
       <Card title={t('features.ownTabTitle')} bodyClassName="p-0">
-        <p className="border-b border-slate-200 px-4 py-2 text-xs text-slate-500 dark:border-slate-800">
+        <p className="border-b border-line px-4 py-2 text-xs text-ink-muted">
           {t('features.ownTabIntro')}
         </p>
         <div data-testid="features-overview">
           {moved.map((g) => (
             <section key={g.key} aria-labelledby={`fo-${g.key}`}>
               <GroupHeading id={`fo-${g.key}`} k={g.key} />
-              <ul className="divide-y divide-slate-100 dark:divide-slate-800">
+              <ul className="divide-y divide-line">
                 {g.names.map((n) => (
                   <OverviewRow key={n} name={n} on={f[n]} />
                 ))}

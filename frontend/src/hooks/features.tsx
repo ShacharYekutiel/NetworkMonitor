@@ -54,18 +54,15 @@ export function FeatureOffNotice({
     <div
       role="note"
       data-testid="feature-off"
-      className={`rounded-md bg-slate-100 px-3 py-2 text-sm text-slate-700 ring-1 ring-inset ring-slate-200 dark:bg-slate-800/60 dark:text-slate-300 dark:ring-slate-700 ${className ?? ''}`}
+      className={`rounded-md bg-surface-sunken px-3 py-2 text-sm text-ink ring-1 ring-inset ring-line    ${className ?? ''}`}
     >
       {t('features.offLine', { name: names })}{' '}
       {isAdmin ? (
-        <Link
-          to={`/settings?tab=${tab}`}
-          className="font-medium text-sky-700 hover:underline dark:text-sky-400"
-        >
+        <Link to={`/settings?tab=${tab}`} className="font-medium text-accent-ink hover:underline">
           {t('features.openSettings', { tab: t(`settings.tab.${tab}`) })}
         </Link>
       ) : (
-        <span className="text-slate-500">{t('features.askAdmin')}</span>
+        <span className="text-ink-muted">{t('features.askAdmin')}</span>
       )}
     </div>
   );

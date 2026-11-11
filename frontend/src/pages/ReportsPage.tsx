@@ -56,11 +56,10 @@ export function RunStatusBadge({ status }: { status: ReportRunStatus }) {
     <span
       className={cx(
         'rounded px-1.5 py-0.5 text-xs font-medium',
-        status === 'ok' && 'bg-green-100 text-green-800 dark:bg-green-900/40 dark:text-green-200',
-        status === 'partial' &&
-          'bg-amber-100 text-amber-800 dark:bg-amber-900/40 dark:text-amber-200',
-        status === 'failed' && 'bg-red-100 text-red-800 dark:bg-red-900/40 dark:text-red-200',
-        status === 'running' && 'bg-sky-100 text-sky-800 dark:bg-sky-900/40 dark:text-sky-200',
+        status === 'ok' && 'bg-status-up-soft text-status-up',
+        status === 'partial' && 'bg-status-warning-soft text-status-warning',
+        status === 'failed' && 'bg-status-down-soft text-status-down',
+        status === 'running' && 'bg-accent-soft text-accent-ink',
       )}
     >
       {t(`reports.status.${status}`)}
@@ -139,7 +138,7 @@ function ScopeEditor({ form, set }: { form: ReportForm; set: (p: Partial<ReportF
   return (
     <FieldGroup label={t('reports.scope')} hint={t('reports.scopeHint')}>
       <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-        <div className="max-h-40 space-y-1 overflow-y-auto rounded-md p-2 ring-1 ring-inset ring-slate-200 dark:ring-slate-700">
+        <div className="max-h-40 space-y-1 overflow-y-auto rounded-md p-2 ring-1 ring-inset ring-line">
           {groups.map(({ group, depth }) => (
             <div key={group.id} style={{ paddingInlineStart: depth * 12 }}>
               <Checkbox
@@ -180,13 +179,13 @@ function ScopeEditor({ form, set }: { form: ReportForm; set: (p: Partial<ReportF
             {form.scope_device_ids.map((id) => (
               <span
                 key={id}
-                className="inline-flex items-center gap-1 rounded bg-slate-100 px-1.5 py-0.5 text-xs dark:bg-slate-800"
+                className="inline-flex items-center gap-1 rounded bg-surface-sunken px-1.5 py-0.5 text-xs"
               >
                 {deviceName(id) ?? `#${id}`}
                 <button
                   type="button"
                   aria-label={t('common.delete')}
-                  className="text-slate-500 hover:text-red-600"
+                  className="text-ink-muted hover:text-status-down"
                   onClick={() =>
                     set({ scope_device_ids: form.scope_device_ids.filter((x) => x !== id) })
                   }
@@ -357,7 +356,7 @@ function ReportModal({
                 />
               ))}
               {channels.data && !channels.data.items.length && (
-                <p className="text-xs text-slate-500">{t('reports.noChannels')}</p>
+                <p className="text-xs text-ink-muted">{t('reports.noChannels')}</p>
               )}
             </div>
           </FieldGroup>
@@ -368,7 +367,7 @@ function ReportModal({
           onChange={(v) => set({ enabled: v })}
         />
         {touched && errs.length > 0 && (
-          <ul className="text-xs text-red-600">
+          <ul className="text-xs text-status-down">
             {errs.map((e) => (
               <li key={e}>{t(e)}</li>
             ))}
@@ -445,7 +444,7 @@ function RunModal({ report, onClose }: { report: Report | null; onClose: () => v
             <Input type="date" value={end} onChange={(e) => setEnd(e.target.value)} dir="ltr" />
           </Field>
         </div>
-        {err && <p className="text-xs text-red-600">{t(err)}</p>}
+        {err && <p className="text-xs text-status-down">{t(err)}</p>}
         <Checkbox label={t('reports.sendToRecipients')} checked={send} onChange={setSend} />
         <ErrorBox error={m.error} />
       </div>
@@ -462,17 +461,17 @@ export function DeliveriesCell({ run }: { run: ReportRun }) {
   });
   const name = (id: number) => channels.data?.items.find((c) => c.id === id)?.name;
   if (!run.deliveries.length)
-    return <span className="text-xs text-slate-500">{t('reports.notSent')}</span>;
+    return <span className="text-xs text-ink-muted">{t('reports.notSent')}</span>;
   return (
     <ul className="space-y-0.5 text-xs">
       {run.deliveries.map((d, i) => (
         <li
           key={i}
-          className={d.ok ? 'text-green-700 dark:text-green-400' : 'text-red-600'}
+          className={d.ok ? 'text-status-up' : 'text-status-down'}
           title={d.error ?? undefined}
         >
           {d.ok ? '✓' : '✗'} <bdi dir="ltr">{deliveryLabel(d.target, name)}</bdi>
-          {d.error && <span className="ms-1 text-slate-500">— {d.error}</span>}
+          {d.error && <span className="ms-1 text-ink-muted">— {d.error}</span>}
         </li>
       ))}
     </ul>
@@ -521,11 +520,11 @@ function RunsCard() {
                   <td className={td}>
                     <Link
                       to={`/reports/runs/${r.id}`}
-                      className="font-medium text-sky-700 hover:underline dark:text-sky-400"
+                      className="font-medium text-accent-ink hover:underline"
                     >
                       {r.report_name}
                     </Link>
-                    <div className="text-xs text-slate-500">{formatDateTime(r.started_at)}</div>
+                    <div className="text-xs text-ink-muted">{formatDateTime(r.started_at)}</div>
                   </td>
                   <td className={`${td} text-xs`}>
                     {formatDateTime(r.period_start)} – {formatDateTime(r.period_end)}
@@ -533,7 +532,7 @@ function RunsCard() {
                   <td className={td}>
                     {t(`reports.triggers.${r.trigger}`)}
                     {r.created_by && (
-                      <span className="ms-1 text-xs text-slate-500">({r.created_by})</span>
+                      <span className="ms-1 text-xs text-ink-muted">({r.created_by})</span>
                     )}
                   </td>
                   <td className={td}>
@@ -626,7 +625,7 @@ export function ReportsPage() {
                     <tr key={r.id} className={r.enabled ? undefined : 'opacity-60'}>
                       <td className={td}>
                         <span className="font-medium">{r.name}</span>
-                        <div className="text-xs text-slate-500">
+                        <div className="text-xs text-ink-muted">
                           {r.sections.map((s) => t(`reportSection.${s}`)).join(' · ')}
                         </div>
                       </td>
@@ -641,7 +640,7 @@ export function ReportsPage() {
                             className="inline-flex items-center gap-1"
                           >
                             <RunStatusBadge status={r.last_run.status} />
-                            <span className="text-xs text-slate-500">
+                            <span className="text-xs text-ink-muted">
                               {formatDateTime(r.last_run.finished_at)}
                             </span>
                           </Link>

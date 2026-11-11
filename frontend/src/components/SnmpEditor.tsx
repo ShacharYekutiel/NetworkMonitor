@@ -20,10 +20,8 @@ export function SnmpEditor({
   const auth = value.v3_security_level !== 'noAuthNoPriv';
   const priv = value.v3_security_level === 'authPriv';
   return (
-    <fieldset className="rounded-md border border-slate-200 p-3 dark:border-slate-700">
-      <legend className="px-1 text-xs font-semibold text-slate-600 dark:text-slate-400">
-        {t('snmp.title')}
-      </legend>
+    <fieldset className="rounded-md border border-line p-3">
+      <legend className="px-1 text-xs font-semibold text-ink-muted">{t('snmp.title')}</legend>
       <Checkbox label={inheritLabel} checked={value.inherit} onChange={(v) => set('inherit', v)} />
       {!value.inherit && (
         <div className="mt-3 grid grid-cols-2 gap-3 sm:grid-cols-4">

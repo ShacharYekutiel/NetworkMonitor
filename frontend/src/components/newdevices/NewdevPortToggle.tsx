@@ -29,10 +29,7 @@ export function NewdevPortToggle({ deviceId, ifIndex }: { deviceId: number; ifIn
   });
   if (!on || !dev.data) return null;
   return (
-    <div
-      className="mt-3 border-t border-slate-200 pt-3 dark:border-slate-800"
-      data-testid="newdev-port"
-    >
+    <div className="mt-3 border-t border-line pt-3" data-testid="newdev-port">
       <Checkbox
         label={t('newDevices.ignorePort')}
         checked={excluded.includes(ifIndex)}

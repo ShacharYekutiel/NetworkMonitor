@@ -39,28 +39,28 @@ type Form = {
 function Changes({ e }: { e: AuditEntry }) {
   const { t } = useTranslation();
   const rows = changeRows(e.changes);
-  if (!rows.length) return <p className="text-xs text-slate-500">{t('audit.noChanges')}</p>;
+  if (!rows.length) return <p className="text-xs text-ink-muted">{t('audit.noChanges')}</p>;
   return (
     <table className="w-full text-xs" data-testid="audit-diff">
       <thead>
         <tr>
-          <th className="px-2 py-1 text-start font-medium text-slate-500">{t('audit.field')}</th>
-          <th className="px-2 py-1 text-start font-medium text-slate-500">{t('audit.old')}</th>
-          <th className="px-2 py-1 text-start font-medium text-slate-500">{t('audit.new')}</th>
+          <th className="px-2 py-1 text-start font-medium text-ink-muted">{t('audit.field')}</th>
+          <th className="px-2 py-1 text-start font-medium text-ink-muted">{t('audit.old')}</th>
+          <th className="px-2 py-1 text-start font-medium text-ink-muted">{t('audit.new')}</th>
         </tr>
       </thead>
       <tbody>
         {rows.map((r) => (
-          <tr key={r.field} className="border-t border-slate-100 dark:border-slate-800">
+          <tr key={r.field} className="border-t border-line">
             <td className="px-2 py-1 font-mono">
               <bdi dir="ltr">{r.field}</bdi>
             </td>
-            <td className="px-2 py-1 font-mono text-red-700 dark:text-red-300">
+            <td className="px-2 py-1 font-mono text-status-down">
               <bdi dir="ltr" className="break-all">
                 {r.secret ? t('audit.secret') : r.old}
               </bdi>
             </td>
-            <td className="px-2 py-1 font-mono text-green-700 dark:text-green-300">
+            <td className="px-2 py-1 font-mono text-status-up">
               <bdi dir="ltr" className="break-all">
                 {r.secret ? t('audit.secret') : r.new}
               </bdi>
@@ -141,7 +141,7 @@ export function AuditPage() {
               className="flex flex-wrap items-end gap-2"
               data-testid="audit-filters"
             >
-              <label className="text-xs text-slate-500">
+              <label className="text-xs text-ink-muted">
                 {t('logs.from')}
                 <Input
                   type="datetime-local"
@@ -151,7 +151,7 @@ export function AuditPage() {
                   className="w-auto"
                 />
               </label>
-              <label className="text-xs text-slate-500">
+              <label className="text-xs text-ink-muted">
                 {t('logs.to')}
                 <Input
                   type="datetime-local"
@@ -234,7 +234,7 @@ export function AuditPage() {
                         return (
                           <Fragment key={e.id}>
                             <tr
-                              className="cursor-pointer hover:bg-slate-50 dark:hover:bg-slate-800/50"
+                              className="cursor-pointer hover:bg-surface-hover"
                               onClick={() => setOpen(expanded ? null : e.id)}
                               aria-expanded={expanded}
                             >
@@ -247,12 +247,12 @@ export function AuditPage() {
                                   )}
                                 />
                               </td>
-                              <td className={cx(td, 'whitespace-nowrap text-xs text-slate-500')}>
+                              <td className={cx(td, 'whitespace-nowrap text-xs text-ink-muted')}>
                                 {formatDateTime(e.time)}
                               </td>
                               <td className={cx(td, 'whitespace-nowrap')}>
                                 <bdi dir="auto">{e.actor_name || '—'}</bdi>
-                                <span className="ms-1 text-xs text-slate-500">
+                                <span className="ms-1 text-xs text-ink-muted">
                                   ({t(`audit.actorType.${e.actor_type}`)}
                                   {e.source && ` · ${t(`audit.source.${e.source}`)}`})
                                 </span>
@@ -261,8 +261,8 @@ export function AuditPage() {
                                 className={cx(
                                   td,
                                   'whitespace-nowrap font-mono text-xs',
-                                  tone === 'bad' && 'text-red-600 dark:text-red-400',
-                                  tone === 'warn' && 'text-amber-700 dark:text-amber-300',
+                                  tone === 'bad' && 'text-status-down',
+                                  tone === 'warn' && 'text-status-warning',
                                 )}
                               >
                                 <bdi dir="ltr">{e.action}</bdi>
@@ -286,7 +286,7 @@ export function AuditPage() {
                               <td className={cx(td, 'font-mono text-xs')}>
                                 <bdi dir="ltr">{e.ip ?? '—'}</bdi>
                               </td>
-                              <td className={cx(td, 'text-xs text-slate-500')}>
+                              <td className={cx(td, 'text-xs text-ink-muted')}>
                                 {e.reason
                                   ? t(`ldap.reason.${e.reason}`, { defaultValue: e.reason })
                                   : t('audit.changesCount', {
@@ -297,10 +297,7 @@ export function AuditPage() {
                             {expanded && (
                               <tr>
                                 <td />
-                                <td
-                                  colSpan={6}
-                                  className="bg-slate-50 px-3 py-2 dark:bg-slate-800/40"
-                                >
+                                <td colSpan={6} className="bg-surface-sunken px-3 py-2">
                                   <Changes e={e} />
                                 </td>
                               </tr>

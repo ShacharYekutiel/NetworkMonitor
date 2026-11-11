@@ -51,12 +51,12 @@ export function TileGlyph({
     >
       {Icon && <Icon size={14} className="h-3 w-3 sm:h-3.5 sm:w-3.5" />}
       {trunk && (
-        <span className="absolute -end-1 -top-1 flex h-3 w-3 items-center justify-center rounded-full bg-white text-green-700 ring-1 ring-green-600 dark:bg-slate-900 dark:text-green-400">
+        <span className="absolute -end-1 -top-1 flex h-3 w-3 items-center justify-center rounded-full bg-surface text-status-up ring-1 ring-status-up">
           <TrunkIcon size={8} strokeWidth={3} />
         </span>
       )}
       {badge && (
-        <span className="absolute -bottom-1 -end-1.5 min-w-[14px] rounded-full bg-slate-800 px-0.5 text-center text-[8px] font-semibold leading-[12px] text-white ring-1 ring-white dark:bg-slate-100 dark:text-slate-900 dark:ring-slate-900">
+        <span className="absolute -bottom-1 -end-1.5 min-w-[14px] rounded-full bg-ink px-0.5 text-center text-[8px] font-semibold leading-[12px] text-surface ring-1 ring-surface">
           {badge}
         </span>
       )}
@@ -89,8 +89,8 @@ function Tile({
       data-if-index={port.if_index}
       data-tile={v.kind}
       className={cx(
-        'block rounded-[4px] focus:outline-none focus-visible:ring-2 focus-visible:ring-sky-500 focus-visible:ring-offset-1',
-        selected && 'ring-2 ring-sky-500 ring-offset-1 dark:ring-offset-slate-900',
+        'block rounded-xs focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-focus',
+        selected && 'outline outline-2 outline-offset-2 outline-focus',
       )}
     >
       <TileGlyph kind={v.kind} icon={v.icon} trunk={v.trunk} badge={v.badge} />
@@ -108,7 +108,7 @@ function Tile({
 
 function Label({ cell }: { cell: FaceplateCell }) {
   return (
-    <span className="block h-3.5 text-center text-[10px] leading-[14px] tabular-nums text-slate-500 dark:text-slate-400">
+    <span className="block h-3.5 text-center text-[10px] leading-[14px] tabular-nums text-ink-muted">
       {cell?.label ?? ''}
     </span>
   );
@@ -146,8 +146,7 @@ function Block({
     <div
       className={cx(
         'shrink-0 rounded-md px-1.5 py-1',
-        block.uplink &&
-          'bg-slate-200/70 ring-1 ring-inset ring-slate-300 dark:bg-slate-800 dark:ring-slate-700',
+        block.uplink && 'bg-surface-hover ring-1 ring-inset ring-line-strong',
       )}
       data-block={block.key}
       aria-label={block.uplink ? t('ports.uplinkGroup') : undefined}
@@ -185,19 +184,19 @@ export function Faceplate({
   const lags = useMemo(() => lagGroups(ports), [ports]);
   const lagColors = useMemo(() => lagColorByMember(lags), [lags]);
   if (!fp.members.length)
-    return <p className="p-4 text-sm text-slate-500">{t('ports.noPhysical')}</p>;
+    return <p className="p-4 text-sm text-ink-muted">{t('ports.noPhysical')}</p>;
   return (
     <div className="space-y-2" data-testid="faceplate" data-mode={fp.mode}>
       {fp.mode === 'fallback' && (
-        <p className="text-xs text-slate-500">{t('ports.fallbackNote')}</p>
+        <p className="text-xs text-ink-muted">{t('ports.fallbackNote')}</p>
       )}
       {/* A physical panel is never mirrored; it scrolls inside its card only. */}
       <div dir="ltr" className="flex overflow-x-auto pb-1" data-testid="faceplate-scroll">
-        <div className="flex min-w-max shrink-0 flex-col gap-2 rounded-lg rtl:ml-auto bg-slate-100 p-2 ring-1 ring-inset ring-slate-200 dark:bg-slate-950/60 dark:ring-slate-800">
+        <div className="flex min-w-max shrink-0 flex-col gap-2 rounded-lg rtl:ml-auto bg-surface-sunken p-2 ring-1 ring-inset ring-line">
           {fp.members.map((m) => (
             <div key={m.member}>
               {m.label !== null && (
-                <div className="mb-0.5 ps-1 text-left text-[11px] font-semibold text-slate-600 dark:text-slate-300">
+                <div className="mb-0.5 ps-1 text-left text-[11px] font-semibold text-ink-muted">
                   {t('ports.member', { n: m.member })}
                 </div>
               )}
@@ -219,7 +218,7 @@ export function Faceplate({
       </div>
       {lags.length > 0 && (
         <ul
-          className="flex flex-wrap gap-x-4 gap-y-1 text-xs text-slate-600 dark:text-slate-300"
+          className="flex flex-wrap gap-x-4 gap-y-1 text-xs text-ink-muted"
           data-testid="lag-legend"
         >
           {lags.map((g) => (
@@ -259,7 +258,7 @@ export function FaceplateLegend() {
   const item = 'inline-flex items-center gap-1.5';
   return (
     <div
-      className="flex flex-wrap items-center gap-x-4 gap-y-2 text-xs text-slate-600 dark:text-slate-300"
+      className="flex flex-wrap items-center gap-x-4 gap-y-2 text-xs text-ink-muted"
       data-testid="faceplate-legend"
     >
       {LEGEND_TILES.map((l) => (
@@ -268,12 +267,12 @@ export function FaceplateLegend() {
           {t(`ports.legend.${l.key}`)}
         </span>
       ))}
-      <span className="hidden h-4 w-px bg-slate-300 sm:inline-block dark:bg-slate-700" />
+      <span className="hidden h-4 w-px bg-line-strong sm:inline-block" />
       {LEGEND_ICONS.map((l) => {
         const Icon = ICONS[l.icon];
         return (
           <span key={l.key} className={item}>
-            <Icon size={14} className="text-green-600 dark:text-green-500" />
+            <Icon size={14} className="text-status-up" />
             {t(`ports.legend.${l.key}`)}
           </span>
         );

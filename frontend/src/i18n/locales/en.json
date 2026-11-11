@@ -2990,5 +2990,9 @@
     "teamsLimit": "In Teams the Acknowledge button opens NetworkMonitor in your browser; it works from the office network or VPN.",
     "emailHint": "Adds an Acknowledge link that opens NetworkMonitor.",
     "needsPublicUrl": "Links need the public URL (Settings → General)."
+  },
+  "auth": {
+    "tagline1": "Every port.",
+    "tagline2": "Every signal."
   }
 }

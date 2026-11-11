@@ -3018,5 +3018,9 @@
     "teamsLimit": "ב-Teams כפתור אישור הטיפול פותח את NetworkMonitor בדפדפן; הוא עובד מרשת המשרד או דרך VPN.",
     "emailHint": "מוסיף קישור לאישור טיפול שפותח את NetworkMonitor.",
     "needsPublicUrl": "קישורים דורשים את הכתובת הציבורית (הגדרות ← כללי)."
+  },
+  "auth": {
+    "tagline1": "כל פורט.",
+    "tagline2": "כל אות."
   }
 }

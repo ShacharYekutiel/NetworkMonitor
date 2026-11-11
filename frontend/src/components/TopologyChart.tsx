@@ -7,6 +7,7 @@ import { CanvasRenderer } from 'echarts/renderers';
 import { useTranslation } from 'react-i18next';
 import type { LayoutPosition, TopologyGraph } from '../api/types';
 import { buildGraph, forceRepulsion, isRealDrag, type GraphNodeDatum } from '../lib/topology';
+import { chartTokens } from '../lib/chartTokens';
 
 echarts.use([GraphChart, TooltipComponent, CanvasRenderer]);
 
@@ -156,7 +157,8 @@ export function TopologyChart({
     const built = buildGraph(graph, { dark, showTraffic, positions });
     idsRef.current = built.nodes.map((n) => n.id);
     nodesRef.current = built.nodes;
-    const text = dark ? '#e2e8f0' : '#1e293b';
+    const tk = chartTokens(dark);
+    const text = tk.ink;
     const series = (layout: 'force' | 'none', nodes: GraphNodeDatum[]) => ({
       id: `topology-${resetToken}`,
       type: 'graph' as const,
@@ -171,21 +173,30 @@ export function TopologyChart({
         show: true,
         position: 'bottom' as const,
         fontSize: 11,
+        fontWeight: 600,
+        fontFamily: tk.fontMono,
         color: text,
         overflow: 'truncate' as const,
         width: 120,
         // An opaque plate keeps names readable where edges cross them.
-        backgroundColor: dark ? 'rgba(15,23,42,0.85)' : 'rgba(255,255,255,0.85)',
-        padding: [1, 4],
-        borderRadius: 3,
+        backgroundColor: tk.surface,
+        borderColor: tk.border,
+        borderWidth: 1,
+        padding: [2, 6],
+        borderRadius: 2,
         distance: 4,
       },
       edgeLabel: {
         fontSize: 10,
+        fontWeight: 600,
         position: 'middle' as const,
-        backgroundColor: dark ? '#0f172a' : '#ffffff',
-        padding: [1, 3],
-        borderRadius: 3,
+        fontFamily: tk.fontMono,
+        color: tk.inkMuted,
+        backgroundColor: tk.surface,
+        borderColor: tk.borderStrong,
+        borderWidth: 1,
+        padding: [1, 4],
+        borderRadius: 2,
       },
       emphasis: { focus: 'adjacency' as const, lineStyle: { width: 4 } },
       force: {
@@ -204,9 +215,9 @@ export function TopologyChart({
       tooltip: {
         trigger: 'item' as const,
         confine: true,
-        backgroundColor: dark ? '#1e293b' : '#ffffff',
-        borderColor: dark ? '#334155' : '#e2e8f0',
-        textStyle: { color: dark ? '#e2e8f0' : '#1e293b', fontSize: 12 },
+        backgroundColor: tk.surfaceRaised,
+        borderColor: tk.border,
+        textStyle: { color: tk.ink, fontSize: 12, fontFamily: tk.fontSans },
         formatter: (p: unknown) => {
           const params = p as { dataType?: string; data: Record<string, unknown> };
           if (params.dataType === 'edge') {

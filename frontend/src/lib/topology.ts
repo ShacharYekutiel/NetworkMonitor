@@ -10,7 +10,8 @@ import type {
   TopologyNode,
 } from '../api/types';
 import { formatValue } from './format';
-import { STATUS_HEX, severity } from './status';
+import { severity } from './status';
+import { DARK_TOKENS, LIGHT_TOKENS, chartTokens, statusColor } from './chartTokens';
 
 /** Inner SVG markup (24×24 stroke icons) per device class, same shapes as components/icons. */
 const CLASS_SVG: Record<DeviceClass, string> = {
@@ -32,39 +33,44 @@ const CLASS_SVG: Record<DeviceClass, string> = {
 const WRENCH =
   '<path d="M14.7 6.3a4 4 0 00-5.4 5.2L3.6 17.2a1.6 1.6 0 002.2 2.2l5.7-5.7a4 4 0 005.2-5.4l-2.5 2.5-2.1-.5-.5-2.1z"/>';
 
-export const NEUTRAL_EDGE = { light: '#94a3b8', dark: '#64748b' };
-export const MAINTENANCE_HEX = '#0ea5e9'; // sky-500 wrench badge
+/** Links without an interface sensor: the `border-strong` token. */
+export const NEUTRAL_EDGE = { light: LIGHT_TOKENS.borderStrong, dark: DARK_TOKENS.borderStrong };
 
-/** Device node symbol: a status-coloured disc with the class icon and an optional wrench badge. */
+/**
+ * Device node symbol (design system: TopologyNode): a square tile on `surface` with a
+ * status-coloured outline, the class icon, a status dot in the corner and an optional wrench badge.
+ */
 export function deviceSymbol(
   status: Status,
   cls: DeviceClass | null,
   maintenance: boolean,
   dark: boolean,
 ): string {
-  const fill = STATUS_HEX[status] ?? STATUS_HEX.unknown;
-  const ring = dark ? '#0f172a' : '#ffffff';
+  const tk = chartTokens(dark);
+  const color = statusColor(tk, status);
   const icon = CLASS_SVG[cls ?? 'unknown'] ?? CLASS_SVG.unknown;
   const badge = maintenance
-    ? `<circle cx="38" cy="10" r="9" fill="${MAINTENANCE_HEX}" stroke="${ring}" stroke-width="2"/>` +
-      `<g transform="translate(31.5 3.5) scale(0.54)" fill="none" stroke="#fff" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round">${WRENCH}</g>`
+    ? `<circle cx="8" cy="8" r="7.5" fill="${tk.accent}" stroke="${tk.surface}" stroke-width="2"/>` +
+      `<g transform="translate(2.6 2.6) scale(0.45)" fill="none" stroke="${tk.onAccent}" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round">${WRENCH}</g>`
     : '';
   const svg =
-    `<svg xmlns="http://www.w3.org/2000/svg" width="48" height="48" viewBox="0 0 48 48">` +
-    `<circle cx="24" cy="24" r="19" fill="${fill}" stroke="${ring}" stroke-width="3"/>` +
-    `<g transform="translate(13 13) scale(0.9167)" fill="none" stroke="#fff" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">${icon}</g>` +
+    `<svg xmlns="http://www.w3.org/2000/svg" width="52" height="52" viewBox="0 0 52 52">` +
+    `<rect x="5" y="5" width="42" height="42" rx="3" fill="${tk.surface}" stroke="${color}" stroke-width="2"/>` +
+    `<g transform="translate(16 16) scale(0.8333)" fill="none" stroke="${tk.ink}" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round">${icon}</g>` +
+    `<circle cx="46" cy="6" r="5" fill="${color}" stroke="${tk.surface}" stroke-width="1.5"/>` +
     badge +
     `</svg>`;
   return `image://data:image/svg+xml;charset=utf-8,${encodeURIComponent(svg)}`;
 }
 
-/** Unmanaged neighbour: a hollow dashed "ghost" disc with a question mark. */
+/** Unmanaged neighbour: a dashed "ghost" tile with a question mark. */
 export function ghostSymbol(dark: boolean): string {
-  const stroke = dark ? '#64748b' : '#94a3b8';
+  const tk = chartTokens(dark);
+  const stroke = tk.borderStrong;
   const svg =
-    `<svg xmlns="http://www.w3.org/2000/svg" width="48" height="48" viewBox="0 0 48 48">` +
-    `<circle cx="24" cy="24" r="18" fill="${dark ? '#0f172a' : '#ffffff'}" fill-opacity="0.6" stroke="${stroke}" stroke-width="2.5" stroke-dasharray="5 4"/>` +
-    `<g transform="translate(13 13) scale(0.9167)" fill="none" stroke="${stroke}" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9.5 9.5a2.5 2.5 0 015 .5c0 1.5-2.5 2-2.5 3.5M12 17h.01"/></g>` +
+    `<svg xmlns="http://www.w3.org/2000/svg" width="52" height="52" viewBox="0 0 52 52">` +
+    `<rect x="5" y="5" width="42" height="42" rx="3" fill="${tk.surfaceSunken}" stroke="${stroke}" stroke-width="2" stroke-dasharray="5 4"/>` +
+    `<g transform="translate(16 16) scale(0.8333)" fill="none" stroke="${tk.inkSubtle}" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M9.5 9.5a2.5 2.5 0 015 .5c0 1.5-2.5 2-2.5 3.5M12 17h.01"/></g>` +
     `</svg>`;
   return `image://data:image/svg+xml;charset=utf-8,${encodeURIComponent(svg)}`;
 }
@@ -89,7 +95,7 @@ export function linkState(l: TopologyLink): Status | null {
 
 export function linkColor(l: TopologyLink, dark: boolean): string {
   const s = linkState(l);
-  return s ? STATUS_HEX[s] : dark ? NEUTRAL_EDGE.dark : NEUTRAL_EDGE.light;
+  return s ? statusColor(chartTokens(dark), s) : chartTokens(dark).borderStrong;
 }
 
 /** The end that carries traffic data (the first with an interface sensor and a rate). */
@@ -153,6 +159,7 @@ export function buildGraph(
   opts: { dark: boolean; showTraffic: boolean; positions?: Record<string, [number, number]> },
 ): BuiltGraph {
   const { dark, showTraffic } = opts;
+  const tk = chartTokens(dark);
   const keys = new Set(g.nodes.map((n) => n.key));
   const degree = new Map<string, number>();
   const links: GraphLinkDatum[] = [];
@@ -171,13 +178,14 @@ export function buildGraph(
       lineStyle: {
         color: linkColor(l, dark),
         width: 2.5,
-        type: l.stale ? 'dashed' : 'solid',
+        // Down links are dashed too (status never by colour alone); stale ones also fade.
+        type: l.stale || linkState(l) === 'down' ? 'dashed' : 'solid',
         opacity: l.stale ? 0.4 : 0.9,
       },
-      label: { show: !!label, formatter: label, color: dark ? '#cbd5e1' : '#334155' },
+      label: { show: !!label, formatter: label, color: tk.inkMuted },
     });
   }
-  const text = dark ? '#e2e8f0' : '#1e293b';
+  const text = tk.ink;
   let needsLayout = false;
   const nodes = g.nodes.map((n): GraphNodeDatum => {
     const pos = opts.positions?.[n.key] ?? (n.x !== null && n.y !== null ? [n.x, n.y] : null);
@@ -198,7 +206,7 @@ export function buildGraph(
         ghost: false,
         inFilter: n.in_filter,
         symbol: deviceSymbol(n.status, n.device_class, n.in_maintenance, dark),
-        symbolSize: 46,
+        symbolSize: 54,
         itemStyle: { opacity: n.in_filter ? 1 : 0.45 },
         label: { color: text },
       };
@@ -210,9 +218,9 @@ export function buildGraph(
       ghost: true,
       inFilter: true,
       symbol: ghostSymbol(dark),
-      symbolSize: 36,
+      symbolSize: 44,
       itemStyle: { opacity: 0.9 },
-      label: { color: dark ? '#94a3b8' : '#64748b' },
+      label: { color: tk.inkSubtle },
     };
   });
   return { nodes, links, needsLayout };

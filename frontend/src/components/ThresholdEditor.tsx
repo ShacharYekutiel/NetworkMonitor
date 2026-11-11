@@ -4,11 +4,12 @@ import { useTranslation } from 'react-i18next';
 import { endpoints, qk } from '../api/endpoints';
 import type { Channel, ChannelThresholdInput, Sensor } from '../api/types';
 import { useToast } from './toast';
-import { Button, ErrorBox, Input, Table, td, th } from './ui';
+import { Button, ErrorBox, Input } from './ui';
 
 const KEYS = ['warning_min', 'warning_max', 'down_min', 'down_max'] as const;
 type Key = (typeof KEYS)[number];
 type Row = Record<Key, string>;
+const FIELD_ORDER: Key[] = ['warning_max', 'down_max', 'warning_min', 'down_min'];
 
 function toRow(c: Channel): Row {
   return {
@@ -85,66 +86,68 @@ export function ThresholdEditor({ sensor, readOnly }: { sensor: Sensor; readOnly
   };
 
   return (
-    <div className="space-y-3">
-      <Table>
-        <thead>
-          <tr>
-            <th className={th}>{t('sensors.channel')}</th>
-            <th className={th}>{t('thresholds.warning_min')}</th>
-            <th className={th}>{t('thresholds.warning_max')}</th>
-            <th className={th}>{t('thresholds.down_min')}</th>
-            <th className={th}>{t('thresholds.down_max')}</th>
-          </tr>
-        </thead>
-        <tbody>
-          {sensor.channels.map((c) => (
-            <tr key={c.key}>
-              <td className={td}>
-                {t(`channel.${c.key}`, { defaultValue: c.key })}{' '}
-                {c.unit && (
-                  <span className="text-xs text-slate-500">
-                    (<bdi dir="auto">{c.unit}</bdi>)
-                  </span>
-                )}
-              </td>
-              {KEYS.map((k) => (
-                <td key={k} className={td}>
-                  <Input
-                    className="w-28"
-                    inputMode="decimal"
-                    dir="ltr"
-                    disabled={readOnly}
-                    value={rows[c.key]?.[k] ?? ''}
-                    placeholder="—"
-                    aria-label={`${c.key} ${t(`thresholds.${k}`)}`}
-                    onChange={(e) =>
-                      setRows((r) => ({
-                        ...r,
-                        [c.key]: { ...(r[c.key] ?? toRow(c)), [k]: e.target.value },
-                      }))
-                    }
-                  />
-                </td>
-              ))}
-            </tr>
-          ))}
-        </tbody>
-      </Table>
-      <p className="text-xs text-slate-500">{t('thresholds.help')}</p>
+    <div className="space-y-4">
+      {sensor.channels.map((c) => (
+        <fieldset key={c.key} className="min-w-0">
+          {sensor.channels.length > 1 && (
+            <legend className="mb-2 text-[13px] font-semibold">
+              {t(`channel.${c.key}`, { defaultValue: c.key })}{' '}
+              {c.unit && (
+                <span className="font-normal text-ink-subtle">
+                  (<bdi dir="auto">{c.unit}</bdi>)
+                </span>
+              )}
+            </legend>
+          )}
+          {/* Upper limits first ("Warning above", "Down above"), then the lower ones. */}
+          <div className="grid grid-cols-2 gap-x-3 gap-y-3">
+            {FIELD_ORDER.map((k) => (
+              <label key={k} className="block min-w-0">
+                <span className="mb-1.5 block text-xs font-medium text-ink-muted">
+                  {t(`thresholds.${k}`)}
+                  {sensor.channels.length === 1 && c.unit && (
+                    <span className="text-ink-subtle">
+                      {' '}
+                      (<bdi dir="auto">{c.unit}</bdi>)
+                    </span>
+                  )}
+                </span>
+                <Input
+                  className="font-mono text-[13px]"
+                  inputMode="decimal"
+                  dir="ltr"
+                  disabled={readOnly}
+                  value={rows[c.key]?.[k] ?? ''}
+                  placeholder="—"
+                  aria-label={`${c.key} ${t(`thresholds.${k}`)}`}
+                  onChange={(e) =>
+                    setRows((r) => ({
+                      ...r,
+                      [c.key]: { ...(r[c.key] ?? toRow(c)), [k]: e.target.value },
+                    }))
+                  }
+                />
+              </label>
+            ))}
+          </div>
+        </fieldset>
+      ))}
+      <p className="text-xs text-ink-muted">{t('thresholds.help')}</p>
       {invalid && <ErrorBox error={new Error(t('validation.number'))} />}
       <ErrorBox error={m.error} />
       {!readOnly && (
-        <div className="flex justify-end gap-2">
+        <div className="flex flex-wrap gap-2">
+          <Button variant="primary" disabled={!dirty} busy={m.isPending} onClick={save}>
+            {t('thresholds.save')}
+          </Button>
           <Button
+            variant="ghost"
             disabled={!dirty}
             onClick={() =>
               setRows(Object.fromEntries(sensor.channels.map((c) => [c.key, toRow(c)])))
             }
           >
             {t('common.reset')}
-          </Button>
-          <Button variant="primary" disabled={!dirty} busy={m.isPending} onClick={save}>
-            {t('thresholds.save')}
           </Button>
         </div>
       )}

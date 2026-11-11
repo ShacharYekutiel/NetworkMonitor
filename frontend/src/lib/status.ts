@@ -1,4 +1,5 @@
 import type { Status, StatusCounts } from '../api/types';
+import { LIGHT_TOKENS } from './chartTokens';
 
 /** Every status, worst first (data-model.md § 2b-1 status severity). */
 export const STATUSES: Status[] = ['down', 'warning', 'unreachable', 'unknown', 'up', 'paused'];
@@ -82,17 +83,10 @@ export const STATUS_SOFT: Record<Status, string> = {
 };
 
 /**
- * Literal colours for ECharts (it cannot read CSS variables). Converted to the tokens with the
- * chart components (design-system IMPLEMENTATION.md step 3).
+ * Literal status colours of the light theme (for code that cannot read CSS variables and has
+ * no theme; charts use lib/chartTokens.ts, which follows the theme).
  */
-export const STATUS_HEX: Record<Status, string> = {
-  up: '#16a34a',
-  warning: '#f59e0b',
-  down: '#dc2626',
-  paused: '#9ca3af',
-  unknown: '#64748b',
-  unreachable: '#8b5cf6',
-};
+export const STATUS_HEX: Record<Status, string> = LIGHT_TOKENS.status;
 
 export function statusClass(s: string, map: Record<Status, string>): string {
   return (map as Record<string, string>)[s] ?? map.unknown;
