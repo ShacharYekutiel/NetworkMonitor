@@ -149,7 +149,8 @@ or `POST /_reset`; `throttle:N` lasts N calls).
 | `validation` | 400 `ValidationException` (other) | `bedrock_validation` |
 | `unavailable` / `model_timeout` / `model_not_ready` / `model_error` / `internal` | 503 / 408 / 429 / 424 / 500 | `bedrock_unavailable` |
 | `stream_error:K` `stream_internal:K` `stream_unavailable:K` `stream_validation:K` | in-stream exception after K deltas | `bedrock_unavailable` / `bedrock_validation` |
-| `expired_token` / `invalid_signature` / `unrecognized_client` | 403 | `aws_auth_failed` |
+| `expired_token` | 403 `ExpiredTokenException` | `aws_token_expired` |
+| `invalid_signature` / `unrecognized_client` | 403 | `aws_auth_failed` |
 | `clock_skew[:seconds]` | mock clock +900 s: every signature -> "Signature expired: …" | `aws_clock_skew` |
 | `cache_unsupported` | any `cachePoint` -> 400 `ValidationException` naming cachePoint (sticky) | retry without cache |
 | `sampling_unsupported` | `temperature`/`topP` in `inferenceConfig` -> 400 `ValidationException` naming them (sticky) | retry without sampling params |

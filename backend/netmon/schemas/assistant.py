@@ -16,6 +16,7 @@ from netmon.assistant.config import (
     PROFILE_RE,
     REGION_RE,
     ROLE_RE,
+    SESSION_TOKEN_MAX,
     TRUST_ANCHOR_RE,
     cidr_error,
 )
@@ -52,6 +53,7 @@ SCALAR_KEYS = (
 NULLABLE_KEYS = frozenset({"assistant_monthly_cost_cap", "digest_language"})
 _HHMM = re.compile(r"^([01]\d|2[0-3]):[0-5]\d$")
 _EMAIL = re.compile(r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
+_TOKEN = re.compile(r"^[A-Za-z0-9+/=_-]+$")
 
 
 class Phase3bSettingsMixin(BaseModel):
@@ -163,6 +165,8 @@ class AssistantFields(_Strict):
     prompt_caching: bool | None = None
     access_key_id: str | None = None
     secret_access_key: str | None = Field(default=None, max_length=256)
+    # write-only; temporary credentials (ASIA… key ids); "" clears
+    session_token: str | None = Field(default=None, max_length=SESSION_TOKEN_MAX)
     access_key_created_at: date | None = None
     ra_region: str | None = None
     ra_endpoint_url: str | None = Field(default=None, max_length=512)
@@ -192,6 +196,16 @@ class AssistantFields(_Strict):
             return v
         v = v.strip()
         return v.rstrip("/") or None
+
+    @field_validator("session_token")
+    @classmethod
+    def _token(cls, v: str | None) -> str | None:
+        if v is None:
+            return v
+        v = "".join(v.split())  # pasted tokens may carry line breaks / spaces
+        if v and not _TOKEN.match(v):
+            raise ValueError("invalid session token (base64 characters expected)")
+        return v
 
     @field_validator("internal_cidrs")
     @classmethod

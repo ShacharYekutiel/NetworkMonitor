@@ -3659,6 +3659,10 @@ endpoints with a valid `test_id` (architecture § 14.2.6); `PUT /api/settings` s
   "prompt_caching": true,
   "access_key_id": null,                           // AKIA/ASIA + 16 [A-Z0-9]
   "secret_access_key_enc": null,                   // AAD b"assistant.secret_access_key"; API: secret_access_key (write-only), _set, _unreadable
+  "session_token_enc": null,                       // optional session token of temporary credentials (ASIA… ids, e.g.
+                                                   //   IAM Identity Center / STS), ≤ 4096 base64 chars, AAD
+                                                   //   b"assistant.session_token"; API: session_token (write-only, "" clears),
+                                                   //   session_token_set, session_token_unreadable; sent as X-Amz-Security-Token
   "access_key_created_at": null,                   // optional date, reminder only
   "ra_region": null,                               // null = region
   "ra_endpoint_url": null,
@@ -3682,11 +3686,13 @@ endpoints with a valid `test_id` (architecture § 14.2.6); `PUT /api/settings` s
                                                    // currency label, default USD (the cost cap is in it)
 ```
 Validation per auth mode when enabling/testing: `roles_anywhere` needs the three ARNs + a certificate and key
-(uploaded or host files); `access_key` needs both key fields; `default_chain` needs nothing else. ARNs' account
+(uploaded or host files); `access_key` needs both key fields, and an `ASIA…` (temporary) key id also needs
+`session_token_enc` (otherwise the Test fails at the credentials step with `aws_session_token_required`; a set
+token adds the warning `temporary_credentials`); `default_chain` needs nothing else. ARNs' account
 ids must be equal (warning, not error). A connection-field change while ON needs a `test_id`
 (architecture § 14.2.6). **Connection fields** (hashed for `test_id`): `auth_mode`, `region`, `model_id`,
 `model_id_light`, `endpoint_url`, `control_endpoint_url`, `proxy_mode`, `proxy_url`, `prompt_caching`,
-`access_key_id`, SHA-256 of the decrypted secret key, every `ra_*` field (cert/chain/key by SHA-256).
+`access_key_id`, SHA-256 of the decrypted secret key, SHA-256 of the decrypted session token, every `ra_*` field (cert/chain/key by SHA-256).
 
 ### Knowledge Base (key `assistant_kb`, object)
 ```json

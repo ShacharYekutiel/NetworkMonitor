@@ -170,6 +170,9 @@ async def run_test(
     result["warnings"] += profiles.warnings_for([cfg.get("model_id"), cfg.get("model_id_light")])
     if cfg.get("auth_mode") == "roles_anywhere" and config.arn_account_warning(cfg):
         result["warnings"].append("arn_accounts_differ")
+    if config.temporary_credentials(cfg):
+        # temporary credentials expire within hours: fine for a trial, not for the server
+        result["warnings"].append("temporary_credentials")
     result["warnings"] = list(dict.fromkeys(result["warnings"]))
     return result
 

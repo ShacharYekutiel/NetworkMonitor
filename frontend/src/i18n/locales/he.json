@@ -570,6 +570,8 @@
     "bedrock_unavailable": "Amazon Bedrock לא הצליח לענות כרגע.",
     "bedrock_validation": "Amazon Bedrock דחה את הבקשה.",
     "aws_auth_failed": "AWS דחה את ההרשאות.",
+    "aws_token_expired": "AWS דחה את ההרשאות: פג תוקפו של ה-session token. הרשאות זמניות (IAM Identity Center / SSO) תקפות רק כמה שעות — הדבק מזהה מפתח גישה, סוד ו-session token חדשים.",
+    "aws_session_token_required": "מזהה מפתח הגישה הוא מפתח זמני (ASIA…) ונדרש עבורו session token. הדבק גם את ה-session token, או השתמש במפתח של משתמש IAM ‏(AKIA…).",
     "aws_clock_skew": "שעון השרת שונה משעון AWS ביותר מ-5 דקות (בדוק NTP).",
     "rolesanywhere_failed": "IAM Roles Anywhere דחה את התעודה (בדוק עוגן אמון, פרופיל, מדיניות האמון של התפקיד ו-CRL).",
     "aws_network": "לא ניתן להגיע ל-AWS.",
@@ -3169,7 +3171,8 @@
       "stream_buffered": "התשובה הגיעה בחתיכה אחת: נראה שפרוקסי אוגר תגובות זורמות.",
       "cache_unsupported": "המודל אינו תומך ב-prompt caching; האפשרות כובתה אוטומטית.",
       "access_key_old": "מפתח הגישה ישן מ-90 יום — יש להחליפו.",
-      "key_file_mode": "קובץ המפתח הפרטי בשרת קריא למשתמשים אחרים."
+      "key_file_mode": "קובץ המפתח הפרטי בשרת קריא למשתמשים אחרים.",
+      "temporary_credentials": "הרשאות זמניות (session token) פגות אחרי כמה שעות — מתאים לניסיון; לשרת השתמש במפתח של משתמש IAM, ב-Roles Anywhere או בשרשרת ברירת המחדל."
     },
     "tool": {
       "generic": "מריץ {{tool}}…",
@@ -3239,6 +3242,11 @@
       "keyCreatedHint": "רשות — תזכורת אחרי 90 יום",
       "keyOld": "המפתח בן {{days}} יום — יש להחליפו.",
       "secretUnreadable": "לא ניתן לפענח את הסוד השמור (secret.key השתנה). הזן אותו מחדש.",
+      "sessionToken": "Session token (הרשאות זמניות)",
+      "sessionTokenHint": "רק למפתחות זמניים (ASIA…), למשל מ-IAM Identity Center ‏(SSO) ← “Access keys”. השאר ריק למפתח של משתמש IAM ‏(AKIA…).",
+      "sessionTokenStored": "שמור session token. הדבק חדש כדי להחליף אותו.",
+      "sessionTokenClear": "מחיקת ה-session token השמור",
+      "sessionTokenUnreadable": "לא ניתן לפענח את ה-session token השמור (secret.key השתנה). הזן אותו מחדש.",
       "defaultChainInfo": "ההרשאות נלקחות מ-AWS_ACCESS_KEY_ID / AWS_SECRET_ACCESS_KEY, מהרשאות הקונטיינר או ממטא-נתוני מכונת EC2 ‏(IMDSv2; ב-Docker נדרש hop limit 2). הבדיקה מציגה באיזה מקור נעשה שימוש.",
       "region": "אזור AWS",
       "regionHint": "מומלץ us-east-1; ‏il-central-1 נתמך עם פרופיל ‎global.‎",
@@ -3287,7 +3295,8 @@
       "lastTest": "בדיקה אחרונה: {{result}} · {{time}} · {{by}}",
       "missing": {
         "certificate": "העלה קודם תעודה (או צור CSR).",
-        "secret": "הזן את מפתח הגישה הסודי."
+        "secret": "הזן את מפתח הגישה הסודי.",
+        "sessionToken": "מפתח זמני (ASIA…) דורש session token."
       },
       "enableNeedsTest": "יש להריץ קודם בדיקת חיבור מוצלחת עם הערכים האלה.",
       "changeNeedsTest": "שדות החיבור השתנו: הרץ בדיקת חיבור לפני השמירה.",
@@ -3324,6 +3333,7 @@
         "arn": "ARN לא תקין",
         "session": "900–43200",
         "accessKey": "AKIA… או ASIA… ואחריו 16 תווים",
+        "sessionToken": "עד 4096 תווי base64 ‏(A–Z, a–z, 0–9, + / =)",
         "range": "{{min}}–{{max}}",
         "time": "HH:MM",
         "money": "מספר ≥ 0"

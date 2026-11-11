@@ -21,6 +21,7 @@ from urllib.parse import urlsplit
 from netmon.services import crypto
 
 AAD_SECRET_ACCESS_KEY = b"assistant.secret_access_key"
+AAD_SESSION_TOKEN = b"assistant.session_token"
 AAD_RA_KEY = b"assistant.ra_key"
 AAD_RA_CSR_KEY = b"assistant.ra_csr_key"
 
@@ -42,6 +43,8 @@ DEFAULT_ASSISTANT: dict[str, Any] = {
     "prompt_caching": True,
     "access_key_id": None,
     "secret_access_key_enc": None,
+    # optional session token of temporary credentials (ASIA… keys, e.g. IAM Identity Center)
+    "session_token_enc": None,
     "access_key_created_at": None,
     "ra_region": None,
     "ra_endpoint_url": None,
@@ -131,7 +134,8 @@ CONNECTION_FIELDS = (
     "ra_session_seconds",
 )
 KB_CONNECTION_FIELDS = ("knowledge_base_id", "region", "endpoint_url", "results", "min_score")
-# writable through PUT /api/assistant/settings (plus `secret_access_key`)
+# writable through PUT /api/assistant/settings (plus the secrets `secret_access_key` and
+# `session_token`)
 WRITABLE_FIELDS = (
     *CONNECTION_FIELDS,
     "access_key_created_at",
@@ -146,6 +150,12 @@ KB_WRITABLE_FIELDS = (*KB_CONNECTION_FIELDS, "description")
 REGION_RE = re.compile(r"^[a-z]{2}(-gov|-iso[a-z]*)?-[a-z]+-\d$")
 MODEL_RE = re.compile(r"^[A-Za-z0-9.:/_-]{1,256}$")
 ACCESS_KEY_RE = re.compile(r"^(AKIA|ASIA)[A-Z0-9]{16}$")
+SESSION_TOKEN_MAX = 4096
+# write-only secrets of PUT /api/assistant/settings: field -> (stored field, AAD)
+SECRET_INPUTS: dict[str, tuple[str, bytes]] = {
+    "secret_access_key": ("secret_access_key_enc", AAD_SECRET_ACCESS_KEY),
+    "session_token": ("session_token_enc", AAD_SESSION_TOKEN),
+}
 TRUST_ANCHOR_RE = re.compile(
     r"^arn:aws[a-z-]*:rolesanywhere:[a-z0-9-]+:\d{12}:trust-anchor/[0-9a-zA-Z-]+$"
 )
@@ -219,6 +229,20 @@ def secret_access_key(stored: dict[str, Any], secret_key: str) -> str | None:
     return decrypt_opt(secret_key, stored.get("secret_access_key_enc"), AAD_SECRET_ACCESS_KEY)
 
 
+def session_token(stored: dict[str, Any], secret_key: str) -> str | None:
+    return decrypt_opt(secret_key, stored.get("session_token_enc"), AAD_SESSION_TOKEN)
+
+
+def is_temporary_key(access_key_id: str | None) -> bool:
+    """`ASIA…` ids are temporary (STS / IAM Identity Center): they need a session token."""
+    return bool(access_key_id) and str(access_key_id).startswith("ASIA")
+
+
+def temporary_credentials(cfg: dict[str, Any]) -> bool:
+    """Access-key mode with a stored session token (warning `temporary_credentials`)."""
+    return cfg.get("auth_mode") == "access_key" and bool(cfg.get("session_token_enc"))
+
+
 def secret_unreadable(stored: dict[str, Any], secret_key: str, field: str, aad: bytes) -> bool:
     try:
         decrypt_opt(secret_key, stored.get(field), aad)
@@ -242,15 +266,14 @@ def host_files() -> dict[str, str] | None:
 
 def merge(stored: dict[str, Any], fields: dict[str, Any], secret_key: str) -> dict[str, Any]:
     """Merge validated writable fields over the stored object (secret rules for
-    `secret_access_key`: None keep, "" clear, string replace — encrypted)."""
+    `secret_access_key` / `session_token`: None keep, "" clear, string replace — encrypted)."""
     out = copy.deepcopy(stored)
     for key, value in fields.items():
-        if key == "secret_access_key":
+        if key in SECRET_INPUTS:
             if value is None:
                 continue
-            out["secret_access_key_enc"] = (
-                None if value == "" else crypto.encrypt(secret_key, value, AAD_SECRET_ACCESS_KEY)
-            )
+            target, aad = SECRET_INPUTS[key]
+            out[target] = None if value == "" else crypto.encrypt(secret_key, value, aad)
             continue
         if key == "prices" and isinstance(value, dict):
             out["prices"] = {**out.get("prices", {}), **value}
@@ -385,6 +408,10 @@ def required_errors(
         else:
             if not secret:
                 missing("secret_access_key")
+        try:
+            session_token(cfg, secret_key)
+        except Unreadable:
+            missing("session_token", "stored session token cannot be decrypted; enter it again")
     elif mode == "roles_anywhere":
         for f in ("ra_trust_anchor_arn", "ra_profile_arn", "ra_role_arn"):
             if not cfg.get(f):
@@ -422,11 +449,13 @@ def connection_hash(
     cert_pem: str | None,
     chain_pem: str | None,
     key_pem: str | None,
+    token_plain: str | None = None,
 ) -> str:
     """SHA-256 of the canonical connection settings (test_id binding, § 14.2.6). Secrets and
     certificate material enter only as SHA-256."""
     data = {f: cfg.get(f) for f in CONNECTION_FIELDS}
     data["secret_access_key"] = _sha(secret_plain)
+    data["session_token"] = _sha(token_plain)
     data["ra_cert"] = _sha(cert_pem)
     data["ra_chain"] = _sha(chain_pem)
     data["ra_key"] = _sha(key_pem)

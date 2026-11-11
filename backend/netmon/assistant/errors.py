@@ -33,6 +33,17 @@ CODES: dict[str, tuple[int, str]] = {
     "bedrock_unavailable": (502, "Amazon Bedrock could not answer right now."),
     "bedrock_validation": (502, "{aws}"),
     "aws_auth_failed": (502, "AWS rejected the credentials."),
+    "aws_token_expired": (
+        502,
+        "AWS rejected the credentials: the session token has expired. Temporary credentials "
+        "(IAM Identity Center / STS) last only hours; paste a fresh access key id, secret and "
+        "session token.",
+    ),
+    "aws_session_token_required": (
+        409,
+        "The access key id is a temporary key (ASIA…): it needs the session token. Paste the "
+        "session token too, or use an IAM user key (AKIA…).",
+    ),
     "aws_clock_skew": (
         502,
         "The server clock differs from AWS time by more than 5 minutes (NTP).",
@@ -52,6 +63,8 @@ ERROR_STATE_CODES = frozenset(
         "bedrock_access_denied",
         "bedrock_model_invalid",
         "aws_auth_failed",
+        "aws_token_expired",
+        "aws_session_token_required",
         "aws_clock_skew",
         "rolesanywhere_failed",
         "aws_network",
@@ -96,6 +109,7 @@ class AssistantError(Exception):
             "bedrock_throttled": "throttle",
             "bedrock_unavailable": "unavailable",
             "aws_auth_failed": "auth",
+            "aws_token_expired": "auth",
             "aws_network": "network",
         }.get(self.code)
 
@@ -183,6 +197,7 @@ AUTH_TYPES = {
     "MissingAuthenticationTokenException",
     "InvalidAccessKeyId",
 }
+EXPIRED_TOKEN_TYPES = {"expiredtokenexception", "expiredtoken"}
 UNAVAILABLE_TYPES = {
     "ModelTimeoutException",
     "ModelErrorException",
@@ -216,6 +231,9 @@ def classify(
     if t in AUTH_TYPES or tl in {a.lower() for a in AUTH_TYPES}:
         if _SKEW.search(message):
             return make("aws_clock_skew", **kw)
+        if tl in EXPIRED_TOKEN_TYPES:
+            # a distinct code: the admin must paste fresh temporary credentials
+            return make("aws_token_expired", **kw)
         err = make("aws_auth_failed", **kw)
         # which check failed matters (unknown key id vs. wrong secret / altered request);
         # AWS messages here never contain the secret

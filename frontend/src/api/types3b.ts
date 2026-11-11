@@ -35,6 +35,7 @@ export const ASSISTANT_WARNINGS = [
   'cache_unsupported',
   'access_key_old',
   'key_file_mode',
+  'temporary_credentials',
 ] as const;
 export type AssistantWarning = (typeof ASSISTANT_WARNINGS)[number];
 
@@ -79,6 +80,10 @@ export type AssistantSettings = {
   secret_access_key: null;
   secret_access_key_set: boolean;
   secret_access_key_unreadable: boolean;
+  /** [3b] optional session token of temporary (ASIA…) keys — write-only like the secret */
+  session_token?: null;
+  session_token_set?: boolean;
+  session_token_unreadable?: boolean;
   access_key_created_at: string | null;
   ra_region: string | null;
   ra_endpoint_url: string | null;
@@ -113,6 +118,8 @@ export type AssistantConnectionInput = {
   access_key_id: string | null;
   /** omitted/null keeps, "" clears, a string replaces */
   secret_access_key?: string | null;
+  /** omitted/null keeps, "" clears, a string replaces (temporary ASIA… keys) */
+  session_token?: string | null;
   access_key_created_at: string | null;
   ra_region: string | null;
   ra_endpoint_url: string | null;

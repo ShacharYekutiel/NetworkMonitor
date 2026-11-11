@@ -306,7 +306,7 @@ def _h(t: str) -> dict[str, str]:
             403,
             "ExpiredTokenException",
             "The security token included in the request is expired",
-            "aws_auth_failed",
+            "aws_token_expired",
         ),  # noqa: E501
         (
             403,
@@ -913,3 +913,105 @@ def test_auth_failure_keeps_the_aws_type_and_message() -> None:
         "InvalidSignatureException", "The request signature we calculated does not match", 403
     )
     assert "InvalidSignatureException" in e.message
+
+
+# ---------------------------------------------------------------- session token (temporary keys)
+ASIA = "ASIA" + "B" * 16
+TOKEN = "IQoJb3JpZ2luX2VjEJr//////////wEaCXVzLWVhc3QtMSJHMEUCIQ=="
+
+
+def test_session_token_merge_encrypt_clear() -> None:
+    cfg = dict(config.DEFAULT_ASSISTANT, auth_mode="access_key", access_key_id=ASIA)
+    merged = config.merge(cfg, {"session_token": TOKEN, "secret_access_key": "s3cr3t"}, "k")
+    enc = merged["session_token_enc"]
+    assert enc.startswith("v1:") and TOKEN not in json.dumps(merged)
+    assert config.session_token(merged, "k") == TOKEN
+    # its own AAD: the ciphertext does not decrypt as the secret access key (no field swap)
+    with pytest.raises(config.Unreadable):
+        config.decrypt_opt("k", enc, config.AAD_SECRET_ACCESS_KEY)
+    with pytest.raises(config.Unreadable):
+        config.session_token(merged, "other-key")
+    assert config.secret_unreadable(
+        merged, "other-key", "session_token_enc", config.AAD_SESSION_TOKEN
+    )
+    # None keeps, "" clears
+    assert config.merge(merged, {"session_token": None}, "k")["session_token_enc"] == enc
+    assert config.merge(merged, {"session_token": ""}, "k")["session_token_enc"] is None
+    assert config.temporary_credentials(merged)
+    assert not config.temporary_credentials({**merged, "auth_mode": "roles_anywhere"})
+    assert not config.temporary_credentials({**merged, "session_token_enc": None})
+    # the token is part of the connection hash (a new token needs a new test)
+    kw = {"secret_plain": "s3cr3t", "cert_pem": None, "chain_pem": None, "key_pem": None}
+    h0 = config.connection_hash(merged, **kw)
+    assert h0 == config.connection_hash(merged, **kw, token_plain=None)
+    h1 = config.connection_hash(merged, **kw, token_plain=TOKEN)
+    h2 = config.connection_hash(merged, **kw, token_plain=TOKEN + "A")
+    assert len({h0, h1, h2}) == 3
+    # an unreadable stored token is reported by required_errors (enable / test)
+    errs = config.required_errors(merged, "other-key", has_cert=False, has_key=False)
+    assert any(e["loc"][-1] == "session_token" for e in errs)
+    ok = config.required_errors(merged, "k", has_cert=False, has_key=False)
+    assert not any(e["loc"][-1] == "session_token" for e in ok)
+
+
+def test_session_token_schema_and_key_ids() -> None:
+    from pydantic import ValidationError
+
+    from netmon.schemas.assistant import AssistantFields
+
+    assert config.ACCESS_KEY_RE.match(ASIA) and config.ACCESS_KEY_RE.match("AKIA" + "C" * 16)
+    assert config.is_temporary_key(ASIA) and not config.is_temporary_key("AKIA" + "C" * 16)
+    assert not config.is_temporary_key(None)
+    f = AssistantFields(access_key_id=ASIA, session_token=TOKEN[:20] + "\n " + TOKEN[20:])
+    assert f.session_token == TOKEN and f.changes()["session_token"] == TOKEN
+    assert AssistantFields(session_token="").changes()["session_token"] == ""
+    assert "session_token" not in AssistantFields(region="us-east-1").changes()
+    for bad in ("abc\r\nX-Evil: 1", "tok<en>", "x" * 4097):
+        with pytest.raises(ValidationError):
+            AssistantFields(session_token=bad)
+    assert len(AssistantFields(session_token="A" * 4096).session_token or "") == 4096
+
+
+async def test_static_provider_session_token_signed() -> None:
+    from netmon.assistant.credentials import StaticProvider
+
+    creds = await StaticProvider(ASIA, SK, TOKEN).fetch()
+    assert creds.session_token == TOKEN and creds.source == "access_key"
+    assert TOKEN not in repr(creds)
+    assert (await StaticProvider(AK, SK).fetch()).session_token is None
+    assert (await StaticProvider(AK, SK, "").fetch()).session_token is None
+    signed = sigv4.sign_v4(
+        "POST",
+        "https://bedrock-runtime.us-east-1.amazonaws.com/model/x/converse",
+        {"Content-Type": "application/json"},
+        b"{}",
+        access_key=creds.access_key_id,
+        secret_key=creds.secret_access_key,
+        session_token=creds.session_token,
+        region="us-east-1",
+        service="bedrock",
+        amzdate="20261111T120000Z",
+    ).headers
+    assert signed["X-Amz-Security-Token"] == TOKEN
+    assert "x-amz-security-token" in signed["Authorization"]
+
+
+def test_expired_token_mapping() -> None:
+    for etype in ("ExpiredTokenException", "ExpiredToken"):
+        err = map_error(
+            403,
+            {"x-amzn-ErrorType": f"{etype}:http://internal.amazon.com/coral/"},
+            b'{"message": "The security token included in the request is expired"}',
+        )
+        assert err.code == "aws_token_expired", etype
+        assert "session token has expired" in err.message and err.status == 502
+        assert err.retry_policy == "auth" and err.is_error_state
+    err = map_stream_exception("ExpiredTokenException", {"message": "expired"})
+    assert err.code == "aws_token_expired"
+    # other credential errors keep aws_auth_failed
+    err = map_error(403, {"x-amzn-ErrorType": "UnrecognizedClientException"}, b"{}")
+    assert err.code == "aws_auth_failed"
+    from netmon.assistant.errors import make
+
+    req = make("aws_session_token_required")
+    assert "ASIA" in req.message and "session token" in req.message and req.is_error_state

@@ -2182,6 +2182,8 @@ except the preparation endpoints listed in data-model § [3b] Feature toggles; a
 | 502 | `bedrock_unavailable` | "Amazon Bedrock could not answer right now." |
 | 502 | `bedrock_validation` | AWS message (≤ 300 chars) |
 | 502 | `aws_auth_failed` | "AWS rejected the credentials." (+ AWS error type) |
+| 502 | `aws_token_expired` | AWS answered `ExpiredTokenException` / `ExpiredToken`: "AWS rejected the credentials: the session token has expired. …" — paste fresh temporary credentials (access key id, secret, session token). Same retry (forced credentials refresh) and `error` state as `aws_auth_failed` |
+| 409 | `aws_session_token_required` | `access_key` mode with a temporary key id (`ASIA…`) and no `session_token`: the Test fails at the `credentials` step before any AWS call ("The access key id is a temporary key (ASIA…): it needs the session token. …") |
 | 502 | `aws_clock_skew` | "The server clock differs from AWS time by more than 5 minutes (NTP)." (`details: [{"server_time": "…"}]`) |
 | 502 | `rolesanywhere_failed` | AWS message + hint |
 | 502 | `aws_network` | "Cannot reach <host>: <exception text>" (`details: [{"host": "…", "via": "direct" \| "proxy http://…"}]`) |
@@ -2225,6 +2227,7 @@ type AssistantSettings = {
   proxy_mode: "env" | "direct" | "custom"; proxy_url: string | null; prompt_caching: boolean;
   access_key_id: string | null;
   secret_access_key: null; secret_access_key_set: boolean; secret_access_key_unreadable: boolean;
+  session_token: null; session_token_set: boolean; session_token_unreadable: boolean;  // optional, temporary (ASIA…) keys
   access_key_created_at: string | null;
   ra_region: string | null; ra_endpoint_url: string | null;
   ra_trust_anchor_arn: string | null; ra_profile_arn: string | null; ra_role_arn: string | null;
@@ -2235,7 +2238,9 @@ type AssistantSettings = {
             cache_read_per_mtok: number | null; cache_write_per_mtok: number | null };
   last_test: { ok: boolean; at: string; by: string; error_code: string | null } | null;
   warnings: ("cert_expiring" | "vpce_via_proxy" | "stream_buffered" | "cache_unsupported" | "access_key_old" | "key_file_mode"
-             | "global_inference_profile" | "arn_accounts_differ")[];
+             | "global_inference_profile" | "arn_accounts_differ" | "temporary_credentials")[];
+  // temporary_credentials: access_key mode with a session token — they expire (hours); for the server use an
+  // IAM user key, Roles Anywhere or the default chain
   // [3b owner decisions] data location per profile prefix, CSR flow
   profile: ProfileInfo; profile_light: ProfileInfo;            // classification of model_id / model_id_light
   profile_scopes: { scope: "global" | "geo" | "in_region" | "arn"; prefix: string;
@@ -2257,12 +2262,13 @@ type AssistantTestResult = { ok: boolean; test_id: string | null; expires_at: st
   usage: { input_tokens: number; output_tokens: number } | null; warnings: string[];
   error: { code: string; message: string } | null };
 // step error_code: a mapped AWS code (api.md [3b] Errors) or "validation_error" (config step); warnings as in
-// AssistantSettings (+ "stream_buffered", "global_inference_profile")
+// AssistantSettings (+ "stream_buffered", "global_inference_profile", "temporary_credentials" when the tested
+// access-key settings carry a session token)
 ```
 | Method & path | Request | Response |
 |---|---|---|
 | `GET /api/assistant/settings` | — | `AssistantSettings` (allowed while OFF) |
-| `PUT /api/assistant/settings` | partial `AssistantSettings` writable fields + optional `"enabled": bool`, `"test_id": string` (secret rules: `secret_access_key` omitted/null keeps, `""` clears, string replaces) | `AssistantSettings`; `422` validation; `422 assistant_test_required`; `422 feature_dependency`; audited `assistant.settings_update` (+ `feature.enable|disable`) |
+| `PUT /api/assistant/settings` | partial `AssistantSettings` writable fields + optional `"enabled": bool`, `"test_id": string` (secret rules for `secret_access_key` (≤ 256) and `session_token` (≤ 4096, base64 characters; whitespace removed): omitted/null keeps, `""` clears, string replaces; both stored encrypted, audited only as changed) | `AssistantSettings`; `422` validation; `422 assistant_test_required`; `422 feature_dependency`; audited `assistant.settings_update` (+ `feature.enable|disable`) |
 | `POST /api/assistant/test` | `{"settings": <partial writable fields, optional>}` merged over stored | `200 AssistantTestResult` (also when `ok` is false — the step carries the code); `429 rate_limited` (10 per admin per 10 min); audited `assistant.test` |
 | `POST /api/assistant/cert` | `multipart/form-data`: `file` (PEM cert[+chain] or `.pfx`/`.p12`, ≤ 64 KiB), `key` (PEM, optional with PEM), `password` (optional) | `200 CertInfo`; `422 invalid_certificate` / `invalid_private_key` / `key_mismatch`; audited `assistant.cert_upload` (metadata) — refused `409 conflict` when host files are configured |
 | `DELETE /api/assistant/cert` | — | `204`; `409 conflict` while `assistant` is ON with `auth_mode = roles_anywhere`; audited |

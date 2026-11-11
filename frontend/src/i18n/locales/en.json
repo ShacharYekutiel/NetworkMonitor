@@ -561,6 +561,8 @@
     "bedrock_unavailable": "Amazon Bedrock could not answer right now.",
     "bedrock_validation": "Amazon Bedrock rejected the request.",
     "aws_auth_failed": "AWS rejected the credentials.",
+    "aws_token_expired": "AWS rejected the credentials: the session token has expired. Temporary credentials (IAM Identity Center / SSO) last only a few hours — paste a fresh access key ID, secret and session token.",
+    "aws_session_token_required": "The access key ID is a temporary key (ASIA…): it needs the session token. Paste the session token too, or use an IAM user key (AKIA…).",
     "aws_clock_skew": "The server clock differs from AWS time by more than 5 minutes (check NTP).",
     "rolesanywhere_failed": "IAM Roles Anywhere refused the certificate (check trust anchor, profile, role trust policy and CRL).",
     "aws_network": "Cannot reach AWS.",
@@ -3140,7 +3142,8 @@
       "stream_buffered": "The answer arrived in one piece: a proxy seems to buffer streamed responses.",
       "cache_unsupported": "This model does not support prompt caching; it was turned off automatically.",
       "access_key_old": "The access key is older than 90 days — rotate it.",
-      "key_file_mode": "The private key file on the host is readable by other users."
+      "key_file_mode": "The private key file on the host is readable by other users.",
+      "temporary_credentials": "Temporary credentials (session token) expire after a few hours — fine for a trial; for the server use an IAM user key, Roles Anywhere or the default chain."
     },
     "tool": {
       "generic": "Running {{tool}}…",
@@ -3210,6 +3213,11 @@
       "keyCreatedHint": "Optional — reminder after 90 days",
       "keyOld": "The key is {{days}} days old — rotate it.",
       "secretUnreadable": "The stored secret cannot be decrypted (secret.key changed). Enter it again.",
+      "sessionToken": "Session token (temporary credentials)",
+      "sessionTokenHint": "Only for temporary keys (ASIA…), e.g. from IAM Identity Center (SSO) → “Access keys”. Leave empty for an IAM user key (AKIA…).",
+      "sessionTokenStored": "A session token is stored. Paste a new one to replace it.",
+      "sessionTokenClear": "Clear the stored session token",
+      "sessionTokenUnreadable": "The stored session token cannot be decrypted (secret.key changed). Enter it again.",
       "defaultChainInfo": "Credentials come from AWS_ACCESS_KEY_ID / AWS_SECRET_ACCESS_KEY, container credentials or the EC2 instance metadata (IMDSv2; Docker needs hop limit 2). Test shows which source was used.",
       "region": "AWS region",
       "regionHint": "Recommended us-east-1; il-central-1 is supported with a global. profile",
@@ -3258,7 +3266,8 @@
       "lastTest": "Last test: {{result}} · {{time}} · {{by}}",
       "missing": {
         "certificate": "Upload a certificate (or generate a CSR) first.",
-        "secret": "Enter the secret access key."
+        "secret": "Enter the secret access key.",
+        "sessionToken": "A temporary key (ASIA…) needs the session token."
       },
       "enableNeedsTest": "Run a successful Test connection with these values first.",
       "changeNeedsTest": "Connection fields changed: run Test connection before saving.",
@@ -3295,6 +3304,7 @@
         "arn": "Invalid ARN",
         "session": "900–43200",
         "accessKey": "AKIA… or ASIA… followed by 16 characters",
+        "sessionToken": "Up to 4096 base64 characters (A–Z, a–z, 0–9, + / =)",
         "range": "{{min}}–{{max}}",
         "time": "HH:MM",
         "money": "A number ≥ 0"

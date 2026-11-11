@@ -257,6 +257,9 @@ export type ConnForm = {
   access_key_id: string;
   secret_access_key: string;
   clear_secret: boolean;
+  /** write-only session token of temporary (ASIA…) keys; empty keeps the stored one */
+  session_token: string;
+  clear_session_token: boolean;
   access_key_created_at: string;
   ra_region: string;
   ra_endpoint_url: string;
@@ -284,6 +287,8 @@ export function connFormFrom(s: AssistantSettings): ConnForm {
     access_key_id: s.access_key_id ?? '',
     secret_access_key: '',
     clear_secret: false,
+    session_token: '',
+    clear_session_token: false,
     access_key_created_at: s.access_key_created_at ?? '',
     ra_region: s.ra_region ?? '',
     ra_endpoint_url: s.ra_endpoint_url ?? '',
@@ -319,6 +324,10 @@ export function connInput(f: ConnForm): Record<string, unknown> {
   };
   if (f.clear_secret) body.secret_access_key = '';
   else if (f.secret_access_key) body.secret_access_key = f.secret_access_key;
+  // a changed (or cleared) token changes connKey, which locks the switch until a new test
+  const token = f.session_token.replace(/\s+/g, '');
+  if (f.clear_session_token) body.session_token = '';
+  else if (token) body.session_token = token;
   return body;
 }
 
@@ -337,6 +346,12 @@ const ARN_RA = (kind: string) =>
   new RegExp(`^arn:aws[a-z-]*:rolesanywhere:[a-z0-9-]+:\\d{12}:${kind}/[0-9a-f-]{36}$`);
 const ARN_ROLE = /^arn:aws[a-z-]*:iam::\d{12}:role\/[\w+=,.@/-]+$/;
 const ACCESS_KEY_RE = /^(AKIA|ASIA)[A-Z0-9]{16}$/;
+const SESSION_TOKEN_RE = /^[A-Za-z0-9+/=_-]{1,4096}$/;
+
+/** `ASIA…` key ids are temporary credentials (STS / IAM Identity Center): they need a session token. */
+export function isTemporaryKey(accessKeyId: string): boolean {
+  return accessKeyId.trim().startsWith('ASIA');
+}
 
 export function isHttpsUrl(v: string): boolean {
   try {
@@ -368,13 +383,21 @@ export function connErrors(f: ConnForm): ConnErrors {
   }
   if (f.auth_mode === 'access_key' && !ACCESS_KEY_RE.test(f.access_key_id.trim()))
     e.access_key_id = 'accessKey';
+  const token = f.session_token.replace(/\s+/g, '');
+  if (
+    f.auth_mode === 'access_key' &&
+    token &&
+    !f.clear_session_token &&
+    !SESSION_TOKEN_RE.test(token)
+  )
+    e.session_token = 'sessionToken';
   return e;
 }
 
 /** What the test needs besides valid fields (shown as a hint; Test still runs and reports). */
 export function connMissing(
   f: ConnForm,
-  s: Pick<AssistantSettings, 'certificate' | 'secret_access_key_set'>,
+  s: Pick<AssistantSettings, 'certificate' | 'secret_access_key_set' | 'session_token_set'>,
 ): string[] {
   const miss: string[] = [];
   if (f.auth_mode === 'roles_anywhere' && !s.certificate) miss.push('certificate');
@@ -383,6 +406,12 @@ export function connMissing(
     (f.clear_secret || (!s.secret_access_key_set && !f.secret_access_key))
   )
     miss.push('secret');
+  if (
+    f.auth_mode === 'access_key' &&
+    isTemporaryKey(f.access_key_id) &&
+    (f.clear_session_token || (!s.session_token_set && !f.session_token.trim()))
+  )
+    miss.push('sessionToken');
   return miss;
 }
 

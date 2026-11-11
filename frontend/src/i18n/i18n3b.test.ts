@@ -73,6 +73,8 @@ const ERROR_CODES = [
   'bedrock_unavailable',
   'bedrock_validation',
   'aws_auth_failed',
+  'aws_token_expired',
+  'aws_session_token_required',
   'aws_clock_skew',
   'rolesanywhere_failed',
   'aws_network',

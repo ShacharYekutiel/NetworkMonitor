@@ -34,7 +34,7 @@ from netmon.services.serialize import iso, now_utc
 
 router = APIRouter()
 
-SECRET_FIELDS = ("secret_access_key_enc", "ra_key_enc", "ra_csr_key_enc")
+SECRET_FIELDS = ("secret_access_key_enc", "session_token_enc", "ra_key_enc", "ra_csr_key_enc")
 NOT_AUDITED = ("last_test", "ra_cert_pem", "ra_chain_pem", "ra_csr_pem")
 MONTH_RE = re.compile(r"^\d{4}-(0[1-9]|1[0-2])$")
 
