@@ -2890,6 +2890,10 @@ Expired/revoked tokens are deleted 30 days after expiry/revocation by the daily 
 | `trap_v3_users` | object[] | [] | ≤ 32 `{username, security_level, auth_protocol, auth_key, priv_protocol, priv_key}` (same value sets as SnmpCredentials; keys secret) |
 | `ingest_unknown_sources` | `"store"` \| `"drop"` | `"store"` | |
 | `ingest_ignored_sources` | str[] | [] | ≤ 256 IPs or CIDRs |
+| `trap_collapse_enabled` | bool | false | **[1.2.1]** keep only the newest traps of `trap_collapse_oids` per source IP and OID (pruned after each write and once when turned on; event rules still see every trap) |
+| `trap_collapse_oids` | str[] | hh3cPeriodicalTrap, syslogMsgNotification | ≤ 64 numeric OIDs (leading dot stripped) |
+| `trap_collapse_keep` | int | 10 | 1–1000 |
+| `trap_names_version` | str | "" | internal: OID name table version the stored `traps.trap_name` values were last updated to (startup backfill) |
 | `flap_threshold`, `flap_window_min`, `flap_quiet_min` | int | 5, 10, 15 | § Port flapping |
 | `event_linkdown_scope` | `"important"` \| `"all"` | `"important"` | link-down / flapping alert scope (architecture § 12.3, § 12.4); other values → 422 |
 | `siem_targets` | object[] | [] | § SIEM |

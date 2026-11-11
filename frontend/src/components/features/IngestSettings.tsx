@@ -509,6 +509,114 @@ export function AuditRetentionCard({ settings }: { settings: Settings }) {
   );
 }
 
+const KNOWN_REPETITIVE: Record<string, string> = {
+  '1.3.6.1.4.1.25506.2.38.1.6.3.0.1': 'hh3cPeriodicalTrap',
+  '1.3.6.1.2.1.192.0.1': 'syslogMsgNotification',
+};
+const OID_RE = /^\.?[0-9]+(\.[0-9]+){1,127}$/;
+
+/** [1.2.1] Repetitive traps (heartbeats, syslog sent as traps): keep only the newest N. */
+export function TrapCollapseCard({ settings }: { settings: Settings }) {
+  const { t } = useTranslation();
+  const [on, setOn] = useState(false);
+  const [keep, setKeep] = useState('10');
+  const [oids, setOids] = useState('');
+  useEffect(() => {
+    setOn(settings.trap_collapse_enabled ?? false);
+    setKeep(String(settings.trap_collapse_keep ?? 10));
+    setOids((settings.trap_collapse_oids ?? []).join('\n'));
+  }, [settings]);
+  const save = useSaveSettings();
+  const list = oids
+    .split(/[\s,]+/)
+    .map((x) => x.trim())
+    .filter(Boolean);
+  const badOids = list.filter((o) => !OID_RE.test(o));
+  const e = { keep: !intInRange(keep, 1, 1000), oids: badOids.length > 0 || list.length > 64 };
+  const invalid = e.keep || e.oids;
+  return (
+    <Card title={t('trapCollapse.title')}>
+      <form
+        className="space-y-4"
+        data-testid="trap-collapse-settings"
+        onSubmit={(ev) => {
+          ev.preventDefault();
+          if (!invalid)
+            save.mutate({
+              trap_collapse_enabled: on,
+              trap_collapse_keep: Number(keep),
+              trap_collapse_oids: list,
+            });
+        }}
+      >
+        <p className="text-xs text-slate-500">{t('trapCollapse.intro')}</p>
+        <Checkbox label={t('trapCollapse.enabled')} checked={on} onChange={setOn} />
+        <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
+          <Field
+            label={t('trapCollapse.keep')}
+            hint={
+              e.keep ? (
+                <span className="text-red-600">{t('trapCollapse.keepErr')}</span>
+              ) : (
+                t('trapCollapse.keepHint')
+              )
+            }
+          >
+            <Input
+              type="number"
+              min={1}
+              max={1000}
+              value={keep}
+              onChange={(x) => setKeep(x.target.value)}
+              dir="ltr"
+            />
+          </Field>
+          <div className="sm:col-span-2">
+            <Field
+              label={t('trapCollapse.oids')}
+              hint={
+                e.oids ? (
+                  <span className="text-red-600">
+                    {t('trapCollapse.oidsErr', { list: badOids.join(', ') })}
+                  </span>
+                ) : (
+                  t('trapCollapse.oidsHint')
+                )
+              }
+            >
+              <Textarea
+                rows={3}
+                value={oids}
+                onChange={(x) => setOids(x.target.value)}
+                dir="ltr"
+                className="font-mono"
+              />
+            </Field>
+            <ul className="mt-1 space-y-0.5 text-xs text-slate-500">
+              {list
+                .filter((o) => KNOWN_REPETITIVE[o.replace(/^\./, '')])
+                .map((o) => (
+                  <li key={o}>
+                    <bdi dir="ltr" className="font-mono">
+                      {KNOWN_REPETITIVE[o.replace(/^\./, '')]}
+                    </bdi>{' '}
+                    — {t(`trapCollapse.known.${KNOWN_REPETITIVE[o.replace(/^\./, '')]}`)}
+                  </li>
+                ))}
+            </ul>
+          </div>
+        </div>
+        <div className="flex justify-end">
+          <Button type="submit" variant="primary" busy={save.isPending} disabled={invalid}>
+            {t('common.save')}
+          </Button>
+        </div>
+        <ErrorBox error={save.error} />
+      </form>
+    </Card>
+  );
+}
+
 /** Settings tab "Traps & syslog": switches at the top; settings, status and flapping while on. */
 export function IngestTab({ settings }: { settings: Settings }) {
   const f = featuresFromSettings(settings);
@@ -517,6 +625,9 @@ export function IngestTab({ settings }: { settings: Settings }) {
       <FeatureToggleCard names={featuresOfTab('ingest')} settings={settings} />
       <FeatureSection feature={['traps', 'syslog']} settings={settings}>
         <IngestSettingsCard settings={settings} />
+      </FeatureSection>
+      <FeatureSection feature="traps" settings={settings}>
+        <TrapCollapseCard settings={settings} />
       </FeatureSection>
       {ingestOn(f) && <IngestStatusCard />}
       <FeatureSection feature="flapping" settings={settings}>

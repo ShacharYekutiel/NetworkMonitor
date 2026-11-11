@@ -2968,5 +2968,20 @@
     "teamsLimit": "In Teams the Acknowledge button opens NetworkMonitor in your browser; it works from the office network or VPN.",
     "emailHint": "Adds an Acknowledge link that opens NetworkMonitor.",
     "needsPublicUrl": "Links need the public URL (Settings → General)."
+  },
+  "trapCollapse": {
+    "title": "Repetitive traps",
+    "intro": "Some devices send the same trap over and over (a heartbeat, or every syslog message as a trap). Keep only the newest traps of these OIDs per source; event rules still see every trap.",
+    "enabled": "Keep only the newest traps of these OIDs",
+    "keep": "Traps to keep per source and OID",
+    "keepHint": "1–1000",
+    "keepErr": "Enter 1–1000.",
+    "oids": "Trap OIDs",
+    "oidsHint": "Numeric OIDs, one per line (up to 64).",
+    "oidsErr": "Not a numeric OID: {{list}}",
+    "known": {
+      "hh3cPeriodicalTrap": "Comware heartbeat, sent when no other trap was sent for a while",
+      "syslogMsgNotification": "a syslog message sent as a trap (it also arrives as syslog)"
+    }
   }
 }

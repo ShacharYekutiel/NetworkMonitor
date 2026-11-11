@@ -78,6 +78,9 @@ class IngestSettingsMixin(BaseModel):
     trap_v3_users: list[TrapV3UserIn] | None = Field(default=None, max_length=32)
     ingest_unknown_sources: Literal["store", "drop"] | None = None
     ingest_ignored_sources: list[str] | None = Field(default=None, max_length=256)
+    trap_collapse_enabled: bool | None = None
+    trap_collapse_oids: list[str] | None = Field(default=None, max_length=64)
+    trap_collapse_keep: int | None = Field(default=None, ge=1, le=1000)
     flap_threshold: int | None = Field(default=None, ge=3, le=50)
     flap_window_min: int | None = Field(default=None, ge=1, le=120)
     flap_quiet_min: int | None = Field(default=None, ge=1, le=1440)
@@ -93,6 +96,19 @@ class IngestSettingsMixin(BaseModel):
             if not 1 <= len(c) <= 64:
                 raise ValueError("each community must be 1-64 characters")
         return list(dict.fromkeys(v))
+
+    @field_validator("trap_collapse_oids")
+    @classmethod
+    def _collapse_oids(cls, v: list[str] | None) -> list[str] | None:
+        if v is None:
+            return v
+        out = []
+        for raw in v:
+            o = raw.strip().lstrip(".")
+            if not re.fullmatch(r"[0-9]+(\.[0-9]+){1,127}", o) or len(o) > 255:
+                raise ValueError(f"not a numeric OID: {raw!r}")
+            out.append(o)
+        return list(dict.fromkeys(out))
 
     @field_validator("ingest_ignored_sources")
     @classmethod

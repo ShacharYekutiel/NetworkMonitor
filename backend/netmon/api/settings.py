@@ -130,6 +130,9 @@ async def _put_2b3_auth(
 
 
 INGEST_PLAIN_KEYS = (
+    "trap_collapse_enabled",
+    "trap_collapse_oids",
+    "trap_collapse_keep",
     "trap_retention_days",
     "syslog_retention_days",
     "trap_community_check",
@@ -268,6 +271,9 @@ async def _apply_2b3_ingest(rt: RT, before: dict, after: dict) -> None:
             "trap_v3_users",
             "ingest_unknown_sources",
             "ingest_ignored_sources",
+            "trap_collapse_enabled",
+            "trap_collapse_oids",
+            "trap_collapse_keep",
             "event_linkdown_scope",
             "flap_threshold",
             "flap_window_min",

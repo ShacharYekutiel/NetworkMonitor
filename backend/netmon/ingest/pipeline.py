@@ -19,7 +19,7 @@ from typing import TYPE_CHECKING, Any
 
 from sqlalchemy import text
 
-from netmon.ingest import attribution, oid_names, rules
+from netmon.ingest import attribution, collapse, oid_names, rules
 from netmon.ingest import trap_decode as td
 from netmon.ingest.event_sensors import EventSensors, Item
 from netmon.ingest.flapping import FlapManager
@@ -142,6 +142,9 @@ class Ingest:
         self.community_check = "any"
         self.known_communities: set[str] = set()
         self.linkdown_scope = "important"
+        self.collapse_on = False
+        self.collapse_oids: list[str] = []
+        self.collapse_keep = 10
         self._trap_settings: dict[str, list[Any]] = {"communities": [], "v3_users": []}
         self._tz: str | None = None
         self.forwarders: dict[str, Forwarder] = {}
@@ -352,6 +355,14 @@ class Ingest:
         self.unknown_policy = str(cfg.get("ingest_unknown_sources") or "store")
         self.community_check = str(cfg.get("trap_community_check") or "any")
         self.linkdown_scope = str(cfg.get("event_linkdown_scope") or "important")
+        # [1.2.1] repetitive traps
+        was = (self.collapse_on, list(self.collapse_oids), self.collapse_keep)
+        self.collapse_on = bool(cfg.get("trap_collapse_enabled", False))
+        oids = cfg.get("trap_collapse_oids") or []
+        self.collapse_oids = [collapse.normalize_oid(o) for o in oids]
+        self.collapse_keep = int(cfg.get("trap_collapse_keep") or 10)
+        if self.collapse_on and was != (True, self.collapse_oids, self.collapse_keep):
+            self.rt.spawn(collapse.prune_all(self.rt, self.collapse_oids, self.collapse_keep))
         self._tz = cfg.get("timezone")
         self._trap_settings = {
             "communities": list(cfg.get("trap_communities") or []),
@@ -782,6 +793,19 @@ class Ingest:
             self.counters[kind].drop("db_error", len(records))
             return
         self.counters[kind].stored += len(ids)
+        if kind == "trap" and self.collapse_on and self.collapse_oids:
+            groups = [
+                (str(r["source_ip"]), collapse.normalize_oid(r["trap_oid"]))
+                for r in records
+                if collapse.normalize_oid(r["trap_oid"]) in self.collapse_oids
+            ]
+            if groups:
+                try:
+                    await collapse.prune(self.rt, groups, self.collapse_keep)
+                except asyncio.CancelledError:
+                    raise
+                except Exception as exc:  # noqa: BLE001
+                    log.warning("Cannot prune repetitive traps: %s", exc)
         items: list[Item] = []
         for (rec, outcome), id_ in zip(batch, ids, strict=False):
             rec["id"] = id_
