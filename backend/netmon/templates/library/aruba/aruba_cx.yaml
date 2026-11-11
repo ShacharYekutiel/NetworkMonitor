@@ -37,9 +37,10 @@ entries:
     config: {value_type: gauge, unit: '°C'}
     channels: [{key: value, warning_max: 65, down_max: 80}]
     filters: [{oid: '1.3.6.1.2.1.99.1.1.1.1', in: [8]}]   # entPhySensorType celsius(8)
+    entity_sensor_scale: true                    # CX reports thousandths (23000 = 23.000 °C)
     max: 16
     confidence: medium
-    notes: "ENTITY-SENSOR-MIB: MIB high, CX support medium. Scale/precision (.2/.3) ignored (low)."
+    notes: "ENTITY-SENSOR-MIB: MIB high, CX support medium. Each row scaled by entPhySensorScale/Precision (.2/.3)."
   - kind: snmp_table
     walk_oid: '1.3.6.1.2.1.99.1.1.1.5'          # entPhySensorOperStatus
     label_oid: '1.3.6.1.2.1.47.1.1.1.1.7'       # entPhysicalName

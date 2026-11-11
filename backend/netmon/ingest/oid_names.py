@@ -39,6 +39,22 @@ NAMES: dict[str, str] = {
     "1.3.6.1.2.1.105.0.1": "pethPsePortOnOffNotification",
     "1.3.6.1.2.1.105.0.2": "pethMainPowerUsageOnNotification",
     "1.3.6.1.2.1.105.0.3": "pethMainPowerUsageOffNotification",
+    # SYSLOG-MSG-MIB (RFC 5676): a device that sends every syslog message as a notification
+    "1.3.6.1.2.1.192": "syslogMsgMib",
+    "1.3.6.1.2.1.192.0.1": "syslogMsgNotification",
+    # HH3C-TRAP-MIB (H3C / HPE Comware)
+    "1.3.6.1.4.1.25506.2.38.1.1.4.1": "hh3cMacTabFullTrap",
+    "1.3.6.1.4.1.25506.2.38.1.1.4.2": "hh3cMacTabAlmostFullTrap",
+    "1.3.6.1.4.1.25506.2.38.1.2.4.1": "hh3cArpTabFullTrap",
+    "1.3.6.1.4.1.25506.2.38.1.2.4.2": "hh3cArpPortDynamicEntryFullTrap",
+    "1.3.6.1.4.1.25506.2.38.1.2.5.0.3": "hh3cArpTabFullResumeTrap",
+    "1.3.6.1.4.1.25506.2.38.1.3.5.1": "hh3cRtTabFullTrap",
+    "1.3.6.1.4.1.25506.2.38.1.3.5.2": "hh3cDetailRtTabFullTrap",
+    "1.3.6.1.4.1.25506.2.38.1.3.5.3": "hh3cDefaultRtDelTrap",
+    "1.3.6.1.4.1.25506.2.38.1.4.4.1": "hh3cMulticastTabFullTrap",
+    "1.3.6.1.4.1.25506.2.38.1.5.4.1": "hh3cNdTabFullTrap",
+    "1.3.6.1.4.1.25506.2.38.1.6.3.0.1": "hh3cPeriodicalTrap",
+    "1.3.6.1.4.1.25506.2.38.1.9.0.1": "hh3cTrapSnmpSystemReset",
     # NET-SNMP notifications
     "1.3.6.1.4.1.8072.4.0.1": "nsNotifyStart",
     "1.3.6.1.4.1.8072.4.0.2": "nsNotifyShutdown",

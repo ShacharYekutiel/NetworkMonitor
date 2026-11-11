@@ -1421,6 +1421,7 @@ type TemplateEntry =
   | { kind: "snmp_table"; walk_oid: string; label_oid: string | null; label2_oid: string | null;
       percent_of_column: string | null; name: L10n; config: Record<string, unknown>; channels: ChannelOverride[];
       max: number; skip_zero: boolean; filters: TemplateFilter[]; interval_s: number | null;
+      entity_sensor_scale?: true;  // [1.2.1] present only when set
       confidence: Confidence | null; notes: string };
 type DeviceTemplate = { id: string; name: L10n; description: L10n; requires_snmp: boolean; priority: number;
   match: TemplateRule[]; entries: TemplateEntry[];

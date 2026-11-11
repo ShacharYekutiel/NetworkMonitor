@@ -61,6 +61,14 @@ DEFAULTS: dict[str, Any] = {
     "trap_v3_users": [],
     "ingest_unknown_sources": "store",
     "ingest_ignored_sources": [],
+    # [1.2.1] repetitive traps: keep only the newest N per source and OID (OFF by default)
+    "trap_collapse_enabled": False,
+    "trap_collapse_oids": [
+        "1.3.6.1.4.1.25506.2.38.1.6.3.0.1",
+        "1.3.6.1.2.1.192.0.1",
+    ],
+    "trap_collapse_keep": 10,
+    "trap_names_version": "",  # internal: OID name table version of the stored trap names
     "flap_threshold": 5,
     "flap_window_min": 10,
     "flap_quiet_min": 15,
@@ -233,6 +241,9 @@ def ingest_settings_out(values: dict[str, Any]) -> dict[str, Any]:
             "trap_v3_users": users,
             "ingest_unknown_sources": values["ingest_unknown_sources"],
             "ingest_ignored_sources": list(values.get("ingest_ignored_sources") or []),
+            "trap_collapse_enabled": bool(values.get("trap_collapse_enabled", False)),
+            "trap_collapse_oids": list(values.get("trap_collapse_oids") or []),
+            "trap_collapse_keep": int(values.get("trap_collapse_keep") or 10),
             "flap_threshold": values["flap_threshold"],
             "flap_window_min": values["flap_window_min"],
             "flap_quiet_min": values["flap_quiet_min"],

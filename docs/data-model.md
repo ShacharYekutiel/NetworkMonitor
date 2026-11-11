@@ -1348,6 +1348,7 @@ the list (`null` = any). `suggest()` gains the `sys_object_id` argument. Existin
 | Field | Type | Default | Meaning |
 |---|---|---|---|
 | `skip_zero` | bool | false | Rows whose walked value is `0` or not numeric are ignored (not counted towards `max`). |
+| `entity_sensor_scale` | bool | false | **[1.2.1]** ENTITY-SENSOR-MIB tables: at apply time read `entPhySensorScale` (`…99.1.1.1.2`) and `entPhySensorPrecision` (`…99.1.1.1.3`) per row and store `multiplier = 10^(3·(scale−9) − precision)` (times the entry's own multiplier) in the sensor config. Unreadable/out-of-range values count as units / 0. Omitted from the parsed template when false. |
 | `filters` | `{"oid": str, "in": int[] \| null, "not_in": int[] \| null}[]` | `[]` | Each filter GETs `oid + "." + S` for the row suffix S; the row is kept only when the value (integer) is in `in` (when set) and not in `not_in` (when set). A missing/non-integer value drops the row. All filters must pass. |
 
 `config` of an `snmp_table` entry may contain every `snmp_custom` key except `oid`/`percent_of_oid`/`label`
@@ -2889,6 +2890,10 @@ Expired/revoked tokens are deleted 30 days after expiry/revocation by the daily 
 | `trap_v3_users` | object[] | [] | ≤ 32 `{username, security_level, auth_protocol, auth_key, priv_protocol, priv_key}` (same value sets as SnmpCredentials; keys secret) |
 | `ingest_unknown_sources` | `"store"` \| `"drop"` | `"store"` | |
 | `ingest_ignored_sources` | str[] | [] | ≤ 256 IPs or CIDRs |
+| `trap_collapse_enabled` | bool | false | **[1.2.1]** keep only the newest traps of `trap_collapse_oids` per source IP and OID (pruned after each write and once when turned on; event rules still see every trap) |
+| `trap_collapse_oids` | str[] | hh3cPeriodicalTrap, syslogMsgNotification | ≤ 64 numeric OIDs (leading dot stripped) |
+| `trap_collapse_keep` | int | 10 | 1–1000 |
+| `trap_names_version` | str | "" | internal: OID name table version the stored `traps.trap_name` values were last updated to (startup backfill) |
 | `flap_threshold`, `flap_window_min`, `flap_quiet_min` | int | 5, 10, 15 | § Port flapping |
 | `event_linkdown_scope` | `"important"` \| `"all"` | `"important"` | link-down / flapping alert scope (architecture § 12.3, § 12.4); other values → 422 |
 | `siem_targets` | object[] | [] | § SIEM |

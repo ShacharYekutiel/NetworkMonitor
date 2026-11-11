@@ -431,7 +431,8 @@ def test_templates_data() -> None:
                     "interval_s",
                 },
             }[e["kind"]]
-            assert set(e) == keys
+            # [1.2.1] optional, present only when set (aruba_cx)
+            assert set(e) - {"entity_sensor_scale"} == keys
     unifi = get_template("unifi_ap")
     assert unifi is not None and unifi["name"]["he"] == "נקודת גישה UniFi"
     assert unifi["entries"][4]["include_name_regex"] == "^eth0$"

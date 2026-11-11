@@ -1828,6 +1828,10 @@ export type Settings2b3 = {
   trap_v3_users: TrapV3User[];
   ingest_unknown_sources: 'store' | 'drop';
   ingest_ignored_sources: string[];
+  /** [1.2.1] repetitive traps: keep the newest `trap_collapse_keep` per source and OID */
+  trap_collapse_enabled: boolean;
+  trap_collapse_oids: string[];
+  trap_collapse_keep: number;
   flap_threshold: number;
   flap_window_min: number;
   flap_quiet_min: number;
