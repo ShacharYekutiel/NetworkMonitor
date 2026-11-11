@@ -76,6 +76,7 @@ netmon = [
     "data/*.gz",
     "data/*.tsv",
     "configbackup/drivers/*.yaml",
+    "assistant/*.yaml",
 ]
 
 [tool.ruff]
