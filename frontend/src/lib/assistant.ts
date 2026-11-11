@@ -542,3 +542,82 @@ export function remainingQuestions(
   if (!me) return null;
   return Math.max(0, me.daily_limit - me.questions_today);
 }
+
+// --- [3b owner] chat model choice ------------------------------------------------------
+
+/**
+ * A readable name for a Bedrock model / inference-profile id: `us.anthropic.claude-sonnet-4-5-
+ * 20250929-v1:0` → "Claude Sonnet 4.5", `anthropic.claude-3-5-haiku-…` → "Claude 3.5 Haiku";
+ * ARNs use their last segment; anything that is not a Claude id is returned as is.
+ */
+export function friendlyModelName(id: string): string {
+  const last = id.slice(id.lastIndexOf('/') + 1);
+  const at = last.indexOf('claude-');
+  if (at < 0) return id;
+  const rest = last
+    .slice(at + 'claude-'.length)
+    .replace(/-v\d+(:\d+)?$/, '')
+    .replace(/:\d+$/, '');
+  const parts = rest.split('-').filter((p) => p && !/^\d{8}$/.test(p));
+  if (!parts.length) return id;
+  const words: string[] = [];
+  for (const p of parts) {
+    const prev = words[words.length - 1];
+    if (/^\d{1,2}$/.test(p) && prev !== undefined && /^\d+(\.\d+)*$/.test(prev))
+      words[words.length - 1] = `${prev}.${p}`;
+    else words.push(/^\d/.test(p) ? p : p.charAt(0).toUpperCase() + p.slice(1));
+  }
+  return `Claude ${words.join(' ')}`;
+}
+
+/** Options of the composer's model select: the label, else the friendly name; names shared
+ *  by several ids get the profile prefix (`us`, `global`…) appended. */
+export function chatModelOptions(
+  models: { id: string; label: string | null }[],
+): { id: string; name: string }[] {
+  const base = models.map((m) => ({ id: m.id, name: m.label?.trim() || friendlyModelName(m.id) }));
+  const count = new Map<string, number>();
+  for (const o of base) count.set(o.name, (count.get(o.name) ?? 0) + 1);
+  return base.map((o) => {
+    if ((count.get(o.name) ?? 0) < 2) return o;
+    const last = o.id.slice(o.id.lastIndexOf('/') + 1);
+    const dot = last.indexOf('.');
+    const prefix = dot > 0 && !last.startsWith('anthropic.') ? last.slice(0, dot) : '';
+    return { id: o.id, name: prefix ? `${o.name} (${prefix})` : `${o.name} (${o.id})` };
+  });
+}
+
+/** The model to preselect: the remembered one when still allowed, else the default (main). */
+export function pickChatModel(
+  allowed: { id: string }[],
+  remembered: string | null,
+  defaultId: string | null | undefined,
+): string | null {
+  if (!allowed.length) return null;
+  if (remembered && allowed.some((m) => m.id === remembered)) return remembered;
+  if (defaultId && allowed.some((m) => m.id === defaultId)) return defaultId;
+  return allowed[0].id;
+}
+
+export const CHAT_MODEL_KEY = 'nm.assistant.chatModel';
+
+/** localStorage key of the remembered chat model (per user). */
+export function chatModelKey(userId: number | null | undefined): string {
+  return `${CHAT_MODEL_KEY}.${userId ?? 0}`;
+}
+
+export function readChatModel(userId: number | null | undefined): string | null {
+  try {
+    return localStorage.getItem(chatModelKey(userId));
+  } catch {
+    return null;
+  }
+}
+
+export function rememberChatModel(userId: number | null | undefined, id: string): void {
+  try {
+    localStorage.setItem(chatModelKey(userId), id);
+  } catch {
+    /* storage unavailable (private mode, blocked): not remembered */
+  }
+}

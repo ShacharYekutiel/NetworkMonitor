@@ -3682,8 +3682,15 @@ endpoints with a valid `test_id` (architecture § 14.2.6); `PUT /api/settings` s
   "internal_cidrs": [],                            // ≤ 64 extra CIDRs treated as internal
   "chat_redact_ips": true,
   "prices": { "currency": "USD", "input_per_mtok": null, "output_per_mtok": null,
-              "cache_read_per_mtok": null, "cache_write_per_mtok": null } }   // numbers ≥ 0, ≤ 1000
-                                                   // currency label, default USD (the cost cap is in it)
+              "cache_read_per_mtok": null, "cache_write_per_mtok": null },  // numbers ≥ 0, ≤ 1000
+                                                   // currency label, default USD (the cost cap is in it);
+                                                   // one price set for every model
+  "chat_models": [] }                              // [3b owner] [{"id": <model id, MODEL syntax>, "label": str|null
+                                                   //   (≤ 60)}], ≤ 8, unique ids; models an admin may pick in the
+                                                   //   chat composer. Allowed list = model_id first (always, the
+                                                   //   default) + these; [] = model_id + model_id_light (if set).
+                                                   //   Not a connection field (no test_id). Telegram /ask and the
+                                                   //   AI features keep model_id / model_id_light
 ```
 Validation per auth mode when enabling/testing: `roles_anywhere` needs the three ARNs + a certificate and key
 (uploaded or host files); `access_key` needs both key fields, and an `ASIA…` (temporary) key id also needs
@@ -3808,11 +3815,12 @@ Index `(message_id, seq)`.
 | day | date | NOT NULL — local date (`settings.timezone`) |
 | user_id | integer | NOT NULL — 0 = system (background purposes); no FK (survives user deletion) |
 | purpose | text | NOT NULL CHECK in assistant_purpose |
+| model_id | text | NOT NULL DEFAULT `''` — **[3b owner]** the model / inference profile of the counted calls (≤ 256 chars); `''` = no model call (the `questions` counter, errors before a call) |
 | questions, model_calls, tool_calls, errors, throttles | integer | NOT NULL DEFAULT 0 |
 | input_tokens, output_tokens, cache_read_tokens, cache_write_tokens | bigint | NOT NULL DEFAULT 0 |
 | cost_estimate | numeric(14,6) | NOT NULL DEFAULT 0 — at the prices valid when counted |
 
-PK `(day, user_id, purpose)`. Upsert (`ON CONFLICT … DO UPDATE SET x = x + EXCLUDED.x`) after every model call (tokens)
+PK `(day, user_id, purpose, model_id)`. Upsert (`ON CONFLICT … DO UPDATE SET x = x + EXCLUDED.x`) after every model call (tokens)
 and at question start (`questions`). Monthly totals: `SUM` over the month's days. Retention 730 days.
 **Cap arithmetic** (pure `usage.cap_tokens(row) = input + output + cache_write + ceil(cache_read / 10)`).
 
@@ -4018,7 +4026,11 @@ PostgreSQL DDL only.
 
 `upgrade()`:
 1. `CREATE TABLE assistant_conversations`, `assistant_messages`, `assistant_tool_calls` (+ indexes).
-2. `CREATE TABLE assistant_usage`.
+2. `CREATE TABLE assistant_usage` (with `model_id`, PK `(day, user_id, purpose, model_id)`; **[3b owner]** edited
+   in place while phase 3b is unreleased — a database that already ran the earlier `0008` needs, once:
+   `ALTER TABLE assistant_usage ADD COLUMN IF NOT EXISTS model_id text NOT NULL DEFAULT ''; ALTER TABLE
+   assistant_usage DROP CONSTRAINT assistant_usage_pkey; ALTER TABLE assistant_usage ADD PRIMARY KEY (day, user_id,
+   purpose, model_id);`).
 3. `CREATE TABLE assistant_artifacts`, `assistant_incidents`, `assistant_incident_members`.
 4. `CREATE TABLE assistant_note_targets`, `assistant_syslog_signatures`, `assistant_snmp_walks`.
 5. `ALTER TABLE alert_rules ADD ai_note boolean NOT NULL DEFAULT false`; `ALTER TABLE reports ADD ai_summary boolean

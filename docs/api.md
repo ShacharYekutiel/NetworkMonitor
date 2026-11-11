@@ -2171,6 +2171,7 @@ except the preparation endpoints listed in data-model § [3b] Feature toggles; a
 | 429 | `assistant_busy` | Global concurrency reached ("Too many questions are running, try again shortly") |
 | 429 | `assistant_cap_reached` | `details: [{"cap": "user_daily" \| "monthly_tokens" \| "monthly_cost" \| "purpose_daily" \| "chat_hourly", "limit": 50, "used": 50, "resets_at": "…"}]` |
 | 409 | `conversation_full` | 40 turns reached — start a new conversation |
+| 422 | `model_not_allowed` | **[3b owner]** `POST /api/assistant/ask` with a `model_id` that is not one of the allowed chat models (`details: [{"loc": ["body", "model_id"], "model_id": "…", "allowed": ["us.anthropic…", …]}]`) |
 | 422 | `invalid_certificate` | Upload not parseable, not a leaf (`CA:TRUE`), no Digital Signature usage, expired, unsupported key (`details: [{"reason": "…"}]`) |
 | 422 | `invalid_private_key` | Key not parseable / wrong password (no key material in the message) |
 | 422 | `key_mismatch` | Key does not match the certificate |
@@ -2236,6 +2237,11 @@ type AssistantSettings = {
   send_config_excerpts: boolean; redact_internal_ips: boolean; internal_cidrs: string[]; chat_redact_ips: boolean;
   prices: { currency: string; input_per_mtok: number | null; output_per_mtok: number | null;
             cache_read_per_mtok: number | null; cache_write_per_mtok: number | null };
+  // [3b owner] models offered in the chat composer (writable, ≤ 8, unique ids, label ≤ 60 chars or null;
+  // null/[] = default). NOT a connection field: changing it needs no new Test (a model_id change still does)
+  chat_models: ChatModel[];
+  chat_models_effective: ChatModel[];   // read-only: main model first (always allowed, the default), then the
+                                        // configured entries; [] configured = [model_id, model_id_light if set]
   last_test: { ok: boolean; at: string; by: string; error_code: string | null } | null;
   warnings: ("cert_expiring" | "vpce_via_proxy" | "stream_buffered" | "cache_unsupported" | "access_key_old" | "key_file_mode"
              | "global_inference_profile" | "arn_accounts_differ" | "temporary_credentials")[];
@@ -2248,6 +2254,7 @@ type AssistantSettings = {
   recommended: { region: "us-east-1"; profile_prefix: "us" };
   certificate_host_files: boolean;                             // NETMON_AWS_RA_CERT_FILE/_KEY_FILE in use
   csr: { subject: string; created_at: string; pem: string; key_unreadable: boolean } | null };  // pending CSR
+type ChatModel = { id: string; label: string | null };      // id: model / inference-profile id ([A-Za-z0-9.:/_-]{1,256})
 type ProfileInfo = { scope: "global" | "geo" | "in_region" | "arn" | null; prefix: string | null;
   geography: string | null; explanation: { en: string; he: string } | null;
   warning: "global_inference_profile" | null };              // global. → warning only, never refused
@@ -2276,12 +2283,12 @@ type AssistantTestResult = { ok: boolean; test_id: string | null; expires_at: st
 | `GET /api/assistant/cert/csr` | — | `200 application/pkcs10` (`attachment; filename="netmonitor-bedrock.csr"`); `404` when none |
 | `DELETE /api/assistant/cert/csr` | — | `204` (discard the pending CSR and its key); audited `assistant.csr_delete` |
 | `POST /api/assistant/models` | `{"settings": <partial, optional>}` | `200 {"items": [{"id": "eu.anthropic.claude-…", "name": "…", "kind": "inference_profile" \| "foundation_model", "streaming": true, "status": "ACTIVE"}], "error": null}` (Anthropic only); on failure `200 {"items": [], "error": {"code", "message"}}` |
-| `GET /api/assistant/status` | — (409 while `assistant` is OFF) | `{"state", "state_error", "tools": [{"name": "search_syslog", "available": false, "reason": "feature_off:syslog"}], "features": [{"name": "ai_correlation", "enabled": true, "idle_reason": null, "status_line": "2 open incidents"}], "me": {"questions_today": 3, "daily_limit": 50, "running_message_id": null}, "month": UsageMonthSummary}` |
+| `GET /api/assistant/status` | — (409 while `assistant` is OFF) | `{"state", "state_error", "tools": [{"name": "search_syslog", "available": false, "reason": "feature_off:syslog"}], "features": [{"name": "ai_correlation", "enabled": true, "idle_reason": null, "status_line": "2 open incidents"}], "me": {"questions_today": 3, "daily_limit": 50, "running_message_id": null}, "month": UsageMonthSummary, "chat_models": ChatModel[] /* = chat_models_effective */, "default_model_id": "us.anthropic…" \| null}` |
 
 ### [3b] Ask, stream, conversations
 | Method & path | Request | Response |
 |---|---|---|
-| `POST /api/assistant/ask` | `{"conversation_id": 12 \| null, "question": "…"}` (1–2000 chars) | `200 text/event-stream` (below); pre-stream errors as JSON: `409 feature_disabled`, `409 assistant_busy`, `429 assistant_busy`, `429 assistant_cap_reached`, `409 conversation_full`, `404` (not own conversation) |
+| `POST /api/assistant/ask` | `{"conversation_id": 12 \| null, "question": "…", "model_id": "us.anthropic…" \| null}` (1–2000 chars; **[3b owner]** `model_id` optional, one of `chat_models_effective`, null/omitted = the main model) | `200 text/event-stream` (below); pre-stream errors as JSON: `422 model_not_allowed`, `409 feature_disabled`, `409 assistant_busy`, `429 assistant_busy`, `429 assistant_cap_reached`, `409 conversation_full`, `404` (not own conversation). The chosen model is used for every model call of that answer (tool rounds included), stored in the message's `model_id`, the `assistant.answer` audit (`model_id`) and the usage counters; the audit-title call stays on the light model; caps and limits are unchanged. Telegram `/ask` and the AI features keep the main / light models |
 | `GET /api/assistant/messages/{id}/stream` | header `Last-Event-ID` (optional) | `200 text/event-stream`: replay + live; a finished message → its `done` immediately; not own → `404` |
 | `POST /api/assistant/messages/{id}/cancel` | — | `200 {"status": "cancelled"}` (idempotent; a finished message → current status); audited `assistant.cancel` |
 | `POST /api/assistant/messages/{id}/feedback` | `{"rating": 1 \| -1 \| 0, "comment": "…" \| null}` (0 clears, comment ≤ 1000) | `200 AssistantMessage`; audited `assistant.feedback` (rating only) |
@@ -2460,6 +2467,12 @@ type UsageReport = UsageMonthSummary & {
   by_day: { day: string; questions: number; tokens: number; cost_estimate: number | null }[];
   by_user: { user_id: number; username: string; questions: number; tokens: number; cost_estimate: number | null }[];  // user 0 = "system"
   by_purpose: { purpose: string; calls: number; tokens: number; cost_estimate: number | null }[];
+  // [3b owner] per model / inference profile of the month (assistant_usage.model_id), tokens desc then id;
+  // rows without any model call are left out; model_id "" = tokens counted without a model id (cost null).
+  // cost: the recorded estimates (one price set for every model, at the prices valid when counted), null
+  // without prices
+  by_model: { model_id: string; calls: number; input_tokens: number; output_tokens: number;
+              cache_read_tokens: number; cache_write_tokens: number; tokens: number; cost_estimate: number | null }[];
   top_tools: { tool: string; calls: number; errors: number; avg_ms: number }[];
   errors: { code: string; count: number }[]; feedback: { up: number; down: number };
   last_12_months: { month: string; tokens: number; cost_estimate: number | null }[] };

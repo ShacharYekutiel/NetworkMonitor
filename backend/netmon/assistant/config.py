@@ -73,6 +73,9 @@ DEFAULT_ASSISTANT: dict[str, Any] = {
         "cache_write_per_mtok": None,
     },
     "last_test": None,  # {"ok", "at", "by", "error_code"}
+    # [3b owner] models offered in the chat composer: [{"id", "label"|null}] (≤ 8);
+    # [] = the main model (+ the light model when set). Not a connection field (no new test).
+    "chat_models": [],
 }
 
 DEFAULT_KB: dict[str, Any] = {
@@ -144,11 +147,14 @@ WRITABLE_FIELDS = (
     "internal_cidrs",
     "chat_redact_ips",
     "prices",
+    "chat_models",
 )
 KB_WRITABLE_FIELDS = (*KB_CONNECTION_FIELDS, "description")
 
 REGION_RE = re.compile(r"^[a-z]{2}(-gov|-iso[a-z]*)?-[a-z]+-\d$")
 MODEL_RE = re.compile(r"^[A-Za-z0-9.:/_-]{1,256}$")
+CHAT_MODELS_MAX = 8
+CHAT_MODEL_LABEL_MAX = 60
 ACCESS_KEY_RE = re.compile(r"^(AKIA|ASIA)[A-Z0-9]{16}$")
 SESSION_TOKEN_MAX = 4096
 # write-only secrets of PUT /api/assistant/settings: field -> (stored field, AAD)
@@ -381,7 +387,54 @@ def field_errors(cfg: dict[str, Any], *, test_mode: bool) -> list[dict[str, Any]
     e = cidr_error(list(cfg.get("internal_cidrs") or []))
     if e:
         bad("internal_cidrs", e)
+    e = chat_models_error(cfg.get("chat_models"))
+    if e:
+        bad("chat_models", e)
     return errs
+
+
+def chat_models_error(value: Any) -> str | None:
+    """`chat_models`: ≤ 8 entries `{"id": <model id>, "label": str|null (≤ 60)}`, unique ids."""
+    if value is None:
+        return None
+    if not isinstance(value, list):
+        return "must be a list"
+    if len(value) > CHAT_MODELS_MAX:
+        return f"at most {CHAT_MODELS_MAX} models"
+    seen: set[str] = set()
+    for item in value:
+        if not isinstance(item, dict):
+            return "invalid entry"
+        mid = item.get("id")
+        if not isinstance(mid, str) or not MODEL_RE.match(mid):
+            return f"invalid model / inference profile id {mid!r}"
+        if mid in seen:
+            return f"duplicate model {mid!r}"
+        seen.add(mid)
+        label = item.get("label")
+        if label is not None and (not isinstance(label, str) or len(label) > CHAT_MODEL_LABEL_MAX):
+            return f"label must be at most {CHAT_MODEL_LABEL_MAX} characters"
+    return None
+
+
+def chat_models_effective(cfg: dict[str, Any]) -> list[dict[str, Any]]:
+    """The models the chat may use: the main model first (always allowed, the default), then
+    the configured `chat_models`; [] configured = main + light (when set). Each `{"id",
+    "label"}`; an empty main model → []."""
+    main = (cfg.get("model_id") or "").strip()
+    if not main:
+        return []
+    configured = [m for m in (cfg.get("chat_models") or []) if isinstance(m, dict) and m.get("id")]
+    if not configured:
+        out = [{"id": main, "label": None}]
+        light = (cfg.get("model_id_light") or "").strip()
+        if light and light != main:
+            out.append({"id": light, "label": None})
+        return out
+    labels = {m["id"]: (m.get("label") or None) for m in configured}
+    out = [{"id": main, "label": labels.get(main)}]
+    out += [{"id": m["id"], "label": labels[m["id"]]} for m in configured if m["id"] != main]
+    return out[: CHAT_MODELS_MAX + 1]
 
 
 def required_errors(

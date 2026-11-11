@@ -446,6 +446,9 @@ async def status(user: Admin, __: SessionUser, rt: RT, session: DB) -> dict:
             "running_message_id": extra["running_message_id"],
         },
         "month": await svc.usage.month_summary(session=session),
+        # [3b owner] the models the chat composer offers (main model first = default)
+        "chat_models": config.chat_models_effective(svc.cfg),
+        "default_model_id": svc.cfg.get("model_id") or None,
     }
 
 

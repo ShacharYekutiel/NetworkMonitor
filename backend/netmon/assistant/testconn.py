@@ -250,10 +250,10 @@ async def _steps(
             asm, end = await client.converse_stream_collect(PING_REQUEST)
         except AssistantError as err:
             _fail(result, _step("converse", False, "", t0), err)
-            await _count(svc, user_id, None, err.code)
+            await _count(svc, user_id, None, err.code, getattr(client, "model_id", None))
             return
         usage = asm.usage
-        await _count(svc, user_id, usage, None)
+        await _count(svc, user_id, usage, None, getattr(client, "model_id", None))
         result["time_to_first_event_ms"] = end.get("time_to_first_event_ms")
         result["usage"] = {
             "input_tokens": usage["input_tokens"],
@@ -276,13 +276,17 @@ async def _steps(
 
 
 async def _count(
-    svc: AssistantService, user_id: int, usage: dict[str, Any] | None, code: str | None
+    svc: AssistantService,
+    user_id: int,
+    usage: dict[str, Any] | None,
+    code: str | None,
+    model_id: str | None = None,
 ) -> None:
     try:
         if code:
-            await svc.usage.record_error(user_id, "test", code)
+            await svc.usage.record_error(user_id, "test", code, model_id)
         else:
-            await svc.usage.record(user_id, "test", usage or {}, model_calls=1)
+            await svc.usage.record(user_id, "test", usage or {}, model_calls=1, model_id=model_id)
     except Exception:  # noqa: BLE001 - usage bookkeeping never fails a test
         pass
 

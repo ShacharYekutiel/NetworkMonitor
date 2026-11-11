@@ -15,7 +15,7 @@ from pydantic import BaseModel, ConfigDict, Field
 
 from netmon.api.deps import DB, RT, Audit, Page, request_audit_ctx, require_admin
 from netmon.api.errors import ApiError, not_found
-from netmon.assistant import agent, conversations
+from netmon.assistant import agent, config, conversations
 from netmon.models import User
 from netmon.services import audit
 from netmon.services.features import feature_disabled
@@ -41,6 +41,8 @@ class AskIn(BaseModel):
     model_config = ConfigDict(extra="forbid")
     conversation_id: int | None = None
     question: str = Field(min_length=1, max_length=2000)
+    # [3b owner] model chosen in the composer; must be one of the allowed chat models
+    model_id: str | None = Field(None, max_length=256)
 
 
 class FeedbackIn(BaseModel):
@@ -69,14 +71,34 @@ def sse_response(body: Any) -> StreamingResponse:
     )
 
 
+async def chosen_model(rt: Any, model_id: str | None) -> str | None:
+    """Validate the composer's model against the allowed chat models (`422
+    model_not_allowed`). None / blank = the main model."""
+    mid = (model_id or "").strip()
+    if not mid:
+        return None
+    async with rt.sessionmaker() as session:
+        cfg = await config.load(session)
+    allowed = [m["id"] for m in config.chat_models_effective(cfg)]
+    if mid not in allowed:
+        raise ApiError(
+            422,
+            "model_not_allowed",
+            "This model is not offered for the chat; choose one of the allowed models",
+            [{"loc": ["body", "model_id"], "model_id": mid, "allowed": allowed}],
+        )
+    return mid
+
+
 @router.post("/api/assistant/ask")
 async def ask(body: AskIn, user: AdminSession, request: Request, rt: RT) -> StreamingResponse:
+    model_id = await chosen_model(rt, body.model_id)
     run = await agent.start(
         rt,
         agent_user(user),
         body.question,
         conversation_id=body.conversation_id,
-        options=agent.AgentOptions(audit_ctx=request_audit_ctx(request, rt)),
+        options=agent.AgentOptions(audit_ctx=request_audit_ctx(request, rt), model_id=model_id),
     )
     return sse_response(agent.sse_events(run, 0))
 

@@ -11,6 +11,8 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 from netmon.assistant.config import (
     ACCESS_KEY_RE,
+    CHAT_MODEL_LABEL_MAX,
+    CHAT_MODELS_MAX,
     KB_ID_RE,
     MODEL_RE,
     PROFILE_RE,
@@ -137,6 +139,29 @@ class PricesIn(_Strict):
     cache_write_per_mtok: float | None = Field(default=None, ge=0, le=1000)
 
 
+class ChatModelIn(_Strict):
+    """[3b owner] One entry of `chat_models` (a model the chat composer offers)."""
+
+    id: str = Field(min_length=1, max_length=256)
+    label: str | None = Field(default=None, max_length=CHAT_MODEL_LABEL_MAX)
+
+    @field_validator("id")
+    @classmethod
+    def _id(cls, v: str) -> str:
+        v = v.strip()
+        if not MODEL_RE.match(v):
+            raise ValueError("invalid model or inference profile id")
+        return v
+
+    @field_validator("label")
+    @classmethod
+    def _label(cls, v: str | None) -> str | None:
+        if v is None:
+            return v
+        v = " ".join(v.split())
+        return v or None
+
+
 def _opt(rx: re.Pattern[str], what: str):  # type: ignore[no-untyped-def]
     def check(cls, v: str | None) -> str | None:  # type: ignore[no-untyped-def]
         if v is None:
@@ -179,6 +204,7 @@ class AssistantFields(_Strict):
     internal_cidrs: list[str] | None = Field(default=None, max_length=64)
     chat_redact_ips: bool | None = None
     prices: PricesIn | None = None
+    chat_models: list[ChatModelIn] | None = Field(default=None, max_length=CHAT_MODELS_MAX)
 
     _region = field_validator("region", "ra_region")(_opt(REGION_RE, "AWS region"))
     _model = field_validator("model_id", "model_id_light")(
@@ -207,6 +233,17 @@ class AssistantFields(_Strict):
             raise ValueError("invalid session token (base64 characters expected)")
         return v
 
+    @field_validator("chat_models")
+    @classmethod
+    def _chat_models(cls, v: list[ChatModelIn] | None) -> list[ChatModelIn] | None:
+        if v is None:
+            return v
+        ids = [m.id for m in v]
+        dup = next((i for i in ids if ids.count(i) > 1), None)
+        if dup is not None:
+            raise ValueError(f"duplicate model {dup!r}")
+        return v
+
     @field_validator("internal_cidrs")
     @classmethod
     def _cidrs(cls, v: list[str] | None) -> list[str] | None:
@@ -227,6 +264,8 @@ class AssistantFields(_Strict):
                 out[k] = v.model_dump(exclude_unset=True) if v is not None else None
                 if out[k] is None:
                     out.pop(k)
+            elif k == "chat_models":
+                out[k] = [m.model_dump() for m in v] if v else []  # null clears
             elif k == "access_key_created_at":
                 out[k] = v.isoformat() if v is not None else None
             elif k in ("region", "model_id", "auth_mode", "proxy_mode") and v is None:

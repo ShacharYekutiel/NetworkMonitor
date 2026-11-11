@@ -35,6 +35,7 @@ import {
   Textarea,
 } from '../ui';
 import { useAssistantErrorText, useAssistantStatus } from './common';
+import { ChatModelsCard } from './ChatModelsCard';
 import { ConnectionSettings } from './ConnectionSettings';
 
 // ---------------------------------------------------------------------------
@@ -1064,6 +1065,7 @@ export function AssistantSettingsTab({ settings }: { settings: Settings }) {
   const s = q.data;
   const sections = [
     'connection',
+    'chatModels',
     'dataSharing',
     'limits',
     'conversations',
@@ -1092,6 +1094,9 @@ export function AssistantSettingsTab({ settings }: { settings: Settings }) {
       </nav>
       <div id="as-connection">
         <ConnectionSettings s={s} auditOn={f.audit} />
+      </div>
+      <div id="as-chatModels">
+        <ChatModelsCard s={s} />
       </div>
       <div id="as-dataSharing">
         <DataSharingCard s={s} settings={settings} />

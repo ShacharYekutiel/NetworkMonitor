@@ -107,8 +107,8 @@ export function useAnswerStream(opts: { onStart?: (conversationId: number) => vo
   );
 
   const ask = useCallback(
-    (conversationId: number | null, question: string) =>
-      run((h) => endpoints3b.ask(conversationId, question, h)),
+    (conversationId: number | null, question: string, modelId?: string | null) =>
+      run((h) => endpoints3b.ask(conversationId, question, h, modelId)),
     [run],
   );
   const explain = useCallback(

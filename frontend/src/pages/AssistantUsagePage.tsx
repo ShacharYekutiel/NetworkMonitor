@@ -21,7 +21,14 @@ import {
 } from '../components/ui';
 import { useAuth } from '../hooks/auth';
 import { useTheme } from '../hooks/theme';
-import { compactTokens, formatCost, monthKey, pctTone, shiftMonth } from '../lib/assistant';
+import {
+  compactTokens,
+  formatCost,
+  friendlyModelName,
+  monthKey,
+  pctTone,
+  shiftMonth,
+} from '../lib/assistant';
 
 echarts.use([BarChart, GridComponent, TooltipComponent, CanvasRenderer]);
 
@@ -244,6 +251,64 @@ export function AssistantUsagePage() {
                   ))}
                 </tbody>
               </Table>
+            </Card>
+            <Card title={t('usage.perModel')} bodyClassName="p-0">
+              <div data-testid="usage-by-model">
+                {r.by_model?.length ? (
+                  <Table>
+                    <thead>
+                      <tr>
+                        <th className={th}>{t('usage.model')}</th>
+                        <th className={th}>{t('usage.calls')}</th>
+                        <th className={th}>{t('usage.inputTokens')}</th>
+                        <th className={th}>{t('usage.outputTokens')}</th>
+                        <th className={th}>{t('usage.tokens')}</th>
+                        <th className={th}>{t('usage.cost')}</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {r.by_model.map((m) => (
+                        <tr key={m.model_id || '-'}>
+                          <td className={td}>
+                            {m.model_id ? (
+                              <span title={m.model_id}>
+                                {friendlyModelName(m.model_id)}
+                                <bdi
+                                  dir="ltr"
+                                  className="block font-mono text-[11px] text-slate-500"
+                                >
+                                  {m.model_id}
+                                </bdi>
+                              </span>
+                            ) : (
+                              t('usage.unknownModel')
+                            )}
+                          </td>
+                          <td className={`${td} tabular-nums`}>{m.calls}</td>
+                          <td className={`${td} tabular-nums`}>
+                            {compactTokens(m.input_tokens)}
+                            {m.cache_read_tokens > 0 && (
+                              <span
+                                className="block text-[11px] text-slate-500"
+                                title={t('usage.cacheRead')}
+                              >
+                                +{compactTokens(m.cache_read_tokens)} {t('usage.cached')}
+                              </span>
+                            )}
+                          </td>
+                          <td className={`${td} tabular-nums`}>{compactTokens(m.output_tokens)}</td>
+                          <td className={`${td} tabular-nums`}>{compactTokens(m.tokens)}</td>
+                          <td className={`${td} tabular-nums`}>
+                            {formatCost(m.cost_estimate, r.currency)}
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </Table>
+                ) : (
+                  <Empty>{t('usage.none')}</Empty>
+                )}
+              </div>
             </Card>
             <Card title={t('usage.topTools')} bodyClassName="p-0">
               <Table>

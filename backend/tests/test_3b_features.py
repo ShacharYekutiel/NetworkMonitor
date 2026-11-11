@@ -1207,8 +1207,9 @@ async def test_usage_through_real_usage_service_and_client(
     assert r.status_code == 200, r.text
     rows = await q(
         rt,
-        "SELECT user_id, purpose, questions, model_calls, input_tokens FROM "
-        "assistant_usage WHERE purpose = 'rule_draft'",
+        "SELECT user_id, purpose, sum(questions) questions, sum(model_calls) model_calls, "
+        "sum(input_tokens) input_tokens FROM assistant_usage WHERE purpose = 'rule_draft' "
+        "GROUP BY user_id, purpose",  # [3b owner] rows per model: '' holds the question
     )
     assert len(rows) == 1 and rows[0]["questions"] == 1
     assert rows[0]["model_calls"] == 2 and rows[0]["input_tokens"] > 0  # tool round + proposal

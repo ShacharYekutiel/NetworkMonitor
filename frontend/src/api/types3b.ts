@@ -97,6 +97,10 @@ export type AssistantSettings = {
   internal_cidrs: string[];
   chat_redact_ips: boolean;
   prices: AssistantPrices;
+  /** [3b owner] models offered in the chat ([] = main + light); not a connection field */
+  chat_models?: ChatModel[];
+  /** the allowed chat models: main model first (the default), then the configured ones */
+  chat_models_effective?: ChatModel[];
   last_test: { ok: boolean; at: string; by: string; error_code: string | null } | null;
   warnings: AssistantWarning[];
   /** [3b owner decision] pending CSR (key generated on the server) */
@@ -135,6 +139,7 @@ export type AssistantSettingsInput = Partial<AssistantConnectionInput> & {
   internal_cidrs?: string[];
   chat_redact_ips?: boolean;
   prices?: AssistantPrices;
+  chat_models?: ChatModel[];
   enabled?: boolean;
   test_id?: string;
 };
@@ -224,7 +229,13 @@ export type AssistantStatus = {
   features: AssistantFeatureStatus[];
   me: { questions_today: number; daily_limit: number; running_message_id: number | null };
   month: UsageMonthSummary;
+  /** [3b owner] models the chat composer offers (main model first = default) */
+  chat_models?: ChatModel[];
+  default_model_id?: string | null;
 };
+
+/** [3b owner] a model / inference profile offered in the chat (optional display label). */
+export type ChatModel = { id: string; label: string | null };
 
 // Ask, stream, conversations -------------------------------------------------
 
@@ -516,10 +527,23 @@ export type UsageReport = UsageMonthSummary & {
     cost_estimate: number | null;
   }[];
   by_purpose: { purpose: string; calls: number; tokens: number; cost_estimate: number | null }[];
+  /** [3b owner] per model / inference profile, tokens desc; model_id "" = unknown */
+  by_model?: ModelUsage[];
   top_tools: { tool: string; calls: number; errors: number; avg_ms: number }[];
   errors: { code: string; count: number }[];
   feedback: { up: number; down: number };
   last_12_months: { month: string; tokens: number; cost_estimate: number | null }[];
+};
+
+export type ModelUsage = {
+  model_id: string;
+  calls: number;
+  input_tokens: number;
+  output_tokens: number;
+  cache_read_tokens: number;
+  cache_write_tokens: number;
+  tokens: number;
+  cost_estimate: number | null;
 };
 
 export type ReportAiSummaryStatus =

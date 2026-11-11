@@ -3183,7 +3183,8 @@
         "limits": "Limits & cost",
         "conversations": "Conversations",
         "capabilities": "Capabilities",
-        "kb": "Knowledge Base"
+        "kb": "Knowledge Base",
+        "chatModels": "Chat models"
       },
       "connection": "Amazon Bedrock connection",
       "connectionIntro": "Fill in the connection, run Test connection, then turn the assistant on at the bottom. Recommended: region us-east-1 with a us. inference profile, authenticated with IAM Roles Anywhere.",
@@ -3448,6 +3449,25 @@
       "invalid": "Invalid value",
       "test": "Test Knowledge Base",
       "testOk": "{{n}} results in {{ms}} ms"
+    },
+    "model": "Model",
+    "chatModels": {
+      "title": "Chat models",
+      "hint": "Models and inference profiles an administrator can choose in the chat (up to 8). The main model is always offered and is the default. Telegram /ask and the background AI features keep using the main and light models. Changing this list does not need a new connection test.",
+      "defaultList": "No list: the chat offers the main model and the light model (when set).",
+      "id": "Model or inference profile ID",
+      "label": "Display name",
+      "labelPlaceholder": "Display name (optional)",
+      "add": "Add model",
+      "remove": "Remove",
+      "max": "At most {{n}} models.",
+      "effective": "Offered in the chat:",
+      "default": "default",
+      "error": {
+        "invalid": "Invalid model or inference profile ID",
+        "duplicate": "This model is already in the list",
+        "label": "The display name is too long (60 characters at most)"
+      }
     }
   },
   "explain": {
@@ -3676,7 +3696,14 @@
       "report_summary": "Report summaries",
       "test": "Connection tests",
       "title": "Audit titles"
-    }
+    },
+    "perModel": "Per model",
+    "model": "Model",
+    "inputTokens": "Input",
+    "outputTokens": "Output",
+    "unknownModel": "Unknown model",
+    "cacheRead": "Input tokens read from the prompt cache",
+    "cached": "cached"
   },
   "treeMenu": {
     "label": {

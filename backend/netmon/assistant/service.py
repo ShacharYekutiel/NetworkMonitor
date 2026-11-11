@@ -575,6 +575,12 @@ class AssistantService:
             "internal_cidrs": list(cfg.get("internal_cidrs") or []),
             "chat_redact_ips": bool(cfg.get("chat_redact_ips", True)),
             "prices": prices,
+            "chat_models": [
+                {"id": m.get("id"), "label": m.get("label")}
+                for m in (cfg.get("chat_models") or [])
+                if isinstance(m, dict)
+            ],
+            "chat_models_effective": config.chat_models_effective(cfg),
             "last_test": cfg.get("last_test"),
             "warnings": self.warnings(cfg, cert_warns),
             # owner decision 3b: data-location explanation per inference-profile prefix

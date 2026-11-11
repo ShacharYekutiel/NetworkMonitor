@@ -462,6 +462,7 @@ async def record_usage(
     errors: int = 0,
     throttles: int = 0,
     cost: float | None = None,
+    model_id: str | None = None,
 ) -> None:
     """Usage counters (`assistant_usage` upsert). Delegates to `rt.assistant.usage.record(...)`
     when present. Never raises."""
@@ -477,6 +478,7 @@ async def record_usage(
                 tool_calls=tool_calls,
                 errors=errors,
                 throttles=throttles,
+                model_id=model_id,
             )
         except TypeError:
             raise  # a wrong call is a bug: fail loudly
@@ -488,12 +490,13 @@ async def record_usage(
             tz = await tz_name(session)
             await session.execute(
                 text(
-                    "INSERT INTO assistant_usage (day, user_id, purpose, questions, model_calls, "
-                    "tool_calls, errors, throttles, input_tokens, output_tokens, "
+                    "INSERT INTO assistant_usage (day, user_id, purpose, model_id, questions, "
+                    "model_calls, tool_calls, errors, throttles, input_tokens, output_tokens, "
                     "cache_read_tokens, cache_write_tokens, cost_estimate) VALUES (:d, :u, :p, "
-                    ":q, :mc, :tc, :e, :t, :i, :o, :cr, :cw, :c) ON CONFLICT (day, user_id, "
-                    "purpose) DO UPDATE SET questions = assistant_usage.questions + EXCLUDED."
-                    "questions, model_calls = assistant_usage.model_calls + EXCLUDED.model_calls, "
+                    ":m, :q, :mc, :tc, :e, :t, :i, :o, :cr, :cw, :c) ON CONFLICT (day, user_id, "
+                    "purpose, model_id) DO UPDATE SET questions = assistant_usage.questions + "
+                    "EXCLUDED.questions, model_calls = assistant_usage.model_calls + "
+                    "EXCLUDED.model_calls, "
                     "tool_calls = assistant_usage.tool_calls + EXCLUDED.tool_calls, errors = "
                     "assistant_usage.errors + EXCLUDED.errors, throttles = assistant_usage."
                     "throttles + EXCLUDED.throttles, input_tokens = assistant_usage.input_tokens "
@@ -507,6 +510,7 @@ async def record_usage(
                     "d": local_day(rt, tz),
                     "u": int(user_id),
                     "p": purpose,
+                    "m": (model_id or "").strip()[:256],
                     "q": questions,
                     "mc": model_calls,
                     "tc": tool_calls,
@@ -649,6 +653,7 @@ async def complete(
             model_calls=1,
             errors=1,
             throttles=1 if err.code == "bedrock_throttled" else 0,
+            model_id=model_id,
         )
         raise err from None
     comp = parse_response(resp)
@@ -661,6 +666,7 @@ async def complete(
         comp.usage,
         questions=1 if question and not counted else 0,
         cost=comp.cost,
+        model_id=model_id,
     )
     log.debug("AI %s completion in %.0f ms", purpose, (time.monotonic() - t0) * 1000)
     return comp
