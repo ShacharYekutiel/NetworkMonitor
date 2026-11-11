@@ -253,6 +253,13 @@ Order (owner decision: the AWS VPC Flow Logs feature moved to the beginning):
 
 Open questions for phase 4: architecture § 15.16 (Q1–Q7).
 
+## Parked by the owner (★, come back later)
+- ★ **User → location** ("where is user X connected?") for the assistant and Find. Sources discussed: Check Point
+  Identity Awareness (recommended if present), 802.1X/RADIUS accounting, DC logon events (4624), manual import.
+  WinRM/WMI only on demand for "who is on this port/IP" (least-privilege account via GPO; a broad workstation-admin
+  account was flagged as a security risk). Open: is Identity Awareness on? is 802.1X on access ports?
+- ★ **Generic OIDC + SAML 2.0 sign-in** with several providers; CyberArk Identity first (OIDC app), Entra as a preset.
+
 ## Later / ideas
 - Template editor in the UI.
 - Remote probes for multiple sites (phase 4b, deferred).
