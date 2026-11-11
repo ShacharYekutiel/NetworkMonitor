@@ -897,3 +897,19 @@ def test_retrieve_parse() -> None:
             "location_type": "S3",
         }
     ]
+
+
+def test_auth_failure_keeps_the_aws_type_and_message() -> None:
+    """Owner's office test: "AWS rejected the credentials" alone did not say whether the key
+    id is unknown or the signature (secret / a TLS-inspecting proxy) is wrong."""
+    from netmon.assistant.errors import classify
+
+    e = classify(
+        "UnrecognizedClientException", "The security token included in the request is invalid.", 403
+    )
+    assert e.code == "aws_auth_failed"
+    assert "UnrecognizedClientException" in e.message and "security token" in e.message
+    e = classify(
+        "InvalidSignatureException", "The request signature we calculated does not match", 403
+    )
+    assert "InvalidSignatureException" in e.message

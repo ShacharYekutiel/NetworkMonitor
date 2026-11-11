@@ -418,6 +418,15 @@ function TestResultView({ r }: { r: AssistantTestResult }) {
             <span dir="auto" className="basis-full ps-5 text-slate-600 dark:text-slate-400">
               {s.error_code ? errText({ code: s.error_code, message: s.detail }) : s.detail}
             </span>
+            {s.error_code && s.detail && (
+              <bdi
+                dir="ltr"
+                className="basis-full ps-5 font-mono text-[11px] text-slate-500"
+                data-testid="test-step-raw"
+              >
+                {s.detail}
+              </bdi>
+            )}
           </li>
         ))}
       </ul>

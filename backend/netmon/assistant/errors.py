@@ -216,7 +216,11 @@ def classify(
     if t in AUTH_TYPES or tl in {a.lower() for a in AUTH_TYPES}:
         if _SKEW.search(message):
             return make("aws_clock_skew", **kw)
-        return make("aws_auth_failed", **kw)
+        err = make("aws_auth_failed", **kw)
+        # which check failed matters (unknown key id vs. wrong secret / altered request);
+        # AWS messages here never contain the secret
+        err.message = f"{err.message} ({t}" + (f": {_cut(message, 200)})" if message else ")")
+        return err
     if tl == "accessdeniedexception" or (status == 403 and not t):
         if _MODEL_ACCESS.search(message):
             return make("bedrock_model_access", region=region, **kw)
