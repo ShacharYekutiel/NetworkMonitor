@@ -85,6 +85,8 @@ class IngestSettingsMixin(BaseModel):
     flap_window_min: int | None = Field(default=None, ge=1, le=120)
     flap_quiet_min: int | None = Field(default=None, ge=1, le=1440)
     event_linkdown_scope: Literal["important", "all"] | None = None
+    trunk_min_tagged_vlans: int | None = Field(default=None, ge=1, le=100)  # [1.3]
+    event_linkdown_include_trunks: bool | None = None  # [1.3]
     siem_targets: list[SiemTargetIn] | None = Field(default=None, max_length=4)
 
     @field_validator("trap_communities")

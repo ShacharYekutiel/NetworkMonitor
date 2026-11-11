@@ -4,7 +4,7 @@ GETs read the last snapshot only (no SNMP)."""
 
 from __future__ import annotations
 
-from fastapi import APIRouter, Query
+from fastapi import APIRouter, Query, Response
 from sqlalchemy import text
 
 from netmon.api.deps import DB, RT, Admin, Viewer
@@ -12,6 +12,7 @@ from netmon.api.errors import ApiError, not_found
 from netmon.models import Device, Sensor
 from netmon.ports import read
 from netmon.ports.eligibility import load_flags
+from netmon.ports.importance import device_importance
 from netmon.ports.scheduler import RefreshRunningError
 from netmon.ports.search import search_mac
 from netmon.schemas.ports import DevicePorts, MacSearchResult, PortDetail, PortsRefreshResponse
@@ -28,33 +29,12 @@ def _running(rt: RT, device_id: int) -> bool:
     return rt.ports is not None and rt.ports.running(device_id)
 
 
-@router.get("/api/devices/{device_id}/ports", response_model=DevicePorts)
-async def device_ports(
-    device_id: int,
-    _: Viewer,
-    rt: RT,
-    session: DB,
-    kind: list[str] | None = Query(default=None),
-) -> dict:
-    if await session.get(Device, device_id) is None:
-        raise not_found("Device")
-    bad = [k for k in kind or [] if k not in KINDS]
-    if bad:
-        raise ApiError(
-            422,
-            "validation_error",
-            "Invalid kind",
-            [{"loc": ["query", "kind"], "msg": f"must be one of {list(KINDS)}"}],
-        )
+async def _port_rows(
+    rt: RT, session: DB, device_id: int, kind: list[str] | None = None
+) -> tuple[read.Context, list[dict], list[dict]]:
+    """(context, switch_ports rows, Port dicts with their private keys) of one device."""
     inv = await load_inventory(session)
     ctx = await read.load_context(session, inv, [device_id])
-    flags = ctx.flags[device_id]
-    interval = int(await settings_svc.get(session, "port_inventory_min"))
-    status_row = (
-        await session.execute(
-            text("SELECT * FROM port_inventory_status WHERE device_id = :d"), {"d": device_id}
-        )
-    ).first()
     rows = [
         dict(r)
         for r in (
@@ -79,14 +59,49 @@ async def device_ports(
     if lag is not None:
         lag.macs = macs
     sensors = await read.interface_sensors(session, device_id)
+    imp = await device_importance(session, device_id, ctx=ctx)  # [1.3]
     ports = [
-        read.strip_private(
-            read.port_out(
-                device_id, r, ctx, macs.get(r["if_index"], []), sensors.get(r["if_index"]), lag
-            )
+        read.port_out(
+            device_id,
+            r,
+            ctx,
+            macs.get(r["if_index"], []),
+            sensors.get(r["if_index"]),
+            lag,
+            imp.reasons.get(r["if_index"]) if imp else None,
         )
         for r in rows
     ]
+    return ctx, rows, ports
+
+
+@router.get("/api/devices/{device_id}/ports", response_model=DevicePorts)
+async def device_ports(
+    device_id: int,
+    _: Viewer,
+    rt: RT,
+    session: DB,
+    kind: list[str] | None = Query(default=None),
+) -> dict:
+    if await session.get(Device, device_id) is None:
+        raise not_found("Device")
+    bad = [k for k in kind or [] if k not in KINDS]
+    if bad:
+        raise ApiError(
+            422,
+            "validation_error",
+            "Invalid kind",
+            [{"loc": ["query", "kind"], "msg": f"must be one of {list(KINDS)}"}],
+        )
+    ctx, rows, ports = await _port_rows(rt, session, device_id, kind)
+    flags = ctx.flags[device_id]
+    interval = int(await settings_svc.get(session, "port_inventory_min"))
+    status_row = (
+        await session.execute(
+            text("SELECT * FROM port_inventory_status WHERE device_id = :d"), {"d": device_id}
+        )
+    ).first()
+    ports = [read.strip_private(p) for p in ports]
     arp_sources = sum(1 for f in ctx.flags.values() if f.arp)
     return {
         "device_id": device_id,
@@ -108,6 +123,61 @@ async def device_ports(
         "health": await read.device_health(session, device_id),
         "ports": ports,
     }
+
+
+CSV_HEADER = [
+    "port",
+    "alias",
+    "status",
+    "vlan",
+    "mode",
+    "mac",
+    "ip",
+    "hostname",
+    "vendor",
+    "neighbor",
+]
+
+
+@router.get("/api/devices/{device_id}/ports.csv")
+async def device_ports_csv(device_id: int, _: Viewer, rt: RT, session: DB) -> Response:
+    """[1.3] One row per port x connected MAC (a port without MACs, or an uplink: one row
+    without MAC). UTF-8 with BOM (Excel, Hebrew), spreadsheet-formula guard."""
+    from netmon.services.audit import BOM, csv_line
+
+    d = await session.get(Device, device_id)
+    if d is None:
+        raise not_found("Device")
+    _, _, ports = await _port_rows(rt, session, device_id)
+    lines = [BOM + csv_line(CSV_HEADER)]
+    for p in ports:
+        neighbor = p["neighbor_name"] or ""
+        if neighbor and p["neighbor_mgmt_address"]:
+            neighbor = f"{neighbor} ({p['neighbor_mgmt_address']})"
+        base = [p["name"], p["alias"], p["state"]]
+        macs = p["macs"] or [None]
+        for m in macs:
+            vlan = m["vlan"] if m is not None and m["vlan"] is not None else p["pvid"]
+            lines.append(
+                csv_line(
+                    [
+                        *base,
+                        vlan,
+                        p["mode"],
+                        m["mac"] if m else None,
+                        m["ip"] if m else None,
+                        m["hostname"] if m else None,
+                        m["vendor"] if m else None,
+                        neighbor,
+                    ]
+                )
+            )
+    safe = "".join(c if c.isalnum() or c in "-_" else "_" for c in d.name)[:64] or "device"
+    return Response(
+        "".join(lines),
+        media_type="text/csv; charset=utf-8",
+        headers={"Content-Disposition": f'attachment; filename="ports-{safe}.csv"'},
+    )
 
 
 @router.get("/api/devices/{device_id}/ports/{if_index}", response_model=PortDetail)
@@ -153,7 +223,16 @@ async def port_detail(
     macs = await read.present_macs(session, device_id, ctx.reverse_dns, if_index)
     sensors = await read.interface_sensors(session, device_id)
     sensor = sensors.get(if_index)
-    port = read.port_out(device_id, dict(row), ctx, macs.get(if_index, []), sensor, lag)
+    imp = await device_importance(session, device_id, ctx=ctx)  # [1.3]
+    port = read.port_out(
+        device_id,
+        dict(row),
+        ctx,
+        macs.get(if_index, []),
+        sensor,
+        lag,
+        imp.reasons.get(if_index) if imp else None,
+    )
     hidden = port["is_uplink"] and not include_uplink_macs
     if port["is_uplink"] and include_uplink_macs:
         port["macs"] = [read._public_mac(m) for m in port["_macs_all"][: read.UPLINK_MAC_CAP]]

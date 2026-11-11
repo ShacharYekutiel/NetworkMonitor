@@ -545,7 +545,11 @@ class EventSensors:
             rows = (
                 await session.execute(
                     text(
-                        "DELETE FROM event_conditions WHERE rule_id = ANY(:ids) RETURNING sensor_id"
+                        "DELETE FROM event_conditions WHERE rule_id = ANY(:ids) "
+                        # [1.3] LAG degraded belongs to the built-in link-down rule
+                        "OR (source = 'lag_degraded' AND EXISTS (SELECT 1 FROM event_rules r "
+                        "WHERE r.id = ANY(:ids) AND r.builtin_key = 'trap_link_down')) "
+                        "RETURNING sensor_id"
                     ),
                     {"ids": rule_ids},
                 )
@@ -578,7 +582,9 @@ class EventSensors:
 
     async def event_alerts_off(self) -> None:
         """Feature OFF: delete all `rule` conditions; trap/syslog sensors -> up."""
-        await self.remove_conditions("source = 'rule'", {"types": ["trap", "syslog"]}, OFF_MESSAGE)
+        await self.remove_conditions(
+            "source IN ('rule', 'lag_degraded')", {"types": ["trap", "syslog"]}, OFF_MESSAGE
+        )
 
     async def flap_conditions_off(self) -> None:
         await self.remove_conditions("source = 'flap'", {"types": ["port_flap"]}, FLAP_OFF_MESSAGE)

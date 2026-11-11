@@ -1378,7 +1378,9 @@
       "errors": "שגיאות (Δ)",
       "lastChange": "שינוי אחרון",
       "ifIndex": "ifIndex",
-      "kind": "סוג"
+      "kind": "סוג",
+      "connIp": "IP",
+      "connName": "שם / שכן"
     },
     "filter": "סינון פורטים",
     "filterPlaceholder": "סינון: פורט, כינוי, MAC, IP, שם מארח, יצרן, שכן…",
@@ -1467,6 +1469,14 @@
       "viaLag": "LAG",
       "vlansFromLag": "VLANs נורשו מה-LAG",
       "macViaLag": "נלמד ב-LAG"
+    },
+    "exportCsv": "ייצוא CSV",
+    "conn": {
+      "neighbor": "LLDP",
+      "neighborTitle": "שכן LLDP/CDP",
+      "moreTitle_one": "עוד התקן אחד בפורט זה",
+      "moreTitle_two": "עוד 2 התקנים בפורט זה",
+      "moreTitle_other": "עוד {{count}} התקנים בפורט זה"
     }
   },
   "health": {
@@ -1914,7 +1924,8 @@
       "backup_failed": "הגיבוי נכשל",
       "host_key": "מפתח SSH של ההתקן השתנה",
       "config_changed": "התצורה השתנתה",
-      "new_mac": "התקן חדש"
+      "new_mac": "התקן חדש",
+      "lag_degraded": "LAG פגוע"
     }
   },
   "flapping": {
@@ -2026,6 +2037,13 @@
       "importantHint": "Uplinks,‏ LAG ופורטים עם חיישן ממשק — בלי התראה על כל מחשב שנכבה בלילה.",
       "all": "כל הפורטים",
       "allHint": "כל פורט שנופל או מרצד מעלה התראה."
+    },
+    "trunks": {
+      "include": "כלול את כל פורטי ה-trunk",
+      "includeHint": "התראות על נפילת קישור ועל ריצוד גם לכל פורט trunk, גם אם אינו אפלינק.",
+      "minTagged": "Trunk = פורט עם לפחות N רשתות VLAN מתויגות",
+      "minTaggedHint": "פורטי גישה עם VLAN קולי נושאים VLAN מתויג אחד; השאירו N על 2 או יותר כדי שפורטים של טלפונים לא ייחשבו trunk.",
+      "minTaggedErr": "יש להזין מספר שלם בין 1 ל-100."
     }
   },
   "siem": {
@@ -3011,5 +3029,71 @@
       "hh3cPeriodicalTrap": "דופק של Comware, נשלח כשלא נשלחה מלכודת אחרת זמן מה",
       "syslogMsgNotification": "הודעת Syslog שנשלחת גם כמלכודת (היא מגיעה גם כ-Syslog)"
     }
+  },
+  "impact": {
+    "label": "השפעה על מצב ההתקן",
+    "option": {
+      "critical": "קריטי",
+      "warning": "אזהרה",
+      "none": "ללא"
+    },
+    "hint": {
+      "critical": "ההתקן מקבל את מצב החיישן (חיישן למטה מוריד את ההתקן).",
+      "warning": "תקלה בחיישן זה תעביר את ההתקן לכל היותר ל\"אזהרה\".",
+      "none": "חיישן זה לעולם לא משנה את מצב ההתקן."
+    },
+    "tag": {
+      "warning": "אזהרה בלבד",
+      "none": "ללא השפעה"
+    },
+    "tagTitle": "השפעה על מצב ההתקן: {{impact}}",
+    "selectSensor": "בחירת {{name}}",
+    "selected_one": "נבחר אחד",
+    "selected_two": "2 נבחרו",
+    "selected_other": "{{count}} נבחרו",
+    "setImpact": "הגדרת השפעה…",
+    "clearSelection": "ניקוי הבחירה",
+    "bulkTitle_one": "הגדרת השפעה לחיישן אחד",
+    "bulkTitle_two": "הגדרת השפעה ל-2 חיישנים",
+    "bulkTitle_other": "הגדרת השפעה ל-{{count}} חיישנים",
+    "apply": "החלה",
+    "bulkDone_one": "ההשפעה עודכנה לחיישן אחד.",
+    "bulkDone_two": "ההשפעה עודכנה ל-2 חיישנים.",
+    "bulkDone_other": "ההשפעה עודכנה ל-{{count}} חיישנים."
+  },
+  "applyPorts": {
+    "title": "פורטים",
+    "choice": {
+      "none": "ללא",
+      "important": "פורטים חשובים",
+      "all": "הכול",
+      "choose": "בחירת פורטים"
+    },
+    "hint": {
+      "none": "לא ייווצרו חיישני ממשק.",
+      "important": "אפלינקים, LAG ו-trunk בלבד (מומלץ).",
+      "all": "חיישן ממשק לכל פורט שהתבנית מתאימה לו.",
+      "choose": "בחירה ידנית של הפורטים."
+    },
+    "reason": {
+      "uplink": "אפלינק",
+      "lag": "LAG",
+      "trunk": "Trunk"
+    },
+    "hasSensor": "מנוטר",
+    "hasSensorTitle": "לפורט זה כבר יש חיישן ממשק",
+    "search": "חיפוש לפי שם או כינוי…",
+    "clear": "ניקוי",
+    "selectImportant": "בחירת החשובים",
+    "selectedOf": "{{n}} מתוך {{total}} נבחרו",
+    "noPorts": "לא נמצאו פורטים בהתקן זה.",
+    "inventoryMissing": "מלאי הפורטים של התקן זה לא נאסף, ולכן לא ניתן היה לקבוע אילו פורטים חשובים (אפלינקים, LAG, trunk).",
+    "removeUnselected": "מחיקת חיישני הממשק של פורטים שלא נבחרו",
+    "removeCount_one": "חיישן ממשק קיים אחד יימחק, עם ההיסטוריה שלו.",
+    "removeCount_two": "2 חיישני ממשק קיימים יימחקו, עם ההיסטוריה שלהם.",
+    "removeCount_other": "{{count}} חיישני ממשק קיימים יימחקו, עם ההיסטוריה שלהם.",
+    "removedTitle_one": "נמחק חיישן אחד",
+    "removedTitle_two": "נמחקו 2 חיישנים",
+    "removedTitle_other": "נמחקו {{count}} חיישנים"
   }
 }

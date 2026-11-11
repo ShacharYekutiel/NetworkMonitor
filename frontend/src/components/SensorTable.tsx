@@ -6,7 +6,17 @@ import { StatusBadge } from './Status';
 import { AckBadge } from './Acknowledge';
 import { StatusMessage } from './Dependency';
 import { MaintenanceBadge } from './Maintenance';
+import { ImpactTag } from './SensorImpact';
 import { Empty, Table, td, th, Value } from './ui';
+
+const boxCls =
+  'h-4 w-4 rounded border-slate-300 text-sky-600 focus:ring-sky-500 dark:border-slate-600 dark:bg-slate-900';
+
+/** [1.3] Row selection (checkboxes + select all) for bulk actions. */
+export type SensorSelection = {
+  selected: ReadonlySet<number>;
+  onChange: (next: Set<number>) => void;
+};
 
 export function primaryChannel(s: Sensor) {
   return s.channels.find((c) => c.key === s.primary_channel) ?? s.channels[0];
@@ -16,17 +26,48 @@ export function SensorTable({
   sensors,
   showDevice,
   actions,
+  selection,
 }: {
   sensors: Sensor[];
   showDevice?: boolean;
   actions?: (s: Sensor) => React.ReactNode;
+  selection?: SensorSelection;
 }) {
   const { t } = useTranslation();
   if (!sensors.length) return <Empty>{t('sensors.none')}</Empty>;
+  const sel = selection?.selected;
+  const nSel = sel ? sensors.filter((s) => sel.has(s.id)).length : 0;
+  const all = nSel > 0 && nSel === sensors.length;
+  const toggle = (id: number, on: boolean) => {
+    if (!selection) return;
+    const next = new Set(selection.selected);
+    if (on) next.add(id);
+    else next.delete(id);
+    selection.onChange(next);
+  };
   return (
     <Table>
       <thead>
         <tr>
+          {selection && (
+            <th className={`${th} w-8`}>
+              <input
+                type="checkbox"
+                className={boxCls}
+                checked={all}
+                ref={(el) => {
+                  if (el) el.indeterminate = nSel > 0 && !all;
+                }}
+                onChange={(e) =>
+                  selection.onChange(
+                    e.target.checked ? new Set(sensors.map((s) => s.id)) : new Set<number>(),
+                  )
+                }
+                aria-label={t('common.selectAll')}
+                data-testid="sensor-select-all"
+              />
+            </th>
+          )}
           <th className={th}>{t('sensors.status')}</th>
           {showDevice && <th className={th}>{t('sensors.device')}</th>}
           <th className={th}>{t('sensors.name')}</th>
@@ -41,7 +82,26 @@ export function SensorTable({
         {sensors.map((s) => {
           const pc = primaryChannel(s);
           return (
-            <tr key={s.id} className="hover:bg-slate-50 dark:hover:bg-slate-800/40">
+            <tr
+              key={s.id}
+              className={
+                sel?.has(s.id)
+                  ? 'bg-sky-50 dark:bg-sky-950/40'
+                  : 'hover:bg-slate-50 dark:hover:bg-slate-800/40'
+              }
+            >
+              {selection && (
+                <td className={`${td} w-8`}>
+                  <input
+                    type="checkbox"
+                    className={boxCls}
+                    checked={!!sel?.has(s.id)}
+                    onChange={(e) => toggle(s.id, e.target.checked)}
+                    aria-label={t('impact.selectSensor', { name: s.name })}
+                    data-testid="sensor-select"
+                  />
+                </td>
+              )}
               <td className={td}>
                 <span className="inline-flex items-center gap-1">
                   <StatusBadge status={s.status} />
@@ -63,6 +123,7 @@ export function SensorTable({
                 >
                   {s.name}
                 </Link>
+                <ImpactTag impact={s.impact} />
               </td>
               <td className={`${td} whitespace-nowrap text-slate-500`}>
                 {t(`sensorType.${s.type}`)}

@@ -41,7 +41,10 @@ function ConditionRow({ c }: { c: EventCondition }) {
         {c.source === 'flap' ? (
           <FlappingBadge />
         ) : c.source !== 'rule' ? (
-          <span className="font-medium">{t(`conditions.source.${c.source}`)}</span>
+          <span className="font-medium">
+            {/* [1.3] a source this build does not know yet still shows (server text below) */}
+            {t(`conditions.source.${c.source}`, { defaultValue: c.source })}
+          </span>
         ) : (
           <span className="font-medium">{c.rule_name ?? `#${c.rule_id}`}</span>
         )}

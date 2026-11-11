@@ -66,6 +66,20 @@ class PortLag(_Out):
     attached: bool | None
 
 
+class PortConnectedHost(_Out):  # [1.3]
+    mac: str
+    ip: str | None
+    hostname: str | None
+    vendor: str | None
+    device_id: int | None
+    device_name: str | None
+
+
+class PortConnected(_Out):  # [1.3]
+    count: int
+    first: PortConnectedHost | None
+
+
 class Port(_Out):
     if_index: int
     name: str
@@ -105,6 +119,12 @@ class Port(_Out):
     lag: PortLag | None  # [2b-3]
     lag_members: list[int]
     vlans_from_lag: bool
+    # [1.3]
+    important: bool
+    important_reasons: list[Literal["uplink", "lag", "trunk"]]
+    connected: PortConnected
+    neighbor_name: str | None
+    neighbor_mgmt_address: str | None
 
 
 class PortDetail(Port):

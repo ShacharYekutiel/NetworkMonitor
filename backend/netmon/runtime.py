@@ -160,6 +160,8 @@ class Runtime:
         )
         # [1.2.1] stored trap names follow the built-in OID name table (once per table version)
         self.spawn(self._backfill_trap_names())
+        # [1.3] interface sensors on unimportant ports -> impact warning (once)
+        self.spawn(self._backfill_impact())
         from netmon.topology.refresh import TopologyRunner
 
         self.topology = TopologyRunner(self)
@@ -424,6 +426,14 @@ class Runtime:
             await collapse.backfill_names(self)
         except Exception as exc:  # noqa: BLE001 - names are cosmetic, never block startup
             log.warning("Cannot update the stored trap names: %s", exc)
+
+    async def _backfill_impact(self) -> None:
+        from netmon.services import impact
+
+        try:
+            await impact.backfill(self)
+        except Exception as exc:  # noqa: BLE001 - never block startup; retried next start
+            log.warning("Cannot set the impact of existing interface sensors: %s", exc)
 
     def spawn(self, coro: Any) -> asyncio.Future[Any]:
         task = asyncio.ensure_future(coro)

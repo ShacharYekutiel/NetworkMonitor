@@ -30,11 +30,33 @@ def add_counts(a: dict[str, int], b: dict[str, int]) -> None:
         a[k] += b[k]
 
 
-def device_status(enabled: bool, sensor_statuses: list[str]) -> str:
+IMPACTS = ("critical", "warning", "none")
+
+
+def impact_status(status: str, impact: str | None) -> str:
+    """[1.3] What one sensor contributes to its device's status (data-model "Status rollup"):
+    `critical` = its status; `warning` = at most warning (down / unreachable -> warning);
+    `none` = no problem status at all (down / warning / unreachable -> up). `paused` and
+    `unknown` are passed through unchanged for every impact, so the paused / unknown rules of
+    the device do not depend on the impact."""
+    if impact == "warning" and status in ("down", "unreachable"):
+        return "warning"
+    if impact == "none" and status in ("down", "warning", "unreachable"):
+        return "up"
+    return status
+
+
+def device_status(
+    enabled: bool, sensor_statuses: list[str], impacts: list[str] | None = None
+) -> str:
     if not enabled:
         return "paused"
     if not sensor_statuses:
         return "unknown"
+    if impacts is not None:
+        sensor_statuses = [
+            impact_status(s, i) for s, i in zip(sensor_statuses, impacts, strict=True)
+        ]
     active = [s for s in sensor_statuses if s != "paused"]
     if not active:
         return "paused"
@@ -117,12 +139,15 @@ class Inventory:
             self.device_sensors.setdefault(s["device_id"], []).append(sid)
         for did, d in self.devices.items():
             statuses = [self.sensors[s]["status"] for s in self.device_sensors[did]]
-            c = empty_counts()
+            impacts = [
+                self.sensors[s].get("impact") or "critical" for s in self.device_sensors[did]
+            ]
+            c = empty_counts()  # [1.3] counts stay raw sensor statuses (impact ignored)
             for st in statuses:
                 c[st] += 1
                 c["total"] += 1
             self.device_counts[did] = c
-            self.device_status[did] = device_status(d["enabled"], statuses)
+            self.device_status[did] = device_status(d["enabled"], statuses, impacts)
 
         def visit(gid: int, stack: set[int]) -> None:
             if gid in self.group_status:
@@ -202,7 +227,7 @@ async def load_inventory(session: AsyncSession) -> Inventory:
         }
     for row in await session.execute(
         text(
-            "SELECT id, device_id, name, type, enabled, sort_order, status, "
+            "SELECT id, device_id, name, type, enabled, sort_order, status, impact, "
             "ack_at IS NOT NULL AS acked FROM sensors"
         )
     ):
@@ -214,6 +239,7 @@ async def load_inventory(session: AsyncSession) -> Inventory:
             "enabled": row.enabled,
             "sort_order": row.sort_order,
             "acknowledged": row.acked,
+            "impact": row.impact,  # [1.3]
         }
     for row in await session.execute(  # [2b-2]
         text("SELECT device_id, detected_class FROM port_inventory_status")

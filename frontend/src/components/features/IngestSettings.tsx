@@ -184,6 +184,56 @@ export function LinkScopeRadio({
   );
 }
 
+/** [1.3] Trunk ports: always alert on them, and what counts as a trunk. */
+export function TrunkScopeFields({
+  includeTrunks,
+  onIncludeTrunks,
+  minTagged,
+  onMinTagged,
+  invalid,
+}: {
+  includeTrunks: boolean;
+  onIncludeTrunks: (v: boolean) => void;
+  minTagged: string;
+  onMinTagged: (v: string) => void;
+  invalid: boolean;
+}) {
+  const { t } = useTranslation();
+  return (
+    <div className="grid grid-cols-1 gap-3 sm:grid-cols-2" data-testid="trunk-scope">
+      <div className="space-y-1">
+        <Checkbox
+          label={t('ingestSettings.trunks.include')}
+          checked={includeTrunks}
+          onChange={onIncludeTrunks}
+        />
+        <p className="text-xs text-slate-500">{t('ingestSettings.trunks.includeHint')}</p>
+      </div>
+      <Field
+        label={t('ingestSettings.trunks.minTagged')}
+        hint={
+          invalid ? (
+            <span className="text-red-600">{t('ingestSettings.trunks.minTaggedErr')}</span>
+          ) : (
+            t('ingestSettings.trunks.minTaggedHint')
+          )
+        }
+      >
+        <Input
+          type="number"
+          min={1}
+          max={100}
+          value={minTagged}
+          onChange={(e) => onMinTagged(e.target.value)}
+          dir="ltr"
+          className="max-w-[8rem]"
+          data-testid="trunk-min-tagged"
+        />
+      </Field>
+    </div>
+  );
+}
+
 export function IngestSettingsCard({ settings }: { settings: Settings }) {
   const { t } = useTranslation();
   const [trapDays, setTrapDays] = useState('30');
@@ -195,8 +245,12 @@ export function IngestSettingsCard({ settings }: { settings: Settings }) {
   const [ignored, setIgnored] = useState('');
   const [v3, setV3] = useState<V3Row[]>([]);
   const [linkScope, setLinkScope] = useState<'important' | 'all'>('important');
+  const [includeTrunks, setIncludeTrunks] = useState(true);
+  const [minTagged, setMinTagged] = useState('2');
   useEffect(() => {
     setLinkScope(settings.event_linkdown_scope ?? 'important');
+    setIncludeTrunks(settings.event_linkdown_include_trunks ?? true);
+    setMinTagged(String(settings.trunk_min_tagged_vlans ?? 2));
     setTrapDays(String(settings.trap_retention_days ?? 30));
     setSyslogDays(String(settings.syslog_retention_days ?? 30));
     setCheck(settings.trap_community_check ?? 'any');
@@ -219,6 +273,7 @@ export function IngestSettingsCard({ settings }: { settings: Settings }) {
     ignored: ign.invalid.length > 0 || ign.tooMany,
     v3: v3.some((r) => v3RowError(r, v3) !== null),
     known: check === 'known' && !(replaceComm ? comm.length : settings.trap_communities_count),
+    minTagged: !intInRange(minTagged, 1, 100),
   };
   const invalid = Object.values(errs).some(Boolean) || commBad;
   const submit = (e: FormEvent) => {
@@ -232,6 +287,8 @@ export function IngestSettingsCard({ settings }: { settings: Settings }) {
       ingest_ignored_sources: ign.list,
       trap_v3_users: v3Input(v3),
       event_linkdown_scope: linkScope,
+      event_linkdown_include_trunks: includeTrunks,
+      trunk_min_tagged_vlans: Number(minTagged),
     };
     if (replaceComm) body.trap_communities = comm;
     save.mutate(body);
@@ -331,6 +388,13 @@ export function IngestSettingsCard({ settings }: { settings: Settings }) {
           <V3UsersEditor rows={v3} onChange={setV3} />
         </fieldset>
         <LinkScopeRadio value={linkScope} onChange={setLinkScope} />
+        <TrunkScopeFields
+          includeTrunks={includeTrunks}
+          onIncludeTrunks={setIncludeTrunks}
+          minTagged={minTagged}
+          onMinTagged={setMinTagged}
+          invalid={errs.minTagged}
+        />
         <Field
           label={t('ingestSettings.ignored')}
           hint={

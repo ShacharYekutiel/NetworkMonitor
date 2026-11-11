@@ -1353,7 +1353,9 @@
       "errors": "Errors (Δ)",
       "lastChange": "Last change",
       "ifIndex": "ifIndex",
-      "kind": "Kind"
+      "kind": "Kind",
+      "connIp": "IP",
+      "connName": "Name / neighbor"
     },
     "filter": "Filter ports",
     "filterPlaceholder": "Filter: port, alias, MAC, IP, hostname, vendor, neighbour…",
@@ -1441,6 +1443,13 @@
       "viaLag": "LAG",
       "vlansFromLag": "VLANs inherited from the LAG",
       "macViaLag": "Learned on the LAG"
+    },
+    "exportCsv": "Export CSV",
+    "conn": {
+      "neighbor": "LLDP",
+      "neighborTitle": "LLDP/CDP neighbor",
+      "moreTitle_one": "{{count}} more device on this port",
+      "moreTitle_other": "{{count}} more devices on this port"
     }
   },
   "health": {
@@ -1887,7 +1896,8 @@
       "backup_failed": "Backup failed",
       "host_key": "SSH host key changed",
       "config_changed": "Configuration changed",
-      "new_mac": "New device"
+      "new_mac": "New device",
+      "lag_degraded": "LAG degraded"
     }
   },
   "flapping": {
@@ -1999,6 +2009,13 @@
       "importantHint": "Uplinks, LAGs and ports with an interface sensor — no alert for every PC switched off at night.",
       "all": "All ports",
       "allHint": "Every port that goes down or flaps raises an alert."
+    },
+    "trunks": {
+      "include": "Include all trunk ports",
+      "includeHint": "Link-down and flapping alerts also for every trunk port, even when it is not an uplink.",
+      "minTagged": "Trunk = port with at least N tagged VLANs",
+      "minTaggedHint": "Access ports with a voice VLAN carry one tagged VLAN; keep N at 2 or more so IP-phone ports are not treated as trunks.",
+      "minTaggedErr": "Enter a whole number from 1 to 100."
     }
   },
   "siem": {
@@ -2983,5 +3000,66 @@
       "hh3cPeriodicalTrap": "Comware heartbeat, sent when no other trap was sent for a while",
       "syslogMsgNotification": "a syslog message sent as a trap (it also arrives as syslog)"
     }
+  },
+  "impact": {
+    "label": "Impact on device status",
+    "option": {
+      "critical": "Critical",
+      "warning": "Warning",
+      "none": "None"
+    },
+    "hint": {
+      "critical": "The device takes this sensor's status (down makes the device down).",
+      "warning": "A failure of this sensor makes the device at most \"warning\".",
+      "none": "This sensor never changes the device status."
+    },
+    "tag": {
+      "warning": "warning only",
+      "none": "no impact"
+    },
+    "tagTitle": "Impact on device status: {{impact}}",
+    "selectSensor": "Select {{name}}",
+    "selected_one": "{{count}} selected",
+    "selected_other": "{{count}} selected",
+    "setImpact": "Set impact…",
+    "clearSelection": "Clear selection",
+    "bulkTitle_one": "Set impact of {{count}} sensor",
+    "bulkTitle_other": "Set impact of {{count}} sensors",
+    "apply": "Apply",
+    "bulkDone_one": "Impact updated for {{count}} sensor.",
+    "bulkDone_other": "Impact updated for {{count}} sensors."
+  },
+  "applyPorts": {
+    "title": "Ports",
+    "choice": {
+      "none": "None",
+      "important": "Important ports",
+      "all": "All",
+      "choose": "Choose ports"
+    },
+    "hint": {
+      "none": "No interface sensors are created.",
+      "important": "Uplinks, LAGs and trunks only (recommended).",
+      "all": "An interface sensor for every port the template matches.",
+      "choose": "Pick the ports yourself."
+    },
+    "reason": {
+      "uplink": "Uplink",
+      "lag": "LAG",
+      "trunk": "Trunk"
+    },
+    "hasSensor": "monitored",
+    "hasSensorTitle": "This port already has an interface sensor",
+    "search": "Search name or alias…",
+    "clear": "Clear",
+    "selectImportant": "Select important",
+    "selectedOf": "{{n}} of {{total}} selected",
+    "noPorts": "No ports found on this device.",
+    "inventoryMissing": "The port inventory of this device has not been collected, so important ports (uplinks, LAGs, trunks) could not be determined.",
+    "removeUnselected": "Remove interface sensors of ports not selected",
+    "removeCount_one": "{{count}} existing interface sensor will be deleted, with its history.",
+    "removeCount_other": "{{count}} existing interface sensors will be deleted, with their history.",
+    "removedTitle_one": "Removed {{count}} sensor",
+    "removedTitle_other": "Removed {{count}} sensors"
   }
 }

@@ -247,6 +247,7 @@ def sensor_out(
         "primary_channel": tdef.primary_channel if tdef else "",
         "channels": [channel_out(c) for c in ordered_channels(s)],
         "sort_order": s.sort_order,
+        "impact": getattr(s, "impact", None) or "critical",  # [1.3]
         "acknowledgement": acknowledgement_out(s),
         "in_maintenance": bool(in_maintenance),
         "created_at": iso(s.created_at),

@@ -73,6 +73,12 @@ DEFAULTS: dict[str, Any] = {
     "flap_window_min": 10,
     "flap_quiet_min": 15,
     "event_linkdown_scope": "important",
+    # [1.3] important ports: trunk = mode trunk with >= N tagged VLANs; trunks count for the
+    # link-down / flapping scope "important"
+    "trunk_min_tagged_vlans": 2,
+    "event_linkdown_include_trunks": True,
+    # internal: version of the one-time interface-sensor impact backfill that has run
+    "impact_backfill_version": "",
     "siem_targets": [],
     # [3] config backup (data-model § [3] Settings keys)
     "config_backup_time": "02:47",
@@ -248,6 +254,10 @@ def ingest_settings_out(values: dict[str, Any]) -> dict[str, Any]:
             "flap_window_min": values["flap_window_min"],
             "flap_quiet_min": values["flap_quiet_min"],
             "event_linkdown_scope": values["event_linkdown_scope"],
+            "trunk_min_tagged_vlans": int(values.get("trunk_min_tagged_vlans") or 2),  # [1.3]
+            "event_linkdown_include_trunks": bool(
+                values.get("event_linkdown_include_trunks", True)
+            ),
             "siem_targets": list(values.get("siem_targets") or []),
         }
     )

@@ -235,6 +235,10 @@ async def run_device(rt: Runtime, device_id: int, trigger: str = "scheduled") ->
         from netmon.services import events as events_svc
 
         events_svc.published(rt, port_events)
+    ingest = getattr(rt, "ingest", None)
+    if ok and flags.ports and ingest is not None:
+        ingest.ports.pop(device_id, None)  # [1.3] important-port cache follows the new rows
+        await ingest.lags.reconcile(device_id)  # [1.3] LAG degraded from fresh ifOperStatus
     newdev = getattr(rt, "newdev", None)
     if ok and flags.ports and newdev is not None and newdev.enabled:
         await newdev.after_fdb(device_id, started)  # [3] new-device detection

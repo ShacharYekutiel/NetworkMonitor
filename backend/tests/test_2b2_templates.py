@@ -95,6 +95,15 @@ def test_converted_templates_identical_to_2b1() -> None:
         e["filters"] = [{"oid": e["walk_oid"], "in": None, "not_in": [65535]}]
     ids = [t["id"] for t in fixture]
     loaded = [strip_2b2(t) for t in TEMPLATES if t["id"] in ids]
+    # [1.3] deliberate change: hpe_comware gains the IRF entries (HH3C-STACK-MIB); the sensor
+    # entries also carry `expect_from_probe`
+    irf = "1.3.6.1.4.1.25506.2.91."
+    for t in loaded:
+        t["entries"] = [
+            e
+            for e in t["entries"]
+            if not str(e.get("walk_oid") or e.get("config", {}).get("oid") or "").startswith(irf)
+        ]
     assert [t["id"] for t in loaded] == ids
     assert json.loads(json.dumps(loaded)) == fixture
 

@@ -2,7 +2,7 @@
 # entPhysicalIndex), ENTITY-MIB names/classes, POWER-ETHERNET-MIB (RFC 3621), IF-MIB.
 schema: 1
 id: hpe_comware
-version: 3
+version: 4
 vendor: h3c
 verified: false            # flip after the owner's 2b-1 test (architecture § 11.8)
 verified_note: ""
@@ -93,6 +93,63 @@ entries:
     interval_s: 3600
     confidence: medium
     notes: "POWER-ETHERNET-MIB nominal power (W)."
+  # [1.3] IRF stack health (HH3C-STACK-MIB, hh3cStack 1.3.6.1.4.1.25506.2.91). Created only on
+  # an IRF stack (hh3cStackMemberNum >= 2). Not verified on the owner's FF 5945 yet: send the
+  # output of deploy/tools/irf_dump.py to verify.
+  - kind: sensor
+    type: snmp_custom
+    name: {en: IRF members, he: חברי IRF}
+    config: {oid: '1.3.6.1.4.1.25506.2.91.1.2.0', value_type: gauge, unit: '#', label: IRF members}
+    probe: true
+    when: [{oid: '1.3.6.1.4.1.25506.2.91.1.2.0', not_in: [0, 1]}]   # hh3cStackMemberNum
+    expect_from_probe: {channel: value, bound: down_min}           # down below the count at apply
+    interval_s: 120
+    confidence: low
+    notes: "hh3cStackMemberNum.0 (verified: false). down_min = the member count seen at apply time; re-apply after adding a member."
+  - kind: snmp_table
+    walk_oid: '1.3.6.1.4.1.25506.2.91.3.1.1'       # hh3cStackBoardRole (INDEX entPhysicalIndex)
+    label_oid: '1.3.6.1.2.1.47.1.1.1.1.7'          # entPhysicalName
+    name: {en: 'IRF role {label}', he: 'תפקיד IRF {label}'}
+    config:
+      value_type: enum
+      value_map:
+        1: {status: up, text: standby}
+        2: {status: up, text: master}
+        3: {status: warning, text: loading}
+        4: {status: warning, text: other}
+      value_map_default: warning
+    when: [{oid: '1.3.6.1.4.1.25506.2.91.1.2.0', not_in: [0, 1]}]
+    max: 16
+    interval_s: 120
+    confidence: low
+    notes: "hh3cStackBoardRole slave(1) master(2) loading(3) other(4) (verified: false). A member that leaves the stack loses its row: the sensor goes down."
+  - kind: snmp_table
+    walk_oid: '1.3.6.1.4.1.25506.2.91.4.1.3'       # hh3cStackPortStatus (INDEX memberID.portIndex)
+    name: {en: 'IRF port {index}', he: 'פורט IRF {index}'}
+    config:
+      value_type: enum
+      value_map:
+        1: {status: up, text: up}
+        2: {status: warning, text: down}
+        3: {status: warning, text: silent}
+        4: {status: warning, text: disabled}
+      value_map_default: warning
+    filters: [{oid: '1.3.6.1.4.1.25506.2.91.4.1.3', not_in: [4]}]   # disabled = IRF port without links
+    when: [{oid: '1.3.6.1.4.1.25506.2.91.1.2.0', not_in: [0, 1]}]
+    max: 16
+    interval_s: 120
+    confidence: low
+    notes: "hh3cStackPortStatus up(1) down(2) silent(3) disabled(4) (verified: false); {index} = member.IRF-port."
+  - kind: sensor
+    type: snmp_walk_count
+    name: {en: IRF links up, he: קישורי IRF פעילים}
+    config: {oid: '1.3.6.1.4.1.25506.2.91.4.1.3', count_values: [1], label: IRF links up}
+    channels: [{key: matched, down_min: 1}]                        # every IRF port down -> down
+    probe: true
+    when: [{oid: '1.3.6.1.4.1.25506.2.91.1.2.0', not_in: [0, 1]}]
+    interval_s: 120
+    confidence: low
+    notes: "Counts hh3cStackPortStatus = up(1) (verified: false)."
   - kind: snmp_interfaces
     oper_up_only: true
     exclude_if_types: [1, 24, 53, 131, 136]   # Vlan-interface* 136, NULL0 1, InLoopBack0 24
