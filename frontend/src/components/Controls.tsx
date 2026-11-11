@@ -67,16 +67,16 @@ export function LanguageSwitcher({ className }: { className?: string }) {
         aria-expanded={open}
         aria-controls={menuId}
         aria-label={`${t('common.language')}: ${currentLabel}`}
-        className="inline-flex items-center gap-1.5 rounded px-2 py-1 text-slate-700 hover:bg-slate-100 focus:outline-none focus-visible:ring-2 focus-visible:ring-sky-500 dark:text-slate-200 dark:hover:bg-slate-800"
+        className="inline-flex h-[26px] items-center gap-[5px] rounded-sm border border-chrome-border px-2 font-mono text-[11px] font-semibold leading-none text-chrome-muted hover:bg-chrome-field hover:text-chrome-ink"
       >
-        <GlobeIcon size={14} className="text-slate-500 dark:text-slate-400" />
-        <span>{currentLabel}</span>
+        <GlobeIcon size={14} strokeWidth={1.75} />
+        <span lang={current}>{current === 'he' ? 'עב' : 'EN'}</span>
         <svg
           width="10"
           height="10"
           viewBox="0 0 10 10"
           aria-hidden="true"
-          className={cx('text-slate-400 transition-transform', open && 'rotate-180')}
+          className={cx('transition-transform', open && 'rotate-180')}
         >
           <path d="M1 3l4 4 4-4" fill="none" stroke="currentColor" strokeWidth="1.5" />
         </svg>
@@ -86,7 +86,7 @@ export function LanguageSwitcher({ className }: { className?: string }) {
           id={menuId}
           role="listbox"
           aria-label={t('common.language')}
-          className="absolute end-0 top-full z-50 mt-1 min-w-[8rem] overflow-hidden rounded-md border border-slate-200 bg-white py-1 shadow-lg dark:border-slate-700 dark:bg-slate-900"
+          className="absolute end-0 top-full z-50 mt-1 min-w-[8rem] overflow-hidden rounded-lg bg-surface-raised p-1 text-[13px] text-ink shadow-pop"
         >
           {LANGUAGES.map((l) => {
             const selected = l.code === current;
@@ -98,10 +98,10 @@ export function LanguageSwitcher({ className }: { className?: string }) {
                   dir={l.code === 'he' ? 'rtl' : 'ltr'}
                   onClick={() => choose(l.code)}
                   className={cx(
-                    'flex w-full items-center justify-between gap-3 px-3 py-1.5 text-start',
+                    'flex w-full items-center justify-between gap-3 rounded-sm px-[9px] py-[7px] text-start',
                     selected
-                      ? 'bg-sky-50 font-medium text-sky-700 dark:bg-sky-950 dark:text-sky-300'
-                      : 'text-slate-700 hover:bg-slate-100 dark:text-slate-200 dark:hover:bg-slate-800',
+                      ? 'bg-accent-soft font-medium text-accent-ink'
+                      : 'hover:bg-surface-hover',
                   )}
                 >
                   <span>{l.label}</span>
@@ -127,11 +127,11 @@ export function ThemeToggle() {
     <button
       type="button"
       onClick={() => setChoice(NEXT[choice])}
-      className="rounded p-1.5 text-slate-600 hover:bg-slate-100 dark:text-slate-300 dark:hover:bg-slate-800"
+      className="inline-flex h-[34px] w-[34px] items-center justify-center rounded-md text-chrome-muted hover:bg-chrome-field hover:text-chrome-ink"
       title={label}
       aria-label={label}
     >
-      <Icon size={16} />
+      <Icon size={16} strokeWidth={1.75} />
     </button>
   );
 }
@@ -139,20 +139,44 @@ export function ThemeToggle() {
 export function ConnectionIndicator() {
   const { t } = useTranslation();
   const state = useLiveState();
+  // No blinking (design system § Effects): the dot colour alone changes, next to its word.
   const color =
     state === 'open'
-      ? 'bg-green-600'
+      ? 'bg-status-up'
       : state === 'connecting'
-        ? 'bg-amber-500 animate-pulse'
-        : 'bg-red-600';
+        ? 'bg-status-warning'
+        : 'bg-status-down';
   return (
     <span
-      className="inline-flex items-center gap-1.5 rounded-full px-2 py-0.5 text-xs text-slate-600 ring-1 ring-slate-200 dark:text-slate-300 dark:ring-slate-700"
+      className="inline-flex items-center gap-1.5 text-xs font-medium leading-none text-chrome-muted"
       title={t(`live.${state}`)}
       data-testid="ws-indicator"
     >
-      <span className={cx('h-2 w-2 rounded-full', color)} />
+      <span className={cx('h-[7px] w-[7px] shrink-0 rounded-full', color)} />
       <span className="hidden sm:inline">{t(`live.${state}`)}</span>
     </span>
+  );
+}
+
+function pad(n: number) {
+  return String(n).padStart(2, '0');
+}
+
+/** Header clock (local time, 24h, LTR), seconds in a smaller muted size. */
+export function HeaderClock() {
+  const [now, setNow] = useState(() => new Date());
+  useEffect(() => {
+    const id = window.setInterval(() => setNow(new Date()), 1000);
+    return () => window.clearInterval(id);
+  }, []);
+  return (
+    <time
+      dir="ltr"
+      dateTime={now.toISOString()}
+      className="font-mono text-[13px] font-medium leading-none text-chrome-ink"
+    >
+      {pad(now.getHours())}:{pad(now.getMinutes())}
+      <small className="text-[11px] text-chrome-muted">:{pad(now.getSeconds())}</small>
+    </time>
   );
 }

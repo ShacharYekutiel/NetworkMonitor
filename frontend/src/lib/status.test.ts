@@ -10,6 +10,7 @@ import {
   STATUS_BADGE,
   STATUS_DOT,
   STATUS_HEX,
+  STATUS_SOFT,
   STATUS_TEXT,
   STATUSES,
   statusClass,
@@ -64,21 +65,22 @@ describe('status helpers', () => {
     expect(canAcknowledge({ status: 'up' })).toBe(false);
   });
 
-  it('uses the convention colors (unreachable = violet-500)', () => {
+  it('uses the status design tokens', () => {
     expect(STATUS_DOT).toEqual({
-      up: 'bg-green-600',
-      warning: 'bg-amber-500',
-      down: 'bg-red-600',
-      paused: 'bg-gray-400',
-      unknown: 'bg-slate-500',
-      unreachable: 'bg-violet-500',
+      up: 'bg-status-up',
+      warning: 'bg-status-warning',
+      down: 'bg-status-down',
+      paused: 'bg-status-paused',
+      unknown: 'bg-status-unknown',
+      unreachable: 'bg-status-unreachable',
     });
     expect(STATUS_HEX.unreachable).toBe('#8b5cf6');
-    expect(STATUS_BADGE.unreachable).toBe('bg-violet-500 text-white');
-    expect(STATUS_TEXT.unreachable).toBe('text-violet-500');
-    expect(statusClass('bogus', STATUS_DOT)).toBe('bg-slate-500');
+    expect(STATUS_BADGE.unreachable).toBe('bg-status-unreachable text-on-status');
+    expect(STATUS_SOFT.unreachable).toBe('bg-status-unreachable-soft text-status-unreachable');
+    expect(STATUS_TEXT.unreachable).toBe('text-status-unreachable');
+    expect(statusClass('bogus', STATUS_DOT)).toBe('bg-status-unknown');
     // Every map has every status.
-    for (const m of [STATUS_DOT, STATUS_TEXT, STATUS_BADGE, STATUS_HEX])
+    for (const m of [STATUS_DOT, STATUS_TEXT, STATUS_BADGE, STATUS_SOFT, STATUS_HEX])
       expect(Object.keys(m).sort()).toEqual([...STATUSES].sort());
   });
 

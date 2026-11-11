@@ -1,14 +1,38 @@
 import { useTranslation } from 'react-i18next';
 import type { Status, StatusCounts } from '../api/types';
-import { COUNT_ORDER, STATUS_BADGE, STATUS_DOT, statusClass } from '../lib/status';
+import { COUNT_ORDER, STATUS_BADGE, STATUS_DOT, STATUS_SOFT, statusClass } from '../lib/status';
+import { AlertIcon, CheckIcon, LinkIcon, PauseIcon, QuestionIcon, XIcon } from './icons';
 import { cx } from './ui';
+
+/** The status glyph (design system § Iconography): status is never shown by colour alone. */
+const GLYPH: Record<Status, typeof CheckIcon> = {
+  up: CheckIcon,
+  warning: AlertIcon,
+  down: XIcon,
+  unreachable: LinkIcon,
+  unknown: QuestionIcon,
+  paused: PauseIcon,
+};
+
+export function StatusGlyph({
+  status,
+  size = 12,
+  className,
+}: {
+  status: Status | string;
+  size?: number;
+  className?: string;
+}) {
+  const Icon = (GLYPH as Record<string, typeof CheckIcon>)[status] ?? QuestionIcon;
+  return <Icon size={size} strokeWidth={2.5} className={cx('shrink-0', className)} />;
+}
 
 export function StatusDot({ status, className }: { status: Status | string; className?: string }) {
   const { t } = useTranslation();
   return (
     <span
       className={cx(
-        'inline-block h-2.5 w-2.5 shrink-0 rounded-full',
+        'inline-block h-2 w-2 shrink-0 rounded-full',
         statusClass(status, STATUS_DOT),
         className,
       )}
@@ -23,10 +47,11 @@ export function StatusBadge({ status }: { status: Status | string }) {
   return (
     <span
       className={cx(
-        'inline-flex items-center whitespace-nowrap rounded px-1.5 py-0.5 text-xs font-medium',
-        statusClass(status, STATUS_BADGE),
+        'inline-flex h-5 items-center gap-1 whitespace-nowrap rounded-sm pe-[7px] ps-[5px] text-xs font-semibold',
+        statusClass(status, STATUS_SOFT),
       )}
     >
+      <StatusGlyph status={status} />
       {t(`status.${status}`)}
     </span>
   );
@@ -44,7 +69,7 @@ export function StatusCountPills({ counts }: { counts: StatusCounts }) {
           key={s}
           title={t(`status.${s}`)}
           className={cx(
-            'whitespace-nowrap rounded px-1.5 text-xs font-medium tabular-nums',
+            'inline-flex h-[18px] min-w-[20px] items-center justify-center whitespace-nowrap rounded-sm px-[5px] font-mono text-[11px] font-bold tabular-nums',
             statusClass(s, STATUS_BADGE),
           )}
         >
@@ -58,9 +83,9 @@ export function StatusCountPills({ counts }: { counts: StatusCounts }) {
 /** Proportional bar of a StatusCounts. */
 export function StatusBar({ counts }: { counts: StatusCounts }) {
   const { t } = useTranslation();
-  if (!counts.total) return <div className="h-2 rounded bg-slate-200 dark:bg-slate-800" />;
+  if (!counts.total) return <div className="h-2 rounded-sm bg-surface-sunken" />;
   return (
-    <div className="flex h-2 overflow-hidden rounded bg-slate-200 dark:bg-slate-800">
+    <div className="flex h-2 gap-0.5 overflow-hidden rounded-sm bg-surface-sunken">
       {ORDER.map((s) =>
         counts[s] ? (
           <div

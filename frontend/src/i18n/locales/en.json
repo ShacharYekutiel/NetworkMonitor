@@ -77,7 +77,29 @@
     "flows": "Flows",
     "newDevices": "New devices",
     "backups": "Backups",
-    "reports": "Reports"
+    "reports": "Reports",
+    "inventory": "Inventory",
+    "health": "Sensors by status",
+    "toggleInventory": "Show or hide the inventory",
+    "short": {
+      "dashboard": "Overview",
+      "events": "Events",
+      "logs": "Logs",
+      "map": "Map",
+      "flows": "Flows",
+      "newDevices": "New",
+      "backups": "Backups",
+      "discovery": "Discover",
+      "templates": "Templates",
+      "find": "Find",
+      "maintenance": "Maintenance",
+      "reports": "Reports",
+      "notifications": "Alerts",
+      "settings": "Settings",
+      "users": "Users",
+      "audit": "Audit",
+      "inventory": "Inventory"
+    }
   },
   "tree": {
     "search": "Search groups, devices, sensors",

@@ -77,7 +77,29 @@
     "flows": "תעבורה",
     "newDevices": "התקנים חדשים",
     "backups": "גיבויי תצורה",
-    "reports": "דוחות"
+    "reports": "דוחות",
+    "inventory": "מלאי",
+    "health": "חיישנים לפי מצב",
+    "toggleInventory": "הצגה או הסתרה של המלאי",
+    "short": {
+      "dashboard": "סקירה",
+      "events": "אירועים",
+      "logs": "יומנים",
+      "map": "מפה",
+      "flows": "תעבורה",
+      "newDevices": "חדשים",
+      "backups": "גיבויים",
+      "discovery": "גילוי",
+      "templates": "תבניות",
+      "find": "חיפוש",
+      "maintenance": "תחזוקה",
+      "reports": "דוחות",
+      "notifications": "התראות",
+      "settings": "הגדרות",
+      "users": "משתמשים",
+      "audit": "ביקורת",
+      "inventory": "מלאי"
+    }
   },
   "tree": {
     "search": "חיפוש קבוצות, התקנים וחיישנים",

@@ -20,12 +20,15 @@ export function cx(...c: (string | false | null | undefined)[]): string {
 
 type Variant = 'primary' | 'secondary' | 'danger' | 'ghost';
 const VARIANTS: Record<Variant, string> = {
-  primary: 'bg-sky-600 text-white hover:bg-sky-700 disabled:bg-sky-600/50',
-  secondary:
-    'bg-white text-slate-700 ring-1 ring-inset ring-slate-300 hover:bg-slate-50 dark:bg-slate-800 dark:text-slate-200 dark:ring-slate-600 dark:hover:bg-slate-700',
-  danger: 'bg-red-600 text-white hover:bg-red-700 disabled:bg-red-600/50',
-  ghost: 'text-slate-600 hover:bg-slate-100 dark:text-slate-300 dark:hover:bg-slate-800',
+  primary: 'border border-transparent bg-accent text-accent-on hover:bg-accent-hover',
+  secondary: 'border border-line-strong bg-surface text-ink hover:border-ink-muted',
+  danger: 'border border-transparent bg-danger text-on-danger hover:opacity-90',
+  ghost: 'border border-transparent text-ink-muted hover:bg-surface-hover hover:text-ink',
 };
+
+const BUTTON_BASE =
+  'inline-flex items-center justify-center gap-1.5 whitespace-nowrap rounded-md font-semibold transition-colors focus:outline-none focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-focus';
+const BUTTON_SIZE = { sm: 'h-[26px] px-[9px] text-xs', md: 'h-[34px] px-3.5 text-[13px]' };
 
 export const Button = forwardRef<
   HTMLButtonElement,
@@ -44,8 +47,9 @@ export const Button = forwardRef<
       type="button"
       disabled={disabled || busy}
       className={cx(
-        'inline-flex items-center justify-center gap-1.5 rounded-md font-medium transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-sky-500 disabled:cursor-not-allowed disabled:opacity-60',
-        size === 'sm' ? 'px-2 py-1 text-xs' : 'px-3 py-1.5 text-sm',
+        BUTTON_BASE,
+        'disabled:cursor-not-allowed disabled:opacity-50',
+        BUTTON_SIZE[size],
         VARIANTS[variant],
         className,
       )}
@@ -59,15 +63,11 @@ export const Button = forwardRef<
 
 /** Classes of a Button, for router <Link>s that look like buttons (never nest <button> in <a>). */
 export function buttonClass(variant: Variant = 'secondary', size: 'sm' | 'md' = 'md'): string {
-  return cx(
-    'inline-flex items-center justify-center gap-1.5 rounded-md font-medium transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-sky-500',
-    size === 'sm' ? 'px-2 py-1 text-xs' : 'px-3 py-1.5 text-sm',
-    VARIANTS[variant],
-  );
+  return cx(BUTTON_BASE, BUTTON_SIZE[size], VARIANTS[variant]);
 }
 
 const inputBase =
-  'block w-full rounded-md border-0 bg-white px-2.5 py-1.5 text-sm text-slate-900 ring-1 ring-inset ring-slate-300 placeholder:text-slate-400 focus:ring-2 focus:ring-inset focus:ring-sky-500 disabled:bg-slate-100 disabled:text-slate-500 dark:bg-slate-900 dark:text-slate-100 dark:ring-slate-700 dark:disabled:bg-slate-800';
+  'block w-full rounded-md border border-line-strong bg-surface-sunken px-2.5 py-1.5 text-sm text-ink placeholder:text-ink-subtle focus:border-transparent focus:outline focus:outline-2 focus:-outline-offset-1 focus:outline-focus disabled:border-dashed disabled:text-ink-subtle';
 
 export const Input = forwardRef<HTMLInputElement, InputHTMLAttributes<HTMLInputElement>>(
   function Input({ className, ...rest }, ref) {
@@ -102,12 +102,12 @@ export function Field({
 }) {
   return (
     <label className={cx('block min-w-0', className)}>
-      <span className="mb-1 block text-xs font-medium text-slate-600 dark:text-slate-400">
+      <span className="mb-1.5 block text-xs font-medium text-ink-muted">
         {label}
-        {required && <span className="ms-0.5 text-red-600">*</span>}
+        {required && <span className="ms-0.5 text-status-down">*</span>}
       </span>
       {children}
-      {hint && <span className="mt-1 block text-xs text-slate-500">{hint}</span>}
+      {hint && <span className="mt-1 block text-xs text-ink-subtle">{hint}</span>}
     </label>
   );
 }
@@ -129,12 +129,12 @@ export function FieldGroup({
   const id = useId();
   return (
     <div role="group" aria-labelledby={id} className={cx('block min-w-0', className)}>
-      <span id={id} className="mb-1 block text-xs font-medium text-slate-600 dark:text-slate-400">
+      <span id={id} className="mb-1.5 block text-xs font-medium text-ink-muted">
         {label}
-        {required && <span className="ms-0.5 text-red-600">*</span>}
+        {required && <span className="ms-0.5 text-status-down">*</span>}
       </span>
       {children}
-      {hint && <span className="mt-1 block text-xs text-slate-500">{hint}</span>}
+      {hint && <span className="mt-1 block text-xs text-ink-subtle">{hint}</span>}
     </div>
   );
 }
@@ -154,7 +154,7 @@ export function Checkbox({
     <label className="inline-flex cursor-pointer items-center gap-2 text-sm">
       <input
         type="checkbox"
-        className="h-4 w-4 rounded border-slate-300 text-sky-600 focus:ring-sky-500 dark:border-slate-600 dark:bg-slate-900"
+        className="m-0 h-4 w-4 accent-accent"
         checked={checked}
         disabled={disabled}
         onChange={(e) => onChange(e.target.checked)}
@@ -182,12 +182,12 @@ export function Card({
       className={cx(
         // min-w-0: as a grid/flex item the card must not grow to its table's width;
         // wide tables scroll inside the card instead.
-        'min-w-0 rounded-lg bg-white shadow-sm ring-1 ring-slate-200 dark:bg-slate-900 dark:ring-slate-800',
+        'min-w-0 rounded-lg border border-line bg-surface',
         className,
       )}
     >
       {(title || actions) && (
-        <header className="flex items-center justify-between gap-2 border-b border-slate-200 px-4 py-2.5 dark:border-slate-800">
+        <header className="flex min-h-[44px] items-center justify-between gap-2 border-b border-line px-3.5 py-2">
           <h2 className="text-sm font-semibold">{title}</h2>
           {actions && <div className="flex items-center gap-2">{actions}</div>}
         </header>
@@ -222,7 +222,7 @@ export function Spinner({ className }: { className?: string }) {
 export function Loading() {
   const { t } = useTranslation();
   return (
-    <div className="flex items-center gap-2 p-6 text-sm text-slate-500" role="status">
+    <div className="flex items-center gap-2 p-6 text-sm text-ink-muted" role="status">
       <Spinner /> {t('common.loading')}
     </div>
   );
@@ -243,7 +243,7 @@ export function ErrorBox({
     <div
       role="alert"
       className={cx(
-        'rounded-md bg-red-50 px-3 py-2 text-sm text-red-700 ring-1 ring-inset ring-red-200 dark:bg-red-950/40 dark:text-red-300 dark:ring-red-900',
+        'rounded-lg bg-status-down-soft px-3.5 py-2.5 text-sm border-s-2 border-status-down text-ink',
         className,
       )}
     >
@@ -262,10 +262,10 @@ export function Notice({
   return (
     <div
       className={cx(
-        'rounded-md px-3 py-2 text-sm ring-1 ring-inset',
+        'rounded-lg border-s-2 px-3.5 py-2.5 text-sm text-ink',
         tone === 'success'
-          ? 'bg-green-50 text-green-800 ring-green-200 dark:bg-green-950/40 dark:text-green-300 dark:ring-green-900'
-          : 'bg-sky-50 text-sky-800 ring-sky-200 dark:bg-sky-950/40 dark:text-sky-300 dark:ring-sky-900',
+          ? 'border-status-up bg-status-up-soft'
+          : 'border-accent-ink bg-accent-soft',
       )}
     >
       {children}
@@ -274,7 +274,7 @@ export function Notice({
 }
 
 export function Empty({ children }: { children: ReactNode }) {
-  return <div className="p-6 text-center text-sm text-slate-500">{children}</div>;
+  return <div className="p-6 text-center text-sm text-ink-muted">{children}</div>;
 }
 
 const FOCUSABLE =
@@ -349,7 +349,7 @@ export function Modal({
   // Rendered into <body> so the fixed overlay is not affected by the parent's layout (e.g. space-y margins).
   return createPortal(
     <div
-      className="fixed inset-0 z-50 m-0 flex items-start justify-center overflow-y-auto bg-slate-900/50 p-4 pt-16"
+      className="fixed inset-0 z-50 m-0 flex items-start justify-center overflow-y-auto bg-overlay p-4 pt-16"
       data-testid={testId ? `${testId}-backdrop` : undefined}
       onMouseDown={(e) => {
         downOnBackdrop.current = e.target === e.currentTarget;
@@ -367,18 +367,18 @@ export function Modal({
         data-testid={testId}
         tabIndex={-1}
         className={cx(
-          'w-full rounded-lg bg-white shadow-xl ring-1 ring-slate-200 focus:outline-none dark:bg-slate-900 dark:ring-slate-700',
+          'w-full rounded-lg bg-surface-raised text-ink shadow-pop focus:outline-none',
           wide ? 'max-w-3xl' : 'max-w-lg',
         )}
       >
-        <header className="flex items-center justify-between gap-2 border-b border-slate-200 px-4 py-3 dark:border-slate-800">
+        <header className="flex items-center justify-between gap-2 border-b border-line px-4 py-3.5">
           <h3 id={titleId} className="min-w-0 text-base font-semibold">
             {title}
           </h3>
           <button
             type="button"
             onClick={onClose}
-            className="rounded p-1 text-slate-500 hover:bg-slate-100 dark:hover:bg-slate-800"
+            className="rounded-md p-1 text-ink-muted hover:bg-surface-hover hover:text-ink"
             aria-label={t('common.close')}
           >
             <XIcon />
@@ -388,7 +388,7 @@ export function Modal({
           {children}
         </div>
         {footer && (
-          <footer className="flex justify-end gap-2 border-t border-slate-200 px-4 py-3 dark:border-slate-800">
+          <footer className="flex justify-end gap-2 rounded-b-lg border-t border-line bg-surface-sunken px-4 py-3">
             {footer}
           </footer>
         )}
@@ -452,9 +452,11 @@ export function PageHeader({
   return (
     <div className="mb-4 flex flex-wrap items-end justify-between gap-3">
       <div className="min-w-0">
-        {breadcrumbs && <div className="mb-1 text-xs text-slate-500">{breadcrumbs}</div>}
-        <h1 className="flex items-center gap-2 truncate text-xl font-semibold">{title}</h1>
-        {subtitle && <div className="mt-0.5 text-sm text-slate-500">{subtitle}</div>}
+        {breadcrumbs && <div className="mb-2 text-xs text-ink-subtle">{breadcrumbs}</div>}
+        <h1 className="flex items-center gap-2.5 truncate text-2xl font-semibold leading-[30px] tracking-[-0.01em]">
+          {title}
+        </h1>
+        {subtitle && <div className="mt-1.5 text-[13px] text-ink-muted">{subtitle}</div>}
       </div>
       {actions && <div className="flex flex-wrap items-center gap-2">{actions}</div>}
     </div>
@@ -470,8 +472,8 @@ export function Table({ children }: { children: ReactNode }) {
 }
 
 export const th =
-  'border-b border-slate-200 px-3 py-2 text-start text-xs font-medium uppercase tracking-wide text-slate-500 dark:border-slate-800';
-export const td = 'border-b border-slate-100 px-3 py-2 align-middle dark:border-slate-800/70';
+  'whitespace-nowrap border-b border-line bg-surface-sunken px-3 py-2 text-start text-xs font-medium text-ink-muted';
+export const td = 'border-b border-line px-3 py-[7px] align-middle';
 
 /** Left-to-right isolate for numbers, IPs, hostnames and URLs inside RTL text. */
 export function Ltr({ children, className }: { children: ReactNode; className?: string }) {

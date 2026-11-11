@@ -1,3 +1,7 @@
+/* Design tokens first: every colour, font, radius and layout size is a CSS variable. */
+@import './styles/tokens.css';
+@import './styles/fonts.css';
+
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
@@ -6,14 +10,21 @@
   html {
     -webkit-font-smoothing: antialiased;
   }
-  html[dir='rtl'] body {
-    font-family: 'Segoe UI', Arial, 'Noto Sans Hebrew', system-ui, sans-serif;
+  body {
+    background-color: var(--bg);
+    color: var(--ink);
+    font-family: var(--font-sans);
   }
-  :root {
-    color-scheme: light;
+  /* Hebrew text is set in Heebo (Barlow has no Hebrew glyphs). */
+  html[lang='he'] body {
+    font-family: 'Heebo', var(--font-sans);
   }
-  :root.dark {
-    color-scheme: dark;
+  :focus-visible {
+    outline: 2px solid var(--focus);
+    outline-offset: 2px;
+  }
+  ::placeholder {
+    color: var(--ink-subtle);
   }
   /*
    * Native <select> popups (notably Chrome/Edge on Windows) draw <option>s with their own
@@ -21,13 +32,8 @@
    */
   select option,
   select optgroup {
-    background-color: #ffffff;
-    color: #0f172a;
-  }
-  :root.dark select option,
-  :root.dark select optgroup {
-    background-color: #0f172a;
-    color: #f1f5f9;
+    background-color: var(--surface-raised);
+    color: var(--ink);
   }
 }
 
