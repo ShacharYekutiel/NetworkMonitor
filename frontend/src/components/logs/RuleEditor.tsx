@@ -384,7 +384,7 @@ export function RuleEditorModal({
             kind="event_rule"
             onDraft={(d) => {
               setDraft(d);
-              setF(eventDraftRuleForm(d.draft));
+              setF(eventDraftRuleForm(d.draft ?? {}));
               setTouched(true);
               setTestResult(null);
             }}

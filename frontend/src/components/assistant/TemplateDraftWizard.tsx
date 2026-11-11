@@ -7,6 +7,7 @@ import { endpoints3b, qk3b } from '../../api/endpoints3b';
 import {
   DEFAULT_WALK_PRESETS,
   WALK_PRESETS,
+  type CannotDraft,
   type SnmpWalk,
   type TemplateDraft,
   type WalkPreset,
@@ -27,7 +28,7 @@ import {
   Spinner,
   Textarea,
 } from '../ui';
-import { AiNotice, useAiFeature } from './common';
+import { AiNotice, CannotDraftNotice, useAiFeature } from './common';
 
 const OID_RE = /^\d+(\.\d+){3,}$/;
 type Step = 'setup' | 'walk' | 'draft';
@@ -72,6 +73,7 @@ function TemplateDraftWizard({ onClose }: { onClose: () => void }) {
   const [notes, setNotes] = useState('');
   const [yaml, setYaml] = useState('');
   const [draft, setDraft] = useState<TemplateDraft | null>(null);
+  const [cannot, setCannot] = useState<CannotDraft | null>(null);
   const [overwrite, setOverwrite] = useState(false);
   const { oids, bad } = parseOids(oidText);
   const tooMany = presets.length + oids.length > 8;
@@ -107,7 +109,13 @@ function TemplateDraftWizard({ onClose }: { onClose: () => void }) {
         template_id: templateId.trim() || null,
         notes: notes.trim() || null,
       }),
+    onMutate: () => setCannot(null),
     onSuccess: (d) => {
+      // no template possible: stay on the walk step with the reason, no editor
+      if (d.cannot_draft) {
+        setCannot(d.cannot_draft);
+        return;
+      }
       setDraft(d);
       setYaml(d.yaml);
       setStep('draft');
@@ -241,6 +249,14 @@ function TemplateDraftWizard({ onClose }: { onClose: () => void }) {
                   <Input value={notes} onChange={(e) => setNotes(e.target.value)} maxLength={500} />
                 </Field>
               </div>
+            )}
+            {cannot && (
+              <CannotDraftNotice
+                title={t('tdraft.cannotTitle')}
+                reason={cannot.reason}
+                hint={t('tdraft.cannotHint')}
+                example={t('tdraft.cannotExample')}
+              />
             )}
             <ErrorBox error={makeDraft.error} />
             {makeDraft.isPending && (

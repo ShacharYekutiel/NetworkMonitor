@@ -26,7 +26,13 @@ import {
 import { renderAnswer } from './markdown';
 import { normalizeFeatures } from './features';
 import type { AssistantMessage, StreamEvent } from '../api/types';
-import { alertDraftToForm, eventDraftToForm } from './drafts';
+import {
+  alertDraftToForm,
+  eventDraftRuleForm,
+  eventDraftToForm,
+  normalizeDraftMatch,
+} from './drafts';
+import { formToInput } from './eventRules';
 
 describe('SseParser', () => {
   const sample =
@@ -334,5 +340,59 @@ describe('rule drafts → forms', () => {
       name: 'r',
       kind: 'syslog',
     });
+  });
+});
+
+describe('[3b owner] event-rule draft text/regex reaches the form', () => {
+  it('keeps text + text_regex from a well-formed draft', () => {
+    const f = eventDraftRuleForm({
+      name: 'כשלי SSH',
+      kind: 'syslog',
+      match: {
+        severity_max: null,
+        facilities: [],
+        programs: ['SSHS'],
+        text: '[Ff]ail(ed|ure)?',
+        text_regex: true,
+      },
+      action: 'warning',
+      clear_after_min: 30,
+    });
+    expect(f.match.text).toBe('[Ff]ail(ed|ure)?');
+    expect(f.match.textRegex).toBe(true);
+    expect(f.match.programs).toBe('SSHS');
+    const input = formToInput(f);
+    expect(input.match).toMatchObject({ text: '[Ff]ail(ed|ure)?', text_regex: true });
+  });
+  it('repairs the pattern put into text_regex and a single program (owner bug)', () => {
+    const f = eventDraftRuleForm({
+      name: 'SSH',
+      kind: 'syslog',
+      match: { program: 'sshd', text_regex: 'Failed password for .* from' },
+      action: 'warning',
+    });
+    expect(f.match.text).toBe('Failed password for .* from');
+    expect(f.match.textRegex).toBe(true);
+    expect(f.match.programs).toBe('sshd');
+    expect(formToInput(f).match).toMatchObject({
+      programs: ['sshd'],
+      text: 'Failed password for .* from',
+      text_regex: true,
+    });
+  });
+  it('normalises aliases, leaves trap matches alone', () => {
+    expect(normalizeDraftMatch({ pattern: 'a|b' })).toEqual({
+      text: 'a|b',
+      text_regex: true,
+      severity_max: null,
+      facilities: [],
+      programs: [],
+    });
+    expect(normalizeDraftMatch({ message: 'down', text_regex: 'false' })).toMatchObject({
+      text: 'down',
+      text_regex: false,
+    });
+    const trap = { trap_oids: ['1.3.6.1.6.3.1.1.5.3'], varbinds: [], ports: 'any' };
+    expect(normalizeDraftMatch(trap, 'trap')).toBe(trap);
   });
 });

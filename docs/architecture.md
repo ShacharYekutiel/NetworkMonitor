@@ -3436,6 +3436,17 @@ Unless stated otherwise the model is `model_id`; "light" = `model_id_light` when
 - **Validation (no DB write):** the draft is validated with the same pydantic model and the same reference checks
   (ids exist, channels exist, event-rule match syntax/regex compile via the 2b-3 validators); errors are returned
   with the draft (`validation.errors`); one automatic repair round sends the errors back to the model.
+- **Cannot draft:** the forced tool also accepts `cannot_draft: true` + `reason`; the prompt tells the model to use it
+  when the text does not describe a condition/event to match or cannot be expressed with the supported fields
+  (never `<UNKNOWN>` placeholders). A deterministic backstop treats an empty / placeholder draft (a `<UNKNOWN>`-style
+  value, a placeholder name, no statuses, no match criteria on a global event rule) the same way with a generic
+  reason. The API answers 200 with `draft: null` and `cannot_draft: {reason, source}`; the SPA shows the reason and an
+  example of a good description instead of opening the form.
+- **Language:** detected from the description like the chat (§ 14.3.5; no letters → the UI language) and appended
+  to the description as the answer instruction; name, explanation, assumptions and reason are written in it, technical
+  values stay as they are. The event-rule prompt carries the exact match shape (the pattern is `text`, `text_regex`
+  is a boolean; no count/time-window thresholds) and a short vendor syslog reference (data), e.g. Comware SSH
+  failures = program `SSHS`.
 - **Admin review:** the SPA opens the **normal form** prefilled, with a banner "Draft by the assistant — review
   every field before saving" and the explanation/assumptions; for event rules the existing *Test against the last
   24 h* button is highlighted. Saving uses the normal `POST /api/alert-rules` / `POST /api/event-rules` (audited as
@@ -3463,6 +3474,9 @@ Unless stated otherwise the model is `model_id`; "light" = `model_id_light` when
   confidence_per_sensor[]}`. Server validation with the **existing template validator** (`templates.library`, pure);
   errors → up to 2 repair rounds; the final result returns `{yaml, valid, errors[], warnings[]}` — invalid drafts are
   still shown (with errors) for manual fixing; every OID used must appear in the walk (unknown → warning).
+  `propose_template` also accepts `cannot_draft` + `reason` (notes that are not about a template, nothing
+  device-specific in the walk); empty / `<UNKNOWN>` YAML is treated the same (generic reason) — 200 with `yaml: ""`
+  and `cannot_draft`. Notes and reason follow the language of the admin's notes (else the UI language).
 - **Admin review and save:** an editor (monospace, `dir="ltr"`) with the YAML, validation result and *Validate*;
   *Save as user template* calls the **new normal endpoint** `POST /api/device-templates/user` (admin, always
   available, independent of the AI: writes `${NETMON_DATA_DIR}/templates/<vendor>/<id>.yaml` after validation,

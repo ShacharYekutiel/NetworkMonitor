@@ -438,9 +438,15 @@ export type Digest = DigestSummary & {
 };
 
 export type RuleDraftKind = 'alert_rule' | 'event_rule';
+/** [3b owner] No draft possible: the model's own answer, or the server's placeholder backstop. */
+export type CannotDraft = { reason: string; source: 'model' | 'placeholder' };
 export type RuleDraft = {
   kind: RuleDraftKind;
-  draft: Record<string, unknown>;
+  /** null together with `cannot_draft`. */
+  draft: Record<string, unknown> | null;
+  cannot_draft?: CannotDraft | null;
+  /** Language of name/explanation/assumptions/reason (from the description, else the UI). */
+  language?: 'en' | 'he';
   explanation: string;
   assumptions: string[];
   validation: { ok: boolean; errors: { loc: (string | number)[]; msg: string }[] };
@@ -484,6 +490,9 @@ export type TemplateDraft = {
   errors: { path: string; error: string }[];
   warnings: string[];
   notes: string;
+  /** yaml is "" when set. */
+  cannot_draft?: CannotDraft | null;
+  language?: 'en' | 'he';
   repair_rounds: number;
   conversation_id: number;
   usage: { input_tokens: number; output_tokens: number };

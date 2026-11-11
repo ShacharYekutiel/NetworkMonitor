@@ -9,6 +9,7 @@ import { ThemeProvider } from '../hooks/theme';
 import { ToastProvider } from '../components/toast';
 import { AnswerBlock } from '../components/assistant/AnswerView';
 import { ConnectionSettings } from '../components/assistant/ConnectionSettings';
+import { RuleDraftBox } from '../components/assistant/RuleDraft';
 import type { AssistantMessage, AssistantSettings } from '../api/types';
 import { EMPTY_LIVE } from '../lib/assistant';
 
@@ -343,5 +344,62 @@ describe('[3b] configure-first connection form', () => {
     );
     expect(screen.getByTestId('geo-note').getAttribute('data-scope')).toBe('global');
     expect(screen.getByTestId('geo-note').textContent).toMatch(/Warning/);
+  });
+});
+
+describe('[3b owner] rule draft: cannot draft', () => {
+  const routes = (draftBody: unknown) => (url: string) => {
+    if (url.startsWith('/api/settings/public'))
+      return {
+        status: 200,
+        body: { default_language: 'en', features: { assistant: true, ai_rule_drafts: true } },
+      };
+    if (url.startsWith('/api/assistant/rule-drafts')) return { status: 200, body: draftBody };
+    return baseRoutes(url);
+  };
+  const cannot = {
+    kind: 'event_rule',
+    draft: null,
+    cannot_draft: { reason: 'הבקשה לא מתארת אירוע רשת להתאמה.', source: 'model' },
+    language: 'he',
+    explanation: '',
+    assumptions: [],
+    validation: { ok: false, errors: [] },
+    conversation_id: 5,
+    usage: { input_tokens: 1, output_tokens: 1 },
+  };
+
+  it('shows the reason and an example, never prefills the form', async () => {
+    mockFetch(routes(cannot));
+    const onDraft = vi.fn();
+    render(wrap(<RuleDraftBox kind="event_rule" onDraft={onDraft} />));
+    fireEvent.click(await screen.findByTestId('describe-rule'));
+    fireEvent.change(screen.getByTestId('describe-text'), { target: { value: 'תכין לי קפה' } });
+    fireEvent.click(screen.getByTestId('draft-button'));
+    expect(await screen.findByTestId('cannot-draft')).toBeTruthy();
+    expect(screen.getByTestId('cannot-draft-reason').textContent).toBe(
+      'הבקשה לא מתארת אירוע רשת להתאמה.',
+    );
+    expect(screen.getByText(/SSH login failure/)).toBeTruthy();
+    expect(onDraft).not.toHaveBeenCalled();
+    expect(screen.getByTestId('describe-text')).toBeTruthy(); // the box stays open
+  });
+
+  it('a real draft still goes to the form', async () => {
+    mockFetch(
+      routes({
+        ...cannot,
+        draft: { name: 'x', kind: 'syslog', match: { text: 'a' } },
+        cannot_draft: null,
+        validation: { ok: true, errors: [] },
+      }),
+    );
+    const onDraft = vi.fn();
+    render(wrap(<RuleDraftBox kind="event_rule" onDraft={onDraft} />));
+    fireEvent.click(await screen.findByTestId('describe-rule'));
+    fireEvent.change(screen.getByTestId('describe-text'), { target: { value: 'syslog fail' } });
+    fireEvent.click(screen.getByTestId('draft-button'));
+    await waitFor(() => expect(onDraft).toHaveBeenCalled());
+    expect(screen.queryByTestId('cannot-draft')).toBeNull();
   });
 });

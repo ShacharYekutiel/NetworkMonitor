@@ -3597,7 +3597,11 @@
     "working": "The assistant is drafting…",
     "banner": "Draft by the assistant — review every field before saving.",
     "assumptions": "Assumptions",
-    "validationErrors": "Fix before saving"
+    "validationErrors": "Fix before saving",
+    "cannotTitle": "The assistant could not draft a rule from this description.",
+    "cannotHint": "Describe what to watch for and what should happen, for example:",
+    "cannotExampleAlert": "Alert me on Telegram when any core switch is down for 2 minutes",
+    "cannotExampleEvent": "Warning when a switch logs an SSH login failure (program SSHS or sshd)"
   },
   "tdraft": {
     "open": "Draft a template from a device",
@@ -3647,7 +3651,10 @@
     "yaml": "Template YAML",
     "save": "Save as user template",
     "overwrite": "Overwrite the existing user template",
-    "saved": "Saved {{file}}"
+    "saved": "Saved {{file}}",
+    "cannotTitle": "The assistant could not draft a template from this walk.",
+    "cannotHint": "Walk the subtrees with the device's own values (enterprise, ENTITY, HOST-RESOURCES) and describe what to monitor, for example:",
+    "cannotExample": "monitor PSU and fan status and CPU temperature"
   },
   "usage": {
     "title": "Assistant usage",

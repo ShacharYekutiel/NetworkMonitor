@@ -369,17 +369,64 @@ def test_propose_tool_schema_matches_models() -> None:
     t = drafts.propose_tool("alert_rule")
     props = t["inputSchema"]["json"]["properties"]
     assert t["name"] == "propose_alert_rule"
-    assert set(props) == set(AlertRuleCreate.model_fields) | {"explanation", "assumptions"}
+    extra = {"explanation", "assumptions", "cannot_draft", "reason"}
+    assert set(props) == set(AlertRuleCreate.model_fields) | extra
     assert "$ref" not in str(t) and t["inputSchema"]["json"]["additionalProperties"] is False
     e = drafts.propose_tool("event_rule")
-    assert set(e["inputSchema"]["json"]["properties"]) == set(EventRuleIn.model_fields) | {
-        "explanation",
-        "assumptions",
-    }
+    assert set(e["inputSchema"]["json"]["properties"]) == set(EventRuleIn.model_fields) | extra
+    assert "text_regex: bool" in e["inputSchema"]["json"]["properties"]["match"]["description"]
     draft, expl, assumptions = drafts.split_draft(
         "alert_rule", {"name": "x", "bogus": 1, "explanation": "E", "assumptions": ["a", ""]}
     )
     assert draft == {"name": "x"} and expl == "E" and assumptions == ["a"]
+
+
+def test_draft_match_normalisation() -> None:
+    n = drafts.normalize_match
+    assert n({"text_regex": "Failed .*", "program": "sshd"}) == {
+        "text_regex": True,
+        "text": "Failed .*",
+        "programs": ["sshd"],
+    }
+    assert n({"pattern": "a|b"}) == {"text": "a|b", "text_regex": True}
+    assert n({"message": "down"}) == {"text": "down"}
+    assert n({"text": "x", "text_regex": "false"}) == {"text": "x", "text_regex": False}
+    assert n({"text": "x", "text_regex": True}) == {"text": "x", "text_regex": True}
+    assert n(None) is None
+    d, _, _ = drafts.split_draft(
+        "event_rule", {"kind": "syslog", "match": {"regex": "fail"}, "explanation": "e"}
+    )
+    assert d["match"] == {"text": "fail", "text_regex": True}
+
+
+def test_draft_placeholder_backstop_and_cannot() -> None:
+    ph = drafts.is_placeholder
+    assert ph("event_rule", {})
+    assert ph("event_rule", {"name": "<UNKNOWN>", "match": {"text": "x"}})
+    assert ph("event_rule", {"name": "x", "match": {"programs": ["<unknown>"]}})
+    assert ph("event_rule", {"name": "x", "kind": "syslog", "match": {"programs": []}})
+    assert ph("event_rule", {"name": "Unknown", "match": {"text": "x"}})
+    assert not ph("event_rule", {"name": "x", "match": {"severity_max": 3}})
+    assert not ph("event_rule", {"name": "x", "match": {"text": "<\\d+>"}})
+    assert not ph("event_rule", {"name": "x", "scope": "device", "device_id": 1, "match": {}})
+    assert ph("alert_rule", {"name": "x", "on_statuses": []})
+    assert not ph("alert_rule", {"name": "x", "on_statuses": ["down"], "channel_ids": [1]})
+    assert drafts.cannot_draft_of({"cannot_draft": True, "reason": " r "}) == "r"
+    assert drafts.cannot_draft_of({"cannot_draft": True}) == ""
+    assert drafts.cannot_draft_of({"cannot_draft": False, "reason": "r"}) is None
+    assert drafts.language_line("he").startswith("(Answer in Hebrew.)")
+    assert "in English" in drafts.language_line("en")
+    from netmon.assistant.features.templates_pure import (
+        PROPOSE_TEMPLATE_TOOL,
+        template_is_placeholder,
+    )
+
+    assert template_is_placeholder("") and template_is_placeholder("id: <UNKNOWN>\n")
+    assert not template_is_placeholder("schema: 1\nid: x\n")
+    assert {"cannot_draft", "reason"} <= set(
+        PROPOSE_TEMPLATE_TOOL["inputSchema"]["json"]["properties"]
+    )
+    assert "cannot_draft" in drafts.BLOCK and "cannot_draft" in templates.BLOCK
 
 
 # ---------------------------------------------------------------- explain plan

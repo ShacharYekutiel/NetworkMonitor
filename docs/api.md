@@ -2413,11 +2413,11 @@ Tool errors are sent with `"status": "error"` and the error envelope as `json`. 
 | `GET /api/assistant/digests` | `ai_syslog_digest` | Query `page`, `page_size` | page of `DigestSummary` (newest first) |
 | `GET /api/assistant/digests/{day}` | `ai_syslog_digest` | `day` = `YYYY-MM-DD` | `Digest` |
 | `POST /api/assistant/digests/{day}/run` | `ai_syslog_digest` | `{"send": false}` (last 7 days only) | `202 Digest` (`status: "running"`); `429 assistant_cap_reached` (> 5 manual per day) |
-| `POST /api/assistant/rule-drafts` | `ai_rule_drafts` | `{"kind": "alert_rule" \| "event_rule", "description": "…" (5–1000)}` | `200 RuleDraft` (≤ 45 s); audited `assistant.rule_draft` |
+| `POST /api/assistant/rule-drafts` | `ai_rule_drafts` | `{"kind": "alert_rule" \| "event_rule", "description": "…" (5–1000)}` | `200 RuleDraft` (≤ 45 s; also when no draft is possible: `draft: null` + `cannot_draft`, see below); audited `assistant.rule_draft` (`cannot_draft: "model" \| "placeholder" \| null`) |
 | `POST /api/assistant/template-drafts/walks` | `ai_template_drafts` | `{"device_id": 3, "presets": ["system", "entity", "host_resources", "enterprise", "if_sample", "entity_sensor"], "oids": ["1.3.6.1.4.1.25506.2.6"]}` (≤ 8 subtrees in total) | `202 SnmpWalk`; `409 walk_running`; `422` forbidden subtree (`details: [{"oid": "1.3.6.1.6.3.15", "reason": "never_walked"}]`); audited `assistant.template_walk` |
 | `GET /api/assistant/template-drafts/walks/{id}` | `ai_template_drafts` | — | `SnmpWalk` (with `varbinds` when finished, ≤ 5000) |
 | `POST /api/assistant/template-drafts/walks/{id}/cancel` | `ai_template_drafts` | — | `200 SnmpWalk` |
-| `POST /api/assistant/template-drafts` | `ai_template_drafts` | `{"walk_id": 5, "template_id": "acme_x100" \| null, "notes": "…" \| null}` | `200 TemplateDraft` (≤ 90 s); audited `assistant.template_draft` |
+| `POST /api/assistant/template-drafts` | `ai_template_drafts` | `{"walk_id": 5, "template_id": "acme_x100" \| null, "notes": "…" \| null}` | `200 TemplateDraft` (≤ 90 s; `yaml: ""` + `cannot_draft` when no template is possible); audited `assistant.template_draft` |
 | `POST /api/device-templates/user` | **always available** (admin, not an assistant endpoint; API tokens refused) | `{"yaml": "…" (≤ 256 KiB), "overwrite": false}` | `201 {"template": DeviceTemplate, "file": "acme/acme_x100.yaml", "library": TemplateLibraryStatus}`; `422 invalid_template`; `409 template_exists`; registry reloaded, `templates.reloaded` WS; audited `device_template.create_user` |
 | `GET /api/assistant/knowledge` | (prepare: allowed while `ai_knowledge` OFF; needs `assistant` settings) | — | `{"enabled": false, "knowledge_base_id": "…", "region": null, "endpoint_url": null, "results": 5, "min_score": 0, "description": "…", "last_test": {…} \| null}` |
 | `PUT /api/assistant/knowledge` | same | writable fields + `"enabled"`, `"test_id"` | same shape; `422 assistant_test_required` for OFF→ON or KB field change while ON |
@@ -2450,15 +2450,32 @@ type Digest = DigestSummary & { language: "en" | "he"; baseline_days: number;
   ai_markdown: string | null; deliveries: { target: string; ok: boolean; error: string | null; at: string }[] };
 type DigestRow = { key: string; ref: string | null; count: number; baseline: number | null; ratio: number | null; unusual: boolean };
 type RuleDraft = { kind: "alert_rule" | "event_rule";
-  draft: Record<string, unknown>;              // exactly the writable fields of AlertRule / EventRule create
+  draft: Record<string, unknown> | null;       // exactly the writable fields of AlertRule / EventRule create; null with cannot_draft
+  // [3b owner] "cannot draft" is a normal outcome (200, same shape, no form is opened): the model answered
+  // {cannot_draft: true, reason} (source "model": the text describes no condition/event to match, or it cannot be
+  // expressed with the supported fields), or the server's deterministic backstop rejected a placeholder draft
+  // (source "placeholder": empty draft, a `<UNKNOWN>`-style value, a placeholder name, no statuses / no match
+  // criteria on a global event rule; generic reason). No validation and no repair round then:
+  // explanation "", assumptions [], validation {ok: false, errors: []}.
+  cannot_draft: { reason: string; source: "model" | "placeholder" } | null;
+  language: "en" | "he";                       // detected from the description as in the chat (no letters → UI language);
+                                               // name, explanation, assumptions and reason are written in it,
+                                               // technical values (ids, OIDs, regexes, programs, kinds) unchanged
   explanation: string; assumptions: string[];
   validation: { ok: boolean; errors: { loc: (string | number)[]; msg: string }[] };
   conversation_id: number; usage: { input_tokens: number; output_tokens: number } };
+// Event-rule drafts are normalised before validation: a pattern the model put into `text_regex` (a string) or
+// under `pattern` / `regex` / `message` moves to `match.text` (with `text_regex: true` for regex keys), a single
+// `program` becomes `programs: [...]`, `text_regex` is coerced to a boolean.
 type SnmpWalk = { id: number; device_id: number; status: "running" | "ok" | "partial" | "failed" | "cancelled";
   subtrees: string[]; counts: Record<string, number>; total: number; error: string | null;
   started_at: string; finished_at: string | null; varbinds?: [string, string, string][] };
 type TemplateDraft = { walk_id: number; yaml: string; valid: boolean;
   errors: { path: string; error: string }[]; warnings: string[]; notes: string; repair_rounds: number;
+  // [3b owner] as RuleDraft: the model's {cannot_draft, reason} (notes that are not about a device template, nothing
+  // device-specific in the walk) or the backstop (empty YAML / `<UNKNOWN>` placeholders); yaml "", valid false
+  cannot_draft: { reason: string; source: "model" | "placeholder" } | null;
+  language: "en" | "he";                       // from the admin's notes (no letters / no notes → UI language): notes, reason
   conversation_id: number; usage: { input_tokens: number; output_tokens: number } };
 type UsageMonthSummary = { month: string; tokens: number; token_cap: number; cost_estimate: number | null;
   cost_cap: number | null; currency: string | null; pct_of_cap: number; projection_pct: number;

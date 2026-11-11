@@ -511,7 +511,7 @@ function RuleModal({
   const [aiNote, setAiNote] = useState(false);
   const [draft, setDraft] = useState<RuleDraft | null>(null);
   const applyDraft = (d: RuleDraft) => {
-    const f = alertDraftToForm(d.draft);
+    const f = alertDraftToForm(d.draft ?? {});
     setDraft(d);
     if (f.name !== undefined) setName(f.name);
     if (f.sensor_id !== undefined) setSensorId(f.sensor_id);

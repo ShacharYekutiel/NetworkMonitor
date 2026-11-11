@@ -23,6 +23,7 @@ from sqlalchemy import text
 
 from netmon.api.errors import ApiError
 from netmon.assistant.features import common
+from netmon.assistant.features.templates_pure import PLACEHOLDER_RE
 
 log = logging.getLogger("netmon.assistant.drafts")
 
@@ -37,15 +38,42 @@ BLOCK = (
     "invent ids). Finish by calling {tool} exactly once: its input is the draft (only the "
     "fields of the schema), plus `explanation` (what the rule does, 1–3 sentences) and "
     "`assumptions` (anything you had to guess). The administrator reviews the draft in the "
-    "normal form before saving; nothing is saved by you."
+    "normal form before saving; nothing is saved by you. "
+    "If the description does not describe {subject}, or it cannot be expressed with the fields "
+    "of the schema, do not invent a draft and never use placeholders such as <UNKNOWN>: call "
+    "{tool} with `cannot_draft: true` and `reason` (1–2 sentences: what is missing and what a "
+    "usable description would say); the other fields are then ignored (give required ones "
+    "minimal values). "
+    "Language: write `name`, `explanation`, `assumptions` and `reason` in the language the "
+    "message names; technical values (ids, OIDs, regexes, program names, kinds, enum values, "
+    "field names) stay exactly as they are."
 )
+SUBJECT = {
+    "alert_rule": "a sensor status condition to alert on",
+    "event_rule": "a trap or syslog event to match",
+}
 EVENT_HELP = (
-    "Event rules: kind `trap` or `syslog`; `match` for syslog = {severity_max (0-7), "
-    "facilities [], programs [], text, text_regex}; for traps = {trap_oids [], varbinds "
-    "[{oid, op (eq|contains|regex), value}], ports (any|important)}; action warning | down | "
-    "ignore; scope global | group (group_id) | device (device_id); optional clear_match and "
-    "clear_after_min."
+    "Event rules: kind `trap` or `syslog`; `match` for syslog = {severity_max: integer 0-7 or "
+    "null, facilities: [integers 0-23], programs: [program names], text: string matched "
+    "against the message (substring, case-insensitive; a regular expression when text_regex "
+    "is true), text_regex: boolean}; the pattern always goes in `text`, never in text_regex. "
+    "For traps = {trap_oids [], varbinds [{oid, op (eq|contains|regex), value}], ports "
+    "(any|important)}; action warning | down | ignore; scope global | group (group_id) | device "
+    "(device_id); optional clear_match and clear_after_min. Event rules have no count or "
+    "time-window threshold (every matching message counts): say so in `assumptions` when the "
+    "description asks for one. "
+    "Vendor syslog reference (data): H3C/HPE Comware `%%10SSHS/5/SSHS_AUTH_FAIL: <message>` "
+    "→ program `SSHS` (the module; the mnemonic before ':' is not part of the matched text), "
+    "login module `LOGIN`; Linux/OpenSSH → program `sshd`, message `Failed password for ...`."
 )
+CANNOT_REASON = {
+    "en": (
+        "The description does not say what to watch for (a status, event or message to "
+        "match), so no draft was made."
+    ),
+    "he": "התיאור לא מציין מה לנטר (מצב, אירוע או הודעה להתאמה), ולכן לא נוצרה טיוטה.",
+}
+_PLACEHOLDER_WORDS = {"", "unknown", "placeholder", "todo", "tbd", "n/a", "?", "none", "null"}
 
 
 def _strip_titles(schema: Any) -> Any:
@@ -90,6 +118,19 @@ def propose_tool(kind: str) -> dict[str, Any]:
     props = dict(schema.get("properties") or {})
     props["explanation"] = {"type": "string", "maxLength": 1000}
     props["assumptions"] = {"type": "array", "items": {"type": "string"}, "maxItems": 10}
+    props["cannot_draft"] = {
+        "type": "boolean",
+        "description": "true when the description cannot be turned into this kind of rule",
+    }
+    props["reason"] = {
+        "type": "string",
+        "maxLength": 500,
+        "description": "why no draft is possible (only with cannot_draft)",
+    }
+    if kind == "event_rule":
+        for k in ("match", "clear_match"):
+            if k in props:
+                props[k] = {**props[k], "description": MATCH_DESCRIPTION}
     required = list(schema.get("required") or []) + ["explanation"]
     return {
         "name": name,
@@ -107,12 +148,112 @@ def propose_tool(kind: str) -> dict[str, Any]:
     }
 
 
+MATCH_DESCRIPTION = (
+    "syslog: {severity_max: 0-7|null, facilities: [0-23], programs: [str], text: str|null "
+    "(the pattern), text_regex: bool}; trap: {trap_oids: [oid], varbinds: [{oid, op, value}], "
+    "ports: any|important}"
+)
+_TEXT_ALIASES = ("pattern", "regex", "message", "text_pattern", "message_regex", "msg")
+
+
+def normalize_match(m: Any) -> Any:
+    """Repair the usual model slips in an event-rule match (pure): the pattern put in
+    `text_regex` (a string) or under an alias key instead of `text`, a single `program`,
+    a non-boolean `text_regex`. Everything else is left to the validator."""
+    if not isinstance(m, dict):
+        return m
+    m = dict(m)
+    tr = m.get("text_regex")
+    if isinstance(tr, str):
+        bool_word = tr.strip().lower() in ("true", "false", "1", "0", "yes", "no")
+        if tr.strip() and not bool_word and not m.get("text"):
+            m["text"] = tr
+            m["text_regex"] = True
+        else:
+            m["text_regex"] = tr.strip().lower() in ("true", "1", "yes")
+    if not m.get("text"):
+        for alias in _TEXT_ALIASES:
+            v = m.get(alias)
+            if isinstance(v, str) and v.strip():
+                m["text"] = v
+                if alias in ("pattern", "regex", "text_pattern", "message_regex"):
+                    m.setdefault("text_regex", True)
+                break
+    for alias in _TEXT_ALIASES:
+        m.pop(alias, None)
+    prog = m.pop("program", None)
+    if isinstance(prog, str) and prog.strip() and not m.get("programs"):
+        m["programs"] = [prog.strip()]
+    if "text_regex" in m and not isinstance(m["text_regex"], bool):
+        m["text_regex"] = bool(m["text_regex"])
+    return m
+
+
+def _strings(v: Any) -> list[str]:
+    if isinstance(v, str):
+        return [v]
+    if isinstance(v, dict):
+        return [s for x in v.values() for s in _strings(x)]
+    if isinstance(v, list):
+        return [s for x in v for s in _strings(x)]
+    return []
+
+
+def _has_criteria(m: Any) -> bool:
+    if not isinstance(m, dict):
+        return False
+    if m.get("severity_max") is not None:
+        return True
+    return any(m.get(k) for k in ("facilities", "programs", "text", "trap_oids", "varbinds"))
+
+
+def is_placeholder(kind: str, draft: dict[str, Any]) -> bool:
+    """Deterministic backstop (pure): an empty draft, a `<UNKNOWN>`-style value anywhere, a
+    placeholder name, or nothing to match (alert rule: no statuses; global event rule: an
+    empty match) is not a draft the admin can use."""
+    if not draft:
+        return True
+    if any(PLACEHOLDER_RE.search(s) for s in _strings(draft)):
+        return True
+    name = draft.get("name")
+    if name is not None and str(name).strip().lower() in _PLACEHOLDER_WORDS:
+        return True
+    if kind == "alert_rule":
+        st = draft.get("on_statuses")
+        return not (isinstance(st, list) and st)
+    if draft.get("scope") in (None, "global") and not _has_criteria(draft.get("match")):
+        return True
+    return False
+
+
+def cannot_draft_of(raw: Any) -> str | None:
+    """The model's own "cannot draft" answer: its reason ('' when it gave none), else None."""
+    if isinstance(raw, dict) and raw.get("cannot_draft") is True:
+        return str(raw.get("reason") or "").strip()[:500]
+    return None
+
+
+def language_line(lang: str) -> str:
+    """Appended to the description (as the chat appends its answer instruction)."""
+    from netmon.assistant.lang import LANGUAGE_NAMES, answer_instruction
+
+    name = LANGUAGE_NAMES.get(lang, "English")
+    return (
+        f"{answer_instruction(lang)} Write name, explanation, assumptions and reason in {name}; "
+        "keep technical values (ids, OIDs, regexes, program names, kinds) as they are."
+    )
+
+
 def split_draft(kind: str, raw: Any) -> tuple[dict[str, Any], str, list[str]]:
     """(draft = exactly the writable fields, explanation, assumptions)."""
     model, _ = models(kind)
     raw = raw if isinstance(raw, dict) else {}
     fields = set(model.model_fields)
     draft = {k: v for k, v in raw.items() if k in fields}
+    if kind == "event_rule":
+        for k in ("match", "clear_match"):
+            if k in draft:
+                draft[k] = normalize_match(draft[k])
     explanation = str(raw.get("explanation") or "")[:1000]
     assumptions = [str(a)[:300] for a in (raw.get("assumptions") or []) if str(a).strip()][:10]
     return draft, explanation, assumptions
@@ -188,7 +329,7 @@ async def run_draft(rt: Any, user: Any, ctx: Any, kind: str, description: str) -
         tz = await common.tz_name(session)
         what = "alert rule" if kind == "alert_rule" else "event rule"
         tool = propose_tool(kind)
-        block = BLOCK.format(what=what, tool=tool["name"])
+        block = BLOCK.format(what=what, tool=tool["name"], subject=SUBJECT[kind])
         if kind == "event_rule":
             block += " " + EVENT_HELP
         system = await common.system_prompt(
@@ -209,7 +350,12 @@ async def run_draft(rt: Any, user: Any, ctx: Any, kind: str, description: str) -
     specs = [t.spec()["toolSpec"] for t in tools_mod.available(gate, READ_TOOLS)]
     policy = common.redact_policy(a)
     question = redact.apply_text(description, policy)
-    messages: list[dict[str, Any]] = [common.user_message(f"Description: {question}")]
+    from netmon.assistant.lang import detect_language
+
+    lang = detect_language(description, getattr(user, "language", None) or "en")
+    messages: list[dict[str, Any]] = [
+        common.user_message(f"Description: {question}\n\n{language_line(lang)}")
+    ]
     totals = {
         "input_tokens": 0,
         "output_tokens": 0,
@@ -223,6 +369,7 @@ async def run_draft(rt: Any, user: Any, ctx: Any, kind: str, description: str) -
     last = None
     repair_rounds = 0
     errors: list[dict[str, Any]] = []
+    cannot: dict[str, str] | None = None
 
     def remaining() -> float:
         return DEADLINE_S - (time.monotonic() - started)
@@ -297,13 +444,18 @@ async def run_draft(rt: Any, user: Any, ctx: Any, kind: str, description: str) -
             messages.append({"role": "user", "content": results})
         if final is None:
             raise common.AiError("invalid_output", "The model did not return a draft")
-        draft, explanation, assumptions = split_draft(
-            kind, common.detokenize(final.get("input"), policy)
-        )
-        async with rt.sessionmaker() as session:
-            errors = await validate(session, kind, draft)
-            await session.rollback()
-        if errors and remaining() > 3:
+        raw = common.detokenize(final.get("input"), policy)
+        draft, explanation, assumptions = split_draft(kind, raw)
+        reason = cannot_draft_of(raw)
+        if reason is not None:
+            cannot = {"reason": reason or CANNOT_REASON[lang], "source": "model"}
+        elif is_placeholder(kind, draft):
+            cannot = {"reason": CANNOT_REASON[lang], "source": "placeholder"}
+        if cannot is None:
+            async with rt.sessionmaker() as session:
+                errors = await validate(session, kind, draft)
+                await session.rollback()
+        if cannot is None and errors and remaining() > 3:
             repair_rounds = 1
             messages.append(
                 {
@@ -323,16 +475,23 @@ async def run_draft(rt: Any, user: Any, ctx: Any, kind: str, description: str) -
             comp = await call(forced=True)
             again = next((u for u in comp.tool_uses if u.get("name") == tool["name"]), None)
             if again is not None:
-                d2, e2, a2 = split_draft(kind, common.detokenize(again.get("input"), policy))
-                async with rt.sessionmaker() as session:
-                    errs2 = await validate(session, kind, d2)
-                    await session.rollback()
-                draft, explanation, assumptions, errors = (
-                    d2,
-                    e2 or explanation,
-                    a2 or assumptions,
-                    errs2,
-                )
+                raw2 = common.detokenize(again.get("input"), policy)
+                d2, e2, a2 = split_draft(kind, raw2)
+                reason2 = cannot_draft_of(raw2)
+                if reason2 is not None:
+                    cannot = {"reason": reason2 or CANNOT_REASON[lang], "source": "model"}
+                elif is_placeholder(kind, d2):
+                    cannot = {"reason": CANNOT_REASON[lang], "source": "placeholder"}
+                else:
+                    async with rt.sessionmaker() as session:
+                        errs2 = await validate(session, kind, d2)
+                        await session.rollback()
+                    draft, explanation, assumptions, errors = (
+                        d2,
+                        e2 or explanation,
+                        a2 or assumptions,
+                        errs2,
+                    )
     except common.AiError as err:
         await common.audit_user(
             rt,
@@ -361,14 +520,16 @@ async def run_draft(rt: Any, user: Any, ctx: Any, kind: str, description: str) -
             {"kind": kind, "purpose": "rule_draft", "status": "failed", "error_code": err.code},
         )
         raise err.api_error() from None
-    validation = {"ok": not errors, "errors": errors}
+    if cannot is not None:
+        draft, explanation, assumptions, errors = {}, "", [], []
+    validation = {"ok": cannot is None and not errors, "errors": errors}
     conv_id = await store_conversation(
         rt,
         user,
         "rule_draft",
         "rule_draft",
         description,
-        explanation,
+        cannot["reason"] if cannot else explanation,
         last,
         totals,
         model_calls,
@@ -380,12 +541,14 @@ async def run_draft(rt: Any, user: Any, ctx: Any, kind: str, description: str) -
             "rule_draft",
             f"draft:{uuid.uuid4()}",
             "ok",
-            content=explanation,
+            content=cannot["reason"] if cannot else explanation,
             data={
                 "kind": kind,
-                "draft": draft,
+                "draft": None if cannot else draft,
+                "cannot_draft": cannot,
                 "assumptions": assumptions,
                 "validation": validation,
+                "language": lang,
             },
             conversation_id=conv_id,
             created_by=user.id,
@@ -402,7 +565,8 @@ async def run_draft(rt: Any, user: Any, ctx: Any, kind: str, description: str) -
             "kind": kind,
             "purpose": "rule_draft",
             "status": "ok",
-            "valid": not errors,
+            "valid": validation["ok"],
+            "cannot_draft": cannot["source"] if cannot else None,
             "repair_rounds": repair_rounds,
             "model_calls": model_calls,
             "tool_calls": tool_calls,
@@ -412,7 +576,9 @@ async def run_draft(rt: Any, user: Any, ctx: Any, kind: str, description: str) -
     )
     return {
         "kind": kind,
-        "draft": draft,
+        "draft": None if cannot else draft,
+        "cannot_draft": cannot,
+        "language": lang,
         "explanation": explanation,
         "assumptions": assumptions,
         "validation": validation,

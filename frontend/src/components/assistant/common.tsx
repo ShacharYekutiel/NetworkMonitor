@@ -90,3 +90,43 @@ export function useAssistantErrorText() {
     return withServer.has(e.code) && e.message && e.message !== tr ? `${tr} — ${e.message}` : tr;
   };
 }
+
+/**
+ * [3b owner] "No draft possible" (rule / template drafts): the reason (in the description's
+ * language, from the server) and an example of a usable description; no form is opened.
+ */
+export function CannotDraftNotice({
+  title,
+  reason,
+  hint,
+  example,
+  testId = 'cannot-draft',
+}: {
+  title: string;
+  reason: string;
+  hint: string;
+  example: string;
+  testId?: string;
+}) {
+  return (
+    <div
+      className="space-y-1 rounded-md bg-amber-50 px-3 py-2 text-sm text-amber-900 ring-1 ring-inset ring-amber-200 dark:bg-amber-950/40 dark:text-amber-200 dark:ring-amber-900"
+      role="status"
+      data-testid={testId}
+    >
+      <p className="flex items-center gap-2 font-medium">
+        <AiBadge />
+        {title}
+      </p>
+      {reason && (
+        <p dir="auto" className="text-xs" data-testid={`${testId}-reason`}>
+          {reason}
+        </p>
+      )}
+      <p className="text-xs">{hint}</p>
+      <p dir="auto" className="text-xs italic">
+        “{example}”
+      </p>
+    </div>
+  );
+}
