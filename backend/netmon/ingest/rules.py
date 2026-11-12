@@ -34,6 +34,7 @@ class Rule:
     clear_match: dict[str, Any] | None = None
     clear_after_min: int | None = None
     enabled: bool = True
+    builtin_key: str | None = None  # [1.3] (LAG degraded follows the built-in link-down rule)
     _compiled: dict[str, re.Pattern[str] | None] = field(default_factory=dict, repr=False)
 
     def regex(self, pattern: str | None) -> re.Pattern[str] | None:
@@ -63,6 +64,7 @@ class Rule:
             clear_match=dict(r["clear_match"]) if r.get("clear_match") else None,
             clear_after_min=r.get("clear_after_min"),
             enabled=bool(r.get("enabled", True)),
+            builtin_key=r.get("builtin_key"),
         )
 
 

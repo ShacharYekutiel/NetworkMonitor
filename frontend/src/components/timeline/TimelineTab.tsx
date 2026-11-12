@@ -173,7 +173,7 @@ export function TimelineTab({ deviceId }: { deviceId: number }) {
                     <span
                       className={cx(
                         'mt-1.5 h-2.5 w-2.5 shrink-0 rounded-full',
-                        TIMELINE_TONE[it.kind],
+                        TIMELINE_TONE[it.kind] ?? 'bg-slate-500',
                       )}
                       aria-hidden="true"
                     />
@@ -184,7 +184,7 @@ export function TimelineTab({ deviceId }: { deviceId: number }) {
                       {new Date(it.time).toLocaleTimeString()}
                     </span>
                     <span className="w-24 shrink-0 text-xs text-slate-500">
-                      {t(`timeline.kind.${it.kind}`)}
+                      {t(`timeline.kind.${it.kind}`, { defaultValue: it.kind })}
                     </span>
                     <span className="min-w-0 flex-1 text-sm">
                       <ItemText it={it} />

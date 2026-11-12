@@ -95,6 +95,15 @@ def test_converted_templates_identical_to_2b1() -> None:
         e["filters"] = [{"oid": e["walk_oid"], "in": None, "not_in": [65535]}]
     ids = [t["id"] for t in fixture]
     loaded = [strip_2b2(t) for t in TEMPLATES if t["id"] in ids]
+    # [1.3] deliberate change: hpe_comware gains the IRF entries (HH3C-STACK-MIB); the sensor
+    # entries also carry `expect_from_probe`
+    irf = "1.3.6.1.4.1.25506.2.91."
+    for t in loaded:
+        t["entries"] = [
+            e
+            for e in t["entries"]
+            if not str(e.get("walk_oid") or e.get("config", {}).get("oid") or "").startswith(irf)
+        ]
     assert [t["id"] for t in loaded] == ids
     assert json.loads(json.dumps(loaded)) == fixture
 
@@ -543,3 +552,22 @@ def test_yaml_pitfalls(tmp_path: Path) -> None:
         "entries[0].walk_oid",
     )
     assert by["c/bool_name.yaml"]["path"] == "name.en"
+
+
+@pytest.mark.parametrize(
+    ("scale", "precision", "factor"),
+    [
+        (9, 0, 1.0),  # units
+        (9, 3, 0.001),  # Aruba CX: 23000 -> 23.000
+        (8, 0, 0.001),  # milli
+        (8, 1, 0.0001),
+        (10, 0, 1000.0),  # kilo
+        (9, -2, 100.0),
+        (None, None, 1.0),  # columns not readable
+        (99, 42, 1.0),  # out of range
+    ],
+)
+def test_entity_sensor_multiplier(scale: Any, precision: Any, factor: float) -> None:
+    from netmon.templates.apply import entity_sensor_multiplier
+
+    assert entity_sensor_multiplier(scale, precision) == pytest.approx(factor)

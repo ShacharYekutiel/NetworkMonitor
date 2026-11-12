@@ -145,6 +145,12 @@ def test_oid_names() -> None:
     assert oid_names.name("1.3.6.1.2.1.2.2.1.1.5") == "ifIndex.5"
     assert oid_names.name("1.3.6.1.4.1.25506.2.6.2.0.1") == "h3c.2.6.2.0.1"
     assert oid_names.name("1.3.6.1.4.1.999999.1") is None
+    # owner's switch: syslog-as-trap and the Comware heartbeat
+    assert oid_names.name("1.3.6.1.2.1.192.0.1") == "syslogMsgNotification"
+    assert oid_names.name("1.3.6.1.4.1.25506.2.38.1.6.3.0.1") == "hh3cPeriodicalTrap"
+    assert oid_names.name("1.3.6.1.4.1.25506.2.22.1.3.0.3") == "hh3cSSHUserLogin"
+    assert oid_names.name("1.3.6.1.4.1.25506.2.2.1.1.3.0.1") == "hh3cLogIn"
+    assert oid_names.name("1.3.6.1.2.1.192.1.2.1.11.7") == "syslogMsgMib.1.2.1.11.7"
     assert oid_names.enum_display("1.3.6.1.2.1.2.2.1.8.5", "2") == "down(2)"
     assert oid_names.enum_display("1.3.6.1.2.1.2.2.1.8.5", "9") == "9"
 

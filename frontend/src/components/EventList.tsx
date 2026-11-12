@@ -10,7 +10,9 @@ import { ExplainButton } from './assistant/ExplainButton';
 
 export function EventKindLabel({ kind }: { kind: NmEvent['kind'] }) {
   const { t } = useTranslation();
-  return <span className="text-xs text-slate-500">{t(`eventKind.${kind}`)}</span>;
+  return (
+    <span className="text-xs text-slate-500">{t(`eventKind.${kind}`, { defaultValue: kind })}</span>
+  );
 }
 
 export function StatusTransition({ ev }: { ev: NmEvent }) {

@@ -134,6 +134,13 @@ test('own tabs: toggle card at the top, settings only while ON (Config backup)',
   await shot3(page, '51-backup-tab-off');
   await sw.click();
   await expect.poll(async () => (await features(api)).config_backup, { timeout: 10_000 }).toBe(true);
+  // Turning config backup on while syslog is ON (earlier specs, e.g. 41) offers the built-in config-change
+  // triggers in a dialog ("Enable the built-in config-change triggers?"): answer "Not now".
+  const offer = page.getByRole('dialog').filter({ hasText: tx('features.backupBuiltinTitle', /built-in config-change triggers/i) });
+  if (await offer.isVisible().catch(() => false) || await offer.waitFor({ timeout: 2_000 }).then(() => true, () => false)) {
+    await offer.getByRole('button', { name: /not now/i }).click();
+    await expect(offer).toHaveCount(0);
+  }
   await expect(title).toBeVisible();
   await sw.click();
   await expect.poll(async () => (await features(api)).config_backup, { timeout: 10_000 }).toBe(false);

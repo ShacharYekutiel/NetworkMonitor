@@ -7,6 +7,8 @@ Items marked **[2b-2]** are specified in [§ Phase 2b-2](#2b-2-phase-2b-2-contra
 Items marked **[2b-3]** are specified in [§ Phase 2b-3](#2b-3-phase-2b-3-contract).
 Items marked **[3]** are specified in [§ Phase 3](#3-phase-3-contract).
 Items marked **[3b]** are specified in [§ Phase 3b](#3b-phase-3b-contract).
+Items marked **[1.3]** (release 1.3: sensor impact, important ports, interface selection on template apply,
+connected hosts / CSV on ports, LAG degraded, IRF) are specified in [§ Release 1.3](#13-release-13-contract).
 
 This file is the contract between the backend (`backend/netmon/schemas`) and the frontend
 (`frontend/src/api/types.ts`). **Field names are exact.** For the table semantics see
@@ -284,6 +286,8 @@ The top-level `groups` holds the root groups (`parent_id = null`).
 | `PATCH /api/devices/{id}` | admin | Subset of the create fields. `"enabled": false` pauses all of its sensors. | `Device` |
 | `DELETE /api/devices/{id}` | admin | — | `204` (cascades to its sensors) |
 | `GET /api/devices/{id}/snmp/interfaces` | admin | — | See below. A timeout or auth failure → `502 snmp_error`. |
+| **[1.3]** `GET /api/devices/{id}/ports.csv` | viewer | — | Ports × connected MACs as CSV ([§ 1.3](#13-release-13-contract)) |
+| **[1.3]** `GET /api/devices/{id}/apply-template/interfaces` | admin | Query `template_id` | Interface choices of the apply dialog ([§ 1.3](#13-release-13-contract)) |
 
 Create request:
 
@@ -348,7 +352,8 @@ Create request:
 | `GET /api/sensors` | viewer | Query: `device_id`, `group_id` (recursive), `status`, `type`, `q` (name) | Page of `Sensor`, sorted by `device_name, sort_order, name`. A `status` filter returns the "worst first" order: severity desc, then `last_status_change_at` asc. |
 | `POST /api/sensors` | admin | See below | `201 Sensor` |
 | `GET /api/sensors/{id}` | viewer | — | `Sensor` |
-| `PATCH /api/sensors/{id}` | admin | Subset of `{name, config, interval_s, enabled, sort_order, channels}`. `type` cannot change. `config` is merged over the stored config. | `Sensor` |
+| `PATCH /api/sensors/{id}` | admin | Subset of `{name, config, interval_s, enabled, sort_order, channels}` (**[1.3]** + `impact`). `type` cannot change. `config` is merged over the stored config. | `Sensor` |
+| **[1.3]** `POST /api/sensors/bulk-impact` | admin | `{"sensor_ids": [7, 8], "impact": "warning"}` | `{"updated": n}` ([§ 1.3](#13-release-13-contract)) |
 | `DELETE /api/sensors/{id}` | admin | — | `204` |
 | `POST /api/sensors/{id}/run` | admin | — (no body) | `200 CheckResult`. Runs the check now and persists it (measurements, status, events, WS) like a scheduled run. Does not move the schedule. A paused sensor (or disabled device) → `409 sensor_paused`. |
 | `POST /api/sensors/test` | admin | `{"device_id":3,"type":"http","config":{...}}`. You may send `"host"` instead of `device_id`; a test against an unsaved device then uses `"snmp_credentials"` from the body. | `200 CheckResult`. Persists **nothing**. |
@@ -1422,6 +1427,7 @@ type TemplateEntry =
   | { kind: "snmp_table"; walk_oid: string; label_oid: string | null; label2_oid: string | null;
       percent_of_column: string | null; name: L10n; config: Record<string, unknown>; channels: ChannelOverride[];
       max: number; skip_zero: boolean; filters: TemplateFilter[]; interval_s: number | null;
+      entity_sensor_scale?: true;  // [1.2.1] present only when set
       confidence: Confidence | null; notes: string };
 type DeviceTemplate = { id: string; name: L10n; description: L10n; requires_snmp: boolean; priority: number;
   match: TemplateRule[]; entries: TemplateEntry[];
@@ -2531,3 +2537,120 @@ arguments (tool name, size, duration only).
 | `walk.update` | `{"walk": SnmpWalk}` (without varbinds) | progress every 2 s / finish; the requesting admin |
 | `features.changed` | 11 new names | as 2b-3 |
 | `templates.reloaded` | as 2b-2 | after `POST /api/device-templates/user` |
+
+---
+
+## [1.3] Release 1.3 contract
+
+Improvements of core behaviour requested by the owner's network team after 1.2.0 in production (HPE Comware FF 5945
+IRF, ArubaOS-Switch, Aruba CX). **Not feature-flagged** (owner decision): everything below is always active.
+Semantics: [data-model.md § 1.3](data-model.md#13-release-13-additions); behaviour:
+[architecture.md § 14](architecture.md#14-release-13-sensor-impact-important-ports-interface-selection-connected-hosts-lag-degraded-irf).
+
+### [1.3] Type changes
+
+```ts
+type Impact = "critical" | "warning" | "none";
+type Sensor = Sensor & { impact: Impact };          // GET/POST/PATCH sensor responses, sensor lists, dashboard
+// GET /api/tree: every sensor node gains `impact: Impact`
+// SensorCreate gains `impact?: Impact | null` (absent/null: snmp_interface -> by port importance, else "critical")
+// SensorPatch gains `impact?: Impact` (also allowed on passive event sensors)
+
+type ImportantReason = "uplink" | "lag" | "trunk";
+type PortConnectedHost = { mac: string; ip: string | null; hostname: string | null; vendor: string | null;
+  device_id: number | null; device_name: string | null };
+type Port = Port & {                                // also PortDetail
+  important: boolean;                               // important_reasons.length > 0
+  important_reasons: ImportantReason[];             // in this order; trunks always listed (see settings)
+  connected: { count: number;                       // MACs on the port (uplink: its mac_count, MACs not loaded)
+               first: PortConnectedHost | null };   // = first_mac (null for uplinks / no MAC)
+  neighbor_name: string | null;                     // primary neighbour's name (= neighbor.name)
+  neighbor_mgmt_address: string | null };           // primary neighbour's management address
+
+type ApplyTemplateRequest = { template_id: string;
+  interfaces?: "important" | "none" | "all" | number[];   // default "important"; number[] = ifIndexes, ≤ 1000
+  remove_unselected_interfaces?: boolean };               // default false
+type ApplyTemplateResult = ApplyTemplateResult & {
+  removed: { sensor_id: number; name: string }[] };       // [] unless remove_unselected_interfaces
+```
+
+`status_counts` (device / group / dashboard `sensor_counts`) keep counting raw **sensor** statuses; only the
+**device status** (and therefore group status, `device_counts`, tree, kiosk, `device.status` WS) honours impact.
+
+### [1.3] Sensor impact
+| Method & path | Role | Request | Response |
+|---|---|---|---|
+| `POST /api/sensors/bulk-impact` | admin | `{"sensor_ids": int[] (1–1000), "impact": Impact}` | `200 {"updated": n}` — `n` = sensors whose impact actually changed. An unknown id → `422 validation_error` (nothing changed). One `sensor.update` audit row per changed sensor (`changes.impact = [old, new]`). WS: `config.changed` (`device`, `updated`) once per affected device, then `device.status` / `group.status` as usual. |
+
+No generic sensor bulk endpoint existed before 1.3; this is a new endpoint.
+
+### [1.3] Template apply: interface selection
+`POST /api/devices/{id}/apply-template` takes the new request fields above.
+
+- `"important"` (default): interfaces of the template's `snmp_interfaces` entries that are important
+  ([data-model § Important ports](data-model.md#13-important-ports)), then the entry filters (`oper_up_only`,
+  `exclude_if_types`, name regexes, `max`) as before. Without port inventory rows the server first runs a port
+  inventory (only when it is effective for the device; up to ≈ 20 s inside the request). Still none: a switch
+  (port inventory `on`, or class `switch`) → only LAG interfaces (ifType 161) are important; any other device
+  (server, router, firewall, AP) → the 1.2 selection (as `"all"`).
+- `"all"`: the 1.2 behaviour (entry filters + `oper_up_only` + `max`).
+- `"none"`: no interface sensors.
+- `number[]`: exactly these ifIndexes; `oper_up_only` and `max` are bypassed, the type / name filters are not.
+  An ifIndex the device does not have → skipped `not_applicable` "Interface 99 not found"; one excluded by
+  the template's filters → skipped `not_applicable` "Excluded by the template". Interfaces are only created
+  through a template that has an `snmp_interfaces` entry.
+- New interface sensors get `impact` `critical` on important ports, `warning` on the others; `critical` when
+  the device has no port inventory.
+- `remove_unselected_interfaces: true`: deletes this device's `snmp_interface` sensors whose ifIndex is not
+  selected and reports them in `removed`. Selected = the ifIndexes of the list; `"none"` = nothing (all are
+  removed); `"important"` / `"all"` = the interfaces passing the entries' type / name filters (and important,
+  for `"important"`) **before** `oper_up_only` / `max`, so a down uplink keeps its sensor. With `"important"` /
+  `"all"` nothing is removed when the template has no `snmp_interfaces` entry or the SNMP enumeration failed.
+  Audited inside `device.apply_template` (`changes.removed`).
+- A switch whose port inventory cannot run yet (no SNMP sensor so far, e.g. just imported by discovery) is
+  applied in two steps inside the same request: all other entries first, then one bounded port inventory run,
+  then the `snmp_interfaces` entries on its result (`created` / `skipped` are concatenated). Discovery import
+  uses `"important"` the same way.
+
+**`GET /api/devices/{id}/apply-template/interfaces?template_id=`** (admin) — the dialog's list:
+
+```json
+{ "items": [
+  { "if_index": 3, "name": "Gi1/0/3", "alias": "", "oper_status": "up", "speed_bps": 1000000000,
+    "kind": "physical", "important": true, "reasons": ["trunk"], "has_sensor": false, "sensor_id": null } ],
+  "inventory": "ok" }
+```
+
+- `inventory: "ok"`: rows from the stored port inventory (`switch_ports`), importance as in the ports view.
+  No inventory: one bounded port inventory run (≈ 20 s, only when effective; class detection first if needed);
+  still none → `"missing"` and the rows come from the SNMP enumeration with `important: false` except LAG
+  interfaces (`reasons: ["lag"]`). SNMP failure then → `502 snmp_error`.
+- Rows are filtered by the template's `snmp_interfaces` type / name filters (all rows when it has none), sorted
+  by ifIndex. `kind` is the 2b-2 `PortKind`. `sensor_id` = the existing `snmp_interface` sensor of that ifIndex
+  (lowest id). Unknown `template_id` → `422`; unknown device → `404`.
+
+### [1.3] Ports: CSV export
+**`GET /api/devices/{id}/ports.csv`** (viewer): `text/csv; charset=utf-8`, UTF-8 **with BOM** (Excel / Hebrew),
+`Content-Disposition: attachment; filename="ports-<device name>.csv"`, CRLF lines, spreadsheet formula guard
+(a cell starting with `= + - @` is prefixed with `'`). Header:
+`port,alias,status,vlan,mode,mac,ip,hostname,vendor,neighbor`. One row per port × present MAC (the MACs the
+port view lists, including LAG MACs on members while `lag` is ON); a port without MACs and every uplink → one row
+with empty mac/ip/hostname/vendor. `status` = `PortState`; `vlan` = the MAC's VLAN, else the port's PVID; `mode`
+= `access` / `trunk` / empty; `neighbor` = `"<name> (<mgmt address>)"` (or the name only). `404` for an unknown
+device.
+
+### [1.3] Settings
+| Key | Type | Default | Limits |
+|---|---|---|---|
+| `trunk_min_tagged_vlans` | int | 2 | 1–100 (else 422) |
+| `event_linkdown_include_trunks` | bool | true | |
+
+Both are in `GET/PUT /api/settings`; a change reloads the ingest configuration (important-port caches dropped).
+
+### [1.3] Event conditions
+`EventCondition.source` gains **`lag_degraded`** (on the device's `trap` sensor, `key` = the LAG ifIndex,
+`rule_id` null, status `warning`, message `LAG BAGG1 degraded (1 of 2 members up)`).
+
+### [1.3] Device templates
+Template entries may carry `expect_from_probe` (sensor entries, only when set) and `when` (`snmp_table` entries,
+only when set); `GET /api/device-templates*` returns them as stored ([data-model § 1.3](data-model.md#13-template-options)).

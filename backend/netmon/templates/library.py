@@ -251,7 +251,18 @@ def _vendor_oid(*oids: Any) -> bool:
 
 # ------------------------------------------------------------------ entries
 COMMON_ENTRY = ("kind", "confidence", "notes")
-SENSOR_KEYS = (*COMMON_ENTRY, "type", "name", "config", "channels", "interval_s", "probe", "when")
+SENSOR_KEYS = (
+    *COMMON_ENTRY,
+    "type",
+    "name",
+    "config",
+    "channels",
+    "interval_s",
+    "probe",
+    "when",
+    "expect_from_probe",  # [1.3]
+)
+BOUNDS = ("warning_min", "warning_max", "down_min", "down_max")
 INTERFACES_KEYS = (
     *COMMON_ENTRY,
     "oper_up_only",
@@ -274,6 +285,8 @@ TABLE_KEYS = (
     "skip_zero",
     "filters",
     "interval_s",
+    "entity_sensor_scale",
+    "when",  # [1.3]
 )
 TABLE_FORBIDDEN_CONFIG = ("oid", "percent_of_oid", "label")
 
@@ -306,10 +319,31 @@ def _sensor_entry(e: dict[str, Any], path: str) -> dict[str, Any]:
         "probe": _bool(e.get("probe", False), _join(path, "probe")),
         "when": _filters(e.get("when", []), _join(path, "when")),
     }
+    # [1.3] a channel threshold taken from the probe value at apply time (only when set, so
+    # existing templates keep their exact shape)
+    if e.get("expect_from_probe") is not None:
+        out["expect_from_probe"] = _expect(e, type_, out["probe"], _join(path, "expect_from_probe"))
     vendor = type_ in OID_SENSOR_TYPES and _vendor_oid(
         config.get("oid"), config.get("percent_of_oid")
     )
     return _common(out, e, path, vendor)
+
+
+def _expect(e: dict[str, Any], type_: str, probe: bool, path: str) -> dict[str, str]:
+    from netmon.poller.sensor_types import SENSOR_TYPES
+
+    obj = _mapping(e["expect_from_probe"], path)
+    _keys(obj, path, ("channel", "bound"), ("channel", "bound"))
+    if not probe:
+        raise TemplateError(path, "invalid value: expect_from_probe needs probe: true")
+    channels = [c.key for c in SENSOR_TYPES[type_].channels]
+    if obj["channel"] not in channels:
+        raise TemplateError(
+            _join(path, "channel"), f"invalid value: unknown channel {obj['channel']}"
+        )
+    if obj["bound"] not in BOUNDS:
+        raise TemplateError(_join(path, "bound"), f"invalid value: must be one of {list(BOUNDS)}")
+    return {"channel": str(obj["channel"]), "bound": str(obj["bound"])}
 
 
 def _interfaces_entry(e: dict[str, Any], path: str) -> dict[str, Any]:
@@ -367,6 +401,12 @@ def _table_entry(e: dict[str, Any], path: str) -> dict[str, Any]:
         "filters": _filters(e.get("filters", []), _join(path, "filters")),
         "interval_s": _opt_int(e.get("interval_s"), _join(path, "interval_s"), 10, 86400),
     }
+    # ENTITY-SENSOR-MIB: scale each row by its entPhySensorScale/Precision (only when set,
+    # so existing templates keep their exact shape)
+    if _bool(e.get("entity_sensor_scale", False), _join(path, "entity_sensor_scale")):
+        out["entity_sensor_scale"] = True
+    if e.get("when"):  # [1.3] conditions (as sensor `when`), only when set
+        out["when"] = _filters(e["when"], _join(path, "when"))
     return _common(out, e, path, _vendor_oid(walk))
 
 

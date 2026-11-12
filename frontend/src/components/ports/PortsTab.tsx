@@ -10,7 +10,7 @@ import { formatRelative } from '../../lib/format';
 import { onPortsUpdated, refetchIfInvalidated } from '../../lib/liveCache';
 import { ListIcon, PanelIcon, RefreshIcon } from '../icons';
 import { useToast } from '../toast';
-import { Button, Card, cx, ErrorBox, Loading, Notice } from '../ui';
+import { Button, buttonClass, Card, cx, ErrorBox, Loading, Notice } from '../ui';
 import { Faceplate, FaceplateLegend } from './Faceplate';
 import { HealthStrip } from './HealthStrip';
 import { PortList } from './PortList';
@@ -181,6 +181,16 @@ export function PortsTab({ device }: { device: Device }) {
           <div className="flex flex-wrap items-center justify-between gap-2">
             <StatusLine data={data} />
             <div className="flex flex-wrap items-center gap-2">
+              {data.ports.length > 0 && (
+                <a
+                  className={buttonClass('secondary', 'sm')}
+                  href={endpoints.devicePortsCsvUrl(device.id)}
+                  download
+                  data-testid="ports-csv"
+                >
+                  {t('ports.exportCsv')}
+                </a>
+              )}
               {isAdmin && (
                 <Button size="sm" busy={busy} onClick={() => refresh.mutate()} disabled={busy}>
                   {!busy && <RefreshIcon size={13} />} {t('ports.refresh')}

@@ -373,11 +373,13 @@ async def test_scan_import_end_to_end(rt, admin: httpx.AsyncClient, lab: Lab) ->
     assert pr["Page counter"]["interval_s"] == 3600
     skipped_p = {s["name"]: s for s in created[ids[23]]["sensors_skipped"]}
     assert skipped_p["HTTP"]["reason"] == "probe_failed"
-    # switch: CPU/memory probes fail without HOST-RESOURCES; 2 up interfaces
+    # switch: CPU/memory probes fail without HOST-RESOURCES; [1.3] interface sensors only for
+    # important ports: its two up access ports (no uplink / LAG / trunk) get none
     sw = created[ids[24]]
     reasons = {(s["name"], s["reason"]) for s in sw["sensors_skipped"]}
     assert ("CPU Load", "probe_failed") in reasons and ("Memory", "probe_failed") in reasons
-    assert {"Gi1/0/1", "Gi1/0/2", "Ping", "System"} == set(await sensors_of(sw["device_id"]))
+    assert {"Ping", "System"} == set(await sensors_of(sw["device_id"]))
+    assert ("Interfaces", "no_rows") in reasons
     # firewall: interfaces igb0 + igb1 only (lo0 loopback, pflog0 excluded, enc0 down)
     fw = await sensors_of(created[ids[21]]["device_id"])
     assert {"Ping", "System", "CPU Load", "Memory", "Disk /", "igb0", "igb1"} == set(fw)

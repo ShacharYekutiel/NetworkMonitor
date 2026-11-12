@@ -527,7 +527,7 @@
     "backup_running": "A backup of this device is already running.",
     "host_key_mismatch": "The host key changed again since it was shown. Reload and check the new fingerprint.",
     "no_host_key_change": "The host key has not changed; there is nothing to accept.",
-    "invalid_private_key": "The private key could not be read (wrong format, passphrase or password).",
+    "invalid_private_key": "The SSH private key could not be read (wrong format or passphrase).",
     "ssh_error": "SSH test failed",
     "invalid_keytab": "The keytab file could not be read or its version is not supported.",
     "sso_failed": "Single sign-on failed.",
@@ -1391,7 +1391,9 @@
       "errors": "Errors (Δ)",
       "lastChange": "Last change",
       "ifIndex": "ifIndex",
-      "kind": "Kind"
+      "kind": "Kind",
+      "connIp": "Connected IP",
+      "connName": "Name / neighbor"
     },
     "filter": "Filter ports",
     "filterPlaceholder": "Filter: port, alias, MAC, IP, hostname, vendor, neighbour…",
@@ -1479,6 +1481,13 @@
       "viaLag": "LAG",
       "vlansFromLag": "VLANs inherited from the LAG",
       "macViaLag": "Learned on the LAG"
+    },
+    "exportCsv": "Export CSV",
+    "conn": {
+      "neighbor": "LLDP",
+      "neighborTitle": "LLDP/CDP neighbor",
+      "moreTitle_one": "{{count}} more device on this port",
+      "moreTitle_other": "{{count}} more devices on this port"
     }
   },
   "health": {
@@ -1960,7 +1969,8 @@
       "backup_failed": "Backup failed",
       "host_key": "SSH host key changed",
       "config_changed": "Configuration changed",
-      "new_mac": "New device"
+      "new_mac": "New device",
+      "lag_degraded": "LAG degraded"
     }
   },
   "flapping": {
@@ -2072,6 +2082,13 @@
       "importantHint": "Uplinks, LAGs and ports with an interface sensor — no alert for every PC switched off at night.",
       "all": "All ports",
       "allHint": "Every port that goes down or flaps raises an alert."
+    },
+    "trunks": {
+      "include": "Include all trunk ports",
+      "includeHint": "Link-down and flapping alerts also for every trunk port, even when it is not an uplink.",
+      "minTagged": "Trunk = port with at least N tagged VLANs",
+      "minTaggedHint": "Access ports with a voice VLAN carry one tagged VLAN; keep N at 2 or more so IP-phone ports are not treated as trunks.",
+      "minTaggedErr": "Enter a whole number from 1 to 100."
     }
   },
   "siem": {
@@ -3056,6 +3073,82 @@
     "teamsLimit": "In Teams the Acknowledge button opens NetworkMonitor in your browser; it works from the office network or VPN.",
     "emailHint": "Adds an Acknowledge link that opens NetworkMonitor.",
     "needsPublicUrl": "Links need the public URL (Settings → General)."
+  },
+  "trapCollapse": {
+    "title": "Repetitive traps",
+    "intro": "Some devices send the same trap over and over (a heartbeat, or every syslog message as a trap). Keep only the newest traps of these OIDs per source; event rules still see every trap.",
+    "enabled": "Keep only the newest traps of these OIDs",
+    "keep": "Traps to keep per source and OID",
+    "keepHint": "1–1000",
+    "keepErr": "Enter 1–1000.",
+    "oids": "Trap OIDs",
+    "oidsHint": "Numeric OIDs, one per line (up to 64).",
+    "oidsErr": "Not a numeric OID: {{list}}",
+    "known": {
+      "hh3cPeriodicalTrap": "Comware heartbeat, sent when no other trap was sent for a while",
+      "syslogMsgNotification": "a syslog message sent as a trap (it also arrives as syslog)"
+    }
+  },
+  "impact": {
+    "label": "Impact on device status",
+    "option": {
+      "critical": "Critical",
+      "warning": "Warning",
+      "none": "None"
+    },
+    "hint": {
+      "critical": "The device takes this sensor's status (down makes the device down).",
+      "warning": "A failure of this sensor makes the device at most \"warning\".",
+      "none": "This sensor never changes the device status."
+    },
+    "tag": {
+      "warning": "warning only",
+      "none": "no impact"
+    },
+    "tagTitle": "Impact on device status: {{impact}}",
+    "selectSensor": "Select {{name}}",
+    "selected_one": "{{count}} selected",
+    "selected_other": "{{count}} selected",
+    "setImpact": "Set impact…",
+    "clearSelection": "Clear selection",
+    "bulkTitle_one": "Set impact of {{count}} sensor",
+    "bulkTitle_other": "Set impact of {{count}} sensors",
+    "apply": "Apply",
+    "bulkDone_one": "Impact updated for {{count}} sensor.",
+    "bulkDone_other": "Impact updated for {{count}} sensors."
+  },
+  "applyPorts": {
+    "title": "Ports",
+    "choice": {
+      "none": "None",
+      "important": "Important ports",
+      "all": "All",
+      "choose": "Choose ports"
+    },
+    "hint": {
+      "none": "No interface sensors are created.",
+      "important": "Uplinks, LAGs and trunks only (recommended).",
+      "all": "An interface sensor for every port the template matches.",
+      "choose": "Pick the ports yourself."
+    },
+    "reason": {
+      "uplink": "Uplink",
+      "lag": "LAG",
+      "trunk": "Trunk"
+    },
+    "hasSensor": "monitored",
+    "hasSensorTitle": "This port already has an interface sensor",
+    "search": "Search name or alias…",
+    "clear": "Clear",
+    "selectImportant": "Select important",
+    "selectedOf": "{{n}} of {{total}} selected",
+    "noPorts": "No ports found on this device.",
+    "inventoryMissing": "The port inventory of this device has not been collected, so important ports (uplinks, LAGs, trunks) could not be determined.",
+    "removeUnselected": "Remove interface sensors of ports not selected",
+    "removeCount_one": "{{count}} existing interface sensor will be deleted, with its history.",
+    "removeCount_other": "{{count}} existing interface sensors will be deleted, with their history.",
+    "removedTitle_one": "Removed {{count}} sensor",
+    "removedTitle_other": "Removed {{count}} sensors"
   },
   "assistant": {
     "title": "Ask the network",

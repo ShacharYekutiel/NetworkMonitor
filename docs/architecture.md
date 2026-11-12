@@ -1,4 +1,5 @@
 # NetworkMonitor — Architecture (Phase 1 / MVP + Phase 2a + Phase 2b-1 + Phase 2b-2 + Phase 2b-3 + Phase 3 + Phase 3b)
+# NetworkMonitor — Architecture (Phase 1 / MVP + Phase 2a + Phase 2b-1 + Phase 2b-2 + Phase 2b-3 + Phase 3 + 1.3)
 
 Phase 2a (auto-discovery, device templates, `snmp_custom`/`snmp_disk`, Telegram) is described in
 [§ 9](#9-phase-2a-discovery-templates-custom-snmp-telegram); items elsewhere marked **[2a]** belong to it.
@@ -16,6 +17,10 @@ reports, NOC wall screen, acknowledge from Telegram/Teams) is described in
 **[3]** belong to it.
 Phase 3b ("Ask the network" assistant and AI features on Amazon Bedrock) is described in
 [§ 14](#14-phase-3b-ask-the-network-assistant-and-ai-features-amazon-bedrock); items marked **[3b]** belong to it.
+Release 1.3 (sensor impact on the device status, one important-port definition, interface selection on template
+apply, connected hosts and CSV on the ports view, trunk / LAG-degraded alerts, IRF sensors) is described in
+[§ 14](#14-release-13-sensor-impact-important-ports-interface-selection-connected-hosts-lag-degraded-irf); items
+marked **[1.3]** belong to it.
 
 NetworkMonitor is a license-free, PRTG-like network monitor. One Python process serves the REST API, the
 WebSocket, the built React SPA, and runs the poller and the alert engine. PostgreSQL holds everything, and
@@ -1351,7 +1356,8 @@ maintenance suppression and after-maintenance sends, rollups, tree, dashboard, w
 - **Important ports** (port filter `important`, avoids an alert for every PC switched off at night): the
   trap's ifIndex has an `snmp_interface` sensor, or is a LAG / LAG member, or is an uplink per the 2b-2 view
   rule; a device with neither port inventory data nor interface sensors → every port is important; a trap
-  without an ifIndex varbind → important.
+  without an ifIndex varbind → important. **[1.3]** now the shared definition (uplink, LAG / member, trunk
+  while `event_linkdown_include_trunks`) plus ports whose interface sensor has impact `critical` (§ 14.2).
 - **Link-down scope** (owner decision, setting `event_linkdown_scope`): `important` (default, the rule
   above) or `all` (every port with a linkDown/linkUp or ifOperStatus change). With `all` the port filter
   `important` matches every port (built-in Link down rule and custom rules using it), and flapping (§ 12.4)
@@ -2728,7 +2734,7 @@ fallback with rows present.
 ## 14. Phase 3b: "Ask the network" assistant and AI features (Amazon Bedrock)
 
 Contract details: [data-model.md § Phase 3b](data-model.md#3b-phase-3b-additions) (tables, settings, pure
-vectors, migration `0008`) and [api.md § Phase 3b](api.md#3b-phase-3b-contract) (types, tool schemas, endpoints,
+vectors, migration `0009`) and [api.md § Phase 3b](api.md#3b-phase-3b-contract) (types, tool schemas, endpoints,
 SSE stream, errors, WS). Backend, frontend, QA and devops implement in parallel against those files and this
 section. Sections are marked **[3b]**. Everything is additive to phase 3 and stacked on it (branch `phase3b`).
 The product stays **read-only towards devices**, and the language model is **read-only towards the product**.
@@ -3707,7 +3713,7 @@ caching fallback, test endpoint steps + `test_id` rules (wrong user, changed fie
 `audit`, feature gates (syslog OFF → `search_syslog` not offered, endpoint 409s), all 10 AI features (inputs exactly
 as specified in the mock log; alert-note timing: the notification is sent before the model call starts — asserted
 with timestamps of the Telegram mock; note timeout → skip; Telegram edit/reply fallback; Teams follow-up; email
-reply headers), conversation retention, migration `0008` up/down on Timescale and fallback.
+reply headers), conversation retention, migration `0009` up/down on Timescale and fallback.
 
 **Injection corpus** (`tests/sim/bedrock/injection/`): syslog lines, `sysDescr`, `ifAlias`, LLDP names, config
 descriptions and KB passages containing "ignore previous instructions", fake `nm:` refs, Markdown images with
@@ -3788,3 +3794,76 @@ rendered answer has no `<img>`, no external `href`, forged refs rendered as text
 | Q4 | Redact internal IP addresses? | As proposed: off in the app, on for Telegram `/ask`. |
 | Q5 | Roles Anywhere certificate? | Roles Anywhere is the recommended method: certificate uploaded in the UI (encrypted), trust anchor Mnidom-PKI-SERV-CA; plus a **Generate CSR** action (key kept on the server). Static access key = simple alternative; default chain for future AWS hosting. |
 | Q6 | Knowledge Base now? | Implemented, OFF by default. |
+
+## 14. Release 1.3: sensor impact, important ports, interface selection, connected hosts, LAG degraded, IRF
+
+Requests of the owner's network team after 1.2.0 in production (FF 5945 IRF, ArubaOS-Switch, Aruba CX). Owner
+decision: core-behaviour improvements, **no feature toggle**. Contract: [api.md § 1.3](api.md#13-release-13-contract),
+[data-model.md § 1.3](data-model.md#13-release-13-additions). Migration `0008`.
+
+### 14.1 Sensor impact ("the switch is red only for critical problems") [1.3]
+- `sensors.impact`: `critical` (as before), `warning` (a problem shows at most as warning on the device), `none`
+  (never a device problem). Applied in exactly one place — `Inventory.compute` (`services/status.py`) — so the
+  API device/group status, tree, dashboard and kiosk counters and the live `device.status` / `group.status`
+  rollup all agree. Sensor status, events, alerts, notifications, maintenance and acknowledge are unchanged.
+- Editing: sensor PATCH and the new `POST /api/sensors/bulk-impact` (audited). Changes trigger the normal
+  rollup broadcast.
+- Upgrade: a one-time startup task (`services/impact.backfill`, guarded by `impact_backfill_version`, like
+  the 1.2.1 trap-name backfill) lowers interface sensors on unimportant ports to `warning`.
+
+### 14.2 One "important port" definition [1.3]
+`netmon/ports/importance.py` (pure core + loader): uplink OR LAG / member OR trunk (≥ `trunk_min_tagged_vlans`
+tagged VLANs, default 2, so access ports with one tagged voice VLAN are not trunks). Reasons are exposed per
+port. Consumers: ports API, template apply and its dialog list, interface-sensor impact (new sensors and
+backfill), ingest `PortInfo` (link-down / flapping scope; trunks only while `event_linkdown_include_trunks`,
+plus ports with a **critical** interface sensor — the 1.2 rule "any interface sensor makes a port important"
+became "a critical one", otherwise the backfill would have made every sensored port important). The ingest
+cache of a device is dropped after each successful port inventory run and on a settings change.
+
+### 14.3 Template apply: interface selection [1.3]
+`interfaces = "important" | "none" | "all" | ifIndex[]` and `remove_unselected_interfaces`
+(`templates/selection.py`, `templates/apply.py`). "important" without inventory runs one bounded port inventory
+(≈ 20 s); if there is still none, switches get only their LAG interfaces, other devices keep the 1.2
+selection (importance is a switch-port notion; a server's or firewall's interfaces must not disappear). The
+dialog list endpoint applies the same rules. A switch whose inventory cannot run yet (no SNMP sensor, e.g. just
+imported by discovery) is applied in two steps: the other entries, then the bounded inventory run, then the
+interfaces. Discovery import uses "important" this way (≈ 20 s more per imported switch, bounded).
+
+### 14.4 Connected hosts and CSV [1.3]
+Port rows gain `connected {count, first}` (the same MAC/ARP/DNS/OUI data and first-MAC choice as the port modal)
+and the primary LLDP/CDP neighbour's `neighbor_name` / `neighbor_mgmt_address`. `GET /ports.csv` exports one row
+per port × MAC (UTF-8 BOM for Excel / Hebrew, formula guard as the audit export).
+
+### 14.5 Trunk and LAG alerts [1.3]
+- With `event_linkdown_include_trunks` (default on), trunk ports are important: linkDown / linkUp traps on them
+  raise / clear the built-in Link-down condition.
+- **LAG degraded** (`ingest/lag_monitor.py`): part of the built-in link-down behaviour (needs `event_alerts` ON
+  and the built-in Link-down rule enabled / in scope; no toggle of its own). A member linkDown / linkUp (from
+  the stored LAG membership) re-evaluates its LAG in the background (serialised, trap order kept); after every
+  successful port inventory run the device's LAGs are reconciled from fresh ifOperStatus and the trap overrides
+  are reset. 0 < up < n → condition `lag_degraded` (warning, "LAG BAGG1 degraded (1 of 2 members up)") on the
+  device's `trap` sensor; all up or all down → removed (fully down stays the existing link-down alert). It goes
+  through the normal condition / status path, so maintenance, acknowledge, escalation and recovery behave as
+  for every other condition; it expires like the Link-down rule (24 h after the last refresh).
+
+### 14.6 IRF sensors (Comware) [1.3]
+`hpe_comware` v4 adds four HH3C-STACK-MIB entries (member count with the count at apply time as `down_min`,
+per-member role, per-IRF-port status, "IRF links up" count), created only when hh3cStackMemberNum ≥ 2. Two
+generic template options were added for this: `expect_from_probe` (a threshold from the probe value at apply
+time) and `when` on `snmp_table` entries. All four are `confidence: low` / `verified: false`.
+
+### 14.7 Owner notes and verification [1.3]
+- **IRF verification:** run `deploy/tools/irf_dump.py <FF 5945 IP>` in the app container (read-only; uses the
+  device's stored SNMP credentials, prints no secrets) and send the output: it prints hh3cStackMemberNum, the
+  device-config, board-role and IRF-port tables with entPhysicalName, which is what the IRF entries read.
+- After the upgrade, interface sensors on access ports show `warning` impact (the switch turns yellow, not red,
+  when a PC port goes down). Change single sensors in the sensor form or many at once with bulk impact.
+- Re-apply the Comware / ArubaOS / CX templates with "Choose ports" to add sensors for uplinks, trunks and LAGs
+  and (optionally) remove the access-port sensors.
+
+### 14.8 QA and tests [1.3]
+`tests/test_13_units.py` (impact table, rollup, importance reasons, LAG states, template options, request
+validation), `tests/test_13.py` (impact API / rollup / bulk / backfill, ports importance / connected / CSV,
+settings, PortInfo, link-down on trunks and LAG degraded with real traps, migration 0008 up/down/up in both
+modes), `tests/test_13_apply.py` (snmpsim: apply selection important / list / all / none with removal, no
+inventory for a server and a switch, Comware IRF entries on a 2-member stack and a single switch).

@@ -28,7 +28,8 @@ import { AddMaintenanceButton, MaintenanceBadge } from '../components/Maintenanc
 import { IdentityView } from '../components/discovery/Fingerprint';
 import { useDeviceTemplates } from '../components/Templates';
 import { FingerprintIcon } from '../components/icons';
-import type { DeviceIdentity } from '../api/types';
+import type { DeviceIdentity, Sensor } from '../api/types';
+import { BulkImpactModal } from '../components/SensorImpact';
 import { l10n } from '../lib/templates';
 import { PortsTab } from '../components/ports/PortsTab';
 import { PortIcon } from '../components/icons';
@@ -80,6 +81,67 @@ function DeviceLogs({ deviceId }: { deviceId: number }) {
       )}
       {k === 'syslog' ? <SyslogView deviceId={deviceId} /> : <TrapsView deviceId={deviceId} />}
     </div>
+  );
+}
+
+/** Device "Sensors" card; [1.3] admins multi-select rows for the bulk "Set impact…" action. */
+export function DeviceSensorsCard({
+  deviceId,
+  sensors,
+  loading,
+  error,
+  isAdmin,
+}: {
+  deviceId: number;
+  sensors: Sensor[] | undefined;
+  loading: boolean;
+  error: unknown;
+  isAdmin: boolean;
+}) {
+  const { t } = useTranslation();
+  const [picked, setPicked] = useState<Set<number>>(() => new Set());
+  const [bulk, setBulk] = useState(false);
+  // Only ids still in the list count (sensors may be deleted while selected).
+  const ids = (sensors ?? []).filter((s) => picked.has(s.id)).map((s) => s.id);
+  return (
+    <Card
+      title={t('devices.sensors')}
+      bodyClassName="p-0"
+      actions={
+        isAdmin && ids.length > 0 ? (
+          <div className="flex flex-wrap items-center gap-2" data-testid="sensor-bulk-bar">
+            <span className="text-xs text-slate-500">
+              {t('impact.selected', { count: ids.length })}
+            </span>
+            <Button size="sm" onClick={() => setBulk(true)}>
+              {t('impact.setImpact')}
+            </Button>
+            <Button size="sm" variant="ghost" onClick={() => setPicked(new Set())}>
+              {t('impact.clearSelection')}
+            </Button>
+          </div>
+        ) : undefined
+      }
+    >
+      {loading && <Loading />}
+      <ErrorBox error={error} />
+      {sensors && (
+        <SensorTable
+          sensors={sensors}
+          actions={isAdmin ? (s) => <SensorRowActions sensor={s} /> : undefined}
+          selection={isAdmin ? { selected: picked, onChange: setPicked } : undefined}
+        />
+      )}
+      {isAdmin && (
+        <BulkImpactModal
+          open={bulk}
+          onClose={() => setBulk(false)}
+          sensorIds={ids}
+          deviceId={deviceId}
+          onDone={() => setPicked(new Set())}
+        />
+      )}
+    </Card>
   );
 }
 
@@ -330,16 +392,13 @@ export function DevicePage() {
       {tab === 'ports' && <PortsTab device={d} />}
       {tab === 'sensors' && (
         <>
-          <Card title={t('devices.sensors')} bodyClassName="p-0">
-            {sensors.isLoading && <Loading />}
-            <ErrorBox error={sensors.error} />
-            {sensors.data && (
-              <SensorTable
-                sensors={sensors.data.items}
-                actions={isAdmin ? (s) => <SensorRowActions sensor={s} /> : undefined}
-              />
-            )}
-          </Card>
+          <DeviceSensorsCard
+            deviceId={d.id}
+            sensors={sensors.data?.items}
+            loading={sensors.isLoading}
+            error={sensors.error}
+            isAdmin={isAdmin}
+          />
           <Card title={t('devices.recentEvents')} bodyClassName="p-0">
             {events.data ? <EventsTable events={events.data.items} /> : <Loading />}
           </Card>

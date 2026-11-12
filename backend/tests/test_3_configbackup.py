@@ -481,7 +481,7 @@ async def test_migration_0007_up_down_up(mode: str, rt: Runtime) -> None:
             pytest.skip("TimescaleDB not available")
         conn = await asyncpg.connect(_plain(url))
         try:
-            assert await conn.fetchval("SELECT version_num FROM alembic_version") == "0008"
+            assert await conn.fetchval("SELECT version_num FROM alembic_version") == "0009"
             tables = {r["tablename"] for r in await conn.fetch(
                 "SELECT tablename FROM pg_tables WHERE schemaname = 'public'")}  # fmt: skip
             assert PHASE3_TABLES <= tables
@@ -611,7 +611,7 @@ async def test_migration_0007_up_down_up(mode: str, rt: Runtime) -> None:
         await run_migrations(engine)
         conn = await asyncpg.connect(_plain(url))
         try:
-            assert await conn.fetchval("SELECT version_num FROM alembic_version") == "0008"
+            assert await conn.fetchval("SELECT version_num FROM alembic_version") == "0009"
             assert await conn.fetchval("SELECT count(*) FROM event_rules") == 7
         finally:
             await conn.close()

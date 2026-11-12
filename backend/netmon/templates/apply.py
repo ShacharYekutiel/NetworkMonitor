@@ -83,6 +83,8 @@ class _Candidate:
     skip: dict[str, Any] | None = None  # set when the candidate turned into a skip
     probe_result: Any = None
     when: list[dict[str, Any]] = field(default_factory=list)  # [2b-2]
+    impact: str = "critical"  # [1.3]
+    expect: dict[str, Any] | None = None  # [1.3] expect_from_probe
 
 
 @dataclass
@@ -105,6 +107,7 @@ class _Ctx:
     existing_names: dict[tuple[Any, ...], tuple[int, str]] = field(default_factory=dict)
     renames: list[tuple[int, str, str]] = field(default_factory=list)
     entity: dict[str, str] | None = None  # entPhysicalIndex -> stack unit label (cached)
+    selection: Any = None  # [1.3] templates.selection.Selection
 
 
 def _l10n(name: Any, lang: str) -> str:
@@ -119,6 +122,29 @@ def _skip(name: str, type_: str, reason: str, message: str = "") -> dict[str, An
 
 def _remaining(ctx: _Ctx) -> float:
     return ctx.deadline - asyncio.get_running_loop().time()
+
+
+ENT_SENSOR_SCALE = "1.3.6.1.2.1.99.1.1.1.2"  # entPhySensorScale (EntitySensorDataScale)
+ENT_SENSOR_PRECISION = "1.3.6.1.2.1.99.1.1.1.3"  # entPhySensorPrecision (-8..9)
+
+
+def entity_sensor_multiplier(scale: Any, precision: Any) -> float:
+    """Factor turning an entPhySensorValue into base units: scale units(9) = 10^0, each step
+    10^3 (milli(8) = 10^-3, kilo(10) = 10^3); precision p = p decimal places (10^-p).
+    Unreadable or out-of-range values count as units / 0."""
+    try:
+        sc = int(scale)
+    except (TypeError, ValueError):
+        sc = 9
+    try:
+        pr = int(precision)
+    except (TypeError, ValueError):
+        pr = 0
+    if not 1 <= sc <= 17:
+        sc = 9
+    if not -8 <= pr <= 9:
+        pr = 0
+    return 10.0 ** (3 * (sc - 9) - pr)
 
 
 async def _walk_column(rt: Runtime, ctx: _Ctx, oid: str) -> dict[str, Any]:
@@ -153,11 +179,20 @@ def _sensor_candidate(entry: dict[str, Any], ctx: _Ctx) -> _Slot:
             entry.get("interval_s"),
             bool(entry.get("probe")),
             when=list(entry.get("when") or []),
+            expect=entry.get("expect_from_probe"),
         )
     )
 
 
 async def _interface_slots(rt: Runtime, entry: dict[str, Any], ctx: _Ctx) -> list[_Slot]:
+    """[1.3] The interfaces of one `snmp_interfaces` entry chosen by `ctx.selection`
+    ("important" / "all": entry filters + oper_up_only + max; an ifIndex list: the type / name
+    filters only; "none": nothing)."""
+    from netmon.templates.selection import Selection, entry_passes
+
+    sel: Selection = ctx.selection or Selection("all")
+    if sel.mode == "none":
+        return []
     label = "Interfaces" if ctx.lang != "he" else "ממשקים"
     try:
         async with rt.semaphore:
@@ -170,21 +205,61 @@ async def _interface_slots(rt: Runtime, entry: dict[str, Any], ctx: _Ctx) -> lis
         return [_Slot(skip=_skip(label, "snmp_interface", "snmp_error", str(exc)))]
     if not items:
         return [_Slot(skip=_skip(label, "snmp_interface", "no_rows", "No interfaces found"))]
-    inc = entry.get("include_name_regex")
-    exc_re = entry.get("exclude_name_regex")
-    inc_c = re.compile(inc, re.IGNORECASE) if inc else None
-    exc_c = re.compile(exc_re, re.IGNORECASE) if exc_re else None
-    excluded_types = set(entry.get("exclude_if_types") or [])
+    overrides = validate_channel_overrides("snmp_interface", entry.get("channels") or [])
+    by_index = {int(it["if_index"]): it for it in items}
+    passing = [it for it in sorted(items, key=lambda x: x["if_index"]) if entry_passes(entry, it)]
+    if sel.selected is not None and not isinstance(sel.mode, list):
+        if sel.mode == "important" and not sel.legacy():
+            sel.selected |= {int(it["if_index"]) for it in passing if sel.is_important(it)[0]}
+        else:
+            sel.selected |= {int(it["if_index"]) for it in passing}
+
+    def candidate(it: dict[str, Any]) -> _Slot:
+        if_name = (it.get("name") or it.get("descr") or f"Interface {it['if_index']}")[:128]
+        cfg = validate_config("snmp_interface", {"if_index": it["if_index"], "if_name": if_name})
+        if identity("snmp_interface", cfg) in ctx.existing:
+            return _Slot(skip=_skip(if_name, "snmp_interface", "exists"))
+        impact = "critical"
+        if sel.importance is not None:
+            impact = "critical" if sel.is_important(it)[0] else "warning"
+        return _Slot(
+            candidate=_Candidate(
+                "snmp_interface", if_name, cfg, overrides, None, False, impact=impact
+            )
+        )
+
+    if isinstance(sel.mode, list):  # explicit ifIndexes: no oper_up_only / max
+        slots = []
+        for idx in sel.mode:
+            it = by_index.get(idx)
+            if it is None:
+                slots.append(
+                    _Slot(
+                        skip=_skip(
+                            f"Interface {idx}",
+                            "snmp_interface",
+                            "not_applicable",
+                            f"Interface {idx} not found",
+                        )
+                    )
+                )
+            elif not entry_passes(entry, it):
+                name = (it.get("name") or it.get("descr") or f"Interface {idx}")[:128]
+                slots.append(
+                    _Slot(
+                        skip=_skip(
+                            name, "snmp_interface", "not_applicable", "Excluded by the template"
+                        )
+                    )
+                )
+            else:
+                slots.append(candidate(it))
+        return slots
     kept = []
-    for it in sorted(items, key=lambda x: x["if_index"]):
+    for it in passing:
         if entry.get("oper_up_only") and it.get("oper_status") != "up":
             continue
-        if it.get("type") in excluded_types:
-            continue
-        name = it.get("name") or it.get("descr") or ""
-        if inc_c is not None and not inc_c.search(name):
-            continue
-        if exc_c is not None and exc_c.search(name):
+        if sel.mode == "important" and not sel.legacy() and not sel.is_important(it)[0]:
             continue
         kept.append(it)
     if not kept:
@@ -192,17 +267,7 @@ async def _interface_slots(rt: Runtime, entry: dict[str, Any], ctx: _Ctx) -> lis
             _Slot(skip=_skip(label, "snmp_interface", "no_rows", "No matching interfaces found"))
         ]
     max_n = int(entry.get("max") or len(kept))
-    overrides = validate_channel_overrides("snmp_interface", entry.get("channels") or [])
-    slots = []
-    for it in kept[:max_n]:
-        if_name = (it.get("name") or it.get("descr") or f"Interface {it['if_index']}")[:128]
-        cfg = validate_config("snmp_interface", {"if_index": it["if_index"], "if_name": if_name})
-        if identity("snmp_interface", cfg) in ctx.existing:
-            slots.append(_Slot(skip=_skip(if_name, "snmp_interface", "exists")))
-            continue
-        slots.append(
-            _Slot(candidate=_Candidate("snmp_interface", if_name, cfg, overrides, None, False))
-        )
+    slots = [candidate(it) for it in kept[:max_n]]
     rest = len(kept) - max_n
     if rest > 0:
         slots.append(
@@ -281,12 +346,22 @@ async def _table_slots(rt: Runtime, entry: dict[str, Any], ctx: _Ctx) -> list[_S
     label = re.sub(r"\s+", " ", name_tpl.replace("{label}", "").replace("{index}", "")).strip()
     label = label or "SNMP"
     walk_oid = str(entry["walk_oid"]).strip(".")
+    if entry.get("when"):  # [1.3] the table is walked only when every condition holds
+        cond = _Candidate("snmp_custom", label, {}, {}, None, False, when=list(entry["when"]))
+        await _check_when(rt, ctx, cond)
+        if cond.skip is not None:
+            return [_Slot(skip=cond.skip)]
     try:
         values = await _walk_column(rt, ctx, walk_oid)
         labels = await _walk_column(rt, ctx, entry["label_oid"]) if entry.get("label_oid") else {}
         labels2 = (
             await _walk_column(rt, ctx, entry["label2_oid"]) if entry.get("label2_oid") else {}
         )
+        scales: dict[str, Any] = {}
+        precisions: dict[str, Any] = {}
+        if entry.get("entity_sensor_scale"):
+            scales = await _walk_column(rt, ctx, ENT_SENSOR_SCALE)
+            precisions = await _walk_column(rt, ctx, ENT_SENSOR_PRECISION)
     except TimeoutError:
         return [_Slot(skip=_skip(label, "snmp_custom", "probe_failed", "Timed out"))]
     except SnmpError as exc:
@@ -323,6 +398,11 @@ async def _table_slots(rt: Runtime, entry: dict[str, Any], ctx: _Ctx) -> list[_S
         cfg_in = {**(entry.get("config") or {}), "oid": f"{walk_oid}.{s}", "label": row_label}
         if entry.get("percent_of_column"):
             cfg_in["percent_of_oid"] = f"{str(entry['percent_of_column']).strip('.')}.{s}"
+        if entry.get("entity_sensor_scale"):
+            factor = entity_sensor_multiplier(scales.get(s), precisions.get(s))
+            mult = float(cfg_in.get("multiplier", 1.0)) * factor
+            if mult != 1.0:
+                cfg_in["multiplier"] = mult
         cfg = validate_config("snmp_custom", cfg_in)
         name = name_tpl.replace("{label}", row_label).replace("{index}", s)[:128]
         key = identity("snmp_custom", cfg)
@@ -497,6 +577,18 @@ async def _run_probe(rt: Runtime, ctx: _Ctx, cand: _Candidate) -> None:
     cand.probe_result = raw
     if raw.config_update:
         cand.config = {**cand.config, **raw.config_update}
+    if cand.expect:  # [1.3] a threshold = the value seen at apply time
+        value = raw.values.get(cand.expect["channel"])
+        if value is None:
+            cand.skip = _skip(cand.name, cand.type, "probe_failed", "No value")
+            return
+        cand.overrides = {
+            **cand.overrides,
+            cand.expect["channel"]: {
+                **cand.overrides.get(cand.expect["channel"], {}),
+                cand.expect["bound"]: float(value),
+            },
+        }
 
 
 _device_locks: dict[int, tuple[asyncio.Lock, int]] = {}
@@ -511,9 +603,15 @@ async def apply_template(
     budget_s: float = BUDGET_S,
     broadcast: bool = True,
     audit_ctx: Any = None,
+    interfaces: str | list[int] = "important",
+    remove_unselected: bool = False,
+    refresh_s: float = 0.0,
 ) -> dict[str, Any]:
     """Create the template's missing sensors on a device. Returns ApplyTemplateResult.
     [2b-3] `audit_ctx` (AuditCtx): records `device.apply_template` in the same transaction.
+    [1.3] `interfaces` chooses the interface sensors (templates.selection);
+    `remove_unselected` deletes the device's snmp_interface sensors whose ifIndex is not
+    selected; `refresh_s` bounds a port inventory run when "important" finds no inventory.
 
     Applies to the same device are serialized (per-device lock), so concurrent apply-template /
     import calls cannot create duplicate sensors."""
@@ -529,6 +627,9 @@ async def apply_template(
                 budget_s=budget_s,
                 broadcast=broadcast,
                 audit_ctx=audit_ctx,
+                interfaces=interfaces,
+                remove_unselected=remove_unselected,
+                refresh_s=refresh_s,
             )
     finally:
         lock, users = _device_locks[device_id]
@@ -547,8 +648,60 @@ async def _apply_template(
     budget_s: float,
     broadcast: bool,
     audit_ctx: Any = None,
+    interfaces: str | list[int] = "important",
+    remove_unselected: bool = False,
+    refresh_s: float = 0.0,
 ) -> dict[str, Any]:
+    from netmon.templates.selection import load_selection
+
     loop = asyncio.get_running_loop()
+    started = loop.time()
+    selection = await load_selection(rt, device_id, interfaces, refresh_s)
+    iface_entries_all = [e for e in template["entries"] if e["kind"] == "snmp_interfaces"]
+    if (
+        interfaces == "important"
+        and selection.importance is None
+        and selection.switch_like
+        and not selection.refreshed
+        and refresh_s > 0
+        and iface_entries_all
+        and len(iface_entries_all) < len(template["entries"])
+    ):
+        # A switch whose port inventory cannot run yet (e.g. just imported by discovery: no
+        # SNMP sensor so far): create the other sensors first, then run the inventory and
+        # choose the interfaces from it (LAG interfaces only when it still fails).
+        first = await _apply_template(
+            rt,
+            device_id,
+            {**template, "entries": [e for e in template["entries"] if e not in iface_entries_all]},
+            lang,
+            budget_s=budget_s,
+            broadcast=False,
+            audit_ctx=audit_ctx,
+            interfaces=interfaces,
+            refresh_s=0.0,
+        )
+        second = await _apply_template(
+            rt,
+            device_id,
+            {**template, "entries": iface_entries_all},
+            lang,
+            budget_s=max(1.0, budget_s - (loop.time() - started)),
+            broadcast=broadcast,
+            audit_ctx=audit_ctx,
+            interfaces=interfaces,
+            remove_unselected=remove_unselected,
+            refresh_s=refresh_s,
+        )
+        return {
+            **first,
+            "template_id": template["id"],
+            "created": first["created"] + second["created"],
+            "skipped": first["skipped"] + second["skipped"],
+            "removed": second["removed"],
+        }
+    if remove_unselected:
+        selection.selected = set(interfaces) if isinstance(interfaces, list) else set()
     async with rt.sessionmaker() as session:
         device = await session.get(Device, device_id)
         if device is None:
@@ -571,6 +724,9 @@ async def _apply_template(
     )
     ctx.probe_sem = asyncio.Semaphore(PROBES_PER_DEVICE)
     ctx.existing_names = existing_names
+    ctx.selection = selection
+    iface_entries = 0
+    iface_failed = False
 
     slots: list[_Slot] = []
     for entry in template["entries"]:
@@ -594,7 +750,13 @@ async def _apply_template(
         if kind == "sensor":
             slots.append(_sensor_candidate(entry, ctx))
         elif kind == "snmp_interfaces":
-            slots.extend(await _interface_slots(rt, entry, ctx))
+            iface_entries += 1
+            got = await _interface_slots(rt, entry, ctx)
+            iface_failed = iface_failed or any(
+                g.skip is not None and g.skip["reason"] in ("snmp_error", "probe_failed")
+                for g in got
+            )
+            slots.extend(got)
         elif kind == "snmp_table":
             slots.extend(await _table_slots(rt, entry, ctx))
 
@@ -632,6 +794,7 @@ async def _apply_template(
                 seen.add(key)
             s = Sensor(
                 device_id=device_id,
+                impact=cand.impact,
                 name=cand.name,
                 type=cand.type,
                 config=cand.config,
@@ -655,6 +818,32 @@ async def _apply_template(
             if (row.config or {}).get("label") is not None:
                 row.config = {**row.config, "label": new_label}
             renamed.append(sensor_id)
+        # [1.3] remove the interface sensors that are not selected (only with a known
+        # selection: an explicit list, "none", or a successful enumeration)
+        removed: list[dict[str, Any]] = []
+        sel_set = selection.selected
+        if remove_unselected and sel_set is not None:
+            known = isinstance(interfaces, list) or interfaces == "none"
+            known = known or (iface_entries > 0 and not iface_failed)
+            if known:
+                for row in (
+                    (
+                        await session.execute(
+                            select(Sensor)
+                            .where(Sensor.device_id == device_id, Sensor.type == "snmp_interface")
+                            .order_by(Sensor.id)
+                        )
+                    )
+                    .scalars()
+                    .all()
+                ):
+                    if row in new_sensors:
+                        continue
+                    key = identity(row.type, row.config)
+                    if key is None or key[1] in sel_set:
+                        continue
+                    removed.append({"sensor_id": row.id, "name": row.name})
+                    await session.delete(row)
         if audit_ctx is not None and audit_ctx.enabled:
             from netmon.services import audit
 
@@ -669,6 +858,11 @@ async def _apply_template(
                     "template_id": [None, template["id"]],
                     "created": [None, [f"{s.name} ({s.type})" for s in new_sensors]],
                     "renamed": [None, renamed],
+                    **(
+                        {"removed": [None, [f"{r['name']} (#{r['sensor_id']})" for r in removed]]}
+                        if removed
+                        else {}
+                    ),
                 },
             )
         await session.commit()
@@ -679,6 +873,14 @@ async def _apply_template(
             await rt.scheduler.upsert(s.id)
         for sensor_id in renamed:
             await rt.scheduler.upsert(sensor_id)
+        for r in removed:
+            rt.scheduler.remove(r["sensor_id"])
+    if removed:
+        from netmon.services.retention import delete_sensor_measurements
+
+        rt.spawn(delete_sensor_measurements(rt, [r["sensor_id"] for r in removed]))
+        for r in removed:
+            rt.config_changed("sensor", r["sensor_id"], "deleted")
     if broadcast:
         rt.config_changed("device", device_id, "updated")
     return {
@@ -686,4 +888,5 @@ async def _apply_template(
         "template_id": template["id"],
         "created": created,
         "skipped": skipped,
+        "removed": removed,  # [1.3]
     }

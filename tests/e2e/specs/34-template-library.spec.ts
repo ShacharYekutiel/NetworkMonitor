@@ -86,6 +86,11 @@ test('the nine converted templates equal the 2b-1 data (fixture) with 2b-2 keys 
   for (const e of comware.entries.slice(2, 5)) e.filters = [{ oid: e.walk_oid, in: null, not_in: [65535] }];
   const r = await api.get('/api/device-templates');
   const nine = r.items.filter((t: any) => CONVERTED.includes(t.id)).map(strip2b2);
+  // [1.3] hpe_comware gained four IRF entries (HH3C-STACK-MIB, architecture.md § 14.6): not part of the 2b-1 data
+  const cw13 = nine.find((t: any) => t.id === 'hpe_comware');
+  const irf = cw13.entries.filter((e: any) => /^IRF /.test(e.name?.en ?? ''));
+  expect(irf.map((e: any) => e.name.en)).toEqual(['IRF members', 'IRF role {label}', 'IRF port {index}', 'IRF links up']);
+  cw13.entries = cw13.entries.filter((e: any) => !irf.includes(e));
   expect(nine.map((t: any) => t.id)).toEqual(fixture.map((t: any) => t.id));
   for (let i = 0; i < nine.length; i++) expect.soft(nine[i], nine[i].id).toEqual(fixture[i]);
 });
@@ -241,6 +246,9 @@ test('converted hpe_arubaos_switch re-applied to the 2b-1 device creates nothing
   const core = await findDevice(api, '127.0.0.51');
   test.skip(!core, '2b-1 devices missing (spec 24 not run)');
   const res = await api.post(`/api/devices/${core.id}/apply-template`, { template_id: 'hpe_arubaos_switch' });
-  expect(res.created).toEqual([]);
+  // [1.3] the default interface selection is "important": a port that became an uplink after the discovery
+  // import (topology refresh of spec 25) may get its interface sensor now; every other entry is identical
+  expect(res.created.filter((c: any) => c.type !== 'snmp_interface')).toEqual([]);
+  expect(res.removed).toEqual([]);
   expect(res.skipped.filter((s: any) => s.reason === 'exists').length).toBeGreaterThanOrEqual(10);
 });
