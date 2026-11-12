@@ -2734,7 +2734,7 @@ fallback with rows present.
 ## 14. Phase 3b: "Ask the network" assistant and AI features (Amazon Bedrock)
 
 Contract details: [data-model.md § Phase 3b](data-model.md#3b-phase-3b-additions) (tables, settings, pure
-vectors, migration `0009`) and [api.md § Phase 3b](api.md#3b-phase-3b-contract) (types, tool schemas, endpoints,
+vectors, migration `0010`) and [api.md § Phase 3b](api.md#3b-phase-3b-contract) (types, tool schemas, endpoints,
 SSE stream, errors, WS). Backend, frontend, QA and devops implement in parallel against those files and this
 section. Sections are marked **[3b]**. Everything is additive to phase 3 and stacked on it (branch `phase3b`).
 The product stays **read-only towards devices**, and the language model is **read-only towards the product**.
@@ -3713,7 +3713,7 @@ caching fallback, test endpoint steps + `test_id` rules (wrong user, changed fie
 `audit`, feature gates (syslog OFF → `search_syslog` not offered, endpoint 409s), all 10 AI features (inputs exactly
 as specified in the mock log; alert-note timing: the notification is sent before the model call starts — asserted
 with timestamps of the Telegram mock; note timeout → skip; Telegram edit/reply fallback; Teams follow-up; email
-reply headers), conversation retention, migration `0009` up/down on Timescale and fallback.
+reply headers), conversation retention, migration `0010` up/down on Timescale and fallback.
 
 **Injection corpus** (`tests/sim/bedrock/injection/`): syslog lines, `sysDescr`, `ifAlias`, LLDP names, config
 descriptions and KB passages containing "ignore previous instructions", fake `nm:` refs, Markdown images with
@@ -3851,9 +3851,39 @@ per port × MAC (UTF-8 BOM for Excel / Hebrew, formula guard as the audit export
 per-member role, per-IRF-port status, "IRF links up" count), created only when hh3cStackMemberNum ≥ 2. Two
 generic template options were added for this: `expect_from_probe` (a threshold from the probe value at apply
 time) and `when` on `snmp_table` entries. All four are `confidence: low` / `verified: false`.
+**[1.3.1]** Verified on the owner's HPE 5510-HI IRF stack (4 members, ring): `confidence: high`. The role rows
+are labelled by hh3cStackBoardBelongtoMember (`IRF role · Unit 1`; entPhysicalName is "Board" on every member),
+and re-applying renames the 1.3.0 "IRF role Board · Unit n" sensors (`rename_from`).
+
+### 14.6a IRF physical ports are important [1.3.1]
+The port inventory run reads hh3cStackPhyPortInfoBelongtoPort (one walk; empty on non-Comware devices) and maps
+the entities to ifIndexes via entAliasMappingTable, else entPhysicalName = ifName. `switch_ports.irf_port`
+(1/2) makes the port important with reason `irf`: new interface sensors on it default to `critical`, it is in
+the `important` link-down scope and selected by "important ports" on template apply. Existing interface
+sensors keep their impact (the stored impact does not say whether a user chose it); set them with bulk impact.
+A failed walk keeps the previous values (`sources.irf = error`).
+
+### 14.6b Named value maps [1.3.1]
+Enum value texts can come from a shared code table (`value_map_ref`, `netmon/poller/value_maps.py`) with
+en/he texts: the check writes the message in the server language, the UI shows the viewer's language. The
+Comware fan/PSU entry uses `hh3c_error_status` (51 → "Power supply fault (psuError, 51)" / "ספק כוח תקול
+(psuError, 51)" instead of "unexpected value (51)"); migration 0009 moves unedited sensors to it.
+
+### 14.6c Settings search [1.3.1]
+A search box at the top of the Settings page searches every tab without rendering it: a declarative index
+(`frontend/src/lib/settingsIndex.ts`: cards with tab, title key, feature and fields with label/hint keys) is
+matched case-insensitively in the UI language and, in Hebrew, also in English ("trunk", "SNMP", "LDAP").
+A result shows label and tab › card; click or Enter switches the tab, scrolls to the card or field
+(`data-anchor`) and outlines it briefly; Esc clears. A setting whose feature is off is marked "requires …" and
+leads to that feature's switch (`data-feature`). Not feature-flagged (improvement of an existing page); a
+vitest test keeps the index keys, tabs and anchors in sync with the locales and components.
+**[3b]** The Assistant (AI) tab is indexed too: the configure-first cards (Bedrock connection incl. main and light
+model, chat models, data sharing, limits & cost, conversations, capabilities, Knowledge Base) are always shown; the
+per-feature settings of correlation, alert notes, config-diff, syslog digest and Telegram /ask carry their AI
+feature and lead to its Capabilities switch while it is off. "Bedrock", "AI", "assistant" / "עוזר" find them.
 
 ### 14.7 Owner notes and verification [1.3]
-- **IRF verification:** run `deploy/tools/irf_dump.py <FF 5945 IP>` in the app container (read-only; uses the
+- **IRF verification** ([1.3.1] done on an HPE 5510-HI stack)**:** run `deploy/tools/irf_dump.py <FF 5945 IP>` in the app container (read-only; uses the
   device's stored SNMP credentials, prints no secrets) and send the output: it prints hh3cStackMemberNum, the
   device-config, board-role and IRF-port tables with entPhysicalName, which is what the IRF entries read.
 - After the upgrade, interface sensors on access ports show `warning` impact (the switch turns yellow, not red,

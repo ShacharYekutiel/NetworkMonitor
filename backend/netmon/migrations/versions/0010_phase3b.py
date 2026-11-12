@@ -3,17 +3,17 @@
 Conversations, messages, tool calls, usage counters, AI artifacts, incidents, alert-note
 targets, syslog signatures, SNMP walks; `alert_rules.ai_note`, `reports.ai_summary`,
 `report_runs.ai_summary_status`; audit source `telegram`. Plain PostgreSQL DDL only
-(data-model "[3b] Phase 3b migration (0008)").
+(data-model "[3b] Phase 3b migration (0010)").
 
-Revision ID: 0008
-Revises: 0007
+Revision ID: 0010
+Revises: 0009
 Create Date: 2026-11-10
 """
 
 from alembic import op
 
-revision = "0009"
-down_revision = "0008"
+revision = "0010"
+down_revision = "0009"
 branch_labels = None
 depends_on = None
 

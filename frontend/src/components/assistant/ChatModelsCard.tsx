@@ -4,6 +4,7 @@ import { useTranslation } from 'react-i18next';
 import { endpoints3b, qk3b } from '../../api/endpoints3b';
 import type { AssistantSettings, ChatModel, ModelListItem } from '../../api/types';
 import { chatModelOptions, friendlyModelName } from '../../lib/assistant';
+import { cardAnchor } from '../../lib/settingsIndex';
 import { PlusIcon, TrashIcon } from '../icons';
 import { useToast } from '../toast';
 import { Button, Card, ErrorBox, Input } from '../ui';
@@ -80,7 +81,7 @@ export function ChatModelsCard({ s }: { s: AssistantSettings }) {
   const effective = chatModelOptions(s.chat_models_effective ?? []);
 
   return (
-    <Card title={t('assistant.chatModels.title')}>
+    <Card title={t('assistant.chatModels.title')} anchor={cardAnchor('assistantChatModels')}>
       <form onSubmit={submit} className="space-y-3" data-testid="assistant-chat-models">
         <p className="text-xs text-slate-500">{t('assistant.chatModels.hint')}</p>
         {rows.length === 0 && (

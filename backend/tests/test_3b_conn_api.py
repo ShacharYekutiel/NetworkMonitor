@@ -761,7 +761,7 @@ async def test_migration_0008_up_down_up(mode: str, rt: Runtime) -> None:
             pytest.skip("TimescaleDB not available")
         conn = await asyncpg.connect(_plain(url))
         try:
-            assert await conn.fetchval("SELECT version_num FROM alembic_version") == "0009"
+            assert await conn.fetchval("SELECT version_num FROM alembic_version") == "0010"
             assert tables <= await present(conn)
             uid = await conn.fetchval(
                 "INSERT INTO users (username, password_hash, role) VALUES ('user1', 'x', 'admin') "
@@ -830,7 +830,7 @@ async def test_migration_0008_up_down_up(mode: str, rt: Runtime) -> None:
         await run_migrations(engine)
         conn = await asyncpg.connect(_plain(url))
         try:
-            assert await conn.fetchval("SELECT version_num FROM alembic_version") == "0009"
+            assert await conn.fetchval("SELECT version_num FROM alembic_version") == "0010"
             assert tables <= await present(conn)
         finally:
             await conn.close()

@@ -435,7 +435,7 @@ def test_templates_data() -> None:
             # expect_from_probe and table when (hpe_comware IRF)
             optional = {"entity_sensor_scale", "expect_from_probe"}
             if e["kind"] == "snmp_table":
-                optional.add("when")
+                optional |= {"when", "rename_from", "label_format"}  # [1.3.1] hpe_comware IRF
             assert set(e) - optional == keys
     unifi = get_template("unifi_ap")
     assert unifi is not None and unifi["name"]["he"] == "נקודת גישה UniFi"

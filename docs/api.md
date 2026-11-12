@@ -9,6 +9,8 @@ Items marked **[3]** are specified in [§ Phase 3](#3-phase-3-contract).
 Items marked **[3b]** are specified in [§ Phase 3b](#3b-phase-3b-contract).
 Items marked **[1.3]** (release 1.3: sensor impact, important ports, interface selection on template apply,
 connected hosts / CSV on ports, LAG degraded, IRF) are specified in [§ Release 1.3](#13-release-13-contract).
+Items marked **[1.3.1]** (IRF ports important, named value maps) are specified in
+[§ Release 1.3.1](#131-release-131-contract).
 
 This file is the contract between the backend (`backend/netmon/schemas`) and the frontend
 (`frontend/src/api/types.ts`). **Field names are exact.** For the table semantics see
@@ -2556,7 +2558,7 @@ type Sensor = Sensor & { impact: Impact };          // GET/POST/PATCH sensor res
 // SensorCreate gains `impact?: Impact | null` (absent/null: snmp_interface -> by port importance, else "critical")
 // SensorPatch gains `impact?: Impact` (also allowed on passive event sensors)
 
-type ImportantReason = "uplink" | "lag" | "trunk";
+type ImportantReason = "uplink" | "lag" | "trunk" | "irf";   // [1.3.1] irf
 type PortConnectedHost = { mac: string; ip: string | null; hostname: string | null; vendor: string | null;
   device_id: number | null; device_name: string | null };
 type Port = Port & {                                // also PortDetail
@@ -2654,3 +2656,38 @@ Both are in `GET/PUT /api/settings`; a change reloads the ingest configuration (
 ### [1.3] Device templates
 Template entries may carry `expect_from_probe` (sensor entries, only when set) and `when` (`snmp_table` entries,
 only when set); `GET /api/device-templates*` returns them as stored ([data-model § 1.3](data-model.md#13-template-options)).
+
+---
+
+## [1.3.1] Release 1.3.1 contract
+
+Patch release; not feature-flagged. Semantics: [data-model.md § 1.3.1](data-model.md#131-release-131-additions).
+
+### [1.3.1] Ports
+```ts
+type ImportantReason = "uplink" | "lag" | "trunk" | "irf";   // order as listed
+type Port = Port & {                     // also PortDetail
+  irf_port: number | null };             // IRF port (1/2) of an IRF physical port (Comware), else null
+type PortSources = PortSources & { irf: SourceState };   // ok | empty | unmapped | error | skipped
+```
+`important_reasons` contains `irf` for IRF physical ports; `GET /api/devices/{id}/apply-template/interfaces`
+items list it in `reasons` (so "important" selects them). The CSV export is unchanged.
+
+### [1.3.1] Sensor types and named value maps
+```ts
+type NamedValueMap = {
+  title: { en: string; he: string };
+  codes: { value: string; status: "up" | "warning" | "down"; mib: string;
+           text: { en: string; he: string } }[];
+  unknown: { en: string; he: string } };          // "{code}" = the value
+// GET /api/sensor-types -> { items: SensorTypeInfo[]; value_maps: Record<string, NamedValueMap> }
+// snmp_custom config gains value_map_ref?: "" | "hh3c_error_status"
+//   (enum field; stored only when set, "" clears; with it value_map may be empty for value_type enum)
+```
+The check message of a code from the table is `<label>: <text> (<mib>, <code>)` in the server
+`default_language`; the UI renders values and the value-map table from `value_maps` in the viewer's language.
+
+### [1.3.1] Device templates
+`snmp_table` entries may carry `label_format` and `rename_from` (only when set;
+[data-model § 1.3.1](data-model.md#131-template-options)).
+

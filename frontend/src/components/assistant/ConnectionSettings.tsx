@@ -25,6 +25,7 @@ import {
   type ConnForm,
 } from '../../lib/assistant';
 import { formatDateTime } from '../../lib/format';
+import { cardAnchor } from '../../lib/settingsIndex';
 import { Toggle } from '../features/common';
 import { CheckIcon, CopyIcon, XIcon } from '../icons';
 import { SecretField } from '../SnmpEditor';
@@ -621,6 +622,7 @@ export function ConnectionSettings({ s, auditOn }: { s: AssistantSettings; audit
   return (
     <Card
       title={t('assistant.settings.connection')}
+      anchor={cardAnchor('assistantConnection')}
       actions={<AssistantStateBadge state={s.state} />}
     >
       <form onSubmit={submit} className="space-y-4" data-testid="assistant-connection">
@@ -1008,7 +1010,11 @@ export function ConnectionSettings({ s, auditOn }: { s: AssistantSettings; audit
           )}
           <ErrorBox error={test.error} />
           {testResult && <TestResultView r={testResult} />}
-          <div className="flex flex-wrap items-center gap-2" data-testid="assistant-switch">
+          <div
+            className="flex flex-wrap items-center gap-2"
+            data-testid="assistant-switch"
+            data-feature="assistant"
+          >
             <Toggle
               checked={s.enabled}
               onChange={(v) => toggle.mutate(v)}

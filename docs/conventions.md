@@ -273,7 +273,7 @@ both Timescale mode and fallback mode, and on Windows paths (no POSIX-only calls
   ReadableStream parser, `Last-Event-ID` re-attach, abort) — not `EventSource`; answers use `dir="auto"` per block,
   IPs/MACs/OIDs/code `dir="ltr"`; the bottom switch component `ConfigureFirstSwitch` is shared by both
   configure-first forms.
-- Existing test changes allowed in 3b (contract changes on purpose): `test_migrations.py` (head `0008`), feature lists
+- Existing test changes allowed in 3b (contract changes on purpose): `test_migrations.py` (head `0010`), feature lists
   (28 names), `AlertRule`/`Report`/`ReportRun`/`ReportData`/channel-config shape tests (new keys), audit `source`
   values, `test_audit` (turning `audit` OFF while `assistant` is ON is refused). Any other failing existing test is a
   regression.

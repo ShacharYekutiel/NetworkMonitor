@@ -32,6 +32,7 @@ import { FeatureSection, useSaveSettings } from './common';
 import { IngestStatusCard } from './IngestStatus';
 import { FeatureToggleCard } from './FeatureToggle';
 import { featuresFromSettings, featuresOfTab, ingestOn } from '../../lib/features';
+import { cardAnchor } from '../../lib/settingsIndex';
 
 const LEVELS: SnmpSecurityLevel[] = ['noAuthNoPriv', 'authNoPriv', 'authPriv'];
 const AUTH: SnmpAuthProtocol[] = ['MD5', 'SHA', 'SHA224', 'SHA256', 'SHA384', 'SHA512'];
@@ -160,7 +161,7 @@ export function LinkScopeRadio({
   const { t } = useTranslation();
   return (
     <FieldGroup label={t('ingestSettings.linkScope.label')}>
-      <div className="space-y-1.5" data-testid="linkdown-scope">
+      <div className="space-y-1.5" data-testid="linkdown-scope" data-anchor="setting-link-scope">
         {(['important', 'all'] as const).map((v) => (
           <label key={v} className="flex cursor-pointer items-start gap-2 text-sm">
             <input
@@ -200,7 +201,11 @@ export function TrunkScopeFields({
 }) {
   const { t } = useTranslation();
   return (
-    <div className="grid grid-cols-1 gap-3 sm:grid-cols-2" data-testid="trunk-scope">
+    <div
+      className="grid grid-cols-1 gap-3 sm:grid-cols-2"
+      data-testid="trunk-scope"
+      data-anchor="setting-trunk-scope"
+    >
       <div className="space-y-1">
         <Checkbox
           label={t('ingestSettings.trunks.include')}
@@ -296,7 +301,7 @@ export function IngestSettingsCard({ settings }: { settings: Settings }) {
   const bad = (on: boolean, key: string, ok?: string) =>
     on ? <span className="text-red-600">{t(key)}</span> : ok;
   return (
-    <Card title={t('ingestSettings.title')}>
+    <Card title={t('ingestSettings.title')} anchor={cardAnchor('ingest')}>
       <form onSubmit={submit} className="space-y-4" data-testid="ingest-settings">
         <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
           <Field
@@ -446,7 +451,7 @@ export function FlappingCard({ settings }: { settings: Settings }) {
   };
   const invalid = e.threshold || e.window || e.quiet;
   return (
-    <Card title={t('flapping.title')}>
+    <Card title={t('flapping.title')} anchor={cardAnchor('flapping')}>
       <form
         className="space-y-4"
         data-testid="flapping-settings"
@@ -536,7 +541,7 @@ export function AuditRetentionCard({ settings }: { settings: Settings }) {
   const save = useSaveSettings();
   const bad = !intInRange(days, 30, 3650);
   return (
-    <Card title={t('audit.settingsTitle')}>
+    <Card title={t('audit.settingsTitle')} anchor={cardAnchor('audit')}>
       <form
         className="flex flex-wrap items-end gap-3"
         onSubmit={(e) => {
@@ -599,7 +604,7 @@ export function TrapCollapseCard({ settings }: { settings: Settings }) {
   const e = { keep: !intInRange(keep, 1, 1000), oids: badOids.length > 0 || list.length > 64 };
   const invalid = e.keep || e.oids;
   return (
-    <Card title={t('trapCollapse.title')}>
+    <Card title={t('trapCollapse.title')} anchor={cardAnchor('trapCollapse')}>
       <form
         className="space-y-4"
         data-testid="trap-collapse-settings"

@@ -191,7 +191,7 @@ new-device learning period and scope; Kerberos vs Entra; reports recipients and 
 Telegram bot; proxy details.
 
 ## Phase 3b (branch `phase3b`, stacked on phase 3)
-Contract: architecture.md § 14, data-model.md § Phase 3b (migration `0008`), api.md § Phase 3b.
+Contract: architecture.md § 14, data-model.md § Phase 3b (migration `0010`), api.md § Phase 3b.
 
 **Owner rules:** admins only; every feature behind its own toggle, **OFF by default**; the Bedrock connection and the
 Knowledge Base are *configure-first* (settings form always visible, enable switch at the bottom next to *Test

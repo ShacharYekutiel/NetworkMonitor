@@ -14,9 +14,11 @@ migration `0006`.
 Sections marked **[3]** (config backup, flows, new-device alerts, SSO, reports, NOC screens, chat acknowledge)
 are in [§ Phase 3](#3-phase-3-additions), migration `0007`.
 Sections marked **[3b]** (assistant on Amazon Bedrock and the AI features) are in
-[§ Phase 3b](#3b-phase-3b-additions), migration `0009`.
+[§ Phase 3b](#3b-phase-3b-additions), migration `0010`.
 Sections marked **[1.3]** (sensor impact, important ports, LAG degraded, template options, IRF) are in
 [§ Release 1.3](#13-release-13-additions), migration `0008`.
+Sections marked **[1.3.1]** (IRF ports are important, named value maps, IRF role names) are in
+[§ Release 1.3.1](#131-release-131-additions), migration `0009`.
 
 PostgreSQL ≥ 14 holds the data, and TimescaleDB is optional (see [architecture.md §6](architecture.md)). Alembic
 migrations own the schema.
@@ -1407,6 +1409,8 @@ Common enum maps (stored in the entry config):
   default `warning`. Enum values: **medium-high** confidence.
 - `HH3C_ERROR_MAP` (hh3cEntityExtErrorStatus): `{"2":{"status":"up","text":"normal"}}`, default **`down`**
   (every other value is a fault: postFailure(3), fanError(41), psuError(51), rpsError(61), hardwareFaulty(91), …).
+  **[1.3.1]** replaced in `hpe_comware` by the shared code table `hh3c_error_status` (`value_map_ref`,
+  localized texts, [§ 1.3.1 Named value maps](#131-named-value-maps)); migration 0009 moves unedited sensors to it.
   `normal(2)` / `notSupported(1)` / `entityAbsent(4)`: **medium** confidence.
 
 ### `hpe_arubaos_switch` entries
@@ -2766,6 +2770,7 @@ Ten-GigabitEthernet1/0/49 changed to down.`; TCP/TLS frame = `<length> <message>
 |---|---|---|
 | lag_if_index | integer | NULL — aggregator ifIndex of this physical port |
 | lag_attached | boolean | NULL — true: attached (LAG-MIB); false: configured (ifStack) but LAG-MIB reports not attached; null: membership known from ifStack only |
+| irf_port **[1.3.1]** | smallint | NULL — the IRF port (1/2) this physical port is bound to (Comware IRF, [§ 1.3.1 IRF ports](#131-irf-physical-ports)); null: not an IRF port |
 
 `port_inventory_status.sources` gains key `lag` (`source_state`) and `lag_mib` (`"ieee8023"` \| `"if_stack"` \|
 `"both"` \| null). Walks and `resolve_lag`: architecture § 12.6.
@@ -3612,7 +3617,7 @@ and `ux_sensors_event_type`. Settings rows stay (harmless).
 # **[3b]** Phase 3b additions
 
 Scope: the "Ask the network" assistant (Amazon Bedrock Converse with read-only tools) and 10 AI features. All
-schema changes are in **migration `0009`** ([§ Phase 3b migration](#3b-phase-3b-migration-0009)). Everything is
+schema changes are in **migration `0010`** ([§ Phase 3b migration](#3b-phase-3b-migration-0010)). Everything is
 additive. API shapes: [api.md § Phase 3b](api.md#3b-phase-3b-contract). Components and flows:
 [architecture.md § 14](architecture.md#14-phase-3b-ask-the-network-assistant-and-ai-features-amazon-bedrock).
 
@@ -4033,9 +4038,10 @@ Prices input 3, output 15, cache read empty (→ 0.3), cache write empty (→ 3.
 Conversation of 6 exchanges each with a 1500-char tool result: step 1 stubs results of exchanges 1–5 (oldest first)
 until under budget; still over → drops exchanges 2.. keeping 1 and the last 4; the current exchange is never dropped.
 
-## [3b] Phase 3b migration (`0009`)
-File `backend/netmon/migrations/versions/0009_phase3b.py`, `revision = "0009"`, `down_revision = "0008"`. Plain
-PostgreSQL DDL only.
+## [3b] Phase 3b migration (`0010`)
+File `backend/netmon/migrations/versions/0010_phase3b.py`, `revision = "0010"`, `down_revision = "0009"` (on top of
+[1.3.1 `0009`](#131-migration-0009)). Plain PostgreSQL DDL only. **[3b owner]** renumbered from `0009` when 1.3.1 was
+merged; a development database that ran the earlier 3b `0009` is not on the 1.3.1 chain and is recreated.
 
 `upgrade()`:
 1. `CREATE TABLE assistant_conversations`, `assistant_messages`, `assistant_tool_calls` (+ indexes).
@@ -4106,6 +4112,7 @@ this order:
 | `uplink` | the 2b-2 rule (§ Uplinks: a switch/router/AP device neighbour, or `mac_count` > `uplink_mac_threshold`); a LAG uses its own and all members' neighbours; a member also inherits its LAG's uplink state |
 | `lag` | `kind = 'lag'` or `lag_if_index` not null (stored LAG data, whether or not the `lag` feature is ON) |
 | `trunk` | `mode = 'trunk'` and ≥ `trunk_min_tagged_vlans` tagged VLANs; a member without its own VLANs uses its LAG's (`member_vlans`). One tagged VLAN (hybrid access + voice VLAN) is not a trunk at the default 2 |
+| `irf` **[1.3.1]** | `irf_port` not null: an IRF physical port of an HPE Comware IRF stack (an IRF link down hurts the whole stack). Always important, also for the link-down scope (unlike trunks it does not depend on `event_linkdown_include_trunks`) |
 
 Used by: ports API (`important`, `important_reasons`), apply selection and `/apply-template/interfaces`, the
 new-interface-sensor impact and the backfill, and the ingest `PortInfo` (link-down / flapping scope
@@ -4137,15 +4144,16 @@ successful port inventory run (`reconcile`). `rules.Rule` gains `builtin_key`.
 | `sensor` | `expect_from_probe: {channel, bound}` (only when set) | needs `probe: true`; at apply time the probe's value of `channel` becomes the channel threshold `bound` (`warning_min` / `warning_max` / `down_min` / `down_max`). A probe without that value → skipped `probe_failed` "No value". |
 | `snmp_table` | `when` (only when set; same shape as sensor `when`) | evaluated before the walk; a failing condition → one skip `not_applicable` `Condition not met: <oid>` |
 
-## [1.3] IRF sensors (`hpe_comware` v4)
+## [1.3] IRF sensors (`hpe_comware` v4, [1.3.1] v5)
 Before the `snmp_interfaces` entry; every IRF entry has `when [{oid: hh3cStackMemberNum.0, not_in: [0, 1]}]` (only
-IRF stacks of ≥ 2 members), `confidence: low`, notes `verified: false` until checked on the owner's FF 5945
-(`deploy/tools/irf_dump.py`). HH3C-STACK-MIB, `hh3cStack` = `1.3.6.1.4.1.25506.2.91`:
+IRF stacks of ≥ 2 members). **[1.3.1]** Verified on the owner's HPE 5510-HI IRF stack (4 members, ring) with
+`deploy/tools/irf_dump.py`: `confidence: high`, notes "verified on HPE 5510-HI IRF, 4 members, ring" (1.3:
+`confidence: low`, `verified: false`). HH3C-STACK-MIB, `hh3cStack` = `1.3.6.1.4.1.25506.2.91`:
 
 | # | Entry | OID | Details |
 |---|---|---|---|
 | 1 | `IRF members` (`snmp_custom` gauge, unit `#`, probe, interval 120) | hh3cStackMemberNum `…2.91.1.2.0` | `expect_from_probe {channel: value, bound: down_min}`: down when fewer members than at apply time (re-apply after adding a member) |
-| 2 | `IRF role {label}` (`snmp_table`, enum, max 16, interval 120) | hh3cStackBoardRole `…2.91.3.1.1` (INDEX entPhysicalIndex), label entPhysicalName | slave(1) → up "standby", master(2) → up "master", loading(3) / other(4) → warning; default warning. A member that leaves loses its row → check fails → down |
+| 2 | `IRF role · {label}` (`snmp_table`, enum, max 16, interval 120) | hh3cStackBoardRole `…2.91.3.1.1` (INDEX entPhysicalIndex), **[1.3.1]** label hh3cStackBoardBelongtoMember `…2.91.3.1.2` (same INDEX) with `label_format` `Unit {label}` / `יחידה {label}` → `IRF role · Unit 1` / `תפקיד IRF · יחידה 1` (1.3: label entPhysicalName = "Board" on every member → "IRF role Board · Unit n"; `rename_from` renames those on re-apply) | slave(1) → up "standby", master(2) → up "master", loading(3) / other(4) → warning; default warning. A member that leaves loses its row → check fails → down |
 | 3 | `IRF port {index}` (`snmp_table`, enum, max 16, interval 120) | hh3cStackPortStatus `…2.91.4.1.3` (INDEX memberID.portIndex) | up(1) → up, down(2) / silent(3) / disabled(4) → warning; rows `disabled` at apply time are not created (IRF port without links) |
 | 4 | `IRF links up` (`snmp_walk_count`, probe, interval 120) | the same column, `count_values [1]` | channel `matched` `down_min 1`: every IRF port down → down |
 
@@ -4160,3 +4168,62 @@ File `backend/netmon/migrations/versions/0008_v13.py`, `revision = "0008"`, `dow
 `downgrade()`: `DELETE FROM event_conditions WHERE source = 'lag_degraded'`, restore the source check, drop the
 impact check and column, delete the settings row `impact_backfill_version` (the backfill runs again after a
 re-upgrade).
+
+
+---
+
+# **[1.3.1]** Release 1.3.1 additions
+
+Patch release after 1.3.0 in production (HPE 5510-HI IRF stack, 4 members, ring). Improvements of existing
+behaviour: **not feature-flagged**.
+
+## [1.3.1] IRF physical ports
+The port inventory run (after walks #2-#14) reads HH3C-STACK-MIB **hh3cStackPhyPortInfoBelongtoPort**
+`1.3.6.1.4.1.25506.2.91.5.1.1` (INDEX entPhysicalIndex; value = the IRF port 1/2 the physical port is bound to,
+0 = not an IRF port). Only when it has rows bound to an IRF port: ENTITY-MIB **entAliasMappingIdentifier**
+`1.3.6.1.2.1.47.1.3.2.1.2` (INDEX entPhysicalIndex.entLogicalIndexOrZero, value `ifIndex.<n>`; logical 0 wins)
+and, for the entities without an alias mapping (or whose ifIndex does not exist), **entPhysicalName**
+`1.3.6.1.2.1.47.1.1.1.1.7`, matched case-insensitively to exactly one port's `name`, else exactly one port's
+`descr`. Pure functions `collect.parse_irf_belongto`, `parse_alias_mapping`, `map_irf_ports`.
+
+On other devices the first walk returns no rows (one PDU): nothing else is read. `sources.irf` (`source_state`):
+`ok` / `empty` (no IRF-bound rows) / `unmapped` (rows, but no port matched) / `error` (the IRF column or the
+needed name walk failed; a failed alias walk falls back to the names) / `skipped`. `error` keeps the previous
+`switch_ports.irf_port` values (as the other optional sources); `empty` clears them (stack dissolved).
+
+## [1.3.1] Interface sensor impact of IRF ports
+New `snmp_interface` sensors (sensor form, template apply) default to `critical` on IRF ports (they are
+important). **Existing** sensors are not changed: `sensors.impact` does not record whether a value was set by
+the 1.3 backfill or by a user, and the audit log (feature-flagged) cannot tell it reliably, so the release does
+not override a possible user choice. The owner sets IRF-port interface sensors to `critical` once (bulk impact).
+
+## [1.3.1] Named value maps
+`snmp_custom` config gains **`value_map_ref`** (`enum`, options `""` + the names below; stored only when set,
+`""` clears it). With it, an enum sensor uses a shared code table (`netmon/poller/value_maps.py`) for every
+value its own `value_map` does not list (own entries win; `value_map` may be empty). Status message:
+`<label>: <text> (<mib>, <code>)`, text in the server `default_language` (as notifications); an unknown code:
+`<label>: <unknown text>` with status `value_map_default`. `GET /api/sensor-types` returns
+the tables as `value_maps` (texts `{en, he}`), so the UI shows them in the viewer's language (value text,
+value-map table with a MIB column). Texts live only in the table: corrections reach every sensor that uses it.
+
+| name | codes (status down unless noted; text en / he) |
+|---|---|
+| `hh3c_error_status` (HH3C-ENTITY-EXT-MIB hh3cEntityExtErrorStatus) | 1 notSupported, 2 normal (**up**, Normal / תקין), 3 postFailure (Power-on self-test failed / בדיקת חומרה נכשלה בהפעלה), 4 entityAbsent, 11 poeError, 21 stackError, 22 stackPortBlocked, 23 stackPortFailed, 31 sfpRecvError, 32 sfpSendError, 33 sfpBothError, 41 fanError, 51 psuError (Power supply fault / ספק כוח תקול), 61 rpsError, 71 moduleFaulty, 81 sensorError, 91 hardwareFaulty; unknown: "Unknown fault code (N)" / "קוד תקלה לא מוכר (N)" |
+
+`hpe_comware` fan/PSU entry: config `{"value_type":"enum","value_map_ref":"hh3c_error_status",
+"value_map_default":"down"}` (was `HH3C_ERROR_MAP`, which showed faults as "unexpected value (51)").
+
+## [1.3.1] Template options (`snmp_table`)
+| Key | Meaning |
+|---|---|
+| `label_format` (l10n, needs `{label}`; only when set) | the row label text is formatted, e.g. member `1` → `Unit 1` (before the unique-label suffixes) |
+| `rename_from: {name (l10n), label_oid \| null}` (only when set) | how an earlier template version named the rows. Re-applying renames an existing sensor (same identity) whose name is still such a name in either language (`name` with `{label}` = the `label_oid` text, or the index), also with the unique-label suffixes ` · <unit>` / ` #n`; a name the user changed is kept (skip `exists`, message `Renamed`) |
+
+## [1.3.1] Migration (`0009`)
+File `backend/netmon/migrations/versions/0009_v131.py`, `revision = "0009"`, `down_revision = "0008"`.
+`upgrade()`: `ALTER TABLE switch_ports ADD COLUMN irf_port smallint NULL`; `snmp_custom` sensors on
+hh3cEntityExtErrorStatus (`config.oid` under `1.3.6.1.4.1.25506.2.6.1.1.1.1.19.`) whose config is still exactly the
+1.3 template's (`value_type` enum, `value_map` `{"2":{"status":"up","text":"normal"}}`, `value_map_default` down,
+no `value_map_ref`) get `value_map_ref = "hh3c_error_status"` and `value_map = {}`; edited maps are left alone.
+`downgrade()`: sensors with `value_map_ref` lose it (an empty `value_map` gets the 1.3 map back); drop the column.
+

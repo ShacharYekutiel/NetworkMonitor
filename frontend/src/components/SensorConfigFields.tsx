@@ -157,7 +157,7 @@ export function SensorConfigFields({
                 >
                   {(f.options ?? []).map((o) => (
                     <option key={o} value={o}>
-                      {t(`sensorConfigOption.${type}.${f.key}.${o}`, {
+                      {t(`sensorConfigOption.${type}.${f.key}.${o || 'none'}`, {
                         defaultValue: f.key === 'value_map_default' ? t(`status.${o}`) : o,
                       })}
                     </option>

@@ -7,7 +7,10 @@ A port is important when it is
 - a **LAG** or a **LAG member** (stored `kind = 'lag'` / `lag_if_index`), or
 - a **trunk**: port mode `trunk` with at least `trunk_min_tagged_vlans` tagged VLANs (a member
   without VLANs of its own uses its LAG's), so a hybrid access port with one tagged voice VLAN
-  is not a trunk.
+  is not a trunk, or
+- **[1.3.1] irf**: an IRF physical port of an HPE Comware IRF stack (stored `irf_port` not null,
+  from HH3C-STACK-MIB hh3cStackPhyPortInfoBelongtoPort in the port inventory run): an IRF link
+  that goes down hurts the whole stack.
 
 Used by the ports API (`important`, `important_reasons`), the template apply selection, the
 interface-sensor impact (backfill and new sensors) and the ingest link-down scope
@@ -23,7 +26,7 @@ from sqlalchemy import text
 
 from netmon.ports import view
 
-REASONS = ("uplink", "lag", "trunk")
+REASONS = ("uplink", "lag", "trunk", "irf")
 TRUNK_MIN_DEFAULT = 2
 
 
@@ -61,6 +64,8 @@ def port_reasons(
             vals, _ = view.member_vlans(r, by_idx[lag])
         if is_trunk(vals.get("mode"), vals.get("tagged_vlans"), trunk_min):
             reasons.append("trunk")
+        if r.get("irf_port") is not None:  # [1.3.1]
+            reasons.append("irf")
         out[idx] = reasons
     return out
 

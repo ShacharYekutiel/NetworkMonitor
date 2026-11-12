@@ -4,6 +4,7 @@ import type { FeatureName, Settings } from '../../api/types';
 import { FEATURE_GROUPS, featuresFromSettings, featureTab } from '../../lib/features';
 import { Card, cx } from '../ui';
 import { FeatureToggleList } from './FeatureToggle';
+import { cardAnchor } from '../../lib/settingsIndex';
 import { AI_FEATURES } from '../../api/types';
 import { useAssistantStatus } from '../assistant/common';
 
@@ -81,7 +82,7 @@ export function FeaturesTab({ settings }: { settings: Settings }) {
   })).filter((g) => g.names.length);
   return (
     <div className="space-y-6">
-      <Card title={t('features.title')} bodyClassName="p-0">
+      <Card title={t('features.title')} bodyClassName="p-0" anchor={cardAnchor('features')}>
         <p className="border-b border-slate-200 px-4 py-2 text-xs text-slate-500 dark:border-slate-800">
           {t('features.intro')}
         </p>

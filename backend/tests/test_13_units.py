@@ -207,9 +207,19 @@ def test_comware_irf_entries() -> None:
     ]
     assert len(irf) == 4
     for e in irf:
-        assert e["confidence"] == "low" and "verified: false" in e["notes"]
+        # [1.3.1] verified on the owner's HPE 5510-HI IRF stack (4 members, ring)
+        assert e["confidence"] == "high" and "verified on HPE 5510-HI IRF" in e["notes"]
         assert e["when"] == [{"oid": "1.3.6.1.4.1.25506.2.91.1.2.0", "in": None, "not_in": [0, 1]}]
     assert irf[0]["expect_from_probe"] == {"channel": "value", "bound": "down_min"}
+    # [1.3.1] role rows are labelled by hh3cStackBoardBelongtoMember (same INDEX), not by
+    # entPhysicalName ("Board" on every member) -> "IRF role · Unit 1"; 1.3.0 names are renamed
+    assert irf[1]["label_oid"] == "1.3.6.1.4.1.25506.2.91.3.1.2"
+    assert irf[1]["label_format"] == {"en": "Unit {label}", "he": "יחידה {label}"}
+    assert irf[1]["name"] == {"en": "IRF role · {label}", "he": "תפקיד IRF · {label}"}
+    assert irf[1]["rename_from"] == {
+        "name": {"en": "IRF role {label}", "he": "תפקיד IRF {label}"},
+        "label_oid": "1.3.6.1.2.1.47.1.1.1.1.7",
+    }
     assert t["entries"][-1]["kind"] == "snmp_interfaces"  # interfaces stay last
 
 

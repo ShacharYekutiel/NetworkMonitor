@@ -17,6 +17,7 @@ import {
 import { compactTokens, formatCost, parseCidrs, pctTone } from '../../lib/assistant';
 import { featureHints, featuresFromSettings } from '../../lib/features';
 import { formatDateTime } from '../../lib/format';
+import { cardAnchor } from '../../lib/settingsIndex';
 import { Toggle, useSaveSettings } from '../features/common';
 import { useFeatureToggle } from '../features/FeatureToggle';
 import { CheckIcon, XIcon } from '../icons';
@@ -204,7 +205,7 @@ function DataSharingCard({ s, settings }: { s: AssistantSettings; settings: Sett
   });
   const maskOff = settings.config_backup_mask_secrets === false;
   return (
-    <Card title={t('assistant.settings.dataSharing')}>
+    <Card title={t('assistant.settings.dataSharing')} anchor={cardAnchor('assistantData')}>
       <form
         className="space-y-3"
         onSubmit={(e) => {
@@ -455,7 +456,7 @@ function UsageStrip() {
 function LimitsCard({ s, settings }: { s: AssistantSettings; settings: Settings }) {
   const { t } = useTranslation();
   return (
-    <Card title={t('assistant.settings.limits')}>
+    <Card title={t('assistant.settings.limits')} anchor={cardAnchor('assistantLimits')}>
       <div className="space-y-4">
         <UsageStrip />
         <ScalarForm
@@ -500,7 +501,10 @@ function LimitsCard({ s, settings }: { s: AssistantSettings; settings: Settings 
 function ConversationsCard({ settings }: { settings: Settings }) {
   const { t } = useTranslation();
   return (
-    <Card title={t('assistant.settings.conversations')}>
+    <Card
+      title={t('assistant.settings.conversations')}
+      anchor={cardAnchor('assistantConversations')}
+    >
       <ScalarForm
         settings={settings}
         testId="assistant-retention"
@@ -619,6 +623,15 @@ function ChatAskExtra() {
     </div>
   );
 }
+
+/** [1.3.1] Settings-search anchors of the per-feature settings (src/lib/settingsIndex.ts). */
+const FEATURE_SETTINGS_ANCHOR: Partial<Record<AiFeatureName, string>> = {
+  ai_correlation: cardAnchor('aiCorrelation'),
+  ai_alert_notes: cardAnchor('aiAlertNotes'),
+  ai_config_diff: cardAnchor('aiConfigDiff'),
+  ai_syslog_digest: cardAnchor('aiSyslogDigest'),
+  ai_chat_ask: cardAnchor('aiChatAsk'),
+};
 
 function FeatureSettings({ name, settings }: { name: AiFeatureName; settings: Settings }) {
   const { t } = useTranslation();
@@ -779,7 +792,7 @@ function CapabilityRow({
         </div>
       </div>
       {on && !kb && (
-        <div className="ms-12">
+        <div className="ms-12" data-anchor={FEATURE_SETTINGS_ANCHOR[name]}>
           <FeatureSettings name={name} settings={settings} />
         </div>
       )}
@@ -791,7 +804,11 @@ function CapabilitiesCard({ settings }: { settings: Settings }) {
   const { t } = useTranslation();
   const ft = useFeatureToggle();
   return (
-    <Card title={t('assistant.settings.capabilities')} bodyClassName="p-0">
+    <Card
+      title={t('assistant.settings.capabilities')}
+      bodyClassName="p-0"
+      anchor={cardAnchor('assistantCapabilities')}
+    >
       <p className="border-b border-slate-200 px-4 py-2 text-xs text-slate-500 dark:border-slate-800">
         {t('assistant.settings.capabilitiesIntro')}
       </p>
@@ -907,7 +924,7 @@ function KnowledgeCard({ assistantKey }: { assistantKey: string }) {
   const err = (bad: boolean, hint?: string) =>
     bad ? <span className="text-red-600">{t('assistant.kb.invalid')}</span> : hint;
   return (
-    <Card title={t('assistant.kb.title')}>
+    <Card title={t('assistant.kb.title')} anchor={cardAnchor('assistantKb')}>
       <div id="assistant-kb" className="space-y-3" data-testid="assistant-kb">
         <p className="text-xs text-slate-500">{t('assistant.kb.intro')}</p>
         {q.isLoading && <Loading />}
