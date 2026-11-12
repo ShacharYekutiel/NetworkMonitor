@@ -267,17 +267,17 @@ Open questions for phase 4: architecture § 15.16 (Q1–Q7).
 - ★ **Generic OIDC + SAML 2.0 sign-in** with several providers; CyberArk Identity first (OIDC app), Entra as a preset.
 - ★ **On-call schedules and escalation** — removed from phase 4 by the owner ("unnecessary for now"); revisit later.
 
-## Security hardening (parallel track, core releases on `main`)
-From an authorized penetration test of our own system. Runs in parallel with phase 4; each release is re-verified on a
-lab instance against the pentest report.
+## Security hardening (after 1.4.0, built on top of it — linear history, no parallel branch)
+From an authorized penetration test of our own system. Owner decision: ship 1.4.0 first, then build these on top of it
+rather than in a parallel 1.3.x line. Each release is re-verified on a lab instance against the pentest report.
 - **1.3.3 (done, in production):** ReDoS fixed — all user/admin regex on RE2, save-time validation, config-backup
   `statement_timeout`.
-- **1.3.4 (next, no migration):** SSRF egress filter for the webhook / Teams / HTTP-sensor targets (reuse the 3b
+- **1.4.1 (after 1.4.0, no migration):** SSRF egress filter for the webhook / Teams / HTTP-sensor targets (reuse the 3b
   `netguard` helper); security headers (CSP, clickjacking, nosniff); session revoked on logout; a global per-IP login
   cap (password spraying) and an absolute session lifetime.
-- **1.3.5 (heavier, scope to confirm with owner):** encrypt the SNMP community / v3 keys at rest (migration); container
+- **1.4.2 (heavier, scope to confirm with owner):** encrypt the SNMP community / v3 keys at rest (migration); container
   hardening (`cap_drop`, `no-new-privileges`, read-only); branch protection + CODEOWNERS on `deploy/production`; triage
-  the dependabot advisories.
+  the dependabot advisories (currently 19: 3 critical, 1 high, 14 moderate, 1 low).
 - The assistant's own pentest findings (endpoint SSRF guard, IP masking on by default, pattern-based secret redaction)
   already shipped on the `phase3b` branch for 1.4.0.
 
