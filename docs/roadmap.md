@@ -241,14 +241,20 @@ Order (owner decision: the AWS VPC Flow Logs feature moved to the beginning):
     DX connections/VIFs/gateways, endpoints) for several accounts/regions, cloud topology map, DX/VIF state sensors;
     flow logs from S3 (recommended) or CloudWatch Logs into the phase-3 flow views, on-prem ↔ AWS traffic, rejected
     flows, traffic paths.
+    **Turn the new data into alerts (owner addition; reuses the existing event-rule engine):**
+    flow-threshold event rules (a spike in rejected/REJECT flows, a VPN tunnel or Direct Connect link going silent,
+    link/interface utilisation) and AWS change alerts (a new Security Group rule, a route-table change, a new ENI).
+    Optional and cheap: give the 3b assistant read-only tools over the cloud inventory and flows ("which SG allows X",
+    "top talkers to AWS").
 18. **4c — certificates** (30-day warning, inventory), **optics DOM + PoE per port**, **S3 backups** (scheduled DB
     backups, restore from the UI, export of config versions).
 19. **4a — high availability:** office primary, standby on the DR site / AWS, PostgreSQL streaming replication,
     witness in a separate AWS VPC (also alerts when a server dies), automatic failover guarded by a device quorum (a
     Direct Connect outage never causes a takeover), epoch fencing, switchover/failover button + CLI, DNS by AD secure
     dynamic update (Route 53 alternative), two-node GitOps, `/ha` status page.
-20. **4c — configuration compliance**, **on-call schedules and escalation**, **traffic capture** (on-device over SSH
+20. **4c — configuration compliance** and **traffic capture** (on-device over SSH
     and from a permanent mirror; browser analyzer with tshark in an isolated add-on container).
+    (On-call schedules and escalation were removed from phase 4 by the owner — see *Parked*.)
 - **4b — isolated zones / remote probes:** deferred (principle: the central server initiates the connection).
 
 Open questions for phase 4: architecture § 15.16 (Q1–Q7).
@@ -259,13 +265,34 @@ Open questions for phase 4: architecture § 15.16 (Q1–Q7).
   WinRM/WMI only on demand for "who is on this port/IP" (least-privilege account via GPO; a broad workstation-admin
   account was flagged as a security risk). Open: is Identity Awareness on? is 802.1X on access ports?
 - ★ **Generic OIDC + SAML 2.0 sign-in** with several providers; CyberArk Identity first (OIDC app), Entra as a preset.
+- ★ **On-call schedules and escalation** — removed from phase 4 by the owner ("unnecessary for now"); revisit later.
+
+## Security hardening (parallel track, core releases on `main`)
+From an authorized penetration test of our own system. Runs in parallel with phase 4; each release is re-verified on a
+lab instance against the pentest report.
+- **1.3.3 (done, in production):** ReDoS fixed — all user/admin regex on RE2, save-time validation, config-backup
+  `statement_timeout`.
+- **1.3.4 (next, no migration):** SSRF egress filter for the webhook / Teams / HTTP-sensor targets (reuse the 3b
+  `netguard` helper); security headers (CSP, clickjacking, nosniff); session revoked on logout; a global per-IP login
+  cap (password spraying) and an absolute session lifetime.
+- **1.3.5 (heavier, scope to confirm with owner):** encrypt the SNMP community / v3 keys at rest (migration); container
+  hardening (`cap_drop`, `no-new-privileges`, read-only); branch protection + CODEOWNERS on `deploy/production`; triage
+  the dependabot advisories.
+- The assistant's own pentest findings (endpoint SSRF guard, IP masking on by default, pattern-based secret redaction)
+  already shipped on the `phase3b` branch for 1.4.0.
+
+## Maintenance backlog (small, not phase 4)
+- Split the SNMP walk budget per subtree so a huge vendor tree does not starve the standard sensors (seen in the 1.3
+  office test with the hh3c enterprise preset).
+- Template / rule drafts: show the real SNMP authentication error instead of a generic "timeout".
+- Fix the flaky `ApplyPorts` vitest (in progress).
 
 ## Later / ideas
 - Template editor in the UI.
 - Remote probes for multiple sites (phase 4b, deferred).
-- Phase 4 follow-ups: Transit Gateway flow logs, Parquet flow logs, AWS change alerts as event rules, SMS/voice paging,
-  S3 event notifications (SQS) instead of listing.
+- Phase 4 follow-ups: Transit Gateway flow logs, Parquet flow logs, SMS/voice paging, S3 event notifications (SQS)
+  instead of listing. (AWS change alerts and flow-threshold alerts were promoted into 4d above.)
 - Phase 3 follow-ups: config-backup driver editor, Telnet (only if a device needs it), server-side PDF reports,
-  Kerberos SSO on native Windows (SSPI), a flow worker process, alerts driven by flow thresholds.
+  Kerberos SSO on native Windows (SSPI), a flow worker process.
 - Phase 3b follow-ups: model summarisation of long conversations, Teams inbound questions (needs a reachable bot
   endpoint), webhook-channel AI notes, AWS SSO/web-identity credentials.
