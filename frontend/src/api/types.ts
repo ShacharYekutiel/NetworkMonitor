@@ -409,6 +409,19 @@ export type ChannelDef = {
   down_max: number | null;
 };
 
+/** [1.3.1] a named enum value map (GET /api/sensor-types `value_maps`); texts per language */
+export type NamedValueMap = {
+  title: { en: string; he: string };
+  codes: {
+    value: string;
+    status: 'up' | 'warning' | 'down';
+    mib: string;
+    text: { en: string; he: string };
+  }[];
+  /** text of a code the table does not know; `{code}` = the value */
+  unknown: { en: string; he: string };
+};
+
 export type SensorTypeDef = {
   type: SensorType;
   requires_snmp: boolean;
@@ -982,7 +995,8 @@ export type ApplyTemplateRequest = {
   interfaces?: ApplyInterfacesMode | number[];
   remove_unselected_interfaces?: boolean;
 };
-export type ApplyInterfaceReason = 'uplink' | 'lag' | 'trunk';
+/** [1.3.1] irf: an IRF physical port of a Comware IRF stack */
+export type ApplyInterfaceReason = 'uplink' | 'lag' | 'trunk' | 'irf';
 export const APPLY_INTERFACE_REASONS: ApplyInterfaceReason[] = ['uplink', 'lag', 'trunk'];
 export type ApplyInterface = {
   if_index: number;
@@ -1378,6 +1392,8 @@ export type Port = {
   lag?: { if_index: number; name: string; attached: boolean | null } | null;
   lag_members?: number[];
   vlans_from_lag?: boolean;
+  /** [1.3.1] IRF port (1/2) of an IRF physical port, else null */
+  irf_port?: number | null;
   /** [1.3] connected end devices (first = the most likely one) */
   connected?: { count: number; first: PortConnectedHost | null };
   /** [1.3] LLDP/CDP neighbour name and management address (null = none) */
@@ -1440,6 +1456,8 @@ export type PortInventoryStatus = {
     arp: SourceState;
     /** [2b-3] */
     lag?: SourceState;
+    /** [1.3.1] IRF physical ports (HH3C-STACK-MIB) */
+    irf?: SourceState;
   };
   /** [2b-3] */
   lag_mib?: 'ieee8023' | 'if_stack' | 'both' | null;

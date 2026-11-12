@@ -116,7 +116,7 @@ function ConnNameCell({ p, showIp }: { p: Port; showIp: boolean }) {
           </span>
           {v.device_id ? link(v.device_id, v.name) : <bdi dir="auto">{v.name}</bdi>}
         </span>
-        {ipLine(v.mgmt)}
+        {ipLine(v.ip)}
       </div>
     );
   if (v.kind === 'uplink')
@@ -228,7 +228,7 @@ export function PortList({
       }
       case 'connIp': {
         const v = connectedHostView(p);
-        const ip = v.kind === 'neighbor' ? v.mgmt : v.kind === 'host' ? v.ip : null;
+        const ip = v.kind === 'neighbor' || v.kind === 'host' ? v.ip : null;
         return ip ? (
           <bdi dir="ltr" data-testid="port-conn-ip">
             {ip}

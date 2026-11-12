@@ -103,6 +103,11 @@ const post = (calls: Call[]) =>
   calls.find((c) => c.method === 'POST' && c.url === '/api/devices/7/apply-template');
 
 describe('[1.3] B. apply template: ports', () => {
+  it('[1.3.1] labels the irf reason in both languages', () => {
+    expect(i18n.getFixedT('en')('applyPorts.reason.irf')).toBe('IRF port');
+    expect(i18n.getFixedT('he')('applyPorts.reason.irf')).toBe('פורט IRF');
+  });
+
   it('pure helpers: removal count and request options', () => {
     expect(sensorsToRemove(ifs, 'important', new Set()).map((i) => i.if_index)).toEqual([2]);
     expect(sensorsToRemove(ifs, 'none', new Set()).map((i) => i.if_index)).toEqual([1, 2]);

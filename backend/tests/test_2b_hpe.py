@@ -272,10 +272,10 @@ async def test_comware_template(admin: httpx.AsyncClient, agents: dict[str, int]
     assert temp["channels"][0]["warning_max"] == 65 and temp["status"] == "up"
     assert (
         sensors["Fan 1"]["status"] == "up"
-        and sensors["Fan 1"]["status_message"] == "Fan 1: normal (2)"
+        and sensors["Fan 1"]["status_message"] == "Fan 1: Normal (normal, 2)"  # [1.3.1] code table
     )
     fan2 = sensors["Fan 2"]
-    assert fan2["status"] == "down" and fan2["status_message"] == "Fan 2: unexpected value (41)"
+    assert fan2["status"] == "down" and fan2["status_message"] == "Fan 2: Fan fault (fanError, 41)"
     assert sensors["PSU 1"]["status"] == "up"
     r = await admin.post(f"/api/devices/{dev['id']}/identify")
     ident = r.json()

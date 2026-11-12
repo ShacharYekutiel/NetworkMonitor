@@ -1,4 +1,5 @@
 import { api, buildUrl } from './client';
+import { setNamedValueMaps } from '../lib/valueMaps';
 import type { BackupMode, SshCredentialsInput } from './types3';
 import type {
   ApiToken,
@@ -379,7 +380,16 @@ export const endpoints = {
     api.get<{ items: SnmpInterface[] }>(`/devices/${id}/snmp/interfaces`),
 
   // sensors
-  sensorTypes: () => api.get<{ items: SensorTypeDef[] }>('/sensor-types'),
+  sensorTypes: () =>
+    api
+      .get<{
+        items: SensorTypeDef[];
+        value_maps?: Record<string, import('./types').NamedValueMap>;
+      }>('/sensor-types')
+      .then((d) => {
+        setNamedValueMaps(d.value_maps); // [1.3.1]
+        return d;
+      }),
   sensors: (params?: {
     device_id?: number;
     group_id?: number;

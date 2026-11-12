@@ -14,6 +14,7 @@ import { useToast } from '../toast';
 import { Button, Card, Checkbox, ErrorBox, Field, FieldGroup, Input, Textarea } from '../ui';
 import { useSaveSettings } from './common';
 import { FeatureTab } from './FeatureToggle';
+import { cardAnchor } from '../../lib/settingsIndex';
 
 type NumKey = {
   [K in keyof Settings3]: Settings3[K] extends number ? K : never;
@@ -44,9 +45,11 @@ function SettingsForm({
   extra,
   extraValid = true,
   extraInput,
+  anchor,
 }: {
   settings: Settings;
   title: string;
+  anchor: string;
   nums: NumField[];
   bools?: BoolKey[];
   time?: 'config_backup_time';
@@ -81,7 +84,7 @@ function SettingsForm({
     save.mutate({ ...(body as SettingsInput), ...(extraInput?.() ?? {}) });
   };
   return (
-    <Card title={title}>
+    <Card title={title} anchor={cardAnchor(anchor)}>
       <form onSubmit={submit} className="space-y-3">
         <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
           {time && (
@@ -169,6 +172,7 @@ export function BackupSettingsTab({ settings }: { settings: Settings }) {
       <SettingsForm
         settings={settings}
         title={t('settings3.backupTitle')}
+        anchor="backup"
         prefix="settings3"
         time="config_backup_time"
         nums={[
@@ -221,6 +225,7 @@ export function FlowSettingsTab({ settings }: { settings: Settings }) {
       <SettingsForm
         settings={settings}
         title={t('settings3.flowsTitle')}
+        anchor="flows"
         prefix="settings3"
         nums={[
           { key: 'flow_max_records_per_s', min: 1000, max: 50000 },
@@ -292,6 +297,7 @@ export function NewDeviceSettingsTab({ settings }: { settings: Settings }) {
       <SettingsForm
         settings={settings}
         title={t('settings3.newdevTitle')}
+        anchor="newDevices"
         prefix="settings3"
         nums={[
           { key: 'newdev_learning_days', min: 0, max: 60 },
@@ -326,6 +332,7 @@ export function ReportSettingsTab({ settings }: { settings: Settings }) {
       <SettingsForm
         settings={settings}
         title={t('settings3.reportsTitle')}
+        anchor="reports"
         prefix="settings3"
         nums={[{ key: 'report_retention_days', min: 30, max: 3650 }]}
       />
@@ -364,6 +371,7 @@ export function ChatAckSettingsTab({ settings }: { settings: Settings }) {
         <SettingsForm
           settings={settings}
           title={t('settings3.chatAckTitle')}
+          anchor="chatAck"
           prefix="settings3"
           nums={[
             { key: 'chat_ack_ttl_h', min: 1, max: 720 },
@@ -379,7 +387,7 @@ export function ChatAckSettingsTab({ settings }: { settings: Settings }) {
           }
         />
         {features.chat_ack && (
-          <Card title={t('chatAck.pollers')}>
+          <Card title={t('chatAck.pollers')} anchor={cardAnchor('chatAckPollers')}>
             <ErrorBox error={poll.error} />
             {poll.data && !poll.data.pollers.length && (
               <p className="text-sm text-slate-500">{t('features.status.noPoller')}</p>
@@ -413,7 +421,7 @@ export function ChatAckSettingsTab({ settings }: { settings: Settings }) {
           </Card>
         )}
         {features.chat_ack && isAdmin && (
-          <Card title={t('chatAck.allLinks')}>
+          <Card title={t('chatAck.allLinks')} anchor={cardAnchor('chatAckLinks')}>
             <ErrorBox error={links.error ?? unlink.error} />
             {links.data && !links.data.items.length && (
               <p className="text-sm text-slate-500">{t('chatAck.noLinks')}</p>

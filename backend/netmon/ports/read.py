@@ -337,6 +337,7 @@ def port_out(
         # [1.3] importance, connected hosts, LLDP neighbour
         "important": bool(reasons_imp),
         "important_reasons": reasons_imp,
+        "irf_port": row.get("irf_port"),  # [1.3.1]
         "connected": connected_out(is_up, mac_count, macs_sorted, first),
         "neighbor_name": primary["name"] if primary else None,
         "neighbor_mgmt_address": primary["mgmt_address"] if primary else None,

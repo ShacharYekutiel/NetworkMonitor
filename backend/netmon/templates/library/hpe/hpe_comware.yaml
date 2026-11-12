@@ -2,7 +2,7 @@
 # entPhysicalIndex), ENTITY-MIB names/classes, POWER-ETHERNET-MIB (RFC 3621), IF-MIB.
 schema: 1
 id: hpe_comware
-version: 4
+version: 5
 vendor: h3c
 verified: false            # flip after the owner's 2b-1 test (architecture § 11.8)
 verified_note: ""
@@ -56,9 +56,10 @@ entries:
     name: {en: '{label}', he: '{label}'}
     config:
       value_type: enum
-      value_map:
-        2: {status: up, text: normal}
-      value_map_default: down     # every other value is a fault (postFailure(3), fanError(41), ...)
+      # [1.3.1] the shared HH3C-ENTITY-EXT-MIB fault-code table (netmon/poller/value_maps.py):
+      # normal(2) up, every fault down with a localized text ("Power supply fault (psuError, 51)")
+      value_map_ref: hh3c_error_status
+      value_map_default: down     # a code the table does not know is a fault as well
     filters:
       - {oid: '1.3.6.1.2.1.47.1.1.1.1.5', in: [6, 7]}             # entPhysicalClass powerSupply/fan
       - {oid: '1.3.6.1.4.1.25506.2.6.1.1.1.1.19', not_in: [1, 4]} # skip notSupported/entityAbsent
@@ -94,8 +95,8 @@ entries:
     confidence: medium
     notes: "POWER-ETHERNET-MIB nominal power (W)."
   # [1.3] IRF stack health (HH3C-STACK-MIB, hh3cStack 1.3.6.1.4.1.25506.2.91). Created only on
-  # an IRF stack (hh3cStackMemberNum >= 2). Not verified on the owner's FF 5945 yet: send the
-  # output of deploy/tools/irf_dump.py to verify.
+  # an IRF stack (hh3cStackMemberNum >= 2). [1.3.1] Verified on the owner's HPE 5510-HI IRF stack
+  # (4 members, ring) with deploy/tools/irf_dump.py.
   - kind: sensor
     type: snmp_custom
     name: {en: IRF members, he: חברי IRF}
@@ -104,12 +105,16 @@ entries:
     when: [{oid: '1.3.6.1.4.1.25506.2.91.1.2.0', not_in: [0, 1]}]   # hh3cStackMemberNum
     expect_from_probe: {channel: value, bound: down_min}           # down below the count at apply
     interval_s: 120
-    confidence: low
-    notes: "hh3cStackMemberNum.0 (verified: false). down_min = the member count seen at apply time; re-apply after adding a member."
+    confidence: high
+    notes: "hh3cStackMemberNum.0 (verified on HPE 5510-HI IRF, 4 members, ring). down_min = the member count seen at apply time; re-apply after adding a member."
   - kind: snmp_table
     walk_oid: '1.3.6.1.4.1.25506.2.91.3.1.1'       # hh3cStackBoardRole (INDEX entPhysicalIndex)
-    label_oid: '1.3.6.1.2.1.47.1.1.1.1.7'          # entPhysicalName
-    name: {en: 'IRF role {label}', he: 'תפקיד IRF {label}'}
+    label_oid: '1.3.6.1.4.1.25506.2.91.3.1.2'      # hh3cStackBoardBelongtoMember (same INDEX)
+    label_format: {en: 'Unit {label}', he: 'יחידה {label}'}   # [1.3.1] member 1 -> "Unit 1"
+    name: {en: 'IRF role · {label}', he: 'תפקיד IRF · {label}'}
+    rename_from:                                    # [1.3.1] 1.3.0 names (entPhysicalName "Board")
+      name: {en: 'IRF role {label}', he: 'תפקיד IRF {label}'}
+      label_oid: '1.3.6.1.2.1.47.1.1.1.1.7'
     config:
       value_type: enum
       value_map:
@@ -121,8 +126,8 @@ entries:
     when: [{oid: '1.3.6.1.4.1.25506.2.91.1.2.0', not_in: [0, 1]}]
     max: 16
     interval_s: 120
-    confidence: low
-    notes: "hh3cStackBoardRole slave(1) master(2) loading(3) other(4) (verified: false). A member that leaves the stack loses its row: the sensor goes down."
+    confidence: high
+    notes: "hh3cStackBoardRole slave(1) master(2) loading(3) other(4), label hh3cStackBoardBelongtoMember (verified on HPE 5510-HI IRF, 4 members, ring). A member that leaves the stack loses its row: the sensor goes down."
   - kind: snmp_table
     walk_oid: '1.3.6.1.4.1.25506.2.91.4.1.3'       # hh3cStackPortStatus (INDEX memberID.portIndex)
     name: {en: 'IRF port {index}', he: 'פורט IRF {index}'}
@@ -138,8 +143,8 @@ entries:
     when: [{oid: '1.3.6.1.4.1.25506.2.91.1.2.0', not_in: [0, 1]}]
     max: 16
     interval_s: 120
-    confidence: low
-    notes: "hh3cStackPortStatus up(1) down(2) silent(3) disabled(4) (verified: false); {index} = member.IRF-port."
+    confidence: high
+    notes: "hh3cStackPortStatus up(1) down(2) silent(3) disabled(4) (verified on HPE 5510-HI IRF, 4 members, ring); {index} = member.IRF-port."
   - kind: sensor
     type: snmp_walk_count
     name: {en: IRF links up, he: קישורי IRF פעילים}
@@ -148,8 +153,8 @@ entries:
     probe: true
     when: [{oid: '1.3.6.1.4.1.25506.2.91.1.2.0', not_in: [0, 1]}]
     interval_s: 120
-    confidence: low
-    notes: "Counts hh3cStackPortStatus = up(1) (verified: false)."
+    confidence: high
+    notes: "Counts hh3cStackPortStatus = up(1) (verified on HPE 5510-HI IRF, 4 members, ring)."
   - kind: snmp_interfaces
     oper_up_only: true
     exclude_if_types: [1, 24, 53, 131, 136]   # Vlan-interface* 136, NULL0 1, InLoopBack0 24

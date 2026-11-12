@@ -641,6 +641,7 @@
       "match": "התאמה",
       "value_map": "מיפוי ערכים",
       "value_map_default": "מצב לערכים אחרים",
+      "value_map_ref": "טבלת קודים משותפת",
       "percent_base": "בסיס האחוז"
     },
     "snmp_disk": {
@@ -708,6 +709,10 @@
       "match": {
         "equals": "שווה ל",
         "contains": "מכיל"
+      },
+      "value_map_ref": {
+        "none": "ללא (מפת ערכים בלבד)",
+        "hh3c_error_status": "קודי תקלת חומרה של HPE Comware"
       },
       "percent_base": {
         "total": "המחלק הוא הסך הכולל",
@@ -1168,6 +1173,8 @@
     "other": "אחר",
     "unexpected": "ערך לא צפוי",
     "current": "הערך הנוכחי",
+    "mib": "שם ב-MIB",
+    "own": "ערך מותאם",
     "err": {
       "integer": "הערכים חייבים להיות מספרים שלמים.",
       "duplicate": "כל ערך יכול להופיע פעם אחת בלבד.",
@@ -3071,14 +3078,15 @@
     },
     "hint": {
       "none": "לא ייווצרו חיישני ממשק.",
-      "important": "אפלינקים, LAG ו-trunk בלבד (מומלץ).",
+      "important": "אפלינקים, LAG, trunk ופורטי IRF בלבד (מומלץ).",
       "all": "חיישן ממשק לכל פורט שהתבנית מתאימה לו.",
       "choose": "בחירה ידנית של הפורטים."
     },
     "reason": {
       "uplink": "אפלינק",
       "lag": "LAG",
-      "trunk": "Trunk"
+      "trunk": "Trunk",
+      "irf": "פורט IRF"
     },
     "hasSensor": "מנוטר",
     "hasSensorTitle": "לפורט זה כבר יש חיישן ממשק",
@@ -3087,7 +3095,7 @@
     "selectImportant": "בחירת החשובים",
     "selectedOf": "{{n}} מתוך {{total}} נבחרו",
     "noPorts": "לא נמצאו פורטים בהתקן זה.",
-    "inventoryMissing": "מלאי הפורטים של התקן זה לא נאסף, ולכן לא ניתן היה לקבוע אילו פורטים חשובים (אפלינקים, LAG, trunk).",
+    "inventoryMissing": "מלאי הפורטים של התקן זה לא נאסף, ולכן לא ניתן היה לקבוע אילו פורטים חשובים (אפלינקים, LAG, trunk, פורטי IRF).",
     "removeUnselected": "מחיקת חיישני הממשק של פורטים שלא נבחרו",
     "removeCount_one": "חיישן ממשק קיים אחד יימחק, עם ההיסטוריה שלו.",
     "removeCount_two": "2 חיישני ממשק קיימים יימחקו, עם ההיסטוריה שלהם.",
@@ -3095,5 +3103,12 @@
     "removedTitle_one": "נמחק חיישן אחד",
     "removedTitle_two": "נמחקו 2 חיישנים",
     "removedTitle_other": "נמחקו {{count}} חיישנים"
+  },
+  "settingsSearch": {
+    "label": "חיפוש בהגדרות",
+    "placeholder": "חיפוש בהגדרות…",
+    "clear": "ניקוי החיפוש",
+    "none": "לא נמצאו הגדרות",
+    "requires": "דורש את התכונה {{feature}} — הפעילו אותה בלשונית {{tab}}"
   }
 }

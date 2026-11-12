@@ -93,6 +93,11 @@ def test_converted_templates_identical_to_2b1() -> None:
     comware = next(t for t in fixture if t["id"] == "hpe_comware")
     for e in comware["entries"][2:5]:
         e["filters"] = [{"oid": e["walk_oid"], "in": None, "not_in": [65535]}]
+    # [1.3.1] deliberate change: hh3cEntityExtErrorStatus uses the shared fault-code table
+    # (localized texts) instead of its own {"2": normal} map; the default stays down
+    err = next(e for e in comware["entries"] if e.get("walk_oid", "").endswith(".2.6.1.1.1.1.19"))
+    del err["config"]["value_map"]
+    err["config"]["value_map_ref"] = "hh3c_error_status"
     ids = [t["id"] for t in fixture]
     loaded = [strip_2b2(t) for t in TEMPLATES if t["id"] in ids]
     # [1.3] deliberate change: hpe_comware gains the IRF entries (HH3C-STACK-MIB); the sensor

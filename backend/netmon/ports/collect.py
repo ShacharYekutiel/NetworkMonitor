@@ -416,6 +416,110 @@ def map_pse_ports(
     return out
 
 
+# ------------------------------------------------------------------ [1.3.1] IRF ports
+# HH3C-STACK-MIB hh3cStackPhyPortInfoBelongtoPort (INDEX entPhysicalIndex): the IRF port (1/2)
+# a physical port is bound to, 0 = not an IRF port. Comware only; empty everywhere else.
+IRF_PHY_PORT_BELONGTO = "1.3.6.1.4.1.25506.2.91.5.1.1"
+ENT_ALIAS_MAPPING_ID = "1.3.6.1.2.1.47.1.3.2.1.2"  # INDEX entPhysicalIndex.entLogicalIndexOrZero
+ENT_PHYSICAL_NAME = "1.3.6.1.2.1.47.1.1.1.1.7"
+IF_INDEX_OID = "1.3.6.1.2.1.2.2.1.1."  # an alias mapping value: ifIndex.<n>
+
+
+@dataclass
+class IrfWalk:
+    """Raw IRF data of one run: {entPhysicalIndex: IRF port} (ports bound to an IRF port only),
+    {entPhysicalIndex: ifIndex} from entAliasMappingTable and {entPhysicalIndex: name}."""
+
+    ports: dict[int, int] = field(default_factory=dict)
+    alias: dict[int, int] = field(default_factory=dict)
+    names: dict[int, str] = field(default_factory=dict)
+
+
+def parse_irf_belongto(col: dict[str, Any]) -> dict[int, int]:
+    """hh3cStackPhyPortInfoBelongtoPort -> {entPhysicalIndex: IRF port}; 0 (not an IRF port),
+    non-integer values and malformed suffixes are dropped."""
+    out: dict[int, int] = {}
+    for suffix, value in col.items():
+        arcs = _arcs(suffix)
+        v = to_int(value)
+        if arcs is None or len(arcs) != 1 or v is None or v <= 0:
+            continue
+        out[arcs[0]] = v
+    return out
+
+
+def parse_alias_mapping(col: dict[str, Any]) -> dict[int, int]:
+    """entAliasMappingIdentifier (suffix entPhysicalIndex.logicalIndex, value an OID) ->
+    {entPhysicalIndex: ifIndex} for values ifIndex.<n>; the logical index 0 (all contexts) wins
+    over the others."""
+    best: dict[int, tuple[int, int]] = {}
+    for suffix, value in col.items():
+        arcs = _arcs(suffix)
+        if arcs is None or len(arcs) != 2:
+            continue
+        text = to_text(value).lstrip(".")
+        if not text.startswith(IF_INDEX_OID):
+            continue
+        idx = to_int(text[len(IF_INDEX_OID) :])
+        if idx is None or idx <= 0:
+            continue
+        ent, logical = arcs
+        if ent not in best or logical < best[ent][0]:
+            best[ent] = (logical, idx)
+    return {ent: idx for ent, (_, idx) in best.items()}
+
+
+def map_irf_ports(irf: IrfWalk, ports: dict[int, tuple[str, str]]) -> dict[int, int]:
+    """{ifIndex: IRF port}. `ports` = {ifIndex: (name, descr)} of the device. An entity maps by
+    its alias mapping (when that ifIndex exists), else by its entPhysicalName equal to exactly
+    one port's name, else to exactly one port's descr (case-insensitive)."""
+    by_name: dict[str, list[int]] = {}
+    by_descr: dict[str, list[int]] = {}
+    for idx, (name, descr) in ports.items():
+        if name:
+            by_name.setdefault(name.casefold(), []).append(idx)
+        if descr:
+            by_descr.setdefault(descr.casefold(), []).append(idx)
+    out: dict[int, int] = {}
+    for ent, port in irf.ports.items():
+        idx = irf.alias.get(ent)
+        if idx is None or idx not in ports:
+            key = (irf.names.get(ent) or "").casefold()
+            hits = by_name.get(key, []) if key else []
+            if len(hits) != 1:
+                hits = by_descr.get(key, []) if key else []
+            idx = hits[0] if len(hits) == 1 else None
+        if idx is not None:
+            out[idx] = port
+    return out
+
+
+async def collect_irf(walk: Walker, walks: PortWalks) -> None:
+    """IRF port walks (one column on non-Comware devices: no rows -> `empty`). The alias
+    mapping and entPhysicalName are read only when there are IRF ports; names only for the
+    entities the alias mapping does not cover. A failing walk -> `sources.irf = error` (the
+    snapshot keeps the previous `irf_port` values)."""
+    opt = _Optional(walk)
+    cols = await opt.cols([IRF_PHY_PORT_BELONGTO])
+    if cols is None:
+        walks.sources["irf"] = "error"
+        return
+    irf = IrfWalk(ports=parse_irf_belongto(cols[0]))
+    if irf.ports:
+        alias = await opt.cols([ENT_ALIAS_MAPPING_ID])
+        if alias is not None:  # optional: a failure falls back to the names
+            irf.alias = parse_alias_mapping(alias[0])
+        if any(ent not in irf.alias for ent in irf.ports):
+            names = await opt.cols([ENT_PHYSICAL_NAME])
+            if names is None:
+                walks.sources["irf"] = "error"
+                return
+            wanted = set(irf.ports)
+            irf.names = {ent: to_text(v) for ent, v in int_index(names[0]).items() if ent in wanted}
+    walks.irf = irf
+    walks.sources["irf"] = "ok" if irf.ports else "empty"
+
+
 # ------------------------------------------------------------------ walks (I/O)
 @dataclass
 class PortWalks:
@@ -441,6 +545,9 @@ class PortWalks:
     # read (feature OFF) or failed
     lacp: dict[int, int] | None = None  # member ifIndex -> aggregator ifIndex (0 = none)
     stack: dict[tuple[int, int], int] | None = None  # (higher, lower) -> ifStackStatus
+    # [1.3.1] IRF physical ports (HH3C-STACK-MIB, Comware): entPhysicalIndex -> IRF port (1/2)
+    # plus the entity -> ifIndex mapping (ENTITY-MIB alias, else entPhysicalName); `sources.irf`
+    irf: IrfWalk | None = None
 
 
 Walker = Callable[[str, int], Awaitable[dict[str, Any]]]
