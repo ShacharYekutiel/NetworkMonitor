@@ -153,7 +153,9 @@ RUN pip install --upgrade pip \
  # login, phase 2b-3; asyncssh and the kerberos extra, phase 3) must be installed and
  # consistent in the venv.
  && pip check \
- && python -c "import asyncssh, gssapi, ldap3; print('asyncssh', asyncssh.__version__, '/ gssapi ok')"
+ # [1.3.3] re2: google-re2 bundles libre2 in its manylinux wheel (no apt package); confirm
+ # the wheel imports here so a broken install fails the build rather than at runtime.
+ && python -c "import asyncssh, gssapi, ldap3, re2; print('asyncssh', asyncssh.__version__, '/ gssapi ok / re2 ok')"
 
 # ---------------------------------------------------------------------------
 # Stage 3: runtime
@@ -185,7 +187,7 @@ RUN groupadd --system --gid "${NETMON_GID}" netmon \
 COPY --from=backend /opt/netmon/venv /opt/netmon/venv
 # The compiled gssapi extension must load against the runtime's shared libraries (a
 # missing libgssapi-krb5-2 would otherwise only show up when Kerberos SSO is turned on).
-RUN /opt/netmon/venv/bin/python -c "import gssapi.raw, asyncssh" \
+RUN /opt/netmon/venv/bin/python -c "import gssapi.raw, asyncssh, re2" \
  && /opt/netmon/venv/bin/pip check
 
 ENV PATH=/opt/netmon/venv/bin:$PATH \
