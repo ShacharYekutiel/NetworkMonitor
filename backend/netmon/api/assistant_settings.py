@@ -153,6 +153,8 @@ async def test_connection(
     stored = await config.load(session)
     fields = body.settings.changes() if body.settings is not None else {}
     cfg = config.merge(stored, fields, rt.secret_key)
+    # SSRF: reject disallowed endpoint/proxy targets before the connection test connects.
+    _validation(config.field_errors(cfg, test_mode=svc.test_mode))
     await session.close()
     result = await tc.run_test(svc, cfg, user_id=user.id)
     async with rt.sessionmaker() as s2:
@@ -391,6 +393,8 @@ async def list_models(
     stored = await config.load(session)
     fields = body.settings.changes() if body.settings is not None else {}
     cfg = config.merge(stored, fields, rt.secret_key)
+    # SSRF: reject disallowed endpoint/proxy targets before any outbound request is built.
+    _validation(config.field_errors(cfg, test_mode=svc.test_mode))
     await session.close()
     try:
         client = svc.build_client({**cfg, "model_id": cfg.get("model_id") or "-"}, report=False)
@@ -543,6 +547,8 @@ async def test_knowledge(
         fields.pop("knowledge_base_id", None)
     kb = config.merge_kb(stored, {k: v for k, v in fields.items() if v is not None or k in (
         "region", "endpoint_url")})  # fmt: skip
+    # SSRF: reject disallowed KB endpoint targets before the KB test connects.
+    _validation(config.kb_field_errors(kb, test_mode=svc.test_mode))
     await session.close()
     out = await tc.run_kb_test(svc, kb, user_id=user.id)
     async with rt.sessionmaker() as s2:

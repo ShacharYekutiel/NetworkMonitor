@@ -600,6 +600,51 @@ async def test_knowledge_base_and_models(rt: Runtime, env: httpx.AsyncClient, mo
     assert {m["kind"] for m in models["items"]} == {"inference_profile", "foundation_model"}
 
 
+async def test_ssrf_blocked_endpoints_reject_before_outbound(
+    env: httpx.AsyncClient, mock: Any
+) -> None:
+    """A metadata/link-local endpoint is rejected (422) before any outbound request; the
+    mock Bedrock sees no traffic. 169.254.169.254 and metadata.google.internal are blocked
+    even in test mode (loopback is not, so the harness keeps using 127.0.0.1)."""
+    c = env
+    await enable(c, conn(mock, endpoint_url=mock.url))
+    await c.put("/api/assistant/knowledge", json={"knowledge_base_id": "QAKBTEST01"})
+    before = len(mock.requests())  # count only the blocked calls below
+    blocked: list[tuple[str, dict[str, Any]]] = [
+        ("/api/assistant/models", {"settings": conn(mock, endpoint_url="https://169.254.169.254")}),
+        ("/api/assistant/test", {"settings": conn(mock, endpoint_url="http://169.254.169.254")}),
+        (
+            "/api/assistant/test",
+            {"settings": conn(mock, proxy_mode="custom", proxy_url="http://169.254.169.254:80")},
+        ),
+        (
+            "/api/assistant/knowledge/test",
+            {"settings": {"endpoint_url": "https://metadata.google.internal"}},
+        ),
+    ]
+    for path, body in blocked:
+        r = await c.post(path, json=body)
+        assert r.status_code == 422, (path, r.text)
+        assert r.json()["error"]["code"] == "validation_error", r.text
+    assert len(mock.requests()) == before, "a blocked endpoint must not reach the network"
+
+
+async def test_redact_internal_ips_defaults_true(rt: Runtime, admin: httpx.AsyncClient) -> None:
+    """[3b Finding B] masking defaults ON: a fresh install and a stored row that predates
+    the key both resolve `redact_internal_ips` to True."""
+    from netmon.assistant import config as acfg
+
+    assert acfg.DEFAULT_ASSISTANT["redact_internal_ips"] is True
+    async with rt.sessionmaker() as s:
+        assert (await acfg.load(s))["redact_internal_ips"] is True
+        # a row written before the key existed (upgrade path)
+        await acfg.save(s, {"region": "eu-west-1", "model_id": "m"})
+        await s.commit()
+    async with rt.sessionmaker() as s:
+        cfg = await acfg.load(s)
+    assert cfg["redact_internal_ips"] is True and cfg["region"] == "eu-west-1"
+
+
 # ------------------------------------------------- temporary credentials (ASIA + session token)
 ASIA_ID = "ASIA" + "T" * 16
 ASIA_SECRET = "tmpSecret0000000000000000000000000000000"

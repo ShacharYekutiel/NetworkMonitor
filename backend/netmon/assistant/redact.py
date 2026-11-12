@@ -60,17 +60,40 @@ _SECRET = re.compile(
 )
 _HASH = re.compile(r"(?<![\w$])\$(?:1|2[aby]?|5|6|8|9|c)\$[^\s,;]+")
 
+# Pattern-based detection (defence in depth, § 14.6.1): common secret *shapes*, matched
+# regardless of a preceding keyword so a non-keyworded secret is still caught. Kept
+# conservative to avoid redacting ordinary monitoring text (words, IPs, hostnames, OIDs,
+# MACs, UUIDs — none of which are a 40+ contiguous mixed-case+digit base64 run).
+_AWS_KEY_ID = re.compile(r"(?<![A-Za-z0-9])(?:AKIA|ASIA)[0-9A-Z]{16}(?![A-Za-z0-9])")
+_B64_BLOB = re.compile(r"(?<![\w+/=-])[A-Za-z0-9+/]{40,}={0,2}(?![\w+/=-])")
+
 
 def _secret_sub(m: re.Match[str]) -> str:
     return f"{m.group('kw')}{m.group('sep')}{m.group('qual')}{SECRET_MARK}"
 
 
+def _b64_blob_sub(m: re.Match[str]) -> str:
+    """Only redact a long base64 run that looks high-entropy (mixed case + a digit), so
+    long lowercase/uppercase hex (fingerprints, sha sums) and words are left intact."""
+    core = m.group(0).rstrip("=")
+    has_mix = any(c.islower() for c in core) and any(c.isupper() for c in core)
+    if has_mix and any(c.isdigit() for c in core):
+        return SECRET_MARK
+    return m.group(0)
+
+
 def redact_secrets(text: str) -> str:
-    """Secret values, PEM blocks and password hashes → placeholders (always applied)."""
+    """Secret values, PEM blocks and password hashes → placeholders (always applied).
+
+    Keyword-driven redaction first, then pattern-based detection of common secret shapes
+    (AWS access-key ids ``AKIA…``/``ASIA…``, high-entropy base64 blobs; PEM blocks are
+    already covered by `_PEM`) as defence in depth for non-keyworded secrets."""
     if not text:
         return text
     out = _PEM.sub(PEM_MARK, text)
     out = _SECRET.sub(_secret_sub, out)
+    out = _AWS_KEY_ID.sub(SECRET_MARK, out)
+    out = _B64_BLOB.sub(_b64_blob_sub, out)
     return _HASH.sub(HASH_MARK, out)
 
 

@@ -19,6 +19,7 @@ from typing import Any
 from urllib.parse import urlsplit
 
 from netmon.services import crypto
+from netmon.util import netguard
 
 AAD_SECRET_ACCESS_KEY = b"assistant.secret_access_key"
 AAD_SESSION_TOKEN = b"assistant.session_token"
@@ -62,7 +63,9 @@ DEFAULT_ASSISTANT: dict[str, Any] = {
     "ra_csr_subject": None,
     "ra_csr_created_at": None,
     "send_config_excerpts": False,
-    "redact_internal_ips": False,
+    # owner decision (3b): AI features mask internal IPs by default; an admin may turn it
+    # off. A stored row missing this key resolves to True via `load()`.
+    "redact_internal_ips": True,
     "internal_cidrs": [],
     "chat_redact_ips": True,
     "prices": {
@@ -315,10 +318,12 @@ def endpoint_error(url: str | None, *, test_mode: bool) -> str | None:
         return "must not contain credentials"
     if parts.path not in ("", "/") or parts.query or parts.fragment:
         return "must not contain a path"
-    return None
+    # SSRF: block loopback (except in test mode), link-local / cloud-metadata, unspecified
+    # and multicast targets. Ordinary private VPC-endpoint IPs stay allowed.
+    return netguard.blocked_endpoint_host(parts.hostname, allow_loopback=test_mode)
 
 
-def proxy_error(url: str | None) -> str | None:
+def proxy_error(url: str | None, *, test_mode: bool = False) -> str | None:
     if not url:
         return "required for proxy mode custom"
     try:
@@ -332,7 +337,7 @@ def proxy_error(url: str | None) -> str | None:
         return "credentials in the proxy URL are not supported"
     if parts.path not in ("", "/"):
         return "must not contain a path"
-    return None
+    return netguard.blocked_endpoint_host(parts.hostname, allow_loopback=test_mode)
 
 
 def cidr_error(values: list[str]) -> str | None:
@@ -369,7 +374,7 @@ def field_errors(cfg: dict[str, Any], *, test_mode: bool) -> list[dict[str, Any]
     if cfg.get("proxy_mode") not in ("env", "direct", "custom"):
         bad("proxy_mode", "invalid proxy mode")
     if cfg.get("proxy_mode") == "custom":
-        e = proxy_error(cfg.get("proxy_url"))
+        e = proxy_error(cfg.get("proxy_url"), test_mode=test_mode)
         if e:
             bad("proxy_url", e)
     if cfg.get("access_key_id") and not ACCESS_KEY_RE.match(cfg["access_key_id"]):

@@ -34,6 +34,7 @@ from netmon.assistant import (
 from netmon.assistant.bedrock import BedrockClient, StreamAssembler, strip_cache_points
 from netmon.assistant.credentials import CachingProvider, Credentials, DefaultChainProvider
 from netmon.assistant.errors import AssistantError, map_error, map_stream_exception
+from netmon.util import netguard
 
 AK, SK = "AKIDEXAMPLE", "wJalrXUtnFEMI/K7MDENG+bPxRfiCYEXAMPLEKEY"
 
@@ -419,7 +420,17 @@ def test_settings_validation_and_hash() -> None:
     }
     fields = {e["loc"][-1] for e in config.field_errors(bad, test_mode=False)}
     assert fields == {"region", "endpoint_url", "proxy_url", "ra_role_arn"}
+    # loopback is allowed in test mode (the local mock harness uses 127.0.0.1) ...
     assert config.endpoint_error("http://127.0.0.1:9", test_mode=True) is None
+    # ... but blocked in production, together with link-local / metadata (always blocked)
+    assert config.endpoint_error("https://127.0.0.1", test_mode=False) == netguard.BLOCKED_MSG
+    assert config.endpoint_error("http://169.254.169.254", test_mode=True) == netguard.BLOCKED_MSG
+    # localhost (a loopback alias) is blocked in production; http:// is also allowed in test
+    # mode, where the loopback alias is relaxed just like 127.0.0.1
+    assert config.endpoint_error("https://localhost", test_mode=False) == netguard.BLOCKED_MSG
+    assert config.endpoint_error("http://localhost:8080", test_mode=True) is None
+    # a normal public host and a normal private VPC-endpoint IP are accepted
+    assert config.endpoint_error("https://10.0.0.5", test_mode=False) is None
     assert (
         config.endpoint_error(
             "https://vpce-1.bedrock-runtime.us-east-1.vpce.amazonaws.com/x", test_mode=False

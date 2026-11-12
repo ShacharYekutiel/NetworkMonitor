@@ -2881,7 +2881,13 @@ listener → alert-note worker → digest scheduler; the Telegram `/ask` handler
   Route 53 Resolver inbound endpoint / AD conditional forwarder makes it resolve privately. The same for the
   Knowledge Base (`bedrock-agent-runtime`, `assistant_kb.endpoint_url`), Roles Anywhere (`ra_endpoint_url`) and the
   optional control plane (`control_endpoint_url`). `https://` only (`http://` accepted only with
-  `NETMON_TEST_MODE=1`); a path is not allowed; the host is shown in *Test*.
+  `NETMON_TEST_MODE=1`); a path is not allowed; the host is shown in *Test*. `[3b]` **SSRF guard**
+  (`netmon.util.netguard.blocked_endpoint_host`, wired into the endpoint/KB/proxy validators and enforced before the
+  *Test* / *List models* / KB-test endpoints connect): the host must not be loopback (blocked outside test mode),
+  link-local / cloud-metadata (`169.254.0.0/16` incl. `169.254.169.254`, `fe80::/10`, the `100.100.100.200` alias and
+  literal `metadata*` hostnames), unspecified or multicast. Ordinary **private** VPC-endpoint IPs (`10.x`/`172.16.x`/
+  `192.168.x`) stay allowed, so PrivateLink keeps working. A hostname is best-effort resolved and blocked if any
+  address is blocked (validation-time only — a TOCTOU re-resolve is accepted for this admin-gated path).
 - **Proxy** (`assistant.proxy_mode`): `env` (default) — httpx `trust_env=True`: `HTTPS_PROXY` / `NO_PROXY` from the
   process environment (§ 13.9.1 `app.env`); `direct` — never use a proxy (VPC endpoint over Direct Connect);
   `custom` — `assistant.proxy_url` (`http://host:port`, no credentials in 3b). With `env` and a VPC endpoint, the
@@ -3232,9 +3238,14 @@ inputs alike):
 2. **Secret patterns** (always): lines/values matching `password|passwd|secret|community|psk|pre-shared|key
    (string|chain)|auth-key|priv-key|private-key|token|bearer` followed by a value → value replaced by
    `<secret removed>`; PEM blocks → `<pem removed>`; `$1$`/`$5$`/`$6$`/`$9$`/Cisco type 7/8/9 hashes →
-   `<hash removed>`. Vectors in data-model. Configs are already masked by the drivers (§ 13.2.5); this is a second
-   net, also for syslog/trap text.
-3. **Optional internal-IP redaction** (`assistant.redact_internal_ips`, default **false**): IPv4/IPv6 addresses in
+   `<hash removed>`. `[3b]` In addition to the keyword rules, pattern-based detection runs as defence in depth for
+   non-keyworded secrets: AWS access-key ids (`AKIA…`/`ASIA…`) and high-entropy base64 blobs (≥ 40 chars, mixed
+   case + a digit) → `<secret removed>`; PEM blocks are already covered. Deliberately conservative — ordinary words,
+   IPs, hostnames, OIDs, MACs, UUIDs and long single-case hex (fingerprints/sha sums) are left intact. Vectors in
+   data-model. Configs are already masked by the drivers (§ 13.2.5); this is a second net, also for syslog/trap text.
+3. **Optional internal-IP redaction** (`assistant.redact_internal_ips`, default **true** `[3b]` — changed from
+   false; existing installs that never set the key start masking internal IPs on upgrade, an admin may turn it
+   off): IPv4/IPv6 addresses in
    RFC 1918, 100.64/10, 169.254/16, 127/8, fc00::/7, fe80::/10 and the admin's extra `internal_cidrs` are replaced
    by stable per-conversation placeholders `IP-1`, `IP-2`, … (map stored in the conversation, never sent);
    placeholders in the model's tool arguments are translated back before the tool runs, and in answers before they
