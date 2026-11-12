@@ -30,6 +30,7 @@ from netmon.services import settings as settings_svc
 from netmon.services.features import feature_disabled
 from netmon.services.serialize import page
 from netmon.services.status import load_inventory
+from netmon.util import saferegex
 
 router = APIRouter()
 FEATURE = [Depends(feature_disabled("config_backup"))]
@@ -37,6 +38,8 @@ VIEW_AUDIT_EVERY_S = 600.0
 SEARCH_MAX_DEVICES = 200
 SEARCH_MAX_LINES = 20
 SEARCH_MAX_DAYS = 31
+SEARCH_MAX_REGEX = 200  # == netmon.ingest.rules.MAX_REGEX; also the `q` query-param cap
+SEARCH_STATEMENT_TIMEOUT_MS = 3000  # [1.3.3] bound the PostgreSQL `~*` regex scan
 EXPORT_MAX_DEVICES = 2000
 PREVIEW_LINES = 20
 _view_audited: dict[tuple[int, int], float] = {}
@@ -146,7 +149,9 @@ async def run_backups(body: BackupRunIn, _: Admin, rt: RT, session: DB, ctx: Aud
 
 
 # ================================================================ search / export
-def _match_lines(content: str, rx: re.Pattern[str]) -> tuple[list[dict[str, Any]], bool]:
+def _match_lines(
+    content: str, rx: re.Pattern[str] | saferegex.SafeRegex
+) -> tuple[list[dict[str, Any]], bool]:
     out: list[dict[str, Any]] = []
     for i, line in enumerate(content.split("\n"), 1):
         if rx.search(line):
@@ -186,11 +191,21 @@ async def search(
     since: str | None = None,
     until: str | None = None,
 ) -> dict:
+    rx: re.Pattern[str] | saferegex.SafeRegex
     if regex:
+        # [1.3.3] RE2 (linear time) for the Python per-line refinement, and reject unsafe or
+        # unsupported patterns (backreferences, lookaround, syntax errors) up front with a 422
+        # so no attacker-controlled pattern can run the backtracking `re` engine. `(?m)` gives
+        # the per-line ^/$ semantics the old `re.MULTILINE` provided.
         try:
-            rx = re.compile(q, re.IGNORECASE | re.MULTILINE)
-        except re.error as exc:
-            raise validation_error(["query", "q"], f"invalid regular expression: {exc}") from None
+            saferegex.check_safe(q, max_len=SEARCH_MAX_REGEX, ignorecase=True, multiline=True)
+        except saferegex.SafePatternError as exc:
+            raise validation_error(["query", "q"], str(exc)) from None
+        # Generous per-line input cap: RE2 is linear, so long config lines are not a DoS
+        # risk, and this keeps the per-line match semantics the old `re` code had.
+        safe = saferegex.compile_safe(q, ignorecase=True, multiline=True, max_input=1 << 20)
+        assert safe is not None  # check_safe passed, so it compiles
+        rx = safe
         cond, param = "v.content ~* :q", pg_line_regex(q)
     else:
         rx = re.compile(re.escape(q), re.IGNORECASE)
@@ -220,8 +235,14 @@ async def search(
             "ORDER BY d.name, d.id LIMIT :lim"
         )
     try:
+        if regex:
+            # [1.3.3] Bound the `~*` scan so a pathological pattern cannot hang PostgreSQL
+            # either. SET LOCAL is scoped to this transaction (reset on close/rollback).
+            await session.execute(
+                text(f"SET LOCAL statement_timeout = {SEARCH_STATEMENT_TIMEOUT_MS}")
+            )
         rows = (await session.execute(text(sql), params)).all()  # noqa: S608
-    except Exception as exc:  # noqa: BLE001 - PostgreSQL rejects the regex
+    except Exception as exc:  # noqa: BLE001 - PostgreSQL rejects the regex or hits the timeout
         await session.rollback()
         raise validation_error(["query", "q"], "invalid regular expression") from exc
     await session.close()

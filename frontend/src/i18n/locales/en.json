@@ -1324,16 +1324,23 @@
     "member": "Member {{n}}",
     "uplinkGroup": "Uplink / SFP ports",
     "legend": {
-      "empty": "Empty",
+      "empty": "No link",
       "connected": "Connected",
       "alert": "Connected, alert",
-      "emptyAlert": "Empty, alert",
+      "emptyAlert": "No link, alert",
       "disabled": "Disabled",
       "client": "Client",
       "ap": "Access point",
       "switch": "Switch / uplink",
       "trunk": "Trunk",
       "macCount": "MACs learned (uplink)"
+    },
+    "legendHint": {
+      "empty": "No cable, or the device on the other side is off.",
+      "connected": "Link up, no problem.",
+      "alert": "Link up, but there is a problem: the port's interface sensor is down or in warning, errors were counted since the last read, or a PoE fault.",
+      "emptyAlert": "No link, and there is a problem: usually a monitored port (it has an interface sensor) that went down; also errors since the last read or a PoE fault.",
+      "disabled": "Shut down in the switch configuration (shutdown). Never raises an alert."
     },
     "portN": "Port {{name}}",
     "vlanN": "VLAN {{vlan}}",

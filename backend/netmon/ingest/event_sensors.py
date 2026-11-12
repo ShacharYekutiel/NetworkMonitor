@@ -15,7 +15,7 @@ from typing import TYPE_CHECKING, Any
 from sqlalchemy import select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from netmon.ingest.rules import IF_INDEX_OID, Rule, in_scope, sort_rules
+from netmon.ingest.rules import IF_INDEX_OID, Rule, in_scope, sort_rules, unsafe_rule_patterns
 from netmon.models import Device, Event, Sensor, SensorChannel
 from netmon.services import events as events_svc
 from netmon.services.serialize import iso
@@ -109,6 +109,7 @@ class EventSensors:
             "syslog": sort_rules([r for r in rules if r.kind == "syslog"]),
         }
         self._rules_by_id = {r.id: r for r in rules}
+        self._warn_unsafe_patterns(rules)
 
         def chain(gid: int | None) -> list[int]:
             out: list[int] = []
@@ -120,6 +121,19 @@ class EventSensors:
         self._group_chain = {d.id: chain(d.group_id) for d in devices}
         self._sensors = {(s.device_id, s.type): _SensorInfo(s.id, s.enabled) for s in sensors}
         self.loaded = True
+
+    def _warn_unsafe_patterns(self, rules: list[Rule]) -> None:
+        """[1.3.3] Log enabled rules whose stored regex RE2 cannot compile. Such a pattern
+        can never match (so the rule is silently inert) and predates the RE2 save-time
+        validation; an admin should rewrite it without backreferences/lookaround."""
+        bad = {r.id: unsafe_rule_patterns(r) for r in rules}
+        bad = {rid: pats for rid, pats in bad.items() if pats}
+        if bad:
+            log.warning(
+                "Event rules with RE2-incompatible regex patterns (these patterns never match; "
+                "edit the rules to remove backreferences/lookaround): %s",
+                ", ".join(f"rule {rid}: {pats}" for rid, pats in sorted(bad.items())),
+            )
 
     def rules_for(self, kind: str, device_id: int) -> list[Rule]:
         chain = self._group_chain.get(device_id, [])

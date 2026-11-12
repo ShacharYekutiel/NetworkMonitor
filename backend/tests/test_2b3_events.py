@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import asyncio
 import secrets
+import time
 from collections.abc import AsyncIterator
 from datetime import UTC, datetime, timedelta
 from typing import Any
@@ -129,6 +130,55 @@ async def test_rule_test_preview_and_viewer(
     assert {(i["result"], i["key"]) for i in out["items"]} == {("raise", "5"), ("clear", "5")}
     assert (await viewer.get("/api/event-rules")).status_code == 200
     assert (await viewer.post("/api/event-rules", json=rule)).status_code == 403
+
+
+# ------------------------------------------------------------------ [1.3.3] ReDoS fix
+async def test_event_rule_rejects_unsafe_regex(rt: Runtime, admin: httpx.AsyncClient) -> None:
+    """RE2-incompatible patterns (backreference, lookaround) are rejected at save time."""
+    await features(admin, syslog=True)
+    base = {"name": "r", "kind": "syslog", "scope": "global", "action": "down",
+            "match": {"text_regex": True}, "clear_after_min": 10}  # fmt: skip
+    for pat in (r"(a)\1", "(?=secret)", "(?<=x)y"):
+        r = await admin.post(
+            "/api/event-rules", json={**base, "match": {"text": pat, "text_regex": True}}
+        )
+        assert r.status_code == 422, (pat, r.text)
+    # an unsafe key_regex is rejected too
+    r = await admin.post(
+        "/api/event-rules",
+        json={**base, "match": {"text": "down", "text_regex": True}, "key_regex": r"(a)\1"},
+    )
+    assert r.status_code == 422
+    # a catastrophic-for-`re` but RE2-safe pattern is accepted (it is linear under RE2)
+    r = await admin.post(
+        "/api/event-rules", json={**base, "match": {"text": "(a+)+$", "text_regex": True}}
+    )
+    assert r.status_code == 201, r.text
+
+
+async def test_event_rule_test_redos_does_not_block_loop(
+    rt: Runtime, admin: httpx.AsyncClient
+) -> None:
+    """A ReDoS pattern tested against a hostile message returns promptly and the scan runs off
+    the event loop, so a concurrent request is served meanwhile."""
+    _, sp = ports(rt)
+    await make_device(admin, name="sw81", host=src("127.0.0.81"))
+    await features(admin, syslog=True)
+    send_udp(sp, b"<13>" + b"a" * 60 + b"!")  # hostile payload for `(a+)+$`
+    await wait_for(lambda: has(admin, "/api/syslog", 1))
+    rule = {"name": "redos", "kind": "syslog", "scope": "global", "action": "down",
+            "match": {"text": "(a+)+$", "text_regex": True}, "clear_after_min": 10}  # fmt: skip
+    start = time.perf_counter()
+    test_resp, status_resp = await asyncio.gather(
+        admin.post("/api/event-rules/test", json={"rule": rule, "hours": 1}),
+        admin.get("/api/setup/status"),
+    )
+    elapsed = time.perf_counter() - start
+    assert test_resp.status_code == 200, test_resp.text
+    assert test_resp.json()["scanned"] >= 1
+    assert status_resp.status_code == 200
+    assert status_resp.json() == {"setup_required": False}
+    assert elapsed < 2.0  # linear matching + worker thread: nowhere near a hang
 
 
 # ------------------------------------------------------------------ event sensors

@@ -8,6 +8,7 @@ import type { Dependency, DependencyInput, EffectiveDependency } from '../api/ty
 import { useTree } from '../hooks/queries';
 import { allDevices, findGroup } from '../lib/tree';
 import { Field, FieldGroup, Input, Select } from './ui';
+import { useLocalizeMessage } from '../hooks/localize';
 
 /** Device select from the tree; shows a search box when the list is long. */
 export function DevicePicker({
@@ -268,11 +269,12 @@ export function StatusMessage({
   className?: string;
 }) {
   const { data } = useTree();
+  const localize = useLocalizeMessage(); // [1.3.2] named-map texts in the viewer's language
   const parsed = status === 'unreachable' ? parseUnreachable(message) : null;
   if (!parsed)
     return (
       <bdi dir="auto" className={className}>
-        {message}
+        {localize(message)}
       </bdi>
     );
   const parentId = allDevices(data?.groups ?? []).find((x) => x.device.id === deviceId)?.device
@@ -293,7 +295,7 @@ export function StatusMessage({
           ),
         }}
       />
-      {parsed.rest && <>: {parsed.rest}</>}
+      {parsed.rest && <>: {localize(parsed.rest)}</>}
     </bdi>
   );
 }

@@ -6,6 +6,7 @@ from __future__ import annotations
 
 import io
 import secrets
+import time
 import zipfile
 from collections.abc import AsyncIterator
 from datetime import datetime, timedelta
@@ -184,6 +185,14 @@ async def test_backup_versions_diff_search_export(
     assert anch["items"][0]["matches"] == [{"line": 5, "text": " vlan 20"}]
     r = await admin.get("/api/config-backups/search", params={"q": "(", "regex": True})
     assert r.status_code == 422
+    # [1.3.3] a ReDoS pattern must not hang the server (RE2 is linear) and still 200s
+    t0 = time.perf_counter()
+    r = await admin.get("/api/config-backups/search", params={"q": "(a+)+$", "regex": True})
+    assert r.status_code == 200 and time.perf_counter() - t0 < 2.0
+    # backreference / lookaround patterns are rejected up front with 422
+    for pat in (r"(a)\1", "(?=secret)"):
+        r = await admin.get("/api/config-backups/search", params={"q": pat, "regex": True})
+        assert r.status_code == 422, (pat, r.text)
     allv = (
         await admin.get(
             "/api/config-backups/search", params={"q": "sysname sw1", "all_versions": True}

@@ -1,1 +1,1 @@
-"""netmon.util: small dependency-free helpers shared across subsystems."""
+"""netmon.util: small, dependency-light helpers shared across the backend."""
