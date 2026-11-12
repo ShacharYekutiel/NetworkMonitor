@@ -54,6 +54,9 @@ fi
 
 install -d -m 0700 "$NETMON_ETC_DIR" "$NETMON_ETC_DIR/tls" "$NETMON_STATE_DIR"
 install -d -m 0755 "$NETMON_ETC_DIR/ca" "$NETMON_LIB_DIR"
+# [3b] Optional IAM Roles Anywhere certificate files for the assistant (mounted read-only
+# at /etc/netmon/aws; empty unless the owner chooses host files over the UI upload).
+install -d -m 0755 "$NETMON_ETC_DIR/aws"
 install -d -m 0700 "$NETMON_BACKUP_DIR"
 write_root_file "$NETMON_ETC_DIR/gitops.env" "NETMON_REPO_DIR=$REPO_DIR" 0600
 
@@ -98,11 +101,14 @@ Environment=\"HTTPS_PROXY=$PROXY_HTTPS\" \"HTTP_PROXY=$PROXY_HTTP\" \"NO_PROXY=$
   # acknowledge, Teams, webhooks, [3] Entra ID sign-in) needs the proxy too (httpx honours
   # HTTPS_PROXY / NO_PROXY). Created once; edit /etc/netmon-gitops/app.env afterwards if
   # internal webhook targets need NO_PROXY (README.md, "Outbound proxy").
+  # [3b] Amazon Bedrock VPC endpoint names (vpce-....vpce.amazonaws.com) resolve to private
+  # addresses reached over Direct Connect: never through the proxy. On an existing server:
+  # ops/assistant-net.sh no-proxy .vpce.amazonaws.com
   if [[ ! -e $NETMON_ETC_DIR/app.env ]]; then
     write_root_file "$NETMON_ETC_DIR/app.env" "# Server-specific settings for the netmon container (not in git).
 HTTPS_PROXY=$PROXY_HTTPS
 HTTP_PROXY=$PROXY_HTTP
-NO_PROXY=$PROXY_NO,db,netmon,proxy" 0600
+NO_PROXY=$PROXY_NO,db,netmon,proxy,.vpce.amazonaws.com" 0600
   fi
   export HTTPS_PROXY="$PROXY_HTTPS" HTTP_PROXY="$PROXY_HTTP" NO_PROXY="$PROXY_NO"
   echo "proxy: $PROXY_HTTPS (apt, docker daemon, git; app.env for the app)"

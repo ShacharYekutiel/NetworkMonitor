@@ -65,6 +65,7 @@ class ReportIn(BaseModel):
     send_time: str | None = None
     email_to: list[str] | None = Field(default=None, max_length=50)
     channel_ids: list[int] | None = Field(default=None, max_length=50)
+    ai_summary: bool | None = None  # [3b] § 14.8.10
 
     @field_validator("name")
     @classmethod
@@ -112,7 +113,14 @@ def _merge(current: dict[str, Any], body: ReportIn) -> dict[str, Any]:
     out = dict(current)
     for k in body.model_fields_set:
         val = getattr(body, k)
-        if val is None and k in ("name", "enabled", "language", "sections", "schedule"):
+        if val is None and k in (
+            "name",
+            "enabled",
+            "language",
+            "sections",
+            "schedule",
+            "ai_summary",
+        ):
             continue
         if val is None and k in ("scope_group_ids", "scope_device_ids", "email_to", "channel_ids"):
             val = []
@@ -229,6 +237,7 @@ def _audit_values(r: dict[str, Any]) -> dict[str, Any]:
         "send_time",
         "email_to",
         "channel_ids",
+        "ai_summary",
     )
     return {k: r.get(k) for k in keys}
 
@@ -255,9 +264,9 @@ async def list_reports(_: Viewer, session: DB) -> dict:
 
 INSERT_SQL = """
 INSERT INTO reports (name, enabled, language, scope_group_ids, scope_device_ids, sections,
-    schedule, weekday, month_day, send_time, email_to, channel_ids, next_run_at)
+    schedule, weekday, month_day, send_time, email_to, channel_ids, next_run_at, ai_summary)
 VALUES (:name, :enabled, :language, :scope_group_ids, :scope_device_ids, :sections, :schedule,
-    :weekday, :month_day, :send_time, :email_to, :channel_ids, :next_run_at)
+    :weekday, :month_day, :send_time, :email_to, :channel_ids, :next_run_at, :ai_summary)
 RETURNING id
 """
 
@@ -287,6 +296,7 @@ async def create_report(body: ReportIn, _: Admin, rt: RT, session: DB, ctx: Audi
         "send_time": None,
         "email_to": [],
         "channel_ids": [],
+        "ai_summary": False,
     }
     r = _merge(defaults, body)
     errs = _schedule_errors(r)
@@ -435,7 +445,8 @@ async def patch_report(
             "scope_group_ids = :scope_group_ids, scope_device_ids = :scope_device_ids, "
             "sections = :sections, schedule = :schedule, weekday = :weekday, "
             "month_day = :month_day, send_time = :send_time, email_to = :email_to, "
-            "channel_ids = :channel_ids, next_run_at = :next_run_at, updated_at = now() "
+            "channel_ids = :channel_ids, next_run_at = :next_run_at, ai_summary = :ai_summary, "
+            "updated_at = now() "
             "WHERE id = :id"
         ),
         r,

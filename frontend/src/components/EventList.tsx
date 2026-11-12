@@ -7,6 +7,7 @@ import { ChevronIcon, WrenchIcon } from './icons';
 import { StatusMessage } from './Dependency';
 import { useLocalizeMessage } from '../hooks/localize';
 import { Empty, Table, td, th } from './ui';
+import { ExplainButton } from './assistant/ExplainButton';
 
 export function EventKindLabel({ kind }: { kind: NmEvent['kind'] }) {
   const { t } = useTranslation();
@@ -85,6 +86,16 @@ export function EventsTable({
               ) : (
                 localize(ev.message)
               )}
+              {/* [3b] Explain (AI) on problem transitions */}
+              {ev.kind === 'status_change' &&
+                ev.sensor_id !== null &&
+                (ev.new_status === 'down' ||
+                  ev.new_status === 'warning' ||
+                  ev.new_status === 'unreachable') && (
+                  <span className="ms-2 inline-block align-middle">
+                    <ExplainButton sensorId={ev.sensor_id} eventId={ev.id} />
+                  </span>
+                )}
             </td>
           </tr>
         ))}

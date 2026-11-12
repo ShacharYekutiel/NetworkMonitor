@@ -96,12 +96,24 @@ async def _get_engine(creds: dict[str, Any] | None = None) -> Any:
     return engine
 
 
+def _cred_bytes(value: Any, default: bytes = b"") -> Any:
+    """SNMP credentials (community, v3 user name and keys) are byte strings, not text. pysnmp
+    wraps a Python str in a us-ascii OctetString and raises PyAsn1UnicodeEncodeError on any
+    non-ASCII character (e.g. a password typed with a Hebrew letter or a smart quote), which
+    aborted every SNMP read of the device. Pass UTF-8 bytes so encoding always succeeds."""
+    if value is None or value == "":
+        return default
+    if isinstance(value, bytes):
+        return value
+    return str(value).encode("utf-8")
+
+
 def _auth_data(creds: dict[str, Any]) -> Any:
     from pysnmp.hlapi.v3arch import asyncio as h
 
     version = creds.get("version", "v2c")
     if version in ("v1", "v2c"):
-        community = creds.get("community") or "public"
+        community = _cred_bytes(creds.get("community"), b"public")
         return h.CommunityData(community, mpModel=0 if version == "v1" else 1)
     level = creds.get("v3_security_level") or "noAuthNoPriv"
     auth_map = {
@@ -118,17 +130,19 @@ def _auth_data(creds: dict[str, Any]) -> Any:
         "AES192": h.usmAesCfb192Protocol,
         "AES256": h.usmAesCfb256Protocol,
     }
-    user = creds.get("v3_username") or ""
+    user = _cred_bytes(creds.get("v3_username"))
     if level == "noAuthNoPriv":
         return h.UsmUserData(user)
     auth_proto = auth_map.get(creds.get("v3_auth_protocol") or "SHA", h.usmHMACSHAAuthProtocol)
     if level == "authNoPriv":
-        return h.UsmUserData(user, authKey=creds.get("v3_auth_key"), authProtocol=auth_proto)
+        return h.UsmUserData(
+            user, authKey=_cred_bytes(creds.get("v3_auth_key")), authProtocol=auth_proto
+        )
     priv_proto = priv_map.get(creds.get("v3_priv_protocol") or "AES128", h.usmAesCfb128Protocol)
     return h.UsmUserData(
         user,
-        authKey=creds.get("v3_auth_key"),
-        privKey=creds.get("v3_priv_key"),
+        authKey=_cred_bytes(creds.get("v3_auth_key")),
+        privKey=_cred_bytes(creds.get("v3_priv_key")),
         authProtocol=auth_proto,
         privProtocol=priv_proto,
     )

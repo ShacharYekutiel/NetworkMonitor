@@ -70,7 +70,77 @@ def test_app_builds_authpriv_user_data() -> None:
     assert user.privProtocol and tuple(user.privProtocol) != (1, 3, 6, 1, 6, 3, 10, 1, 2, 1)
 
 
+def test_non_ascii_credentials_do_not_raise() -> None:
+    """A password with a non-ASCII character (a Hebrew letter, a smart quote, a stray NBSP)
+    used to raise PyAsn1UnicodeEncodeError and fail every SNMP read of the device. Credentials
+    are byte strings, so the builder must encode them, not hand pysnmp a us-ascii str."""
+    from netmon.poller import snmp_client
+
+    assert snmp_client._cred_bytes("pwש") == "pwש".encode()
+    assert snmp_client._cred_bytes(None, b"public") == b"public"
+    assert snmp_client._cred_bytes(b"raw") == b"raw"
+    for level in ("authNoPriv", "authPriv"):
+        creds = {
+            "version": "v3",
+            "v3_username": "Sentinאl",
+            "v3_security_level": level,
+            "v3_auth_protocol": "SHA256",
+            "v3_auth_key": "Secretש",
+            "v3_priv_protocol": "AES128",
+            "v3_priv_key": "Privאte",
+        }
+        snmp_client._auth_data(creds)  # must not raise
+    snmp_client._auth_data({"version": "v2c", "community": "communיty"})
+
+
 # ------------------------------------------------------------------ end to end (snmpsim)
+_NOBODY_PROBE: str | None = None
+
+
+def _agent_cannot_read_interpreter() -> str | None:
+    """As root the snmpsim agent drops to ``nobody`` and then imports pysnmp's privacy modules
+    lazily (first authPriv request). In a checkout under a private directory (e.g. a worktree
+    under ``/tmp/claude-0``, mode 700) ``nobody`` cannot read the interpreter / venv, so the
+    agent never answers. Detect it by running the same import as ``nobody``; returns the skip
+    reason, or None when the agent can work (normal checkouts, CI, non-root runs)."""
+    global _NOBODY_PROBE
+    if not (hasattr(os, "geteuid") and os.geteuid() == 0):
+        return None
+    if _NOBODY_PROBE is None:
+        import subprocess
+        import sys
+
+        from tests.snmpsim_agents import snmpsim_exe
+
+        exe = snmpsim_exe() or sys.executable
+        code = "import pysnmp.proto.secmod.rfc3414.service, pysnmp.proto.secmod.rfc3826.priv.aes"
+        try:
+            r = subprocess.run(  # noqa: S603 - fixed argv
+                [sys.executable, "-c", code],
+                user="nobody",
+                capture_output=True,
+                timeout=60,
+                check=False,
+            )
+            ok = r.returncode == 0
+            detail = (r.stderr or b"").decode(errors="replace").strip().splitlines()[-1:] or [""]
+        except (OSError, subprocess.SubprocessError) as exc:
+            ok, detail = False, [str(exc)]
+        _NOBODY_PROBE = (
+            ""
+            if ok
+            else (
+                f"the snmpsim agent runs as 'nobody' and cannot read the interpreter "
+                f"{sys.executable} / {exe} (checkout in a private directory?): {detail[0]}"
+            )
+        )
+    return _NOBODY_PROBE or None
+
+
+def _skip_if_agent_cannot_read() -> None:
+    reason = _agent_cannot_read_interpreter()
+    if reason:
+        pytest.skip(reason)
 
 
 def _start_v3_agent(  # type: ignore[no-untyped-def]
@@ -130,6 +200,7 @@ async def test_v3_authpriv_get_against_agent(
     from netmon.poller.snmp_client import SnmpError, snmp_get
 
     ip, port = "127.0.4.10", 1161
+    _skip_if_agent_cannot_read()
     proc, data = _start_v3_agent(ip, port, auth, priv)
     if proc is None:
         pytest.skip("snmpsim not installed")
@@ -192,6 +263,7 @@ async def test_v3_same_username_different_keys_do_not_clash() -> None:
             "v3_priv_protocol": "AES128", "v3_priv_key": priv_key,
         }  # fmt: skip
 
+    _skip_if_agent_cannot_read()
     a_ip, b_ip = "127.0.4.21", "127.0.4.22"
     a_creds, b_creds = v3("GroupAuth2026", "GroupPriv2026"), v3("DeviceAuth2026", "DevicePriv2026")
     a_proc, a_data = _start_v3_agent(a_ip, 1161, "SHA", "AES", "GroupAuth2026", "GroupPriv2026")

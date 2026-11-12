@@ -1,3 +1,4 @@
+import { useAiFeature } from '../assistant/common';
 import { useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useTranslation } from 'react-i18next';
@@ -60,6 +61,7 @@ export function ChatAccountsCard() {
   const qc = useQueryClient();
   const toast = useToast();
   const [code, setCode] = useState<ChatLinkCode | null>(null);
+  const askOn = useAiFeature('ai_chat_ask');
   const q = useQuery({
     queryKey: qk3.chatLinks(false),
     queryFn: () => endpoints3.chatLinks(false),
@@ -87,6 +89,12 @@ export function ChatAccountsCard() {
       }
     >
       <p className="mb-3 text-xs text-slate-500">{t('chatAck.accountsIntro')}</p>
+      {/* [3b] Telegram /ask (linked admins, private chat) */}
+      {askOn && (
+        <p className="mb-3 text-xs text-violet-700 dark:text-violet-300" data-testid="ask-info">
+          {t('assistant.chatAsk.accountInfo')}
+        </p>
+      )}
       <ErrorBox error={q.error ?? create.error ?? unlink.error} />
       {q.data && !q.data.items.length && <Empty>{t('chatAck.noLinks')}</Empty>}
       <ul className="divide-y divide-slate-100 text-sm dark:divide-slate-800">

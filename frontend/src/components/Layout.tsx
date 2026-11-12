@@ -24,7 +24,15 @@ import { parseSearchInput } from '../lib/ports';
 import { TreeNav } from './Tree';
 import { GlobalMaintenanceBanner } from './Maintenance';
 import { cx } from './ui';
-import { AuditIcon, BackupIcon, FlowIcon, LogsIcon, NewDeviceIcon, ReportIcon } from './icons';
+import {
+  AuditIcon,
+  BackupIcon,
+  FlowIcon,
+  LogsIcon,
+  NewDeviceIcon,
+  ReportIcon,
+  SparkIcon,
+} from './icons';
 import { useFeatures } from '../hooks/features';
 import { useSensorTypes } from '../hooks/queries';
 import { ingestOn } from '../lib/features';
@@ -204,6 +212,10 @@ export function Layout() {
         >
           <nav className="space-y-0.5 p-2">
             <NavItem to="/" icon={<DashboardIcon size={16} />} label={t('nav.dashboard')} />
+            {/* [3b] admins, feature `assistant` ON */}
+            {isAdmin && features.assistant && (
+              <NavItem to="/assistant" icon={<SparkIcon size={16} />} label={t('nav.assistant')} />
+            )}
             <NavItem to="/events" icon={<ListIcon size={16} />} label={t('nav.events')} />
             {ingestOn(features) && (
               <NavItem to="/logs" icon={<LogsIcon size={16} />} label={t('nav.logs')} />

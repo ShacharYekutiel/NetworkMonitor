@@ -1,4 +1,4 @@
-# NetworkMonitor — API Contract (Phase 1 + Phase 2a + Phase 2b-1 + Phase 2b-2 + Phase 2b-3 + Phase 3)
+# NetworkMonitor — API Contract (Phase 1 + Phase 2a + Phase 2b-1 + Phase 2b-2 + Phase 2b-3 + Phase 3 + Phase 3b)
 
 Items marked **[2a]** are the Phase 2a contract (discovery, device templates, `snmp_custom`/`snmp_disk`,
 Telegram). The Phase 2a endpoints are specified in [§ Phase 2a](#2a-phase-2a-endpoints).
@@ -6,6 +6,7 @@ Items marked **[2b-1]** are specified in [§ Phase 2b-1](#2b-1-phase-2b-1-contra
 Items marked **[2b-2]** are specified in [§ Phase 2b-2](#2b-2-phase-2b-2-contract).
 Items marked **[2b-3]** are specified in [§ Phase 2b-3](#2b-3-phase-2b-3-contract).
 Items marked **[3]** are specified in [§ Phase 3](#3-phase-3-contract).
+Items marked **[3b]** are specified in [§ Phase 3b](#3b-phase-3b-contract).
 Items marked **[1.3]** (release 1.3: sensor impact, important ports, interface selection on template apply,
 connected hosts / CSV on ports, LAG degraded, IRF) are specified in [§ Release 1.3](#13-release-13-contract).
 Items marked **[1.3.1]** (IRF ports important, named value maps) are specified in
@@ -2157,6 +2158,387 @@ link is admin-only) and `new_mac` (from `new_device` events). Available when the
 | `config.changed` | `entity` gains `report`, `kiosk_screen`, `flow_exporter`, `mac_allowlist`, `config_backup` | as today |
 | `features.changed` | 8 new names | as 2b-3 |
 
+## [3b] Phase 3b contract
+
+"Ask the network" assistant on Amazon Bedrock and the AI features. Table semantics:
+[data-model.md § Phase 3b](data-model.md#3b-phase-3b-additions); flows and decisions: architecture.md § 14. All
+earlier conventions apply. Everything is additive and **OFF by default**. **Every endpoint below is `admin`**
+(viewer → `403 forbidden`) and **session only** (API tokens → `403 forbidden`), except where a row says otherwise.
+While `assistant` is OFF the endpoints answer `409 feature_disabled` (`details: [{"feature": "assistant"}]`)
+except the preparation endpoints listed in data-model § [3b] Feature toggles; an AI feature's own endpoints answer
+`409 feature_disabled` with its own name while it is OFF, and `409 feature_idle` (`details: [{"feature":
+"ai_config_diff", "needs": ["send_config_excerpts"]}]`) while ON but a dependency is missing.
+
+### [3b] Errors
+| HTTP | code | When / `message` (en; he in i18n) |
+|---|---|---|
+| 422 | `assistant_test_required` | Enabling (or changing a connection field while ON) without a valid `test_id`: "Run a successful Test connection first" |
+| 422 | `feature_dependency` | `assistant` ON while `audit` is OFF, or `audit` OFF while `assistant` is ON (`details: [{"feature": "assistant", "requires": "audit"}]`) |
+| 409 | `feature_idle` | AI feature ON but a dependency is missing (see above) |
+| 409 | `assistant_busy` | This user already has a running question (`details: [{"message_id": 340}]`) |
+| 429 | `assistant_busy` | Global concurrency reached ("Too many questions are running, try again shortly") |
+| 429 | `assistant_cap_reached` | `details: [{"cap": "user_daily" \| "monthly_tokens" \| "monthly_cost" \| "purpose_daily" \| "chat_hourly", "limit": 50, "used": 50, "resets_at": "…"}]` |
+| 409 | `conversation_full` | 40 turns reached — start a new conversation |
+| 422 | `model_not_allowed` | **[3b owner]** `POST /api/assistant/ask` with a `model_id` that is not one of the allowed chat models (`details: [{"loc": ["body", "model_id"], "model_id": "…", "allowed": ["us.anthropic…", …]}]`) |
+| 422 | `invalid_certificate` | Upload not parseable, not a leaf (`CA:TRUE`), no Digital Signature usage, expired, unsupported key (`details: [{"reason": "…"}]`) |
+| 422 | `invalid_private_key` | Key not parseable / wrong password (no key material in the message) |
+| 422 | `key_mismatch` | Key does not match the certificate |
+| 502 | `bedrock_throttled` | "Amazon Bedrock is busy (throttled). Try again in a minute." |
+| 502 | `bedrock_quota` | "Your AWS account's Bedrock quota is exhausted for this model." |
+| 502 | `bedrock_model_access` | "This model is not enabled for your AWS account in <region> (Bedrock → Model access)." |
+| 502 | `bedrock_access_denied` | "AWS denied access: the role/user lacks bedrock:InvokeModel… on this model or profile." (+ AWS text) |
+| 502 | `bedrock_model_invalid` | "The model ID is not valid in <region>. Use an inference profile ID (e.g. eu.anthropic…)." |
+| 502 | `bedrock_unavailable` | "Amazon Bedrock could not answer right now." |
+| 502 | `bedrock_validation` | AWS message (≤ 300 chars) |
+| 502 | `aws_auth_failed` | "AWS rejected the credentials." (+ AWS error type) |
+| 502 | `aws_token_expired` | AWS answered `ExpiredTokenException` / `ExpiredToken`: "AWS rejected the credentials: the session token has expired. …" — paste fresh temporary credentials (access key id, secret, session token). Same retry (forced credentials refresh) and `error` state as `aws_auth_failed` |
+| 409 | `aws_session_token_required` | `access_key` mode with a temporary key id (`ASIA…`) and no `session_token`: the Test fails at the `credentials` step before any AWS call ("The access key id is a temporary key (ASIA…): it needs the session token. …") |
+| 502 | `aws_clock_skew` | "The server clock differs from AWS time by more than 5 minutes (NTP)." (`details: [{"server_time": "…"}]`) |
+| 502 | `rolesanywhere_failed` | AWS message + hint |
+| 502 | `aws_network` | "Cannot reach <host>: <exception text>" (`details: [{"host": "…", "via": "direct" \| "proxy http://…"}]`) |
+| 504 | `assistant_timeout` | "The answer took too long." |
+| 502 | `kb_unavailable` | Knowledge Base test failed (AWS text) |
+| 409 | `walk_running` | A walk of this device is running |
+| 409 | `template_exists` | `POST /api/device-templates/user` with an existing id and `overwrite: false` |
+| 422 | `invalid_template` | Template YAML fails validation (`details`: validator errors `[{"path": "sensors[2].oid", "error": "…"}]`) |
+
+In an SSE stream, errors after the stream started arrive as `event: error` with the same `{code, message, details}`.
+
+### [3b] Type changes
+```ts
+type FeatureName = /* phase-3 names */ | "assistant" | "ai_explain_alert" | "ai_correlation" | "ai_alert_notes"
+  | "ai_config_diff" | "ai_syslog_digest" | "ai_rule_drafts" | "ai_template_drafts" | "ai_knowledge"
+  | "ai_chat_ask" | "ai_report_summary";
+type AlertRule = { /* … */ ai_note: boolean };                 // create/PATCH accept it
+type Report = { /* … */ ai_summary: boolean };
+type ReportRun = { /* … */ ai_summary_status: "ok" | "failed" | "skipped_cap" | "timeout" | "unverified_numbers" | "disabled" | null };
+type ReportData = { /* … */ ai_summary: string | null };
+type TelegramChannelConfig = { /* … */ ai_ask: boolean };
+type EmailChannelConfig = { /* … */ ai_note_email: boolean };
+type AssistantState = "disabled" | "unconfigured" | "ready" | "degraded" | "error";
+```
+- `GET /api/health` gains `"assistant": AssistantState`.
+- `GET /api/settings/public` `features` gains the 11 names (viewers see them too; all 3b UI is admin-only anyway).
+- `GET /api/settings` gains the 3b scalar keys of data-model § [3b] Settings (except `assistant`, `assistant_kb`,
+  which are only in `/api/assistant/settings` and `/api/assistant/knowledge`); `PUT /api/settings` accepts the
+  scalar keys; `feature_assistant_enabled: true` / `feature_ai_knowledge_enabled: true` → `422
+  assistant_test_required`.
+- Audit `source` gains `"telegram"`.
+
+### [3b] Assistant settings, test, certificate
+```ts
+type AssistantSettings = {
+  enabled: boolean;                                   // = feature_assistant_enabled
+  state: AssistantState; state_error: { code: string; message: string; at: string } | null;
+  auth_mode: "roles_anywhere" | "access_key" | "default_chain";
+  region: string; model_id: string; model_id_light: string | null;
+  endpoint_url: string | null; control_endpoint_url: string | null;
+  proxy_mode: "env" | "direct" | "custom"; proxy_url: string | null; prompt_caching: boolean;
+  access_key_id: string | null;
+  secret_access_key: null; secret_access_key_set: boolean; secret_access_key_unreadable: boolean;
+  session_token: null; session_token_set: boolean; session_token_unreadable: boolean;  // optional, temporary (ASIA…) keys
+  access_key_created_at: string | null;
+  ra_region: string | null; ra_endpoint_url: string | null;
+  ra_trust_anchor_arn: string | null; ra_profile_arn: string | null; ra_role_arn: string | null;
+  ra_session_seconds: number;
+  certificate: CertInfo | null;                       // uploaded or host files
+  send_config_excerpts: boolean; redact_internal_ips: boolean; internal_cidrs: string[]; chat_redact_ips: boolean;
+  prices: { currency: string; input_per_mtok: number | null; output_per_mtok: number | null;
+            cache_read_per_mtok: number | null; cache_write_per_mtok: number | null };
+  // [3b owner] models offered in the chat composer (writable, ≤ 8, unique ids, label ≤ 60 chars or null;
+  // null/[] = default). NOT a connection field: changing it needs no new Test (a model_id change still does)
+  chat_models: ChatModel[];
+  chat_models_effective: ChatModel[];   // read-only: main model first (always allowed, the default), then the
+                                        // configured entries; [] configured = [model_id, model_id_light if set]
+  last_test: { ok: boolean; at: string; by: string; error_code: string | null } | null;
+  warnings: ("cert_expiring" | "vpce_via_proxy" | "stream_buffered" | "cache_unsupported" | "access_key_old" | "key_file_mode"
+             | "global_inference_profile" | "arn_accounts_differ" | "temporary_credentials")[];
+  // temporary_credentials: access_key mode with a session token — they expire (hours); for the server use an
+  // IAM user key, Roles Anywhere or the default chain
+  // [3b owner decisions] data location per profile prefix, CSR flow
+  profile: ProfileInfo; profile_light: ProfileInfo;            // classification of model_id / model_id_light
+  profile_scopes: { scope: "global" | "geo" | "in_region" | "arn"; prefix: string;
+                    explanation: { en: string; he: string } }[];   // the trade-off table shown in the form
+  recommended: { region: "us-east-1"; profile_prefix: "us" };
+  certificate_host_files: boolean;                             // NETMON_AWS_RA_CERT_FILE/_KEY_FILE in use
+  csr: { subject: string; created_at: string; pem: string; key_unreadable: boolean } | null };  // pending CSR
+type ChatModel = { id: string; label: string | null };      // id: model / inference-profile id ([A-Za-z0-9.:/_-]{1,256})
+type ProfileInfo = { scope: "global" | "geo" | "in_region" | "arn" | null; prefix: string | null;
+  geography: string | null; explanation: { en: string; he: string } | null;
+  warning: "global_inference_profile" | null };              // global. → warning only, never refused
+type CertInfo = { source: "uploaded" | "files"; subject: string; issuer: string; serial_hex: string; serial_decimal: string;
+  not_before: string; not_after: string; key_type: "rsa" | "ec"; key_bits: number; sha256: string;
+  chain: { subject: string; not_after: string }[]; uploaded_at: string | null; key_unreadable: boolean };
+type AssistantTestStep = { step: "config" | "credentials" | "endpoint" | "converse" | "knowledge"; ok: boolean;
+  detail: string; ms: number; error_code: string | null };
+type AssistantTestResult = { ok: boolean; test_id: string | null; expires_at: string | null;
+  steps: AssistantTestStep[]; via: string; endpoint_host: string; address_class: "private" | "public" | null;
+  model_id: string; time_to_first_event_ms: number | null;
+  usage: { input_tokens: number; output_tokens: number } | null; warnings: string[];
+  error: { code: string; message: string } | null };
+// step error_code: a mapped AWS code (api.md [3b] Errors) or "validation_error" (config step); warnings as in
+// AssistantSettings (+ "stream_buffered", "global_inference_profile", "temporary_credentials" when the tested
+// access-key settings carry a session token)
+```
+| Method & path | Request | Response |
+|---|---|---|
+| `GET /api/assistant/settings` | — | `AssistantSettings` (allowed while OFF) |
+| `PUT /api/assistant/settings` | partial `AssistantSettings` writable fields + optional `"enabled": bool`, `"test_id": string` (secret rules for `secret_access_key` (≤ 256) and `session_token` (≤ 4096, base64 characters; whitespace removed): omitted/null keeps, `""` clears, string replaces; both stored encrypted, audited only as changed) | `AssistantSettings`; `422` validation; `422 assistant_test_required`; `422 feature_dependency`; audited `assistant.settings_update` (+ `feature.enable|disable`) |
+| `POST /api/assistant/test` | `{"settings": <partial writable fields, optional>}` merged over stored | `200 AssistantTestResult` (also when `ok` is false — the step carries the code); `429 rate_limited` (10 per admin per 10 min); audited `assistant.test` |
+| `POST /api/assistant/cert` | `multipart/form-data`: `file` (PEM cert[+chain] or `.pfx`/`.p12`, ≤ 64 KiB), `key` (PEM, optional with PEM), `password` (optional) | `200 CertInfo`; `422 invalid_certificate` / `invalid_private_key` / `key_mismatch`; audited `assistant.cert_upload` (metadata) — refused `409 conflict` when host files are configured |
+| `DELETE /api/assistant/cert` | — | `204`; `409 conflict` while `assistant` is ON with `auth_mode = roles_anywhere`; audited |
+| `POST /api/assistant/cert/csr` | `{"common_name": "netmonitor-bedrock.mnidom.net", "key_type": "rsa" \| "ec", "key_size": 2048 \| 3072 \| 4096 \| 256 \| 384 \| null, "organization": null, "organizational_unit": null}` | `200 {"subject", "created_at", "pem"}` — key generated and kept on the server (encrypted, never returned); replaces a pending CSR; `409 conflict` with host files; audited `assistant.csr_create`. Then `POST /api/assistant/cert` with only `file` (the issued certificate) uses the pending key (`422 key_mismatch` when it does not match) and clears the CSR |
+| `GET /api/assistant/cert/csr` | — | `200 application/pkcs10` (`attachment; filename="netmonitor-bedrock.csr"`); `404` when none |
+| `DELETE /api/assistant/cert/csr` | — | `204` (discard the pending CSR and its key); audited `assistant.csr_delete` |
+| `POST /api/assistant/models` | `{"settings": <partial, optional>}` | `200 {"items": [{"id": "eu.anthropic.claude-…", "name": "…", "kind": "inference_profile" \| "foundation_model", "streaming": true, "status": "ACTIVE"}], "error": null}` (Anthropic only); on failure `200 {"items": [], "error": {"code", "message"}}` |
+| `GET /api/assistant/status` | — (409 while `assistant` is OFF) | `{"state", "state_error", "tools": [{"name": "search_syslog", "available": false, "reason": "feature_off:syslog"}], "features": [{"name": "ai_correlation", "enabled": true, "idle_reason": null, "status_line": "2 open incidents"}], "me": {"questions_today": 3, "daily_limit": 50, "running_message_id": null}, "month": UsageMonthSummary, "chat_models": ChatModel[] /* = chat_models_effective */, "default_model_id": "us.anthropic…" \| null}` |
+
+### [3b] Ask, stream, conversations
+| Method & path | Request | Response |
+|---|---|---|
+| `POST /api/assistant/ask` | `{"conversation_id": 12 \| null, "question": "…", "model_id": "us.anthropic…" \| null}` (1–2000 chars; **[3b owner]** `model_id` optional, one of `chat_models_effective`, null/omitted = the main model) | `200 text/event-stream` (below); pre-stream errors as JSON: `422 model_not_allowed`, `409 feature_disabled`, `409 assistant_busy`, `429 assistant_busy`, `429 assistant_cap_reached`, `409 conversation_full`, `404` (not own conversation). The chosen model is used for every model call of that answer (tool rounds included), stored in the message's `model_id`, the `assistant.answer` audit (`model_id`) and the usage counters; the audit-title call stays on the light model; caps and limits are unchanged. Telegram `/ask` and the AI features keep the main / light models |
+| `GET /api/assistant/messages/{id}/stream` | header `Last-Event-ID` (optional) | `200 text/event-stream`: replay + live; a finished message → its `done` immediately; not own → `404` |
+| `POST /api/assistant/messages/{id}/cancel` | — | `200 {"status": "cancelled"}` (idempotent; a finished message → current status); audited `assistant.cancel` |
+| `POST /api/assistant/messages/{id}/feedback` | `{"rating": 1 \| -1 \| 0, "comment": "…" \| null}` (0 clears, comment ≤ 1000) | `200 AssistantMessage`; audited `assistant.feedback` (rating only) |
+| `GET /api/assistant/conversations` | Query `q` (title substring), `kind`, `page`, `page_size` | page of `AssistantConversation` (own), by `last_message_at` desc |
+| `GET /api/assistant/conversations/{id}` | — | `AssistantConversation & {"messages": AssistantMessage[]}` (own only, else 404) |
+| `PATCH /api/assistant/conversations/{id}` | `{"title": "…"}` (1–200) | `AssistantConversation` |
+| `DELETE /api/assistant/conversations/{id}` | — | `204`; a running message is cancelled first; audited |
+| `DELETE /api/assistant/conversations` | — | `200 {"deleted": 17}` (all own); audited |
+
+```ts
+type AssistantConversation = { id: number; kind: "chat" | "explain" | "rule_draft" | "template_draft";
+  channel: "web" | "telegram"; title: string; language: "en" | "he"; message_count: number;
+  ref: { sensor_id: number | null; event_id: number | null } | null;
+  created_at: string; last_message_at: string };
+type AssistantStep = { call_id: string; round: number; tool: string; label_key: string;   // i18n "assistant.tool.search_syslog"
+  args: Record<string, unknown>;                // as the model sent them (placeholders shown translated for the admin)
+  state: "running" | "done"; ok: boolean | null; rows: number | null; truncated: boolean;
+  ms: number | null; error: string | null };
+type AssistantMessage = { id: number; conversation_id: number; seq: number; role: "user" | "assistant";
+  purpose: string; content: string;            // Markdown; links only nm:<ref>
+  notes: { round: number; text: string }[]; steps: AssistantStep[];
+  sources: { ref: string; label: string; url: string | null }[];   // url set only for kb/<n>
+  status: "running" | "complete" | "cancelled" | "error" | "limit_reached"; error: { code: string; message: string } | null;
+  notices: string[]; model_id: string | null; model_calls: number; tool_calls: number;
+  usage: { input_tokens: number; output_tokens: number; cache_read_tokens: number; cache_write_tokens: number };
+  cost_estimate: number | null; currency: string | null; duration_ms: number | null;
+  feedback: 1 | -1 | null; feedback_comment: string | null; created_at: string; finished_at: string | null };
+```
+**SSE events** (`text/event-stream; charset=utf-8`, `Cache-Control: no-store`, `X-Accel-Buffering: no`; each event
+`id: <n>`; `: keepalive` every 15 s):
+
+| event | data |
+|---|---|
+| `start` | `{"conversation_id": 12, "message_id": 340, "user_message_id": 339, "language": "he", "redaction": false}` |
+| `step` | `AssistantStep` (state `running`, then `done`); `done` adds `"refs": ["device/12", "sensor/7"]` (new refs the UI may link) |
+| `delta` | `{"text": "…"}` (append to the current round's text) |
+| `round_end` | `{"round": 1, "reason": "tool_use"}` (the UI moves the round's text into `notes`) |
+| `notice` | `{"code": "limit_reached" \| "truncated_context" \| "retrying" \| "kb_unavailable", "message": "…"}` |
+| `done` | `{"message": AssistantMessage}` (authoritative final content; links already validated) |
+| `error` | `{"code": "bedrock_throttled", "message": "…", "details": []}` — followed by `done` with status `error` |
+
+Example:
+```
+id: 1
+event: start
+data: {"conversation_id":12,"message_id":340,"user_message_id":339,"language":"en","redaction":false}
+
+id: 2
+event: step
+data: {"call_id":"tooluse_1","round":1,"tool":"list_problems","label_key":"assistant.tool.list_problems","args":{},"state":"running","ok":null,"rows":null,"truncated":false,"ms":null,"error":null}
+
+id: 3
+event: step
+data: {"call_id":"tooluse_1","round":1,"tool":"list_problems","label_key":"assistant.tool.list_problems","args":{},"state":"done","ok":true,"rows":2,"truncated":false,"ms":41,"error":null,"refs":["device/3","sensor/7","device/9","sensor/31"]}
+
+id: 4
+event: delta
+data: {"text":"Two sensors are down: [core-sw / Ping](nm:sensor/7) since 11:58"}
+
+id: 5
+event: done
+data: {"message":{…}}
+```
+
+### [3b] Tools (closed allow-list; schemas offered to the model)
+Each tool is sent as `{"toolSpec": {"name", "description", "inputSchema": {"json": <JSON Schema>}}}`. All objects
+have `"additionalProperties": false`; times are ISO-8601 strings; `since`/`until` default to the last 24 h;
+`limit` defaults to 20. Result envelope: `{"ok": true, "tool", "rows", "truncated", "data", "untrusted_fields",
+"note"}` / `{"ok": false, "tool", "error", "detail"}` (architecture § 14.4). Every item carries `ref`.
+
+| Tool | Input (JSON Schema, compact) | Caps | Output items (projection) |
+|---|---|---|---|
+| `search_devices` | `{query?: string≤100, group_id?: int, status?: ("up"\|"warning"\|"down"\|"unreachable"\|"paused"\|"unknown")[], vendor?: string≤50, limit?: 1–50}` | 50 | `id, ref, name, host, group_path, status, status_counts, vendor, model, sys_descr (≤200, untrusted), in_maintenance, acknowledged_problems` |
+| `get_device` | `{device_id: int}` | sensors 100 | device fields above + `sensors[] {id, ref, name, type, status, message (≤200), last_check_at, primary_value, unit}`, `problems[]`, `depends_on[] {id, ref, name, status}`, `dependents_count`, `maintenance_now` |
+| `list_problems` | `{group_id?: int, include_acknowledged?: bool (true), statuses?: [...], limit?: 1–100}` | 100 | `sensor_id, ref, sensor_name, device_id, device_ref, device_name, status, message, since, acknowledged, ack_comment (≤200)` |
+| `search_sensors` | `{query?: string≤100, device_id?: int, group_id?: int, type?: string, status?: [...], limit?: 1–100}` | 100 | `id, ref, name, type, device_name, status, message, last_check_at` |
+| `get_sensor_history` | `{sensor_id: int, since?, until?, channel?: string}` | range ≤ 31 d, ≤ 48 buckets | `channels[] {key, unit, min, avg, max, last, buckets[[time, avg]]}` |
+| `list_events` | `{device_id?, sensor_id?, group_id?, kinds?: string[], status?: string, since?, until?, limit?: 1–200}` | range ≤ 31 d, 200 | `id, ref, time, kind, device_name, sensor_name, old_status, new_status, message (≤200)` |
+| `list_maintenance` | `{device_id?, group_id?, active_only?: bool, since?, until?}` | 50 | `id, ref, name, scope, target_name, next/current occurrence, recurrence summary, active` |
+| `topology_neighbors` | `{device_id: int, include_stale?: bool (false)}` | 100 | `local_port, neighbor_device_id, neighbor_ref, neighbor_name (untrusted when not a device), remote_port, source, stale, last_seen` |
+| `topology_path` | `{from_device_id: int, to_device_id: int}` | ≤ 16 hops | `hops[] {device_id, ref, name, status, out_port, in_port}`, `found` |
+| `get_device_ports` | `{device_id: int, only_down?: bool, query?: string≤50, vlan?: int, limit?: 1–200}` | 200 | `if_index, ref, name, alias (untrusted), kind, oper, admin, speed_mbps, vlan_untagged, vlans_tagged (≤20), lag, neighbor, mac_count, errors_24h, last_change` |
+| `find_mac_or_ip` | `{mac?: string, ip?: string}` (exactly one) | 50 | as `MacSearchResult` items: `mac, vendor, ip, hostname (untrusted), device_ref, device_name, port_ref, port_name, vlan, last_seen, is_uplink` |
+| `availability` | `{device_ids?: int[≤100], group_id?: int, since: string, until: string}` | ≤ 92 d, 100 rows | `AvailabilityRow` fields + `ref` |
+| `list_groups` | `{parent_id?: int}` | 500 | `id, ref, name, parent_id, status, device_count` |
+| `get_timeline` | `{device_id: int, kinds?: string[], since?, until?, limit?: 1–100}` | ≤ 7 d | timeline items (`kind, time, summary (≤200, untrusted for trap/syslog), ref`) |
+| `search_syslog` | `{device_id?, group_id?, severity_max?: 0–7, program?: string≤50, text?: string≤100, since?, until?, limit?: 1–100}` | ≤ 7 d, 100 | `id, ref, time, device_name, host (untrusted), severity, facility, program, message (≤500, untrusted)` |
+| `syslog_stats` | `{device_id?, group_id?, since?, until?, by: "severity"\|"program"\|"device"\|"hour"}` | ≤ 31 d, 50 buckets | `key, count` |
+| `search_traps` | `{device_id?, trap_oid?: string, text?: string≤100, since?, until?, limit?: 1–100}` | ≤ 7 d, 100 | `id, ref, time, device_name, trap_name, trap_oid, summary (≤300, untrusted)` |
+| `flow_top` | `{kind: "talkers"\|"applications"\|"conversations", device_id?, exporter_id?, if_index?, direction?: "in"\|"out", side?: "src"\|"dst"\|"both", since?, until?, limit?: 1–25}` | § 13.3 ranges, 25 | `FlowTopItem` fields (`hostname` untrusted) + `ref` (`flows/<query>`) |
+| `flow_interface_series` | `{device_id: int, if_index: int, since?, until?, split?: "none"\|"app"\|"host"}` | ≤ 60 points/series, 9 series | `interface, series[] {label, direction, points[[time, bps]]}` |
+| `list_new_devices` | `{state?: string[], device_id?, since?, limit?: 1–100}` | 100 | `mac, vendor, ip, hostname (untrusted), switch_name, port_name, vlan, state, detected_at, ref` |
+| `config_versions` | `{device_id: int, limit?: 1–20}` | 20 | `ConfigVersion` metadata + `ref` |
+| `config_diff` | `{device_id: int, from_version_id?: int, to_version_id?: int}` (default: previous → latest) | 400 lines / 16 KiB | `from, to, added, removed, diff (masked, untrusted), truncated, ref` |
+| `config_search` | `{text: string 2–100}` (literal) | 20 devices × 5 lines | `device_ref, device_name, version_ref, lines[] {line, text (masked, untrusted)}` |
+| `list_notification_channels` | `{}` | 100 | `id, name, type, enabled` (rule drafts only) |
+| `search_knowledge` | `{query: string 3–300}` | `results` ≤ 10, 1500 chars each | `ref ("kb/<n>"), title, source_url, score, text (untrusted)` |
+
+### [3b] Converse request (what the server sends; for the mock and reviewers)
+```json
+{ "system": [ {"text": "<system prompt>"}, {"cachePoint": {"type": "default"}} ],
+  "messages": [ {"role": "user", "content": [ {"text": "<question, redacted> (Answer in English.)"} ]},
+                {"role": "assistant", "content": [ {"toolUse": {"toolUseId": "tooluse_1", "name": "list_problems", "input": {}}} ]},
+                {"role": "user", "content": [ {"toolResult": {"toolUseId": "tooluse_1", "status": "success",
+                    "content": [ {"json": {"ok": true, "tool": "list_problems", "rows": 2, "truncated": false,
+                                           "untrusted_fields": ["message"], "data": {"items": [ … ]}, "note": null}} ]}} ]} ],
+  "toolConfig": { "tools": [ {"toolSpec": {…}}, …, {"cachePoint": {"type": "default"}} ], "toolChoice": {"auto": {}} },
+  "inferenceConfig": { "maxTokens": 2000, "temperature": 0.2 } }
+```
+Tool errors are sent with `"status": "error"` and the error envelope as `json`. Drafts use `"toolChoice": {"tool":
+{"name": "propose_alert_rule"}}` on the final call.
+
+### [3b] AI features
+| Method & path | Feature | Request | Response |
+|---|---|---|---|
+| `POST /api/assistant/explain` | `ai_explain_alert` | `{"sensor_id": 7, "event_id": 991 \| null, "refresh": false}` (event default: the sensor's current problem event; else the latest status change) | `200 text/event-stream` as ask (`start` has the new/cached conversation id; cached → `done` immediately); `404` sensor; audited `assistant.explain_alert` |
+| `GET /api/incidents` | `ai_correlation` | Query `state` (repeatable), `since`, `page`, `page_size` | page of `Incident` (newest first) |
+| `GET /api/incidents/{id}` | `ai_correlation` | — | `Incident & {"members": IncidentMember[]}` |
+| `POST /api/incidents/{id}/summarize` | `ai_correlation` | — | `202 Incident` (forces a new AI summary within the 5-per-incident limit; `429 assistant_cap_reached`) |
+| `POST /api/assistant/config-diff/explain` | `ai_config_diff` | `{"device_id": 3, "from": 80, "to": 88, "refresh": false}` | `200 DiffExplanation` (≤ 60 s; cached per pair); `409 feature_idle`; audited `assistant.diff_explain` |
+| `GET /api/assistant/config-diff/flags` | `ai_config_diff` | Query `device_id`, `from`, `to` | `200 {"flags": DiffFlag[]}` (deterministic only, no model call) |
+| `GET /api/assistant/digests` | `ai_syslog_digest` | Query `page`, `page_size` | page of `DigestSummary` (newest first) |
+| `GET /api/assistant/digests/{day}` | `ai_syslog_digest` | `day` = `YYYY-MM-DD` | `Digest` |
+| `POST /api/assistant/digests/{day}/run` | `ai_syslog_digest` | `{"send": false}` (last 7 days only) | `202 Digest` (`status: "running"`); `429 assistant_cap_reached` (> 5 manual per day) |
+| `POST /api/assistant/rule-drafts` | `ai_rule_drafts` | `{"kind": "alert_rule" \| "event_rule", "description": "…" (5–1000)}` | `200 RuleDraft` (≤ 45 s; also when no draft is possible: `draft: null` + `cannot_draft`, see below); audited `assistant.rule_draft` (`cannot_draft: "model" \| "placeholder" \| null`) |
+| `POST /api/assistant/template-drafts/walks` | `ai_template_drafts` | `{"device_id": 3, "presets": ["system", "entity", "host_resources", "enterprise", "if_sample", "entity_sensor"], "oids": ["1.3.6.1.4.1.25506.2.6"]}` (≤ 8 subtrees in total) | `202 SnmpWalk`; `409 walk_running`; `422` forbidden subtree (`details: [{"oid": "1.3.6.1.6.3.15", "reason": "never_walked"}]`); audited `assistant.template_walk` |
+| `GET /api/assistant/template-drafts/walks/{id}` | `ai_template_drafts` | — | `SnmpWalk` (with `varbinds` when finished, ≤ 5000) |
+| `POST /api/assistant/template-drafts/walks/{id}/cancel` | `ai_template_drafts` | — | `200 SnmpWalk` |
+| `POST /api/assistant/template-drafts` | `ai_template_drafts` | `{"walk_id": 5, "template_id": "acme_x100" \| null, "notes": "…" \| null}` | `200 TemplateDraft` (≤ 90 s; `yaml: ""` + `cannot_draft` when no template is possible); audited `assistant.template_draft` |
+| `POST /api/device-templates/user` | **always available** (admin, not an assistant endpoint; API tokens refused) | `{"yaml": "…" (≤ 256 KiB), "overwrite": false}` | `201 {"template": DeviceTemplate, "file": "acme/acme_x100.yaml", "library": TemplateLibraryStatus}`; `422 invalid_template`; `409 template_exists`; registry reloaded, `templates.reloaded` WS; audited `device_template.create_user` |
+| `GET /api/assistant/knowledge` | (prepare: allowed while `ai_knowledge` OFF; needs `assistant` settings) | — | `{"enabled": false, "knowledge_base_id": "…", "region": null, "endpoint_url": null, "results": 5, "min_score": 0, "description": "…", "last_test": {…} \| null}` |
+| `PUT /api/assistant/knowledge` | same | writable fields + `"enabled"`, `"test_id"` | same shape; `422 assistant_test_required` for OFF→ON or KB field change while ON |
+| `POST /api/assistant/knowledge/test` | same | `{"settings": <partial, optional>}` | `200 {"ok", "test_id", "expires_at", "results": 3, "first_source": {"title", "url"}, "ms", "error"}`; audited `assistant.kb_test` |
+| `GET /api/assistant/usage` | (allowed while `assistant` OFF) | Query `month` (`YYYY-MM`, default current) | `UsageReport` |
+
+```ts
+type Incident = { id: number; state: "open" | "resolved" | "stale"; opened_at: string; last_change_at: string;
+  resolved_at: string | null; title: string; title_fields: { root: string; root_status: string; count: number;
+  unit: "devices" | "sensors"; status: string };
+  root_device: { id: number; name: string } | null; root_candidates: { id: number; name: string }[];
+  ai: { title: string; summary: string; root_guess: { device_id: number; confidence: "low" | "medium" | "high" } | null;
+        generated_at: string } | null;
+  member_count: number; down: number; unreachable: number; warning: number; recovered: number };
+type IncidentMember = { event_id: number; sensor_id: number | null; sensor_name: string | null; device_id: number | null;
+  device_name: string | null; status: string; time: string; recovered_at: string | null; is_root: boolean };
+type DiffFlag = { rule_id: string; severity: "high" | "medium" | "info"; title_key: string;   // i18n diffRisk.<rule_id>
+  side: "added" | "removed"; lines: number[] };
+type DiffExplanation = { device_id: number; from: number; to: number; flags: DiffFlag[];
+  ai: { summary: string[]; risks: { severity: "high" | "medium" | "info"; title: string; explanation: string; lines: number[] }[];
+        confidence: "low" | "medium" | "high"; truncated: boolean } | null;
+  status: "ok" | "failed" | "skipped"; error: { code: string; message: string } | null;
+  generated_at: string; usage: { input_tokens: number; output_tokens: number }; cost_estimate: number | null };
+type DigestSummary = { day: string; status: "ok" | "failed" | "skipped" | "running"; unusual_count: number;
+  new_types: number; total_messages: number; generated_at: string };
+type Digest = DigestSummary & { language: "en" | "he"; baseline_days: number;
+  stats: { by_severity: DigestRow[]; by_program: DigestRow[]; by_device: DigestRow[]; by_hour: [number, number][];
+           new_types: { signature: string; sample: string; count: number; example: string; example_ref: string }[];
+           sampled: boolean };
+  ai_markdown: string | null; deliveries: { target: string; ok: boolean; error: string | null; at: string }[] };
+type DigestRow = { key: string; ref: string | null; count: number; baseline: number | null; ratio: number | null; unusual: boolean };
+type RuleDraft = { kind: "alert_rule" | "event_rule";
+  draft: Record<string, unknown> | null;       // exactly the writable fields of AlertRule / EventRule create; null with cannot_draft
+  // [3b owner] "cannot draft" is a normal outcome (200, same shape, no form is opened): the model answered
+  // {cannot_draft: true, reason} (source "model": the text describes no condition/event to match, or it cannot be
+  // expressed with the supported fields), or the server's deterministic backstop rejected a placeholder draft
+  // (source "placeholder": empty draft, a `<UNKNOWN>`-style value, a placeholder name, no statuses / no match
+  // criteria on a global event rule; generic reason). No validation and no repair round then:
+  // explanation "", assumptions [], validation {ok: false, errors: []}.
+  cannot_draft: { reason: string; source: "model" | "placeholder" } | null;
+  language: "en" | "he";                       // detected from the description as in the chat (no letters → UI language);
+                                               // name, explanation, assumptions and reason are written in it,
+                                               // technical values (ids, OIDs, regexes, programs, kinds) unchanged
+  explanation: string; assumptions: string[];
+  validation: { ok: boolean; errors: { loc: (string | number)[]; msg: string }[] };
+  conversation_id: number; usage: { input_tokens: number; output_tokens: number } };
+// Event-rule drafts are normalised before validation: a pattern the model put into `text_regex` (a string) or
+// under `pattern` / `regex` / `message` moves to `match.text` (with `text_regex: true` for regex keys), a single
+// `program` becomes `programs: [...]`, `text_regex` is coerced to a boolean.
+type SnmpWalk = { id: number; device_id: number; status: "running" | "ok" | "partial" | "failed" | "cancelled";
+  subtrees: string[]; counts: Record<string, number>; total: number; error: string | null;
+  started_at: string; finished_at: string | null; varbinds?: [string, string, string][] };
+type TemplateDraft = { walk_id: number; yaml: string; valid: boolean;
+  errors: { path: string; error: string }[]; warnings: string[]; notes: string; repair_rounds: number;
+  // [3b owner] as RuleDraft: the model's {cannot_draft, reason} (notes that are not about a device template, nothing
+  // device-specific in the walk) or the backstop (empty YAML / `<UNKNOWN>` placeholders); yaml "", valid false
+  cannot_draft: { reason: string; source: "model" | "placeholder" } | null;
+  language: "en" | "he";                       // from the admin's notes (no letters / no notes → UI language): notes, reason
+  conversation_id: number; usage: { input_tokens: number; output_tokens: number } };
+type UsageMonthSummary = { month: string; tokens: number; token_cap: number; cost_estimate: number | null;
+  cost_cap: number | null; currency: string | null; pct_of_cap: number; projection_pct: number;
+  background_stopped: boolean };
+type UsageReport = UsageMonthSummary & {
+  by_day: { day: string; questions: number; tokens: number; cost_estimate: number | null }[];
+  by_user: { user_id: number; username: string; questions: number; tokens: number; cost_estimate: number | null }[];  // user 0 = "system"
+  by_purpose: { purpose: string; calls: number; tokens: number; cost_estimate: number | null }[];
+  // [3b owner] per model / inference profile of the month (assistant_usage.model_id), tokens desc then id;
+  // rows without any model call are left out; model_id "" = tokens counted without a model id (cost null).
+  // cost: the recorded estimates (one price set for every model, at the prices valid when counted), null
+  // without prices
+  by_model: { model_id: string; calls: number; input_tokens: number; output_tokens: number;
+              cache_read_tokens: number; cache_write_tokens: number; tokens: number; cost_estimate: number | null }[];
+  top_tools: { tool: string; calls: number; errors: number; avg_ms: number }[];
+  errors: { code: string; count: number }[]; feedback: { up: number; down: number };
+  last_12_months: { month: string; tokens: number; cost_estimate: number | null }[] };
+```
+**Alert-note deliveries** (no endpoint; § 14.8.3): Telegram `editMessageText {"chat_id", "message_id", "text":
+"<original html>\n\n<i>AI:</i> <note escaped>", "parse_mode": "HTML", "reply_markup": <unchanged>}`, fallback
+`sendMessage {"chat_id", "text": "<i>AI note:</i> …", "reply_to_message_id": <id>}`; Teams follow-up Adaptive Card
+(title "AI note: DOWN core-sw / Ping" | "הערת AI: …", TextBlock with the note, `Action.OpenUrl` to the sensor);
+email reply `Subject: Re: <original subject>`, `In-Reply-To` / `References: <original Message-ID>`, plain text +
+HTML with the note and "AI-generated".
+
+**Telegram `/ask`** (no endpoint; § 14.8.9): `sendMessage` "Working on it…" / "עובד על זה…", then `editMessageText`
+with `parse_mode: "HTML"`, ≤ 3500 chars + `\n\n<a href="<public_base_url>/assistant/c/<id>">Full answer</a>`.
+Refusals (en/he): not linked, not admin, group chat, feature off, cap reached (with reset time), busy.
+
+### [3b] Audit actions (feature `audit`, required by `assistant`)
+`assistant.question`, `assistant.tool_call`, `assistant.answer`, `assistant.cancel`, `assistant.feedback`,
+`assistant.conversation_delete`, `assistant.test`, `assistant.kb_test`, `assistant.settings_update`,
+`assistant.cert_upload`, `assistant.cert_delete`, `assistant.csr_create`, `assistant.csr_delete`,
+`assistant.explain_alert`, `assistant.diff_explain`,
+`assistant.rule_draft`, `assistant.template_walk`, `assistant.template_draft`, `assistant.incident_summary`
+(system), `assistant.alert_note` (system), `assistant.digest` (system or user for *Run now*),
+`assistant.report_summary` (system), `device_template.create_user`; `alert_rule.update` covers `ai_note`,
+`report.update` covers `ai_summary`. Field contents: architecture § 14.7. **Owner decision:** no question text in
+the audit log — `assistant.question` / `assistant.answer` carry a **neutral audit `title`**, never the question
+and never a conversation title derived from it: the light model writes a ≤ 6-word topic title after the answer
+(usage purpose `title`; no IPs, hostnames, usernames, MACs, numbers or secrets — enforced again by post-processing);
+`assistant.question` (written while it is not yet known), failed/cancelled answers and any failure use the generic
+`"Assistant question"` / `"שאלה לעוזר"`; *Explain alert* uses `"Explain alert"`. `assistant.tool_call` has no
+arguments (tool name, size, duration only).
+
+### [3b] WebSocket additions
+| type | data | When / who |
+|---|---|---|
+| `assistant.message` | `{"conversation_id": 12, "message_id": 340, "status": "complete"}` | a message of this user finished; **only the asking user's sockets** |
+| `assistant.state` | `{"state": AssistantState, "error_code": null}` | state change; admins |
+| `incident.update` | `{"incident": Incident}` | open / grow / AI summary / resolve; admins |
+| `digest.ready` | `{"day": "2026-11-08", "status": "ok"}` | admins |
+| `walk.update` | `{"walk": SnmpWalk}` (without varbinds) | progress every 2 s / finish; the requesting admin |
+| `features.changed` | 11 new names | as 2b-3 |
+| `templates.reloaded` | as 2b-2 | after `POST /api/device-templates/user` |
 
 ---
 

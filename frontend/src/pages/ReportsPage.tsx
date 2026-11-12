@@ -1,3 +1,4 @@
+import { useAiFeature } from '../components/assistant/common';
 import { useEffect, useMemo, useState, type FormEvent } from 'react';
 import { keepPreviousData, useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Link, useNavigate } from 'react-router-dom';
@@ -218,10 +219,14 @@ function ReportModal({
   const lang: Language = i18n.language === 'he' ? 'he' : 'en';
   const [form, setForm] = useState<ReportForm>(() => reportFormFrom(null, lang));
   const [touched, setTouched] = useState(false);
+  // [3b] AI summary opt-in (shown while ai_report_summary is ON)
+  const aiOn = useAiFeature('ai_report_summary');
+  const [aiSummary, setAiSummary] = useState(false);
   const channels = useQuery({ queryKey: qk.channels, queryFn: endpoints.channels, enabled: open });
   useEffect(() => {
     if (!open) return;
     setForm(reportFormFrom(report, lang));
+    setAiSummary(report?.ai_summary ?? false);
     setTouched(false);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open, report]);
@@ -230,8 +235,14 @@ function ReportModal({
   const m = useMutation({
     mutationFn: () =>
       report
-        ? endpoints3.updateReport(report.id, reportFormToInput(form))
-        : endpoints3.createReport(reportFormToInput(form)),
+        ? endpoints3.updateReport(report.id, {
+            ...reportFormToInput(form),
+            ...(aiOn ? { ai_summary: aiSummary } : {}),
+          })
+        : endpoints3.createReport({
+            ...reportFormToInput(form),
+            ...(aiOn ? { ai_summary: aiSummary } : {}),
+          }),
     onSuccess: () => {
       void qc.invalidateQueries({ queryKey: qk3.reports });
       toast.push('success', t('common.saved'));
@@ -362,6 +373,12 @@ function ReportModal({
             </div>
           </FieldGroup>
         </div>
+        {aiOn && (
+          <div>
+            <Checkbox label={t('reports.aiSummary')} checked={aiSummary} onChange={setAiSummary} />
+            <p className="ms-6 mt-0.5 text-xs text-slate-500">{t('reports.aiSummaryHint')}</p>
+          </div>
+        )}
         <Checkbox
           label={t('common.enabled')}
           checked={form.enabled}

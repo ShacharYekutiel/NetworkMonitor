@@ -1,0 +1,37 @@
+{
+  "Version": "2012-10-17",
+  "Statement": [
+    {
+      "Sid": "InvokeChosenInferenceProfiles",
+      "Effect": "Allow",
+      "Action": [
+        "bedrock:InvokeModel",
+        "bedrock:InvokeModelWithResponseStream"
+      ],
+      "Resource": [
+        "arn:aws:bedrock:<REGION>:<ACCOUNT_ID>:inference-profile/<PROFILE_ID>",
+        "arn:aws:bedrock:<REGION>:<ACCOUNT_ID>:inference-profile/<LIGHT_PROFILE_ID>"
+      ]
+    },
+    {
+      "Sid": "UnderlyingModelsOnlyThroughTheseProfiles",
+      "Effect": "Allow",
+      "Action": [
+        "bedrock:InvokeModel",
+        "bedrock:InvokeModelWithResponseStream"
+      ],
+      "Resource": [
+        "arn:aws:bedrock:*::foundation-model/<MODEL_ID>",
+        "arn:aws:bedrock:*::foundation-model/<LIGHT_MODEL_ID>"
+      ],
+      "Condition": {
+        "StringLike": {
+          "bedrock:InferenceProfileArn": [
+            "arn:aws:bedrock:<REGION>:<ACCOUNT_ID>:inference-profile/<PROFILE_ID>",
+            "arn:aws:bedrock:<REGION>:<ACCOUNT_ID>:inference-profile/<LIGHT_PROFILE_ID>"
+          ]
+        }
+      }
+    }
+  ]
+}

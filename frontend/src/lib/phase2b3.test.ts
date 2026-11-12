@@ -122,7 +122,7 @@ describe('[2b-3] features', () => {
     expect(featuresOfTab('ingest')).toEqual(['traps', 'syslog', 'event_alerts', 'flapping']);
     expect(featuresOfTab('features')).toEqual(['lag', 'timeline']);
     // owner decision: Teams and API tokens are always available, not toggles
-    expect(FEATURE_NAMES).toHaveLength(17); // 9 of 2b-3 + 8 of phase 3
+    expect(FEATURE_NAMES).toHaveLength(28); // 9 of 2b-3 + 8 of phase 3 + 11 of 3b
     expect(FEATURE_NAMES as string[]).not.toContain('teams');
     expect(FEATURE_NAMES as string[]).not.toContain('api_tokens');
     expect(featuresOfTab('general')).toEqual([]);

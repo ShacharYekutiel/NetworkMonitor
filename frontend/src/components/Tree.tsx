@@ -7,6 +7,7 @@ import { useLocalState } from '../hooks/useLocalState';
 import { formatValue } from '../lib/format';
 import { CheckIcon, ChevronIcon, FolderIcon, SearchIcon, ServerIcon, WrenchIcon } from './icons';
 import { StatusDot } from './Status';
+import { TreeMenuProvider, useTreeItemMenu } from './treemenu/TreeContextMenu';
 import { cx, ErrorBox, Input, Spinner, Value } from './ui';
 import { useLocalizeMessage } from '../hooks/localize';
 
@@ -15,6 +16,8 @@ type Expanded = Record<string, boolean>;
 const rowBase =
   'group flex min-w-0 items-center gap-1.5 rounded px-1.5 py-1 text-sm hover:bg-slate-200/70 dark:hover:bg-slate-800';
 const activeRow = 'bg-sky-100 text-sky-900 dark:bg-sky-900/40 dark:text-sky-100';
+/** [3b] no iOS link callout on long press (it opens the tree context menu instead) */
+const noCallout = { WebkitTouchCallout: 'none' } as const;
 
 function Toggle({
   open,
@@ -72,14 +75,17 @@ function filterGroups(groups: TreeGroup[], q: string): TreeGroup[] {
   return out;
 }
 
-function SensorRow({ s, depth }: { s: TreeSensor; depth: number }) {
+function SensorRow({ s, d, depth }: { s: TreeSensor; d: TreeDevice; depth: number }) {
   const { t } = useTranslation();
+  const menu = useTreeItemMenu({ kind: 'sensor', sensor: s, device: d });
   const localize = useLocalizeMessage();
   return (
     <NavLink
+      {...menu}
       to={`/sensors/${s.id}`}
+      data-tree-item="sensor"
       className={({ isActive }) => cx(rowBase, isActive && activeRow)}
-      style={{ paddingInlineStart: `${depth * 14 + 26}px` }}
+      style={{ paddingInlineStart: `${depth * 14 + 26}px`, ...noCallout }}
       title={localize(s.status_message) || s.name}
     >
       <StatusDot status={s.status} />
@@ -115,13 +121,17 @@ function DeviceRow({
   const { t } = useTranslation();
   const key = `d${d.id}`;
   const open = forceOpen || !!expanded[key];
+  const menu = useTreeItemMenu({ kind: 'device', device: d });
   return (
     <div>
       <div className="flex items-center" style={{ paddingInlineStart: `${depth * 14}px` }}>
         <Toggle open={open} onClick={() => toggle(key)} hidden={!d.sensors.length} />
         <NavLink
+          {...menu}
           to={`/devices/${d.id}`}
+          data-tree-item="device"
           className={({ isActive }) => cx(rowBase, 'flex-1', isActive && activeRow)}
+          style={noCallout}
           title={d.host}
         >
           <StatusDot status={d.status} />
@@ -137,7 +147,7 @@ function DeviceRow({
           )}
         </NavLink>
       </div>
-      {open && d.sensors.map((s) => <SensorRow key={s.id} s={s} depth={depth} />)}
+      {open && d.sensors.map((s) => <SensorRow key={s.id} s={s} d={d} depth={depth} />)}
     </div>
   );
 }
@@ -159,13 +169,17 @@ function GroupRow({
   // Groups are expanded by default; the map records explicit collapses.
   const open = forceOpen || expanded[key] !== false;
   const hasChildren = g.children.length > 0 || g.devices.length > 0;
+  const menu = useTreeItemMenu({ kind: 'group', group: g });
   return (
     <div>
       <div className="flex items-center" style={{ paddingInlineStart: `${depth * 14}px` }}>
         <Toggle open={open} onClick={() => toggle(key)} hidden={!hasChildren} />
         <NavLink
+          {...menu}
           to={`/groups/${g.id}`}
+          data-tree-item="group"
           className={({ isActive }) => cx(rowBase, 'flex-1 font-medium', isActive && activeRow)}
+          style={noCallout}
         >
           <StatusDot status={g.status} />
           <FolderIcon size={14} className="shrink-0 text-slate-500" />
@@ -204,6 +218,14 @@ function GroupRow({
 }
 
 export function TreeNav() {
+  return (
+    <TreeMenuProvider>
+      <TreeNavInner />
+    </TreeMenuProvider>
+  );
+}
+
+function TreeNavInner() {
   const { t } = useTranslation();
   const { data, isLoading, error } = useTree();
   const [expanded, setExpanded] = useLocalState<Expanded>('netmon.treeExpanded', {});

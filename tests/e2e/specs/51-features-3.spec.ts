@@ -120,7 +120,9 @@ test('Features page: the 8 phase-3 features appear in the read-only overview (fi
 
 test('own tabs: toggle card at the top, settings only while ON (Config backup)', async ({ page }) => {
   const api = await apiAs();
-  await setFeatures(api, { config_backup: false });
+  // receivers OFF: with traps or syslog ON, enabling config backup opens the "enable the built-in triggers?" dialog
+  // over the switch (an earlier spec, e.g. 49, may leave the receivers ON)
+  await setFeatures(api, { config_backup: false, syslog: false, traps: false });
   await loginViaApi(page, undefined, '/settings?tab=features');
   await page.getByTestId('features-overview').locator('[data-feature-overview="config_backup"]').getByRole('link').click();
   await expect(page).toHaveURL(/tab=backup/);

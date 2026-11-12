@@ -77,6 +77,36 @@ env_get() { # file key
   sed -n "s/^$2=//p" "$1" | tail -n1 | tr -d '"'"'"' \r'
 }
 
+# [3b] NO_PROXY matching with the rules of httpx (the app's HTTP client): "*" = everything;
+# ".example.com" or "*.example.com" = subdomains of example.com; "example.com" =
+# example.com and its subdomains. Scheme and :port are ignored; an IP entry matches only
+# that literal address.
+no_proxy_match() { # host no_proxy_list -> 0 when the host bypasses the proxy
+  local host=${1,,} list=${2:-} e
+  local -a entries
+  IFS=',' read -ra entries <<<"$list"
+  for e in "${entries[@]}"; do
+    e="${e//[[:space:]]/}"
+    e="${e,,}"
+    [[ -n $e ]] || continue
+    [[ $e == '*' ]] && return 0
+    e="${e#*://}"
+    [[ $e =~ ^(.*[^:]):[0-9]+$ && $e != *::* ]] && e="${BASH_REMATCH[1]}"
+    [[ $e == '*.'* ]] && e="${e:1}"
+    if [[ $e == .* ]]; then
+      [[ $host == *"$e" ]] && return 0
+    else
+      [[ $host == "$e" || $host == *".$e" ]] && return 0
+    fi
+  done
+  return 1
+}
+
+# A proxy URL for display: credentials (user:password@) hidden.
+redact_url() {
+  if [[ $1 == *@* ]]; then printf '%s://***@%s' "${1%%://*}" "${1##*@}"; else printf '%s' "$1"; fi
+}
+
 # ------------------------------------------------------------------ docker compose
 compose() {
   "$DOCKER" compose \

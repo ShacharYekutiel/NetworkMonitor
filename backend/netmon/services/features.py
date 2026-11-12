@@ -60,8 +60,23 @@ FEATURES: tuple[str, ...] = (
     "reports",
     "noc",
     "chat_ack",
+    # [3b] assistant and AI features (architecture § 14.0.1; netmon.assistant.gates)
+    "assistant",
+    "ai_explain_alert",
+    "ai_correlation",
+    "ai_alert_notes",
+    "ai_config_diff",
+    "ai_syslog_digest",
+    "ai_rule_drafts",
+    "ai_template_drafts",
+    "ai_knowledge",
+    "ai_chat_ask",
+    "ai_report_summary",
 )
-PHASE3_FEATURES: tuple[str, ...] = FEATURES[FEATURES.index("config_backup") :]
+PHASE3_FEATURES: tuple[str, ...] = FEATURES[
+    FEATURES.index("config_backup") : FEATURES.index("chat_ack") + 1
+]
+PHASE3B_FEATURES: tuple[str, ...] = FEATURES[FEATURES.index("assistant") :]
 # Teams notifications and API tokens were toggles before; they are now always available. A
 # stored `feature_teams_enabled` / `feature_api_tokens_enabled` row is ignored (settings
 # `get_all` only reads known keys) and `PUT /api/settings` ignores those keys like any other

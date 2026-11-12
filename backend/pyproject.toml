@@ -56,6 +56,8 @@ dev = [
     "aiosmtpd>=1.4",
     "snmpsim>=1.1",
     "pysmi>=1.5",
+    # [3b] test-only: the Bedrock mock (tests/sim/bedrock) verifies SigV4 with botocore (architecture §14.1)
+    "botocore>=1.34",
 ]
 
 [project.scripts]
@@ -78,6 +80,7 @@ netmon = [
     "data/*.gz",
     "data/*.tsv",
     "configbackup/drivers/*.yaml",
+    "assistant/*.yaml",
 ]
 
 [tool.ruff]

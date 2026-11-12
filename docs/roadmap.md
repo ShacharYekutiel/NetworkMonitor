@@ -190,9 +190,46 @@ account); masking secrets; schedule/retention; config-change alert vs event; flo
 new-device learning period and scope; Kerberos vs Entra; reports recipients and timing; NOC screen; dedicated
 Telegram bot; proxy details.
 
+## Phase 3b (branch `phase3b`, stacked on phase 3)
+Contract: architecture.md § 14, data-model.md § Phase 3b (migration `0010`), api.md § Phase 3b.
+
+**Owner rules:** admins only; every feature behind its own toggle, **OFF by default**; the Bedrock connection and the
+Knowledge Base are *configure-first* (settings form always visible, enable switch at the bottom next to *Test
+connection*, unlocked only after a successful test in the current session); **the model never changes anything** —
+rules and templates come back as drafts that the admin saves in the normal forms; when Bedrock is unavailable the AI
+parts are skipped and alerts/reports are never delayed.
+
+14. **"Ask the network" / "שאל את הרשת"** (toggle `assistant`): Amazon Bedrock Converse API with an Anthropic Claude
+    model or inference profile chosen in the settings (no hard-coded model), streamed answers with tool steps,
+    citations as links into the app, Hebrew/English following the question, conversations per admin (90 days),
+    stop button. Closed list of read-only tools (devices, sensors, problems, events, maintenance, topology and paths,
+    ports, MAC/IP find, availability; syslog/traps/flows/new devices/timeline only when those features are on; config
+    versions/diff/search only with the separate "send config excerpts" option and masked configs). Connection: region,
+    optional VPC interface endpoint over Direct Connect, proxy mode (env / direct / custom), corporate CA; auth by
+    **IAM Roles Anywhere** with a certificate from the internal PKI (uploaded, stored encrypted), access key, or the
+    AWS default chain (future standby in AWS). Implemented with httpx and our own SigV4 (no boto3). Privacy: secret
+    redaction always, optional internal-IP placeholders, owner-verifiable Bedrock data-handling note. Cost: per-admin
+    daily questions, monthly token/cost caps, background stop at 80 %, usage page with estimates from admin-entered
+    prices. Every question, tool call and answer in the audit log (the assistant requires the audit feature).
+15. **AI features** (each its own toggle, all need the assistant): *Explain this alert*; **alert correlation** into
+    incident cards (deterministic grouping by dependencies/topology, AI summary); **AI note** after Telegram (edit),
+    Teams (follow-up card) and email (threaded reply) alerts, per alert rule opt-in, never delaying the alert;
+    **config diff explanation** with deterministic risk flags; **daily syslog digest** (unusual vs a 7-day baseline,
+    new message types); **alert/event rule drafts** from a description; **template drafts** from a bounded,
+    admin-started SNMP walk, validated and saved as a user template; **Bedrock Knowledge Base** search for internal
+    documents; **`/ask` in Telegram** for linked admins (Teams cannot send messages to an internal server — not
+    supported); **AI summary paragraph in reports** (per report opt-in).
+
+Owner decisions for 3b (architecture § 14.13): `us-east-1` + `us.` inference profile recommended (`il-central-1` +
+`global.` supported); token caps + an admin USD cost cap; no question text in the audit log (title only); IP
+redaction off in the app, on in Telegram; Roles Anywhere recommended (UI upload or server-side CSR, trust anchor
+Mnidom-PKI-SERV-CA); Knowledge Base implemented, OFF.
+
 ## Later / ideas
 - Per-port PoE status table.
 - Template editor in the UI.
 - Remote probes for multiple sites; backup/restore of NetworkMonitor itself from the UI.
 - Phase 3 follow-ups: config-backup driver editor, Telnet (only if a device needs it), server-side PDF reports,
   Kerberos SSO on native Windows (SSPI), a flow worker process, alerts driven by flow thresholds.
+- Phase 3b follow-ups: model summarisation of long conversations, Teams inbound questions (needs a reachable bot
+  endpoint), webhook-channel AI notes, AWS SSO/web-identity credentials.

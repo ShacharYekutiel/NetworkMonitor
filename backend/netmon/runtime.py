@@ -96,6 +96,8 @@ class Runtime:
         self.reports: Any = None
         self.telegram_pollers: Any = None
         self.kiosk: Any = None
+        self.assistant: Any = None  # [3b] netmon.assistant.service.AssistantService
+        self.ai_features: Any = None  # [3b] netmon.assistant.features.component.AiFeatures
         self.event_sensors: Any = None  # netmon.ingest.event_sensors.EventSensors
         self.flapping: Any = None  # netmon.ingest.flapping.FlapManager
         self.trgm_enabled = False
@@ -223,6 +225,23 @@ class Runtime:
         from netmon.auth.sso_component import register_components
 
         register_components(self)
+        # [3b] assistant connection layer (rt.assistant; netmon.assistant.service)
+        from netmon.assistant.service import AssistantService
+
+        self.assistant = AssistantService(self)
+        self.features.register(self.assistant)
+        from netmon.assistant import agent as assistant_agent
+
+        assistant_agent.attach(self.assistant)  # [3b] runs, cancel on OFF, tool status
+        # [3b] AI features: correlation, alert notes, digest, template walks, /ask (§ 14.8)
+        from netmon.assistant.features.component import AiFeatures
+
+        self.ai_features = AiFeatures(self)
+        self.features.register(self.ai_features)
+        try:
+            await assistant_agent.mark_interrupted(self)
+        except Exception:  # noqa: BLE001
+            log.exception("Marking interrupted assistant answers failed")
         try:
             await self.features.start()
         except Exception:  # noqa: BLE001 - the server always starts
@@ -497,6 +516,20 @@ class Runtime:
                 {"id": id_, "status": value[0], "status_counts": dict(counts)},
             )
 
+    def correlation_graph_changed(self) -> None:
+        """[3b] § 14.8.2: drop the correlation dependency/topology graph cache (60 s TTL stays
+        as the backstop)."""
+        ai = self.ai_features
+        corr = getattr(ai, "correlation", None) if ai is not None else None
+        if corr is not None:
+            corr.invalidate()
+
+    def topology_changed(self, reason: str, refresh_id: int | None = None) -> None:
+        """Topology links or layout changed: `topology.updated` + correlation graph refresh."""
+        self.hub.broadcast("topology.updated", {"reason": reason, "refresh_id": refresh_id})
+        if reason != "layout":
+            self.correlation_graph_changed()
+
     def config_changed(self, entity: str, id_: int, action: str) -> None:
         self.hub.broadcast("config.changed", {"entity": entity, "id": id_, "action": action})
         if entity == "notification_channel" and self.telegram_pollers is not None:
@@ -512,5 +545,6 @@ class Runtime:
             self.newdev.mark_dirty()  # [3] new_mac sensors of new in-scope switches
         if entity in ("device", "group"):
             self.cascade.invalidate()  # dependencies may have changed
+            self.correlation_graph_changed()  # [3b] § 14.8.2: dependency graph
             if self.maintenance is not None:
                 self.maintenance.request()  # coverage may have changed (moves, new devices)

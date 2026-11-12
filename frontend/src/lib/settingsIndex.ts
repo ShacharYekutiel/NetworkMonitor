@@ -3,7 +3,7 @@
 // (plus English) at search time. Cards and some fields carry `data-anchor` attributes in the DOM
 // so a result can be scrolled to without rendering hidden tabs.
 import type { FeatureName, Features } from '../api/types';
-import { FEATURE_NAMES } from '../api/types';
+import { AI_FEATURES, FEATURE_NAMES } from '../api/types';
 import { featureTab, type SettingsTab } from './features';
 
 export type SettingsFieldDef = {
@@ -374,6 +374,221 @@ export const SETTINGS_CARDS: SettingsCardDef[] = [
     feature: ['audit'],
     fields: [{ labelKey: 'audit.retention', hintKey: 'audit.retentionHint' }],
   },
+  // --- [3b] Assistant (AI). Configure-first: the cards are always shown; the per-feature
+  // settings of Capabilities are rendered only while that AI feature is on.
+  {
+    id: 'assistantConnection',
+    tab: 'assistant',
+    titleKey: 'assistant.settings.connection',
+    hintKey: 'assistant.settings.connectionIntro',
+    terms: ['bedrock', 'aws', 'ai', 'assistant', 'claude', 'llm'],
+    fields: [
+      {
+        labelKey: 'assistant.settings.authMode',
+        terms: ['roles anywhere', 'iam', 'access key', 'credentials'],
+      },
+      { labelKey: 'assistant.settings.raTrustAnchor', terms: ['arn', 'roles anywhere'] },
+      { labelKey: 'assistant.settings.raProfile', terms: ['arn', 'roles anywhere'] },
+      { labelKey: 'assistant.settings.raRole', terms: ['arn', 'roles anywhere'] },
+      { labelKey: 'assistant.settings.raRegion', hintKey: 'assistant.settings.raRegionHint' },
+      { labelKey: 'assistant.settings.raSession', hintKey: 'assistant.settings.raSessionHint' },
+      { labelKey: 'assistant.settings.raEndpoint', hintKey: 'assistant.settings.raEndpointHint' },
+      { labelKey: 'assistant.settings.accessKeyId', terms: ['iam', 'access key'] },
+      { labelKey: 'assistant.settings.secretKey', terms: ['iam'] },
+      { labelKey: 'assistant.settings.keyCreated', hintKey: 'assistant.settings.keyCreatedHint' },
+      {
+        labelKey: 'assistant.settings.sessionToken',
+        hintKey: 'assistant.settings.sessionTokenHint',
+        terms: ['sts'],
+      },
+      { labelKey: 'assistant.settings.region', hintKey: 'assistant.settings.regionHint' },
+      {
+        labelKey: 'assistant.settings.modelId',
+        hintKey: 'assistant.settings.modelHint',
+        extraKeys: ['assistant.settings.listModels'],
+        terms: ['model', 'main model', 'inference profile'],
+      },
+      {
+        labelKey: 'assistant.settings.modelLight',
+        hintKey: 'assistant.settings.modelLightHint',
+        terms: ['model', 'light model', 'haiku'],
+      },
+      {
+        labelKey: 'assistant.settings.endpoint',
+        hintKey: 'assistant.settings.endpointHint',
+        terms: ['privatelink', 'vpc'],
+      },
+      { labelKey: 'assistant.settings.proxyMode', extraKeys: ['assistant.settings.proxyUrl'] },
+      {
+        labelKey: 'assistant.settings.controlEndpoint',
+        hintKey: 'assistant.settings.controlEndpointHint',
+      },
+      {
+        labelKey: 'assistant.settings.promptCaching',
+        hintKey: 'assistant.settings.promptCachingHint',
+        terms: ['cache'],
+      },
+      { labelKey: 'assistant.settings.test', terms: ['test'] },
+    ],
+  },
+  {
+    id: 'assistantChatModels',
+    tab: 'assistant',
+    titleKey: 'assistant.chatModels.title',
+    hintKey: 'assistant.chatModels.hint',
+    terms: ['bedrock', 'ai', 'model'],
+    fields: [{ labelKey: 'assistant.chatModels.id' }, { labelKey: 'assistant.chatModels.label' }],
+  },
+  {
+    id: 'assistantData',
+    tab: 'assistant',
+    titleKey: 'assistant.settings.dataSharing',
+    terms: ['bedrock', 'ai', 'privacy'],
+    fields: [
+      {
+        labelKey: 'assistant.settings.sendConfig',
+        hintKey: 'assistant.settings.sendConfigHint',
+        terms: ['config', 'backup'],
+      },
+      {
+        labelKey: 'assistant.settings.redactIps',
+        hintKey: 'assistant.settings.redactTradeoff',
+        terms: ['ip', 'redact'],
+      },
+      {
+        labelKey: 'assistant.settings.internalCidrs',
+        hintKey: 'assistant.settings.internalCidrsHint',
+        terms: ['cidr', 'ip'],
+      },
+      {
+        labelKey: 'assistant.settings.chatRedact',
+        hintKey: 'assistant.settings.chatRedactHint',
+        terms: ['telegram', 'ip'],
+      },
+    ],
+  },
+  {
+    id: 'assistantLimits',
+    tab: 'assistant',
+    titleKey: 'assistant.settings.limits',
+    terms: ['bedrock', 'ai', 'usage', 'cost', 'tokens', 'quota', 'limit'],
+    fields: [
+      { labelKey: 'assistant.key.assistant_daily_questions_per_user' },
+      { labelKey: 'assistant.key.assistant_monthly_token_cap', hintKey: 'assistant.hint.tokenCap' },
+      { labelKey: 'assistant.key.assistant_monthly_cost_cap', hintKey: 'assistant.hint.costCap' },
+      {
+        labelKey: 'assistant.key.assistant_background_stop_pct',
+        hintKey: 'assistant.hint.backgroundStop',
+      },
+      { labelKey: 'assistant.key.assistant_max_model_calls' },
+      { labelKey: 'assistant.key.assistant_max_tool_calls' },
+      { labelKey: 'assistant.key.assistant_max_output_tokens' },
+      { labelKey: 'assistant.key.assistant_question_timeout_s' },
+      { labelKey: 'assistant.key.assistant_max_concurrent' },
+      { labelKey: 'assistant.key.assistant_context_budget_tokens' },
+      {
+        labelKey: 'assistant.prices.title',
+        hintKey: 'assistant.prices.hint',
+        extraKeys: ['assistant.prices.currency'],
+        terms: ['price', 'pricing'],
+      },
+    ],
+  },
+  {
+    id: 'assistantConversations',
+    tab: 'assistant',
+    titleKey: 'assistant.settings.conversations',
+    terms: ['ai', 'retention', 'history'],
+    fields: [
+      { labelKey: 'assistant.key.assistant_retention_days' },
+      { labelKey: 'assistant.key.assistant_artifact_retention_days' },
+    ],
+  },
+  {
+    id: 'assistantCapabilities',
+    tab: 'assistant',
+    titleKey: 'assistant.settings.capabilities',
+    hintKey: 'assistant.settings.capabilitiesIntro',
+    terms: ['ai', 'bedrock', 'features'],
+    fields: [],
+  },
+  {
+    id: 'aiCorrelation',
+    tab: 'assistant',
+    titleKey: 'features.name.ai_correlation',
+    feature: ['ai_correlation'],
+    terms: ['ai', 'incident'],
+    fields: [
+      { labelKey: 'assistant.key.correlation_window_min' },
+      { labelKey: 'assistant.key.correlation_min_alerts' },
+      { labelKey: 'assistant.key.correlation_daily_summaries' },
+      { labelKey: 'assistant.key.correlation_attach_to_alert', hintKey: 'assistant.hint.attach' },
+    ],
+  },
+  {
+    id: 'aiAlertNotes',
+    tab: 'assistant',
+    titleKey: 'features.name.ai_alert_notes',
+    hintKey: 'assistant.hint.notesWhere',
+    feature: ['ai_alert_notes'],
+    terms: ['ai', 'alert', 'note'],
+    fields: [
+      { labelKey: 'assistant.key.alert_note_timeout_s' },
+      { labelKey: 'assistant.key.alert_notes_daily_cap' },
+    ],
+  },
+  {
+    id: 'aiConfigDiff',
+    tab: 'assistant',
+    titleKey: 'features.name.ai_config_diff',
+    feature: ['ai_config_diff'],
+    terms: ['ai', 'config', 'diff'],
+    fields: [
+      { labelKey: 'assistant.key.config_diff_daily_cap' },
+      { labelKey: 'assistant.key.config_diff_auto', hintKey: 'assistant.hint.diffAuto' },
+    ],
+  },
+  {
+    id: 'aiSyslogDigest',
+    tab: 'assistant',
+    titleKey: 'features.name.ai_syslog_digest',
+    feature: ['ai_syslog_digest'],
+    terms: ['ai', 'syslog', 'digest'],
+    fields: [
+      { labelKey: 'assistant.key.digest_time' },
+      { labelKey: 'assistant.key.digest_language' },
+      {
+        labelKey: 'assistant.key.digest_email_to',
+        hintKey: 'assistant.settings.emailsHint',
+        terms: ['email'],
+      },
+      { labelKey: 'assistant.key.digest_channel_ids', terms: ['telegram', 'teams'] },
+    ],
+  },
+  {
+    id: 'aiChatAsk',
+    tab: 'assistant',
+    titleKey: 'features.name.ai_chat_ask',
+    feature: ['ai_chat_ask'],
+    terms: ['ai', 'telegram', '/ask'],
+    fields: [{ labelKey: 'assistant.key.chat_ask_per_user_hour' }],
+  },
+  {
+    id: 'assistantKb',
+    tab: 'assistant',
+    titleKey: 'assistant.kb.title',
+    hintKey: 'assistant.kb.intro',
+    terms: ['bedrock', 'ai', 'knowledge base', 'kb', 'runbook', 'rag'],
+    fields: [
+      { labelKey: 'assistant.kb.id', hintKey: 'assistant.kb.idHint' },
+      { labelKey: 'assistant.kb.region', hintKey: 'assistant.kb.regionHint' },
+      { labelKey: 'assistant.kb.endpoint', hintKey: 'assistant.kb.endpointHint' },
+      { labelKey: 'assistant.kb.results' },
+      { labelKey: 'assistant.kb.minScore' },
+      { labelKey: 'assistant.kb.description', hintKey: 'assistant.kb.descriptionHint' },
+      { labelKey: 'assistant.kb.test' },
+    ],
+  },
 ];
 
 /** Card title of the place where a feature's switch is (see FeatureToggleCard / inline switches). */
@@ -385,7 +600,14 @@ export function toggleCardTitleKey(name: FeatureName): string {
       return 'kerberos.title';
     case 'sso_oidc':
       return 'oidc.title';
+    // [3b] the assistant switch is at the bottom of the connection card, the KB switch at the
+    // bottom of the Knowledge Base card, the other AI switches in Capabilities.
+    case 'assistant':
+      return 'assistant.settings.connection';
+    case 'ai_knowledge':
+      return 'assistant.kb.title';
   }
+  if ((AI_FEATURES as readonly string[]).includes(name)) return 'assistant.settings.capabilities';
   const tab = featureTab(name);
   if (tab === 'features') return 'features.title';
   return FEATURE_NAMES.filter((n) => featureTab(n) === tab).length > 1

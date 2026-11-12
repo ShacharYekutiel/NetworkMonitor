@@ -47,6 +47,7 @@ async def get_settings(_: Admin, rt: RT, session: DB) -> dict:
 async def put_settings(body: SettingsPut, _: Admin, rt: RT, session: DB, ctx: Audit) -> dict:
     current = await settings_svc.get_all(session)
     fields = body.model_fields_set
+    await _put_3b(body, fields, current, session)  # [3b] before any feature toggle is written
     await _put_2b3_auth(body, fields, current, rt, session)
     await _put_2b3_ingest(body, fields, current, session)
     await _put_3_plain(body, fields, current, session)
@@ -222,6 +223,39 @@ async def _put_3c(body: SettingsPut, fields: set[str], current: dict, rt: RT, se
         errors += oidc.oidc_config_errors(await settings_p3c.get(session, "oidc"), rt.secret_key)
     if errors:
         raise ApiError(422, "validation_error", "Single sign-on is not configured", errors)
+
+
+async def _put_3b(body: SettingsPut, fields: set[str], current: dict, session: DB) -> None:
+    """[3b] `assistant` / `ai_knowledge` can only be turned ON through their configure-first
+    endpoints (422 assistant_test_required); `assistant` needs `audit` (both directions,
+    422 feature_dependency); the scalar keys are written as they come."""
+    from netmon.schemas.assistant import NULLABLE_KEYS, SCALAR_KEYS
+
+    def wanted(name: str) -> bool | None:
+        key = f"feature_{name}_enabled"
+        return getattr(body, key) if key in fields and getattr(body, key) is not None else None
+
+    for name in ("assistant", "ai_knowledge"):
+        if wanted(name) is True and not current.get(f"feature_{name}_enabled"):
+            raise ApiError(
+                422,
+                "assistant_test_required",
+                "Run a successful Test connection first (Settings → Assistant)",
+                [{"feature": name}],
+            )
+    assistant_on = (
+        bool(current.get("feature_assistant_enabled")) and wanted("assistant") is not False
+    )
+    if assistant_on and wanted("audit") is False:
+        raise ApiError(
+            422,
+            "feature_dependency",
+            "Turn the assistant off before the audit log",
+            [{"feature": "assistant", "requires": "audit"}],
+        )
+    for key in SCALAR_KEYS:
+        if key in fields and (getattr(body, key) is not None or key in NULLABLE_KEYS):
+            await settings_svc.put(session, key, getattr(body, key))
 
 
 async def _put_3_plain(body: SettingsPut, fields: set[str], current: dict, session: DB) -> None:

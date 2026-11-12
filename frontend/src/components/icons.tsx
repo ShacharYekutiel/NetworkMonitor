@@ -350,3 +350,29 @@ export const ReportIcon = (p: P) => (
     <path d="M9 17v-3M12 17v-6M15 17v-4" />
   </Svg>
 );
+/** [3b] assistant */
+export const SparkIcon = (p: P) => (
+  <Svg {...p}>
+    <path d="M12 3l1.8 4.6L18.5 9l-4.7 1.6L12 15l-1.8-4.4L5.5 9l4.7-1.4z" />
+    <path d="M19 15l.8 2 2 .8-2 .8-.8 2-.8-2-2-.8 2-.8z" />
+  </Svg>
+);
+export const ThumbIcon = (p: P) => (
+  <Svg {...p}>
+    <path d="M7 11v9H4v-9zM7 11l4-8a2 2 0 0 1 2 2v4h5.5a2 2 0 0 1 2 2.3l-1.2 7A2 2 0 0 1 17.3 20H7" />
+  </Svg>
+);
+export const CopyIcon = (p: P) => (
+  <Svg {...p}>
+    <rect x="9" y="9" width="11" height="11" rx="2" />
+    <path d="M5 15V5a2 2 0 0 1 2-2h10" />
+  </Svg>
+);
+export const IncidentIcon = (p: P) => (
+  <Svg {...p}>
+    <circle cx="6" cy="6" r="2.5" />
+    <circle cx="18" cy="6" r="2.5" />
+    <circle cx="12" cy="18" r="2.5" />
+    <path d="M8 7.5l2.8 8.3M16 7.5l-2.8 8.3M8.5 6h7" />
+  </Svg>
+);

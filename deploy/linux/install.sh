@@ -81,8 +81,10 @@ Options:
   --https-proxy <url>   Outbound HTTPS proxy for the service (Telegram, Teams, Entra ID,
                         webhooks), e.g. http://proxy.corp.local:8080. Default: HTTPS_PROXY
                         of the installer's environment, else the one set by an earlier run
-  --no-proxy <list>     Extra NO_PROXY entries for the service (internal webhook targets),
-                        e.g. .corp.local,10.0.0.0/8
+  --no-proxy <list>     Extra NO_PROXY entries for the service (internal webhook targets,
+                        Amazon Bedrock endpoint names that resolve privately), e.g.
+                        .corp.local,bedrock-runtime.il-central-1.amazonaws.com
+                        (localhost and .vpce.amazonaws.com are always included)
   -h, --help            Show this help
 EOF
 }
@@ -787,7 +789,9 @@ if [ -n "$OPT_HTTPS_PROXY" ]; then
   case "$OPT_HTTPS_PROXY" in
     *[[:space:]\"]*) die "--https-proxy must not contain spaces or quotes" ;;
   esac
-  no_proxy_list="localhost,127.0.0.1,::1${OPT_NO_PROXY:+,${OPT_NO_PROXY}}"
+  # [3b] Amazon Bedrock / Roles Anywhere VPC endpoint names (vpce-....vpce.amazonaws.com)
+  # resolve to private addresses (Direct Connect): never through the proxy.
+  no_proxy_list="localhost,127.0.0.1,::1,.vpce.amazonaws.com${OPT_NO_PROXY:+,${OPT_NO_PROXY}}"
   case "$no_proxy_list" in
     *[[:space:]\"]*) die "--no-proxy must not contain spaces or quotes" ;;
   esac

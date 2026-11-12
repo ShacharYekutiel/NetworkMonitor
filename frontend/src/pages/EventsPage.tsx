@@ -18,6 +18,62 @@ import {
 import { useTree } from '../hooks/queries';
 import { flattenGroups } from '../lib/tree';
 import { STATUSES } from '../lib/status';
+import { useState } from 'react';
+import { TabBar } from '../components/TabBar';
+import { useAiFeature } from '../components/assistant/common';
+import { IncidentList } from '../components/assistant/Incidents';
+import { INCIDENT_STATES, type IncidentState } from '../api/types';
+
+/** [3b] Events | Incidents (feature ai_correlation). */
+function EventsTabs() {
+  const { t } = useTranslation();
+  const [params, setParams] = useSearchParams();
+  const tab = params.get('tab') === 'incidents' ? 'incidents' : 'events';
+  return (
+    <TabBar
+      tabs={['events', 'incidents']}
+      value={tab}
+      label={t('events.title')}
+      onChange={(k) => setParams(k === 'events' ? {} : { tab: k }, { replace: true })}
+      render={(k) => t(`incident.tab.${k}`)}
+    />
+  );
+}
+
+function IncidentsTab() {
+  const { t } = useTranslation();
+  const [state, setState] = useState<IncidentState | ''>('');
+  const [page, setPage] = useState(1);
+  return (
+    <Card
+      bodyClassName="p-0"
+      actions={
+        <Select
+          value={state}
+          onChange={(e) => {
+            setState(e.target.value as IncidentState | '');
+            setPage(1);
+          }}
+          className="w-auto"
+          aria-label={t('incident.stateFilter')}
+        >
+          <option value="">{t('common.all')}</option>
+          {INCIDENT_STATES.map((s) => (
+            <option key={s} value={s}>
+              {t(`incident.state.${s}`)}
+            </option>
+          ))}
+        </Select>
+      }
+      title={t('incident.title')}
+    >
+      <IncidentList
+        query={{ state: state ? [state] : undefined, page, page_size: 50 }}
+        onPage={setPage}
+      />
+    </Card>
+  );
+}
 
 const PAGE_SIZE = 50;
 
@@ -35,6 +91,7 @@ export function EventsPage() {
   const get = (k: string) => params.get(k) ?? '';
   const num = (k: string) => (params.get(k) ? Number(params.get(k)) : undefined);
   const page = Math.max(1, Number(params.get('page') ?? 1) || 1);
+  const incidentsOn = useAiFeature('ai_correlation');
 
   const query: EventQuery = {
     kind: get('kind') || undefined,
@@ -62,9 +119,19 @@ export function EventsPage() {
     setParams(next, { replace: true });
   };
 
+  if (incidentsOn && params.get('tab') === 'incidents')
+    return (
+      <div className="space-y-4">
+        <PageHeader title={t('events.title')} />
+        <EventsTabs />
+        <IncidentsTab />
+      </div>
+    );
+
   return (
     <div className="space-y-4">
       <PageHeader title={t('events.title')} />
+      {incidentsOn && <EventsTabs />}
       <Card>
         <div className="grid grid-cols-1 gap-3 sm:grid-cols-3 lg:grid-cols-7">
           <Field label={t('events.kind')}>

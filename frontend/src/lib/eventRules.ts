@@ -77,7 +77,7 @@ export function matchToForm(m: TrapMatch | SyslogMatch | null): MatchForm {
     f.facilities = [...m.facilities];
     f.programs = m.programs.join(', ');
     f.text = m.text ?? '';
-    f.textRegex = m.text_regex;
+    f.textRegex = m.text_regex === true && !!f.text;
   }
   return f;
 }

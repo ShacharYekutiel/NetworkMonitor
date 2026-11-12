@@ -283,9 +283,14 @@ def public_channel_config(type_: str, config: dict[str, Any]) -> dict[str, Any]:
             "disable_notification": bool(config.get("disable_notification", False)),
             "ack_buttons": bool(config.get("ack_buttons", False)),  # [3] chat_ack
             "ack_link": bool(config.get("ack_link", False)),
+            "ai_ask": bool(config.get("ai_ask", False)),  # [3b] Telegram /ask (§ 14.8.9)
         }
     if type_ == "email":  # [3] chat_ack link flag (default false on older rows)
-        return {**config, "ack_link": bool(config.get("ack_link", False))}
+        return {
+            **config,
+            "ack_link": bool(config.get("ack_link", False)),
+            "ai_note_email": bool(config.get("ai_note_email", True)),  # [3b] § 14.8.3
+        }
     if type_ == "teams":  # [2b-3] the Workflows URL is signed: write-only
         from netmon.alerts.teams import config_out
 

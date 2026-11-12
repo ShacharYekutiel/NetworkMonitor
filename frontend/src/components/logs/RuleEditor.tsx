@@ -12,6 +12,9 @@ import type {
 } from '../../api/types';
 import { EVENT_RULE_ACTIONS, isPassiveAction, VARBIND_OPS } from '../../api/types';
 import { useFeatures } from '../../hooks/features';
+import type { RuleDraft } from '../../api/types';
+import { DraftBanner, RuleDraftBox } from '../assistant/RuleDraft';
+import { eventDraftRuleForm } from '../../lib/drafts';
 import {
   formToInput,
   IF_INDEX_OID,
@@ -310,11 +313,14 @@ export function RuleEditorModal({
   const [f, setF] = useState<RuleForm>(() => ruleToForm(rule ?? null));
   const [touched, setTouched] = useState(false);
   const [testResult, setTestResult] = useState<RuleTestResult | null>(null);
+  // [3b] "describe the rule" draft (prefills only; saved through the normal API)
+  const [draft, setDraft] = useState<RuleDraft | null>(null);
   useEffect(() => {
     if (!open) return;
     setF(rule ? ruleToForm(rule) : (initial ?? ruleToForm(null)));
     setTouched(false);
     setTestResult(null);
+    setDraft(null);
   }, [open, rule, initial]);
   const set = (p: Partial<RuleForm>) => setF((x) => ({ ...x, ...p }));
   const errors = validateRule(f);
@@ -373,6 +379,18 @@ export function RuleEditorModal({
       }
     >
       <form onSubmit={submit} className="space-y-4" data-testid="rule-editor">
+        {!rule && (
+          <RuleDraftBox
+            kind="event_rule"
+            onDraft={(d) => {
+              setDraft(d);
+              setF(eventDraftRuleForm(d.draft ?? {}));
+              setTouched(true);
+              setTestResult(null);
+            }}
+          />
+        )}
+        {draft && <DraftBanner draft={draft} onDismiss={() => setDraft(null)} />}
         {rule && <p className="text-xs text-slate-500">{t('eventRules.editClearsConditions')}</p>}
         <div className="grid grid-cols-1 gap-3 sm:grid-cols-4">
           <Field
@@ -565,7 +583,7 @@ export function RuleEditorModal({
         {touched && invalid && <Notice>{t('eventRules.fixErrors')}</Notice>}
         <div className="flex flex-wrap justify-end gap-2">
           <Button
-            className="me-auto"
+            className={cx('me-auto', draft && 'ring-2 ring-amber-400')}
             busy={test.isPending}
             disabled={invalid}
             onClick={() => test.mutate()}

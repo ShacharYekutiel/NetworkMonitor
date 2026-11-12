@@ -89,6 +89,25 @@ class Hub:
                 self._clients.discard(client)
                 asyncio.ensure_future(_close(client.ws, 1008))
 
+    def send_to_user(self, user_id: int, type_: str, data: dict[str, Any]) -> int:
+        """[3b] Send only to the sockets of one user (`assistant.message`). Returns the number of
+        recipients."""
+        for q in self.listeners:
+            with contextlib.suppress(asyncio.QueueFull):
+                q.put_nowait({"type": type_, "data": data, "user_id": user_id})
+        targets = [c for c in self._clients if c.user_id == user_id]
+        if not targets:
+            return 0
+        msg = make_message(type_, data)
+        for client in targets:
+            try:
+                client.queue.put_nowait(msg)
+            except asyncio.QueueFull:
+                log.warning("Dropping slow WebSocket client")
+                self._clients.discard(client)
+                asyncio.ensure_future(_close(client.ws, 1008))
+        return len(targets)
+
     # [2b-3] topic subscriptions (`{"type":"subscribe","topics":[...]}`)
     def has_subscribers(self, topic: str) -> bool:
         return any(topic in c.topics for c in self._clients)

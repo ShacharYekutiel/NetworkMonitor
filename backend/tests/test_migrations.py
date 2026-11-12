@@ -19,7 +19,7 @@ from tests.conftest import TEST_DATABASE_URL, _plain, db_url_for, make_settings,
 from tests.test_poller import _check_history
 
 pytestmark = requires_db
-HEAD = "0009"  # [1.3.1] head revision after run_migrations()
+HEAD = "0010"  # head after run_migrations(): 0008 v1.3 -> 0009 v1.3.1 -> 0010 3b
 
 
 async def _tables(url: str) -> set[str]:

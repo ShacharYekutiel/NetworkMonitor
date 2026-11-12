@@ -1,0 +1,74 @@
+#
+ version 7.1.070, Release 6710
+#
+ sysname {{HOSTNAME}}
+#
+ irf mac-address persistent timer
+ irf auto-update enable
+ undo irf link-delay
+ irf member 1 priority 1
+#
+ lldp global enable
+#
+ system-working-mode standard
+ password-recovery enable
+#
+vlan 1
+#
+vlan 10
+ name servers
+#
+vlan 20
+ name clients-floor2
+#
+vlan 30
+ name voice
+#
+ stp global enable
+#
+interface Vlan-interface10
+ ip address 10.0.10.2 255.255.255.0
+#
+interface Ten-GigabitEthernet1/0/1
+ port link-mode bridge
+ description uplink-core
+ port link-type trunk
+ port trunk permit vlan 1 10 20
+#
+interface Ten-GigabitEthernet1/0/2
+ port link-mode bridge
+ description srv-esx1
+ port access vlan 10
+#
+interface Ten-GigabitEthernet1/0/3
+ port link-mode bridge
+ description srv-esx2-new
+ port access vlan 10
+#
+ snmp-agent
+ snmp-agent local-engineid 800063A280F4B52F3A1B2C00000001
+ snmp-agent community read cipher $c$3$Qk9NQkFSRElBX1JFQURfQ09NTVVOSVRZ
+ snmp-agent sys-info version v2c v3
+ snmp-agent usm-user v3 netmon-snmp netmon-group cipher authentication-mode sha $c$3$YXV0aEtleVNlY3JldA== privacy-mode aes128 $c$3$cHJpdktleVNlY3JldA==
+#
+ ssh server enable
+ ssh server acl 2001
+#
+radius scheme rad1
+ primary authentication 10.0.0.20
+ key authentication cipher $c$3$cmFkaXVzU2hhcmVkU2VjcmV0
+#
+local-user admin class manage
+ password hash $h$6$Wm9vbWVyYW5nV2luZG93$aGFzaGVkUGFzc3dvcmQxMjM0NTY3ODkw
+ service-type ssh terminal
+ authorization-attribute user-role network-admin
+#
+local-user netmon-backup class manage
+ password hash $h$6$TmV0bW9uQmFja3Vw$bmV0bW9uSGFzaGVkUGFzc3dvcmQ=
+ service-type ssh
+ authorization-attribute user-role network-operator
+#
+ ntp-service enable
+ ntp-service unicast-server 10.0.0.10
+#
+return

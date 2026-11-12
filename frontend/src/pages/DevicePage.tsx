@@ -216,7 +216,9 @@ export function DevicePage() {
       [],
   );
   const hasPorts = d.ports_effective || !!sensors.data?.items.some((x) => snmpTypes.has(x.type));
-  const tabParam = params.get('tab') as DeviceTab | null;
+  // [3b] assistant links use `tab=configuration` (architecture § 14.3.7)
+  const rawTab = params.get('tab');
+  const tabParam = (rawTab === 'configuration' ? 'config' : rawTab) as DeviceTab | null;
   const tabs: DeviceTab[] = [
     ...(hasPorts ? (['ports'] as const) : []),
     'sensors',

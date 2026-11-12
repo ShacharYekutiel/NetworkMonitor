@@ -74,7 +74,7 @@ test('create a Telegram channel in the UI and send a test message', async ({ pag
   const ch = list.items.find((c: any) => c.name === chName);
   channelId = ch.id;
   expect(ch).toMatchObject({ type: 'telegram', enabled: true });
-  expect(ch.config).toEqual({ bot_token: null, bot_token_set: true, chat_id: TG_CHAT_OK, parse_mode: 'HTML', disable_notification: false, ack_buttons: false, ack_link: false }); // [3] chat-ack keys (data-model § [3] Channel config additions)
+  expect(ch.config).toEqual({ bot_token: null, bot_token_set: true, chat_id: TG_CHAT_OK, parse_mode: 'HTML', disable_notification: false, ack_buttons: false, ack_link: false, ai_ask: false }); // [3] chat-ack keys, [3b] ai_ask (data-model § [3] Channel config additions)
 });
 
 test('editing keeps the stored token (write-only field)', async ({ page }) => {

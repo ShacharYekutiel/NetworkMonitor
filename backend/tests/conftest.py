@@ -27,7 +27,7 @@ from netmon.runtime import Runtime
 TEST_DATABASE_URL = os.environ.get("TEST_DATABASE_URL")
 
 # [2b-3] shared fixtures of the auth / audit / tokens / Teams / AD tests
-pytest_plugins = ["tests.fixtures_2b3_auth"]
+pytest_plugins = ["tests.fixtures_2b3_auth", "tests.fixtures_3b_agent"]  # [3b] agent / mock
 
 # [2b-1] coalescing window of the dependency cascade (0.5 s in production)
 __import__("netmon.services.dependencies", fromlist=["x"]).CASCADE_DEBOUNCE_S = 0.02
@@ -50,7 +50,11 @@ TABLES = (
     # devices), new-device alerts, reports, kiosk, chat ack, flapping episodes
     "ssh_host_keys, config_backup_status, config_versions, known_macs, mac_allowlist, "
     "port_flap_episodes, reports, report_runs, kiosk_screens, chat_identities, "
-    "chat_link_codes, telegram_poll_state"
+    "chat_link_codes, telegram_poll_state, "
+    # [3b] assistant and AI features (migration 0008)
+    "assistant_conversations, assistant_messages, assistant_tool_calls, assistant_usage, "
+    "assistant_artifacts, assistant_incidents, assistant_incident_members, "
+    "assistant_note_targets, assistant_syslog_signatures, assistant_snmp_walks"
 )
 
 

@@ -9,19 +9,24 @@ import { UnknownSourcesView } from '../components/logs/UnknownSourcesView';
 import { IngestStatusLine } from '../components/features/IngestStatus';
 import { Loading, PageHeader } from '../components/ui';
 import { TabBar } from '../components/TabBar';
+import { useAiFeature } from '../components/assistant/common';
+import { DigestList } from '../components/assistant/Digest';
 
-type LogsTab = 'syslog' | 'traps' | 'unknown' | 'rules';
+type LogsTab = 'syslog' | 'traps' | 'unknown' | 'rules' | 'digest';
 
 /** [2b-3] Traps & Syslog (/logs): Syslog | Traps | Unknown sources | Rules. */
 export function LogsPage() {
   const { t } = useTranslation();
   const { features, loaded } = useFeatures();
   const [params, setParams] = useSearchParams();
+  const digestOn = useAiFeature('ai_syslog_digest');
   const tabs: LogsTab[] = [
     ...(features.syslog ? (['syslog'] as const) : []),
     ...(features.traps ? (['traps'] as const) : []),
     'unknown',
     'rules',
+    // [3b] daily syslog digest (admins, feature ai_syslog_digest)
+    ...(digestOn ? (['digest'] as const) : []),
   ];
   const p = params.get('tab') as LogsTab | null;
   const tab: LogsTab = p && tabs.includes(p) ? p : tabs[0];
@@ -44,6 +49,7 @@ export function LogsPage() {
           {tab === 'traps' && <TrapsView />}
           {tab === 'unknown' && <UnknownSourcesView />}
           {tab === 'rules' && <RulesView />}
+          {tab === 'digest' && <DigestList />}
         </>
       )}
     </div>
