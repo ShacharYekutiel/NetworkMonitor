@@ -245,7 +245,13 @@ async def test_important_ports_and_linkdown_scope(rt: Runtime, admin: httpx.Asyn
                 {"d": d["id"], "i": idx, "n": f"Gi1/0/{idx}"},
             )
         await s.commit()
-    await make_sensor(admin, d["id"], "snmp_interface", {"if_index": 5, "if_name": "Gi1/0/5"})
+    # [1.3] a port with a *critical* interface sensor is important (a new interface sensor on
+    # an unimportant port defaults to impact warning)
+    sens = await make_sensor(
+        admin, d["id"], "snmp_interface", {"if_index": 5, "if_name": "Gi1/0/5"}
+    )
+    assert sens["impact"] == "warning"
+    await admin.patch(f"/api/sensors/{sens['id']}", json={"impact": "critical"})
     await features(admin, traps=True, event_alerts=True)
     rid = (await rules_by_key(admin))["trap_link_down"]["id"]
     await admin.patch(f"/api/event-rules/{rid}", json={"enabled": True})
@@ -257,7 +263,7 @@ async def test_important_ports_and_linkdown_scope(rt: Runtime, admin: httpx.Asyn
     assert ts["status"] == "up"
     t = (await admin.get("/api/traps")).json()["items"][0]
     assert t["summary"].endswith("port=Gi1/0/7") and t["matched_rule_ids"] == []
-    send_udp(tp, link(LINK_DOWN, 5))  # interface sensor -> important
+    send_udp(tp, link(LINK_DOWN, 5))  # critical interface sensor -> important
     await wait_for(lambda: _status(admin, d["id"], "trap", "warning"))
     await admin.put("/api/settings", json={"event_linkdown_scope": "all"})
     send_udp(tp, link(LINK_DOWN, 7))
@@ -477,7 +483,7 @@ async def test_migration_0006_up_down_up(mode: str, rt: Runtime) -> None:
         await timescale.bootstrap_ingest(engine, enabled, 30, 30)
         conn = await asyncpg.connect(_plain(url))
         try:
-            assert await conn.fetchval("SELECT version_num FROM alembic_version") == "0007"
+            assert await conn.fetchval("SELECT version_num FROM alembic_version") == "0008"
             assert await conn.fetchval("SELECT count(*) FROM event_rules WHERE NOT enabled") == 7
             if mode == "timescale":
                 ht = await conn.fetchval(
@@ -573,7 +579,7 @@ async def test_migration_0006_up_down_up(mode: str, rt: Runtime) -> None:
         await run_migrations(engine)
         conn = await asyncpg.connect(_plain(url))
         try:
-            assert await conn.fetchval("SELECT version_num FROM alembic_version") == "0007"
+            assert await conn.fetchval("SELECT version_num FROM alembic_version") == "0008"
             assert await conn.fetchval("SELECT count(*) FROM event_rules") == 7
         finally:
             await conn.close()

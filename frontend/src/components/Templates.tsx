@@ -10,8 +10,18 @@ import type {
   DeviceTemplate,
   SkippedSensor,
 } from '../api/types';
-import { applySummary, describeEntry, groupSkipped, l10n, skipReasonKey } from '../lib/templates';
-import { CheckIcon } from './icons';
+import {
+  applyOptions,
+  applySummary,
+  describeEntry,
+  groupSkipped,
+  hasInterfacesEntry,
+  l10n,
+  skipReasonKey,
+  type PortsChoice,
+} from '../lib/templates';
+import { ApplyPortsSection } from './ApplyPorts';
+import { CheckIcon, TrashIcon } from './icons';
 import { Button, cx, ErrorBox, Field, Loading, Modal, Notice, Select } from './ui';
 
 export function useDeviceTemplates() {
@@ -185,6 +195,21 @@ export function ApplyResultView({ result }: { result: ApplyTemplateResult }) {
           </ul>
         </div>
       )}
+      {!!result.removed?.length && (
+        <div data-testid="apply-removed">
+          <div className="mb-1 font-medium text-red-700 dark:text-red-400">
+            {t('applyPorts.removedTitle', { count: result.removed.length })}
+          </div>
+          <ul className="space-y-0.5">
+            {result.removed.map((r) => (
+              <li key={r.sensor_id} className="flex items-center gap-1.5">
+                <TrashIcon size={13} className="shrink-0 text-red-600" />
+                <bdi dir="auto">{r.name}</bdi>
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
       {result.skipped.length > 0 && (
         <div>
           <div className="mb-1 font-medium">{t('templates.skippedTitle')}</div>
@@ -213,6 +238,16 @@ export function ApplyTemplateModal({
   const [id, setId] = useState('');
   const [result, setResult] = useState<ApplyTemplateResult | null>(null);
   const tpl = useMemo(() => templates.data?.find((x) => x.id === id), [templates.data, id]);
+  // [1.3] ports of the template's snmp_interfaces entry
+  const withPorts = hasInterfacesEntry(tpl);
+  const [choice, setChoice] = useState<PortsChoice>('important');
+  const [picked, setPicked] = useState<Set<number> | null>(null);
+  const [removeUnselected, setRemoveUnselected] = useState(false);
+  useEffect(() => {
+    setChoice('important');
+    setPicked(null);
+    setRemoveUnselected(false);
+  }, [id, open]);
 
   useEffect(() => {
     if (!open) return;
@@ -226,12 +261,20 @@ export function ApplyTemplateModal({
   }, [templates.data, id]);
 
   const apply = useMutation({
-    mutationFn: () => endpoints.applyTemplate(device.id, id),
+    mutationFn: () =>
+      withPorts
+        ? endpoints.applyTemplate(
+            device.id,
+            id,
+            applyOptions(choice, picked ?? new Set(), removeUnselected),
+          )
+        : endpoints.applyTemplate(device.id, id),
     onSuccess: (r) => {
       setResult(r);
       void qc.invalidateQueries({ queryKey: ['sensors'] });
       void qc.invalidateQueries({ queryKey: qk.device(device.id) });
       void qc.invalidateQueries({ queryKey: qk.tree });
+      void qc.invalidateQueries({ queryKey: ['apply-interfaces', device.id] });
     },
   });
 
@@ -252,7 +295,7 @@ export function ApplyTemplateModal({
             <Button
               variant="primary"
               busy={apply.isPending}
-              disabled={!tpl}
+              disabled={!tpl || (withPorts && choice === 'choose' && picked === null)}
               onClick={() => apply.mutate()}
             >
               {t('templates.applyButton')}
@@ -295,6 +338,18 @@ export function ApplyTemplateModal({
                 </p>
               )}
             </div>
+          )}
+          {tpl && withPorts && (
+            <ApplyPortsSection
+              deviceId={device.id}
+              templateId={tpl.id}
+              choice={choice}
+              onChoice={setChoice}
+              picked={picked}
+              onPicked={setPicked}
+              remove={removeUnselected}
+              onRemove={setRemoveUnselected}
+            />
           )}
           <p className="text-xs text-slate-500">{t('templates.applyHint')}</p>
           {apply.isPending && <p className="text-xs text-slate-500">{t('templates.applying')}</p>}

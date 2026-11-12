@@ -1,4 +1,4 @@
-# NetworkMonitor — Data Model (Phase 1 + Phase 2a + Phase 2b-1 + Phase 2b-2 + Phase 2b-3 + Phase 3)
+# NetworkMonitor — Data Model (Phase 1 + Phase 2a + Phase 2b-1 + Phase 2b-2 + Phase 2b-3 + Phase 3 + 1.3)
 
 Sections and rows marked **[2a]** belong to the Phase 2a contract (auto-discovery, device templates,
 `snmp_custom` / `snmp_disk` sensors, Telegram channel). Everything else is the Phase 1 contract and is unchanged.
@@ -12,6 +12,8 @@ Active Directory, audit log, timeline, Teams, API tokens) are in [§ Phase 2b-3]
 migration `0006`.
 Sections marked **[3]** (config backup, flows, new-device alerts, SSO, reports, NOC screens, chat acknowledge)
 are in [§ Phase 3](#3-phase-3-additions), migration `0007`.
+Sections marked **[1.3]** (sensor impact, important ports, LAG degraded, template options, IRF) are in
+[§ Release 1.3](#13-release-13-additions), migration `0008`.
 
 PostgreSQL ≥ 14 holds the data, and TimescaleDB is optional (see [architecture.md §6](architecture.md)). Alembic
 migrations own the schema.
@@ -102,6 +104,7 @@ The API layer prevents cycles: if `parent_id` would make the group its own ances
 | last_status_change_at | timestamptz | NULL |
 | state | jsonb | NOT NULL DEFAULT '{}'. Internal poller state (e.g. the last SNMP counters). **Never exposed by the API.** |
 | sort_order | integer | NOT NULL DEFAULT 0 |
+| impact | text | **[1.3]** NOT NULL DEFAULT `critical` CHECK in (`critical`,`warning`,`none`): contribution to the device status ([§ 1.3](#13-sensor-impact)) |
 | created_at, updated_at | timestamptz | |
 
 Index: `(status)`.
@@ -558,6 +561,7 @@ Channels (primary: `disk_used_pct`):
   - else if it has no sensors → `unknown`;
   - else if all sensors are `paused` → `paused`;
   - else the highest-severity status among its non-paused sensors.
+  - **[1.3]** each sensor contributes its status through its `impact` first ([§ 1.3 Sensor impact](#13-sensor-impact)).
 - **Group status:** the highest-severity status over its direct devices and its child groups, with paused
   members excluded. A group with no members, or only paused members → `unknown` or `paused` respectively.
   A child group that has no members at all (no devices anywhere below it) is not counted as a member, so an
@@ -2689,6 +2693,9 @@ in scope for the device sorted by `(priority, id)`, `ctx` (important-port predic
 varbind → important; else important when an `snmp_interface` sensor of the device has `config.if_index` =
 ifIndex, or the `switch_ports` row has kind `lag` or `lag_if_index` not null, or the port is an uplink per
 data-model § Uplinks; a device with no `switch_ports` rows and no `snmp_interface` sensors → important.
+**[1.3]** replaced by [§ 1.3 Important ports](#13-important-ports): the shared definition (uplink, LAG / member,
+trunk while `event_linkdown_include_trunks`) plus ports whose `snmp_interface` sensor has impact **`critical`**;
+a device with neither `switch_ports` rows nor critical interface sensors → every port important.
 
 ### Built-in rules (seeded by `0006`, **enabled = false**)
 | builtin_key | name (en / he) | kind | priority | match | action | key | clear |
@@ -3598,3 +3605,106 @@ append-only trigger `audit_log_immutable` disabled for that statement), restore 
 users WHERE source = 'oidc'`, restore the user checks; `DELETE FROM events WHERE kind IN ('config_change','new_device')`,
 restore the kind check; `DELETE FROM sensors WHERE type IN ('config_backup','new_mac')`, restore the type check
 and `ux_sensors_event_type`. Settings rows stay (harmless).
+
+
+---
+
+# **[1.3]** Release 1.3 additions
+
+Core-behaviour improvements (no feature toggle). API: [api.md § 1.3](api.md#13-release-13-contract). Behaviour:
+[architecture.md § 14](architecture.md#14-release-13-sensor-impact-important-ports-interface-selection-connected-hosts-lag-degraded-irf).
+
+## [1.3] Sensor impact
+`sensors.impact` (`critical` default | `warning` | `none`) decides what a sensor contributes to its **device**
+status (pure `netmon.services.status.impact_status`):
+
+| sensor status | critical | warning | none |
+|---|---|---|---|
+| down | down | **warning** | **up** |
+| unreachable | unreachable | **warning** | **up** |
+| warning | warning | warning | **up** |
+| up / unknown / paused | unchanged | unchanged | unchanged |
+
+The device rollup ([§ Status rollup](#status-rollup-computed-on-read-not-stored)) then runs unchanged on these
+contributions. Decision for "all sensors `none`": `paused` and `unknown` are passed through for every impact, so a
+device whose sensors are all `none` is `paused` when they are all paused, `unknown` while one is unknown, else `up`
+— never a problem status. The sensor's own status, its events, alerts, notifications, acknowledge and maintenance
+are unchanged by impact. `status_counts` still count raw sensor statuses.
+
+Every consumer goes through `Inventory` (`load_inventory` → `compute`): device and group status in the API, tree,
+dashboard `device_counts`, kiosk, topology/ports neighbour status, the `device.status` / `group.status` WS
+rollup. Not affected: the dependency cascade ("parent down" tests the parent's sensors, reachability, not the
+rolled-up status) and report availability (computed from the ping / system sensor's own status history).
+
+Defaults: every new sensor `critical`, except a new `snmp_interface` sensor without an explicit impact
+(`POST /api/sensors`, template apply): important port → `critical`, other port → `warning`, device without port
+inventory → `critical`. IRF and all other template sensors: `critical`.
+
+**Upgrade backfill** (`netmon.services.impact.backfill`, spawned at startup, guarded by the internal settings key
+`impact_backfill_version` = `"1"`): `snmp_interface` sensors with impact `critical` of devices that have
+`switch_ports` rows → `warning` when their ifIndex is not important; important ports keep `critical`; devices
+without port inventory are left as they are. Runs once (a failure is logged and retried at the next start).
+
+## [1.3] Important ports
+One definition, pure `netmon.ports.importance.port_reasons(rows, neighbors_of, threshold, trunk_min)`; reasons in
+this order:
+
+| reason | when |
+|---|---|
+| `uplink` | the 2b-2 rule (§ Uplinks: a switch/router/AP device neighbour, or `mac_count` > `uplink_mac_threshold`); a LAG uses its own and all members' neighbours; a member also inherits its LAG's uplink state |
+| `lag` | `kind = 'lag'` or `lag_if_index` not null (stored LAG data, whether or not the `lag` feature is ON) |
+| `trunk` | `mode = 'trunk'` and ≥ `trunk_min_tagged_vlans` tagged VLANs; a member without its own VLANs uses its LAG's (`member_vlans`). One tagged VLAN (hybrid access + voice VLAN) is not a trunk at the default 2 |
+
+Used by: ports API (`important`, `important_reasons`), apply selection and `/apply-template/interfaces`, the
+new-interface-sensor impact and the backfill, and the ingest `PortInfo` (link-down / flapping scope
+`important`), where trunks count only while `event_linkdown_include_trunks` is true and ports with a
+**critical** interface sensor are added.
+
+## [1.3] Settings keys
+| Key | Type | Default | Limits / meaning |
+|---|---|---|---|
+| `trunk_min_tagged_vlans` | int | 2 | 1–100: tagged VLANs a trunk needs |
+| `event_linkdown_include_trunks` | bool | true | trunks are important for link-down / flapping alerts under scope `important` (scope `all` unchanged) |
+| `impact_backfill_version` | str | "" | internal (not in the API): the impact backfill that has run |
+
+A change of the first two reloads the ingest configuration and drops the cached important-port sets.
+
+## [1.3] LAG degraded condition
+`condition_source` gains **`lag_degraded`**: on the device's `trap` event sensor, `rule_id` NULL, `key` = the LAG
+ifIndex, status `warning`, message `LAG <name> degraded (<up> of <n> members up)`, `expires_at` = last refresh
++ the built-in link-down rule's `clear_after_min` (1440). Raised while 0 < up < n; removed when all members are up
+or all are down (fully down = the existing link-down alert). Active while `event_alerts` is ON and the built-in
+`trap_link_down` rule is enabled and in scope for the device; disabling / editing that rule or turning
+`event_alerts` OFF deletes these conditions. Members = physical `switch_ports` rows whose `lag_if_index` is a
+`lag` row of the device; member state = stored `oper_status`, overridden by linkDown/linkUp traps until the next
+successful port inventory run (`reconcile`). `rules.Rule` gains `builtin_key`.
+
+## [1.3] Template options
+| Entry | Key | Meaning |
+|---|---|---|
+| `sensor` | `expect_from_probe: {channel, bound}` (only when set) | needs `probe: true`; at apply time the probe's value of `channel` becomes the channel threshold `bound` (`warning_min` / `warning_max` / `down_min` / `down_max`). A probe without that value → skipped `probe_failed` "No value". |
+| `snmp_table` | `when` (only when set; same shape as sensor `when`) | evaluated before the walk; a failing condition → one skip `not_applicable` `Condition not met: <oid>` |
+
+## [1.3] IRF sensors (`hpe_comware` v4)
+Before the `snmp_interfaces` entry; every IRF entry has `when [{oid: hh3cStackMemberNum.0, not_in: [0, 1]}]` (only
+IRF stacks of ≥ 2 members), `confidence: low`, notes `verified: false` until checked on the owner's FF 5945
+(`deploy/tools/irf_dump.py`). HH3C-STACK-MIB, `hh3cStack` = `1.3.6.1.4.1.25506.2.91`:
+
+| # | Entry | OID | Details |
+|---|---|---|---|
+| 1 | `IRF members` (`snmp_custom` gauge, unit `#`, probe, interval 120) | hh3cStackMemberNum `…2.91.1.2.0` | `expect_from_probe {channel: value, bound: down_min}`: down when fewer members than at apply time (re-apply after adding a member) |
+| 2 | `IRF role {label}` (`snmp_table`, enum, max 16, interval 120) | hh3cStackBoardRole `…2.91.3.1.1` (INDEX entPhysicalIndex), label entPhysicalName | slave(1) → up "standby", master(2) → up "master", loading(3) / other(4) → warning; default warning. A member that leaves loses its row → check fails → down |
+| 3 | `IRF port {index}` (`snmp_table`, enum, max 16, interval 120) | hh3cStackPortStatus `…2.91.4.1.3` (INDEX memberID.portIndex) | up(1) → up, down(2) / silent(3) / disabled(4) → warning; rows `disabled` at apply time are not created (IRF port without links) |
+| 4 | `IRF links up` (`snmp_walk_count`, probe, interval 120) | the same column, `count_values [1]` | channel `matched` `down_min 1`: every IRF port down → down |
+
+Enumerations from H3C's HH3C-STACK-MIB reference (mibs.observium.org object pages); table layout from the
+Observium MIB browser. Impact: `critical` (default).
+
+## [1.3] Migration (`0008`)
+File `backend/netmon/migrations/versions/0008_v13.py`, `revision = "0008"`, `down_revision = "0007"`. Plain DDL.
+
+`upgrade()`: `ALTER TABLE sensors ADD COLUMN impact text NOT NULL DEFAULT 'critical'` + `sensors_impact_check`;
+`event_conditions_source_check` re-added with `'lag_degraded'`.
+`downgrade()`: `DELETE FROM event_conditions WHERE source = 'lag_degraded'`, restore the source check, drop the
+impact check and column, delete the settings row `impact_backfill_version` (the backfill runs again after a
+re-upgrade).

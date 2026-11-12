@@ -5,6 +5,9 @@ import type {
   SkipReason,
   TemplateFilter,
   ApplyTemplateResult,
+  ApplyInterface,
+  ApplyInterfacesMode,
+  ApplyTemplateRequest,
   DeviceTemplate,
   DiscoveryResult,
   ImportItem,
@@ -255,4 +258,62 @@ export function groupByVendor(
       return vendorLabel(a[0]).localeCompare(vendorLabel(b[0]));
     })
     .map(([vendor, items]) => ({ vendor, items }));
+}
+
+// ---------------------------------------------------------------------------
+// [1.3] Apply template: which ports an `snmp_interfaces` entry covers
+
+export type PortsChoice = ApplyInterfacesMode | 'choose';
+
+/** True when the template creates interface sensors (the "Ports" section is shown). */
+export function hasInterfacesEntry(tpl: Pick<DeviceTemplate, 'entries'> | undefined): boolean {
+  return !!tpl?.entries.some((e) => e.kind === 'snmp_interfaces');
+}
+
+/** Initial "Choose ports" selection: the important ports plus those already monitored. */
+export function initialPortPick(items: ApplyInterface[]): number[] {
+  return items.filter((i) => i.important || i.has_sensor).map((i) => i.if_index);
+}
+
+/** if_index values the request would cover (null = every port). */
+export function coveredPorts(
+  items: ApplyInterface[],
+  choice: PortsChoice,
+  picked: ReadonlySet<number>,
+): Set<number> | null {
+  if (choice === 'all') return null;
+  if (choice === 'none') return new Set();
+  if (choice === 'important')
+    return new Set(items.filter((i) => i.important).map((i) => i.if_index));
+  return new Set(items.filter((i) => picked.has(i.if_index)).map((i) => i.if_index));
+}
+
+/** Interface sensors that "remove unselected" would delete. */
+export function sensorsToRemove(
+  items: ApplyInterface[],
+  choice: PortsChoice,
+  picked: ReadonlySet<number>,
+): ApplyInterface[] {
+  const keep = coveredPorts(items, choice, picked);
+  if (keep === null) return [];
+  return items.filter((i) => i.has_sensor && !keep.has(i.if_index));
+}
+
+/** Case-insensitive match on name and alias. */
+export function filterInterfaces(items: ApplyInterface[], q: string): ApplyInterface[] {
+  const s = q.trim().toLowerCase();
+  if (!s) return items;
+  return items.filter((i) => i.name.toLowerCase().includes(s) || i.alias.toLowerCase().includes(s));
+}
+
+/** Request options of POST apply-template for the chosen ports. */
+export function applyOptions(
+  choice: PortsChoice,
+  picked: ReadonlySet<number>,
+  removeUnselected: boolean,
+): Omit<ApplyTemplateRequest, 'template_id'> {
+  return {
+    interfaces: choice === 'choose' ? [...picked].sort((a, b) => a - b) : choice,
+    remove_unselected_interfaces: choice !== 'all' && removeUnselected,
+  };
 }

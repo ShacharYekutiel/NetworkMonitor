@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from fastapi import APIRouter
+from fastapi import APIRouter, Query
 
 from netmon.api.deps import DB, RT, Admin, Audit, Viewer
 from netmon.api.errors import not_found, validation_error
@@ -11,6 +11,7 @@ from netmon.schemas import ApplyTemplateRequest
 from netmon.templates import registry
 from netmon.templates.apply import apply_template
 from netmon.templates.builtin import get_template, list_templates
+from netmon.templates.selection import REFRESH_WAIT_S, interface_choices
 
 router = APIRouter()
 
@@ -49,4 +50,31 @@ async def apply_device_template(
         raise validation_error(["body", "template_id"], "unknown template")
     lang = user.language
     await session.close()
-    return await apply_template(rt, device_id, template, lang, audit_ctx=ctx)
+    return await apply_template(
+        rt,
+        device_id,
+        template,
+        lang,
+        audit_ctx=ctx,
+        interfaces=body.interfaces,
+        remove_unselected=body.remove_unselected_interfaces,
+        refresh_s=REFRESH_WAIT_S,
+    )
+
+
+@router.get("/api/devices/{device_id}/apply-template/interfaces")
+async def apply_template_interfaces(
+    device_id: int,
+    _: Admin,
+    rt: RT,
+    session: DB,
+    template_id: str = Query(..., max_length=64),
+) -> dict:
+    """[1.3] The interfaces the apply dialog offers, with their importance."""
+    if await session.get(Device, device_id) is None:
+        raise not_found("Device")
+    template = get_template(template_id)
+    if template is None:
+        raise validation_error(["query", "template_id"], "unknown template")
+    await session.close()
+    return await interface_choices(rt, device_id, template)

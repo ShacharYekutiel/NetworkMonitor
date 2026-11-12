@@ -24,6 +24,7 @@ from netmon.ingest import trap_decode as td
 from netmon.ingest.event_sensors import EventSensors, Item
 from netmon.ingest.flapping import FlapManager
 from netmon.ingest.forward import Forwarder, Target
+from netmon.ingest.lag_monitor import LagMonitor
 from netmon.ingest.limits import (
     DROP_EVENTS_PER_HOUR,
     DROP_REASONS,
@@ -142,6 +143,8 @@ class Ingest:
         self.community_check = "any"
         self.known_communities: set[str] = set()
         self.linkdown_scope = "important"
+        self.include_trunks = True  # [1.3] event_linkdown_include_trunks
+        self._trunk_cfg: tuple[bool, int] | None = None
         self.collapse_on = False
         self.collapse_oids: list[str] = []
         self.collapse_keep = 10
@@ -161,6 +164,7 @@ class Ingest:
         self._db_warned = float("-inf")  # monotonic counts from boot: 0.0 hid early warnings
         self.events = EventSensors(rt)
         self.flapping = FlapManager(rt)
+        self.lags = LagMonitor(rt)  # [1.3] LAG degraded
         rt.event_sensors = self.events
         rt.flapping = self.flapping
 
@@ -328,6 +332,7 @@ class Ingest:
         self.v3.drop()
         self.recent.clear()
         self.ports.clear()
+        self.lags.live.clear()
         self.limiters = {
             "trap": RateLimiter(
                 (TRAP_PER_SOURCE_RATE, TRAP_PER_SOURCE_BURST), (TRAP_GLOBAL_RATE, TRAP_GLOBAL_BURST)
@@ -355,6 +360,15 @@ class Ingest:
         self.unknown_policy = str(cfg.get("ingest_unknown_sources") or "store")
         self.community_check = str(cfg.get("trap_community_check") or "any")
         self.linkdown_scope = str(cfg.get("event_linkdown_scope") or "important")
+        # [1.3] the important-port sets depend on these: drop the cached ones on a change
+        trunks = (
+            bool(cfg.get("event_linkdown_include_trunks", True)),
+            int(cfg.get("trunk_min_tagged_vlans") or 2),
+        )
+        if trunks != self._trunk_cfg:
+            self._trunk_cfg = trunks
+            self.ports.clear()
+        self.include_trunks = trunks[0]
         # [1.2.1] repetitive traps
         was = (self.collapse_on, list(self.collapse_oids), self.collapse_keep)
         self.collapse_on = bool(cfg.get("trap_collapse_enabled", False))
@@ -635,6 +649,14 @@ class Ingest:
             self.flapping.transition(
                 device_id, if_index, rec.trap_oid == oid_names.LINK_UP, port_name
             )
+        # [1.3] LAG degraded: a member's linkDown / linkUp
+        if (
+            device_id is not None
+            and if_index is not None
+            and rec.trap_oid in (oid_names.LINK_DOWN, oid_names.LINK_UP)
+            and dev.get("enabled", True)
+        ):
+            self.lags.note_trap(device_id, if_index, rec.trap_oid == oid_names.LINK_UP)
         await self._finish(record, info)
 
     async def _handle_syslog(
@@ -741,7 +763,7 @@ class Ingest:
         if info is not None and now - info.loaded < PORT_CACHE_TTL_S:
             return info
         try:
-            info = await load_port_info(self.rt, device_id)
+            info = await load_port_info(self.rt, device_id, self.include_trunks)
         except Exception:  # noqa: BLE001 - DB trouble: every port important
             log.debug("Port info of device %s failed", device_id, exc_info=True)
             info = PortInfo({}, None, now)
@@ -899,40 +921,35 @@ async def resolve_all(names: list[str]) -> dict[str, list[str]]:
     return out
 
 
-async def load_port_info(rt: Any, device_id: int) -> PortInfo:
-    """Port names and the important-port set (data-model "Important port")."""
-    from netmon.ports import read, view
-    from netmon.services.status import load_inventory
+async def load_port_info(rt: Any, device_id: int, include_trunks: bool = True) -> PortInfo:
+    """Port names and the important-port set for link-down / flapping alerts (data-model
+    "[1.3] Important ports"): the shared definition (uplink, LAG / member, trunk when
+    `include_trunks`) plus ports whose `snmp_interface` sensor has impact `critical`; a device
+    with neither port inventory rows nor critical interface sensors -> every port important."""
+    from netmon.ports import read
+    from netmon.ports.importance import device_importance
 
     async with rt.sessionmaker() as session:
-        rows = [
-            dict(r)
-            for r in (
-                await session.execute(
-                    text(
-                        "SELECT if_index, name, descr, kind, lag_if_index, mac_count "
-                        "FROM switch_ports WHERE device_id = :d"
-                    ),
-                    {"d": device_id},
-                )
-            ).mappings()
-        ]
-        sensors = await read.interface_sensors(session, device_id)
+        imp = await device_importance(session, device_id)
+        critical: set[int] = set()
+        for r in await session.execute(
+            text(
+                "SELECT config FROM sensors WHERE device_id = :d AND type = 'snmp_interface' "
+                "AND impact = 'critical'"
+            ),
+            {"d": device_id},
+        ):
+            try:
+                critical.add(int((r.config or {}).get("if_index")))
+            except (TypeError, ValueError):
+                continue
         names = await read.port_names(session, [device_id])
         port_names = {idx: n for (d, idx), n in names.items() if d == device_id}
-        if not rows and not sensors:
-            return PortInfo(port_names, None, time.monotonic())
-        important = set(sensors)
-        if rows:
-            inv = await load_inventory(session)
-            ctx = await read.load_context(session, inv, [device_id])
-            for r in rows:
-                if r["kind"] == "lag" or r["lag_if_index"] is not None:
-                    important.add(r["if_index"])
-                    continue
-                nbs = read.neighbors_of(ctx, device_id, r)
-                if view.uplink(nbs, int(r["mac_count"] or 0), ctx.threshold)[0]:
-                    important.add(r["if_index"])
+    if imp is None and not critical:
+        return PortInfo(port_names, None, time.monotonic())
+    important = set(critical)
+    if imp is not None:
+        important |= imp.important_set(include_trunks)
     return PortInfo(port_names, important, time.monotonic())
 
 

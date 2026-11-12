@@ -112,6 +112,10 @@ class Sensor(TimestampMixin, Base):
     ack_by: Mapped[str | None] = mapped_column(String(64))
     ack_comment: Mapped[str] = mapped_column(Text, nullable=False, default="")
     ack_status: Mapped[str | None] = mapped_column(Text)
+    # [1.3] contribution to the device status: critical | warning | none
+    impact: Mapped[str] = mapped_column(
+        Text, nullable=False, default="critical", server_default="critical"
+    )
 
     channels: Mapped[list[SensorChannel]] = relationship(
         back_populates="sensor",

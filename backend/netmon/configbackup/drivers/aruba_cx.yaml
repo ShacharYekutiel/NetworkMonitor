@@ -1,7 +1,7 @@
 id: aruba_cx
 name: 'Aruba AOS-CX'
 version: 1
-confidence: unverified
+confidence: verified
 priority: 120
 match:
   templates: ['aruba_cx']
@@ -19,4 +19,4 @@ secrets:
   - '\bciphertext (\S+)'
   - '\bplaintext (\S+)'
   - '^\s*snmp-server community (\S+)'
-notes: ''
+notes: 'Verified on an Aruba CX in production (1.2.1).'

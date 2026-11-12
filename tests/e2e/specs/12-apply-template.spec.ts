@@ -87,7 +87,12 @@ test('apply "Generic SNMP device" from the device page -> created/skipped summar
 });
 
 test('re-apply is idempotent (API): 0 created, existing entries skipped with "exists"', async () => {
-  const r = await api.post(`/api/devices/${switchId}/apply-template`, { template_id: 'generic_snmp' });
+  // [1.3] the default interface selection is "important"; by now the sim is known as a switch (class detection
+  // after the first apply) and Gi1/0/1-2 are no important ports -> they are not part of a default re-apply.
+  // interfaces "all" is the 1.2 selection (api.md § [1.3] Template apply).
+  const imp = await api.post(`/api/devices/${switchId}/apply-template`, { template_id: 'generic_snmp' });
+  expect(imp).toMatchObject({ device_id: switchId, template_id: 'generic_snmp', created: [], removed: [] });
+  const r = await api.post(`/api/devices/${switchId}/apply-template`, { template_id: 'generic_snmp', interfaces: 'all' });
   expect(r).toMatchObject({ device_id: switchId, template_id: 'generic_snmp', created: [] });
   const reasons = Object.fromEntries(r.skipped.map((s: any) => [s.name, s.reason]));
   expect(reasons).toMatchObject({
@@ -106,6 +111,9 @@ test('re-apply from the UI shows "already exists" and creates nothing', async ({
   await page.getByRole('button', { name: 'Apply template' }).click();
   const dlg = page.getByRole('dialog');
   await dlg.getByLabel(/Template/).selectOption('generic_snmp');
+  // [1.3] "All" = the 1.2 interface selection (the default "important" depends on whether class detection has
+  // already classified the sim as a switch, so its result is timing dependent here)
+  await dlg.getByTestId('apply-ports').getByRole('radio', { name: 'All', exact: true }).check();
   await dlg.getByRole('button', { name: /^Apply/ }).click();
   await expect(page.getByRole('dialog')).toContainText(/Already (monitored|exists) \(4\)/, { timeout: 120_000 });
   await expect(page.getByRole('dialog')).not.toContainText('probe_failed'); // translated reasons

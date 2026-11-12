@@ -100,6 +100,83 @@ export type ConnectedView =
   | { kind: 'mac'; text: string; more: number; mac: PortMac }
   | { kind: 'none' };
 
+/** [1.3] IP and Name/neighbour columns: the LLDP/CDP neighbour, else the first connected host. */
+export type ConnectedHostView =
+  | {
+      kind: 'neighbor';
+      name: string;
+      mgmt: string | null;
+      device_id: number | null;
+    }
+  | {
+      kind: 'host';
+      ip: string | null;
+      hostname: string | null;
+      vendor: string | null;
+      mac: string;
+      device_id: number | null;
+      device_name: string | null;
+      /** further hosts on the port (count - 1) */
+      more: number;
+    }
+  | { kind: 'uplink'; count: number }
+  | { kind: 'none' };
+
+export function connectedHostView(
+  p: Pick<
+    Port,
+    | 'neighbor'
+    | 'is_uplink'
+    | 'mac_count'
+    | 'first_mac'
+    | 'connected'
+    | 'neighbor_name'
+    | 'neighbor_mgmt_address'
+  >,
+): ConnectedHostView {
+  const nName = p.neighbor_name !== undefined ? p.neighbor_name : (p.neighbor?.name ?? null);
+  if (nName)
+    return {
+      kind: 'neighbor',
+      name: nName,
+      mgmt:
+        p.neighbor_mgmt_address !== undefined
+          ? p.neighbor_mgmt_address
+          : (p.neighbor?.mgmt_address ?? null),
+      device_id: p.neighbor?.kind === 'device' ? p.neighbor.device_id : null,
+    };
+  if (p.connected) {
+    const f = p.connected.first;
+    if (f)
+      return {
+        kind: 'host',
+        ip: f.ip,
+        hostname: f.hostname,
+        vendor: f.vendor,
+        mac: f.mac,
+        device_id: f.device_id,
+        device_name: f.device_name,
+        more: Math.max(0, p.connected.count - 1),
+      };
+    if (p.is_uplink && p.connected.count > 0) return { kind: 'uplink', count: p.connected.count };
+    return { kind: 'none' };
+  }
+  // Older servers: the port's first MAC.
+  if (p.is_uplink) return p.mac_count ? { kind: 'uplink', count: p.mac_count } : { kind: 'none' };
+  if (p.first_mac)
+    return {
+      kind: 'host',
+      ip: p.first_mac.ip,
+      hostname: p.first_mac.hostname,
+      vendor: p.first_mac.vendor,
+      mac: p.first_mac.mac,
+      device_id: p.first_mac.device_id,
+      device_name: p.first_mac.device_name,
+      more: Math.max(0, p.mac_count - 1),
+    };
+  return { kind: 'none' };
+}
+
 /** Connected column: primary neighbour, else `n MACs` for uplinks, else the first MAC (+k). */
 export function connectedView(
   p: Pick<Port, 'neighbor' | 'is_uplink' | 'mac_count' | 'first_mac'>,
@@ -223,6 +300,8 @@ export function filterPorts(
 export type PortColumn =
   | 'status'
   | 'connected'
+  | 'connIp' // [1.3]
+  | 'connName' // [1.3]
   | 'vlan'
   | 'mode'
   | 'speed'
@@ -242,6 +321,8 @@ export type PortColumn =
 export const PORT_COLUMNS: PortColumn[] = [
   'status',
   'connected',
+  'connIp',
+  'connName',
   'vlan',
   'mode',
   'speed',
@@ -260,7 +341,8 @@ export const PORT_COLUMNS: PortColumn[] = [
 ];
 export const DEFAULT_COLUMNS: PortColumn[] = [
   'status',
-  'connected',
+  'connIp',
+  'connName',
   'vlan',
   'mode',
   'speed',
@@ -268,6 +350,17 @@ export const DEFAULT_COLUMNS: PortColumn[] = [
   'rxtx',
 ];
 export const COLUMNS_KEY = 'netmon.ports.columns';
+/** [1.3] the columns that existed when the choice was saved (new default columns are added once) */
+export const COLUMNS_KNOWN_KEY = 'netmon.ports.columns.known';
+/** Columns of releases before 1.3 (stored choices without COLUMNS_KNOWN_KEY). */
+const LEGACY_COLUMNS: PortColumn[] = PORT_COLUMNS.filter((c) => c !== 'connIp' && c !== 'connName');
+
+/** [1.3] Hidden on narrow screens (the IP is shown in the Name cell there). */
+export const COLUMN_HIDE_CLASS: Partial<Record<PortColumn, string>> = {
+  connIp: 'hidden sm:table-cell',
+  poe: 'hidden md:table-cell',
+  rxtx: 'hidden md:table-cell',
+};
 
 /** Keeps known columns only, in display order. */
 export function normalizeColumns(v: unknown): PortColumn[] | null {
@@ -282,7 +375,12 @@ export function loadColumns(
   try {
     const raw = storage?.getItem(COLUMNS_KEY);
     if (!raw) return DEFAULT_COLUMNS;
-    return normalizeColumns(JSON.parse(raw)) ?? DEFAULT_COLUMNS;
+    const cols = normalizeColumns(JSON.parse(raw));
+    if (!cols) return DEFAULT_COLUMNS;
+    const knownRaw = storage?.getItem(COLUMNS_KNOWN_KEY);
+    const known = (knownRaw ? normalizeColumns(JSON.parse(knownRaw)) : null) ?? LEGACY_COLUMNS;
+    const added = DEFAULT_COLUMNS.filter((c) => !known.includes(c));
+    return added.length ? (normalizeColumns([...cols, ...added]) ?? cols) : cols;
   } catch {
     return DEFAULT_COLUMNS;
   }
@@ -294,6 +392,7 @@ export function saveColumns(
 ): void {
   try {
     storage?.setItem(COLUMNS_KEY, JSON.stringify(normalizeColumns(cols) ?? DEFAULT_COLUMNS));
+    storage?.setItem(COLUMNS_KNOWN_KEY, JSON.stringify(PORT_COLUMNS));
   } catch {
     /* storage blocked or full: the choice lasts for this page only */
   }

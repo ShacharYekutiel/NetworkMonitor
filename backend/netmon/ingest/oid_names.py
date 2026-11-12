@@ -55,6 +55,22 @@ NAMES: dict[str, str] = {
     "1.3.6.1.4.1.25506.2.38.1.5.4.1": "hh3cNdTabFullTrap",
     "1.3.6.1.4.1.25506.2.38.1.6.3.0.1": "hh3cPeriodicalTrap",
     "1.3.6.1.4.1.25506.2.38.1.9.0.1": "hh3cTrapSnmpSystemReset",
+    # HH3C-UI-MAN-MIB (terminal logins)
+    "1.3.6.1.4.1.25506.2.2.1.1.3.0.1": "hh3cLogIn",
+    "1.3.6.1.4.1.25506.2.2.1.1.3.0.2": "hh3cLogOut",
+    "1.3.6.1.4.1.25506.2.2.1.1.3.0.3": "hh3cLogInAuthenFailure",
+    "1.3.6.1.4.1.25506.2.2.1.1.3.0.4": "hh3cVtyUsageExceed",
+    "1.3.6.1.4.1.25506.2.2.1.1.3.0.5": "hh3cVtyUsageResume",
+    # HH3C-SSH-MIB
+    "1.3.6.1.4.1.25506.2.22.1.3.0.1": "hh3cSSHUserAuthFailure",
+    "1.3.6.1.4.1.25506.2.22.1.3.0.2": "hh3cSSHVersionNegotiationFailure",
+    "1.3.6.1.4.1.25506.2.22.1.3.0.3": "hh3cSSHUserLogin",
+    "1.3.6.1.4.1.25506.2.22.1.3.0.4": "hh3cSSHUserLogoff",
+    "1.3.6.1.4.1.25506.2.22.1.3.0.5": "hh3cSSHLoginFailed",
+    "1.3.6.1.4.1.25506.2.22.1.3.0.6": "hh3cSSHLoginFailedClear",
+    # HH3C-CONFIG-MAN-MIB / HH3C-INFOCENTER-MIB
+    "1.3.6.1.4.1.25506.2.4.2.1": "hh3cCfgManEventlog",
+    "1.3.6.1.4.1.25506.2.119.5.3.0.2": "hh3cICLogFileAging",
     # NET-SNMP notifications
     "1.3.6.1.4.1.8072.4.0.1": "nsNotifyStart",
     "1.3.6.1.4.1.8072.4.0.2": "nsNotifyShutdown",

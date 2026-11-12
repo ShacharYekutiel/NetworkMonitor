@@ -14,7 +14,7 @@ from fastapi import APIRouter, Depends, Query
 from fastapi.responses import Response
 from sqlalchemy import select, text
 
-from netmon.api.deps import DB, RT, Admin, Audit, Viewer
+from netmon.api.deps import DB, RT, Admin, Audit, Viewer, require_admin
 from netmon.api.errors import ApiError, not_found, validation_error
 from netmon.ingest import query, rules
 from netmon.ingest.builtin import BUILTIN_RULES, builtin_values
@@ -343,7 +343,9 @@ async def detach_device(rt: Any, device_id: int) -> None:
 
 
 @router.post(
-    "/api/ingest/forwarders/test", dependencies=[Depends(feature_disabled("siem_forwarding"))]
+    "/api/ingest/forwarders/test",
+    # role before feature state: a viewer gets 403, never 409 feature_disabled
+    dependencies=[Depends(require_admin), Depends(feature_disabled("siem_forwarding"))],
 )
 async def forwarder_test(body: ForwardTestIn, _: Admin, rt: RT, session: DB) -> dict:
     from netmon.ingest.forward import Target, send_test
