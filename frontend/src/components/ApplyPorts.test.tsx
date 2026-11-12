@@ -102,6 +102,28 @@ function routes(inventory: 'ok' | 'missing' = 'ok') {
 const post = (calls: Call[]) =>
   calls.find((c) => c.method === 'POST' && c.url === '/api/devices/7/apply-template');
 
+/**
+ * Click the modal's Apply button deterministically.
+ *
+ * `ApplyTemplateModal` seeds its template `id` from an effect once the templates
+ * query resolves, and `useMutation` only re-applies the mutation's `mutationFn`
+ * (which closes over that `id`) in a *passive effect*. So there is a commit→effect
+ * window in which the Apply button is already enabled and the select already shows
+ * the template, yet `apply.mutate()` would still run the previous render's
+ * `mutationFn` — closing over `id===''` — and POST `{ template_id: '' }`.
+ *
+ * Waiting here forces an extra act() cycle that flushes that pending passive effect
+ * (and asserts the committed signal that `id` is the expected template), then we
+ * re-query the button so the click always hits the current handle. No timeouts.
+ */
+async function clickApply(templateId: string) {
+  await waitFor(() => {
+    expect(screen.getByRole('button', { name: 'Apply' })).toBeEnabled();
+    expect((screen.getByRole('combobox') as HTMLSelectElement).value).toBe(templateId);
+  });
+  fireEvent.click(screen.getByRole('button', { name: 'Apply' }));
+}
+
 describe('[1.3] B. apply template: ports', () => {
   it('[1.3.1] labels the irf reason in both languages', () => {
     expect(i18n.getFixedT('en')('applyPorts.reason.irf')).toBe('IRF port');
@@ -136,7 +158,7 @@ describe('[1.3] B. apply template: ports', () => {
     );
     // the list is loaded only on demand
     expect(calls.some((c) => c.url.includes('/apply-template/interfaces'))).toBe(false);
-    fireEvent.click(screen.getByRole('button', { name: 'Apply' }));
+    await clickApply('comware');
     await waitFor(() => expect(post(calls)).toBeTruthy());
     expect(post(calls)!.body).toEqual({
       template_id: 'comware',
@@ -186,7 +208,7 @@ describe('[1.3] B. apply template: ports', () => {
     );
     // add GE1/0/3
     fireEvent.click(within(screen.getAllByTestId('apply-port-row')[2]).getByRole('checkbox'));
-    fireEvent.click(screen.getByRole('button', { name: 'Apply' }));
+    await clickApply('comware');
     await waitFor(() => expect(post(calls)).toBeTruthy());
     expect(post(calls)!.body).toEqual({
       template_id: 'comware',
@@ -209,7 +231,7 @@ describe('[1.3] B. apply template: ports', () => {
     );
     await screen.findByText('plain template');
     expect(screen.queryByTestId('apply-ports')).toBeNull();
-    fireEvent.click(screen.getByRole('button', { name: 'Apply' }));
+    await clickApply('plain');
     await waitFor(() => expect(post(calls)).toBeTruthy());
     expect(post(calls)!.body).toEqual({ template_id: 'plain' });
   });
