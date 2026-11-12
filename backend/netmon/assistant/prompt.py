@@ -16,7 +16,7 @@ from typing import Any
 
 from netmon.assistant.lang import answer_instruction, detect_language  # noqa: F401 (re-export)
 
-PROMPT_VERSION = "3b.1"
+PROMPT_VERSION = "3b.2"
 
 ROLE = (
     "You are the NetworkMonitor assistant for the administrators of one organisation's network. "
@@ -127,10 +127,14 @@ def time_line(now: datetime, tz: str) -> str:
 
 def system_prompt(purpose: str, ctx: PromptCtx) -> str:
     """The system prompt text of `purpose` (stable for a given context → prompt caching)."""
-    lines = [f"[purpose: {purpose}] [prompt {PROMPT_VERSION}]", ROLE, FACTS, CITATIONS, UNTRUSTED]
+    lines = [f"[purpose: {purpose}] [prompt {PROMPT_VERSION}]", ROLE, FACTS, UNTRUSTED]
     lines.append(NO_ACTIONS)
     full = purpose in FULL_PURPOSES
     if full:
+        # citations (links) belong to the chat answers only; feature purposes (report summary,
+        # title, digest, drafts) say "no links" in their own block, and the light model would
+        # otherwise echo the literal word "label" from the citation template.
+        lines.append(CITATIONS)
         lines.append(SCOPE)
         lines.append(data_sources_line(ctx.sources_on, ctx.kb_description))
         lines.append(time_line(ctx.now, ctx.timezone))
