@@ -1332,6 +1332,16 @@ maintenance suppression and after-maintenance sends, rollups, tree, dashboard, w
   `clear_after_min` since the last match). Evaluation per message (pure `rules.evaluate`, data-model § Rule
   evaluation): 1) every rule whose `clear_match` matches clears its condition for that key; 2) the first rule
   (in order) whose `match` matches raises/refreshes its condition (or stops on `ignore`).
+- **[1.3.3] Regex safety (ReDoS fix):** all rule regexes — varbind `regex`, syslog `text` (`text_regex`), the
+  syslog `key_regex` — compile and match with **RE2** (`netmon.util.saferegex`, a linear-time engine with no
+  catastrophic backtracking), not Python `re`. This matters most on the **unauthenticated** UDP trap/syslog
+  ingest path, where a crafted pattern or message could otherwise freeze the whole event loop. Patterns are
+  validated with RE2 at **save time** (`check_regex` → `422`): a feature RE2 cannot run in linear time
+  (backreferences, lookaround) is rejected, so an admin cannot store a dangerous or unsupported pattern. A
+  stored pattern RE2 cannot compile is treated as no-match (as an `re.error` was); `event_sensors.reload` logs a
+  startup WARNING listing the ids of any such pre-1.3.3 rules so they can be rewritten. `POST
+  /api/event-rules/test` additionally runs the scan in a worker thread (`asyncio.to_thread`) as defence in
+  depth. See § 12.15.
 - **Status:** worst active condition (`down` > `warning`), none → `up`. `status_message` =
   `"<rule name>: <summary>"` of the worst, most recent condition, plus `" (+N more)"`. Status changes are
   applied exactly like a check result (sensor row locked, `status_change` event with `in_maintenance`,
@@ -1782,7 +1792,7 @@ ingestion continues).
 | Malformed packets | Decoders never raise past the receiver (`parse_error`); pyasn1 decode errors caught per datagram. |
 | NUL / invalid UTF-8 / control chars | Replaced (U+FFFD); React escapes on render; messages never rendered as HTML. |
 | SQL injection via search | Parameters only; ILIKE patterns escape `\ % _`. |
-| ReDoS in admin regexes | Admin-only input, ≤ 200 chars, compiled at save (422 on error), applied to ≤ 8 KiB text. |
+| ReDoS in event-rule regexes | **[1.3.3]** all rule regexes run on **RE2** (`netmon.util.saferegex`), a linear-time engine with no catastrophic backtracking — critical because rule matching runs on the **unauthenticated** UDP trap/syslog ingest path (`pipeline` → `rules.evaluate`). Patterns are ≤ 200 chars, validated with RE2 at save (`422`, rejecting backreferences/lookaround), and applied to ≤ 8 KiB text. Pre-1.3.3 patterns RE2 cannot compile are logged at startup and treated as no-match. `POST /api/event-rules/test` also runs off the event loop (`asyncio.to_thread`). |
 | LDAP injection | RFC 4515 escaping of every value and DN in filters; fixed attribute lists; no user value as base DN. |
 | Anonymous bind via empty password | Rejected before contacting AD. |
 | AD lockout through brute force | Per-username directory guard (5/15 min) + existing IP throttle. |
@@ -2019,12 +2029,16 @@ data-model). No driver → state `no_driver` (shown, not an error).
 - **Search:** `pg_trgm` GIN index on `content` of **latest versions only** (partial index `WHERE is_latest`,
   created by the 2b-3 trigram bootstrap); `GET /api/config-backups/search?q=` returns devices with matching lines
   (≤ 20 lines per device with line numbers, ≤ 200 devices; `regex=true` uses PostgreSQL `~*` with a 200-char
-  pattern compiled first in Python to reject invalid ones). Matching is **per line**: the stored config is one
-  text value, so the pattern is sent as `(?n)<pattern>` (newline-sensitive ARE: `^`/`$` match at line breaks,
-  `.` and `[^…]` do not cross them; a leading `(?flags)` of the pattern is merged into it, e.g. `(?ni)`); the
-  trigram index is still used. Lines are then matched in Python one by one; a device whose text matched only
-  across lines (explicit `\n`) has no matching line and is not listed. `all_versions=true` scans every version in a `since`
-  range (sequential; ≤ 31 days).
+  pattern). **[1.3.3]** the pattern is validated first with **RE2** (`netmon.util.saferegex.check_safe`,
+  linear-time engine): too long, a syntax error, or a feature RE2 cannot run in linear time (backreferences,
+  lookaround) → `422`, so no attacker-controlled pattern reaches Python's backtracking `re`. The `~*` scan runs
+  under a per-query `SET LOCAL statement_timeout` (3000 ms, § 13.12) so a pathological pattern cannot hang
+  PostgreSQL either. Matching is **per line**: the stored config is one text value, so the pattern is sent as
+  `(?n)<pattern>` (newline-sensitive ARE: `^`/`$` match at line breaks, `.` and `[^…]` do not cross them; a
+  leading `(?flags)` of the pattern is merged into it, e.g. `(?ni)`); the trigram index is still used. Lines are
+  then matched in Python one by one **with RE2** (`(?m)` + ignorecase, mirroring the old `re.MULTILINE |
+  re.IGNORECASE`); a device whose text matched only across lines (explicit `\n`) has no matching line and is not
+  listed. `all_versions=true` scans every version in a `since` range (sequential; ≤ 31 days).
 - **Export:** one version as a `text/plain` attachment (`<device>_<yyyymmdd-hhmm>.cfg`); "Download all latest"
   as a streamed ZIP (built in a thread, ≤ 2000 devices). Masked secrets stay masked; unmasked storage exists only
   when the admin turned masking off (UI warning "Secrets will be stored in the database and in exports").
@@ -2682,6 +2696,7 @@ fallback with rows present.
 | SSH MITM / impostor device | TOFU pinning, key checked before auth; change → down + manual accept. |
 | SSH credentials at rest | AES-256-GCM (`services.crypto`, AAD per field), write-only in the API, redacted in audit/logs; `secret.key` lost → "re-enter credentials" flag + `system` event, backups fail `no_credentials`. |
 | Secrets inside stored configs | Masked by default (driver regexes); content admin-only; reads/exports audited. |
+| ReDoS in config-backup search | **[1.3.3]** the `regex=true` pattern is validated with **RE2** first (`saferegex.check_safe`; `422` on a backreference/lookaround or syntax error) and the Python per-line refinement runs on RE2 (linear), so no backtracking `re` runs on an admin-supplied pattern; the PostgreSQL `~*` scan runs under `SET LOCAL statement_timeout = 3000` so a pathological pattern cannot hang the database either. |
 | Hanging / slow devices | Per-prompt and total timeouts, output cap, global semaphore; never blocks the loop. |
 | Flow floods / spoofed exporters | Per-exporter and global budgets, bounded queues, unknown exporters need acceptance, `DOCKER-USER` filtering; spoofed data only skews statistics (no alerts are driven by flows in phase 3). |
 | Malicious flow datagrams | Pure decoders with explicit length checks; any exception per datagram → `parse_error`; template cache bounded. |

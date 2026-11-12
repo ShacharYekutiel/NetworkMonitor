@@ -2664,8 +2664,12 @@ is allowed (precedence decides) but the API returns a warning list in the device
 
 Table CHECK: scope/group/device consistency as `maintenance_windows`. API validation (422): action `ignore`
 has no key/clear; warning/down rules need `clear_match` or `clear_after_min` (a condition must be able to end;
-manual clear exists but is not enough); regexes compile (Python `re`, `IGNORECASE`), ≤ 200 chars; OIDs
-numeric dotted.
+manual clear exists but is not enough); regexes compile, ≤ 200 chars; OIDs numeric dotted.
+**[1.3.3]** every rule regex (varbind `regex`, syslog `text`, `key_regex`) is validated and matched with
+**RE2** (`netmon.util.saferegex`), a linear-time engine, not Python `re` — this closes the ReDoS exposure on
+the unauthenticated UDP trap/syslog ingest path. Validation (422) rejects features RE2 cannot run in linear
+time (**backreferences, lookaround**); matching stays case-insensitive. A stored pre-1.3.3 pattern RE2 cannot
+compile is treated as no-match and logged at startup (listing the rule ids). See architecture § 12.15.
 
 ```json
 // TrapMatch

@@ -637,46 +637,59 @@ async def test_rule(body: EventRuleTestIn, _: Admin, rt: RT, session: DB) -> dic
         .all()
     )
     await session.close()
-    scanned = matched = cleared = 0
-    items: list[dict[str, Any]] = []
-    for r in rows:
-        did = int(r["device_id"])
-        dev = inv.devices.get(did)
-        chain = inv.ancestors(dev["group_id"]) if dev else []
-        if not rules.in_scope(rule, did, chain):
-            continue
-        scanned += 1
-        rec = query.trap_out(r) if v["kind"] == "trap" else query.syslog_out(r)
-        info = await rt.ingest.port_info(did) if v["kind"] == "trap" else None
-        ctx = rules.Context(important=rt.ingest._important_fn(info))  # noqa: SLF001
-        out = rules.evaluate(rec, [rule], ctx)
-        result = key = None
-        if rule.action == rules.BACKUP_ACTION:  # [3] a hit queues a config backup
-            if rules.backup_triggers(rec, [rule]):
+    # [1.3.3] Matching is linear (RE2) now, but run the whole scan off the event loop as
+    # defence in depth so even a large sample can never block it. The only async input is
+    # the per-device important-port set, so pre-fetch it (cached) before handing the pure
+    # CPU work to a worker thread.
+    is_trap = v["kind"] == "trap"
+    info_by_dev: dict[int, Any] = {}
+    if is_trap:
+        for did in {int(r["device_id"]) for r in rows}:
+            info_by_dev[did] = await rt.ingest.port_info(did)
+
+    def scan() -> dict[str, Any]:
+        scanned = matched = cleared = 0
+        items: list[dict[str, Any]] = []
+        for r in rows:
+            did = int(r["device_id"])
+            dev = inv.devices.get(did)
+            chain = inv.ancestors(dev["group_id"]) if dev else []
+            if not rules.in_scope(rule, did, chain):
+                continue
+            scanned += 1
+            rec = query.trap_out(r) if is_trap else query.syslog_out(r)
+            info = info_by_dev.get(did) if is_trap else None
+            ctx = rules.Context(important=rt.ingest._important_fn(info))  # noqa: SLF001
+            out = rules.evaluate(rec, [rule], ctx)
+            result = key = None
+            if rule.action == rules.BACKUP_ACTION:  # [3] a hit queues a config backup
+                if rules.backup_triggers(rec, [rule]):
+                    matched += 1
+                    result, key = "raise", ""
+            elif out.raised is not None or out.suppressed is not None:
                 matched += 1
-                result, key = "raise", ""
-        elif out.raised is not None or out.suppressed is not None:
-            matched += 1
-            result, key = "raise", (out.raised or out.suppressed)[1]  # type: ignore[index]
-        elif out.ignored is not None:
-            matched += 1
-            result, key = "ignore", ""
-        elif out.clears:
-            cleared += 1
-            result, key = "clear", out.clears[0][1]
-        if result is not None and len(items) < 50:
-            items.append(
-                {
-                    "kind": v["kind"],
-                    "id": rec["id"],
-                    "time": rec["time"],
-                    "device_name": r["device_name"],
-                    "text": rec["summary"] if v["kind"] == "trap" else rec["message"],
-                    "result": result,
-                    "key": key,
-                }
-            )
-    return {"scanned": scanned, "matched": matched, "cleared": cleared, "items": items}
+                result, key = "raise", (out.raised or out.suppressed)[1]  # type: ignore[index]
+            elif out.ignored is not None:
+                matched += 1
+                result, key = "ignore", ""
+            elif out.clears:
+                cleared += 1
+                result, key = "clear", out.clears[0][1]
+            if result is not None and len(items) < 50:
+                items.append(
+                    {
+                        "kind": v["kind"],
+                        "id": rec["id"],
+                        "time": rec["time"],
+                        "device_name": r["device_name"],
+                        "text": rec["summary"] if is_trap else rec["message"],
+                        "result": result,
+                        "key": key,
+                    }
+                )
+        return {"scanned": scanned, "matched": matched, "cleared": cleared, "items": items}
+
+    return await asyncio.to_thread(scan)
 
 
 # ================================================================ event sensors
