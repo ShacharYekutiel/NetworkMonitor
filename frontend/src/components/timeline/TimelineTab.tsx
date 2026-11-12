@@ -14,9 +14,11 @@ import { Button, Card, cx, Empty, ErrorBox, Loading } from '../ui';
 import { SeverityBadge, TimeRangeSelect } from '../logs/common';
 import { SyslogDetail } from '../logs/SyslogView';
 import { TrapDetail } from '../logs/TrapsView';
+import { useLocalizeMessage } from '../../hooks/localize';
 
 function ItemText({ it }: { it: TimelineItem }) {
   const { t } = useTranslation();
+  const localize = useLocalizeMessage();
   switch (it.kind) {
     case 'status':
     case 'port':
@@ -27,7 +29,7 @@ function ItemText({ it }: { it: TimelineItem }) {
           {it.old_status && <span className="text-slate-400 rtl:rotate-180">→</span>}
           {it.status && <StatusBadge status={it.status} />}
           <bdi dir="auto" className="text-slate-600 dark:text-slate-300">
-            {it.message}
+            {localize(it.message)}
           </bdi>
         </span>
       );
@@ -63,7 +65,7 @@ function ItemText({ it }: { it: TimelineItem }) {
       return (
         <span>
           {it.sensor_name && <span className="me-1 font-medium">{it.sensor_name}:</span>}
-          <bdi dir="auto">{it.message}</bdi>
+          <bdi dir="auto">{localize(it.message)}</bdi>
           {it.actor && (
             <span className="ms-2 text-xs text-slate-500">
               {t('timeline.by', { actor: it.actor })}
