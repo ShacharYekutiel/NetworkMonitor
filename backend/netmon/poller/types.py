@@ -26,6 +26,7 @@ class CheckContext:
     state: dict[str, Any] = field(default_factory=dict)
     timeout_s: float = 60.0
     now: float | None = None  # epoch override for tests
+    lang: str = "en"  # [1.3.1] language of named value-map texts (server default_language)
 
 
 @dataclass

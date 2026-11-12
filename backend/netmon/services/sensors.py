@@ -110,6 +110,7 @@ async def build_context(session: AsyncSession, sensor: Sensor, device: Device) -
         await effective_credentials(session, device) if get_type(sensor.type).requires_snmp else {}
     )
     timeout = float(min(sensor.interval_s, 120))
+    lang = await check_language(session, sensor.config)
     return CheckContext(
         sensor_id=sensor.id,
         type=sensor.type,
@@ -118,7 +119,18 @@ async def build_context(session: AsyncSession, sensor: Sensor, device: Device) -
         snmp=creds,
         state=dict(sensor.state or {}),
         timeout_s=timeout,
+        lang=lang,
     )
+
+
+async def check_language(session: AsyncSession, config: dict[str, Any] | None) -> str:
+    """[1.3.1] The language of a check's message texts: the server `default_language` for a
+    sensor with a named value map (read only then), else "en"."""
+    if not (config or {}).get("value_map_ref"):
+        return "en"
+    from netmon.services import settings as settings_svc
+
+    return str(await settings_svc.get(session, "default_language") or "en")
 
 
 def effective_paused(sensor: Sensor, device: Device) -> bool:

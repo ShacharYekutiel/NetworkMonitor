@@ -1,4 +1,5 @@
 import type { ConfigField } from '../api/types';
+import { namedValueMap, pickLang } from './valueMaps';
 
 /** Raw form values: strings for text inputs, booleans for checkboxes. */
 export type RawConfig = Record<string, string | boolean>;
@@ -64,17 +65,56 @@ export function rowsToValueMap(rows: ValueMapRow[]): { map: ValueMap; error: str
   return { map, error: null };
 }
 
-/** The mapped status/text of a raw enum value (unmapped → value_map_default, "unexpected value"). */
+/**
+ * The mapped status/text of a raw enum value (unmapped → value_map_default, "unexpected value").
+ * [1.3.1] With `value_map_ref` the named table (texts in `lang`) is used for values the sensor's
+ * own map does not list; `mib` = the table's technical name, `unknown` = the table's text for an
+ * unknown code (it already contains the value).
+ */
 export function mapEnumValue(
   config: Record<string, unknown>,
   raw: number | null | undefined,
-): { status: ValueMapStatus; text: string | null } | null {
+  lang = 'en',
+): { status: ValueMapStatus; text: string | null; mib?: string; unknown?: boolean } | null {
   if (raw === null || raw === undefined || config.value_type !== 'enum') return null;
+  const key = String(Math.round(raw));
   const map = (config.value_map ?? {}) as ValueMap;
-  const hit = map[String(Math.round(raw))];
+  const hit = map[key];
   if (hit) return { status: hit.status, text: hit.text };
   const d = config.value_map_default;
-  return { status: d === 'up' || d === 'down' ? d : 'warning', text: null };
+  const dflt: ValueMapStatus = d === 'up' || d === 'down' ? d : 'warning';
+  const named = namedValueMap(config.value_map_ref);
+  if (named) {
+    const c = named.codes.find((x) => x.value === key);
+    if (c) return { status: c.status, text: pickLang(c.text, lang), mib: c.mib };
+    return {
+      status: dflt,
+      text: pickLang(named.unknown, lang).replace('{code}', key),
+      unknown: true,
+    };
+  }
+  return { status: dflt, text: null };
+}
+
+/** [1.3.1] The rows a sensor's enum map shows: the named table's codes (localized, with the
+ * MIB name) overridden by the sensor's own `value_map` entries (`own`). */
+export function effectiveValueMapRows(
+  config: Record<string, unknown>,
+  lang = 'en',
+): (ValueMapRow & { mib?: string; own?: boolean })[] {
+  const own = valueMapToRows(config.value_map).map((r) => ({ ...r, own: true }));
+  const named = namedValueMap(config.value_map_ref);
+  if (!named) return own;
+  const ownKeys = new Set(own.map((r) => r.value));
+  const rows = named.codes
+    .filter((c) => !ownKeys.has(c.value))
+    .map((c) => ({
+      value: c.value,
+      status: c.status as ValueMapStatus,
+      text: pickLang(c.text, lang),
+      mib: c.mib,
+    }));
+  return [...rows, ...own].sort((a, b) => Number(a.value) - Number(b.value));
 }
 
 function toRaw(f: ConfigField, v: unknown): string | boolean {
@@ -219,6 +259,7 @@ export function visibleConfigFields(
       if (f.key === 'expected' || f.key === 'match') return vt === 'string';
       // [2b-1] enum: value map + default status; the raw integer is used (no multiplier/unit).
       if (f.key === 'value_map' || f.key === 'value_map_default') return vt === 'enum';
+      if (f.key === 'value_map_ref') return vt === 'enum'; // [1.3.1]
       if (f.key === 'multiplier' || f.key === 'unit') return vt !== 'enum';
       return true;
     });
@@ -248,11 +289,14 @@ export function buildSensorConfig(
     else if (res.config.percent_base === 'sum' && !res.config.percent_of_oid)
       res.errors.percent_base = 'validation.percentBaseSum';
     // [2b-1] value_map is required non-empty for enum (422 otherwise).
+    // [1.3.1] a named table (value_map_ref) may stand alone.
     if (vt === 'enum') {
       const m = res.config.value_map as ValueMap | undefined;
-      if (!res.errors.value_map && (!m || !Object.keys(m).length))
+      if (!res.errors.value_map && (!m || !Object.keys(m).length) && !res.config.value_map_ref)
         res.errors.value_map = 'valueMap.err.empty';
     }
+    if (vt !== 'enum' && fields.some((f) => f.key === 'value_map_ref'))
+      res.config.value_map_ref = '';
     if (typeof res.config.oid === 'string') res.config.oid = res.config.oid.trim();
   }
   if (type === 'snmp_walk_count' && typeof res.config.oid === 'string')

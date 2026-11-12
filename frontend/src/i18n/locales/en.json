@@ -632,6 +632,7 @@
       "match": "Match",
       "value_map": "Value map",
       "value_map_default": "Status of other values",
+      "value_map_ref": "Shared code table",
       "percent_base": "Percent base"
     },
     "snmp_disk": {
@@ -699,6 +700,10 @@
       "match": {
         "equals": "Equals",
         "contains": "Contains"
+      },
+      "value_map_ref": {
+        "none": "None (own value map only)",
+        "hh3c_error_status": "HPE Comware hardware fault codes"
       },
       "percent_base": {
         "total": "Divisor is the total",
@@ -1151,6 +1156,8 @@
     "other": "other",
     "unexpected": "unexpected value",
     "current": "Current value",
+    "mib": "MIB name",
+    "own": "own entry",
     "err": {
       "integer": "Values must be integers.",
       "duplicate": "Each value may appear only once.",
@@ -3039,14 +3046,15 @@
     },
     "hint": {
       "none": "No interface sensors are created.",
-      "important": "Uplinks, LAGs and trunks only (recommended).",
+      "important": "Uplinks, LAGs, trunks and IRF ports only (recommended).",
       "all": "An interface sensor for every port the template matches.",
       "choose": "Pick the ports yourself."
     },
     "reason": {
       "uplink": "Uplink",
       "lag": "LAG",
-      "trunk": "Trunk"
+      "trunk": "Trunk",
+      "irf": "IRF port"
     },
     "hasSensor": "monitored",
     "hasSensorTitle": "This port already has an interface sensor",
@@ -3055,7 +3063,7 @@
     "selectImportant": "Select important",
     "selectedOf": "{{n}} of {{total}} selected",
     "noPorts": "No ports found on this device.",
-    "inventoryMissing": "The port inventory of this device has not been collected, so important ports (uplinks, LAGs, trunks) could not be determined.",
+    "inventoryMissing": "The port inventory of this device has not been collected, so important ports (uplinks, LAGs, trunks, IRF ports) could not be determined.",
     "removeUnselected": "Remove interface sensors of ports not selected",
     "removeCount_one": "{{count}} existing interface sensor will be deleted, with its history.",
     "removeCount_other": "{{count}} existing interface sensors will be deleted, with their history.",

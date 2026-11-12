@@ -106,6 +106,9 @@ export type ConnectedHostView =
       kind: 'neighbor';
       name: string;
       mgmt: string | null;
+      /** [1.3.1] IP column: the management address, else the first connected host's IP
+       * (Windows LLDP has no management address, ARP knows the IP) */
+      ip: string | null;
       device_id: number | null;
     }
   | {
@@ -135,16 +138,20 @@ export function connectedHostView(
   >,
 ): ConnectedHostView {
   const nName = p.neighbor_name !== undefined ? p.neighbor_name : (p.neighbor?.name ?? null);
-  if (nName)
+  if (nName) {
+    const mgmt =
+      p.neighbor_mgmt_address !== undefined
+        ? p.neighbor_mgmt_address
+        : (p.neighbor?.mgmt_address ?? null);
+    const hostIp = p.connected ? (p.connected.first?.ip ?? null) : (p.first_mac?.ip ?? null);
     return {
       kind: 'neighbor',
       name: nName,
-      mgmt:
-        p.neighbor_mgmt_address !== undefined
-          ? p.neighbor_mgmt_address
-          : (p.neighbor?.mgmt_address ?? null),
+      mgmt,
+      ip: mgmt || hostIp || null,
       device_id: p.neighbor?.kind === 'device' ? p.neighbor.device_id : null,
     };
+  }
   if (p.connected) {
     const f = p.connected.first;
     if (f)

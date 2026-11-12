@@ -74,11 +74,63 @@ const ports = [
 ];
 
 describe('[1.3] C. ports: IP and Name/neighbor columns, CSV', () => {
+  it('[1.3.1] neighbour IP: management address, else the connected host (ARP)', () => {
+    const host = {
+      mac: 'b0:00:00:00:00:01',
+      ip: '10.12.16.150',
+      hostname: 'ws-gm15y8vr.example.net',
+      vendor: null,
+      device_id: null,
+      device_name: null,
+    };
+    const nb = { neighbor_name: 'WS-GM15Y8VR', connected: { count: 1, first: host } };
+    // with a management address: that one
+    expect(
+      connectedHostView(mkPort(7, 'a', { ...nb, neighbor_mgmt_address: '10.0.0.9' })),
+    ).toMatchObject({ kind: 'neighbor', name: 'WS-GM15Y8VR', mgmt: '10.0.0.9', ip: '10.0.0.9' });
+    // Windows LLDP without one: the connected host's IP, the neighbour name stays
+    expect(connectedHostView(mkPort(8, 'b', { ...nb, neighbor_mgmt_address: null }))).toMatchObject(
+      { kind: 'neighbor', name: 'WS-GM15Y8VR', mgmt: null, ip: '10.12.16.150' },
+    );
+    // neither: no IP
+    expect(
+      connectedHostView(
+        mkPort(9, 'c', {
+          neighbor_name: 'WS-X',
+          neighbor_mgmt_address: null,
+          connected: { count: 0, first: null },
+        }),
+      ),
+    ).toMatchObject({ kind: 'neighbor', mgmt: null, ip: null });
+    // an older server (no `connected`): first_mac's IP
+    expect(
+      connectedHostView(
+        mkPort(10, 'd', {
+          neighbor_name: 'WS-Y',
+          neighbor_mgmt_address: null,
+          connected: undefined,
+          mac_count: 1,
+          first_mac: {
+            mac: 'aa:aa:aa:aa:aa:ab',
+            vlan: 1,
+            vendor: null,
+            locally_administered: false,
+            ip: '10.9.9.8',
+            ips: ['10.9.9.8'],
+            hostname: null,
+            device_id: null,
+          } as never,
+        }),
+      ),
+    ).toMatchObject({ kind: 'neighbor', ip: '10.9.9.8' });
+  });
+
   it('connectedHostView: neighbour, host (+N), uplink, old-server fallback', () => {
     expect(connectedHostView(ports[2])).toEqual({
       kind: 'neighbor',
       name: 'dist-sw',
       mgmt: '10.0.0.2',
+      ip: '10.0.0.2',
       device_id: 42,
     });
     expect(connectedHostView(ports[0])).toMatchObject({ kind: 'host', ip: '10.1.1.20', more: 2 });

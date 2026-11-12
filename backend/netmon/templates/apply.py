@@ -341,6 +341,20 @@ async def _unique_labels(
     return out
 
 
+def _legacy_name(name: str, entry: dict[str, Any], s: str, labels: dict[str, Any]) -> bool:
+    """[1.3.1] `name` is one an earlier template version gave row `s` (`rename_from`, in either
+    language, also with the " · unit" / " #n" suffixes of the unique labels)."""
+    legacy = entry.get("rename_from")
+    if not legacy:
+        return False
+    label = ((as_text(labels.get(s)) if s in labels else "") or s)[:64]
+    for lang in ("en", "he"):
+        cand = _l10n(legacy["name"], lang).replace("{label}", label).replace("{index}", s)[:128]
+        if name == cand or name.startswith((cand + " · ", cand + " #")):
+            return True
+    return False
+
+
 async def _table_slots(rt: Runtime, entry: dict[str, Any], ctx: _Ctx) -> list[_Slot]:
     name_tpl = _l10n(entry["name"], ctx.lang)
     label = re.sub(r"\s+", " ", name_tpl.replace("{label}", "").replace("{index}", "")).strip()
@@ -357,6 +371,13 @@ async def _table_slots(rt: Runtime, entry: dict[str, Any], ctx: _Ctx) -> list[_S
         labels2 = (
             await _walk_column(rt, ctx, entry["label2_oid"]) if entry.get("label2_oid") else {}
         )
+        legacy_labels: dict[str, Any] = {}
+        legacy = entry.get("rename_from")
+        if legacy and legacy.get("label_oid") and ctx.existing_names:
+            try:  # [1.3.1] only to recognise old names: a failure renames nothing
+                legacy_labels = await _walk_column(rt, ctx, legacy["label_oid"])
+            except (SnmpError, TimeoutError):
+                legacy_labels = {}
         scales: dict[str, Any] = {}
         precisions: dict[str, Any] = {}
         if entry.get("entity_sensor_scale"):
@@ -388,6 +409,8 @@ async def _table_slots(rt: Runtime, entry: dict[str, Any], ctx: _Ctx) -> list[_S
     for s in suffixes[:max_n]:
         text = as_text(labels.get(s)) if s in labels else ""
         text2 = as_text(labels2.get(s)) if s in labels2 else ""
+        if text and entry.get("label_format"):  # [1.3.1] e.g. member "1" -> "Unit 1"
+            text = _l10n(entry["label_format"], ctx.lang).replace("{label}", text)
         row_label = text or s
         if text and text2:
             row_label = f"{text} ({text2})"
@@ -411,7 +434,10 @@ async def _table_slots(rt: Runtime, entry: dict[str, Any], ctx: _Ctx) -> list[_S
             # user renamed it since
             old = ctx.existing_names.get(key) if key is not None else None
             ambiguous = name_tpl.replace("{label}", plain).replace("{index}", s)[:128]
-            if old is not None and old[1] == ambiguous != name:
+            stale = old is not None and old[1] != name
+            if stale and old is not None:
+                stale = old[1] == ambiguous or _legacy_name(old[1], entry, s, legacy_labels)
+            if stale and old is not None:
                 ctx.renames.append((old[0], name, row_label))
                 slots.append(_Slot(skip=_skip(name, "snmp_custom", "exists", "Renamed")))
             else:
@@ -556,6 +582,7 @@ async def _run_probe(rt: Runtime, ctx: _Ctx, cand: _Candidate) -> None:
         ctx.creds if tdef.requires_snmp else {},
         {},
         timeout_s=min(60.0, max(1.0, remaining)),
+        lang=ctx.lang,
     )
     async with ctx.probe_sem:
         if _remaining(ctx) <= 0:

@@ -19,6 +19,7 @@ from netmon.ports.collect import (
     bridge_map,
     lag_sources,
     mac_text,
+    map_irf_ports,
     map_pse_ports,
     parse_fdb_dot1d,
     parse_fdb_q,
@@ -31,7 +32,7 @@ from netmon.ports.collect import (
 
 WRAP32 = 2**32
 PORT_SOURCES = ("if_xtable", "duplex", "bridge", "vlans", "fdb", "poe")
-ALL_SOURCES = (*PORT_SOURCES, "arp", "lag")  # [2b-3] lag
+ALL_SOURCES = (*PORT_SOURCES, "arp", "lag", "irf")  # [2b-3] lag, [1.3.1] irf
 POE_KEYS = ("poe_admin_enabled", "poe_detection", "poe_class", "poe_power_w")
 VLAN_KEYS = ("pvid", "mode", "untagged_vlans", "tagged_vlans")
 
@@ -250,6 +251,20 @@ def build_snapshot(
             r["lag_attached"] = prev.get("lag_attached")
         if "lag" not in src:
             src["lag"], src["lag_mib"] = "skipped", None
+    # [1.3.1] IRF physical ports: a failed read keeps the previous values
+    if src.get("irf") == "error" or (walks.irf is None and "irf" not in src):
+        for r in rows:
+            r["irf_port"] = (prev_rows.get(r["if_index"]) or {}).get("irf_port")
+    else:
+        mapped: dict[int, int] = {}
+        if walks.irf is not None and walks.irf.ports:
+            mapped = map_irf_ports(
+                walks.irf, {r["if_index"]: (r["name"], r["descr"]) for r in rows}
+            )
+            if not mapped:
+                src["irf"] = "unmapped"
+        for r in rows:
+            r["irf_port"] = mapped.get(r["if_index"])
     for k in ALL_SOURCES:
         src.setdefault(k, "skipped")
     src.setdefault("fdb_mib", None)

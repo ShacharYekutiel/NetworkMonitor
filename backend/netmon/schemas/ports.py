@@ -121,7 +121,8 @@ class Port(_Out):
     vlans_from_lag: bool
     # [1.3]
     important: bool
-    important_reasons: list[Literal["uplink", "lag", "trunk"]]
+    important_reasons: list[Literal["uplink", "lag", "trunk", "irf"]]  # [1.3.1] irf
+    irf_port: int | None  # [1.3.1] IRF port (1/2) of an IRF physical port, else null
     connected: PortConnected
     neighbor_name: str | None
     neighbor_mgmt_address: str | None
@@ -152,6 +153,7 @@ class PortSources(_Out):
     poe: SourceState
     arp: SourceState
     lag: SourceState  # [2b-3]
+    irf: SourceState  # [1.3.1]
 
 
 class PortInventoryStatus(_Out):

@@ -49,7 +49,12 @@ router = APIRouter()
 
 @router.get("/api/sensor-types")
 async def sensor_types(_: Viewer) -> dict:
-    return {"items": [SENSOR_TYPES[t].to_api() for t in SENSOR_TYPES_ORDER]}
+    from netmon.poller.value_maps import api_value_maps
+
+    return {
+        "items": [SENSOR_TYPES[t].to_api() for t in SENSOR_TYPES_ORDER],
+        "value_maps": api_value_maps(),  # [1.3.1] named value maps (texts en/he)
+    }
 
 
 async def _sensor_full(session: DB, sensor_id: int) -> tuple[Sensor, Device]:
@@ -505,8 +510,11 @@ async def test_sensor(body: SensorTestIn, _: Admin, rt: RT, session: DB) -> dict
                 creds = dict(DEFAULT_SNMP)
     else:
         raise validation_error(["body", "device_id"], "device_id or host is required")
+    from netmon.services.sensors import check_language
+
+    lang = await check_language(session, cfg)  # [1.3.1]
     await session.close()
-    ctx = CheckContext(None, tdef.type, cfg, host, creds, {}, timeout_s=60.0)
+    ctx = CheckContext(None, tdef.type, cfg, host, creds, {}, timeout_s=60.0, lang=lang)
     raw, duration, checked_at = await execute_check(ctx, rt.semaphore)
     ev = evaluate(raw, default_thresholds(tdef.type, overrides, cfg), duration, checked_at)
     return check_result_out(ev)

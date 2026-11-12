@@ -38,6 +38,8 @@ def stack_records(members: int) -> list[Record]:
         recs += [
             (f"{STACK}.3.1.1.2", 2, "2"),  # board of member 1: master
             (f"{STACK}.3.1.1.102", 2, "1"),  # member 2: standby
+            (f"{STACK}.3.1.2.2", 2, "1"),  # [1.3.1] hh3cStackBoardBelongtoMember
+            (f"{STACK}.3.1.2.102", 2, "2"),
             (f"{STACK}.4.1.3.1.1", 2, "1"),  # member 1 IRF-port 1: up
             (f"{STACK}.4.1.3.1.2", 2, "4"),  # member 1 IRF-port 2: disabled (not created)
             (f"{STACK}.4.1.3.2.1", 2, "1"),
@@ -217,7 +219,8 @@ async def test_comware_irf_entries(admin: httpx.AsyncClient, agents: dict[str, i
         assert n in names, names
     assert "IRF port 1.2" not in names  # disabled IRF port
     roles = [n for n in names if n.startswith("IRF role ")]
-    assert len(roles) == 2 and len(set(roles)) == 2  # "Board · Unit 1" / "Board · Unit 2"
+    # [1.3.1] labelled by the member number (entPhysicalName is "Board" on every member)
+    assert sorted(roles) == ["IRF role · Unit 1", "IRF role · Unit 2"]
     sensors = {
         s["name"]: s
         for s in (await admin.get("/api/sensors", params={"device_id": d["id"]})).json()["items"]
@@ -248,6 +251,49 @@ async def test_comware_irf_entries(admin: httpx.AsyncClient, agents: dict[str, i
     assert not any(c["name"].startswith("IRF") for c in res["created"])
     na = [s for s in res["skipped"] if s["reason"] == "not_applicable"]
     assert len([s for s in na if "25506.2.91.1.2.0" in s["message"]]) == 4
+
+
+async def test_comware_irf_role_rename_131(
+    admin: httpx.AsyncClient, agents: dict[str, int]
+) -> None:
+    """[1.3.1] Role sensors created by 1.3.0 ("IRF role Board · Unit n", from entPhysicalName)
+    are renamed to "IRF role · Unit n" on re-apply; a name the user chose is kept."""
+    from tests.conftest import make_device
+
+    d = await make_device(
+        admin,
+        name="irf131",
+        host=IRF_IP,
+        snmp_credentials=_creds(agents[IRF_IP]),
+        port_inventory="off",
+    )
+    await _apply(admin, d["id"], interfaces="none")
+    items = (await admin.get("/api/sensors", params={"device_id": d["id"]})).json()["items"]
+    roles = sorted(
+        (s for s in items if s["name"].startswith("IRF role ")),
+        key=lambda s: int(s["config"]["oid"].rsplit(".", 1)[1]),
+    )
+    assert [s["name"] for s in roles] == ["IRF role · Unit 1", "IRF role · Unit 2"]
+    # as 1.3.0 named them (one in Hebrew), and one the user renamed meanwhile
+    old = ["IRF role Board · Unit 1", "תפקיד IRF Board #2"]
+    for s, name in zip(roles, old, strict=True):
+        r = await admin.patch(
+            f"/api/sensors/{s['id']}", json={"name": name, "config": {"label": "Board"}}
+        )
+        assert r.status_code == 200, r.text
+    res = await _apply(admin, d["id"], interfaces="none")
+    renamed = [x for x in res["skipped"] if x["message"] == "Renamed"]
+    assert sorted(x["name"] for x in renamed) == ["IRF role · Unit 1", "IRF role · Unit 2"]
+    got = {s["id"]: s for s in (await admin.get("/api/sensors", params={"device_id": d["id"]}))
+           .json()["items"]}  # fmt: skip
+    assert [got[s["id"]]["name"] for s in roles] == ["IRF role · Unit 1", "IRF role · Unit 2"]
+    assert got[roles[0]["id"]]["config"]["label"] == "Unit 1"
+    r = await admin.patch(f"/api/sensors/{roles[0]['id']}", json={"name": "Core master"})
+    assert r.status_code == 200
+    res = await _apply(admin, d["id"], interfaces="none")
+    assert not [x for x in res["skipped"] if x["message"] == "Renamed"]
+    got = (await admin.get(f"/api/sensors/{roles[0]['id']}")).json()
+    assert got["name"] == "Core master"
 
 
 async def test_apply_new_switch_runs_inventory_first(

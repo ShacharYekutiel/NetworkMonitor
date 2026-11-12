@@ -287,6 +287,8 @@ TABLE_KEYS = (
     "interval_s",
     "entity_sensor_scale",
     "when",  # [1.3]
+    "rename_from",  # [1.3.1]
+    "label_format",  # [1.3.1]
 )
 TABLE_FORBIDDEN_CONFIG = ("oid", "percent_of_oid", "label")
 
@@ -407,7 +409,28 @@ def _table_entry(e: dict[str, Any], path: str) -> dict[str, Any]:
         out["entity_sensor_scale"] = True
     if e.get("when"):  # [1.3] conditions (as sensor `when`), only when set
         out["when"] = _filters(e["when"], _join(path, "when"))
+    if e.get("label_format") is not None:  # [1.3.1] "{label}" -> e.g. "Unit {label}"
+        fmt = _l10n(e["label_format"], _join(path, "label_format"), 1, 64)
+        for lang, v in fmt.items():
+            if "{label}" not in v:
+                raise TemplateError(
+                    _join(_join(path, "label_format"), lang), "invalid value: needs {label}"
+                )
+        out["label_format"] = fmt
+    if e.get("rename_from") is not None:  # [1.3.1] earlier naming, only when set
+        out["rename_from"] = _rename_from(e["rename_from"], _join(path, "rename_from"))
     return _common(out, e, path, _vendor_oid(walk))
+
+
+def _rename_from(v: Any, path: str) -> dict[str, Any]:
+    """[1.3.1] `{name, label_oid}`: how an earlier template version named the rows; re-applying
+    renames an existing sensor that still has such a name."""
+    obj = _mapping(v, path)
+    _keys(obj, path, ("name", "label_oid"), ("name",))
+    return {
+        "name": _l10n(obj["name"], _join(path, "name"), 1, 128),
+        "label_oid": _opt_oid(obj.get("label_oid"), _join(path, "label_oid")),
+    }
 
 
 def _common(out: dict[str, Any], e: dict[str, Any], path: str, vendor: bool) -> dict[str, Any]:

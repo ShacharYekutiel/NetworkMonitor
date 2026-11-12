@@ -29,7 +29,9 @@ import { useAuth } from '../hooks/auth';
 import { AckAction, AckBadge, AckDetails } from '../components/Acknowledge';
 import { StatusMessage } from '../components/Dependency';
 import { MaintenanceBadge } from '../components/Maintenance';
-import { mapEnumValue, valueMapToRows } from '../lib/sensorConfig';
+import { effectiveValueMapRows, mapEnumValue } from '../lib/sensorConfig';
+import { namedValueMap, pickLang } from '../lib/valueMaps';
+import { useSensorTypes } from '../hooks/queries';
 import { useLocalState } from '../hooks/useLocalState';
 import { EventConditionsCard, isEventSensor } from '../components/EventConditions';
 import { errorMessage } from '../lib/errors';
@@ -294,7 +296,7 @@ export function SensorPage() {
                 .filter(
                   ([k]) =>
                     !(
-                      (k === 'value_map' || k === 'value_map_default') &&
+                      (k === 'value_map' || k === 'value_map_default' || k === 'value_map_ref') &&
                       s.config.value_type === 'enum'
                     ),
                 )
@@ -347,23 +349,32 @@ export function SensorPage() {
 
 /** [2b-1] The enum value map of an snmp_custom sensor; the current raw value is highlighted. */
 function ValueMapTable({ sensor }: { sensor: import('../api/types').Sensor }) {
-  const { t } = useTranslation();
+  const { t, i18n } = useTranslation();
+  useSensorTypes(); // [1.3.1] loads the named value maps
+  const lang = i18n.language;
   const raw = sensor.channels.find((c) => c.key === 'value')?.last_value ?? null;
-  const current = mapEnumValue(sensor.config, raw);
-  const rows = valueMapToRows(sensor.config.value_map);
+  const current = mapEnumValue(sensor.config, raw, lang);
+  const rows = effectiveValueMapRows(sensor.config, lang);
+  const named = namedValueMap(sensor.config.value_map_ref);
   const rawKey = raw === null ? null : String(Math.round(raw));
   const unmapped = rawKey !== null && !rows.some((r) => r.value === rawKey);
   return (
     <div className="mt-4">
       <div className="mb-1 text-xs font-semibold text-slate-600 dark:text-slate-300">
         {t('sensorConfig.snmp_custom.value_map')}
+        {named && (
+          <span className="ms-2 font-normal text-slate-500" data-testid="named-value-map">
+            {pickLang(named.title, lang)}
+          </span>
+        )}
       </div>
       <table className="text-sm">
         <thead>
           <tr className="text-xs text-slate-500">
             <th className="pe-4 text-start font-medium">{t('valueMap.value')}</th>
             <th className="pe-4 text-start font-medium">{t('valueMap.status')}</th>
-            <th className="text-start font-medium">{t('valueMap.text')}</th>
+            <th className="pe-4 text-start font-medium">{t('valueMap.text')}</th>
+            {named && <th className="text-start font-medium">{t('valueMap.mib')}</th>}
           </tr>
         </thead>
         <tbody>
@@ -378,7 +389,14 @@ function ValueMapTable({ sensor }: { sensor: import('../api/types').Sensor }) {
               <td className="pe-4 py-0.5">
                 <StatusBadge status={r.status} />
               </td>
-              <td dir="auto">{r.text}</td>
+              <td className="pe-4" dir="auto">
+                {r.text}
+              </td>
+              {named && (
+                <td className="font-mono text-xs text-slate-500">
+                  <Ltr>{r.mib ?? (r.own ? t('valueMap.own') : '')}</Ltr>
+                </td>
+              )}
             </tr>
           ))}
           <tr className={cx(unmapped && 'bg-sky-50 font-semibold dark:bg-sky-950/50')}>
@@ -386,7 +404,12 @@ function ValueMapTable({ sensor }: { sensor: import('../api/types').Sensor }) {
             <td className="pe-4 py-0.5">
               <StatusBadge status={String(sensor.config.value_map_default ?? 'warning')} />
             </td>
-            <td className="text-slate-500">{t('valueMap.unexpected')}</td>
+            <td className="pe-4 text-slate-500">
+              {named
+                ? pickLang(named.unknown, lang).replace('{code}', unmapped ? rawKey! : 'N')
+                : t('valueMap.unexpected')}
+            </td>
+            {named && <td />}
           </tr>
         </tbody>
       </table>

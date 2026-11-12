@@ -66,8 +66,9 @@ export function sensorValueText(
   }
   // [2b-1] enum: the mapped text with the raw integer, e.g. "bad (2)".
   if (s.type === 'snmp_custom' && s.config.value_type === 'enum' && key === 'value') {
-    const m = mapEnumValue(s.config, value);
+    const m = mapEnumValue(s.config, value, i18n.language);
     if (!m) return '—';
+    if (m.unknown && m.text) return m.text; // [1.3.1] the table's text has the code already
     return `${m.text || i18n.t('valueMap.unexpected')} (${Math.round(value as number)})`;
   }
   return formatValue(value, unit);
