@@ -5,6 +5,7 @@ import { formatRelative, sensorValueText } from '../lib/format';
 import { StatusBadge } from './Status';
 import { AckBadge } from './Acknowledge';
 import { StatusMessage } from './Dependency';
+import { useLocalizeMessage } from '../hooks/localize';
 import { MaintenanceBadge } from './Maintenance';
 import { ImpactTag } from './SensorImpact';
 import { Empty, Table, td, th, Value } from './ui';
@@ -34,6 +35,7 @@ export function SensorTable({
   selection?: SensorSelection;
 }) {
   const { t } = useTranslation();
+  const localize = useLocalizeMessage();
   if (!sensors.length) return <Empty>{t('sensors.none')}</Empty>;
   const sel = selection?.selected;
   const nSel = sel ? sensors.filter((s) => sel.has(s.id)).length : 0;
@@ -134,7 +136,7 @@ export function SensorTable({
               <td
                 dir="auto"
                 className={`${td} max-w-xs truncate text-slate-500`}
-                title={s.status_message}
+                title={localize(s.status_message)}
               >
                 <StatusMessage
                   message={s.status_message}

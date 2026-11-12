@@ -3,9 +3,11 @@ import type { CheckResult } from '../api/types';
 import { formatNumber, formatValue } from '../lib/format';
 import { StatusBadge, StatusDot } from './Status';
 import { Ltr, Value } from './ui';
+import { useLocalizeMessage } from '../hooks/localize';
 
 export function CheckResultView({ result }: { result: CheckResult }) {
   const { t } = useTranslation();
+  const localize = useLocalizeMessage();
   return (
     <div className="space-y-2 rounded-md bg-slate-50 p-3 text-sm ring-1 ring-slate-200 dark:bg-slate-800/50 dark:ring-slate-700">
       <div className="flex flex-wrap items-center gap-2">
@@ -17,7 +19,7 @@ export function CheckResultView({ result }: { result: CheckResult }) {
       </div>
       {result.message && (
         <div dir="auto" className="text-slate-600 dark:text-slate-300">
-          {result.message}
+          {localize(result.message)}
         </div>
       )}
       {result.channels.length > 0 && (

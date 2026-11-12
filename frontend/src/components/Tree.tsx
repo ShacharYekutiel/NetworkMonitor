@@ -8,6 +8,7 @@ import { formatValue } from '../lib/format';
 import { CheckIcon, ChevronIcon, FolderIcon, SearchIcon, ServerIcon, WrenchIcon } from './icons';
 import { StatusDot } from './Status';
 import { cx, ErrorBox, Input, Spinner, Value } from './ui';
+import { useLocalizeMessage } from '../hooks/localize';
 
 type Expanded = Record<string, boolean>;
 
@@ -73,12 +74,13 @@ function filterGroups(groups: TreeGroup[], q: string): TreeGroup[] {
 
 function SensorRow({ s, depth }: { s: TreeSensor; depth: number }) {
   const { t } = useTranslation();
+  const localize = useLocalizeMessage();
   return (
     <NavLink
       to={`/sensors/${s.id}`}
       className={({ isActive }) => cx(rowBase, isActive && activeRow)}
       style={{ paddingInlineStart: `${depth * 14 + 26}px` }}
-      title={s.status_message || s.name}
+      title={localize(s.status_message) || s.name}
     >
       <StatusDot status={s.status} />
       <span className="min-w-0 flex-1 truncate">{s.name}</span>
