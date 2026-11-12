@@ -3103,5 +3103,12 @@
     "removedTitle_one": "נמחק חיישן אחד",
     "removedTitle_two": "נמחקו 2 חיישנים",
     "removedTitle_other": "נמחקו {{count}} חיישנים"
+  },
+  "settingsSearch": {
+    "label": "חיפוש בהגדרות",
+    "placeholder": "חיפוש בהגדרות…",
+    "clear": "ניקוי החיפוש",
+    "none": "לא נמצאו הגדרות",
+    "requires": "דורש את התכונה {{feature}} — הפעילו אותה בלשונית {{tab}}"
   }
 }

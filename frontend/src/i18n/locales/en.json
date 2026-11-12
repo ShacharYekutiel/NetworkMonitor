@@ -3069,5 +3069,12 @@
     "removeCount_other": "{{count}} existing interface sensors will be deleted, with their history.",
     "removedTitle_one": "Removed {{count}} sensor",
     "removedTitle_other": "Removed {{count}} sensors"
+  },
+  "settingsSearch": {
+    "label": "Search settings",
+    "placeholder": "Search settings…",
+    "clear": "Clear search",
+    "none": "No settings found",
+    "requires": "Requires the {{feature}} feature — turn it on in {{tab}}"
   }
 }

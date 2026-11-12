@@ -2801,6 +2801,15 @@ en/he texts: the check writes the message in the server language, the UI shows t
 Comware fan/PSU entry uses `hh3c_error_status` (51 → "Power supply fault (psuError, 51)" / "ספק כוח תקול
 (psuError, 51)" instead of "unexpected value (51)"); migration 0009 moves unedited sensors to it.
 
+### 14.6c Settings search [1.3.1]
+A search box at the top of the Settings page searches every tab without rendering it: a declarative index
+(`frontend/src/lib/settingsIndex.ts`: cards with tab, title key, feature and fields with label/hint keys) is
+matched case-insensitively in the UI language and, in Hebrew, also in English ("trunk", "SNMP", "LDAP").
+A result shows label and tab › card; click or Enter switches the tab, scrolls to the card or field
+(`data-anchor`) and outlines it briefly; Esc clears. A setting whose feature is off is marked "requires …" and
+leads to that feature's switch (`data-feature`). Not feature-flagged (improvement of an existing page); a
+vitest test keeps the index keys, tabs and anchors in sync with the locales and components.
+
 ### 14.7 Owner notes and verification [1.3]
 - **IRF verification** ([1.3.1] done on an HPE 5510-HI stack)**:** run `deploy/tools/irf_dump.py <FF 5945 IP>` in the app container (read-only; uses the
   device's stored SNMP credentials, prints no secrets) and send the output: it prints hh3cStackMemberNum, the
