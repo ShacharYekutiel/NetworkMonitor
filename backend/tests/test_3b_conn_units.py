@@ -788,8 +788,15 @@ async def test_converse_retries_and_fallbacks() -> None:
             _err("ThrottlingException", "slow", 429),
             _err("ThrottlingException", "slow", 429),
             _err("ValidationException", "This model does not support prompt caching (cachePoint)."),
-            _err("ValidationException", "temperature is not supported for this model"),
-            _err("ValidationException", "tool_choice type tool is not supported for this model"),
+            _err(
+                "ValidationException",
+                "The model returned the following errors: temperature is not supported.",
+            ),
+            _err(
+                "ValidationException",
+                'The model returned the following errors: tool_choice: type "tool" and "any" '
+                "are not supported for this model.",
+            ),
             ok,
         ]
     )
@@ -1031,3 +1038,28 @@ def test_model_errors_keep_the_aws_message() -> None:
         "ValidationException", "The provided model identifier is invalid.", 400, region="us-east-1"
     )
     assert e.code == "bedrock_model_invalid" and "provided model identifier is invalid" in e.message
+
+
+def test_feature_rejection_not_read_as_bad_model_id() -> None:
+    """Owner's office test: us.anthropic.claude-opus-5-5 rejects a forced toolChoice with a
+    ValidationException that starts with "The model returned the following errors:". That must
+    classify as bedrock_validation (so the client drops the forced tool and retries), not as
+    bedrock_model_invalid."""
+    from netmon.assistant.errors import classify
+
+    real = (
+        "The model returned the following errors: "
+        'tool_choice: type "tool" and "any" are not supported for this model.'
+    )
+    assert (
+        classify("ValidationException", real, 400, region="us-east-1").code == "bedrock_validation"
+    )
+    assert (
+        classify("ValidationException", "The model returned: temperature not supported", 400).code
+        == "bedrock_validation"
+    )
+    # a genuinely bad model id is still bedrock_model_invalid
+    assert (
+        classify("ValidationException", "The provided model identifier is invalid.", 400).code
+        == "bedrock_model_invalid"
+    )

@@ -253,6 +253,17 @@ def classify(
             return _with_aws(make("bedrock_model_access", region=region, **kw), t, message)
         return _with_aws(make("bedrock_model_invalid", region=region, **kw), t, message)
     if tl == "validationexception":
+        # A rejected request *feature* (forced toolChoice, sampling params, prompt caching) also
+        # says "... not supported for this model", which _MODEL_INVALID would misread as a bad
+        # model id. Classify those as bedrock_validation so the client's compat-retry (drop the
+        # feature, try again) fires instead of surfacing a misleading "model id not valid".
+        ml = message.lower()
+        if (
+            "toolchoice" in ml.replace("_", "")
+            or any(w in ml for w in ("temperature", "top_p", "topp", "sampling"))
+            or "cache" in ml
+        ):
+            return make("bedrock_validation", aws=message or t, **kw)
         if _MODEL_INVALID.search(message):
             return _with_aws(make("bedrock_model_invalid", region=region, **kw), t, message)
         return make("bedrock_validation", aws=message or t, **kw)
