@@ -17,13 +17,17 @@ Used by .github/workflows/ci.yml (docker job) against the real compose stack:
                                   wait until its flows are written to the 1-minute tables
 
 Authentication: the session cookie that curl stored in cookies.txt (the setup step).
+[1.4.2] NETMON_CI_BASE (default http://localhost:8080) and NETMON_CI_CAFILE point the API
+calls at the production stack behind Caddy (HTTPS with the CI's self-signed certificate).
 Standard library only. Traps and flow datagrams are encoded by hand (no pysnmp on the runner).
 """
 
 from __future__ import annotations
 
 import json
+import os
 import socket
+import ssl
 import struct
 import sys
 import time
@@ -31,7 +35,9 @@ import urllib.parse
 import urllib.request
 import uuid
 
-BASE = "http://localhost:8080"
+BASE = os.environ.get("NETMON_CI_BASE", "http://localhost:8080")
+CAFILE = os.environ.get("NETMON_CI_CAFILE")
+CTX = ssl.create_default_context(cafile=CAFILE) if CAFILE else None
 HOST = "127.0.0.1"
 TRAP_PORT = 162
 SYSLOG_PORT = 514
@@ -61,7 +67,7 @@ def cookie_header() -> str:
 
 def get(path: str) -> dict:
     req = urllib.request.Request(BASE + path, headers={"Cookie": cookie_header()})
-    with urllib.request.urlopen(req, timeout=10) as resp:
+    with urllib.request.urlopen(req, timeout=10, context=CTX) as resp:
         return json.load(resp)
 
 
@@ -72,7 +78,7 @@ def send_json(method: str, path: str, body: dict) -> dict:
         method=method,
         headers={"Cookie": cookie_header(), "Content-Type": "application/json"},
     )
-    with urllib.request.urlopen(req, timeout=10) as resp:
+    with urllib.request.urlopen(req, timeout=10, context=CTX) as resp:
         return json.load(resp)
 
 

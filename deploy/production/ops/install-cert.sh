@@ -153,11 +153,8 @@ rm -f "$TLS/TEMPORARY-SELF-SIGNED"
 echo "installed $TLS/cert.pem ($ncerts certificate(s)) and $TLS/key.pem"
 
 if service_running proxy; then
-  if compose exec -T proxy caddy reload --config /etc/caddy/Caddyfile --force >/dev/null 2>&1; then
-    echo "Caddy reloaded"
-  else
-    compose restart proxy >/dev/null && echo "Caddy restarted"
-  fi
+  # [1.4.2] Caddy's admin API is off (no `caddy reload`): a restart loads the new pair.
+  compose restart proxy >/dev/null && echo "Caddy restarted"
   sleep 2
   echo | openssl s_client -connect 127.0.0.1:443 -servername "$NETMON_FQDN" 2>/dev/null |
     openssl x509 -noout -subject -issuer -enddate || warn "could not read the certificate from :443"

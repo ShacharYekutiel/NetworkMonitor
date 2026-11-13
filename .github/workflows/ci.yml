@@ -211,6 +211,19 @@ jobs:
           done
           [ "$s" = healthy ]
 
+      # [1.4.2] Every service runs hardened (compose x-hardening): no capability left inside,
+      # read-only root filesystem, no-new-privileges, non-root db/app, limits. SSH (config
+      # backup) and the Kerberos acceptor still work in the hardened app container.
+      - name: Container hardening (dev compose)
+        run: |
+          set -eu
+          .github/scripts/hardening-check.sh "$COMPOSE" db netmon
+          test "$($COMPOSE exec -T db id -u)" = 70
+          test "$($COMPOSE exec -T netmon id -u)" = 10001
+          docker inspect -f 'init: cap_add={{json .HostConfig.CapAdd}} ro={{.HostConfig.ReadonlyRootfs}}' "$($COMPOSE ps -a -q init)"
+          $COMPOSE exec -T netmon python - < .github/scripts/ssh-selftest.py
+          $COMPOSE exec -T netmon python - < .github/scripts/kerberos-selftest.py
+
       # [2b-3] Ports 162/udp and 514/udp+tcp are published, but nothing listens until the
       # features are turned on through the API (= Settings -> Features), without a restart.
       - name: Traps and syslog (published ports, feature toggles)
@@ -293,13 +306,82 @@ jobs:
           # [3] Same for the flow receivers.
           python3 .github/scripts/ingest-check.py flows-listening
 
+      # [1.4.2] The PRODUCTION compose file (deploy/production/compose.yaml: Caddy in front,
+      # standard ports, hardened services) with the image built above and a throwaway
+      # certificate laid out as on the server (root-owned, key 0600).
+      - name: Production compose (hardened, behind Caddy)
+        env:
+          PCOMPOSE: docker compose -p netmon-prod -f deploy/production/compose.yaml --env-file deploy/production/release.env
+          FQDN: netmonitor.ci.local
+        run: |
+          set -eu
+          $COMPOSE down -v
+          etc="$RUNNER_TEMP/etc"
+          mkdir -p "$etc/tls" "$etc/ca" "$etc/aws"
+          openssl req -x509 -newkey rsa:2048 -nodes -days 2 -subj "/CN=$FQDN" \
+            -addext "subjectAltName=DNS:$FQDN,DNS:netmonitor" \
+            -keyout "$etc/tls/key.pem" -out "$etc/tls/cert.pem" 2>/dev/null
+          cp "$etc/tls/cert.pem" ca.pem
+          echo "NETMON_FQDN=$FQDN" > "$etc/site.env"
+          sudo chown -R root:root "$etc"
+          sudo chmod 0600 "$etc/tls/key.pem"
+          echo "127.0.0.1 $FQDN" | sudo tee -a /etc/hosts
+          export NETMON_ETC_DIR="$etc" NETMON_IMAGE=networkmonitor:local
+          $PCOMPOSE config -q
+          $PCOMPOSE up -d --wait --wait-timeout 300
+          B="https://$FQDN"
+          curl -fsS --cacert ca.pem "$B/api/health" | tee health.json; echo
+          python3 -c 'import json; h = json.load(open("health.json")); assert h["database"] == "ok", h'
+          # security headers through Caddy, 80 -> 443, Caddy admin API off
+          curl -fsS --cacert ca.pem -D headers.txt -o /dev/null "$B/"
+          grep -qi '^strict-transport-security: max-age=31536000' headers.txt
+          test "$(curl -s -o /dev/null -w '%{http_code} %{redirect_url}' http://127.0.0.1/x)" = "308 $B/x"
+          if $PCOMPOSE exec -T proxy wget -q -T 3 -O /dev/null http://127.0.0.1:2019/config/; then
+            echo "Caddy admin API is reachable" >&2; exit 1
+          fi
+          test "$(docker inspect -f '{{.State.Health.Status}}' "$($PCOMPOSE ps -q proxy)")" = healthy
+          .github/scripts/hardening-check.sh "$PCOMPOSE" db netmon proxy
+          test "$($PCOMPOSE exec -T db id -u)" = 70
+          test "$($PCOMPOSE exec -T netmon id -u)" = 10001
+          # setup, ICMP, SSH, Kerberos, traps / syslog / flows on the standard ports
+          rm -f cookies.txt
+          curl -fsS --cacert ca.pem -c cookies.txt -X POST -H 'Content-Type: application/json' \
+            -d '{"username":"admin","password":"ci-Secret-123","email":null,"language":"en"}' \
+            "$B/api/setup" >/dev/null
+          curl -fsS --cacert ca.pem -b cookies.txt -X POST -H 'Content-Type: application/json' \
+            -d '{"host":"127.0.0.1","type":"ping","config":{}}' "$B/api/sensors/test" | tee ping.json; echo
+          python3 -c 'import json; r = json.load(open("ping.json")); assert r["ok"] is True, r'
+          $PCOMPOSE exec -T netmon python - < .github/scripts/ssh-selftest.py
+          $PCOMPOSE exec -T netmon python - < .github/scripts/kerberos-selftest.py
+          curl -fsS --cacert ca.pem -b cookies.txt -X PUT -H 'Content-Type: application/json' \
+            -d '{"feature_traps_enabled": true, "feature_syslog_enabled": true, "feature_flows_enabled": true}' \
+            "$B/api/settings" -o /dev/null
+          export NETMON_CI_BASE="$B" NETMON_CI_CAFILE="$PWD/ca.pem"
+          python3 .github/scripts/ingest-check.py listening
+          python3 .github/scripts/ingest-check.py send-and-find
+          python3 .github/scripts/ingest-check.py flows-listening
+          python3 .github/scripts/ingest-check.py flows-pipeline
+          # restart: everything comes back (read-only root, tmpfs recreated)
+          $PCOMPOSE down
+          $PCOMPOSE up -d --wait --wait-timeout 300
+          curl -fsS --cacert ca.pem "$B/api/setup/status" | grep -q '"setup_required":false'
+          python3 .github/scripts/ingest-check.py listening
+
       - name: Logs
         if: always()
-        run: $COMPOSE logs --no-color --timestamps
+        run: |
+          $COMPOSE logs --no-color --timestamps || true
+          NETMON_ETC_DIR="$RUNNER_TEMP/etc" NETMON_IMAGE=networkmonitor:local \
+            docker compose -p netmon-prod -f deploy/production/compose.yaml \
+            --env-file deploy/production/release.env logs --no-color --timestamps || true
 
       - name: Tear down
         if: always()
-        run: $COMPOSE down -v
+        run: |
+          $COMPOSE down -v || true
+          NETMON_ETC_DIR="$RUNNER_TEMP/etc" NETMON_IMAGE=networkmonitor:local \
+            docker compose -p netmon-prod -f deploy/production/compose.yaml \
+            --env-file deploy/production/release.env down -v || true
 
   # ---------------------------------------------------------------------------
   # Installer scripts: static checks
@@ -310,7 +392,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - name: shellcheck
-        run: shellcheck -x deploy/*.sh deploy/linux/*.sh
+        run: shellcheck -x deploy/*.sh deploy/linux/*.sh .github/scripts/*.sh
       - name: CI helper scripts (Python syntax)
         run: python3 -m py_compile .github/scripts/*.py
       - name: PowerShell parse + PSScriptAnalyzer
