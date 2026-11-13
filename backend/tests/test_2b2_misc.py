@@ -19,7 +19,14 @@ from netmon.db.engine import make_engine
 from netmon.db.migrate import run_migrations
 from netmon.ports import collect
 from tests import ports_sims as sims
-from tests.conftest import TEST_DATABASE_URL, _plain, db_url_for, make_device, requires_db
+from tests.conftest import (
+    TEST_DATABASE_URL,
+    _plain,
+    db_url_for,
+    make_device,
+    migration_head,
+    requires_db,
+)
 from tests.snmpsim_agents import Record, start_agent, system
 from tests.test_migrations import _alembic, _tables
 
@@ -244,7 +251,9 @@ async def test_migration_0005_up_down_up(mode: str, rt) -> None:  # type: ignore
         assert NEW_TABLES <= await _tables(url)
         conn = await asyncpg.connect(_plain(url))
         try:
-            assert await conn.fetchval("SELECT version_num FROM alembic_version") == "0011"
+            assert (
+                await conn.fetchval("SELECT version_num FROM alembic_version") == migration_head()
+            )
             gid = await conn.fetchval("INSERT INTO groups (name) VALUES ('g') RETURNING id")
             did = await conn.fetchval(
                 "INSERT INTO devices (group_id, name, host) VALUES ($1, 'd', 'h') RETURNING id", gid
@@ -358,7 +367,9 @@ async def test_migration_0005_up_down_up(mode: str, rt) -> None:  # type: ignore
         assert NEW_TABLES <= await _tables(url)
         conn = await asyncpg.connect(_plain(url))
         try:
-            assert await conn.fetchval("SELECT version_num FROM alembic_version") == "0011"
+            assert (
+                await conn.fetchval("SELECT version_num FROM alembic_version") == migration_head()
+            )
             assert await conn.fetchval("SELECT port_inventory FROM devices") == "auto"
             await conn.execute(
                 "INSERT INTO sensors (device_id, name, type, config) VALUES "
