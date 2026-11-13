@@ -428,24 +428,30 @@ ARN to the VPC endpoint policy if one is used.
 | `bedrock_access_denied` | Policy ARNs (region, account, profile ID, foundation-model ID); VPC endpoint policy; SCPs for cross-region inference. |
 | `stream_buffered` warning | The proxy buffers responses — use a VPC endpoint with *Proxy: direct*, or a proxy exception. |
 
-## Phase 4: AWS cloud view, high availability, backups to S3, traffic capture
+## Phase 4: AWS connections, cloud view, high availability, backups to S3, traffic capture
 
-Everything new is **off** after the upgrade. Contract: [architecture.md § 15](architecture.md#15-phase-4-aws-cloud-view-and-vpc-flow-logs-high-availability-monitoring-depth-on-call-s3-backups-traffic-capture).
-A single server without `node.env` stays a single node exactly as today. The only change every server sees is one
-`db` restart at the first phase-4 deploy (new PostgreSQL flags: `wal_log_hints=on`, replication slots, `ssl`, hba
-file — needed only for HA, harmless otherwise).
+Planned (contract only; nothing of this is deployed yet). Everything new is **off** after the upgrade. Contract:
+[architecture.md § 15](architecture.md#15-phase-4-aws-cloud-view-and-vpc-flow-logs-high-availability-monitoring-depth-s3-backups-traffic-capture).
+A single server without `node.env` stays a single node exactly as today. With the HA PRs every server sees one `db`
+restart (new PostgreSQL flags: `wal_log_hints=on`, replication slots, `ssl`, hba file — needed only for HA, harmless
+otherwise).
 
-### AWS (cloud inventory, VPC Flow Logs, S3) — no server change
-- The 3b AWS authentication (IAM Roles Anywhere with the PKI certificate, or the access key) moves to
-  *Settings → AWS* automatically (migration `0009` + re-encryption at the first start); the assistant keeps working.
-- Each AWS feature can use its own role ARN in the same Roles Anywhere profile (least privilege). Policies:
-  `deploy/production/aws/cloud-readonly-policy.json`, `flowlogs-read-policy.json`, `s3-backup-policy.json`,
-  `route53-ha-dns-policy.json` (added by the phase-4 PRs, rendered by `aws/render-policies.py`).
-- Network: interface VPC endpoints over Direct Connect for `ec2`, `directconnect`, `logs`, `monitoring`, `sts`, `s3`
-  (and `rolesanywhere`), entered in *Settings → AWS → Endpoint overrides*; otherwise the outbound proxy
-  (`/etc/netmon-gitops/app.env`).
-- Cost: flow logs to S3 (text, gzip) are read once per object; data transfer from AWS over DX applies to the
-  compressed bytes. CloudWatch Logs as a source works but its ingestion is the expensive part (paid on the AWS side).
+### AWS (connections, cloud inventory, VPC Flow Logs, S3) — no server change
+- The 1.4.0 AWS authentication of the assistant (IAM Roles Anywhere with the PKI certificate, or the access key)
+  becomes the connection "Default" in *Settings → AWS* automatically (first phase-4 migration + re-encryption at the
+  first start); the assistant keeps working, and a container rollback to 1.4.x still finds its settings.
+- Any layout is supported: Roles Anywhere in the network account with `sts:AssumeRole` into the Bedrock account (the
+  owner's target), Roles Anywhere in the Bedrock account (as deployed for 1.4.0), a single account, access keys or an
+  instance role. The move between layouts has no downtime: architecture § 15.1.7.
+- Policies and Terraform examples: `deploy/production/aws/` (`render-policies.py`, `terraform/network-base`,
+  `terraform/bedrock-base`, `terraform/single-account`; added by PR 4-0b).
+- Network: `sts.<region>.amazonaws.com` is a new required host for role chains. Interface VPC endpoints (`sts`, `ec2`,
+  `logs`, `monitoring`, `s3`, `rolesanywhere`, `bedrock-runtime`) are entered per (service, region) in *Settings →
+  AWS*; otherwise the outbound proxy (`/etc/netmon-gitops/app.env`). `ops/assistant-net.sh check` covers the new
+  hosts.
+- Cost: reading flow logs from S3 costs a few LIST / GET requests and the transfer of the compressed bytes. What AWS
+  charges for *delivering* flow logs (S3 vs CloudWatch Logs, text vs Parquet) is decided where the flow log is
+  created.
 
 ### High availability (two nodes + witness)
 - **Files:** `deploy/production/nodes/<node>.env` (in git, static identity, no secrets) and on each server
@@ -465,9 +471,10 @@ file — needed only for HA, harmless otherwise).
   rewind is impossible.
 - **Backups:** `backup.sh` dumps the DB only on the active node; the standby archives its data volume only.
 - **Witness:** `deploy/witness/` (compose + `witness.cfn.yaml`), a `t4g.nano` in a separate VPC, port 8443 from the two
-  nodes and the proxy egress; alerts through SNS (and optional Teams/Telegram). It runs the same image version.
+  nodes and the proxy egress; alerts through SNS, a webhook, Teams, Telegram or SMTP; the witness may also run on any Docker host outside AWS. It runs the same image version.
 - **DNS:** recommended — the active node updates `netmonitor.mnidom.net` in AD by secure dynamic update (GSS-TSIG)
-  with the dedicated account `svc-netmon-dns` that has Write on that record only (architecture § 15.11.4).
+  with the dedicated account `svc-netmon-dns` that has Write on that record only (architecture § 15.11.4);
+  other selectable methods: RFC 2136 with a TSIG key, Route 53, a webhook, or none (architecture § 15.3.9).
   Alternative — CNAME to a Route 53 private zone record updated by the active node (does not resolve from the office
   during a DX outage). Both nodes' certificates must contain `netmonitor.mnidom.net` and the node names.
 - **Devices** send traps/syslog/flows to **both** node addresses and allow SNMP from both; the system never changes
