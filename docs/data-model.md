@@ -4231,3 +4231,30 @@ hh3cEntityExtErrorStatus (`config.oid` under `1.3.6.1.4.1.25506.2.6.1.1.1.1.19.`
 no `value_map_ref`) get `value_map_ref = "hh3c_error_status"` and `value_map = {}`; edited maps are left alone.
 `downgrade()`: sensors with `value_map_ref` lose it (an empty `value_map` gets the 1.3 map back); drop the column.
 
+
+## [1.4.1] Security settings
+Settings keys (table `settings`, code defaults in `netmon.services.security.DEFAULTS`; cached on the runtime, so
+they take effect right after `PUT /api/settings` without a restart):
+
+| Key | Type | Default | Notes |
+|---|---|---|---|
+| `egress_allow_loopback` | bool | `false` | SSRF egress filter: loopback targets of webhook / Teams channels and HTTP sensors. Also forced on by `NETMON_TEST_MODE` (the E2E simulators are on `127.0.0.x`). |
+| `session_max_age_h` | int 1–720 | `168` | absolute session lifetime; `ldap` / `oidc` users: `min(12, value)` |
+| `login_ip_max_failures` | int 0–10000 | `20` | failed logins per client address / 5 min; `0` = off |
+| `frame_ancestors` | text[] (≤ 20 origins) | `[]` | extra CSP `frame-ancestors` sources; validated again when read, so a hand-edited row can never inject a directive |
+
+## [1.4.1] `revoked_sessions`
+Session ids ended by `POST /api/auth/logout`. Loaded into memory at start (the server is one process); a cookie
+whose `sid` is listed is refused.
+
+| Column | Type | Notes |
+|---|---|---|
+| `sid` | varchar(64) PK | the `sid` claim of the revoked session |
+| `user_id` | integer NULL → `users(id)` ON DELETE CASCADE | |
+| `revoked_at` | timestamptz NOT NULL DEFAULT now() | |
+| `expires_at` | timestamptz NOT NULL, indexed | `revoked_at` + 31 days (longer than the largest `session_max_age_h`); rows past it are deleted at start and on every logout |
+
+## [1.4.1] Migration (`0011`)
+File `backend/netmon/migrations/versions/0011_v141.py`, `revision = "0011"`, `down_revision = "0010"`.
+`upgrade()`: `CREATE TABLE revoked_sessions` and its `expires_at` index. No data is changed.
+`downgrade()`: drop the table (1.4.0 ignores the `sid` claim, so sessions issued by 1.4.1 keep working).

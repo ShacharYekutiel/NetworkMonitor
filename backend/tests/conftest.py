@@ -54,7 +54,8 @@ TABLES = (
     # [3b] assistant and AI features (migration 0008)
     "assistant_conversations, assistant_messages, assistant_tool_calls, assistant_usage, "
     "assistant_artifacts, assistant_incidents, assistant_incident_members, "
-    "assistant_note_targets, assistant_syslog_signatures, assistant_snmp_walks"
+    "assistant_note_targets, assistant_syslog_signatures, assistant_snmp_walks, "
+    "revoked_sessions"  # [1.4.1]
 )
 
 
@@ -66,6 +67,16 @@ def db_url_for(name: str) -> str:
     assert TEST_DATABASE_URL
     parts = urlsplit(_plain(TEST_DATABASE_URL))
     return urlunsplit((parts.scheme, parts.netloc, f"/{name}", parts.query, ""))
+
+
+@pytest.fixture(autouse=True)
+def _loopback_targets_allowed() -> None:
+    """[1.4.1] The suite's local test servers (webhook receivers, HTTP sensor targets) live on
+    127.0.0.1: loopback targets are allowed by default; tests/test_141_*.py switch the SSRF
+    egress filter back to its production default for their cases."""
+    from netmon.util import egress
+
+    egress.override_loopback(True)
 
 
 @pytest.fixture(scope="session")
@@ -176,7 +187,12 @@ async def clean(rt: Runtime, app: Any) -> AsyncIterator[None]:
         await conn.close()
     rt._has_users = False  # noqa: SLF001
     rt._rollup_snapshot = None  # noqa: SLF001
-    app.state.login_limiter._fails.clear()  # noqa: SLF001
+    app.state.login_limiter.clear()
+    # [1.4.1] default security policy, no revoked sessions
+    from netmon.services import security as security_svc
+
+    security_svc.apply(rt, {})
+    rt.revoked_sessions.clear()
     # [2b-3] API tokens and Active Directory throttles / memory
     app.state.token_limiter.clear()
     app.state.token_stamper.clear()

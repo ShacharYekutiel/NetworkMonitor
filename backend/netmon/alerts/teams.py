@@ -14,6 +14,7 @@ import httpx
 from netmon import __version__
 from netmon.alerts import templates
 from netmon.tlsutil import httpx_verify
+from netmon.util.egress import EgressBlocked, guarded_client
 
 log = logging.getLogger("netmon.alerts.teams")
 
@@ -266,7 +267,7 @@ async def send_teams(config: dict[str, Any], body: dict[str, Any]) -> None:
         raise TeamsError("No Teams webhook URL configured")
     headers = {"Content-Type": "application/json", "User-Agent": f"NetworkMonitor/{__version__}"}
     try:
-        async with httpx.AsyncClient(
+        async with guarded_client(  # [1.4.1] SSRF egress filter
             verify=httpx_verify(True), timeout=TIMEOUT_S, trust_env=True
         ) as client:
             resp = await client.post(
@@ -274,6 +275,8 @@ async def send_teams(config: dict[str, Any], body: dict[str, Any]) -> None:
                 content=json.dumps(body, ensure_ascii=False).encode("utf-8"),
                 headers=headers,
             )
+    except EgressBlocked as exc:
+        raise TeamsError(_scrub(str(exc), url)) from None
     except httpx.TimeoutException:
         raise TeamsError("Teams request timed out") from None
     except httpx.HTTPError as exc:

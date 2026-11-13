@@ -37,7 +37,7 @@ async def websocket(ws: WebSocket) -> None:
         return
     try:
         async with rt.sessionmaker() as session:
-            user, _ = await authenticate(rt, session, ws.cookies.get(COOKIE_NAME))
+            user, claims = await authenticate(rt, session, ws.cookies.get(COOKIE_NAME))
     except ApiError:
         await ws.close(code=4401)
         return
@@ -47,7 +47,9 @@ async def websocket(ws: WebSocket) -> None:
         "hello",
         {"user": user_out(user), "version": rt.version, "timescale": rt.timescale_enabled},
     )
-    client = rt.hub.register(ws, first=hello, user_id=user.id, is_admin=user.role == "admin")
+    client = rt.hub.register(
+        ws, first=hello, user_id=user.id, is_admin=user.role == "admin", sid=claims.get("sid")
+    )
     try:
         while True:
             raw = await ws.receive_text()
