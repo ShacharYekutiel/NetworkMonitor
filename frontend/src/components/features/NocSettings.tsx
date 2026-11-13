@@ -47,7 +47,7 @@ export function QrCode({ text, size = 192 }: { text: string; size?: number }) {
       role="img"
       aria-label="QR"
       data-testid="qr"
-      className="rounded bg-white"
+      className="rounded bg-surface"
     >
       <rect width={n} height={n} fill="#fff" />
       <path d={d} fill="#000" />
@@ -80,7 +80,7 @@ export function ShowUrlDialog({
       }
     >
       <div className="space-y-3" data-testid="kiosk-url-dialog">
-        <p className="text-sm text-amber-700 dark:text-amber-300">{t('kiosk.urlOnce')}</p>
+        <p className="text-sm text-status-warning">{t('kiosk.urlOnce')}</p>
         <div className="flex gap-2">
           <Input
             readOnly
@@ -100,7 +100,7 @@ export function ShowUrlDialog({
         <div className="flex justify-center">
           <QrCode text={url} />
         </div>
-        <p className="text-xs text-slate-500">{t('kiosk.urlHint')}</p>
+        <p className="text-xs text-ink-muted">{t('kiosk.urlHint')}</p>
       </div>
     </Modal>
   );
@@ -202,7 +202,7 @@ function ScreenModal({
             className="sm:col-span-2"
             hint={
               touched && src.error ? (
-                <span className="text-red-600">{t(src.error)}</span>
+                <span className="text-status-down">{t(src.error)}</span>
               ) : (
                 t('kiosk.sourcesHint')
               )
@@ -227,7 +227,7 @@ function ScreenModal({
             label={t('kiosk.refresh')}
             hint={
               touched && refErr ? (
-                <span className="text-red-600">{t(refErr)}</span>
+                <span className="text-status-down">{t(refErr)}</span>
               ) : (
                 t('kiosk.refreshHint')
               )
@@ -281,7 +281,7 @@ function ScreenModal({
             })}
           </ul>
           {touched && !widgets.length && (
-            <p className="text-xs text-red-600">{t('kiosk.err.widgets')}</p>
+            <p className="text-xs text-status-down">{t('kiosk.err.widgets')}</p>
           )}
         </FieldGroup>
         <div className="flex flex-col gap-1.5">
@@ -345,9 +345,7 @@ export function NocTab({ settings }: { settings: Settings }) {
           )
         }
       >
-        <p className="border-b border-slate-200 px-4 py-2 text-xs text-slate-500 dark:border-slate-800">
-          {t('kiosk.intro')}
-        </p>
+        <p className="border-b border-line px-4 py-2 text-xs text-ink-muted">{t('kiosk.intro')}</p>
         {q.isLoading && <Loading />}
         <ErrorBox error={q.error} className="m-3" />
         {q.data && !q.data.items.length && <Empty>{t('kiosk.empty')}</Empty>}
@@ -369,9 +367,9 @@ export function NocTab({ settings }: { settings: Settings }) {
                   <td className={td}>
                     <span className="font-medium">{s.name}</span>
                     {!s.enabled && (
-                      <span className="ms-1 text-xs text-slate-500">({t('kiosk.disabled')})</span>
+                      <span className="ms-1 text-xs text-ink-muted">({t('kiosk.disabled')})</span>
                     )}
-                    <div className="text-xs text-slate-500">
+                    <div className="text-xs text-ink-muted">
                       {s.widgets.map((w) => t(`kiosk.widget.${w}`)).join(' · ')}
                     </div>
                   </td>
@@ -391,7 +389,7 @@ export function NocTab({ settings }: { settings: Settings }) {
                       <>
                         {formatDateTime(s.last_seen_at)}
                         {s.last_seen_ip && (
-                          <bdi dir="ltr" className="ms-1 text-xs text-slate-500">
+                          <bdi dir="ltr" className="ms-1 text-xs text-ink-muted">
                             {s.last_seen_ip}
                           </bdi>
                         )}

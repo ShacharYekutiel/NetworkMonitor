@@ -37,7 +37,7 @@ function FacilityMenu({ value, onChange }: { value: number[]; onChange: (v: numb
         <bdi dir="ltr">{value.length ? value.map(facilityLabel).join(', ') : t('logs.any')}</bdi>
       </Button>
       {open && (
-        <div className="absolute start-0 z-30 mt-1 w-80 rounded-md bg-white p-3 shadow-lg ring-1 ring-slate-200 dark:bg-slate-900 dark:ring-slate-700">
+        <div className="absolute start-0 z-30 mt-1 w-80 rounded-md bg-surface p-3 shadow-pop ring-1 ring-line">
           <FacilityPicker value={value} onChange={onChange} />
           <div className="mt-2 flex justify-end">
             <Button size="sm" variant="ghost" onClick={() => onChange([])}>

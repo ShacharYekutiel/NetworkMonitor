@@ -6,6 +6,8 @@ import { BarChart } from 'echarts/charts';
 import { GridComponent, TooltipComponent } from 'echarts/components';
 import { CanvasRenderer } from 'echarts/renderers';
 import { endpoints3b, qk3b } from '../api/endpoints3b';
+import { usageTooltipHtml } from '../lib/html';
+import { chartTokens } from '../lib/chartTokens';
 import type { UsageReport } from '../api/types';
 import {
   Button,
@@ -52,34 +54,56 @@ function DailyBars({ r }: { r: UsageReport }) {
   useEffect(() => {
     const c = chart.current;
     if (!c) return;
-    const text = dark ? '#cbd5e1' : '#475569';
-    const grid = dark ? '#1e293b' : '#e2e8f0';
+    const tk = chartTokens(dark);
+    const text = tk.inkSubtle;
+    const grid = tk.chartGrid;
     c.setOption(
       {
         animation: false,
-        textStyle: { color: text },
+        textStyle: { color: text, fontFamily: tk.fontSans },
         grid: { left: 56, right: 16, top: 16, bottom: 32 },
         tooltip: {
           trigger: 'axis',
+          backgroundColor: tk.surfaceRaised,
+          borderColor: tk.border,
+          textStyle: { color: tk.ink, fontSize: 12 },
           formatter: (params: unknown) => {
             const p = (params as { dataIndex: number }[])[0];
             const d = r.by_day[p?.dataIndex ?? 0];
             if (!d) return '';
-            return `${d.day}<br/>${t('usage.tokens')}: <b>${compactTokens(d.tokens)}</b><br/>${t('usage.questions')}: ${d.questions}${d.cost_estimate !== null ? `<br/>≈ ${formatCost(d.cost_estimate, r.currency)}` : ''}`;
+            // [1.4.1] escaped (the currency is a free-text setting)
+            return usageTooltipHtml({
+              day: d.day,
+              tokens: compactTokens(d.tokens),
+              questions: d.questions,
+              cost: d.cost_estimate !== null ? formatCost(d.cost_estimate, r.currency) : null,
+              labels: { tokens: t('usage.tokens'), questions: t('usage.questions') },
+            });
           },
         },
         xAxis: {
           type: 'category',
           data: r.by_day.map((d) => d.day.slice(8)),
           axisLine: { lineStyle: { color: grid } },
+          axisLabel: { color: text, fontFamily: tk.fontMono, fontSize: 10.5 },
         },
         yAxis: {
           type: 'value',
           splitLine: { lineStyle: { color: grid } },
-          axisLabel: { formatter: (v: number) => compactTokens(v) },
+          axisLabel: {
+            color: text,
+            fontFamily: tk.fontMono,
+            fontSize: 10.5,
+            formatter: (v: number) => compactTokens(v),
+          },
         },
         series: [
-          { type: 'bar', data: r.by_day.map((d) => d.tokens), itemStyle: { color: '#7c3aed' } },
+          {
+            type: 'bar',
+            barMaxWidth: 24,
+            data: r.by_day.map((d) => d.tokens),
+            itemStyle: { color: tk.chart1 },
+          },
         ],
       },
       true,
@@ -100,18 +124,27 @@ function Tile({
   tone?: 'ok' | 'warn' | 'error';
 }) {
   return (
-    <div className="rounded-lg bg-white p-3 shadow-sm ring-1 ring-slate-200 dark:bg-slate-900 dark:ring-slate-800">
-      <div className="text-xs text-slate-500">{label}</div>
+    <div
+      className={cx(
+        'min-w-0 rounded-lg border border-line px-4 pb-2.5 pt-3',
+        tone === 'warn'
+          ? 'bg-status-warning-soft'
+          : tone === 'error'
+            ? 'bg-status-down-soft'
+            : 'bg-surface',
+      )}
+    >
+      <div className="truncate text-[13px] font-medium text-ink-muted">{label}</div>
       <div
         className={cx(
-          'text-xl font-semibold tabular-nums',
-          tone === 'warn' && 'text-amber-600',
-          tone === 'error' && 'text-red-600',
+          'mt-2 font-display text-[28px] font-semibold leading-8 tracking-[-0.01em] tabular-nums',
+          tone === 'warn' && 'text-status-warning',
+          tone === 'error' && 'text-status-down',
         )}
       >
         {value}
       </div>
-      {sub && <div className="text-xs text-slate-500">{sub}</div>}
+      {sub && <div className="mt-0.5 text-xs text-ink-muted">{sub}</div>}
     </div>
   );
 }
@@ -275,7 +308,7 @@ export function AssistantUsagePage() {
                                 {friendlyModelName(m.model_id)}
                                 <bdi
                                   dir="ltr"
-                                  className="block font-mono text-[11px] text-slate-500"
+                                  className="block font-mono text-[11px] text-ink-muted"
                                 >
                                   {m.model_id}
                                 </bdi>
@@ -289,7 +322,7 @@ export function AssistantUsagePage() {
                             {compactTokens(m.input_tokens)}
                             {m.cache_read_tokens > 0 && (
                               <span
-                                className="block text-[11px] text-slate-500"
+                                className="block text-[11px] text-ink-muted"
                                 title={t('usage.cacheRead')}
                               >
                                 +{compactTokens(m.cache_read_tokens)} {t('usage.cached')}
@@ -355,7 +388,7 @@ export function AssistantUsagePage() {
               ) : (
                 <Empty>{t('usage.noErrors')}</Empty>
               )}
-              <p className="border-t border-slate-200 px-3 py-2 text-xs text-slate-500 dark:border-slate-800">
+              <p className="border-t border-line px-3 py-2 text-xs text-ink-muted">
                 {t('usage.feedback', {
                   up: r.feedback.up,
                   down: r.feedback.down,
@@ -394,7 +427,7 @@ export function AssistantUsagePage() {
               </tbody>
             </Table>
           </Card>
-          <p className="text-xs text-slate-500">{t('usage.kbNote')}</p>
+          <p className="text-xs text-ink-muted">{t('usage.kbNote')}</p>
         </>
       )}
     </div>

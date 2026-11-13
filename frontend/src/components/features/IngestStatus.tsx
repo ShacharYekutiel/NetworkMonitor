@@ -19,9 +19,9 @@ export function useIngestStatus(refetch = 30_000) {
 }
 
 const STATE_CLS: Record<ReceiverStatus['state'], string> = {
-  listening: 'text-green-700 dark:text-green-400',
-  error: 'text-red-600 dark:text-red-400',
-  disabled: 'text-slate-500',
+  listening: 'text-status-up',
+  error: 'text-status-down',
+  disabled: 'text-ink-muted',
 };
 
 function proto(k: ReceiverStatus['kind']) {
@@ -64,9 +64,7 @@ export function IngestStatusLine() {
           })}
         </span>
       )}
-      {d.nat_suspected && (
-        <span className="text-amber-700 dark:text-amber-300">{t('ingest.natShort')}</span>
-      )}
+      {d.nat_suspected && <span className="text-status-warning">{t('ingest.natShort')}</span>}
     </span>
   );
 }
@@ -77,26 +75,21 @@ function Counters({ title, c }: { title: string; c: IngestCounters }) {
   const total = DROP_REASONS.reduce((a, r) => a + (c.dropped[r] ?? 0), 0);
   return (
     <div className="min-w-0">
-      <div className="mb-1 text-xs font-semibold text-slate-600 dark:text-slate-300">{title}</div>
+      <div className="mb-1 text-xs font-semibold text-ink-muted">{title}</div>
       <dl className="grid grid-cols-2 gap-x-3 gap-y-0.5 text-xs">
-        <dt className="text-slate-500">{t('ingest.received')}</dt>
+        <dt className="text-ink-muted">{t('ingest.received')}</dt>
         <dd className="tabular-nums">{formatNumber(c.received, 0)}</dd>
-        <dt className="text-slate-500">{t('ingest.stored')}</dt>
+        <dt className="text-ink-muted">{t('ingest.stored')}</dt>
         <dd className="tabular-nums">{formatNumber(c.stored, 0)}</dd>
-        <dt className="text-slate-500">{t('ingest.forwarded')}</dt>
+        <dt className="text-ink-muted">{t('ingest.forwarded')}</dt>
         <dd className="tabular-nums">{formatNumber(c.forwarded, 0)}</dd>
-        <dt className="text-slate-500">{t('ingest.dropped')}</dt>
-        <dd
-          className={cx(
-            'tabular-nums',
-            total > 0 && 'font-semibold text-amber-700 dark:text-amber-300',
-          )}
-        >
+        <dt className="text-ink-muted">{t('ingest.dropped')}</dt>
+        <dd className={cx('tabular-nums', total > 0 && 'font-semibold text-status-warning')}>
           {formatNumber(total, 0)}
         </dd>
         {dropped.map((r) => (
           <div key={r} className="contents">
-            <dt className="ps-3 text-slate-500">{t(`ingest.drop.${r}`)}</dt>
+            <dt className="ps-3 text-ink-muted">{t(`ingest.drop.${r}`)}</dt>
             <dd className="tabular-nums">{formatNumber(c.dropped[r], 0)}</dd>
           </div>
         ))}
@@ -110,11 +103,11 @@ export function IngestStatusBody({ d }: { d: IngestStatus }) {
   return (
     <div className="space-y-4" data-testid="ingest-status">
       {d.nat_suspected && (
-        <div className="rounded-md bg-amber-50 px-3 py-2 text-sm text-amber-900 ring-1 ring-inset ring-amber-200 dark:bg-amber-950/40 dark:text-amber-200 dark:ring-amber-900">
+        <div className="rounded-md bg-status-warning-soft px-3 py-2 text-sm text-status-warning">
           {t('ingest.nat', { addr: d.nat_address ?? '?' })}
         </div>
       )}
-      {!d.trgm && <p className="text-xs text-slate-500">{t('ingest.noTrgm')}</p>}
+      {!d.trgm && <p className="text-xs text-ink-muted">{t('ingest.noTrgm')}</p>}
       <Table>
         <thead>
           <tr>
@@ -141,7 +134,7 @@ export function IngestStatusBody({ d }: { d: IngestStatus }) {
                   </div>
                 )}
               </td>
-              <td className={cx(td, 'text-slate-500')} title={formatDateTime(r.since)}>
+              <td className={cx(td, 'text-ink-muted')} title={formatDateTime(r.since)}>
                 {r.since ? formatRelative(r.since) : '—'}
               </td>
             </tr>
@@ -153,27 +146,25 @@ export function IngestStatusBody({ d }: { d: IngestStatus }) {
         <Counters title={t('logs.tab.traps')} c={d.counters.trap} />
         <div className="text-xs">
           <dl className="grid grid-cols-2 gap-x-3 gap-y-0.5">
-            <dt className="text-slate-500">{t('ingest.rateSyslog')}</dt>
+            <dt className="text-ink-muted">{t('ingest.rateSyslog')}</dt>
             <dd className="tabular-nums">{formatNumber(d.rate_per_min.syslog, 1)}</dd>
-            <dt className="text-slate-500">{t('ingest.rateTrap')}</dt>
+            <dt className="text-ink-muted">{t('ingest.rateTrap')}</dt>
             <dd className="tabular-nums">{formatNumber(d.rate_per_min.trap, 1)}</dd>
-            <dt className="text-slate-500">{t('ingest.queue')}</dt>
+            <dt className="text-ink-muted">{t('ingest.queue')}</dt>
             <dd className="tabular-nums">
               {d.queue.syslog + d.queue.trap} / {d.queue.capacity}
             </dd>
-            <dt className="text-slate-500">{t('ingest.tcpConnections')}</dt>
+            <dt className="text-ink-muted">{t('ingest.tcpConnections')}</dt>
             <dd className="tabular-nums">{d.tcp_connections}</dd>
           </dl>
-          <p className="mt-2 text-slate-500">
+          <p className="mt-2 text-ink-muted">
             {t('ingest.countersSince', { time: formatDateTime(d.counters_since) })}
           </p>
         </div>
       </div>
       {d.v3_failures.length > 0 && (
         <div>
-          <h4 className="mb-1 text-xs font-semibold text-slate-600 dark:text-slate-300">
-            {t('ingest.v3Failures')}
-          </h4>
+          <h4 className="mb-1 text-xs font-semibold text-ink-muted">{t('ingest.v3Failures')}</h4>
           <Table>
             <thead>
               <tr>

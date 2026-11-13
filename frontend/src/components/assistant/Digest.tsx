@@ -8,17 +8,31 @@ import { useLiveMessages } from '../../hooks/live';
 import { nmRoute } from '../../lib/assistant';
 import { formatDateTime } from '../../lib/format';
 import { Pagination } from '../Pagination';
-import { Button, Card, Checkbox, cx, Empty, ErrorBox, Loading, Table, td, th } from '../ui';
+import {
+  Button,
+  Card,
+  Checkbox,
+  cx,
+  Empty,
+  ErrorBox,
+  Loading,
+  Select,
+  Table,
+  TAG,
+  TAG_TONE,
+  td,
+  th,
+} from '../ui';
 import { Markdown } from './AnswerView';
 import { AiNotice } from './common';
 
 const PAGE = 30;
 
 const STATUS_CLS: Record<DigestStatus, string> = {
-  ok: 'text-green-700 dark:text-green-400',
-  failed: 'text-red-600',
-  skipped: 'text-slate-500',
-  running: 'text-sky-600',
+  ok: 'text-status-up',
+  failed: 'text-status-down',
+  skipped: 'text-ink-muted',
+  running: 'text-accent-ink',
 };
 
 /** The last 7 local days (YYYY-MM-DD), yesterday first: the days a manual run may target. */
@@ -49,10 +63,10 @@ function RunNow({ day: initial }: { day?: string }) {
   return (
     <div className="flex flex-wrap items-center gap-2">
       {!initial && (
-        <select
+        <Select
           value={day}
           onChange={(e) => setDay(e.target.value)}
-          className="rounded-md border-0 bg-white py-1 text-sm ring-1 ring-inset ring-slate-300 dark:bg-slate-900 dark:ring-slate-700"
+          className="w-auto font-mono"
           aria-label={t('digest.day')}
           dir="ltr"
         >
@@ -61,7 +75,7 @@ function RunNow({ day: initial }: { day?: string }) {
               {d}
             </option>
           ))}
-        </select>
+        </Select>
       )}
       <Checkbox label={t('digest.sendToo')} checked={send} onChange={setSend} />
       <Button size="sm" onClick={() => run.mutate()} busy={run.isPending}>
@@ -108,7 +122,7 @@ export function DigestList() {
                   <td className={td}>
                     <Link
                       to={`/assistant/digests/${d.day}`}
-                      className="font-medium text-sky-700 hover:underline dark:text-sky-400"
+                      className="font-medium text-accent-ink hover:underline"
                       dir="ltr"
                     >
                       {d.day}
@@ -137,7 +151,7 @@ export function DigestList() {
 function KeyCell({ row }: { row: DigestRow }) {
   const route = row.ref ? nmRoute(row.ref) : null;
   return route ? (
-    <Link to={route} className="text-sky-700 hover:underline dark:text-sky-400" dir="auto">
+    <Link to={route} className="text-accent-ink hover:underline" dir="auto">
       {row.key}
     </Link>
   ) : (
@@ -161,11 +175,11 @@ function StatTable({ title, rows }: { title: string; rows: DigestRow[] }) {
         </thead>
         <tbody>
           {rows.map((r) => (
-            <tr key={r.key} className={r.unusual ? 'bg-amber-50 dark:bg-amber-950/30' : ''}>
+            <tr key={r.key} className={r.unusual ? 'bg-status-warning-soft' : ''}>
               <td className={td}>
                 <KeyCell row={r} />
                 {r.unusual && (
-                  <span className="ms-1 rounded bg-amber-200 px-1 text-[10px] text-amber-900">
+                  <span className={cx(TAG, TAG_TONE.warning, 'ms-1')}>
                     {t('digest.unusualBadge')}
                   </span>
                 )}
@@ -201,15 +215,17 @@ export function DigestView({ d }: { d: Digest }) {
               newTypes: d.new_types,
             })}
           </p>
-          {d.baseline_days < 3 && <p className="text-xs text-amber-700">{t('digest.learning')}</p>}
-          {d.stats.sampled && <p className="text-xs text-amber-700">{t('digest.sampled')}</p>}
+          {d.baseline_days < 3 && (
+            <p className="text-xs text-status-warning">{t('digest.learning')}</p>
+          )}
+          {d.stats.sampled && <p className="text-xs text-status-warning">{t('digest.sampled')}</p>}
           {d.ai_markdown ? (
             <>
               <Markdown text={d.ai_markdown} />
               <AiNotice />
             </>
           ) : (
-            <p className="text-sm text-slate-500">{t('digest.aiUnavailable')}</p>
+            <p className="text-sm text-ink-muted">{t('digest.aiUnavailable')}</p>
           )}
         </div>
       </Card>
@@ -229,7 +245,7 @@ export function DigestView({ d }: { d: Digest }) {
                   <tr key={n.signature}>
                     <td className={`${td} font-mono text-xs`} dir="ltr">
                       {route ? (
-                        <Link to={route} className="text-sky-700 hover:underline dark:text-sky-400">
+                        <Link to={route} className="text-accent-ink hover:underline">
                           {n.example || n.sample}
                         </Link>
                       ) : (
@@ -255,7 +271,7 @@ export function DigestView({ d }: { d: Digest }) {
             {d.stats.by_hour.map(([h, n]) => (
               <div
                 key={h}
-                className="flex-1 rounded-t bg-sky-500/70"
+                className="flex-1 rounded-t bg-accent"
                 style={{ height: `${(n / maxHour) * 100}%` }}
                 title={`${String(h).padStart(2, '0')}:00 — ${n}`}
               />
@@ -267,7 +283,7 @@ export function DigestView({ d }: { d: Digest }) {
         <Card title={t('digest.deliveries')}>
           <ul className="space-y-0.5 text-xs">
             {d.deliveries.map((x, i) => (
-              <li key={i} className={x.ok ? 'text-green-700 dark:text-green-400' : 'text-red-600'}>
+              <li key={i} className={x.ok ? 'text-status-up' : 'text-status-down'}>
                 <bdi dir="ltr">{x.target}</bdi> · {formatDateTime(x.at)}
                 {x.error && ` · ${x.error}`}
               </li>

@@ -1,17 +1,18 @@
 // [2b-3] Device timeline helpers (architecture.md § 12.9). Pure.
 import type { TimelineItem, TimelineKind } from '../api/types';
 
+/** Kind markers: kinds are not statuses, so they use the neutral and chart tokens. */
 export const TIMELINE_TONE: Record<TimelineKind, string> = {
-  status: 'bg-sky-600',
-  notification: 'bg-violet-600',
-  ack: 'bg-emerald-600',
-  maintenance: 'bg-slate-500',
-  trap: 'bg-orange-500',
-  syslog: 'bg-amber-500',
-  port: 'bg-cyan-600',
-  audit: 'bg-slate-700',
-  config: 'bg-indigo-600',
-  new_mac: 'bg-rose-600',
+  status: 'bg-ink',
+  notification: 'bg-chart-2',
+  ack: 'bg-ack',
+  maintenance: 'bg-status-paused',
+  trap: 'bg-chart-3',
+  syslog: 'bg-chart-3',
+  port: 'bg-chart-4',
+  audit: 'bg-ink-subtle',
+  config: 'bg-chart-1',
+  new_mac: 'bg-accent',
 };
 
 /** Kinds offered as filter chips (trap/syslog/audit only while those features are on). */

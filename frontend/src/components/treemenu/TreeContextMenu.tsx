@@ -192,7 +192,7 @@ const ICONS: Partial<Record<TreeMenuAction, ReactNode>> = {
   tabPorts: <PortIcon size={14} />,
   tabTimeline: <ClockIcon size={14} />,
   tabConfig: <BackupIcon size={14} />,
-  explain: <SparkIcon size={14} className="text-violet-600" />,
+  explain: <SparkIcon size={14} className="text-accent-ink" />,
   copyIp: <CopyIcon size={14} />,
   copyName: <CopyIcon size={14} />,
   acknowledge: <CheckIcon size={14} />,
@@ -598,17 +598,17 @@ export function TreeMenuProvider({ children }: { children: ReactNode }) {
           role="status"
           aria-live="polite"
           data-testid="tree-bulk-progress"
-          className="fixed bottom-4 start-4 z-[60] w-72 rounded-md bg-white p-3 text-sm shadow-lg ring-1 ring-slate-200 dark:bg-slate-900 dark:ring-slate-700"
+          className="fixed bottom-4 start-4 z-[60] w-72 rounded-lg border border-line bg-surface-raised p-3 text-sm shadow-pop"
         >
           <div className="mb-1.5 flex justify-between gap-2">
             <span className="truncate">{bulk.label}</span>
-            <span className="shrink-0 tabular-nums text-slate-500">
+            <span className="shrink-0 tabular-nums text-ink-muted">
               {bulk.done}/{bulk.total}
             </span>
           </div>
-          <div className="h-1.5 overflow-hidden rounded bg-slate-200 dark:bg-slate-700">
+          <div className="h-1.5 overflow-hidden rounded bg-surface-hover">
             <div
-              className="h-full bg-sky-600 transition-[width]"
+              className="h-full bg-accent transition-[width]"
               style={{ width: `${(bulk.done / bulk.total) * 100}%` }}
             />
           </div>

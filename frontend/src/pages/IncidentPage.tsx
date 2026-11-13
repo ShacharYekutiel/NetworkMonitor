@@ -12,7 +12,19 @@ import {
   useIncidentTitle,
 } from '../components/assistant/Incidents';
 import { StatusBadge } from '../components/Status';
-import { Button, Card, ErrorBox, Loading, PageHeader, Table, td, th } from '../components/ui';
+import {
+  Button,
+  Card,
+  cx,
+  ErrorBox,
+  Loading,
+  PageHeader,
+  Table,
+  TAG,
+  TAG_TONE,
+  td,
+  th,
+} from '../components/ui';
 import { FeatureOffNotice } from '../hooks/features';
 import { useLiveMessages } from '../hooks/live';
 import { formatDateTime } from '../lib/format';
@@ -32,15 +44,15 @@ function TimelineStrip({
 }) {
   const span = Math.max(1, end - start);
   return (
-    <div className="relative h-6 rounded bg-slate-100 dark:bg-slate-800" aria-hidden>
+    <div className="relative h-6 rounded bg-surface-sunken" aria-hidden>
       {members.map((m) => {
         const pos = ((Date.parse(m.time) - start) / span) * 100;
         const cls =
           m.status === 'warning'
-            ? 'bg-amber-500'
+            ? 'bg-status-warning'
             : m.status === 'unreachable'
-              ? 'bg-red-400'
-              : 'bg-red-600';
+              ? 'bg-status-down'
+              : 'bg-status-down';
         return (
           <span
             key={m.event_id}
@@ -96,10 +108,7 @@ export function IncidentPage() {
     <div className="space-y-4">
       <PageHeader
         breadcrumbs={
-          <Link
-            to="/events?tab=incidents"
-            className="text-xs text-sky-700 hover:underline dark:text-sky-400"
-          >
+          <Link to="/events?tab=incidents" className="text-xs text-accent-ink hover:underline">
             {t('incident.all')}
           </Link>
         }
@@ -134,7 +143,7 @@ export function IncidentPage() {
                 {i.ai.summary}
               </p>
               {i.ai.root_guess && (
-                <p className="text-xs text-slate-500">
+                <p className="text-xs text-ink-muted">
                   {t('incident.rootGuess', {
                     name:
                       i.root_candidates.find((c) => c.id === i.ai!.root_guess!.device_id)?.name ??
@@ -148,7 +157,7 @@ export function IncidentPage() {
               <AiNotice />
             </div>
           ) : (
-            <p className="text-sm text-slate-500">{t('incident.noAi')}</p>
+            <p className="text-sm text-ink-muted">{t('incident.noAi')}</p>
           )}
           {i.root_candidates.length > 0 && (
             <p className="text-sm">
@@ -156,10 +165,7 @@ export function IncidentPage() {
               {i.root_candidates.map((c, n) => (
                 <span key={c.id}>
                   {n > 0 && ', '}
-                  <Link
-                    to={`/devices/${c.id}`}
-                    className="text-sky-700 hover:underline dark:text-sky-400"
-                  >
+                  <Link to={`/devices/${c.id}`} className="text-accent-ink hover:underline">
                     {c.name}
                   </Link>
                 </span>
@@ -167,7 +173,7 @@ export function IncidentPage() {
             </p>
           )}
           <TimelineStrip members={i.members} start={start} end={end} />
-          <p className="text-xs text-slate-500">{t('incident.noAckAll')}</p>
+          <p className="text-xs text-ink-muted">{t('incident.noAckAll')}</p>
         </div>
       </Card>
       <Card title={t('incident.members', { count: i.member_count })} bodyClassName="p-0">
@@ -198,7 +204,7 @@ export function IncidentPage() {
                         m.device_name
                       ))}
                     {n === 0 && m.is_root && (
-                      <span className="ms-1 rounded bg-slate-200 px-1 text-[10px] dark:bg-slate-700">
+                      <span className={cx(TAG, TAG_TONE.neutral, 'ms-1')}>
                         {t('incident.root')}
                       </span>
                     )}
@@ -207,7 +213,7 @@ export function IncidentPage() {
                     {m.sensor_id ? (
                       <Link
                         to={`/sensors/${m.sensor_id}`}
-                        className="text-sky-700 hover:underline dark:text-sky-400"
+                        className="text-accent-ink hover:underline"
                       >
                         {m.sensor_name}
                       </Link>

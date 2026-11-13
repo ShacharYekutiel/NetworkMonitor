@@ -41,8 +41,8 @@ export function ResultBadge({ s }: { s: Pick<BackupStatus, 'last_result' | 'runn
   const { t } = useTranslation();
   if (s.running)
     return (
-      <span className="inline-flex items-center gap-1 rounded bg-sky-100 px-1.5 py-0.5 text-xs font-medium text-sky-800 dark:bg-sky-900/40 dark:text-sky-200">
-        <span className="h-2 w-2 animate-pulse rounded-full bg-sky-500" />
+      <span className="inline-flex items-center gap-1 rounded bg-accent-soft px-1.5 py-0.5 text-xs font-medium text-accent-ink">
+        <span className="h-2 w-2 rounded-full bg-accent" />
         {t('configBackup.running')}
       </span>
     );
@@ -51,10 +51,10 @@ export function ResultBadge({ s }: { s: Pick<BackupStatus, 'last_result' | 'runn
     <span
       className={cx(
         'rounded px-1.5 py-0.5 text-xs font-medium',
-        tone === 'ok' && 'bg-green-100 text-green-800 dark:bg-green-900/40 dark:text-green-200',
-        tone === 'error' && 'bg-red-100 text-red-800 dark:bg-red-900/40 dark:text-red-200',
-        tone === 'warn' && 'bg-amber-100 text-amber-800 dark:bg-amber-900/40 dark:text-amber-200',
-        tone === 'muted' && 'bg-slate-100 text-slate-700 dark:bg-slate-800 dark:text-slate-300',
+        tone === 'ok' && 'bg-status-up-soft text-status-up',
+        tone === 'error' && 'bg-status-down-soft text-status-down',
+        tone === 'warn' && 'bg-status-warning-soft text-status-warning',
+        tone === 'muted' && 'bg-surface-sunken text-ink',
       )}
     >
       {s.last_result ? t(`configBackup.result.${s.last_result}`) : t('configBackup.never')}
@@ -78,11 +78,11 @@ function useWide(minPx: number): boolean {
 }
 
 const rowTone: Record<DiffRow['type'], string> = {
-  add: 'bg-green-50 text-green-900 dark:bg-green-950/40 dark:text-green-200',
-  del: 'bg-red-50 text-red-900 dark:bg-red-950/40 dark:text-red-200',
-  hunk: 'bg-sky-50 text-sky-800 dark:bg-sky-950/40 dark:text-sky-300',
+  add: 'bg-status-up-soft text-status-up',
+  del: 'bg-status-down-soft text-status-down',
+  hunk: 'bg-accent-soft text-accent-ink',
   context: '',
-  meta: 'text-slate-500',
+  meta: 'text-ink-muted',
 };
 
 function UnifiedDiff({ rows, hl }: { rows: DiffRow[]; hl?: ReadonlySet<number> }) {
@@ -99,12 +99,12 @@ function UnifiedDiff({ rows, hl }: { rows: DiffRow[]; hl?: ReadonlySet<number> }
               data-diff-line={line}
               className={cx(
                 rowTone[r.type],
-                hl?.has(line) && 'outline outline-2 outline-amber-400',
+                hl?.has(line) && 'outline outline-2 -outline-offset-2 outline-status-warning',
               )}
             >
-              <td className="w-10 select-none pe-2 text-right text-slate-400">{r.oldNo ?? ''}</td>
-              <td className="w-10 select-none pe-2 text-right text-slate-400">{r.newNo ?? ''}</td>
-              <td className="w-4 select-none text-slate-500">
+              <td className="w-10 select-none pe-2 text-right text-ink-subtle">{r.oldNo ?? ''}</td>
+              <td className="w-10 select-none pe-2 text-right text-ink-subtle">{r.newNo ?? ''}</td>
+              <td className="w-4 select-none text-ink-muted">
                 {r.type === 'add' ? '+' : r.type === 'del' ? '−' : ''}
               </td>
               <td className="whitespace-pre-wrap break-all text-left">{r.text}</td>
@@ -135,7 +135,7 @@ function SideDiff({ rows }: { rows: DiffRow[] }) {
             </tr>
           ) : (
             <tr key={i}>
-              <td className="select-none pe-2 text-right text-slate-400">{p.left?.oldNo ?? ''}</td>
+              <td className="select-none pe-2 text-right text-ink-subtle">{p.left?.oldNo ?? ''}</td>
               <td
                 className={cx(
                   'whitespace-pre-wrap break-all text-left',
@@ -144,7 +144,9 @@ function SideDiff({ rows }: { rows: DiffRow[] }) {
               >
                 {p.left?.text ?? ''}
               </td>
-              <td className="select-none pe-2 text-right text-slate-400">{p.right?.newNo ?? ''}</td>
+              <td className="select-none pe-2 text-right text-ink-subtle">
+                {p.right?.newNo ?? ''}
+              </td>
               <td
                 className={cx(
                   'whitespace-pre-wrap break-all text-left',
@@ -214,9 +216,9 @@ function DiffView({
         )
       }
     >
-      <div className="flex flex-wrap items-end gap-2 border-b border-slate-200 p-3 text-sm dark:border-slate-800">
+      <div className="flex flex-wrap items-end gap-2 border-b border-line p-3 text-sm">
         <label className="flex items-center gap-1">
-          <span className="text-xs text-slate-500">{t('configBackup.from')}</span>
+          <span className="text-xs text-ink-muted">{t('configBackup.from')}</span>
           <Select value={from} onChange={(e) => setFrom(Number(e.target.value))} className="w-auto">
             {versions.map((v) => (
               <option key={v.id} value={v.id}>
@@ -226,7 +228,7 @@ function DiffView({
           </Select>
         </label>
         <label className="flex items-center gap-1">
-          <span className="text-xs text-slate-500">{t('configBackup.to')}</span>
+          <span className="text-xs text-ink-muted">{t('configBackup.to')}</span>
           <Select
             value={to ?? ''}
             onChange={(e) => setTo(e.target.value ? Number(e.target.value) : null)}
@@ -257,9 +259,7 @@ function DiffView({
         />
       )}
       {q.data?.truncated && (
-        <p className="px-3 pt-2 text-xs text-amber-700 dark:text-amber-300">
-          {t('configBackup.diffTruncated')}
-        </p>
+        <p className="px-3 pt-2 text-xs text-status-warning">{t('configBackup.diffTruncated')}</p>
       )}
       {q.data && !rows.some((r) => r.type === 'add' || r.type === 'del') && (
         <Empty>{t('configBackup.noDifferences')}</Empty>
@@ -300,13 +300,13 @@ function ContentView({ deviceId, version }: { deviceId: number; version: ConfigV
       {q.data && (
         <div className="max-h-[70vh] overflow-auto p-2" data-testid="config-content">
           {version.masked && (
-            <p className="mb-1 text-xs text-slate-500">{t('configBackup.maskedNote')}</p>
+            <p className="mb-1 text-xs text-ink-muted">{t('configBackup.maskedNote')}</p>
           )}
           <table dir="ltr" className="font-mono text-xs">
             <tbody>
               {lines.map((l, i) => (
                 <tr key={i}>
-                  <td className="select-none pe-3 text-right align-top text-slate-400">{i + 1}</td>
+                  <td className="select-none pe-3 text-right align-top text-ink-subtle">{i + 1}</td>
                   <td className="whitespace-pre text-left">{l}</td>
                 </tr>
               ))}
@@ -340,15 +340,12 @@ function HostKeyCard({ device, s }: { device: Device; s: BackupStatus }) {
       done(t('hostKey.resetDone'));
     },
   });
-  if (!hk) return <p className="text-sm text-slate-500">{t('hostKey.none')}</p>;
+  if (!hk) return <p className="text-sm text-ink-muted">{t('hostKey.none')}</p>;
   const changed = hostKeyChanged(s);
   return (
     <div className="space-y-2 text-sm">
       {changed && (
-        <div
-          role="alert"
-          className="rounded-md bg-red-50 px-3 py-2 text-red-800 ring-1 ring-inset ring-red-200 dark:bg-red-950/40 dark:text-red-200 dark:ring-red-900"
-        >
+        <div role="alert" className="rounded-md bg-status-down-soft px-3 py-2 text-status-down">
           <p className="font-medium">{t('hostKey.changedTitle')}</p>
           <p className="text-xs">{t('hostKey.changedText')}</p>
         </div>
@@ -369,11 +366,7 @@ function HostKeyCard({ device, s }: { device: Device; s: BackupStatus }) {
             ? ([
                 [
                   t('hostKey.presented'),
-                  <bdi
-                    key="n"
-                    dir="ltr"
-                    className="break-all font-mono text-xs text-red-700 dark:text-red-300"
-                  >
+                  <bdi key="n" dir="ltr" className="break-all font-mono text-xs text-status-down">
                     {hk.presented_algorithm} {hk.presented_fingerprint}
                   </bdi>,
                 ],
@@ -497,7 +490,7 @@ export function ConfigTab({ device }: { device: Device }) {
                       <span key="d">
                         <bdi dir="ltr">{s.driver}</bdi>
                         {s.driver_source && (
-                          <span className="ms-1 text-xs text-slate-500">
+                          <span className="ms-1 text-xs text-ink-muted">
                             ({t(`driver.source.${s.driver_source}`)})
                           </span>
                         )}
@@ -515,14 +508,14 @@ export function ConfigTab({ device }: { device: Device }) {
                 ]}
               />
               {s.consecutive_failures > 0 && (
-                <p className="text-xs text-red-600">
+                <p className="text-xs text-status-down">
                   {t('configBackup.failures', { n: s.consecutive_failures })}
                 </p>
               )}
               {(s.last_error || s.last_message) && (
                 <pre
                   dir="ltr"
-                  className="whitespace-pre-wrap break-all rounded bg-slate-50 p-2 text-left font-mono text-xs text-slate-700 dark:bg-slate-800 dark:text-slate-200"
+                  className="whitespace-pre-wrap break-all rounded bg-surface-sunken p-2 text-left font-mono text-xs text-ink"
                 >
                   {[s.last_error, s.last_message].filter(Boolean).join('\n')}
                 </pre>
@@ -552,28 +545,28 @@ export function ConfigTab({ device }: { device: Device }) {
               </thead>
               <tbody>
                 {items.map((v, i) => (
-                  <tr key={v.id} className={cx(view === v.id && 'bg-sky-50 dark:bg-sky-900/20')}>
+                  <tr key={v.id} className={cx(view === v.id && 'bg-accent-soft')}>
                     <td className={`${td} tabular-nums`}>{v.version_no}</td>
                     <td className={td}>
                       {formatDateTime(v.collected_at)}
-                      <span className="ms-1 text-xs text-slate-500">
+                      <span className="ms-1 text-xs text-ink-muted">
                         ({formatRelative(v.collected_at)})
                       </span>
                     </td>
                     <td className={td}>{t(`configBackup.trigger.${v.trigger}`)}</td>
                     <td className={`${td} tabular-nums`}>
                       {v.initial ? (
-                        <span className="rounded bg-slate-100 px-1.5 py-0.5 text-xs dark:bg-slate-800">
+                        <span className="rounded bg-surface-sunken px-1.5 py-0.5 text-xs">
                           {t('configBackup.initial')}
                         </span>
                       ) : (
                         <bdi dir="ltr">
-                          <span className="text-green-700 dark:text-green-400">+{v.added}</span>{' '}
-                          <span className="text-red-600">−{v.removed}</span>
+                          <span className="text-status-up">+{v.added}</span>{' '}
+                          <span className="text-status-down">−{v.removed}</span>
                         </bdi>
                       )}
                       {v.is_latest && (
-                        <span className="ms-1 rounded bg-sky-100 px-1.5 py-0.5 text-xs text-sky-800 dark:bg-sky-900/40 dark:text-sky-200">
+                        <span className="ms-1 rounded bg-accent-soft px-1.5 py-0.5 text-xs text-accent-ink">
                           {t('configBackup.latest')}
                         </span>
                       )}
@@ -609,7 +602,7 @@ export function ConfigTab({ device }: { device: Device }) {
           </>
         )}
         {!isAdmin && items.length > 0 && (
-          <p className="px-3 pb-3 text-xs text-slate-500">{t('configBackup.adminOnly')}</p>
+          <p className="px-3 pb-3 text-xs text-ink-muted">{t('configBackup.adminOnly')}</p>
         )}
       </Card>
       {isAdmin && diff && (

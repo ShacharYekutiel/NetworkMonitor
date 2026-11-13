@@ -58,7 +58,7 @@ export function AckPage() {
   const r = q.data;
   const ackNow = done?.acknowledgement ?? r?.acknowledgement ?? null;
   return (
-    <AuthShell title={t('chatAck.pageTitle')}>
+    <AuthShell title={t('chatAck.pageTitle')} side={false}>
       <div className="space-y-4" data-testid="ack-page">
         {!features.chat_ack &&
         q.isError &&
@@ -78,16 +78,16 @@ export function AckPage() {
                     <StatusBadge status={(done ?? r.sensor).status} />
                     <Link
                       to={`/sensors/${r.sensor.id}`}
-                      className="font-semibold text-sky-700 hover:underline dark:text-sky-400"
+                      className="font-semibold text-accent-ink hover:underline"
                     >
                       {r.device_name} · {r.sensor.name}
                     </Link>
                   </div>
-                  <p className="text-slate-600 dark:text-slate-300">
+                  <p className="text-ink-muted">
                     <bdi dir="auto">{localize(r.sensor.status_message)}</bdi>
                   </p>
                   {r.problem_since && (
-                    <p className="text-xs text-slate-500">
+                    <p className="text-xs text-ink-muted">
                       {t('chatAck.since', {
                         time: formatDateTime(r.problem_since),
                         rel: formatRelative(r.problem_since),
@@ -97,7 +97,7 @@ export function AckPage() {
                 </div>
                 {!r.active && !done && <Notice>{t('chatAck.notActive')}</Notice>}
                 {ackNow && (
-                  <div className="rounded-md bg-sky-50 p-3 text-sm ring-1 ring-inset ring-sky-200 dark:bg-sky-950/40 dark:ring-sky-900">
+                  <div className="rounded-md bg-accent-soft p-3 text-sm">
                     <p className="mb-1 font-medium">{t('chatAck.already')}</p>
                     <AckDetails ack={ackNow} />
                   </div>
@@ -142,7 +142,7 @@ export function AckPage() {
           </>
         )}
         <p className="text-center text-xs">
-          <Link to="/" className="text-sky-700 hover:underline dark:text-sky-400">
+          <Link to="/" className="text-accent-ink hover:underline">
             {t('chatAck.openApp')}
           </Link>
         </p>

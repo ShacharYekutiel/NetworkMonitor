@@ -76,6 +76,18 @@ def validate_channel_config(
     return out
 
 
+async def check_channel_egress(type_: str, config: dict[str, Any]) -> None:
+    """[1.4.1] Early field error for a webhook / Teams URL the SSRF egress filter refuses
+    (the filter itself is enforced when the request is made, on every hop)."""
+    if type_ not in ("webhook", "teams"):
+        return
+    from netmon.util import egress
+
+    reason = await egress.url_block_reason(config.get("url"))
+    if reason:
+        raise validation_error(["body", "config", "url"], reason)
+
+
 CHANNEL_SECRETS = {"teams": ("config.url",), "telegram": ("config.bot_token",)}
 
 
@@ -116,6 +128,7 @@ async def create_channel(
     body: NotificationChannelCreate, _: Admin, rt: RT, session: DB, ctx: Audit
 ) -> dict:
     cfg = validate_channel_config(body.type, body.config)
+    await check_channel_egress(body.type, cfg)
     await _unique_channel_name(session, body.name.strip())
     ch = NotificationChannel(
         name=body.name.strip(), type=body.type, config=cfg, enabled=body.enabled
@@ -162,6 +175,7 @@ async def patch_channel(
         ch.enabled = body.enabled
     if "config" in fields and body.config is not None:
         ch.config = validate_channel_config(ch.type, body.config, stored=dict(ch.config))
+        await check_channel_egress(ch.type, ch.config)
     secrets = CHANNEL_SECRETS.get(ch.type, ())
     changes = audit.diff(before, _channel_values(ch), secrets)
     if changes:

@@ -45,14 +45,14 @@ export function Toggle({
       disabled={disabled || busy}
       onClick={() => onChange(!checked)}
       className={cx(
-        'relative inline-flex h-5 w-9 shrink-0 items-center rounded-full transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-sky-500 disabled:cursor-not-allowed disabled:opacity-60',
-        checked ? 'bg-green-600' : 'bg-slate-300 dark:bg-slate-600',
-        busy && 'animate-pulse',
+        'relative inline-flex h-5 w-9 shrink-0 items-center rounded-full transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-accent disabled:cursor-not-allowed disabled:opacity-60',
+        checked ? 'bg-status-up' : 'bg-surface-hover',
+        busy && 'opacity-60',
       )}
     >
       <span
         className={cx(
-          'inline-block h-4 w-4 rounded-full bg-white shadow transition-transform',
+          'inline-block h-4 w-4 rounded-full bg-surface transition-transform',
           checked
             ? 'translate-x-[18px] rtl:-translate-x-[18px]'
             : 'translate-x-0.5 rtl:-translate-x-0.5',

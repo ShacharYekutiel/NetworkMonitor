@@ -7,7 +7,7 @@ import { useLiveMessages } from '../../hooks/live';
 import { formatDateTime, formatRelative } from '../../lib/format';
 import { IncidentIcon } from '../icons';
 import { Pagination } from '../Pagination';
-import { Card, cx, Empty, ErrorBox, Loading } from '../ui';
+import { Card, cx, Empty, ErrorBox, Loading, TAG, TAG_TONE } from '../ui';
 import { AiBadge, useAiFeature } from './common';
 
 /** Deterministic title from its fields ("core-sw down — 14 devices unreachable"), he/en. */
@@ -26,15 +26,15 @@ export function useIncidentTitle() {
 }
 
 const STATE_CLS: Record<IncidentState, string> = {
-  open: 'bg-red-600 text-white',
-  resolved: 'bg-green-600 text-white',
-  stale: 'bg-slate-400 text-white',
+  open: TAG_TONE.down,
+  resolved: TAG_TONE.up,
+  stale: TAG_TONE.paused,
 };
 
 export function IncidentStateBadge({ state }: { state: IncidentState }) {
   const { t } = useTranslation();
   return (
-    <span className={cx('rounded px-1.5 text-[11px] font-medium', STATE_CLS[state])}>
+    <span className={cx(TAG, STATE_CLS[state])} data-state={state}>
       {t(`incident.state.${state}`)}
     </span>
   );
@@ -44,10 +44,10 @@ export function IncidentStateBadge({ state }: { state: IncidentState }) {
 export function IncidentCounts({ i }: { i: Incident }) {
   const { t } = useTranslation();
   const parts: [string, number, string][] = [
-    ['down', i.down, 'text-red-600'],
-    ['unreachable', i.unreachable, 'text-red-500'],
-    ['warning', i.warning, 'text-amber-600'],
-    ['recovered', i.recovered, 'text-green-600'],
+    ['down', i.down, 'text-status-down'],
+    ['unreachable', i.unreachable, 'text-status-unreachable'],
+    ['warning', i.warning, 'text-status-warning'],
+    ['recovered', i.recovered, 'text-status-up'],
   ];
   return (
     <span className="flex flex-wrap gap-x-3 text-xs tabular-nums">
@@ -69,32 +69,28 @@ export function IncidentCard({ i }: { i: Incident }) {
   return (
     <li className="space-y-1 px-4 py-3" data-testid="incident-card" data-incident={i.id}>
       <div className="flex flex-wrap items-center gap-2">
-        <IncidentIcon size={14} className="text-slate-500" />
+        <IncidentIcon size={14} className="text-ink-muted" />
         <Link
           to={`/incidents/${i.id}`}
-          className="font-medium text-sky-700 hover:underline dark:text-sky-400"
+          className="font-medium text-accent-ink hover:underline"
           dir="auto"
         >
           {title(i)}
         </Link>
         <IncidentStateBadge state={i.state} />
-        <span className="ms-auto text-xs text-slate-500" title={formatDateTime(i.opened_at)}>
+        <span className="ms-auto text-xs text-ink-muted" title={formatDateTime(i.opened_at)}>
           {formatRelative(i.opened_at)}
         </span>
       </div>
       <IncidentCounts i={i} />
       {i.ai && (
-        <p
-          className="text-sm text-slate-700 dark:text-slate-300"
-          dir="auto"
-          data-testid="incident-ai"
-        >
+        <p className="text-sm text-ink-muted" dir="auto" data-testid="incident-ai">
           <AiBadge className="me-1" />
           {i.ai.summary}
         </p>
       )}
       {i.root_device && (
-        <p className="text-xs text-slate-500">
+        <p className="text-xs text-ink-muted">
           {t('incident.rootCandidate')}:{' '}
           <Link to={`/devices/${i.root_device.id}`} className="hover:underline">
             {i.root_device.name}
@@ -131,7 +127,7 @@ export function IncidentList({
   if (!q.data?.items.length) return <Empty>{emptyText ?? t('incident.none')}</Empty>;
   return (
     <>
-      <ul className="divide-y divide-slate-100 dark:divide-slate-800" data-testid="incident-list">
+      <ul className="divide-y divide-line" data-testid="incident-list">
         {q.data.items.map((i) => (
           <IncidentCard key={i.id} i={i} />
         ))}
@@ -164,16 +160,13 @@ export function DashboardIncidents() {
       title={
         <span className="inline-flex items-center gap-2">
           <IncidentIcon size={14} /> {t('incident.openTitle')}
-          <span className="rounded bg-red-600 px-1.5 text-xs tabular-nums text-white">
+          <span className="inline-flex h-[18px] min-w-[20px] items-center justify-center rounded-sm bg-status-down px-[5px] font-mono text-[11px] font-bold tabular-nums text-on-status">
             {q.data.total}
           </span>
         </span>
       }
       actions={
-        <Link
-          to="/events?tab=incidents"
-          className="text-xs text-sky-700 hover:underline dark:text-sky-400"
-        >
+        <Link to="/events?tab=incidents" className="text-xs text-accent-ink hover:underline">
           {t('incident.all')}
         </Link>
       }

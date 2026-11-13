@@ -49,11 +49,7 @@ function V3UsersEditor({ rows, onChange }: { rows: V3Row[]; onChange: (r: V3Row[
           const err = v3RowError(r, rows);
           const keep = r.storedName === r.username.trim();
           return (
-            <div
-              key={i}
-              className="rounded-md border border-slate-200 p-2 dark:border-slate-700"
-              data-testid="v3-row"
-            >
+            <div key={i} className="rounded-md border border-line p-2" data-testid="v3-row">
               <div className="grid grid-cols-2 gap-2 sm:grid-cols-6">
                 <Input
                   value={r.username}
@@ -136,7 +132,7 @@ function V3UsersEditor({ rows, onChange }: { rows: V3Row[]; onChange: (r: V3Row[
                   </>
                 )}
               </div>
-              {err && <p className="mt-1 text-xs text-red-600">{t(err)}</p>}
+              {err && <p className="mt-1 text-xs text-status-down">{t(err)}</p>}
             </div>
           );
         })}
@@ -170,11 +166,11 @@ export function LinkScopeRadio({
               value={v}
               checked={value === v}
               onChange={() => onChange(v)}
-              className="mt-0.5 h-4 w-4 border-slate-300 text-sky-600 dark:border-slate-600 dark:bg-slate-900"
+              className="mt-0.5 h-4 w-4 border-line-strong text-accent-ink"
             />
             <span>
               <span className="font-medium">{t(`ingestSettings.linkScope.${v}`)}</span>
-              <span className="block text-xs text-slate-500">
+              <span className="block text-xs text-ink-muted">
                 {t(`ingestSettings.linkScope.${v}Hint`)}
               </span>
             </span>
@@ -212,13 +208,13 @@ export function TrunkScopeFields({
           checked={includeTrunks}
           onChange={onIncludeTrunks}
         />
-        <p className="text-xs text-slate-500">{t('ingestSettings.trunks.includeHint')}</p>
+        <p className="text-xs text-ink-muted">{t('ingestSettings.trunks.includeHint')}</p>
       </div>
       <Field
         label={t('ingestSettings.trunks.minTagged')}
         hint={
           invalid ? (
-            <span className="text-red-600">{t('ingestSettings.trunks.minTaggedErr')}</span>
+            <span className="text-status-down">{t('ingestSettings.trunks.minTaggedErr')}</span>
           ) : (
             t('ingestSettings.trunks.minTaggedHint')
           )
@@ -299,7 +295,7 @@ export function IngestSettingsCard({ settings }: { settings: Settings }) {
     save.mutate(body);
   };
   const bad = (on: boolean, key: string, ok?: string) =>
-    on ? <span className="text-red-600">{t(key)}</span> : ok;
+    on ? <span className="text-status-down">{t(key)}</span> : ok;
   return (
     <Card title={t('ingestSettings.title')} anchor={cardAnchor('ingest')}>
       <form onSubmit={submit} className="space-y-4" data-testid="ingest-settings">
@@ -343,8 +339,8 @@ export function IngestSettingsCard({ settings }: { settings: Settings }) {
             </Select>
           </Field>
         </div>
-        <fieldset className="space-y-3 rounded-md border border-slate-200 p-3 dark:border-slate-700">
-          <legend className="px-1 text-xs font-semibold text-slate-600 dark:text-slate-400">
+        <fieldset className="space-y-3 rounded-md border border-line p-3">
+          <legend className="px-1 text-xs font-semibold text-ink-muted">
             {t('ingestSettings.trapAuth')}
           </legend>
           <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
@@ -362,10 +358,10 @@ export function IngestSettingsCard({ settings }: { settings: Settings }) {
               </Select>
             </Field>
             <div className="space-y-1.5">
-              <div className="text-xs font-medium text-slate-600 dark:text-slate-400">
+              <div className="text-xs font-medium text-ink-muted">
                 {t('ingestSettings.communities')}
               </div>
-              <p className="text-xs text-slate-500">
+              <p className="text-xs text-ink-muted">
                 {t('ingestSettings.communitiesStored', { n: settings.trap_communities_count ?? 0 })}
               </p>
               <Checkbox
@@ -386,7 +382,7 @@ export function IngestSettingsCard({ settings }: { settings: Settings }) {
                 />
               )}
               {commBad && (
-                <p className="text-xs text-red-600">{t('ingestSettings.communitiesErr')}</p>
+                <p className="text-xs text-status-down">{t('ingestSettings.communitiesErr')}</p>
               )}
             </div>
           </div>
@@ -404,7 +400,7 @@ export function IngestSettingsCard({ settings }: { settings: Settings }) {
           label={t('ingestSettings.ignored')}
           hint={
             errs.ignored ? (
-              <span className="text-red-600">
+              <span className="text-status-down">
                 {ign.tooMany
                   ? t('ingestSettings.ignoredTooMany')
                   : t('ingestSettings.ignoredInvalid', { list: ign.invalid.join(', ') })}
@@ -465,7 +461,7 @@ export function FlappingCard({ settings }: { settings: Settings }) {
             });
         }}
       >
-        <p className="text-xs text-slate-500">
+        <p className="text-xs text-ink-muted">
           {t('flapping.intro', { n: threshold || '?', w: windowMin || '?', q: quiet || '?' })}
         </p>
         <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
@@ -473,7 +469,7 @@ export function FlappingCard({ settings }: { settings: Settings }) {
             label={t('flapping.threshold')}
             hint={
               e.threshold ? (
-                <span className="text-red-600">{t('flapping.thresholdErr')}</span>
+                <span className="text-status-down">{t('flapping.thresholdErr')}</span>
               ) : (
                 t('flapping.thresholdHint')
               )
@@ -491,7 +487,9 @@ export function FlappingCard({ settings }: { settings: Settings }) {
           <Field
             label={t('flapping.window')}
             hint={
-              e.window ? <span className="text-red-600">{t('flapping.windowErr')}</span> : undefined
+              e.window ? (
+                <span className="text-status-down">{t('flapping.windowErr')}</span>
+              ) : undefined
             }
           >
             <Input
@@ -507,7 +505,7 @@ export function FlappingCard({ settings }: { settings: Settings }) {
             label={t('flapping.quiet')}
             hint={
               e.quiet ? (
-                <span className="text-red-600">{t('flapping.quietErr')}</span>
+                <span className="text-status-down">{t('flapping.quietErr')}</span>
               ) : (
                 t('flapping.quietHint')
               )
@@ -553,7 +551,7 @@ export function AuditRetentionCard({ settings }: { settings: Settings }) {
           label={t('audit.retention')}
           hint={
             bad ? (
-              <span className="text-red-600">{t('audit.retentionErr')}</span>
+              <span className="text-status-down">{t('audit.retentionErr')}</span>
             ) : (
               t('audit.retentionHint')
             )
@@ -618,14 +616,14 @@ export function TrapCollapseCard({ settings }: { settings: Settings }) {
             });
         }}
       >
-        <p className="text-xs text-slate-500">{t('trapCollapse.intro')}</p>
+        <p className="text-xs text-ink-muted">{t('trapCollapse.intro')}</p>
         <Checkbox label={t('trapCollapse.enabled')} checked={on} onChange={setOn} />
         <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
           <Field
             label={t('trapCollapse.keep')}
             hint={
               e.keep ? (
-                <span className="text-red-600">{t('trapCollapse.keepErr')}</span>
+                <span className="text-status-down">{t('trapCollapse.keepErr')}</span>
               ) : (
                 t('trapCollapse.keepHint')
               )
@@ -645,7 +643,7 @@ export function TrapCollapseCard({ settings }: { settings: Settings }) {
               label={t('trapCollapse.oids')}
               hint={
                 e.oids ? (
-                  <span className="text-red-600">
+                  <span className="text-status-down">
                     {t('trapCollapse.oidsErr', { list: badOids.join(', ') })}
                   </span>
                 ) : (
@@ -661,7 +659,7 @@ export function TrapCollapseCard({ settings }: { settings: Settings }) {
                 className="font-mono"
               />
             </Field>
-            <ul className="mt-1 space-y-0.5 text-xs text-slate-500">
+            <ul className="mt-1 space-y-0.5 text-xs text-ink-muted">
               {list
                 .filter((o) => KNOWN_REPETITIVE[o.replace(/^\./, '')])
                 .map((o) => (

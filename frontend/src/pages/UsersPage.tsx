@@ -8,6 +8,9 @@ import { useToast } from '../components/toast';
 import {
   Button,
   Card,
+  CHIP,
+  CHIP_TONE,
+  cx,
   Checkbox,
   ConfirmDialog,
   ErrorBox,
@@ -32,13 +35,7 @@ export function SourceBadge({ source }: { source?: User['source'] }) {
   // [3] oidc users are managed by Entra ID like AD users are by the directory
   const ldap = source === 'ldap' || source === 'oidc';
   return (
-    <span
-      className={
-        ldap
-          ? 'rounded bg-indigo-100 px-1.5 py-0.5 text-[11px] font-medium text-indigo-800 dark:bg-indigo-900/50 dark:text-indigo-200'
-          : 'rounded bg-slate-100 px-1.5 py-0.5 text-[11px] font-medium text-slate-600 dark:bg-slate-800 dark:text-slate-300'
-      }
-    >
+    <span className={cx(CHIP, ldap ? CHIP_TONE.accent : CHIP_TONE.neutral)}>
       {t(`user.source.${source === 'ldap' || source === 'oidc' ? source : 'local'}`)}
     </span>
   );
@@ -226,10 +223,10 @@ export function UsersPage() {
                   <td className={`${td} font-medium`}>
                     {u.username}
                     {me?.id === u.id && (
-                      <span className="ms-1 text-xs text-slate-500">({t('users.you')})</span>
+                      <span className="ms-1 text-xs text-ink-muted">({t('users.you')})</span>
                     )}
                     {u.display_name && (
-                      <div className="text-xs font-normal text-slate-500">
+                      <div className="text-xs font-normal text-ink-muted">
                         <bdi dir="auto">{u.display_name}</bdi>
                       </div>
                     )}
@@ -243,7 +240,7 @@ export function UsersPage() {
                   <td className={td}>{t(`role.${u.role}`)}</td>
                   <td className={td}>{u.language === 'he' ? 'עברית' : 'English'}</td>
                   <td className={td}>{u.is_active ? t('common.yes') : t('common.no')}</td>
-                  <td className={`${td} whitespace-nowrap text-slate-500`}>
+                  <td className={`${td} whitespace-nowrap text-ink-muted`}>
                     {formatDateTime(u.last_login_at)}
                   </td>
                   <td className={`${td} whitespace-nowrap text-end`}>

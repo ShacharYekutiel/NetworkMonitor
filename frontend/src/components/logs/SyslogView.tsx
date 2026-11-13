@@ -34,8 +34,8 @@ import { useRuleName } from './rules';
 import { useLogFeed } from './useLogFeed';
 
 const th =
-  'sticky top-0 z-10 whitespace-nowrap border-b border-slate-200 bg-white px-2 py-1.5 text-start text-[11px] font-medium uppercase tracking-wide text-slate-500 dark:border-slate-800 dark:bg-slate-900';
-const td = 'border-b border-slate-100 px-2 py-1 align-top dark:border-slate-800/70';
+  'sticky top-0 z-10 whitespace-nowrap border-b border-line bg-surface px-2 py-1.5 text-start text-[11px] font-medium text-ink-muted';
+const td = 'border-b border-line px-2 py-1 align-top';
 
 export function LiveToggle({
   live,
@@ -57,9 +57,7 @@ export function LiveToggle({
       title={allowed ? t('logs.liveHint') : t('logs.liveNeedsOpenRange')}
       onClick={() => onChange(!live)}
     >
-      <span
-        className={cx('h-2 w-2 rounded-full', on ? 'animate-pulse bg-white' : 'bg-slate-400')}
-      />
+      <span className={cx('h-2 w-2 rounded-full', on ? 'bg-accent-on' : 'bg-status-paused')} />
       {t('logs.live')}
     </Button>
   );
@@ -107,13 +105,11 @@ export function SyslogDetail({
         <div className="space-y-4">
           <pre
             dir="ltr"
-            className="whitespace-pre-wrap break-words rounded bg-slate-100 p-2 text-left font-mono text-xs dark:bg-slate-800"
+            className="whitespace-pre-wrap break-words rounded bg-surface-sunken p-2 text-left font-mono text-xs"
           >
             {m.message}
           </pre>
-          {m.truncated && (
-            <p className="text-xs text-amber-700 dark:text-amber-300">{t('logs.truncated')}</p>
-          )}
+          {m.truncated && <p className="text-xs text-status-warning">{t('logs.truncated')}</p>}
           <DetailRows
             rows={[
               [t('logs.col.time'), formatDateTime(m.time)],
@@ -221,7 +217,7 @@ export function SyslogView({ deviceId }: { deviceId?: number }) {
       </Card>
       {stats.data && (
         <Card bodyClassName="p-3">
-          <div className="flex flex-wrap items-baseline justify-between gap-2 text-xs text-slate-500">
+          <div className="flex flex-wrap items-baseline justify-between gap-2 text-xs text-ink-muted">
             <span>{t('logs.total', { n: stats.data.total })}</span>
           </div>
           <Histogram
@@ -285,9 +281,9 @@ export function SyslogView({ deviceId }: { deviceId?: number }) {
                   <tr
                     key={m.id}
                     onClick={() => setSelected(m)}
-                    className="cursor-pointer hover:bg-slate-50 dark:hover:bg-slate-800/50"
+                    className="cursor-pointer hover:bg-surface-hover"
                   >
-                    <td className={cx(td, 'whitespace-nowrap text-slate-500')}>
+                    <td className={cx(td, 'whitespace-nowrap text-ink-muted')}>
                       {formatDateTime(m.time)}
                     </td>
                     {deviceId === undefined && (

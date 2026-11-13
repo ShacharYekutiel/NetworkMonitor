@@ -10,6 +10,8 @@ import { EditIcon, PlusIcon, SparkIcon, TrashIcon } from '../components/icons';
 import {
   Button,
   buttonClass,
+  CHIP,
+  CHIP_TONE,
   ConfirmDialog,
   cx,
   ErrorBox,
@@ -69,17 +71,14 @@ function ConversationList({ activeId, onNew }: { activeId: number | null; onNew:
   });
   return (
     <aside
-      className="flex min-h-0 flex-col rounded-lg bg-white shadow-sm ring-1 ring-slate-200 dark:bg-slate-900 dark:ring-slate-800 lg:w-72 lg:shrink-0"
+      className="flex min-h-0 flex-col rounded-lg border border-line bg-surface lg:w-72 lg:shrink-0"
       aria-label={t('assistant.history')}
     >
-      <div className="flex items-center gap-2 border-b border-slate-200 p-2 dark:border-slate-800">
+      <div className="flex items-center gap-2 border-b border-line p-2">
         <Button size="sm" variant="primary" onClick={onNew}>
           <PlusIcon size={12} /> {t('assistant.newConversation')}
         </Button>
-        <Link
-          to="/assistant/usage"
-          className="ms-auto text-xs text-sky-700 hover:underline dark:text-sky-400"
-        >
+        <Link to="/assistant/usage" className="ms-auto text-xs text-accent-ink hover:underline">
           {t('assistant.usageLink')}
         </Link>
       </div>
@@ -124,16 +123,14 @@ function ConversationList({ activeId, onNew }: { activeId: number | null; onNew:
               key={c.id}
               className={cx(
                 'group flex items-center gap-1 px-2 py-1.5 text-sm',
-                c.id === activeId
-                  ? 'bg-sky-50 dark:bg-sky-900/30'
-                  : 'hover:bg-slate-50 dark:hover:bg-slate-800/50',
+                c.id === activeId ? 'bg-accent-soft' : 'hover:bg-surface-sunken',
               )}
             >
               <Link to={`/assistant/c/${c.id}`} className="min-w-0 flex-1">
                 <span dir="auto" className="block truncate">
                   {c.title || t('assistant.untitled')}
                 </span>
-                <span className="block text-[11px] text-slate-400">
+                <span className="block text-[11px] text-ink-subtle">
                   {c.kind !== 'chat' && `${t(`assistant.kind.${c.kind}`)} · `}
                   {c.channel === 'telegram' && 'Telegram · '}
                   {formatRelative(c.last_message_at)}
@@ -141,7 +138,7 @@ function ConversationList({ activeId, onNew }: { activeId: number | null; onNew:
               </Link>
               <button
                 type="button"
-                className="rounded p-1 text-slate-400 hover:text-slate-700 dark:hover:text-slate-200"
+                className="rounded p-1 text-ink-subtle hover:text-ink-muted"
                 aria-label={t('assistant.rename')}
                 title={t('assistant.rename')}
                 onClick={() => {
@@ -153,7 +150,7 @@ function ConversationList({ activeId, onNew }: { activeId: number | null; onNew:
               </button>
               <button
                 type="button"
-                className="rounded p-1 text-slate-400 hover:text-red-600"
+                className="rounded p-1 text-ink-subtle hover:text-status-down"
                 aria-label={t('common.delete')}
                 title={t('common.delete')}
                 onClick={() => setDeleting(c)}
@@ -164,14 +161,14 @@ function ConversationList({ activeId, onNew }: { activeId: number | null; onNew:
           ),
         )}
         {list.data && !list.data.items.length && (
-          <li className="p-3 text-center text-xs text-slate-500">
+          <li className="p-3 text-center text-xs text-ink-muted">
             {t('assistant.noConversations')}
           </li>
         )}
       </ul>
       <ErrorBox error={list.error} className="m-2" />
       {!!list.data?.items.length && (
-        <div className="border-t border-slate-200 p-2 text-end dark:border-slate-800">
+        <div className="border-t border-line p-2 text-end">
           <Button size="sm" variant="ghost" onClick={() => setDeleting('all')}>
             {t('assistant.deleteAll')}
           </Button>
@@ -202,7 +199,7 @@ function UserBubble({ text }: { text: string }) {
     <div className="flex justify-end">
       <div
         dir="auto"
-        className="max-w-[85%] whitespace-pre-wrap rounded-lg bg-sky-600 px-3 py-2 text-sm text-white"
+        className="max-w-[85%] whitespace-pre-wrap rounded-lg border border-line bg-surface-sunken px-3.5 py-2 text-sm text-ink"
         data-testid="user-question"
       >
         {text}
@@ -322,7 +319,7 @@ export function AssistantPage() {
       <PageHeader
         title={
           <span className="inline-flex items-center gap-2">
-            <SparkIcon className="text-violet-600" /> {t('assistant.title')}
+            <SparkIcon className="text-accent-ink" /> {t('assistant.title')}
           </span>
         }
         subtitle={status.data && <AssistantStateBadge state={status.data.state} />}
@@ -336,18 +333,22 @@ export function AssistantPage() {
             navigate('/assistant');
           }}
         />
-        <section className="flex min-h-[60vh] min-w-0 flex-1 flex-col rounded-lg bg-white shadow-sm ring-1 ring-slate-200 dark:bg-slate-900 dark:ring-slate-800">
+        <section className="flex min-h-[60vh] min-w-0 flex-1 flex-col rounded-lg border border-line bg-surface">
           <div className="min-h-0 flex-1 space-y-4 overflow-y-auto p-4" data-testid="conversation">
             {empty && (
               <div className="space-y-3">
-                <p className="text-sm text-slate-600 dark:text-slate-300">{t('assistant.intro')}</p>
+                <p className="text-sm text-ink-muted">{t('assistant.intro')}</p>
                 <div className="flex flex-wrap gap-2" data-testid="examples">
                   {examples.map((ex) => (
                     <button
                       key={ex.key}
                       type="button"
                       onClick={() => send(t(`assistant.example.${ex.key}`))}
-                      className="rounded-full bg-slate-100 px-3 py-1 text-start text-xs text-slate-700 ring-1 ring-inset ring-slate-200 hover:bg-sky-50 hover:ring-sky-300 dark:bg-slate-800 dark:text-slate-200 dark:ring-slate-700"
+                      className={cx(
+                        CHIP,
+                        CHIP_TONE.neutral,
+                        'h-auto min-h-[26px] whitespace-normal py-1 text-start hover:border-accent-ink hover:text-ink',
+                      )}
                     >
                       {t(`assistant.example.${ex.key}`)}
                     </button>
@@ -383,10 +384,7 @@ export function AssistantPage() {
             <PreStreamErrorBox error={stream.preError} onAttach={(id) => void stream.attach(id)} />
             <div ref={bottom} />
           </div>
-          <form
-            onSubmit={submit}
-            className="space-y-1 border-t border-slate-200 p-3 dark:border-slate-800"
-          >
+          <form onSubmit={submit} className="space-y-1 border-t border-line p-3">
             <Textarea
               rows={3}
               value={question}
@@ -398,7 +396,7 @@ export function AssistantPage() {
               onKeyDown={onKey}
               data-testid="question"
             />
-            <div className="flex flex-wrap items-center gap-2 text-xs text-slate-500">
+            <div className="flex flex-wrap items-center gap-2 text-xs text-ink-muted">
               <span className="tabular-nums">
                 {question.length} / {MAX_Q}
               </span>

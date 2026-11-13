@@ -4,7 +4,7 @@ import { endpoints3b, qk3b } from '../../api/endpoints3b';
 import type { AiFeatureName, AssistantState } from '../../api/types';
 import { useAuth } from '../../hooks/auth';
 import { useFeatures } from '../../hooks/features';
-import { cx } from '../ui';
+import { BANNER, BANNER_TONE, cx, TAG, TAG_TONE } from '../ui';
 
 /** An AI feature's entry points are shown to admins while the feature AND the assistant are ON. */
 export function useAiFeature(name: AiFeatureName): boolean {
@@ -30,13 +30,7 @@ export function useAssistantStatus(enabled = true) {
 export function AiBadge({ className }: { className?: string }) {
   const { t } = useTranslation();
   return (
-    <span
-      className={cx(
-        'inline-flex items-center rounded bg-violet-100 px-1 text-[10px] font-semibold uppercase tracking-wide text-violet-800 dark:bg-violet-900/60 dark:text-violet-200',
-        className,
-      )}
-      title={t('assistant.aiGenerated')}
-    >
+    <span className={cx(TAG, TAG_TONE.accent, className)} title={t('assistant.aiGenerated')}>
       {t('assistant.ai')}
     </span>
   );
@@ -46,7 +40,7 @@ export function AiBadge({ className }: { className?: string }) {
 export function AiNotice({ className }: { className?: string }) {
   const { t } = useTranslation();
   return (
-    <p className={cx('text-xs text-slate-500', className)} data-testid="ai-notice">
+    <p className={cx('text-xs text-ink-muted', className)} data-testid="ai-notice">
       <AiBadge className="me-1" />
       {t('assistant.mayBeWrong')}
     </p>
@@ -54,11 +48,11 @@ export function AiNotice({ className }: { className?: string }) {
 }
 
 const STATE_TONE: Record<AssistantState, string> = {
-  disabled: 'bg-slate-400',
-  unconfigured: 'bg-slate-500',
-  ready: 'bg-green-600',
-  degraded: 'bg-amber-500',
-  error: 'bg-red-600',
+  disabled: 'bg-status-paused',
+  unconfigured: 'bg-status-paused',
+  ready: 'bg-status-up',
+  degraded: 'bg-status-warning',
+  error: 'bg-status-down',
 };
 
 export function AssistantStateBadge({ state }: { state: AssistantState }) {
@@ -110,7 +104,7 @@ export function CannotDraftNotice({
 }) {
   return (
     <div
-      className="space-y-1 rounded-md bg-amber-50 px-3 py-2 text-sm text-amber-900 ring-1 ring-inset ring-amber-200 dark:bg-amber-950/40 dark:text-amber-200 dark:ring-amber-900"
+      className={cx(BANNER, BANNER_TONE.warning, 'space-y-1')}
       role="status"
       data-testid={testId}
     >

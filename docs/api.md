@@ -112,7 +112,9 @@ included).
   - `Max-Age`: 43200 (12 h).
   - No bearer tokens in Phase 1. The frontend never sees the token, and its `fetch` calls use
     `credentials: "same-origin"`.
-- **JWT claims:** `sub` (the user id, as a string), `role`, `tv` (`token_version`), `iat`, `exp`.
+- **JWT claims:** `sub` (the user id, as a string), `role`, `tv` (`token_version`), `iat`, `exp`; [1.4.1] also `sid`
+  and `at` — a logout revokes the session server-side and every session has an absolute lifetime, see
+  [[1.4.1] Auth](#141-auth--changed).
 - **A token is valid only if all of these hold:**
   - the signature is OK and it has not expired;
   - the user exists and `is_active`;
@@ -2691,3 +2693,74 @@ The check message of a code from the table is `<label>: <text> (<mib>, <code>)` 
 `snmp_table` entries may carry `label_format` and `rename_from` (only when set;
 [data-model § 1.3.1](data-model.md#131-template-options)).
 
+
+## [1.4.1] Release 1.4.1 contract (security hardening)
+
+Additive unless marked **changed**. Design: [architecture § 15](architecture.md#15-release-141-security-hardening).
+
+### [1.4.1] Settings
+`GET /api/settings` returns, and `PUT /api/settings` accepts (admin, partial merge, audited like every key):
+
+```ts
+type Settings = Settings & {
+  egress_allow_loopback: boolean;   // default false
+  session_max_age_h: number;        // 1–720, default 168
+  login_ip_max_failures: number;    // 0 (off) – 10000, default 20
+  frame_ancestors: string[];        // ≤ 20 origins, default []
+};
+```
+| Key | Meaning |
+|---|---|
+| `egress_allow_loopback` | `true`: webhook / Teams channels and HTTP sensors may target the server itself (`127.0.0.0/8`, `::1`, `localhost`). Link-local / cloud-metadata targets are blocked regardless. Private (RFC 1918) targets are never blocked. |
+| `session_max_age_h` | Absolute lifetime of a login session, counted from the login. Users of source `ldap` / `oidc` end at `min(12, session_max_age_h)` hours. |
+| `login_ip_max_failures` | Failed password logins per client address in 5 minutes, across all user names. `0` turns the address-wide cap off (the per-address-and-user limit of 10 stays). |
+| `frame_ancestors` | Origins that may embed the application in a frame in addition to the application itself. Each entry: `scheme://host[:port]`, `http`/`https`, the host may start with `*.`; anything else → `422`. Stored lower-case without a trailing `/`. |
+
+### [1.4.1] Egress filter (webhook, Teams, HTTP sensor) — **changed**
+The server refuses to connect to loopback (unless `egress_allow_loopback`), link-local (`169.254.0.0/16` incl.
+`169.254.169.254`, `fe80::/10`), the metadata aliases (`metadata`, `metadata.google.internal`, `metadata.goog`,
+`100.100.100.200`), the unspecified address and multicast — for the URL itself, for every address its host name
+resolves to, and for every redirect hop.
+
+- `POST` / `PATCH /api/notification-channels` (`webhook`, `teams`) and `POST` / `PATCH /api/sensors` (`http`; the
+  `{host}` placeholder is replaced by the device host first): a blocked `config.url` → `422 validation_error`
+  with `details: [{loc: ["body","config","url"], msg: "Blocked target: <host> is not allowed (loopback /
+  link-local / cloud metadata)…"}]`. A host name that does not resolve is not an error at save time.
+- Existing rows are not changed. A send or check to a blocked target fails like any other delivery failure:
+  `POST /api/notification-channels/{id}/test` → `502 webhook_error` / `teams_error` with that message; an HTTP
+  sensor goes `down` with the message as its status text (no values).
+
+### [1.4.1] Auth — **changed**
+- **JWT claims** gain `sid` (session id: random per login, kept by the sliding renewal) and every session carries
+  `at` (authentication time; before 1.4.1 only meaningful for AD sessions). A cookie without `sid` (issued before
+  1.4.1) is answered `401`: every browser signs in once after the upgrade. API tokens are unaffected.
+- **A session is valid only if**, in addition to the Phase 1 rules, its `sid` has not been revoked and
+  `now < at + max`, where `max` is `session_max_age_h` (AD / OIDC: at most 12 h). The cookie `exp` and the sliding
+  renewal never go past `at + max`.
+- `POST /api/auth/logout` → `204`. **Revokes the session server-side**: the cookie that was presented (and every
+  renewed copy of it) is answered `401` from then on; the user's other sessions stay signed in; the session's
+  WebSockets are closed with `4401`. Optional body `{ "everywhere": true }` ends **all** sessions of the user
+  instead (`token_version`; the audit row carries `changes.everywhere`).
+- `POST /api/auth/login`: `429 rate_limited` also when the client address has reached `login_ip_max_failures`
+  failed logins in the last 5 minutes (any user names; the response is the same as for the per-user limit). Only
+  failures count; a success does not reset the address counter. The client address is the TCP peer, or the
+  rightmost `X-Forwarded-For` entry when `NETMON_TRUST_PROXY=true`. Kerberos SSO attempts do not count.
+- `POST /api/auth/change-password`: a wrong `current_password` (`401 invalid_credentials`) counts as a failed
+  login: after 10 in 5 minutes for that user (from any address), or when the address cap is reached, the endpoint
+  answers `429 rate_limited` until the window has passed. Audit: `auth.login_failed`, reason
+  `bad_current_password`.
+
+### [1.4.1] Response headers
+Every response of the application (API, SPA, error envelopes) carries:
+
+| Header | Value |
+|---|---|
+| `Content-Security-Policy` | `default-src 'self'; script-src 'self' 'sha256-…'; style-src 'self'; style-src-attr 'unsafe-inline'; img-src 'self' data: blob:; font-src 'self' data:; connect-src 'self'; worker-src 'self' blob:; object-src 'none'; base-uri 'self'; form-action 'self'; frame-ancestors 'self' <frame_ancestors…>` (the hash is that of the SPA's inline theme bootstrap, computed from `index.html` at start) |
+| `X-Frame-Options` | `SAMEORIGIN`; omitted while `frame_ancestors` is not empty |
+| `X-Content-Type-Options` | `nosniff` |
+| `Referrer-Policy` | `same-origin` |
+| `Strict-Transport-Security` | `max-age=31536000`, only when the request arrived over HTTPS (directly, or `X-Forwarded-Proto: https` from the trusted proxy) |
+
+Exceptions with their own policy: `/api/docs` (Swagger UI from its CDN, `frame-ancestors 'none'`),
+`GET /api/reports/runs/{id}/html` (a stored document: `default-src 'none'; style-src 'unsafe-inline'; … sandbox`)
+and the OIDC landing page of `GET /api/auth/oidc/callback` (`default-src 'none'` plus the hash of its one script).

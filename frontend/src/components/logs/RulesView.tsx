@@ -21,10 +21,10 @@ function ActionBadge({ r }: { r: EventRule }) {
   const { t } = useTranslation();
   const cls =
     r.action === 'down'
-      ? 'bg-red-100 text-red-800 dark:bg-red-900/50 dark:text-red-200'
+      ? 'bg-status-down-soft text-status-down'
       : r.action === 'warning'
-        ? 'bg-amber-100 text-amber-800 dark:bg-amber-900/50 dark:text-amber-200'
-        : 'bg-slate-100 text-slate-600 dark:bg-slate-800 dark:text-slate-300';
+        ? 'bg-status-warning-soft text-status-warning'
+        : 'bg-surface-sunken text-ink-muted';
   return (
     <span className={cx('rounded px-1.5 py-0.5 text-[11px] font-medium', cls)}>
       {t(`eventRules.actions.${r.action}`)}
@@ -104,7 +104,7 @@ export function RulesView() {
           <option value="syslog">{t('eventRules.kinds.syslog')}</option>
           <option value="trap">{t('eventRules.kinds.trap')}</option>
         </Select>
-        <p className="flex-1 text-xs text-slate-500">{t('eventRules.orderHint')}</p>
+        <p className="flex-1 text-xs text-ink-muted">{t('eventRules.orderHint')}</p>
         {isAdmin && (
           <Button variant="primary" onClick={() => setEditing('new')}>
             <PlusIcon size={14} /> {t('eventRules.add')}
@@ -115,7 +115,7 @@ export function RulesView() {
         {rules.isLoading && <Loading />}
         <ErrorBox error={rules.error} className="m-3" />
         {rules.data && !list.length && <Empty>{t('eventRules.none')}</Empty>}
-        <ul className="divide-y divide-slate-100 dark:divide-slate-800">
+        <ul className="divide-y divide-line">
           {list.map((r, i) => (
             <li
               key={r.id}
@@ -139,7 +139,7 @@ export function RulesView() {
               className={cx(
                 'flex flex-wrap items-center gap-x-3 gap-y-1 px-3 py-2 text-sm',
                 !r.enabled && 'opacity-60',
-                over === i && drag !== null && drag !== i && 'bg-sky-50 dark:bg-sky-950/40',
+                over === i && drag !== null && drag !== i && 'bg-accent-soft',
                 isAdmin && 'cursor-grab',
               )}
               data-rule-id={r.id}
@@ -148,7 +148,7 @@ export function RulesView() {
                 <span className="flex flex-col">
                   <button
                     type="button"
-                    className="text-slate-400 hover:text-slate-700 disabled:opacity-30"
+                    className="text-ink-subtle hover:text-ink disabled:opacity-30"
                     disabled={i === 0 || patch.isPending}
                     onClick={() => move(i, i - 1)}
                     aria-label={t('eventRules.moveUp')}
@@ -157,7 +157,7 @@ export function RulesView() {
                   </button>
                   <button
                     type="button"
-                    className="text-slate-400 hover:text-slate-700 disabled:opacity-30"
+                    className="text-ink-subtle hover:text-ink disabled:opacity-30"
                     disabled={i === list.length - 1 || patch.isPending}
                     onClick={() => move(i, i + 1)}
                     aria-label={t('eventRules.moveDown')}
@@ -167,7 +167,7 @@ export function RulesView() {
                 </span>
               )}
               <span
-                className="w-12 text-xs tabular-nums text-slate-400"
+                className="w-12 text-xs tabular-nums text-ink-subtle"
                 title={t('eventRules.priority')}
               >
                 {r.priority}
@@ -175,7 +175,7 @@ export function RulesView() {
               <label className="inline-flex items-center" title={t('common.enabled')}>
                 <input
                   type="checkbox"
-                  className="h-4 w-4 rounded border-slate-300 text-sky-600 dark:border-slate-600 dark:bg-slate-900"
+                  className="h-4 w-4 rounded border-line-strong text-accent-ink"
                   checked={r.enabled}
                   disabled={!isAdmin || patch.isPending}
                   onChange={(e) => patch.mutate([{ id: r.id, enabled: e.target.checked }])}
@@ -184,7 +184,7 @@ export function RulesView() {
               </label>
               <span className="min-w-0 flex-1">
                 <span className="font-medium">{r.name}</span> {r.builtin && <BuiltinBadge />}
-                <span className="ms-2 text-xs text-slate-500">
+                <span className="ms-2 text-xs text-ink-muted">
                   {t(`eventRules.kinds.${r.kind}`)} · {t(`maintenance.scopes.${r.scope}`)}
                   {r.scope_name && `: ${r.scope_name}`}
                 </span>
@@ -193,15 +193,13 @@ export function RulesView() {
               <span
                 className={cx(
                   'text-xs tabular-nums',
-                  r.active_conditions
-                    ? 'font-semibold text-amber-700 dark:text-amber-300'
-                    : 'text-slate-400',
+                  r.active_conditions ? 'font-semibold text-status-warning' : 'text-ink-subtle',
                 )}
               >
                 {t('eventRules.activeConditions', { n: r.active_conditions })}
               </span>
               <span
-                className="w-28 text-xs text-slate-500"
+                className="w-28 text-xs text-ink-muted"
                 title={formatDateTime(r.last_matched_at)}
               >
                 {r.last_matched_at

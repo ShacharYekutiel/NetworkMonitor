@@ -12,25 +12,33 @@ import {
   type PortsChoice,
 } from '../lib/templates';
 import { CheckIcon, SearchIcon } from './icons';
-import { Button, Checkbox, cx, ErrorBox, FieldGroup, Input, Loading } from './ui';
+import {
+  BANNER,
+  BANNER_TONE,
+  Button,
+  Checkbox,
+  cx,
+  ErrorBox,
+  FieldGroup,
+  Input,
+  Loading,
+  TAG,
+  TAG_TONE,
+} from './ui';
 
 const CHOICES: PortsChoice[] = ['none', 'important', 'all', 'choose'];
 
 function operDot(s: string): string {
-  if (s === 'up') return 'bg-green-600';
-  if (s === 'down' || s === 'lowerLayerDown') return 'bg-red-600';
-  return 'bg-slate-500';
+  if (s === 'up') return 'bg-status-up';
+  if (s === 'down' || s === 'lowerLayerDown') return 'bg-status-down';
+  return 'bg-status-paused';
 }
 
-const chip =
-  'inline-flex items-center whitespace-nowrap rounded px-1 py-px text-[10px] font-semibold ring-1 ring-inset';
 const REASON_TONE: Record<string, string> = {
-  uplink:
-    'bg-sky-50 text-sky-800 ring-sky-200 dark:bg-sky-950/50 dark:text-sky-300 dark:ring-sky-900',
-  lag: 'bg-violet-50 text-violet-800 ring-violet-200 dark:bg-violet-950/50 dark:text-violet-300 dark:ring-violet-900',
-  trunk:
-    'bg-teal-50 text-teal-800 ring-teal-200 dark:bg-teal-950/50 dark:text-teal-300 dark:ring-teal-900',
-  irf: 'bg-amber-50 text-amber-800 ring-amber-200 dark:bg-amber-950/50 dark:text-amber-300 dark:ring-amber-900',
+  uplink: TAG_TONE.accent,
+  lag: TAG_TONE.accent,
+  trunk: TAG_TONE.accent,
+  irf: TAG_TONE.warning,
 };
 
 function InterfaceRow({
@@ -49,13 +57,13 @@ function InterfaceRow({
       <label
         className={cx(
           'flex cursor-pointer items-center gap-2 px-2 py-1 text-sm',
-          checked ? 'bg-sky-50 dark:bg-sky-950/40' : 'hover:bg-slate-50 dark:hover:bg-slate-800/50',
+          checked ? 'bg-accent-soft' : 'hover:bg-surface-hover',
         )}
         data-testid="apply-port-row"
       >
         <input
           type="checkbox"
-          className="h-4 w-4 shrink-0 rounded border-slate-300 text-sky-600 focus:ring-sky-500 dark:border-slate-600 dark:bg-slate-900"
+          className="m-0 h-4 w-4 shrink-0 accent-accent"
           checked={checked}
           onChange={(e) => onToggle(e.target.checked)}
         />
@@ -68,19 +76,19 @@ function InterfaceRow({
           {it.name}
         </bdi>
         {it.alias && (
-          <bdi dir="auto" className="min-w-0 truncate text-xs text-slate-500">
+          <bdi dir="auto" className="min-w-0 truncate text-xs text-ink-muted">
             {it.alias}
           </bdi>
         )}
         <span className="ms-auto flex shrink-0 items-center gap-1">
           {it.reasons.map((r) => (
-            <span key={r} className={cx(chip, REASON_TONE[r] ?? REASON_TONE.uplink)}>
+            <span key={r} className={cx(TAG, REASON_TONE[r] ?? REASON_TONE.uplink)}>
               {t(`applyPorts.reason.${r}`, { defaultValue: r })}
             </span>
           ))}
           {it.has_sensor && (
             <span
-              className="inline-flex items-center gap-0.5 text-[11px] text-green-700 dark:text-green-400"
+              className="inline-flex items-center gap-0.5 text-[11px] text-status-up"
               title={t('applyPorts.hasSensorTitle')}
               data-testid="has-sensor"
             >
@@ -89,7 +97,7 @@ function InterfaceRow({
             </span>
           )}
           {speed && (
-            <bdi dir="ltr" className="w-12 text-end text-xs tabular-nums text-slate-500">
+            <bdi dir="ltr" className="w-12 text-end text-xs tabular-nums text-ink-muted">
               {speed}
             </bdi>
           )}
@@ -144,10 +152,7 @@ export function ApplyPortsSection({
   };
 
   return (
-    <div
-      className="space-y-2 rounded-md border border-slate-200 p-3 dark:border-slate-700"
-      data-testid="apply-ports"
-    >
+    <div className="space-y-2 rounded-md border border-line p-3" data-testid="apply-ports">
       <FieldGroup label={t('applyPorts.title')}>
         <div className="flex flex-wrap gap-x-4 gap-y-1.5">
           {CHOICES.map((c) => (
@@ -158,20 +163,20 @@ export function ApplyPortsSection({
                 value={c}
                 checked={choice === c}
                 onChange={() => onChoice(c)}
-                className="h-4 w-4 border-slate-300 text-sky-600 dark:border-slate-600 dark:bg-slate-900"
+                className="m-0 h-4 w-4 accent-accent"
               />
               {t(`applyPorts.choice.${c}`)}
             </label>
           ))}
         </div>
-        <p className="mt-1 text-xs text-slate-500">{t(`applyPorts.hint.${choice}`)}</p>
+        <p className="mt-1 text-xs text-ink-muted">{t(`applyPorts.hint.${choice}`)}</p>
       </FieldGroup>
 
       {need && q.isLoading && <Loading />}
       <ErrorBox error={q.error} />
       {q.data?.inventory === 'missing' && (
         <p
-          className="rounded-md bg-amber-50 px-3 py-1.5 text-xs text-amber-900 ring-1 ring-inset ring-amber-200 dark:bg-amber-950/40 dark:text-amber-200 dark:ring-amber-900"
+          className={cx(BANNER, BANNER_TONE.warning, 'py-1.5 text-xs')}
           data-testid="apply-ports-missing"
         >
           {t('applyPorts.inventoryMissing')}
@@ -184,7 +189,7 @@ export function ApplyPortsSection({
             <div className="relative min-w-0 flex-1 basis-40">
               <SearchIcon
                 size={14}
-                className="pointer-events-none absolute start-2.5 top-1/2 -translate-y-1/2 text-slate-400"
+                className="pointer-events-none absolute start-2.5 top-1/2 -translate-y-1/2 text-ink-subtle"
               />
               <Input
                 type="search"
@@ -211,17 +216,17 @@ export function ApplyPortsSection({
               {t('applyPorts.selectImportant')}
             </Button>
           </div>
-          <div className="text-xs text-slate-500" data-testid="apply-ports-count">
+          <div className="text-xs text-ink-muted" data-testid="apply-ports-count">
             {t('applyPorts.selectedOf', {
               n: items.filter((i) => sel.has(i.if_index)).length,
               total: items.length,
             })}
           </div>
           {items.length === 0 ? (
-            <p className="text-sm text-slate-500">{t('applyPorts.noPorts')}</p>
+            <p className="text-sm text-ink-muted">{t('applyPorts.noPorts')}</p>
           ) : (
             <ul
-              className="max-h-64 divide-y divide-slate-100 overflow-y-auto rounded-md ring-1 ring-inset ring-slate-200 dark:divide-slate-800 dark:ring-slate-700"
+              className="max-h-64 divide-y divide-line overflow-y-auto rounded-md border border-line bg-surface"
               data-testid="apply-ports-list"
             >
               {shown.map((it) => (
@@ -242,7 +247,7 @@ export function ApplyPortsSection({
           <Checkbox label={t('applyPorts.removeUnselected')} checked={remove} onChange={onRemove} />
           {remove && toRemove && (
             <p
-              className="text-xs font-medium text-red-600 dark:text-red-400"
+              className="text-xs font-medium text-status-down"
               data-testid="apply-ports-remove-count"
             >
               {t('applyPorts.removeCount', { count: toRemove.length })}

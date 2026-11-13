@@ -45,9 +45,7 @@ function TestButton({
       <Button size="sm" busy={m.isPending} disabled={disabled} onClick={() => m.mutate()}>
         {t('siem.test')}
       </Button>
-      {m.data && (
-        <span className="text-xs text-green-700 dark:text-green-400">{t('siem.testOk')}</span>
-      )}
+      {m.data && <span className="text-xs text-status-up">{t('siem.testOk')}</span>}
       {!!m.error && <ErrorBox error={m.error} className="!py-1 text-xs" />}
     </span>
   );
@@ -88,7 +86,7 @@ function TargetModal({
   const invalid = Object.keys(errs).length > 0;
   const kinds: EventRuleKind[] = ['syslog', 'trap'];
   const hint = (k: keyof typeof shown, ok?: string) =>
-    shown[k] ? <span className="text-red-600">{t(shown[k] as string)}</span> : ok;
+    shown[k] ? <span className="text-status-down">{t(shown[k] as string)}</span> : ok;
   return (
     <Modal
       open={!!target}
@@ -200,7 +198,7 @@ function TargetModal({
           />
         </div>
         {v.protocol === 'tls' && !v.tls_verify && <Notice>{t('siem.tlsVerifyOff')}</Notice>}
-        {v.protocol === 'udp' && <p className="text-xs text-slate-500">{t('siem.udpHint')}</p>}
+        {v.protocol === 'udp' && <p className="text-xs text-ink-muted">{t('siem.udpHint')}</p>}
         <div className="flex flex-wrap items-center justify-end gap-2">
           <span className="me-auto">
             <TestButton
@@ -219,11 +217,11 @@ function TargetModal({
 }
 
 const FW_CLS: Record<string, string> = {
-  connected: 'text-green-700 dark:text-green-400',
-  connecting: 'text-amber-700 dark:text-amber-300',
-  idle: 'text-slate-500',
-  error: 'text-red-600 dark:text-red-400',
-  disabled: 'text-slate-400',
+  connected: 'text-status-up',
+  connecting: 'text-status-warning',
+  idle: 'text-ink-muted',
+  error: 'text-status-down',
+  disabled: 'text-ink-subtle',
 };
 
 export function SiemCard({ settings }: { settings: Settings }) {
@@ -253,7 +251,7 @@ export function SiemCard({ settings }: { settings: Settings }) {
       }
       bodyClassName="p-0"
     >
-      <p className="px-4 py-2 text-xs text-slate-500">{t('siem.intro')}</p>
+      <p className="px-4 py-2 text-xs text-ink-muted">{t('siem.intro')}</p>
       {!targets.length ? (
         <Empty>{t('siem.none')}</Empty>
       ) : (
@@ -279,7 +277,7 @@ export function SiemCard({ settings }: { settings: Settings }) {
                       {x.protocol.toUpperCase()} {x.host}:{x.port}
                     </bdi>
                     {x.protocol === 'tls' && !x.tls_verify && (
-                      <span className="ms-1 text-xs text-amber-700 dark:text-amber-300">
+                      <span className="ms-1 text-xs text-status-warning">
                         ({t('siem.noVerify')})
                       </span>
                     )}
@@ -289,7 +287,7 @@ export function SiemCard({ settings }: { settings: Settings }) {
                       .map((k) => t(`logs.tab.${k === 'trap' ? 'traps' : 'syslog'}`))
                       .join(', ')}
                   </td>
-                  <td className={cx(td, s ? FW_CLS[s.state] : 'text-slate-400')}>
+                  <td className={cx(td, s ? FW_CLS[s.state] : 'text-ink-subtle')}>
                     {s ? t(`siem.fw.${s.state}`) : '—'}
                     {s?.last_error && (
                       <div className="text-xs">

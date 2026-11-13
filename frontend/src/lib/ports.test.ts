@@ -189,16 +189,12 @@ describe('tile state mapping (one case per legend row)', () => {
 
   it('uses the contract classes', () => {
     expect(TILE_CLASS.disabled).toBe(
-      'bg-gray-200 text-gray-500 dark:bg-slate-700 dark:text-slate-400',
+      'bg-port-disabled text-ink-subtle ring-1 ring-inset ring-line',
     );
-    expect(TILE_CLASS.alert).toBe('bg-orange-500 text-white');
-    expect(TILE_CLASS.up).toBe('bg-green-500 text-white');
-    expect(TILE_CLASS.emptyAlert).toBe(
-      'bg-orange-200 border border-orange-300 dark:bg-orange-900/40 dark:border-orange-700',
-    );
-    expect(TILE_CLASS.empty).toBe(
-      'bg-white border border-gray-300 dark:bg-slate-900 dark:border-slate-600',
-    );
+    expect(TILE_CLASS.alert).toBe('bg-status-down text-on-status');
+    expect(TILE_CLASS.up).toBe('bg-status-up text-on-status');
+    expect(TILE_CLASS.emptyAlert).toBe('bg-port-empty ring-2 ring-inset ring-status-down');
+    expect(TILE_CLASS.empty).toBe('bg-port-empty');
   });
 
   it('trunk badge only on connected tiles; MAC count badge for mac_count uplinks', () => {

@@ -61,9 +61,7 @@ export function TargetsField({
           <span
             className={cx(
               'block',
-              summary.tooManyHosts
-                ? 'font-medium text-red-600'
-                : 'text-slate-600 dark:text-slate-300',
+              summary.tooManyHosts ? 'font-medium text-status-down' : 'text-ink-muted',
             )}
           >
             {t('discovery.targetsCount', { count: n })} ·{' '}
@@ -74,23 +72,23 @@ export function TargetsField({
           </span>
         )}
         {summary.tooManyEntries && (
-          <span className="block font-medium text-red-600">
+          <span className="block font-medium text-status-down">
             {t('discovery.tooManyTargets', { max: MAX_TARGETS })}
           </span>
         )}
         {errors.slice(0, 5).map((e, i) => (
-          <span key={`${e.text}-${i}`} className="block text-red-600">
+          <span key={`${e.text}-${i}`} className="block text-status-down">
             <Ltr className="font-mono">{e.text}</Ltr>: {t(`discovery.targetError.${e.error}`)}
           </span>
         ))}
         {errors.length > 5 && (
-          <span className="block text-red-600">
+          <span className="block text-status-down">
             {t('discovery.moreErrors', { count: errors.length - 5 })}
           </span>
         )}
         {normalized.slice(0, 3).map((e) =>
           e.ok ? (
-            <span key={e.text} className="block text-slate-500">
+            <span key={e.text} className="block text-ink-muted">
               <Ltr className="font-mono">
                 {e.text} → {e.normalized}
               </Ltr>
@@ -108,7 +106,7 @@ const PRIV: SnmpPrivProtocol[] = ['DES', 'AES128', 'AES192', 'AES256'];
 
 function Err({ k }: { k?: string }) {
   const { t } = useTranslation();
-  return k ? <span className="text-red-600">{t(k)}</span> : null;
+  return k ? <span className="text-status-down">{t(k)}</span> : null;
 }
 
 function EyeIcon({ off }: { off: boolean }) {
@@ -146,9 +144,7 @@ function ExtraCommunities({
     // Not a labelled group on purpose: each input carries the full label ("… 1", "… 2"), so
     // getByLabel / screen readers resolve to the inputs themselves.
     <div className="min-w-0">
-      <span className="mb-1 block text-xs font-medium text-slate-600 dark:text-slate-400">
-        {label}
-      </span>
+      <span className="mb-1 block text-xs font-medium text-ink-muted">{label}</span>
       <div className="space-y-1.5">
         {values.map((v, i) => (
           <div key={i} className="flex items-center gap-1.5">
@@ -194,7 +190,7 @@ function ExtraCommunities({
           </Button>
         )}
       </div>
-      <span className="mt-1 block text-xs text-slate-500">
+      <span className="mt-1 block text-xs text-ink-muted">
         {error ? <Err k={error} /> : t('discovery.extraCommunitiesHint')}
       </span>
     </div>
@@ -260,7 +256,7 @@ export function ScanOptionsEditor({
         </div>
       </FieldGroup>
       {value.fingerprint && (
-        <p className="-mt-1 text-xs text-slate-500">{t('discovery.fingerprintHint')}</p>
+        <p className="-mt-1 text-xs text-ink-muted">{t('discovery.fingerprintHint')}</p>
       )}
 
       {value.tcp && (
@@ -289,13 +285,13 @@ export function ScanOptionsEditor({
       )}
 
       {value.snmp && (
-        <fieldset className="min-w-0 rounded-md border border-slate-200 p-3 dark:border-slate-700">
-          <legend className="px-1 text-xs font-semibold text-slate-600 dark:text-slate-400">
+        <fieldset className="min-w-0 rounded-md border border-line p-3">
+          <legend className="px-1 text-xs font-semibold text-ink-muted">
             {t('discovery.extraCreds')}
           </legend>
-          <p className="mb-2 text-xs text-slate-500">{t('discovery.extraCredsHint')}</p>
+          <p className="mb-2 text-xs text-ink-muted">{t('discovery.extraCredsHint')}</p>
           {editingProfile && (
-            <div className="mb-2 space-y-1 text-xs text-slate-600 dark:text-slate-300">
+            <div className="mb-2 space-y-1 text-xs text-ink-muted">
               <div>
                 {t('discovery.storedSecrets', {
                   communities: value.stored_communities,
@@ -323,7 +319,7 @@ export function ScanOptionsEditor({
                   return (
                     <div
                       key={i}
-                      className="grid grid-cols-1 gap-2 rounded bg-slate-50 p-2 ring-1 ring-inset ring-slate-200 dark:bg-slate-800/50 dark:ring-slate-700 sm:grid-cols-3"
+                      className="grid grid-cols-1 gap-2 rounded bg-surface-sunken p-2 ring-1 ring-inset ring-line sm:grid-cols-3"
                     >
                       <Field label={t('snmp.v3Username')}>
                         <Input
@@ -435,7 +431,7 @@ export function ScanOptionsEditor({
       <div>
         <button
           type="button"
-          className="text-xs font-medium text-sky-700 hover:underline dark:text-sky-400"
+          className="text-xs font-medium text-accent-ink hover:underline"
           aria-expanded={advanced}
           onClick={() => setAdvanced((a) => !a)}
         >

@@ -21,12 +21,15 @@ export function Breadcrumbs({
     ...(extra ?? []),
   ];
   return (
-    <nav aria-label={t('nav.breadcrumbs')} className="flex flex-wrap items-center gap-1">
+    <nav
+      aria-label={t('nav.breadcrumbs')}
+      className="flex flex-wrap items-center gap-2 text-xs text-ink-subtle"
+    >
       {items.map((it, i) => (
         <Fragment key={i}>
-          {i > 0 && <ChevronIcon size={10} className="text-slate-400 rtl:rotate-180" />}
+          {i > 0 && <ChevronIcon size={10} className="text-line-strong rtl:rotate-180" />}
           {it.to ? (
-            <Link to={it.to} className="hover:underline">
+            <Link to={it.to} className="text-ink-muted hover:underline">
               {it.label}
             </Link>
           ) : (

@@ -78,7 +78,30 @@
     "newDevices": "התקנים חדשים",
     "backups": "גיבויי תצורה",
     "reports": "דוחות",
-    "assistant": "שאל את הרשת"
+    "assistant": "שאל את הרשת",
+    "inventory": "מלאי",
+    "health": "חיישנים לפי מצב",
+    "toggleInventory": "הצגה או הסתרה של המלאי",
+    "short": {
+      "dashboard": "סקירה",
+      "assistant": "שאלו",
+      "events": "אירועים",
+      "logs": "יומנים",
+      "map": "מפה",
+      "flows": "תעבורה",
+      "newDevices": "חדשים",
+      "backups": "גיבויים",
+      "discovery": "גילוי",
+      "templates": "תבניות",
+      "find": "חיפוש",
+      "maintenance": "תחזוקה",
+      "reports": "דוחות",
+      "notifications": "התראות",
+      "settings": "הגדרות",
+      "users": "משתמשים",
+      "audit": "ביקורת",
+      "inventory": "מלאי"
+    }
   },
   "tree": {
     "search": "חיפוש קבוצות, התקנים וחיישנים",
@@ -396,7 +419,20 @@
     "smtpTestOk": "דוא\"ל הבדיקה נשלח.",
     "healthLine": "גרסה {{version}} · מסד נתונים {{db}} · {{mode}} · מנוע דגימה {{poller}} · חיישנים מתוזמנים: {{count}}",
     "security": {
-      "none": "ללא"
+      "none": "ללא",
+      "title": "אבטחה",
+      "intro": "אפשרויות הקשחה. ברירות המחדל הן הבחירה המאובטחת; שנו רק כאשר הפריסה שלכם דורשת זאת.",
+      "sessionMaxAge": "גיל מרבי של התחברות (שעות)",
+      "sessionMaxAgeHint": "התחברות מסתיימת אחרי פרק זמן זה גם כשהיא בשימוש (1–720; ברירת מחדל 168 = 7 ימים). התחברויות Active Directory, Kerberos ו-Microsoft מסתיימות לכל המאוחר אחרי 12 שעות.",
+      "sessionMaxAgeErr": "הזינו 1–720.",
+      "loginIpCap": "כניסות כושלות לכתובת (5 דקות)",
+      "loginIpCapHint": "אחרי מספר זה של כניסות כושלות בסיסמה מכתובת אחת, בכל שמות המשתמש יחד, כניסות חדשות ממנה ממתינות עד שיחלפו 5 הדקות. משתמשים מחוברים אינם מושפעים. 0 = כבוי (ברירת מחדל 20).",
+      "loginIpCapErr": "הזינו 0–10000.",
+      "allowLoopback": "אפשר יעדי ניטור והתראה בשרת הזה (loopback)",
+      "allowLoopbackHint": "כבוי: חיישני HTTP, webhooks וערוצי Teams אינם יכולים לפנות אל 127.0.0.1 / localhost. הפעילו רק כדי לנטר שירות שרץ בשרת NetworkMonitor עצמו. כתובות link-local וכתובות metadata של ענן חסומות תמיד; כתובות רשת פרטיות מותרות תמיד.",
+      "frameAncestors": "אתרים שרשאים להטמיע את NetworkMonitor במסגרת (frame)",
+      "frameAncestorsHint": "מקור (origin) אחד בכל שורה, לדוגמה https://wall.example.com. ריק = רק NetworkMonitor עצמו (מומלץ). נדרש רק כאשר דף של מסך קיר מטמיע את תצוגת ה-NOC.",
+      "frameAncestorsErr": "כל שורה חייבת להיות מקור כגון https://wall.example.com (סכמה ושם מארח, פורט אופציונלי), עד 20."
     },
     "timezone": "אזור זמן",
     "timezoneHint": "משמש לחלונות תחזוקה שבועיים ולשעות בהתראות.",
@@ -463,7 +499,10 @@
     "confirmPassword": "אימות הסיסמה החדשה",
     "passwordChanged": "הסיסמה שונתה.",
     "ldapManaged": "החשבון שלך מנוהל ב-Active Directory. את הסיסמה והדוא\"ל משנים שם.",
-    "oidcManaged": "החשבון הזה נכנס עם Microsoft Entra ID, והסיסמה שלו מנוהלת שם."
+    "oidcManaged": "החשבון הזה נכנס עם Microsoft Entra ID, והסיסמה שלו מנוהלת שם.",
+    "sessions": "התחברויות",
+    "sessionsHint": "התנתקות מסיימת בשרת את ההתחברות של הדפדפן הזה. אם ייתכן שמישהו אחר משתמש בחשבון שלכם, התנתקו בבת אחת מכל הדפדפנים והמכשירים (אסימוני API אינם מושפעים).",
+    "logoutEverywhere": "התנתקות מכל המכשירים"
   },
   "validation": {
     "required": "שדה חובה.",
@@ -1777,7 +1816,8 @@
       "syslog": "Syslog",
       "traps": "מלכודות",
       "unknown": "מקורות לא מוכרים",
-      "rules": "כללים"
+      "rules": "כללים",
+      "digest": "תקציר"
     },
     "range": "טווח זמן",
     "preset": {
@@ -3912,5 +3952,9 @@
     "clear": "ניקוי החיפוש",
     "none": "לא נמצאו הגדרות",
     "requires": "דורש את התכונה {{feature}} — הפעילו אותה בלשונית {{tab}}"
+  },
+  "auth": {
+    "tagline1": "כל פורט.",
+    "tagline2": "כל אות."
   }
 }

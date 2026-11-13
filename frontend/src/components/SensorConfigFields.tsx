@@ -29,7 +29,7 @@ export function ValueMapEditor({
   return (
     <div className="space-y-1.5">
       {rows.length > 0 && (
-        <div className="hidden grid-cols-[6rem_8rem_minmax(0,1fr)_2rem] gap-2 text-[11px] font-medium uppercase tracking-wide text-slate-500 sm:grid">
+        <div className="hidden grid-cols-[6rem_8rem_minmax(0,1fr)_2rem] gap-2 text-[11px] font-medium text-ink-muted sm:grid">
           <span>{t('valueMap.value')}</span>
           <span>{t('valueMap.status')}</span>
           <span>{t('valueMap.text')}</span>
@@ -117,7 +117,7 @@ export function SensorConfigFields({
   disabled?: boolean;
 }) {
   const { t } = useTranslation();
-  if (!fields.length) return <p className="text-sm text-slate-500">{t('sensors.noConfig')}</p>;
+  if (!fields.length) return <p className="text-sm text-ink-muted">{t('sensors.noConfig')}</p>;
   const set = (k: string, v: string | boolean) => onChange({ ...raw, [k]: v });
   return (
     <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
@@ -130,7 +130,7 @@ export function SensorConfigFields({
         const hintText = t(hintKey, { defaultValue: '' });
         const hint = (
           <>
-            {err && <span className="text-red-600">{err} </span>}
+            {err && <span className="text-status-down">{err} </span>}
             {hintText || (range && <bdi dir="ltr">{range}</bdi>)}
           </>
         );
@@ -173,7 +173,7 @@ export function SensorConfigFields({
                 required
                 hint={
                   <>
-                    {err && <span className="text-red-600">{err} </span>}
+                    {err && <span className="text-status-down">{err} </span>}
                     {t('valueMap.hint')}
                   </>
                 }

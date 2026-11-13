@@ -31,6 +31,8 @@ import { CheckIcon, CopyIcon, XIcon } from '../icons';
 import { SecretField } from '../SnmpEditor';
 import { useToast } from '../toast';
 import {
+  BANNER,
+  BANNER_TONE,
   Button,
   buttonClass,
   Card,
@@ -42,6 +44,8 @@ import {
   FieldGroup,
   Input,
   Select,
+  TAG,
+  TAG_TONE,
   Textarea,
 } from '../ui';
 import { AssistantStateBadge, useAssistantErrorText } from './common';
@@ -70,7 +74,7 @@ const ERR_KEYS: Record<string, string> = {
 
 function Hint({ err, hint }: { err?: string; hint?: string }) {
   const { t } = useTranslation();
-  if (err) return <span className="text-red-600">{t(ERR_KEYS[err] ?? err)}</span>;
+  if (err) return <span className="text-status-down">{t(ERR_KEYS[err] ?? err)}</span>;
   return hint ? <>{hint}</> : null;
 }
 
@@ -82,12 +86,7 @@ function GeoNote({ modelId, region }: { modelId: string; region: string }) {
   const warn = scope === 'global';
   return (
     <div
-      className={cx(
-        'rounded-md px-3 py-2 text-xs ring-1 ring-inset',
-        warn
-          ? 'bg-amber-50 text-amber-900 ring-amber-200 dark:bg-amber-950/40 dark:text-amber-200 dark:ring-amber-900'
-          : 'bg-slate-50 text-slate-700 ring-slate-200 dark:bg-slate-800/60 dark:text-slate-300 dark:ring-slate-700',
-      )}
+      className={cx(BANNER, 'py-2 text-xs', warn ? BANNER_TONE.warning : BANNER_TONE.neutral)}
       data-testid="geo-note"
       data-scope={scope}
     >
@@ -106,26 +105,26 @@ function CertDetails({ c, onDelete }: { c: CertInfo; onDelete?: () => void }) {
   return (
     <div className="space-y-1 text-xs" data-testid="cert-info">
       <dl className="grid grid-cols-[auto_1fr] gap-x-3 gap-y-0.5">
-        <dt className="text-slate-500">{t('assistant.cert.subject')}</dt>
+        <dt className="text-ink-muted">{t('assistant.cert.subject')}</dt>
         <dd dir="ltr" className="break-all text-start">
           {c.subject}
         </dd>
-        <dt className="text-slate-500">{t('assistant.cert.issuer')}</dt>
+        <dt className="text-ink-muted">{t('assistant.cert.issuer')}</dt>
         <dd dir="ltr" className="break-all text-start">
           {c.issuer}
         </dd>
-        <dt className="text-slate-500">{t('assistant.cert.serial')}</dt>
+        <dt className="text-ink-muted">{t('assistant.cert.serial')}</dt>
         <dd dir="ltr" className="break-all text-start font-mono">
           {c.serial_hex}
         </dd>
-        <dt className="text-slate-500">{t('assistant.cert.validity')}</dt>
+        <dt className="text-ink-muted">{t('assistant.cert.validity')}</dt>
         <dd>
           {formatDateTime(c.not_before)} → {formatDateTime(c.not_after)}{' '}
           <span
             className={cx(
-              tone === 'error' && 'text-red-600',
-              tone === 'warn' && 'text-amber-700 dark:text-amber-300',
-              tone === 'ok' && 'text-green-700 dark:text-green-400',
+              tone === 'error' && 'text-status-down',
+              tone === 'warn' && 'text-status-warning',
+              tone === 'ok' && 'text-status-up',
             )}
           >
             (
@@ -135,20 +134,20 @@ function CertDetails({ c, onDelete }: { c: CertInfo; onDelete?: () => void }) {
             )
           </span>
         </dd>
-        <dt className="text-slate-500">{t('assistant.cert.key')}</dt>
+        <dt className="text-ink-muted">{t('assistant.cert.key')}</dt>
         <dd>
           {c.key_type.toUpperCase()} {c.key_bits}
           {c.key_unreadable && (
-            <span className="ms-2 text-red-600">{t('assistant.cert.keyUnreadable')}</span>
+            <span className="ms-2 text-status-down">{t('assistant.cert.keyUnreadable')}</span>
           )}
         </dd>
-        <dt className="text-slate-500">SHA-256</dt>
+        <dt className="text-ink-muted">SHA-256</dt>
         <dd dir="ltr" className="break-all text-start font-mono text-[10px]">
           {c.sha256}
         </dd>
         {c.chain.length > 0 && (
           <>
-            <dt className="text-slate-500">{t('assistant.cert.chain')}</dt>
+            <dt className="text-ink-muted">{t('assistant.cert.chain')}</dt>
             <dd>
               {c.chain.map((x, i) => (
                 <span key={i} className="block" dir="ltr">
@@ -158,7 +157,7 @@ function CertDetails({ c, onDelete }: { c: CertInfo; onDelete?: () => void }) {
             </dd>
           </>
         )}
-        <dt className="text-slate-500">{t('assistant.cert.source')}</dt>
+        <dt className="text-ink-muted">{t('assistant.cert.source')}</dt>
         <dd>
           {c.source === 'files'
             ? t('assistant.cert.fromFiles')
@@ -217,18 +216,15 @@ function CertificateCard({ s, locked }: { s: AssistantSettings; locked: boolean 
   });
   const fromFiles = s.certificate?.source === 'files' || !!s.certificate_host_files;
   return (
-    <div
-      className="space-y-3 rounded-md border border-slate-200 p-3 dark:border-slate-700"
-      data-testid="cert-card"
-    >
+    <div className="space-y-3 rounded-md border border-line p-3" data-testid="cert-card">
       <h4 className="text-sm font-semibold">{t('assistant.cert.title')}</h4>
       {s.certificate ? (
         <CertDetails c={s.certificate} onDelete={locked ? undefined : () => setDeleting(true)} />
       ) : (
-        <p className="text-xs text-amber-700 dark:text-amber-300">{t('assistant.cert.none')}</p>
+        <p className="text-xs text-status-warning">{t('assistant.cert.none')}</p>
       )}
       {fromFiles ? (
-        <p className="text-xs text-slate-500">{t('assistant.cert.filesReadOnly')}</p>
+        <p className="text-xs text-ink-muted">{t('assistant.cert.filesReadOnly')}</p>
       ) : (
         <>
           <div role="radiogroup" className="flex flex-wrap gap-4 text-sm">
@@ -241,7 +237,7 @@ function CertificateCard({ s, locked }: { s: AssistantSettings; locked: boolean 
           </div>
           {mode === 'csr' && (
             <div className="space-y-2">
-              <p className="text-xs text-slate-500">{t('assistant.cert.csrIntro')}</p>
+              <p className="text-xs text-ink-muted">{t('assistant.cert.csrIntro')}</p>
               {pending ? (
                 <div className="space-y-1" data-testid="csr-pending">
                   <p className="text-xs">
@@ -251,7 +247,7 @@ function CertificateCard({ s, locked }: { s: AssistantSettings; locked: boolean 
                     })}
                   </p>
                   {pending.key_unreadable && (
-                    <p className="text-xs text-red-600">{t('assistant.cert.keyUnreadable')}</p>
+                    <p className="text-xs text-status-down">{t('assistant.cert.keyUnreadable')}</p>
                   )}
                   <Textarea
                     readOnly
@@ -287,7 +283,7 @@ function CertificateCard({ s, locked }: { s: AssistantSettings; locked: boolean 
                       {t('assistant.cert.discardCsr')}
                     </Button>
                   </div>
-                  <p className="text-xs text-slate-500">{t('assistant.cert.csrNext')}</p>
+                  <p className="text-xs text-ink-muted">{t('assistant.cert.csrNext')}</p>
                   <ErrorBox error={discardCsr.error} />
                 </div>
               ) : (
@@ -385,7 +381,7 @@ function CertificateCard({ s, locked }: { s: AssistantSettings; locked: boolean 
           )}
         </>
       )}
-      <p className="text-xs text-slate-500">{t('assistant.cert.requirements')}</p>
+      <p className="text-xs text-ink-muted">{t('assistant.cert.requirements')}</p>
       <ConfirmDialog
         open={deleting}
         title={t('assistant.cert.delete')}
@@ -411,19 +407,19 @@ function TestResultView({ r }: { r: AssistantTestResult }) {
         {r.steps.map((s) => (
           <li key={s.step} className="flex flex-wrap items-start gap-1.5" data-step={s.step}>
             {s.ok ? (
-              <CheckIcon size={13} className="mt-0.5 text-green-600" />
+              <CheckIcon size={13} className="mt-0.5 text-status-up" />
             ) : (
-              <XIcon size={13} className="mt-0.5 text-red-600" />
+              <XIcon size={13} className="mt-0.5 text-status-down" />
             )}
             <span className="font-medium">{t(`assistant.test.step.${s.step}`)}</span>
-            <span className="text-slate-400">{s.ms} ms</span>
-            <span dir="auto" className="basis-full ps-5 text-slate-600 dark:text-slate-400">
+            <span className="text-ink-subtle">{s.ms} ms</span>
+            <span dir="auto" className="basis-full ps-5 text-ink-muted">
               {s.error_code ? errText({ code: s.error_code, message: s.detail }) : s.detail}
             </span>
             {s.error_code && s.detail && (
               <bdi
                 dir="ltr"
-                className="basis-full ps-5 font-mono text-[11px] text-slate-500"
+                className="basis-full ps-5 font-mono text-[11px] text-ink-muted"
                 data-testid="test-step-raw"
               >
                 {s.detail}
@@ -432,7 +428,7 @@ function TestResultView({ r }: { r: AssistantTestResult }) {
           </li>
         ))}
       </ul>
-      <p className="text-slate-500">
+      <p className="text-ink-muted">
         {r.endpoint_host && (
           <>
             {t('assistant.test.endpoint')}: <bdi dir="ltr">{r.endpoint_host}</bdi>
@@ -450,16 +446,14 @@ function TestResultView({ r }: { r: AssistantTestResult }) {
           ` · ${t('assistant.tokens', { n: r.usage.input_tokens + r.usage.output_tokens })}`}
       </p>
       {r.warnings.map((w) => (
-        <p key={w} className="text-amber-700 dark:text-amber-300">
+        <p key={w} className="text-status-warning">
           {t(`assistant.warning.${w}`, { defaultValue: w })}
         </p>
       ))}
       {r.error && !r.steps.some((s) => s.error_code) && (
-        <p className="text-red-600">{errText(r.error)}</p>
+        <p className="text-status-down">{errText(r.error)}</p>
       )}
-      {r.ok && (
-        <p className="font-medium text-green-700 dark:text-green-400">{t('assistant.test.ok')}</p>
-      )}
+      {r.ok && <p className="font-medium text-status-up">{t('assistant.test.ok')}</p>}
     </div>
   );
 }
@@ -626,14 +620,14 @@ export function ConnectionSettings({ s, auditOn }: { s: AssistantSettings; audit
       actions={<AssistantStateBadge state={s.state} />}
     >
       <form onSubmit={submit} className="space-y-4" data-testid="assistant-connection">
-        <p className="text-xs text-slate-500">{t('assistant.settings.connectionIntro')}</p>
+        <p className="text-xs text-ink-muted">{t('assistant.settings.connectionIntro')}</p>
         {s.state_error && (
-          <p role="alert" className="text-sm text-red-600">
+          <p role="alert" className="text-sm text-status-down">
             {errText(s.state_error)} · {formatDateTime(s.state_error.at)}
           </p>
         )}
         {s.warnings.map((w) => (
-          <p key={w} className="text-xs text-amber-700 dark:text-amber-300" data-warning={w}>
+          <p key={w} className="text-xs text-status-warning" data-warning={w}>
             {t(`assistant.warning.${w}`, { defaultValue: w })}
           </p>
         ))}
@@ -651,11 +645,11 @@ export function ConnectionSettings({ s, auditOn }: { s: AssistantSettings; audit
                 <span>
                   <span className="font-medium">{t(`assistant.settings.auth.${m}`)}</span>
                   {m === 'roles_anywhere' && (
-                    <span className="ms-1 rounded bg-green-100 px-1 text-[10px] text-green-800 dark:bg-green-900 dark:text-green-200">
+                    <span className={cx(TAG, TAG_TONE.up, 'ms-1')}>
                       {t('assistant.settings.recommended')}
                     </span>
                   )}
-                  <span className="block text-xs text-slate-500">
+                  <span className="block text-xs text-ink-muted">
                     {t(`assistant.settings.authHint.${m}`)}
                   </span>
                 </span>
@@ -752,18 +746,14 @@ export function ConnectionSettings({ s, auditOn }: { s: AssistantSettings; audit
               </Field>
             </div>
             {arnAccountsDiffer(f) && (
-              <p className="text-xs text-amber-700 dark:text-amber-300">
-                {t('assistant.settings.arnAccounts')}
-              </p>
+              <p className="text-xs text-status-warning">{t('assistant.settings.arnAccounts')}</p>
             )}
           </div>
         )}
 
         {f.auth_mode === 'access_key' && (
           <div className="space-y-2">
-            <p className="text-xs text-amber-700 dark:text-amber-300">
-              {t('assistant.settings.accessKeyAdvice')}
-            </p>
+            <p className="text-xs text-status-warning">{t('assistant.settings.accessKeyAdvice')}</p>
             <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
               <Field
                 label={t('assistant.settings.accessKeyId')}
@@ -789,7 +779,7 @@ export function ConnectionSettings({ s, auditOn }: { s: AssistantSettings; audit
                 label={t('assistant.settings.keyCreated')}
                 hint={
                   accessKeyAge !== null && accessKeyAge < -90 ? (
-                    <span className="text-amber-700">
+                    <span className="text-status-warning">
                       {t('assistant.settings.keyOld', { days: -accessKeyAge })}
                     </span>
                   ) : (
@@ -806,7 +796,7 @@ export function ConnectionSettings({ s, auditOn }: { s: AssistantSettings; audit
               </Field>
             </div>
             {s.secret_access_key_unreadable && (
-              <p className="text-xs text-red-600">{t('assistant.settings.secretUnreadable')}</p>
+              <p className="text-xs text-status-down">{t('assistant.settings.secretUnreadable')}</p>
             )}
             <SessionTokenField
               value={f.session_token}
@@ -817,7 +807,7 @@ export function ConnectionSettings({ s, auditOn }: { s: AssistantSettings; audit
               onClear={(v) => set('clear_session_token', v)}
             />
             {s.session_token_unreadable && (
-              <p className="text-xs text-red-600" data-testid="session-token-unreadable">
+              <p className="text-xs text-status-down" data-testid="session-token-unreadable">
                 {t('assistant.settings.sessionTokenUnreadable')}
               </p>
             )}
@@ -825,9 +815,7 @@ export function ConnectionSettings({ s, auditOn }: { s: AssistantSettings; audit
         )}
 
         {f.auth_mode === 'default_chain' && (
-          <p className="text-xs text-slate-600 dark:text-slate-400">
-            {t('assistant.settings.defaultChainInfo')}
-          </p>
+          <p className="text-xs text-ink-muted">{t('assistant.settings.defaultChainInfo')}</p>
         )}
 
         <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
@@ -873,13 +861,13 @@ export function ConnectionSettings({ s, auditOn }: { s: AssistantSettings; audit
         </div>
         <GeoNote modelId={f.model_id} region={f.region.trim()} />
         {listModels.data?.error && (
-          <p className="text-xs text-red-600">{errText(listModels.data.error)}</p>
+          <p className="text-xs text-status-down">{errText(listModels.data.error)}</p>
         )}
         <ErrorBox error={listModels.error} />
         {models && (
-          <div className="max-h-48 overflow-y-auto rounded-md ring-1 ring-slate-200 dark:ring-slate-700">
+          <div className="max-h-48 overflow-y-auto rounded-md border border-line bg-surface">
             {models.length === 0 && (
-              <p className="p-2 text-xs text-slate-500">{t('assistant.settings.noModels')}</p>
+              <p className="p-2 text-xs text-ink-muted">{t('assistant.settings.noModels')}</p>
             )}
             {models.map((m) => (
               <button
@@ -889,13 +877,13 @@ export function ConnectionSettings({ s, auditOn }: { s: AssistantSettings; audit
                   set('model_id', m.id);
                   setModels(null);
                 }}
-                className="flex w-full flex-wrap items-center gap-2 px-2 py-1 text-start text-xs hover:bg-sky-50 dark:hover:bg-slate-800"
+                className="flex w-full flex-wrap items-center gap-2 px-2 py-1 text-start text-xs hover:bg-accent-soft"
               >
                 <span dir="ltr" className="font-mono">
                   {m.id}
                 </span>
-                <span className="text-slate-500">{m.name}</span>
-                <span className="ms-auto text-slate-400">
+                <span className="text-ink-muted">{m.name}</span>
+                <span className="ms-auto text-ink-subtle">
                   {t(`assistant.settings.modelKind.${m.kind}`)}
                 </span>
               </button>
@@ -971,7 +959,7 @@ export function ConnectionSettings({ s, auditOn }: { s: AssistantSettings; audit
             checked={f.prompt_caching}
             onChange={(v) => set('prompt_caching', v)}
           />
-          <p className="ms-6 text-xs text-slate-500">{t('assistant.settings.promptCachingHint')}</p>
+          <p className="ms-6 text-xs text-ink-muted">{t('assistant.settings.promptCachingHint')}</p>
         </div>
         <ErrorBox error={save.error} />
         <div className="flex justify-end">
@@ -981,7 +969,7 @@ export function ConnectionSettings({ s, auditOn }: { s: AssistantSettings; audit
         </div>
 
         {/* bottom: Test connection + the enable switch (configure-first) */}
-        <div className="space-y-3 border-t border-slate-200 pt-4 dark:border-slate-800">
+        <div className="space-y-3 border-t border-line pt-4">
           <div className="flex flex-wrap items-center gap-3">
             <Button
               onClick={() => test.mutate()}
@@ -992,7 +980,7 @@ export function ConnectionSettings({ s, auditOn }: { s: AssistantSettings; audit
               {t('assistant.settings.test')}
             </Button>
             {s.last_test && (
-              <span className="text-xs text-slate-500">
+              <span className="text-xs text-ink-muted">
                 {t('assistant.settings.lastTest', {
                   result: s.last_test.ok
                     ? t('assistant.test.okShort')
@@ -1004,7 +992,7 @@ export function ConnectionSettings({ s, auditOn }: { s: AssistantSettings; audit
             )}
           </div>
           {missing.length > 0 && (
-            <p className="text-xs text-amber-700 dark:text-amber-300">
+            <p className="text-xs text-status-warning">
               {missing.map((m) => t(`assistant.settings.missing.${m}`)).join(' · ')}
             </p>
           )}
@@ -1023,29 +1011,20 @@ export function ConnectionSettings({ s, auditOn }: { s: AssistantSettings; audit
               disabled={!s.enabled && (!testId || invalid || !auditOn)}
             />
             <span className="text-sm font-medium">{t('features.name.assistant')}</span>
-            <span
-              className={cx(
-                'text-xs',
-                s.enabled ? 'text-green-700 dark:text-green-400' : 'text-slate-500',
-              )}
-            >
+            <span className={cx('text-xs', s.enabled ? 'text-status-up' : 'text-ink-muted')}>
               {s.enabled ? t('features.on') : t('features.off')}
             </span>
           </div>
           {!s.enabled && !testId && (
-            <p className="text-xs text-amber-700 dark:text-amber-300" data-testid="enable-hint">
+            <p className="text-xs text-status-warning" data-testid="enable-hint">
               {t('assistant.settings.enableNeedsTest')}
             </p>
           )}
           {!s.enabled && !auditOn && (
-            <p className="text-xs text-amber-700 dark:text-amber-300">
-              {t('features.hint.assistantAudit')}
-            </p>
+            <p className="text-xs text-status-warning">{t('features.hint.assistantAudit')}</p>
           )}
           {s.enabled && dirty && !testId && (
-            <p className="text-xs text-amber-700 dark:text-amber-300">
-              {t('assistant.settings.changeNeedsTest')}
-            </p>
+            <p className="text-xs text-status-warning">{t('assistant.settings.changeNeedsTest')}</p>
           )}
           <ErrorBox error={toggle.error} />
         </div>

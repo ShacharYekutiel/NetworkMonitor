@@ -5,12 +5,12 @@ import { useTranslation } from 'react-i18next';
 import { endpoints, qk } from '../api/endpoints';
 import { SENSOR_IMPACTS, type SensorImpact } from '../api/types';
 import { useToast } from './toast';
-import { Button, cx, ErrorBox, FieldGroup, Modal } from './ui';
+import { Button, cx, ErrorBox, FieldGroup, Modal, TAG, TAG_TONE } from './ui';
 
 const DOT: Record<SensorImpact, string> = {
-  critical: 'bg-red-600',
-  warning: 'bg-amber-500',
-  none: 'bg-gray-400',
+  critical: 'bg-status-down',
+  warning: 'bg-status-warning',
+  none: 'bg-status-unknown',
 };
 
 /** Small tag next to a sensor name; critical is the default and stays unmarked. */
@@ -21,12 +21,7 @@ export function ImpactTag({ impact }: { impact: SensorImpact | undefined }) {
     <span
       data-testid="impact-tag"
       title={t('impact.tagTitle', { impact: t(`impact.option.${impact}`) })}
-      className={cx(
-        'ms-1.5 inline-flex items-center whitespace-nowrap rounded px-1 py-px align-middle text-[10px] font-semibold ring-1 ring-inset',
-        impact === 'warning'
-          ? 'bg-amber-50 text-amber-800 ring-amber-200 dark:bg-amber-950/50 dark:text-amber-300 dark:ring-amber-900'
-          : 'bg-gray-100 text-gray-600 ring-gray-200 dark:bg-slate-800 dark:text-slate-300 dark:ring-slate-700',
-      )}
+      className={cx(TAG, 'ms-1.5', impact === 'warning' ? TAG_TONE.warning : TAG_TONE.neutral)}
     >
       {t(`impact.tag.${impact}`)}
     </span>
@@ -55,7 +50,7 @@ export function ImpactField({
               value={v}
               checked={value === v}
               onChange={() => onChange(v)}
-              className="h-4 w-4 border-slate-300 text-sky-600 dark:border-slate-600 dark:bg-slate-900"
+              className="h-4 w-4 border-line-strong text-accent-ink"
             />
             <span className={cx('h-2.5 w-2.5 rounded-full', DOT[v])} aria-hidden="true" />
             <span>{t(`impact.option.${v}`)}</span>

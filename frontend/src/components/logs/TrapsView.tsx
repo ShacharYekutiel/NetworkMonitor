@@ -11,6 +11,7 @@ import {
   emptyFilter,
   liveAllowed,
   matchesTrap,
+  SEVERITY_HEX,
   rangeOf,
   ticksToSeconds,
   trapQuery,
@@ -29,8 +30,8 @@ import { LiveToggle, NewRecordsBar } from './SyslogView';
 import { useLogFeed } from './useLogFeed';
 
 const th =
-  'sticky top-0 z-10 whitespace-nowrap border-b border-slate-200 bg-white px-2 py-1.5 text-start text-[11px] font-medium uppercase tracking-wide text-slate-500 dark:border-slate-800 dark:bg-slate-900';
-const td = 'border-b border-slate-100 px-2 py-1 align-top dark:border-slate-800/70';
+  'sticky top-0 z-10 whitespace-nowrap border-b border-line bg-surface px-2 py-1.5 text-start text-[11px] font-medium text-ink-muted';
+const td = 'border-b border-line px-2 py-1 align-top';
 
 export function TrapDetail({
   trap,
@@ -86,9 +87,7 @@ export function TrapDetail({
             ]}
           />
           <div>
-            <h4 className="mb-1 text-xs font-semibold uppercase tracking-wide text-slate-500">
-              {t('traps.varbinds')}
-            </h4>
+            <h4 className="mb-1 text-xs font-semibold text-ink-muted">{t('traps.varbinds')}</h4>
             <div className="overflow-x-auto">
               <table className="w-full text-xs" data-testid="varbinds">
                 <thead>
@@ -186,13 +185,13 @@ export function TrapsView({ deviceId }: { deviceId?: number }) {
       </Card>
       {stats.data && (
         <Card bodyClassName="p-3">
-          <div className="text-xs text-slate-500">{t('logs.total', { n: stats.data.total })}</div>
+          <div className="text-xs text-ink-muted">{t('logs.total', { n: stats.data.total })}</div>
           <Histogram
             times={stats.data.buckets.map((b) => b.t)}
             series={[
               {
                 name: t('traps.title'),
-                color: '#f97316',
+                color: SEVERITY_HEX.orange,
                 data: stats.data.buckets.map((b) => b.count),
               },
             ]}
@@ -251,9 +250,9 @@ export function TrapsView({ deviceId }: { deviceId?: number }) {
                   <tr
                     key={x.id}
                     onClick={() => setSelected(x)}
-                    className="cursor-pointer hover:bg-slate-50 dark:hover:bg-slate-800/50"
+                    className="cursor-pointer hover:bg-surface-hover"
                   >
-                    <td className={cx(td, 'whitespace-nowrap text-slate-500')}>
+                    <td className={cx(td, 'whitespace-nowrap text-ink-muted')}>
                       {formatDateTime(x.time)}
                     </td>
                     {deviceId === undefined && (
@@ -264,7 +263,7 @@ export function TrapsView({ deviceId }: { deviceId?: number }) {
                     <td className={cx(td, 'whitespace-nowrap')}>
                       {x.version}
                       {x.pdu === 'inform' && (
-                        <span className="ms-1 text-slate-500">({t('traps.inform')})</span>
+                        <span className="ms-1 text-ink-muted">({t('traps.inform')})</span>
                       )}
                     </td>
                     <td className={cx(td, 'whitespace-nowrap')}>

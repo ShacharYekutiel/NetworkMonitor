@@ -53,7 +53,7 @@ export function TemplateDraftButton() {
   return (
     <>
       <Button onClick={() => setOpen(true)} data-testid="template-draft-open">
-        <SparkIcon size={14} className="text-violet-600" /> {t('tdraft.open')}
+        <SparkIcon size={14} className="text-accent-ink" /> {t('tdraft.open')}
       </Button>
       {open && <TemplateDraftWizard onClose={() => setOpen(false)} />}
     </>
@@ -143,12 +143,9 @@ function TemplateDraftWizard({ onClose }: { onClose: () => void }) {
   return (
     <Modal open onClose={onClose} wide title={t('tdraft.title')} testId="template-draft">
       <div className="space-y-4">
-        <ol className="flex flex-wrap gap-3 text-xs text-slate-500">
+        <ol className="flex flex-wrap gap-3 text-xs text-ink-muted">
           {(['setup', 'walk', 'draft'] as Step[]).map((s, i) => (
-            <li
-              key={s}
-              className={s === step ? 'font-semibold text-sky-700 dark:text-sky-300' : ''}
-            >
+            <li key={s} className={s === step ? 'font-semibold text-accent-ink' : ''}>
               {i + 1}. {t(`tdraft.step.${s}`)}
             </li>
           ))}
@@ -156,7 +153,7 @@ function TemplateDraftWizard({ onClose }: { onClose: () => void }) {
 
         {step === 'setup' && (
           <div className="space-y-3">
-            <p className="text-sm text-slate-600 dark:text-slate-300">{t('tdraft.intro')}</p>
+            <p className="text-sm text-ink-muted">{t('tdraft.intro')}</p>
             <Field label={t('tdraft.device')} required>
               <DevicePicker value={deviceId} onChange={setDeviceId} label={t('tdraft.device')} />
             </Field>
@@ -176,11 +173,11 @@ function TemplateDraftWizard({ onClose }: { onClose: () => void }) {
               label={t('tdraft.customOids')}
               hint={
                 bad.length ? (
-                  <span className="text-red-600">
+                  <span className="text-status-down">
                     {t('tdraft.badOids', { oids: bad.join(', ') })}
                   </span>
                 ) : tooMany ? (
-                  <span className="text-red-600">{t('tdraft.tooMany')}</span>
+                  <span className="text-status-down">{t('tdraft.tooMany')}</span>
                 ) : (
                   t('tdraft.customOidsHint')
                 )
@@ -194,7 +191,7 @@ function TemplateDraftWizard({ onClose }: { onClose: () => void }) {
                 placeholder="1.3.6.1.4.1.25506.2.6"
               />
             </Field>
-            <p className="text-xs text-slate-500">{t('tdraft.neverWalked')}</p>
+            <p className="text-xs text-ink-muted">{t('tdraft.neverWalked')}</p>
             <ErrorBox error={start.error} />
             <div className="flex justify-end gap-2">
               <Button onClick={onClose}>{t('common.cancel')}</Button>
@@ -221,14 +218,14 @@ function TemplateDraftWizard({ onClose }: { onClose: () => void }) {
                   {w.status === 'running' && <Spinner className="h-4 w-4" />}
                   {t(`tdraft.walkStatus.${w.status}`)} · {t('tdraft.varbinds', { n: w.total })}
                 </p>
-                <ul className="text-xs text-slate-500" dir="ltr">
+                <ul className="text-xs text-ink-muted" dir="ltr">
                   {Object.entries(w.counts).map(([oid, n]) => (
                     <li key={oid}>
                       {oid}: {n}
                     </li>
                   ))}
                 </ul>
-                {w.error && <p className="text-xs text-red-600">{w.error}</p>}
+                {w.error && <p className="text-xs text-status-down">{w.error}</p>}
               </div>
             ) : (
               <Spinner />
@@ -260,7 +257,7 @@ function TemplateDraftWizard({ onClose }: { onClose: () => void }) {
             )}
             <ErrorBox error={makeDraft.error} />
             {makeDraft.isPending && (
-              <p className="text-xs text-slate-500">{t('tdraft.drafting')}</p>
+              <p className="text-xs text-ink-muted">{t('tdraft.drafting')}</p>
             )}
             <div className="flex justify-end gap-2">
               {w?.status === 'running' && (
@@ -288,11 +285,11 @@ function TemplateDraftWizard({ onClose }: { onClose: () => void }) {
           <div className="space-y-3">
             <Notice>{t('tdraft.reviewBanner')}</Notice>
             {draft.valid ? (
-              <p className="text-sm text-green-700 dark:text-green-400" data-testid="draft-valid">
+              <p className="text-sm text-status-up" data-testid="draft-valid">
                 {t('tdraft.valid')}
               </p>
             ) : (
-              <div className="text-sm text-red-700 dark:text-red-300" data-testid="draft-invalid">
+              <div className="text-sm text-status-down" data-testid="draft-invalid">
                 {t('tdraft.invalid')}
                 <ul className="list-disc ps-5 text-xs">
                   {draft.errors.map((e, i) => (
@@ -304,17 +301,14 @@ function TemplateDraftWizard({ onClose }: { onClose: () => void }) {
               </div>
             )}
             {draft.warnings.length > 0 && (
-              <ul className="list-disc ps-5 text-xs text-amber-700 dark:text-amber-300">
+              <ul className="list-disc ps-5 text-xs text-status-warning">
                 {draft.warnings.map((x, i) => (
                   <li key={i}>{x}</li>
                 ))}
               </ul>
             )}
             {draft.notes && (
-              <p
-                className="whitespace-pre-wrap text-xs text-slate-600 dark:text-slate-400"
-                dir="auto"
-              >
+              <p className="whitespace-pre-wrap text-xs text-ink-muted" dir="auto">
                 {draft.notes}
               </p>
             )}
@@ -330,7 +324,7 @@ function TemplateDraftWizard({ onClose }: { onClose: () => void }) {
             />
             <AiNotice />
             {saveDetails.length > 0 && (
-              <ul className="list-disc ps-5 text-xs text-red-700 dark:text-red-300">
+              <ul className="list-disc ps-5 text-xs text-status-down">
                 {saveDetails.map((e, i) => (
                   <li key={i}>
                     <bdi dir="ltr">{e.path}</bdi>: {e.error}

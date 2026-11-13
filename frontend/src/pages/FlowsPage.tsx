@@ -63,7 +63,7 @@ function TopBars({ top, testId }: { top: FlowTop; testId: string }) {
       grid: { left: 8, right: 70, top: 8, bottom: 8, containLabel: true },
       tooltip: {
         trigger: 'axis',
-        axisPointer: { type: 'shadow' },
+        axisPointer: { type: '' },
         valueFormatter: (v: number) => formatBytes(v),
       },
       xAxis: { type: 'value', axisLabel: { formatter: (v: number) => formatBytes(v) } },
@@ -76,7 +76,6 @@ function TopBars({ top, testId }: { top: FlowTop; testId: string }) {
         {
           type: 'bar',
           data: items.map((x) => x.bytes),
-          itemStyle: { color: '#0284c7' },
           label: {
             show: true,
             position: 'right',
@@ -113,23 +112,31 @@ function TopTable({ top, kind }: { top: FlowTop; kind: 'talkers' | 'apps' | 'con
               {x.device_id ? (
                 <Link
                   to={`/devices/${x.device_id}`}
-                  className="ms-2 text-xs text-sky-700 hover:underline dark:text-sky-400"
+                  className="ms-2 text-xs text-accent-ink hover:underline"
                 >
                   {t('flows.device')}
                 </Link>
               ) : null}
             </td>
-            <td className={`${td} text-end tabular-nums`}>{formatBytes(x.bytes)}</td>
-            <td className={`${td} text-end tabular-nums`}>{formatCount(x.packets)}</td>
-            <td className={`${td} text-end tabular-nums`}>{formatShare(x.share)}</td>
+            <td className={`${td} text-end font-mono text-[12.5px] tabular-nums`}>
+              <bdi dir="ltr">{formatBytes(x.bytes)}</bdi>
+            </td>
+            <td className={`${td} text-end font-mono text-[12.5px] tabular-nums`}>
+              {formatCount(x.packets)}
+            </td>
+            <td className={`${td} text-end font-mono text-[12.5px] tabular-nums`}>
+              {formatShare(x.share)}
+            </td>
           </tr>
         ))}
         {top.other_bytes > 0 && (
-          <tr className="text-slate-500">
+          <tr className="text-ink-muted">
             <td className={td}>{t('flows.other')}</td>
-            <td className={`${td} text-end tabular-nums`}>{formatBytes(top.other_bytes)}</td>
+            <td className={`${td} text-end font-mono text-[12.5px] tabular-nums`}>
+              <bdi dir="ltr">{formatBytes(top.other_bytes)}</bdi>
+            </td>
             <td className={td} />
-            <td className={`${td} text-end tabular-nums`}>
+            <td className={`${td} text-end font-mono text-[12.5px] tabular-nums`}>
               {top.total_bytes ? formatShare(top.other_bytes / top.total_bytes) : ''}
             </td>
           </tr>
@@ -173,7 +180,7 @@ function TopView({
   return (
     <div className="space-y-4">
       {exporterId === null && multiExporter && (
-        <p className="text-xs text-amber-700 dark:text-amber-300">{t('flows.doubleCount')}</p>
+        <p className="text-xs text-status-warning">{t('flows.doubleCount')}</p>
       )}
       <div className="grid grid-cols-1 gap-4 xl:grid-cols-2">
         <Card
@@ -221,7 +228,7 @@ function TopView({
         </Card>
       </div>
       <Card title={t('flows.topConversations')} bodyClassName="p-0">
-        {!convOk && <p className="p-3 text-sm text-slate-500">{t('flows.conversationsRange')}</p>}
+        {!convOk && <p className="p-3 text-sm text-ink-muted">{t('flows.conversationsRange')}</p>}
         {convOk && conv.isLoading && <Loading />}
         <ErrorBox error={conv.error} className="m-3" />
         {convOk && conv.data && !conv.data.items.length && <Empty>{t('flows.noData')}</Empty>}
@@ -313,7 +320,7 @@ function InterfacesView({
             </Select>
           </Field>
           {series.data?.interface?.speed_bps ? (
-            <span className="pb-2 text-xs text-slate-500">
+            <span className="pb-2 text-xs text-ink-muted">
               {t('flows.speed', { speed: formatBits(series.data.interface.speed_bps) })}
             </span>
           ) : null}
@@ -325,7 +332,7 @@ function InterfacesView({
         <Card
           title={series.data.interface?.name ?? t('flows.interface')}
           actions={
-            <span className="text-xs text-slate-500">
+            <span className="text-xs text-ink-muted">
               {t('flows.peak', {
                 in: formatBits(peakRate(series.data, 'in')),
                 out: formatBits(peakRate(series.data, 'out')),
@@ -334,7 +341,7 @@ function InterfacesView({
           }
         >
           <EChart option={option} className="h-96" testId="chart-interface" />
-          <p className="mt-1 text-xs text-slate-500">{t('flows.mirrorHint')}</p>
+          <p className="mt-1 text-xs text-ink-muted">{t('flows.mirrorHint')}</p>
         </Card>
       )}
     </div>
@@ -379,7 +386,7 @@ function ExporterModal({ e, onClose }: { e: FlowExporter | null; onClose: () => 
           label={t('exporter.samplingOverride')}
           hint={
             err ? (
-              <span className="text-red-600">{t(err)}</span>
+              <span className="text-status-down">{t(err)}</span>
             ) : (
               t('exporter.samplingHint', { seen: e?.sampling_seen ?? '—' })
             )
@@ -468,26 +475,21 @@ function ExportersView({
                     {e.address}
                   </bdi>
                   {e.both_directions_warning && (
-                    <div className="text-xs text-amber-700 dark:text-amber-300">
+                    <div className="text-xs text-status-warning">
                       {t('exporter.bothDirections')}
                     </div>
                   )}
                   {e.unsampled_warning && (
-                    <div className="text-xs text-amber-700 dark:text-amber-300">
-                      {t('exporter.unsampled')}
-                    </div>
+                    <div className="text-xs text-status-warning">{t('exporter.unsampled')}</div>
                   )}
                 </td>
                 <td className={td}>
                   <span
                     className={cx(
                       'rounded px-1.5 py-0.5 text-xs font-medium',
-                      e.state === 'accepted' &&
-                        'bg-green-100 text-green-800 dark:bg-green-900/40 dark:text-green-200',
-                      e.state === 'pending' &&
-                        'bg-amber-100 text-amber-800 dark:bg-amber-900/40 dark:text-amber-200',
-                      e.state === 'ignored' &&
-                        'bg-slate-100 text-slate-600 dark:bg-slate-800 dark:text-slate-400',
+                      e.state === 'accepted' && 'bg-status-up-soft text-status-up',
+                      e.state === 'pending' && 'bg-status-warning-soft text-status-warning',
+                      e.state === 'ignored' && 'bg-surface-sunken text-ink-muted',
                     )}
                   >
                     {t(`exporter.states.${e.state}`)}
@@ -497,7 +499,7 @@ function ExportersView({
                   {e.device_id ? (
                     <Link
                       to={`/devices/${e.device_id}`}
-                      className="text-sky-700 hover:underline dark:text-sky-400"
+                      className="text-accent-ink hover:underline"
                     >
                       {e.device_name ?? `#${e.device_id}`}
                     </Link>
@@ -510,13 +512,13 @@ function ExportersView({
                     {e.protocols.map((p) => t(`exporter.proto.${p}`)).join(', ')}
                   </bdi>
                 </td>
-                <td className={`${td} text-end tabular-nums`}>
+                <td className={`${td} text-end font-mono text-[12.5px] tabular-nums`}>
                   {t('exporter.perSecond', { n: formatCount(e.records_per_s) })}
                 </td>
                 <td className={`${td} tabular-nums`}>
                   1:{effectiveSampling(e)}
                   {e.sampling_override !== null && (
-                    <span className="ms-1 text-xs text-slate-500">({t('exporter.override')})</span>
+                    <span className="ms-1 text-xs text-ink-muted">({t('exporter.override')})</span>
                   )}
                 </td>
                 <td className={td}>{formatRelative(e.last_seen)}</td>
@@ -596,7 +598,7 @@ function StatusView() {
               ],
             ].map(([k, v]) => (
               <Card key={k} bodyClassName="p-3">
-                <div className="text-xs text-slate-500">{k}</div>
+                <div className="text-xs text-ink-muted">{k}</div>
                 <div className="text-lg font-semibold tabular-nums">
                   <bdi dir="ltr">{v}</bdi>
                 </div>
@@ -614,44 +616,46 @@ function StatusView() {
                   <span
                     className={
                       r.state === 'listening'
-                        ? 'text-green-700 dark:text-green-400'
+                        ? 'text-status-up'
                         : r.state === 'error'
-                          ? 'text-red-600'
-                          : 'text-slate-500'
+                          ? 'text-status-down'
+                          : 'text-ink-muted'
                     }
                   >
                     {t(`ingest.state.${r.state}`)}
                   </span>
                   {r.error && (
-                    <bdi dir="ltr" className="text-xs text-red-600">
+                    <bdi dir="ltr" className="text-xs text-status-down">
                       {r.error}
                     </bdi>
                   )}
                 </li>
               ))}
             </ul>
-            <p className="mt-2 text-xs text-slate-500">
+            <p className="mt-2 text-xs text-ink-muted">
               {t('flows.st.rollup', { mode: s.rollup ? t(`flows.rollup.${s.rollup}`) : '—' })}
             </p>
           </Card>
           <Card
             title={t('flows.st.counters')}
             actions={
-              <span className="text-xs text-slate-500">
+              <span className="text-xs text-ink-muted">
                 {t('flows.st.since', { time: formatDateTime(s.counters_since) })}
               </span>
             }
           >
             <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
               <dl className="grid grid-cols-[auto_1fr] gap-x-4 gap-y-1 text-sm">
-                <dt className="text-slate-500">{t('flows.st.datagrams')}</dt>
+                <dt className="text-ink-muted">{t('flows.st.datagrams')}</dt>
                 <dd className="tabular-nums">{formatCount(s.counters.received_datagrams)}</dd>
-                <dt className="text-slate-500">{t('flows.st.records')}</dt>
+                <dt className="text-ink-muted">{t('flows.st.records')}</dt>
                 <dd className="tabular-nums">{formatCount(s.counters.records)}</dd>
-                <dt className="text-slate-500">{t('flows.st.stored')}</dt>
+                <dt className="text-ink-muted">{t('flows.st.stored')}</dt>
                 <dd className="tabular-nums">{formatCount(s.counters.stored_rows)}</dd>
-                <dt className="text-slate-500">{t('flows.st.dropped')}</dt>
-                <dd className={cx('tabular-nums', totalDropped(s.counters) > 0 && 'text-red-600')}>
+                <dt className="text-ink-muted">{t('flows.st.dropped')}</dt>
+                <dd
+                  className={cx('tabular-nums', totalDropped(s.counters) > 0 && 'text-status-down')}
+                >
                   {formatCount(totalDropped(s.counters))}
                 </dd>
               </dl>
@@ -661,8 +665,13 @@ function StatusView() {
               >
                 {FLOW_DROP_REASONS.map((r) => (
                   <div key={r} className="contents">
-                    <dt className="text-slate-500">{t(`flows.drop.${r}`)}</dt>
-                    <dd className={cx('tabular-nums', s.counters.dropped[r] > 0 && 'text-red-600')}>
+                    <dt className="text-ink-muted">{t(`flows.drop.${r}`)}</dt>
+                    <dd
+                      className={cx(
+                        'tabular-nums',
+                        s.counters.dropped[r] > 0 && 'text-status-down',
+                      )}
+                    >
                       {formatCount(s.counters.dropped[r] ?? 0)}
                     </dd>
                   </div>
@@ -748,7 +757,7 @@ export function FlowsPage() {
               <>
                 {t(`flows.tab.${k}`)}
                 {k === 'exporters' && pending > 0 && (
-                  <span className="rounded-full bg-amber-500 px-1.5 text-xs text-white">
+                  <span className="rounded-full bg-status-warning px-1.5 text-xs text-on-status">
                     {pending}
                   </span>
                 )}

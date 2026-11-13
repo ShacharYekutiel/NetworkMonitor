@@ -10,11 +10,13 @@ import {
 } from 'echarts/components';
 import { CanvasRenderer } from 'echarts/renderers';
 import { useTranslation } from 'react-i18next';
+import { escapeHtml, historyTooltipHtml } from '../lib/html';
 import type { HistoryPoint, NmEvent, Status } from '../api/types';
 import { useTheme } from '../hooks/theme';
 import { formatValue } from '../lib/format';
 import { eventMarkers, toSeries } from '../lib/history';
-import { STATUS_HEX, STATUS_DOT, statusClass } from '../lib/status';
+import { STATUS_DOT, statusClass } from '../lib/status';
+import { chartTokens, statusColor } from '../lib/chartTokens';
 
 echarts.use([
   LineChart,
@@ -72,22 +74,32 @@ export function HistoryChart({
     if (!c) return;
     const { avg, low, band } = toSeries(points, bucketS);
     const marks = eventMarkers(events ?? [], from, to);
-    const text = dark ? '#cbd5e1' : '#475569';
-    const grid = dark ? '#1e293b' : '#e2e8f0';
-    const line = '#0284c7';
+    // Design tokens, re-read when the theme changes (`dark` is a dependency).
+    const tk = chartTokens(dark);
+    const text = tk.inkSubtle;
+    const grid = tk.chartGrid;
+    const line = tk.chart1;
+    const mono = { fontFamily: tk.fontMono, fontSize: 10.5 };
     const locale = i18n.language === 'he' ? 'he-IL' : 'en-GB';
     c.setOption(
       {
         animation: false,
-        textStyle: { color: text },
-        grid: { left: 64, right: 16, top: 28, bottom: 48 },
+        textStyle: { color: text, fontFamily: tk.fontSans },
+        grid: { left: 8, right: 16, top: 28, bottom: 40, containLabel: true },
         legend: {
           top: 0,
-          textStyle: { color: text },
+          icon: 'roundRect',
+          itemWidth: 12,
+          itemHeight: 3,
+          textStyle: { color: tk.inkMuted, fontSize: 12 },
           data: [t('chart.avg'), t('chart.minMax')],
         },
         tooltip: {
           trigger: 'axis',
+          backgroundColor: tk.surfaceRaised,
+          borderColor: tk.border,
+          textStyle: { color: tk.ink, fontSize: 12 },
+          axisPointer: { lineStyle: { color: tk.inkMuted, width: 1 } },
           formatter: (params: unknown) => {
             const ps = params as { axisValue: number; dataIndex: number }[];
             if (!ps.length) return '';
@@ -96,10 +108,16 @@ export function HistoryChart({
             const lo = low[i]?.[1];
             const b = band[i]?.[1];
             const when = new Date(ps[0].axisValue).toLocaleString(locale);
-            if (a === null || a === undefined) return when;
             const hi =
               lo !== null && lo !== undefined && b !== null && b !== undefined ? lo + b : null;
-            return `${when}<br/>${t('chart.avg')}: <b>${formatValue(a, unit)}</b><br/>${t('chart.min')}: ${formatValue(lo, unit)}<br/>${t('chart.max')}: ${formatValue(hi, unit)}`;
+            // [1.4.1] escaped: the unit of a custom sensor channel is free text
+            return historyTooltipHtml({
+              when,
+              avg: a === null || a === undefined ? null : formatValue(a, unit),
+              min: formatValue(lo, unit),
+              max: formatValue(hi, unit),
+              labels: { avg: t('chart.avg'), min: t('chart.min'), max: t('chart.max') },
+            });
           },
         },
         xAxis: {
@@ -109,6 +127,7 @@ export function HistoryChart({
           axisLine: { lineStyle: { color: grid } },
           axisLabel: {
             color: text,
+            ...mono,
             hideOverlap: true,
             // Day boundaries show a date ("4/11"), never a bare day number.
             formatter: {
@@ -127,7 +146,7 @@ export function HistoryChart({
         yAxis: {
           type: 'value',
           scale: false,
-          axisLabel: { color: text, formatter: (v: number) => formatValue(v, unit) },
+          axisLabel: { color: text, ...mono, formatter: (v: number) => formatValue(v, unit) },
           splitLine: { lineStyle: { color: grid } },
         },
         dataZoom: [{ type: 'inside' }],
@@ -148,7 +167,7 @@ export function HistoryChart({
             data: band,
             stack: 'band',
             lineStyle: { opacity: 0 },
-            areaStyle: { color: line, opacity: 0.18 },
+            areaStyle: { color: line, opacity: 0.12 },
             itemStyle: { color: line, opacity: 0.4 },
             symbol: 'none',
             silent: true,
@@ -159,7 +178,7 @@ export function HistoryChart({
             type: 'line',
             data: avg,
             symbol: 'none',
-            lineStyle: { color: line, width: 1.6 },
+            lineStyle: { color: line, width: 1.75 },
             itemStyle: { color: line },
             connectNulls: false,
             markLine: marks.length
@@ -169,15 +188,15 @@ export function HistoryChart({
                   animation: false,
                   label: { show: false },
                   tooltip: {
-                    formatter: (p: { data?: { name?: string } }) => p.data?.name ?? '',
+                    formatter: (p: { data?: { name?: string } }) => escapeHtml(p.data?.name ?? ''),
                   },
                   data: marks.map((m) => ({
                     xAxis: m.t,
                     name: `${new Date(m.t).toLocaleString(locale)}: ${m.old ? `${t(`status.${m.old}`)} → ` : ''}${t(`status.${m.status}`)}`,
                     lineStyle: {
-                      color: STATUS_HEX[m.status] ?? STATUS_HEX.unknown,
-                      type: 'dashed',
-                      width: 1.2,
+                      color: statusColor(tk, m.status),
+                      type: [6, 4],
+                      width: 1.25,
                       opacity: 0.9,
                     },
                   })),
@@ -196,7 +215,7 @@ export function HistoryChart({
     <div>
       <div dir="ltr" ref={ref} className={`${heightClass} w-full`} role="img" aria-label={label} />
       {legend.length > 0 && (
-        <div className="mt-1 flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-slate-500">
+        <div className="mt-1 flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-ink-muted">
           <span>{t('chart.statusChanges')}:</span>
           {legend.map((s) => (
             <span key={s} className="inline-flex items-center gap-1">

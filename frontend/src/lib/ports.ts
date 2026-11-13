@@ -18,11 +18,11 @@ export function tileKind(p: Pick<Port, 'state' | 'alert'>): TileKind {
 
 /** Tailwind classes per tile kind (light / dark), exactly as the contract table. */
 export const TILE_CLASS: Record<TileKind, string> = {
-  disabled: 'bg-gray-200 text-gray-500 dark:bg-slate-700 dark:text-slate-400',
-  alert: 'bg-orange-500 text-white',
-  up: 'bg-green-500 text-white',
-  emptyAlert: 'bg-orange-200 border border-orange-300 dark:bg-orange-900/40 dark:border-orange-700',
-  empty: 'bg-white border border-gray-300 dark:bg-slate-900 dark:border-slate-600',
+  disabled: 'bg-port-disabled text-ink-subtle ring-1 ring-inset ring-line',
+  alert: 'bg-status-down text-on-status',
+  up: 'bg-status-up text-on-status',
+  emptyAlert: 'bg-port-empty ring-2 ring-inset ring-status-down',
+  empty: 'bg-port-empty',
 };
 
 export type TileView = {

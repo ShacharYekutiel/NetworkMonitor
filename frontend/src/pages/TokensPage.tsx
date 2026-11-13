@@ -89,10 +89,10 @@ function CreateTokenModal({ open, onClose }: { open: boolean; onClose: () => voi
               {copied ? t('tokens.copied') : t('tokens.copy')}
             </Button>
           </div>
-          <p className="text-xs text-slate-500">{t('tokens.usage')}</p>
+          <p className="text-xs text-ink-muted">{t('tokens.usage')}</p>
           <pre
             dir="ltr"
-            className="overflow-x-auto rounded bg-slate-100 p-2 text-left text-xs dark:bg-slate-800"
+            className="overflow-x-auto rounded bg-surface-sunken p-2 text-left text-xs"
           >
             {'curl -H "Authorization: Bearer nmt_…" ' + window.location.origin + '/api/dashboard'}
           </pre>
@@ -124,7 +124,7 @@ function CreateTokenModal({ open, onClose }: { open: boolean; onClose: () => voi
               label={t('tokens.expiresDays')}
               hint={
                 expiresDaysOk(days) ? undefined : (
-                  <span className="text-red-600">{t('tokens.expiresErr')}</span>
+                  <span className="text-status-down">{t('tokens.expiresErr')}</span>
                 )
               }
             >

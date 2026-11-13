@@ -9,16 +9,16 @@ export function CheckResultView({ result }: { result: CheckResult }) {
   const { t } = useTranslation();
   const localize = useLocalizeMessage();
   return (
-    <div className="space-y-2 rounded-md bg-slate-50 p-3 text-sm ring-1 ring-slate-200 dark:bg-slate-800/50 dark:ring-slate-700">
+    <div className="space-y-2 rounded-md bg-surface-sunken p-3 text-sm ring-1 ring-line">
       <div className="flex flex-wrap items-center gap-2">
         <StatusBadge status={result.status} />
         <span className="font-medium">{result.ok ? t('check.ok') : t('check.failed')}</span>
-        <span className="text-slate-500">
+        <span className="text-ink-muted">
           <Ltr>{formatNumber(result.duration_ms, 0)} ms</Ltr>
         </span>
       </div>
       {result.message && (
-        <div dir="auto" className="text-slate-600 dark:text-slate-300">
+        <div dir="auto" className="text-ink-muted">
           {localize(result.message)}
         </div>
       )}
@@ -27,7 +27,7 @@ export function CheckResultView({ result }: { result: CheckResult }) {
           {result.channels.map((c) => (
             <li key={c.key} className="flex items-center gap-2">
               <StatusDot status={c.status} />
-              <span className="text-slate-500">
+              <span className="text-ink-muted">
                 {t(`channel.${c.key}`, { defaultValue: c.key })}:
               </span>
               <span className="tabular-nums">

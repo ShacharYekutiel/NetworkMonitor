@@ -91,45 +91,45 @@ function StatusCard() {
                   days={settings.data.newdev_learning_days}
                 />
               ) : null}
-              <p className="text-xs text-slate-500">{t('newDevices.learningHint')}</p>
+              <p className="text-xs text-ink-muted">{t('newDevices.learningHint')}</p>
             </div>
           ) : (
-            <p className="text-green-700 dark:text-green-400">{t('newDevices.watching')}</p>
+            <p className="text-status-up">{t('newDevices.watching')}</p>
           )}
           <dl className="grid grid-cols-2 gap-x-4 gap-y-1 sm:grid-cols-4">
             <div>
-              <dt className="text-xs text-slate-500">{t('newDevices.switches')}</dt>
+              <dt className="text-xs text-ink-muted">{t('newDevices.switches')}</dt>
               <dd className="tabular-nums">
                 {s.switches_baselined} / {s.switches_in_scope}
               </dd>
             </div>
             <div>
-              <dt className="text-xs text-slate-500">{t('newDevices.knownCount')}</dt>
+              <dt className="text-xs text-ink-muted">{t('newDevices.knownCount')}</dt>
               <dd className="tabular-nums">{s.known}</dd>
             </div>
             <div>
-              <dt className="text-xs text-slate-500">{t('newDevices.newCount')}</dt>
+              <dt className="text-xs text-ink-muted">{t('newDevices.newCount')}</dt>
               <dd
                 className={cx(
                   'tabular-nums',
-                  s.new_unacknowledged > 0 && 'font-semibold text-rose-600',
+                  s.new_unacknowledged > 0 && 'font-semibold text-status-warning',
                 )}
               >
                 {s.new_unacknowledged}
               </dd>
             </div>
             <div>
-              <dt className="text-xs text-slate-500">{t('newDevices.lastDetection')}</dt>
+              <dt className="text-xs text-ink-muted">{t('newDevices.lastDetection')}</dt>
               <dd>{s.last_detection_at ? formatRelative(s.last_detection_at) : '—'}</dd>
             </div>
           </dl>
-          <p className="text-xs text-slate-500">
+          <p className="text-xs text-ink-muted">
             {t('newDevices.scope')}:{' '}
             {s.scope_group_ids.length
               ? s.scope_group_ids.map((id) => names.get(id) ?? `#${id}`).join(', ')
               : t('newDevices.scopeAll')}
           </p>
-          <p className="text-xs text-slate-500">{t('newDevices.excludeHint')}</p>
+          <p className="text-xs text-ink-muted">{t('newDevices.excludeHint')}</p>
         </div>
       )}
       <ConfirmDialog
@@ -178,7 +178,9 @@ function AckModal({ macs, onClose }: { macs: string[]; onClose: (done: boolean) 
       <div className="space-y-3">
         <p className="text-sm">{t('newDevices.ackText')}</p>
         {macs.length > MAX_ACK_BATCH && (
-          <p className="text-xs text-amber-700">{t('newDevices.ackLimit', { n: MAX_ACK_BATCH })}</p>
+          <p className="text-xs text-status-warning">
+            {t('newDevices.ackLimit', { n: MAX_ACK_BATCH })}
+          </p>
         )}
         <Field label={t('newDevices.comment')}>
           <Textarea
@@ -221,7 +223,7 @@ function MacTable({
                 aria-label={t('common.selectAll')}
                 checked={all}
                 onChange={(e) => items.forEach((m) => onSelect(m.mac, e.target.checked))}
-                className="h-4 w-4 rounded border-slate-300"
+                className="h-4 w-4 rounded border-line-strong"
               />
             </th>
           )}
@@ -237,7 +239,7 @@ function MacTable({
       </thead>
       <tbody>
         {items.map((m) => (
-          <tr key={m.mac} className={cx(m.state === 'new' && 'bg-rose-50/60 dark:bg-rose-950/20')}>
+          <tr key={m.mac} className="hover:bg-surface-hover">
             {selectable && (
               <td className={td}>
                 <input
@@ -245,7 +247,7 @@ function MacTable({
                   aria-label={m.mac}
                   checked={selected.includes(m.mac)}
                   onChange={(e) => onSelect(m.mac, e.target.checked)}
-                  className="h-4 w-4 rounded border-slate-300"
+                  className="h-4 w-4 rounded border-line-strong"
                 />
               </td>
             )}
@@ -254,7 +256,7 @@ function MacTable({
                 {m.mac}
               </bdi>
               {m.locally_administered && (
-                <span className="ms-1 text-xs text-slate-500" title={t('newDevices.randomHint')}>
+                <span className="ms-1 text-xs text-ink-muted" title={t('newDevices.randomHint')}>
                   ({t('newDevices.random')})
                 </span>
               )}
@@ -269,7 +271,7 @@ function MacTable({
                 '—'
               )}
               {(m.hostname ?? m.first_hostname) && (
-                <div className="text-xs text-slate-500">
+                <div className="text-xs text-ink-muted">
                   <bdi dir="ltr">{m.hostname ?? m.first_hostname}</bdi>
                 </div>
               )}
@@ -278,7 +280,7 @@ function MacTable({
               {m.first_device_id ? (
                 <Link
                   to={`/devices/${m.first_device_id}?tab=ports`}
-                  className="text-sky-700 hover:underline dark:text-sky-400"
+                  className="text-accent-ink hover:underline"
                 >
                   {m.first_device_name ?? `#${m.first_device_id}`}
                 </Link>
@@ -291,7 +293,7 @@ function MacTable({
                 </bdi>
               )}
               {m.last_device_name && m.last_device_id !== m.first_device_id && (
-                <div className="text-xs text-slate-500">
+                <div className="text-xs text-ink-muted">
                   {t('newDevices.nowAt', {
                     place: `${m.last_device_name} ${m.last_port_name ?? ''}`.trim(),
                   })}
@@ -301,7 +303,7 @@ function MacTable({
             <td className={`${td} tabular-nums`}>{m.first_vlan ?? '—'}</td>
             <td className={td}>
               {formatDateTime(m.detected_at ?? m.first_seen)}
-              <div className="text-xs text-slate-500">
+              <div className="text-xs text-ink-muted">
                 {t('newDevices.lastSeen', { rel: formatRelative(m.last_seen) })}
               </div>
             </td>
@@ -309,20 +311,16 @@ function MacTable({
               <span
                 className={cx(
                   'rounded px-1.5 py-0.5 text-xs font-medium',
-                  m.state === 'new' &&
-                    'bg-rose-100 text-rose-800 dark:bg-rose-900/40 dark:text-rose-200',
-                  m.state === 'known' &&
-                    'bg-green-100 text-green-800 dark:bg-green-900/40 dark:text-green-200',
-                  m.state === 'allowed' &&
-                    'bg-sky-100 text-sky-800 dark:bg-sky-900/40 dark:text-sky-200',
-                  m.state === 'baseline' &&
-                    'bg-slate-100 text-slate-700 dark:bg-slate-800 dark:text-slate-300',
+                  m.state === 'new' && 'bg-status-warning-soft text-status-warning',
+                  m.state === 'known' && 'bg-status-up-soft text-status-up',
+                  m.state === 'allowed' && 'bg-accent-soft text-accent-ink',
+                  m.state === 'baseline' && 'bg-surface-sunken text-ink',
                 )}
               >
                 {t(`newDevices.states.${m.state}`)}
               </span>
               {m.ack_by && (
-                <div className="text-xs text-slate-500" title={m.ack_comment}>
+                <div className="text-xs text-ink-muted" title={m.ack_comment}>
                   {t('newDevices.ackBy', { user: m.ack_by })}
                 </div>
               )}
@@ -376,7 +374,7 @@ function MacList({ mode, deviceId }: { mode: 'detected' | 'known'; deviceId: num
   const items = q.data?.items ?? [];
   return (
     <Card bodyClassName="p-0">
-      <div className="flex flex-wrap items-center gap-2 border-b border-slate-200 p-3 dark:border-slate-800">
+      <div className="flex flex-wrap items-center gap-2 border-b border-line p-3">
         <Input
           value={text}
           onChange={(e) => {
@@ -513,20 +511,17 @@ function AllowlistView() {
   };
   return (
     <Card bodyClassName="p-0">
-      <p className="border-b border-slate-200 px-4 py-2 text-xs text-slate-500 dark:border-slate-800">
+      <p className="border-b border-line px-4 py-2 text-xs text-ink-muted">
         {t('allowlist.intro')}
       </p>
       {isAdmin && (
-        <form
-          onSubmit={submit}
-          className="flex flex-wrap items-end gap-3 border-b border-slate-200 p-3 dark:border-slate-800"
-        >
+        <form onSubmit={submit} className="flex flex-wrap items-end gap-3 border-b border-line p-3">
           <Field
             label={t('allowlist.prefix')}
             className="w-56"
             hint={
               prefix.trim() && !norm ? (
-                <span className="text-red-600">{t('allowlist.prefixInvalid')}</span>
+                <span className="text-status-down">{t('allowlist.prefixInvalid')}</span>
               ) : norm ? (
                 <bdi dir="ltr">
                   {norm.prefix} /{norm.bits}
@@ -581,7 +576,7 @@ function AllowlistView() {
                 <td className={td}>
                   {formatDateTime(a.created_at)}
                   {a.created_by && (
-                    <span className="ms-1 text-xs text-slate-500">({a.created_by})</span>
+                    <span className="ms-1 text-xs text-ink-muted">({a.created_by})</span>
                   )}
                 </td>
                 {isAdmin && (
@@ -627,7 +622,7 @@ export function NewDevicesPage() {
               {t('newDevices.filteredByDevice')}{' '}
               <button
                 type="button"
-                className="text-sky-700 hover:underline dark:text-sky-400"
+                className="text-accent-ink hover:underline"
                 onClick={() => setParams(tab === 'detected' ? {} : { tab }, { replace: true })}
               >
                 {t('common.clearFilters')}

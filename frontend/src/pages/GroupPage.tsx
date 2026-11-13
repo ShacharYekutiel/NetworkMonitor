@@ -5,8 +5,8 @@ import { useTranslation } from 'react-i18next';
 import { endpoints, qk } from '../api/endpoints';
 import { Breadcrumbs } from '../components/Breadcrumbs';
 import { DeviceFormModal, GroupFormModal } from '../components/EntityForms';
-import { EditIcon, PlusIcon, TrashIcon } from '../components/icons';
-import { StatusBadge, StatusBar, StatusCountPills, StatusDot } from '../components/Status';
+import { EditIcon, FolderIcon, PlusIcon, ServerIcon, TrashIcon } from '../components/icons';
+import { StatusBadge, StatusBar, StatusCountPills, StatusTiles } from '../components/Status';
 import { AddMaintenanceButton, MaintenanceBadge } from '../components/Maintenance';
 import { useToast } from '../components/toast';
 import {
@@ -19,6 +19,7 @@ import {
   Ltr,
   PageHeader,
   Table,
+  cx,
   td,
   th,
 } from '../components/ui';
@@ -63,15 +64,53 @@ export function GroupPage() {
   const g = group.data;
 
   return (
-    <div className="space-y-4">
+    <div className="space-y-5">
       <PageHeader
         breadcrumbs={<Breadcrumbs groupId={g.parent_id} />}
         title={
           <>
-            <StatusDot status={g.status} className="h-3 w-3" /> {g.name}
+            <FolderIcon size={22} className="shrink-0 text-ink-subtle" />
+            <span className="truncate">{g.name}</span>
+            <StatusBadge status={g.status} />
           </>
         }
-        subtitle={g.description || undefined}
+        subtitle={
+          <>
+            {g.description && <span>{g.description} · </span>}
+            {t('groups.sensorCount', { count: g.status_counts.total })}
+          </>
+        }
+        meta={
+          <>
+            {g.dependency && (
+              <span>
+                {t('dependency.title')}:{' '}
+                {g.dependency.mode === 'device' && g.dependency.device_id !== null ? (
+                  <Link
+                    className="font-medium text-ink hover:underline"
+                    to={`/devices/${g.dependency.device_id}`}
+                  >
+                    {g.dependency.device_name}
+                  </Link>
+                ) : (
+                  <b className="font-medium text-ink">
+                    {t(
+                      g.dependency.mode === 'none'
+                        ? 'dependency.modes.none'
+                        : 'dependency.modes.inheritParent',
+                    )}
+                  </b>
+                )}
+              </span>
+            )}
+            <span>
+              {t('snmp.label')}:{' '}
+              <b className="font-medium text-ink">
+                {g.snmp_credentials ? g.snmp_credentials.version : t('snmp.inherited')}
+              </b>
+            </span>
+          </>
+        }
         actions={
           isAdmin && (
             <>
@@ -92,41 +131,7 @@ export function GroupPage() {
           )
         }
       />
-      <Card>
-        <div className="flex flex-wrap items-center gap-4">
-          <StatusBadge status={g.status} />
-          <span className="text-sm text-slate-500">
-            {t('groups.sensorCount', { count: g.status_counts.total })}
-          </span>
-          <StatusCountPills counts={g.status_counts} />
-          <span className="text-xs text-slate-500">
-            {t('snmp.label')}:{' '}
-            {g.snmp_credentials ? g.snmp_credentials.version : t('snmp.inherited')}
-          </span>
-          {g.dependency && (
-            <span className="text-xs text-slate-500">
-              {t('dependency.title')}:{' '}
-              {g.dependency.mode === 'device' && g.dependency.device_id !== null ? (
-                <Link
-                  className="text-sky-700 hover:underline dark:text-sky-400"
-                  to={`/devices/${g.dependency.device_id}`}
-                >
-                  {g.dependency.device_name}
-                </Link>
-              ) : (
-                t(
-                  g.dependency.mode === 'none'
-                    ? 'dependency.modes.none'
-                    : 'dependency.modes.inheritParent',
-                )
-              )}
-            </span>
-          )}
-        </div>
-        <div className="mt-3">
-          <StatusBar counts={g.status_counts} />
-        </div>
-      </Card>
+      <StatusTiles counts={g.status_counts} />
 
       {node && node.children.length > 0 && (
         <Card title={t('groups.subgroups')} bodyClassName="p-0">
@@ -135,24 +140,31 @@ export function GroupPage() {
               <tr>
                 <th className={th}>{t('common.status')}</th>
                 <th className={th}>{t('common.name')}</th>
-                <th className={th}>{t('groups.sensors')}</th>
+                <th className={cx(th, 'w-[40%]')}>{t('groups.sensors')}</th>
+                <th className={th} />
               </tr>
             </thead>
             <tbody>
               {node.children.map((c) => (
-                <tr key={c.id} className="hover:bg-slate-50 dark:hover:bg-slate-800/40">
+                <tr key={c.id} className="hover:bg-surface-hover">
                   <td className={td}>
                     <StatusBadge status={c.status} />
                   </td>
                   <td className={td}>
-                    <Link
-                      to={`/groups/${c.id}`}
-                      className="font-medium text-sky-700 hover:underline dark:text-sky-400"
-                    >
-                      {c.name}
-                    </Link>
+                    <span className="flex items-center gap-2">
+                      <FolderIcon size={14} className="shrink-0 text-ink-subtle" />
+                      <Link
+                        to={`/groups/${c.id}`}
+                        className="font-semibold text-accent-ink hover:underline"
+                      >
+                        {c.name}
+                      </Link>
+                    </span>
                   </td>
                   <td className={td}>
+                    <StatusBar counts={c.status_counts} thin />
+                  </td>
+                  <td className={cx(td, 'w-[1%] whitespace-nowrap text-end [&>span]:flex-nowrap')}>
                     <StatusCountPills counts={c.status_counts} />
                   </td>
                 </tr>
@@ -178,17 +190,20 @@ export function GroupPage() {
             </thead>
             <tbody>
               {devices.data.items.map((d) => (
-                <tr key={d.id} className="hover:bg-slate-50 dark:hover:bg-slate-800/40">
+                <tr key={d.id} className="hover:bg-surface-hover">
                   <td className={td}>
                     <StatusBadge status={d.status} />
                   </td>
                   <td className={td}>
-                    <Link
-                      to={`/devices/${d.id}`}
-                      className="font-medium text-sky-700 hover:underline dark:text-sky-400"
-                    >
-                      {d.name}
-                    </Link>
+                    <span className="inline-flex items-center gap-2">
+                      <ServerIcon size={14} className="shrink-0 text-ink-subtle" />
+                      <Link
+                        to={`/devices/${d.id}`}
+                        className="font-semibold text-accent-ink hover:underline"
+                      >
+                        {d.name}
+                      </Link>
+                    </span>
                     {d.in_maintenance && (
                       <span className="ms-1.5">
                         <MaintenanceBadge
@@ -199,7 +214,7 @@ export function GroupPage() {
                       </span>
                     )}
                   </td>
-                  <td className={`${td} text-slate-500`}>
+                  <td className={`${td} font-mono text-[12.5px] text-ink-muted`}>
                     <Ltr>{d.host}</Ltr>
                   </td>
                   <td className={td}>

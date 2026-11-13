@@ -38,6 +38,7 @@ import {
   th,
   TruncLtr,
   Value,
+  tabClass,
 } from '../components/ui';
 import { useTree } from '../hooks/queries';
 import {
@@ -70,7 +71,7 @@ function ScanErrorBox({ error }: { error: unknown }) {
       {runningId !== undefined && (
         <Link
           to={`/discovery/scans/${runningId}`}
-          className="text-sm text-sky-700 hover:underline dark:text-sky-400"
+          className="text-sm text-accent-ink hover:underline"
         >
           {t('discovery.openRunning', { id: runningId })}
         </Link>
@@ -111,7 +112,7 @@ function SavedProfileNotice({ profile, error }: { profile: DiscoveryProfile; err
         {runningId !== undefined && (
           <Link
             to={`/discovery/scans/${runningId}`}
-            className="text-sm text-sky-700 hover:underline dark:text-sky-400"
+            className="text-sm text-accent-ink hover:underline"
           >
             {t('discovery.openRunning', { id: runningId })}
           </Link>
@@ -235,7 +236,7 @@ function NewScanCard() {
           <ScanErrorBox error={start.error} />
         )}
         <div className="flex flex-wrap items-center justify-end gap-3">
-          <p className="me-auto text-xs text-slate-500">{t('discovery.scopeNote')}</p>
+          <p className="me-auto text-xs text-ink-muted">{t('discovery.scopeNote')}</p>
           <Button
             type="submit"
             variant="primary"
@@ -254,10 +255,10 @@ export function MiniProgress({ scan }: { scan: DiscoveryScan }) {
   const pct = progressPct(scan);
   return (
     <div className="flex items-center gap-2">
-      <div className="h-1.5 w-20 overflow-hidden rounded bg-slate-200 dark:bg-slate-700">
-        <div className="h-full bg-sky-600" style={{ width: `${pct}%` }} />
+      <div className="h-1.5 w-20 overflow-hidden rounded-sm bg-surface-sunken">
+        <div className="h-full bg-accent" style={{ width: `${pct}%` }} />
       </div>
-      <Value className="text-xs tabular-nums text-slate-500" text={`${pct}%`} />
+      <Value className="text-xs tabular-nums text-ink-muted" text={`${pct}%`} />
     </div>
   );
 }
@@ -303,11 +304,11 @@ function ScansCard() {
           </thead>
           <tbody>
             {scans.data.items.map((s) => (
-              <tr key={s.id} className="hover:bg-slate-50 dark:hover:bg-slate-800/40">
-                <td className={`${td} tabular-nums`}>
+              <tr key={s.id} className="hover:bg-surface-hover">
+                <td className={`${td} font-mono text-[12.5px] tabular-nums`}>
                   <Link
                     to={`/discovery/scans/${s.id}`}
-                    className="font-medium text-sky-700 hover:underline dark:text-sky-400"
+                    className="font-medium text-accent-ink hover:underline"
                   >
                     <Ltr>#{s.id}</Ltr>
                   </Link>
@@ -319,12 +320,12 @@ function ScansCard() {
                   </div>
                 </td>
                 <td
-                  className={`${td} whitespace-nowrap text-slate-500`}
+                  className={`${td} whitespace-nowrap text-ink-muted`}
                   title={formatDateTime(s.started_at)}
                 >
                   {formatRelative(s.started_at)}
                 </td>
-                <td className={`${td} text-slate-600 dark:text-slate-300`}>
+                <td className={`${td} text-ink-muted`}>
                   <div>
                     {s.profile_name ? (
                       <bdi dir="auto">{s.profile_name}</bdi>
@@ -332,7 +333,7 @@ function ScansCard() {
                       t('discovery.manual')
                     )}
                   </div>
-                  <div className="text-xs text-slate-500">
+                  <div className="text-xs text-ink-muted">
                     {t(`discovery.trigger.${s.trigger}`)}
                     {s.created_by && (
                       <>
@@ -347,10 +348,12 @@ function ScansCard() {
                     {s.targets.join(', ')}
                   </TruncLtr>
                 </td>
-                <td className={`${td} tabular-nums`}>{formatNumber(s.found_hosts, 0)}</td>
-                <td className={`${td} tabular-nums`}>
+                <td className={`${td} font-mono text-[12.5px] tabular-nums`}>
+                  {formatNumber(s.found_hosts, 0)}
+                </td>
+                <td className={`${td} font-mono text-[12.5px] tabular-nums`}>
                   {s.new_hosts > 0 ? (
-                    <span className="font-semibold text-green-700 dark:text-green-400">
+                    <span className="font-semibold text-accent-ink">
                       {formatNumber(s.new_hosts, 0)}
                     </span>
                   ) : (
@@ -502,8 +505,8 @@ function ProfileModal({
           errors={optErrors}
           editingProfile={!!profile}
         />
-        <fieldset className="min-w-0 rounded-md border border-slate-200 p-3 dark:border-slate-700">
-          <legend className="px-1 text-xs font-semibold text-slate-600 dark:text-slate-400">
+        <fieldset className="min-w-0 rounded-md border border-line p-3">
+          <legend className="px-1 text-xs font-semibold text-ink-muted">
             {t('discovery.schedule')}
           </legend>
           <div className="space-y-3">
@@ -525,7 +528,7 @@ function ProfileModal({
                   label={t('discovery.everyHours')}
                   hint={
                     !sched ? (
-                      <span className="text-red-600">{t('discovery.err.hours')}</span>
+                      <span className="text-status-down">{t('discovery.err.hours')}</span>
                     ) : undefined
                   }
                 >
@@ -557,7 +560,7 @@ function ProfileModal({
                     ))}
                   </div>
                 ) : (
-                  <p className="text-sm text-slate-500">{t('rules.noChannels')}</p>
+                  <p className="text-sm text-ink-muted">{t('rules.noChannels')}</p>
                 )}
               </FieldGroup>
             )}
@@ -666,20 +669,20 @@ function ProfilesCard() {
                   <bdi dir="auto">{groupName(p.group_id)}</bdi>
                 </td>
                 <td className={td}>
-                  <div className={cx(!p.schedule_enabled && 'text-slate-500')}>
+                  <div className={cx(!p.schedule_enabled && 'text-ink-muted')}>
                     {scheduleText(p, t)}
                   </div>
                   {p.next_run_at && (
-                    <div className="text-xs text-slate-500" title={formatDateTime(p.next_run_at)}>
+                    <div className="text-xs text-ink-muted" title={formatDateTime(p.next_run_at)}>
                       {t('discovery.nextRun')}: {formatRelative(p.next_run_at)}
                     </div>
                   )}
                 </td>
-                <td className={`${td} whitespace-nowrap text-slate-500`}>
+                <td className={`${td} whitespace-nowrap text-ink-muted`}>
                   {p.last_scan_id !== null ? (
                     <Link
                       to={`/discovery/scans/${p.last_scan_id}`}
-                      className="text-sky-700 hover:underline dark:text-sky-400"
+                      className="text-accent-ink hover:underline"
                       title={formatDateTime(p.last_run_at)}
                     >
                       {formatRelative(p.last_run_at)}
@@ -688,7 +691,7 @@ function ProfilesCard() {
                     formatRelative(p.last_run_at)
                   )}
                 </td>
-                <td className={`${td} text-slate-600 dark:text-slate-300`}>
+                <td className={`${td} text-ink-muted`}>
                   {p.notify_new_hosts
                     ? p.notify_channel_ids.length
                       ? p.notify_channel_ids.map(chName).join(', ')
@@ -752,7 +755,7 @@ export function DiscoveryPage() {
   return (
     <div className="space-y-4">
       <PageHeader title={t('discovery.title')} subtitle={t('discovery.subtitle')} />
-      <div role="tablist" className="flex gap-1 border-b border-slate-200 dark:border-slate-800">
+      <div role="tablist" className="flex overflow-x-auto border-b border-line">
         {(['scans', 'profiles'] as const).map((x) => (
           <button
             key={x}
@@ -760,12 +763,7 @@ export function DiscoveryPage() {
             role="tab"
             aria-selected={tab === x}
             onClick={() => setTab(x)}
-            className={cx(
-              '-mb-px border-b-2 px-3 py-1.5 text-sm font-medium',
-              tab === x
-                ? 'border-sky-600 text-sky-700 dark:text-sky-400'
-                : 'border-transparent text-slate-600 hover:text-slate-900 dark:text-slate-400 dark:hover:text-slate-200',
-            )}
+            className={tabClass(tab === x)}
           >
             {t(`discovery.tab.${x}`)}
           </button>

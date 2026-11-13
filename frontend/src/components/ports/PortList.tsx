@@ -18,17 +18,16 @@ import {
   type PortColumn,
 } from '../../lib/ports';
 import { AlertIcon, ColumnsIcon, SearchIcon } from '../icons';
-import { Button, Checkbox, cx, Empty, Input } from '../ui';
+import { Button, Checkbox, cx, Empty, Input, TAG, TAG_TONE } from '../ui';
 import { TileGlyph } from './Faceplate';
 import { usePortText } from './text';
 import { lagMemberNames } from '../../lib/lag';
 
 const thBase =
-  'whitespace-nowrap border-b border-slate-200 px-3 py-2 text-start text-xs font-medium uppercase tracking-wide text-slate-500 dark:border-slate-800';
-const tdBase =
-  'whitespace-nowrap border-b border-slate-100 px-3 py-1.5 align-middle dark:border-slate-800/70';
+  'whitespace-nowrap border-b border-line bg-surface-sunken px-3 py-2 text-start text-xs font-medium text-ink-muted';
+const tdBase = 'whitespace-nowrap border-b border-line px-3 py-1.5 align-middle';
 /** The sticky Port column needs an opaque background (rows scroll under it). */
-const stickyCell = 'sticky start-0 z-10 bg-white dark:bg-slate-900';
+const stickyCell = 'sticky start-0 z-10 bg-surface';
 
 function ColumnChooser({
   columns,
@@ -65,7 +64,7 @@ function ColumnChooser({
       </Button>
       {open && (
         <div
-          className="absolute end-0 z-30 mt-1 w-56 rounded-md bg-white p-2 shadow-lg ring-1 ring-slate-200 dark:bg-slate-900 dark:ring-slate-700"
+          className="absolute end-0 z-30 mt-1 w-56 rounded-md border border-line bg-surface-raised p-2 shadow-pop"
           data-testid="column-chooser"
         >
           <div className="grid grid-cols-1 gap-1">
@@ -92,7 +91,7 @@ function ConnNameCell({ p, showIp }: { p: Port; showIp: boolean }) {
     <Link
       to={`/devices/${id}`}
       onClick={(e) => e.stopPropagation()}
-      className="text-sky-700 hover:underline dark:text-sky-400"
+      className="text-accent-ink hover:underline"
     >
       <bdi dir="auto">{text}</bdi>
     </Link>
@@ -100,7 +99,7 @@ function ConnNameCell({ p, showIp }: { p: Port; showIp: boolean }) {
   // On narrow screens the IP column is hidden: show the IP under the name instead.
   const ipLine = (ip: string | null) =>
     ip ? (
-      <div className={cx('text-xs text-slate-500', showIp && 'sm:hidden')}>
+      <div className={cx('text-xs text-ink-muted', showIp && 'sm:hidden')}>
         <bdi dir="ltr">{ip}</bdi>
       </div>
     ) : null;
@@ -108,10 +107,7 @@ function ConnNameCell({ p, showIp }: { p: Port; showIp: boolean }) {
     return (
       <div className="max-w-[16rem]" data-testid="port-conn-name">
         <span className="inline-flex items-center gap-1">
-          <span
-            className="rounded bg-slate-100 px-1 text-[10px] font-semibold text-slate-600 dark:bg-slate-800 dark:text-slate-300"
-            title={t('ports.conn.neighborTitle')}
-          >
+          <span className={cx(TAG, TAG_TONE.neutral)} title={t('ports.conn.neighborTitle')}>
             {t('ports.conn.neighbor')}
           </span>
           {v.device_id ? link(v.device_id, v.name) : <bdi dir="auto">{v.name}</bdi>}
@@ -120,14 +116,14 @@ function ConnNameCell({ p, showIp }: { p: Port; showIp: boolean }) {
       </div>
     );
   if (v.kind === 'uplink')
-    return <span className="text-slate-500">{t('ports.macCount', { count: v.count })}</span>;
-  if (v.kind === 'none') return <span className="text-slate-400">—</span>;
+    return <span className="text-ink-muted">{t('ports.macCount', { count: v.count })}</span>;
+  if (v.kind === 'none') return <span className="text-ink-subtle">—</span>;
   const label = v.device_id ? (
     link(v.device_id, v.device_name ?? v.hostname ?? v.ip ?? v.mac)
   ) : v.hostname ? (
     <bdi dir="ltr">{v.hostname}</bdi>
   ) : v.vendor ? (
-    <bdi dir="auto" className="text-slate-500">
+    <bdi dir="auto" className="text-ink-muted">
       {v.vendor}
     </bdi>
   ) : (
@@ -141,7 +137,7 @@ function ConnNameCell({ p, showIp }: { p: Port; showIp: boolean }) {
         <span className="truncate">{label}</span>
         {v.more > 0 && (
           <span
-            className="shrink-0 rounded bg-slate-100 px-1 text-[10px] font-semibold text-slate-600 dark:bg-slate-800 dark:text-slate-300"
+            className={cx(TAG, TAG_TONE.neutral, 'shrink-0')}
             title={t('ports.conn.moreTitle', { count: v.more })}
             data-testid="port-conn-more"
           >
@@ -189,7 +185,7 @@ export function PortList({
             {text.state(p)}
             {p.alert && (
               <span
-                className="inline-flex items-center gap-0.5 text-orange-600 dark:text-orange-400"
+                className="inline-flex items-center gap-0.5 text-status-warning"
                 title={p.alert_reasons.map((r) => t(`ports.alertReason.${r}`)).join(', ')}
               >
                 <AlertIcon size={13} />
@@ -206,7 +202,7 @@ export function PortList({
             <Link
               to={`/devices/${v.device_id}`}
               onClick={(e) => e.stopPropagation()}
-              className="text-sky-700 hover:underline dark:text-sky-400"
+              className="text-accent-ink hover:underline"
             >
               <bdi dir="auto">{v.name}</bdi>
             </Link>
@@ -214,17 +210,17 @@ export function PortList({
             <bdi dir="auto">{v.name}</bdi>
           );
         if (v.kind === 'uplinkMacs')
-          return <span className="text-slate-500">{t('ports.macCount', { count: v.count })}</span>;
+          return <span className="text-ink-muted">{t('ports.macCount', { count: v.count })}</span>;
         if (v.kind === 'mac')
           return (
             <span className="inline-flex max-w-[16rem] items-center gap-1">
               <bdi dir="ltr" className="truncate">
                 {v.text}
               </bdi>
-              {v.more > 0 && <span className="text-xs text-slate-500">+{v.more}</span>}
+              {v.more > 0 && <span className="text-xs text-ink-muted">+{v.more}</span>}
             </span>
           );
-        return <span className="text-slate-400">—</span>;
+        return <span className="text-ink-subtle">—</span>;
       }
       case 'connIp': {
         const v = connectedHostView(p);
@@ -234,7 +230,7 @@ export function PortList({
             {ip}
           </bdi>
         ) : (
-          <span className="text-slate-400">—</span>
+          <span className="text-ink-subtle">—</span>
         );
       }
       case 'connName':
@@ -244,7 +240,7 @@ export function PortList({
           <span>
             {p.pvid ?? '—'}
             {p.vlans_from_lag && (
-              <span className="ms-1 text-[10px] text-slate-500" title={t('ports.lag.vlansFromLag')}>
+              <span className="ms-1 text-[10px] text-ink-muted" title={t('ports.lag.vlansFromLag')}>
                 ({t('ports.lag.viaLag')})
               </span>
             )}
@@ -279,7 +275,7 @@ export function PortList({
         return e === null ? (
           '—'
         ) : (
-          <span className={e > 0 ? 'text-orange-600' : undefined}>{e}</span>
+          <span className={e > 0 ? 'text-status-warning' : undefined}>{e}</span>
         );
       }
       case 'lastChange':
@@ -301,7 +297,7 @@ export function PortList({
         <div className="relative min-w-0 flex-1 basis-56">
           <SearchIcon
             size={14}
-            className="pointer-events-none absolute start-2.5 top-1/2 -translate-y-1/2 text-slate-400"
+            className="pointer-events-none absolute start-2.5 top-1/2 -translate-y-1/2 text-ink-subtle"
           />
           <Input
             type="search"
@@ -320,7 +316,7 @@ export function PortList({
         />
         <ColumnChooser columns={columns} onChange={setColumns} />
       </div>
-      <div className="text-xs text-slate-500">
+      <div className="text-xs text-ink-muted">
         {t('ports.shown', { shown: rows.length, total: ports.length })}
       </div>
       {rows.length === 0 ? (
@@ -330,7 +326,7 @@ export function PortList({
           <table className="w-full text-sm">
             <thead>
               <tr>
-                <th className={cx(thBase, stickyCell, 'z-20')}>{t('ports.col.port')}</th>
+                <th className={cx(thBase, 'sticky start-0 z-20')}>{t('ports.col.port')}</th>
                 {columns.map((c) => (
                   <th key={c} className={cx(thBase, COLUMN_HIDE_CLASS[c])}>
                     {t(`ports.col.${c}`)}
@@ -347,9 +343,7 @@ export function PortList({
                     onClick={() => onSelect(p)}
                     className={cx(
                       'group cursor-pointer',
-                      sel
-                        ? 'bg-sky-50 dark:bg-sky-950/40'
-                        : 'hover:bg-slate-50 dark:hover:bg-slate-800/50',
+                      sel ? 'bg-accent-soft' : 'hover:bg-surface-hover',
                     )}
                   >
                     <td
@@ -357,14 +351,12 @@ export function PortList({
                         tdBase,
                         stickyCell,
                         'font-medium',
-                        sel
-                          ? '!bg-sky-50 dark:!bg-sky-950'
-                          : 'group-hover:bg-slate-50 dark:group-hover:bg-slate-800',
+                        sel ? '!bg-accent-soft' : 'group-hover:bg-surface-hover',
                       )}
                     >
                       <button
                         type="button"
-                        className="text-start text-sky-700 hover:underline focus:outline-none focus-visible:ring-2 focus-visible:ring-sky-500 dark:text-sky-400"
+                        className="text-start text-accent-ink hover:underline focus:outline-none focus-visible:ring-2 focus-visible:ring-accent"
                         onClick={(e) => {
                           e.stopPropagation();
                           onSelect(p);
@@ -375,10 +367,11 @@ export function PortList({
                       {p.lag && (
                         <span
                           className={cx(
-                            'ms-1.5 rounded px-1 text-[10px] font-semibold',
+                            TAG,
+                            'ms-1.5',
                             p.lag.attached === false
-                              ? 'bg-slate-100 text-slate-500 line-through dark:bg-slate-800'
-                              : 'bg-violet-100 text-violet-800 dark:bg-violet-900/50 dark:text-violet-200',
+                              ? cx(TAG_TONE.neutral, 'line-through')
+                              : TAG_TONE.accent,
                           )}
                           title={
                             p.lag.attached === false
@@ -392,14 +385,14 @@ export function PortList({
                       )}
                       {p.kind === 'lag' && !!p.lag_members?.length && (
                         <div
-                          className="text-xs font-normal text-slate-500"
+                          className="text-xs font-normal text-ink-muted"
                           data-testid="lag-members"
                         >
                           {t('ports.lag.members', { list: lagMemberNames(p, ports).join(', ') })}
                         </div>
                       )}
                       {p.alias && !columns.includes('alias') && (
-                        <div className="max-w-[10rem] truncate text-xs font-normal text-slate-500">
+                        <div className="max-w-[10rem] truncate text-xs font-normal text-ink-muted">
                           <bdi dir="auto">{p.alias}</bdi>
                         </div>
                       )}

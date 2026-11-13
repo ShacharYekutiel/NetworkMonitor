@@ -4,36 +4,50 @@ import { useQuery } from '@tanstack/react-query';
 import { useTranslation } from 'react-i18next';
 import { endpoints, qk, type MacSearchQuery } from '../api/endpoints';
 import type { MacLocation } from '../api/types';
-import { SearchIcon } from '../components/icons';
-import { Button, Card, cx, Empty, ErrorBox, Input, Loading, PageHeader } from '../components/ui';
+import { CheckIcon, SearchIcon } from '../components/icons';
+import {
+  Button,
+  Card,
+  cx,
+  Empty,
+  ErrorBox,
+  Input,
+  Loading,
+  PageHeader,
+  td as baseTd,
+  th as baseTh,
+} from '../components/ui';
 import { formatDateTime, formatRelative } from '../lib/format';
 import { colonMac, parseSearchInput, portLink } from '../lib/ports';
 
-const th =
-  'whitespace-nowrap border-b border-slate-200 px-3 py-2 text-start text-xs font-medium uppercase tracking-wide text-slate-500 dark:border-slate-800';
-const td =
-  'whitespace-nowrap border-b border-slate-100 px-3 py-2 align-middle dark:border-slate-800/70';
+const th = baseTh;
+const td = cx(baseTd, 'whitespace-nowrap');
 const chip =
-  'inline-flex items-center rounded px-1.5 py-0.5 text-[11px] font-medium ring-1 ring-inset';
+  'inline-flex h-[22px] items-center whitespace-nowrap rounded-sm border px-2 text-xs font-medium';
 
 function Row({ x }: { x: MacLocation }) {
   const { t } = useTranslation();
   return (
     <tr
-      className={cx(x.best && 'bg-green-50 dark:bg-green-950/30', !x.present && 'text-slate-500')}
+      className={cx('hover:bg-surface-hover', !x.present && 'text-ink-muted')}
       data-best={x.best || undefined}
     >
       <td className={cx(td, 'font-mono text-xs')}>
         <bdi dir="ltr">{x.mac}</bdi>
         {x.best && (
-          <span className={cx(chip, 'ms-2 bg-green-600 font-sans text-white ring-green-600')}>
+          <span
+            className={cx(
+              chip,
+              'ms-2 border-transparent bg-status-up-soft font-sans text-status-up',
+            )}
+          >
             {t('find.best')}
           </span>
         )}
       </td>
       <td className={td}>
         {x.locally_administered ? (
-          <span className="text-slate-500">{t('ports.mac.random')}</span>
+          <span className="text-ink-muted">{t('ports.mac.random')}</span>
         ) : (
           <bdi dir="auto">{x.vendor ?? '—'}</bdi>
         )}
@@ -45,31 +59,28 @@ function Row({ x }: { x: MacLocation }) {
         <bdi dir="ltr">{x.hostname ?? '—'}</bdi>
       </td>
       <td className={td}>
-        <Link
-          to={`/devices/${x.device_id}`}
-          className="text-sky-700 hover:underline dark:text-sky-400"
-        >
+        <Link to={`/devices/${x.device_id}`} className="text-accent-ink hover:underline">
           <bdi dir="auto">{x.device_name}</bdi>
         </Link>
-        <div className="text-xs text-slate-500">
+        <div className="text-xs text-ink-muted">
           <bdi dir="ltr">{x.device_host}</bdi>
         </div>
       </td>
       <td className={td}>
         <Link
           to={portLink(x)}
-          className="font-medium text-sky-700 hover:underline dark:text-sky-400"
+          className="font-medium text-accent-ink hover:underline"
           data-testid="find-port-link"
         >
           <bdi dir="ltr">{x.port}</bdi>
         </Link>
         {!!x.lag_members?.length && (
-          <div className="text-xs text-slate-500" data-testid="find-lag-members">
+          <div className="text-xs text-ink-muted" data-testid="find-lag-members">
             {t('ports.lag.members', { list: x.lag_members.join(', ') })}
           </div>
         )}
         {x.port_alias && (
-          <div className="max-w-[12rem] truncate text-xs text-slate-500">
+          <div className="max-w-[12rem] truncate text-xs text-ink-muted">
             <bdi dir="auto">{x.port_alias}</bdi>
           </div>
         )}
@@ -77,16 +88,11 @@ function Row({ x }: { x: MacLocation }) {
       <td className={cx(td, 'tabular-nums')}>{x.vlan ?? '—'}</td>
       <td className={td}>
         {x.is_uplink ? (
-          <span
-            className={cx(
-              chip,
-              'bg-sky-50 text-sky-800 ring-sky-200 dark:bg-sky-950 dark:text-sky-300 dark:ring-sky-900',
-            )}
-          >
+          <span className={cx(chip, 'border-line bg-surface-sunken text-ink-muted')}>
             {t('find.uplink')}
           </span>
         ) : (
-          <span className="text-xs text-slate-500">{t('find.access')}</span>
+          <span className="text-xs text-ink-muted">{t('find.access')}</span>
         )}
       </td>
       <td className={td} title={formatDateTime(x.last_seen)}>
@@ -132,30 +138,33 @@ export function FindPage() {
   return (
     <div className="space-y-4">
       <PageHeader title={t('find.title')} subtitle={t('find.subtitle')} />
-      <form onSubmit={submit} className="flex flex-wrap gap-2" role="search">
-        <div className="relative min-w-0 flex-1 basis-64">
-          <SearchIcon
-            size={15}
-            className="pointer-events-none absolute start-2.5 top-1/2 -translate-y-1/2 text-slate-400"
-          />
-          <Input
-            value={input}
-            onChange={(e) => {
-              setInput(e.target.value);
-              setInvalid(false);
-            }}
-            placeholder={t('find.placeholder')}
-            aria-label={t('find.label')}
-            aria-invalid={invalid}
-            dir={input ? 'ltr' : undefined}
-            className="ps-8 font-mono"
-            autoFocus
-          />
-        </div>
-        <Button type="submit" variant="primary">
-          {t('find.search')}
-        </Button>
-      </form>
+      <Card>
+        <form onSubmit={submit} className="flex flex-wrap gap-2" role="search">
+          <div className="relative min-w-0 flex-1 basis-64">
+            <SearchIcon
+              size={15}
+              className="pointer-events-none absolute start-2.5 top-1/2 -translate-y-1/2 text-ink-subtle"
+            />
+            <Input
+              value={input}
+              onChange={(e) => {
+                setInput(e.target.value);
+                setInvalid(false);
+              }}
+              placeholder={t('find.placeholder')}
+              aria-label={t('find.label')}
+              aria-invalid={invalid}
+              dir={input ? 'ltr' : undefined}
+              className="h-[38px] ps-8 font-mono text-sm"
+              autoFocus
+            />
+          </div>
+          <Button type="submit" variant="primary" className="h-[38px]">
+            <SearchIcon size={14} /> {t('find.search')}
+          </Button>
+        </form>
+        {!urlQuery && <p className="mt-2 text-xs text-ink-subtle">{t('find.help')}</p>}
+      </Card>
       {invalid && (
         <ErrorBox error={new Error(t('errors.validation_error') + ' ' + t('find.invalidHint'))} />
       )}
@@ -163,7 +172,7 @@ export function FindPage() {
       <ErrorBox error={q.error} />
       {q.data && query && (
         <>
-          <p className="text-sm text-slate-600 dark:text-slate-300" data-testid="find-summary">
+          <p className="text-sm text-ink-muted" data-testid="find-summary">
             {query.ip
               ? t('find.forIp', { ip: query.ip })
               : query.mac
@@ -172,45 +181,41 @@ export function FindPage() {
             · {t('find.count', { count: q.data.items.length })}
           </p>
           {best && (
-            <Card>
+            <div className="flex items-start gap-3 rounded-lg bg-status-up-soft px-4 py-3.5 text-ink">
+              <CheckIcon size={16} className="mt-0.5 shrink-0 text-status-up" />
               <div
-                className="flex flex-wrap items-center gap-x-3 gap-y-1 text-sm"
+                className="flex min-w-0 flex-wrap items-center gap-x-3 gap-y-1 text-sm"
                 data-testid="find-best"
               >
-                <span className="font-medium text-green-700 dark:text-green-400">
-                  {t('find.bestTitle')}
-                </span>
+                <span className="font-medium text-status-up">{t('find.bestTitle')}</span>
                 <bdi dir="ltr" className="font-mono">
                   {best.mac}
                 </bdi>
-                <span className="text-slate-500">→</span>
-                <Link
-                  to={`/devices/${best.device_id}`}
-                  className="text-sky-700 hover:underline dark:text-sky-400"
-                >
+                <span className="text-ink-muted">→</span>
+                <Link to={`/devices/${best.device_id}`} className="text-accent-ink hover:underline">
                   <bdi dir="auto">{best.device_name}</bdi>
                 </Link>
                 <Link
                   to={portLink(best)}
-                  className="font-semibold text-sky-700 hover:underline dark:text-sky-400"
+                  className="text-base font-semibold text-accent-ink hover:underline"
                 >
                   {t('ports.portN', { name: best.port })}
                 </Link>
                 {best.vlan !== null && (
-                  <span className="text-slate-500">{t('ports.vlanN', { vlan: best.vlan })}</span>
+                  <span className="text-ink-muted">{t('ports.vlanN', { vlan: best.vlan })}</span>
                 )}
                 {best.ip && (
-                  <bdi dir="ltr" className="text-slate-600 dark:text-slate-300">
+                  <bdi dir="ltr" className="text-ink-muted">
                     {best.ip}
                   </bdi>
                 )}
                 {best.hostname && (
-                  <bdi dir="ltr" className="text-slate-500">
+                  <bdi dir="ltr" className="text-ink-muted">
                     {best.hostname}
                   </bdi>
                 )}
               </div>
-            </Card>
+            </div>
           )}
           <Card bodyClassName="p-0">
             {q.data.items.length === 0 ? (
@@ -259,7 +264,7 @@ export function FindPage() {
                     {q.data.arp.map((a) => (
                       <tr
                         key={`${a.ip}-${a.mac}-${a.source_device_id}`}
-                        className={a.present ? undefined : 'text-slate-500'}
+                        className={a.present ? undefined : 'text-ink-muted'}
                       >
                         <td className={td}>
                           <bdi dir="ltr">{a.ip}</bdi>
@@ -273,7 +278,7 @@ export function FindPage() {
                         <td className={td}>
                           <Link
                             to={`/devices/${a.source_device_id}`}
-                            className="text-sky-700 hover:underline dark:text-sky-400"
+                            className="text-accent-ink hover:underline"
                           >
                             <bdi dir="auto">{a.source_device_name}</bdi>
                           </Link>
@@ -291,7 +296,6 @@ export function FindPage() {
           )}
         </>
       )}
-      {!urlQuery && <p className="text-sm text-slate-500">{t('find.help')}</p>}
     </div>
   );
 }

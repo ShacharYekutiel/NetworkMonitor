@@ -8,9 +8,9 @@ import { sortTokens } from '../lib/tokens';
 import { ConfirmDialog, cx, Empty, ErrorBox, Loading, Button, Table, td, th } from './ui';
 
 const STATE_CLS: Record<ApiToken['state'], string> = {
-  active: 'bg-green-100 text-green-800 dark:bg-green-900/50 dark:text-green-200',
-  expired: 'bg-slate-100 text-slate-600 dark:bg-slate-800 dark:text-slate-300',
-  revoked: 'bg-red-100 text-red-800 dark:bg-red-900/50 dark:text-red-200',
+  active: 'bg-status-up-soft text-status-up',
+  expired: 'bg-surface-sunken text-ink-muted',
+  revoked: 'bg-status-down-soft text-status-down',
 };
 
 /** [2b-3] Token list (own, or every user's for admins with `all`) with revoke. */
@@ -74,7 +74,7 @@ export function TokensTable({ all = false }: { all?: boolean }) {
               >
                 {formatRelative(x.expires_at)}
               </td>
-              <td className={`${td} whitespace-nowrap text-xs text-slate-500`}>
+              <td className={`${td} whitespace-nowrap text-xs text-ink-muted`}>
                 {x.last_used_at ? (
                   <span title={formatDateTime(x.last_used_at)}>
                     {formatRelative(x.last_used_at)}

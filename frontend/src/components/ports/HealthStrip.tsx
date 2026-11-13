@@ -19,15 +19,13 @@ export function HealthStrip({ items }: { items: HealthItem[] }) {
           key={h.category}
           to={`/sensors/${h.primary_sensor_id}`}
           title={t(`status.${h.status}`)}
-          className="inline-flex min-w-0 items-center gap-2 rounded-md bg-white px-2.5 py-1.5 text-sm shadow-sm ring-1 ring-slate-200 hover:bg-slate-50 dark:bg-slate-900 dark:ring-slate-700 dark:hover:bg-slate-800"
+          className="inline-flex min-w-0 items-center gap-2 rounded-md bg-surface px-2.5 py-1.5 text-sm ring-1 ring-line hover:bg-surface-hover"
         >
           <span
             className={cx('h-2.5 w-2.5 shrink-0 rounded-full', statusClass(h.status, STATUS_DOT))}
             aria-hidden="true"
           />
-          <span className="text-xs text-slate-500 dark:text-slate-400">
-            {t(`health.${h.category}`)}
-          </span>
+          <span className="text-xs text-ink-muted">{t(`health.${h.category}`)}</span>
           <Value text={healthText(h)} className="font-semibold tabular-nums" />
           <span className="sr-only">{t(`status.${h.status}`)}</span>
         </Link>

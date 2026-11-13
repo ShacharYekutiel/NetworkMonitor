@@ -56,7 +56,7 @@ function SearchCard() {
     <Card title={t('configBackup.search')}>
       <form onSubmit={submit} className="flex flex-wrap items-end gap-3" role="search">
         <label className="min-w-[16rem] flex-1">
-          <span className="mb-1 block text-xs font-medium text-slate-600 dark:text-slate-400">
+          <span className="mb-1 block text-xs font-medium text-ink-muted">
             {t('configBackup.searchLabel')}
           </span>
           <Input
@@ -82,35 +82,30 @@ function SearchCard() {
           {t('configBackup.searchGo')}
         </Button>
       </form>
-      {err && <p className="mt-1 text-xs text-red-600">{t(err)}</p>}
+      {err && <p className="mt-1 text-xs text-status-down">{t(err)}</p>}
       <ErrorBox error={q.error} className="mt-3" />
       {q.data && (
         <div className="mt-3 space-y-3" data-testid="config-search-results">
           {!q.data.items.length && <Empty>{t('configBackup.noMatches')}</Empty>}
           {q.data.truncated && (
-            <p className="text-xs text-amber-700 dark:text-amber-300">
-              {t('configBackup.searchTruncated')}
-            </p>
+            <p className="text-xs text-status-warning">{t('configBackup.searchTruncated')}</p>
           )}
           {q.data.items.map((it) => (
-            <div
-              key={`${it.device_id}-${it.version_id}`}
-              className="rounded-md ring-1 ring-slate-200 dark:ring-slate-800"
-            >
-              <div className="flex flex-wrap items-baseline gap-2 border-b border-slate-200 px-3 py-1.5 text-sm dark:border-slate-800">
+            <div key={`${it.device_id}-${it.version_id}`} className="rounded-md ring-1 ring-line">
+              <div className="flex flex-wrap items-baseline gap-2 border-b border-line px-3 py-1.5 text-sm">
                 <Link
                   to={`/devices/${it.device_id}?tab=config`}
-                  className="font-medium text-sky-700 hover:underline dark:text-sky-400"
+                  className="font-medium text-accent-ink hover:underline"
                 >
                   {it.device_name}
                 </Link>
-                <span className="text-xs text-slate-500">{formatDateTime(it.collected_at)}</span>
+                <span className="text-xs text-ink-muted">{formatDateTime(it.collected_at)}</span>
               </div>
               <table dir="ltr" className="w-full font-mono text-xs">
                 <tbody>
                   {it.matches.map((m) => (
                     <tr key={m.line}>
-                      <td className="w-12 select-none pe-2 text-right align-top text-slate-400">
+                      <td className="w-12 select-none pe-2 text-right align-top text-ink-subtle">
                         {m.line}
                       </td>
                       <td className="whitespace-pre-wrap break-all text-left">
@@ -118,7 +113,7 @@ function SearchCard() {
                           sg.hit ? (
                             <mark
                               key={i}
-                              className="rounded-sm bg-amber-200 text-inherit dark:bg-amber-700/60"
+                              className="rounded-sm bg-status-warning-soft text-inherit"
                             >
                               {sg.text}
                             </mark>
@@ -132,7 +127,7 @@ function SearchCard() {
                   {it.more && (
                     <tr>
                       <td />
-                      <td className="text-left text-slate-500">…</td>
+                      <td className="text-left text-ink-muted">…</td>
                     </tr>
                   )}
                 </tbody>
@@ -223,7 +218,7 @@ export function ConfigBackupsPage() {
       {r && r.driver_errors.length > 0 && (
         <div
           role="alert"
-          className="rounded-md bg-red-50 px-3 py-2 text-sm text-red-800 ring-1 ring-inset ring-red-200 dark:bg-red-950/40 dark:text-red-200 dark:ring-red-900"
+          className="rounded-md bg-status-down-soft px-3 py-2 text-sm text-status-down"
         >
           <p className="font-medium">{t('driver.errors')}</p>
           <ul className="mt-1 text-xs">
@@ -239,7 +234,7 @@ export function ConfigBackupsPage() {
       )}
       {on && (
         <Card bodyClassName="p-0">
-          <div className="flex flex-wrap items-end gap-3 border-b border-slate-200 p-3 dark:border-slate-800">
+          <div className="flex flex-wrap items-end gap-3 border-b border-line p-3">
             <div className="w-56">
               <GroupSelect
                 value={group}
@@ -300,17 +295,17 @@ export function ConfigBackupsPage() {
                       <td className={td}>
                         <Link
                           to={`/devices/${s.device_id}?tab=config`}
-                          className="font-medium text-sky-700 hover:underline dark:text-sky-400"
+                          className="font-medium text-accent-ink hover:underline"
                         >
                           {s.device_name}
                         </Link>
                         {hostKeyChanged(s) && (
-                          <span className="ms-2 rounded bg-red-100 px-1.5 py-0.5 text-xs text-red-800 dark:bg-red-900/40 dark:text-red-200">
+                          <span className="ms-2 rounded bg-status-down-soft px-1.5 py-0.5 text-xs text-status-down">
                             {t('hostKey.changedShort')}
                           </span>
                         )}
                         {!s.eligible && (
-                          <div className="text-xs text-slate-500">
+                          <div className="text-xs text-ink-muted">
                             {t(`configBackup.reason.${s.reason}`)}
                           </div>
                         )}
@@ -323,7 +318,7 @@ export function ConfigBackupsPage() {
                         <ResultBadge s={s} />
                         {s.last_error && (
                           <div
-                            className="max-w-xs truncate text-xs text-red-600"
+                            className="max-w-xs truncate text-xs text-status-down"
                             dir="ltr"
                             title={s.last_error}
                           >

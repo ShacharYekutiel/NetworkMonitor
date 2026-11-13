@@ -6,7 +6,7 @@ import { endpoints3 } from '../api/endpoints3';
 import { parseError } from '../api/client';
 import type { User } from '../api/types';
 import { useAuth } from '../hooks/auth';
-import { Button, ErrorBox, Field, Input, Spinner } from '../components/ui';
+import { Button, buttonClass, cx, ErrorBox, Field, Input, Spinner } from '../components/ui';
 import { AuthShell } from './AuthShell';
 import { useFeatures } from '../hooks/features';
 import { parseLogin } from '../lib/ldap';
@@ -104,7 +104,7 @@ export function LoginPage() {
       {ssoError && (
         <div
           role="alert"
-          className="mb-4 rounded-md bg-red-50 px-3 py-2 text-sm text-red-700 ring-1 ring-inset ring-red-200 dark:bg-red-950/40 dark:text-red-300 dark:ring-red-900"
+          className="mb-4 rounded-lg border-s-2 border-status-down bg-status-down-soft px-3.5 py-2.5 text-sm text-ink"
           data-testid="sso-error"
         >
           {t(`sso.error.${ssoError}`)}
@@ -112,7 +112,7 @@ export function LoginPage() {
       )}
       {krb === 'trying' && (
         <p
-          className="mb-4 flex items-center gap-2 text-sm text-slate-600 dark:text-slate-300"
+          className="mb-4 flex items-center gap-2 text-sm text-ink-muted"
           role="status"
           data-testid="kerberos-trying"
         >
@@ -120,7 +120,7 @@ export function LoginPage() {
         </p>
       )}
       {krb === 'ntlm' && (
-        <div className="mb-4 rounded-md bg-amber-50 px-3 py-2 text-sm text-amber-900 ring-1 ring-inset ring-amber-200 dark:bg-amber-950/40 dark:text-amber-200 dark:ring-amber-900">
+        <div className="mb-4 rounded-lg border-s-2 border-status-warning bg-status-warning-soft px-3.5 py-2.5 text-sm text-ink">
           <p>{t('sso.error.sso_ntlm')}</p>
           {krbMessage && (
             <p className="mt-1 text-xs" dir="auto">
@@ -130,13 +130,13 @@ export function LoginPage() {
         </div>
       )}
       {krb === 'failed' && !error && (
-        <p className="mb-4 text-sm text-red-600">{t('sso.kerberosFailed')}</p>
+        <p className="mb-4 text-sm text-status-down">{t('sso.kerberosFailed')}</p>
       )}
       {(sso.kerberos || sso.oidc) && (
         <div className="mb-4 space-y-2">
           {sso.kerberos && (
             <Button
-              className="w-full"
+              className="h-10 w-full"
               busy={krb === 'trying'}
               onClick={() => void kerberos(true)}
               data-testid="kerberos-button"
@@ -147,7 +147,7 @@ export function LoginPage() {
           {sso.oidc && (
             <a
               href={oidcHref}
-              className="inline-flex w-full items-center justify-center gap-2 rounded-md bg-white px-3 py-1.5 text-sm font-medium text-slate-700 ring-1 ring-inset ring-slate-300 hover:bg-slate-50 dark:bg-slate-800 dark:text-slate-200 dark:ring-slate-600 dark:hover:bg-slate-700"
+              className={cx(buttonClass(), 'h-10 w-full no-underline hover:no-underline')}
               data-testid="oidc-button"
             >
               <svg width="14" height="14" viewBox="0 0 21 21" aria-hidden="true">
@@ -159,10 +159,10 @@ export function LoginPage() {
               {sso.oidc.button_label || t('sso.oidcButton')}
             </a>
           )}
-          <div className="flex items-center gap-2 pt-1 text-xs text-slate-400">
-            <span className="h-px flex-1 bg-slate-200 dark:bg-slate-700" />
+          <div className="flex items-center gap-3 pt-2 text-xs text-ink-subtle">
+            <span className="h-px flex-1 bg-line" />
             {t('sso.or')}
-            <span className="h-px flex-1 bg-slate-200 dark:bg-slate-700" />
+            <span className="h-px flex-1 bg-line" />
           </div>
         </div>
       )}
@@ -179,12 +179,12 @@ export function LoginPage() {
           />
         </Field>
         {ad && (
-          <p className="-mt-2 text-xs text-slate-500" data-testid="ldap-hint">
+          <p className="-mt-2 text-xs text-ink-muted" data-testid="ldap-hint">
             {t('login.adHint', { netbios: ad.netbios_domain, domain: ad.domain })}
           </p>
         )}
         {parsed?.kind === 'foreign' && (
-          <p className="-mt-2 text-xs text-amber-700 dark:text-amber-300">
+          <p className="-mt-2 text-xs text-status-warning">
             {t('login.foreignDomain', { domain: parsed.domain, netbios: ad?.netbios_domain ?? '' })}
           </p>
         )}
@@ -200,7 +200,7 @@ export function LoginPage() {
           />
         </Field>
         <ErrorBox error={error} />
-        <Button type="submit" variant="primary" className="w-full" busy={busy}>
+        <Button type="submit" variant="primary" className="h-10 w-full" busy={busy}>
           {t('login.submit')}
         </Button>
       </form>

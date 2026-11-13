@@ -21,7 +21,7 @@ export function NewDevicesBadge({ device }: { device: Device }) {
   return (
     <Link
       to={`/new-devices?device_id=${device.id}`}
-      className="rounded bg-rose-100 px-1.5 py-0.5 text-xs font-medium text-rose-800 hover:underline dark:bg-rose-900/40 dark:text-rose-200"
+      className="rounded bg-status-warning-soft px-1.5 py-0.5 text-xs font-medium text-status-warning hover:underline"
       data-testid="new-devices-badge"
     >
       {t('newDevices.badge', { count: n })}

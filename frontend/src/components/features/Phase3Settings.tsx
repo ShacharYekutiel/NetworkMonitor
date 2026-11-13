@@ -92,7 +92,7 @@ function SettingsForm({
               label={t(`${prefix}.${time}`)}
               hint={
                 timeBad ? (
-                  <span className="text-red-600">{t('settings3.timeErr')}</span>
+                  <span className="text-status-down">{t('settings3.timeErr')}</span>
                 ) : (
                   t(`${prefix}.${time}Hint`)
                 )
@@ -113,7 +113,7 @@ function SettingsForm({
                 key={f.key}
                 label={t(`${prefix}.${f.key}`)}
                 hint={
-                  <span className={err ? 'text-red-600' : undefined}>
+                  <span className={err ? 'text-status-down' : undefined}>
                     {f.zeroOk
                       ? t('settings3.rangeZero', { min: f.min, max: f.max })
                       : t('settings3.range', { min: f.min, max: f.max })}
@@ -243,7 +243,7 @@ export function FlowSettingsTab({ settings }: { settings: Settings }) {
             label={t('settings3.flow_app_overrides')}
             hint={
               parsed.error ? (
-                <span className="text-red-600">{t('settings3.overridesErr')}</span>
+                <span className="text-status-down">{t('settings3.overridesErr')}</span>
               ) : (
                 t('settings3.overridesHint')
               )
@@ -270,7 +270,7 @@ function ScopeGroups({ value, onChange }: { value: number[]; onChange: (v: numbe
   const groups = useMemo(() => flattenGroups(data?.groups ?? []), [data]);
   return (
     <FieldGroup label={t('newDevices.scope')} hint={t('newDevices.scopeHint')}>
-      <div className="max-h-40 space-y-1 overflow-y-auto rounded-md p-2 ring-1 ring-inset ring-slate-200 dark:ring-slate-700">
+      <div className="max-h-40 space-y-1 overflow-y-auto rounded-md p-2 ring-1 ring-inset ring-line">
         {groups.map(({ group, depth }) => (
           <div key={group.id} style={{ paddingInlineStart: depth * 12 }}>
             <Checkbox
@@ -311,7 +311,7 @@ export function NewDeviceSettingsTab({ settings }: { settings: Settings }) {
           <>
             <ScopeGroups value={scope} onChange={setScope} />
             {settings.newdev_learning_until && (
-              <p className="text-xs text-slate-500">
+              <p className="text-xs text-ink-muted">
                 {t('newDevices.learningUntil', {
                   date: formatDateTime(settings.newdev_learning_until),
                 })}
@@ -378,10 +378,10 @@ export function ChatAckSettingsTab({ settings }: { settings: Settings }) {
             { key: 'telegram_poll_timeout_s', min: 10, max: 50 },
           ]}
           extra={
-            <div className="space-y-1 text-xs text-slate-500">
+            <div className="space-y-1 text-xs text-ink-muted">
               <p>{t('chatAck.teamsLimit')}</p>
               {!settings.public_base_url && (
-                <p className="text-amber-700 dark:text-amber-300">{t('chatAck.needsPublicUrl')}</p>
+                <p className="text-status-warning">{t('chatAck.needsPublicUrl')}</p>
               )}
             </div>
           }
@@ -390,7 +390,7 @@ export function ChatAckSettingsTab({ settings }: { settings: Settings }) {
           <Card title={t('chatAck.pollers')} anchor={cardAnchor('chatAckPollers')}>
             <ErrorBox error={poll.error} />
             {poll.data && !poll.data.pollers.length && (
-              <p className="text-sm text-slate-500">{t('features.status.noPoller')}</p>
+              <p className="text-sm text-ink-muted">{t('features.status.noPoller')}</p>
             )}
             <ul className="space-y-1 text-sm">
               {poll.data?.pollers.map((p) => (
@@ -401,20 +401,20 @@ export function ChatAckSettingsTab({ settings }: { settings: Settings }) {
                   <span
                     className={
                       p.state === 'error'
-                        ? 'text-red-600'
+                        ? 'text-status-down'
                         : p.state === 'polling'
-                          ? 'text-green-700 dark:text-green-400'
-                          : 'text-slate-500'
+                          ? 'text-status-up'
+                          : 'text-ink-muted'
                     }
                   >
                     {t(`chatAck.pollerState.${p.state}`)}
                   </span>
                   {p.last_error && (
-                    <bdi dir="ltr" className="text-xs text-red-600">
+                    <bdi dir="ltr" className="text-xs text-status-down">
                       {p.last_error}
                     </bdi>
                   )}
-                  <span className="text-xs text-slate-500">{formatDateTime(p.updated_at)}</span>
+                  <span className="text-xs text-ink-muted">{formatDateTime(p.updated_at)}</span>
                 </li>
               ))}
             </ul>
@@ -424,14 +424,14 @@ export function ChatAckSettingsTab({ settings }: { settings: Settings }) {
           <Card title={t('chatAck.allLinks')} anchor={cardAnchor('chatAckLinks')}>
             <ErrorBox error={links.error ?? unlink.error} />
             {links.data && !links.data.items.length && (
-              <p className="text-sm text-slate-500">{t('chatAck.noLinks')}</p>
+              <p className="text-sm text-ink-muted">{t('chatAck.noLinks')}</p>
             )}
-            <ul className="divide-y divide-slate-100 text-sm dark:divide-slate-800">
+            <ul className="divide-y divide-line text-sm">
               {links.data?.items.map((l) => (
                 <li key={l.id} className="flex flex-wrap items-center gap-2 py-1.5">
                   <span className="font-medium">{l.username}</span>
                   <bdi dir="ltr">{l.display}</bdi>
-                  <span className="text-xs text-slate-500">
+                  <span className="text-xs text-ink-muted">
                     {t('chatAck.linkedAt', { date: formatDateTime(l.linked_at) })}
                   </span>
                   <Button
@@ -465,13 +465,13 @@ export function LearningBar({
   const p = learningProgress({ learning, learning_until: until }, days, Date.now());
   return (
     <div
-      className="h-2 w-full overflow-hidden rounded bg-slate-200 dark:bg-slate-700"
+      className="h-2 w-full overflow-hidden rounded bg-surface-hover"
       role="progressbar"
       aria-valuemin={0}
       aria-valuemax={100}
       aria-valuenow={Math.round(p * 100)}
     >
-      <div className="h-full bg-sky-600" style={{ width: `${Math.round(p * 100)}%` }} />
+      <div className="h-full bg-accent" style={{ width: `${Math.round(p * 100)}%` }} />
     </div>
   );
 }

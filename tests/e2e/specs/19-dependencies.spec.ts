@@ -130,12 +130,12 @@ test('parent outage: children unreachable (violet, live), only the parent alerts
     let e: Element | null = el;
     while (e) {
       const cs = getComputedStyle(e);
-      for (const v of [cs.backgroundColor, cs.color]) if (/139,\s*92,\s*246|#8b5cf6|oklch\(0\.606 0\.25 292/.test(v)) return v;
+      for (const v of [cs.backgroundColor, cs.color]) if (/107,\s*79,\s*216|177,\s*149,\s*255/.test(v)) return v;
       e = e.parentElement;
     }
     return getComputedStyle(el).color + ' / ' + getComputedStyle(el).backgroundColor;
   });
-  expect(color, 'violet-500 (#8b5cf6)').toMatch(/139,\s*92,\s*246|8b5cf6|292/);
+  expect(color, 'status-unreachable token').toMatch(/107,\s*79,\s*216|177,\s*149,\s*255/);
   await expect(statusDot(treeDevice(page, child1.device.id).locator('xpath=..'), 'Unreachable').first()).toBeVisible();
   await shot2b(page, 'dependency-child-unreachable-en');
 

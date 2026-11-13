@@ -37,6 +37,7 @@ import {
   NewDeviceSettingsTab,
   ReportSettingsTab,
 } from '../components/features/Phase3Settings';
+import { SecurityCard } from '../components/settings/SecuritySettings';
 import { SsoTab } from '../components/features/SsoSettings';
 import { NocTab } from '../components/features/NocSettings';
 import { cardAnchor } from '../lib/settingsIndex';
@@ -156,7 +157,7 @@ function SmtpCard({ settings }: { settings: Settings }) {
           </Button>
         </div>
       </form>
-      <div className="mt-4 border-t border-slate-200 pt-4 dark:border-slate-800">
+      <div className="mt-4 border-t border-line pt-4">
         <div className="flex flex-wrap items-end gap-2">
           <Field label={t('settings.smtpTestTo')} className="min-w-64 flex-1">
             <Input
@@ -177,7 +178,7 @@ function SmtpCard({ settings }: { settings: Settings }) {
             {t('settings.smtpTest')}
           </Button>
         </div>
-        <p className="mt-1 text-xs text-slate-500">{t('settings.smtpTestHint')}</p>
+        <p className="mt-1 text-xs text-ink-muted">{t('settings.smtpTestHint')}</p>
         {testMsg && (
           <div className="mt-2">
             <Notice tone="success">{testMsg}</Notice>
@@ -307,7 +308,7 @@ function GeneralCard({ settings }: { settings: Settings }) {
               topoOk ? (
                 t('settings.topologyRefreshHint')
               ) : (
-                <span className="text-red-600">{t('settings.topologyRefreshErr')}</span>
+                <span className="text-status-down">{t('settings.topologyRefreshErr')}</span>
               )
             }
           >
@@ -368,11 +369,11 @@ function PortsCard({ settings }: { settings: Settings }) {
     });
   };
   const hint = (bad: boolean, ok: string, errKey: string) =>
-    bad ? <span className="text-red-600">{t(errKey)}</span> : ok;
+    bad ? <span className="text-status-down">{t(errKey)}</span> : ok;
   return (
     <Card title={t('settings.ports.title')} anchor={cardAnchor('ports')}>
       <form onSubmit={submit} className="space-y-4" data-testid="ports-settings">
-        <p className="text-xs text-slate-500">{t('settings.ports.intro')}</p>
+        <p className="text-xs text-ink-muted">{t('settings.ports.intro')}</p>
         <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
           <Field
             label={t('settings.ports.interval')}
@@ -431,7 +432,7 @@ function PortsCard({ settings }: { settings: Settings }) {
         </div>
         <div>
           <Checkbox label={t('settings.ports.reverseDns')} checked={rdns} onChange={setRdns} />
-          <p className="ms-6 mt-0.5 text-xs text-slate-500">{t('settings.ports.reverseDnsHint')}</p>
+          <p className="ms-6 mt-0.5 text-xs text-ink-muted">{t('settings.ports.reverseDnsHint')}</p>
         </div>
         <ErrorBox error={save.error} />
         <div className="flex justify-end">
@@ -483,6 +484,7 @@ export function SettingsPage() {
           <GeneralCard settings={q.data} />
           <PortsCard settings={q.data} />
           <SmtpCard settings={q.data} />
+          <SecurityCard settings={q.data} />
         </>
       )}
       {q.data && tab === 'features' && <FeaturesTab settings={q.data} />}

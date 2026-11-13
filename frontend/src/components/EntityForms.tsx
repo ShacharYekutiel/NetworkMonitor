@@ -366,7 +366,7 @@ export function DeviceFormModal({
             label={t('devices.sourceAddresses')}
             hint={
               srcErr ? (
-                <span className="text-red-600">{t('devices.sourceAddressesErr')}</span>
+                <span className="text-status-down">{t('devices.sourceAddressesErr')}</span>
               ) : (
                 t('devices.sourceAddressesHint')
               )
@@ -383,7 +383,7 @@ export function DeviceFormModal({
           </Field>
         )}
         {showSources && !!device?.source_address_conflicts?.length && (
-          <ul className="space-y-0.5 rounded-md bg-amber-50 px-3 py-2 text-xs text-amber-900 ring-1 ring-inset ring-amber-200 dark:bg-amber-950/40 dark:text-amber-200 dark:ring-amber-900">
+          <ul className="space-y-0.5 rounded-md bg-status-warning-soft px-3 py-2 text-xs text-status-warning">
             {device.source_address_conflicts.map((c) => (
               <li key={`${c.address}-${c.device_id}`}>
                 {t('devices.sourceConflict', { address: c.address, device: c.device_name })}
@@ -399,8 +399,8 @@ export function DeviceFormModal({
           onArpCollect={setArp}
         />
         {!device && (
-          <fieldset className="rounded-md border border-slate-200 p-3 dark:border-slate-700">
-            <legend className="px-1 text-xs font-semibold text-slate-600 dark:text-slate-400">
+          <fieldset className="rounded-md border border-line p-3">
+            <legend className="px-1 text-xs font-semibold text-ink-muted">
               {t('devices.autoSensors')}
             </legend>
             <div className="flex flex-wrap gap-4">
@@ -464,10 +464,8 @@ function InventoryFields({
       : state;
   };
   return (
-    <fieldset className="rounded-md border border-slate-200 p-3 dark:border-slate-700">
-      <legend className="px-1 text-xs font-semibold text-slate-600 dark:text-slate-400">
-        {t('device.inventory')}
-      </legend>
+    <fieldset className="rounded-md border border-line p-3">
+      <legend className="px-1 text-xs font-semibold text-ink-muted">{t('device.inventory')}</legend>
       <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
         <Field
           label={t('device.portInventory')}
