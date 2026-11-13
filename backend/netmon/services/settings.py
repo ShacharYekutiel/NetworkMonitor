@@ -12,7 +12,9 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from netmon.assistant.config import SCALAR_DEFAULTS as ASSISTANT_DEFAULTS
 from netmon.flows.settings import DEFAULTS as FLOW_DEFAULTS
 from netmon.models import Setting
+from netmon.services import secretbox
 from netmon.services.features import FEATURES
+from netmon.services.security import DEFAULTS as SECURITY_DEFAULTS
 from netmon.services.settings_p3c import DEFAULTS as P3C_DEFAULTS
 
 DEFAULTS: dict[str, Any] = {
@@ -107,6 +109,8 @@ DEFAULTS: dict[str, Any] = {
     # [3b] assistant scalar keys (the `assistant` / `assistant_kb` objects are served by
     # /api/assistant/settings and /api/assistant/knowledge, netmon.assistant.config)
     **ASSISTANT_DEFAULTS,
+    # [1.4.1] security hardening (netmon.services.security)
+    **SECURITY_DEFAULTS,
 }
 
 # [3] plain keys written by PUT /api/settings as they come (validated by the schema mixins)
@@ -143,12 +147,15 @@ def defaults() -> dict[str, Any]:
 
 
 async def get_all(session: AsyncSession) -> dict[str, Any]:
+    """[1.4.2] Values are returned decrypted (netmon.services.secretbox); never pass them to
+    a log line or the assistant as they are (`settings_out` masks the secrets)."""
     out = defaults()
     for row in (await session.execute(select(Setting))).scalars():
-        if row.key in MERGED_OBJECTS and isinstance(row.value, dict):
-            out[row.key] = {**out[row.key], **row.value}
+        value = secretbox.open_setting(row.key, row.value)
+        if row.key in MERGED_OBJECTS and isinstance(value, dict):
+            out[row.key] = {**out[row.key], **value}
         elif row.key in out:
-            out[row.key] = row.value
+            out[row.key] = value
     return out
 
 
@@ -156,12 +163,14 @@ async def get(session: AsyncSession, key: str) -> Any:
     row = await session.get(Setting, key)
     if row is None:
         return defaults()[key]
-    if key in MERGED_OBJECTS and isinstance(row.value, dict):
-        return {**copy.deepcopy(DEFAULTS[key]), **row.value}
-    return row.value
+    value = secretbox.open_setting(key, row.value)
+    if key in MERGED_OBJECTS and isinstance(value, dict):
+        return {**copy.deepcopy(DEFAULTS[key]), **value}
+    return value
 
 
 async def put(session: AsyncSession, key: str, value: Any) -> None:
+    value = secretbox.seal_setting(key, value)  # [1.4.2] secrets encrypted at rest
     stmt = insert(Setting).values(key=key, value=value)
     stmt = stmt.on_conflict_do_update(index_elements=[Setting.key], set_={"value": value})
     await session.execute(stmt)
@@ -221,6 +230,7 @@ def settings_out(values: dict[str, Any], secret_key: str | None = None) -> dict[
             for k in ("report_retention_days", "chat_ack_ttl_h", "telegram_poll_timeout_s")
         },
         **{k: values[k] for k in ASSISTANT_DEFAULTS},  # [3b]
+        **{k: values[k] for k in SECURITY_DEFAULTS},  # [1.4.1]
     }
 
 

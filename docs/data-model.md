@@ -4231,3 +4231,84 @@ hh3cEntityExtErrorStatus (`config.oid` under `1.3.6.1.4.1.25506.2.6.1.1.1.1.19.`
 no `value_map_ref`) get `value_map_ref = "hh3c_error_status"` and `value_map = {}`; edited maps are left alone.
 `downgrade()`: sensors with `value_map_ref` lose it (an empty `value_map` gets the 1.3 map back); drop the column.
 
+
+## [1.4.1] Security settings
+Settings keys (table `settings`, code defaults in `netmon.services.security.DEFAULTS`; cached on the runtime, so
+they take effect right after `PUT /api/settings` without a restart):
+
+| Key | Type | Default | Notes |
+|---|---|---|---|
+| `egress_allow_loopback` | bool | `false` | SSRF egress filter: loopback targets of webhook / Teams channels and HTTP sensors. Also forced on by `NETMON_TEST_MODE` (the E2E simulators are on `127.0.0.x`). |
+| `session_max_age_h` | int 1–720 | `168` | absolute session lifetime; `ldap` / `oidc` users: `min(12, value)` |
+| `login_ip_max_failures` | int 0–10000 | `20` | failed logins per client address / 5 min; `0` = off |
+| `frame_ancestors` | text[] (≤ 20 origins) | `[]` | extra CSP `frame-ancestors` sources; validated again when read, so a hand-edited row can never inject a directive |
+
+## [1.4.1] `revoked_sessions`
+Session ids ended by `POST /api/auth/logout`. Loaded into memory at start (the server is one process); a cookie
+whose `sid` is listed is refused.
+
+| Column | Type | Notes |
+|---|---|---|
+| `sid` | varchar(64) PK | the `sid` claim of the revoked session |
+| `user_id` | integer NULL → `users(id)` ON DELETE CASCADE | |
+| `revoked_at` | timestamptz NOT NULL DEFAULT now() | |
+| `expires_at` | timestamptz NOT NULL, indexed | `revoked_at` + 31 days (longer than the largest `session_max_age_h`); rows past it are deleted at start and on every logout |
+
+## [1.4.1] Migration (`0011`)
+File `backend/netmon/migrations/versions/0011_v141.py`, `revision = "0011"`, `down_revision = "0010"`.
+`upgrade()`: `CREATE TABLE revoked_sessions` and its `expires_at` index. No data is changed.
+`downgrade()`: drop the table (1.4.0 ignores the `sid` claim, so sessions issued by 1.4.1 keep working).
+
+## [1.4.2] Secrets at rest
+Pentest finding 9 / static review item 5. Every secret that earlier releases stored only as plaintext gets an
+AES-256-GCM encrypted copy (`netmon.services.crypto`: key = HKDF-SHA256 of `secret.key`, `v1:` + base64url of
+nonce ‖ ciphertext ‖ tag). Code: `netmon.services.secretbox` (storage form), `netmon.services.rekey` (re-key).
+
+**Storage form.** Next to a secret field `f` of a JSON object: `f_enc` = `encrypt(json.dumps(value))`. The AAD is
+`netmon/secret/<owner>/<field>`, so a ciphertext copied to another row, another kind or another field does not
+decrypt (static review "low": AAD without row identity — fixed for these secrets; the SSH credentials of 3.0 keep
+their `ssh.<field>` AAD).
+
+| Where | Secret fields | Owner in the AAD |
+|---|---|---|
+| `groups.snmp_credentials` | `community`, `v3_auth_key`, `v3_priv_key` | `group:<id>` |
+| `devices.snmp_credentials` | same | `device:<id>` |
+| `discovery_profiles.options` | `extra_communities` (list), `extra_v3` (list of v3 credentials) | `discovery_profile:<id>` |
+| `discovery_scans.credentials` | the whole credential snapshot (list) | `discovery_scan:<id>` |
+| `notification_channels.config` | telegram `bot_token`; teams `url`; webhook `url`, `headers` | `channel:<id>` |
+| `settings['smtp']` | `password` | `settings:smtp` |
+| `settings['trap_v3_users'][i]` | `auth_key`, `priv_key` | `settings:trap_v3_users:<username>` |
+| `settings['trap_communities']` | the whole list | `settings:trap_communities` |
+
+A new row is inserted without its secret fields and the sealed object is written after the flush (the row id is
+part of the AAD; the INSERT never carries the plaintext).
+
+**Transition (1.4.2 only): plaintext kept in sync.** The automatic GitOps rollback starts the previous image on the
+migrated database (1.4.1 starts on a newer revision without migrating) and 1.4.1 reads only the plaintext. So 1.4.2
+keeps the plaintext field in place and in sync next to `f_enc` by default. Non-object values (the trap community
+list, the scan snapshot) keep their plaintext form; without the plaintext copy they are stored as
+`{"_sealed": <ciphertext>}` (a scan snapshot as `[{"_sealed": …}]`).
+
+- **Read rule:** a plaintext field that is present wins (it is either in sync, or newer — written by 1.4.1 after a
+  rollback); otherwise `f_enc` is decrypted. A value that cannot be decrypted (other `secret.key`) reads as not set,
+  logs one WARNING per owner, and the API reports `credentials_unreadable: true` (SNMP) — never the default
+  community.
+- **Every start** of the server brings all rows to the configured form (`transform_all`): missing or stale
+  encrypted copies are re-written from the plaintext (e.g. a community 1.4.1 changed after a rollback); rows already
+  in form are not touched.
+- **Removing the plaintext:** `netmon secrets remove-plaintext` (sets the internal settings key
+  `secrets_plaintext_removed = true`; the server then writes encrypted copies only).
+  `netmon secrets restore-plaintext` reverses it. The next release (1.4.3) removes the plaintext in its migration.
+
+## [1.4.2] Migration (`0012`)
+File `backend/netmon/migrations/versions/0012_v142.py`, `revision = "0012"`, `down_revision = "0011"`. No schema
+change. Needs `secret.key` (passed by the server; the alembic CLI reads `${NETMON_DATA_DIR}/secret.key`) only when a
+stored value has to be encrypted or decrypted.
+
+- `upgrade()`: adds the encrypted copy to every secret listed above, plaintext kept (idempotent). One-way: audit
+  rows written before 1.4.2 that hold discovery `options.extra_communities` or a webhook `config.url` in clear get
+  those values replaced by `"***"` (the audit masks both from 1.4.2 on; `audit_log_immutable` is disabled for the
+  statement, as in 0007).
+- `downgrade()`: the exact 1.4.1 form — plaintext restored where only the encrypted copy exists (after
+  `remove-plaintext`), every `*_enc` / `_sealed` removed, `secrets_plaintext_removed` deleted. A value that has no
+  plaintext and cannot be decrypted with this `secret.key` stops the downgrade with an error; nothing is changed.

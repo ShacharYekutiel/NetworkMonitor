@@ -11,6 +11,7 @@ from sqlalchemy import text
 
 from netmon.discovery.runner import ScanRunningError
 from netmon.discovery.targets import TargetError, TooManyHostsError
+from netmon.services import secretbox
 from netmon.services.serialize import now_utc
 
 if TYPE_CHECKING:
@@ -75,7 +76,7 @@ class DiscoveryScheduler:
                 scan_id = await runner.start(
                     targets=list(p.targets),
                     group_id=p.group_id,
-                    options=dict(p.options or {}),
+                    options=secretbox.open_profile_options(p.id, p.options),
                     trigger="scheduled",
                     profile_id=p.id,
                     profile_name=p.name,

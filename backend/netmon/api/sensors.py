@@ -27,7 +27,7 @@ from netmon.poller.sensor_types import (
 from netmon.poller.snmp_client import DEFAULT_SNMP
 from netmon.poller.types import SEVERITY, CheckContext, evaluate
 from netmon.schemas import AcknowledgeIn, BulkImpactIn, SensorCreate, SensorPatch, SensorTestIn
-from netmon.services import audit
+from netmon.services import audit, secretbox
 from netmon.services import events as events_svc
 from netmon.services import history as history_svc
 from netmon.services import settings as settings_svc
@@ -175,6 +175,22 @@ def sensor_entity(s: Sensor) -> audit.Entity:
     return audit.entity("sensor", s.id, s.name, device_id=s.device_id)
 
 
+async def check_sensor_egress(type_: str, config: dict[str, Any], host: str | None) -> None:
+    """[1.4.1] Early field error for an HTTP sensor URL the SSRF egress filter refuses (the
+    filter itself is enforced when the check runs, on every redirect hop)."""
+    if type_ != "http":
+        return
+    from netmon.poller.checks.http import host_for_url
+    from netmon.util import egress
+
+    url = str(config.get("url") or "")
+    if host:
+        url = url.replace("{host}", host_for_url(host))
+    reason = await egress.url_block_reason(url)
+    if reason:
+        raise validation_error(["body", "config", "url"], reason)
+
+
 @router.post("/api/sensors", status_code=201)
 async def create_sensor(body: SensorCreate, _: Admin, rt: RT, session: DB, ctx: Audit) -> dict:
     tdef = get_type(body.type)
@@ -197,6 +213,7 @@ async def create_sensor(body: SensorCreate, _: Admin, rt: RT, session: DB, ctx: 
             )
         device.event_sensor_optout = [t for t in device.event_sensor_optout or [] if t != tdef.type]
     cfg = validate_config(tdef.type, {} if passive else body.config)
+    await check_sensor_egress(tdef.type, cfg, device.host)
     overrides = {} if passive else validate_channel_overrides(tdef.type, body.channels)
     interval = (
         60
@@ -262,6 +279,7 @@ async def patch_sensor(
     if "config" in fields and body.config is not None:
         old = dict(s.config)
         s.config = validate_config(s.type, body.config, base=dict(s.config))
+        await check_sensor_egress(s.type, s.config, d.host)
         if s.type == "snmp_interface" and s.config.get("if_index") != old.get("if_index"):
             s.state = {}  # different interface: counters are no longer comparable
         if s.type == "snmp_custom":
@@ -497,7 +515,10 @@ async def test_sensor(body: SensorTestIn, _: Admin, rt: RT, session: DB) -> dict
             if body.snmp_credentials is not None:
                 creds = {
                     **DEFAULT_SNMP,
-                    **merge_snmp(body.snmp_credentials, device.snmp_credentials),
+                    **merge_snmp(
+                        body.snmp_credentials,
+                        secretbox.open_snmp(device.snmp_credentials, "device", device.id),
+                    ),
                 }
             else:
                 creds = await effective_credentials(session, device)

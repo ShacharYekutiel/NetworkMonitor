@@ -44,6 +44,17 @@ SYNC="$PROD_SRC/ops/sync.sh"
 pass=0
 ok() { pass=$((pass + 1)); echo "ok $pass - $*"; }
 fail() { echo "FAIL - $*" >&2; exit 1; }
+
+# [1.4.2] check-release.sh requires a digest; the fake releases below use plain tags.
+CHECK="$PROD_SRC/ops/check-release.sh"
+if "$CHECK" "$T/work/deploy/production/release.env" >/dev/null 2>&1; then
+  fail "check-release.sh accepted an image without a digest"
+fi
+NETMON_ALLOW_UNPINNED_IMAGE=1 "$CHECK" "$T/work/deploy/production/release.env" >/dev/null 2>&1 ||
+  fail "NETMON_ALLOW_UNPINNED_IMAGE=1 did not allow a tag-only image"
+"$CHECK" "$PROD_SRC/release.env" >/dev/null || fail "the real release.env is not digest-pinned"
+ok "check-release.sh: digest required, documented override works"
+export NETMON_ALLOW_UNPINNED_IMAGE=1
 run() { # expected-exit args...
   local want=$1 rc=0
   shift

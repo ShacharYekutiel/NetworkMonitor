@@ -1,7 +1,9 @@
 #!/usr/bin/env bash
 # Validate release.env: only known keys, NETMON_VERSION is X.Y.Z[-pre], NETMON_IMAGE is
-# exactly ghcr.io/shacharyekutiel/networkmonitor:<NETMON_VERSION>[@sha256:<64 hex>].
+# exactly ghcr.io/shacharyekutiel/networkmonitor:<NETMON_VERSION>@sha256:<64 hex>.
 # Never ":latest". Used by sync.sh before every deploy and by .github/workflows/production.yml.
+# [1.4.2] The digest is required (a tag can be moved, a digest cannot). Override for an
+# emergency hand-made release: NETMON_ALLOW_UNPINNED_IMAGE=1 (tag only, with a warning).
 #
 #   check-release.sh [path/to/release.env]
 set -euo pipefail
@@ -34,7 +36,11 @@ done <"$FILE"
 [[ $version =~ ^[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.]+)?$ ]] ||
   fail "NETMON_VERSION=$version is not X.Y.Z (no leading v)"
 expected="$REPO:$version"
-[[ $image == "$expected" || $image =~ ^"$expected"@sha256:[0-9a-f]{64}$ ]] ||
-  fail "NETMON_IMAGE=$image must be $expected or $expected@sha256:<64 hex> (never latest)"
+if [[ $image == "$expected" && ${NETMON_ALLOW_UNPINNED_IMAGE:-0} == 1 ]]; then
+  echo "release.env: WARNING: $image is not pinned to a digest (NETMON_ALLOW_UNPINNED_IMAGE=1)" >&2
+else
+  [[ $image =~ ^"$expected"@sha256:[0-9a-f]{64}$ ]] ||
+    fail "NETMON_IMAGE=$image must be $expected@sha256:<64 hex> (pinned digest; never latest)"
+fi
 
 echo "release.env OK: version $version, image $image"

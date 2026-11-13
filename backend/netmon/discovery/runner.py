@@ -25,6 +25,7 @@ from netmon.discovery.serialize import ip_text, result_out
 from netmon.discovery.targets import HostTarget, expand_targets, rejected_reason
 from netmon.poller.snmp_client import resolve_credentials
 from netmon.services import events as events_svc
+from netmon.services import secretbox
 from netmon.services import settings as settings_svc
 from netmon.services.sensors import group_chain
 from netmon.services.serialize import iso, now_utc
@@ -170,13 +171,27 @@ class ScanRunner:
                                 "gid": group_id,
                                 "targets": list(targets),
                                 "options": _json(opts_mod.scan_snapshot(full)),
-                                "creds": _json(credentials),
+                                # [1.4.2] written below, encrypted with the scan id in the AAD
+                                "creds": "[]",
                                 "total": len(hosts),
                                 "uid": created_by,
                             },
                         )
                     ).one()
                     scan_id = row.id
+                    if credentials:
+                        await session.execute(
+                            text(
+                                "UPDATE discovery_scans SET credentials = CAST(:c AS jsonb) "
+                                "WHERE id = :i"
+                            ),
+                            {
+                                "c": _json(
+                                    secretbox.seal_scan_credentials(int(scan_id), credentials)
+                                ),
+                                "i": scan_id,
+                            },
+                        )
                     if profile_id is not None:
                         await session.execute(
                             text(
@@ -675,7 +690,12 @@ class ScanRunner:
             ).all()
         sender = self.rt.alerts.sender if self.rt.alerts is not None else send_to_channel
         for ch in channels:
-            channel = {"id": ch.id, "name": ch.name, "type": ch.type, "config": dict(ch.config)}
+            channel = {
+                "id": ch.id,
+                "name": ch.name,
+                "type": ch.type,
+                "config": secretbox.open_channel(ch.type, ch.id, ch.config),  # [1.4.2]
+            }
             try:
                 await sender(channel, payload, cfg["smtp"], cfg["default_language"])
             except Exception as exc:  # noqa: BLE001

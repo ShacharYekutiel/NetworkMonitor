@@ -3923,3 +3923,198 @@ validation), `tests/test_13.py` (impact API / rollup / bulk / backfill, ports im
 settings, PortInfo, link-down on trunks and LAG degraded with real traps, migration 0008 up/down/up in both
 modes), `tests/test_13_apply.py` (snmpsim: apply selection important / list / all / none with removal, no
 inventory for a server and a switch, Comware IRF entries on a 2-member stack and a single switch).
+
+## 15. Release 1.4.1: security hardening
+
+[1.4.1] closes the remaining findings of the penetration test of 1.4.0 (3, 5, 6, 7, 8, 10; the ReDoS findings 1–2
+shipped in 1.3.3, the assistant findings 4 and 11 in 1.4.0; finding 9, SNMP secrets at rest, is not part of this
+release). Rule for every item: an improvement is not feature-flagged, but where a hardening could break a
+legitimate deployment it is a **setting with a secure default** on *Settings → General → Security* (indexed by the
+settings search). Contract: [api § 1.4.1](api.md#141-release-141-contract-security-hardening),
+[data-model § 1.4.1](data-model.md#141-security-settings). Code: `netmon/util/egress.py`,
+`netmon/services/security.py`, `netmon/services/auth.py`, `netmon/api/deps.py`, `netmon/app.py`.
+
+### 15.1 SSRF egress filter (finding 3)
+Every place where the server fetches a URL an administrator typed in goes through `netmon.util.egress`: the
+**webhook channel**, the **Teams channel** and the **HTTP sensor** (including its certificate probe). The Telegram
+API base and the OIDC authority are environment-only; the assistant endpoints have had their own check since 1.4.0
+(`netmon.util.netguard`, which this filter reuses).
+
+- **Policy.** Blocked always: link-local (`169.254.0.0/16` with the cloud-metadata address, `fe80::/10`), the
+  metadata host aliases, the unspecified address, multicast. Blocked by default, allowed with the setting
+  `egress_allow_loopback`: loopback. **Never blocked: private RFC 1918 / CGNAT / ULA ranges** — monitoring internal
+  devices and posting to internal webhooks is what the product is for.
+- **Connection time, not save time.** `GuardedTransport` wraps the httpx transport. For each request it resolves
+  the host, checks **every** resolved address and connects to exactly the address it checked: the request URL's
+  host is replaced by the IP while the `Host` header and the TLS server name (SNI and certificate check, httpcore's
+  `sni_hostname`) stay the original name. There is no second lookup, so DNS rebinding cannot swap the target after
+  the check. Connect errors fall through to the next checked address (at most 4).
+- **Every redirect hop** passes through the transport again and is checked the same way: an HTTP sensor that is
+  redirected to `169.254.169.254` fails with `Blocked target: …`. The webhook and Teams clients do not follow
+  redirects.
+- **Outbound proxy.** The webhook and Teams clients honour `HTTPS_PROXY`. A proxied request cannot be pinned (the
+  proxy resolves and connects), so it is checked only: IP literals, host aliases and what the name resolves to on
+  this host, if it resolves here. Rebinding protection for proxied targets is the proxy's job.
+- **Save time.** The same check runs when a channel or HTTP sensor is created or its config changed, so the admin
+  gets a field error early (`422`, `config.url`). A name that does not resolve yet is accepted.
+- **Existing rows** are never rewritten. A now-blocked target fails with a clear status / delivery message, and
+  the server logs one WARNING at start (plus a `system` event) that lists the affected sensors and channels.
+- `guard_client` reaches into two private httpx attributes (`_transport`, `_mounts`) because httpx has no public
+  hook that sees the connection target; `tests/test_141_egress.py` fails loudly if they move.
+
+Not covered (deliberately): the other check types (ping, TCP port, DNS, SNMP, SSH config backup) address the
+device host directly and return no response body to the admin; SIEM forwarding targets are syslog, not HTTP.
+
+### 15.2 Sessions (findings 5 and 7)
+- **Session id.** The session JWT gains `sid`, random per login and kept by the sliding renewal. A cookie without
+  it (issued by ≤ 1.4.0) is refused, which costs every browser one sign-in after the upgrade (Kerberos SSO signs in
+  again silently) and guarantees that no session exists that could not be revoked.
+- **Logout revokes server-side.** `POST /api/auth/logout` stores the `sid` in `revoked_sessions` (migration 0011)
+  and in an in-memory set that `authenticate()` checks on every request and WebSocket handshake; the session's
+  sockets are closed. Why a per-session denylist and not `token_version += 1`: bumping the version signs the user
+  out of every browser, including the NOC workstation next door, each time they log out anywhere. The denylist ends
+  exactly the session that asked. It is persisted because an in-memory list would bring a revoked cookie back to
+  life at the next restart; the cache is sound because the server is a single process (`workers=1`, advisory lock).
+  "Sign out everywhere" still exists: `{"everywhere": true}` (the button on *My account → Sessions*), a password
+  change, a role change or deactivation bump `token_version` as before.
+- **Absolute lifetime.** `at` (authentication time) is now set for every session and kept by renewals; a session
+  ends at `at + session_max_age_h` (default 168 h = 7 days, 1–720) whatever its activity, and the cookie expiry is
+  capped accordingly. AD, Kerberos and OIDC users keep the existing rule "log in again at least every 12 h"
+  (`min(12 h, setting)`); the directory decides group membership, so their sessions must be re-evaluated often.
+  The rule is judged on the application clock, like the AD rule before.
+
+### 15.3 Login throttling (finding 6)
+`LoginLimiter` keeps its limit of 10 failures / 5 min per (client address, user name) and gains a second counter
+per **client address across all user names** (`login_ip_max_failures`, default 20, `0` = off), which is what stops
+password spraying.
+
+- Only failures count; a success does not reset the address counter (one valid account must not buy fresh guesses).
+- A throttled address cannot start **new password logins** until the window has passed; existing sessions and API
+  tokens are not affected, and Kerberos SSO attempts neither count nor are blocked (browsers on non-domain machines
+  fail the automatic attempt routinely). This is what keeps a NAT'd office usable: 20 mistyped passwords within
+  five minutes from one address is not ordinary use, and the worst case is a five-minute wait for new logins.
+- The client address is the TCP peer, or the rightmost `X-Forwarded-For` entry when `NETMON_TRUST_PROXY=true`
+  (the entry the trusted proxy appended; a client-supplied value is never used).
+- `POST /api/auth/change-password` counts a wrong current password like a failed login, per user (from any
+  address) and per address: a stolen session cannot be used to guess the password unthrottled.
+- The counters are in memory (one process); a restart clears them.
+
+### 15.4 Security headers (finding 8)
+The application sets the headers itself (`netmon.app.harden`, on every response including the guard's own error
+answers), so native installs without a reverse proxy have them; the production Caddyfile only fills in
+`Strict-Transport-Security`, `X-Content-Type-Options` and `Referrer-Policy` when a response lacks them (`?` default
+form) and sets no CSP / `X-Frame-Options` of its own.
+
+- **CSP** as strict as the built SPA allows: `script-src 'self'` plus the SHA-256 of the one inline script Vite
+  keeps in `index.html` (the theme bootstrap; hashed at start, so a rebuilt SPA needs no code change) — no
+  `unsafe-inline`, no `unsafe-eval`. `style-src 'self'` with `style-src-attr 'unsafe-inline'`: the bundle has one
+  stylesheet and no inline `<style>`, but the chart library writes inline `style` attributes in its tooltips.
+  `connect-src 'self'` covers the API, SSE and the same-origin WebSocket. `object-src 'none'`, `base-uri 'self'`,
+  `form-action 'self'`.
+- **Framing.** `frame-ancestors 'self'` plus `X-Frame-Options: SAMEORIGIN`. A wall screen may legitimately embed
+  the NOC view: the setting `frame_ancestors` adds origins; while it is not empty `X-Frame-Options` is omitted
+  (it cannot express an allow-list). Entries are validated on write and again on read.
+- **HSTS** `max-age=31536000` only on HTTPS requests (no `includeSubDomains`: the host may have HTTP-only
+  siblings). Browsers ignore HSTS received over a connection with certificate errors, so a self-signed native
+  install is not locked out.
+- `/api/docs`, the stored report document and the OIDC landing page carry their own, narrower policies.
+
+### 15.5 HTML sinks in the SPA (finding 10)
+The built bundle's `dangerouslySetInnerHTML` / `.innerHTML` occurrences are almost all library code (React,
+ECharts, markdown-it). The application's own sinks:
+
+| Sink | Data that reaches it | Result |
+|---|---|---|
+| `AnswerView` (`dangerouslySetInnerHTML`) | assistant output, which may quote device names, syslog text, LLDP neighbours | safe: markdown-it with `html: false`, images / autolinks / HTML rules disabled, every text and code renderer escapes, links only for validated `nm:` refs (`https://` for Knowledge Base sources) |
+| ECharts tooltip `formatter` (history chart) | the **unit** of a custom SNMP channel (free text) | **fixed**: escaped (`lib/html.ts`) |
+| ECharts tooltip `formatter` (log histogram) | series names, colours | **fixed** (defence in depth; names are translations today) |
+| ECharts tooltip `formatter` (assistant usage) | the **currency** setting (free text) | **fixed**: escaped |
+| ECharts tooltip `formatter` (topology) | device names, hosts, LLDP neighbour names, port names | already escaped; now uses the shared helper |
+| ECharts default tooltips (flows) | interface / host / application names | safe: ECharts encodes names and values in its default tooltip |
+| OIDC landing page (server-rendered) | the `next` path | **fixed**: the JSON inside `<script>` escapes `<`, `>`, `&` (a `next` of `/x</script>…` could close the element) |
+
+Everything else is rendered by React as text. The CSP (15.4) is the second layer: no inline or foreign script runs
+even if a sink is missed.
+
+## 16. Release 1.4.2: hardening, part 2
+
+[1.4.2] closes pentest finding 9 (SNMP secrets at rest), static review items 5, 9, 11, 12 and the cheap items of
+its "low" list. Same rule as 1.4.1: no feature flags; a hardening that can break a legitimate deployment is a
+setting or a documented override with a secure default. Contract:
+[data-model § 1.4.2](data-model.md#142-secrets-at-rest), [api § 1.4.2](api.md#142-release-142-contract),
+operations: [production § 1.4.2](production.md#142-upgrade-and-rollback-read-before-deploying).
+
+### 16.1 Secrets at rest (finding 9, review item 5)
+- **What was plaintext before 1.4.2:** SNMP communities and v3 auth/priv keys of groups and devices; discovery
+  profile extra communities / extra v3 credentials and the credential snapshot of every scan; trap communities and
+  trap v3 user keys; the SMTP password; the Telegram bot token; the Teams Workflows URL (signed); the webhook URL and
+  headers. Already encrypted since 2b-3 / 3 / 3b: LDAP bind password, Kerberos keytab, OIDC client secret, SSH
+  credentials, the assistant's AWS secrets. Left as they are (documented): HTTP sensor `config.headers` (the API
+  returns them to admins by contract, api.md "HTTP sensor headers"; a secret-header contract is a separate change)
+  and the sensor URL.
+- **Scheme:** encrypted copy with a row-bound AAD, plaintext kept in sync for one release, encrypted copy
+  authoritative only when the plaintext is absent — data-model § [1.4.2] Secrets at rest.
+- **Why not encrypt in place in 1.4.2.** The GitOps rollback (ops/sync.sh) starts the previous image on the
+  already migrated database and never restores it; with the 1.4.1 rollback guard, 1.4.1 *starts* there. A 1.4.1
+  that found ciphertext in `community` would poll every device with a wrong community, send no mail, no Telegram,
+  no Teams. Keeping the plaintext one release makes every rollback to 1.4.1 — automatic or a later `git revert` —
+  safe; the cost is that the database (and its dumps) still holds the plaintext until 1.4.3 or until the admin runs
+  `netmon secrets remove-plaintext`. A deferred-encryption design (encrypt only after the deploy health window) was
+  considered and rejected: it protects the automatic rollback but not a manual one days later.
+- **Never to the model, the log or the audit.** The API masks every secret (`*_set` flags) as before; the audit
+  masks any `*_enc` / `_sealed` leaf, the webhook URL (new) and discovery `extra_communities` (they were logged in
+  clear before 1.4.2; migration 0012 scrubs old rows). httpx/httpcore are pinned to WARNING whatever
+  `NETMON_LOG_LEVEL` is (they log request URLs, which carry the Telegram token / signed URLs). Assistant tools read
+  no credential column. Config backups keep `config_backup_mask_secrets` (default on).
+- **`secret.key`.** Lost or replaced: every encrypted copy is unreadable; while the plaintext copy exists nothing
+  breaks (the plaintext wins), after `remove-plaintext` those secrets read as not set (SNMP sensors fail with an
+  authentication / timeout error, the device page says the stored credentials cannot be read) and must be entered
+  again — or restore `secret.key` from the data-volume backup (`netmon-data-*.tar.gz` holds it; the DB dump alone
+  does not). Rotation: `netmon secrets rekey` (server stopped) re-encrypts every encrypted value of every release
+  (SNMP, channels, settings, SSH, LDAP, Kerberos, OIDC, assistant) in one transaction, then replaces the key file
+  (`secret.key.old` kept). It is also the JWT key: everyone signs in again, and chat-acknowledge links in messages
+  already sent stop working.
+
+### 16.2 Container hardening (review item 9)
+`deploy/production/compose.yaml` and `deploy/docker-compose.yml`, anchor `x-hardening`: `cap_drop: [ALL]`,
+`no-new-privileges`, `read_only: true` with `tmpfs` for `/tmp`, `pids_limit`, memory limits.
+
+| Service | User | Capabilities added back | Writable | Limits |
+|---|---|---|---|---|
+| `init` (one-shot) | root | `CHOWN`, `DAC_OVERRIDE`, `FOWNER` (create / chown the shared files) | `/data`, `/tmp` | 64 MB, 64 pids |
+| `db` | **70:70** (postgres; was root → su-exec) | none | data volume, `/tmp`, `/var/run/postgresql` (tmpfs) | 1024 pids; no memory limit (shared_buffers sized to the host at creation) |
+| `netmon` | 10001 (unchanged) | none | `/data`, `/tmp` | 4 GB, 2048 pids |
+| `proxy` (Caddy) | root | `NET_BIND_SERVICE` only | its two volumes, `/tmp` | 512 MB, 256 pids |
+
+- **ICMP** keeps using unprivileged ping sockets (`net.ipv4.ping_group_range`); the `ping` binary fallback (file
+  capability `cap_net_raw`) can no longer gain its capability under no-new-privileges — it was the last resort for
+  hosts without the sysctl, which compose always sets.
+- **Traps / syslog / flows** listen on ports > 1024 inside the container; Docker publishes 162 / 514 / 2055 / 4739 /
+  6343 from the host, which needs no container capability.
+- **Kerberos** writes keytab, krb5.conf and replay cache under `/data/run`; **SSH config backup** is plain outbound
+  TCP. Both are exercised in CI inside the hardened container (`.github/scripts/kerberos-selftest.py`,
+  `ssh-selftest.py`).
+- **Caddy** keeps uid 0 (it must read the host's root-only `0600` TLS key) but holds only `NET_BIND_SERVICE` (the
+  image's `caddy` binary carries that file capability; without it in the bounding set the kernel refuses to
+  execute it). Its admin API is off (`admin off`; `install-cert.sh` restarts instead of `caddy reload`); the health
+  check uses a loopback-only listener on 8099. Left for a later release: a non-root Caddy (needs the key readable by
+  that user first, and the deploy that would change it runs the previously installed `sync.sh`).
+- CI (`docker` job) starts both compose files for real and asserts all of the above (`hardening-check.sh`).
+
+### 16.3 Supply chain
+- `.github/CODEOWNERS` (deploy/production, workflows, deploy/certs, Dockerfile); branch-protection settings to
+  enable: production.md § [1.4.2] Branch protection.
+- `production.yml` fails when a file other than the placeholders is committed under `deploy/certs/` (review item
+  12) and when CODEOWNERS stops covering the deploy paths. `ops/check-release.sh` now **requires** the image digest
+  (item 11; emergency override `NETMON_ALLOW_UNPINNED_IMAGE=1`), and `release.yml` fails instead of warning when the
+  image job reports no digest.
+- Dependency advisories: reproduced with `pip-audit` / `npm audit`; table in the 1.4.2 PR.
+
+### 16.4 Static review "low" items
+Done: LIKE wildcards in the new-devices search are literal; the Kerberos realm written to `krb5.conf` must match
+`[A-Z0-9][A-Z0-9._-]*` (a default realm derived from the AD domain cannot inject lines); SIEM forwarded records are
+always one line (CR / LF / NUL → space); `restore.sh` refuses archives with absolute paths, `..` or links; Caddy admin
+API off; HSTS `includeSubDomains` is an option (`NETMON_HSTS_INCLUDE_SUBDOMAINS` for the app, `NETMON_HSTS` in
+`site.env` for Caddy), default unchanged; the user template save resolves the final path and refuses anything outside
+the user template directory. Not done (documented in the PR): rate limit on the current-password check, admin API
+tokens able to change SSO/LDAP, `/api/docs` without login.

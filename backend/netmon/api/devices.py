@@ -13,7 +13,7 @@ from netmon.models import Device, Group, Sensor
 from netmon.poller.sensor_types import AUTO_SENSOR_TYPES, default_sensor_name, validate_config
 from netmon.poller.snmp_client import SnmpError
 from netmon.schemas import DependencyBulkIn, DeviceCreate, DevicePatch
-from netmon.services import audit
+from netmon.services import audit, secretbox
 from netmon.services import dependencies as deps
 from netmon.services import events as events_svc
 from netmon.services import settings as settings_svc
@@ -70,6 +70,8 @@ def device_audit_values(d: Device) -> dict:
         if hasattr(d, k):
             v = getattr(d, k)
             out[k] = [str(x) for x in v] if k == "source_addresses" and v is not None else v
+    if out.get("snmp_credentials") is not None:  # [1.4.2] compare plaintext, audit masks it
+        out["snmp_credentials"] = secretbox.open_snmp(out["snmp_credentials"], "device", d.id)
     return out
 
 
@@ -122,7 +124,7 @@ async def create_device(body: DeviceCreate, _: Admin, rt: RT, session: DB, ctx: 
         host=body.host,
         description=body.description,
         enabled=body.enabled,
-        snmp_credentials=merge_snmp(body.snmp_credentials, None) if body.snmp_credentials else None,
+        snmp_credentials=None,  # [1.4.2] set after the flush: the row id is part of the AAD
         sort_order=body.sort_order,
         port_inventory=body.port_inventory,
         arp_collect=body.arp_collect,
@@ -135,9 +137,12 @@ async def create_device(body: DeviceCreate, _: Admin, rt: RT, session: DB, ctx: 
         config_backup_driver=check_driver(body.config_backup_driver),
         newdev_excluded_ports=list(body.newdev_excluded_ports),
     )
+    snmp_plain = merge_snmp(body.snmp_credentials, None) if body.snmp_credentials else None
     deps.apply_dependency(d, dep)
     session.add(d)
     await session.flush()
+    if snmp_plain is not None:
+        d.snmp_credentials = secretbox.seal_snmp(snmp_plain, "device", d.id)
     await deps.check_no_cycle(session)
     interval = int(await settings_svc.get(session, "default_interval_s"))
     created: list[Sensor] = []
@@ -224,13 +229,12 @@ async def patch_device(
     if "sort_order" in fields and body.sort_order is not None:
         d.sort_order = body.sort_order
     if "snmp_credentials" in fields:
+        stored = secretbox.open_snmp(d.snmp_credentials, "device", d.id)
         new_creds = (
-            merge_snmp(body.snmp_credentials, d.snmp_credentials)
-            if body.snmp_credentials is not None
-            else None
+            merge_snmp(body.snmp_credentials, stored) if body.snmp_credentials is not None else None
         )
-        if new_creds != d.snmp_credentials:  # unchanged credentials re-sent by a form: no-op
-            d.snmp_credentials = new_creds
+        if new_creds != stored:  # unchanged credentials re-sent by a form: no-op
+            d.snmp_credentials = secretbox.seal_snmp(new_creds, "device", d.id)
             identity_changed = True
     if "source_addresses" in fields and body.source_addresses is not None:  # [2b-3]
         d.source_addresses = list(body.source_addresses)

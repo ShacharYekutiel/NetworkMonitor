@@ -29,7 +29,8 @@ One Ubuntu server, Docker, no Kubernetes. The server's desired state is the fold
   `NETMON_IMAGE=ghcr.io/shacharyekutiel/networkmonitor:X.Y.Z[@sha256:…]`.
   `ops/check-release.sh` (CI and server) rejects anything else. `:latest` is moved both by
   `image.yml` (every push to `main`) and `release.yml` (tags), so production never uses it.
-- **Safety.** A `pg_dump` is taken before every image change (migrations are forward-only).
+- **Safety.** A `pg_dump` is taken before every image change (migrations are forward-only; from 1.4.1 on, an
+  image started on a database a newer release migrated starts without migrating, so the container rollback works).
   A failed deploy rolls the containers back to the previous good revision and marks the change
   bad until a new change lands; the database is never restored automatically
   (`ops/restore.sh` is manual). Daily backups at 02:17 (DB + app data volume, 14 days).
@@ -347,6 +348,20 @@ certificate with `openssl x509 -in netmonitor.cer -noout -subject -issuer` and a
      in **any** region (a cross-region profile routes to several regions; `*` also matches the region-less ARN used
      by `global.` profiles) **only** when the call comes through those profiles (`bedrock:InferenceProfileArn`).
    - Role *Maximum session duration* ≥ the app's session duration (default 3600 s).
+   - **[1.4.1] The CN in the trust policy must equal the subject CN of the issued certificate, character for
+     character.** The role is assumed only when `aws:PrincipalTag/x509Subject/CN` matches; any difference (short
+     name instead of the FQDN, another host name, a CN the CA rewrote from the template) fails with
+     *AccessDenied* on `CreateSession` although the certificate itself is valid. Read the CN from the **issued**
+     certificate, not from the request:
+     ```
+     openssl x509 -in netmonitor.cer -noout -subject -issuer     # Linux; add -inform der for a DER file
+     certutil -dump netmonitor.cer                                # Windows: the "Subject:" and "Issuer:" lines
+     ```
+     and render the policy with exactly that value: `render-policies.py … --cert-cn <subject CN>
+     --trust-anchor-id <id or ARN>`. The script accepts the trust anchor as the bare id **or** as the full ARN from
+     the console (it checks the ARN's region and account against `--ra-region` / `--account` and stops on a
+     mismatch), rejects a value that is not a plain CN (`CN=…`, several RDNs, wildcards) and prints the CN and the
+     trust anchor ARN the rendered policy expects.
 4. **Profile:** IAM Roles Anywhere → *Create a profile* → name `netmonitor` → role `netmon-bedrock` → session
    duration 1 h (must be ≥ the app's setting) → no session policy needed. Note the three ARNs (trust anchor,
    profile, role).
@@ -360,6 +375,18 @@ certificate with `openssl x509 -in netmonitor.cer -noout -subject -issuer` and a
    ```
    certreq -submit -config "<ca-host>\Mnidom-PKI-SERV-CA" -attrib "CertificateTemplate:NetMonBedrockClient" netmonitor.csr netmonitor.cer
    ```
+   [1.4.1] `CertificateTemplate:` takes the **template name** (the *Template name* field on the template's
+   *General* tab, no spaces, e.g. `NetMonBedrockClient`), **not** the *Template display name* (e.g. "NetMon Bedrock
+   Client"); with the display name `certreq` answers *The requested certificate template is not supported by this
+   CA*. `certutil -CATemplates -config "<ca-host>\Mnidom-PKI-SERV-CA"` lists the names the CA offers.
+
+   The certificate card in *Settings → Assistant* has **two modes**:
+   - **Generate a CSR** (this step, recommended): the private key is created on the server and stays there. After
+     the CA has signed the request, upload **only the issued certificate** (`netmonitor.cer`, plus the chain when
+     the anchor is the root). There is no private key to upload — the key field is not shown in this mode, and a
+     certificate that does not belong to the pending request's key is refused.
+   - **Upload certificate and key**: for a key pair created elsewhere (`.pfx`, or PEM certificate + private key).
+     Use it only when the CSR flow is not possible.
    Upload `netmonitor.cer` (PEM or DER; plus the issuing CA as chain only when the anchor is the root) in the same
    form → the app checks that it matches the key and shows subject, issuer, expiry. Alternatives: upload a `.pfx`
    exported from AD CS, or host files (`NETMON_AWS_RA_CERT_FILE` / `_KEY_FILE` / `_CHAIN_FILE` in `app.env` pointing
@@ -427,3 +454,93 @@ ARN to the VPC endpoint policy if one is used.
 | `bedrock_model_invalid` | Use the inference **profile** ID (`us.…` / `global.…`), not the bare model ID; profile exists in that region. |
 | `bedrock_access_denied` | Policy ARNs (region, account, profile ID, foundation-model ID); VPC endpoint policy; SCPs for cross-region inference. |
 | `stream_buffered` warning | The proxy buffers responses — use a VPC endpoint with *Proxy: direct*, or a proxy exception. |
+
+## [1.4.2] Upgrade and rollback (read before deploying)
+
+**What changes on upgrade.** Nothing to do. At the first start 1.4.2 runs migration 0012: every stored SNMP
+community / v3 key, discovery credential, trap community / v3 key, the SMTP password, the Telegram bot token and the
+Teams / webhook URLs and headers get an **encrypted copy** next to the value. The UI, the API and polling do not
+change. The log shows `Migration 0012: encrypted copies of stored secrets added {...}`. Audit rows that held
+discovery extra communities or webhook URLs in clear are masked (one way). Every browser keeps its session.
+
+**The plaintext stays for one release, on purpose.** If the deploy fails its health check, `ops/sync.sh` starts the
+previous image (1.4.1) on the database 1.4.2 has already migrated, and 1.4.1 only reads the plaintext. Keeping it in
+sync is what makes that rollback — and a later manual `git revert` to 1.4.1 — work with every sensor, mail, Telegram
+and Teams message intact. So, until one of these happens, the database and its dumps **still contain the
+plaintext**:
+- the next release (1.4.3) removes it in its migration, once 1.4.2 has run well; or
+- you remove it now, when you no longer need a rollback to 1.4.1:
+
+  ```bash
+  cd /opt/netmon/deploy/production
+  sudo docker compose --env-file release.env exec netmon netmon secrets remove-plaintext
+  sudo docker compose --env-file release.env restart netmon
+  sudo docker compose --env-file release.env exec netmon netmon secrets status
+  ```
+
+  Undo (needed **before** any rollback to 1.4.1 after a removal): `netmon secrets restore-plaintext`, then restart.
+
+**What the admin sees on a rollback to 1.4.1.**
+- Automatic (failed deploy): the notification "Deploy … FAILED … Rolled back to …: healthy. The database was NOT
+  restored." 1.4.1 logs one WARNING "The database is at migration 0012, which this version does not know …
+  Starting without migrating" and runs normally on the plaintext. The encrypted copies are ignored by 1.4.1. Fix
+  the cause and deploy 1.4.2 again; at its next start it re-synchronises every copy (also values changed under 1.4.1).
+- Manual `git revert` after you ran `remove-plaintext`: run `netmon secrets restore-plaintext` with the 1.4.2 image
+  **first** (otherwise 1.4.1 would find no community, no SMTP password, no bot token). Alternatively, with the server
+  stopped, `netmon migrate --to 0011` returns the database to the exact 1.4.1 form.
+- **Rolling back to 1.4.0 or older** (no rollback guard: it fails with "Can't locate revision"): restore the
+  `pre-deploy-<rev>-<ts>.dump` with `ops/restore.sh` (deploy/production/README.md, "שחזור").
+
+## [1.4.2] `secret.key`
+
+`/data/secret.key` (data volume) signs sessions and is the key of every encrypted value. It is in the daily
+`netmon-data-<ts>.tar.gz` backup, **not** in the DB dump — keep both.
+- **Lost / replaced:** while the plaintext copies exist (1.4.2 default) nothing stops working except the secrets
+  that were only ever stored encrypted (LDAP bind password, Kerberos keytab, OIDC client secret, SSH credentials,
+  assistant AWS keys) — enter those again. After `remove-plaintext`, SNMP sensors of the affected devices fail and
+  the device page reports unreadable credentials until they are entered again. Better: restore `secret.key` from
+  the data backup.
+- **Rotate** (e.g. after a suspected leak), server stopped:
+
+  ```bash
+  cd /opt/netmon/deploy/production
+  sudo docker compose --env-file release.env stop netmon
+  sudo docker compose --env-file release.env run --rm --no-deps netmon netmon secrets rekey
+  sudo docker compose --env-file release.env up -d netmon
+  ```
+
+  Every encrypted value is re-encrypted in one transaction (nothing changes if one cannot be decrypted), then the
+  key file is replaced (`secret.key.old` is kept — delete it once the server runs). Everyone signs in again;
+  chat-acknowledge links in messages already sent stop working. If the key file was replaced but the command was
+  interrupted: `netmon secrets rekey --old-key-file /data/secret.key.old`.
+
+## [1.4.2] Container hardening
+
+All services drop every Linux capability and add back only what they need, cannot gain privileges, run on a
+read-only root filesystem and have resource limits (table: architecture.md § 16.2). What it means for the server:
+- The database runs as `postgres` (uid 70) instead of starting as root; the existing volume is already owned by it.
+- Caddy's admin API is off: a certificate change restarts the proxy (`ops/install-cert.sh` does it).
+- Limits: app 4 GB / 2048 processes, Caddy 512 MB, init 64 MB; the database has no memory limit (its
+  `shared_buffers` were sized to the host's RAM when it was created). A large installation that needs more changes
+  `compose.yaml` by PR.
+- HSTS `includeSubDomains` (only when **every** host under the domain serves HTTPS): `NETMON_HSTS_INCLUDE_SUBDOMAINS=true`
+  in `/etc/netmon-gitops/app.env` and `NETMON_HSTS=max-age=31536000; includeSubDomains` in `site.env`.
+- Left out on purpose: a non-root Caddy (the host TLS key is root-only `0600`, and the deploy that would change its
+  ownership runs the previously installed `sync.sh`); user namespaces / seccomp profiles beyond Docker's default.
+
+## [1.4.2] Release pin and branch protection
+
+- `ops/check-release.sh` now requires `NETMON_IMAGE=…:<version>@sha256:<digest>` (the bump PR from `release.yml`
+  always writes it). Emergency hand-made release with a tag only: run the check / sync with
+  `NETMON_ALLOW_UNPINNED_IMAGE=1` (systemd drop-in `Environment=` for `netmon-gitops.service`), then pin it.
+- `production.yml` fails if anything but the placeholders is committed under `deploy/certs/`.
+- `.github/CODEOWNERS` names the owner for `deploy/production/**` (including `ops/`), `.github/workflows/**`,
+  `deploy/certs/**` and the `Dockerfile`. It takes effect only with branch protection. Settings the owner should
+  enable on `main` (*Settings → Rules → Rulesets*, or *Branches → Branch protection rules*):
+  - Require a pull request before merging, at least 1 approval, **Require review from Code Owners**, dismiss stale
+    approvals on new commits.
+  - Require status checks to pass: `validate` (Production config), the CI jobs (`backend`, `frontend`, `docker`,
+    `scripts`, E2E) and **CodeQL** (`Analyze`); require branches to be up to date.
+  - Block force pushes and deletions; include administrators (no bypass) or keep the bypass list empty.
+  - Optional: require signed commits / signed tags (`v*` tag protection), restrict who may push `v*` tags (a tag
+    publishes an image and opens the deploy PR).

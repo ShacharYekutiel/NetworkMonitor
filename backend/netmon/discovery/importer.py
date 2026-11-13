@@ -14,6 +14,7 @@ from netmon.discovery.runner import EXISTING_DEVICE_SQL
 from netmon.discovery.serialize import ip_text
 from netmon.models import Device
 from netmon.poller.snmp_client import DEFAULT_SNMP, resolve_credentials
+from netmon.services import secretbox
 from netmon.services.sensors import group_chain
 from netmon.services.serialize import SNMP_FIELDS
 from netmon.templates.apply import apply_template
@@ -76,7 +77,7 @@ async def import_results(
     async with rt.sessionmaker() as session:
         chain = await group_chain(session, group_id)
     group_creds, _, _ = resolve_credentials(None, chain)
-    credentials = list(scan.credentials or [])
+    credentials = secretbox.open_scan_credentials(scan.id, scan.credentials)  # [1.4.2]
     sem = asyncio.Semaphore(CONCURRENCY)
 
     async def one(item: dict[str, Any]) -> tuple[str, dict[str, Any]]:
@@ -157,13 +158,16 @@ async def _import_one(
             host=ip,
             description=(row.sys_descr or "")[:500],
             enabled=True,
-            snmp_credentials=device_credentials(row, credentials, group_creds),
+            snmp_credentials=None,  # [1.4.2] sealed below (the row id is part of the AAD)
             sort_order=0,
             identity=identity_from_result(row),
         )
         session.add(device)
         await session.flush()
         device_id = device.id
+        device.snmp_credentials = secretbox.seal_snmp(
+            device_credentials(row, credentials, group_creds), "device", device_id
+        )
         # same transaction: a retry after any later failure sees device_exists
         await session.execute(
             text("UPDATE discovery_results SET imported_device_id = :d WHERE id = :id"),

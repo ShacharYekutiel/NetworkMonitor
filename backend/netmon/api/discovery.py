@@ -24,7 +24,7 @@ from netmon.schemas import (
     ImportRequest,
     ScanOptionsIn,
 )
-from netmon.services import audit
+from netmon.services import audit, secretbox
 from netmon.services.serialize import now_utc, page
 from netmon.templates import registry as template_registry
 
@@ -165,8 +165,11 @@ PROFILE_AUDIT_FIELDS = (
 
 
 def _profile_values(p: DiscoveryProfile) -> dict[str, Any]:
-    """[2b-3] Audited fields (credentials inside `options` are redacted by the audit)."""
-    return {k: getattr(p, k) for k in PROFILE_AUDIT_FIELDS}
+    """[2b-3] Audited fields (credentials inside `options` are redacted by the audit;
+    [1.4.2] compared in plaintext, the stored options may be encrypted)."""
+    out = {k: getattr(p, k) for k in PROFILE_AUDIT_FIELDS}
+    out["options"] = secretbox.open_profile_options(p.id, out["options"])
+    return out
 
 
 def _profile_entity(p: DiscoveryProfile) -> audit.Entity:
@@ -188,7 +191,7 @@ async def create_profile(
         name=name,
         targets=[t.strip() for t in body.targets],
         group_id=body.group_id,
-        options=options,
+        options=secretbox.strip_fields(options, secretbox.DISCOVERY_OPTION_FIELDS),
         schedule_enabled=body.schedule_enabled,
         schedule_every_hours=body.schedule_every_hours,
         notify_new_hosts=body.notify_new_hosts,
@@ -197,6 +200,7 @@ async def create_profile(
     )
     session.add(p)
     await flush_or_conflict(session)
+    p.options = secretbox.seal_profile_options(p.id, options)  # [1.4.2] id is in the AAD
     await audit.record(
         session,
         ctx,
@@ -244,7 +248,10 @@ async def patch_profile(
     if "notify_new_hosts" in fields and body.notify_new_hosts is not None:
         p.notify_new_hosts = body.notify_new_hosts
     if "options" in fields and body.options is not None:
-        p.options = _options(body.options, dict(p.options or {}))
+        stored = secretbox.open_profile_options(p.id, p.options)
+        new_options = _options(body.options, stored)
+        if new_options != stored:
+            p.options = secretbox.seal_profile_options(p.id, new_options)
     was_enabled, old_every = p.schedule_enabled, p.schedule_every_hours
     if "schedule_every_hours" in fields and body.schedule_every_hours is not None:
         p.schedule_every_hours = body.schedule_every_hours
@@ -287,7 +294,8 @@ async def run_profile(profile_id: int, user: Admin, rt: RT, session: DB) -> dict
     if p is None:
         raise not_found("Discovery profile")
     runner = _runner(rt)
-    targets, group_id, options, name = list(p.targets), p.group_id, dict(p.options), p.name
+    targets, group_id, name = list(p.targets), p.group_id, p.name
+    options = secretbox.open_profile_options(p.id, p.options)
     await session.commit()
     try:
         scan_id = await runner.start(

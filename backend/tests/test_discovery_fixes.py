@@ -127,6 +127,7 @@ async def test_import_into_other_group_gets_own_credentials(
                 text("SELECT snmp_credentials FROM devices WHERE id = :id"), {"id": dev_id}
             )
         ).scalar_one()
+    assert creds["community_enc"].startswith("v1:")  # [1.4.2] encrypted copy
     assert creds["community"] == "corp-secret" and creds["port"] == corp_agent
     assert creds["timeout_s"] == 2 and creds["retries"] == 1
     assert "corp-secret" not in r.text

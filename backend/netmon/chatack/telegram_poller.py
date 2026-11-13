@@ -25,6 +25,7 @@ from sqlalchemy import text
 from netmon import __version__
 from netmon.alerts import telegram as tg
 from netmon.chatack import linking, service, tokens
+from netmon.services import secretbox
 
 log = logging.getLogger("netmon.chatack.telegram")
 
@@ -132,7 +133,7 @@ class TelegramPollers:
                     "WHERE type = 'telegram' AND enabled ORDER BY id"
                 )
             ):
-                cfg = ch.config or {}
+                cfg = secretbox.open_channel("telegram", ch.id, ch.config)  # [1.4.2]
                 token = str(cfg.get("bot_token") or "")
                 if not token or not (cfg.get("ack_buttons") or (ask_on and cfg.get("ai_ask"))):
                     continue

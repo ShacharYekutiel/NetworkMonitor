@@ -9,7 +9,10 @@
 	auto_https disable_redirects
 	# Clients that send no SNI (or an unknown name, e.g. the server's IP) get our cert.
 	default_sni {$NETMON_FQDN}
-	admin localhost:2019
+	# [1.4.2] No admin API (it could reconfigure the proxy from inside the container). A
+	# certificate change restarts the container (ops/install-cert.sh).
+	admin off
+	persist_config off
 	servers {
 		# HTTP/3 would need UDP 443 published as well; TCP only is enough here.
 		protocols h1 h2
@@ -19,10 +22,22 @@
 (app) {
 	tls /etc/caddy/tls/cert.pem /etc/caddy/tls/key.pem
 	encode zstd gzip
+	# [1.4.1] Security headers come from the app itself (Content-Security-Policy with
+	# frame-ancestors, X-Frame-Options, X-Content-Type-Options, Referrer-Policy and, because
+	# the app sees X-Forwarded-Proto: https, Strict-Transport-Security), so a native install
+	# without Caddy has them too and framing follows Settings > Security. Caddy therefore
+	# sets no Content-Security-Policy / X-Frame-Options of its own (a second, different
+	# policy would override the setting).
+	# "?" sets a header only when the response does not already carry it: no duplicates on
+	# proxied responses, and Caddy's own answers (e.g. 502 while the app restarts) stay
+	# covered. Keep the values identical to backend/netmon/services/security.py.
 	header {
-		Strict-Transport-Security "max-age=31536000"
-		X-Content-Type-Options nosniff
-		Referrer-Policy same-origin
+		# [1.4.2] NETMON_HSTS in site.env, e.g. "max-age=31536000; includeSubDomains" (only
+		# when EVERY host under the domain serves HTTPS); set NETMON_HSTS_INCLUDE_SUBDOMAINS in
+		# app.env too, the app sends the header on proxied responses.
+		?Strict-Transport-Security "{$NETMON_HSTS:max-age=31536000}"
+		?X-Content-Type-Options nosniff
+		?Referrer-Policy same-origin
 		-Server
 	}
 	# WebSocket (/ws) upgrades are proxied transparently by reverse_proxy.
@@ -50,6 +65,12 @@ https://{$NETMON_FQDN} {
 https://netmonitor, https:// {
 	tls /etc/caddy/tls/cert.pem /etc/caddy/tls/key.pem
 	redir https://{$NETMON_FQDN}{uri} permanent
+}
+
+# [1.4.2] Container health check (`healthcheck` in compose.yaml): loopback only, not published.
+http://127.0.0.1:8099 {
+	bind 127.0.0.1
+	respond "ok" 200
 }
 
 # Port 80: redirect everything to HTTPS on the canonical name.

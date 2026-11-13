@@ -101,7 +101,7 @@ async def group_chain(session: AsyncSession, group_id: int) -> list[tuple[int, A
 
 async def effective_credentials(session: AsyncSession, device: Device) -> dict[str, Any]:
     chain = await group_chain(session, device.group_id)
-    creds, _, _ = resolve_credentials(device.snmp_credentials, chain)
+    creds, _, _ = resolve_credentials(device.snmp_credentials, chain, device.id)
     return creds
 
 

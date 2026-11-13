@@ -214,7 +214,9 @@ async def take_over(channel_id: int, _: SessionAdmin, rt: RT, session: DB, ctx: 
     ).first()
     if ch is None or ch.type != "telegram":
         raise not_found("Telegram channel")
-    token = str((ch.config or {}).get("bot_token") or "")
+    from netmon.services import secretbox
+
+    token = str(secretbox.open_channel(ch.type, ch.id, ch.config).get("bot_token") or "")
     if not token:
         raise ApiError(502, "telegram_error", "No bot token configured")
     await session.close()

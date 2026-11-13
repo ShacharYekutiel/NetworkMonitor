@@ -20,9 +20,16 @@ def make_message(type_: str, data: dict[str, Any]) -> str:
 
 
 class _Client:
-    def __init__(self, ws: WebSocket, user_id: int | None = None, is_admin: bool = False) -> None:
+    def __init__(
+        self,
+        ws: WebSocket,
+        user_id: int | None = None,
+        is_admin: bool = False,
+        sid: str | None = None,
+    ) -> None:
         self.ws = ws
         self.user_id = user_id
+        self.sid = sid  # [1.4.1] session id of the cookie the socket was opened with
         self.is_admin = is_admin
         self.queue: asyncio.Queue[str | None] = asyncio.Queue(maxsize=1000)
         self.task: asyncio.Task[None] | None = None
@@ -54,8 +61,9 @@ class Hub:
         first: str | None = None,
         user_id: int | None = None,
         is_admin: bool = False,
+        sid: str | None = None,
     ) -> _Client:
-        client = _Client(ws, user_id, is_admin)
+        client = _Client(ws, user_id, is_admin, sid)
         if first is not None:
             client.queue.put_nowait(first)
         client.task = asyncio.create_task(client.sender())
@@ -133,6 +141,14 @@ class Hub:
     async def close_user(self, user_id: int, code: int = 4401) -> int:
         """Close every socket of a user (session revoked). Returns the number closed."""
         victims = [c for c in self._clients if c.user_id == user_id]
+        for client in victims:
+            self._clients.discard(client)
+            await _close(client.ws, code)
+        return len(victims)
+
+    async def close_session(self, sid: str, code: int = 4401) -> int:
+        """[1.4.1] Close the sockets of one login session (logout)."""
+        victims = [c for c in self._clients if c.sid == sid]
         for client in victims:
             self._clients.discard(client)
             await _close(client.ws, code)

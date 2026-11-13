@@ -53,7 +53,13 @@ from netmon.api.errors import error_response, install_error_handlers
 from netmon.auth.tokens import bearer_from_header, is_barred
 from netmon.config import Settings, load_settings
 from netmon.runtime import Runtime
-from netmon.services.auth import LoginLimiter, cookie_secure, set_session_cookie
+from netmon.services import security as security_svc
+from netmon.services.auth import (
+    LoginLimiter,
+    cookie_secure,
+    request_is_https,
+    set_session_cookie,
+)
 
 log = logging.getLogger("netmon.app")
 
@@ -136,7 +142,16 @@ def create_app(
         openapi_url="/api/openapi.json",
     )
     app.state.rt = rt
-    app.state.login_limiter = LoginLimiter()
+    # [1.4.1] the address-wide cap follows the setting `login_ip_max_failures`
+    app.state.login_limiter = LoginLimiter(
+        ip_max=lambda: security_svc.policy_of(rt).login_ip_max_failures
+    )
+    # [1.4.1] CSP hash sources of the SPA's own inline bootstrap script (theme before paint)
+    try:
+        index_html = (settings.frontend_dist / "index.html").read_text(encoding="utf-8")
+    except OSError:
+        index_html = PLACEHOLDER
+    script_hashes = security_svc.inline_script_hashes(index_html)
     # [2b-3] API tokens and Active Directory
     from netmon.auth.ldap import Directory
     from netmon.auth.tokens import InvalidTokenLimiter, UseStamper
@@ -146,8 +161,29 @@ def create_app(
     app.state.directory = Directory()
     install_error_handlers(app)
 
+    hsts = security_svc.hsts_value(bool(settings.netmon_hsts_include_subdomains))
+
+    def harden(request: Request, response: Response) -> Response:
+        """[1.4.1] Security headers on every response (also the guard's own error answers):
+        CSP with `frame-ancestors`, X-Frame-Options, nosniff, Referrer-Policy, and HSTS when
+        the request arrived over HTTPS. A header the handler set itself is kept."""
+        pol = security_svc.policy_of(rt)
+        https = request_is_https(request, rt.settings.netmon_trust_proxy)
+        for name, value in security_svc.security_headers(
+            pol,
+            csp=security_svc.build_csp(pol, script_hashes),
+            https=https,
+            path=request.url.path,
+            hsts=hsts,
+        ).items():
+            response.headers.setdefault(name, value)
+        return response
+
     @app.middleware("http")
     async def guard(request: Request, call_next: Any) -> Response:
+        return harden(request, await _guard(request, call_next))
+
+    async def _guard(request: Request, call_next: Any) -> Response:
         path = request.url.path
         trust = rt.settings.netmon_trust_proxy
         # [2b-3] API tokens: never on auth/users/tokens; no ambient credential → no CSRF check

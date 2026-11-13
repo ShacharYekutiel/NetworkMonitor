@@ -177,8 +177,11 @@ jobs:
           set -euo pipefail
           VERSION="${GITHUB_REF_NAME#v}"
           IMAGE="ghcr.io/${GITHUB_REPOSITORY,,}:${VERSION}"
-          [[ "$DIGEST" =~ ^sha256:[0-9a-f]{64}$ ]] && IMAGE="${IMAGE}@${DIGEST}" ||
-            echo "::warning::no image digest from the image job; pinning the tag only"
+          # [1.4.2] release.env must pin the digest (ops/check-release.sh)
+          [[ "$DIGEST" =~ ^sha256:[0-9a-f]{64}$ ]] && IMAGE="${IMAGE}@${DIGEST}" || {
+            echo "::error::no image digest from the image job; release.env requires one"
+            exit 1
+          }
           f=deploy/production/release.env
           sed -i -E "s#^NETMON_VERSION=.*#NETMON_VERSION=${VERSION}#; s#^NETMON_IMAGE=.*#NETMON_IMAGE=${IMAGE}#" "$f"
           deploy/production/ops/check-release.sh "$f"
