@@ -8,6 +8,7 @@ One server answers everything the backend talks to (point every endpoint URL at 
     POST /model/{modelId}/converse | /converse-stream     Bedrock Runtime (event-stream framing by es_codec.py)
     POST /knowledgebases/{kbId}/retrieve                  Bedrock Agent Runtime (Knowledge Base Retrieve)
     POST /sessions                                        IAM Roles Anywhere CreateSession (X.509 signature)
+    POST /                                                [4] AWS STS Query API (tests/sim/aws/mock_sts.py)
     GET  /inference-profiles, /foundation-models          Bedrock control plane (List models)
     PUT  /latest/api/token, GET /latest/meta-data/iam/security-credentials/[role]    EC2 IMDSv2
     GET  /container-credentials, /v2/credentials/{id}     ECS/EKS container credentials
@@ -30,6 +31,7 @@ Control API (JSON; see README.md):
                         container_token, imds_role, expected_ra_arns, models_by_region}
     GET  /_usage                         sum of the usage numbers the mock returned (by purpose/model)
     POST /_reset                         modes, log, runtime scenarios, KB, config and issued sessions back to start
+    GET|POST /_sts/roles                 [4] the STS trust model (roles, callers, disabled_regions; mock_sts.py)
 """
 
 from __future__ import annotations
@@ -55,8 +57,12 @@ from urllib.parse import unquote
 HERE = Path(__file__).resolve().parent
 if str(HERE) not in sys.path:
     sys.path.insert(0, str(HERE))
+AWS_SIM = HERE.parent / "aws"  # [4] STS mock
+if str(AWS_SIM) not in sys.path:
+    sys.path.insert(0, str(AWS_SIM))
 
 import es_codec  # noqa: E402
+import mock_sts  # noqa: E402
 import scripted_model as sm  # noqa: E402
 import sigv4_check  # noqa: E402
 from cryptography import x509  # noqa: E402
@@ -220,6 +226,7 @@ class MockState:
                 "chunk_chars": 16, "delay_ms": 10, "first_delay_ms": 0,
             }
             self.static = dict(STATIC_KEYS)
+            self.sts = mock_sts.default_config()  # [4] STS trust model
 
     # -------------------------------------------------------------- clock / credentials
     def now(self) -> dt.datetime:
@@ -234,17 +241,23 @@ class MockState:
                 return s["secret"], s["token"], s["expires_at"] <= time.time()
         return None
 
-    def issue_session(self, source: str, seconds: int) -> dict[str, Any]:
+    def issue_session(self, source: str, seconds: int, *, arn: str | None = None,
+                      source_identity: str | None = None) -> dict[str, Any]:
         override = self.config.get("session_seconds")
-        if override:
+        if override and source != "assume_role":
             seconds = int(override)
         akid = "ASIA" + _rand_upper(16)
         cred = {"access_key_id": akid, "secret": secrets.token_urlsafe(30)[:40],
                 "token": "IQoJb3JpZ2luX2VjE" + base64.b64encode(secrets.token_bytes(150)).decode(),
-                "expires_at": time.time() + seconds, "source": source, "issued_at": time.time()}
+                "expires_at": time.time() + seconds, "source": source, "issued_at": time.time(),
+                "arn": arn, "source_identity": source_identity}
         with self.lock:
             self.sessions[akid] = cred
         return cred
+
+    def identity_of(self, akid: str) -> dict[str, Any]:
+        """[4] The caller identity of an access key id (STS GetCallerIdentity / AssumeRole)."""
+        return mock_sts.identity(self, akid)
 
     def anchors(self) -> list[x509.Certificate]:
         if not self.pki_dir:
@@ -622,25 +635,34 @@ def create_app(state: MockState) -> Starlette:
             return finish(entry, aws_error(400, "ValidationException", "durationSeconds must be between 900 and 43200"))
         if dur > int(state.config.get("profile_max_seconds") or 43200):
             return finish(entry, aws_error(400, "ValidationException", "Requested DurationSeconds exceeds the profile's session limit"))
+        allowed_roles = (state.config.get("profile_roles") or {}).get(b["profileArn"])
+        if allowed_roles is not None and b["roleArn"] not in allowed_roles:  # [4] ra_role
+            return finish(entry, aws_error(403, "AccessDeniedException", f"Unable to assume role for arn: {b['roleArn']}"))
         if mode:
             if mode["name"] in ERRORS:
                 st, et, ms = err_from(mode["name"])
                 return finish(entry, aws_error(st, et, ms))
             if mode["name"] == "ra_short":
                 dur = int(mode["args"][0]) if mode["args"] else 60
-        cred = state.issue_session("roles_anywhere", dur)
+        # [4] like AWS: session name = hex serial; source identity CN=<cn> (<= 61), the CN, or ID=<hex>
+        serial_hex = format(int(info.get("leaf_serial") or 0), "x")
+        cn = info.get("leaf_cn")
+        source_identity = (f"CN={cn}" if len(cn) <= 61 else cn) if cn else f"ID={serial_hex.zfill(len(serial_hex) + len(serial_hex) % 2)}"
+        role_acct, role_name = b["roleArn"].split(":")[4], b["roleArn"].split(":role/", 1)[1].rsplit("/", 1)[-1]
+        assumed_arn = f"arn:aws:sts::{role_acct}:assumed-role/{role_name}/{serial_hex}"
+        cred = state.issue_session("roles_anywhere", dur, arn=assumed_arn, source_identity=source_identity)
         entry["issued_access_key_id"] = cred["access_key_id"]
         entry["duration_seconds"] = b.get("durationSeconds")
         subject_id = str(uuid.uuid4())
         region = info.get("region") or "us-east-1"
         return finish(entry, JSONResponse({
             "credentialSet": [{
-                "assumedRoleUser": {"arn": f"arn:aws:sts::{ACCOUNT}:assumed-role/netmon-bedrock/{info.get('leaf_serial')}",
-                                    "assumedRoleId": f"AROAMOCK{_rand_upper(12)}:{info.get('leaf_serial')}"},
+                "assumedRoleUser": {"arn": assumed_arn,
+                                    "assumedRoleId": f"AROAMOCK{_rand_upper(12)}:{serial_hex}"},
                 "credentials": {"accessKeyId": cred["access_key_id"], "secretAccessKey": cred["secret"],
                                 "sessionToken": cred["token"],
                                 "expiration": iso(dt.datetime.fromtimestamp(cred["expires_at"], dt.timezone.utc))},
-                "packedPolicySize": 0, "roleArn": b["roleArn"], "sourceIdentity": info.get("subject")}],
+                "packedPolicySize": 0, "roleArn": b["roleArn"], "sourceIdentity": source_identity}],
             "subjectArn": f"arn:aws:rolesanywhere:{region}:{ACCOUNT}:subject/{subject_id}",
             "enrollmentArn": b["trustAnchorArn"]}, status_code=201))
 
@@ -872,7 +894,10 @@ def create_app(state: MockState) -> Starlette:
         state.reset()
         return JSONResponse({"ok": True})
 
+    sts_route, sts_control = mock_sts.make_handlers(state, finish, base_entry)
     routes = [
+        Route("/", sts_route, methods=["POST"]),  # [4] STS Query API
+        Route("/_sts/roles", sts_control, methods=["GET", "POST"]),
         Route("/model/{rest:path}", model_route, methods=["POST"]),
         Route("/knowledgebases/{kb}/retrieve", retrieve, methods=["POST"]),
         Route("/sessions", sessions, methods=["POST"]),
@@ -983,6 +1008,10 @@ class MockBedrock:
 
     def config(self, **kw: Any) -> None:
         self.state.config.update(kw)
+
+    def sts_config(self, **kw: Any) -> dict[str, Any]:
+        """[4] Configure the STS trust model (see mock_sts.py)."""
+        return mock_sts.configure(self.state, kw)
 
     static_keys = STATIC_KEYS
     ra_arns = {"trust_anchor": f"arn:aws:rolesanywhere:us-east-1:{ACCOUNT}:trust-anchor/7a1b2c3d-0000-4000-8000-000000000001",

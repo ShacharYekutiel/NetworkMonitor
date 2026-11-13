@@ -5,7 +5,16 @@ Stored rows: `assistant` (connection and data-sharing object), `assistant_kb` (K
 object) and the scalar keys of `SCALAR_DEFAULTS` (registered in
 `netmon.services.settings.DEFAULTS`, so they appear in `GET/PUT /api/settings`). The two
 objects are never part of `GET /api/settings`; they are served by `/api/assistant/settings`
-and `/api/assistant/knowledge` (secrets write-only)."""
+and `/api/assistant/knowledge` (secrets write-only).
+
+[4] PR 4-0a: the AWS authentication moved to the shared AWS connections (`netmon.aws`). The
+`assistant` object gains `connection_id` (null = the default connection) and `access`; its
+1.4.x authentication keys stay in the row (mirrored from the `aad_scope = 'assistant'`
+connection for a container rollback, `netmon.aws.connections.sync_legacy`) and are no longer
+read by the app. The 1.4.x helpers below (`merge`, `field_errors`, `required_errors`,
+`connection_hash`) keep their 1.4.x meaning (the "1.4.x reader" of the rollback tests); the
+4-0a settings use `merge_settings`, `settings_field_errors`, `settings_required_errors`,
+`assistant_hash`."""
 
 from __future__ import annotations
 
@@ -16,10 +25,9 @@ import json
 import os
 import re
 from typing import Any
-from urllib.parse import urlsplit
 
+from netmon.aws import endpoints as _endpoints
 from netmon.services import crypto
-from netmon.util import netguard
 
 AAD_SECRET_ACCESS_KEY = b"assistant.secret_access_key"
 AAD_SESSION_TOKEN = b"assistant.session_token"
@@ -79,6 +87,9 @@ DEFAULT_ASSISTANT: dict[str, Any] = {
     # [3b owner] models offered in the chat composer: [{"id", "label"|null}] (≤ 8);
     # [] = the main model (+ the light model when set). Not a connection field (no new test).
     "chat_models": [],
+    # [4] shared AWS connection + access (architecture § 15.1.1)
+    "connection_id": None,
+    "access": {"mode": "direct", "role_arn": None, "external_id": None},
 }
 
 DEFAULT_KB: dict[str, Any] = {
@@ -154,7 +165,7 @@ WRITABLE_FIELDS = (
 )
 KB_WRITABLE_FIELDS = (*KB_CONNECTION_FIELDS, "description")
 
-REGION_RE = re.compile(r"^[a-z]{2}(-gov|-iso[a-z]*)?-[a-z]+-\d$")
+REGION_RE = _endpoints.REGION_RE
 MODEL_RE = re.compile(r"^[A-Za-z0-9.:/_-]{1,256}$")
 CHAT_MODELS_MAX = 8
 CHAT_MODEL_LABEL_MAX = 60
@@ -302,42 +313,14 @@ def merge_kb(stored: dict[str, Any], fields: dict[str, Any]) -> dict[str, Any]:
 
 # ---------------------------------------------------------------- validation (pure)
 def endpoint_error(url: str | None, *, test_mode: bool) -> str | None:
-    """`https://host[:port]` only (no path, query or user info); `http://` only in test mode."""
-    if url is None or url == "":
-        return None
-    try:
-        parts = urlsplit(url)
-        _ = parts.port
-    except ValueError:
-        return "invalid URL"
-    if parts.scheme not in ("https", "http") or not parts.hostname:
-        return "must be https://host"
-    if parts.scheme == "http" and not test_mode:
-        return "must use https://"
-    if parts.username or parts.password:
-        return "must not contain credentials"
-    if parts.path not in ("", "/") or parts.query or parts.fragment:
-        return "must not contain a path"
-    # SSRF: block loopback (except in test mode), link-local / cloud-metadata, unspecified
-    # and multicast targets. Ordinary private VPC-endpoint IPs stay allowed.
-    return netguard.blocked_endpoint_host(parts.hostname, allow_loopback=test_mode)
+    """`https://host[:port]` only (no path, query or user info); `http://` only in test mode
+    ([4] moved to `netmon.aws.endpoints.endpoint_error`). The assistant's own Bedrock / KB URLs
+    keep the 1.4.x save-time DNS lookup (netguard's default resolver)."""
+    return _endpoints.endpoint_error(url, test_mode=test_mode, resolver=None)
 
 
 def proxy_error(url: str | None, *, test_mode: bool = False) -> str | None:
-    if not url:
-        return "required for proxy mode custom"
-    try:
-        parts = urlsplit(url)
-        port = parts.port
-    except ValueError:
-        return "invalid URL"
-    if parts.scheme not in ("http", "https") or not parts.hostname or port is None:
-        return "must be http(s)://host:port"
-    if parts.username or parts.password:
-        return "credentials in the proxy URL are not supported"
-    if parts.path not in ("", "/"):
-        return "must not contain a path"
-    return netguard.blocked_endpoint_host(parts.hostname, allow_loopback=test_mode)
+    return _endpoints.proxy_error(url, test_mode=test_mode, resolver=None)
 
 
 def cidr_error(values: list[str]) -> str | None:
@@ -580,3 +563,105 @@ def kb_endpoint(kb: dict[str, Any], cfg: dict[str, Any]) -> str:
 def prices_set(prices: dict[str, Any] | None) -> bool:
     p = prices or {}
     return p.get("input_per_mtok") is not None and p.get("output_per_mtok") is not None
+
+
+# ---------------------------------------------------------------- [4] 4-0a settings shape
+# the Bedrock connection fields of the assistant (test binding)
+BEDROCK_FIELDS = (
+    "region",
+    "model_id",
+    "model_id_light",
+    "endpoint_url",
+    "control_endpoint_url",
+    "prompt_caching",
+)
+# 1.4.x fields that moved to Settings → AWS (a PUT carrying one → 422 "moved to Settings → AWS")
+MOVED_FIELDS = (
+    "auth_mode",
+    "access_key_id",
+    "secret_access_key",
+    "session_token",
+    "access_key_created_at",
+    "ra_region",
+    "ra_endpoint_url",
+    "ra_trust_anchor_arn",
+    "ra_profile_arn",
+    "ra_role_arn",
+    "ra_session_seconds",
+    "proxy_mode",
+    "proxy_url",
+)
+MOVED_MESSAGE = "moved to Settings → AWS"
+SETTINGS_WRITABLE = (
+    *BEDROCK_FIELDS,
+    "connection_id",
+    "access",
+    "send_config_excerpts",
+    "redact_internal_ips",
+    "internal_cidrs",
+    "chat_redact_ips",
+    "prices",
+    "chat_models",
+)
+
+
+def merge_settings(stored: dict[str, Any], fields: dict[str, Any]) -> dict[str, Any]:
+    """[4] Merge the 4-0a writable fields over the stored object."""
+    out = copy.deepcopy(stored)
+    for key, value in fields.items():
+        if key == "prices" and isinstance(value, dict):
+            out["prices"] = {**out.get("prices", {}), **value}
+        elif key in SETTINGS_WRITABLE:
+            out[key] = copy.deepcopy(value)
+    return out
+
+
+def settings_field_errors(cfg: dict[str, Any], *, test_mode: bool) -> list[dict[str, Any]]:
+    """[4] Syntax errors of the Bedrock / data-sharing fields (no authentication fields)."""
+    errs: list[dict[str, Any]] = []
+
+    def bad(field: str, msg: str) -> None:
+        errs.append({"loc": ["body", field], "msg": msg})
+
+    if cfg.get("region") and not REGION_RE.match(cfg["region"]):
+        bad("region", "invalid AWS region")
+    for f in ("model_id", "model_id_light"):
+        if cfg.get(f) and not MODEL_RE.match(cfg[f]):
+            bad(f, "invalid model / inference profile id")
+    for f in ("endpoint_url", "control_endpoint_url"):
+        e = endpoint_error(cfg.get(f), test_mode=test_mode)
+        if e:
+            bad(f, e)
+    cid = cfg.get("connection_id")
+    if cid is not None and (not isinstance(cid, int) or isinstance(cid, bool) or cid < 1):
+        bad("connection_id", "must be a connection id or null")
+    e = cidr_error(list(cfg.get("internal_cidrs") or []))
+    if e:
+        bad("internal_cidrs", e)
+    e = chat_models_error(cfg.get("chat_models"))
+    if e:
+        bad("chat_models", e)
+    return errs
+
+
+def settings_required_errors(cfg: dict[str, Any]) -> list[dict[str, Any]]:
+    errs = []
+    for f in ("region", "model_id"):
+        if not cfg.get(f):
+            errs.append({"loc": ["body", f], "msg": "required"})
+    return errs
+
+
+def assistant_hash(cfg: dict[str, Any], conn_id: int | None, conn_hash: str | None) -> str:
+    """[4] Test binding of the assistant (data-model "`assistant` settings object after P4-1"):
+    the Bedrock fields, the resolved connection id, its `connection_hash`, the access (the
+    ExternalId as SHA-256)."""
+    access = cfg.get("access") if isinstance(cfg.get("access"), dict) else {}
+    data = {f: cfg.get(f) for f in BEDROCK_FIELDS}
+    data["connection_id"] = conn_id
+    data["connection_hash"] = conn_hash
+    data["access_mode"] = access.get("mode") or "direct"
+    data["access_role_arn"] = access.get("role_arn") or None
+    data["access_external_id"] = _sha(access.get("external_id") or None)
+    blob = json.dumps(data, sort_keys=True, separators=(",", ":"), default=str)
+    return hashlib.sha256(blob.encode("utf-8")).hexdigest()

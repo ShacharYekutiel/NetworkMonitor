@@ -1,4 +1,4 @@
-# NetworkMonitor — API Contract (Phase 1 + Phase 2a + Phase 2b-1 + Phase 2b-2 + Phase 2b-3 + Phase 3 + Phase 3b)
+# NetworkMonitor — API Contract (Phase 1 + Phase 2a + Phase 2b-1 + Phase 2b-2 + Phase 2b-3 + Phase 3 + Phase 3b + Phase 4)
 
 Items marked **[2a]** are the Phase 2a contract (discovery, device templates, `snmp_custom`/`snmp_disk`,
 Telegram). The Phase 2a endpoints are specified in [§ Phase 2a](#2a-phase-2a-endpoints).
@@ -11,6 +11,7 @@ Items marked **[1.3]** (release 1.3: sensor impact, important ports, interface s
 connected hosts / CSV on ports, LAG degraded, IRF) are specified in [§ Release 1.3](#13-release-13-contract).
 Items marked **[1.3.1]** (IRF ports important, named value maps) are specified in
 [§ Release 1.3.1](#131-release-131-contract).
+Items marked **[4]** are specified in [§ Phase 4](#4-phase-4-contract).
 
 This file is the contract between the backend (`backend/netmon/schemas`) and the frontend
 (`frontend/src/api/types.ts`). **Field names are exact.** For the table semantics see
@@ -112,7 +113,9 @@ included).
   - `Max-Age`: 43200 (12 h).
   - No bearer tokens in Phase 1. The frontend never sees the token, and its `fetch` calls use
     `credentials: "same-origin"`.
-- **JWT claims:** `sub` (the user id, as a string), `role`, `tv` (`token_version`), `iat`, `exp`.
+- **JWT claims:** `sub` (the user id, as a string), `role`, `tv` (`token_version`), `iat`, `exp`; [1.4.1] also `sid`
+  and `at` — a logout revokes the session server-side and every session has an absolute lifetime, see
+  [[1.4.1] Auth](#141-auth--changed).
 - **A token is valid only if all of these hold:**
   - the signature is OK and it has not expired;
   - the user exists and `is_active`;
@@ -2691,3 +2694,470 @@ The check message of a code from the table is `<label>: <text> (<mib>, <code>)` 
 `snmp_table` entries may carry `label_format` and `rename_from` (only when set;
 [data-model § 1.3.1](data-model.md#131-template-options)).
 
+
+## [1.4.1] Release 1.4.1 contract (security hardening)
+
+Additive unless marked **changed**. Design: [architecture § 15](architecture.md#15-release-141-security-hardening).
+
+### [1.4.1] Settings
+`GET /api/settings` returns, and `PUT /api/settings` accepts (admin, partial merge, audited like every key):
+
+```ts
+type Settings = Settings & {
+  egress_allow_loopback: boolean;   // default false
+  session_max_age_h: number;        // 1–720, default 168
+  login_ip_max_failures: number;    // 0 (off) – 10000, default 20
+  frame_ancestors: string[];        // ≤ 20 origins, default []
+};
+```
+| Key | Meaning |
+|---|---|
+| `egress_allow_loopback` | `true`: webhook / Teams channels and HTTP sensors may target the server itself (`127.0.0.0/8`, `::1`, `localhost`). Link-local / cloud-metadata targets are blocked regardless. Private (RFC 1918) targets are never blocked. |
+| `session_max_age_h` | Absolute lifetime of a login session, counted from the login. Users of source `ldap` / `oidc` end at `min(12, session_max_age_h)` hours. |
+| `login_ip_max_failures` | Failed password logins per client address in 5 minutes, across all user names. `0` turns the address-wide cap off (the per-address-and-user limit of 10 stays). |
+| `frame_ancestors` | Origins that may embed the application in a frame in addition to the application itself. Each entry: `scheme://host[:port]`, `http`/`https`, the host may start with `*.`; anything else → `422`. Stored lower-case without a trailing `/`. |
+
+### [1.4.1] Egress filter (webhook, Teams, HTTP sensor) — **changed**
+The server refuses to connect to loopback (unless `egress_allow_loopback`), link-local (`169.254.0.0/16` incl.
+`169.254.169.254`, `fe80::/10`), the metadata aliases (`metadata`, `metadata.google.internal`, `metadata.goog`,
+`100.100.100.200`), the unspecified address and multicast — for the URL itself, for every address its host name
+resolves to, and for every redirect hop.
+
+- `POST` / `PATCH /api/notification-channels` (`webhook`, `teams`) and `POST` / `PATCH /api/sensors` (`http`; the
+  `{host}` placeholder is replaced by the device host first): a blocked `config.url` → `422 validation_error`
+  with `details: [{loc: ["body","config","url"], msg: "Blocked target: <host> is not allowed (loopback /
+  link-local / cloud metadata)…"}]`. A host name that does not resolve is not an error at save time.
+- Existing rows are not changed. A send or check to a blocked target fails like any other delivery failure:
+  `POST /api/notification-channels/{id}/test` → `502 webhook_error` / `teams_error` with that message; an HTTP
+  sensor goes `down` with the message as its status text (no values).
+
+### [1.4.1] Auth — **changed**
+- **JWT claims** gain `sid` (session id: random per login, kept by the sliding renewal) and every session carries
+  `at` (authentication time; before 1.4.1 only meaningful for AD sessions). A cookie without `sid` (issued before
+  1.4.1) is answered `401`: every browser signs in once after the upgrade. API tokens are unaffected.
+- **A session is valid only if**, in addition to the Phase 1 rules, its `sid` has not been revoked and
+  `now < at + max`, where `max` is `session_max_age_h` (AD / OIDC: at most 12 h). The cookie `exp` and the sliding
+  renewal never go past `at + max`.
+- `POST /api/auth/logout` → `204`. **Revokes the session server-side**: the cookie that was presented (and every
+  renewed copy of it) is answered `401` from then on; the user's other sessions stay signed in; the session's
+  WebSockets are closed with `4401`. Optional body `{ "everywhere": true }` ends **all** sessions of the user
+  instead (`token_version`; the audit row carries `changes.everywhere`).
+- `POST /api/auth/login`: `429 rate_limited` also when the client address has reached `login_ip_max_failures`
+  failed logins in the last 5 minutes (any user names; the response is the same as for the per-user limit). Only
+  failures count; a success does not reset the address counter. The client address is the TCP peer, or the
+  rightmost `X-Forwarded-For` entry when `NETMON_TRUST_PROXY=true`. Kerberos SSO attempts do not count.
+- `POST /api/auth/change-password`: a wrong `current_password` (`401 invalid_credentials`) counts as a failed
+  login: after 10 in 5 minutes for that user (from any address), or when the address cap is reached, the endpoint
+  answers `429 rate_limited` until the window has passed. Audit: `auth.login_failed`, reason
+  `bad_current_password`.
+
+### [1.4.1] Response headers
+Every response of the application (API, SPA, error envelopes) carries:
+
+| Header | Value |
+|---|---|
+| `Content-Security-Policy` | `default-src 'self'; script-src 'self' 'sha256-…'; style-src 'self'; style-src-attr 'unsafe-inline'; img-src 'self' data: blob:; font-src 'self' data:; connect-src 'self'; worker-src 'self' blob:; object-src 'none'; base-uri 'self'; form-action 'self'; frame-ancestors 'self' <frame_ancestors…>` (the hash is that of the SPA's inline theme bootstrap, computed from `index.html` at start) |
+| `X-Frame-Options` | `SAMEORIGIN`; omitted while `frame_ancestors` is not empty |
+| `X-Content-Type-Options` | `nosniff` |
+| `Referrer-Policy` | `same-origin` |
+| `Strict-Transport-Security` | `max-age=31536000`, only when the request arrived over HTTPS (directly, or `X-Forwarded-Proto: https` from the trusted proxy) |
+
+Exceptions with their own policy: `/api/docs` (Swagger UI from its CDN, `frame-ancestors 'none'`),
+`GET /api/reports/runs/{id}/html` (a stored document: `default-src 'none'; style-src 'unsafe-inline'; … sandbox`)
+and the OIDC landing page of `GET /api/auth/oidc/callback` (`default-src 'none'` plus the hash of its one script).
+
+## [4] Phase 4 contract
+
+Contract revision 3. Shared AWS connections, AWS cloud view and VPC Flow Logs with alert rules (first), high
+availability, certificates, optics/PoE, compliance, S3 backups, traffic capture (on-call was removed from phase 4;
+the exotic options of revision 2 were cut — architecture § 15.0.3). Table semantics: [data-model.md § Phase 4](data-model.md#4-phase-4-additions);
+flows and decisions: architecture.md § 15. All earlier conventions apply; everything is additive and **OFF by
+default**. Writes are `admin`; reads as in architecture § 15.0.1. A feature's endpoints answer `409
+feature_disabled` with its name while it is OFF, except its settings/test endpoints (marked *prep*), which work while
+OFF so the configure-first form can be filled and tested.
+
+### [4] Errors
+| HTTP | code | When / `message` |
+|---|---|---|
+| 422 | `test_required` | Enabling a configure-first feature (or changing one of its connection fields while ON) without a valid `test_id`: "Run a successful Test first" (`details: [{"feature": "s3_backup"}]`). The 3b code `assistant_test_required` stays for the assistant. |
+| 409 | `ha_read_only` | Any write on a standby or fenced node: "This node is the standby (read-only). Use the active node." (`details: [{"role": "standby", "active_node": "office1", "active_url": "https://office1.mnidom.net"}]`) |
+| 409 | `ha_not_ready` | Switchover preconditions not met (`details: [{"reason": "lag_too_high" \| "peer_not_standby" \| "witness_unreachable" \| "not_active"}]`) |
+| 409 | `ha_refused` | The witness refused a grant (`details: [{"reason": "holder_alive" \| "no_quorum" \| "lag_too_high" \| "epoch_mismatch" \| "recent_grant" \| "auto_failover_off"}]`) |
+| 422 | `confirmation_mismatch` | Typed confirmation (`FAILOVER aws1`, `RESTORE 2026-11-09`) wrong |
+| 401 | `reauth_required` | Password re-authentication missing/wrong for failover, restore, full-payload capture |
+| 410 | `pairing_expired` | Pairing code expired, used or attempts exhausted |
+| 503 | `maintenance` | Restore in progress |
+| 502 | `aws_access_denied` | AWS refused an action; `details: [{"action": "ec2:DescribeNatGateways", "account": "…", "region": "…", "resource": null}]` |
+| 502 | `aws_assume_role_denied` | STS refused a hop; `details: [{"hop": 1, "from_arn": "…", "role_arn": "…", "action": "sts:SetSourceIdentity" \| "sts:TagSession" \| "sts:AssumeRole" \| null}]`; in a Test the step carries the `hints` |
+| 502 | `aws_assume_role_invalid` | STS rejected the request (role ARN, region disabled, duration) |
+| 422 | `key_mismatch` | (3b code) certificate upload in CSR mode that does not match the pending CSR's key; `details: [{"csr_subject", "csr_created_at", "cert_subject"}]` |
+| 502 | `aws_wrong_region` | The bucket is in another region (`details: [{"bucket_region": "eu-west-1"}]`); redirects are not followed |
+| 502 | `aws_not_found` | Bucket, key or log group does not exist (Test) |
+| 409 | `aws_connection_unconfigured` | A consumer's connection is missing or incomplete |
+| 502 | `aws_throttled`, `aws_network`, `aws_auth_failed`, `aws_token_expired`, `aws_clock_skew` | as 3b, for any AWS service |
+| 422 | `unsupported_format` | A flow-log object is neither gzip text nor Parquet, or its header / schema has no known field |
+| 422 | `unsupported_compression` | Firehose-to-S3 object compressed with something other than none / gzip / zip (Snappy: owner decision D3) |
+| 422 | `unsupported_option` | A matrix choice that this build does not include yet (`details: [{"field": "file_format", "value": "parquet", "arrives_with": "4d-2c"}]`) |
+| 422 | `parquet_support_missing` | Parquet source on an installation without the `parquet` extra (`details: [{"install": "pip install 'netmon[parquet]'"}]`) |
+| 409 | `capture_limit` | Too many running captures (`details: [{"running": 2, "max": 2}]`) or quota reached |
+| 422 | `invalid_filter` | BPF / display filter rejected (`details: [{"error": "…"}]`) |
+| 422 | `capture_addon_missing` | Mirror capture or analyzer without the capture add-on |
+| 502 | `capture_device_error` | On-device step failed (`details: [{"step": "start" \| "fetch" \| "cleanup", "reason": "permission_denied" \| "not_supported" \| "no_space" \| "timeout", "output": "≤ 300 chars"}]`) |
+| 409 | `restore_refused` | Restore while `ha` is ON, or the backup's TimescaleDB version differs |
+
+### [4] Type changes
+```ts
+type FeatureName = /* 1.4.0 names */ | "aws_inventory" | "aws_flow_logs" | "ha" | "cert_monitor" | "optics_dom"
+  | "poe_ports" | "config_compliance" | "s3_backup" | "packet_capture";
+type SensorType = /* … */ | "aws_dx_connection" | "aws_dx_vif" | "aws_vpn_connection" | "aws_tgw_attachment"
+  | "flow_alert" | "aws_change" | "tls_cert" | "optics" | "poe_budget" | "config_compliance";
+type FlowExporter = { /* … */ address: string | null; kind: "device" | "aws_vpc" | "aws_tgw" | "aws_flowlog";
+  ext_key: string | null; name: string | null };
+type SwitchPort = { /* … */ optics: { status: OpticsStatus; rx_dbm: number | null; tx_dbm: number | null;
+  temp_c: number | null } | null; poe_power_w: number | null /* now filled with poe_ports */ };
+type OpticsStatus = "ok" | "warning" | "alarm" | "no_signal" | "unsupported";
+type ReportSection = /* … */ | "certificates" | "compliance" | "cloud_traffic";
+type HaRole = "single" | "active" | "standby" | "fenced";
+type TestResult = { ok: boolean; test_id: string | null; expires_at: string | null; steps: TestStep[];
+  warnings: string[]; error: { code: string; message: string } | null };   // used by every phase-4 Test
+```
+- `GET /api/health` gains `"ha": {"role": HaRole, "node": "office1", "epoch": 8, "peer": "aws1", "lag_s": 0.4} | null`
+  (null when single) and `"capture_addon": "absent" | "ready" | "error"`.
+- `GET /api/settings/public` `features` gains the 9 names, and `"ha": {"role", "node", "active_node",
+  "active_url"} | null` (for the banner, also before login).
+- Every notification payload (webhook JSON, email footer, Telegram/Teams text) gains `node` and `epoch` when `ha` is
+  configured.
+- Configure-first enable pattern (all phase-4 configure-first features): `PUT …/settings` with `{"enabled": true,
+  "test_id": "…"}`; `POST …/test` with `{"settings": <partial unsaved values>}` → `200 TestResult` (also when
+  `ok` is false), `429 rate_limited` (10 per admin per 10 min), audited `<feature>.test`.
+
+### [4] Shared AWS connections (admin, session only; always available — it is configuration)
+Implementation spec: [architecture § 15.1](architecture.md#spec-4-0a). API tokens get `403` on `/api/aws/*` (as on
+`/api/assistant*`).
+```ts
+type AwsAccess = { mode: "direct" | "assume_role" | "ra_role"; role_arn: string | null; external_id: string | null };
+type AwsEndpointOverride = { service: "sts" | "rolesanywhere" /* later PRs add services */; region: string; url: string };
+type AwsCertInfo = /* 3b CertInfo */ { subject: string; issuer: string; serial_hex: string; not_before: string;
+  not_after: string; sha256: string; key_type: string; key_bits: number; chain: object[]; source: "uploaded" | "files";
+  uploaded_at: string | null; key_unreadable: boolean;
+  /* [4] */ subject_cn: string | null; issuer_cn: string | null; source_identity: string; warnings: string[] };
+type AwsCsrInfo = { subject: string; created_at: string; pem: string; key_unreadable: boolean };
+type AwsChainHop = { hop: 0 | 1; kind: "roles_anywhere" | "access_key" | "default_chain" | "assume_role" | "ra_role";
+  arn: string | null; account: string | null; expires_at: string | null; last_refresh: string | null };
+type AwsConnection = { id: number; name: string; is_default: boolean;
+  auth_mode: "roles_anywhere" | "access_key" | "default_chain"; region: string;
+  proxy_mode: "env" | "direct" | "custom"; proxy_url: string | null; endpoint_overrides: AwsEndpointOverride[];
+  /* mode fields, 3b secret rules */ access_key_id: string | null; secret_access_key: null; secret_access_key_set: boolean;
+  secret_access_key_unreadable: boolean; session_token: null; session_token_set: boolean;
+  session_token_unreadable: boolean; access_key_created_at: string | null;
+  ra_region: string | null; ra_trust_anchor_arn: string | null; ra_profile_arn: string | null;
+  ra_role_arn: string | null; ra_session_seconds: number;
+  certificate: AwsCertInfo | null; certificate_host_files: boolean; csr: AwsCsrInfo | null;
+  used_by: { kind: "assistant" /* later: "aws_account" | "flowlog_source" | "s3_backup" | "ha_dns" */;
+             id: number | null; name: string; access_mode: AwsAccess["mode"] }[];
+  chains: { consumer: string; hops: AwsChainHop[]; state: "ok" | "error" | "idle"; error_code: string | null }[];
+  last_test: { ok: boolean; at: string; by: string; error_code: string | null; account: string | null; arn: string | null } | null;
+  warnings: string[]; /* 4-0a: + "endpoint_unresolved" */ unresolved_hosts: string[];
+  created_at: string; updated_at: string };
+type AwsConnectionIn = Partial<Pick<AwsConnection, "name" | "auth_mode" | "region" | "proxy_mode" | "proxy_url"
+  | "endpoint_overrides" | "access_key_id" | "access_key_created_at" | "ra_region" | "ra_trust_anchor_arn"
+  | "ra_profile_arn" | "ra_role_arn" | "ra_session_seconds">> & {
+  secret_access_key?: string | null;   // null keep, "" clear, string replace (3b rule)
+  session_token?: string | null };
+type Hint = { code: string; text: string; values: Record<string, string> };
+type TestStep = { step: string; hop: 0 | 1 | null; ok: boolean; detail: string; ms: number; error_code: string | null;
+  hints: Hint[] };
+```
+Hint codes: `ra_trust_policy`, `ra_subject_cn`, `ra_issuer_cn`, `ra_profile_role`, `ra_untrusted_cert`,
+`ra_disabled`, `ra_revoked`, `set_source_identity`, `tag_session`, `caller_policy`, `trust_policy`, `external_id`,
+`scp`, `sts_region`, `role_arn_invalid`, `max_session`, `vpc_endpoint_or_proxy`, `cn_not_source_identity_safe`,
+and (4-0a implementation, additive) `model_access` on the assistant's `converse` step (texts and values:
+architecture § 15.1.7; implementation notes § 15.1.16). `TestResult` of these endpoints also carries
+`identity` / `hop_identity` (`{account, arn, user_id}` or null).
+
+| Method & path | Request | Response / errors |
+|---|---|---|
+| `GET /api/aws/connections` | — | `AwsConnection[]` (default first, then by name) |
+| `POST /api/aws/connections` | `AwsConnectionIn` with `name`, `auth_mode`, `region` required | `201 AwsConnection` (the first connection gets `is_default: true`); `422 validation_error` with `loc` per field (netguard message for URLs — a host resolving to a blocked address; a host that does not resolve now is accepted with the warning `endpoint_unresolved`; "the ARN appears twice — paste it once"); `409 conflict` duplicate name; audited `aws_connection.create` |
+| `GET /api/aws/connections/{id}` | — | `AwsConnection`; `404` |
+| `PATCH /api/aws/connections/{id}` | `AwsConnectionIn` + optional `test_id` | `AwsConnection`; `422 test_required` (`details: [{"connection_id", "used_by": ["assistant"]}]`) when a credential field (anything but `name`) changes while an ON configure-first consumer uses the connection and `test_id` is not a valid `aws_connection` test of the new values; audited `aws_connection.update` (changed field names; secrets as `*_set`) |
+| `DELETE /api/aws/connections/{id}` | — | `204`; `409 conflict` with `details: [{"used_by": [...]}]` while used, or `[{"reason": "default"}]` while it is the default and another connection exists; audited |
+| `POST /api/aws/connections/{id}/default` | optional `{"test_id"}` | `AwsConnection[]`; `422 test_required` (`details: [{"connection_id", "used_by": ["assistant"]}]`) while an ON consumer uses the default implicitly (`connection_id: null`) and `test_id` is not a valid `aws_connection` test of this connection's values; audited `aws_connection.set_default` |
+| `POST /api/aws/connections/test` | `{"connection_id": 3 \| null, "connection": AwsConnectionIn \| null, "access": AwsAccess \| null}` — `connection_id: null` + `connection` = an unsaved form; both = a saved connection with unsaved edits; `access` adds the hop | `200 TestResult` (also when `ok` is false): steps `config`, `credentials`, `identity`, [`hop`, `hop_identity`]; without `access`, one hop per distinct access of the connection's current consumers. `test_id` (kind `aws_connection`) on success; `429 rate_limited` (10 per admin per 10 min, shared with the 3b tests); audited `aws_connection.test` |
+| `GET /api/aws/connections/{id}/policies` | `?role_arn=&external_id=` (optional: the hop to render) | `{"base_trust_policy": object \| null, "hop_caller_policy": object \| null, "hop_trust_policy": object \| null, "notes": string[]}` — JSON rendered from the stored values: `aws:SourceArn` = the trust anchor ARN (once), `aws:PrincipalTag/x509Subject/CN` = the certificate's CN, `aws:PrincipalTag/x509Issuer/CN` = its issuer CN, hop trust policy with principal = `ra_role_arn` (or the key's user ARN from the last test), `sts:ExternalId`, `aws:SourceIdentity` = the certificate's source identity; null parts when values are missing (`notes` says which) |
+| `POST /api/aws/connections/{id}/cert` | `multipart`: `file` (PEM, DER, PKCS#12, PKCS#7 `.p7b`; ≤ 64 KiB), optional `key`, `password` | `AwsCertInfo`; while a CSR is pending and no key is uploaded, the CSR's key is used; `422 invalid_certificate`, `invalid_private_key`, `key_mismatch` (`details: [{"csr_subject", "csr_created_at", "cert_subject"}]` in CSR mode); `409 conflict` with host files; audited `aws_connection.cert_upload` |
+| `DELETE /api/aws/connections/{id}/cert` | — | `204`; `409 conflict` while an ON consumer uses this `roles_anywhere` connection; audited |
+| `POST /api/aws/connections/{id}/cert/csr` | `{"common_name", "key_type": "rsa" \| "ec", "key_size": null, "organization": null, "organizational_unit": null}` | `AwsCsrInfo` + `warnings` (`cn_not_source_identity_safe`); audited `aws_connection.csr_create` |
+| `GET /api/aws/connections/{id}/cert/csr` | — | `application/pkcs10` download (`netmonitor-<connection name slug>.csr`); `404` |
+| `DELETE /api/aws/connections/{id}/cert/csr` | — | `204`; audited |
+| `POST /api/aws/connections/{id}/cert/copy` | `{"from_connection_id": 1}` | `AwsConnection` (certificate, chain and key decrypted with the source AAD, encrypted with the target's); `422` when the source has no certificate or an unreadable key; audited `aws_connection.cert_copy` |
+| `POST /api/aws/external-id` | — | `{"external_id": "<32 characters [A-Za-z0-9]>"}` (nothing stored) |
+
+**Assistant endpoints (changed by 4-0a):**
+- `GET /api/assistant/settings` — the authentication fields of 1.4.x are **removed** (`auth_mode`, `access_key_id`,
+  `secret_access_key*`, `session_token*`, `access_key_created_at`, `ra_*`, `proxy_mode`, `proxy_url`,
+  `certificate`, `certificate_host_files`, `csr`); added `connection_id: number | null`, `access: AwsAccess`,
+  `connection: {id, name, auth_mode, is_default, account, arn, state} | null` (read-only). `warnings` keeps the
+  Bedrock warnings; certificate / key warnings move to the connection.
+- `PUT /api/assistant/settings` — accepts `connection_id` and `access` (validated as "Consumer access"); changing
+  either while the assistant is ON needs a `test_id` (`422 assistant_test_required`, unchanged code). A removed field
+  in the body → `422 validation_error`, `loc: ["body", "<field>"]`, message "moved to Settings → AWS".
+- `POST /api/assistant/test` — body `{"settings": partial}` may carry `connection_id` / `access`; the result's steps
+  are `config`, `credentials`, `identity`, [`hop`, `hop_identity`], `endpoint`, `converse` (each with `hop` and
+  `hints`); `via`, `endpoint_host`, `address_class` as 3b.
+- `/api/assistant/cert*` — **removed** (use `/api/aws/connections/{id}/cert*`).
+- `GET /api/assistant/status` gains `aws: {"connection_id", "connection_name", "access_mode", "hops": AwsChainHop[],
+  "last_error": {"code", "message", "at"} | null}`.
+- `POST /api/assistant/models`, `/api/assistant/knowledge*` use the assistant's chain; shapes unchanged.
+
+### [4] Cloud inventory (feature `aws_inventory`; reads: viewer)
+```ts
+type AwsAccount = { id: number; account_id: string; name: string; connection_id: number | null; access: AwsAccess;
+  regions: string[]; all_regions: boolean; enabled: boolean; device_id: number | null;
+  status: Record<string, { last_refresh: string | null; duration_ms: number | null; truncated: boolean;
+  errors: Record<string, string> }>; last_test: object | null };
+type AwsResource = { id: number; account_id: string; region: string; type: AwsResourceType; resource_id: string;
+  parent_id: string | null; vpc_id: string | null; name: string | null; cidrs: string[]; state: string | null;
+  data: object; first_seen: string; last_seen: string; deleted_at: string | null };
+type CloudSite = { id: string; name: string; cidrs: string[]; device_ids: number[];
+  links: { type: "dx_connection" | "dx_lag" | "dx_vif" | "vpn" | "tgw_connect"; resource_id: string }[] };
+type CloudEndpoint = { kind: "eni" | "subnet" | "vpc" | "site" | "named_cidr" | "aws_service" | "internet"
+  | "private_other" | "unknown" | "tgw_attachment" | "account"; key: string; label: string; resource_id: number | null };
+type CloudGraph = { level: "structure" | "overlay" | "flow_only";
+  nodes: { id: string; type: AwsResourceType | CloudEndpoint["kind"]; label: string; state: string | null;
+    resource_id: number | null; device_ids: number[]; group: string | null /* AZ, VPC or account */;
+    bytes: number | null; drops: number | null }[];
+  edges: { id: string; source: string; target: string; kind: "structure" | "traffic"; state: string | null;
+    bytes: number | null; packets: number | null; reject_bytes: number | null; reject_packets: number | null;
+    path_class: number | null; via: string[]; inferred: boolean }[];
+  others: { node: string; bytes: number }[];          // traffic not shown because of top-N
+  notes: string[];                                    // e.g. "flow_only_no_structure", "approximate", "no_flow_logs_for:vpc-…"
+  generated_at: string; stale_regions: string[]; window: { from: string; to: string } };
+```
+| Method & path | Request | Response |
+|---|---|---|
+| `GET /api/cloud/settings` *prep* | — | `{"enabled", "sites": CloudSite[], "named_cidrs", "tag_keys", "eni_change_ignore_types", "last_test", "interval_min", "suggested_sites": CloudSite[]}` |
+| `PUT /api/cloud/settings` *prep* | partial + optional `enabled`, `test_id` | same; `422 test_required` (the test must cover every enabled account) |
+| `POST /api/cloud/test` *prep* | `{"account": partial AwsAccount \| null, "account_id": null}` (one unsaved or saved account; null = all enabled) | `TestResult` steps per account: the chain steps of the connection test, `regions` (`DescribeRegions` when `all_regions`), `ec2:<region>` (`DescribeVpcs`), `directconnect:<region>` (`DescribeConnections`), `permissions` (one cheap call per inventory action; missing ones in `hints` as `missing:<action>` — a warning, not a failure) |
+| `GET /api/cloud/accounts` *prep* / `POST` / `PATCH /{id}` / `DELETE /{id}` | `AwsAccount` writable fields | `AwsAccount`; audited `aws_account.*` |
+| `POST /api/cloud/accounts/{id}/device` *prep* | `{"name": null, "group_id": null}` | `AwsAccount` with the created cloud device's `device_id` (architecture § 15.2.7) |
+| `POST /api/cloud/refresh` | `{"account_id": null}` | `202 {"started": true}`; `409 conflict` while running |
+| `GET /api/cloud/status` | — | `{"running": false, "last_refresh", "next_refresh", "counts": {"vpc": 6, …}, "errors": [...]}` |
+| `GET /api/cloud/resources` | `?type=&account_id=&region=&vpc_id=&q=&include_deleted=false&page=&page_size=` | page of `AwsResource` |
+| `GET /api/cloud/resources/{id}` | — | `AwsResource` + `{"children": [...], "flows": {...} \| null, "changes": [...last 20]}` |
+| `GET /api/cloud/graph` | `?level=structure\|overlay\|flow_only&agg=account\|vpc\|subnet\|eni&account_id=&region=&vpc_id=&from=&to=&top=50&exporter_kind=aws_vpc\|aws_tgw&include_rejects=true&expand=vpc-…` (`level` default: the richest available; `agg=eni` needs `vpc_id`; `top` ≤ 300; window ≤ 7 d) | `CloudGraph`; `409 feature_disabled` names the missing feature for the requested level (`overlay` needs both, `flow_only` needs `aws_flow_logs`, `structure` needs `aws_inventory`) |
+| `GET /api/cloud/changes` | cursor page `?since=&type=&resource_id=&account_id=&kind=` | `{"items": [{"time", "type", "resource_id", "name", "kind", "change"}], "next_cursor"}` |
+| `GET /api/cloud/ip/{ip}` | — | `{"ip", "eni_id", "subnet_id", "vpc_id", "name", "account_id", "kind", "site": null, "named_cidr": null} \| 404` |
+
+### [4] VPC Flow Logs (feature `aws_flow_logs`; reads: viewer)
+```ts
+type FlowLogSource = { id: number; name: string; enabled: boolean; log_type: "vpc" | "tgw"; destination: "s3" | "cwl";
+  account_id: string; region: string; connection_id: number | null; access: AwsAccess;
+  bucket: string | null; prefix: string;   // x-amz-expected-bucket-owner: account_id is always sent
+  file_format: "auto" | "text" | "parquet"; layout: "auto" | "plain" | "plain_hourly" | "hive" | "hive_hourly" | "generic";
+  generic_pattern: string | null; source_accounts: string[]; source_regions: string[]; flow_log_ids: string[];
+  log_group: string | null; stream_prefix: string | null; fields: string[] | null;
+  lookback_h: number; backlog_policy: "skip_old" | "catch_up"; max_records_per_poll: number; settle_s: number;
+  detected: { layout?: string; file_format?: string; fields?: string[]; flow_log_ids?: string[] };
+  stats: { objects: number; records: number; skipped_old: number; parse_errors: number; skipdata: number;
+    deferred: number; failed_objects: number; late_suspected: number; lag_s: number | null; watermark: string | null;
+    last_poll: string | null; last_error: string | null; health: "ok" | "falling_behind" | "source_stale" | "error" };
+  last_test: object | null };
+type FlowLogCapabilities = { file_formats: string[]; destinations: string[]; log_types: string[]; layouts: string[];
+  parquet: "ready" | "missing" };   // what this build supports; the form shows the rest disabled ("arrives in a later update")
+```
+| Method & path | Request | Response |
+|---|---|---|
+| `GET /api/cloud/flowlogs/settings` *prep*, `PUT` | `{"enabled", "test_id", "poll_min", "max_records_s"}` | settings + `capabilities: FlowLogCapabilities`; `422 test_required` (the test must cover every enabled source) |
+| `GET /api/cloud/flowlogs/discovered` *prep* | `?account_id=&live=false` | `{"items": [{"flow_log_id", "account_id", "region", "resource_id", "resource_level", "log_type", "destination": "s3" \| "cwl" \| "firehose", "destination_arn", "file_format", "hive", "hourly", "log_format", "aggregation_s", "source_id": null, "prefill": partial FlowLogSource}]}` (from the inventory, or a live `DescribeFlowLogs` with `live=true`; `firehose` items are informational) |
+| `GET/POST /api/cloud/flowlogs/sources` *prep*, `PATCH/DELETE /{id}` | `FlowLogSource` writable fields | `FlowLogSource`; `422 unsupported_option` for a choice this build does not have yet; audited |
+| `POST /api/cloud/flowlogs/test` *prep* | `{"source": partial \| null, "source_id": null}` | `TestResult`: chain steps, `list` (S3 `ListObjectsV2` of the newest partition / `DescribeLogGroups`), `layout` (detected layout, Hive spelling, flow-log ids found), `read` (one object / one page), `format` (text or Parquet, field list and where it came from), `parse` (records parsed / errors in the sample, newest record age) |
+| `GET /api/cloud/flowlogs/status` | — | `{"sources": [{"id", "stats"}], "records_per_min": 12000, "budget": {"max_records_s", "used_pct"}}` |
+| `GET /api/cloud/traffic/summary` | `?from&to&exporter_kind&account_id&vpc_id&subnet_id&eni_id&tgw_id&site&direction` | `{"bytes", "packets", "by_path": [{"path": 3, "label": "virtual private gateway", "bytes"}], "sites": [{"site", "to_aws_bytes", "from_aws_bytes", "series": [[t, in, out], …]}], "approximate": false}` |
+| `GET /api/cloud/traffic/top` | `?kind=talkers\|apps\|conversations\|aws_services&from&to&vpc_id&eni_id&tgw_id&limit=20` | phase-3 top shapes with cloud names |
+| `GET /api/cloud/traffic/rejects` | `?from&to&vpc_id&eni_id&dst_port&group_by=port\|source\|eni&limit=50` | `{"items": [{"key", "flows", "packets", "bytes", "eni_id", "security_groups": [...ids] \| null, "nacl_id": string \| null}]}` |
+| `GET /api/cloud/traffic/drops` | `?from&to&tgw_id&attachment_id` | `{"items": [{"attachment_id", "reason": "no_route" \| "blackhole" \| "mtu_exceeded" \| "ttl_expired", "packets"}], "series": [[t, packets], …]}` |
+| `GET /api/cloud/traffic/edges` | `?from&to&agg=&exporter_kind=&node=<kind>:<key>&action=&top=50` | `{"items": [{"src": CloudEndpoint, "dst": CloudEndpoint, "path_class", "via", "bytes", "packets", "reject_packets"}], "others_bytes"}` (the table behind the map) |
+| `GET /api/cloud/traffic/series` | `?from&to&vpc_id&eni_id&tgw_id&path&step=60` | `{"series": [[t, bytes_in, bytes_out], …]}` |
+The phase-3 flow endpoints accept `?exporter_kind=device|aws_vpc|aws_tgw|aws_flowlog` (default `device`, so existing
+clients see no change) and return `kind`, `ext_key`, `name` on exporters; `address` becomes `string | null`.
+
+### [4] Flow-threshold and AWS-change rules (event-rule kinds; no toggles of their own)
+The existing event-rule endpoints (`GET/POST /api/event-rules`, `PATCH/DELETE /api/event-rules/{id}`, test and
+conditions endpoints of 2b-3) accept the two new kinds; no new router. Rules need `event_alerts` ON to evaluate;
+`aws_change` rules also `aws_inventory`; a rule whose data feature is OFF is stored and reports `state.warnings:
+["feature_off:aws_inventory"]`.
+```ts
+type EventRule = { /* 2b-3 fields */ kind: "trap" | "syslog" | "flow_threshold" | "aws_change";
+  match: TrapMatch | SyslogMatch | FlowThresholdMatch | AwsChangeMatch;   // shapes: data-model § [4] `event_rules` changes
+  state?: { open_conditions: number; learning: boolean; last_evaluated: string | null; warnings: string[] } };
+```
+| Method & path | Request | Response |
+|---|---|---|
+| `POST /api/event-rules`, `PATCH /api/event-rules/{id}` | kind `flow_threshold` / `aws_change` with its `match` | `EventRule`; `422 validation_error` with `loc` into `match` (RE2 message for `name_regex`); `warnings: ["no_target_device"]` when no device resolves, `["feature_off:<name>"]` when its data feature is OFF |
+| `POST /api/event-rules/preview` | `{"rule": EventRule fields, "from": "…", "to": "…"}` (≤ 7 days) | flow rule: `{"windows": [{"end", "group", "value", "baseline", "breach"}], "would_open": 3}` computed from stored aggregates; change rule: `{"matches": [{"time", "resource_id", "message"}]}` from stored changes. Nothing is written. Lets the admin tune a rule against real history before enabling it |
+| `GET /api/event-rules?kind=flow_threshold` | — | as 2b-3, with `state` |
+Event sensors `flow_alert` and `aws_change` appear through the normal sensor endpoints; their conditions through the
+2b-3 conditions endpoints (incl. *Clear*).
+
+### [4] High availability (feature `ha`; status: viewer; actions: admin)
+```ts
+type HaNode = { name: string; address: string; preferred_role: "primary" | "standby"; role: HaRole; version: string;
+  db_image: string; last_seen: string | null; reachable: boolean; lag_bytes: number | null; lag_s: number | null;
+  paths: { label: string; ok: boolean; rtt_ms: number | null; last_ok: string | null }[];
+  quorum: { ok: boolean; checked_at: string; reachable: number; sample: number;
+    devices: { device_id: number; name: string; ok: boolean; method: "icmp" | "snmp" }[] } | null;
+  spool: { bytes: number; spooled: number; dropped: number } | null };
+type HaStatus = { configured: boolean; enabled: boolean; this_node: string; role: HaRole; epoch: number;
+  holder: string; since: string | null; reason: string | null; nodes: HaNode[];
+  replication: { state: "streaming" | "catchup" | "down" | "n/a"; slot: string | null; sent_lsn: string | null;
+    replay_lsn: string | null; lag_bytes: number | null; lag_s: number | null; wal_kept_bytes: number | null;
+    wal_limit_bytes: number | null };
+  witness: { reachable: boolean; epoch: number | null; holder: string | null; view: object | null };
+  dns: { method: string; record: string; answers: { server: string; addresses: string[]; ok: boolean }[];
+    last_update: string | null; last_error: string | null };
+  last_replay: object | null; needs_rejoin: boolean; divergent_audit_files: string[];
+  actions: { switchover: boolean; force_failover: boolean; rejoin: boolean; rebuild: boolean; reasons: string[] } };
+```
+| Method & path | Request | Response |
+|---|---|---|
+| `GET /api/ha/status` (viewer; works on every node, read-only) | — | `HaStatus` |
+| `GET /api/ha/settings` *prep* (admin) | — | `ha` object with secrets as `*_set` flags (`ad_keytab_set`, `ca_set`, tokens never returned) |
+| `PUT /api/ha/settings` *prep* | partial + `enabled`, `test_id` | same; `422 test_required` for `enabled` or a change of witness URLs, node addresses, DNS method/fields while ON; every URL and DNS server is netguard-checked (422 with the field) |
+| `POST /api/ha/test` *prep* | `{"settings": partial}` | `TestResult` steps `peer` (both directions), `replication`, `witness:<label>` per URL, `quorum:<node>`, `dns`, `versions`, `clock` |
+| `POST /api/ha/pairing` *prep* | — | `{"code": "ABCD-…", "expires_at"}` (shown once); creates HA CA/tokens if absent; audited `ha.pairing_create` |
+| `DELETE /api/ha/pairing` | — | `204` |
+| `POST /api/ha/pair` (no session; peer address only; called by `ha-join.sh`) | `{"code_proof": hmac, "node": "aws1"}` | `200 {"bundle": "<base64 ciphertext>"}`; `410 pairing_expired`; `403` from another address |
+| `POST /api/ha/witness-bundle` *prep* | — | `200 application/octet-stream` (encrypted with a code shown once in header `X-Bundle-Code`) |
+| `POST /api/ha/dns/keytab` *prep* (method `ad_gss_tsig`) | `multipart` `file` (≤ 16 KiB) | `{"principals": ["svc-netmon-dns@EXAMPLE.NET"], "kvno": 3}`; audited |
+| `PUT /api/ha/settings` `dns` fields per method | `ad_gss_tsig`: `servers`, `zone`, `record`, `ad_principal` (keytab via the endpoint above); `route53`: `route53_zone_id`, `route53_record`, `connection_id`, `access` | secrets returned as `*_set` flags |
+| `GET/PUT /api/ha/anchors` | `{"anchors": [{"device_id": 12, "probe": "auto" \| "icmp" \| "snmp" \| "tcp:443"}]}` (≤ 20) | same |
+| `POST /api/ha/switchover` | `{"to": "aws1"}` | `202 {"epoch_from": 7}`; `409 ha_not_ready`; `409 ha_refused`; progress via WS `ha.state`; audited |
+| `POST /api/ha/failover` (on the standby; allowed while `ha` is OFF) | `{"confirm": "FAILOVER aws1", "password": "…"}` | `202`; `422 confirmation_mismatch`; `401 reauth_required`; `409 ha_not_ready` (`peer_reachable` — use switchover); audited `ha.failover_forced` |
+| `POST /api/ha/rejoin` | `{"mode": "rewind" \| "rebuild"}` | `202` (sets the request flag for the host timer) |
+| `GET /api/ha/events` | cursor page `?since&kind&node` | `{"items": [{"time", "node", "kind", "epoch", "details"}], "next_cursor"}` |
+| `GET /api/ha/readiness` | — | `{"devices": [{"device_id", "name", "traps_to_standby": true, "syslog_to_standby": false, "flows_to_standby": null, "snmp_from_standby": true}]}` |
+| `GET /api/ha/local` (localhost only, no auth; for `ha-gate.sh`, `backup.sh`, `status.sh`) | — | `{"node", "role", "epoch", "needs_rejoin", "rejoin_request", "version", "db_image", "peer": {"reachable", "role", "version", "db_image", "replication": "streaming"}}` |
+
+**Peer API** (node token HMAC auth, headers `X-Netmon-Node`, `X-Netmon-Time`, `X-Netmon-Signature` =
+hex HMAC-SHA256(token, `METHOD\npath\ntime\nsha256(body)`), ±60 s; peer address only):
+`POST /api/ha/peer/heartbeat` `{"node", "epoch", "holder", "role", "version", "db_image", "lsn", "lag_s", "quorum",
+"spool", "events": [≤ 20]}` → `{"node", "epoch", "holder", "role", "version", "db_image"}`;
+`POST /api/ha/peer/handover` (switchover steps: `prepare`, `final_lsn`, `promoted`) → step-specific JSON.
+
+**Witness API** (port 8443, same HMAC auth, TLS by the HA CA):
+| Method & path | Request | Response |
+|---|---|---|
+| `POST /v1/heartbeat` | `{"node", "path": "private" \| "internet", "epoch", "holder", "role", "lsn", "lag_s", "quorum_ok", "quorum": {"reachable", "sample"}, "version", "flags": ["replication_broken"]}` | `{"epoch", "holder", "time"}` |
+| `POST /v1/promote` | `{"node", "epoch_requested", "quorum": {...evidence}, "lag_s"}` | `200 {"granted": true, "epoch": 8}` or `200 {"granted": false, "reason": "holder_alive"}` |
+| `POST /v1/epoch` | `{"node", "epoch", "holder", "reason": "forced" \| "switchover"}` | `{"accepted": true}` (higher epochs only) |
+| `GET /v1/state` | — | `{"epoch", "holder", "nodes": {"office1": {"last_heartbeat": {"private": "…", "internet": "…"}, "role", "lag_s", "quorum_ok"}}, "alerts": [...]}` |
+| `GET /v1/health` (no auth) | — | `{"status": "ok", "version"}` |
+
+CLI: `netmon ha status|switchover [--to N]|failover --force --confirm N|fence|events [--since]` (JSON with `--json`),
+`netmon witness [--config /etc/netmon-witness/witness.env]`.
+
+### [4] Certificates (feature `cert_monitor`; reads: viewer)
+| Method & path | Request | Response |
+|---|---|---|
+| `GET /api/certificates` | `?expiring_days=&issuer=&self_signed=&q=&page=` | page of `{"sha256", "subject_cn", "sans", "issuer", "not_after", "days_left", "status": "ok" \| "warning" \| "critical" \| "expired", "key_type", "key_bits", "sig_alg", "self_signed", "endpoints": [{"source", "host", "port", "sni", "device_id", "sensor_id", "chain_ok", "hostname_ok", "error", "last_seen"}]}` |
+| `GET /api/certificates/{sha256}` | — | the item + `pem` (public certificate) |
+| `POST /api/certificates/discover` | `{"device_ids": [], "group_id": null, "ports": null}` (null = setting `cert_discovery_ports`; ≤ 16) | `{"found": [{"device_id", "port", "subject_cn", "not_after", "has_sensor": false}]}` (nothing created) |
+`tls_cert` sensors use the normal sensor endpoints; `POST /api/sensors/test` works for them.
+
+### [4] Optics and PoE (features `optics_dom`, `poe_ports`; viewer)
+| Method & path | Request | Response |
+|---|---|---|
+| `GET /api/devices/{id}/optics` | — | `{"supported": true, "template_confidence": "medium", "items": [{"if_index", "port_name", "status", "rx_dbm", "tx_dbm", "temp_c", "voltage_v", "bias_ma", "thresholds", "module", "baseline_rx_dbm", "updated_at"}]}` |
+| `GET /api/devices/{id}/ports/{if_index}/optics/history` | `?from&to&step` | `{"series": {"rx_dbm": [[t, v], …], "tx_dbm": …, "temp_c": …}}` |
+| `GET /api/devices/{id}/poe` | — | `{"budget_w", "used_w", "groups": [...], "items": [{"if_index", "port_name", "state", "class", "power_w", "max_24h_w", "connected": {...}}]}` |
+| `GET /api/devices/{id}/ports/{if_index}/poe/history` | `?from&to&step` | `{"series": [[t, w], …]}` |
+
+### [4] Compliance (feature `config_compliance`; reads: viewer)
+| Method & path | Request | Response |
+|---|---|---|
+| `GET/POST /api/compliance/rules`, `GET/PATCH/DELETE /api/compliance/rules/{id}` | rule fields (data-model) | `ComplianceRule` (+ `fail_count`, `pass_count`); built-in rules: PATCH allowed, DELETE `409 conflict`; audited `compliance_rule.*` |
+| `POST /api/compliance/rules/test` | `{"rule": {...}, "device_id": 12}` | `{"status", "details"}` against the device's latest config (no storage) |
+| `POST /api/compliance/evaluate` | `{"device_ids": [] , "rule_ids": []}` | `202` |
+| `GET /api/compliance/summary` | — | `{"score", "devices": [{"device_id", "name", "score", "failed_high", "failed", "applicable", "evaluated_at"}], "rules": [{"rule_id", "name", "severity", "failed", "passed"}], "trend": [[day, score], …]}` |
+| `GET /api/compliance/results` | `?device_id&rule_id&status&page` | page of `{"device_id", "rule_id", "status", "details", "config_version_id", "evaluated_at", "changed_at"}` |
+| `GET /api/compliance/export.csv` | same filters | CSV |
+| `GET /api/compliance/rules/export.yaml` | `?ids=` | rule pack (YAML) |
+| `POST /api/compliance/rules/import` | `multipart` `file` (≤ 256 KiB YAML), `?dry_run=true` | `{"created": 12, "skipped": [{"name", "reason"}]}`; rules are validated like the editor (RE2) and imported disabled; audited |
+
+### [4] On-call — removed
+No endpoints (architecture § 15.9). `AlertRule` is unchanged by phase 4.
+
+### [4] S3 backups (feature `s3_backup`; admin)
+| Method & path | Request | Response |
+|---|---|---|
+| `GET /api/backups/s3/settings` *prep* / `PUT` | `s3_backup` fields incl. `connection_id`, `access`, `account_id`, `retention_mode`, `config_export_mode` (passphrase write-only: `passphrase: null` keeps, `""` clears; response `passphrase_set`) + `enabled`, `test_id` | settings; `422 test_required` |
+| `POST /api/backups/s3/test` *prep* | `{"settings": partial}` | `TestResult`: the chain steps, then `put`, `get`, `delete` (warning `no_delete`; the result proposes `retention_mode`), `list`, `pg_dump` (client version matches server), `createdb` (restore possible) |
+| `POST /api/backups/s3/run` | `{"kind": "db" \| "config_export_all"}` | `202 {"run_id"}`; `409 conflict` while one runs |
+| `GET /api/backups/s3/runs` | `?kind&page` | page of `backup_runs` |
+| `GET /api/backups/s3/objects` *prep* | `?kind=db` | `{"items": [{"key", "size", "last_modified", "meta": {...} \| null, "key_included": true}]}` |
+| `POST /api/backups/s3/restore` | `{"key", "confirm": "RESTORE 2026-11-09", "password", "skip_safety_dump": false}` | `202 {"restore_id"}`; `409 restore_refused`; `401 reauth_required`; `422 confirmation_mismatch`; then the server enters maintenance and restarts; audited `backup.restore` |
+| `GET /api/backups/restore/status` (public while in maintenance) | — | `{"state": "idle" \| "downloading" \| "restoring" \| "swapping" \| "restarting" \| "done" \| "failed", "progress": 0.4, "error"}` |
+| `GET /api/backups/restore/previous` / `DELETE` | — | `{"name", "size_bytes", "created_at"} \| null` / `204` (drop the kept database; audited) |
+
+### [4] Traffic capture (feature `packet_capture`; admin, session only — API tokens `403`)
+```ts
+type Capture = { id: number; created_by: string; created_at: string; node: string; source: "device" | "mirror";
+  device_id: number | null; interface: string | null; source_id: number | null; filter: string; snaplen: number;
+  max_duration_s: number; max_bytes: number; max_packets: number; justification: string | null;
+  status: CaptureStatus; stop_reason: string | null; started_at: string | null; ended_at: string | null;
+  packets: number | null; bytes: number | null; rate: { pps: number; mbps: number } | null; file_size: number | null;
+  format: string | null; expires_at: string; available: boolean; error: string | null };
+type PacketRow = { no: number; t: number; src: string; dst: string; proto: string; len: number; info: string;
+  stream: number | null; color: string | null };
+```
+| Method & path | Request | Response |
+|---|---|---|
+| `GET /api/captures/settings` *prep* / `PUT` | limits (`capture_*`) + `enabled`, `test_id` | settings + `addon: {"agent": "ready", "decoder": "ready", "interfaces": ["ens224"], "tshark_version": "4.x"}` |
+| `POST /api/captures/test` *prep* | `{"source": "device", "device_id": 12, "interface": "GigabitEthernet1/0/1"}` or `{"source": "mirror", "source_id": 2}` | `TestResult` steps `ssh`/`agent`, `precheck`, `start`, `fetch`, `cleanup`, `decode` (2-s, tiny capture) — the feature's `test_id` needs at least one passing source test; each source keeps its own `last_test` |
+| `GET/POST /api/captures/sources`, `PATCH/DELETE /{id}` *prep* | mirror source fields | source |
+| `POST /api/captures` | `{"source", "device_id", "interface", "source_id", "filter", "snaplen", "max_duration_s", "max_bytes", "max_packets", "justification", "password"}` (`password` required when `snaplen` > 128) | `201 Capture`; `409 capture_limit`; `422 invalid_filter`; `422 capture_addon_missing`; `401 reauth_required` |
+| `GET /api/captures` | `?page` | page of `Capture` |
+| `GET /api/captures/{id}` | — | `Capture` |
+| `POST /api/captures/{id}/stop` | — | `Capture` |
+| `DELETE /api/captures/{id}` | — | `204` (file removed) |
+| `GET /api/captures/{id}/download` | — | the file (`application/vnd.tcpdump.pcap` / pcapng), `Content-Disposition` `cap-<id>-<device>-<ts>.pcapng`; audited |
+| `GET /api/captures/{id}/packets` | `?offset=0&limit=500&filter=<display filter>` | `{"total", "matched", "items": PacketRow[]}`; `422 invalid_filter` |
+| `GET /api/captures/{id}/packets/{no}` | — | `{"no", "layers": [{"name", "label", "fields": [{"name", "label", "value", "filter", "offset", "length", "children": [...]}]}], "hex": "<base64 frame>"}` |
+| `GET /api/captures/{id}/follow` | `?proto=tcp\|udp&stream=3&format=ascii\|hex\|raw` | `{"client": "10.0.0.5:51544", "server": "10.0.1.9:443", "chunks": [{"dir": "c2s" \| "s2c", "data": "<base64>", "t": 0.012}], "truncated": false}` (≤ 4 MiB) |
+| `GET /api/captures/{id}/stats` | `?kind=phs\|conv_ip\|conv_tcp\|conv_udp\|endpoints_ip\|io&interval=1` | stat-specific JSON (tables / series) |
+Viewing (`packets`, `follow`, `stats`) is audited once per capture per admin per hour (`capture.view`).
+
+### [4] Assistant cloud tools (no toggle: offered while `assistant` and the data feature are ON)
+No new endpoint. `GET /api/assistant/status` lists the tools `cloud_find`, `cloud_resource`, `cloud_sg_allows`,
+`cloud_route`, `cloud_changes`, `cloud_top_talkers`, `cloud_rejects`, `cloud_edges` with the 3b availability reasons
+(`feature_off:aws_inventory` …). Tool steps and citations use the 3b stream events; citation links point to
+`/cloud/resources/{id}`, `/cloud/traffic?…`, `/cloud/changes?…`.
+
+### [4] Audit actions (feature `audit`)
+`aws_connection.create|update|delete|set_default|test|cert_upload|cert_delete|cert_copy|csr_create|csr_delete`
+(details: name, mode, role ARNs, changed field names — never ExternalId values or secrets), `aws_account.create|update|delete`,
+`cloud.settings_update`, `cloud.test`, `cloud.refresh`, `flowlog_source.create|update|delete`, `flowlog.test`,
+`event_rule.*` (existing; covers the new kinds),
+`ha.settings_update`, `ha.test`, `ha.pairing_create|pairing_delete|pair` (bundle fetched, with the peer address),
+`ha.witness_bundle`, `ha.dns_keytab_upload`, `ha.anchors_update`, `ha.switchover`, `ha.failover_forced`,
+`ha.rejoin_request`, `ha.promoted` (system), `ha.fenced` (system), `compliance_rule.create|update|delete|import`,
+`s3_backup.settings_update`, `s3_backup.test`, `backup.run`, `backup.restore`, `backup.drop_previous`,
+`capture.settings_update`, `capture.test`, `capture_source.*`, `capture.start|stop|view|download|delete` (with device,
+interface/source, filter, snaplen, limits, justification; `stop` with reason, packets, bytes). The assistant's
+existing audit rows cover the cloud tools (tool name and arguments, as 3b). Source `cli` for actions run with
+`netmon ha …`.
+
+### [4] WebSocket additions
+| type | data | When / who |
+|---|---|---|
+| `features.changed` | 9 new names | as 2b-3 |
+| `ha.state` | `{"role", "epoch", "holder", "nodes": [{"name", "role", "reachable", "lag_s"}], "event": {"kind", "time"} \| null}` | on any change and every 10 s while a switchover runs; all users (banner) |
+| `role.changed` | `{"role": "standby", "active_url": "https://…"}` | this node changed role; all sockets (the SPA reloads into read-only mode) |
+| `cloud.refresh` | `{"running": false, "finished_at", "errors": 0, "changes": 4}` | inventory refresh finished; viewers |
+| `cloud.flowlogs` | `{"source_id", "health", "lag_s", "watermark"}` | a source's health changed or a poll finished (≤ 1 per source per minute); viewers |
+| `aws.connection` | `{"id", "state": "ok" \| "error", "error_code", "hop"}` | a credential chain started failing or recovered; admins |
+| `capture.update` | `{"capture": Capture}` | every second while running, then on status change; the creating admin (and admins on the list page) |
+| `backup.run` | `{"run": BackupRun}` | admins |
+| `restore.progress` | `{"state", "progress"}` | admins; also polled through the status endpoint during maintenance |
+| `compliance.evaluated` | `{"devices": 12, "failed_high": 3}` | viewers |

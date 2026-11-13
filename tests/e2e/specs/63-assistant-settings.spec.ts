@@ -2,6 +2,8 @@
 // (docs/architecture.md §14.0, §14.2.3, §14.2.6, §14.7, §14.11 spec 63; api.md "[3b] Assistant settings, test,
 // certificate"). Owner decisions: default us-east-1 + `us.` profile, il-central-1 + `global.`; USD prices; Roles
 // Anywhere recommended (CSR flow + cert upload). Leaves the assistant ON (access key, mock) for the later specs.
+// [4] PR 4-0a: the authentication lives in the shared AWS connection "E2E mock" (lab3b helpers); certificate and
+// CSR endpoints are those of the connection (/api/aws/connections/{id}/cert*).
 import { expect, test } from '@playwright/test';
 import { mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -11,8 +13,9 @@ import { SIM_DIR, ensureViewer, raw } from '../lib/lab';
 import { py } from '../lib/lab3';
 import { setFeatures } from '../lib/lab3';
 import {
-  AI_FEATURES, BEDROCK_PKI, IL_MODEL, MOCK_ENDPOINT, MODEL, PHASE3B, RA, akSettings, assistantSettings, audit, enableAssistant, ensureAdmin2,
-  mock, pkiFile, raSettings, shot3b, testConnection, tokenApi, uploadCert,
+  AI_FEATURES, BEDROCK_PKI, CONN_NAME, IL_MODEL, MOCK_ENDPOINT, MODEL, PHASE3B, RA, akSettings, assistantFields, assistantSettings, audit,
+  connections, e2eConnectionId, enableAssistant, ensureAdmin2, ensureConnection, mock, mockOverrides, pkiFile, raSettings, shot3b,
+  testConnection, tokenApi, uploadCert,
 } from '../lib/lab3b';
 
 // default mode (not serial): one worker runs the tests in order; a failure restarts the worker (beforeAll is
@@ -22,6 +25,7 @@ test.skip(!PHASE3B, 'phase-3b Bedrock mock not running');
 
 let api: Api;
 const manifest = () => JSON.parse(readFileSync(pkiFile('manifest.json'), 'utf8'));
+const e2eConn = async () => (await connections(api)).find((c: any) => c.name === CONN_NAME);
 // endpoints that answer 409 feature_disabled while assistant is OFF, and the "prepare" ones that do not
 const GATED: [string, string, unknown?][] = [
   ['POST', '/api/assistant/ask', { conversation_id: null, question: 'hi' }],
@@ -44,9 +48,14 @@ test('fresh install: assistant and the 10 AI features OFF, USD prices, health "d
   for (const n of ['assistant', ...AI_FEATURES]) expect(f[n], `feature ${n}`).toBe(false);
   expect((await api.get('/api/health')).assistant).toBe('disabled');
   const s = await assistantSettings(api);
-  expect(s).toMatchObject({ enabled: false, state: 'disabled', secret_access_key: null, certificate: null });
+  expect(s).toMatchObject({ enabled: false, state: 'disabled', access: { mode: 'direct', role_arn: null, external_id: null } });
+  // [4] the authentication fields moved to Settings → AWS
+  for (const k of ['auth_mode', 'secret_access_key', 'certificate', 'ra_session_seconds', 'proxy_mode', 'csr'])
+    expect(k in s, `assistant settings must not carry ${k}`).toBe(false);
+  const moved = await raw(api, 'PUT', '/api/assistant/settings', { auth_mode: 'access_key' });
+  expect(moved.status).toBe(422);
+  expect(moved.body.error.details).toEqual([expect.objectContaining({ loc: ['body', 'auth_mode'], msg: 'moved to Settings → AWS' })]);
   expect(s.prices.currency, 'owner decision: USD').toBe('USD');
-  expect(s.ra_session_seconds).toBe(3600);
   expect(s.send_config_excerpts).toBe(false);
   expect(s.redact_internal_ips).toBe(false);
   expect(s.chat_redact_ips).toBe(true);
@@ -87,10 +96,11 @@ test('cannot be enabled without a test: PUT /api/settings and PUT /api/assistant
     expect(r.body.error.code).toBe('assistant_test_required');
   }
   expect((await raw(api, 'PUT', '/api/settings', { feature_assistant_enabled: false })).status, 'OFF is accepted').toBe(200);
-  const r = await raw(api, 'PUT', '/api/assistant/settings', { ...akSettings(), enabled: true });
+  const fields = await assistantFields(api, akSettings());
+  const r = await raw(api, 'PUT', '/api/assistant/settings', { ...fields, enabled: true });
   expect(r.status).toBe(422);
   expect(r.body.error.code).toBe('assistant_test_required');
-  const fake = await raw(api, 'PUT', '/api/assistant/settings', { ...akSettings(), enabled: true, test_id: '0123456789abcdef0123456789abcdef' });
+  const fake = await raw(api, 'PUT', '/api/assistant/settings', { ...fields, enabled: true, test_id: '0123456789abcdef0123456789abcdef' });
   expect(fake.body.error.code).toBe('assistant_test_required');
 });
 
@@ -101,24 +111,26 @@ test('Test with a bad secret -> aws_auth_failed (mock saw InvalidSignatureExcept
   expect(t.body.ok).toBe(false);
   expect(t.body.test_id).toBeNull();
   expect(t.body.error.code).toBe('aws_auth_failed');
+  // [4] the chain is tested first: STS GetCallerIdentity with the connection's key fails at `identity` (hop 0)
   const failed = t.body.steps.find((s: any) => !s.ok);
-  expect(failed.error_code).toBe('aws_auth_failed');
-  const reqs = await mock.requests('op=converse_stream');
-  expect(reqs.length, 'converse step reached the mock').toBeGreaterThan(0);
+  expect(failed).toMatchObject({ step: 'identity', hop: 0, error_code: 'aws_auth_failed' });
+  const reqs = await mock.requests('op=sts_get_caller_identity');
+  expect(reqs.length, 'the identity step reached the STS mock').toBeGreaterThan(0);
   expect(reqs.every((r) => r.sig.error === 'InvalidSignatureException')).toBe(true);
   // UI: store the bad values (OFF: no test needed), Test -> the mapped message, switch locked
-  await api.put('/api/assistant/settings', akSettings({ secret_access_key: 'wrong-secret-0000000000000000000000000000' }));
+  await api.put('/api/assistant/settings', await assistantFields(api, akSettings({ secret_access_key: 'wrong-secret-0000000000000000000000000000' })));
   await loginViaApi(page, undefined, '/settings?tab=assistant');
   await page.getByTestId('test-connection').click();
   await expect(page.getByTestId('test-result')).toHaveAttribute('data-ok', 'false', { timeout: 60_000 });
   await expect(page.getByTestId('test-result')).toContainText(/AWS rejected the credentials|aws_auth_failed/);
   await expect(page.getByTestId('assistant-switch').getByRole('switch')).toBeDisabled();
   await shot3b(page, '63-test-bad-secret');
-  // the secret is write-only
-  const s = await assistantSettings(api);
-  expect(s.secret_access_key).toBeNull();
-  expect(s.secret_access_key_set).toBe(true);
-  expect(JSON.stringify(s)).not.toContain('wrong-secret');
+  // the secret is write-only (on the AWS connection)
+  const c = await e2eConn();
+  expect(c.secret_access_key).toBeNull();
+  expect(c.secret_access_key_set).toBe(true);
+  expect(JSON.stringify(c)).not.toContain('wrong-secret');
+  expect(JSON.stringify(await assistantSettings(api))).not.toContain('wrong-secret');
 });
 
 test('certificate upload: invalid ones refused (422), .pfx accepted, metadata only (never the key), audited', async () => {
@@ -148,50 +160,55 @@ test('certificate upload: invalid ones refused (422), .pfx accepted, metadata on
     source: 'uploaded', key_type: 'rsa', key_bits: 2048, serial_decimal: '4660', key_unreadable: false,
     sha256: expect.stringMatching(new RegExp(`^${m.leaves['leaf-rsa'].sha256}$`, 'i')),
   });
-  expect(r.body.subject).toContain('netmonitor-bedrock.mnidom.net');
-  expect(r.body.issuer).toContain('QA Mnidom-PKI-SERV-CA');
-  expect(r.body.chain).toEqual([expect.objectContaining({ subject: expect.stringContaining('QA Mnidom-PKI-SERV-CA') })]);
+  expect(r.body.subject).toContain('netmonitor.example.net');
+  expect(r.body.issuer).toContain('QA Example Issuing CA');
+  expect(r.body.chain).toEqual([expect.objectContaining({ subject: expect.stringContaining('QA Example Issuing CA') })]);
   expect(r.text).not.toMatch(/PRIVATE KEY|BEGIN/);
-  const s = await assistantSettings(api);
+  const s = await e2eConn();
   expect(s.certificate.serial_decimal).toBe('4660');
+  expect(s.certificate).toMatchObject({ subject_cn: 'netmonitor.example.net', source_identity: 'CN=netmonitor.example.net' });
   expect(JSON.stringify(s)).not.toMatch(/PRIVATE KEY/);
-  const rows = await audit(api, 'action=assistant.cert_upload');
+  const rows = await audit(api, 'action=aws_connection.cert_upload');
   expect(rows.length).toBeGreaterThanOrEqual(2);
   expect(JSON.stringify(rows)).not.toMatch(/PRIVATE KEY|Pfx-pass-1|Key-pass-1/);
 });
 
 test('CSR flow (owner decision): key generated on the server, CSR downloaded, issued certificate uploaded alone', async () => {
-  const r = await raw(api, 'POST', '/api/assistant/cert/csr', { common_name: 'netmonitor-bedrock.mnidom.net', key_type: 'rsa', key_size: 2048, organization: null, organizational_unit: null });
+  const id = await e2eConnectionId(api);
+  const r = await raw(api, 'POST', `/api/aws/connections/${id}/cert/csr`, { common_name: 'netmonitor.example.net', key_type: 'rsa', key_size: 2048, organization: null, organizational_unit: null });
   expect(r.status, r.text).toBe(200);
   expect(r.body.pem).toContain('BEGIN CERTIFICATE REQUEST');
-  expect(r.body.subject).toContain('netmonitor-bedrock.mnidom.net');
+  expect(r.body.subject).toContain('netmonitor.example.net');
   expect(r.text).not.toMatch(/PRIVATE KEY/);
-  const dl = await api.ctx.fetch('/api/assistant/cert/csr');
+  const dl = await api.ctx.fetch(`/api/aws/connections/${id}/cert/csr`);
   expect(dl.status()).toBe(200);
   expect(dl.headers()['content-type']).toContain('application/pkcs10');
-  expect(dl.headers()['content-disposition']).toContain('netmonitor-bedrock.csr');
+  expect(dl.headers()['content-disposition']).toContain('netmonitor-e2e-mock.csr');
   const dir = mkdtempSync(join(tmpdir(), 'qa3b-csr-'));
   writeFileSync(join(dir, 'req.csr'), await dl.body());
   const signed = py([join(SIM_DIR, 'bedrock', 'pki.py'), 'sign-csr', BEDROCK_PKI, join(dir, 'req.csr'), join(dir, 'issued.pem')]);
   expect(signed.status, signed.stderr).toBe(0);
-  const s0 = await assistantSettings(api);
-  expect(s0.csr).toMatchObject({ subject: expect.stringContaining('netmonitor-bedrock.mnidom.net') });
+  const s0 = await e2eConn();
+  expect(s0.csr).toMatchObject({ subject: expect.stringContaining('netmonitor.example.net') });
   expect(JSON.stringify(s0.csr)).not.toMatch(/PRIVATE KEY/);
   // a certificate for another key -> key_mismatch (the pending key stays)
-  const wrong = await api.ctx.fetch('/api/assistant/cert', { method: 'POST', multipart: { file: { name: 'x.pem', mimeType: 'application/x-pem-file', buffer: readFileSync(pkiFile('leaf-ec.pem')) } } });
+  const wrong = await api.ctx.fetch(`/api/aws/connections/${id}/cert`, { method: 'POST', multipart: { file: { name: 'x.pem', mimeType: 'application/x-pem-file', buffer: readFileSync(pkiFile('leaf-ec.pem')) } } });
   expect(wrong.status()).toBe(422);
-  expect((await wrong.json()).error.code).toBe('key_mismatch');
-  const up = await api.ctx.fetch('/api/assistant/cert', { method: 'POST', multipart: { file: { name: 'issued.pem', mimeType: 'application/x-pem-file', buffer: readFileSync(join(dir, 'issued.pem')) } } });
+  const wbody = await wrong.json();
+  expect(wbody.error.code).toBe('key_mismatch');
+  // [4] the answer names the pending request and the certificate
+  expect(wbody.error.details).toEqual([expect.objectContaining({ csr_subject: expect.stringContaining('netmonitor.example.net') })]);
+  const up = await api.ctx.fetch(`/api/aws/connections/${id}/cert`, { method: 'POST', multipart: { file: { name: 'issued.pem', mimeType: 'application/x-pem-file', buffer: readFileSync(join(dir, 'issued.pem')) } } });
   expect(up.status(), await up.text()).toBe(200);
   const info = await up.json();
   expect(info).toMatchObject({ source: 'uploaded', key_type: 'rsa', key_bits: 2048 });
-  expect((await assistantSettings(api)).csr, 'pending CSR cleared').toBeNull();
+  expect((await e2eConn()).csr, 'pending CSR cleared').toBeNull();
   // the server-generated key signs CreateSession
   await mock.clearRequests();
   const t = await testConnection(api, raSettings());
   expect(t.body.ok, JSON.stringify(t.body.steps)).toBe(true);
   expect((await mock.requests('op=create_session')).pop().sig).toMatchObject({ ok: true, serial: info.serial_decimal });
-  expect((await audit(api, 'action=assistant.csr_create')).length).toBeGreaterThan(0);
+  expect((await audit(api, 'action=aws_connection.csr_create')).length).toBeGreaterThan(0);
   // back to the uploaded .pfx for the following tests
   expect((await uploadCert(api, 'leaf-rsa', { pfx: true })).status).toBe(200);
 });
@@ -199,11 +216,16 @@ test('CSR flow (owner decision): key generated on the server, CSR downloaded, is
 test('UI: Roles Anywhere Test passes -> switch unlocks -> ON; nav appears; editing the region locks it again', async ({ page }) => {
   test.setTimeout(120_000);
   await setFeatures(api, { audit: true });
-  if (!(await assistantSettings(api)).certificate) expect((await uploadCert(api, 'leaf-rsa', { pfx: true })).status).toBe(200);
-  await api.put('/api/assistant/settings', raSettings());
+  if (!(await e2eConn())?.certificate) expect((await uploadCert(api, 'leaf-rsa', { pfx: true })).status).toBe(200);
+  await api.put('/api/assistant/settings', await assistantFields(api, raSettings()));
   await mock.clearRequests();
-  await loginViaApi(page, undefined, '/settings?tab=assistant');
-  await expect(page.getByTestId('cert-info')).toContainText('netmonitor-bedrock.mnidom.net');
+  // [4] the certificate is shown on its AWS connection (subject CN, issuer CN, source identity)
+  await loginViaApi(page, undefined, '/settings?tab=aws');
+  await page.locator(`tr[data-connection="${CONN_NAME}"]`).getByTestId('aws-edit').click();
+  await expect(page.getByTestId('cert-cn')).toHaveText('netmonitor.example.net');
+  await expect(page.getByTestId('cert-source-identity')).toHaveText('CN=netmonitor.example.net');
+  await page.goto('/settings?tab=assistant');
+  await expect(page.getByTestId('assistant-aws-current')).toContainText(CONN_NAME);
   const sw = page.getByTestId('assistant-switch').getByRole('switch');
   await expect(sw).toBeDisabled();
   await page.getByTestId('test-connection').click();
@@ -257,14 +279,18 @@ test('regions: il-central-1 needs a global. profile (us. -> bedrock_model_invali
 
 test('test_id rules: bound to the admin and the connection values; audit OFF -> 422 feature_dependency', async () => {
   const admin2 = await ensureAdmin2(api);
-  const t = await testConnection(api, akSettings());
+  // [4] the access-key values live on the E2E connection; the assistant's own change under test is prompt caching
+  // (a connection field of the assistant hash), so the PUT below really changes something
+  const cur = await assistantSettings(api);
+  const fields = { ...(await assistantFields(api, akSettings())), prompt_caching: !cur.prompt_caching };
+  const t = await testConnection(api, fields);
   expect(t.body.ok).toBe(true);
   expect(t.body.test_id).toMatch(/^[0-9a-f-]{16,}$/i);
   // another admin cannot use it
-  const other = await raw(admin2, 'PUT', '/api/assistant/settings', { ...akSettings(), test_id: t.body.test_id });
+  const other = await raw(admin2, 'PUT', '/api/assistant/settings', { ...fields, test_id: t.body.test_id });
   expect(other.body.error.code).toBe('assistant_test_required');
   // a changed connection field invalidates it
-  const changed = await raw(api, 'PUT', '/api/assistant/settings', { ...akSettings({ model_id: 'us.anthropic.claude-haiku-4-5-20251001-v1:0' }), test_id: t.body.test_id });
+  const changed = await raw(api, 'PUT', '/api/assistant/settings', { ...fields, model_id: 'us.anthropic.claude-haiku-4-5-20251001-v1:0', test_id: t.body.test_id });
   expect(changed.body.error.code).toBe('assistant_test_required');
   // audit OFF while assistant ON -> 422; and ON with audit OFF -> 422
   const auditOff = await raw(api, 'PUT', '/api/settings', { feature_audit_enabled: false });
@@ -272,9 +298,9 @@ test('test_id rules: bound to the admin and the connection values; audit OFF -> 
   expect(auditOff.body.error.code).toBe('feature_dependency');
   expect(auditOff.body.error.details).toEqual([{ feature: 'assistant', requires: 'audit' }]);
   // with the matching test_id the connection change is accepted
-  const ok = await raw(api, 'PUT', '/api/assistant/settings', { ...akSettings(), test_id: t.body.test_id });
+  const ok = await raw(api, 'PUT', '/api/assistant/settings', { ...fields, test_id: t.body.test_id });
   expect(ok.status, ok.text).toBe(200);
-  expect(ok.body).toMatchObject({ enabled: true, auth_mode: 'access_key', model_id: MODEL, region: 'us-east-1' });
+  expect(ok.body).toMatchObject({ enabled: true, model_id: MODEL, region: 'us-east-1', prompt_caching: fields.prompt_caching, connection: { name: CONN_NAME, auth_mode: 'access_key' } });
 });
 
 test('OFF is always possible; enabling with audit OFF refused; ON again (access key) for the next specs', async () => {
@@ -285,7 +311,7 @@ test('OFF is always possible; enabling with audit OFF refused; ON again (access 
   await setFeatures(api, { audit: false });
   const t = await testConnection(api, akSettings());
   expect(t.body.ok).toBe(true);
-  const r = await raw(api, 'PUT', '/api/assistant/settings', { ...akSettings(), enabled: true, test_id: t.body.test_id });
+  const r = await raw(api, 'PUT', '/api/assistant/settings', { ...(await assistantFields(api, akSettings())), enabled: true, test_id: t.body.test_id });
   expect(r.status).toBe(422);
   expect(r.body.error.code).toBe('feature_dependency');
   expect(r.body.error.details).toEqual([{ feature: 'assistant', requires: 'audit' }]);
@@ -298,7 +324,9 @@ test('OFF is always possible; enabling with audit OFF refused; ON again (access 
 test('default_chain: credentials from the mock IMDSv2 (token PUT, role, creds) fetched directly, not via a proxy', async () => {
   const admin2 = await ensureAdmin2(api);
   await mock.clearRequests();
-  const t = await testConnection(admin2, { auth_mode: 'default_chain', region: 'us-east-1', model_id: MODEL, endpoint_url: MOCK_ENDPOINT, proxy_mode: 'env' });
+  // [4] a connection of its own (the E2E connection the assistant uses stays as it is)
+  const dc = await ensureConnection(admin2, { auth_mode: 'default_chain', region: 'us-east-1', proxy_mode: 'env', endpoint_overrides: mockOverrides() }, 'E2E default chain');
+  const t = await testConnection(admin2, { connection_id: dc.id, region: 'us-east-1', model_id: MODEL, endpoint_url: MOCK_ENDPOINT });
   expect(t.body.ok, JSON.stringify(t.body.steps)).toBe(true);
   const ops = (await mock.requests()).map((r) => r.op);
   expect(ops).toEqual(expect.arrayContaining(['imds_token', 'imds_creds', 'converse_stream']));
@@ -330,6 +358,7 @@ test('viewer: no entry point, every /api/assistant/* and AI endpoint 403; API to
     ['POST', '/api/assistant/explain', { sensor_id: 1, event_id: null, refresh: false }], ['GET', '/api/incidents'],
     ['POST', '/api/assistant/rule-drafts', { kind: 'alert_rule', description: 'alert me when x is down' }],
     ['GET', '/api/assistant/digests'], ['GET', '/api/assistant/knowledge'], ['POST', '/api/assistant/models', {}],
+    ['GET', '/api/aws/connections'], ['POST', '/api/aws/external-id', {}],
     ['POST', '/api/device-templates/user', { yaml: 'x', overwrite: false }],
   ];
   for (const [m, p, b] of endpoints) {
@@ -337,7 +366,7 @@ test('viewer: no entry point, every /api/assistant/* and AI endpoint 403; API to
     expect(v.status, `viewer ${m} ${p}`).toBe(403);
     expect(v.body.error.code).toBe('forbidden');
   }
-  for (const [m, p, b] of endpoints.filter(([, p]) => p.startsWith('/api/assistant') || p === '/api/device-templates/user')) {
+  for (const [m, p, b] of endpoints.filter(([, p]) => p.startsWith('/api/assistant') || p.startsWith('/api/aws') || p === '/api/device-templates/user')) {
     const t = await raw(token, m, p, b);
     expect(t.status, `admin API token ${m} ${p}`).toBe(403);
   }

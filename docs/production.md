@@ -347,6 +347,20 @@ certificate with `openssl x509 -in netmonitor.cer -noout -subject -issuer` and a
      in **any** region (a cross-region profile routes to several regions; `*` also matches the region-less ARN used
      by `global.` profiles) **only** when the call comes through those profiles (`bedrock:InferenceProfileArn`).
    - Role *Maximum session duration* ≥ the app's session duration (default 3600 s).
+   - **[1.4.1] The CN in the trust policy must equal the subject CN of the issued certificate, character for
+     character.** The role is assumed only when `aws:PrincipalTag/x509Subject/CN` matches; any difference (short
+     name instead of the FQDN, another host name, a CN the CA rewrote from the template) fails with
+     *AccessDenied* on `CreateSession` although the certificate itself is valid. Read the CN from the **issued**
+     certificate, not from the request:
+     ```
+     openssl x509 -in netmonitor.cer -noout -subject -issuer     # Linux; add -inform der for a DER file
+     certutil -dump netmonitor.cer                                # Windows: the "Subject:" and "Issuer:" lines
+     ```
+     and render the policy with exactly that value: `render-policies.py … --cert-cn <subject CN>
+     --trust-anchor-id <id or ARN>`. The script accepts the trust anchor as the bare id **or** as the full ARN from
+     the console (it checks the ARN's region and account against `--ra-region` / `--account` and stops on a
+     mismatch), rejects a value that is not a plain CN (`CN=…`, several RDNs, wildcards) and prints the CN and the
+     trust anchor ARN the rendered policy expects.
 4. **Profile:** IAM Roles Anywhere → *Create a profile* → name `netmonitor` → role `netmon-bedrock` → session
    duration 1 h (must be ≥ the app's setting) → no session policy needed. Note the three ARNs (trust anchor,
    profile, role).
@@ -360,6 +374,18 @@ certificate with `openssl x509 -in netmonitor.cer -noout -subject -issuer` and a
    ```
    certreq -submit -config "<ca-host>\Mnidom-PKI-SERV-CA" -attrib "CertificateTemplate:NetMonBedrockClient" netmonitor.csr netmonitor.cer
    ```
+   [1.4.1] `CertificateTemplate:` takes the **template name** (the *Template name* field on the template's
+   *General* tab, no spaces, e.g. `NetMonBedrockClient`), **not** the *Template display name* (e.g. "NetMon Bedrock
+   Client"); with the display name `certreq` answers *The requested certificate template is not supported by this
+   CA*. `certutil -CATemplates -config "<ca-host>\Mnidom-PKI-SERV-CA"` lists the names the CA offers.
+
+   The certificate card in *Settings → Assistant* has **two modes**:
+   - **Generate a CSR** (this step, recommended): the private key is created on the server and stays there. After
+     the CA has signed the request, upload **only the issued certificate** (`netmonitor.cer`, plus the chain when
+     the anchor is the root). There is no private key to upload — the key field is not shown in this mode, and a
+     certificate that does not belong to the pending request's key is refused.
+   - **Upload certificate and key**: for a key pair created elsewhere (`.pfx`, or PEM certificate + private key).
+     Use it only when the CSR flow is not possible.
    Upload `netmonitor.cer` (PEM or DER; plus the issuing CA as chain only when the anchor is the root) in the same
    form → the app checks that it matches the key and shows subject, issuer, expiry. Alternatives: upload a `.pfx`
    exported from AD CS, or host files (`NETMON_AWS_RA_CERT_FILE` / `_KEY_FILE` / `_CHAIN_FILE` in `app.env` pointing
@@ -427,3 +453,81 @@ ARN to the VPC endpoint policy if one is used.
 | `bedrock_model_invalid` | Use the inference **profile** ID (`us.…` / `global.…`), not the bare model ID; profile exists in that region. |
 | `bedrock_access_denied` | Policy ARNs (region, account, profile ID, foundation-model ID); VPC endpoint policy; SCPs for cross-region inference. |
 | `stream_buffered` warning | The proxy buffers responses — use a VPC endpoint with *Proxy: direct*, or a proxy exception. |
+
+## Phase 4: AWS connections, cloud view, high availability, backups to S3, traffic capture
+
+Planned (contract only; nothing of this is deployed yet). Everything new is **off** after the upgrade. Contract:
+[architecture.md § 15](architecture.md#15-phase-4-aws-cloud-view-and-vpc-flow-logs-high-availability-monitoring-depth-s3-backups-traffic-capture).
+A single server without `node.env` stays a single node exactly as today. With the HA PRs every server sees one `db`
+restart (new PostgreSQL flags: `wal_log_hints=on`, replication slots, `ssl`, hba file — needed only for HA, harmless
+otherwise).
+
+### AWS (connections, cloud inventory, VPC Flow Logs, S3) — no server change
+- The 1.4.x AWS authentication of the assistant (IAM Roles Anywhere with the PKI certificate, or the access key)
+  becomes the connection "Default" in *Settings → AWS* automatically (first phase-4 migration; the encrypted values
+  are copied as they are). The assistant keeps working. The old settings stay in place and are kept in sync while
+  the assistant uses "Default" directly, so a container rollback to 1.4.x still finds them — provided the 1.4.x
+  image tolerates the newer database revision (architecture § 15.1.9, rule R1; without it a container-only
+  rollback after any release with a migration needs `ops/restore.sh`).
+- Supported layouts: Roles Anywhere in the network account with one `sts:AssumeRole` hop into the Bedrock account
+  (the owner's target), Roles Anywhere in the Bedrock account (as deployed for 1.4.0), a single account, access keys
+  or an instance role. The move between layouts has no downtime: architecture § 15.1.9; the owner's acceptance
+  checklist on real AWS: § 15.1.12. *Settings → AWS → Expected IAM policies* shows the exact trust and permission
+  policies for the values entered (trust anchor ARN once, the certificate's CN and issuer CN, the source identity
+  `CN=<CN>` for the second hop; `sts:SetSourceIdentity` on both sides of the hop, no `sts:TagSession` needed there).
+- Certificate from the internal CA (AD CS): *Generate CSR* in the connection's certificate card, submit it with
+  `certreq -submit -attrib "CertificateTemplate:<template name>" netmonitor.csr netmonitor.cer` — the template
+  **name**, not its display name (error 0x80094800 otherwise) — and upload the issued `.cer` / `.p7b` without a key.
+  Use a CN without spaces (e.g. `netmonitor.example.net`): it becomes the session's source identity.
+- Policies and Terraform examples: `deploy/production/aws/` (`render-policies.py`, `terraform/network-base`,
+  `terraform/bedrock-base`, `terraform/single-account`; added by PR 4-0b). The renderer needs the issuer CN and the
+  certificate CN as arguments (no organisation-specific defaults).
+- Network: `sts.<region>.amazonaws.com` is a new required host when a consumer uses a role hop. Interface VPC endpoints (`sts`, `ec2`,
+  `logs`, `monitoring`, `s3`, `rolesanywhere`, `bedrock-runtime`) are entered per (service, region) in *Settings →
+  AWS*; otherwise the outbound proxy (`/etc/netmon-gitops/app.env`). `ops/assistant-net.sh check` covers the new
+  hosts.
+- Cost: reading flow logs from S3 costs a few LIST / GET requests and the transfer of the compressed bytes. What AWS
+  charges for *delivering* flow logs (S3 vs CloudWatch Logs, text vs Parquet) is decided where the flow log is
+  created.
+
+### High availability (two nodes + witness)
+- **Files:** `deploy/production/nodes/<node>.env` (in git, static identity, no secrets) and on each server
+  `/etc/netmon-gitops/node.env` with `NETMON_NODE=<node>` (`ops/bootstrap.sh --node office1`). `sync.sh` then uses
+  `--env-file release.env --env-file nodes/<node>.env`. Both nodes always deploy the same `release.env`.
+- **Order** (`ops/ha-gate.sh`, called by `sync.sh`): a new **netmon** image deploys on the **active** node first and
+  on the standby after the active is healthy on it; a new **db** image deploys on the **standby** first. PostgreSQL
+  major upgrades are manual (`check-release.sh` refuses them while `nodes/*.env` exist unless
+  `NETMON_ALLOW_PG_MAJOR=1`).
+- **Join a standby:** on the active node *Settings → High availability → Prepare pairing* (one-time code), then on
+  the standby host `sudo /opt/netmon/deploy/production/ops/ha-join.sh --primary office1.mnidom.net --code …`
+  (copies `secret.key`, the DB and replication passwords and the HA certificates, runs `pg_basebackup`).
+- **Firewall:** `ops/ha-firewall.sh` opens 5432/tcp on the node address to the peer only; Caddy serves
+  `/api/ha/peer/*` and `/api/ha/pair` to the peer address only.
+- **Rejoin after a failover:** automatic (`HA_AUTO_REJOIN=1`): the timer runs `ops/ha-rejoin.sh` (exports the
+  divergent audit rows to `/var/backups/netmon/ha/`, then `pg_rewind`); `ops/ha-rejoin.sh --rebuild` by hand if
+  rewind is impossible.
+- **Backups:** `backup.sh` dumps the DB only on the active node; the standby archives its data volume only.
+- **Witness:** `deploy/witness/` (compose + `witness.cfn.yaml`), a `t4g.nano` in a separate VPC, port 8443 from the two
+  nodes and the proxy egress; alerts through SNS, e-mail (SMTP), Teams or Telegram; the witness may also run on any
+  Docker host outside AWS. It runs the same image version.
+- **DNS:** recommended — the active node updates `netmonitor.mnidom.net` in AD by secure dynamic update (GSS-TSIG)
+  with the dedicated account `svc-netmon-dns` that has Write on that record only (architecture § 15.11.4);
+  the other method: CNAME to a Route 53 private zone record updated by the active node (does not resolve from the
+  office during a DX outage; architecture § 15.3.9). Both nodes' certificates must contain `netmonitor.mnidom.net` and the node names.
+- **Devices** send traps/syslog/flows to **both** node addresses and allow SNMP from both; the system never changes
+  device configuration — the `/ha` page lists which devices already send to the standby.
+- **Status:** `ops/status.sh` (role, epoch, lag, witness, spool) and `ops/ha-status.sh` (JSON).
+
+### Backups to S3
+In-app (`s3_backup`, AWS S3): daily `pg_dump` streamed to S3 at 02:47, retention by S3 lifecycle or in the app,
+restore from the UI (maintenance mode, safety dump, database swap, restart), optional export of config versions to
+the same bucket. The host backups of `backup.sh` stay; `secret.key` is
+uploaded only wrapped with a passphrase (option). Bucket: versioning (+ Object Lock) recommended.
+
+### Traffic capture add-on (optional)
+Enable with `COMPOSE_PROFILES=capture` and `NETMON_CAPTURE_IFACES=ens224` (the mirror NIC, no IP) in the node's role
+file; `release.env` pins `NETMON_CAPTURE_IMAGE` (same version). Services: `capture-agent` (host network,
+`NET_RAW`/`NET_ADMIN`, only the listed interfaces) and `capture-decoder` (tshark, no network, no capabilities).
+ERSPAN/GRE mirrors from switches are configured by hand, once. On-device capture (Comware `packet-capture`, Check
+Point `tcpdump`) needs no add-on for download; on Comware a custom user role allowing only the capture commands may
+be needed (README example).

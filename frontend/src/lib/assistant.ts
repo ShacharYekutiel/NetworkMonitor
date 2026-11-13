@@ -1,13 +1,17 @@
 // [3b] Pure helpers of the assistant UI (architecture.md § 14.3, § 14.10).
 import type {
+  AssistantConnectionInput,
   AssistantMessage,
   AssistantSettings,
   AssistantSource,
   AssistantStep,
-  AuthMode,
+  AwsAccess,
+  AwsAccessMode,
+  AwsAuthMode,
   Features,
   StreamEvent,
 } from '../api/types';
+import { accessErrors, isHttpsUrl, normalizeAccess } from './aws';
 import type { RawSseEvent } from './sse';
 
 // --- nm: links ---------------------------------------------------------------
@@ -244,29 +248,22 @@ export function visibleExamples(f: Features): Example[] {
 
 // --- connection form -------------------------------------------------------------
 
+/**
+ * [4] The assistant's connection form: the Bedrock fields plus the AWS connection and the access
+ * (the authentication itself lives in Settings → AWS; architecture § 15.1.10).
+ */
 export type ConnForm = {
-  auth_mode: AuthMode;
   region: string;
   model_id: string;
   model_id_light: string;
   endpoint_url: string;
   control_endpoint_url: string;
-  proxy_mode: AssistantSettings['proxy_mode'];
-  proxy_url: string;
   prompt_caching: boolean;
-  access_key_id: string;
-  secret_access_key: string;
-  clear_secret: boolean;
-  /** write-only session token of temporary (ASIA…) keys; empty keeps the stored one */
-  session_token: string;
-  clear_session_token: boolean;
-  access_key_created_at: string;
-  ra_region: string;
-  ra_endpoint_url: string;
-  ra_trust_anchor_arn: string;
-  ra_profile_arn: string;
-  ra_role_arn: string;
-  ra_session_seconds: string;
+  /** '' = the default connection (null in the API) */
+  connection_id: string;
+  access_mode: AwsAccessMode;
+  role_arn: string;
+  external_id: string;
 };
 
 /** Owner decision: default setup is us-east-1 with a `us.` inference profile. */
@@ -274,153 +271,83 @@ export const DEFAULT_REGION = 'us-east-1';
 export const SUGGESTED_REGIONS = ['us-east-1', 'us-west-2', 'il-central-1', 'eu-central-1'];
 
 export function connFormFrom(s: AssistantSettings): ConnForm {
+  const a = s.access ?? { mode: 'direct', role_arn: null, external_id: null };
   return {
-    auth_mode: s.auth_mode,
     region: s.region || DEFAULT_REGION,
     model_id: s.model_id ?? '',
     model_id_light: s.model_id_light ?? '',
     endpoint_url: s.endpoint_url ?? '',
     control_endpoint_url: s.control_endpoint_url ?? '',
-    proxy_mode: s.proxy_mode,
-    proxy_url: s.proxy_url ?? '',
     prompt_caching: s.prompt_caching,
-    access_key_id: s.access_key_id ?? '',
-    secret_access_key: '',
-    clear_secret: false,
-    session_token: '',
-    clear_session_token: false,
-    access_key_created_at: s.access_key_created_at ?? '',
-    ra_region: s.ra_region ?? '',
-    ra_endpoint_url: s.ra_endpoint_url ?? '',
-    ra_trust_anchor_arn: s.ra_trust_anchor_arn ?? '',
-    ra_profile_arn: s.ra_profile_arn ?? '',
-    ra_role_arn: s.ra_role_arn ?? '',
-    ra_session_seconds: String(s.ra_session_seconds ?? 3600),
+    connection_id:
+      s.connection_id === null || s.connection_id === undefined ? '' : String(s.connection_id),
+    access_mode: a.mode,
+    role_arn: a.role_arn ?? '',
+    external_id: a.external_id ?? '',
   };
 }
 
 const orNull = (v: string) => (v.trim() ? v.trim() : null);
 
+export function formAccess(f: ConnForm): AwsAccess {
+  return normalizeAccess({ mode: f.access_mode, role_arn: f.role_arn, external_id: f.external_id });
+}
+
 /** The writable connection fields of the form (request body of PUT / Test). */
-export function connInput(f: ConnForm): Record<string, unknown> {
-  const body: Record<string, unknown> = {
-    auth_mode: f.auth_mode,
+export function connInput(f: ConnForm): AssistantConnectionInput {
+  return {
     region: f.region.trim(),
     model_id: f.model_id.trim(),
     model_id_light: orNull(f.model_id_light),
     endpoint_url: orNull(f.endpoint_url),
     control_endpoint_url: orNull(f.control_endpoint_url),
-    proxy_mode: f.proxy_mode,
-    proxy_url: f.proxy_mode === 'custom' ? orNull(f.proxy_url) : null,
     prompt_caching: f.prompt_caching,
-    access_key_id: orNull(f.access_key_id),
-    access_key_created_at: orNull(f.access_key_created_at),
-    ra_region: orNull(f.ra_region),
-    ra_endpoint_url: orNull(f.ra_endpoint_url),
-    ra_trust_anchor_arn: orNull(f.ra_trust_anchor_arn),
-    ra_profile_arn: orNull(f.ra_profile_arn),
-    ra_role_arn: orNull(f.ra_role_arn),
-    ra_session_seconds: Number(f.ra_session_seconds) || 3600,
+    connection_id: f.connection_id ? Number(f.connection_id) : null,
+    access: formAccess(f),
   };
-  if (f.clear_secret) body.secret_access_key = '';
-  else if (f.secret_access_key) body.secret_access_key = f.secret_access_key;
-  // a changed (or cleared) token changes connKey, which locks the switch until a new test
-  const token = f.session_token.replace(/\s+/g, '');
-  if (f.clear_session_token) body.session_token = '';
-  else if (token) body.session_token = token;
-  return body;
 }
 
 /**
  * Stable key of the connection values a test covered: any edit of a connection field locks the
- * bottom switch again (architecture § 14.2.6). `certVersion` changes on certificate upload/delete.
+ * bottom switch again (architecture § 14.2.6). `connVersion` changes when the AWS connection the
+ * assistant uses changes (certificate, keys).
  */
-export function connKey(f: ConnForm, certVersion = ''): string {
-  return JSON.stringify([connInput(f), certVersion]);
+export function connKey(f: ConnForm, connVersion = ''): string {
+  return JSON.stringify([connInput(f), connVersion]);
 }
 
 export type ConnErrors = Partial<Record<keyof ConnForm, string>>;
 const REGION_RE = /^[a-z]{2}(-gov)?-[a-z]+-\d$/;
 const MODEL_RE = /^[A-Za-z0-9.:/_-]{1,256}$/;
-const ARN_RA = (kind: string) =>
-  new RegExp(`^arn:aws[a-z-]*:rolesanywhere:[a-z0-9-]+:\\d{12}:${kind}/[0-9a-f-]{36}$`);
-const ARN_ROLE = /^arn:aws[a-z-]*:iam::\d{12}:role\/[\w+=,.@/-]+$/;
-const ACCESS_KEY_RE = /^(AKIA|ASIA)[A-Z0-9]{16}$/;
-const SESSION_TOKEN_RE = /^[A-Za-z0-9+/=_-]{1,4096}$/;
 
-/** `ASIA…` key ids are temporary credentials (STS / IAM Identity Center): they need a session token. */
-export function isTemporaryKey(accessKeyId: string): boolean {
-  return accessKeyId.trim().startsWith('ASIA');
-}
+export { isHttpsUrl } from './aws';
 
-export function isHttpsUrl(v: string): boolean {
-  try {
-    const u = new URL(v);
-    return u.protocol === 'https:' && (u.pathname === '/' || u.pathname === '') && !u.search;
-  } catch {
-    return false;
-  }
-}
-
-/** Client-side checks mirroring data-model § [3b] Settings (the server stays authoritative). */
-export function connErrors(f: ConnForm): ConnErrors {
+/** Client-side checks mirroring data-model § [3b] Settings + [4] consumer access. */
+export function connErrors(
+  f: ConnForm,
+  authMode: AwsAuthMode | null = null,
+  profileArn?: string | null,
+): ConnErrors {
   const e: ConnErrors = {};
   if (!REGION_RE.test(f.region.trim())) e.region = 'region';
   if (!MODEL_RE.test(f.model_id.trim())) e.model_id = 'model';
   if (f.model_id_light.trim() && !MODEL_RE.test(f.model_id_light.trim()))
     e.model_id_light = 'model';
-  for (const k of ['endpoint_url', 'control_endpoint_url', 'ra_endpoint_url'] as const)
+  for (const k of ['endpoint_url', 'control_endpoint_url'] as const)
     if (f[k].trim() && !isHttpsUrl(f[k].trim())) e[k] = 'url';
-  if (f.proxy_mode === 'custom' && !/^https?:\/\/[^/@\s]+:\d{1,5}\/?$/.test(f.proxy_url.trim()))
-    e.proxy_url = 'proxy';
-  if (f.auth_mode === 'roles_anywhere') {
-    if (!ARN_RA('trust-anchor').test(f.ra_trust_anchor_arn.trim())) e.ra_trust_anchor_arn = 'arn';
-    if (!ARN_RA('profile').test(f.ra_profile_arn.trim())) e.ra_profile_arn = 'arn';
-    if (!ARN_ROLE.test(f.ra_role_arn.trim())) e.ra_role_arn = 'arn';
-    if (f.ra_region.trim() && !REGION_RE.test(f.ra_region.trim())) e.ra_region = 'region';
-    const n = Number(f.ra_session_seconds);
-    if (!Number.isInteger(n) || n < 900 || n > 43200) e.ra_session_seconds = 'session';
-  }
-  if (f.auth_mode === 'access_key' && !ACCESS_KEY_RE.test(f.access_key_id.trim()))
-    e.access_key_id = 'accessKey';
-  const token = f.session_token.replace(/\s+/g, '');
-  if (
-    f.auth_mode === 'access_key' &&
-    token &&
-    !f.clear_session_token &&
-    !SESSION_TOKEN_RE.test(token)
-  )
-    e.session_token = 'sessionToken';
+  const ae = accessErrors(formAccess(f), authMode, profileArn);
+  if (ae.mode) e.access_mode = ae.mode;
+  if (ae.role_arn) e.role_arn = ae.role_arn;
+  if (ae.external_id) e.external_id = ae.external_id;
   return e;
 }
 
 /** What the test needs besides valid fields (shown as a hint; Test still runs and reports). */
-export function connMissing(
-  f: ConnForm,
-  s: Pick<AssistantSettings, 'certificate' | 'secret_access_key_set' | 'session_token_set'>,
-): string[] {
+export function connMissing(f: ConnForm, connections: { id: number }[] | undefined): string[] {
   const miss: string[] = [];
-  if (f.auth_mode === 'roles_anywhere' && !s.certificate) miss.push('certificate');
-  if (
-    f.auth_mode === 'access_key' &&
-    (f.clear_secret || (!s.secret_access_key_set && !f.secret_access_key))
-  )
-    miss.push('secret');
-  if (
-    f.auth_mode === 'access_key' &&
-    isTemporaryKey(f.access_key_id) &&
-    (f.clear_session_token || (!s.session_token_set && !f.session_token.trim()))
-  )
-    miss.push('sessionToken');
+  if (connections && connections.length === 0) miss.push('connection');
+  void f;
   return miss;
-}
-
-/** All ARNs of a Roles Anywhere setup must be in the same AWS account (warning only). */
-export function arnAccountsDiffer(f: ConnForm): boolean {
-  const ids = [f.ra_trust_anchor_arn, f.ra_profile_arn, f.ra_role_arn]
-    .map((a) => /:(\d{12}):/.exec(a)?.[1])
-    .filter((x): x is string => !!x);
-  return new Set(ids).size > 1;
 }
 
 // --- model / profile geography ---------------------------------------------------------

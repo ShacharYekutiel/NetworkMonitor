@@ -97,6 +97,10 @@ class Runtime:
         self.telegram_pollers: Any = None
         self.kiosk: Any = None
         self.assistant: Any = None  # [3b] netmon.assistant.service.AssistantService
+        # [4] shared AWS credential chains + configure-first test ids (netmon.aws.credcache)
+        from netmon.aws.credcache import AwsRuntime
+
+        self.aws: Any = AwsRuntime(self)
         self.ai_features: Any = None  # [3b] netmon.assistant.features.component.AiFeatures
         self.event_sensors: Any = None  # netmon.ingest.event_sensors.EventSensors
         self.flapping: Any = None  # netmon.ingest.flapping.FlapManager
@@ -116,6 +120,11 @@ class Runtime:
         self._rollup_event = asyncio.Event()
         self._rollup_snapshot: dict[tuple[str, int], tuple[str, tuple[int, ...]]] | None = None
         self._bg: set[asyncio.Task[Any]] = set()
+        # [1.4.1] cached security settings and the session ids revoked by a logout
+        from netmon.services.security import DEFAULT_POLICY
+
+        self.security = DEFAULT_POLICY
+        self.revoked_sessions: set[str] = set()
         self.started = False
         self.on_lock_lost: Any = self._on_lock_lost
 
@@ -143,6 +152,10 @@ class Runtime:
             self._tasks.append(asyncio.create_task(self._lock_watch_loop(), name="netmon-lock"))
         if migrate:
             await run_migrations(self.engine)
+        from netmon.services import security as security_svc
+
+        await security_svc.load(self)  # [1.4.1] egress filter, session lifetime, login cap
+        await security_svc.load_revoked(self)
         async with self.sessionmaker() as session:
             retention_days = await settings_svc.get(session, "retention_days")
         ts = await timescale.bootstrap_status(
@@ -259,6 +272,8 @@ class Runtime:
             self.scheduler = Scheduler(self)
             await self.scheduler.start()
         await events_svc.write_system_event(self, "NetworkMonitor started")
+        # [1.4.1] existing targets the egress filter now refuses: one WARNING (off the start path)
+        self.spawn(self._report_blocked_targets())
         if s.netmon_test_mode:
             log.warning(
                 "NETMON_TEST_MODE is on: PUT /api/test/clock can shift the maintenance/alerting "
@@ -273,6 +288,23 @@ class Runtime:
             )
         self.started = True
         log.info("NetworkMonitor %s started (timescale=%s)", self.version, self.timescale_enabled)
+
+    async def _report_blocked_targets(self) -> None:
+        """[1.4.1] HTTP sensors / webhook / Teams channels that point at a target the SSRF egress
+        filter refuses: a startup WARNING and a `system` event naming them."""
+        from netmon.services import security as security_svc
+
+        try:
+            blocked = await security_svc.warn_blocked_targets(self)
+            if blocked:
+                await events_svc.write_system_event(
+                    self,
+                    f"{len(blocked)} monitoring / notification target(s) are blocked by the "
+                    "egress filter (loopback / link-local / cloud metadata): "
+                    + "; ".join(blocked)[:900],
+                )
+        except Exception:  # noqa: BLE001 - a report only
+            log.exception("Checking the existing targets against the egress filter failed")
 
     async def stop(self) -> None:
         # [2b-3] receivers first (sockets closed), pipeline flush <= 5 s, forwarders <= 2 s
@@ -299,6 +331,8 @@ class Runtime:
             await self.scheduler.stop()
         if self.alerts:
             await self.alerts.stop()
+        with contextlib.suppress(Exception):
+            await self.aws.aclose()  # [4] credential chains and their HTTP clients
         for t in self._tasks:
             t.cancel()
         for t in self._tasks:

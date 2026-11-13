@@ -27,6 +27,8 @@ export type SettingsCardDef = {
   feature?: FeatureName[];
   terms?: string[];
   fields: SettingsFieldDef[];
+  /** [4] a card shown only on demand (an open editor): scroll to this card when it is absent */
+  fallback?: string;
 };
 
 export function cardAnchor(id: string): string {
@@ -87,6 +89,40 @@ export const SETTINGS_CARDS: SettingsCardDef[] = [
       { labelKey: 'settings.fromAddress' },
       { labelKey: 'settings.fromName' },
       { labelKey: 'settings.smtpTest', hintKey: 'settings.smtpTestHint' },
+    ],
+  },
+  // [1.4.1] security hardening
+  {
+    id: 'security',
+    tab: 'general',
+    titleKey: 'settings.security.title',
+    hintKey: 'settings.security.intro',
+    terms: ['security', 'hardening', 'ssrf', 'csp', 'session', 'login'],
+    fields: [
+      {
+        labelKey: 'settings.security.sessionMaxAge',
+        hintKey: 'settings.security.sessionMaxAgeHint',
+        terms: ['session', 'timeout', 'logout', 'cookie'],
+        anchor: 'security-session-max-age',
+      },
+      {
+        labelKey: 'settings.security.loginIpCap',
+        hintKey: 'settings.security.loginIpCapHint',
+        terms: ['throttle', 'rate limit', 'brute force', 'password spraying', 'lockout'],
+        anchor: 'security-login-ip-cap',
+      },
+      {
+        labelKey: 'settings.security.allowLoopback',
+        hintKey: 'settings.security.allowLoopbackHint',
+        terms: ['loopback', 'localhost', '127.0.0.1', 'ssrf', 'webhook', 'http'],
+        anchor: 'security-allow-loopback',
+      },
+      {
+        labelKey: 'settings.security.frameAncestors',
+        hintKey: 'settings.security.frameAncestorsHint',
+        terms: ['iframe', 'frame', 'embed', 'clickjacking', 'csp', 'frame-ancestors', 'kiosk'],
+        anchor: 'security-frame-ancestors',
+      },
     ],
   },
   // --- Traps & syslog
@@ -374,6 +410,108 @@ export const SETTINGS_CARDS: SettingsCardDef[] = [
     feature: ['audit'],
     fields: [{ labelKey: 'audit.retention', hintKey: 'audit.retentionHint' }],
   },
+  // --- [4] Settings → AWS: shared AWS connections (always shown; no feature). The editor, the
+  // certificate card and the policies panel exist while a connection is open: their results
+  // fall back to the list.
+  {
+    id: 'awsConnections',
+    tab: 'aws',
+    titleKey: 'aws.connections.title',
+    hintKey: 'aws.tabIntro',
+    terms: ['aws', 'iam', 'connection', 'default', 'account', 'arn'],
+    fields: [
+      { labelKey: 'aws.connections.connections', extraKeys: ['aws.connections.add'] },
+      {
+        labelKey: 'aws.connections.defaultConnection',
+        extraKeys: ['aws.connections.setDefault'],
+      },
+    ],
+  },
+  {
+    id: 'awsConnection',
+    tab: 'aws',
+    titleKey: 'aws.form.titleNew',
+    fallback: 'awsConnections',
+    terms: [
+      'roles anywhere',
+      'trust anchor',
+      'profile',
+      'role',
+      'arn',
+      'access key',
+      'session token',
+      'default chain',
+      'imds',
+      'proxy',
+      'vpc endpoint',
+      'sts',
+      'endpoint override',
+      'region',
+    ],
+    fields: [
+      {
+        labelKey: 'aws.form.authMode',
+        extraKeys: ['aws.auth.roles_anywhere', 'aws.auth.access_key', 'aws.auth.default_chain'],
+        terms: ['credentials', 'iam'],
+      },
+      { labelKey: 'aws.form.region', hintKey: 'aws.form.regionHint' },
+      { labelKey: 'aws.form.raTrustAnchor', terms: ['trust anchor', 'arn'] },
+      { labelKey: 'aws.form.raProfile', terms: ['arn'] },
+      { labelKey: 'aws.form.raRole', terms: ['arn'] },
+      { labelKey: 'aws.form.raRegion', hintKey: 'aws.form.raRegionHint' },
+      { labelKey: 'aws.form.raSession', hintKey: 'aws.form.raSessionHint' },
+      { labelKey: 'aws.form.accessKeyId', terms: ['akia', 'asia'] },
+      { labelKey: 'aws.form.secretKey' },
+      { labelKey: 'aws.form.sessionToken', hintKey: 'aws.form.sessionTokenHint' },
+      { labelKey: 'aws.form.proxyMode', extraKeys: ['aws.form.proxyUrl'] },
+      {
+        labelKey: 'aws.form.overrides',
+        hintKey: 'aws.form.overridesHint',
+        terms: ['vpce', 'privatelink'],
+      },
+    ],
+  },
+  {
+    id: 'awsCertificate',
+    tab: 'aws',
+    titleKey: 'aws.cert.title',
+    fallback: 'awsConnections',
+    terms: [
+      'certificate',
+      'csr',
+      'pkcs12',
+      'pfx',
+      'p7b',
+      'pem',
+      'x509',
+      'cn',
+      'certreq',
+      'template',
+      'pki',
+    ],
+    fields: [
+      { labelKey: 'aws.cert.mode.upload', extraKeys: ['aws.cert.upload'] },
+      { labelKey: 'aws.cert.mode.csr', extraKeys: ['aws.cert.templateName'] },
+      { labelKey: 'aws.cert.copyFrom' },
+    ],
+  },
+  {
+    id: 'awsPolicies',
+    tab: 'aws',
+    titleKey: 'aws.policies.title',
+    hintKey: 'aws.policies.intro',
+    fallback: 'awsConnections',
+    terms: [
+      'trust policy',
+      'iam policy',
+      'source identity',
+      'sourcearn',
+      'setsourceidentity',
+      'tagsession',
+      'external id',
+    ],
+    fields: [],
+  },
   // --- [3b] Assistant (AI). Configure-first: the cards are always shown; the per-feature
   // settings of Capabilities are rendered only while that AI feature is on.
   {
@@ -381,26 +519,10 @@ export const SETTINGS_CARDS: SettingsCardDef[] = [
     tab: 'assistant',
     titleKey: 'assistant.settings.connection',
     hintKey: 'assistant.settings.connectionIntro',
+    // [4] the authentication moved to Settings → AWS (cards aws*); its old terms ("roles
+    // anywhere", "access key", "certificate") now find those cards
     terms: ['bedrock', 'aws', 'ai', 'assistant', 'claude', 'llm'],
     fields: [
-      {
-        labelKey: 'assistant.settings.authMode',
-        terms: ['roles anywhere', 'iam', 'access key', 'credentials'],
-      },
-      { labelKey: 'assistant.settings.raTrustAnchor', terms: ['arn', 'roles anywhere'] },
-      { labelKey: 'assistant.settings.raProfile', terms: ['arn', 'roles anywhere'] },
-      { labelKey: 'assistant.settings.raRole', terms: ['arn', 'roles anywhere'] },
-      { labelKey: 'assistant.settings.raRegion', hintKey: 'assistant.settings.raRegionHint' },
-      { labelKey: 'assistant.settings.raSession', hintKey: 'assistant.settings.raSessionHint' },
-      { labelKey: 'assistant.settings.raEndpoint', hintKey: 'assistant.settings.raEndpointHint' },
-      { labelKey: 'assistant.settings.accessKeyId', terms: ['iam', 'access key'] },
-      { labelKey: 'assistant.settings.secretKey', terms: ['iam'] },
-      { labelKey: 'assistant.settings.keyCreated', hintKey: 'assistant.settings.keyCreatedHint' },
-      {
-        labelKey: 'assistant.settings.sessionToken',
-        hintKey: 'assistant.settings.sessionTokenHint',
-        terms: ['sts'],
-      },
       { labelKey: 'assistant.settings.region', hintKey: 'assistant.settings.regionHint' },
       {
         labelKey: 'assistant.settings.modelId',
@@ -418,7 +540,6 @@ export const SETTINGS_CARDS: SettingsCardDef[] = [
         hintKey: 'assistant.settings.endpointHint',
         terms: ['privatelink', 'vpc'],
       },
-      { labelKey: 'assistant.settings.proxyMode', extraKeys: ['assistant.settings.proxyUrl'] },
       {
         labelKey: 'assistant.settings.controlEndpoint',
         hintKey: 'assistant.settings.controlEndpointHint',
@@ -429,6 +550,32 @@ export const SETTINGS_CARDS: SettingsCardDef[] = [
         terms: ['cache'],
       },
       { labelKey: 'assistant.settings.test', terms: ['test'] },
+    ],
+  },
+  // [4] the assistant's AWS connection and access (architecture § 15.1.10)
+  {
+    id: 'assistantAwsAccess',
+    tab: 'assistant',
+    titleKey: 'aws.access.title',
+    hintKey: 'aws.access.intro',
+    terms: ['aws', 'assume role', 'external id', 'role arn', 'connection', 'bedrock'],
+    fields: [
+      { labelKey: 'aws.access.connection', extraKeys: ['aws.access.manage'] },
+      {
+        labelKey: 'aws.access.how',
+        extraKeys: [
+          'aws.access.mode.direct',
+          'aws.access.mode.assume_role',
+          'aws.access.mode.ra_role',
+        ],
+        terms: ['sts', 'cross-account', 'hop'],
+      },
+      { labelKey: 'aws.access.roleArn', terms: ['arn', 'iam'] },
+      {
+        labelKey: 'aws.access.externalId',
+        hintKey: 'aws.access.externalIdHint',
+        terms: ['externalid', 'confused deputy'],
+      },
     ],
   },
   {
@@ -636,6 +783,7 @@ export function settingsEntries(): SettingsEntry[] {
   const out: SettingsEntry[] = [];
   for (const c of SETTINGS_CARDS) {
     const card = anchorSel(cardAnchor(c.id));
+    const fb = c.fallback ? [anchorSel(cardAnchor(c.fallback))] : [];
     out.push({
       id: `${c.id}`,
       tab: c.tab,
@@ -645,7 +793,7 @@ export function settingsEntries(): SettingsEntry[] {
       extraKeys: [],
       terms: c.terms ?? [],
       feature: c.feature,
-      selectors: [card],
+      selectors: [card, ...fb],
     });
     c.fields.forEach((f, i) =>
       out.push({
@@ -657,7 +805,7 @@ export function settingsEntries(): SettingsEntry[] {
         extraKeys: f.extraKeys ?? [],
         terms: [...(f.terms ?? []), ...(c.terms ?? [])],
         feature: c.feature,
-        selectors: f.anchor ? [anchorSel(f.anchor), card] : [card],
+        selectors: f.anchor ? [anchorSel(f.anchor), card, ...fb] : [card, ...fb],
       }),
     );
   }

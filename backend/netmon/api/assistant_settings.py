@@ -2,8 +2,13 @@
 "[3b] AI features": knowledge + usage). Admin and session only (API tokens are barred on
 `/api/assistant*` by the app guard).
 
-Allowed while `assistant` is OFF (preparation): settings, test, certificate (+ CSR), models,
-usage, knowledge settings. `GET /api/assistant/status` and the KB test need it ON."""
+Allowed while `assistant` is OFF (preparation): settings, test, models, usage, knowledge
+settings. `GET /api/assistant/status` and the KB test need it ON.
+
+[4] PR 4-0a: the authentication moved to the shared AWS connections (`/api/aws/connections*`,
+`netmon.api.aws_connections`): the settings carry `connection_id` / `access` instead, a 1.4.x
+authentication field in a body is refused ("moved to Settings → AWS"), `/api/assistant/cert*`
+are removed."""
 
 from __future__ import annotations
 
@@ -13,21 +18,21 @@ from email.policy import HTTP
 from typing import Any
 
 from fastapi import APIRouter, Query, Request
-from fastapi.responses import Response
 
 from netmon.api.deps import DB, RT, Admin, Audit, SessionUser
 from netmon.api.errors import ApiError
-from netmon.assistant import certs, config, gates
+from netmon.assistant import config, gates
 from netmon.assistant import testconn as tc
 from netmon.assistant.errors import AssistantError
+from netmon.aws import connections as conns
 from netmon.schemas.assistant import (
+    AssistantFieldsIn,
     AssistantSettingsIn,
     AssistantTestIn,
-    CsrIn,
     KnowledgeSettingsIn,
     KnowledgeTestIn,
 )
-from netmon.services import audit, crypto
+from netmon.services import audit
 from netmon.services import settings as settings_svc
 from netmon.services.features import feature_error, setting_key
 from netmon.services.serialize import iso, now_utc
@@ -35,7 +40,9 @@ from netmon.services.serialize import iso, now_utc
 router = APIRouter()
 
 SECRET_FIELDS = ("secret_access_key_enc", "session_token_enc", "ra_key_enc", "ra_csr_key_enc")
-NOT_AUDITED = ("last_test", "ra_cert_pem", "ra_chain_pem", "ra_csr_pem")
+# [4] the legacy (mirrored) authentication keys are not audited here (the connection is), nor
+# the ExternalId (audited as `access.external_id_set`)
+NOT_AUDITED = ("last_test", *conns.LEGACY_KEYS)
 MONTH_RE = re.compile(r"^\d{4}-(0[1-9]|1[0-2])$")
 
 
@@ -57,7 +64,41 @@ def _validation(errors: list[dict[str, Any]], message: str = "Invalid assistant 
 
 
 def _audit_view(cfg: dict[str, Any]) -> dict[str, Any]:
-    return {k: v for k, v in cfg.items() if k not in NOT_AUDITED}
+    out = {k: v for k, v in cfg.items() if k not in NOT_AUDITED}
+    access = conns.normalize_access(cfg.get("access"))
+    out["access"] = {
+        "mode": access["mode"],
+        "role_arn": access["role_arn"],
+        "external_id_set": bool(access["external_id"]),
+    }
+    return out
+
+
+def _moved(fields: AssistantFieldsIn | None) -> None:
+    """[4] 1.4.x authentication fields in a body → 422 "moved to Settings → AWS"."""
+    if fields is None:
+        return
+    errs = [{"loc": ["body", f], "msg": config.MOVED_MESSAGE} for f in fields.moved]
+    if errs:
+        raise ApiError(422, "validation_error", "Authentication " + config.MOVED_MESSAGE, errs)
+
+
+async def _view_for(session: Any, svc: Any, cfg: dict[str, Any]) -> dict[str, Any] | None:
+    """The connection view `cfg` uses; `connection_id` of a missing connection → 422."""
+    cid = cfg.get("connection_id")
+    if cid is not None and await conns.get_row(session, int(cid)) is None:
+        raise ApiError(
+            422, "validation_error", "Unknown AWS connection",
+            [{"loc": ["body", "connection_id"], "msg": "no such connection"}],
+        )  # fmt: skip
+    view: dict[str, Any] | None = await svc.resolve_view(session, cfg)
+    return view
+
+
+def _normalize(fields: dict[str, Any]) -> dict[str, Any]:
+    if "access" in fields:
+        fields["access"] = conns.normalize_access(fields["access"])
+    return fields
 
 
 async def _set_feature(
@@ -87,18 +128,24 @@ async def put_settings(
     body: AssistantSettingsIn, user: Admin, __: SessionUser, rt: RT, session: DB, ctx: Audit
 ) -> dict:
     svc = _svc(rt)
+    _moved(body)
     current = await config.load(session)
-    fields = body.changes()
+    fields = _normalize(body.changes())
     fields.pop("enabled", None)
     fields.pop("test_id", None)
-    merged = config.merge(current, fields, rt.secret_key)
-    _validation(config.field_errors(merged, test_mode=svc.test_mode))
+    merged = config.merge_settings(current, fields)
+    _validation(config.settings_field_errors(merged, test_mode=svc.test_mode))
+    view = await _view_for(session, svc, merged)
+    access = conns.normalize_access(merged.get("access"))
+    _validation(conns.access_errors(access, view) if access["mode"] != "direct" else [])
     on_now = rt.features.enabled("assistant")
     want = body.enabled if "enabled" in body.model_fields_set else None
     turning_on = want is True and not on_now
     turning_off = want is False and on_now
     stays_on = on_now and not turning_off
-    old_hash, new_hash = svc.connection_hash(current), svc.connection_hash(merged)
+    old_view = await svc.resolve_view(session, current)
+    old_hash = svc.connection_hash(current, old_view)
+    new_hash = svc.connection_hash(merged, view)
     if turning_on:
         if not rt.features.enabled("audit"):
             raise ApiError(
@@ -107,11 +154,12 @@ async def put_settings(
                 "The assistant needs the audit log: turn the audit feature on first",
                 [{"feature": "assistant", "requires": "audit"}],
             )
-        has_cert, has_key = svc.has_cert_and_key(merged)
-        _validation(
-            config.required_errors(merged, rt.secret_key, has_cert=has_cert, has_key=has_key),
-            "The assistant settings are incomplete",
-        )
+        errs = config.settings_required_errors(merged)
+        if view is None or not conns.configured(view):
+            errs.append(
+                {"loc": ["body", "connection_id"], "msg": "configure an AWS connection first"}
+            )
+        _validation(errs, "The assistant settings are incomplete")
     needs_test = turning_on or (stays_on and old_hash != new_hash)
     if needs_test and not svc.tests.valid("assistant", body.test_id, user.id, new_hash):
         raise ApiError(
@@ -133,6 +181,7 @@ async def put_settings(
         )
     if turning_on or turning_off:
         await _set_feature(session, ctx, rt, "assistant", bool(want), before=on_now)
+    await conns.sync_legacy(session)  # [4] mirror again when back on "Default" / direct
     await session.commit()
     if body.test_id and needs_test:
         svc.tests.consume(body.test_id)
@@ -148,15 +197,17 @@ async def test_connection(
     body: AssistantTestIn, user: Admin, __: SessionUser, rt: RT, session: DB, ctx: Audit
 ) -> dict:
     svc = _svc(rt)
+    _moved(body.settings)
     if not svc.tests.allow(user.id):
         raise ApiError(429, "rate_limited", "Too many connection tests; try again in a few minutes")
     stored = await config.load(session)
-    fields = body.settings.changes() if body.settings is not None else {}
-    cfg = config.merge(stored, fields, rt.secret_key)
-    # SSRF: reject disallowed endpoint/proxy targets before the connection test connects.
-    _validation(config.field_errors(cfg, test_mode=svc.test_mode))
+    fields = _normalize(body.settings.changes() if body.settings is not None else {})
+    cfg = config.merge_settings(stored, fields)
+    # SSRF: reject disallowed endpoint targets before the connection test connects.
+    _validation(config.settings_field_errors(cfg, test_mode=svc.test_mode))
+    view = await _view_for(session, svc, cfg)
     await session.close()
-    result = await tc.run_test(svc, cfg, user_id=user.id)
+    result = await tc.run_test(svc, cfg, user_id=user.id, view=view)
     async with rt.sessionmaker() as s2:
         latest = await config.load(s2)
         latest["last_test"] = {
@@ -182,7 +233,7 @@ async def test_connection(
     return result
 
 
-# ---------------------------------------------------------------- certificate
+# ---------------------------------------------------------------- multipart (certificate uploads)
 async def _read_form(request: Request, max_bytes: int) -> dict[str, bytes]:
     ctype = request.headers.get("content-type", "")
     if not ctype.lower().startswith("multipart/form-data"):
@@ -208,196 +259,29 @@ async def _read_form(request: Request, max_bytes: int) -> dict[str, bytes]:
     return out
 
 
-@router.post("/api/assistant/cert")
-async def upload_cert(
-    request: Request, _: Admin, __: SessionUser, rt: RT, session: DB, ctx: Audit
-) -> dict:
-    svc = _svc(rt)
-    if config.host_files() is not None:
-        raise ApiError(
-            409, "conflict", "The certificate comes from host files (NETMON_AWS_RA_CERT_FILE)"
-        )
-    form = await _read_form(request, certs.MAX_UPLOAD)
-    if not form.get("file"):
-        raise ApiError(
-            422, "validation_error", "Field 'file' is required", [{"loc": ["body", "file"]}]
-        )
-    stored = await config.load(session)
-    pending = None
-    try:
-        pending = config.decrypt_opt(
-            rt.secret_key, stored.get("ra_csr_key_enc"), config.AAD_RA_CSR_KEY
-        )
-    except config.Unreadable:
-        pending = None
-    password = form.get("password", b"").decode("utf-8", "replace") or None
-    try:
-        mat = certs.parse_upload(
-            form["file"], form.get("key") or None, password, pending_key_pem=pending
-        )
-    except certs.CertError as exc:
-        details = [{"reason": exc.reason}] if exc.code == "invalid_certificate" else None
-        raise ApiError(422, exc.code, exc.reason, details) from None
-    before_meta = None
-    if stored.get("ra_cert_pem"):
-        found = certs.load_pem_certs(stored["ra_cert_pem"].encode())
-        before_meta = certs.cert_info(found[0], [], source="uploaded", uploaded_at=None,
-                                      key_unreadable=False) if found else None  # fmt: skip
-    stored["ra_cert_pem"] = mat.cert_pem
-    stored["ra_chain_pem"] = mat.chain_pem
-    stored["ra_key_enc"] = crypto.encrypt(rt.secret_key, mat.key_pem or "", config.AAD_RA_KEY)
-    stored["ra_cert_uploaded_at"] = iso(now_utc())
-    used_csr_key = pending is not None and mat.key_pem == certs.key_to_pkcs8_pem(
-        certs.key_from_pkcs8_pem(pending)
-    )
-    if used_csr_key:
-        for k in ("ra_csr_pem", "ra_csr_key_enc", "ra_csr_subject", "ra_csr_created_at"):
-            stored[k] = None
-    await config.save(session, stored)
-    info = certs.cert_info(
-        mat.cert,
-        mat.chain,
-        source="uploaded",
-        uploaded_at=stored["ra_cert_uploaded_at"],
-        key_unreadable=False,
-    )
-    await audit.record(
-        session,
-        ctx,
-        "assistant.cert_upload",
-        audit.entity("assistant", None, "certificate"),
-        {
-            "subject": [before_meta and before_meta["subject"], info["subject"]],
-            "serial_hex": [before_meta and before_meta["serial_hex"], info["serial_hex"]],
-            "not_after": [before_meta and before_meta["not_after"], info["not_after"]],
-            "sha256": [before_meta and before_meta["sha256"], info["sha256"]],
-            "key_from_csr": [None, used_csr_key],
-        },
-    )
-    await session.commit()
-    await svc.reload()
-    return info
-
-
-@router.delete("/api/assistant/cert", status_code=204)
-async def delete_cert(_: Admin, __: SessionUser, rt: RT, session: DB, ctx: Audit) -> Response:
-    svc = _svc(rt)
-    stored = await config.load(session)
-    if rt.features.enabled("assistant") and stored.get("auth_mode") == "roles_anywhere":
-        raise ApiError(
-            409, "conflict", "Turn the assistant off (or change the auth mode) before deleting"
-        )
-    had = stored.get("ra_cert_pem")
-    for k in ("ra_cert_pem", "ra_chain_pem", "ra_key_enc", "ra_cert_uploaded_at"):
-        stored[k] = None
-    await config.save(session, stored)
-    if had:
-        await audit.record(
-            session, ctx, "assistant.cert_delete", audit.entity("assistant", None, "certificate")
-        )
-    await session.commit()
-    await svc.reload()
-    return Response(status_code=204)
-
-
-def _csr_out(stored: dict[str, Any]) -> dict[str, Any]:
-    return {
-        "subject": stored.get("ra_csr_subject"),
-        "created_at": stored.get("ra_csr_created_at"),
-        "pem": stored.get("ra_csr_pem"),
-    }
-
-
-@router.post("/api/assistant/cert/csr")
-async def make_csr(body: CsrIn, _: Admin, __: SessionUser, rt: RT, session: DB, ctx: Audit) -> dict:
-    """Owner decision (3b): generate a key on the server (kept encrypted) and a CSR for the
-    internal CA; the issued certificate is then uploaded without a key."""
-    import asyncio
-
-    svc = _svc(rt)
-    if config.host_files() is not None:
-        raise ApiError(
-            409, "conflict", "The certificate comes from host files (NETMON_AWS_RA_CERT_FILE)"
-        )
-    err = certs.validate_cn(body.common_name)
-    if err:
-        raise ApiError(
-            422, "validation_error", f"common_name: {err}", [{"loc": ["body", "common_name"]}]
-        )
-    size = body.key_size or (2048 if body.key_type == "rsa" else 256)
-    try:
-        key_pem, csr_pem = await asyncio.to_thread(
-            certs.generate_csr,
-            body.common_name,
-            body.key_type,
-            size,
-            body.organization,
-            body.organizational_unit,
-        )
-    except ValueError as exc:
-        raise ApiError(422, "validation_error", str(exc), [{"loc": ["body", "key_size"]}]) from None
-    stored = await config.load(session)
-    stored["ra_csr_pem"] = csr_pem
-    stored["ra_csr_key_enc"] = crypto.encrypt(rt.secret_key, key_pem, config.AAD_RA_CSR_KEY)
-    stored["ra_csr_subject"] = f"CN={body.common_name.strip()}"
-    stored["ra_csr_created_at"] = iso(now_utc())
-    await config.save(session, stored)
-    await audit.record(
-        session,
-        ctx,
-        "assistant.csr_create",
-        audit.entity("assistant", None, "certificate"),
-        {
-            "subject": [None, stored["ra_csr_subject"]],
-            "key_type": [None, f"{body.key_type}-{size}"],
-        },
-    )
-    await session.commit()
-    await svc.reload()
-    return _csr_out(stored)
-
-
-@router.get("/api/assistant/cert/csr")
-async def download_csr(_: Admin, __: SessionUser, rt: RT, session: DB) -> Response:
-    stored = await config.load(session)
-    if not stored.get("ra_csr_pem"):
-        raise ApiError(404, "not_found", "No CSR has been generated")
-    return Response(
-        stored["ra_csr_pem"],
-        media_type="application/pkcs10",
-        headers={"Content-Disposition": 'attachment; filename="netmonitor-bedrock.csr"'},
-    )
-
-
-@router.delete("/api/assistant/cert/csr", status_code=204)
-async def delete_csr(_: Admin, __: SessionUser, rt: RT, session: DB, ctx: Audit) -> Response:
-    stored = await config.load(session)
-    if stored.get("ra_csr_pem"):
-        for k in ("ra_csr_pem", "ra_csr_key_enc", "ra_csr_subject", "ra_csr_created_at"):
-            stored[k] = None
-        await config.save(session, stored)
-        await audit.record(
-            session, ctx, "assistant.csr_delete", audit.entity("assistant", None, "certificate")
-        )
-        await session.commit()
-        await _svc(rt).reload()
-    return Response(status_code=204)
-
-
 # ---------------------------------------------------------------- models
 @router.post("/api/assistant/models")
 async def list_models(
     body: AssistantTestIn, _: Admin, __: SessionUser, rt: RT, session: DB
 ) -> dict:
     svc = _svc(rt)
+    _moved(body.settings)
     stored = await config.load(session)
-    fields = body.settings.changes() if body.settings is not None else {}
-    cfg = config.merge(stored, fields, rt.secret_key)
-    # SSRF: reject disallowed endpoint/proxy targets before any outbound request is built.
-    _validation(config.field_errors(cfg, test_mode=svc.test_mode))
+    fields = _normalize(body.settings.changes() if body.settings is not None else {})
+    cfg = config.merge_settings(stored, fields)
+    # SSRF: reject disallowed endpoint targets before any outbound request is built.
+    _validation(config.settings_field_errors(cfg, test_mode=svc.test_mode))
+    view = await _view_for(session, svc, cfg)
     await session.close()
     try:
-        client = svc.build_client({**cfg, "model_id": cfg.get("model_id") or "-"}, report=False)
+        access = conns.normalize_access(cfg.get("access"))
+        bad = conns.access_errors(access, view) if access["mode"] != "direct" else []
+        if bad:
+            return {"items": [], "error": {"code": "validation_error", "message": "; ".join(
+                f"{e['loc'][-1]}: {e['msg']}" for e in bad)}}  # fmt: skip
+        client = svc.build_client(
+            {**cfg, "model_id": cfg.get("model_id") or "-"}, report=False, view=view
+        )
     except AssistantError as err:
         return {"items": [], "error": {"code": err.code, "message": err.message}}
     try:
@@ -453,6 +337,8 @@ async def status(user: Admin, __: SessionUser, rt: RT, session: DB) -> dict:
         # [3b owner] the models the chat composer offers (main model first = default)
         "chat_models": config.chat_models_effective(svc.cfg),
         "default_model_id": svc.cfg.get("model_id") or None,
+        # [4] the live credential chain of the assistant (architecture § 15.1.5)
+        "aws": svc.aws_status(),
     }
 
 

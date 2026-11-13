@@ -390,7 +390,20 @@
     "smtpTestOk": "Test email sent.",
     "healthLine": "Version {{version}} · database {{db}} · {{mode}} · poller {{poller}} · sensors scheduled: {{count}}",
     "security": {
-      "none": "None"
+      "none": "None",
+      "title": "Security",
+      "intro": "Hardening options. The defaults are the secure choice; change one only when your deployment needs it.",
+      "sessionMaxAge": "Maximum session age (hours)",
+      "sessionMaxAgeHint": "A login ends after this long even when it is in use (1–720; default 168 = 7 days). Active Directory, Kerberos and Microsoft sign-in sessions end after 12 hours at the latest.",
+      "sessionMaxAgeErr": "Enter 1–720.",
+      "loginIpCap": "Failed logins per address (5 minutes)",
+      "loginIpCapHint": "After this many failed password logins from one address, across all user names, new logins from it wait until the 5 minutes pass. Signed-in users are not affected. 0 = off (default 20).",
+      "loginIpCapErr": "Enter 0–10000.",
+      "allowLoopback": "Allow monitoring and notification targets on this server (loopback)",
+      "allowLoopbackHint": "Off: HTTP sensors, webhooks and Teams channels cannot reach 127.0.0.1 / localhost. Turn on only to monitor a service on the NetworkMonitor server itself. Link-local and cloud metadata addresses are always blocked; private network addresses are always allowed.",
+      "frameAncestors": "Sites that may embed NetworkMonitor in a frame",
+      "frameAncestorsHint": "One origin per line, for example https://wall.example.com. Empty = only NetworkMonitor itself (recommended). Needed only when a wall screen page embeds the NOC view.",
+      "frameAncestorsErr": "Each line must be an origin such as https://wall.example.com (scheme and host, optional port), at most 20."
     },
     "timezone": "Time zone",
     "timezoneHint": "Used for weekly maintenance windows and the times in notifications.",
@@ -426,7 +439,8 @@
       "reports": "Reports",
       "noc": "NOC screens",
       "chatAck": "Chat acknowledge",
-      "assistant": "Assistant (AI)"
+      "assistant": "Assistant (AI)",
+      "aws": "AWS"
     }
   },
   "users": {
@@ -457,7 +471,10 @@
     "confirmPassword": "Confirm new password",
     "passwordChanged": "Password changed.",
     "ldapManaged": "Your account is managed in Active Directory. Change your password and email there.",
-    "oidcManaged": "This account signs in with Microsoft Entra ID; its password is managed there."
+    "oidcManaged": "This account signs in with Microsoft Entra ID; its password is managed there.",
+    "sessions": "Sessions",
+    "sessionsHint": "Sign out ends this browser's session on the server. If you think someone else may be using your account, sign out of every browser and device at once (API tokens are not affected).",
+    "logoutEverywhere": "Sign out everywhere"
   },
   "validation": {
     "required": "Required.",
@@ -571,7 +588,12 @@
     "walk_running": "A walk of this device is already running.",
     "template_exists": "A user template with this ID already exists.",
     "invalid_template": "The template YAML fails validation.",
-    "stream_interrupted": "The connection to the answer was lost."
+    "stream_interrupted": "The connection to the answer was lost.",
+    "aws_assume_role_denied": "AWS STS refused to assume the role.",
+    "aws_assume_role_invalid": "AWS STS rejected the role request (role ARN, session duration or STS region).",
+    "aws_connection_unconfigured": "The AWS connection is missing or incomplete.",
+    "test_required": "Run a successful Test of these values first.",
+    "assistant_unconfigured": "The assistant is not configured yet."
   },
   "sensorType": {
     "ping": "Ping",
@@ -3295,7 +3317,7 @@
         "chatModels": "Chat models"
       },
       "connection": "Amazon Bedrock connection",
-      "connectionIntro": "Fill in the connection, run Test connection, then turn the assistant on at the bottom. Recommended: region us-east-1 with a us. inference profile, authenticated with IAM Roles Anywhere.",
+      "connectionIntro": "Fill in the Bedrock settings, choose the AWS connection, run Test connection, then turn the assistant on at the bottom. Recommended: region us-east-1 with a us. inference profile.",
       "authMode": "Authentication",
       "recommended": "Recommended",
       "auth": {
@@ -3379,7 +3401,8 @@
       "missing": {
         "certificate": "Upload a certificate (or generate a CSR) first.",
         "secret": "Enter the secret access key.",
-        "sessionToken": "A temporary key (ASIA…) needs the session token."
+        "sessionToken": "A temporary key (ASIA…) needs the session token.",
+        "connection": "Add an AWS connection first (Settings → AWS)."
       },
       "enableNeedsTest": "Run a successful Test connection with these values first.",
       "changeNeedsTest": "Connection fields changed: run Test connection before saving.",
@@ -3471,7 +3494,10 @@
         "credentials": "Credentials",
         "endpoint": "Endpoint (TCP + TLS)",
         "converse": "Model call",
-        "knowledge": "Knowledge Base"
+        "knowledge": "Knowledge Base",
+        "identity": "Identity (STS)",
+        "hop": "Role hop",
+        "hop_identity": "Hop identity"
       },
       "endpoint": "Endpoint",
       "class": {
@@ -3873,5 +3899,293 @@
     "clear": "Clear search",
     "none": "No settings found",
     "requires": "Requires the {{feature}} feature — turn it on in {{tab}}"
+  },
+  "aws": {
+    "tabIntro": "Shared AWS connections: the identity NetworkMonitor uses to call AWS. The assistant (and later AWS features) chooses a connection and, optionally, one role to assume from it.",
+    "connections": {
+      "title": "AWS connections",
+      "connections": "Connections",
+      "defaultConnection": "Default connection",
+      "add": "Add connection",
+      "empty": "No AWS connection yet. Add one to use the assistant or other AWS features.",
+      "col": {
+        "name": "Name",
+        "auth": "Authentication",
+        "identity": "Account / ARN (last test)",
+        "lastTest": "Last test",
+        "usedBy": "Used by"
+      },
+      "defaultBadge": "Default",
+      "setDefault": "Set as default",
+      "setDefaultTitle": "Make “{{name}}” the default connection",
+      "setDefaultImplicit": "The assistant uses “the default connection”, so it will use “{{name}}” from its next question. Test the connection first: the default changes only after a successful Test.",
+      "setDefaultPlain": "Everything that uses “the default connection” will use “{{name}}”.",
+      "testAndSetDefault": "Test and set as default",
+      "deleteUsed": "In use by {{list}} — choose another connection there first.",
+      "deleteDefault": "The default connection cannot be deleted while other connections exist — make another one the default first.",
+      "deleteConfirm": "Delete the AWS connection “{{name}}”? Its certificate and keys are deleted too.",
+      "never": "never tested",
+      "lastOk": "OK · {{time}}",
+      "lastFail": "{{code}} · {{time}}",
+      "consumer": {
+        "assistant": "Assistant"
+      },
+      "accessShort": {
+        "direct": "directly",
+        "assume_role": "assumes a role",
+        "ra_role": "another Roles Anywhere role"
+      },
+      "chainState": {
+        "ok": "working",
+        "error": "failing",
+        "idle": "idle"
+      }
+    },
+    "auth": {
+      "roles_anywhere": "IAM Roles Anywhere (certificate)",
+      "access_key": "Access key",
+      "default_chain": "Default credential chain"
+    },
+    "authHint": {
+      "roles_anywhere": "Temporary credentials from a certificate of your PKI. No long-term secret is stored.",
+      "access_key": "A static key of a dedicated IAM user, or a temporary key with its session token.",
+      "default_chain": "Environment variables, container credentials or the EC2 instance role (for a server that runs in AWS)."
+    },
+    "form": {
+      "titleNew": "New AWS connection",
+      "titleEdit": "Edit “{{name}}”",
+      "name": "Name",
+      "authMode": "Authentication",
+      "region": "Region",
+      "regionHint": "The region of STS and IAM Roles Anywhere. Credentials from a regional STS endpoint work in every region.",
+      "raTrustAnchor": "Trust anchor ARN",
+      "raProfile": "Profile ARN",
+      "raRole": "Role ARN",
+      "raRegion": "Roles Anywhere region (optional)",
+      "raRegionHint": "Empty = the connection region.",
+      "raSession": "Session duration (seconds)",
+      "raSessionHint": "900–43200; no more than the profile allows.",
+      "accessKeyAdvice": "IAM Roles Anywhere is recommended: an access key is a long-term secret. Use a dedicated IAM user with only the policies it needs.",
+      "accessKeyId": "Access key ID",
+      "secretKey": "Secret access key",
+      "sessionToken": "Session token",
+      "sessionTokenHint": "Only for temporary keys (ASIA…). Leave empty for an IAM user key (AKIA…).",
+      "sessionTokenStored": "A session token is stored. Paste a new one to replace it.",
+      "sessionTokenClear": "Clear the stored session token",
+      "keyCreated": "Key created",
+      "keyCreatedHint": "Optional — a reminder after 90 days.",
+      "secretUnreadable": "The stored secret cannot be decrypted (secret.key changed). Enter it again.",
+      "defaultChainInfo": "Tries, in this order: the environment (AWS_ACCESS_KEY_ID / AWS_SECRET_ACCESS_KEY), container credentials (ECS), the EC2 instance role through IMDSv2 (in Docker the hop limit must be 2). The Test shows which source was used.",
+      "network": "Network",
+      "proxyMode": "Proxy",
+      "proxy": {
+        "env": "From the environment (HTTPS_PROXY / NO_PROXY)",
+        "direct": "Direct (no proxy)",
+        "custom": "Custom proxy"
+      },
+      "proxyHint": {
+        "env": "VPC endpoint addresses must be listed in NO_PROXY.",
+        "direct": "For VPC endpoints reached over Direct Connect.",
+        "custom": "http://host:port, without credentials."
+      },
+      "proxyUrl": "Proxy URL",
+      "overrides": "Endpoint overrides",
+      "overridesHint": "For interface VPC endpoints: the endpoint's https:// address per service and region. Without an override the public AWS endpoint is used.",
+      "overrideService": "Service",
+      "overrideRegion": "Region",
+      "overrideUrl": "URL",
+      "addOverride": "Add override",
+      "removeOverride": "Remove",
+      "hopTitle": "Role hop for the Test and the policies (optional)",
+      "hopHint": "Test the connection together with one role hop, as a consumer would use it. Nothing here is stored.",
+      "test": "Test connection",
+      "create": "Create connection",
+      "saveFirst": "Save the connection first; then upload its certificate or generate a CSR.",
+      "needsTest": "The assistant uses this connection and is on: run a successful Test of the changed values before saving.",
+      "missing": {
+        "certificate": "Upload a certificate (or generate a CSR) first.",
+        "secret": "Enter the secret access key.",
+        "sessionToken": "A temporary key (ASIA…) needs the session token."
+      },
+      "arnAccounts": "The trust anchor, profile and role ARNs are in different AWS accounts. Roles Anywhere vends only roles of its own account — to reach another account, use a role hop (Assume a role).",
+      "unresolved": "Not resolvable from the server right now: {{hosts}}. Saved anyway; the address is checked again when the connection is used.",
+      "used": "Used by {{list}}.",
+      "rateLimited": "Too many connection tests: 10 per administrator in 10 minutes. Try again in a few minutes."
+    },
+    "err": {
+      "name": "1–64 characters",
+      "region": "Invalid region (e.g. us-east-1)",
+      "arnTwice": "The ARN appears twice — paste it once.",
+      "arn": "Not a valid ARN for this field",
+      "session": "900–43200",
+      "accessKey": "AKIA… or ASIA… followed by 16 characters",
+      "sessionToken": "Up to 4096 base64 characters (A–Z, a–z, 0–9, + / =)",
+      "proxy": "http://host:port",
+      "url": "https://host[:port] without a path",
+      "overrideDup": "Only one override per service and region",
+      "overrideRegion": "Invalid region",
+      "required": "Required",
+      "externalId": "2–1224 characters: letters, digits and _+=,.@:/-",
+      "raOnly": "Only with a Roles Anywhere connection",
+      "profileAccount": "The role must be in the profile's account"
+    },
+    "warning": {
+      "access_key_old": "The access key is older than 90 days — rotate it.",
+      "temporary_credentials": "Temporary credentials (session token) expire after a few hours — fine for a trial; for the server use Roles Anywhere, an IAM user key or the default chain.",
+      "arn_accounts_differ": "The trust anchor, profile and role ARNs are in different AWS accounts.",
+      "cert_expiring": "The Roles Anywhere certificate expires in less than 30 days.",
+      "key_file_mode": "The private key file on the host is readable by other users.",
+      "cn_not_source_identity_safe": "The certificate CN contains characters a source identity cannot carry (for example a space).",
+      "vpce_via_proxy": "A VPC endpoint is reached through the proxy. Add .vpce.amazonaws.com to NO_PROXY or use proxy mode \"direct\".",
+      "endpoint_unresolved": "An endpoint override or the proxy host does not resolve from the server right now.",
+      "sts_unreachable": "STS is not reachable. Direct access does not need it, but a role hop does.",
+      "account_mismatch": "The account of an identity differs from the account in the ARN it used."
+    },
+    "cert": {
+      "title": "Roles Anywhere certificate",
+      "none": "No certificate yet.",
+      "mode": {
+        "upload": "Upload certificate and key",
+        "csr": "Generate a CSR"
+      },
+      "subjectCn": "Subject CN",
+      "issuerCn": "Issuer CN",
+      "sourceIdentity": "Source identity",
+      "identityIntro": "Compare with the trust policies: aws:PrincipalTag/x509Subject/CN must be the subject CN, aws:PrincipalTag/x509Issuer/CN the issuer CN, and a role hop's trust policy checks aws:SourceIdentity.",
+      "csrIntro": "The server creates the private key (it never leaves the server) and a certificate request. Submit the CSR to your CA, then upload the certificate it issued here.",
+      "csrPending": "Pending request {{subject}}, created {{time}}.",
+      "cn": "Common name (CN)",
+      "cnHint": "Becomes the source identity CN=… — letters, digits and . - _ @, e.g. netmonitor.example.net.",
+      "cnUnsafe": "This CN contains characters a source identity cannot carry (for example a space). Prefer letters, digits and . - _ @.",
+      "keyType": "Key type",
+      "generateCsr": "Generate CSR",
+      "downloadCsr": "Download CSR",
+      "discardCsr": "Discard request",
+      "issuedFile": "Issued certificate (.cer, .crt, .pem, .der or .p7b)",
+      "keyStays": "The private key stays on the server — upload only the certificate.",
+      "ownKey": "This certificate has its own key",
+      "csrKey": "Use the key of the pending request",
+      "notAKey": "This looks like a private key. In CSR mode the key was generated on the server and stays there — choose the certificate your CA issued (.cer, .pem, .p7b).",
+      "uploadIssued": "Upload the issued certificate",
+      "keyMismatch": "This certificate was not issued for the pending request. Request: {{csr}} (created {{time}}). Certificate: {{cert}}. Submit the pending CSR, or discard it and upload the certificate with its own key.",
+      "certreqTitle": "Submit to Active Directory Certificate Services",
+      "templateName": "Template name",
+      "templateHint": "Use the template name (Certificate Templates console → template → General → Template name, no spaces), not its display name. Error 0x80094800 (CERTSRV_E_UNSUPPORTED_CERT_TYPE) means the CA does not know that name or does not publish the template.",
+      "templateSpaces": "A template name has no spaces — this looks like the display name.",
+      "copyFrom": "Copy certificate from",
+      "copyPick": "Choose a connection…",
+      "copy": "Copy",
+      "copiedOk": "Certificate copied",
+      "file": "Certificate (PEM with chain, DER, .p7b, or .pfx / .p12)",
+      "fileHint": "≤ 64 KiB",
+      "keyFile": "Private key (PEM)",
+      "keyHint": "Not needed for .pfx / .p12",
+      "password": "Password",
+      "passwordHint": "For an encrypted key or a .pfx; never stored",
+      "upload": "Upload",
+      "uploadedOk": "Certificate uploaded",
+      "subject": "Subject",
+      "issuer": "Issuer",
+      "serial": "Serial",
+      "validity": "Valid",
+      "daysLeft_one": "{{count}} day left",
+      "daysLeft_other": "{{count}} days left",
+      "expired": "expired",
+      "key": "Key",
+      "keyUnreadable": "The stored key cannot be decrypted (secret.key changed) — upload again.",
+      "chain": "Chain",
+      "source": "Source",
+      "fromFiles": "Host files (NETMON_AWS_RA_CERT_FILE)",
+      "uploaded": "Uploaded {{time}}",
+      "filesReadOnly": "The certificate comes from host files and is read-only here.",
+      "delete": "Delete certificate",
+      "deleteConfirm": "Delete the uploaded certificate and key of this connection?",
+      "requirements": "Requirements: X.509 v3, CA:FALSE, key usage Digital Signature, SHA-256 or stronger, RSA ≥ 2048 or ECDSA P-256/P-384; Client Authentication recommended.",
+      "err": {
+        "invalid_certificate": "The certificate is not usable",
+        "invalid_private_key": "The private key could not be read (wrong format or password).",
+        "key_mismatch": "The key does not match the certificate."
+      }
+    },
+    "policies": {
+      "title": "Expected IAM policies",
+      "intro": "Rendered from this connection's values — compare them with IAM or copy them.",
+      "base_trust_policy": "Trust policy of the Roles Anywhere role",
+      "hop_caller_policy": "Permissions of the base identity for the hop",
+      "hop_trust_policy": "Trust policy of the target role",
+      "notes": "Not rendered",
+      "none": "Nothing to render yet.",
+      "copy": "Copy JSON",
+      "note": {
+        "taMissing": "Trust policy of the Roles Anywhere role: the trust anchor ARN is not set yet.",
+        "noCert": "Trust policy of the Roles Anywhere role: no certificate yet, so the CN conditions are left out.",
+        "notRa": "A trust policy for Roles Anywhere applies only to a Roles Anywhere connection.",
+        "baseUnknown": "Trust policy of the target role: the base identity's ARN is not known yet — run the connection Test first.",
+        "noSourceIdentity": "Trust policy of the target role: no certificate, so the source identity is not known yet.",
+        "noExternalId": "Trust policy of the target role: no ExternalId — recommended against the confused-deputy problem."
+      }
+    },
+    "access": {
+      "title": "AWS access",
+      "intro": "Which AWS connection the assistant uses, and how it reaches Bedrock.",
+      "connection": "Connection",
+      "defaultOption": "Default connection ({{name}})",
+      "defaultNone": "Default connection (none yet)",
+      "manage": "Manage connections",
+      "how": "How to reach Bedrock",
+      "mode": {
+        "direct": "Use the connection directly",
+        "assume_role": "Assume a role",
+        "ra_role": "Another role of the same Roles Anywhere profile"
+      },
+      "modeHint": {
+        "direct": "The connection's own credentials (also for a resource policy that grants its role).",
+        "assume_role": "sts:AssumeRole into a role of any account (for example the Bedrock account), with an ExternalId.",
+        "ra_role": "A second Roles Anywhere session with the same certificate for another role of the profile's account."
+      },
+      "roleArn": "Role ARN",
+      "externalId": "ExternalId",
+      "externalIdHint": "Put the same value into the target role's trust policy (sts:ExternalId).",
+      "generate": "Generate",
+      "noConnection": "No AWS connection yet: add one in Settings → AWS.",
+      "current": "Now: {{name}} — {{mode}}"
+    },
+    "test": {
+      "step": {
+        "config": "Settings",
+        "credentials": "Base credentials",
+        "identity": "Identity (STS)",
+        "hop": "Role hop",
+        "hop_identity": "Hop identity"
+      },
+      "hop0": "base",
+      "hop1": "hop",
+      "hints": "What to check",
+      "values": "Values to compare",
+      "ok": "The connection works.",
+      "identity": "Account {{account}}",
+      "policiesLink": "See Expected IAM policies below."
+    },
+    "hint": {
+      "ra_trust_policy": "The role's trust policy must allow sts:AssumeRole, sts:TagSession and sts:SetSourceIdentity for rolesanywhere.amazonaws.com, with aws:SourceArn exactly {{trust_anchor_arn}} — once. A trust anchor ARN pasted into a template that already contains \":trust-anchor/\" gives a doubled value (\":trust-anchor/arn:aws:rolesanywhere:…\") that never matches.",
+      "ra_subject_cn": "If the trust policy checks aws:PrincipalTag/x509Subject/CN, its value must equal the certificate's CN: {{cert_cn}} (from the uploaded certificate). The CN typed in the CSR or in the template request is not always the CN the CA issued — compare with the certificate.",
+      "ra_issuer_cn": "If it checks aws:PrincipalTag/x509Issuer/CN, the value must be {{issuer_cn}}.",
+      "ra_profile_role": "The profile {{profile_arn}} must list the role {{role_arn}}, be enabled, and be in the same account as the role.",
+      "ra_untrusted_cert": "The trust anchor {{trust_anchor_arn}} does not trust the CA that issued this certificate (issuer {{issuer_cn}}). Upload the chain with the intermediate CA, or register the issuing CA in the trust anchor.",
+      "ra_disabled": "Enable the trust anchor / profile in IAM Roles Anywhere.",
+      "ra_revoked": "The certificate is revoked in an imported CRL or a CRL distribution point.",
+      "set_source_identity": "Roles Anywhere set the source identity {{source_identity}}, so this hop needs sts:SetSourceIdentity in two places: the permissions policy of {{from_arn}} (resource {{role_arn}}) and the trust policy of {{role_arn}} (in its Action list).",
+      "tag_session": "AWS asks for sts:TagSession on this hop: add it to the trust policy of {{role_arn}} and to the permissions policy of {{from_arn}}. The app passes no session tags; this appears only when tags were made transitive in your organisation.",
+      "caller_policy": "{{from_arn}} needs sts:AssumeRole on {{role_arn}}.",
+      "trust_policy": "The trust policy of {{role_arn}} must name the principal {{base_role_arn}} (the role, not the assumed-role session ARN).",
+      "external_id": "The trust policy's sts:ExternalId must equal the ExternalId in this form.",
+      "scp": "A service control policy of the organisation may deny sts:AssumeRole.",
+      "sts_region": "STS is not activated in {{region}} for account {{account}}; activate it (IAM → Account settings) or choose another connection region.",
+      "role_arn_invalid": "Check the role ARN {{role_arn}}.",
+      "max_session": "The role's maximum session duration must be at least 1 hour.",
+      "vpc_endpoint_or_proxy": "Allow {{host}} through the proxy, or add an interface VPC endpoint for {{service}} and enter it under Endpoint overrides as ({{service}}, {{region}}).",
+      "cn_not_source_identity_safe": "The CN {{cert_cn}} contains characters a source identity cannot carry. Prefer a CN of letters, digits and . - _ @.",
+      "model_access": "Enable access to this model in the Bedrock console of {{region}} (Bedrock → Model access) for the account {{account}}."
+    }
   }
 }

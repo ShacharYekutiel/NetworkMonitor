@@ -37,10 +37,12 @@ import {
   NewDeviceSettingsTab,
   ReportSettingsTab,
 } from '../components/features/Phase3Settings';
+import { SecurityCard } from '../components/settings/SecuritySettings';
 import { SsoTab } from '../components/features/SsoSettings';
 import { NocTab } from '../components/features/NocSettings';
 import { cardAnchor } from '../lib/settingsIndex';
 import { AssistantSettingsTab } from '../components/assistant/AssistantSettingsTab';
+import { AwsTab } from '../components/aws/AwsTab';
 
 function SmtpCard({ settings }: { settings: Settings }) {
   const { t } = useTranslation();
@@ -483,6 +485,7 @@ export function SettingsPage() {
           <GeneralCard settings={q.data} />
           <PortsCard settings={q.data} />
           <SmtpCard settings={q.data} />
+          <SecurityCard settings={q.data} />
         </>
       )}
       {q.data && tab === 'features' && <FeaturesTab settings={q.data} />}
@@ -496,6 +499,7 @@ export function SettingsPage() {
       {q.data && tab === 'reports' && <ReportSettingsTab settings={q.data} />}
       {q.data && tab === 'noc' && <NocTab settings={q.data} />}
       {q.data && tab === 'chatAck' && <ChatAckSettingsTab settings={q.data} />}
+      {q.data && tab === 'aws' && <AwsTab settings={q.data} />}
       {q.data && tab === 'assistant' && <AssistantSettingsTab settings={q.data} />}
       {q.data && tab === 'audit' && (
         <>

@@ -90,26 +90,89 @@ export function raSettings(over: Record<string, unknown> = {}): Record<string, u
 }
 export const pkiFile = (name: string) => join(BEDROCK_PKI, name);
 
+// [4] PR 4-0a: the authentication lives in a shared AWS connection (/api/aws/connections); the
+// assistant names it (`connection_id`) and how it reaches Bedrock (`access`). The helpers keep the
+// 1.4.x "one settings object" shape for the specs: the connection fields are written to the E2E
+// connection, the rest goes to the assistant.
+export const CONN_NAME = 'E2E mock';
+const CONN_KEYS = [
+  'auth_mode', 'proxy_mode', 'proxy_url', 'access_key_id', 'secret_access_key', 'session_token',
+  'access_key_created_at', 'ra_region', 'ra_trust_anchor_arn', 'ra_profile_arn', 'ra_role_arn',
+  'ra_session_seconds', 'ra_endpoint_url',
+];
+/** Endpoint overrides that send STS and Roles Anywhere of `region` to the mock. */
+export function mockOverrides(region = 'us-east-1'): Record<string, string>[] {
+  return [
+    { service: 'sts', region, url: MOCK_ENDPOINT },
+    { service: 'rolesanywhere', region, url: MOCK_ENDPOINT },
+  ];
+}
+export function splitSettings(settings: Record<string, unknown>): { conn: Record<string, unknown> | null; asst: Record<string, unknown> } {
+  const conn: Record<string, unknown> = {};
+  const asst: Record<string, unknown> = {};
+  for (const [k, v] of Object.entries(settings)) (CONN_KEYS.includes(k) ? conn : asst)[k] = v;
+  if (!Object.keys(conn).length) return { conn: null, asst };
+  const region = (conn.ra_region as string) || 'us-east-1';
+  delete conn.ra_endpoint_url;
+  conn.ra_region = null;
+  return { conn: { region, endpoint_overrides: mockOverrides(region), ...conn }, asst };
+}
+export async function connections(api: Api): Promise<any[]> {
+  return api.get('/api/aws/connections');
+}
+/** Creates or updates the E2E connection; a credential change while the assistant (ON) uses it is tested first. */
+export async function ensureConnection(api: Api, fields: Record<string, unknown>, name = CONN_NAME): Promise<any> {
+  const cur = (await connections(api)).find((c: any) => c.name === name);
+  if (!cur) {
+    const r = await raw(api, 'POST', '/api/aws/connections', { name, ...fields });
+    expect(r.status, `create AWS connection: ${r.text}`).toBe(201);
+    return r.body;
+  }
+  let r = await raw(api, 'PATCH', `/api/aws/connections/${cur.id}`, fields);
+  if (r.status === 422 && r.body?.error?.code === 'test_required') {
+    const t = await raw(api, 'POST', '/api/aws/connections/test', { connection_id: cur.id, connection: fields, access: null });
+    expect(t.body?.ok, `AWS connection test: ${JSON.stringify(t.body?.steps)}`).toBe(true);
+    r = await raw(api, 'PATCH', `/api/aws/connections/${cur.id}`, { ...fields, test_id: t.body.test_id });
+  }
+  expect(r.status, `update AWS connection: ${r.text}`).toBe(200);
+  return r.body;
+}
+/** The assistant part of `settings`, pointed at the E2E connection (written first when given). */
+export async function assistantFields(api: Api, settings: Record<string, unknown>): Promise<Record<string, unknown>> {
+  const { conn, asst } = splitSettings(settings);
+  if (!conn) return asst;
+  const c = await ensureConnection(api, conn);
+  return { connection_id: c.id, access: { mode: 'direct', role_arn: null, external_id: null }, ...asst };
+}
+
 export async function assistantSettings(api: Api): Promise<any> {
   return api.get('/api/assistant/settings');
 }
 export async function testConnection(api: Api, settings?: Record<string, unknown>): Promise<{ status: number; body: any }> {
-  const r = await raw(api, 'POST', '/api/assistant/test', settings ? { settings } : {});
+  const fields = settings ? await assistantFields(api, settings) : undefined;
+  const r = await raw(api, 'POST', '/api/assistant/test', fields ? { settings: fields } : {});
   return { status: r.status, body: r.body };
 }
-/** Uploads a certificate of the test PKI: PEM cert + key (default) or the .pfx with its password. */
-export async function uploadCert(api: Api, leaf = 'leaf-rsa', opts: { pfx?: boolean; key?: string; password?: string; bundle?: boolean } = {}) {
+/** The id of the E2E connection (created from akSettings() when missing). */
+export async function e2eConnectionId(api: Api): Promise<number> {
+  const cur = (await connections(api)).find((c: any) => c.name === CONN_NAME);
+  if (cur) return cur.id;
+  return (await ensureConnection(api, splitSettings(akSettings()).conn!)).id;
+}
+/** Uploads a certificate of the test PKI to an AWS connection: PEM cert + key (default) or the .pfx with its password. */
+export async function uploadCert(api: Api, leaf = 'leaf-rsa', opts: { pfx?: boolean; key?: string | null; password?: string; bundle?: boolean; file?: string; connectionId?: number } = {}) {
   const multipart: Record<string, any> = {};
   if (opts.pfx) {
     multipart.file = { name: `${leaf}.pfx`, mimeType: 'application/x-pkcs12', buffer: readFileSync(pkiFile(`${leaf}.pfx`)) };
     multipart.password = opts.password ?? PFX_PASSWORD;
   } else {
-    const cert = opts.bundle ? `${leaf}-bundle.pem` : `${leaf}.pem`;
-    multipart.file = { name: cert, mimeType: 'application/x-pem-file', buffer: readFileSync(pkiFile(cert)) };
-    multipart.key = { name: 'key.pem', mimeType: 'application/x-pem-file', buffer: readFileSync(pkiFile(opts.key ?? `${leaf}.key`)) };
+    const cert = opts.file ?? (opts.bundle ? `${leaf}-bundle.pem` : `${leaf}.pem`);
+    multipart.file = { name: cert, mimeType: 'application/x-pem-file', buffer: readFileSync(cert.startsWith('/') ? cert : pkiFile(cert)) };
+    if (opts.key !== null) multipart.key = { name: 'key.pem', mimeType: 'application/x-pem-file', buffer: readFileSync(pkiFile(opts.key ?? `${leaf}.key`)) };
     if (opts.password) multipart.password = opts.password;
   }
-  const r = await api.ctx.fetch('/api/assistant/cert', { method: 'POST', multipart });
+  const id = opts.connectionId ?? (await e2eConnectionId(api));
+  const r = await api.ctx.fetch(`/api/aws/connections/${id}/cert`, { method: 'POST', multipart });
   const text = await r.text();
   let body: any = null;
   try { body = JSON.parse(text); } catch { body = null; }
@@ -119,10 +182,11 @@ export async function uploadCert(api: Api, leaf = 'leaf-rsa', opts: { pfx?: bool
 /** Test + enable with the given connection settings (audit must be ON; § 14.7). */
 export async function enableAssistant(api: Api, settings: Record<string, unknown> = akSettings()): Promise<any> {
   await setFeatures(api, { audit: true });
-  const t = await testConnection(api, settings);
+  const fields = await assistantFields(api, settings);
+  const t = await testConnection(api, fields);
   expect(t.status, `assistant test: ${JSON.stringify(t.body)}`).toBe(200);
   expect(t.body.ok, `assistant test steps: ${JSON.stringify(t.body.steps)}`).toBe(true);
-  const r = await raw(api, 'PUT', '/api/assistant/settings', { ...settings, enabled: true, test_id: t.body.test_id });
+  const r = await raw(api, 'PUT', '/api/assistant/settings', { ...fields, enabled: true, test_id: t.body.test_id });
   expect(r.status, `enable assistant: ${r.text}`).toBe(200);
   return r.body;
 }

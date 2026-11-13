@@ -6,6 +6,7 @@ import { BarChart } from 'echarts/charts';
 import { GridComponent, TooltipComponent } from 'echarts/components';
 import { CanvasRenderer } from 'echarts/renderers';
 import { endpoints3b, qk3b } from '../api/endpoints3b';
+import { usageTooltipHtml } from '../lib/html';
 import type { UsageReport } from '../api/types';
 import {
   Button,
@@ -65,7 +66,14 @@ function DailyBars({ r }: { r: UsageReport }) {
             const p = (params as { dataIndex: number }[])[0];
             const d = r.by_day[p?.dataIndex ?? 0];
             if (!d) return '';
-            return `${d.day}<br/>${t('usage.tokens')}: <b>${compactTokens(d.tokens)}</b><br/>${t('usage.questions')}: ${d.questions}${d.cost_estimate !== null ? `<br/>≈ ${formatCost(d.cost_estimate, r.currency)}` : ''}`;
+            // [1.4.1] escaped (the currency is a free-text setting)
+            return usageTooltipHtml({
+              day: d.day,
+              tokens: compactTokens(d.tokens),
+              questions: d.questions,
+              cost: d.cost_estimate !== null ? formatCost(d.cost_estimate, r.currency) : null,
+              labels: { tokens: t('usage.tokens'), questions: t('usage.questions') },
+            });
           },
         },
         xAxis: {

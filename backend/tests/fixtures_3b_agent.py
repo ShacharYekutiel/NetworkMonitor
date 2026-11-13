@@ -62,14 +62,18 @@ def mock_settings(mock: Any, **over: Any) -> dict[str, Any]:
 
 
 async def configure(rt: Any, fields: dict[str, Any], **features: bool) -> None:
-    """Store the `assistant` object (secret encrypted) and switch the features (bypassing the
-    configure-first test_id rule, which is developer A's and tested there)."""
+    """Store the AWS connection "Default" and the `assistant` object (secrets encrypted) and
+    switch the features (bypassing the configure-first test_id rule, which is developer A's and
+    tested there). [4] The authentication fields go to the shared connection."""
     from netmon.assistant import config
     from netmon.services import settings as settings_svc
+    from tests.aws_helpers import split, store_connection
 
+    conn_fields, asst_fields = split(fields)
+    cid = await store_connection(rt, conn_fields)
     async with rt.sessionmaker() as session:
         stored = await config.load(session)
-        cfg = config.merge(stored, fields, rt.secret_key)
+        cfg = config.merge_settings(stored, {**asst_fields, "connection_id": cid})
         await settings_svc.put(session, "assistant", cfg)
         await session.commit()
     await rt.features.apply({"audit": True, "assistant": True, **features})

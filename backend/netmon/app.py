@@ -23,6 +23,7 @@ from netmon.api import (  # [3]
     assistant_settings,  # [3b]
     audit,
     auth,
+    aws_connections,  # [4] shared AWS connections
     chatack,
     configbackup,
     dashboard,
@@ -53,14 +54,36 @@ from netmon.api.errors import error_response, install_error_handlers
 from netmon.auth.tokens import bearer_from_header, is_barred
 from netmon.config import Settings, load_settings
 from netmon.runtime import Runtime
-from netmon.services.auth import LoginLimiter, cookie_secure, set_session_cookie
+from netmon.services import security as security_svc
+from netmon.services.auth import (
+    LoginLimiter,
+    cookie_secure,
+    request_is_https,
+    set_session_cookie,
+)
 
 log = logging.getLogger("netmon.app")
 
 MUTATING = {"POST", "PUT", "PATCH", "DELETE"}
 SETUP_EXEMPT_PREFIXES = ("/api/setup", "/api/auth/")
 # [3] multipart/form-data uploads; [3b] Roles Anywhere certificate
-UPLOAD_PATHS = {"/api/sso/kerberos/keytab", "/api/assistant/cert"}
+UPLOAD_PATHS = {"/api/sso/kerberos/keytab"}
+
+
+def is_upload_path(path: str) -> bool:
+    """[4] multipart uploads: the keytab and the Roles Anywhere certificate of a connection
+    (`/api/aws/connections/{id}/cert`)."""
+    if path in UPLOAD_PATHS:
+        return True
+    parts = path.split("/")
+    return (
+        len(parts) == 6
+        and parts[1:4] == ["api", "aws", "connections"]
+        and parts[4].isdigit()
+        and parts[5] == "cert"
+    )
+
+
 SETUP_EXEMPT_PATHS = {"/api/health", "/api/settings/public", "/api/setup"}
 
 PLACEHOLDER = """<!doctype html>
@@ -136,7 +159,16 @@ def create_app(
         openapi_url="/api/openapi.json",
     )
     app.state.rt = rt
-    app.state.login_limiter = LoginLimiter()
+    # [1.4.1] the address-wide cap follows the setting `login_ip_max_failures`
+    app.state.login_limiter = LoginLimiter(
+        ip_max=lambda: security_svc.policy_of(rt).login_ip_max_failures
+    )
+    # [1.4.1] CSP hash sources of the SPA's own inline bootstrap script (theme before paint)
+    try:
+        index_html = (settings.frontend_dist / "index.html").read_text(encoding="utf-8")
+    except OSError:
+        index_html = PLACEHOLDER
+    script_hashes = security_svc.inline_script_hashes(index_html)
     # [2b-3] API tokens and Active Directory
     from netmon.auth.ldap import Directory
     from netmon.auth.tokens import InvalidTokenLimiter, UseStamper
@@ -146,8 +178,26 @@ def create_app(
     app.state.directory = Directory()
     install_error_handlers(app)
 
+    def harden(request: Request, response: Response) -> Response:
+        """[1.4.1] Security headers on every response (also the guard's own error answers):
+        CSP with `frame-ancestors`, X-Frame-Options, nosniff, Referrer-Policy, and HSTS when
+        the request arrived over HTTPS. A header the handler set itself is kept."""
+        pol = security_svc.policy_of(rt)
+        https = request_is_https(request, rt.settings.netmon_trust_proxy)
+        for name, value in security_svc.security_headers(
+            pol,
+            csp=security_svc.build_csp(pol, script_hashes),
+            https=https,
+            path=request.url.path,
+        ).items():
+            response.headers.setdefault(name, value)
+        return response
+
     @app.middleware("http")
     async def guard(request: Request, call_next: Any) -> Response:
+        return harden(request, await _guard(request, call_next))
+
+    async def _guard(request: Request, call_next: Any) -> Response:
         path = request.url.path
         trust = rt.settings.netmon_trust_proxy
         # [2b-3] API tokens: never on auth/users/tokens; no ambient credential → no CSRF check
@@ -162,7 +212,7 @@ def create_app(
                 and not origin_matches(origin, request.headers, request.url.scheme, trust)
             ):
                 return error_response(403, "forbidden", "Cross-origin request rejected")
-            if path.startswith("/api/") and path not in UPLOAD_PATHS:
+            if path.startswith("/api/") and not is_upload_path(path):
                 length = request.headers.get("content-length")
                 has_body = (length is not None and length.strip() not in ("", "0")) or (
                     "transfer-encoding" in request.headers
@@ -214,7 +264,8 @@ def create_app(
         kiosk.router,  # [3]
         chatack.router,  # [3]
         assistant_chat.router,  # [3b]
-        assistant_settings.router,  # [3b] connection, test, certificate, usage, knowledge
+        assistant_settings.router,  # [3b] connection, test, usage, knowledge
+        aws_connections.router,  # [4] shared AWS connections (PR 4-0a)
         assistant_features.router,  # [3b] explain, incidents, diffs, digests, drafts
         timeline.router,
         testclock.router,

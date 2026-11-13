@@ -1,5 +1,4 @@
-# NetworkMonitor — Architecture (Phase 1 / MVP + Phase 2a + Phase 2b-1 + Phase 2b-2 + Phase 2b-3 + Phase 3 + Phase 3b)
-# NetworkMonitor — Architecture (Phase 1 / MVP + Phase 2a + Phase 2b-1 + Phase 2b-2 + Phase 2b-3 + Phase 3 + 1.3)
+# NetworkMonitor — Architecture (Phase 1 / MVP + Phase 2a + Phase 2b-1 + Phase 2b-2 + Phase 2b-3 + Phase 3 + Phase 3b + 1.3 + Phase 4)
 
 Phase 2a (auto-discovery, device templates, `snmp_custom`/`snmp_disk`, Telegram) is described in
 [§ 9](#9-phase-2a-discovery-templates-custom-snmp-telegram); items elsewhere marked **[2a]** belong to it.
@@ -21,6 +20,10 @@ Release 1.3 (sensor impact on the device status, one important-port definition, 
 apply, connected hosts and CSV on the ports view, trunk / LAG-degraded alerts, IRF sensors) is described in
 [§ 14](#14-release-13-sensor-impact-important-ports-interface-selection-connected-hosts-lag-degraded-irf); items
 marked **[1.3]** belong to it.
+Phase 4 (shared AWS connections, AWS cloud view and VPC Flow Logs first, then high availability with a witness,
+optics/PoE, certificate monitoring, configuration compliance, S3 backups, traffic capture) is described in
+[§ 15](#15-phase-4-aws-cloud-view-and-vpc-flow-logs-high-availability-monitoring-depth-s3-backups-traffic-capture);
+items marked **[4]** belong to it.
 
 NetworkMonitor is a license-free, PRTG-like network monitor. One Python process serves the REST API, the
 WebSocket, the built React SPA, and runs the poller and the alert engine. PostgreSQL holds everything, and
@@ -68,7 +71,7 @@ Related contracts: [data-model.md](data-model.md), [api.md](api.md), [convention
 
 ### Libraries (fixed)
 FastAPI, uvicorn, SQLAlchemy 2 (async) + asyncpg, Alembic, pydantic v2 + pydantic-settings, PyJWT, argon2-cffi,
-pysnmp >= 7 (lextudio), icmplib, httpx, dnspython, aiosmtplib, **[2b-1]** tzdata (IANA zones on Windows/slim images). **[2b-3]** ldap3. **[3]** asyncssh (config backup), gssapi (optional extra `kerberos`). **[3b]** no new runtime dependency (Bedrock via httpx + own SigV4, § 14.1).
+pysnmp >= 7 (lextudio), icmplib, httpx, dnspython, aiosmtplib, **[2b-1]** tzdata (IANA zones on Windows/slim images). **[2b-3]** ldap3. **[3]** asyncssh (config backup), gssapi (optional extra `kerberos`). **[3b]** no new runtime dependency (Bedrock via httpx + own SigV4, § 14.1). **[4]** no new Python dependency (AWS via the shared `netmon.aws`, DNS updates via dnspython + the optional `gssapi`); the image gains `postgresql-client-16` (S3 backups); tshark/dumpcap only in the optional capture add-on image (§ 15.10.3).
 Frontend: React 18, TypeScript, Vite, Tailwind CSS, React Router, TanStack Query, ECharts, i18next.
 
 ## 2. Process model
@@ -3923,3 +3926,2107 @@ validation), `tests/test_13.py` (impact API / rollup / bulk / backfill, ports im
 settings, PortInfo, link-down on trunks and LAG degraded with real traps, migration 0008 up/down/up in both
 modes), `tests/test_13_apply.py` (snmpsim: apply selection important / list / all / none with removal, no
 inventory for a server and a switch, Comware IRF entries on a 2-member stack and a single switch).
+
+## 15. Release 1.4.1: security hardening
+
+[1.4.1] closes the remaining findings of the penetration test of 1.4.0 (3, 5, 6, 7, 8, 10; the ReDoS findings 1–2
+shipped in 1.3.3, the assistant findings 4 and 11 in 1.4.0; finding 9, SNMP secrets at rest, is not part of this
+release). Rule for every item: an improvement is not feature-flagged, but where a hardening could break a
+legitimate deployment it is a **setting with a secure default** on *Settings → General → Security* (indexed by the
+settings search). Contract: [api § 1.4.1](api.md#141-release-141-contract-security-hardening),
+[data-model § 1.4.1](data-model.md#141-security-settings). Code: `netmon/util/egress.py`,
+`netmon/services/security.py`, `netmon/services/auth.py`, `netmon/api/deps.py`, `netmon/app.py`.
+
+### 15.1 SSRF egress filter (finding 3)
+Every place where the server fetches a URL an administrator typed in goes through `netmon.util.egress`: the
+**webhook channel**, the **Teams channel** and the **HTTP sensor** (including its certificate probe). The Telegram
+API base and the OIDC authority are environment-only; the assistant endpoints have had their own check since 1.4.0
+(`netmon.util.netguard`, which this filter reuses).
+
+- **Policy.** Blocked always: link-local (`169.254.0.0/16` with the cloud-metadata address, `fe80::/10`), the
+  metadata host aliases, the unspecified address, multicast. Blocked by default, allowed with the setting
+  `egress_allow_loopback`: loopback. **Never blocked: private RFC 1918 / CGNAT / ULA ranges** — monitoring internal
+  devices and posting to internal webhooks is what the product is for.
+- **Connection time, not save time.** `GuardedTransport` wraps the httpx transport. For each request it resolves
+  the host, checks **every** resolved address and connects to exactly the address it checked: the request URL's
+  host is replaced by the IP while the `Host` header and the TLS server name (SNI and certificate check, httpcore's
+  `sni_hostname`) stay the original name. There is no second lookup, so DNS rebinding cannot swap the target after
+  the check. Connect errors fall through to the next checked address (at most 4).
+- **Every redirect hop** passes through the transport again and is checked the same way: an HTTP sensor that is
+  redirected to `169.254.169.254` fails with `Blocked target: …`. The webhook and Teams clients do not follow
+  redirects.
+- **Outbound proxy.** The webhook and Teams clients honour `HTTPS_PROXY`. A proxied request cannot be pinned (the
+  proxy resolves and connects), so it is checked only: IP literals, host aliases and what the name resolves to on
+  this host, if it resolves here. Rebinding protection for proxied targets is the proxy's job.
+- **Save time.** The same check runs when a channel or HTTP sensor is created or its config changed, so the admin
+  gets a field error early (`422`, `config.url`). A name that does not resolve yet is accepted.
+- **Existing rows** are never rewritten. A now-blocked target fails with a clear status / delivery message, and
+  the server logs one WARNING at start (plus a `system` event) that lists the affected sensors and channels.
+- `guard_client` reaches into two private httpx attributes (`_transport`, `_mounts`) because httpx has no public
+  hook that sees the connection target; `tests/test_141_egress.py` fails loudly if they move.
+
+Not covered (deliberately): the other check types (ping, TCP port, DNS, SNMP, SSH config backup) address the
+device host directly and return no response body to the admin; SIEM forwarding targets are syslog, not HTTP.
+
+### 15.2 Sessions (findings 5 and 7)
+- **Session id.** The session JWT gains `sid`, random per login and kept by the sliding renewal. A cookie without
+  it (issued by ≤ 1.4.0) is refused, which costs every browser one sign-in after the upgrade (Kerberos SSO signs in
+  again silently) and guarantees that no session exists that could not be revoked.
+- **Logout revokes server-side.** `POST /api/auth/logout` stores the `sid` in `revoked_sessions` (migration 0011)
+  and in an in-memory set that `authenticate()` checks on every request and WebSocket handshake; the session's
+  sockets are closed. Why a per-session denylist and not `token_version += 1`: bumping the version signs the user
+  out of every browser, including the NOC workstation next door, each time they log out anywhere. The denylist ends
+  exactly the session that asked. It is persisted because an in-memory list would bring a revoked cookie back to
+  life at the next restart; the cache is sound because the server is a single process (`workers=1`, advisory lock).
+  "Sign out everywhere" still exists: `{"everywhere": true}` (the button on *My account → Sessions*), a password
+  change, a role change or deactivation bump `token_version` as before.
+- **Absolute lifetime.** `at` (authentication time) is now set for every session and kept by renewals; a session
+  ends at `at + session_max_age_h` (default 168 h = 7 days, 1–720) whatever its activity, and the cookie expiry is
+  capped accordingly. AD, Kerberos and OIDC users keep the existing rule "log in again at least every 12 h"
+  (`min(12 h, setting)`); the directory decides group membership, so their sessions must be re-evaluated often.
+  The rule is judged on the application clock, like the AD rule before.
+
+### 15.3 Login throttling (finding 6)
+`LoginLimiter` keeps its limit of 10 failures / 5 min per (client address, user name) and gains a second counter
+per **client address across all user names** (`login_ip_max_failures`, default 20, `0` = off), which is what stops
+password spraying.
+
+- Only failures count; a success does not reset the address counter (one valid account must not buy fresh guesses).
+- A throttled address cannot start **new password logins** until the window has passed; existing sessions and API
+  tokens are not affected, and Kerberos SSO attempts neither count nor are blocked (browsers on non-domain machines
+  fail the automatic attempt routinely). This is what keeps a NAT'd office usable: 20 mistyped passwords within
+  five minutes from one address is not ordinary use, and the worst case is a five-minute wait for new logins.
+- The client address is the TCP peer, or the rightmost `X-Forwarded-For` entry when `NETMON_TRUST_PROXY=true`
+  (the entry the trusted proxy appended; a client-supplied value is never used).
+- `POST /api/auth/change-password` counts a wrong current password like a failed login, per user (from any
+  address) and per address: a stolen session cannot be used to guess the password unthrottled.
+- The counters are in memory (one process); a restart clears them.
+
+### 15.4 Security headers (finding 8)
+The application sets the headers itself (`netmon.app.harden`, on every response including the guard's own error
+answers), so native installs without a reverse proxy have them; the production Caddyfile only fills in
+`Strict-Transport-Security`, `X-Content-Type-Options` and `Referrer-Policy` when a response lacks them (`?` default
+form) and sets no CSP / `X-Frame-Options` of its own.
+
+- **CSP** as strict as the built SPA allows: `script-src 'self'` plus the SHA-256 of the one inline script Vite
+  keeps in `index.html` (the theme bootstrap; hashed at start, so a rebuilt SPA needs no code change) — no
+  `unsafe-inline`, no `unsafe-eval`. `style-src 'self'` with `style-src-attr 'unsafe-inline'`: the bundle has one
+  stylesheet and no inline `<style>`, but the chart library writes inline `style` attributes in its tooltips.
+  `connect-src 'self'` covers the API, SSE and the same-origin WebSocket. `object-src 'none'`, `base-uri 'self'`,
+  `form-action 'self'`.
+- **Framing.** `frame-ancestors 'self'` plus `X-Frame-Options: SAMEORIGIN`. A wall screen may legitimately embed
+  the NOC view: the setting `frame_ancestors` adds origins; while it is not empty `X-Frame-Options` is omitted
+  (it cannot express an allow-list). Entries are validated on write and again on read.
+- **HSTS** `max-age=31536000` only on HTTPS requests (no `includeSubDomains`: the host may have HTTP-only
+  siblings). Browsers ignore HSTS received over a connection with certificate errors, so a self-signed native
+  install is not locked out.
+- `/api/docs`, the stored report document and the OIDC landing page carry their own, narrower policies.
+
+### 15.5 HTML sinks in the SPA (finding 10)
+The built bundle's `dangerouslySetInnerHTML` / `.innerHTML` occurrences are almost all library code (React,
+ECharts, markdown-it). The application's own sinks:
+
+| Sink | Data that reaches it | Result |
+|---|---|---|
+| `AnswerView` (`dangerouslySetInnerHTML`) | assistant output, which may quote device names, syslog text, LLDP neighbours | safe: markdown-it with `html: false`, images / autolinks / HTML rules disabled, every text and code renderer escapes, links only for validated `nm:` refs (`https://` for Knowledge Base sources) |
+| ECharts tooltip `formatter` (history chart) | the **unit** of a custom SNMP channel (free text) | **fixed**: escaped (`lib/html.ts`) |
+| ECharts tooltip `formatter` (log histogram) | series names, colours | **fixed** (defence in depth; names are translations today) |
+| ECharts tooltip `formatter` (assistant usage) | the **currency** setting (free text) | **fixed**: escaped |
+| ECharts tooltip `formatter` (topology) | device names, hosts, LLDP neighbour names, port names | already escaped; now uses the shared helper |
+| ECharts default tooltips (flows) | interface / host / application names | safe: ECharts encodes names and values in its default tooltip |
+| OIDC landing page (server-rendered) | the `next` path | **fixed**: the JSON inside `<script>` escapes `<`, `>`, `&` (a `next` of `/x</script>…` could close the element) |
+
+Everything else is rendered by React as text. The CSP (15.4) is the second layer: no inline or foreign script runs
+even if a sink is missed.
+
+## 15. Phase 4: AWS cloud view and VPC Flow Logs, high availability, monitoring depth, S3 backups, traffic capture
+
+Contract details: [data-model.md § Phase 4](data-model.md#4-phase-4-additions) (tables, settings, vectors,
+migrations **P4-1 … P4-10**, numbered at merge time) and [api.md § Phase 4](api.md#4-phase-4-contract) (types,
+endpoints, errors, WS). Sections are marked **[4]**; the owner's sub-phase letters are kept: **4d** AWS cloud view and
+VPC Flow Logs (moved to the **start** of phase 4 by the owner), **4a** high availability, **4b** isolated zones
+(deferred), **4c** monitoring depth. Everything is additive to release 1.4.x (`main`: 1.4.0, migration head
+`0010_phase3b`; release 1.4.1 adds `0011` (`revoked_sessions`), release 1.4.2 adds `0012` (secrets at rest), so
+P4-1 will most likely be `0013`). Owner summary in Hebrew: [phase4-summary.he.md](phase4-summary.he.md).
+
+**Contract revision 3 (2026-11-13).** The owner decided on revision 2: (1) the rule "always offer every option" is
+narrowed to *what AWS or the vendor offers an ordinary customer*; the exotic cases of revision 2 move to *Later / on
+request* ([roadmap.md](roadmap.md#later--ideas)) and are removed from the PR plans, the data model and the API
+(list in § 15.0.3); (2) D1–D6 answered (§ 15.16); (3) PR 4-0a starts now, on top of release 1.4.1, in parallel
+with 1.4.2. **§ 15.1 is the implementation-ready specification of PR 4-0a**, written against the real 1.4.1 code.
+Toggles are fewer and coarser (13 → 9, § 15.0.1). Revision 2 changes kept: rebase on 1.4.0, connections as a list,
+the flow-log matrix of ordinary AWS options, topology in three levels, flow / AWS-change alert rules, assistant
+cloud tools, on-call removed, migration placeholders, the security baseline.
+
+### 15.0 Owner rules (apply to every phase-4 feature) [4]
+
+| Rule | Meaning |
+|---|---|
+| **Toggle, OFF by default** | Every feature is `feature_<name>_enabled` (default `false`, also after the upgrade; no migration writes it). The § 12.0 / § 13.0 mechanism is unchanged: start/stop at runtime without a restart, `409 feature_disabled` while OFF, data kept, retention still runs, `features.changed`, audited `feature.enable` / `feature.disable`. AWS connections (§ 15.1) are configuration, not a feature: they have no toggle. |
+| **Nothing mandatory** | A single server with every phase-4 toggle OFF behaves exactly like 1.4.x. No new container, port, AWS permission or host change is needed unless the admin turns on the feature that uses it. HA is a choice, not a requirement; the capture add-on image is pulled only when its compose profile is enabled. |
+| **Every ordinary option (owner rule 2026-11-13, narrowed in revision 3)** | The product is for different organisations, so no feature may assume one organisation's layout. Everything AWS or a vendor offers an **ordinary customer** is supported and selectable in the UI, each with a secure default and auto-detection where possible: every flow-log type, destination and format; any number of accounts and regions; IAM Roles Anywhere in either account of a two-account layout, or a single account; access keys or an instance role; any link type between a site and AWS; the vendors the product already supports. Exotic cases (other AWS partitions, credential chains through several connections, non-AWS S3 storage, unusual DNS automation …) are **not** built; each has one line in *Later / on request*. The owner's own layout is only the *example* in documentation and Terraform, never a code path. |
+| **Configure-first** | A feature that cannot work without configuration (`aws_inventory`, `aws_flow_logs`, `ha`, `s3_backup`, `packet_capture`) shows its **settings form always** (also while OFF). The **enable switch sits at the bottom of the form, next to "Test connection"**, and is **unlocked only after a successful test of the current form values in the current page session** (any edit of a connection field locks it again). The server enforces this with a `test_id` exactly as the 1.4.x code does (`netmon.assistant.testconn.TestRegistry`: `secrets.token_hex(16)`, 30 min, bound to `(kind, user id, SHA-256 of the canonical connection fields)`; `422 test_required` otherwise; turning OFF is always possible; tests audited and rate-limited 10 per admin per 10 min). PR 4-0a moves `TestRegistry` to `netmon.services.testids` (re-exported from `assistant.testconn`) so every phase-4 feature uses the same one. |
+| **Never change device configuration** | No phase-4 feature writes configuration to a network device. On-device capture runs **operational commands only** and deletes only the file it wrote. HA never touches devices. Compliance rules show remediation text only; there is no "apply". Mirror sessions are configured **once, by the admin, by hand**. |
+| **Read-only towards AWS** | Phase-4 AWS features use read-only APIs only (`Describe*`, `List*`, `Get*`, `Search*`, `FilterLogEvents`, `sts:AssumeRole`, `sts:GetCallerIdentity`), except the explicitly write-scoped S3 backup bucket/prefix (`s3_backup`) and the HA DNS record in Route 53 (only with the `route53` DNS method). The product never creates flow logs, buckets, roles, queues or subscriptions. Example policies list exact actions (§ 15.11.3). |
+| **Security baseline** | Every phase-4 feature honours what 1.3.3–1.4.2 established: any user/admin regex is compiled with `netmon.util.saferegex` (RE2, length cap, validated at save time) — never Python `re`; any admin-supplied URL or host passes `netmon.util.netguard.blocked_endpoint_host` at save time **and** the 1.4.1 connect-time guard `netmon.util.egress` at connect time (`guard_client(httpx.AsyncClient)` / `guarded_client(**kw)` for HTTP, `open_checked_connection(host, port)` for raw sockets), with private RFC 1918 targets allowed and loopback (unless the `egress_allow_loopback` setting), link-local / metadata, unspecified and multicast addresses refused; HTTP redirects are never followed; secrets are stored with the existing AES-GCM helpers (`services/crypto.py`, one AAD per field); details in § 15.14. |
+| **Admins only** | Every phase-4 settings page and every write is `admin`. Viewers get read access where the table in § 15.0.1 says so. Packet capture is admin **and** session only (API tokens refused). |
+
+#### 15.0.1 Feature list [4]
+
+| Feature name | Sub-phase | What it gates | Needs (dependency hint) | Configure-first | Viewer read |
+|---|---|---|---|---|---|
+| `aws_inventory` | 4d | AWS accounts, scheduled read-only inventory, cloud topology page `/cloud`, AWS state sensors, the `aws_change` event-rule kind | an AWS connection (§ 15.1), IAM policy § 15.11.3 | **yes** | yes |
+| `aws_flow_logs` | 4d | flow-log sources (VPC / subnet / ENI / Transit Gateway; S3, CloudWatch Logs or Firehose-to-S3; text or Parquet), cloud traffic views, traffic overlay, flow-only map | an AWS connection; flow logs enabled in AWS by the admin. Names and structure need `aws_inventory` (without it: flow-only mode, § 15.2.5) | **yes** | yes |
+| `ha` | 4a | automatic failover, witness client, standby services, DNS updates, `/ha` page actions | a second node paired, a witness | **yes** | status only |
+| `cert_monitor` | 4c | sensor type `tls_cert`, certificate inventory `/certificates`, expiry warnings | — | no | yes |
+| `optics_dom` | 4c | transceiver DOM collection, optics in the ports view, `optics` sensors | 2b-2 port inventory; vendor DOM support | no | yes |
+| `poe_ports` | 4c | per-port PoE power history, PoE budget sensor, PoE table | 2b-2 port inventory; PSE MIB | no | yes |
+| `config_compliance` | 4c | compliance rules, evaluation, results, report section | `config_backup` | no | yes |
+| `s3_backup` | 4c | scheduled DB backups to S3, restore from S3 in the UI, export of config versions to the same bucket (an option of the form, `config_export_mode`) | an AWS connection, a bucket | **yes** | no |
+| `packet_capture` | 4c | traffic capture, browser analyzer, pcap download | SSH credentials (device source); capture add-on (decoder; mirror source) | **yes** (per source) | no (admin only) |
+
+The Features page grows from 28 (1.4.0, `services/features.py`) to **37** toggles, under the existing headings plus two
+new ones: *Cloud (AWS)* (`aws_inventory`, `aws_flow_logs`) and *Platform* (`ha`, `s3_backup`). Configure-first rows
+show state + status line and a *Configure* link instead of a switch (as 3b).
+
+**Coarser toggles (revision 3).** Four revision-2 toggles are gone because their function only makes sense together
+with another feature:
+- `flow_alerts` and `aws_change_alerts` → the event-rule kinds `flow_threshold` and `aws_change` (§ 15.2.8). Like the
+  `trap` / `syslog` kinds of 2b-3 they need `event_alerts` ON; `aws_change` additionally needs `aws_inventory` ON;
+  `flow_threshold` evaluates whatever flow data exists (`flows` and/or `aws_flow_logs`). Each rule has its own
+  `enabled` flag and the built-in rules are seeded disabled, so nothing alerts until the admin enables a rule.
+- `ai_cloud_tools` → the cloud tools are offered to the model while `assistant` **and** their data feature are ON,
+  exactly as the 3b syslog / flow / config tools follow their features.
+- `s3_config_export` → `s3_backup.config_export_mode` (`off` default, `all_versions`, `latest_only`), tested by the
+  same S3 test.
+
+#### 15.0.2 Role gate (new, used by every component) [4]
+`rt.role` is one of `single` (no HA, the default), `active`, `standby`, `fenced` (§ 15.3.5). A phase-4 helper
+`rt.features.runnable(name)` = `enabled(name) and role_allows(name)`. Components declare `runs_on: "active" |
+"any"`; `FeatureManager` starts them only when the role allows and restarts/stops them on `role.changed`. Every
+existing component (poller, alert engine, notifications, config backup, discovery, port inventory, topology refresh,
+reports, retention, Telegram poller, assistant background jobs, phase-4 schedulers) is `runs_on: "active"`; the
+ingest receivers (traps, syslog, flows) and the HA quorum probe are `runs_on: "any"` (on a standby their sink is the
+spool, § 15.3.4). With role `single` everything behaves as before. The role gate ships with PR 4a-1; until then the
+helper returns `enabled(name)`.
+
+#### 15.0.3 Scope of revision 3: what is in, what moved to *Later* [4]
+
+**In** (ordinary options): AWS connections as a list with one default (several base identities are normal); per
+consumer `direct`, one `sts:AssumeRole` hop (+ ExternalId) into any account, or another role of the same Roles
+Anywhere profile; endpoint overrides per (service, region) for interface VPC endpoints; proxy mode per connection;
+regions typed or "all enabled regions"; every VPC flow-log level (VPC, subnet, ENI) and Transit Gateway flow logs;
+destinations S3 (same or another account), CloudWatch Logs and Firehose-to-S3; text and Parquet; default and custom
+record formats; Hive / hourly partitions; sites with any AWS link type (DX connection / LAG / VIF, site-to-site VPN on
+VGW or TGW, TGW Connect); topology in three levels; S3 backups in any bucket, account, storage class, SSE-S3 /
+SSE-KMS / DSSE-KMS; HA nodes and witness anywhere; capture mirrors ERSPAN / GRE / Aruba UDP / physical NIC.
+
+**Cut** — removed from the PR plans, the data model and the API; one line each in roadmap *Later / on request*:
+
+| # | Cut (revision 2 had it) | Why | Where it lives now |
+|---|---|---|---|
+| C1 | AWS partitions other than `aws` (GovCloud `aws-us-gov`, China `aws-cn`, the `custom` partition) | not met by ordinary customers; China needs separate accounts and endpoints | roadmap *Later* "AWS GovCloud / China partitions" |
+| C2 | "Hub" connections (auth mode `assume_role` on top of another connection; chains of 3 credential sets) | one hop per consumer covers hub-and-spoke: every consumer can assume its own role from the hub's base identity | roadmap *Later* "multi-hop credential chains" |
+| C3 | S3-compatible non-AWS storage for backups (MinIO, Ceph …: partition `custom`, `path_style`, `sse: none`) | backups go to AWS S3; on-premises storage is covered by the host backups | roadmap *Later* "S3-compatible backup targets" |
+| C4 | HA DNS methods `rfc2136_tsig`, `webhook`, `none` | the owner kept the two methods of revision 1: AD secure dynamic update (`ad_gss_tsig`) and Route 53 | roadmap *Later* "HA DNS: RFC 2136 TSIG, webhook, manual" |
+| C5 | Witness alert channel "generic webhook" | the witness alerts through the channels the product already has (SMTP, Teams, Telegram) plus SNS | roadmap *Later* "witness webhook channel" |
+| C6 | Account import from AWS Organizations (`organizations:ListAccounts`, role-name pattern, import dialog) | not cheap: a management-account permission, a pattern, a confirmation dialog and a new API, against typing a handful of accounts | roadmap *Later* "import accounts from AWS Organizations" |
+| C7 | Per-node connection override (`NETMON_AWS_CONNECTION_OVERRIDES`, an HA standby replacing a connection's base by its instance role) | the Roles Anywhere certificate is in the replicated database, so both HA nodes use the same connection; a standby that must use its instance role uses its own `default_chain` connection | roadmap *Later* "per-node AWS credential override" |
+| C8 | Separate STS region and per-connection role-session duration (`sts_region`, `assume_session_seconds`) | STS is called in the connection's region; every hop uses 3600 s (the role-chaining maximum) | — (no follow-up needed) |
+| C9 | `assistant_kb` as its own AWS consumer | the Knowledge Base keeps using the assistant's credentials, as in 1.4.0 | — |
+| C10 | Flow-log *Backfill* of up to 31 days | a new source reads up to `lookback_h` (≤ 168 h) with the `catch_up` policy; older history is not needed for monitoring | roadmap *Later* "flow-log backfill" |
+| C11 | `check_bucket_owner` as an option | `x-amz-expected-bucket-owner` is always sent (the account is always known); no switch | — |
+| C12 | User-uploaded capture drivers | the shipped YAML drivers cover the supported vendors; new drivers ship with releases | roadmap *Later* "user capture drivers" |
+| C13 | Toggles `flow_alerts`, `aws_change_alerts`, `ai_cloud_tools`, `s3_config_export` | coarser toggles (§ 15.0.1) | folded as described there |
+
+### 15.1 Shared AWS connections — PR 4-0a specification [4]
+<a id="spec-4-0a"></a>
+
+1.4.x keeps the AWS authentication inside the `assistant` settings object (`netmon.assistant.config`,
+`.credentials`, `.sigv4`, `.transport`, `.certs`, `.errors`, `.testconn`, `.service`; API `api/assistant_settings.py`;
+UI `frontend/src/components/assistant/ConnectionSettings.tsx` with its `CertificateCard`). PR 4-0a moves the
+authentication into **AWS connections** shared by the assistant and every later phase-4 AWS feature, adds **one
+optional role hop per consumer**, and ships a **Test that names the failing hop** with hints that cover the mistakes
+the owner met when setting up Roles Anywhere by hand. 4-0a builds on release 1.4.1 (connect-time egress guard) and
+does **not** depend on 1.4.2, except for the rollback rule R1 (§ 15.1.9).
+
+#### 15.1.1 Scope and model
+<a id="spec-4-0a-model"></a>
+
+```
+ connection (base identity, aws_connections row)            consumer (4-0a: the assistant)
+ ┌────────────────────────────────────────────┐            ┌──────────────────────────────────────────────┐
+ │ auth_mode  roles_anywhere | access_key |    │◄───────────│ connection_id   (null = the default connection) │
+ │            default_chain                    │            │ access.mode     direct | assume_role | ra_role  │
+ │ region (STS + Roles Anywhere region)        │            │ access.role_arn, access.external_id             │
+ │ proxy_mode / proxy_url                      │            └──────────────────────────────────────────────┘
+ │ endpoint_overrides [(service, region, url)] │   effective credentials = base  →  [ one hop ]
+ └────────────────────────────────────────────┘
+```
+
+- **Connection** = a named base identity. `auth_mode`:
+  - `roles_anywhere` — X.509 `CreateSession` (the 3b `RolesAnywhereProvider`: certificate, key, chain, trust anchor
+    ARN, profile ARN, role ARN, session 900–43200 s);
+  - `access_key` — static or temporary key (3b `StaticProvider`, incl. the session token of `ASIA…` keys);
+  - `default_chain` — environment → container credentials → IMDSv2 (3b `DefaultChainProvider`).
+- **Exactly one connection is the default** when at least one exists. The first connection created becomes the
+  default. An installation upgraded from 1.4.x with a configured assistant has one connection, "Default" (§ 15.1.4).
+- **Consumer access** (same shape everywhere; data-model "Consumer access"): `connection_id` (null = default) and
+  `access = {mode, role_arn, external_id}`:
+  - `direct` — the connection's own credentials. Also covers a resource in another account that grants the
+    connection's role through a resource policy (a bucket policy, a KMS key policy);
+  - `assume_role` — `sts:AssumeRole(role_arn, ExternalId?)` with the connection's credentials; any account;
+  - `ra_role` — only with a `roles_anywhere` connection: a second `CreateSession` with the same certificate, trust
+    anchor and profile and this role ARN (the role must be in the profile's account and listed in the profile). No
+    chaining, so the session may exceed 1 h and the certificate's principal tags are present.
+- **Exactly one hop at most.** Base → optional hop. Nothing chains through another connection (cut C2).
+- Consumers: 4-0a — `assistant` (the Knowledge Base uses the assistant's credentials, cut C9); later PRs —
+  `aws_accounts` rows, `aws_flowlog_sources` rows, `s3_backup`, `ha.dns` (Route 53 method). The witness uses its own
+  instance role or key (it is a separate host).
+- Partition: `aws` only (endpoint suffix `amazonaws.com`, ARNs `arn:aws:`; cut C1).
+
+#### 15.1.2 AWS facts this design relies on (checked against the AWS documentation, 2026-11-13; sources § 15.1.14)
+<a id="spec-4-0a-facts"></a>
+
+1. Roles Anywhere resources and the roles they vend belong to one account; a role in another account is reached with
+   `sts:AssumeRole`.
+2. The Roles Anywhere role's trust policy must allow `sts:AssumeRole`, `sts:TagSession` and `sts:SetSourceIdentity`
+   for the principal `rolesanywhere.amazonaws.com`; `aws:SourceArn` is set to the **trust anchor ARN** used in
+   `CreateSession`; the certificate's subject, issuer and first SAN values become `aws:PrincipalTag/x509Subject/*`,
+   `…/x509Issuer/*`, `…/x509SAN/*` (multi-valued RDNs joined with `/`).
+3. Roles Anywhere **sets the source identity**: `CN=<subject CN>` when the CN has ≤ 61 characters; the bare CN for
+   62–256 characters; `ID=<hex serial>` when there is no CN. The session name is the hex serial of the certificate.
+4. A source identity persists through role chaining and cannot be changed. For the next `AssumeRole`,
+   `sts:SetSourceIdentity` is required **both** in the permissions policy of the calling role **and** in the trust
+   policy of the target role, "otherwise the assume role operation will fail". In the target's trust policy the
+   inherited value is checked with `aws:SourceIdentity` (both `aws:SourceIdentity` and `sts:SourceIdentity` are in
+   the request context). The app never passes `SourceIdentity` (a different value is refused by STS).
+5. **`sts:TagSession` on the second hop — settled from the documentation: not needed.** STS "does not pass tags to
+   subsequent role sessions" unless they were set transitive (`TransitiveTagKeys`), and `sts:TagSession` is the
+   permission "to add session tags". The app's `AssumeRole` passes no `Tags` and no `TransitiveTagKeys`, and the
+   Roles Anywhere documentation describes the certificate values as principal tags of its own session without
+   marking them transitive. Consequence: the certificate tags (`aws:PrincipalTag/x509Subject/CN`) are **not**
+   available in the target role's trust policy; it conditions on the calling role ARN, the ExternalId and
+   `aws:SourceIdentity`. Belt and braces: the Test still recognises an `AccessDenied … sts:TagSession` answer and
+   the hint says what to add (§ 15.1.7), and the owner's acceptance run records the working policy (§ 15.1.12).
+6. A role-chained session lasts **at most 1 hour**. The app requests `DurationSeconds = 3600` for every hop and
+   refreshes 5 minutes before expiry.
+7. Credentials issued by a regional STS endpoint are valid in every region; the app always calls
+   `https://sts.<connection region>.amazonaws.com` (or the `(sts, region)` override), never the global endpoint.
+8. Source identity values may contain only letters, digits and `_ . , + = @ -`. A certificate CN with other
+   characters (a space) gives a value AWS documents as invalid — **not verified** what Roles Anywhere does then; the
+   app warns at upload and at CSR creation (`cn_not_source_identity_safe`) and recommends a CN like
+   `netmonitor.example.net`.
+
+#### 15.1.3 Backend modules (real 1.4.1 APIs)
+<a id="spec-4-0a-modules"></a>
+
+New package `backend/netmon/aws/`. Moved modules keep a **re-export shim** at the old path for one release (`from
+netmon.aws.sigv4 import *` plus the names tests import), so the 3b code and tests change only where they build
+credentials.
+
+| Module | Origin | Responsibility in 4-0a |
+|---|---|---|
+| `netmon.aws.sigv4` | moved from `assistant/sigv4.py` | unchanged (SigV4 + Roles Anywhere X.509 signing); adds a helper for the STS Query protocol (`application/x-www-form-urlencoded` body, `Action`, `Version=2011-06-15`) |
+| `netmon.aws.credentials` | moved from `assistant/credentials.py` | `Credentials`, `StaticProvider`, `RolesAnywhereProvider`, `DefaultChainProvider`, `CachingProvider`, `REFRESH_BEFORE` unchanged. `RolesAnywhereProvider(cfg, material, client, now)` now takes `cfg` = the **connection view** (§ "Connection view" below) plus an optional `role_arn` override (used by `ra_role`). New `AssumeRoleProvider(source: CachingProvider, role_arn, external_id, session_name, sts: StsClient, now)`: `fetch()` = `await source.get()` → `sts.assume_role(...)` → `Credentials(source="assume_role", expiration=…, detail={"role_arn", "assumed_role_arn", "source_identity"})`. |
+| `netmon.aws.sts` | new | `StsClient(http, region, endpoint)`: `get_caller_identity(creds) -> {"account", "arn", "user_id"}`, `assume_role(creds, role_arn, session_name, external_id, duration=3600) -> Credentials`. Query protocol, SigV4 service `sts`. No `Tags`, `TransitiveTagKeys`, `SourceIdentity`, `Policy` or `PolicyArns`. `session_name(consumer)` = `netmon-<consumer>` plus `-<NETMON_NODE_NAME>` when set; characters outside `[A-Za-z0-9+=,.@_-]` → `-`; cut to 64. |
+| `netmon.aws.awsxml` | new | **pure** STS XML reader: stdlib `xml.etree.ElementTree` behind a guard that rejects `<!DOCTYPE` / `<!ENTITY` before parsing, input ≤ 1 MiB in 4-0a (16 MiB from 4d), namespace stripping. Parses `AssumeRoleResult`, `GetCallerIdentityResult` and `<ErrorResponse><Error><Code/><Message/>`. |
+| `netmon.aws.endpoints` | new | **pure** `endpoint(service, region, overrides) -> str`: the override for `(service, region)` if present, else `https://<service>.<region>.amazonaws.com` (`rolesanywhere`, `sts`; later PRs add `ec2`, `directconnect`, `logs`, `monitoring`, `s3`, `route53`, `sns`). `service` and `region` are validated against fixed patterns (`REGION_RE` of 3b) before they reach a URL. |
+| `netmon.aws.transport` | moved from `assistant/transport.py` | `make_client(view)` unchanged (proxy modes `env` / `direct` / `custom`, `tlsutil.httpx_verify(True)`, `follow_redirects=False`) and **now wrapped with `netmon.util.egress.guard_client(...)`** (1.4.1): direct connections are pinned to checked addresses, proxy mounts are checked. `metadata_client()` stays **unguarded** (it reaches only the fixed IMDS / ECS addresses `169.254.169.254` / `169.254.170.2`, never admin input, never a proxy). `set_transport_factory` (tests) unchanged; injected transports get the guard's `NAMES` mode, so tests call `egress.override_loopback(True)` as 1.4.1 tests do. |
+| `netmon.aws.errors` | moved from `assistant/errors.py` | `AssistantError` stays the class (alias `AwsError`); `CODES`, `make`, `map_exception`, `map_rolesanywhere` kept; new codes and the hint builder of § 15.1.7. |
+| `netmon.aws.certs` | moved from `assistant/certs.py` | as 3b plus: **PKCS#7 bundles** (`.p7b`, PEM or DER, via `cryptography.hazmat.primitives.serialization.pkcs7.load_pem_pkcs7_certificates` / `load_der_pkcs7_certificates`) accepted by `parse_upload`; the leaf is the non-CA certificate; `cert_info` gains `subject_cn`, `issuer_cn` and `source_identity` (the value of fact 3); `validate_cn` keeps accepting spaces but `cn_warnings(cn)` returns `cn_not_source_identity_safe`. |
+| `netmon.aws.connections` | new | storage and validation of `aws_connections` (load, `merge`, `field_errors`, `required_errors`, secrets with the row's AAD scope, the legacy mirror of § 15.1.4), the **connection view**, `connection_hash(view, material)` (the 3b `config.connection_hash` over the connection fields), `used_by(session, id)`. |
+| `netmon.aws.credcache` | new | `CredentialCache` on `rt.aws`: `chain(consumer, connection_id, access) -> CachingProvider`; key `(connection id, connection hash, access.mode, role_arn, sha256(external_id))`; LRU 32 chains; a connection save drops its chains (in-flight calls finish on the old ones, as the 3b client generations with `OLD_CLIENT_GRACE_S`); `invalidate(connection_id)`; `status()` for the API (`chain` entries, § 15.1.6). |
+| `netmon.aws.testconn` | new | the chain Test of § 15.1.7 (`run_chain_test(view, access, consumers) -> TestResult`); `assistant.testconn.run_test` calls it for its first steps. |
+| `netmon.services.testids` | moved from `assistant/testconn.TestRegistry` | shared `test_id` registry (kinds `assistant`, `kb`, `aws_connection`, later `aws_inventory` …). |
+| `api/aws_connections.py` | new | the endpoints of api.md § [4] "Shared AWS connections". |
+
+**Connection view.** `connections.view(row) -> dict` returns the flat dictionary the 3b code consumes, so
+`RolesAnywhereProvider`, `make_client`, `via`, `ra_region`, `ra_endpoint` and `required_errors` work unchanged:
+`auth_mode`, `region` (the connection region), `proxy_mode`, `proxy_url`, every key of `settings` (`access_key_id`,
+`secret_access_key_enc`, `session_token_enc`, `access_key_created_at`, `ra_region`, `ra_trust_anchor_arn`,
+`ra_profile_arn`, `ra_role_arn`, `ra_session_seconds`, `ra_cert_pem`, `ra_chain_pem`, `ra_key_enc`,
+`ra_cert_uploaded_at`, `ra_csr_*`), `ra_endpoint_url` (from the `(rolesanywhere, ra_region)` override),
+`sts_endpoint_url` (from the `(sts, region)` override), and `_aad_scope`. The assistant's own Bedrock fields
+(`region`, `model_id*`, `endpoint_url`, `control_endpoint_url`, `prompt_caching`) stay in the `assistant` object; the
+`BedrockClient` gets `{**assistant_cfg, "proxy_mode": view["proxy_mode"], "proxy_url": view["proxy_url"]}` and the
+credentials from `rt.aws.chain("assistant", …)`.
+
+**Assistant service changes** (`assistant/service.py`): `make_provider` and `ra_material` move to
+`netmon.aws.connections` (per connection; host certificate files apply to the **default** connection only, as before
+to the assistant); `build_client(cfg)` resolves the connection view + access and asks `rt.aws` for the chain;
+`connection_hash(cfg)` = SHA-256 over the 1.4.0 non-auth connection fields (`region`, `model_id`, `model_id_light`,
+`endpoint_url`, `control_endpoint_url`, `prompt_caching`) + `connection_id` (resolved, never null) + the connection's
+`connection_hash` + `access` (ExternalId as SHA-256); `_conn_view` compares the same; `configured()` asks the
+connection; `cert_status` / `refresh_flags` (the "certificate expires" system event) iterate over **all**
+`roles_anywhere` connections; `settings_out` loses the auth fields (§ 15.1.6).
+
+#### 15.1.4 Storage and migration P4-1
+<a id="spec-4-0a-storage"></a>
+
+Tables and columns: data-model § [4] "AWS connections (migration P4-1)". Summary:
+- `aws_connections` (id, name, is_default, auth_mode, region, proxy_mode, proxy_url, endpoint_overrides, settings,
+  aad_scope, last_test, created_at, updated_at).
+- **Secrets** in `settings` (`secret_access_key_enc`, `session_token_enc`, `ra_key_enc`, `ra_csr_key_enc`) use AAD
+  `f"{aad_scope}.{field}"` with `field` ∈ `secret_access_key`, `session_token`, `ra_key`, `ra_csr_key`. New rows get
+  `aad_scope = "aws.conn." + secrets.token_hex(8)`; the row created by P4-1 gets `aad_scope = "assistant"`, so its
+  AADs are **byte-identical to 1.4.x** (`b"assistant.secret_access_key"` …) and the migration copies the ciphertexts
+  verbatim — no re-encryption, no `secret.key` in the migration, no first-start job. Copying a certificate between
+  connections decrypts with the source AAD and encrypts with the target's.
+- `assistant` settings object gains `connection_id` (null = default) and `access` (`{"mode": "direct"}`).
+
+**P4-1 `upgrade()`** (plain SQL, idempotent):
+1. `CREATE TABLE aws_connections …`; partial unique index `aws_connections_one_default ON (is_default) WHERE
+   is_default`.
+2. If the `settings` row `assistant` exists **and** holds any authentication value (`auth_mode` = `default_chain`,
+   or any of `access_key_id`, `secret_access_key_enc`, `ra_trust_anchor_arn`, `ra_cert_pem`, `ra_csr_pem`): insert
+   "Default" with `is_default = true`, `auth_mode` = the row's (default `roles_anywhere`), `region` =
+   `COALESCE(NULLIF(ra_region,''), region, 'us-east-1')`, `proxy_mode` / `proxy_url` from the row,
+   `endpoint_overrides` = `[{"service": "rolesanywhere", "region": <region>, "url": ra_endpoint_url}]` when
+   `ra_endpoint_url` is set else `[]`, `settings` = the auth keys copied as they are (`ra_region` set to null, it now
+   equals the connection region), `aad_scope = 'assistant'`. Then `UPDATE settings SET value = value ||
+   '{"connection_id": <id>, "access": {"mode": "direct"}}'` on the `assistant` row.
+3. Otherwise (fresh install, assistant never configured) the table stays empty; the assistant's `connection_id`
+   resolves to "no connection" → `assistant_unconfigured` exactly as an unconfigured 1.4.x.
+4. The legacy auth keys of the `assistant` row are **not removed** (rollback, § 15.1.9).
+
+**`downgrade()`**: remove `connection_id` / `access` from the `assistant` row, drop the table. Refused when a
+connection other than the `aad_scope = 'assistant'` row exists or the assistant uses a hop, unless
+`NETMON_FORCE_DOWNGRADE=1` (the legacy keys then still hold the last mirrored state).
+
+**Legacy mirror (one release).** While the assistant uses the connection with `aad_scope = 'assistant'` with
+access `direct`, every write of that connection's authentication fields (`auth_mode`, access key, secret, token,
+`ra_*` incl. certificate, chain, key and CSR, `proxy_mode`, `proxy_url`, the `rolesanywhere` override as
+`ra_endpoint_url`, region as `ra_region`) is also written into the legacy keys of the `assistant` row **in the same
+transaction** (ciphertexts copied verbatim — same AAD). When the assistant moves to another connection or to a hop,
+mirroring stops and the legacy keys keep the last mirrored state. The legacy keys are dropped by the first migration
+of the release after phase 4 (roadmap *Later*).
+
+#### 15.1.5 Credential chain, cache and refresh
+<a id="spec-4-0a-chain"></a>
+
+- `rt.aws.chain(consumer, connection_id, access)`:
+  - `direct`: `CachingProvider(base provider)`;
+  - `assume_role`: `CachingProvider(AssumeRoleProvider(source=CachingProvider(base), role_arn, external_id,
+    session_name(consumer), sts))`;
+  - `ra_role`: `CachingProvider(RolesAnywhereProvider(view, material, http, role_arn=access.role_arn))`.
+  The base `CachingProvider` of a connection is shared by all chains of that connection (one `CreateSession` serves
+  the assistant and, later, every other consumer).
+- Refresh: each `CachingProvider` refreshes 5 min before its own expiry (`REFRESH_BEFORE`), single-flight (existing
+  lock). A hop's `fetch()` calls `source.get()` first, so an expired base is refreshed lazily; a still-valid hop
+  credential is used even when its base expired.
+- Authentication errors from a service (`ExpiredToken`, `ExpiredTokenException`, `RequestExpired`,
+  `InvalidClientTokenId`, `UnrecognizedClientException`): one `get(force=True)` on the hop **and** its base, one
+  retry, then the mapped error (3b behaviour, now for the whole chain).
+- STS answers are mapped by `awsxml` + `errors.map_sts` (§ 15.1.7). Credentials, session tokens and ExternalIds are
+  never logged, audited or put in error details.
+- `GET /api/assistant/status` and `GET /api/aws/connections` report the live chain (no secrets):
+  `[{hop: 0, kind: "roles_anywhere"|"access_key"|"default_chain", arn, account, expires_at, last_refresh}, {hop: 1,
+  kind: "assume_role"|"ra_role", arn, account, expires_at, last_refresh}]`.
+- A chain that starts failing (or recovers) emits WS `aws.connection` (admins) and, for the assistant, the 3b state
+  change (`state_error`, system event as today).
+
+#### 15.1.6 API (summary; full shapes in api.md § [4] "Shared AWS connections")
+<a id="spec-4-0a-api"></a>
+
+| Method & path | Purpose |
+|---|---|
+| `GET /api/aws/connections` | list with `used_by`, `chain`, `last_test`, `warnings` |
+| `POST /api/aws/connections` | create (`201`); first one becomes default |
+| `GET /api/aws/connections/{id}` | one connection |
+| `PATCH /api/aws/connections/{id}` | edit; `422 test_required` when a credential field changes while an ON configure-first consumer uses it (4-0a: the assistant) |
+| `DELETE /api/aws/connections/{id}` | `409 conflict` while used (`details.used_by`) or while it is the default and others exist |
+| `POST /api/aws/connections/{id}/default` | make default |
+| `POST /api/aws/connections/test` | chain Test of an unsaved or saved connection (+ an optional access hop) → `TestResult` |
+| `GET /api/aws/connections/{id}/policies` | the IAM JSON this connection needs, rendered from its real values (trust anchor ARN, certificate CN / issuer CN, base role ARN; with `?role_arn=&external_id=` also the hop policies) |
+| `POST /api/aws/connections/{id}/cert`, `DELETE …/cert` | upload / delete the Roles Anywhere certificate (PEM, DER, PKCS#12, PKCS#7) |
+| `POST /api/aws/connections/{id}/cert/csr`, `GET …/cert/csr`, `DELETE …/cert/csr` | server-side key + CSR (3b behaviour, per connection) |
+| `POST /api/aws/connections/{id}/cert/copy` | copy certificate, chain and key from another connection |
+| `POST /api/aws/external-id` | a random ExternalId (32 characters `[A-Za-z0-9]`; nothing stored) |
+
+Assistant endpoints in 4-0a: `GET /api/assistant/settings` **drops** the authentication fields (`auth_mode`,
+`access_key_id`, `secret_access_key*`, `session_token*`, `access_key_created_at`, `ra_*`, `proxy_mode`, `proxy_url`,
+`certificate`, `certificate_host_files`, `csr`) and gains `connection_id`, `access` and `connection` (`{id, name,
+auth_mode, is_default, account, arn, state}` read-only). `PUT` accepts `connection_id` and `access` (a change needs a
+`test_id` while the assistant is ON — the existing `assistant_test_required`); a moved field in the body → `422
+validation_error` with `loc ["body", "<field>"]` and message "moved to Settings → AWS". `POST /api/assistant/test`
+returns the chain steps before `endpoint` / `converse`. `/api/assistant/cert*` are **removed** (the frontend moves
+in the same PR; API tokens are barred from `/api/assistant*`, so no script uses them). `POST /api/assistant/models`
+uses the assistant's chain.
+
+#### 15.1.7 Test connection: steps per hop, error mapping and hints
+<a id="spec-4-0a-test"></a>
+
+`POST /api/aws/connections/test` runs steps 1–5; `POST /api/assistant/test` runs 1–5 for the assistant's
+connection and access, then the 3b steps `endpoint` and `converse`. Budget 45 s (3b `TEST_BUDGET_S`). A failed step
+ends the run; earlier steps stay green. `TestStep` = `{step, hop, ok, detail, ms, error_code, hints: Hint[]}` with
+`Hint = {code, text, values}` (`values`: the concrete ARNs, CN, region the text refers to).
+
+| # | `step` | `hop` | What | Success detail | Failure → `error_code` |
+|---|---|---|---|---|---|
+| 1 | `config` | null | field validation (`field_errors`, `required_errors`), netguard on every URL at save-time rules | `auth roles_anywhere, region il-central-1` | `validation_error` |
+| 2 | `credentials` | 0 | base credentials: `CreateSession` / static key present / default chain | `source roles_anywhere, expires …, subject <subjectArn>, role <assumedRoleUser>` | `rolesanywhere_failed`, `aws_auth_failed`, `aws_clock_skew`, `aws_network`, `aws_session_token_required` |
+| 3 | `identity` | 0 | `sts:GetCallerIdentity` with the base credentials | `account 111111111111, arn …:assumed-role/netmon-base/<serial>` | with access `direct`: an STS network error is a **warning** `sts_unreachable` (the assistant does not need STS today) and the run continues; with a hop: `aws_network` (fatal) |
+| 4 | `hop` | 1 | `AssumeRole` (`assume_role`) or `CreateSession` with `role_arn` (`ra_role`); skipped for `direct` | `role arn:aws:iam::222222222222:role/netmon-bedrock, expires … (1 h), source identity CN=…` | `aws_assume_role_denied`, `aws_assume_role_invalid`, `rolesanywhere_failed`, `aws_network` |
+| 5 | `hop_identity` | 1 | `GetCallerIdentity` with the hop credentials | `account 222222222222` | — |
+| 6+ | consumer steps | null | assistant: `endpoint`, `converse` (3b) | as 3b | as 3b |
+
+Warnings (`TestResult.warnings`): `sts_unreachable`, `account_mismatch` (account of a step ≠ the account in the ARN
+it used), `arn_accounts_differ` (trust anchor, profile and role ARNs of one connection in different accounts — 3b),
+`cn_not_source_identity_safe`, `cert_expiring`, `temporary_credentials`, `access_key_old` (3b), `vpce_via_proxy`
+(3b, also for an STS override reached through the proxy).
+
+**Hints.** The hint builder is pure (`errors.hints_for(step, error, context)`; vectors in data-model) and uses only
+the AWS error code and message plus values the app already knows (it never calls IAM). Every hint shows the exact
+value to compare and links to the rendered policy (`GET …/policies`).
+
+| Situation (how it is recognised) | `hint.code` | Text (en; he in the locale files) |
+|---|---|---|
+| `CreateSession` 403 `AccessDeniedException` "Unable to assume role" | `ra_trust_policy` | "The role's trust policy must allow `sts:AssumeRole`, `sts:TagSession`, `sts:SetSourceIdentity` for `rolesanywhere.amazonaws.com`, with `aws:SourceArn` **exactly** `{trust_anchor_arn}` — once. A trust anchor ARN pasted into a template that already contains `…:trust-anchor/` gives a doubled value (`…:trust-anchor/arn:aws:rolesanywhere:…`) that never matches." |
+| same | `ra_subject_cn` | "If the trust policy checks `aws:PrincipalTag/x509Subject/CN`, its value must equal the certificate's CN: `{cert_cn}` (from the uploaded certificate). The CN typed in the CSR or in the template request is not always the CN the CA issued — compare with the certificate." |
+| same | `ra_issuer_cn` | "If it checks `aws:PrincipalTag/x509Issuer/CN`, the value must be `{issuer_cn}`." |
+| same | `ra_profile_role` | "The profile `{profile_arn}` must list the role `{role_arn}`, be enabled, and be in the same account as the role." |
+| `CreateSession` "Untrusted signing certificate" / "certificate chain" | `ra_untrusted_cert` | "The trust anchor `{trust_anchor_arn}` does not trust the CA that issued this certificate (issuer `{issuer_cn}`). Upload the chain with the intermediate CA, or register the issuing CA in the trust anchor." |
+| "Trust anchor is disabled" / "Profile is disabled" | `ra_disabled` | "Enable the trust anchor / profile in IAM Roles Anywhere." |
+| revoked (CRL) | `ra_revoked` | "The certificate is revoked in an imported CRL or a CRL distribution point." |
+| `AssumeRole` `AccessDenied` naming `sts:SetSourceIdentity` | `set_source_identity` | "Roles Anywhere set the source identity `{source_identity}`, so this hop needs `sts:SetSourceIdentity` in **two** places: the permissions policy of `{from_arn}` (resource `{role_arn}`) **and** the trust policy of `{role_arn}` (in its `Action` list)." |
+| `AssumeRole` `AccessDenied` naming `sts:TagSession` | `tag_session` | "AWS asks for `sts:TagSession` on this hop: add it to the trust policy of `{role_arn}` and to the permissions policy of `{from_arn}`. The app passes no session tags; this appears only when tags were made transitive in your organisation." |
+| `AssumeRole` `AccessDenied` naming `sts:AssumeRole` (or no action) | `caller_policy`, `trust_policy`, `external_id`, `scp` (in this order; `set_source_identity` added when the base is Roles Anywhere) | "`{from_arn}` needs `sts:AssumeRole` on `{role_arn}`"; "the trust policy of `{role_arn}` must name the principal `{base_role_arn}` (the role, not the assumed-role session ARN)"; "the trust policy's `sts:ExternalId` must equal the ExternalId in this form"; "a service control policy of the organisation may deny `sts:AssumeRole`" |
+| `RegionDisabledException` | `sts_region` | "STS is not activated in `{region}` for account `{account}`; activate it (IAM → Account settings) or choose another connection region." |
+| `ValidationError` on `RoleArn` / `DurationSeconds` | `role_arn_invalid` / `max_session` | "Check the role ARN"; "the role's maximum session duration must be ≥ 1 h" |
+| network error to `sts.<region>.amazonaws.com` | `vpc_endpoint_or_proxy` | "Allow `{host}` through the proxy, or add an interface VPC endpoint for STS and enter it under *Endpoint overrides* as (sts, `{region}`)." |
+| `CreateSession` network error | `vpc_endpoint_or_proxy` | same for `rolesanywhere.{region}.amazonaws.com` |
+| certificate CN with a character outside the source-identity set (warning) | `cn_not_source_identity_safe` | "The CN `{cert_cn}` contains characters a source identity cannot carry. Prefer a CN of letters, digits and `. - _ @`." |
+
+The error codes are those of § 15.1.8 (data-model vectors list the message → hint mapping).
+
+#### 15.1.8 Errors (additions to the 3b table)
+
+| Code | HTTP | When |
+|---|---|---|
+| `aws_assume_role_denied` | 502 | STS `AccessDenied` on `AssumeRole`; `details: [{"hop": 1, "from_arn", "role_arn", "action": "sts:SetSourceIdentity" \| "sts:TagSession" \| "sts:AssumeRole" \| null}]` |
+| `aws_assume_role_invalid` | 502 | STS `ValidationError`, `MalformedPolicyDocument`, `RegionDisabledException` |
+| `aws_connection_unconfigured` | 409 | a consumer's connection is missing or incomplete (the assistant keeps `assistant_unconfigured`) |
+| `test_required` | 422 | `PATCH` of a credential field of a connection used by an ON configure-first consumer without a valid `test_id` (`details: [{"connection_id": 1, "used_by": ["assistant"]}]`) |
+| `key_mismatch` (3b code, new details) | 422 | upload in CSR mode of a certificate not issued from the pending CSR: `details: [{"csr_subject", "csr_created_at", "cert_subject"}]` |
+
+`rolesanywhere_failed`, `aws_auth_failed`, `aws_network`, `aws_clock_skew`, `aws_token_expired`,
+`aws_session_token_required` keep their 3b meaning and HTTP status for every connection.
+
+#### 15.1.9 Upgrade, rollback and the no-downtime move
+<a id="spec-4-0a-upgrade"></a>
+
+**Upgrade (automatic).** P4-1 (§ 15.1.4) creates "Default" from the assistant settings; the assistant keeps answering
+(the client generation changes once; in-flight calls finish on the old client). The admin sees *Settings → AWS* with
+"Default" and, on the assistant tab, the AWS access block set to "Default — direct".
+
+**Container rollback to 1.4.x.** The production GitOps rolls the containers back automatically when a new image is
+unhealthy; the database is **not** restored. Two rules make the assistant survive that:
+- **R1 (prerequisite, outside phase 4):** the rollback target must start against a database whose revision it does
+  not know. Today `netmon.db.migrate.run_migrations` calls `command.upgrade(cfg, "head")`, which fails with "Can't
+  locate revision" when the database is at a newer revision — so **no** release with a migration can currently be
+  rolled back by containers alone. Fix: when the current database revision is not in the image's script directory,
+  log a warning, skip the upgrade and start (phase-4 migrations are additive). This must ship in the release that
+  phase 4 rolls back to (1.4.2, or a 1.4.3) — decision for the coordinator (§ 15.16).
+- **R2 (4-0a):** the legacy keys stay in the `assistant` row and are mirrored while the assistant uses "Default"
+  directly (§ 15.1.4), so a 1.4.x image finds current settings. After the assistant moved to a hop, a 1.4.x image
+  finds the last mirrored state — the old Bedrock-account Roles Anywhere setup — which works until step 7 below.
+
+**Moving an installation that runs Roles Anywhere in the Bedrock account to the network-account base** (the owner's
+case; every step is reversible and none interrupts the assistant):
+
+| # | Where | Step | Assistant uses |
+|---|---|---|---|
+| 0 | — | deploy the release with PR 4-0a | "Default" (Bedrock account), `direct` |
+| 1 | AWS network account | trust anchor (same PKI CA), profile, base role with the trust policy shown by *Expected IAM policies* of the new connection (or Terraform `network-base`, PR 4-0b) | unchanged |
+| 2 | AWS Bedrock account | new role with the same Bedrock policy, trust policy from *Expected IAM policies* (principal = the base role ARN; `sts:AssumeRole` + `sts:SetSourceIdentity`; `sts:ExternalId`; `aws:SourceIdentity = CN=<cert CN>`). The old role is **not** touched | unchanged |
+| 3 | *Settings → AWS* | *Add connection* "Network account": `roles_anywhere`, *Copy certificate from* "Default", the new ARNs → *Test* (`credentials`, `identity` green; account = network account) → *Save* | unchanged |
+| 4 | *Settings → Assistant* → *AWS access* | connection "Network account", *Assume a role*, role ARN, ExternalId (*Generate*, paste it into step 2's trust policy) → *Test* (`credentials`, `identity`, `hop`, `hop_identity`, `endpoint`, `converse`) → *Save*. A failed test changes nothing | the new chain, from the next question |
+| 5 | — | run for some days; `GET /api/assistant/status` shows the chain and its refreshes (every ≈ 55 min) | new chain |
+| 6 | *Settings → AWS* | *Set as default* on "Network account"; delete "Default" (allowed once nothing uses it) | new chain |
+| 7 | AWS Bedrock account | remove the old trust anchor, profile and role. From now on a container rollback to 1.4.x has no working assistant (documented; alerts are unaffected) | new chain |
+
+Rollback at steps 4–6: select the old connection / `direct` again and save (its test passes while step 7 is not
+done). The opposite move and single-account installations use the same screens.
+
+#### 15.1.10 UI
+<a id="spec-4-0a-ui"></a>
+
+- **New settings tab `aws`** ("AWS") in `SETTINGS_TABS` (`frontend/src/lib/features.ts`), placed before
+  `assistant`; always visible (no feature). Components in `frontend/src/components/aws/`:
+  - `AwsConnectionsCard` (`data-anchor="settings-awsConnections"`): table — name, *Default* badge, authentication,
+    account and ARN of the last test, last test (time, ok / error code), used by; buttons *Add connection*, *Edit*,
+    *Set as default*, *Delete* (disabled with the reason while used).
+  - `AwsConnectionForm` (`data-anchor="settings-awsConnection"`, opens inline under the table): *Name*;
+    *Authentication* (Roles Anywhere / access key / default chain); *Region* (STS and Roles Anywhere region); mode
+    fields as in 3b (trust anchor ARN, profile ARN, role ARN, Roles Anywhere region (optional), session duration;
+    access key id, secret, session token, key created; default chain: the sources it will try); **Network** — proxy
+    mode + URL, **Endpoint overrides** (rows: service `sts` / `rolesanywhere`, region, `https://` URL; later PRs add
+    services); *Test* with the step list; *Save*.
+  - `RolesAnywhereCertificateCard` — **moved** from `ConnectionSettings.tsx` (`CertificateCard`) into the form of
+    a `roles_anywhere` connection, endpoints switched to `/api/aws/connections/{id}/cert*`, plus *Copy certificate
+    from …* (select another connection). Fixes from the owner's manual setup:
+    - **CSR pending → one upload path.** While a CSR is pending the card shows only *Upload the issued certificate*
+      with a single file field (accept `.cer,.crt,.pem,.der,.p7b`) and the note "the private key stays on the
+      server"; no key or password field, and the upload button is enabled with just the file (1.4.x required a key
+      when the mode switch was on *Upload*). A link *This certificate has its own key* reveals the key / password
+      fields. A `key_mismatch` answer shows the CSR's subject and creation time next to the certificate's subject.
+    - **AD CS template name.** The CSR panel shows a ready command with a *template name* input (not stored):
+      `certreq -submit -attrib "CertificateTemplate:<TemplateName>" netmonitor.csr netmonitor.cer`, with the help
+      text "Use the template **name** (Certificate Templates console → template → *General* → *Template name*, no
+      spaces), not its *display name*. Error 0x80094800 (`CERTSRV_E_UNSUPPORTED_CERT_TYPE`) means the CA does not
+      know that name or does not publish the template."
+    - **CN check.** After upload the card shows *Subject CN*, *Issuer CN* and *Source identity* (`CN=…`) prominently,
+      with copy buttons; the CSR form warns on a CN with spaces (`cn_not_source_identity_safe`).
+    - **Doubled ARN.** The ARN inputs refuse a value that contains `arn:` twice with the message "the ARN appears
+      twice — paste it once".
+  - `AwsPoliciesPanel` (*Expected IAM policies*, collapsible, in the connection form and in the access block):
+    rendered JSON from `GET …/policies` with copy buttons — base role trust policy (Roles Anywhere), base role
+    permissions for the hop, target role trust policy.
+- **Shared `AwsAccessBlock`** (`frontend/src/components/aws/AwsAccessBlock.tsx`): connection selector (default
+  marked; link *Manage connections* to the AWS tab), *How to reach the service*: *Use the connection directly* /
+  *Assume a role* (role ARN, ExternalId with *Generate*) / *Another role of the same Roles Anywhere profile* (role
+  ARN; offered only for a `roles_anywhere` connection), and the chain shown in the Test steps. Used by the assistant
+  in 4-0a and by every later AWS form.
+- **Assistant tab** (`AssistantSettingsTab` / `ConnectionSettings.tsx`): the authentication block and the
+  certificate card are replaced by `AwsAccessBlock` in a card *AWS access* (`data-anchor="settings-assistantAwsAccess"`);
+  Bedrock region, model, endpoints, prompt caching stay. Proxy fields move to the connection. The bottom switch and
+  the `sessionTestFor` / `test_id` logic stay; the Test result view renders the new steps with `hop` and `hints`.
+- **`ConfigureFirstForm`** is extracted from the assistant page (form, Test button, step list with hints, bottom
+  switch locked until a passing test in this session) for the later configure-first features.
+- **Settings search** (`frontend/src/lib/settingsIndex.ts`, en + he keys in `frontend/src/i18n/locales/`):
+  - card `awsConnections` (tab `aws`; terms `aws`, `iam`, `connection`, `default`, `account`, `arn`): fields
+    *Connections*, *Default connection*;
+  - card `awsConnection` (tab `aws`; terms `roles anywhere`, `trust anchor`, `profile`, `role`, `arn`, `access key`,
+    `session token`, `default chain`, `imds`, `proxy`, `vpc endpoint`, `sts`, `endpoint override`, `region`):
+    fields *Authentication*, *Region*, *Trust anchor ARN*, *Profile ARN*, *Role ARN*, *Roles Anywhere region*,
+    *Session duration*, *Access key ID*, *Secret access key*, *Session token*, *Proxy*, *Endpoint overrides*;
+  - card `awsCertificate` (tab `aws`; terms `certificate`, `csr`, `pkcs12`, `pfx`, `p7b`, `pem`, `x509`, `cn`,
+    `certreq`, `template`, `pki`): fields *Upload certificate*, *Generate CSR*, *Copy certificate*;
+  - card `awsPolicies` (tab `aws`; terms `trust policy`, `iam policy`, `source identity`, `sourcearn`,
+    `setsourceidentity`, `tagsession`, `external id`);
+  - card `assistantAwsAccess` (tab `assistant`; terms `aws`, `assume role`, `external id`, `role arn`,
+    `connection`): fields *Connection*, *How to reach Bedrock*, *Role ARN*, *ExternalId*;
+  - the `assistantConnection` card loses its authentication fields; its old terms (`roles anywhere`, `access key`,
+    `certificate`) now match the AWS cards. The index test (every card of every tab is indexed; every key exists in
+    both languages) covers the new tab.
+- Hebrew RTL and 390 px layouts; ARNs, account ids, URLs, PEM and ExternalIds always `dir="ltr"`.
+
+#### 15.1.11 Tests
+<a id="spec-4-0a-tests"></a>
+
+**Mocks** (`tests/sim/aws/`, grown from `tests/sim/bedrock/`; the Bedrock mock keeps its path and imports):
+- `mock_sts.py` — STS Query API on the shared Starlette app: `GetCallerIdentity`; `AssumeRole` evaluating a small
+  **trust model** configured per test through `POST /_sts/roles`: per role `{arn, trusted_principals: [role ARN],
+  external_id, trust_allows: ["sts:AssumeRole", "sts:SetSourceIdentity", "sts:TagSession"],
+  require_source_identity: "CN=…" | null, require_tag_session: false}`; per calling identity `{arn,
+  allows: ["sts:AssumeRole", "sts:SetSourceIdentity"] on [role ARNs], source_identity}`. Answers with the real XML
+  error shape and messages ("User: <arn> is not authorized to perform: sts:SetSourceIdentity on resource: <arn>"),
+  `ValidationError`, `RegionDisabledException`, `ExpiredToken`; sessions expire on the mock clock (≤ 3600 s for a
+  chained call). Signature verified with botocore `SigV4Auth` (test-only dependency, as 3b).
+- Roles Anywhere mock (existing `/sessions`): sets `sourceIdentity` like AWS (`CN=` rule of fact 3) and accepts an
+  optional allowed-role list per profile (for `ra_role`); new modes `untrusted_cert`, `unable_to_assume`,
+  `profile_disabled` already exist.
+- PKI fixtures (`tests/sim/bedrock/pki.py`): + a PKCS#7 bundle (PEM and DER), a certificate whose CN has a space, a
+  certificate issued for a different key than the pending CSR.
+
+**pytest** (backend):
+| File | Covers |
+|---|---|
+| `test_p4_aws_migration.py` | P4-1 up/down on TimescaleDB and plain PostgreSQL ("the head" rule); 1.4.x assistant rows in each auth mode (incl. host files, CSR pending, `ra_endpoint_url`) → "Default" with the right fields, `aad_scope = 'assistant'`, ciphertexts decrypt with the same `secret.key`; no auth values → no connection; legacy keys byte-identical after upgrade; downgrade refusal rules |
+| `test_p4_aws_mirror.py` | cert upload, CSR, key copy, secret change, proxy change on the migrated connection are mirrored into the legacy keys in the same transaction; mirroring stops after the assistant moves to a hop; the 1.4.x reader (`assistant.config.load` + the 1.4.x `make_provider`) builds a working provider from the legacy keys |
+| `test_p4_aws_chain.py` | chain key and session-name vectors; `AssumeRoleProvider` against the STS mock — success, wrong ExternalId, principal not trusted, `SetSourceIdentity` missing in the caller policy / in the target trust policy, `TagSession` required (mock option), region disabled; refresh after 55 min on the test clock; base expired while hop valid; `ExpiredToken` from Bedrock → one forced refresh of hop and base; 50 concurrent `get()` → one `AssumeRole` |
+| `test_p4_aws_api.py` | CRUD; first connection becomes default; set default; delete in use / default → 409; secrets write-only (`*_set`, `*_unreadable`); `PATCH` of a credential field while the assistant (ON) uses it → `422 test_required`, with a `test_id` → 200; audit rows contain no secret and no ExternalId; `GET …/policies` renders the trust anchor ARN once, the certificate CN and issuer CN, `CN=<cn>` as source identity |
+| `test_p4_aws_testconn.py` | step sequences per mode (`direct`, `assume_role`, `ra_role`); `sts_unreachable` warning only with `direct`; every row of the hint table (message → `hint.code` + values) |
+| `test_p4_aws_egress.py` | save time: overrides / proxy URL with `169.254.169.254`, `metadata.google.internal`, `localhost`, `[::1]` → 422; `10.x` / `172.16.x` accepted; connect time: an override host resolving to `127.0.0.1` at connect time → `EgressBlocked` → `aws_network` with the 1.4.1 blocked text; IMDS reached only through `metadata_client` |
+| `test_p4_aws_certs.py` | PKCS#7 PEM / DER upload in CSR mode (no key) → stored, CSR cleared; wrong certificate → `key_mismatch` with details; `cn_not_source_identity_safe`; copy between connections re-encrypts with the target AAD |
+| `test_p4_assistant_compat.py` | settings shape (auth fields gone, `connection*` / `access` present); moved field in `PUT` → 422 with `loc`; `connection_id` / `access` change while ON needs `test_id`; questions, KB retrieval and models list through a hop (mock); every 3b assistant test green after the import paths moved (shims) |
+
+**vitest** (frontend): `AwsConnectionsCard.test.tsx` (list, default badge, delete disabled with reason),
+`AwsConnectionForm.test.tsx` (fields per mode, override rows validation, doubled-ARN message, Test step list with
+the failing hop highlighted and its hints with values), `RolesAnywhereCertificateCard.test.tsx` (CSR pending → only
+the file field and the button enabled without a key; *own key* link; `key_mismatch` details; `certreq` command with
+the template name), `AwsAccessBlock.test.tsx` (`ra_role` only for Roles Anywhere connections, *Generate*,
+role ARN pattern), `AwsPoliciesPanel.test.tsx`, the assistant settings tests updated, `settingsIndex.test.ts`
+extended (new cards in en and he).
+
+**E2E** (Playwright; phase-4 specs start at 90): `90-aws-connections.spec.ts` — upgrade fixture (a 1.4.x database
+with a configured assistant) → "Default" listed, the assistant answers; add a second connection with an access-key
+base against the mocks; switch the assistant to `assume_role` → Test shows `hop` green → save → ask; break the mock
+trust policy (`SetSourceIdentity` removed) → Test fails at `hop` with the `set_source_identity` hint; CSR flow with a
+PKCS#7 upload; find *ExternalId* and *Trust anchor* through settings search in English and Hebrew; RTL screenshot of
+the AWS tab at 390 px.
+
+#### 15.1.12 Acceptance checklist on real AWS (owner; PR 4-0a)
+<a id="spec-4-0a-acceptance"></a>
+
+Layout: Roles Anywhere in the **network account** → `sts:AssumeRole` into the **Bedrock account**, reached from the
+1.4.x layout (Roles Anywhere in the Bedrock account) without downtime. Prepared in AWS: steps 1–2 of § 15.1.9; STS
+reachable (`assistant-net.sh check` from PR 4-0b, or the `identity` step).
+
+| # | Check | Pass when |
+|---|---|---|
+| A1 | Deploy the 4-0a release | the assistant answers a question without any admin action; *Settings → AWS* shows "Default" (Roles Anywhere, Bedrock account), its Test is green (`identity` may warn `sts_unreachable` — note it) |
+| A2 | *Expected IAM policies* of "Default" | the trust policy shown matches the one in the Bedrock account (trust anchor ARN once; CN equals the certificate CN) |
+| A3 | Add "Network account" (copy certificate, new ARNs), Test | `credentials` and `identity` green, account = network account |
+| A4 | Assistant → AWS access → "Network account", *Assume a role*, Bedrock role ARN, ExternalId; Test; Save; ask | Test steps `credentials`, `identity`, `hop`, `hop_identity`, `endpoint`, `converse` green; answer arrives; status shows the chain |
+| A5 | Wait 65 minutes, ask again | answer arrives; status shows a refreshed hop (`last_refresh` < 60 min, new `expires_at`) |
+| A6 | Negative (restore after each): remove `sts:SetSourceIdentity` from the Bedrock role trust policy; then use a wrong ExternalId; then remove `sts:AssumeRole` from the base role's permissions | Test fails at `hop` each time with `set_source_identity`; `external_id` / `trust_policy`; `caller_policy` hints and the concrete ARNs |
+| A7 | Record the working policies (copy from the console into the PR) | the Bedrock role trust policy has **no** `sts:TagSession` and the hop works (fact 5 confirmed); `aws:SourceIdentity` equals `CN=<certificate CN>` |
+| A8 | *Set as default* "Network account"; after some days delete "Default" | assistant unaffected |
+| A9 | (optional, after A8, before removing the old AWS resources) a container rollback drill on the test machine with a copy of the database | the 1.4.x image starts (needs R1) and its assistant answers with the old Bedrock-account setup |
+
+#### 15.1.13 Threat note
+
+| Threat | Design answer |
+|---|---|
+| SSRF through an endpoint override or proxy URL (the signed `Authorization` header would go to it) | `https://host[:port]` only, `netguard.blocked_endpoint_host` at save time, `egress.guard_client` at connect time (resolve, check every address, connect to the checked one; proxy mounts checked); RFC 1918 allowed for VPC endpoints; redirects never followed; every other URL is built by `endpoints.endpoint()` from validated tokens |
+| Confused deputy across accounts | ExternalId per consumer (generated, 32 characters); the rendered target trust policy binds the base role ARN, the ExternalId and `aws:SourceIdentity` |
+| Credential leak | secrets AES-GCM with the row's AAD scope; write-only in the API (`*_set` / `*_unreadable`); temporary credentials only in memory; never logged; ExternalId shown to admins only, never in audit rows |
+| Metadata service abuse | IMDS / ECS endpoints reached only by `DefaultChainProvider` through `metadata_client` at fixed addresses, never from admin input, never through a proxy |
+| Hostile XML from STS or an override host | `awsxml` guard: no DTD, no entities, size cap |
+| Privilege creep | one role per consumer possible; rendered policies are minimal; the Test shows the identity actually used |
+
+#### 15.1.14 Sources (AWS documentation, read 2026-11-13)
+- IAM Roles Anywhere trust model (trust policy actions, `aws:SourceArn`, principal tags, source identity rules):
+  <https://docs.aws.amazon.com/rolesanywhere/latest/userguide/trust-model.html>
+- IAM Roles Anywhere introduction (account-level trust boundary):
+  <https://docs.aws.amazon.com/rolesanywhere/latest/userguide/introduction.html>
+- Source identity, role chaining, `sts:SetSourceIdentity` in both places, `aws:SourceIdentity` vs
+  `sts:SourceIdentity`, allowed characters: <https://docs.aws.amazon.com/IAM/latest/UserGuide/id_credentials_temp_control-access_monitor.html>
+- Session tags (not passed to later sessions unless transitive; `sts:TagSession` is the permission to add tags):
+  <https://docs.aws.amazon.com/IAM/latest/UserGuide/id_session-tags.html>
+- Role chaining limited to one hour: <https://docs.aws.amazon.com/IAM/latest/UserGuide/id_roles_use.html>
+- Flow-log files in S3 (paths, Hive prefixes, hourly partitions, text / Parquet, 5-minute publishing):
+  <https://docs.aws.amazon.com/vpc/latest/userguide/flow-logs-s3-path.html>
+- Flow-log record fields, versions 2–11, Parquet data types:
+  <https://docs.aws.amazon.com/vpc/latest/userguide/flow-log-records.html>
+- Transit Gateway flow logs: <https://docs.aws.amazon.com/vpc/latest/tgw/tgw-flow-logs.html>,
+  <https://docs.aws.amazon.com/vpc/latest/tgw/flow-logs-s3.html>
+
+#### 15.1.15 Network, policies and Terraform (PR 4-0b)
+- STS is a new host only for consumers with a hop: `sts.<region>.amazonaws.com`, through the proxy or an interface
+  VPC endpoint entered as the override `(sts, <region>)`.
+- `deploy/production/ops/assistant-net.sh check` gains `sts.<region>.amazonaws.com` and `--service <name>`
+  (repeatable: `ec2`, `directconnect`, `logs`, `monitoring`, `s3`); `no-proxy` includes the same hosts; its test
+  (`deploy/production/tests/test-assistant-net.sh`) grows accordingly.
+- `deploy/production/aws/render-policies.py` gains `--layout single | network-base | bedrock-base`,
+  `--network-account`, `--bedrock-account`, `--base-role-name`, `--bedrock-role-name`, `--external-id`,
+  `--issuer-cn` and renders the same JSON as `GET /api/aws/connections/{id}/policies`. **Contract fix found in
+  review:** the shipped `rolesanywhere-trust-policy.json` hard-codes one organisation's issuer CN and the renderer
+  defaults `--cert-cn` to one organisation's host name; both become required placeholders (`<ISSUER_CN>`,
+  `--cert-cn` without default). The renderer already accepts a full trust-anchor ARN and avoids the doubled ARN
+  (1.4.x). Standard library only.
+- **Terraform example**: `deploy/production/aws/terraform/` with root modules `network-base/` (owner's target
+  layout), `bedrock-base/` (as deployed for 1.4.0), `single-account/`, and `modules/netmon-role/`; variables only (no
+  account ids, names or CA data in the repo); provider aliases `aws.network`, `aws.bedrock`. CI: `terraform fmt
+  -check`, `terraform validate` (no credentials, no plan) and a comparison of the rendered policy JSON with
+  `render-policies.py`.
+
+#### 15.1.16 Implementation notes of the backend (PR 4-0a) — contract corrections
+<a id="spec-4-0a-impl"></a>
+
+Found while implementing against the real 1.4.1 code; the sections above stay the design, these
+points are what the code does where the text was silent, ambiguous or not implementable:
+
+1. **Migration id.** P4-1 is `backend/netmon/migrations/versions/0012_phase4_aws_connections.py`
+   (`revision = "0012"`, `down_revision = "0011"` — the only place the number is written; the
+   module declares `PLACEHOLDER = "P4-1"` and the tests find it by that, and read the head from
+   the script directory). Release 1.4.2 adds its own `0012` in parallel: renumber at merge.
+2. **Who uses a connection** (`used_by`, delete `409`, `test_required`): the assistant counts as
+   a consumer of the connection it names, or of the default when `connection_id` is null **and**
+   the assistant is ON or has a model configured. Otherwise a fresh install that never set up the
+   assistant could never delete its only connection.
+3. **Set as default** (coordinator decision): while an ON consumer uses the default
+   implicitly (`connection_id: null`), `POST …/{id}/default` needs `{"test_id"}` of a
+   successful Test of that connection's current values by the same admin (`422 test_required`,
+   `details: [{"connection_id", "used_by": ["assistant"]}]` otherwise) — the "configure first,
+   the switch unlocks after a successful Test" rule. With the assistant OFF, or with an
+   explicit `connection_id`, no test is needed. The test_id is consumed.
+4. **1.4.x helpers kept.** `netmon.assistant.config.merge` / `field_errors` / `required_errors` /
+   `connection_hash` keep their 1.4.x meaning (they are the "1.4.x reader" of the rollback tests);
+   the 4-0a assistant uses `merge_settings`, `settings_field_errors`, `settings_required_errors`,
+   `assistant_hash`. The 1.4.x request fields stay *declared* in the schema; the endpoints take
+   them out before validation and answer `422 validation_error`, `loc ["body", "<field>"]`,
+   "moved to Settings → AWS" (also for `POST /api/assistant/test` and `/models`).
+5. **Mirroring triggers.** `connections.sync_legacy` runs in the same transaction after every
+   connection write (create, patch, certificate, CSR, copy, set default) **and** after
+   `PUT /api/assistant/settings`, so moving the assistant back to "Default" / `direct` resumes the
+   mirror at once.
+6. **Test result.** `TestResult` additionally carries `identity` / `hop_identity`
+   (`{account, arn, user_id}` of the two `GetCallerIdentity` calls, no secrets). The
+   `sts_unreachable` case is an `identity` step with `ok: true`, the warning in `detail`, the
+   `vpc_endpoint_or_proxy` hint and `warnings: ["sts_unreachable"]`. An unsaved form may omit
+   `name`. `RegionDisabledException` already fails `GetCallerIdentity`, so with a hop the run
+   ends at `identity` (`aws_assume_role_invalid`, hint `sts_region`).
+7. **Additive hint** `model_access` on the assistant's `converse` step (`bedrock_model_access`):
+   "Enable access to this model in the Bedrock console of {region} … for the account {account}".
+   Roles Anywhere answers naming a missing resource / an invalid ARN map to `ra_profile_role` +
+   `role_arn_invalid`.
+8. **Save-time host check** (coordinator decision: lenient and non-blocking). The syntax
+   check of endpoint overrides and the proxy URL (`netmon.aws.endpoints.endpoint_error` /
+   `proxy_error`) does no DNS lookup: it refuses IP literals and names that are blocked
+   without DNS (loopback outside test mode, link-local, metadata). The host names are then
+   resolved **off the event loop** (`connections.host_checks`: `asyncio.to_thread`, 3 s cap):
+   a name resolving to a blocked address → `422 validation_error` (`loc` the field); a name
+   that does **not resolve right now** (a VPC endpoint name only the VPC resolver knows, a DNS
+   outage) is accepted and reported as the connection warning `endpoint_unresolved` with
+   `unresolved_hosts` (re-checked on every read). The 1.4.1 connect-time egress guard stays
+   the enforcement. The assistant's own Bedrock / KB URLs keep the 1.4.x lookup.
+9. **Warnings moved.** `access_key_old`, `temporary_credentials`, `arn_accounts_differ`,
+   `cert_expiring`, `key_file_mode`, `cn_not_source_identity_safe` (and the new
+   `endpoint_unresolved`, `vpce_via_proxy`) are connection warnings
+   (`AwsConnection.warnings`); the assistant settings keep the Bedrock ones.
+10. **Mock.** The STS mock is `tests/sim/aws/mock_sts.py`, served at `POST /` of the shared mock
+    app; its trust model is set with `POST /_sts/roles` or `MockBedrock.sts_config(...)`; the
+    Roles Anywhere mock now names the session like AWS (`…:assumed-role/<role>/<hex serial>`,
+    source identity per fact 3) and accepts `profile_roles` (`{profile ARN: [role ARNs]}`).
+11. **Test files.** The pytest files are `test_p4_aws_units.py` (pure vectors), `test_p4_aws_chain.py`,
+    `test_p4_aws_api.py` (CRUD, Test per layout and the hint table, egress, certificates),
+    `test_p4_assistant_compat.py` and `test_p4_aws_migration.py` (P4-1 + the mirror / rollback
+    reader) instead of the eight files of § 15.1.11; the coverage is the same.
+
+12. **Frontend (PR 4-0a).** Components in `frontend/src/components/aws/`: `AwsConnectionsCard`
+    (list + *Set as default* dialog + delete with the reason), `AwsConnectionForm` (editor; an
+    optional role hop that is only used for the Test and the rendered policies, never stored),
+    `RolesAnywhereCertificateCard`, `AwsPoliciesPanel`, `AwsAccessBlock`, `AwsTestSteps` (the
+    step list per hop with the hints; the assistant's Test uses it too). Hint texts are
+    translated per `hint.code` (`aws.hint.*`, en + he) with the backend `values` interpolated as
+    left-to-right isolates and listed under the hint; the server text is the fallback for an
+    unknown code. *Set as default* runs the connection Test first (with the assistant's hop)
+    whenever the ON assistant uses the default implicitly, then sends the `test_id` (note 3).
+    The settings-search cards of the editor, the certificate and the policies fall back to the
+    list card while no connection is open. **Not built in 4-0a:** the `ConfigureFirstForm`
+    extraction (§ 15.1.10) waits for its second user (PR 4d), the assistant keeps its own
+    configure-first form; the E2E "upgrade fixture" (a 1.4.x database) is covered by the
+    migration tests (`test_p4_aws_migration.py`) instead of spec 90.
+
+### 15.2 AWS cloud view and VPC Flow Logs (4d — first in phase 4) [4]
+
+#### 15.2.1 Scope and decisions
+- **Read-only.** Inventory uses `Describe*` / `Get*` / `Search*`; flow logs are read from where AWS already delivers
+  them. The product creates nothing in AWS; the README gives the admin the console / CLI / Terraform steps.
+- **Every flow-log variant is supported** (§ 15.2.4); nothing is "the recommended one and the rest later". The UI
+  states the cost and delay of each choice so the admin can decide.
+- **Reuse of the phase-3 flow pipeline.** Records become 1-minute aggregates in the existing flow tables (§ 13.3.6),
+  with a VPC or a transit gateway as the "exporter" and an ENI or a TGW attachment as the "interface", so top
+  talkers, applications, conversations, hourly rollups and reports work unchanged. Cloud-only facts (ACCEPT/REJECT,
+  traffic path, direction, TGW drops, edges for the map) go to small new tables.
+- **Any number of accounts and regions**, each account with its own connection and access (§ 15.1.1).
+- **Works without inventory permissions** (flow-only mode) and **without flow logs** (structure only).
+
+#### 15.2.2 Components
+| Component | Module | Responsibility |
+|---|---|---|
+| Accounts | `netmon.cloud.accounts` | CRUD of `aws_accounts`; credentials per account through `aws.credcache`; region expansion. |
+| Inventory collector | `netmon.cloud.inventory` | Scheduled refresh per (account, region): the calls of § 15.2.3; normalises to `aws_resources`; diff → `aws_resource_changes`; IP index; `runs_on: "active"`. |
+| Projections | `netmon.cloud.project` | **Pure** per-type projection and `diff(old, new)`. |
+| Graph | `netmon.cloud.graph` | **Pure** `structure_graph`, `overlay`, `flow_only_graph` (§ 15.2.5). |
+| Flow-log sources | `netmon.cloud.flowlogs.s3`, `.cwl` | Listing / reading, register, cursors, budgets (§ 15.2.4). |
+| Parsers | `netmon.cloud.flowlogs.parse` | **Pure** `parse_header`, `parse_record`, `normalize_field_name`; schemas `vpc` and `tgw` (vectors in data-model). |
+| Parquet reader | `netmon.cloud.flowlogs.parquet_worker` | Child process, `pyarrow`, bounded memory (§ 15.2.4.3). |
+| Normaliser | `netmon.cloud.flowlogs.normalize` | **Pure** counting side, minute spreading, exporter / interface resolution, edge keys → phase-3 `MinuteAggregator` input + cloud extras. |
+| Alerts | `netmon.cloud.alerts.flow_rules`, `.change_rules` | Evaluators feeding the 2b-3 event-sensor engine (§ 15.2.8). |
+| Sensors | `netmon.poller.checks.aws_state` | `aws_dx_connection`, `aws_dx_vif`, `aws_vpn_connection`, `aws_tgw_attachment` (§ 15.2.7). |
+| Assistant tools | `netmon.assistant.tools_cloud` | § 15.2.9. |
+| Router | `api/cloud.py` | api.md § [4] Cloud. |
+
+#### 15.2.3 Inventory (feature `aws_inventory`)
+**Accounts.** An `aws_accounts` row = account id, name, connection + access (§ 15.1.1), regions (a list, or
+`all_enabled` → `ec2:DescribeRegions` at each refresh), enabled, optional `device_id` (where this account's cloud
+alerts and state sensors attach, § 15.2.8). Accounts are typed by the admin (import from AWS Organizations is in
+*Later*, cut C6).
+
+**Refresh.** Per (account, region), every `aws_inventory_interval_min` (default 15, 5–1440), accounts in sequence,
+≤ 4 concurrent API calls per account, `MaxResults` at the API maximum, each call paginated to the end with a cap of
+200 pages (`truncated` recorded).
+
+| Service (protocol) | Read-only calls |
+|---|---|
+| EC2 (query) | `DescribeRegions`, `DescribeVpcs`, `DescribeSubnets`, `DescribeRouteTables`, `DescribeNetworkInterfaces`, `DescribeSecurityGroups`, `DescribeSecurityGroupRules`, `DescribeNetworkAcls`, `DescribeInternetGateways`, `DescribeEgressOnlyInternetGateways`, `DescribeNatGateways`, `DescribeVpcEndpoints`, `DescribeVpcPeeringConnections`, `DescribeManagedPrefixLists`, `GetManagedPrefixListEntries` (customer-owned lists), `DescribeTransitGateways`, `DescribeTransitGatewayAttachments`, `DescribeTransitGatewayRouteTables`, `SearchTransitGatewayRoutes` (active routes, ≤ 1000 per table), `DescribeTransitGatewayPeeringAttachments`, `DescribeTransitGatewayConnects`, `DescribeVpnGateways`, `DescribeVpnConnections` (incl. tunnel telemetry), `DescribeCustomerGateways`, `DescribeAddresses`, `DescribeInstances` (id, name tag, type, state, private IPs, ENIs only), `DescribeFlowLogs` |
+| Direct Connect (json11) | `DescribeConnections`, `DescribeLags`, `DescribeVirtualInterfaces`, `DescribeDirectConnectGateways`, `DescribeDirectConnectGatewayAssociations`, `DescribeDirectConnectGatewayAttachments` (DX gateways are global: read once per account) |
+| CloudWatch (query) | `GetMetricData` (state sensors only) |
+| STS (query) | `GetCallerIdentity`, `AssumeRole` |
+
+The resource types are a registry (`cloud/project.py`: type → call, id field, parent rule, projection). Further types
+(load balancers, Network Firewall, Cloud WAN, Client VPN, Route 53 Resolver endpoints) are follow-ups that add a
+registry entry and a policy line; the collector, tables and API do not change.
+
+- **Normalisation:** one `aws_resources` row per resource (`account_id`, `region`, `type`, `resource_id`, `parent_id`,
+  `vpc_id`, `name` from the `Name` tag, `cidrs`, `state`, `data` jsonb with a **projection** of the fields the UI and
+  the alert rules use). Tags other than `Name` are stored only for keys the admin lists in `aws_cloud.tag_keys`
+  (default empty). User data, console output and secrets are never requested.
+- **Missing resource** in two consecutive successful refreshes of its (account, region, call) → `deleted_at` set (kept
+  30 days). A failed or truncated call never deletes.
+- **Changes** (pure `diff` on the projection): every created / updated / deleted resource → `aws_resource_changes`
+  (retained `aws_change_retention_days`, default 180) and, when the account has a device, that device's timeline.
+  The first successful refresh of an (account, region, type) is the **baseline** and records no changes.
+- **IP index:** private, secondary and public IPs of ENIs and Elastic IPs → `aws_ip_index` (ip → ENI, subnet, VPC,
+  account, name), used by the flow views and the overlay.
+- **Flow-log discovery:** `DescribeFlowLogs` lists each flow log's resource (VPC / subnet / ENI / transit gateway /
+  attachment), destination type and ARN, file format, Hive / hourly options, record format and aggregation interval;
+  the *Flow logs* form offers them as one-click sources with every field pre-filled (the admin still confirms).
+- **Errors** per call are recorded per (account, region, call) and shown in the inventory status; an access error
+  names the missing action and the rest of the refresh continues.
+
+#### 15.2.4 Flow-log collection (feature `aws_flow_logs`)
+
+##### 15.2.4.1 The matrix (per source the admin adds; `aws_flowlog_sources`)
+
+| Dimension | Options | Default / detection |
+|---|---|---|
+| What is logged (`log_type`) | `vpc` — VPC, subnet and ENI flow logs (one record schema; the level is informational) · `tgw` — Transit Gateway and TGW-attachment flow logs | from `DescribeFlowLogs`; else from the S3 key / Parquet schema (`tgw_id` column) / the field list |
+| Where it is delivered (`destination`) | `s3` · `cwl` (CloudWatch Logs) | — |
+| Whose account | the connection's account · any other account (consumer access `assume_role`, or `direct` through a bucket / resource policy) | account id is always stored; `x-amz-expected-bucket-owner: <account id>` is always sent |
+| File format (S3) | `text` (gzip) · `parquet` · `auto` | `auto`: per object by magic bytes (`PAR1` → Parquet; gzip → text) |
+| Record format | AWS default · custom | field list from the file header (text), the column names (Parquet), the flow-log definition (CloudWatch Logs), or typed by the admin |
+| Field versions | 2–11; unknown field names are accepted and ignored | — |
+| S3 layout | plain or Hive-compatible prefixes; daily or hourly partitions; `generic` (a Firehose stream that delivers to S3) | `auto`: detected by the Test from the first listing |
+| Scope | account ids, regions and flow-log ids under the prefix (empty = all found) | all |
+| Backlog policy | `skip_old` · `catch_up` | `skip_old` |
+
+A flow log delivered to **Amazon Data Firehose** is supported when the stream lands in S3 (`destination = s3`,
+`layout = generic`); a Firehose HTTP endpoint pushed at the product stays in *Later* (the server initiates all AWS
+traffic).
+
+##### 15.2.4.2 S3 source: listing, register, idempotency
+- **Key layout** (AWS, verified § 15.1.14):
+  `<prefix>AWSLogs/<account>/vpcflowlogs/<region>/<yyyy>/<mm>/<dd>/[<hh>/]<account>_vpcflowlogs_<region>_<flow-log-id>_<yyyymmddThhmmZ>_<hash>.log.gz`;
+  Hive form `<prefix>AWSLogs/aws-account-id=<a>/aws-service=vpcflowlogs/aws-region=<r>/year=<y>/month=<m>/day=<d>/[hour=<h>/]…`.
+  The Transit Gateway guide documents the Hive segment as `service=vpcflowlogs`; the lister accepts both
+  `aws-service=` and `service=`. Parquet objects are recognised by content, not by their extension.
+- **Ingestion model: periodic listing** (S3 event notifications → SQS stay in *Later*: they need a queue and a bucket
+  notification the admin must create, and listing is cheap at this scale). Every `aws_flowlogs_poll_min` (default 5,
+  1–60), for each (account, region) in scope and each **partition** (day, or hour) that overlaps
+  `[now − lookback, now]` (`lookback_h` per source, default 6, 1–168): `ListObjectsV2` of the **whole partition**
+  prefix. Keys sort by flow-log id before time, so a "last key" cursor would miss objects; the full partition list
+  plus the register is always correct. When a partition needs more than 5 pages the lister switches to one list per
+  flow-log id with `StartAfter` = a synthetic key 15 minutes before that id's newest registered object. Cap
+  `max_list_pages_per_poll` (default 50); the rest is listed at the next poll (`deferred`).
+- **Register** `aws_flowlog_objects` (source, key, ETag, size, state, records, processed time), kept `lookback + 2`
+  days. An object is processed when its (key, ETag) is not registered `done`. **Late files** inside the lookback
+  window are therefore picked up whenever they appear; an object whose key date is older than the lookback is counted
+  `skipped_old` (policy `skip_old`) or processed oldest-first (policy `catch_up`).
+- **Exactly once per object.** Objects are processed in batches (≤ 16 objects or ≤ 500 000 records). The batch is
+  aggregated in memory, then **one database transaction** writes the aggregate rows (additive upsert, the phase-3
+  `storage.flush_rows` extended to take a caller's connection) **and** the register rows `done`. A crash before the
+  commit leaves no trace and the batch is read again; after the commit it is never read again. No per-record state is
+  kept.
+- **Reading:** `GetObject` streamed; text: gunzip in a worker thread in 1 MiB chunks, line by line, never the whole
+  object in memory; the first line is the header (field names). Object size cap 256 MiB (`too_large`, registered
+  `failed`; AWS publishes files of at most 75 MB). ≤ 2 objects in flight per source, ≤ 4 in total.
+- **Encryption:** SSE-S3 and SSE-KMS buckets work transparently with `kms:Decrypt` on the key.
+- **Generic layout** (Firehose-to-S3): the admin gives the prefix and a date pattern built from the tokens
+  `{yyyy}`, `{mm}`, `{dd}`, `{hh}` (or none: the whole prefix is listed with `StartAfter`), and — because such
+  objects have no header — the field list. Compression by magic bytes: none, gzip, zip. Snappy-compressed Firehose
+  objects are reported as `unsupported_compression` with the advice to switch the stream to GZIP (the one gap,
+  accepted by the owner: D3, § 15.16).
+- **New source / history:** a new source reads what lies inside its `lookback_h` (≤ 168 h); with the `catch_up`
+  policy oldest-first, at low priority, through the same register. A manual backfill of older ranges is in *Later*
+  (cut C10).
+
+##### 15.2.4.3 Parquet reader (decision)
+
+| Candidate | Licence | Weight | Verdict |
+|---|---|---|---|
+| **`pyarrow`** (Apache Arrow) | Apache-2.0 | one self-contained manylinux wheel, ≈ 40 MB download, ≈ 130 MB installed; `numpy` is optional from version 18 | **chosen** — reference implementation, reads row group by row group, every codec (gzip, snappy, zstd), wheels for the image's Python 3.12 on x86-64 and arm64 and for Windows |
+| `fastparquet` | Apache-2.0 | needs `pandas` + `numpy` + `cramjam` (heavier in total) | rejected |
+| DuckDB | MIT | ≈ 20 MB wheel, a whole SQL engine | rejected: a query engine in the server is a larger attack surface than a file reader |
+| own minimal reader (Thrift compact + PLAIN / dictionary + gzip) | — | ≈ 800 lines | rejected: hand-written binary parsing of external files is the class of code the pentest taught us to avoid |
+
+- Packaging (owner decision D1): `pyarrow` ships in the **standard image** — one image, as today; the native
+  installers install it too. It is declared as the extra `netmon[parquet]` so a hand-made `pip install` without it
+  still runs: a Parquet source then fails its Test with `parquet_support_missing` and the install command. The version is pinned and
+  covered by dependabot like every dependency.
+- **Isolation and memory bounds:** `pyarrow` is never imported by the server process. A child process
+  (`python -m netmon.cloud.flowlogs.parquet_worker`, one per object, started by the collector) gets the object as a
+  temporary file under `/data/tmp/flowlogs/` (object cap 256 MiB, directory cap 1 GiB, files removed in `finally` and
+  at start-up), sets `RLIMIT_AS` to `aws_flowlogs_parquet_mem_mb` (default 1024), 1 CPU thread
+  (`use_threads=False`), opens `ParquetFile(memory_map=True)`, reads `iter_batches(batch_size=10 000, columns=<known
+  fields present>)` and writes compact rows to its stdout pipe. The parent applies a wall-clock limit (120 s per
+  object) and kills the child on overrun. A crash, a kill or a limit hit marks the object `failed` (retried three
+  times, then reported) and never affects the server.
+- Column names: AWS writes field names with underscores (`interface_id`, `pkt_srcaddr`); `normalize_field_name`
+  maps `_` to `-` and lower-cases, so one field table serves text, Parquet and CloudWatch Logs. Types follow the
+  documented Parquet types (INT_32 / INT_64 / STRING); a column of another type is read as a string and parsed.
+- To confirm on the owner's real files in PR 4d-2b (not found in the documentation): the object-name extension of
+  Parquet files and that the column names are the underscore forms.
+
+##### 15.2.4.4 CloudWatch Logs source
+- Log group (name or ARN, any account through the source's access), optional stream-name prefix.
+- `FilterLogEvents` over closed time slices `[cursor, cursor + slice)` up to `now − settle_s` (`settle_s` per source,
+  default 600, 300–3600: flow-log events reach CloudWatch Logs minutes after the capture window), `nextToken`
+  pagination, ≤ 10 000 events per page. One slice = one transaction that writes the aggregates **and** advances
+  `cursor.time_ms` (the same exactly-once rule as S3). Events that arrive after their slice closed are not read: this
+  is the documented trade-off of this destination, and the reason the UI recommends a longer `settle_s` when
+  `late_suspected` (records whose `end` is older than the slice start) is non-zero.
+- Record format: CloudWatch Logs events have no header. The field list comes from the matching flow log's
+  `LogFormat` (`DescribeFlowLogs` through the inventory or a live call), else the AWS default for the `log_type`,
+  else the admin types it. A record whose field count differs is a `parse_error`.
+- Throttling → backoff, the cursor does not advance. CloudWatch Logs Insights is **not** used (it bills per scanned
+  GB).
+
+##### 15.2.4.5 Transit Gateway flow logs (`log_type = tgw`)
+- Record: the default format is all version 2–6 fields: `version resource-type account-id tgw-id tgw-attachment-id
+  tgw-src-vpc-account-id tgw-dst-vpc-account-id tgw-src-vpc-id tgw-dst-vpc-id tgw-src-subnet-id tgw-dst-subnet-id
+  tgw-src-eni tgw-dst-eni tgw-src-az-id tgw-dst-az-id tgw-pair-attachment-id srcaddr dstaddr srcport dstport protocol
+  packets bytes start end log-status type packets-lost-no-route packets-lost-blackhole packets-lost-mtu-exceeded
+  packets-lost-ttl-expired tcp-flags region flow-direction pkt-src-aws-service pkt-dst-aws-service`. There is **no
+  `action` field**: TGW records are neither ACCEPT nor REJECT; they carry loss counters instead.
+- Exporter = the transit gateway (`flow_exporters.kind = 'aws_tgw'`), interface = the attachment. Totals count a
+  record on its `flow-direction = ingress` side only (each flow is logged on both attachments); without that field
+  both are counted and the views say "approximate".
+- Extras: `aws_tgw_drops` (minute, TGW, attachment, reason, packets) and the edge table (attachment → pair
+  attachment, source VPC → destination VPC), which gives the **real path through the transit gateway** on the map.
+- TGW and VPC flow logs describe the same packets from different points. They are never added together: every view
+  and rule works on one exporter kind (selector *VPC view / Transit Gateway view*, default per page).
+
+##### 15.2.4.6 Budgets, back-pressure, health
+- Per source and poll: ≤ `max_records_per_poll` (default 2 000 000). Globally: a token bucket
+  `aws_flowlogs_max_records_s` (default 20 000 records/s, 1 000–200 000) separate from the phase-3 UDP collector's
+  budget, so cloud polling can never starve NetFlow reception; parsing runs in worker threads / the Parquet child,
+  writes go through the phase-3 bounded write queue.
+- When a budget is reached the poll stops after the current batch; unprocessed objects simply stay unregistered and
+  are taken by the next poll (`deferred`). A source whose oldest unprocessed object is older than half its lookback
+  raises the health warning `falling_behind` (system event, shown on the source) — with `skip_old` data will be
+  skipped, with `catch_up` the lag grows; the hint proposes a longer aggregation interval, fewer fields, or a higher
+  budget.
+- Hourly rollups: the collector reports the hours it touched and the phase-3 rollup recomputes exactly those (the
+  fixed 3-hour recompute window of `flows/storage.py` is not enough for late cloud data); with TimescaleDB the
+  continuous-aggregate refresh window is widened to the largest configured lookback.
+- Health per source (`stats`): `objects`, `records`, `skipped_old`, `parse_errors`, `skipdata`, `deferred`,
+  `failed_objects`, `late_suspected`, `lag_s` (now − newest record end), `watermark` (the minute up to which data is
+  complete, used by the alert rules), `last_poll`, `last_error`.
+
+##### 15.2.4.7 Cost notes (shown next to the choices in the form; AWS prices change — the README links the price pages)
+- AWS charges the **delivery** of flow logs as *Vended Logs* on the AWS side whatever this product does; delivery to
+  S3 is cheaper per GB than delivery to CloudWatch Logs, and Parquet delivery adds a conversion charge while saving
+  storage. This is the admin's choice in AWS, not ours.
+- What the product adds: S3 `LIST` (one or a few per partition per poll) and one `GET` per object (about 288 objects
+  per flow log, account and region per day at 5-minute publishing) — cents per month — plus data transfer of the
+  compressed bytes towards the server (over Direct Connect / VPN / internet as routed). CloudWatch Logs:
+  `FilterLogEvents` has an account-level request quota shared with other tools.
+- Reducing volume is done in AWS: 10-minute aggregation, a custom format with only the needed fields, flow logs on
+  the VPCs / subnets of interest, or TGW flow logs instead of per-VPC logs for inter-VPC and hybrid traffic.
+
+#### 15.2.5 Cloud topology: three levels (`/cloud`)
+
+The owner's question "can the cloud topology be generated from the flow logs?" is answered with three levels. The
+page has a level selector; each level is offered when its data exists, and the default is the richest available.
+
+| Level | Needs | What it shows | Source of truth |
+|---|---|---|---|
+| **1 — Structure** | `aws_inventory` | accounts, VPCs, subnets by AZ, route tables, gateways (IGW, NAT, VGW, TGW + attachments + route tables, peering, DX connection → VIF → DX gateway, VPN connections and tunnels, endpoints), sites | the inventory APIs — authoritative for what **exists** and how it is **routed** |
+| **2 — Traffic overlay** | `aws_inventory` + `aws_flow_logs` | level 1 plus edges for what actually **talks**: volume, direction, ACCEPT vs REJECT, the path taken | flow logs drawn on the structure |
+| **3 — Flow-only** | `aws_flow_logs` only (no `Describe*` permission at all) | a communication graph grouped by CIDR blocks | flow logs alone |
+
+**Level 1** — pure `structure_graph(resources, sites)`: site node(s) → DX connection / LAG → VIF (BGP state) → DX
+gateway → TGW or VGW → VPC (attachment state) → subnets grouped by AZ → ENIs (expand on demand, with the instance
+name); side nodes IGW, NAT GW, endpoints, peering edges, VPN connections (tunnel state), TGW peering. Edges carry
+state colour. Layout uses the 2b-1 topology component (layered left to right; positions saved per admin in
+`topology_layout` with a `cloud:` key prefix). A click opens a side panel: details, CIDRs, route table, security
+groups and NACLs (read-only rules), recent changes, top talkers.
+
+**Level 2** — pure `overlay(graph, edges, level)`. Flow records are reduced at ingest to **edge aggregates**
+(`aws_flow_edges`, § 15.2.6) between endpoints classified as: ENI / subnet / VPC (monitored), site CIDR, named
+CIDR block, AWS service, internet, unknown. Which fields are used, by record format:
+
+| Record has | Used for |
+|---|---|
+| `interface-id` only (default v2) | ENI → subnet → VPC through the inventory; the peer is classified by the IP index, site CIDRs and named blocks |
+| `vpc-id`, `subnet-id` (v3) | endpoint placement without the inventory lookup (also for ENIs that were deleted since) |
+| `pkt-srcaddr`, `pkt-dstaddr` (v3) | the real peer behind a NAT gateway, load balancer or EKS pod network |
+| `flow-direction` (v5) | which side to count; arrow direction |
+| `traffic-path` (v5) | the egress path class (same VPC, IGW, VGW, peering, gateway endpoint …) → the edge is drawn **through that gateway node** |
+| `pkt-src-aws-service`, `pkt-dst-aws-service` (v5) | AWS-service nodes (S3, DynamoDB, CloudFront …) instead of anonymous public IPs |
+| `action` | ACCEPT / REJECT split of every edge (rejected edges dashed red) |
+| TGW records: `tgw-id`, `tgw-attachment-id`, `tgw-pair-attachment-id`, `tgw-src-vpc-id`, `tgw-dst-vpc-id` | the hop sequence source VPC → attachment → TGW → pair attachment → destination VPC / VPN / DX gateway, and the `packets-lost-*` counters on the TGW node |
+| `next-hop-*`, `interface-type` (v11) | stored on the edge when present; drawn as the next-hop node (follow-up refinement, data kept from day one) |
+
+Without `traffic-path` the path of an edge is **inferred** (destination in a site CIDR → the site's link; in another
+monitored VPC → the TGW or peering that the route table selects; else unknown) and drawn dotted with the label
+"inferred from routes".
+
+**Level 3** — pure `flow_only_graph(edges, blocks)` for an organisation that grants flow-log access but no inventory
+permission: nodes are **CIDR blocks** — blocks the admin names (`aws_cloud.named_cidrs`: name + CIDR, e.g. "prod
+VPC 10.20.0.0/16"), site CIDRs, AWS services (when the format has the service fields), "internet" and "other
+private"; ENI and VPC ids appear as labels when the records carry them. A permanent note on the page: "Built from
+traffic only. Routes, gateways, security groups and resources that sent no traffic cannot be shown. Add inventory
+permissions for the structural map." Unnamed busy prefixes are offered as suggestions ("10.42.0.0/16 — 1.2 TB, name
+it?").
+
+**What the flows reveal that the inventory cannot:** peers that are not in the inventory (other accounts, partners,
+SaaS, internet), **unexpected site ↔ cloud talkers** (an office subnet that should not reach a VPC), paths that are
+configured but unused and paths that are used but should not exist, **rejected paths** (who is knocking, on which
+port, at which ENI), asymmetry, cross-AZ and NAT volume. **What they cannot:** resources without traffic, why a
+path was chosen, which rule rejected, anything about a VPC that has no flow log.
+
+**Bounds, so the map stays readable and cheap:**
+- aggregation level selector: account / VPC (default) / subnet / ENI; ENI level only inside one expanded VPC;
+- time window 15 min – 7 days (default 1 h); windows over 48 h read the hourly edge rollup;
+- **top-N edges** by bytes (default 50, max 300) plus "others" summed per node; REJECT edges have their own top-N;
+- at ingest the edge table itself is bounded: per minute and exporter the top 500 edge keys by bytes, the rest
+  folded into `(endpoint class → endpoint class)` totals, so storage does not grow with the number of talkers;
+- the graph endpoint answers from aggregates only, ≤ 2 s, cached 60 s per parameter set.
+
+#### 15.2.6 Normalisation, storage and traffic views
+- **Record** (pure `parse_record`): one field table for VPC records (versions 2–11) and one for TGW records
+  (§ 15.2.4.5). `-` = absent. `log-status` `NODATA` rows are skipped; `SKIPDATA` rows are counted and surfaced as
+  "AWS dropped records in the capture window". Unknown field names are ignored (forward compatible); a line with
+  the wrong field count is a `parse_error` (counted; the first three per object are logged with the key, never the
+  line).
+- **Counting side** (pure `count_side`): a flow between two monitored ENIs appears twice. For VPC / path / edge
+  totals a VPC record is counted on its **egress side** (`flow-direction = egress`; without the field: "srcaddr or
+  `pkt-srcaddr` is an IP of this ENI" from the IP index; unknown → counted, view marked "approximate"). Per-ENI views
+  count both directions of that ENI.
+- **Minute spreading** (pure `spread`): a record's window (1 or 10 minutes) is spread evenly over the minutes it
+  covers, integer remainders to the last minute.
+- **Exporter and interface resolution:** VPC records → exporter per VPC (`kind = 'aws_vpc'`), found from `vpc-id`,
+  else ENI → VPC through the inventory, else one exporter per source (`kind = 'aws_flowlog'`, named after the
+  source) so default-format logs without inventory still work. Interface = a stable synthetic index per ENI
+  (`aws_if_index`). `flow_exporters` gains `kind`, `ext_key` (unique; e.g. `aws:<account>:<region>:<vpc-id>`) and a
+  nullable `address` (the 1.4.0 schema has `address inet NOT NULL UNIQUE`, which cannot hold cloud exporters —
+  migration P4-3 relaxes it to a partial unique index for `kind = 'device'`). `sampling_rate = 1`. Phase-3 retention
+  applies.
+- **Cloud extras:** `aws_flow_paths` (minute, exporter, traffic-path class, direction, action → bytes, packets,
+  flows), `aws_flow_rejects` (top 200 per minute and exporter by packets), `aws_flow_edges` (minute, exporter, level,
+  source endpoint, destination endpoint, path, action → bytes, packets, flows; hourly rollup), `aws_tgw_drops`.
+- **Traffic-path classes:** AWS codes 1–8 as documented; derived classes 100 "site (DX / VPN)", 101 "VPC to VPC",
+  0 unknown.
+- **Views** (`/cloud/traffic`): per account / VPC / subnet / ENI / TGW attachment top talkers, applications,
+  conversations (phase-3 components); **site ↔ AWS** traffic per site and link; **rejected flows** (by destination
+  port, source, ENI; with the ENI's security groups and the subnet's NACL side by side when the inventory is on —
+  the product says "rejected by a security group or NACL", AWS records do not say which); TGW drops by reason;
+  cross-AZ bytes; internet egress per VPC; AWS-service traffic. The phase-3 flow pages gain an exporter-kind filter.
+
+#### 15.2.7 AWS state sensors
+With `aws_inventory` ON, *Add sensor* on any device offers:
+
+| Sensor type | Channels | Status |
+|---|---|---|
+| `aws_dx_connection` | `state`; optional CloudWatch `ConnectionState`, `ConnectionBpsEgress/Ingress`, `ConnectionLightLevelTx/Rx` | down when `down` / `deleted`; warning for other non-`available` states |
+| `aws_dx_vif` | `state`, `bgp_up` (peers up), `bgp_total` | down when no peer is up; warning when fewer than `bgp_total` |
+| `aws_vpn_connection` | `tunnels_up`, `tunnels_total`; optional CloudWatch `TunnelState`, `TunnelDataIn/Out` | down when 0 tunnels up; warning when fewer than all (threshold selectable: a single-tunnel design is valid) |
+| `aws_tgw_attachment` | `state` | down unless `available` |
+
+State comes from the last inventory refresh (no extra API call); the CloudWatch channels are optional per sensor and
+polled at ≥ 300 s. The sensors can sit on any device: the customer router, a firewall, or the account's **cloud
+device** — a device the *Accounts* form can create on request (name "AWS <account name>", `host` = the account's
+regional STS host name, no sensors added automatically).
+
+#### 15.2.8 Turning the data into alerts (event-rule kinds `flow_threshold`, `aws_change`)
+
+Both reuse the 2b-3 event-rule engine as it exists in 1.4.0 (`ingest/rules.py`, `ingest/event_sensors.py`): a rule
+match creates or refreshes an **event condition** (`event_conditions`: sensor, rule, key, status, message) on a
+passive **event sensor** of a device, and the sensor's status drives all existing alerting (alert rules, channels,
+delays, acknowledge, maintenance, dependencies, timeline, reports). Nothing in the alert engine changes.
+
+- `event_rules.kind` gains `flow_threshold` and `aws_change`; event sensor types gain `flow_alert` ("Flow alerts")
+  and `aws_change` ("AWS changes"), created on demand like the `trap` / `syslog` sensors.
+- **Which device carries the condition:** the rule's `device_id` (scope `device`), else the device of the subject
+  (the exporter's device for device flows; the account's `device_id` for AWS subjects). A rule that resolves to no
+  device is saved with the warning `no_target_device` and does not evaluate.
+- Regex: the only patterns are `name_regex` fields; they use `saferegex.check_safe` at save time and
+  `compile_safe` at run time with the engine's `MAX_REGEX` (200), like trap and syslog rules.
+- **No toggles of their own** (revision 3, § 15.0.1): both kinds need `event_alerts` ON (the engine's own
+  toggle); `aws_change` rules also need `aws_inventory` ON, `flow_threshold` rules evaluate whatever flow data
+  exists (`flows`, `aws_flow_logs`). A rule whose data feature is OFF is kept and shows `idle:
+  feature_off:<name>`. Each rule has its own `enabled` flag; built-in rules are seeded disabled.
+
+**Flow-threshold rules** (works on every exporter kind, so NetFlow / sFlow devices benefit too). `match`:
+
+| Part | Fields |
+|---|---|
+| `subject` | exporter kind (`device`, `aws_vpc`, `aws_tgw`, `any`); exporter ids, account ids, VPC ids, ENI ids, interface indexes or `name_regex`; or a **site link** (`site`, `link`) |
+| `metric` | `bytes`, `packets`, `flows`, `bps`, `pps`, `reject_flows`, `reject_packets`, `reject_ratio`, `utilisation_pct`, `tgw_drop_packets` |
+| `filter` | direction, action, protocol, destination ports, source / destination CIDRs, traffic-path classes |
+| `condition` | `above` / `below` a value; `silent` (zero for the window); `spike` (× `factor` over a baseline: `previous_window` or `same_hour_7d`, with a `min_value` floor) |
+| timing | `window_min` (1–1440, default 5), `for_windows` (consecutive breaches, default 2), `clear_windows` (default 2), optional `clear_value` (hysteresis; default 80 % of the value for `above`) |
+| `group_by` | `none`, `exporter`, `interface`, `eni`, `vpc`, `dst_port`, `src` — one condition per group value |
+
+- **Evaluation:** a loop on the active node, once a minute, over rules whose data moved. A window is evaluated only
+  when it is **complete**: it ends at the subject's **watermark** (for UDP exporters the last flushed minute; for
+  flow-log sources `stats.watermark`). So late S3 delivery or a failed poll is never read as "silent" — a stale
+  source raises its own health condition (`falling_behind` / `source_stale`) instead of silence alerts.
+- `utilisation_pct` needs a capacity: the port speed (device interfaces, from the ports inventory), the DX
+  connection bandwidth, or `capacity_bps` typed in the rule.
+- **Storage:** rules in `event_rules`; evaluator state in `flow_rule_state` (rule, group key, consecutive breaches,
+  last value, baseline, since) so a restart or failover does not re-raise or forget.
+- Reads the 1-minute tables: `flow_if_1m` and friends, `aws_flow_paths` (totals incl. REJECT), `aws_flow_rejects`
+  (top-N — rules grouped by port or source are marked "based on the top 200 per minute"), `aws_tgw_drops`.
+- **Noise control:** consecutive windows, hysteresis, a baseline learning period (7 days of data, the rule shows
+  "learning"), `min_value` floors, ≤ 50 open conditions per rule (the largest kept, the rest summarised "and N
+  more"), re-raise cool-down `min_interval_min` (default 30), and everything the event sensor already has
+  (`MAX_CONDITIONS` 256, maintenance windows, acknowledge).
+- **Built-in rules** (offered when the feature is turned on, all disabled): spike in REJECT flows per VPC; REJECT
+  ratio above 20 %; VPN / DX / TGW-attachment link silent for 10 minutes; site link utilisation above 80 %; TGW
+  black-hole or no-route drops above 0; interface utilisation above 90 % (device exporters).
+
+**AWS change rules.** Evaluated at the end of every inventory refresh over the new `aws_resource_changes` rows.
+`match`:
+
+| Part | Fields |
+|---|---|
+| what | `resource_types`, `change_kinds` (`created`, `updated`, `deleted`), account ids, regions, VPC ids, `name_regex` |
+| detail (optional, per type) | security group rule: direction, CIDR within a list (e.g. `0.0.0.0/0`, `::/0`), ports, protocol; route: destination within a list, target types, state `blackhole`; ENI: interface types to include / exclude, requester-managed yes / no; generic: changed field names |
+| action | `warning`, `down`, `ignore` (existing) |
+| clearing | `clear_after_min` (existing, default 1440), *Clear* by an admin (existing), `clear_on_revert` (the condition clears when a later refresh shows the change undone) |
+
+- Condition key = resource id (+ rule id of the security-group rule or route destination), message = a readable
+  summary of the diff ("sg-0abc web: ingress tcp/22 from 0.0.0.0/0 added").
+- **Noise control:** the first refresh is a baseline (no changes); a newly added account, region or resource type
+  likewise; ENI churn — the built-in "new ENI" rule ignores requester-managed interfaces and the interface types
+  `lambda`, `nat_gateway`, `vpc_endpoint`, `network_load_balancer` … by default (editable); more than
+  `aws_change_collapse` (default 10) matches of one rule in one refresh collapse into one condition with a count and
+  a link to the change list; `ignore` rules run first (priority order, as the engine).
+- **Limits, stated in the UI:** detection is as fresh as the inventory interval; a change made and undone between
+  two refreshes is not seen; who made the change is not known (CloudTrail / EventBridge as a source is in *Later*).
+- **Built-in rules** (disabled): security-group rule opened to the world; any security-group ingress rule added;
+  route-table route added / removed / black-holed; new ENI; NACL entry changed; new VPC peering or TGW attachment;
+  internet gateway attached; flow log deleted; VIF BGP peer down; VPN tunnel down.
+
+#### 15.2.9 Assistant tools (offered while `assistant` and their data feature are ON)
+Added to the closed tool list of § 14.3 through the existing registry (`assistant/tools.py: register`), under its
+rules: admin only, **`SET TRANSACTION READ ONLY`** for every tool query (`tools.read_only`), per-tool timeout and
+result cap, the result passed through `redact` (secrets always; internal IPs per the 3b policy, with placeholder
+translation of arguments), citations as links into `/cloud`. There is no separate toggle (revision 3): a tool is
+offered to the model only while `assistant` and its data feature (`aws_inventory` or `aws_flow_logs`) are ON, as the
+3b syslog / flow / config tools follow their features.
+
+| Tool | Needs | Answers |
+|---|---|---|
+| `cloud_find` | `aws_inventory` | resources by id, name, IP or CIDR ("what is 10.20.1.15") |
+| `cloud_resource` | `aws_inventory` | one resource with its projection, parents, recent changes |
+| `cloud_sg_allows` | `aws_inventory` | which security groups / NACLs of an ENI or VPC allow a (source, port, protocol) — a deterministic evaluation, the model only words it |
+| `cloud_route` | `aws_inventory` | the route-table and TGW-route decision for a destination from a subnet |
+| `cloud_changes` | `aws_inventory` | changes in a period, filtered |
+| `cloud_top_talkers` | `aws_flow_logs` | top talkers / ports / conversations for a VPC, ENI, site or TGW |
+| `cloud_rejects` | `aws_flow_logs` | rejected flows for an ENI / port / source |
+| `cloud_edges` | `aws_flow_logs` | who talks to whom at a chosen level (the overlay data) |
+
+Account ids and ARNs count as internal identifiers: with IP redaction ON they are replaced by placeholders too
+(`redact` gains an `aws_ids` class). No tool calls AWS; they read the local tables only, so a question never costs
+an AWS request and never needs AWS credentials.
+
+#### 15.2.10 Security and failure modes (4d)
+Read-only IAM policies (§ 15.11.3). No flow-log content leaves the server (except, with the assistant's cloud tools, redacted
+tool results to Bedrock). AWS errors are shown per call. Inventory and flow polling never block the poller (separate
+tasks, bounded queues, own budget). A failed poll changes no cursor and no register row. Clock skew → `aws_clock_skew`
+as 3b. Threats and their answers:
+
+| Threat | Design answer |
+|---|---|
+| SSRF | no URL comes from AWS data or from flow records; hosts are built from validated tokens (§ 15.1.13); bucket, prefix, log-group and ARN fields have strict patterns |
+| ReDoS | flow-log parsing uses `str.split` and integer / IP parsing, no regular expressions; rule patterns are RE2 |
+| Hostile or corrupt objects in the bucket | size caps, streamed gunzip with an output cap per object (4 GiB, then `too_large`), Parquet only in the resource-limited child process, field-count and type checks, counters instead of exceptions |
+| Decompression bomb | the output cap above; the gunzip thread yields bounded chunks |
+| Resource exhaustion by volume | record budgets, token bucket, bounded aggregator keys (phase-3 limits), top-N tables |
+| Wrong bucket (typo, takeover of a deleted bucket name) | `x-amz-expected-bucket-owner`; the Test shows the bucket's account and region |
+| Stored XSS through names / tags / descriptions from AWS | values are data: escaped by React, never rendered as HTML; length-capped at ingest |
+| Over-collection | projection only, tags by allow-list, no user data, no payloads (flow logs have none) |
+
+### 15.3 High availability (4a) [4]
+
+#### 15.3.1 Topology and roles
+The drawing and the decision table use the owner's layout as the **example** (a primary in the office, a standby
+reached over a WAN link — here Direct Connect — and a witness in AWS). Nothing in the code knows these places: nodes
+are named by the admin (`NETMON_NODE_NAME`), either node may be the preferred primary, both may be on the same site
+or in two clouds, the "link" is whatever connects them, and the witness runs on any third host that both nodes can
+reach (§ 15.3.6). The names `office1`, `aws1`, `mnidom.net` below are placeholders.
+```
+          office (on-prem)                         Direct Connect                    AWS (later; today: DR site)
+ ┌───────────────────────────────┐           ═════════════════════        ┌───────────────────────────────┐
+ │ node office1 (preferred       │  PG streaming replication (TLS) ─────► │ node aws1 (preferred standby) │
+ │ primary)  Caddy+netmon+db     │  peer API https://<peer>/api/ha/peer   │ Caddy+netmon+db (hot standby) │
+ └──────┬────────────────────────┘ ◄────────────────────────────────────► └──────────────┬────────────────┘
+        │ polls, alerts, backups                                                         │ quorum probe only
+        ▼                                                                                 ▼ (via DX)
+   office devices ── traps / syslog / flows sent to BOTH servers ──────────────────────────┘
+        │                                                                                 │
+        │ heartbeat: DX (private) + optional internet path (proxy)     heartbeat (VPC)    │
+        └──────────────────────────────►  witness (separate AWS VPC) ◄───────────────────┘
+                                           netmon witness, SNS / e-mail / Teams / Telegram
+```
+- Two **nodes**, identical stacks, same release. No floating IP; clients use a DNS name (§ 15.3.9).
+- **Exactly one active node** at a time. Roles: `active` (polls, alerts, notifies, backs up configs, runs every
+  schedule, owns the writable database), `standby` (PostgreSQL hot standby, read-only UI, ingests to its spool, runs
+  the quorum probe), `fenced` (a former active that learned of a higher epoch, or a primary that isolated itself; runs
+  nothing active, waits for rejoin), `single` (HA not configured).
+- **Preferred roles** are static (role file); the current role is dynamic (epoch, § 15.3.5). There is **no automatic
+  failback**: after a failover the new active stays active until an admin presses *Switchover*.
+- The HA logic lives in the app (`netmon.ha`), not in a separate cluster manager: Patroni/Pacemaker need a
+  three-member consensus store (etcd/Corosync) that this environment does not have and would add more moving parts
+  than the decision logic itself. The witness provides the third vote; the PostgreSQL operations that need the
+  database files (rewind, rebuild) run in a host script (§ 15.3.3).
+
+#### 15.3.2 What runs where
+| Component | active | standby | fenced |
+|---|---|---|---|
+| Web UI / API | full | **read-only** (banner "Standby — read-only. Active: office1 (link)"); every write → `409 ha_read_only` with the active node's URL; login works (JWT with the shared `secret.key`), the login audit row goes to the node journal (§ 15.3.4) | read-only, banner "Fenced" |
+| Poller, alert engine, notifications, escalation, reports, config backup, discovery, port inventory, topology, retention, assistant background jobs, S3 backups/exports, AWS inventory/flow-log polling, Telegram poller | **yes** | no | no |
+| Trap / syslog / flow receivers (when their feature is ON) | → DB pipeline | → **spool** (§ 15.3.4) | → spool |
+| Quorum probe (§ 15.3.7) | on demand (self-fencing check) | readiness every 10 min + on peer loss | on demand |
+| Heartbeats to witness and peer | yes | yes | yes |
+| Database | primary (read-write) | hot standby (read-only, `hot_standby_feedback=on`) | stopped writes (`default_transaction_read_only=on`) until rewound |
+| Migrations, advisory lock 727001 | yes | **skipped** (`pg_is_in_recovery()`); the single-instance guard uses a file lock in `/data/ha/` instead | skipped |
+
+#### 15.3.3 PostgreSQL replication
+- **Physical streaming replication**, asynchronous, one replication slot `netmon_standby` per standby. TimescaleDB is
+  replicated like any other data (hypertables, chunks, catalog) — both nodes **must run the same `db` image** (same
+  PostgreSQL minor and same TimescaleDB library); `ops/check-release.sh` already pins it in `compose.yaml`.
+- **Server settings** (added to the `db` service command in `compose.yaml` for every installation, harmless on a single
+  node; the first deploy restarts `db` once): `wal_log_hints=on` (required by `pg_rewind`; data checksums are not
+  enabled in existing clusters), `max_wal_senders=5`, `max_replication_slots=5`, `max_slot_wal_keep_size=20GB`
+  (`NETMON_HA_WAL_KEEP`; a standby that falls further behind loses its slot and is rebuilt instead of filling the
+  primary's disk), `hot_standby=on`, `hot_standby_feedback=on`, `wal_keep_size=1GB`, `ssl=on` with the node's HA
+  certificate, `hba_file` = a host-generated file (replication only from the peer address, `hostssl`,
+  `scram-sha-256`).
+- **Network:** the `db` service publishes `5432` **only** when the role file sets `HA_DB_BIND=<node address>` (default
+  unpublished); `ops/ha-firewall.sh` allows it from the peer address only (`DOCKER-USER`, like the ingest firewall).
+  Replication role `netmon_repl` (`REPLICATION`, no other rights), password from the pairing bundle,
+  `sslmode=verify-full` against the HA CA (§ 15.3.10).
+- **Standby creation** (`ops/ha-join.sh`): stop `netmon` and `db` → `pg_basebackup -h <primary> -U netmon_repl -X
+  stream -S netmon_standby -C -R -D <volume>` (in a one-off container of the `db` image on the `netmon-db` volume) →
+  start `db` (standby) → start `netmon` (standby mode).
+- **Failover** = `SELECT pg_promote(wait => true, wait_seconds => 60)` executed by the app on the new active (the
+  `netmon` DB user is the container superuser); the slot for the other node is created on the new primary
+  (`pg_create_physical_replication_slot`) so the old primary can follow once rewound.
+- **Rejoin of the old primary** (`ops/ha-rejoin.sh`, run automatically by the GitOps timer when the local app reports
+  `needs_rejoin` and the role file has `HA_AUTO_REJOIN=1` — default 1; or by hand):
+  1. stop `netmon`; start `db` alone and export the **divergent audit**: `audit_log` rows with `time` > the promotion
+     time of the new epoch → `/var/backups/netmon/ha/divergent-audit-<epoch>-<ts>.jsonl` (what was changed on the old
+     primary after the split and will be lost; listed on the `/ha` page);
+  2. stop `db` cleanly; `pg_rewind --target-pgdata … --source-server='host=<new primary> user=netmon_repl …'
+     --write-recovery-conf` (one-off container of the `db` image);
+  3. write `standby.signal`, `primary_conninfo`, `primary_slot_name`, `recovery_target_timeline='latest'`;
+  4. start `db` → streaming from the new primary; start `netmon` (standby).
+  If `pg_rewind` fails (missing WAL, slot invalidated) the script stops and asks for `ops/ha-rejoin.sh --rebuild`
+  (`pg_basebackup`, the old data directory renamed, kept until the next successful backup). A **standby** whose slot
+  was invalidated is rebuilt automatically (it holds no unique data besides its spool, which is kept).
+- **Planned switchover** needs no rewind: the old primary shuts down cleanly after the standby confirmed it replayed
+  the final LSN, then starts as a standby on the new timeline.
+
+#### 15.3.4 Ingest on the standby: spool and replay
+A physical standby database is read-only, so the standby cannot store traps, syslog or flows in PostgreSQL. It writes
+them to a **spool** on its data volume instead, and replays them into the database after a promotion. (Logical
+replication was rejected: hypertables are not supported as logical-replication publications, and two writers would
+need conflict handling.)
+- `/data/ha/spool/<kind>/<yyyymmddThhmm>.jsonl` (kind = `trap`, `syslog`, `flow_minute`, `journal`), one segment per
+  5 minutes, gzip after rotation, fsync on rotation. Traps/syslog: the parsed record **plus** the raw bytes (base64)
+  and `received_at`; flows: the 1-minute aggregates produced by the same `MinuteAggregator` in memory (never raw flow
+  records — 10 000 records/s would not fit); `journal`: standby-side events (logins, HA events) for the audit log.
+- Limits: `ha_spool_max_gb` (default 10) and `ha_spool_hours` (default 72), oldest segments dropped first, counters
+  `spooled`, `dropped`, size; shown on `/ha`.
+- **Replay** (after a successful promotion, in the background, bounded to 5 000 rows/s, never delaying the start of the
+  poller): `replay_from` = `pg_last_xact_replay_timestamp()` captured just before promotion − 30 s. Records with
+  `received_at < replay_from` are skipped (the old primary stored them and they were replicated). In the overlap,
+  duplicates are skipped by key: traps/syslog `(source_ip, sha256(raw), received_at ± 5 s)`; flow minutes: a (minute,
+  exporter) that already has rows is skipped entirely. Records **younger than 5 minutes** at replay time also go
+  through the event rules (so a link-down trap received during the failover still drives its event sensor);
+  older ones are stored only. Result in `ha_replay_runs`; the spool segments are deleted after a successful replay
+  and otherwise kept 72 h.
+- On the active node the spool is not used (the receivers write to the DB pipeline as before).
+- The standby's spool counters per source IP give the **readiness report** "devices already sending to the standby"
+  (`/ha` → *Device readiness*), so the owner sees which devices still need their trap/syslog/flow targets added.
+
+#### 15.3.5 Epoch, lease and fencing
+- **Epoch** = a monotonically increasing integer; the pair (epoch, holder node) names the active node. Stored in three
+  places: the witness (authoritative for automatic decisions), the database table `ha_state` (replicated; written by
+  the active), and each node's local `/data/ha/state.json` (fsync; survives the DB being unavailable).
+- **Becoming active** requires a **grant** of epoch E+1 from the witness (compare-and-set on (E, holder)), except the
+  forced manual failover (§ 15.3.8), which writes E+1 locally and pushes it to the witness when reachable (the
+  witness accepts any higher epoch from an authenticated node and records `forced`).
+- **Staying active** does **not** require the witness (the Direct Connect rule: an office primary that loses the
+  witness and the standby keeps running). An active node refreshes its heartbeat to the witness (every
+  `ha_heartbeat_s`, default 5) and to the peer, best effort.
+- **Fencing on a higher epoch:** whenever any node sees an epoch higher than its own with another holder — in a
+  witness reply, a peer heartbeat, or the replicated `ha_state` — it **demotes immediately**: stops every
+  `runs_on: active` component (in-flight notifications are cancelled; queued ones dropped and logged), sets `ALTER
+  SYSTEM SET default_transaction_read_only = on` + reload on its local database (an old primary can no longer accept
+  writes from anything), role `fenced`, `needs_rejoin = true`, event `ha.fenced`.
+- **Boot rule:** a node whose local state says it was active does not start active components at boot until one of:
+  (a) the witness confirms its epoch is current; (b) the peer confirms; (c) neither answered within
+  `ha_boot_wait_s` (default 120) **and** its own device quorum (§ 15.3.7) is OK — then it starts as active (the
+  "office primary rebooted during a DX outage" case). A standby at boot is always standby.
+- **Self-fencing of an isolated active:** if the active node reaches **neither** the peer **nor** the witness (any
+  path) **and** its own device-quorum check fails for `ha_failover_after_s`, it stops active components (role
+  `fenced`, reason `isolated`; nothing it could send would arrive). It resumes by itself when its quorum is OK again
+  and no higher epoch is visible.
+- **Notifications carry the node** (`[office1]` footer and webhook field `node`, `epoch`), so a short double-active
+  window (residual risk, § 15.3.7) is visible.
+
+#### 15.3.6 Witness
+- **What:** `netmon witness` — a subcommand of the **same image** (same version, same release pin), a small asyncio
+  HTTPS service on port 8443 (configurable) with a local state file (`/var/lib/netmon-witness/state.json`, fsync,
+  single writer). **Where it runs is the admin's choice:** any Docker host that is on neither node's failure domain —
+  an EC2 instance, a VM on a third site, a small machine at a branch. The requirement is only that both nodes reach
+  it and that it does not share the fate of either node. The example deployment (and the owner's) is a `t4g.nano`
+  (or similar) EC2 instance in a **separate VPC** (its own subnet, security group: 8443 from the
+  two node addresses and the corporate proxy's egress range only) with Docker and its own small compose file
+  (`deploy/witness/compose.yaml`) — GitOps on the witness uses the same `sync.sh` with role file `nodes/witness.env`
+  (it deploys only the `witness` service). A CloudFormation template `deploy/witness/witness.cfn.yaml` creates the
+  VPC, instance, instance role (SNS publish to one topic only), security group and SNS topic (optional; the admin may
+  create them by hand). `deploy/witness/README.md` also covers a plain Docker host outside AWS.
+- **Paths:** each node lists the witness URLs in `ha.witness_urls`: the **private** URL over DX / VPC routing and,
+  recommended, a **second path** for the office node through the corporate internet proxy to the witness's Elastic IP
+  (`https://<eip>:8443`). With the second path a Direct Connect outage does not even look like a primary failure to the
+  witness.
+- **Authentication:** TLS with the witness's certificate issued by the HA CA (§ 15.3.10), verified by the nodes; each
+  node authenticates with its node token (32 random bytes, HMAC-SHA256 over `method + path + timestamp + body sha256`,
+  ±60 s, replay cache). Tokens and the CA come from the pairing bundle.
+- **API** (internal, api.md § [4] Witness): `POST /v1/heartbeat` (node, epoch, role, LSN, lag, quorum summary, version,
+  path label), `POST /v1/promote` (candidate, requested epoch, quorum evidence) → grant or refusal with reasons,
+  `POST /v1/epoch` (forced epoch report), `GET /v1/state` (both nodes' last heartbeats, epoch, holder).
+- **Grant rule** (pure `netmon.ha.decide.witness_grant`, shared vectors with the nodes): grant E+1 to candidate C iff
+  current epoch = E and holder ≠ C; **no heartbeat from the holder on any path** for ≥ `failover_after_s`; C's own
+  heartbeat is fresh (< 15 s); C reports `quorum_ok` with ≥ `quorum_min_ok` reachable sample devices; C's last
+  reported replay lag (before the loss) ≤ `max_failover_lag_s`; `auto_failover` true; no other grant in the last
+  `failover_after_s` (single flight).
+- **Alerts from the witness** (out-of-band, works when both nodes or the whole office are unreachable): node silent
+  > `witness_alert_after_s` (default 120), epoch change, standby reporting `replication_broken`, active reporting
+  `quorum_failed`, witness restart. Channels, any combination, set in the witness env file: Amazon **SNS** topic
+  (`WITNESS_SNS_TOPIC_ARN`; email/SMS subscriptions managed in AWS; SigV4 with the instance role or an access key — the
+  shared `netmon.aws` code), **Teams**
+  Workflows (`WITNESS_TEAMS_URL`), **Telegram** (`WITNESS_TELEGRAM_BOT_TOKEN` + `WITNESS_TELEGRAM_CHAT_ID`), **SMTP**
+  (`WITNESS_SMTP_*`) — the product's own channel kinds plus SNS (a generic webhook is in *Later*, cut C5); an
+  optional proxy (`WITNESS_HTTPS_PROXY`). The witness refuses to start with no channel
+  configured unless `WITNESS_ALLOW_NO_ALERTS=1`. Each alert at most once per state change, plus a repeat every 6 h while it lasts.
+- **Witness down:** no automatic failover (both nodes alert "witness unreachable"); manual switchover and forced
+  failover still work.
+
+#### 15.3.7 Failure detection, device quorum and the decision table
+**Detection on the standby** (every `ha_heartbeat_s`): peer heartbeat over HTTPS (`/api/ha/peer/heartbeat`, 3 s
+timeout) **and** the replication connection state (`pg_stat_wal_receiver.status = streaming`). The primary counts as
+*lost* when both have failed continuously for `ha_failover_after_s` (default 60, 20–600).
+
+**Device quorum** (the Direct Connect safeguard): before asking for a grant, the candidate probes a **sample of the
+devices the active node was successfully monitoring**: up to `ha_quorum_sample_size` (default 20) devices taken from
+the replicated DB — every device the admin pinned as an *anchor* (`ha_quorum_anchors`, e.g. core switches, the office
+firewall), then devices whose availability sensor was `up` at the last replicated status, spread across groups —
+each probed with ICMP echo (3 tries, 1 s) and, if ICMP fails and the device has SNMP credentials, an SNMP GET
+`sysUpTime.0`. An anchor may name its own probe (`icmp`, `snmp`, `tcp:<port>`) for networks where ICMP is filtered. **Quorum OK** = at least `ha_quorum_pct` (default 60) % of the sample answered, measured twice 10 s
+apart. A standby in AWS that cannot reach the office (DX down) fails the quorum and **never** asks for a grant.
+Results are shown on `/ha` and sent to the witness as evidence.
+
+**Decision table** (P = office node, active; S = standby in AWS / DR; W = witness in a separate AWS VPC; "DX" =
+Direct Connect between office and AWS; *internet path* = the optional P→W path through the proxy):
+
+| # | Situation | What P (active) does | What S (standby) does | What W does | Result |
+|---|---|---|---|---|---|
+| 1 | All healthy | active; heartbeats to W and S | replicates; spools ingest; readiness probe every 10 min | records heartbeats | P active |
+| 2 | **P down** (server, Docker, DB or app dead) | — | after 60 s without P (peer API and replication): quorum probe → OK (office devices reachable over DX) → asks W for E+1 | no P heartbeat on any path ≥ 60 s, S fresh, quorum OK, lag ≤ 300 s → **grants E+1**; alerts "office1 down, failover to aws1" | S promotes (`pg_promote`), replays spool, starts all active components, updates DNS, notifies; ≈ 90–120 s total |
+| 3 | P returns after #2 | boot rule: W (or S) reports epoch E+1 held by S → **fenced**, `needs_rejoin`; GitOps timer runs `ha-rejoin.sh` (divergent audit export, `pg_rewind`) → standby | stays active | records P as standby | S active, P standby; no failback until an admin switches over |
+| 4 | **S down** (or replication broken) | stays active; alert "standby down / replication broken" via its channels; WAL kept up to `max_slot_wal_keep_size`, then the slot is dropped | — (on return: catches up, or is rebuilt automatically if the slot was dropped) | alerts "aws1 silent" via SNS | P active, no HA protection until S is back |
+| 5 | **W down** (or unreachable from both) | stays active; alert "witness unreachable" | stays standby; **no automatic failover possible** | — | P active; manual failover still possible |
+| 6 | **DX down**, internet path P→W configured | stays active (staying active never needs W or S); alerts "DX / standby unreachable" through local SMTP or the internet proxy (Telegram/Teams) | P lost → quorum probe **fails** (office devices unreachable) → **does not ask W**; state `isolated (no quorum)`; keeps spooling what reaches it | still hears P via the internet path → would refuse anyway; alerts "office1 reachable only via internet path; DX path down" (warning) | P active, S passive. After DX returns: S catches up (or is rebuilt if the slot was dropped) |
+| 7 | **DX down**, no internet path | as #6 | as #6 (no quorum → no request) | hears neither P nor (maybe) nothing from the office; S is fresh but reports `quorum_ok=false` → no grant; alerts "office1 silent" (critical) | P active, S passive — the owner gets an out-of-band SNS alert that the office is cut off from AWS |
+| 8 | **Office LAN down** (core switch failure; P alive but sees no devices; DX may also be down) | its own quorum fails; if it also reaches neither S nor W → **self-fences** after 60 s (reason `isolated`); otherwise stays active and alerts as usual (devices down, dependency rules) | quorum probe fails (devices unreachable over DX too) → no request | alerts "office1 silent" if P's paths are gone | nobody pages from inside a dead LAN; W pages out-of-band; P resumes by itself when its quorum returns |
+| 9 | Only **P's own uplink** fails (P cut off; office LAN and DX fine) | reaches neither S nor W; its quorum fails (its own link is down) → self-fences | P lost, quorum **OK** → asks W | no P heartbeat → grants E+1 | S active (correct: P is unreachable for everyone); on return P sees E+1 → fenced → rejoin |
+| 10 | **P↔S link broken only** (e.g. a firewall rule), both see W | stays active; alert "replication broken" | P lost by S, but W refuses (P heartbeats fresh) | refuses; alert "replication broken" | P active; no split brain |
+| 11 | P's paths to S and W **and** the internet path all fail while P still reaches its devices (rare double failure) | cannot know: quorum OK → stays active | quorum OK → asks W → granted | grants | **residual risk: two active nodes** (both poll and notify, footers show the node). Ends when P sees E+1 (on any path) → fenced. Owner priority: no missed alert over a duplicate alert. Data written on P in the window: polled data is lost at rewind (S polled too), ingest is not (both received it), admin changes are listed in the divergent-audit file |
+| 12 | Planned **switchover** (button/CLI) | `handing_over`: stops active components, waits until S has replayed P's final LSN (≤ 60 s), shuts DB down cleanly | receives the grant from W (CAS E → E+1 with reason `switchover`), promotes, starts | grants | roles swapped in ≈ 30–60 s; no data loss; old P rejoins without rewind |
+| 13 | Forced manual **failover** on S (P dead and W down or refusing) | — | admin types `FAILOVER aws1` (+ password re-auth): writes E+1 locally, promotes; pushes E+1 to W when reachable | accepts the higher epoch, records `forced` | S active; if P was in fact alive → case #11 until P sees E+1 |
+
+The table is also data: `tests/ha/vectors.yaml` holds each row as inputs (reachability, heartbeats, quorum, epochs)
+and expected actions; the pure functions `netmon.ha.decide.node_step(state, observations) -> actions` and
+`witness_grant(...)` are tested against it, and the container suite (§ 15.13.1) runs the same rows end to end.
+
+#### 15.3.8 Manual switchover and failover (UI + CLI)
+- *HA* page (`/ha`, admin): **Switchover to aws1** (active node only; enabled when the peer is `standby`, streaming,
+  lag < 10 s, W reachable) with a confirmation dialog; **Force failover** (standby only; enabled when the peer is
+  lost; typed confirmation `FAILOVER <node>` + password; explains the split-brain risk); **Rejoin now** and
+  **Rebuild** (fenced node; they set a request flag the GitOps timer picks up — the app does not run host commands).
+- CLI inside the container (`docker compose exec netmon netmon ha …`): `status` (JSON), `switchover [--to NODE]`,
+  `failover --force --confirm NODE`, `fence`, `events [--since]`. Host scripts: `ops/ha-status.sh`, `ops/ha-join.sh`,
+  `ops/ha-rejoin.sh [--rebuild]`.
+- Everything audited (`ha.switchover`, `ha.failover_forced`, `ha.rejoin_request`) and recorded in `ha_events`.
+
+#### 15.3.9 Name resolution (DNS)
+Clients reach the UI as `https://netmonitor.mnidom.net`, today a static A record in AD-integrated DNS. Without a
+floating IP the name must follow the active node. Method in `ha.dns.method`, both selectable, none assumed:
+`ad_gss_tsig` (Active Directory secure dynamic update) and `route53` (revision 3: the owner kept the two methods of
+revision 1; RFC 2136 TSIG, a webhook and "manual" are in *Later*, cut C4). The recommendation shown in the UI
+depends on what the Test finds; for an AD-integrated zone it is `ad_gss_tsig`.
+
+- **`ad_gss_tsig` — the active node updates the AD record by secure dynamic update** (RFC 3645 GSS-TSIG, the only
+  secure update AD accepts). After a promotion (and every 10 min while active, to repair drift) the active node sends
+  an UPDATE "replace A `netmonitor.mnidom.net` with my address, TTL 60" to the DCs in `ha.dns.ad_servers` (all of
+  them, so clients see it before AD replication completes). Implementation: dnspython `dns.update` with `GSSTSig`
+  and the `gssapi` library (already the optional `kerberos` extra of phase 3), Kerberos credentials from a **keytab**
+  of a dedicated account `svc-netmon-dns` (uploaded in *Settings → High availability*, stored AES-GCM like the phase-3
+  keytab, AAD `b"ha.dns_keytab"`). AD side (once, § 15.11.4): pre-create the record, turn off aging/scavenging on it,
+  grant `svc-netmon-dns` **Write** on that one `dnsNode` object only (no zone-wide rights). Result checked by querying
+  each DC; failures → alert `ha_dns_failed` and retry every 30 s. **Why primary:** office clients keep resolving
+  through the office DCs — also during a DX outage, which is exactly when the office node must stay reachable; no
+  dependency on AWS for name resolution.
+- **`route53` — AD conditional forwarder + Route 53 private hosted zone.** `netmonitor.mnidom.net` becomes a CNAME to
+  `netmonitor.<private zone>` (e.g. `netmonitor.nm.aws.mnidom.net`), AD forwards that zone to a Route 53 Resolver
+  inbound endpoint over DX, and the active node UPSERTs the A record with `ChangeResourceRecordSets` (TTL 60; IAM
+  limited to that record name via `route53:ChangeResourceRecordSetsNormalizedRecordNames`). Route 53 **health
+  checks** are not used to decide: they cannot probe private IPs (only CloudWatch-alarm-based health checks could)
+  and would decide independently of the epoch/fencing logic. **Drawback:** during a DX outage office clients cannot
+  resolve the name (the Resolver endpoint is in AWS) while the office node is still active — hence the alternative,
+  suited to a future where most users reach the system from AWS or the DR site.
+- **Always:** TTL 60 on the record; both nodes' HTTPS certificates carry `netmonitor.mnidom.net` plus their node names
+  (`office1.mnidom.net`, `aws1.mnidom.net`) as SANs; the Kerberos SSO keytab for `HTTP/netmonitor.mnidom.net` is in
+  the DB and works on both nodes; `public_base_url` stays the shared name; each node is also reachable by its node
+  name (the standby's read-only UI and the `/ha` page).
+- **Test** (part of the HA test): resolve the record, dry-run the update (GSS-TSIG: obtain the TKEY context and send a
+  prerequisite-only UPDATE that changes nothing; Route 53: `GetHostedZone` + `ListResourceRecordSets`).
+
+#### 15.3.10 Pairing and secrets
+Both nodes need the same `secret.key` (JWT and all AES-GCM settings secrets are replicated in the DB) and the same DB
+password for the `netmon` role (`pg_authid` is replicated).
+1. On the active node: *Settings → High availability* → **Prepare pairing** creates (once) the **HA CA** (ECDSA
+   P-256, 10 years; key AES-GCM in the DB, AAD `b"ha.ca_key"`), the replication role password, node tokens for both
+   nodes and the witness, and shows a **one-time pairing code** (8 groups, valid 30 min).
+2. On the standby host: `sudo ops/ha-join.sh --primary office1.mnidom.net --code XXXX-…` fetches the **pairing
+   bundle** from `POST https://<primary>/api/ha/pair` (the code is the key: bundle encrypted with a key derived from it
+   by scrypt; the endpoint answers only while a code is pending, 5 attempts) — `secret.key`, DB password, replication
+   password, HA CA certificate, the standby's node token and DB server certificate — writes them into the data volume
+   (0600), then creates the standby (§ 15.3.3).
+3. Witness: *Prepare witness* produces a witness bundle (its TLS certificate + key from the HA CA, the node tokens'
+   verification keys) downloaded once and placed on the witness host (`/etc/netmon-witness/`), or fetched by the
+   witness with its own pairing code.
+4. *Test* (configure-first): peer reachable both ways, replication `streaming` with lag shown, both witness paths
+   authenticated, quorum sample from **both** nodes, DNS dry run, same release on both nodes, clocks within 2 s (NTP).
+   Then the bottom switch turns `ha` ON (automatic failover armed).
+
+#### 15.3.11 GitOps for two nodes, upgrade and backup order
+- **Same repo, same `deploy/production/`, same `release.env`** for both nodes and the witness. New files:
+  `deploy/production/nodes/<node>.env` (static identity, in git, no secrets): `NETMON_NODE_NAME`,
+  `NETMON_NODE_ADDRESS`, `NETMON_PEER_NAME`, `NETMON_PEER_URL`, `NETMON_HA_PREFERRED_ROLE` (`primary`|`standby`),
+  `HA_DB_BIND`, `HA_AUTO_REJOIN`, `COMPOSE_PROFILES` (e.g. `capture`). Each server
+  has `/etc/netmon-gitops/node.env` with only `NETMON_NODE=office1` (written by `bootstrap.sh --node office1`);
+  `sync.sh` passes `--env-file release.env --env-file nodes/$NETMON_NODE.env`. Without `node.env`, a server is a
+  single node exactly as today.
+- **Same version always.** `sync.sh` deploys a change only when its gate allows it (`ops/ha-gate.sh`, asks the local
+  app `GET /api/ha/local`, which knows the peer's deployed version):
+  | Change in `deploy/production/` | Order |
+  |---|---|
+  | `netmon` image (`NETMON_IMAGE`) | **active first, then standby.** Migrations run only on the active (forward-only, additive); an old standby app reading a newer schema is safe because migrations are additive and the standby is read-only. The standby deploys when the active reports the new version healthy (or the active is lost — then the standby deploys immediately so that a failover runs the new version). |
+  | `db` image (PostgreSQL minor / TimescaleDB library) | **standby first, then active.** PostgreSQL requires standbys to be upgraded before the primary for minor releases; a new TimescaleDB library must exist on the standby before the primary's `ALTER EXTENSION timescaledb UPDATE` (run by the app's bootstrap on the active) is replayed. The active deploys when the standby reports the new `db` image streaming. |
+  | PostgreSQL **major** (16 → 17) | not automatic: documented manual procedure (upgrade the active with `pg_upgrade`, rebuild the standby). `check-release.sh` refuses a major change while a `nodes/*.env` file exists unless `NETMON_ALLOW_PG_MAJOR=1`. |
+  | anything else (Caddy, compose, ops) | each node independently. |
+  The pre-deploy `pg_dump` runs on the active only. A failed deploy on the active rolls back as today and the standby
+  does not follow (it waits for a healthy active on the target version).
+- **Backups:** the daily `backup.sh` asks the local app for the role: **active** → DB dump + data volume as today;
+  **standby** → data volume only (spool excluded) — no duplicate DB dumps; `fenced` → nothing. S3 backups (§ 15.8) run
+  in the app on the active only.
+- **Status:** `ops/status.sh` shows role, epoch, peer, lag, witness paths and the spool; `ops/ha-status.sh` prints the
+  JSON of `/api/ha/local`.
+
+#### 15.3.12 Status page (`/ha`)
+Admin page (viewers see a one-line status chip in the header: "HA: office1 active, aws1 standby, lag 0.4 s"):
+nodes side by side (role, preferred role, version, `db` image, uptime, last heartbeat, address, reachable paths);
+**epoch** and holder, last change and reason; **replication**: state, slot, sent/flush/replay LSN, lag in bytes and
+seconds (`pg_stat_replication` on the active, `pg_last_xact_replay_timestamp()` on the standby), WAL kept for the slot
+vs the limit; **witness**: each path (private/internet) with RTT and last success, the witness's own view; **quorum**:
+the sample with per-device results from each node, anchors editor; **DNS**: method, record, current answers per DC,
+last update; **spool and replay**: size, counters, last replay run; **device readiness**: devices seen sending to
+the standby (traps/syslog/flows) and SNMP reachability from the standby; **events** (`ha_events`, filterable);
+actions of § 15.3.8. Live updates via WS `ha.state`. `GET /api/health` gains `ha: {role, epoch, peer, lag_s}`.
+
+### 15.4 Isolated zones and remote probes (4b — deferred) [4]
+Deferred by the owner; nothing is built in phase 4. Already decided principle for when it is designed: **the central
+server initiates the connection** to the probe (no inbound connection from an isolated zone into the office), with
+mutual TLS from the HA CA or the org PKI; the probe buffers results like the HA spool (§ 15.3.4).
+
+### 15.5 Optics DOM and PoE per port (4c) [4]
+
+#### 15.5.1 Optics (feature `optics_dom`)
+- **Collection:** part of the 2b-2 port inventory job (same schedule, default 15 min; `optics_interval_s` can make it
+  more frequent, ≥ 300 s, as a separate light job reading only the DOM columns). Only switches whose template has a
+  `dom` section and ports that report a transceiver.
+- **Data-driven per vendor** (template library YAML gains a `dom:` section, schema in data-model § [4] Optics): a
+  table OID + column OIDs for Rx power, Tx power, temperature, voltage, bias current, the unit/scale of each column
+  (`dBm`, `0.01 dBm`, `µW` → converted with `10·log10(mW)`), the index → ifIndex mapping rule, and optional threshold
+  columns (vendor alarm/warning limits). Shipped definitions, each with its confidence like 2b-2 (`verified` only after
+  the owner's snmpwalk):
+  | Vendor | Source | Confidence |
+  |---|---|---|
+  | HPE Comware 7 | HH3C-TRANSCEIVER-INFO-MIB `hh3cTransceiverInfoTable` (indexed by ifIndex; current Rx/Tx power in 0.01 dBm, temperature, voltage, bias; vendor name, serial, wavelength) | medium — confirm with the owner's walk |
+  | Aruba CX, generic | ENTITY-SENSOR-MIB `entPhySensorTable` (RFC 3433: `entPhySensorType` 14 = dBm, 8 = celsius, 4 = voltsDC, 5 = amperes; `entPhySensorScale`/`Precision`), mapped to ports through ENTITY-MIB `entAliasMappingTable` or the sensor's `entPhysicalName`/containment | medium |
+  | ArubaOS-Switch | HP-ICF-TRANSCEIVER-MIB (column OIDs to be confirmed from the owner's walk; empty until then → "DOM not supported by this template") | low |
+  | Cisco IOS | CISCO-ENTITY-SENSOR-MIB (unverified, no owner device) | low |
+  | any other vendor | the generic ENTITY-SENSOR-MIB definition is tried for every template without its own `dom:` section (`dom: generic`, can be turned off per template); user templates may carry a `dom:` section | low |
+- **Stored:** latest per port in `port_optics` (also module type, vendor, part number, serial, wavelength, thresholds);
+  history in hypertable `port_optics_samples` (`optics_retention_days`, default 90).
+- **Status per port** (pure `optics.evaluate(sample, thresholds, baseline)`): `alarm` when outside the device's alarm
+  thresholds; `warning` when outside its warning thresholds, or — when the device has none — Rx below
+  `optics_rx_low_dbm` (default −20 dBm) or Rx dropped by ≥ `optics_drift_db` (default 3 dB) vs the port's 7-day
+  median; else `ok`. No-link ports and Rx = "no signal" (very low sentinel values like −40 dBm) on a down port are
+  `no_signal`, not alarms.
+- **Alerting:** device-level sensor type `optics` (added by *Apply template* / *Add sensor* when the feature is ON)
+  with channels `ports_alarm`, `ports_warning` (counts) and `worst_rx_margin_db`; down when `ports_alarm` ≥ 1, warning
+  when `ports_warning` ≥ 1; the sensor message names the ports. Normal alert rules apply.
+- **UI:** the faceplate gets a small optic marker on fiber ports (colour = optics status); the port modal gets an
+  *Optics* tab (current values vs thresholds, 24 h / 7 d / 30 d chart of Rx/Tx/temperature); the port list gains
+  columns Rx, Tx, Optics status (column chooser); a switch-level *Optics* table (all transceivers, sortable by margin).
+
+#### 15.5.2 PoE per port (feature `poe_ports`)
+- 2b-2 already reads `pethPsePortTable` (state, class) but left `poe_power_w` NULL (`PORT_POWER_OIDS` empty). Phase 4
+  moves this to the template YAML (`poe:` section: per-port power column, unit/scale, index mapping like
+  `map_pse_ports`; PSE budget from `pethMainPsePower` / `pethMainPseConsumptionPower` (RFC 3621, W) per group).
+  Vendor columns ship `unverified` and are filled from snmpwalks (§ 15.16). Every template without a vendor column
+  falls back to the standard RFC 3621 objects (state, class, group budget) and shows "per-port watts not available on
+  this model"; user templates may carry a `poe:` section.
+- Stored: `switch_ports.poe_power_w` (latest, existing column) + hypertable `port_poe_samples` (power, class, detection
+  status; `poe_retention_days` default 30).
+- Sensor type `poe_budget` per switch: channels `used_w`, `budget_w`, `used_pct` (warning 80 %, down 95 %),
+  `ports_fault` (detection status `fault`/`otherFault` → warning).
+- UI: port modal *PoE* tab (power chart, class, status); switch-level **PoE table** (all PSE ports: port, connected
+  device from LLDP/MACs, state, class, W, 24 h max) — the roadmap's "per-port PoE status table"; health strip PoE item
+  shows used/budget.
+
+### 15.6 Certificate expiry monitoring (4c, feature `cert_monitor`) [4]
+- **Sensor type `tls_cert`** (new, works on any device): config `host` (default device host), `port` (443), `sni`
+  (default host name), `starttls` (`none`, `smtp`, `imap`, `pop3`, `ftp`, `ldap`, `postgres`), `verify_chain` (true),
+  `check_hostname` (true), `warning_days` (default = setting `cert_warning_days`, **30**), `critical_days`
+  (`cert_critical_days`, 7). Thresholds resolve in the order sensor → **issuer rule** (`cert_issuer_rules`: a list of
+  issuer-CN substrings with their own days, e.g. 90-day public certificates warn at 20) → global. The target host
+  passes `netguard` like the HTTP sensor (1.4.1). Channels: `days_left` (primary; warning below warning_days, down below critical_days),
+  `chain_ok` (0/1, down when 0 and `verify_chain`), `hostname_ok` (0/1), `key_bits`. The handshake uses the
+  `tlsutil` trust set (OS + certifi + corporate CA); the peer certificate is read even when verification fails
+  (`ssl` with `CERT_NONE` second pass to read it, the failure kept as `chain_ok = 0` with the reason).
+- **Certificate inventory** (`/certificates`): every certificate seen by `tls_cert` sensors, `http` sensors
+  (`ssl_days_left`), LDAPS DCs (2b-3 login test), the SIEM TLS targets, Bedrock/AWS endpoints, and the product's own:
+  its HTTPS certificate (probe of `public_base_url`), the IAM Roles Anywhere certificate (3b), the Kerberos keytab's
+  key version is not a certificate (not listed), HA CA and node certificates (§ 15.3.10). Columns: subject CN, SANs,
+  issuer, not after, days left, where seen (endpoint list), key, signature algorithm, chain status. Filters: expiring
+  within N days, issuer, self-signed.
+- **Discovery helper:** *Find TLS endpoints* on a device or group: probes the ports of the setting
+  `cert_discovery_ports` (default 443, 8443, 636, 993, 995, 465, 4443; editable, ≤ 16 ports; bounded, 32 hosts in
+  parallel, 3 s timeout; only hosts of devices already in the inventory) and offers `tls_cert` sensors for what answered (nothing added without
+  a click).
+- The existing `http` sensor's `ssl_days_left` thresholds (14/3) are unchanged; the inventory evaluates every
+  certificate against the 30/7 settings.
+- Daily at 07:00 local (when ON): one `system` event + the normal alert path via the sensors; a *Certificates* section
+  in reports ("expiring within 30 days").
+
+### 15.7 Configuration compliance (4c, feature `config_compliance`) [4]
+- **Rules** (`compliance_rules`) evaluated against the **latest stored config version** of each device in scope
+  (masked text, as stored by phase 3). Kinds (pure `compliance.evaluate(rule, config_text, driver) -> Result`):
+  - `must_contain` — at least one line matches `pattern` (**RE2** through `saferegex`, matched line by line, ≤ 512
+    chars, validated at save time; backreferences and lookaround are refused with the RE2 message — the first
+    contract's Python `re` with a time guard is withdrawn, 1.3.3 rule);
+  - `must_not_contain` — no line matches;
+  - `block` — for every block whose first line matches `block_start` (block = that line plus the following indented
+    lines for Cisco/Aruba/Comware-style configs; for Comware also up to the next `#`), the lines `require` (list of
+    regex) must each match a line inside, and `forbid` must not; optional `block_filter` (only blocks containing a
+    line matching it, e.g. `port access vlan`) → e.g. "every access port has `stp edged-port`";
+  - `count` — number of matching lines within `[min, max]`.
+  Scope: groups, devices, drivers (e.g. `hpe_comware`), with an exclusion list. Severity `low|medium|high|critical`.
+  `remediation` text (shown only; never sent to a device).
+- **Results** (`compliance_results`, one row per device × rule): `pass`, `fail` (with up to 20 offending/missing line
+  excerpts and line numbers), `not_applicable` (out of scope / no config), `error` (a stored pattern that no longer compiles, config too large). Evaluated on every
+  new config version (event from the config-backup job), on rule create/update, and nightly; a full evaluation of 200
+  devices × 50 rules runs in a worker thread in seconds.
+- **Masked secrets:** rules about secrets can only check presence (`snmp-agent community … <secret removed>`), not
+  values; the rule editor warns when a pattern looks like it tests a secret value.
+- **Built-in rule pack** (seeded **disabled** by the migration; the owner enables what fits): SSH enabled and Telnet
+  disabled (Comware, ArubaOS-Switch, CX, Cisco), no SNMP community `public`/`private`, SNMPv3 configured, NTP servers
+  configured, syslog host configured (pointing at the NetworkMonitor address(es)), SNMP trap target configured, login
+  banner present, HTTP management disabled / HTTPS only, AAA/RADIUS/TACACS configured (Comware `scheme`), STP edge on
+  access ports (Comware block rule). Each with remediation text per vendor. Packs exist per config-backup driver
+  (every driver of phase 3 gets the rules that make sense for it); every built-in rule can be edited or cloned;
+  rule packs can be exported and imported as YAML (validated like the editor, imported disabled), so an organisation
+  can keep its own baseline.
+- **Report and UI:** *Compliance* page: score per device (passed / applicable, weighted by severity), per rule, trend
+  (daily snapshot `compliance_daily`, 365 days), drill-down to the config viewer with the offending lines highlighted;
+  CSV export; a `compliance` section in phase-3 reports (score, failed high/critical rules, changes since last period);
+  an optional **compliance sensor** per device (`config_compliance`: channels `failed_high`, `failed_total`, `score`)
+  for alerting.
+
+### 15.8 Backup to S3 and config export (4c, feature `s3_backup`) [4]
+- **Connection** (key `s3_backup`, configure-first): bucket (in any account), prefix (default
+  `netmonitor/<cluster name>/`), region, the access block of § 15.1.1 (connection, `direct` / `assume_role` /
+  `ra_role`), server-side encryption `sse_s3` (default), `sse_kms` or `dsse_kms` + key ARN, storage class (any S3
+  class name; default `STANDARD`; archive classes are refused for the newest backups because a restore would wait
+  for a retrieval). Endpoint overrides come from the connection (an S3 interface endpoint is the usual choice on a
+  private network). AWS S3 only (S3-compatible storage is in *Later*, cut C3).
+  **Test:** `PutObject` of `<prefix>.netmon-test/<uuid>` (16 bytes), `GetObject`, `DeleteObject` (optional; when
+  deletion is denied — e.g. Object Lock or a no-delete policy — the test passes with the warning `no_delete`: app-side
+  retention is then off and S3 lifecycle rules must do it), `ListObjectsV2` on the prefix.
+- **DB backups** (active node only): schedule `s3_backup_time` (daily, default `02:47` local, after the host's 02:17
+  local backup), on demand *Back up now*. Steps: `pg_dump -Fc` from the app container (the image gains the
+  PostgreSQL client of the same major as the pinned `db` image — 16 today —, ≈ 15 MB; the Test compares client and
+  server versions) streamed through a size-bounded pipe into an S3
+  **multipart upload** (part size 64 MiB, ≤ 3 parts in flight, SHA-256 per part, `x-amz-checksum-sha256`), so nothing
+  is staged on local disk. Object `<prefix>db/<yyyy>/<mm>/netmon-db-<ts>-<version>.dump` plus a small
+  `…meta.json` (app version, alembic revision, TimescaleDB version, size, SHA-256, node, epoch).
+  **`secret.key`:** not uploaded by default (the DB's secrets are encrypted with it, so uploading both together would
+  undo that protection). Option *Include the server key, protected by a passphrase*: the admin enters a backup
+  passphrase (≥ 16 chars; stored AES-GCM with `secret.key`, AAD `b"s3_backup.passphrase"`, so scheduled runs can use
+  it); `secret.key` is wrapped with scrypt(N=2^17)-derived AES-256-GCM into `…key.enc`. Without it, a restore onto a
+  new server needs the old `secret.key` from the host backup, else secrets must be re-entered (the existing
+  `*_unreadable` flow).
+- **Retention** (`retention_mode`): `app` — keep `keep_daily` (14) and `keep_monthly` (12, first backup of each
+  month), needs delete permission; `lifecycle` — the app never deletes, an S3 lifecycle rule does (README gives the
+  rule); `both`. The Test proposes the mode that matches the permissions it found. Versioning + Object Lock (governance, 30 days) on
+  the bucket is recommended against ransomware (owner choice).
+- **Restore from the UI** (admin, session, password re-auth, typed confirmation `RESTORE <date>`; refused while `ha`
+  is ON — disable HA, restore on the active, rebuild the standby):
+  1. pick a backup (list from S3 with meta) → *Restore* → the app enters **maintenance mode** (all active components
+     stopped, UI banner, writes `503 maintenance`), takes a local safety `pg_dump` of the current DB to
+     `/data/restore/` (skippable only when disk space is insufficient, with a second confirmation);
+  2. downloads the dump to `/data/restore/` (checksum verified), `CREATE DATABASE netmon_restore`, `CREATE EXTENSION
+     timescaledb` at the **same version** as the backup's meta (else refuse: "upgrade/downgrade first"),
+     `SELECT timescaledb_pre_restore()`, `pg_restore -d netmon_restore --no-owner -j 2`, `SELECT
+     timescaledb_post_restore()`;
+  3. checks `alembic_version` ≤ the running app's head;
+  4. swaps: terminates its own connections, `ALTER DATABASE netmon RENAME TO netmon_before_restore_<ts>`, `ALTER
+     DATABASE netmon_restore RENAME TO netmon`, then **exits with code 75** so Docker restarts it; startup migrates the
+     restored schema to head. With the passphrase option the restored `secret.key` is written before the restart.
+  5. the previous DB is kept until the admin clicks *Drop previous database* (the backup page shows its size and a
+     disk-space warning). Needs the DB role to own `CREATEDB` (true in Docker and the installers; checked by the Test).
+  Restore runs are recorded in `restore_runs` (written after the swap from a file the app leaves in `/data/restore/`)
+  and audited.
+- **Config export** (option `config_export_mode` of `s3_backup`: `off` (default), `all_versions`,
+  `latest_only`; needs `config_backup`): each new config version (phase 3) is uploaded as
+  `<prefix>configs/<device-name-slug>-<device-id>/<collected_at>-<sha8>.cfg` (masked content exactly as stored, never
+  unmasked) within 1 minute of collection, plus a nightly reconciliation (versions not yet exported, `config_export_state`)
+  and a one-off *Export all versions* action. Mode `latest_only` additionally overwrites
+  `…/<device>/latest.cfg`. Deleting versions in the app never deletes them in S3.
+
+### 15.9 On-call schedules and escalation — removed from phase 4 [4]
+Removed by the owner ("unnecessary for now"); see *Parked* in [roadmap.md](roadmap.md). Nothing of it is built in
+phase 4: no feature toggle, table, endpoint, page or test. The 2b-1 two-stage escalation is unchanged. The section
+number is kept so that references to § 15.10 and later stay valid.
+
+### 15.10 Traffic capture (4c, feature `packet_capture`) [4]
+
+#### 15.10.1 Rules
+- **Admin only, session only** (API tokens `403`), every action audited (`capture.start|stop|view|download|delete`
+  with device, interface/source, filter, limits, justification, packets, bytes, reason stopped).
+- **Limits** (settings, hard maxima in code): duration default 60 s (max 600), size default 20 MB (max 200),
+  packets default 100 000 (max 1 000 000), **snaplen default 128 bytes = headers only** (full packets up to 65 535
+  only with a typed justification ≥ 10 chars, stored in the audit), ≤ 2 captures running in total and 1 per admin,
+  storage quota `capture_quota_mb` (2048), **auto-delete** after `capture_retention_h` (24; max 168). Captures are
+  never included in backups (host, S3). Turning the feature OFF keeps existing files until their expiry (data-kept
+  rule); retention still deletes them.
+- **Rate guard:** a mirror capture stops itself with `stop_reason = rate_guard` when the packet rate exceeds
+  `capture_max_pps` (default 20 000) or the captured byte rate exceeds `capture_max_mbps` (default 50) for 3
+  consecutive seconds; on-device captures rely on the device's own autostop limits (size, duration, frame size) and
+  the server refuses filters that are empty on a device source unless the interface is ≤ 1 Gb/s and the duration ≤
+  60 s (protects the switch CPU).
+- **No configuration change on devices** (§ 15.0): only operational capture commands, file fetch, delete of the file
+  the capture wrote.
+
+#### 15.10.2 Sources
+**(a) On-device capture over SSH** (`source = device`). Data-driven **capture drivers** (YAML, like the phase-3 config
+backup drivers; `backend/netmon/capture/drivers/*.yaml`): pre-checks (free space, feature present), the start command
+template (interface, filter, snaplen, duration, size, path), how to wait (prompt/exit or fixed duration + poll),
+fetch method (`sftp` | `scp`, asyncssh), delete command, error patterns. Reuses the phase-3 SSH engine (host-key
+pinning, credentials, legacy algorithms) and SSH credentials (or a separate `capture` credential set per group/device
+when the backup account lacks the right). Drivers for further platforms are added as data files; an admin can upload a
+shipped driver files only (user-uploaded drivers are in *Later*, cut C12); every pattern in a driver is RE2.
+| Platform | Command (operational, verify on the owner's firmware) | File | Notes |
+|---|---|---|---|
+| HPE Comware 7 | `packet-capture local interface <if> [capture-filter "<bpf>"] limit-frame-size <snaplen> autostop duration <s> autostop filesize <kB> write flash:/netmon-cap-<id>.pcap` | SFTP/SCP from `flash:/` then `delete /unreserved flash:/netmon-cap-<id>.pcap` | some models need the packet-capture feature image; the **network-operator** role may not allow `packet-capture` — the owner creates **once** a custom user role permitting only the capture, `dir`, `delete` of `flash:/netmon-cap-*` and SFTP read (example in README); the product never creates it |
+| Check Point Gaia (expert shell) | `tcpdump -i <if> -s <snaplen> -c <packets> -G <s> -W 1 -w /var/log/tmp/netmon-cap-<id>.pcap '<bpf>'` (wrapped in `timeout <s+5>`); option `fw monitor -F "<src>,<sport>,<dst>,<dport>,<proto>" -o …` for inspection points (R80.20+), or `cppcap` (R81.10+, sees accelerated traffic) | SCP/SFTP of the file, then `rm -f` | needs a user whose shell is expert/bash (or `expert` password in the credential set); `fw monitor -o` writes snoop format (the decoder reads it) |
+| Aruba CX | `diag utilities tcpdump …` (control-plane traffic to/from the switch CPU only; command availability by firmware — to verify) | file in the diagnostic area via SFTP/SCP | data-plane traffic on CX needs a mirror session → source (b), configured by the owner |
+| ArubaOS-Switch | none (no on-box capture) | — | use source (b) |
+A *Test source* button (configure-first per device) runs the pre-checks and a 2-second capture with a tiny limit,
+fetches and deletes the file, and reports which step failed (`permission_denied` with the hint about the custom role).
+
+**(b) Permanent mirror** (`source = mirror`), configured **once by the owner on the switches**: either
+**ERSPAN / GRE remote mirroring** to the server's address (Aruba CX ERSPAN, Comware Layer-3 remote mirroring in GRE
+tunnel mode; ArubaOS-Switch `mirror … remote` UDP encapsulation), or a **physical mirror port cabled to a second NIC**
+on the server (no IP address on it). Mirror sources (`capture_sources`): name, kind (`erspan`, `gre`,
+`aruba_udp`, `physical`), host interface (e.g. `ens224`, or the main interface for ERSPAN), the switch/device and its
+source IP (prefilter `ip proto 47 and src host <ip>` or `udp port <p> and src host <ip>`), description of what is
+mirrored. The server **listens only while a capture runs**; nothing is captured otherwise. The mirror traffic should
+be rate-limited on the switch side too (README).
+
+#### 15.10.3 Capture add-on (separate, optional containers)
+The main `netmon` container stays non-root, without `NET_RAW` and without packet-parsing code from third parties. The
+add-on image `ghcr.io/…/networkmonitor-capture:<version>` (Debian slim + `tshark`/`dumpcap` from Debian Wireshark
+packages + a 150-line Python agent; ≈ 150 MB) is built by the same release and pinned in `release.env`
+(`NETMON_CAPTURE_IMAGE`). Two services, compose profile `capture` (enabled per node in its role file):
+- `capture-agent` — `network_mode: host`, `cap_add: [NET_RAW, NET_ADMIN]` (promiscuous mode on the mirror NIC),
+  `cap_drop: ALL` otherwise, read-only root FS, runs `dumpcap -i <if> -f <prefilter and user filter> -s <snaplen> -w -`
+  and reads the pcapng stream itself: counts packets/bytes per second (rate guard), enforces size/packets/duration,
+  writes the file to the shared volume `netmon-captures`. Control through a Unix socket on that volume (JSON lines:
+  `start`, `stop`, `status`); accepts only interfaces listed in `NETMON_CAPTURE_IFACES` (role file), never arbitrary
+  ones.
+- `capture-decoder` — `network_mode: none`, read-only root FS, `cap_drop: ALL`, non-root, `mem_limit 512m`,
+  `pids_limit 64`, CPU quota 1; runs `tshark` per request with a timeout (30 s) on files of the shared volume (read-only
+  mount) and returns JSON. Requests over a second Unix socket.
+On-device captures (a) need only the decoder; without the add-on they still run and the UI offers the pcap download
+only ("install the capture add-on for the in-browser analyzer").
+
+#### 15.10.4 Decode decision: tshark in an isolated container, not a JavaScript decoder
+- **tshark**: thousands of dissectors (incl. ERSPAN II/III, GRE, VXLAN, LLDP, STP, DHCP, DNS, TLS handshake, HTTP,
+  SNMP, BGP, OSPF, RADIUS…), correct TCP reassembly for *Follow stream*, the standard display-filter language, and the
+  statistics engine (`-z conv`, `-z io,phs`, `-z endpoints`, `-z io,stat`). Reads pcap, pcapng and snoop (Check Point
+  `fw monitor`). Cost: ≈ 120 MB of libraries and a history of dissector CVEs — handled by running it **only** in the
+  `capture-decoder` container with no network, no capabilities, resource limits, a timeout and non-root, on files the
+  server produced; the main app never parses packets. Licence GPL-2.0, used as a separate program (no linking); the
+  image's Debian source packages are available (written in the README).
+- **A JavaScript decoder in the browser** was rejected: we would maintain dissectors for a dozen protocols, without
+  reassembly-quality *Follow stream* or the display-filter language, and every capture would be shipped whole to the
+  browser (up to 200 MB). The browser only renders JSON pages.
+- **Paging/index:** after a capture finishes, the decoder writes a summary index (`tshark -T fields` columns No, time,
+  src, dst, protocol, length, info, tcp.stream) as compressed JSON lines next to the file; the packet list pages from
+  it (500 rows per request). Detail and hex of one frame: `tshark -r f -Y "frame.number==N" -T json -x` (or
+  `-T pdml`-equivalent JSON). Display filter: `tshark -Y <filter>` over the file producing a frame-number list
+  (validated first with `dftest` semantics via `tshark -Y` on an empty pcap; length ≤ 512; arguments passed as an argv
+  array, never through a shell).
+
+#### 15.10.5 Browser analyzer (`/captures`, `/captures/:id`)
+New capture dialog (source, device + interface or mirror source, capture filter (BPF, validated by `dumpcap -d` in the
+agent / by the driver's syntax hints for devices), limits, snaplen with "headers only" default, justification when
+full packets); live status (packets, bytes, rate, time left, *Stop*); then the analyzer: **packet list** (virtual
+scroll, columns as Wireshark, colouring rules for TCP RST/SYN, ICMP errors, DNS errors), **display filter** bar,
+**layered decode** tree (collapsible layers; fields with their filter names; right-click *Apply as filter*), **hex
+view** with the selected field highlighted, **Follow stream** (TCP/UDP/TLS-handshake; ASCII/hex/raw; client/server
+colours), **statistics** (protocol hierarchy, conversations, endpoints, I/O graph 1 s buckets via ECharts),
+**download pcap(ng)**, **delete**. Hebrew/English UI; packet data always LTR.
+
+#### 15.10.6 HA
+Captures run on the active node only (the mirror NIC is on the office server). Files are local to a node and are not
+replicated; after a failover the list shows them as "on office1 (unavailable)".
+
+### 15.11 Deployment [4]
+
+#### 15.11.1 Ports and containers
+| Item | When | Notes |
+|---|---|---|
+| no change | every 4c feature except capture; 4d (outbound HTTPS only) | — |
+| `db` command flags (`wal_log_hints=on`, slots, ssl, hba file) | always (harmless) | one `db` restart at the deploy that introduces it |
+| `5432/tcp` published on the node address | HA, `HA_DB_BIND` in the role file | peer address only (`ops/ha-firewall.sh`) |
+| `443/tcp` peer API | HA | existing Caddy; `/api/ha/peer/*` and `/api/ha/pair` only from the peer address (Caddy matcher from `NETMON_PEER_ADDRESS`) |
+| witness `8443/tcp` | HA, on the witness instance | from both nodes and the proxy egress |
+| `capture-agent`, `capture-decoder` | profile `capture` | host network + `NET_RAW`/`NET_ADMIN` for the agent; decoder without network |
+| outbound to AWS | 4-0a, 4d, S3, Route 53, SNS (witness) | per connection: the proxy, or interface VPC endpoints (`sts`, `ec2`, `logs`, `monitoring`, `s3`, `rolesanywhere`, `bedrock-runtime`) entered as (service, region) overrides in *Settings → AWS*. Direct Connect's API has no VPC endpoint and is reached through the proxy / internet path. `sts` is needed by every consumer with a role hop |
+
+#### 15.11.2 Network paths (HA)
+| From → to | Port | Path |
+|---|---|---|
+| standby → primary DB | 5432 TLS | DX |
+| node ↔ node peer API | 443 | DX |
+| office node → witness | 8443 | DX (private IP) + internet via proxy (EIP), recommended both |
+| AWS node → witness | 8443 | VPC peering / TGW |
+| active node → AD DCs (DNS update, GSS-TSIG) | 53 TCP/UDP + 88 (Kerberos) | office LAN / DX |
+| active node → Route 53 (alternative) | 443 | VPC endpoint is not offered for Route 53 API → proxy |
+| witness → SNS | 443 | its VPC (endpoint or NAT) |
+
+#### 15.11.3 IAM policies (examples; replace account, region, names; all read-only except as noted)
+Templates in `deploy/production/aws/`, filled by `render-policies.py` and mirrored by the Terraform examples
+(§ 15.1.15). Each block can be attached to the connection's role, or be its own role reached by `assume_role` /
+`ra_role` — the admin chooses the granularity.
+- **Role chain** (`base-role-assume-policy.json`, on the calling role): `sts:AssumeRole` and `sts:SetSourceIdentity`
+  on the listed target role ARNs. Target trust policy (`assumed-role-trust-policy.json`): principal = the calling
+  role ARN; actions `sts:AssumeRole`, `sts:SetSourceIdentity`; conditions `sts:ExternalId` and (recommended)
+  `aws:SourceIdentity` (= `CN=<certificate CN>`, § 15.1.2). No `sts:TagSession` (fact 5). With an access-key or
+  instance-role base there is no source identity and the `SetSourceIdentity` lines are omitted (`--base
+  roles_anywhere|access_key|instance_role`). The app renders the same JSON with real values
+  (`GET /api/aws/connections/{id}/policies`).
+- **Cloud inventory** (`cloud-readonly-policy.json`): the EC2 and Direct Connect actions of § 15.2.3
+  (`ec2:Describe*` is offered as the short form, the explicit list as the strict form), `ec2:GetManagedPrefixListEntries`,
+  `ec2:SearchTransitGatewayRoutes`, `cloudwatch:GetMetricData` (state sensors), `sts:GetCallerIdentity`. Resource `*` (these calls do not support resource-level permissions).
+- **Flow logs** (`flowlogs-read-policy.json`): S3 — `s3:ListBucket` on the bucket with an `s3:prefix` condition,
+  `s3:GetObject` on `<bucket>/<prefix>*`, `s3:GetBucketLocation`, `kms:Decrypt` on the bucket key (SSE-KMS);
+  CloudWatch Logs — `logs:FilterLogEvents`, `logs:DescribeLogGroups`, `logs:DescribeLogStreams` on the log group
+  ARN; `ec2:DescribeFlowLogs` (format discovery without the inventory feature). For a bucket in another account the
+  renderer also writes the bucket-policy statement for the *direct* variant.
+- **S3 backup** (write, scoped): `s3:PutObject`, `s3:GetObject`, `s3:ListBucket` (prefix condition), optional
+  `s3:DeleteObject`, `s3:AbortMultipartUpload`, `s3:ListMultipartUploadParts` on `<bucket>/<prefix>*`;
+  `kms:GenerateDataKey` / `kms:Decrypt` for SSE-KMS.
+- **HA DNS Route 53** (that method only): `route53:ChangeResourceRecordSets` on the zone with condition
+  `route53:ChangeResourceRecordSetsNormalizedRecordNames` = the record and `ChangeResourceRecordSetsActions` = UPSERT;
+  `route53:ListResourceRecordSets`, `route53:GetHostedZone`, `route53:GetChange`.
+- **Witness instance role** (SNS channel only): `sns:Publish` on its topic only.
+
+#### 15.11.4 AD DNS secure dynamic update (AD admin, once; method `ad_gss_tsig`)
+1. Create the user `svc-netmon-dns` (no interactive logon, password never expires or managed; member of no group).
+2. In DNS Manager: make sure `netmonitor` A exists in `mnidom.net`; on its *Properties → Security* grant
+   `svc-netmon-dns` **Write** (and *Read*); turn off *Delete this record when it becomes stale*.
+3. Create a keytab for the account (`ktpass /princ svc-netmon-dns@MNIDOM.NET /mapuser MNIDOM\svc-netmon-dns /crypto
+   AES256-SHA1 /ptype KRB5_NT_PRINCIPAL /pass * /out netmon-dns.keytab`) and upload it in *Settings → High
+   availability → DNS*.
+4. Zone setting stays *Secure only*. Test in the app (dry run), then enable.
+
+### 15.12 Frontend (high level) [4]
+- New routes: `/cloud` (map with the level selector), `/cloud/traffic`, `/cloud/resources`, `/cloud/resources/:id`,
+  `/cloud/changes`, `/ha`, `/certificates`, `/compliance`, `/compliance/rules/:id`, `/captures`, `/captures/:id`,
+  `/backups`. Nav entries hidden while their feature is OFF (as 2b-3).
+- Settings tabs (added to `SETTINGS_TABS` in `frontend/src/lib/features.ts`): **AWS** (connections list, connection
+  form, certificate block per connection, Test with the hop list; 4-0a, § 15.1.10), **Cloud** (accounts, sites, named CIDR blocks,
+  flow-log sources with discovery, each configure-first form with Test + bottom switch), **High availability**,
+  **Backups**, **Capture**. Flow-threshold and AWS-change rules live in the existing event-rules page as two more
+  rule kinds.
+- Shared components: `ConfigureFirstForm` (extracted from the assistant page of 1.4.0: form, Test button, step list,
+  bottom switch locked until a passing test in this session) and `AwsAccessBlock` (connection selector, *direct /
+  assume role / role of the same Roles Anywhere profile*, role ARN, ExternalId + *Generate*), used by the assistant,
+  account, flow-log source, S3 backup and Route 53 forms. The Test step list shows one row per hop and highlights
+  the failing hop with its hints.
+- **Every option visible:** a choice that exists in the contract is shown in the form even when its PR has not landed
+  yet (disabled, "arrives in a later update") and even when the Test auto-detects it (the detected value is shown
+  and can be overridden). Defaults are pre-selected; nothing is hidden behind "advanced" without a visible link.
+- **Settings search (1.3.1):** every new settings card and field is added to `frontend/src/lib/settingsIndex.ts`
+  (`SETTINGS_CARDS`: card id + `data-anchor`, tab, title / hint keys, `feature` gate, technical `terms` such as
+  `arn`, `sts`, `assume role`, `external id`, `parquet`, `vpc`, `tgw`, `flow logs`, `witness`, `gss-tsig`, `route 53`) with **en and
+  he** texts in `frontend/src/i18n/locales/`. The existing index test (every card of every tab is in the index, every
+  key exists in both languages) is extended to the new tabs; a PR that adds a setting without its index entry fails
+  CI. The moved assistant authentication fields keep their old search terms and point to the AWS tab.
+- Ports view: optics markers, *Optics* and *PoE* tabs in the port modal, Rx/Tx/PoE columns, PoE table; health strip
+  PoE used/budget.
+- Header: HA status chip (all users) and the standby/fenced banner; read-only mode disables every write control on a
+  standby with a link to the active node.
+- Hebrew RTL and 390 px layouts for every new page; packet bytes, IPs, ARNs, account ids, bucket names, regexes
+  always `dir="ltr"`.
+
+### 15.13 QA simulators and tests [4]
+
+#### 15.13.1 HA in CI: two PostgreSQL nodes + witness in containers
+`tests/ha/` — a compose project built from the PR's image and the production `db` image:
+- networks: `office` (node A: `pg-a`, `app-a`; simulated devices: 10 `snmpsim` + ping targets), `aws` (node B: `pg-b`,
+  `app-b`), `wit` (the `witness`), routers `dx` (office↔aws, office↔wit) and `inet` (office↔wit only, the internet
+  path) — small Alpine containers with `iptables`; a **DX cut** = DROP rules in `dx`; the internet path is toggled in
+  `inet`; a node death = `docker kill`; a LAN failure = disconnecting the device sims from `office`.
+- receivers: a webhook/SMTP/Telegram mock collecting notifications (to assert who alerted, how often, with which node
+  footer); an SNS mock for the witness (the 3b mock server gains `Publish`).
+- timers shortened under `NETMON_TEST_MODE=1` (`ha_heartbeat_s` 1, `ha_failover_after_s` 6, `ha_boot_wait_s` 10).
+- pytest scenarios `tests/ha/test_decision_table.py`, one per row of § 15.3.7 (rows 1–13), asserting: exactly one node
+  reports `active` (except row 11, which asserts the documented double-active window ends when the link returns),
+  epochs, `pg_is_in_recovery()` on each DB, notifications, witness alerts, replayed spool counts (traps/syslog sent
+  to both nodes by a sender container during the outage), rejoin by `ops/ha-rejoin.sh` with `pg_rewind` (and the
+  `--rebuild` path after forcing slot invalidation with a tiny `max_slot_wal_keep_size`), divergent-audit export,
+  switchover without rewind, upgrade-order gate (`ha-gate.sh` with fake versions), DNS update against a
+  BIND 9 container configured for GSS-TSIG with a test KDC (`krb5-kdc` container) and against the Route 53 mock.
+- runs in Timescale mode and fallback mode (`NETMON_DISABLE_TIMESCALE=1`); CI job `ha` on PRs touching `netmon/ha`,
+  `netmon/witness`, `deploy/production/ops/ha-*` and nightly; ≈ 15 min.
+- Pure units: `node_step` / `witness_grant` against `tests/ha/vectors.yaml`, spool segment rotation and replay dedupe
+  vectors, quorum sample selection, epoch persistence (crash between writes), HMAC request auth, pairing bundle
+  encryption round trip.
+
+#### 15.13.2 AWS mocks (4-0a, 4d, S3, Route 53)
+The 3b mock server (`tests/sim/bedrock/`) grows into `tests/sim/aws/` (shared signature verification with botocore
+`SigV4Auth`, test-only):
+- **STS**: `GetCallerIdentity`; `AssumeRole` that **evaluates a small trust model** — per mock role: allowed
+  principal ARN, required ExternalId, whether the trust policy allows `sts:SetSourceIdentity`; per calling session:
+  whether it carries a source identity and whether its policy allows `sts:AssumeRole` / `sts:SetSourceIdentity` — and
+  answers with the real error shapes (`AccessDenied`, `ValidationError`, `ExpiredToken`); sessions expire on the test
+  clock (the 1-hour chain limit). The Roles Anywhere mock sets a source identity like AWS. Exact configuration
+  interface: § 15.1.11.
+- **EC2** query API (every call of § 15.2.3 with pagination; fixtures for 2 accounts × 2 regions; per-call
+  `UnauthorizedOperation` mode), **Direct Connect** JSON, **CloudWatch**
+  `GetMetricData`, **CloudWatch Logs** `FilterLogEvents` (pagination, throttling, late events), **S3**
+  (`ListObjectsV2`, `GetObject`, `PutObject`, multipart, delete-denied mode, KMS header, wrong-region redirect,
+  expected-bucket-owner check), **Route 53**, **SNS** `Publish`.
+- Generator `tests/sim/aws/flowlogs.py` writes flow-log objects for the whole matrix: VPC and TGW schemas; default
+  and custom formats; versions 2–11 fields and an unknown field; text and Parquet (written with `pyarrow`, gzip and
+  snappy codecs); plain / Hive × daily / hourly layouts and both Hive spellings; the Firehose-to-S3 layout; 1- and 10-minute
+  windows; NODATA / SKIPDATA lines; REJECT flows; both-ENI duplicates; late-arriving keys; several flow-log ids in
+  one partition; an oversized object; a truncated gzip; a corrupt Parquet footer.
+
+#### 15.13.3 Capture simulator
+- `tests/sim/capture/fake_ssh_device.py` (asyncssh server): Comware prompt with `packet-capture …` writing a canned
+  pcap to its virtual `flash:/` + SFTP/SCP subsystems + `delete`; a "network-operator" mode answering `Permission
+  denied`; Check Point expert shell with `tcpdump`/`fw monitor` (snoop output); a slow/large mode for limits.
+- Mirror: a sender container replays golden pcaps encapsulated as ERSPAN II/III, plain GRE and Aruba UDP mirror
+  towards the agent (`tcpreplay` on a veth pair in the CI network namespace; the agent runs with `NET_RAW` in CI); a
+  flood mode (> 20 000 pps) for the rate guard.
+- Golden pcaps (`tests/sim/capture/golden/`: DNS, HTTP, TLS 1.3 ClientHello, ARP, LLDP, STP, DHCP, SNMP, a TCP stream
+  with retransmissions, ERSPAN) with expected JSON summaries/detail/follow-stream outputs; decoder tests compare after
+  normalising tshark version-specific fields.
+- Security tests: filter injection attempts (`; rm`, `$(…)`, newline) are rejected or passed as a single argv; the
+  decoder container has no network (`getent hosts` fails) and is killed on timeout; API tokens refused; viewer 403;
+  quota and auto-delete with the test clock.
+
+#### 15.13.4 Other backend tests
+DOM/PoE parsers and scale conversions (vectors), optics evaluation (thresholds, drift, no-signal), PoE mapping with
+the new columns; `tls_cert` against local TLS servers (expired, self-signed, wrong host, STARTTLS SMTP/LDAP via
+aiosmtpd and a tiny LDAP stub), inventory merge; compliance evaluator vectors (each kind, Comware blocks, masked
+lines, a pattern RE2 refuses → 422 at save), built-in pack against sample configs; S3 backup end to end against the mock (multipart, checksum,
+retention, passphrase-wrapped key) and **restore** against a second database in the CI Postgres (Timescale and
+fallback); every phase-4 migration up/down on Timescale and fallback, written against "the head" (§ 15.15).
+Security regressions, one test module per class and extended by every PR that adds an input: `test_p4_netguard.py`
+(every new URL / host field refuses loopback, link-local and metadata addresses at save and at connect time and
+accepts RFC 1918) and `test_p4_saferegex.py` (every new pattern field refuses `(a+)+$`-style patterns that RE2
+rejects and matches a 1 MB input in linear time).
+
+#### 15.13.5 E2E specs (Playwright; 1.4.1 ends at 84, phase 4 starts at 90)
+`90-aws-connections.spec.ts` (§ 15.1.11), `91-cloud-inventory.spec.ts`, `92-cloud-topology.spec.ts`,
+`93-cloud-flowlogs-s3.spec.ts` (source from discovery, Test detects layout and format, traffic and rejects views),
+`94-cloud-traffic-map.spec.ts` (overlay, flow-only with inventory OFF), `95-cloud-flowlogs-cwl.spec.ts`,
+`96-cloud-flowlogs-tgw.spec.ts`, `97-flow-rules.spec.ts`, `98-aws-change-rules.spec.ts`, `99-certificates.spec.ts`,
+`100-optics-poe.spec.ts`, `101-s3-backup-restore.spec.ts`, `102-ha-status.spec.ts`, `103-ha-switchover.spec.ts`,
+`104-compliance.spec.ts`, `105-capture-device.spec.ts`, `106-capture-mirror-analyzer.spec.ts`,
+`107-phase4-rtl-mobile.spec.ts`. Every spec starts from a fresh install and first asserts the feature is OFF and its
+nav entry hidden; configure-first specs assert the locked bottom switch; every settings spec finds one of its new
+fields through the settings search in English and in Hebrew.
+
+### 15.14 Security and failure modes [4]
+
+**Baseline every phase-4 feature must meet** (the last penetration test found SSRF and ReDoS classes; they are
+designed out, not patched afterwards). Review checklist for every phase-4 PR:
+
+1. **No Python `re` on admin or external input.** Patterns go through `netmon.util.saferegex` (`check_safe` at save
+   time → `422` with the RE2 message, `compile_safe` at run time, explicit `max_len` and `max_input`). Parsing of
+   external data (flow logs, AWS answers, device output) prefers `split` / fixed parsers; where a pattern from a
+   data file is needed (capture drivers, DOM templates) it is RE2 as well.
+2. **No outbound connection to an unchecked host.** A URL or host typed by an admin (endpoint override, proxy,
+   witness URL, DNS server, `tls_cert` target, capture device) passes `netguard` at
+   save time and at connect time (the 1.4.1 guard; resolution and connection use the same address). Loopback,
+   link-local and metadata addresses are refused; RFC 1918 and CGNAT addresses are allowed (that is where the
+   monitored network and the VPC endpoints are). Redirects are never followed. In code: save time
+   `netguard.blocked_endpoint_host` (or `egress.url_block_reason(url)`), connect time `egress.guard_client(client)` /
+   `egress.guarded_client(**kw)` for HTTP and `egress.open_checked_connection(host, port)` for sockets (DNS, LDAP,
+   SSH, PostgreSQL replication use the latter). PR 4-0a must not merge before 1.4.1 is on `main`.
+3. **Secrets** only through `services/crypto.py` (AES-GCM, one AAD per field and owner row), write-only in the API,
+   never in audit rows, logs, test results or error details.
+4. **OFF by default, configure-first** where a connection is needed; a Test never enables anything by itself.
+5. **Read-only** towards devices and AWS, with the two documented exceptions (S3 backup prefix, Route 53 record).
+6. **Bounded work:** every loop that reads external data has a size, count and time limit and a counter for what it
+   dropped.
+
+**Threat note per feature**
+
+| Feature | Main threats | Design answer |
+|---|---|---|
+| AWS connections (§ 15.1) | SSRF by endpoint override; confused deputy; credential leak | § 15.1.13 |
+| Cloud inventory, flow logs (§ 15.2) | hostile objects, volume, XSS by names, wrong bucket | § 15.2.10 |
+| Flow / AWS-change alerts | ReDoS in `name_regex`; alert floods | RE2; noise controls of § 15.2.8; conditions capped per sensor |
+| Assistant cloud tools | data leaving to Bedrock; prompt injection through AWS names / descriptions | read-only transaction, redaction incl. account ids, result caps; tool output is data — the 3b rule that the model never changes anything still holds |
+| HA | split brain; stolen pairing bundle; forged peer or witness calls; SSRF by witness URL | witness grant + device quorum + epoch fencing; one-time code, scrypt, 5 attempts; HMAC with replay cache over TLS pinned to the HA CA; netguard on every URL |
+| HA DNS | hijack of the service name; keytab leak | update limited to one record; keytab encrypted; dry-run test |
+| Certificates | SSRF through `tls_cert` targets and the discovery helper; parsing hostile certificates | netguard on targets; discovery only on devices already in the inventory, fixed port list size (≤ 16), bounded concurrency; `cryptography` X.509 parser, size cap 64 KiB per chain |
+| Optics / PoE | hostile SNMP answers | existing SNMP walk budgets; numeric parsing with range checks |
+| Compliance | ReDoS (the first contract used Python `re` with a time guard) | RE2 only; no time guard needed; line and config size caps |
+| S3 backups | backup theft; destructive restore; path traversal by object keys | SSE, optional passphrase-wrapped key, Object Lock advice; re-auth + typed confirmation + safety dump; netguard; keys are built by the app and validated on read (`^[A-Za-z0-9._/-]+$`, no `..`) |
+| Traffic capture | privacy; command injection on devices; hostile packets; decoder CVEs | admin + session only, headers-only default, audit, auto-delete; allow-list character sets and argv arrays, never a shell; tshark only in the network-less, capability-less decoder container |
+
+**Failure modes**
+
+| Risk / failure | Handling |
+|---|---|
+| Split brain | Witness grant + device quorum + epoch fencing + DB read-only on fence; residual double-active only in the rare double failure of row 11, visible in notifications |
+| Site-link outage misread as a primary failure | Standby needs a device quorum it cannot have without the link; optional second path to the witness |
+| Data loss at failover | Async replication: up to the replay lag (bounded by `max_failover_lag_s`); ingest covered by the spool; divergent admin changes exported |
+| AWS credential chain breaks (role removed, trust edited) | The consumer's status shows the failing hop; other consumers of the same connection are unaffected; the assistant degrades as in 3b (alerts never wait for AI) |
+| Flow-log source falls behind | `falling_behind` health warning; backlog policy per source; rules do not evaluate incomplete windows |
+| Restore mistakes | Re-auth + typed confirmation, safety dump, previous DB kept, version checks, refused with HA ON |
+| Switch CPU during capture | Device autostop limits, filter required for long / fast captures |
+
+### 15.15 PR split and team plan [4]
+
+Order by the owner's decisions: **shared AWS connections, then 4d completely** (inventory → flow logs in slices →
+alerts → assistant tools), then the low-risk 4c items, then HA (D6), then compliance and capture. Every PR is small
+enough to test alone and leaves `main` releasable (everything new is OFF). **PR 4-0a starts now (D5)**, branched from
+`release-1.4.1` and rebased onto `main` once 1.4.1 (PR #33) and 1.4.2 are merged; it merges after 1.4.1 (it uses the
+connect-time egress guard).
+
+**Migrations.** `main` is at `0010_phase3b`; 1.4.1 adds `0011`, 1.4.2 adds `0012`. Phase-4 migrations therefore have
+**ordered placeholders P4-1 … P4-10** (P4-1 will most likely be `0013`). Rules: (1) a PR names its file
+`NNNN_phase4_<name>.py` with the **next free number at the moment it merges** and `down_revision` = the head of
+`main` at that moment; a PR that falls behind renumbers in its last rebase; (2) the relative order P4-1 < P4-2 < …
+is fixed by the dependencies below and may only be changed in this table; (3) no document, test name or code
+comment hard-codes a phase-4 revision number — tests refer to "the head"; (4) every migration has a `downgrade()`
+and the up/down test on TimescaleDB and plain PostgreSQL.
+
+| ID | Owner PR | Content |
+|---|---|---|
+| P4-1 | 4-0a | `aws_connections` (+ "Default" from the assistant settings); `assistant.connection_id` / `access` |
+| P4-2 | 4d-1a | `aws_accounts`, `aws_resources`, `aws_resource_changes`, `aws_ip_index`; sensor types `aws_*` |
+| P4-3 | 4d-2a | `aws_flowlog_sources`, `aws_flowlog_objects`, `aws_if_index`, `aws_flow_paths`, `aws_flow_rejects`, `aws_flow_edges`, `aws_tgw_drops`; `flow_exporters` changes (all slices of 4d-2 use this one migration) |
+| P4-4 | 4d-3a | `event_rules.kind` + `flow_threshold`, `aws_change`; event sensor types; `flow_rule_state`; built-in rules (disabled) |
+| P4-5 | 4c-2 | `certificates`, `certificate_endpoints`; sensor type `tls_cert` |
+| P4-6 | 4c-1 | `port_optics`, `port_optics_samples`, `port_poe_samples`; sensor types `optics`, `poe_budget` |
+| P4-7 | 4c-5 | `backup_runs`, `restore_runs`, `config_export_state` |
+| P4-8 | 4a-1 | `ha_state`, `ha_nodes`, `ha_events`, `ha_quorum_anchors`, `ha_replay_runs`; `audit_log.source` + `cli` |
+| P4-9 | 4c-3 | `compliance_rules` (+ built-in seed, disabled), `compliance_results`, `compliance_daily`; sensor type `config_compliance` |
+| P4-10 | 4c-6 | `capture_sources`, `captures`; capture SSH credentials |
+
+**PRs, in merge order**
+
+| # | PR | Scope (one line) | Mig. | Backend | Frontend | QA | DevOps |
+|---|---|---|---|---|---|---|---|
+| 1 | **4-0a AWS connections** | connections list with a default, one role hop per consumer, Test per hop with hints, assistant moved onto it (spec § 15.1) | P4-1 | `netmon.aws` (moves + `AssumeRoleProvider`, `sts`, `awsxml`, `endpoints`, `credcache`, `connections`, `testconn`), egress guard on AWS clients, `/api/aws/*`, assistant changes, `services.testids`, PKCS#7 upload | *Settings → AWS* tab, `AwsAccessBlock`, certificate card moved and fixed, policies panel, `ConfigureFirstForm`, settings index | `tests/sim/aws/` (STS trust-model mock), pytest / vitest of § 15.1.11, full 3b regression; spec 90 | — |
+| 2 | **4-0b AWS deployment kit** | Terraform examples for the three layouts, policy renderer, network check | — | — | — | `terraform validate`, renderer golden files, `test-assistant-net.sh` | `deploy/production/aws/terraform/`, `render-policies.py` (+ issuer-CN placeholder fix), `assistant-net.sh`, README / production.md |
+| 3 | **4d-1a Inventory** | accounts, scheduled read-only inventory, resource list and detail, changes | P4-2 | `cloud.accounts`, `.inventory`, `.project`, IP index, `/api/cloud/*` (inventory) | *Settings → Cloud* accounts form, `/cloud/resources` | EC2 / DX mocks + fixtures (2 accounts × 2 regions), access-denied mode; spec 91 | `cloud-readonly-policy.json` |
+| 4 | **4d-1b Topology level 1 + state sensors** | structure map, sites, DX / VIF / VPN / TGW-attachment sensors | — | `cloud.graph.structure_graph`, sites, `aws_state` checks | `/cloud` map, side panel, sites editor | graph vectors; spec 92 | — |
+| 5 | **4d-2a Flow logs: S3 text** | S3 sources (VPC / subnet / ENI logs, text, default + custom format, plain / Hive, daily / hourly, same or other account), register, traffic views | P4-3 | `flowlogs.s3`, `.parse` (VPC schema), `.normalize`, phase-3 storage integration, paths / rejects / edges tables, status | source form with discovery, `/cloud/traffic`, exporter-kind filter | flow-log generator; exactly-once and late-file tests; spec 93 | `flowlogs-read-policy.json`, cost notes |
+| 6 | **4d-2b Traffic map** | overlay (level 2) and flow-only map (level 3), named CIDR blocks | — | `graph.overlay`, `graph.flow_only_graph`, edge rollup | level selector, overlay, flow-only page | graph vectors; spec 94 | — |
+| 7 | **4d-2c Parquet** | Parquet objects through the isolated reader | — | `parquet_worker`, auto-detection | format selector, status | Parquet fixtures written by `pyarrow` in CI; kill / memory-limit tests | `pyarrow` in the standard image (D1); size check |
+| 8 | **4d-2d CloudWatch Logs** | CloudWatch Logs sources | — | `flowlogs.cwl` | destination selector | Logs mock (pagination, throttling, late events); spec 95 | policy lines |
+| 9 | **4d-2e Transit Gateway flow logs** | TGW schema, TGW exporters, drops, real path on the map | — | TGW parser + normaliser, `aws_tgw_drops` writer | TGW view, drops, path drawing | TGW generator; spec 96 | — |
+| 10 | **4d-2f Firehose-to-S3, catch-up** | the Firehose-to-S3 layout and the `catch_up` backlog policy | — | generic lister (date pattern, no-header field list), catch-up ordering | pattern editor, policy selector | generator in the Firehose layout (none / gzip / zip; Snappy → `unsupported_compression`) | — |
+| 11 | **4d-3a Flow-threshold rules** | rule kind, evaluator, built-ins | P4-4 | `alerts.flow_rules`, state table, engine integration | rule form in the event-rules page | vectors (spike, silent, watermark), engine tests; spec 97 | — |
+| 12 | **4d-3b AWS change rules** | rule kind, evaluator, built-ins | — | `alerts.change_rules` | rule form | vectors (collapse, baseline, revert); spec 98 | — |
+| 13 | **4d-4 Assistant cloud tools** | eight read-only tools, gated by `assistant` + data feature | — | `assistant.tools_cloud`, `redact` `aws_ids` | tool steps / citations | tool tests with the 3b agent fixtures | — |
+| 14 | **4c-2 Certificates** | `tls_cert`, inventory | P4-5 | sensor, inventory, discovery helper, report section | `/certificates`, sensor form | TLS stubs; spec 99 | — |
+| 15 | **4c-1 Optics DOM + PoE** | DOM and PoE per port | P4-6 | template `dom:` / `poe:` sections, collectors, sensors | ports view additions, PoE table | snmpsim records (owner walks); spec 100 | — |
+| 16 | **4c-5 S3 backups + config export** | backup, restore, export option | P4-7 | multipart uploader, pg_dump streaming, retention, restore flow, config export | `/backups`, *Settings → Backups* | S3 mock, restore tests; spec 101 | image gains the PostgreSQL client matching the `db` image major |
+| 17 | **4a-1 HA core (app)** | roles, role gate, decisions, spool | P4-8 | `netmon.ha`, `/api/ha/*` | `/ha`, header chip, banners, read-only mode | unit vectors; spec 102 | — |
+| 18 | **4a-2 Witness** | witness service and alerts (SNS, SMTP, Teams, Telegram) | — | `netmon witness` | — | witness unit + channel mocks | `deploy/witness/` compose, role file, CloudFormation and plain-Docker instructions |
+| 19 | **4a-3 Two-node GitOps + replication ops** | host scripts and gates | — | `/api/ha/local` | — | `deploy/production/tests/test-ha-*.sh` | `nodes/*.env`, `ha-gate.sh`, `ha-join.sh`, `ha-rejoin.sh`, `ha-firewall.sh`, `db` flags + hba, role-aware `backup.sh` |
+| 20 | **4a-4 DNS updater** | AD secure dynamic update and Route 53 | — | GSS-TSIG, Route 53 | DNS part of the HA form | BIND + KDC container, Route 53 mock | README steps per method |
+| 21 | **4a-5 HA container test suite** | decision table end to end | — | test hooks only | — | `tests/ha/` compose + scenarios (rows 1–13), CI job `ha`; spec 103 | CI runner sizing |
+| 22 | **4c-3 Config compliance** | rules, evaluator, report | P4-9 | rules, evaluator (RE2), results, packs | `/compliance`, rule editor | vectors + sample configs; spec 104 | — |
+| 23 | **4c-6 Traffic capture** | capture and analyzer | P4-10 | capture drivers, runner, agent / decoder clients | `/captures`, analyzer | capture sims, golden pcaps; specs 105–106 | `networkmonitor-capture` image, compose profile |
+| 24 | **4-Z Phase-4 polish** | RTL / mobile pass, docs | — | (the drop of the legacy `assistant` auth keys is **not** here — next release) | RTL / mobile | spec 107, full regression | production.md / README final |
+
+**VPC Flow Logs is complete only when PRs 5–10 are all merged** (every ordinary option of § 15.2.4.1 selectable and
+tested). Until then the source form shows the not-yet-available choices disabled with "arrives in a later update" —
+never hidden — and the roadmap lists the feature as *in progress*.
+
+Parallelism: 1 and 2 in parallel (DevOps); 3 → 4 and 3 → 5 → 6; 7, 8, 9, 10 are independent of each other after 5
+(two backend developers); 11–13 after 5 (12 needs only 3); 14 and 15 can run beside any 4d PR; QA builds the STS
+mock first (it unblocks PR 1's chain tests) and the flow-log generator during PR 3; `tests/ha` (PR 21) in parallel
+with PRs 17–20.
+
+**Acceptance tests and what the owner prepares**
+
+*Office* = runs on the owner's Windows + Docker Desktop test machine or in CI with the simulators, no AWS needed.
+*Real AWS* = needs the owner's accounts; kept as a short checklist per PR. Small paid test resources are approved
+(D4) and deleted after the test.
+
+| PR | Office-testable (CI + office) | Needs real AWS | Owner prepares in AWS |
+|---|---|---|---|
+| 4-0a | § 15.1.11 (upgrade fixture, mirror, chain against the STS mock, hints, egress, PKCS#7 / CSR upload) | the checklist A1–A9 of § 15.1.12 | network account: trust anchor, profile, base role; Bedrock account: the new role (policies from *Expected IAM policies*); STS reachable through the proxy or a VPC endpoint |
+| 4-0b | `terraform validate`, renderer golden files, net-check script tests | `terraform plan` on the two accounts shows only the expected resources | permission to run the plan |
+| 4d-1a | mock inventory for 2 accounts × 2 regions; access-denied on one call names the action; deletion after two refreshes; baseline produces no changes | inventory of the network account shows the real VPCs, TGW, DX, VPN; a second account through `assume_role`; an all-enabled-regions account | attach `cloud-readonly-policy` to the base role (or a per-account role) |
+| 4d-1b | graph vectors, map renders fixtures, sensors change state when the fixture changes | the map matches the AWS console for DX / VIF / TGW; a VIF BGP state is correct | nothing new |
+| 4d-2a | generator objects in all text layouts; an object is counted once across a crash between aggregate and commit; a late object inside the lookback is read; `skipped_old`; a 2 M-record poll stays within memory and budget | one VPC flow log to S3 in text: totals for one hour within 2 % of Athena / the console for the same hour; a bucket in the log-archive account read through its own role; an SSE-KMS bucket | a flow log to S3 (text) on one VPC; `flowlogs-read-policy` (+ `kms:Decrypt`); for cross-account: the role or bucket policy in the log-archive account |
+| 4d-2b | overlay and flow-only vectors; top-N and "others" bounds; flow-only with the inventory feature OFF | overlay shows the office ↔ VPC edge over the right gateway; flow-only with a role that has no `Describe*` | a named-CIDR list (optional) |
+| 4d-2c | Parquet fixtures (gzip / snappy codecs, custom columns); the child is killed on a memory or time overrun and the server keeps running | a real Parquet flow-log object is read; confirms file naming and column names | one flow log with Parquet (and Hive + hourly) enabled on a small VPC (paid test resource, D4) |
+| 4d-2d | Logs mock: pagination, throttling, slice commit, late events counted | a real log group, same-hour totals as above | a flow log to CloudWatch Logs; `logs:FilterLogEvents` on the group |
+| 4d-2e | TGW generator: ingress-side counting, drops, path edges | a real TGW flow log: path site → TGW → VPC drawn; a black-hole route shows drops | a TGW flow log (S3 or CloudWatch Logs) (paid test resource, D4) |
+| 4d-2f | Firehose layout objects (none / gzip / zip), `catch_up` | only if the owner has a Firehose stream — otherwise CI only | — |
+| 4d-3a/b | rule vectors; a generated REJECT spike raises one condition and clears; a stale source raises no "silent"; a mock SG rule to `0.0.0.0/0` raises a condition, the revert clears it; 40 new ENIs collapse into one | add a test SG rule in a sandbox VPC and see the alert on the next refresh; stop a test instance and see "silent" | a sandbox VPC / security group to change |
+| 4d-4 | tool tests with the mocked model: read-only transaction, redaction of IPs and account ids, feature gating | two real questions ("which SG allows 443 to …", "top talkers to AWS") | nothing new |
+
+Owner stops for testing on the real network: after PR 1 (assistant on the new chain, § 15.1.12), **after PR 6 —
+inventory, map and S3-text flow logs (D2)**, after PR 13 (4d complete), after PR 16, after PR 21 (HA), after PR 23.
+
+### 15.16 Owner notes and decisions [4]
+- Everything is OFF after the upgrade. Visible without turning anything on: *Settings → AWS* exists and holds the
+  connection the assistant already uses; later, with the HA PRs, one `db` container restart at the deploy that adds
+  the replication flags.
+- Suggested order of use: *Settings → AWS* → (owner layout: § 15.1.9) → cloud accounts and inventory → flow-log
+  sources → the map → alerts → certificates and optics / PoE → S3 backups → HA → compliance, capture.
+- Information the team needs from the owner (not decisions): an snmpwalk of DOM and PoE columns from one switch of
+  each family; whether the Comware models support `packet-capture`; flow-log volume per day after the first week
+  (sizing).
+
+**Owner decisions on revision 2 (2026-11-13)**
+
+| # | Decision | Answer |
+|---|---|---|
+| D1 | `pyarrow` (≈ 130 MB installed) in the standard image or a second image? | **standard image** — one image |
+| D2 | First real-network test of 4d after S3-text flow logs and the map (PR 6)? | **yes** |
+| D3 | Snappy-compressed Firehose objects unsupported? | **accepted** — documented, `unsupported_compression` with the GZIP advice |
+| D4 | Small paid AWS test resources (a Parquet flow log, a TGW flow log), deleted afterwards? | **approved** |
+| D5 | Start PR 4-0a now, in parallel with 1.4.2? | **yes** |
+| D6 | HA after certificates, optics / PoE and S3 backups? | **yes** |
+| — | Scope: trim the exotic options | **yes** — § 15.0.3 |
+
+**Open for the coordinator (not the owner)**
+
+| # | Question | Architect's recommendation |
+|---|---|---|
+| K1 | Rule R1 (§ 15.1.9): the container rollback target must start against a newer database revision. Today `run_migrations` fails on an unknown revision, so a container-only rollback of **any** release with a migration (1.4.1's `0011` included) leaves the app down. Put the guard into 1.4.2 (being implemented) or a 1.4.3? | into **1.4.2** — it is the rollback target of the first phase-4 release; a few lines in `netmon/db/migrate.py` + one test |
+| K2 | HA DNS with only `ad_gss_tsig` and `route53` (owner decision C4): an organisation with neither cannot pass the HA test. Keep the HA test's DNS step mandatory, or allow "no DNS update" (the admin points the name by hand) as a non-selectable fallback? | ask the owner when HA is designed in detail (PR 17); nothing in 4-0a depends on it |

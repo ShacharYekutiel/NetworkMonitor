@@ -255,6 +255,7 @@ export const SETTINGS_TABS = [
   'noc',
   'chatAck',
   'audit',
+  'aws', // [4] shared AWS connections (always visible; no feature)
   'assistant', // [3b]
 ] as const;
 export type SettingsTab = (typeof SETTINGS_TABS)[number];

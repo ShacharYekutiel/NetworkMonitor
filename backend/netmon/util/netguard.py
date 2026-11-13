@@ -22,8 +22,10 @@ re-resolve to a different address when the request is later made (TOCTOU). That 
 risk is accepted for this admin-gated settings path; the primary mitigation against
 metadata/loopback exfiltration is this allow check (plus https-only in production).
 
-Nothing here imports application code, so core subsystems (alerts webhook / HTTP sensor)
-can adopt `blocked_endpoint_host` later without a dependency cycle.
+Nothing here imports application code. [1.4.1] The webhook channel, the Teams channel and
+the HTTP sensor use the same rules through `netmon.util.egress`, which enforces them at
+connection time (resolve, check every address, connect to the checked address; every redirect
+hop again), so those paths have no TOCTOU window.
 """
 
 from __future__ import annotations
