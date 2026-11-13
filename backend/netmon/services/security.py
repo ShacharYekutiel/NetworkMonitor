@@ -22,6 +22,7 @@ import logging
 import re
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
+from html.parser import HTMLParser
 from typing import TYPE_CHECKING, Any
 
 from sqlalchemy import text
@@ -117,15 +118,36 @@ def valid_ancestor(value: str) -> bool:
     return bool(_ANCESTOR_RE.match(value)) and len(value) <= 255
 
 
+class _InlineScripts(HTMLParser):
+    """Collects the text of every <script> element without a `src` (an HTML parser, not a
+    regular expression: it follows the real tokenisation rules for script end tags)."""
+
+    def __init__(self) -> None:
+        super().__init__(convert_charrefs=False)
+        self.bodies: list[str] = []
+        self._buf: list[str] | None = None
+
+    def handle_starttag(self, tag: str, attrs: list[tuple[str, str | None]]) -> None:
+        if tag == "script":
+            self._buf = None if any(k == "src" for k, _ in attrs) else []
+
+    def handle_data(self, data: str) -> None:
+        if self._buf is not None:
+            self._buf.append(data)
+
+    def handle_endtag(self, tag: str) -> None:
+        if tag == "script" and self._buf is not None:
+            self.bodies.append("".join(self._buf))
+            self._buf = None
+
+
 def inline_script_hashes(html: str) -> tuple[str, ...]:
     """CSP hash sources of the inline <script> blocks of a page (the SPA's index.html has one:
     the theme bootstrap). Scripts with a `src` are covered by 'self'."""
-    out: list[str] = []
-    for m in re.finditer(r"<script(?P<attrs>[^>]*)>(?P<body>.*?)</script\s*>", html, re.S | re.I):
-        if re.search(r"\bsrc\s*=", m.group("attrs"), re.I) or not m.group("body").strip():
-            continue
-        out.append(script_hash(m.group("body")))
-    return tuple(dict.fromkeys(out))
+    parser = _InlineScripts()
+    parser.feed(html)
+    parser.close()
+    return tuple(dict.fromkeys(script_hash(b) for b in parser.bodies if b.strip()))
 
 
 def script_hash(body: str) -> str:

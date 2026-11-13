@@ -16,6 +16,8 @@ from netmon.services import security as security_svc
 from netmon.services.auth import LoginLimiter
 from tests.conftest import ADMIN, requires_db
 
+SWAGGER_CDN = "https://cdn.jsdelivr.net"  # the only external source, /api/docs only
+
 pytestmark = requires_db
 COOKIE = "netmon_session"
 LOGIN = {"username": ADMIN["username"], "password": ADMIN["password"]}
@@ -400,7 +402,7 @@ def test_csp_builder_and_inline_script_hashes() -> None:
     assert pol.frame_ancestors == ("https://ok.example",)
     docs = security_svc.security_headers(pol, csp=csp, https=False, path="/api/docs")
     sources = docs["Content-Security-Policy"].replace(";", " ").split()
-    assert "https://cdn.jsdelivr.net" in sources
+    assert set(sources) >= {SWAGGER_CDN}
     assert docs["X-Frame-Options"] == "DENY"
 
 
