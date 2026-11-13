@@ -2764,3 +2764,15 @@ Every response of the application (API, SPA, error envelopes) carries:
 Exceptions with their own policy: `/api/docs` (Swagger UI from its CDN, `frame-ancestors 'none'`),
 `GET /api/reports/runs/{id}/html` (a stored document: `default-src 'none'; style-src 'unsafe-inline'; … sandbox`)
 and the OIDC landing page of `GET /api/auth/oidc/callback` (`default-src 'none'` plus the hash of its one script).
+
+## [1.4.2] Release 1.4.2 contract
+Additive only; secrets stay write-only exactly as before (data-model § [1.4.2] Secrets at rest).
+
+- **`SnmpCredentials`** (groups, devices) gains `credentials_unreadable` (bool): a stored secret is encrypted with a
+  `secret.key` this server does not have; the `*_set` flags are then `false` and the secret must be entered again.
+  Same meaning as `SshCredentials.credentials_unreadable` ([3]).
+- **Audit:** the webhook channel `config.url` is masked like the Teams URL (`"***"` when set), and discovery
+  profile `options.extra_communities` is masked (it was recorded in clear before 1.4.2).
+- **Response header:** `Strict-Transport-Security` is `max-age=31536000` by default, `max-age=31536000;
+  includeSubDomains` with `NETMON_HSTS_INCLUDE_SUBDOMAINS=true` (environment; production: `app.env`).
+- **New-devices search** (`GET /api/new-devices?q=`): `%` and `_` match literally.

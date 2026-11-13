@@ -86,6 +86,19 @@ git revert <commit של ה-bump>      # ב-PR, ואז merge
 ייתכן שהגרסה הישנה לא תעלה על ה-DB החדש. במקרה כזה משחזרים את ה-dump שנלקח לפני ה-deploy
 (ראו "שחזור"). השרת לא עושה זאת לבד.
 
+
+### ‏[1.4.2] סודות מוצפנים, חזרה ל-1.4.1 ו-`secret.key`
+
+- ‏1.4.2 מוסיפה עותק מוצפן (AES-GCM) לכל community/מפתח SNMP, סיסמת SMTP, טוקן טלגרם וכתובות Teams/webhook.
+  **הטקסט הגלוי נשאר במקומו ומסונכרן בגרסה הזאת**, כדי ש-rollback ל-1.4.1 (אוטומטי או `git revert`) ימשיך לעבוד.
+  הוא יוסר בגרסה הבאה, או עכשיו: `docker compose --env-file release.env exec netmon netmon secrets remove-plaintext`
+  ואז restart ל-netmon. לפני חזרה ל-1.4.1 אחרי הסרה: `netmon secrets restore-plaintext`.
+- חזרה ל-1.4.0 או ישנה יותר: רק עם שחזור ה-dump שנלקח לפני ה-deploy (`ops/restore.sh`).
+- ‏`secret.key` נמצא בגיבוי של volume הנתונים (`netmon-data-*.tar.gz`), לא ב-dump של ה-DB. החלפת מפתח:
+  `netmon secrets rekey` כשהשרת עצור. פרטים: [docs/production.md](../../docs/production.md#142-secretkey).
+- הקונטיינרים רצים בלי capabilities (Caddy: רק `NET_BIND_SERVICE`), עם מערכת קבצים לקריאה בלבד, ה-DB כמשתמש
+  postgres, ו-API הניהול של Caddy כבוי (החלפת תעודה עושה restart ל-proxy).
+
 ---
 
 ## התקנה ראשונה של השרת (Ubuntu 22.04 / 24.04)
