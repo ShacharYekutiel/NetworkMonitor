@@ -2,7 +2,6 @@ import { describe, expect, it } from 'vitest';
 import { SseParser } from './sse';
 import {
   applyStreamEvent,
-  arnAccountsDiffer,
   compactTokens,
   connErrors,
   connInput,
@@ -13,7 +12,6 @@ import {
   EMPTY_LIVE,
   formatCost,
   isRetryable,
-  isTemporaryKey,
   nmRoute,
   parseCidrs,
   profileScope,
@@ -197,30 +195,26 @@ describe('stream reducer', () => {
 });
 
 describe('connection form', () => {
+  // [4] the authentication moved to the AWS connection: the form holds the Bedrock fields, the
+  // connection ('' = the default) and the access
   const base: ConnForm = {
-    auth_mode: 'roles_anywhere',
     region: 'us-east-1',
     model_id: 'us.anthropic.claude-x-v1:0',
     model_id_light: '',
     endpoint_url: '',
     control_endpoint_url: '',
-    proxy_mode: 'env',
-    proxy_url: '',
     prompt_caching: true,
-    access_key_id: '',
-    secret_access_key: '',
-    clear_secret: false,
-    session_token: '',
-    clear_session_token: false,
-    access_key_created_at: '',
-    ra_region: '',
-    ra_endpoint_url: '',
-    ra_trust_anchor_arn:
-      'arn:aws:rolesanywhere:us-east-1:123456789012:trust-anchor/0f1e2d3c-4b5a-6978-8796-a5b4c3d2e1f0',
-    ra_profile_arn:
-      'arn:aws:rolesanywhere:us-east-1:123456789012:profile/0f1e2d3c-4b5a-6978-8796-a5b4c3d2e1f0',
-    ra_role_arn: 'arn:aws:iam::123456789012:role/netmon-bedrock',
-    ra_session_seconds: '3600',
+    connection_id: '',
+    access_mode: 'direct',
+    role_arn: '',
+    external_id: '',
+  };
+  const hop: ConnForm = {
+    ...base,
+    connection_id: '2',
+    access_mode: 'assume_role',
+    role_arn: 'arn:aws:iam::222222222222:role/netmon-bedrock',
+    external_id: 'AbCdEf0123456789AbCdEf0123456789',
   };
   it('validates', () => {
     expect(connErrors(base)).toEqual({});
@@ -232,52 +226,59 @@ describe('connection form', () => {
         endpoint_url: 'https://vpce-1.bedrock-runtime.us-east-1.vpce.amazonaws.com',
       }).endpoint_url,
     ).toBeUndefined();
-    expect(connErrors({ ...base, ra_role_arn: 'role' }).ra_role_arn).toBeTruthy();
+    expect(connErrors(hop)).toEqual({});
+    expect(connErrors({ ...hop, role_arn: 'role' }).role_arn).toBe('arn');
+    expect(connErrors({ ...hop, role_arn: '' }).role_arn).toBe('required');
     expect(
-      connErrors({ ...base, auth_mode: 'access_key', access_key_id: 'AKIAABCDEFGHIJKLMNOP' }),
+      connErrors({
+        ...hop,
+        role_arn: 'arn:aws:iam::222222222222:role/arn:aws:iam::222222222222:role/x',
+      }).role_arn,
+    ).toBe('arnTwice');
+    expect(connErrors({ ...hop, external_id: 'bad id!' }).external_id).toBe('externalId');
+    // ra_role: only with a Roles Anywhere connection, role in the profile's account
+    const ra: ConnForm = { ...hop, access_mode: 'ra_role', external_id: '' };
+    expect(connErrors(ra, 'access_key').access_mode).toBe('raOnly');
+    const prof = 'arn:aws:rolesanywhere:us-east-1:111111111111:profile/p-1';
+    expect(connErrors(ra, 'roles_anywhere', prof).role_arn).toBe('profileAccount');
+    expect(
+      connErrors(
+        { ...ra, role_arn: 'arn:aws:iam::111111111111:role/other' },
+        'roles_anywhere',
+        prof,
+      ),
     ).toEqual({});
+  });
+  it('the request body carries connection_id and access (never an auth field)', () => {
+    expect(connInput(base)).toMatchObject({
+      connection_id: null,
+      access: { mode: 'direct', role_arn: null, external_id: null },
+    });
+    const body = connInput(hop);
+    expect(body).toMatchObject({
+      connection_id: 2,
+      access: { mode: 'assume_role', role_arn: hop.role_arn, external_id: hop.external_id },
+    });
+    for (const k of ['auth_mode', 'proxy_mode', 'access_key_id', 'ra_role_arn'])
+      expect(k in body, k).toBe(false);
+    // a direct access drops a typed role
+    expect(connInput({ ...hop, access_mode: 'direct' }).access).toEqual({
+      mode: 'direct',
+      role_arn: null,
+      external_id: null,
+    });
   });
   it('any connection edit changes the key', () => {
     expect(connKey(base)).toBe(connKey({ ...base }));
     expect(connKey(base)).not.toBe(connKey({ ...base, region: 'il-central-1' }));
+    expect(connKey(base)).not.toBe(connKey({ ...base, connection_id: '3' }));
+    expect(connKey(hop)).not.toBe(connKey({ ...hop, external_id: 'other-value' }));
     expect(connKey(base, 'a')).not.toBe(connKey(base, 'b'));
   });
-  it('session token of temporary (ASIA…) keys', () => {
-    const asia: ConnForm = {
-      ...base,
-      auth_mode: 'access_key',
-      access_key_id: 'ASIAABCDEFGHIJKLMNOP',
-    };
-    expect(connErrors(asia)).toEqual({});
-    expect(isTemporaryKey('ASIAABCDEFGHIJKLMNOP')).toBe(true);
-    expect(isTemporaryKey('AKIAABCDEFGHIJKLMNOP')).toBe(false);
-    // write-only: omitted when empty, whitespace of a pasted token removed, "" clears
-    expect('session_token' in connInput(asia)).toBe(false);
-    expect(connInput({ ...asia, session_token: ' IQoJb3Jp\nZ2lu== ' }).session_token).toBe(
-      'IQoJb3JpZ2lu==',
-    );
-    expect(
-      connInput({ ...asia, session_token: 'x', clear_session_token: true }).session_token,
-    ).toBe('');
-    // a new or cleared token locks the switch again (new key)
-    expect(connKey(asia)).not.toBe(connKey({ ...asia, session_token: 'IQoJ' }));
-    expect(connKey(asia)).not.toBe(connKey({ ...asia, clear_session_token: true }));
-    expect(connErrors({ ...asia, session_token: 'bad<token>' }).session_token).toBe('sessionToken');
-    expect(connErrors({ ...asia, session_token: 'A'.repeat(4097) }).session_token).toBeTruthy();
-    const stored = { certificate: null, secret_access_key_set: true, session_token_set: false };
-    expect(connMissing(asia, stored)).toEqual(['sessionToken']);
-    expect(connMissing({ ...asia, session_token: 'IQoJ' }, stored)).toEqual([]);
-    expect(connMissing(asia, { ...stored, session_token_set: true })).toEqual([]);
-    expect(
-      connMissing({ ...asia, clear_session_token: true }, { ...stored, session_token_set: true }),
-    ).toEqual(['sessionToken']);
-    expect(connMissing({ ...asia, access_key_id: 'AKIAABCDEFGHIJKLMNOP' }, stored)).toEqual([]);
-  });
-  it('arn accounts', () => {
-    expect(arnAccountsDiffer(base)).toBe(false);
-    expect(arnAccountsDiffer({ ...base, ra_role_arn: 'arn:aws:iam::999999999999:role/x' })).toBe(
-      true,
-    );
+  it('missing: no AWS connection at all', () => {
+    expect(connMissing(base, [])).toEqual(['connection']);
+    expect(connMissing(base, [{ id: 1 }])).toEqual([]);
+    expect(connMissing(base, undefined)).toEqual([]);
   });
   it('profile scope', () => {
     expect(profileScope('us.anthropic.claude')).toBe('us');
