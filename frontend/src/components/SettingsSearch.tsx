@@ -14,7 +14,7 @@ import {
 import { SearchIcon, XIcon } from './icons';
 import { cx, Input } from './ui';
 
-const HIGHLIGHT = ['outline', 'outline-2', 'outline-offset-2', 'outline-amber-400'];
+const HIGHLIGHT = ['outline', 'outline-2', 'outline-offset-2', 'outline-accent-ink'];
 const HIGHLIGHT_MS = 2500;
 
 type Target = { selectors: string[]; n: number };
@@ -130,7 +130,7 @@ export function SettingsSearch({
     >
       <SearchIcon
         size={14}
-        className="pointer-events-none absolute start-2.5 top-1/2 -translate-y-1/2 text-slate-400"
+        className="pointer-events-none absolute start-2.5 top-1/2 -translate-y-1/2 text-ink-subtle"
       />
       <Input
         type="search"
@@ -146,7 +146,7 @@ export function SettingsSearch({
         }}
         onFocus={() => setOpen(true)}
         onKeyDown={onKey}
-        className="ps-8 pe-8"
+        className="ps-8 pe-8 [&::-webkit-search-cancel-button]:appearance-none"
         data-testid="settings-search"
       />
       {query && (
@@ -157,7 +157,7 @@ export function SettingsSearch({
             setQuery('');
             setOpen(false);
           }}
-          className="absolute end-2 top-1/2 -translate-y-1/2 rounded p-0.5 text-slate-400 hover:text-slate-700 dark:hover:text-slate-200"
+          className="absolute end-2 top-1/2 -translate-y-1/2 rounded p-0.5 text-ink-subtle hover:text-ink-muted"
         >
           <XIcon size={14} />
         </button>
@@ -167,11 +167,11 @@ export function SettingsSearch({
           id="settings-search-results"
           role="listbox"
           aria-label={t('settingsSearch.label')}
-          className="absolute inset-x-0 top-full z-30 mt-1 max-h-96 overflow-auto rounded-md bg-white py-1 shadow-lg ring-1 ring-slate-200 dark:bg-slate-900 dark:ring-slate-700"
+          className="absolute inset-x-0 top-full z-30 mt-1 max-h-96 overflow-auto rounded-md border border-line bg-surface-raised py-1 shadow-pop"
           data-testid="settings-search-results"
         >
           {results.length === 0 && (
-            <p className="px-3 py-2 text-sm text-slate-500">{t('settingsSearch.none')}</p>
+            <p className="px-3 py-2 text-sm text-ink-muted">{t('settingsSearch.none')}</p>
           )}
           {results.map((d, i) => {
             const ok = entryAvailable(d.entry, features);
@@ -188,20 +188,15 @@ export function SettingsSearch({
                 onClick={() => go(d)}
                 className={cx(
                   'block w-full px-3 py-1.5 text-start',
-                  i === active && 'bg-sky-50 dark:bg-slate-800',
+                  i === active && 'bg-accent-soft',
                 )}
                 data-testid="settings-search-result"
                 data-entry={d.entry.id}
               >
-                <span
-                  className={cx(
-                    'block text-sm font-medium',
-                    !ok && 'text-slate-500 dark:text-slate-400',
-                  )}
-                >
+                <span className={cx('block text-sm font-medium', !ok && 'text-ink-muted')}>
                   {d.label}
                 </span>
-                <span className="block text-xs text-slate-500">
+                <span className="block text-xs text-ink-muted">
                   {d.tab}
                   {!isCard && (
                     <>
@@ -213,9 +208,7 @@ export function SettingsSearch({
                   )}
                 </span>
                 {!ok && (
-                  <span className="mt-0.5 block text-xs text-amber-700 dark:text-amber-400">
-                    {requires(d)}
-                  </span>
+                  <span className="mt-0.5 block text-xs text-status-warning">{requires(d)}</span>
                 )}
               </button>
             );

@@ -41,7 +41,7 @@ export function ExplainButton({
         title={t('explain.title')}
         data-testid="explain-button"
       >
-        <SparkIcon size={size === 'sm' ? 12 : 14} className="text-violet-600" />
+        <SparkIcon size={size === 'sm' ? 12 : 14} className="text-accent-ink" />
         {label ?? t('explain.button')}
       </Button>
       <ExplainDrawerView
@@ -77,7 +77,7 @@ function ExplainDrawerView({
       footer={
         <>
           {final && (
-            <span className="me-auto self-center text-xs text-slate-500">
+            <span className="me-auto self-center text-xs text-ink-muted">
               {t('explain.explainedAt', { time: formatDateTime(final.created_at) })}
             </span>
           )}

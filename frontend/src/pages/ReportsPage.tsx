@@ -375,7 +375,7 @@ function ReportModal({
         {aiOn && (
           <div>
             <Checkbox label={t('reports.aiSummary')} checked={aiSummary} onChange={setAiSummary} />
-            <p className="ms-6 mt-0.5 text-xs text-slate-500">{t('reports.aiSummaryHint')}</p>
+            <p className="ms-6 mt-0.5 text-xs text-ink-muted">{t('reports.aiSummaryHint')}</p>
           </div>
         )}
         <Checkbox

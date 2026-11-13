@@ -193,13 +193,13 @@ export function ApplyResultView({ result }: { result: ApplyTemplateResult }) {
       )}
       {!!result.removed?.length && (
         <div data-testid="apply-removed">
-          <div className="mb-1 font-medium text-red-700 dark:text-red-400">
+          <div className="mb-1 font-medium text-status-down">
             {t('applyPorts.removedTitle', { count: result.removed.length })}
           </div>
           <ul className="space-y-0.5">
             {result.removed.map((r) => (
               <li key={r.sensor_id} className="flex items-center gap-1.5">
-                <TrashIcon size={13} className="shrink-0 text-red-600" />
+                <TrashIcon size={13} className="shrink-0 text-status-down" />
                 <bdi dir="auto">{r.name}</bdi>
               </li>
             ))}

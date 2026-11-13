@@ -208,13 +208,13 @@ export function TrunkScopeFields({
           checked={includeTrunks}
           onChange={onIncludeTrunks}
         />
-        <p className="text-xs text-slate-500">{t('ingestSettings.trunks.includeHint')}</p>
+        <p className="text-xs text-ink-muted">{t('ingestSettings.trunks.includeHint')}</p>
       </div>
       <Field
         label={t('ingestSettings.trunks.minTagged')}
         hint={
           invalid ? (
-            <span className="text-red-600">{t('ingestSettings.trunks.minTaggedErr')}</span>
+            <span className="text-status-down">{t('ingestSettings.trunks.minTaggedErr')}</span>
           ) : (
             t('ingestSettings.trunks.minTaggedHint')
           )
@@ -616,14 +616,14 @@ export function TrapCollapseCard({ settings }: { settings: Settings }) {
             });
         }}
       >
-        <p className="text-xs text-slate-500">{t('trapCollapse.intro')}</p>
+        <p className="text-xs text-ink-muted">{t('trapCollapse.intro')}</p>
         <Checkbox label={t('trapCollapse.enabled')} checked={on} onChange={setOn} />
         <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
           <Field
             label={t('trapCollapse.keep')}
             hint={
               e.keep ? (
-                <span className="text-red-600">{t('trapCollapse.keepErr')}</span>
+                <span className="text-status-down">{t('trapCollapse.keepErr')}</span>
               ) : (
                 t('trapCollapse.keepHint')
               )
@@ -643,7 +643,7 @@ export function TrapCollapseCard({ settings }: { settings: Settings }) {
               label={t('trapCollapse.oids')}
               hint={
                 e.oids ? (
-                  <span className="text-red-600">
+                  <span className="text-status-down">
                     {t('trapCollapse.oidsErr', { list: badOids.join(', ') })}
                   </span>
                 ) : (
@@ -659,7 +659,7 @@ export function TrapCollapseCard({ settings }: { settings: Settings }) {
                 className="font-mono"
               />
             </Field>
-            <ul className="mt-1 space-y-0.5 text-xs text-slate-500">
+            <ul className="mt-1 space-y-0.5 text-xs text-ink-muted">
               {list
                 .filter((o) => KNOWN_REPETITIVE[o.replace(/^\./, '')])
                 .map((o) => (

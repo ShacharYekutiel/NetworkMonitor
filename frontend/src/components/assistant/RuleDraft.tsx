@@ -4,7 +4,7 @@ import { useTranslation } from 'react-i18next';
 import { endpoints3b } from '../../api/endpoints3b';
 import type { CannotDraft, RuleDraft, RuleDraftKind } from '../../api/types';
 import { SparkIcon } from '../icons';
-import { Button, ErrorBox, Textarea } from '../ui';
+import { BANNER, BANNER_TONE, Button, cx, ErrorBox, Textarea } from '../ui';
 import { AiBadge, CannotDraftNotice, useAiFeature } from './common';
 
 /**
@@ -42,7 +42,7 @@ export function RuleDraftBox({
       <button
         type="button"
         onClick={() => setOpen(true)}
-        className="inline-flex items-center gap-1.5 text-xs font-medium text-violet-700 hover:underline dark:text-violet-300"
+        className="inline-flex items-center gap-1.5 text-xs font-medium text-accent-ink hover:underline"
         data-testid="describe-rule"
       >
         <SparkIcon size={12} /> {t('draft.describe')}
@@ -50,8 +50,8 @@ export function RuleDraftBox({
     );
   const len = text.trim().length;
   return (
-    <div className="space-y-2 rounded-md bg-violet-50/70 p-3 ring-1 ring-inset ring-violet-200 dark:bg-violet-950/20 dark:ring-violet-900">
-      <label className="block text-xs font-medium text-slate-600 dark:text-slate-400">
+    <div className={cx(BANNER, BANNER_TONE.info, 'space-y-2')}>
+      <label className="block text-xs font-medium text-ink-muted">
         {t('draft.describeLabel')}
         <Textarea
           rows={3}
@@ -83,7 +83,7 @@ export function RuleDraftBox({
         <Button size="sm" variant="ghost" onClick={() => setOpen(false)}>
           {t('common.cancel')}
         </Button>
-        {m.isPending && <span className="text-xs text-slate-500">{t('draft.working')}</span>}
+        {m.isPending && <span className="text-xs text-ink-muted">{t('draft.working')}</span>}
       </div>
       {cannot && (
         <CannotDraftNotice
@@ -105,7 +105,7 @@ export function DraftBanner({ draft, onDismiss }: { draft: RuleDraft; onDismiss?
   const { t } = useTranslation();
   return (
     <div
-      className="space-y-1 rounded-md bg-amber-50 px-3 py-2 text-sm text-amber-900 ring-1 ring-inset ring-amber-200 dark:bg-amber-950/40 dark:text-amber-200 dark:ring-amber-900"
+      className={cx(BANNER, BANNER_TONE.warning, 'space-y-1')}
       data-testid="draft-banner"
       role="note"
     >
@@ -113,7 +113,11 @@ export function DraftBanner({ draft, onDismiss }: { draft: RuleDraft; onDismiss?
         <AiBadge />
         {t('draft.banner')}
         {onDismiss && (
-          <button type="button" className="ms-auto text-xs underline" onClick={onDismiss}>
+          <button
+            type="button"
+            className="ms-auto text-xs text-accent-ink underline"
+            onClick={onDismiss}
+          >
             {t('common.close')}
           </button>
         )}
@@ -136,7 +140,7 @@ export function DraftBanner({ draft, onDismiss }: { draft: RuleDraft; onDismiss?
         </div>
       )}
       {!draft.validation.ok && draft.validation.errors.length > 0 && (
-        <div className="text-xs text-red-700 dark:text-red-300">
+        <div className="text-xs text-status-down">
           <span className="font-medium">{t('draft.validationErrors')}:</span>
           <ul className="list-disc ps-5">
             {draft.validation.errors.map((e, i) => (

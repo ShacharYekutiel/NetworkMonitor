@@ -17,7 +17,7 @@ import {
 import { renderAnswer } from '../../lib/markdown';
 import { CheckIcon, ChevronIcon, StopIcon, ThumbIcon, XIcon } from '../icons';
 import { useToast } from '../toast';
-import { Button, cx, Spinner, Textarea } from '../ui';
+import { BANNER, BANNER_TONE, Button, cx, Spinner, Textarea } from '../ui';
 import { AiBadge, useAssistantErrorText } from './common';
 
 /** Safe Markdown of an AI text; internal links navigate inside the SPA. */
@@ -68,18 +68,18 @@ function StepRow({ s }: { s: AssistantStep }) {
         onClick={() => setOpen((o) => !o)}
         disabled={!hasArgs}
         aria-expanded={hasArgs ? open : undefined}
-        className="flex w-full items-center gap-1.5 text-start text-slate-600 disabled:cursor-default dark:text-slate-400"
+        className="flex w-full items-center gap-1.5 text-start text-ink-muted disabled:cursor-default"
       >
         {s.state === 'running' ? (
           <Spinner className="h-3 w-3" />
         ) : s.ok ? (
-          <CheckIcon size={12} className="text-green-600" />
+          <CheckIcon size={12} className="text-status-up" />
         ) : (
-          <XIcon size={12} className="text-red-600" />
+          <XIcon size={12} className="text-status-down" />
         )}
         <span>{label}</span>
         {s.state === 'done' && (
-          <span className="text-slate-400">
+          <span className="text-ink-subtle">
             {s.ok
               ? t('assistant.stepDone', { rows: s.rows ?? 0, ms: s.ms ?? 0 })
               : t('assistant.stepFailed', { error: s.error ?? '' })}
@@ -96,7 +96,7 @@ function StepRow({ s }: { s: AssistantStep }) {
       {open && hasArgs && (
         <code
           dir="ltr"
-          className="mt-0.5 block whitespace-pre-wrap break-all rounded bg-slate-100 px-2 py-1 text-[11px] dark:bg-slate-800"
+          className="mt-0.5 block whitespace-pre-wrap break-all rounded-sm border border-line bg-surface-sunken px-2 py-1 font-mono text-[11px]"
         >
           {argsSummary(s.args, 2000)}
         </code>
@@ -109,7 +109,7 @@ function StepRow({ s }: { s: AssistantStep }) {
 export function ToolSteps({ steps }: { steps: AssistantStep[] }) {
   if (!steps.length) return null;
   return (
-    <ul className="space-y-0.5 border-s-2 border-slate-200 ps-2 dark:border-slate-700">
+    <ul className="space-y-0.5 border-s-2 border-line ps-2">
       {steps.map((s) => (
         <StepRow key={s.call_id} s={s} />
       ))}
@@ -123,7 +123,7 @@ function Sources({ sources }: { sources: AssistantSource[] }) {
   if (!sources.length) return null;
   return (
     <div className="text-xs" data-testid="answer-sources">
-      <span className="font-medium text-slate-500">{t('assistant.sources')}:</span>{' '}
+      <span className="font-medium text-ink-muted">{t('assistant.sources')}:</span>{' '}
       {sources.map((s, i) => {
         const route = s.ref.startsWith('kb/') ? null : nmRoute(s.ref);
         const ext = s.ref.startsWith('kb/') ? kbSourceUrl(s.ref, sources) : null;
@@ -137,7 +137,7 @@ function Sources({ sources }: { sources: AssistantSource[] }) {
                   e.preventDefault();
                   navigate(route);
                 }}
-                className="text-sky-700 hover:underline dark:text-sky-400"
+                className="text-accent-ink hover:underline"
               >
                 {s.label}
               </a>
@@ -146,12 +146,12 @@ function Sources({ sources }: { sources: AssistantSource[] }) {
                 href={ext}
                 target="_blank"
                 rel="noopener noreferrer nofollow"
-                className="text-sky-700 hover:underline dark:text-sky-400"
+                className="text-accent-ink hover:underline"
               >
                 {s.label}
               </a>
             ) : (
-              <span dir="auto" className="text-slate-600 dark:text-slate-300">
+              <span dir="auto" className="text-ink-muted">
                 {s.label}
                 {s.url && <bdi dir="ltr"> ({s.url.split('/').pop()})</bdi>}
               </span>
@@ -190,7 +190,7 @@ function Feedback({ m }: { m: AssistantMessage }) {
         aria-label={t('assistant.thumbsUp')}
         title={t('assistant.thumbsUp')}
         onClick={() => rate(1)}
-        className={m.feedback === 1 ? 'text-green-700 dark:text-green-400' : ''}
+        className={m.feedback === 1 ? 'text-status-up' : ''}
         disabled={mut.isPending}
       >
         <ThumbIcon size={14} />
@@ -202,7 +202,7 @@ function Feedback({ m }: { m: AssistantMessage }) {
         aria-label={t('assistant.thumbsDown')}
         title={t('assistant.thumbsDown')}
         onClick={() => rate(-1)}
-        className={m.feedback === -1 ? 'text-red-700 dark:text-red-400' : ''}
+        className={m.feedback === -1 ? 'text-status-down' : ''}
         disabled={mut.isPending}
       >
         <ThumbIcon size={14} className="rotate-180" />
@@ -235,12 +235,22 @@ function MetaLine({ m }: { m: AssistantMessage }) {
   const { t } = useTranslation();
   const tokens = m.usage.input_tokens + m.usage.output_tokens;
   return (
-    <span className="text-[11px] text-slate-400" data-testid="answer-meta">
+    <span className="text-[11px] text-ink-subtle" data-testid="answer-meta">
       {m.model_id && <bdi dir="ltr">{m.model_id}</bdi>}
       {' · '}
       {t('assistant.tokens', { n: compactTokens(tokens) })}
-      {m.cost_estimate !== null && ` · ≈ ${formatCost(m.cost_estimate, m.currency)}`}
-      {m.duration_ms !== null && ` · ${(m.duration_ms / 1000).toFixed(1)} s`}
+      {m.cost_estimate !== null && (
+        <>
+          {' · '}
+          <bdi dir="ltr">≈ {formatCost(m.cost_estimate, m.currency)}</bdi>
+        </>
+      )}
+      {m.duration_ms !== null && (
+        <>
+          {' · '}
+          <bdi dir="ltr">{(m.duration_ms / 1000).toFixed(1)} s</bdi>
+        </>
+      )}
     </span>
   );
 }
@@ -300,7 +310,7 @@ export function AnswerBlock({
         <Markdown text={text} allowedRefs={allowed} sources={final?.sources} />
       ) : (
         isRunning && (
-          <p className="flex items-center gap-2 text-sm text-slate-500">
+          <p className="flex items-center gap-2 text-sm text-ink-muted">
             <Spinner className="h-4 w-4" /> {t('assistant.thinking')}
           </p>
         )
@@ -308,19 +318,19 @@ export function AnswerBlock({
       {notices.map((n, i) => (
         <p
           key={i}
-          className="rounded bg-amber-50 px-2 py-1 text-xs text-amber-800 dark:bg-amber-950/40 dark:text-amber-300"
+          className={cx(BANNER, BANNER_TONE.warning, 'py-1.5 text-xs')}
           data-testid="answer-notice"
         >
           {t(`assistant.notice.${n.code}`, { defaultValue: n.message || n.code })}
         </p>
       ))}
       {final?.status === 'cancelled' && (
-        <p className="text-xs text-slate-500">{t('assistant.cancelled')}</p>
+        <p className="text-xs text-ink-muted">{t('assistant.cancelled')}</p>
       )}
       {error && (
         <div
           role="alert"
-          className="flex flex-wrap items-center gap-2 rounded-md bg-red-50 px-3 py-2 text-sm text-red-700 ring-1 ring-inset ring-red-200 dark:bg-red-950/40 dark:text-red-300 dark:ring-red-900"
+          className={cx(BANNER, BANNER_TONE.error, 'flex flex-wrap items-center gap-2')}
           data-testid="answer-error"
           data-code={error.code}
         >
@@ -385,7 +395,7 @@ export function PreStreamErrorBox({
     <div className="space-y-1" data-testid="prestream-error" data-code={error.code}>
       <div
         role="alert"
-        className="flex flex-wrap items-center gap-2 rounded-md bg-red-50 px-3 py-2 text-sm text-red-700 ring-1 ring-inset ring-red-200 dark:bg-red-950/40 dark:text-red-300 dark:ring-red-900"
+        className={cx(BANNER, BANNER_TONE.error, 'flex flex-wrap items-center gap-2')}
       >
         <span className="flex-1">
           {error.code === 'assistant_busy' && error.status === 429

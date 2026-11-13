@@ -130,7 +130,7 @@ export function AccountPage() {
         </Card>
       )}
       <Card title={t('account.sessions')}>
-        <p className="text-sm text-slate-600 dark:text-slate-300">{t('account.sessionsHint')}</p>
+        <p className="text-sm text-ink-muted">{t('account.sessionsHint')}</p>
         <div className="mt-3 flex justify-end">
           <Button
             busy={endingAll}

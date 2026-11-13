@@ -18,13 +18,13 @@ import {
   type PortColumn,
 } from '../../lib/ports';
 import { AlertIcon, ColumnsIcon, SearchIcon } from '../icons';
-import { Button, Checkbox, cx, Empty, Input } from '../ui';
+import { Button, Checkbox, cx, Empty, Input, TAG, TAG_TONE } from '../ui';
 import { TileGlyph } from './Faceplate';
 import { usePortText } from './text';
 import { lagMemberNames } from '../../lib/lag';
 
 const thBase =
-  'whitespace-nowrap border-b border-line px-3 py-2 text-start text-xs font-medium text-ink-muted';
+  'whitespace-nowrap border-b border-line bg-surface-sunken px-3 py-2 text-start text-xs font-medium text-ink-muted';
 const tdBase = 'whitespace-nowrap border-b border-line px-3 py-1.5 align-middle';
 /** The sticky Port column needs an opaque background (rows scroll under it). */
 const stickyCell = 'sticky start-0 z-10 bg-surface';
@@ -64,7 +64,7 @@ function ColumnChooser({
       </Button>
       {open && (
         <div
-          className="absolute end-0 z-30 mt-1 w-56 rounded-md bg-surface p-2 shadow-pop ring-1 ring-line"
+          className="absolute end-0 z-30 mt-1 w-56 rounded-md border border-line bg-surface-raised p-2 shadow-pop"
           data-testid="column-chooser"
         >
           <div className="grid grid-cols-1 gap-1">
@@ -91,7 +91,7 @@ function ConnNameCell({ p, showIp }: { p: Port; showIp: boolean }) {
     <Link
       to={`/devices/${id}`}
       onClick={(e) => e.stopPropagation()}
-      className="text-sky-700 hover:underline dark:text-sky-400"
+      className="text-accent-ink hover:underline"
     >
       <bdi dir="auto">{text}</bdi>
     </Link>
@@ -99,7 +99,7 @@ function ConnNameCell({ p, showIp }: { p: Port; showIp: boolean }) {
   // On narrow screens the IP column is hidden: show the IP under the name instead.
   const ipLine = (ip: string | null) =>
     ip ? (
-      <div className={cx('text-xs text-slate-500', showIp && 'sm:hidden')}>
+      <div className={cx('text-xs text-ink-muted', showIp && 'sm:hidden')}>
         <bdi dir="ltr">{ip}</bdi>
       </div>
     ) : null;
@@ -107,10 +107,7 @@ function ConnNameCell({ p, showIp }: { p: Port; showIp: boolean }) {
     return (
       <div className="max-w-[16rem]" data-testid="port-conn-name">
         <span className="inline-flex items-center gap-1">
-          <span
-            className="rounded bg-slate-100 px-1 text-[10px] font-semibold text-slate-600 dark:bg-slate-800 dark:text-slate-300"
-            title={t('ports.conn.neighborTitle')}
-          >
+          <span className={cx(TAG, TAG_TONE.neutral)} title={t('ports.conn.neighborTitle')}>
             {t('ports.conn.neighbor')}
           </span>
           {v.device_id ? link(v.device_id, v.name) : <bdi dir="auto">{v.name}</bdi>}
@@ -119,14 +116,14 @@ function ConnNameCell({ p, showIp }: { p: Port; showIp: boolean }) {
       </div>
     );
   if (v.kind === 'uplink')
-    return <span className="text-slate-500">{t('ports.macCount', { count: v.count })}</span>;
-  if (v.kind === 'none') return <span className="text-slate-400">—</span>;
+    return <span className="text-ink-muted">{t('ports.macCount', { count: v.count })}</span>;
+  if (v.kind === 'none') return <span className="text-ink-subtle">—</span>;
   const label = v.device_id ? (
     link(v.device_id, v.device_name ?? v.hostname ?? v.ip ?? v.mac)
   ) : v.hostname ? (
     <bdi dir="ltr">{v.hostname}</bdi>
   ) : v.vendor ? (
-    <bdi dir="auto" className="text-slate-500">
+    <bdi dir="auto" className="text-ink-muted">
       {v.vendor}
     </bdi>
   ) : (
@@ -140,7 +137,7 @@ function ConnNameCell({ p, showIp }: { p: Port; showIp: boolean }) {
         <span className="truncate">{label}</span>
         {v.more > 0 && (
           <span
-            className="shrink-0 rounded bg-slate-100 px-1 text-[10px] font-semibold text-slate-600 dark:bg-slate-800 dark:text-slate-300"
+            className={cx(TAG, TAG_TONE.neutral, 'shrink-0')}
             title={t('ports.conn.moreTitle', { count: v.more })}
             data-testid="port-conn-more"
           >
@@ -233,7 +230,7 @@ export function PortList({
             {ip}
           </bdi>
         ) : (
-          <span className="text-slate-400">—</span>
+          <span className="text-ink-subtle">—</span>
         );
       }
       case 'connName':
@@ -329,7 +326,7 @@ export function PortList({
           <table className="w-full text-sm">
             <thead>
               <tr>
-                <th className={cx(thBase, stickyCell, 'z-20')}>{t('ports.col.port')}</th>
+                <th className={cx(thBase, 'sticky start-0 z-20')}>{t('ports.col.port')}</th>
                 {columns.map((c) => (
                   <th key={c} className={cx(thBase, COLUMN_HIDE_CLASS[c])}>
                     {t(`ports.col.${c}`)}
@@ -370,10 +367,11 @@ export function PortList({
                       {p.lag && (
                         <span
                           className={cx(
-                            'ms-1.5 rounded px-1 text-[10px] font-semibold',
+                            TAG,
+                            'ms-1.5',
                             p.lag.attached === false
-                              ? 'bg-surface-sunken text-ink-muted line-through'
-                              : 'bg-accent-soft text-accent-ink',
+                              ? cx(TAG_TONE.neutral, 'line-through')
+                              : TAG_TONE.accent,
                           )}
                           title={
                             p.lag.attached === false

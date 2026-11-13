@@ -160,7 +160,7 @@ export function AckDialog({
         </>
       }
     >
-      <p className="mb-3 text-sm text-slate-600 dark:text-slate-300">{t('ack.explain')}</p>
+      <p className="mb-3 text-sm text-ink-muted">{t('ack.explain')}</p>
       <Field label={t('ack.comment')} hint={t('ack.commentHint')}>
         <Textarea
           rows={3}

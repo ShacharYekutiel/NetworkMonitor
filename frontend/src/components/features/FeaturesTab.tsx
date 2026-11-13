@@ -15,14 +15,12 @@ function AiStatusLine({ name }: { name: FeatureName }) {
   const st = useAssistantStatus(isAi);
   if (!isAi || !st.data) return null;
   if (name === 'assistant')
-    return <span className="text-xs text-slate-500">{t(`assistant.state.${st.data.state}`)}</span>;
+    return <span className="text-xs text-ink-muted">{t(`assistant.state.${st.data.state}`)}</span>;
   const f = st.data.features.find((x) => x.name === name);
   if (!f) return null;
   if (f.idle_reason)
-    return (
-      <span className="text-xs text-amber-700 dark:text-amber-300">{t('assistant.idleShort')}</span>
-    );
-  return f.status_line ? <span className="text-xs text-slate-500">{f.status_line}</span> : null;
+    return <span className="text-xs text-status-warning">{t('assistant.idleShort')}</span>;
+  return f.status_line ? <span className="text-xs text-ink-muted">{f.status_line}</span> : null;
 }
 
 /** Read-only row of a feature switched in its own tab: name, on/off and a link to that tab. */

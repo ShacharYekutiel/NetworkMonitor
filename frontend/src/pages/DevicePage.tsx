@@ -112,7 +112,7 @@ export function DeviceSensorsCard({
       actions={
         isAdmin && ids.length > 0 ? (
           <div className="flex flex-wrap items-center gap-2" data-testid="sensor-bulk-bar">
-            <span className="text-xs text-slate-500">
+            <span className="text-xs text-ink-muted">
               {t('impact.selected', { count: ids.length })}
             </span>
             <Button size="sm" onClick={() => setBulk(true)}>

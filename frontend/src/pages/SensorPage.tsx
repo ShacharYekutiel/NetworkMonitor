@@ -379,7 +379,7 @@ function ValueMapTable({ sensor }: { sensor: import('../api/types').Sensor }) {
       <div className="mb-1 text-xs font-semibold text-ink-muted">
         {t('sensorConfig.snmp_custom.value_map')}
         {named && (
-          <span className="ms-2 font-normal text-slate-500" data-testid="named-value-map">
+          <span className="ms-2 font-normal text-ink-muted" data-testid="named-value-map">
             {pickLang(named.title, lang)}
           </span>
         )}
@@ -406,7 +406,7 @@ function ValueMapTable({ sensor }: { sensor: import('../api/types').Sensor }) {
                 {r.text}
               </td>
               {named && (
-                <td className="font-mono text-xs text-slate-500">
+                <td className="font-mono text-xs text-ink-muted">
                   <Ltr>{r.mib ?? (r.own ? t('valueMap.own') : '')}</Ltr>
                 </td>
               )}

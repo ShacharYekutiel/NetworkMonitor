@@ -435,7 +435,7 @@ function ChannelModal({
         {type === 'telegram' && chatAskOn && (
           <div>
             <Checkbox label={t('channels.aiAsk')} checked={aiAsk} onChange={setAiAsk} />
-            <p className="ms-6 mt-0.5 text-xs text-slate-500">{t('channels.aiAskHint')}</p>
+            <p className="ms-6 mt-0.5 text-xs text-ink-muted">{t('channels.aiAskHint')}</p>
           </div>
         )}
         {type === 'email' && notesOn && (
@@ -445,7 +445,7 @@ function ChannelModal({
               checked={aiNoteEmail}
               onChange={setAiNoteEmail}
             />
-            <p className="ms-6 mt-0.5 text-xs text-slate-500">{t('channels.aiNoteEmailHint')}</p>
+            <p className="ms-6 mt-0.5 text-xs text-ink-muted">{t('channels.aiNoteEmailHint')}</p>
           </div>
         )}
         <Checkbox label={t('common.enabled')} checked={enabled} onChange={setEnabled} />
@@ -778,7 +778,7 @@ function RuleModal({
         {aiNotes && (
           <div>
             <Checkbox label={t('rules.aiNote')} checked={aiNote} onChange={setAiNote} />
-            <p className="ms-6 mt-0.5 text-xs text-slate-500">{t('rules.aiNoteHint')}</p>
+            <p className="ms-6 mt-0.5 text-xs text-ink-muted">{t('rules.aiNoteHint')}</p>
           </div>
         )}
         <Checkbox label={t('common.enabled')} checked={enabled} onChange={setEnabled} />

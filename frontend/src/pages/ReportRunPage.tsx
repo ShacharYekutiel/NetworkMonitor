@@ -433,7 +433,7 @@ export function ReportRunPage() {
             <DeliveriesCell run={run} />
             {/* [3b] AI summary status (run details only) */}
             {run.ai_summary_status && run.ai_summary_status !== 'ok' && (
-              <span className="text-xs text-slate-500" data-testid="ai-summary-status">
+              <span className="text-xs text-ink-muted" data-testid="ai-summary-status">
                 {t('reports.aiSummaryStatus', {
                   status: t(`reports.aiStatus.${run.ai_summary_status}`),
                 })}
@@ -465,10 +465,10 @@ export function ReportRunPage() {
           </header>
           {d.ai_summary && (
             <section
-              className="rounded-md bg-violet-50 p-3 ring-1 ring-inset ring-violet-200 print:bg-transparent"
+              className="rounded-md bg-accent-soft p-3 ring-1 ring-inset ring-accent-soft print:bg-transparent"
               data-testid="report-ai-summary"
             >
-              <h2 className="mb-1 text-xs font-semibold uppercase tracking-wide text-violet-800">
+              <h2 className="mb-1 text-xs font-semibold uppercase tracking-wide text-accent-ink">
                 {tr('reports.aiSummaryLabel')}
               </h2>
               <p className="whitespace-pre-line text-sm" dir="auto">

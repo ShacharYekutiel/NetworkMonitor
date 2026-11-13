@@ -135,17 +135,11 @@ export function ContextMenu({
         top: pos?.top ?? anchor.y,
         visibility: pos ? 'visible' : 'hidden',
       }}
-      className="z-[70] max-h-[calc(100vh-8px)] min-w-[12rem] max-w-[min(20rem,calc(100vw-8px))] overflow-y-auto rounded-md border border-slate-200 bg-white py-1 text-sm shadow-lg focus:outline-none dark:border-slate-700 dark:bg-slate-900"
+      className="z-[70] max-h-[calc(100vh-8px)] min-w-[12rem] max-w-[min(20rem,calc(100vw-8px))] overflow-y-auto rounded-md border border-line bg-surface-raised py-1 text-sm shadow-pop focus:outline-none"
     >
       {entries.map((e) => {
         if (e.type === 'separator')
-          return (
-            <div
-              key={e.key}
-              role="separator"
-              className="my-1 border-t border-slate-200 dark:border-slate-700"
-            />
-          );
+          return <div key={e.key} role="separator" className="my-1 border-t border-line" />;
         const i = ++index;
         return (
           <button
@@ -164,10 +158,10 @@ export function ContextMenu({
             className={cx(
               'flex w-full items-center gap-2 px-3 py-1.5 text-start focus:outline-none',
               e.disabled
-                ? 'cursor-default text-slate-400 dark:text-slate-500'
+                ? 'cursor-default text-ink-subtle'
                 : e.danger
-                  ? 'text-red-700 focus:bg-red-50 dark:text-red-400 dark:focus:bg-red-950/50'
-                  : 'text-slate-700 focus:bg-slate-100 dark:text-slate-200 dark:focus:bg-slate-800',
+                  ? 'text-status-down focus:bg-status-down-soft'
+                  : 'text-ink-muted focus:bg-surface-sunken',
             )}
           >
             <span className="flex w-4 shrink-0 justify-center" aria-hidden="true">

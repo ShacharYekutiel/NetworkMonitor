@@ -33,11 +33,11 @@ export function SecurityCard({ settings }: { settings: Settings }) {
     });
   };
   const hint = (bad: boolean, ok: string, errKey: string) =>
-    bad ? <span className="text-red-600">{t(errKey)}</span> : ok;
+    bad ? <span className="text-status-down">{t(errKey)}</span> : ok;
   return (
     <Card title={t('settings.security.title')} anchor={cardAnchor('security')}>
       <form onSubmit={submit} className="space-y-4" data-testid="security-settings">
-        <p className="text-xs text-slate-500">{t('settings.security.intro')}</p>
+        <p className="text-xs text-ink-muted">{t('settings.security.intro')}</p>
         <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
           <Field
             label={t('settings.security.sessionMaxAge')}
@@ -84,7 +84,7 @@ export function SecurityCard({ settings }: { settings: Settings }) {
             checked={form.loopback}
             onChange={(v) => setForm((x) => ({ ...x, loopback: v }))}
           />
-          <p className="mt-1 text-xs text-slate-500">{t('settings.security.allowLoopbackHint')}</p>
+          <p className="mt-1 text-xs text-ink-muted">{t('settings.security.allowLoopbackHint')}</p>
         </div>
         <Field
           label={t('settings.security.frameAncestors')}

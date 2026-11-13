@@ -31,10 +31,7 @@ export function DigestPage() {
       <PageHeader
         breadcrumbs={
           day && (
-            <Link
-              to="/assistant/digests"
-              className="text-sky-700 hover:underline dark:text-sky-400"
-            >
+            <Link to="/assistant/digests" className="text-accent-ink hover:underline">
               {t('digest.title')}
             </Link>
           )

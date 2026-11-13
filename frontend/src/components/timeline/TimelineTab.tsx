@@ -175,7 +175,7 @@ export function TimelineTab({ deviceId }: { deviceId: number }) {
                     <span
                       className={cx(
                         'mt-1.5 h-2.5 w-2.5 shrink-0 rounded-full',
-                        TIMELINE_TONE[it.kind] ?? 'bg-slate-500',
+                        TIMELINE_TONE[it.kind] ?? 'bg-status-paused',
                       )}
                       aria-hidden="true"
                     />

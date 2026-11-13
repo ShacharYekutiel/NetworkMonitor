@@ -580,7 +580,7 @@ export function RuleEditorModal({
         {touched && invalid && <Notice>{t('eventRules.fixErrors')}</Notice>}
         <div className="flex flex-wrap justify-end gap-2">
           <Button
-            className={cx('me-auto', draft && 'ring-2 ring-amber-400')}
+            className={cx('me-auto', draft && 'ring-2 ring-status-warning')}
             busy={test.isPending}
             disabled={invalid}
             onClick={() => test.mutate()}

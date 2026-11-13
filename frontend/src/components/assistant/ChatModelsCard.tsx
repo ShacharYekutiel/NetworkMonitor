@@ -83,9 +83,9 @@ export function ChatModelsCard({ s }: { s: AssistantSettings }) {
   return (
     <Card title={t('assistant.chatModels.title')} anchor={cardAnchor('assistantChatModels')}>
       <form onSubmit={submit} className="space-y-3" data-testid="assistant-chat-models">
-        <p className="text-xs text-slate-500">{t('assistant.chatModels.hint')}</p>
+        <p className="text-xs text-ink-muted">{t('assistant.chatModels.hint')}</p>
         {rows.length === 0 && (
-          <p className="text-xs text-slate-500" data-testid="chat-models-default">
+          <p className="text-xs text-ink-muted" data-testid="chat-models-default">
             {t('assistant.chatModels.defaultList')}
           </p>
         )}
@@ -103,12 +103,12 @@ export function ChatModelsCard({ s }: { s: AssistantSettings }) {
                   className="font-mono text-xs"
                 />
                 {errs[i] ? (
-                  <p className="mt-0.5 text-xs text-red-600">
+                  <p className="mt-0.5 text-xs text-status-down">
                     {t(`assistant.chatModels.error.${errs[i]}`)}
                   </p>
                 ) : (
                   r.id.trim() && (
-                    <p className="mt-0.5 text-xs text-slate-500">
+                    <p className="mt-0.5 text-xs text-ink-muted">
                       {friendlyModelName(r.id.trim())}
                     </p>
                   )
@@ -142,7 +142,7 @@ export function ChatModelsCard({ s }: { s: AssistantSettings }) {
             {t('assistant.settings.listModels')}
           </Button>
           {full && (
-            <span className="text-xs text-slate-500">
+            <span className="text-xs text-ink-muted">
               {t('assistant.chatModels.max', { n: CHAT_MODELS_MAX })}
             </span>
           )}
@@ -158,13 +158,13 @@ export function ChatModelsCard({ s }: { s: AssistantSettings }) {
           </Button>
         </div>
         {listModels.data?.error && (
-          <p className="text-xs text-red-600">{errText(listModels.data.error)}</p>
+          <p className="text-xs text-status-down">{errText(listModels.data.error)}</p>
         )}
         <ErrorBox error={listModels.error} />
         {models && (
-          <div className="max-h-48 overflow-y-auto rounded-md ring-1 ring-slate-200 dark:ring-slate-700">
+          <div className="max-h-48 overflow-y-auto rounded-md border border-line bg-surface">
             {models.length === 0 && (
-              <p className="p-2 text-xs text-slate-500">{t('assistant.settings.noModels')}</p>
+              <p className="p-2 text-xs text-ink-muted">{t('assistant.settings.noModels')}</p>
             )}
             {models.map((m) => (
               <button
@@ -172,19 +172,19 @@ export function ChatModelsCard({ s }: { s: AssistantSettings }) {
                 type="button"
                 disabled={full || rows.some((r) => r.id.trim() === m.id)}
                 onClick={() => add(m.id)}
-                className="flex w-full flex-wrap items-center gap-2 px-2 py-1 text-start text-xs hover:bg-sky-50 disabled:opacity-50 dark:hover:bg-slate-800"
+                className="flex w-full flex-wrap items-center gap-2 px-2 py-1 text-start text-xs hover:bg-accent-soft disabled:opacity-50"
               >
                 <span dir="ltr" className="font-mono">
                   {m.id}
                 </span>
-                <span className="text-slate-500">{m.name}</span>
+                <span className="text-ink-muted">{m.name}</span>
               </button>
             ))}
           </div>
         )}
         <ErrorBox error={save.error} />
         {effective.length > 0 && (
-          <p className="text-xs text-slate-500" data-testid="chat-models-effective">
+          <p className="text-xs text-ink-muted" data-testid="chat-models-effective">
             {t('assistant.chatModels.effective')}{' '}
             {effective.map((m, i) => (
               <span key={m.id}>
