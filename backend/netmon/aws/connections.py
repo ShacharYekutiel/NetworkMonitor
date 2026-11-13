@@ -409,6 +409,78 @@ def field_errors(v: dict[str, Any], *, test_mode: bool) -> list[dict[str, Any]]:
     return errs
 
 
+HOST_CHECK_TIMEOUT_S = 3.0
+UNRESOLVED_WARNING = "endpoint_unresolved"
+
+
+def _admin_hosts(v: dict[str, Any]) -> list[tuple[str, str]]:
+    """`(field, host)` of every admin-typed URL of a connection view (proxy, overrides)."""
+    out: list[tuple[str, str]] = []
+    if v.get("proxy_mode") == "custom":
+        h = endpoints.url_host(v.get("proxy_url"))
+        if h:
+            out.append(("proxy_url", h))
+    for row in v.get("endpoint_overrides") or []:
+        if isinstance(row, dict):
+            h = endpoints.url_host(row.get("url"))
+            if h:
+                out.append(("endpoint_overrides", h))
+    return list(dict.fromkeys(out))
+
+
+async def host_checks(
+    v: dict[str, Any], *, test_mode: bool, resolver: Any = None
+) -> tuple[list[dict[str, Any]], list[str]]:
+    """Save-time DNS check of the proxy URL and the endpoint overrides, off the event loop
+    (coordinator decision for PR 4-0a): a name that resolves to a blocked address (loopback
+    outside test mode, link-local, metadata) is an error; a name that does not resolve right
+    now (a VPC endpoint name only the VPC resolver knows, a DNS outage) is only a warning
+    (`endpoint_unresolved`) — the 1.4.1 egress guard checks every address again at connect
+    time. Returns `(errors, unresolved hosts)`."""
+    import asyncio
+
+    from netmon.util import netguard
+
+    hosts = _admin_hosts(v)
+    if not hosts:
+        return [], []
+
+    async def one(host: str) -> str | None:
+        try:
+            return await asyncio.wait_for(
+                asyncio.to_thread(
+                    netguard.blocked_endpoint_host,
+                    host,
+                    allow_loopback=test_mode,
+                    resolver=resolver,
+                ),
+                HOST_CHECK_TIMEOUT_S,
+            )
+        except TimeoutError:
+            return netguard.UNRESOLVED_MSG
+
+    results = await asyncio.gather(*(one(h) for _, h in hosts))
+    errs: list[dict[str, Any]] = []
+    unresolved: list[str] = []
+    for (field, host), msg in zip(hosts, results, strict=True):
+        if msg == netguard.UNRESOLVED_MSG:
+            unresolved.append(host)
+        elif msg:
+            errs.append({"loc": ["body", field], "msg": f"{host}: {msg}"})
+    return errs, list(dict.fromkeys(unresolved))
+
+
+async def implicit_default_users(session: Any, *, assistant_on: bool) -> list[str]:
+    """ON consumers that use the default connection implicitly (`connection_id: null`); a
+    change of the default changes their credentials (4-0a: the assistant)."""
+    if not assistant_on:
+        return []
+    asst = await load_assistant_row(session)
+    if asst is None or asst.get("connection_id") is not None:
+        return []
+    return ["assistant"]
+
+
 def required_errors(
     v: dict[str, Any], secret_key: str, *, has_cert: bool, has_key: bool
 ) -> list[dict[str, Any]]:

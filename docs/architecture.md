@@ -4637,9 +4637,12 @@ points are what the code does where the text was silent, ambiguous or not implem
    a consumer of the connection it names, or of the default when `connection_id` is null **and**
    the assistant is ON or has a model configured. Otherwise a fresh install that never set up the
    assistant could never delete its only connection.
-3. **Set as default** is not guarded by `test_required` (the contract has no rule): an ON
-   consumer with `connection_id: null` switches to the new default without a test. The UI should
-   say so; an explicit `connection_id` avoids it (open question for the owner).
+3. **Set as default** (coordinator decision): while an ON consumer uses the default
+   implicitly (`connection_id: null`), `POST …/{id}/default` needs `{"test_id"}` of a
+   successful Test of that connection's current values by the same admin (`422 test_required`,
+   `details: [{"connection_id", "used_by": ["assistant"]}]` otherwise) — the "configure first,
+   the switch unlocks after a successful Test" rule. With the assistant OFF, or with an
+   explicit `connection_id`, no test is needed. The test_id is consumed.
 4. **1.4.x helpers kept.** `netmon.assistant.config.merge` / `field_errors` / `required_errors` /
    `connection_hash` keep their 1.4.x meaning (they are the "1.4.x reader" of the rollback tests);
    the 4-0a assistant uses `merge_settings`, `settings_field_errors`, `settings_required_errors`,
@@ -4660,13 +4663,19 @@ points are what the code does where the text was silent, ambiguous or not implem
    "Enable access to this model in the Bedrock console of {region} … for the account {account}".
    Roles Anywhere answers naming a missing resource / an invalid ARN map to `ra_profile_role` +
    `role_arn_invalid`.
-8. **Save-time host check.** Endpoint overrides and the proxy URL use the 3b `endpoint_error` /
-   `proxy_error` (moved to `netmon.aws.endpoints`), which resolve the host name **at save time**
-   and refuse a name that does not resolve from the server ("could not resolve endpoint host").
-   A VPC endpoint DNS name that resolves only inside the VPC must be entered as its private IP
-   (or the server must use the VPC resolver). The 1.4.1 connect-time guard applies in addition.
+8. **Save-time host check** (coordinator decision: lenient and non-blocking). The syntax
+   check of endpoint overrides and the proxy URL (`netmon.aws.endpoints.endpoint_error` /
+   `proxy_error`) does no DNS lookup: it refuses IP literals and names that are blocked
+   without DNS (loopback outside test mode, link-local, metadata). The host names are then
+   resolved **off the event loop** (`connections.host_checks`: `asyncio.to_thread`, 3 s cap):
+   a name resolving to a blocked address → `422 validation_error` (`loc` the field); a name
+   that does **not resolve right now** (a VPC endpoint name only the VPC resolver knows, a DNS
+   outage) is accepted and reported as the connection warning `endpoint_unresolved` with
+   `unresolved_hosts` (re-checked on every read). The 1.4.1 connect-time egress guard stays
+   the enforcement. The assistant's own Bedrock / KB URLs keep the 1.4.x lookup.
 9. **Warnings moved.** `access_key_old`, `temporary_credentials`, `arn_accounts_differ`,
-   `cert_expiring`, `key_file_mode`, `cn_not_source_identity_safe` are connection warnings
+   `cert_expiring`, `key_file_mode`, `cn_not_source_identity_safe` (and the new
+   `endpoint_unresolved`, `vpce_via_proxy`) are connection warnings
    (`AwsConnection.warnings`); the assistant settings keep the Bedrock ones.
 10. **Mock.** The STS mock is `tests/sim/aws/mock_sts.py`, served at `POST /` of the shared mock
     app; its trust model is set with `POST /_sts/roles` or `MockBedrock.sts_config(...)`; the

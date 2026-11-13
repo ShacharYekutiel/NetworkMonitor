@@ -187,6 +187,51 @@ async def test_patch_needs_test_while_the_assistant_uses_it(
     await feats(c, assistant=False)
 
 
+async def test_set_default_needs_a_test_while_an_on_consumer_uses_the_default_implicitly(
+    rt: Runtime, env: httpx.AsyncClient, mock: Any
+) -> None:
+    """Coordinator decision (PR 4-0a): `POST …/{id}/default` follows "configure first" when an
+    ON consumer uses the default implicitly (`connection_id: null`)."""
+    c = env
+    a = await create_ak(c, mock, "Default")
+    b = await create_ak(c, mock, "Second")
+    # assistant OFF: no test needed
+    r = await c.post(f"/api/aws/connections/{b['id']}/default")
+    assert r.status_code == 200 and r.json()[0]["id"] == b["id"]
+    r = await c.post(f"/api/aws/connections/{a['id']}/default")
+    assert r.status_code == 200 and r.json()[0]["id"] == a["id"]
+    await enable_assistant(c, assistant_fields(mock))
+    assert (await c.get("/api/assistant/settings")).json()["connection_id"] is None
+    # ON + implicit default -> test_required, without and with a foreign / wrong test_id
+    r = await c.post(f"/api/aws/connections/{b['id']}/default")
+    assert r.status_code == 422 and r.json()["error"]["code"] == "test_required"
+    assert r.json()["error"]["details"] == [{"connection_id": b["id"], "used_by": ["assistant"]}]
+    # a test of other values (unsaved edits) does not count
+    other = await ctest(c, {"connection_id": b["id"], "connection": {"proxy_mode": "env"}})
+    assert other["ok"], other
+    r = await c.post(f"/api/aws/connections/{b['id']}/default", json={"test_id": other["test_id"]})
+    assert r.status_code == 422
+    res = await ctest(c, {"connection_id": b["id"]})
+    assert res["ok"], res
+    r = await c.post(f"/api/aws/connections/{b['id']}/default", json={"test_id": res["test_id"]})
+    assert r.status_code == 200, r.text
+    assert r.json()[0]["id"] == b["id"] and r.json()[0]["is_default"] is True
+    # the test_id is consumed; making the current default the default again needs nothing
+    assert (await c.post(f"/api/aws/connections/{b['id']}/default")).status_code == 200
+    # an explicit connection_id: the default no longer matters to the assistant
+    await c.put("/api/assistant/settings", json={"connection_id": b["id"]})
+    t = await c.post("/api/assistant/test", json={"settings": {"connection_id": b["id"]}})
+    assert t.json()["ok"], t.json()
+    r = await c.put(
+        "/api/assistant/settings",
+        json={"connection_id": b["id"], "test_id": t.json()["test_id"]},
+    )
+    assert r.status_code == 200, r.text
+    r = await c.post(f"/api/aws/connections/{a['id']}/default")
+    assert r.status_code == 200 and r.json()[0]["id"] == a["id"]
+    await feats(c, assistant=False)
+
+
 # ---------------------------------------------------------------- Test: layouts and modes
 async def test_layout_a_direct_roles_anywhere_in_the_bedrock_account(
     env: httpx.AsyncClient, mock: Any
@@ -443,6 +488,48 @@ async def test_egress_save_time_and_connect_time(env: httpx.AsyncClient, mock: A
             },
         )
         assert r.status_code == 422, url
+    # coordinator decision (PR 4-0a): the DNS check runs off the event loop and is lenient —
+    # a name that does not resolve now is only a warning; a name resolving to a blocked
+    # address is still refused (and the connect-time guard stays the enforcement)
+    from netmon.util import netguard
+
+    unresolved = "https://vpce-0abc-sts.us-east-1.vpce.example.invalid"
+    ov = [{"service": "sts", "region": "us-east-1", "url": unresolved}]
+    r = await c.post(
+        "/api/aws/connections", json={**base, "name": "unresolved", "endpoint_overrides": ov}
+    )
+    assert r.status_code == 201, r.text
+    assert "endpoint_unresolved" in r.json()["warnings"]
+    assert r.json()["unresolved_hosts"] == ["vpce-0abc-sts.us-east-1.vpce.example.invalid"]
+    r = await c.post(
+        "/api/aws/connections",
+        json={
+            **base,
+            "name": "unresolved proxy",
+            "proxy_mode": "custom",
+            "proxy_url": "http://proxy.example.invalid:3128",
+        },
+    )
+    assert r.status_code == 201, r.text
+    assert "endpoint_unresolved" in r.json()["warnings"]
+
+    def fake_resolver(host: str) -> list[Any]:
+        if host == "imds-alias.example.net":
+            return [(2, 1, 6, "", ("169.254.169.254", 0))]
+        raise OSError("no such host")
+
+    monkeypatch_resolver = netguard._default_resolver
+    netguard._default_resolver = fake_resolver  # type: ignore[assignment]
+    try:
+        ov = [{"service": "sts", "region": "us-east-1", "url": "https://imds-alias.example.net"}]
+        r = await c.post(
+            "/api/aws/connections", json={**base, "name": "alias", "endpoint_overrides": ov}
+        )
+        assert r.status_code == 422, r.text
+        assert r.json()["error"]["details"][0]["loc"] == ["body", "endpoint_overrides"]
+        assert "imds-alias.example.net" in r.json()["error"]["details"][0]["msg"]
+    finally:
+        netguard._default_resolver = monkeypatch_resolver  # type: ignore[assignment]
     for ok in ("https://10.0.0.5", "https://172.16.4.4:8443"):
         ov = [{"service": "sts", "region": "us-east-1", "url": ok}]
         r = await c.post(

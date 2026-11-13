@@ -29,6 +29,7 @@ from netmon.schemas.aws import (
     AwsConnectionPatch,
     AwsTestIn,
     CertCopyIn,
+    DefaultIn,
 )
 from netmon.services import audit
 from netmon.services.serialize import iso, now_utc
@@ -119,6 +120,10 @@ async def connection_out(rt: Any, session: Any, row: dict[str, Any]) -> dict[str
             "key_unreadable": conns.unreadable(v, "ra_csr_key_enc", sk),
         }
     aws = getattr(rt, "aws", None)
+    _, unresolved = await conns.host_checks(v, test_mode=_test_mode(rt))
+    warnings = _warnings(rt, v, cert_warns)
+    if unresolved:
+        warnings.append(conns.UNRESOLVED_WARNING)
     return {
         "id": row["id"],
         "name": row["name"],
@@ -148,7 +153,8 @@ async def connection_out(rt: Any, session: Any, row: dict[str, Any]) -> dict[str
         "used_by": await conns.used_by(session, row, assistant_on=_assistant_on(rt)),
         "chains": aws.cache.status_for(row["id"]) if aws is not None else [],
         "last_test": row.get("last_test"),
-        "warnings": _warnings(rt, v, cert_warns),
+        "warnings": warnings,
+        "unresolved_hosts": unresolved,
         "created_at": iso(row["created_at"]) if row.get("created_at") else None,
         "updated_at": iso(row["updated_at"]) if row.get("updated_at") else None,
     }
@@ -185,9 +191,13 @@ def _missing_create(fields: dict[str, Any]) -> list[dict[str, Any]]:
     ]
 
 
-def _validate_row(rt: Any, row: dict[str, Any]) -> dict[str, Any]:
+async def _validate_row(rt: Any, row: dict[str, Any]) -> dict[str, Any]:
+    """Syntax (no DNS), then the lenient DNS check off the event loop: a blocked address is
+    refused, a name that does not resolve now is only the `endpoint_unresolved` warning."""
     v = conns.view(row)
     _validation(conns.field_errors(v, test_mode=_test_mode(rt)))
+    errs, _ = await conns.host_checks(v, test_mode=_test_mode(rt))
+    _validation(errs)
     return v
 
 
@@ -211,7 +221,7 @@ async def create_connection(
     fields = body.changes()
     _validation(_missing_create(fields))
     row = conns.new_row(fields, rt.secret_key)
-    _validate_row(rt, {**row, "id": None})
+    await _validate_row(rt, {**row, "id": None})
     if await conns.name_taken(session, row["name"]):
         raise ApiError(409, "conflict", "A connection with this name exists", [{"field": "name"}])
     new = await conns.insert(session, row)
@@ -243,7 +253,7 @@ async def patch_connection(
     fields = body.changes()
     fields.pop("test_id", None)
     merged = conns.merge(row, fields, rt.secret_key)
-    v_new = _validate_row(rt, merged)
+    v_new = await _validate_row(rt, merged)
     if merged["name"] != row["name"] and await conns.name_taken(session, merged["name"], conn_id):
         raise ApiError(409, "conflict", "A connection with this name exists", [{"field": "name"}])
     sk = rt.secret_key
@@ -296,11 +306,33 @@ async def delete_connection(
 
 @router.post("/api/aws/connections/{conn_id}/default")
 async def make_default(
-    conn_id: int, _: Admin, __: SessionUser, rt: RT, session: DB, ctx: Audit
+    conn_id: int,
+    user: Admin,
+    __: SessionUser,
+    rt: RT,
+    session: DB,
+    ctx: Audit,
+    body: DefaultIn | None = None,
 ) -> list[dict]:
     row = await _row_or_404(session, conn_id, lock=True)
     before = await conns.default_row(session)
+    test_id = body.test_id if body is not None else None
+    needs_test = False
     if not row["is_default"]:
+        # coordinator decision (PR 4-0a): an ON consumer that uses the default implicitly
+        # (`connection_id: null`) would switch to these credentials, so the same rule as
+        # "configure first" applies: a successful Test of this connection in this session
+        users = await conns.implicit_default_users(session, assistant_on=_assistant_on(rt))
+        if users:
+            needs_test = True
+            h = conns.connection_hash(conns.view(row), rt.secret_key)
+            if not rt.aws.tests.valid("aws_connection", test_id, user.id, h):
+                raise ApiError(
+                    422,
+                    "test_required",
+                    "Run a successful Test of this connection first",
+                    [{"connection_id": conn_id, "used_by": users}],
+                )
         await conns.set_default(session, conn_id)
         await audit.record(
             session,
@@ -311,6 +343,8 @@ async def make_default(
         )
         await conns.sync_legacy(session)
         await session.commit()
+        if needs_test and test_id:
+            rt.aws.tests.consume(test_id)
         await _after_write(rt, None)
     return [await connection_out(rt, session, r) for r in await conns.list_rows(session)]
 

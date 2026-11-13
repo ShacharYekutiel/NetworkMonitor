@@ -25,9 +25,20 @@ SERVICE_RE = re.compile(r"^[a-z][a-z0-9-]{1,30}$")
 MAX_OVERRIDES = 40
 
 
-def endpoint_error(url: str | None, *, test_mode: bool) -> str | None:
+def static_resolver(host: str) -> list[Any]:
+    """A netguard resolver that never looks a name up: the save-time check then refuses only
+    what is blocked without DNS (IP literals, loopback and metadata names). Names are checked
+    off the event loop by `netmon.aws.connections.host_checks`, and the 1.4.1 egress guard
+    checks every address again at connect time."""
+    return []
+
+
+def endpoint_error(
+    url: str | None, *, test_mode: bool, resolver: Any = static_resolver
+) -> str | None:
     """`https://host[:port]` only (no path, query or user info); `http://` only in test mode;
-    netguard (loopback only in test mode, never link-local / metadata)."""
+    netguard (loopback only in test mode, never link-local / metadata). No DNS lookup by
+    default (`static_resolver`)."""
     if url is None or url == "":
         return None
     try:
@@ -43,10 +54,14 @@ def endpoint_error(url: str | None, *, test_mode: bool) -> str | None:
         return "must not contain credentials"
     if parts.path not in ("", "/") or parts.query or parts.fragment:
         return "must not contain a path"
-    return netguard.blocked_endpoint_host(parts.hostname, allow_loopback=test_mode)
+    return netguard.blocked_endpoint_host(
+        parts.hostname, allow_loopback=test_mode, resolver=resolver
+    )
 
 
-def proxy_error(url: str | None, *, test_mode: bool = False) -> str | None:
+def proxy_error(
+    url: str | None, *, test_mode: bool = False, resolver: Any = static_resolver
+) -> str | None:
     if not url:
         return "required for proxy mode custom"
     try:
@@ -60,7 +75,19 @@ def proxy_error(url: str | None, *, test_mode: bool = False) -> str | None:
         return "credentials in the proxy URL are not supported"
     if parts.path not in ("", "/"):
         return "must not contain a path"
-    return netguard.blocked_endpoint_host(parts.hostname, allow_loopback=test_mode)
+    return netguard.blocked_endpoint_host(
+        parts.hostname, allow_loopback=test_mode, resolver=resolver
+    )
+
+
+def url_host(url: str | None) -> str | None:
+    """The host name of an admin-typed URL (None when it has none or does not parse)."""
+    if not url:
+        return None
+    try:
+        return urlsplit(url).hostname
+    except ValueError:
+        return None
 
 
 def override_errors(value: Any, *, test_mode: bool) -> list[str]:

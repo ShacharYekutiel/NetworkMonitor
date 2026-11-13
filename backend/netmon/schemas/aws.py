@@ -121,3 +121,10 @@ class AwsTestIn(_Strict):
 
 class CertCopyIn(_Strict):
     from_connection_id: int = Field(ge=1)
+
+
+class DefaultIn(_Strict):
+    """`POST /api/aws/connections/{id}/default`: the `test_id` of a successful Test of that
+    connection, needed while an ON consumer uses the default implicitly."""
+
+    test_id: str | None = Field(default=None, max_length=64)

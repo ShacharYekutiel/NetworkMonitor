@@ -314,12 +314,13 @@ def merge_kb(stored: dict[str, Any], fields: dict[str, Any]) -> dict[str, Any]:
 # ---------------------------------------------------------------- validation (pure)
 def endpoint_error(url: str | None, *, test_mode: bool) -> str | None:
     """`https://host[:port]` only (no path, query or user info); `http://` only in test mode
-    ([4] moved to `netmon.aws.endpoints.endpoint_error`)."""
-    return _endpoints.endpoint_error(url, test_mode=test_mode)
+    ([4] moved to `netmon.aws.endpoints.endpoint_error`). The assistant's own Bedrock / KB URLs
+    keep the 1.4.x save-time DNS lookup (netguard's default resolver)."""
+    return _endpoints.endpoint_error(url, test_mode=test_mode, resolver=None)
 
 
 def proxy_error(url: str | None, *, test_mode: bool = False) -> str | None:
-    return _endpoints.proxy_error(url, test_mode=test_mode)
+    return _endpoints.proxy_error(url, test_mode=test_mode, resolver=None)
 
 
 def cidr_error(values: list[str]) -> str | None:
