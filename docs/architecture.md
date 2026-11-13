@@ -4686,6 +4686,21 @@ points are what the code does where the text was silent, ambiguous or not implem
     `test_p4_assistant_compat.py` and `test_p4_aws_migration.py` (P4-1 + the mirror / rollback
     reader) instead of the eight files of § 15.1.11; the coverage is the same.
 
+12. **Frontend (PR 4-0a).** Components in `frontend/src/components/aws/`: `AwsConnectionsCard`
+    (list + *Set as default* dialog + delete with the reason), `AwsConnectionForm` (editor; an
+    optional role hop that is only used for the Test and the rendered policies, never stored),
+    `RolesAnywhereCertificateCard`, `AwsPoliciesPanel`, `AwsAccessBlock`, `AwsTestSteps` (the
+    step list per hop with the hints; the assistant's Test uses it too). Hint texts are
+    translated per `hint.code` (`aws.hint.*`, en + he) with the backend `values` interpolated as
+    left-to-right isolates and listed under the hint; the server text is the fallback for an
+    unknown code. *Set as default* runs the connection Test first (with the assistant's hop)
+    whenever the ON assistant uses the default implicitly, then sends the `test_id` (note 3).
+    The settings-search cards of the editor, the certificate and the policies fall back to the
+    list card while no connection is open. **Not built in 4-0a:** the `ConfigureFirstForm`
+    extraction (§ 15.1.10) waits for its second user (PR 4d), the assistant keeps its own
+    configure-first form; the E2E "upgrade fixture" (a 1.4.x database) is covered by the
+    migration tests (`test_p4_aws_migration.py`) instead of spec 90.
+
 ### 15.2 AWS cloud view and VPC Flow Logs (4d — first in phase 4) [4]
 
 #### 15.2.1 Scope and decisions
