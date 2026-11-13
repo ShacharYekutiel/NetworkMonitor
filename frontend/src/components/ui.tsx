@@ -264,25 +264,26 @@ export function ErrorBox({
   );
 }
 
+/** Inline message (design system: Banner): the tone's soft ground, ink text, a tone edge. */
+export const BANNER = 'rounded-lg border-s-2 px-3.5 py-2.5 text-[13px] text-ink';
+export const BANNER_TONE = {
+  info: 'border-accent-ink bg-accent-soft',
+  success: 'border-status-up bg-status-up-soft',
+  warning: 'border-status-warning bg-status-warning-soft',
+  error: 'border-status-down bg-status-down-soft',
+  neutral: 'border-line-strong bg-surface-sunken',
+} as const;
+
 export function Notice({
   children,
   tone = 'info',
+  className,
 }: {
   children: ReactNode;
-  tone?: 'info' | 'success';
+  tone?: keyof typeof BANNER_TONE;
+  className?: string;
 }) {
-  return (
-    <div
-      className={cx(
-        'rounded-lg border-s-2 px-3.5 py-2.5 text-sm text-ink',
-        tone === 'success'
-          ? 'border-status-up bg-status-up-soft'
-          : 'border-accent-ink bg-accent-soft',
-      )}
-    >
-      {children}
-    </div>
-  );
+  return <div className={cx(BANNER, BANNER_TONE[tone], className)}>{children}</div>;
 }
 
 export function Empty({ children }: { children: ReactNode }) {
@@ -583,6 +584,18 @@ export function Chip({
     </span>
   );
 }
+
+/** Dense tag inside rows and lists (design system: chip at tab size): soft ground, no outline. */
+export const TAG =
+  'inline-flex h-[18px] items-center gap-1 whitespace-nowrap rounded-sm px-[5px] align-middle text-[11px] font-semibold leading-none';
+export const TAG_TONE = {
+  neutral: 'border border-line bg-surface-sunken text-ink-muted',
+  accent: 'bg-accent-soft text-accent-ink',
+  warning: 'bg-status-warning-soft text-status-warning',
+  down: 'bg-status-down-soft text-status-down',
+  up: 'bg-status-up-soft text-status-up',
+  paused: 'bg-status-paused-soft text-status-paused',
+} as const;
 
 /** A count next to a card title (neutral pill, mono numerals). */
 export function CountPill({ n, className }: { n: number; className?: string }) {

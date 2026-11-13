@@ -26,6 +26,22 @@
   ::placeholder {
     color: var(--ink-subtle);
   }
+  /* Native checkboxes / radios take the accent; file pickers get a secondary button. */
+  input[type='checkbox'],
+  input[type='radio'] {
+    accent-color: var(--accent);
+  }
+  input[type='file']::file-selector-button {
+    margin-inline-end: 0.75rem;
+    height: 26px;
+    padding: 0 9px;
+    border: 1px solid var(--border-strong);
+    border-radius: var(--radius-md);
+    background: var(--surface);
+    color: var(--ink);
+    font: 600 12px var(--font-sans);
+    cursor: pointer;
+  }
   /*
    * Native <select> popups (notably Chrome/Edge on Windows) draw <option>s with their own
    * colours; without explicit ones they can end up white-on-white in dark mode.
@@ -65,7 +81,7 @@
   }
 }
 
-/* [3b] AI answers (markdown-it output, HTML disabled) */
+/* [3b] AI answers (markdown-it output, HTML disabled), in design tokens */
 .nm-md > * + * {
   margin-top: 0.5rem;
 }
@@ -87,32 +103,25 @@
   font-weight: 600;
 }
 .nm-md a {
-  color: rgb(3 105 161);
+  color: var(--accent-ink);
   text-decoration: underline;
   text-underline-offset: 2px;
 }
-.dark .nm-md a {
-  color: rgb(56 189 248);
-}
 .nm-md code {
-  border-radius: 0.25rem;
-  background: rgb(241 245 249);
+  border-radius: var(--radius-sm);
+  background: var(--surface-sunken);
   padding: 0 0.25rem;
+  font-family: var(--font-mono);
   font-size: 0.8em;
-}
-.dark .nm-md code {
-  background: rgb(30 41 59);
 }
 .nm-md pre {
   overflow-x: auto;
-  border-radius: 0.375rem;
-  background: rgb(241 245 249);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  background: var(--surface-sunken);
   padding: 0.5rem;
   font-size: 0.75rem;
   text-align: left;
-}
-.dark .nm-md pre {
-  background: rgb(30 41 59);
 }
 .nm-md pre code {
   background: transparent;
@@ -127,16 +136,17 @@
 }
 .nm-md th,
 .nm-md td {
-  border: 1px solid rgb(226 232 240);
+  border: 1px solid var(--border);
   padding: 0.25rem 0.5rem;
   text-align: start;
 }
-.dark .nm-md th,
-.dark .nm-md td {
-  border-color: rgb(51 65 85);
+.nm-md th {
+  background: var(--surface-sunken);
+  color: var(--ink-muted);
+  font-weight: 500;
 }
 .nm-md blockquote {
-  border-inline-start: 3px solid rgb(203 213 225);
+  border-inline-start: 3px solid var(--border-strong);
   padding-inline-start: 0.5rem;
-  color: rgb(100 116 139);
+  color: var(--ink-muted);
 }
