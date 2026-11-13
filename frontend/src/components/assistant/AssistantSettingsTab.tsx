@@ -1129,7 +1129,7 @@ export function AssistantSettingsTab({ settings }: { settings: Settings }) {
       </div>
       <div id="as-kb">
         <KnowledgeCard
-          assistantKey={`${s.auth_mode}|${s.region}|${s.model_id}|${s.endpoint_url ?? ''}`}
+          assistantKey={`${s.connection_id ?? ''}|${JSON.stringify(s.access)}|${s.region}|${s.model_id}|${s.endpoint_url ?? ''}`}
         />
       </div>
     </div>

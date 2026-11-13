@@ -445,7 +445,8 @@
       "reports": "דוחות",
       "noc": "מסכי NOC",
       "chatAck": "אישור מהצ'אט",
-      "assistant": "עוזר (AI)"
+      "assistant": "עוזר (AI)",
+      "aws": "AWS"
     }
   },
   "users": {
@@ -596,7 +597,12 @@
     "walk_running": "כבר רצה סריקה של התקן זה.",
     "template_exists": "כבר קיימת תבנית משתמש עם מזהה זה.",
     "invalid_template": "ה-YAML של התבנית אינו עובר בדיקה.",
-    "stream_interrupted": "החיבור לתשובה נותק."
+    "stream_interrupted": "החיבור לתשובה נותק.",
+    "aws_assume_role_denied": "‏AWS STS סירב לבצע את המעבר לתפקיד.",
+    "aws_assume_role_invalid": "‏AWS STS דחה את הבקשה לתפקיד (ARN של התפקיד, משך הסשן או אזור STS).",
+    "aws_connection_unconfigured": "חיבור ה-AWS חסר או אינו שלם.",
+    "test_required": "הרץ קודם בדיקה מוצלחת של הערכים האלה.",
+    "assistant_unconfigured": "העוזר עדיין לא הוגדר."
   },
   "sensorType": {
     "ping": "Ping",
@@ -3346,7 +3352,7 @@
         "chatModels": "מודלים לצ׳אט"
       },
       "connection": "חיבור ל-Amazon Bedrock",
-      "connectionIntro": "מלא את פרטי החיבור, הרץ \"בדיקת חיבור\" ואז הפעל את העוזר בתחתית. מומלץ: אזור us-east-1 עם פרופיל הסקה ‎us.‎ ואימות באמצעות IAM Roles Anywhere.",
+      "connectionIntro": "מלא את הגדרות Bedrock, בחר את חיבור ה-AWS, הרץ \"בדיקת חיבור\" ואז הפעל את העוזר בתחתית. מומלץ: אזור us-east-1 עם פרופיל הסקה ‎us.‎",
       "authMode": "אימות",
       "recommended": "מומלץ",
       "auth": {
@@ -3430,7 +3436,8 @@
       "missing": {
         "certificate": "העלה קודם תעודה (או צור CSR).",
         "secret": "הזן את מפתח הגישה הסודי.",
-        "sessionToken": "מפתח זמני (ASIA…) דורש session token."
+        "sessionToken": "מפתח זמני (ASIA…) דורש session token.",
+        "connection": "הוסף קודם חיבור AWS (הגדרות ← AWS)."
       },
       "enableNeedsTest": "יש להריץ קודם בדיקת חיבור מוצלחת עם הערכים האלה.",
       "changeNeedsTest": "שדות החיבור השתנו: הרץ בדיקת חיבור לפני השמירה.",
@@ -3523,7 +3530,10 @@
         "credentials": "הרשאות",
         "endpoint": "נקודת קצה (TCP + TLS)",
         "converse": "קריאה למודל",
-        "knowledge": "מאגר ידע"
+        "knowledge": "מאגר ידע",
+        "identity": "זהות (STS)",
+        "hop": "קפיצת תפקיד",
+        "hop_identity": "הזהות אחרי הקפיצה"
       },
       "endpoint": "נקודת קצה",
       "class": {
@@ -3928,5 +3938,293 @@
     "clear": "ניקוי החיפוש",
     "none": "לא נמצאו הגדרות",
     "requires": "דורש את התכונה {{feature}} — הפעילו אותה בלשונית {{tab}}"
+  },
+  "aws": {
+    "tabIntro": "חיבורי AWS משותפים: הזהות שבה NetworkMonitor פונה ל-AWS. העוזר (ובהמשך תכונות AWS נוספות) בוחר חיבור, ואם צריך גם תפקיד אחד שאליו יעבור ממנו.",
+    "connections": {
+      "title": "חיבורי AWS",
+      "connections": "חיבורים",
+      "defaultConnection": "חיבור ברירת המחדל",
+      "add": "הוספת חיבור",
+      "empty": "אין עדיין חיבור AWS. הוסף חיבור כדי להשתמש בעוזר או בתכונות AWS אחרות.",
+      "col": {
+        "name": "שם",
+        "auth": "אימות",
+        "identity": "חשבון / ARN (בבדיקה האחרונה)",
+        "lastTest": "בדיקה אחרונה",
+        "usedBy": "בשימוש של"
+      },
+      "defaultBadge": "ברירת מחדל",
+      "setDefault": "הגדרה כברירת מחדל",
+      "setDefaultTitle": "להפוך את “{{name}}” לחיבור ברירת המחדל",
+      "setDefaultImplicit": "העוזר משתמש ב“חיבור ברירת המחדל”, ולכן החל מהשאלה הבאה הוא ישתמש ב-“{{name}}”. בדוק קודם את החיבור: ברירת המחדל תשתנה רק אחרי בדיקה מוצלחת.",
+      "setDefaultPlain": "כל מה שמשתמש ב“חיבור ברירת המחדל” ישתמש ב-“{{name}}”.",
+      "testAndSetDefault": "בדיקה והגדרה כברירת מחדל",
+      "deleteUsed": "בשימוש של {{list}} — בחר שם קודם חיבור אחר.",
+      "deleteDefault": "אי אפשר למחוק את חיבור ברירת המחדל כל עוד קיימים חיבורים אחרים — הגדר קודם חיבור אחר כברירת מחדל.",
+      "deleteConfirm": "למחוק את חיבור ה-AWS “{{name}}”? גם התעודה והמפתחות שלו יימחקו.",
+      "never": "לא נבדק",
+      "lastOk": "תקין · {{time}}",
+      "lastFail": "{{code}} · {{time}}",
+      "consumer": {
+        "assistant": "העוזר"
+      },
+      "accessShort": {
+        "direct": "ישירות",
+        "assume_role": "עובר לתפקיד",
+        "ra_role": "תפקיד Roles Anywhere אחר"
+      },
+      "chainState": {
+        "ok": "פועל",
+        "error": "נכשל",
+        "idle": "לא פעיל"
+      }
+    },
+    "auth": {
+      "roles_anywhere": "IAM Roles Anywhere (תעודה)",
+      "access_key": "מפתח גישה",
+      "default_chain": "שרשרת ההרשאות ברירת המחדל"
+    },
+    "authHint": {
+      "roles_anywhere": "הרשאות זמניות מתעודה של ה-PKI הארגוני. לא נשמר סוד ארוך-טווח.",
+      "access_key": "מפתח קבוע של משתמש IAM ייעודי, או מפתח זמני יחד עם ה-session token שלו.",
+      "default_chain": "משתני סביבה, הרשאות קונטיינר או תפקיד מכונת EC2 (לשרת שרץ ב-AWS)."
+    },
+    "form": {
+      "titleNew": "חיבור AWS חדש",
+      "titleEdit": "עריכת “{{name}}”",
+      "name": "שם",
+      "authMode": "אימות",
+      "region": "אזור",
+      "regionHint": "האזור של STS ושל IAM Roles Anywhere. הרשאות שהונפקו בנקודת קצה אזורית של STS תקפות בכל האזורים.",
+      "raTrustAnchor": "ARN של עוגן האמון (Trust anchor)",
+      "raProfile": "ARN של הפרופיל",
+      "raRole": "ARN של התפקיד (Role)",
+      "raRegion": "אזור Roles Anywhere (רשות)",
+      "raRegionHint": "ריק = אזור החיבור.",
+      "raSession": "משך הסשן (שניות)",
+      "raSessionHint": "900–43200; לא יותר ממה שהפרופיל מתיר.",
+      "accessKeyAdvice": "מומלץ IAM Roles Anywhere: מפתח גישה הוא סוד ארוך-טווח. השתמש במשתמש IAM ייעודי שיש לו רק את ההרשאות הדרושות.",
+      "accessKeyId": "מזהה מפתח גישה",
+      "secretKey": "מפתח גישה סודי",
+      "sessionToken": "Session token",
+      "sessionTokenHint": "רק למפתחות זמניים (ASIA…). השאר ריק למפתח של משתמש IAM ‏(AKIA…).",
+      "sessionTokenStored": "שמור session token. הדבק חדש כדי להחליף אותו.",
+      "sessionTokenClear": "מחיקת ה-session token השמור",
+      "keyCreated": "תאריך יצירת המפתח",
+      "keyCreatedHint": "רשות — תזכורת אחרי 90 יום.",
+      "secretUnreadable": "לא ניתן לפענח את הסוד השמור (secret.key השתנה). הזן אותו מחדש.",
+      "defaultChainInfo": "נבדקים לפי הסדר: משתני הסביבה (AWS_ACCESS_KEY_ID / AWS_SECRET_ACCESS_KEY), הרשאות הקונטיינר (ECS) ותפקיד מכונת EC2 דרך IMDSv2 (ב-Docker נדרש hop limit 2). הבדיקה מציגה באיזה מקור נעשה שימוש.",
+      "network": "רשת",
+      "proxyMode": "פרוקסי",
+      "proxy": {
+        "env": "מהסביבה (HTTPS_PROXY / NO_PROXY)",
+        "direct": "ישיר (ללא פרוקסי)",
+        "custom": "פרוקסי מותאם"
+      },
+      "proxyHint": {
+        "env": "יש לרשום את כתובות נקודות הקצה של ה-VPC ב-NO_PROXY.",
+        "direct": "לנקודות קצה VPC שנגישות דרך Direct Connect.",
+        "custom": "http://host:port, ללא פרטי הזדהות."
+      },
+      "proxyUrl": "כתובת הפרוקסי",
+      "overrides": "עקיפות של נקודות קצה",
+      "overridesHint": "לנקודות קצה VPC מסוג interface: כתובת ה-https://‎ של נקודת הקצה לכל שירות ואזור. בלי עקיפה נעשה שימוש בנקודת הקצה הציבורית של AWS.",
+      "overrideService": "שירות",
+      "overrideRegion": "אזור",
+      "overrideUrl": "כתובת",
+      "addOverride": "הוספת עקיפה",
+      "removeOverride": "הסרה",
+      "hopTitle": "קפיצת תפקיד לבדיקה ולמדיניות (רשות)",
+      "hopHint": "בדוק את החיבור יחד עם קפיצה אחת לתפקיד, כפי שצרכן ישתמש בו. דבר מכאן אינו נשמר.",
+      "test": "בדיקת חיבור",
+      "create": "יצירת חיבור",
+      "saveFirst": "שמור קודם את החיבור; אחר כך העלה את התעודה שלו או צור CSR.",
+      "needsTest": "העוזר משתמש בחיבור הזה והוא פעיל: הרץ בדיקה מוצלחת של הערכים ששונו לפני השמירה.",
+      "missing": {
+        "certificate": "העלה קודם תעודה (או צור CSR).",
+        "secret": "הזן את מפתח הגישה הסודי.",
+        "sessionToken": "מפתח זמני (ASIA…) צריך גם session token."
+      },
+      "arnAccounts": "ה-ARN של עוגן האמון, של הפרופיל ושל התפקיד נמצאים בחשבונות AWS שונים. ‏Roles Anywhere מנפיק רק תפקידים של החשבון שלו — כדי להגיע לחשבון אחר השתמש בקפיצת תפקיד (מעבר לתפקיד).",
+      "unresolved": "השרת אינו מצליח לפענח כרגע את הכתובות: {{hosts}}. החיבור נשמר בכל זאת; הכתובת תיבדק שוב כשייעשה בחיבור שימוש.",
+      "used": "בשימוש של {{list}}."
+    },
+    "err": {
+      "name": "1–64 תווים",
+      "region": "אזור לא תקין (למשל us-east-1)",
+      "arnTwice": "ה-ARN מופיע פעמיים — הדבק אותו פעם אחת.",
+      "arn": "ARN לא תקין לשדה הזה",
+      "session": "900–43200",
+      "accessKey": "AKIA… או ASIA… ואחריו 16 תווים",
+      "sessionToken": "עד 4096 תווי base64 ‏(A–Z, a–z, 0–9, + / =)",
+      "proxy": "http://host:port",
+      "url": "https://host[:port] ללא נתיב",
+      "overrideDup": "רק עקיפה אחת לכל שירות ואזור",
+      "overrideRegion": "אזור לא תקין",
+      "required": "שדה חובה",
+      "externalId": "2–1224 תווים: אותיות, ספרות ו-‎_+=,.@:/-‎",
+      "raOnly": "רק עם חיבור Roles Anywhere",
+      "profileAccount": "התפקיד חייב להיות בחשבון של הפרופיל"
+    },
+    "warning": {
+      "access_key_old": "מפתח הגישה ישן מ-90 יום — יש להחליפו.",
+      "temporary_credentials": "הרשאות זמניות (session token) פגות אחרי כמה שעות — מתאים לניסיון; לשרת השתמש ב-Roles Anywhere, במפתח של משתמש IAM או בשרשרת ברירת המחדל.",
+      "arn_accounts_differ": "ה-ARN של עוגן האמון, של הפרופיל ושל התפקיד נמצאים בחשבונות AWS שונים.",
+      "cert_expiring": "תעודת Roles Anywhere פגה בעוד פחות מ-30 יום.",
+      "key_file_mode": "קובץ המפתח הפרטי בשרת קריא למשתמשים אחרים.",
+      "cn_not_source_identity_safe": "ה-CN של התעודה מכיל תווים שזהות מקור (source identity) אינה יכולה לשאת (למשל רווח).",
+      "vpce_via_proxy": "נקודת קצה של VPC נגישה דרך הפרוקסי. הוסף ‎.vpce.amazonaws.com ל-NO_PROXY או בחר מצב פרוקסי \"ישיר\".",
+      "endpoint_unresolved": "השרת אינו מצליח כרגע לפענח את הכתובת של עקיפת נקודת קצה או של הפרוקסי.",
+      "sts_unreachable": "אין גישה ל-STS. גישה ישירה אינה צריכה אותו, אבל קפיצת תפקיד כן.",
+      "account_mismatch": "החשבון של אחת הזהויות שונה מהחשבון שב-ARN שבו נעשה שימוש."
+    },
+    "cert": {
+      "title": "תעודת Roles Anywhere",
+      "none": "אין עדיין תעודה.",
+      "mode": {
+        "upload": "העלאת תעודה ומפתח",
+        "csr": "יצירת CSR"
+      },
+      "subjectCn": "CN של הנושא",
+      "issuerCn": "CN של המנפיק",
+      "sourceIdentity": "זהות המקור (Source identity)",
+      "identityIntro": "השווה מול מדיניות האמון: aws:PrincipalTag/x509Subject/CN חייב להיות ה-CN של הנושא, aws:PrincipalTag/x509Issuer/CN ה-CN של המנפיק, ומדיניות האמון של קפיצת תפקיד בודקת את aws:SourceIdentity.",
+      "csrIntro": "השרת יוצר את המפתח הפרטי (הוא לעולם אינו יוצא מהשרת) ובקשת תעודה. הגש את ה-CSR ל-CA שלך ואז העלה כאן את התעודה שהונפקה.",
+      "csrPending": "בקשה ממתינה {{subject}}, נוצרה ב-{{time}}.",
+      "cn": "שם כללי (CN)",
+      "cnHint": "הופך לזהות המקור CN=…‏ — אותיות, ספרות ו-. - _ @, למשל netmonitor.example.net.",
+      "cnUnsafe": "ה-CN הזה מכיל תווים שזהות מקור אינה יכולה לשאת (למשל רווח). עדיף אותיות, ספרות ו-. - _ @.",
+      "keyType": "סוג מפתח",
+      "generateCsr": "יצירת CSR",
+      "downloadCsr": "הורדת CSR",
+      "discardCsr": "ביטול הבקשה",
+      "issuedFile": "התעודה שהונפקה (‎.cer,‏ ‎.crt,‏ ‎.pem,‏ ‎.der או ‎.p7b)",
+      "keyStays": "המפתח הפרטי נשאר בשרת — העלה רק את התעודה.",
+      "ownKey": "לתעודה הזו יש מפתח משלה",
+      "csrKey": "שימוש במפתח של הבקשה הממתינה",
+      "notAKey": "נראה שזה מפתח פרטי. במצב CSR המפתח נוצר בשרת ונשאר בו — בחר את התעודה שה-CA הנפיק (‎.cer,‏ ‎.pem,‏ ‎.p7b).",
+      "uploadIssued": "העלאת התעודה שהונפקה",
+      "keyMismatch": "התעודה הזו לא הונפקה עבור הבקשה הממתינה. הבקשה: {{csr}} (נוצרה ב-{{time}}). התעודה: {{cert}}. הגש את ה-CSR הממתין, או בטל אותו והעלה את התעודה יחד עם המפתח שלה.",
+      "certreqTitle": "הגשה ל-Active Directory Certificate Services",
+      "templateName": "שם התבנית",
+      "templateHint": "השתמש בשם התבנית (מסוף Certificate Templates ← התבנית ← General ← Template name, ללא רווחים) ולא בשם התצוגה שלה. השגיאה 0x80094800 ‏(CERTSRV_E_UNSUPPORTED_CERT_TYPE) פירושה שה-CA אינו מכיר את השם הזה או אינו מפרסם את התבנית.",
+      "templateSpaces": "בשם תבנית אין רווחים — נראה שזה שם התצוגה.",
+      "copyFrom": "העתקת תעודה מחיבור",
+      "copyPick": "בחר חיבור…",
+      "copy": "העתקה",
+      "copiedOk": "התעודה הועתקה",
+      "file": "תעודה (PEM עם שרשרת, DER,‏ ‎.p7b, או ‎.pfx / .p12)",
+      "fileHint": "עד 64 KiB",
+      "keyFile": "מפתח פרטי (PEM)",
+      "keyHint": "לא נדרש עבור ‎.pfx / .p12",
+      "password": "סיסמה",
+      "passwordHint": "למפתח מוצפן או ל-‎.pfx; לעולם אינה נשמרת",
+      "upload": "העלאה",
+      "uploadedOk": "התעודה הועלתה",
+      "subject": "נושא",
+      "issuer": "מנפיק",
+      "serial": "מספר סידורי",
+      "validity": "תוקף",
+      "daysLeft_one": "נותר יום אחד",
+      "daysLeft_two": "נותרו יומיים",
+      "daysLeft_other": "נותרו {{count}} ימים",
+      "expired": "פג תוקף",
+      "key": "מפתח",
+      "keyUnreadable": "לא ניתן לפענח את המפתח השמור (secret.key השתנה) — העלה מחדש.",
+      "chain": "שרשרת",
+      "source": "מקור",
+      "fromFiles": "קבצים בשרת (NETMON_AWS_RA_CERT_FILE)",
+      "uploaded": "הועלתה ב-{{time}}",
+      "filesReadOnly": "התעודה נלקחת מקבצים בשרת ולכן כאן היא לקריאה בלבד.",
+      "delete": "מחיקת התעודה",
+      "deleteConfirm": "למחוק את התעודה והמפתח שהועלו לחיבור הזה?",
+      "requirements": "דרישות: X.509 v3, ‏CA:FALSE, שימוש מפתח Digital Signature, ‏SHA-256 ומעלה, RSA ≥ 2048 או ECDSA P-256/P-384; מומלץ Client Authentication.",
+      "err": {
+        "invalid_certificate": "התעודה אינה שמישה",
+        "invalid_private_key": "לא ניתן לקרוא את המפתח הפרטי (פורמט או סיסמה שגויים).",
+        "key_mismatch": "המפתח אינו תואם לתעודה."
+      }
+    },
+    "policies": {
+      "title": "מדיניות IAM צפויה",
+      "intro": "נבנתה מהערכים של החיבור הזה — השווה אותה למה שמוגדר ב-IAM או העתק אותה.",
+      "base_trust_policy": "מדיניות האמון של תפקיד Roles Anywhere",
+      "hop_caller_policy": "ההרשאות של זהות הבסיס עבור הקפיצה",
+      "hop_trust_policy": "מדיניות האמון של תפקיד היעד",
+      "notes": "לא נבנה",
+      "none": "אין עדיין מה להציג.",
+      "copy": "העתקת JSON",
+      "note": {
+        "taMissing": "מדיניות האמון של תפקיד Roles Anywhere: ה-ARN של עוגן האמון עדיין לא הוזן.",
+        "noCert": "מדיניות האמון של תפקיד Roles Anywhere: אין עדיין תעודה, ולכן תנאי ה-CN לא נכללו.",
+        "notRa": "מדיניות אמון עבור Roles Anywhere רלוונטית רק לחיבור מסוג Roles Anywhere.",
+        "baseUnknown": "מדיניות האמון של תפקיד היעד: ה-ARN של זהות הבסיס עדיין לא ידוע — הרץ קודם את בדיקת החיבור.",
+        "noSourceIdentity": "מדיניות האמון של תפקיד היעד: אין תעודה, ולכן זהות המקור עדיין לא ידועה.",
+        "noExternalId": "מדיניות האמון של תפקיד היעד: אין ExternalId — מומלץ להוסיף אחד נגד בעיית ה-confused deputy."
+      }
+    },
+    "access": {
+      "title": "גישה ל-AWS",
+      "intro": "באיזה חיבור AWS העוזר משתמש, ואיך הוא מגיע ל-Bedrock.",
+      "connection": "חיבור",
+      "defaultOption": "חיבור ברירת המחדל ({{name}})",
+      "defaultNone": "חיבור ברירת המחדל (עדיין אין)",
+      "manage": "ניהול חיבורים",
+      "how": "איך להגיע ל-Bedrock",
+      "mode": {
+        "direct": "שימוש ישיר בחיבור",
+        "assume_role": "מעבר לתפקיד (Assume role)",
+        "ra_role": "תפקיד אחר של אותו פרופיל Roles Anywhere"
+      },
+      "modeHint": {
+        "direct": "ההרשאות של החיבור עצמו (גם למשאב שמדיניות המשאב שלו מתירה את התפקיד שלו).",
+        "assume_role": "‏sts:AssumeRole לתפקיד בכל חשבון (למשל חשבון ה-Bedrock), עם ExternalId.",
+        "ra_role": "סשן Roles Anywhere נוסף עם אותה תעודה, לתפקיד אחר בחשבון של הפרופיל."
+      },
+      "roleArn": "ARN של התפקיד",
+      "externalId": "ExternalId",
+      "externalIdHint": "הכנס את אותו ערך למדיניות האמון של תפקיד היעד (sts:ExternalId).",
+      "generate": "יצירה",
+      "noConnection": "אין עדיין חיבור AWS: הוסף אחד בהגדרות ← AWS.",
+      "current": "כעת: {{name}} — {{mode}}"
+    },
+    "test": {
+      "step": {
+        "config": "הגדרות",
+        "credentials": "הרשאות הבסיס",
+        "identity": "זהות (STS)",
+        "hop": "קפיצת תפקיד",
+        "hop_identity": "הזהות אחרי הקפיצה"
+      },
+      "hop0": "בסיס",
+      "hop1": "קפיצה",
+      "hints": "מה לבדוק",
+      "values": "ערכים להשוואה",
+      "ok": "החיבור פועל.",
+      "identity": "חשבון {{account}}",
+      "policiesLink": "ראה \"מדיניות IAM צפויה\" למטה."
+    },
+    "hint": {
+      "ra_trust_policy": "מדיניות האמון (trust policy) של התפקיד צריכה להתיר sts:AssumeRole,‏ sts:TagSession ו-sts:SetSourceIdentity עבור rolesanywhere.amazonaws.com, כש-aws:SourceArn שווה בדיוק ל-{{trust_anchor_arn}} — פעם אחת בלבד. ARN של עוגן אמון שהודבק לתוך תבנית שכבר מכילה ‎\":trust-anchor/\"‎ יוצר ערך כפול ‏(‎\":trust-anchor/arn:aws:rolesanywhere:…\"‎) שלעולם לא יתאים.",
+      "ra_subject_cn": "אם מדיניות האמון בודקת את aws:PrincipalTag/x509Subject/CN, הערך חייב להיות זהה ל-CN של התעודה: {{cert_cn}} (מהתעודה שהועלתה). ה-CN שהוקלד ב-CSR או בבקשה לפי התבנית אינו תמיד ה-CN שה-CA הנפיק בפועל — השווה מול התעודה.",
+      "ra_issuer_cn": "אם היא בודקת את aws:PrincipalTag/x509Issuer/CN, הערך חייב להיות {{issuer_cn}}.",
+      "ra_profile_role": "הפרופיל {{profile_arn}} חייב לכלול את התפקיד {{role_arn}}, להיות מופעל ולהימצא באותו חשבון כמו התפקיד.",
+      "ra_untrusted_cert": "עוגן האמון {{trust_anchor_arn}} אינו סומך על ה-CA שהנפיק את התעודה (המנפיק {{issuer_cn}}). העלה את השרשרת יחד עם ה-CA הביניים, או רשום את ה-CA המנפיק בעוגן האמון.",
+      "ra_disabled": "הפעל את עוגן האמון או את הפרופיל ב-IAM Roles Anywhere.",
+      "ra_revoked": "התעודה מבוטלת ב-CRL שיובא או בנקודת הפצת CRL.",
+      "set_source_identity": "‏Roles Anywhere קבע את זהות המקור {{source_identity}}, ולכן הקפיצה הזו צריכה את sts:SetSourceIdentity בשני מקומות: במדיניות ההרשאות של {{from_arn}} (על המשאב {{role_arn}}) וגם במדיניות האמון של {{role_arn}} (ברשימת ה-Action).",
+      "tag_session": "‏AWS דורש sts:TagSession בקפיצה הזו: הוסף אותו למדיניות האמון של {{role_arn}} ולמדיניות ההרשאות של {{from_arn}}. המערכת אינה מעבירה תגי סשן; זה קורה רק כשבארגון הוגדרו תגים עוברים (transitive).",
+      "caller_policy": "ל-{{from_arn}} נדרשת ההרשאה sts:AssumeRole על {{role_arn}}.",
+      "trust_policy": "מדיניות האמון של {{role_arn}} חייבת לציין כ-Principal את {{base_role_arn}} (את התפקיד עצמו, לא את ה-ARN של הסשן assumed-role).",
+      "external_id": "הערך של sts:ExternalId במדיניות האמון חייב להיות זהה ל-ExternalId שבטופס הזה.",
+      "scp": "ייתכן שמדיניות בקרת שירותים (SCP) של הארגון חוסמת את sts:AssumeRole.",
+      "sts_region": "‏STS אינו מופעל באזור {{region}} עבור החשבון {{account}}; הפעל אותו (IAM ← Account settings) או בחר אזור אחר לחיבור.",
+      "role_arn_invalid": "בדוק את ה-ARN של התפקיד {{role_arn}}.",
+      "max_session": "משך הסשן המרבי של התפקיד חייב להיות שעה לפחות.",
+      "vpc_endpoint_or_proxy": "אפשר גישה ל-{{host}} דרך הפרוקסי, או הוסף נקודת קצה VPC מסוג interface עבור {{service}} והזן אותה תחת \"עקיפות של נקודות קצה\" בתור ({{service}}, {{region}}).",
+      "cn_not_source_identity_safe": "ה-CN ‏{{cert_cn}} מכיל תווים שזהות מקור (source identity) אינה יכולה לשאת. עדיף CN שמורכב מאותיות, ספרות ו-. - _ @.",
+      "model_access": "הפעל גישה למודל הזה במסוף Bedrock באזור {{region}} ‏(Bedrock ← Model access) עבור החשבון {{account}}."
+    }
   }
 }
