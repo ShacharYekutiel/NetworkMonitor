@@ -35,8 +35,27 @@ jobs:
           shellcheck --version | head -n2
           shellcheck -x ops/*.sh tests/*.sh tests/fake-bin/*
 
-      - name: release.env (format, version == image tag, no latest)
+      - name: release.env (format, version == image tag, pinned digest, no latest)
         run: ops/check-release.sh release.env
+
+      # [1.4.2] Static review item 12: a CA file in deploy/certs/ is baked into the image's
+      # trust store (every TLS connection of the build and of the app would trust it). Only
+      # the documented placeholders may be committed; .github/CODEOWNERS must keep covering
+      # the deploy and workflow paths.
+      - name: Repository guards (no committed CA, CODEOWNERS)
+        working-directory: .
+        run: |
+          set -eu
+          extra="$(git ls-files deploy/certs | grep -vxE 'deploy/certs/(README\.md|\.gitignore)' || true)"
+          if [ -n "$extra" ]; then
+            echo "::error::files under deploy/certs/ must not be committed (site-specific CAs are baked into the image):"
+            echo "$extra"
+            exit 1
+          fi
+          for p in /deploy/production/ /.github/workflows/ /deploy/certs/; do
+            grep -qE "^${p}[[:space:]]+@" .github/CODEOWNERS || { echo "::error::.github/CODEOWNERS lacks $p"; exit 1; }
+          done
+          echo "deploy/certs: placeholders only; CODEOWNERS covers deploy/production, workflows, certs"
 
       - name: docker compose config
         run: |
