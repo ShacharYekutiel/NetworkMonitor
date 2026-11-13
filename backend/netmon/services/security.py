@@ -205,8 +205,13 @@ DOCUMENT_CSP = (
 )
 
 
+def hsts_value(include_subdomains: bool) -> str:
+    """[1.4.2] `NETMON_HSTS_INCLUDE_SUBDOMAINS` adds includeSubDomains (default off)."""
+    return HSTS + ("; includeSubDomains" if include_subdomains else "")
+
+
 def security_headers(
-    pol: SecurityPolicy, *, csp: str, https: bool, path: str = "/"
+    pol: SecurityPolicy, *, csp: str, https: bool, path: str = "/", hsts: str = HSTS
 ) -> dict[str, str]:
     """Response headers added by the app to every response (finding 8). A header the handler
     set itself is kept (the caller uses setdefault)."""
@@ -220,7 +225,7 @@ def security_headers(
     if not pol.frame_ancestors or path.startswith("/api/docs"):
         headers["X-Frame-Options"] = "DENY" if path.startswith("/api/docs") else "SAMEORIGIN"
     if https:
-        headers["Strict-Transport-Security"] = HSTS
+        headers["Strict-Transport-Security"] = hsts
     return headers
 
 
@@ -275,14 +280,27 @@ async def warn_blocked_targets(rt: Runtime) -> list[str]:
                 )
             )
         ).all()
-        channels = (
-            await session.execute(
-                text(
-                    "SELECT id, name, type, config->>'url' AS url FROM notification_channels "
-                    "WHERE type IN ('webhook', 'teams') AND config ? 'url' ORDER BY id"
-                )
+        from types import SimpleNamespace
+
+        from netmon.services import secretbox
+
+        channels = [  # [1.4.2] the URL may be stored encrypted (url_enc)
+            SimpleNamespace(
+                id=r.id,
+                name=r.name,
+                type=r.type,
+                url=secretbox.open_channel(r.type, r.id, r.config).get("url"),
             )
-        ).all()
+            for r in (
+                await session.execute(
+                    text(
+                        "SELECT id, name, type, config FROM notification_channels "
+                        "WHERE type IN ('webhook', 'teams') ORDER BY id"
+                    )
+                )
+            ).all()
+        ]
+        channels = [c for c in channels if c.url]
     from netmon.poller.checks.http import host_for_url
 
     sem = asyncio.Semaphore(10)

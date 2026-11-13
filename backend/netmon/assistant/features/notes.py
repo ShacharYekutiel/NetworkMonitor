@@ -485,7 +485,9 @@ class NoteWorker:
             smtp = await settings_svc.get(session, "smtp")
         for r in rows:
             ref = common.jsonb(r.ref) or {}
-            cfg = common.jsonb(r.config) or {}
+            from netmon.services import secretbox
+
+            cfg = secretbox.open_channel(r.channel_type, r.channel_id, common.jsonb(r.config))
             try:
                 if r.channel_type == "telegram":
                     st = await self._telegram(cfg, ref, note, lang)

@@ -140,6 +140,9 @@ class Runtime:
         from netmon.configbackup import credentials as ssh_credentials
 
         ssh_credentials.configure(self.secret_key)  # [3]
+        from netmon.services import secretbox
+
+        secretbox.configure(self.secret_key)  # [1.4.2] secrets at rest
         self.engine = make_engine(s.async_database_url)
         self.sessionmaker = make_sessionmaker(self.engine)
         await wait_for_db(self.engine)
@@ -147,7 +150,8 @@ class Runtime:
             await self._acquire_lock()
             self._tasks.append(asyncio.create_task(self._lock_watch_loop(), name="netmon-lock"))
         if migrate:
-            await run_migrations(self.engine)
+            await run_migrations(self.engine, secret_key=self.secret_key)
+        await self._secrets_at_rest()
         from netmon.services import security as security_svc
 
         await security_svc.load(self)  # [1.4.1] egress filter, session lifetime, login cap
@@ -346,6 +350,32 @@ class Runtime:
         if self.engine is not None:
             await self.engine.dispose()
         self.started = False
+
+    async def _secrets_at_rest(self) -> None:
+        """[1.4.2] Bring the stored secrets to the configured form: an encrypted copy next to
+        the plaintext (default; 1.4.1 still reads the plaintext after a rollback), or
+        encrypted only after `netmon secrets remove-plaintext`. Re-synchronises copies that
+        1.4.1 changed after a rollback. Idempotent and cheap (configuration rows only)."""
+        from sqlalchemy import text
+
+        from netmon.db.migrate import db_revision
+        from netmon.services import secretbox
+
+        assert self.engine is not None
+        if (await db_revision(self.engine)) != "0012":
+            return  # not migrated (migrate=False) or migrated by a newer release
+        async with self.engine.begin() as conn:
+            removed = (
+                await conn.execute(
+                    text("SELECT value FROM settings WHERE key = :k"), {"k": secretbox.STATE_KEY}
+                )
+            ).scalar()
+            keep = removed is not True
+            secretbox.set_plaintext_copy(keep)
+            key = self.secret_key
+            counts = await conn.run_sync(lambda c: secretbox.transform_all(c, key, keep))
+        if any(counts.values()):
+            log.info("Stored secrets synchronised (plaintext copy: %s): %s", keep, counts)
 
     async def _lock_connect(self) -> Any:
         import asyncpg

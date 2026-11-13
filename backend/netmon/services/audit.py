@@ -54,6 +54,7 @@ SECRET_NAMES = frozenset(
         "community",
         "communities",
         "trap_communities",
+        "extra_communities",  # [1.4.2] discovery profile options (were logged before 1.4.2)
         "v3_auth_key",
         "v3_priv_key",
         "auth_key",
@@ -144,7 +145,14 @@ def entity(
 # ---------------------------------------------------------------- pure: changes / redaction
 def _is_secret(path: str, extra: frozenset[str]) -> bool:
     leaf = path.rsplit(".", 1)[-1]
-    return leaf in SECRET_NAMES or path in extra or leaf in extra
+    # [1.4.2] any encrypted value (`<name>_enc`, `_sealed`) is masked too
+    return (
+        leaf in SECRET_NAMES
+        or leaf.endswith("_enc")
+        or leaf == "_sealed"
+        or path in extra
+        or leaf in extra
+    )
 
 
 def _scrub(value: Any, extra: frozenset[str], prefix: str = "") -> Any:

@@ -27,7 +27,7 @@ from netmon.poller.sensor_types import (
 from netmon.poller.snmp_client import DEFAULT_SNMP
 from netmon.poller.types import SEVERITY, CheckContext, evaluate
 from netmon.schemas import AcknowledgeIn, BulkImpactIn, SensorCreate, SensorPatch, SensorTestIn
-from netmon.services import audit
+from netmon.services import audit, secretbox
 from netmon.services import events as events_svc
 from netmon.services import history as history_svc
 from netmon.services import settings as settings_svc
@@ -515,7 +515,10 @@ async def test_sensor(body: SensorTestIn, _: Admin, rt: RT, session: DB) -> dict
             if body.snmp_credentials is not None:
                 creds = {
                     **DEFAULT_SNMP,
-                    **merge_snmp(body.snmp_credentials, device.snmp_credentials),
+                    **merge_snmp(
+                        body.snmp_credentials,
+                        secretbox.open_snmp(device.snmp_credentials, "device", device.id),
+                    ),
                 }
             else:
                 creds = await effective_credentials(session, device)

@@ -12,7 +12,7 @@ from netmon.configbackup.credentials import merge as ssh_merge
 from netmon.models import Group, Sensor
 from netmon.poller.sensor_types import SENSOR_TYPES
 from netmon.schemas import GroupCreate, GroupPatch
-from netmon.services import audit
+from netmon.services import audit, secretbox
 from netmon.services import dependencies as deps
 from netmon.services.retention import delete_sensor_measurements
 from netmon.services.serialize import group_out, iso, page
@@ -34,7 +34,10 @@ GROUP_AUDIT_FIELDS = (
 
 
 def _values(g: Group) -> dict:
-    return {k: getattr(g, k) for k in GROUP_AUDIT_FIELDS if hasattr(g, k)}
+    out = {k: getattr(g, k) for k in GROUP_AUDIT_FIELDS if hasattr(g, k)}
+    if out.get("snmp_credentials") is not None:  # [1.4.2] plaintext for the (masked) audit
+        out["snmp_credentials"] = secretbox.open_snmp(out["snmp_credentials"], "group", g.id)
+    return out
 
 
 def _entity(g: Group) -> audit.Entity:
@@ -93,16 +96,19 @@ async def create_group(body: GroupCreate, _: Admin, rt: RT, session: DB, ctx: Au
         name=body.name.strip(),
         parent_id=body.parent_id,
         description=body.description,
-        snmp_credentials=merge_snmp(body.snmp_credentials, None) if body.snmp_credentials else None,
+        snmp_credentials=None,  # [1.4.2] set after the flush: the row id is part of the AAD
         sort_order=body.sort_order,
         ssh_credentials=ssh_merge(body.ssh_credentials, None, rt.secret_key)  # [3]
         if body.ssh_credentials is not None
         else None,
     )
+    snmp_plain = merge_snmp(body.snmp_credentials, None) if body.snmp_credentials else None
     deps.apply_dependency(g, dep)
     session.add(g)
     await deps.check_no_cycle(session)
     await flush_or_conflict(session)
+    if snmp_plain is not None:
+        g.snmp_credentials = secretbox.seal_snmp(snmp_plain, "group", g.id)
     await audit.record(session, ctx, "group.create", _entity(g), audit.created(_values(g)))
     await commit_or_conflict(session)
     await session.refresh(g)
@@ -144,11 +150,12 @@ async def patch_group(
     if "sort_order" in fields and body.sort_order is not None:
         g.sort_order = body.sort_order
     if "snmp_credentials" in fields:
-        g.snmp_credentials = (
-            merge_snmp(body.snmp_credentials, g.snmp_credentials)
-            if body.snmp_credentials is not None
-            else None
+        stored = secretbox.open_snmp(g.snmp_credentials, "group", g.id)
+        new_creds = (
+            merge_snmp(body.snmp_credentials, stored) if body.snmp_credentials is not None else None
         )
+        if new_creds != stored:
+            g.snmp_credentials = secretbox.seal_snmp(new_creds, "group", g.id)
     if "ssh_credentials" in fields:  # [3] null = inherit
         new_ssh = (
             ssh_merge(body.ssh_credentials, g.ssh_credentials, rt.secret_key)

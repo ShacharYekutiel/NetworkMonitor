@@ -292,15 +292,24 @@ def as_text(v: Any) -> str:
 def resolve_credentials(
     device_creds: dict[str, Any] | None,
     group_chain: list[tuple[int, dict[str, Any] | None]],
+    device_id: int | None = None,
 ) -> tuple[dict[str, Any], str, int | None]:
-    """group_chain: [(group_id, creds)] from the device's group up to the root.
+    """group_chain: [(group_id, creds)] from the device's group up to the root. The stored
+    objects may be encrypted ([1.4.2] netmon.services.secretbox: `device_id` is part of the
+    device credentials' AAD); the result is always plaintext.
 
     Returns (credentials, source, group_id)."""
+    from netmon.services import secretbox
+
     if device_creds is not None:
-        return {**DEFAULT_SNMP, **device_creds}, "device", None
+        return (
+            {**DEFAULT_SNMP, **secretbox.open_snmp(device_creds, "device", device_id)},
+            "device",
+            None,
+        )
     for gid, creds in group_chain:
         if creds is not None:
-            return {**DEFAULT_SNMP, **creds}, "group", gid
+            return {**DEFAULT_SNMP, **secretbox.open_snmp(creds, "group", gid)}, "group", gid
     return dict(DEFAULT_SNMP), "default", None
 
 

@@ -100,7 +100,9 @@ async def _channel(
     lang = run.get("language") or "en"
     name = run.get("report_name") or ""
     schedule = report.get("schedule") or "none"
-    cfg = dict(ch.config or {})
+    from netmon.services import secretbox
+
+    cfg = secretbox.open_channel(ch.type, ch.id, ch.config)  # [1.4.2]
     if ch.type == "email":
         await _email(smtp, list(cfg.get("to") or []), subject, plain, html_doc)
     elif ch.type == "teams":

@@ -27,7 +27,7 @@ from netmon.schemas import (
     TelegramConfig,
     WebhookConfig,
 )
-from netmon.services import audit
+from netmon.services import audit, secretbox
 from netmon.services import settings as settings_svc
 from netmon.services.serialize import iso, notification_channel_out, now_utc, page
 
@@ -88,11 +88,21 @@ async def check_channel_egress(type_: str, config: dict[str, Any]) -> None:
         raise validation_error(["body", "config", "url"], reason)
 
 
-CHANNEL_SECRETS = {"teams": ("config.url",), "telegram": ("config.bot_token",)}
+# [1.4.2] webhook URLs often embed a token: masked in the audit like the Teams URL
+CHANNEL_SECRETS = {
+    "teams": ("config.url",),
+    "telegram": ("config.bot_token",),
+    "webhook": ("config.url",),
+}
+
+
+def _plain_config(ch: NotificationChannel) -> dict[str, Any]:
+    """[1.4.2] The channel config with its secrets decrypted (stored encrypted)."""
+    return secretbox.open_channel(ch.type, ch.id, ch.config)
 
 
 def _channel_values(ch: NotificationChannel) -> dict[str, Any]:
-    return {"name": ch.name, "type": ch.type, "enabled": ch.enabled, "config": dict(ch.config)}
+    return {"name": ch.name, "type": ch.type, "enabled": ch.enabled, "config": _plain_config(ch)}
 
 
 def _channel_entity(ch: NotificationChannel) -> audit.Entity:
@@ -131,10 +141,14 @@ async def create_channel(
     await check_channel_egress(body.type, cfg)
     await _unique_channel_name(session, body.name.strip())
     ch = NotificationChannel(
-        name=body.name.strip(), type=body.type, config=cfg, enabled=body.enabled
+        name=body.name.strip(),
+        type=body.type,
+        config=secretbox.strip_channel(body.type, cfg),  # sealed below: the id is in the AAD
+        enabled=body.enabled,
     )
     session.add(ch)
     await flush_or_conflict(session)
+    ch.config = secretbox.seal_channel(ch.type, ch.id, cfg)
     await audit.record(
         session,
         ctx,
@@ -174,8 +188,11 @@ async def patch_channel(
     if "enabled" in fields and body.enabled is not None:
         ch.enabled = body.enabled
     if "config" in fields and body.config is not None:
-        ch.config = validate_channel_config(ch.type, body.config, stored=dict(ch.config))
-        await check_channel_egress(ch.type, ch.config)
+        stored = _plain_config(ch)
+        new_config = validate_channel_config(ch.type, body.config, stored=stored)
+        await check_channel_egress(ch.type, new_config)
+        if new_config != stored:
+            ch.config = secretbox.seal_channel(ch.type, ch.id, new_config)
     secrets = CHANNEL_SECRETS.get(ch.type, ())
     changes = audit.diff(before, _channel_values(ch), secrets)
     if changes:
@@ -213,7 +230,7 @@ async def test_channel(channel_id: int, _: Admin, rt: RT, session: DB) -> dict:
         raise not_found("Notification channel")
     cfg = await settings_svc.get_all(session)
     payload = build_payload(None, None, None, None, None, None, test_time=iso(now_utc()))
-    channel = {"id": ch.id, "name": ch.name, "type": ch.type, "config": dict(ch.config)}
+    channel = {"id": ch.id, "name": ch.name, "type": ch.type, "config": _plain_config(ch)}
     await session.close()
     sender = rt.alerts.sender if rt.alerts is not None else send_to_channel
     try:

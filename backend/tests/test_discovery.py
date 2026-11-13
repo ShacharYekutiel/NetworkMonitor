@@ -358,6 +358,19 @@ async def test_scan_import_end_to_end(rt, admin: httpx.AsyncClient, lab: Lab) ->
                 text("SELECT snmp_credentials FROM devices WHERE id = :id"), {"id": pdev}
             )
         ).scalar_one()
+    # [1.4.2] encrypted copy (device id in the AAD) next to the 1.4.1-readable plaintext
+    from netmon.services import secretbox
+
+    assert pcreds["community_enc"].startswith("v1:")
+    assert (
+        secretbox.open_with(
+            rt.secret_key,
+            {k: v for k, v in pcreds.items() if k != "community"},
+            secretbox.SNMP_FIELDS,
+            f"device:{pdev}",
+        )[0]["community"]
+        == "printers"
+    )
     assert pcreds["community"] == "printers" and pcreds["port"] == SNMP_PORT
     pr = await sensors_of(pdev)
     assert {
@@ -744,6 +757,7 @@ async def test_profiles_crud(rt, admin: httpx.AsyncClient) -> None:  # type: ign
                 text("SELECT options FROM discovery_profiles WHERE id = :id"), {"id": p["id"]}
             )
         ).scalar_one()
+    assert stored["extra_communities_enc"] and stored["extra_v3_enc"]  # [1.4.2] copies
     assert stored["extra_communities"] == ["monitor"]
     assert stored["extra_v3"][0]["v3_priv_key"] == "privpass1"
     r = await admin.patch(

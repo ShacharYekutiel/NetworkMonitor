@@ -410,8 +410,13 @@ class Ingest:
                     )
                 ).mappings()
             ]
+        from netmon.services import secretbox
+
         for d in devices:
             d["source_addresses"] = [str(a) for a in d.get("source_addresses") or []]
+            d["snmp_credentials"] = secretbox.open_snmp(d["snmp_credentials"], "device", d["id"])
+        for g in groups:
+            g["snmp_credentials"] = secretbox.open_snmp(g["snmp_credentials"], "group", g["id"])
         names = sorted(
             {
                 str(d["host"]).strip().lower()
