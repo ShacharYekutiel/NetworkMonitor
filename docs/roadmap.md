@@ -246,15 +246,18 @@ Order (owner decision: the AWS VPC Flow Logs feature moved to the beginning):
     link/interface utilisation) and AWS change alerts (a new Security Group rule, a route-table change, a new ENI).
     Optional and cheap: give the 3b assistant read-only tools over the cloud inventory and flows ("which SG allows X",
     "top talkers to AWS").
-    **Cross-account (owner requirement, 2026-11-13):** Bedrock and the Roles Anywhere base role live in one AWS
-    account (`NetMonitor-Bedrock`); all networking (VPCs, TGW, DX, the flow logs) lives in a separate *network*
-    account. The network account is read through `sts:AssumeRole` from the base credentials (role chaining, <= 1 h,
-    refreshed automatically): a read-only role in the network account trusts the base role (optional ExternalId), and
-    the base role gets `sts:AssumeRole` on it. Contract fix needed in architecture § 15.1: with Roles Anywhere a role
-    in a *different* account must always use the AssumeRole chain (a second `CreateSession` only works for roles in the
-    profile's own account) - decide by comparing the account id of the role ARN with the profile's.
-    `render-policies.py` gains the two cross-account policies (trust policy for the network role, assume permission
-    for the base role).
+    **Cross-account (owner decision, 2026-11-13):** all networking (VPCs, TGW, DX, the flow logs) is in a *network*
+    AWS account and Bedrock is in a separate account. The **network account becomes the base**: IAM Roles Anywhere
+    (trust anchor, profile, base role) is set up there, so inventory / flow logs / DX use the base credentials
+    directly, and **Bedrock is reached with `sts:AssumeRole`** into a role in the Bedrock account (role chaining,
+    <= 1 h, refreshed automatically). Needs: an "assume role ARN (+ ExternalId)" setting for the assistant in the
+    shared AWS connection (item 16); the Bedrock-account role trusts the network base role and its trust policy must
+    also allow `sts:SetSourceIdentity` (Roles Anywhere sets a source identity, which is carried through the chain) -
+    verify against the AWS docs; certificate tags (`x509Subject/CN`) are not available in the second hop, so that
+    trust policy conditions on the base role ARN and the ExternalId. STS regional endpoint added to
+    `assistant-net.sh check`. `render-policies.py` gains both policies. Migration without downtime: 1.4.0 keeps
+    using Roles Anywhere in the Bedrock account until item 16 ships; then set up Roles Anywhere in the network
+    account, switch the assistant, and remove the old trust anchor / profile.
 18. **4c — certificates** (30-day warning, inventory), **optics DOM + PoE per port**, **S3 backups** (scheduled DB
     backups, restore from the UI, export of config versions).
 19. **4a — high availability:** office primary, standby on the DR site / AWS, PostgreSQL streaming replication,
