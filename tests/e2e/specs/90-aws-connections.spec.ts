@@ -15,7 +15,8 @@ import { loginViaApi, type Api, apiAs } from '../lib/helpers';
 import { SIM_DIR, raw } from '../lib/lab';
 import { py } from '../lib/lab3';
 import {
-  BEDROCK_PKI, BEDROCK_URL, CONN_NAME, MOCK_ENDPOINT, PHASE3B, askOk, assistantSettings, connections, ensureAssistant,
+  BEDROCK_PKI, BEDROCK_URL, CONN_NAME, MOCK_ENDPOINT, PHASE3B, askOk, assistantSettings, connections, ensureAdminUser,
+  ensureAssistant,
   mock, pkiFile, shot3b,
 } from '../lib/lab3b';
 
@@ -33,6 +34,7 @@ const LEAF_CN = 'netmonitor.example.net';
 const NET_NAME = 'Network account';
 const SHOTS = process.env.P40A_SHOT_DIR ?? '';
 
+const ADMIN4 = { username: 'qa4-aws-admin', password: 'Aws-admin-pass-1' };
 let api: Api;
 
 async function stsTrust(over: { trust_allows?: string[]; external_id?: string | null } = {}): Promise<void> {
@@ -62,7 +64,9 @@ async function shot(page: Page, name: string): Promise<void> {
 }
 
 test.beforeAll(async () => {
-  api = await apiAs();
+  // an admin of its own: the connection / assistant Tests are rate limited per admin (10 per 10 min), and the
+  // earlier specs use up the bucket of `admin`
+  api = await ensureAdminUser(await apiAs(), ADMIN4);
   await ensureAssistant(api);
   await stsTrust();
   // a rerun starts from a clean "Network account"
@@ -85,7 +89,7 @@ async function back(a: Api): Promise<void> {
 }
 
 test('Settings → AWS lists the connection the assistant uses (default, used by, last test)', async ({ page }) => {
-  await loginViaApi(page, undefined, '/settings?tab=aws');
+  await loginViaApi(page, ADMIN4, '/settings?tab=aws');
   const row = page.locator(`tr[data-connection="${CONN_NAME}"]`);
   await expect(row).toBeVisible({ timeout: 20_000 });
   await expect(row).toContainText('Assistant');
@@ -97,7 +101,7 @@ test('Settings → AWS lists the connection the assistant uses (default, used by
 
 test('create "Network account" in the UI; CSR → PKCS#7 upload of the issued certificate; Test direct', async ({ page }) => {
   test.setTimeout(120_000);
-  await loginViaApi(page, undefined, '/settings?tab=aws');
+  await loginViaApi(page, ADMIN4, '/settings?tab=aws');
   await page.getByTestId('aws-add').click();
   const form = page.getByTestId('aws-connection-form');
   await form.getByTestId('aws-name').fill(NET_NAME);
@@ -179,7 +183,7 @@ test('create "Network account" in the UI; CSR → PKCS#7 upload of the issued ce
 test('Test with the assume-role hop (layout b); Expected IAM policies render the trust anchor once, CN, ExternalId', async ({ page }) => {
   test.setTimeout(90_000);
   await stsTrust();
-  await loginViaApi(page, undefined, '/settings?tab=aws');
+  await loginViaApi(page, ADMIN4, '/settings?tab=aws');
   await page.locator(`tr[data-connection="${NET_NAME}"]`).getByTestId('aws-edit').click();
   const form = page.getByTestId('aws-connection-form');
   await form.getByTestId('hop-assume_role').check();
@@ -207,7 +211,7 @@ test('Test with the assume-role hop (layout b); Expected IAM policies render the
 test('the assistant moves onto the hop (Test shows the hop steps; answers through it) and back', async ({ page }) => {
   test.setTimeout(180_000);
   await stsTrust();
-  await loginViaApi(page, undefined, '/settings?tab=assistant');
+  await loginViaApi(page, ADMIN4, '/settings?tab=assistant');
   const access = page.getByTestId('assistant-aws-access');
   await expect(access).toBeVisible({ timeout: 20_000 });
   const net = await netConn();
@@ -221,7 +225,7 @@ test('the assistant moves onto the hop (Test shows the hop steps; answers throug
   for (const st of ['config', 'credentials', 'identity', 'hop', 'hop_identity', 'endpoint', 'converse'])
     await expect(res.locator(`[data-step="${st}"]`), st).toHaveAttribute('data-ok', 'true');
   await shot(page, 'assistant-picker');
-  await page.getByRole('button', { name: 'Save', exact: true }).click();
+  await page.getByTestId('assistant-connection').getByRole('button', { name: 'Save', exact: true }).click();
   await expect.poll(async () => (await assistantSettings(api)).access.mode, { timeout: 15_000 }).toBe('assume_role');
   const s = await assistantSettings(api);
   expect(s).toMatchObject({ connection_id: net.id, access: { role_arn: BEDROCK_ROLE, external_id: EXT_ID }, connection: { name: NET_NAME } });
@@ -250,7 +254,7 @@ test('a broken trust policy (sts:SetSourceIdentity removed) fails at `hop` with 
   test.setTimeout(90_000);
   await stsTrust({ trust_allows: ['sts:AssumeRole'] });
   try {
-    await loginViaApi(page, undefined, '/settings?tab=aws');
+    await loginViaApi(page, ADMIN4, '/settings?tab=aws');
     await page.locator(`tr[data-connection="${NET_NAME}"]`).getByTestId('aws-edit').click();
     const form = page.getByTestId('aws-connection-form');
     await form.getByTestId('hop-assume_role').check();
@@ -282,7 +286,7 @@ test('a broken trust policy (sts:SetSourceIdentity removed) fails at `hop` with 
 });
 
 test('settings search finds ExternalId and Trust anchor in English and Hebrew', async ({ page }) => {
-  await loginViaApi(page, undefined, '/settings');
+  await loginViaApi(page, ADMIN4, '/settings');
   const search = page.getByTestId('settings-search');
   await search.fill('ExternalId');
   await expect(page.getByTestId('settings-search-result').first()).toBeVisible();
@@ -312,7 +316,7 @@ test('settings search finds ExternalId and Trust anchor in English and Hebrew', 
 
 test('RTL at 390 px: the AWS tab and the editor without horizontal page overflow', async ({ page }) => {
   await page.setViewportSize({ width: 390, height: 844 });
-  await loginViaApi(page, undefined, '/');
+  await loginViaApi(page, ADMIN4, '/');
   await page.request.patch('/api/auth/me', { data: { language: 'he' } });
   try {
     await page.evaluate(() => localStorage.setItem('netmon.lang', 'he'));

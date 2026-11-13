@@ -4009,7 +4009,8 @@
       },
       "arnAccounts": "The trust anchor, profile and role ARNs are in different AWS accounts. Roles Anywhere vends only roles of its own account — to reach another account, use a role hop (Assume a role).",
       "unresolved": "Not resolvable from the server right now: {{hosts}}. Saved anyway; the address is checked again when the connection is used.",
-      "used": "Used by {{list}}."
+      "used": "Used by {{list}}.",
+      "rateLimited": "Too many connection tests: 10 per administrator in 10 minutes. Try again in a few minutes."
     },
     "err": {
       "name": "1–64 characters",

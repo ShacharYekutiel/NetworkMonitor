@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState, type FormEvent } from 'react';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { useTranslation } from 'react-i18next';
+import { isApiError } from '../../api/client';
 import { endpoints4, qk4 } from '../../api/endpoints4';
 import {
   AWS_AUTH_MODES,
@@ -583,7 +584,13 @@ export function AwsConnectionForm({
               {missing.map((m) => t(`aws.form.missing.${m}`)).join(' · ')}
             </p>
           )}
-          <ErrorBox error={test.error} />
+          {isApiError(test.error) && test.error.code === 'rate_limited' ? (
+            <p role="alert" className="text-sm text-red-600" data-testid="test-rate-limited">
+              {t('aws.form.rateLimited')}
+            </p>
+          ) : (
+            <ErrorBox error={test.error} />
+          )}
           {result && <AwsTestResultView r={result} />}
         </div>
 
