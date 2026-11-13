@@ -2869,8 +2869,10 @@ type TestStep = { step: string; hop: 0 | 1 | null; ok: boolean; detail: string; 
 ```
 Hint codes: `ra_trust_policy`, `ra_subject_cn`, `ra_issuer_cn`, `ra_profile_role`, `ra_untrusted_cert`,
 `ra_disabled`, `ra_revoked`, `set_source_identity`, `tag_session`, `caller_policy`, `trust_policy`, `external_id`,
-`scp`, `sts_region`, `role_arn_invalid`, `max_session`, `vpc_endpoint_or_proxy`, `cn_not_source_identity_safe`
-(texts and values: architecture § 15.1.7).
+`scp`, `sts_region`, `role_arn_invalid`, `max_session`, `vpc_endpoint_or_proxy`, `cn_not_source_identity_safe`,
+and (4-0a implementation, additive) `model_access` on the assistant's `converse` step (texts and values:
+architecture § 15.1.7; implementation notes § 15.1.16). `TestResult` of these endpoints also carries
+`identity` / `hop_identity` (`{account, arn, user_id}` or null).
 
 | Method & path | Request | Response / errors |
 |---|---|---|

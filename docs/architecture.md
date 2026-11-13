@@ -4623,6 +4623,60 @@ reachable (`assistant-net.sh check` from PR 4-0b, or the `identity` step).
   -check`, `terraform validate` (no credentials, no plan) and a comparison of the rendered policy JSON with
   `render-policies.py`.
 
+#### 15.1.16 Implementation notes of the backend (PR 4-0a) — contract corrections
+<a id="spec-4-0a-impl"></a>
+
+Found while implementing against the real 1.4.1 code; the sections above stay the design, these
+points are what the code does where the text was silent, ambiguous or not implementable:
+
+1. **Migration id.** P4-1 is `backend/netmon/migrations/versions/0012_phase4_aws_connections.py`
+   (`revision = "0012"`, `down_revision = "0011"` — the only place the number is written; the
+   module declares `PLACEHOLDER = "P4-1"` and the tests find it by that, and read the head from
+   the script directory). Release 1.4.2 adds its own `0012` in parallel: renumber at merge.
+2. **Who uses a connection** (`used_by`, delete `409`, `test_required`): the assistant counts as
+   a consumer of the connection it names, or of the default when `connection_id` is null **and**
+   the assistant is ON or has a model configured. Otherwise a fresh install that never set up the
+   assistant could never delete its only connection.
+3. **Set as default** is not guarded by `test_required` (the contract has no rule): an ON
+   consumer with `connection_id: null` switches to the new default without a test. The UI should
+   say so; an explicit `connection_id` avoids it (open question for the owner).
+4. **1.4.x helpers kept.** `netmon.assistant.config.merge` / `field_errors` / `required_errors` /
+   `connection_hash` keep their 1.4.x meaning (they are the "1.4.x reader" of the rollback tests);
+   the 4-0a assistant uses `merge_settings`, `settings_field_errors`, `settings_required_errors`,
+   `assistant_hash`. The 1.4.x request fields stay *declared* in the schema; the endpoints take
+   them out before validation and answer `422 validation_error`, `loc ["body", "<field>"]`,
+   "moved to Settings → AWS" (also for `POST /api/assistant/test` and `/models`).
+5. **Mirroring triggers.** `connections.sync_legacy` runs in the same transaction after every
+   connection write (create, patch, certificate, CSR, copy, set default) **and** after
+   `PUT /api/assistant/settings`, so moving the assistant back to "Default" / `direct` resumes the
+   mirror at once.
+6. **Test result.** `TestResult` additionally carries `identity` / `hop_identity`
+   (`{account, arn, user_id}` of the two `GetCallerIdentity` calls, no secrets). The
+   `sts_unreachable` case is an `identity` step with `ok: true`, the warning in `detail`, the
+   `vpc_endpoint_or_proxy` hint and `warnings: ["sts_unreachable"]`. An unsaved form may omit
+   `name`. `RegionDisabledException` already fails `GetCallerIdentity`, so with a hop the run
+   ends at `identity` (`aws_assume_role_invalid`, hint `sts_region`).
+7. **Additive hint** `model_access` on the assistant's `converse` step (`bedrock_model_access`):
+   "Enable access to this model in the Bedrock console of {region} … for the account {account}".
+   Roles Anywhere answers naming a missing resource / an invalid ARN map to `ra_profile_role` +
+   `role_arn_invalid`.
+8. **Save-time host check.** Endpoint overrides and the proxy URL use the 3b `endpoint_error` /
+   `proxy_error` (moved to `netmon.aws.endpoints`), which resolve the host name **at save time**
+   and refuse a name that does not resolve from the server ("could not resolve endpoint host").
+   A VPC endpoint DNS name that resolves only inside the VPC must be entered as its private IP
+   (or the server must use the VPC resolver). The 1.4.1 connect-time guard applies in addition.
+9. **Warnings moved.** `access_key_old`, `temporary_credentials`, `arn_accounts_differ`,
+   `cert_expiring`, `key_file_mode`, `cn_not_source_identity_safe` are connection warnings
+   (`AwsConnection.warnings`); the assistant settings keep the Bedrock ones.
+10. **Mock.** The STS mock is `tests/sim/aws/mock_sts.py`, served at `POST /` of the shared mock
+    app; its trust model is set with `POST /_sts/roles` or `MockBedrock.sts_config(...)`; the
+    Roles Anywhere mock now names the session like AWS (`…:assumed-role/<role>/<hex serial>`,
+    source identity per fact 3) and accepts `profile_roles` (`{profile ARN: [role ARNs]}`).
+11. **Test files.** The pytest files are `test_p4_aws_units.py` (pure vectors), `test_p4_aws_chain.py`,
+    `test_p4_aws_api.py` (CRUD, Test per layout and the hint table, egress, certificates),
+    `test_p4_assistant_compat.py` and `test_p4_aws_migration.py` (P4-1 + the mirror / rollback
+    reader) instead of the eight files of § 15.1.11; the coverage is the same.
+
 ### 15.2 AWS cloud view and VPC Flow Logs (4d — first in phase 4) [4]
 
 #### 15.2.1 Scope and decisions

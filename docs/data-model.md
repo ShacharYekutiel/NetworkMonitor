@@ -4364,7 +4364,8 @@ Implementation spec: [architecture § 15.1](architecture.md#spec-4-0a). Partitio
   `proxy_mode`, `proxy_url`, `endpoint_overrides` (sorted), the non-secret `settings` fields, and SHA-256 of each
   secret / certificate / chain / key (3b `connection_hash` method).
 - **Delete**: `409 conflict` while a consumer references it (explicitly, or implicitly through `connection_id: null`
-  while it is the default), or while it is the default and another connection exists. Deleting the last connection
+  while it is the default — for the assistant only while it is ON or has a model configured, architecture
+  § 15.1.16), or while it is the default and another connection exists. Deleting the last connection
   is allowed when nothing uses it.
 
 ### Consumer access (the same shape everywhere)
@@ -4996,7 +4997,7 @@ placeholders is fixed; the numbers are not.
 
 | ID | PR | `upgrade()` | `downgrade()` |
 |---|---|---|---|
-| P4-1 | 4-0a AWS connections | `aws_connections` + index `aws_connections_one_default`; when the `assistant` row holds any authentication value: insert "Default" (`is_default`, `aad_scope = 'assistant'`, auth keys and ciphertexts copied verbatim, `region` = `ra_region` or `region`, `ra_endpoint_url` → override `(rolesanywhere, region)`) and set `assistant.connection_id` / `access`; otherwise no row. The legacy `assistant` auth keys are **not** removed (exact steps: architecture § 15.1.4) | drop the keys `connection_id` / `access` from `assistant`, drop the table (the legacy keys are still there, so 1.4.x works); refused when a connection other than the `aad_scope = 'assistant'` row exists or the assistant uses a hop, unless `NETMON_FORCE_DOWNGRADE=1` |
+| P4-1 | 4-0a AWS connections (branch `phase4-0a`: `0012_phase4_aws_connections.py`, `PLACEHOLDER = "P4-1"`; renumber at merge) | `aws_connections` + index `aws_connections_one_default`; when the `assistant` row holds any authentication value: insert "Default" (`is_default`, `aad_scope = 'assistant'`, auth keys and ciphertexts copied verbatim, `region` = `ra_region` or `region`, `ra_endpoint_url` → override `(rolesanywhere, region)`) and set `assistant.connection_id` / `access`; otherwise no row. The legacy `assistant` auth keys are **not** removed (exact steps: architecture § 15.1.4) | drop the keys `connection_id` / `access` from `assistant`, drop the table (the legacy keys are still there, so 1.4.x works); refused when a connection other than the `aad_scope = 'assistant'` row exists or the assistant uses a hop, unless `NETMON_FORCE_DOWNGRADE=1` |
 | P4-2 | 4d-1a inventory | `aws_accounts`, `aws_resources`, `aws_resource_changes`, `aws_ip_index`; `sensors_type_check` + `aws_dx_connection`, `aws_dx_vif`, `aws_vpn_connection`, `aws_tgw_attachment` | reverse (delete those sensors first) |
 | P4-3 | 4d-2a flow logs | `aws_flowlog_sources`, `aws_flowlog_objects`, `aws_if_index`, `aws_flow_paths`, `aws_flow_rejects`, `aws_flow_edges`, `aws_tgw_drops`; `flow_exporters` changes | delete non-device exporters (cascade their aggregates), restore `address NOT NULL UNIQUE` and the protocols CHECK, drop columns and tables |
 | P4-4 | 4d-3a alerts | `event_rules_kind_check`; `sensors_type_check` + `flow_alert`, `aws_change`; `flow_rule_state`; built-in rules (disabled) | delete rules and sensors of the new kinds, reverse |
