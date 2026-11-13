@@ -3,8 +3,11 @@ always-available normal save `POST /api/device-templates/user`.
 
 The walk is admin-initiated and read-only: the device's effective SNMP credentials (never sent
 anywhere), GETBULK max-repetitions 10 (GETNEXT for v1), ≤ 5000 varbinds total, ≤ 2000 per
-subtree, ≤ 60 s, ≤ 8 subtrees, 1 walk per device, 3 globally, 10 per day. USM/community/VACM,
-route, ARP/neighbour and FDB tables are never walked. Results are kept 7 days."""
+subtree, ≤ 8 subtrees, 1 walk per device, 3 globally, 10 per day. Time: each subtree has its own
+budget (20 s standard, 45 s vendor), ≤ 90 s overall; the standard subtrees are walked first and a
+subtree that runs out keeps what it collected (per-subtree outcome ok / truncated / timeout /
+error / skipped). USM/community/VACM, route, ARP/neighbour and FDB tables are never walked.
+Results are kept 7 days."""
 
 from __future__ import annotations
 
@@ -29,13 +32,18 @@ from netmon.assistant.features.templates_pure import (
     STORED_VALUE_MAX,
     TEMPLATE_CANNOT_REASON,
     WALK_TIMEOUT_S,
+    classify_snmp_error,
     compact_walk,
+    enterprise_subtree,
     is_forbidden_varbind,
     mark_unverified,
+    order_subtrees,
     resolve_subtrees,
     row_cap_key,
+    subtree_budget,
     template_is_placeholder,
     unknown_oid_warnings,
+    walk_summary,
 )
 
 log = logging.getLogger("netmon.assistant.templates")
@@ -69,15 +77,26 @@ BLOCK = (
 )
 
 
+# [maint-1.4] the per-subtree outcomes and the error code live in `counts` under this key (jsonb, no
+# schema change); an OID never starts with "_"
+META_KEY = "_walk"
+
+
 def walk_out(r: Any, varbinds: Any = None) -> dict[str, Any]:
     counts = common.jsonb(r.counts) or {}
+    if not isinstance(counts, dict):
+        counts = {}
+    meta = counts.get(META_KEY) if isinstance(counts.get(META_KEY), dict) else {}
+    counts = {k: v for k, v in counts.items() if k != META_KEY}
     out = {
         "id": r.id,
         "device_id": r.device_id,
         "status": r.status,
         "subtrees": list(r.subtrees or []),
         "counts": counts,
-        "total": int(sum(int(v) for v in counts.values())) if isinstance(counts, dict) else 0,
+        "total": int(sum(int(v) for v in counts.values())),
+        "outcomes": list(meta.get("outcomes") or []),
+        "error_code": meta.get("error_code"),
         "error": r.error,
         "started_at": _iso(r.started_at),
         "finished_at": _iso(r.finished_at),
@@ -85,6 +104,12 @@ def walk_out(r: Any, varbinds: Any = None) -> dict[str, Any]:
     if varbinds is not None:
         out["varbinds"] = varbinds
     return out
+
+
+def _counts_json(
+    counts: dict[str, int], outcomes: list[dict[str, Any]], error_code: str | None
+) -> str:
+    return json.dumps({**counts, META_KEY: {"outcomes": outcomes, "error_code": error_code}})
 
 
 def _iso(v: Any) -> str | None:
@@ -110,10 +135,17 @@ def _value_text(cv: Any) -> str:
 
 
 async def typed_walk(
-    host: str, creds: dict[str, Any], base_oid: str, max_rows: int, deadline: float
+    host: str,
+    creds: dict[str, Any],
+    base_oid: str,
+    max_rows: int,
+    deadline: float,
+    sink: list[tuple[str, str, str]] | None = None,
 ) -> list[tuple[str, str, str]]:
     """Walk one subtree with type names (GETBULK max-repetitions 10; GETNEXT for v1).
-    Forbidden varbinds are skipped; IF-MIB tables are cut to their first 8 rows."""
+    Forbidden varbinds are skipped; IF-MIB tables are cut to their first 8 rows. Rows are
+    appended to `sink` as they arrive (the caller keeps them when the walk is cancelled or
+    fails half-way); TimeoutError once `deadline` passes."""
     from pysnmp.hlapi.v3arch import asyncio as h
 
     from netmon.poller import snmp_client as sc
@@ -138,7 +170,7 @@ async def typed_walk(
             lexicographicMode=False,
             lookupMib=False,
         )
-    rows: list[tuple[str, str, str]] = []
+    rows: list[tuple[str, str, str]] = sink if sink is not None else []
     prefix = base_oid.rstrip(".") + "."
     cap = ROW_CAPPED.get(base_oid)
     seen_rows: set[str] = set()
@@ -166,8 +198,8 @@ async def typed_walk(
                 if len(rows) >= max_rows:
                     return rows
             if time.monotonic() > deadline:
-                return rows
-    except sc.SnmpError:
+                raise TimeoutError
+    except (sc.SnmpError, TimeoutError):
         raise
     except Exception as exc:  # noqa: BLE001
         raise sc.SnmpError(str(exc) or type(exc).__name__) from exc
@@ -301,7 +333,7 @@ class TemplateDrafts:
                     {
                         "d": device_id,
                         "u": user.id,
-                        "s": [s for s in subtrees if s != "__enterprise__"],
+                        "s": order_subtrees([s for s in subtrees if s != "__enterprise__"]),
                         "t": rt.clock.now(),
                     },
                 )
@@ -334,74 +366,131 @@ class TemplateDrafts:
     async def _walk(
         self, walk_id: int, host: str, creds: dict[str, Any], subtrees: list[str], user_id: int
     ) -> None:
-        rt = self.rt
-        deadline = time.monotonic() + WALK_TIMEOUT_S
+        """Walk the subtrees one after the other (standard ones first, the vendor subtree from
+        sysObjectID last), each within its own budget and all within WALK_TIMEOUT_S. A subtree
+        that runs out of time or fails keeps what it collected; credentials the device rejects
+        (or a device that does not answer at all) stop the walk: the remaining subtrees are
+        skipped instead of being tried with the same result."""
+        overall = time.monotonic() + WALK_TIMEOUT_S
         varbinds: list[list[str]] = []
         counts: dict[str, int] = {}
-        status, error = "ok", None
+        outcomes: list[dict[str, Any]] = []
+        fatal: dict[str, Any] | None = None  # the outcome that stopped the walk
         last_push = 0.0
+        want_enterprise = "__enterprise__" in subtrees
+        queue = order_subtrees([s for s in subtrees if s != "__enterprise__"])
+
+        def skip(st: str, code: str | None, error: str) -> None:
+            outcomes.append(
+                {"subtree": st, "status": "skipped", "count": 0, "error_code": code, "error": error}
+            )
+
         try:
-            if "__enterprise__" in subtrees:
-                subtrees = [s for s in subtrees if s != "__enterprise__"]
-                ent = await self._enterprise(host, creds)
-                if ent and ent not in subtrees:
-                    subtrees.append(ent)
-                    async with rt.sessionmaker() as session:
-                        await session.execute(
-                            text("UPDATE assistant_snmp_walks SET subtrees = :s WHERE id = :i"),
-                            {"s": subtrees, "i": walk_id},
-                        )
-                        await session.commit()
-            for st in subtrees:
+            i = 0
+            while i < len(queue) or want_enterprise:
+                if i >= len(queue):
+                    # the vendor subtree: from the walked sysObjectID, else a GET
+                    want_enterprise = False
+                    if fatal is not None:
+                        skip("enterprise", fatal["error_code"], "not walked: " + fatal["error"])
+                        continue
+                    ent, err = await self._enterprise(host, creds, varbinds)
+                    if err is not None:
+                        code = classify_snmp_error(err)
+                        outcomes.append(
+                            {"subtree": "enterprise", "status": "error", "count": 0,
+                             "error_code": code, "error": err[:300]}
+                        )  # fmt: skip
+                        continue
+                    if ent is None or ent in queue:
+                        continue
+                    queue.append(ent)
+                    await self._set_subtrees(walk_id, queue)
+                st = queue[i]
+                i += 1
+                now = time.monotonic()
                 left = MAX_VARBINDS - len(varbinds)
-                if left <= 0 or time.monotonic() > deadline:
-                    status = "partial"
-                    break
+                if fatal is not None:
+                    skip(st, fatal["error_code"], "not walked: " + fatal["error"])
+                    continue
+                if left <= 0:
+                    skip(st, None, f"not walked: the walk reached {MAX_VARBINDS} values")
+                    continue
+                if now >= overall - 0.5:
+                    skip(st, "timeout", f"not walked: the walk took {int(WALK_TIMEOUT_S)} s")
+                    continue
+                budget = min(subtree_budget(st), overall - now)
+                cap = min(MAX_PER_SUBTREE, left)
+                sink: list[Any] = []
+                outcome: dict[str, Any] = {"subtree": st, "status": "ok", "error_code": None}
                 try:
                     rows = await asyncio.wait_for(
-                        self.walker(host, creds, st, min(MAX_PER_SUBTREE, left), deadline),
-                        max(1.0, deadline - time.monotonic()),
+                        self.walker(host, creds, st, cap, now + budget, sink=sink), budget
                     )
+                    if len(rows) >= cap:
+                        outcome["status"] = "truncated"
                 except TimeoutError:
-                    status, error = "partial", "timeout"
-                    break
+                    rows = list(sink)
+                    outcome |= {
+                        "status": "timeout",
+                        "error_code": "timeout",
+                        "error": f"no complete walk within {int(budget)} s",
+                    }
                 except Exception as exc:  # noqa: BLE001 - one subtree failing keeps the rest
-                    error = (str(exc) or type(exc).__name__)[:300]
-                    counts[st] = 0
-                    status = "partial"
-                    continue
+                    rows = list(sink)
+                    msg = (str(exc) or type(exc).__name__)[:300]
+                    code = classify_snmp_error(msg)
+                    outcome |= {"status": "error", "error_code": code, "error": msg}
+                    # rejected credentials, or nothing ever answered: the next subtree would
+                    # fail the same way (and hammer a device that may lock the user out)
+                    silent = code == "unreachable" and not varbinds and not rows
+                    if code == "auth_failed" or silent:
+                        fatal = outcome
                 rows = [r for r in rows if not is_forbidden_varbind(r[0])]
-                counts[st] = len(rows)
+                outcome["count"] = counts[st] = len(rows)
+                outcome.setdefault("error", None)
+                outcomes.append(outcome)
                 varbinds.extend([list(r) for r in rows])
                 if time.monotonic() - last_push > 2:
                     last_push = time.monotonic()
-                    await self._progress(walk_id, counts, user_id)
-            if not varbinds and status != "ok":
-                status = "failed"
-            elif not varbinds and error:
-                status = "failed"
+                    await self._progress(walk_id, counts, user_id, outcomes)
+            status, code, error = walk_summary(outcomes, len(varbinds))
         except asyncio.CancelledError:
-            status, error = "cancelled", None
-            await self._finish(walk_id, status, varbinds, counts, error, user_id)
+            await self._finish(walk_id, "cancelled", varbinds, counts, None, user_id, outcomes)
             raise
         except Exception as exc:  # noqa: BLE001
-            status, error = "failed", (str(exc) or type(exc).__name__)[:300]
-        await self._finish(walk_id, status, varbinds, counts, error, user_id)
+            error = (str(exc) or type(exc).__name__)[:300]
+            status, code = "failed", classify_snmp_error(error)
+        await self._finish(walk_id, status, varbinds, counts, error, user_id, outcomes, code)
 
-    async def _enterprise(self, host: str, creds: dict[str, Any]) -> str | None:
-        from netmon.assistant.features.templates_pure import enterprise_subtree
+    async def _set_subtrees(self, walk_id: int, subtrees: list[str]) -> None:
+        async with self.rt.sessionmaker() as session:
+            await session.execute(
+                text("UPDATE assistant_snmp_walks SET subtrees = :s WHERE id = :i"),
+                {"s": subtrees, "i": walk_id},
+            )
+            await session.commit()
 
+    async def _enterprise(
+        self, host: str, creds: dict[str, Any], varbinds: list[list[str]]
+    ) -> tuple[str | None, str | None]:
+        """(the vendor subtree, None) or (None, the SNMP error of the sysObjectID GET)."""
+        walked = next((v[2] for v in varbinds if v[0] == "1.3.6.1.2.1.1.2.0"), None)
+        if walked:
+            return enterprise_subtree(str(walked)), None
         if self.sys_object_id is not None:
-            return enterprise_subtree(await self.sys_object_id(host, creds))
+            return enterprise_subtree(await self.sys_object_id(host, creds)), None
         from netmon.poller.snmp_client import snmp_get
 
         try:
             v = await snmp_get(host, creds, ["1.3.6.1.2.1.1.2.0"])
-        except Exception:  # noqa: BLE001
-            return None
-        return enterprise_subtree(str(v.get("1.3.6.1.2.1.1.2.0") or ""))
+        except Exception as exc:  # noqa: BLE001
+            return None, (str(exc) or type(exc).__name__)
+        return enterprise_subtree(str(v.get("1.3.6.1.2.1.1.2.0") or "")), None
 
-    async def _progress(self, walk_id: int, counts: dict[str, int], user_id: int) -> None:
+    async def _progress(
+        self, walk_id: int, counts: dict[str, int], user_id: int, outcomes: list[dict[str, Any]]
+    ) -> None:
         with contextlib.suppress(Exception):
             async with self.rt.sessionmaker() as session:
                 row = (
@@ -411,7 +500,7 @@ class TemplateDrafts:
                             "= :i "
                             f"RETURNING {WALK_COLS}"
                         ),
-                        {"c": json.dumps(counts), "i": walk_id},
+                        {"c": _counts_json(counts, outcomes, None), "i": walk_id},
                     )
                 ).one()
                 await session.commit()
@@ -425,6 +514,8 @@ class TemplateDrafts:
         counts: dict[str, int],
         error: str | None,
         user_id: int,
+        outcomes: list[dict[str, Any]] | None = None,
+        error_code: str | None = None,
     ) -> None:
         try:
             async with self.rt.sessionmaker() as session:
@@ -440,8 +531,8 @@ class TemplateDrafts:
                         {
                             "s": status,
                             "v": json.dumps(varbinds[:MAX_VARBINDS], ensure_ascii=False),
-                            "c": json.dumps(counts),
-                            "e": error,
+                            "c": _counts_json(counts, outcomes or [], error_code),
+                            "e": (error or "")[:300] or None,
                             "f": self.rt.clock.now(),
                             "i": walk_id,
                         },

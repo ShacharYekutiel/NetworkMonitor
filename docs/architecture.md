@@ -1,5 +1,4 @@
-# NetworkMonitor — Architecture (Phase 1 / MVP + Phase 2a + Phase 2b-1 + Phase 2b-2 + Phase 2b-3 + Phase 3 + Phase 3b)
-# NetworkMonitor — Architecture (Phase 1 / MVP + Phase 2a + Phase 2b-1 + Phase 2b-2 + Phase 2b-3 + Phase 3 + 1.3)
+# NetworkMonitor — Architecture (Phase 1 / MVP + Phase 2a + Phase 2b-1 + Phase 2b-2 + Phase 2b-3 + Phase 3 + Phase 3b + 1.3)
 
 Phase 2a (auto-discovery, device templates, `snmp_custom`/`snmp_disk`, Telegram) is described in
 [§ 9](#9-phase-2a-discovery-templates-custom-snmp-telegram); items elsewhere marked **[2a]** belong to it.
@@ -21,6 +20,12 @@ Release 1.3 (sensor impact on the device status, one important-port definition, 
 apply, connected hosts and CSV on the ports view, trunk / LAG-degraded alerts, IRF sensors) is described in
 [§ 14](#14-release-13-sensor-impact-important-ports-interface-selection-connected-hosts-lag-degraded-irf); items
 marked **[1.3]** belong to it.
+**Note on numbering:** Phase 3b and Release 1.3 both carry the number 14 (they were written in parallel), and both
+have subsections 14.1–14.8. They are deliberately not renumbered: the heading anchors and about 200 "§ 14.x"
+references in code comments, tests and the other contracts point into both. A "§ 14.x" reference about the
+assistant / AI features (or tagged **[3b]**) means Phase 3b; one about sensor impact, important ports, interface
+selection, connected hosts, trunk/LAG alerts, IRF, named value maps or settings search (tagged **[1.3]** /
+**[1.3.1]**) means Release 1.3. New sections continue at § 15.
 
 NetworkMonitor is a license-free, PRTG-like network monitor. One Python process serves the REST API, the
 WebSocket, the built React SPA, and runs the poller and the alert engine. PostgreSQL holds everything, and
@@ -3493,8 +3498,20 @@ Unless stated otherwise the model is `model_id`; "light" = `model_id_light` when
   IF-MIB `ifTable`/`ifXTable` first 8 rows, ENTITY-SENSOR `1.3.6.1.2.1.99.1.1`, custom OIDs ≤ 8).
 - **Bounded read-only walk** (admin-initiated, job, `POST /api/assistant/template-drafts/walks`): the device's
   effective SNMP credentials (never sent anywhere), existing pysnmp walk functions (GETBULK max-repetitions 10,
-  GETNEXT for v1), ≤ 5000 varbinds total, ≤ 2000 per subtree, ≤ 60 s, ≤ 8 subtrees, 1 walk per device at a time,
-  3 walks globally. **Never walked:** `1.3.6.1.6.3.15` (USM users), `1.3.6.1.6.3.18` (communities),
+  GETNEXT for v1), ≤ 5000 varbinds total, ≤ 2000 per subtree, ≤ 8 subtrees, 1 walk per device at a time,
+  3 walks globally. **Time `[maint-1.4]`:** every subtree has its own budget — 20 s for a standard (`1.3.6.1.2.1.*`)
+  subtree, 45 s for a vendor one (the enterprise subtree, vendor OIDs) — within a 90 s cap for the whole walk (was one
+  shared 60 s budget: a huge vendor subtree such as hh3c starved the standard subtrees and the walk reported a
+  timeout). The standard subtrees are walked first, the enterprise subtree last (its PEN taken from the walked
+  `sysObjectID.0`, else a GET). A subtree that runs out of time keeps what it collected; each subtree gets an
+  outcome `ok` / `truncated` (varbind cap) / `timeout` / `error` / `skipped`, and the walk is `ok` (all ok or
+  truncated), `partial` (values collected, something did not finish) or `failed` (nothing collected). **Real SNMP
+  errors:** an SNMP failure is classified `auth_failed` (the device rejected the credentials: SNMPv3 wrong digest /
+  unknown user / security level / decryption, `authorizationError`, `noAccess`), `unreachable` (no answer at all —
+  for v1/v2c also a wrong community) or `snmp_error`; `auth_failed`, or `unreachable` before anything was
+  collected, stops the walk (the remaining subtrees are `skipped`, not retried with the same keys). The walk carries
+  `error_code` + the device's own text; the wizard shows a localized explanation (en/he) and the text.
+  **Never walked:** `1.3.6.1.6.3.15` (USM users), `1.3.6.1.6.3.18` (communities),
   `1.3.6.1.6.3.16` (VACM), `1.3.6.1.2.1.4.21`/`.24` (route tables), `1.3.6.1.2.1.4.22`/`.35` (ARP/neighbour),
   `1.3.6.1.2.1.17.4`/`.7` (FDB) — volume and privacy. Stored 7 days (`assistant_snmp_walks`).
 - **Compaction before the model (pure `templates.compact_walk`):** OIDs with type and value (strings ≤ 64 chars,
@@ -3823,6 +3840,9 @@ rendered answer has no `<img>`, no external `href`, forged refs rendered as text
 
 ## 14. Release 1.3: sensor impact, important ports, interface selection, connected hosts, LAG degraded, IRF
 
+> Numbering: this is the second section 14 (the first is [§ 14 Phase 3b](#14-phase-3b-ask-the-network-assistant-and-ai-features-amazon-bedrock)).
+> It is kept as is so existing anchors and "§ 14.x" references stay valid; see the note at the top of this document.
+
 Requests of the owner's network team after 1.2.0 in production (FF 5945 IRF, ArubaOS-Switch, Aruba CX). Owner
 decision: core-behaviour improvements, **no feature toggle**. Contract: [api.md § 1.3](api.md#13-release-13-contract),
 [data-model.md § 1.3](data-model.md#13-release-13-additions). Migration `0008`.
@@ -3923,3 +3943,115 @@ validation), `tests/test_13.py` (impact API / rollup / bulk / backfill, ports im
 settings, PortInfo, link-down on trunks and LAG degraded with real traps, migration 0008 up/down/up in both
 modes), `tests/test_13_apply.py` (snmpsim: apply selection important / list / all / none with removal, no
 inventory for a server and a switch, Comware IRF entries on a 2-member stack and a single switch).
+
+## 15. Release 1.4.1: security hardening
+
+[1.4.1] closes the remaining findings of the penetration test of 1.4.0 (3, 5, 6, 7, 8, 10; the ReDoS findings 1–2
+shipped in 1.3.3, the assistant findings 4 and 11 in 1.4.0; finding 9, SNMP secrets at rest, is not part of this
+release). Rule for every item: an improvement is not feature-flagged, but where a hardening could break a
+legitimate deployment it is a **setting with a secure default** on *Settings → General → Security* (indexed by the
+settings search). Contract: [api § 1.4.1](api.md#141-release-141-contract-security-hardening),
+[data-model § 1.4.1](data-model.md#141-security-settings). Code: `netmon/util/egress.py`,
+`netmon/services/security.py`, `netmon/services/auth.py`, `netmon/api/deps.py`, `netmon/app.py`.
+
+### 15.1 SSRF egress filter (finding 3)
+Every place where the server fetches a URL an administrator typed in goes through `netmon.util.egress`: the
+**webhook channel**, the **Teams channel** and the **HTTP sensor** (including its certificate probe). The Telegram
+API base and the OIDC authority are environment-only; the assistant endpoints have had their own check since 1.4.0
+(`netmon.util.netguard`, which this filter reuses).
+
+- **Policy.** Blocked always: link-local (`169.254.0.0/16` with the cloud-metadata address, `fe80::/10`), the
+  metadata host aliases, the unspecified address, multicast. Blocked by default, allowed with the setting
+  `egress_allow_loopback`: loopback. **Never blocked: private RFC 1918 / CGNAT / ULA ranges** — monitoring internal
+  devices and posting to internal webhooks is what the product is for.
+- **Connection time, not save time.** `GuardedTransport` wraps the httpx transport. For each request it resolves
+  the host, checks **every** resolved address and connects to exactly the address it checked: the request URL's
+  host is replaced by the IP while the `Host` header and the TLS server name (SNI and certificate check, httpcore's
+  `sni_hostname`) stay the original name. There is no second lookup, so DNS rebinding cannot swap the target after
+  the check. Connect errors fall through to the next checked address (at most 4).
+- **Every redirect hop** passes through the transport again and is checked the same way: an HTTP sensor that is
+  redirected to `169.254.169.254` fails with `Blocked target: …`. The webhook and Teams clients do not follow
+  redirects.
+- **Outbound proxy.** The webhook and Teams clients honour `HTTPS_PROXY`. A proxied request cannot be pinned (the
+  proxy resolves and connects), so it is checked only: IP literals, host aliases and what the name resolves to on
+  this host, if it resolves here. Rebinding protection for proxied targets is the proxy's job.
+- **Save time.** The same check runs when a channel or HTTP sensor is created or its config changed, so the admin
+  gets a field error early (`422`, `config.url`). A name that does not resolve yet is accepted.
+- **Existing rows** are never rewritten. A now-blocked target fails with a clear status / delivery message, and
+  the server logs one WARNING at start (plus a `system` event) that lists the affected sensors and channels.
+- `guard_client` reaches into two private httpx attributes (`_transport`, `_mounts`) because httpx has no public
+  hook that sees the connection target; `tests/test_141_egress.py` fails loudly if they move.
+
+Not covered (deliberately): the other check types (ping, TCP port, DNS, SNMP, SSH config backup) address the
+device host directly and return no response body to the admin; SIEM forwarding targets are syslog, not HTTP.
+
+### 15.2 Sessions (findings 5 and 7)
+- **Session id.** The session JWT gains `sid`, random per login and kept by the sliding renewal. A cookie without
+  it (issued by ≤ 1.4.0) is refused, which costs every browser one sign-in after the upgrade (Kerberos SSO signs in
+  again silently) and guarantees that no session exists that could not be revoked.
+- **Logout revokes server-side.** `POST /api/auth/logout` stores the `sid` in `revoked_sessions` (migration 0011)
+  and in an in-memory set that `authenticate()` checks on every request and WebSocket handshake; the session's
+  sockets are closed. Why a per-session denylist and not `token_version += 1`: bumping the version signs the user
+  out of every browser, including the NOC workstation next door, each time they log out anywhere. The denylist ends
+  exactly the session that asked. It is persisted because an in-memory list would bring a revoked cookie back to
+  life at the next restart; the cache is sound because the server is a single process (`workers=1`, advisory lock).
+  "Sign out everywhere" still exists: `{"everywhere": true}` (the button on *My account → Sessions*), a password
+  change, a role change or deactivation bump `token_version` as before.
+- **Absolute lifetime.** `at` (authentication time) is now set for every session and kept by renewals; a session
+  ends at `at + session_max_age_h` (default 168 h = 7 days, 1–720) whatever its activity, and the cookie expiry is
+  capped accordingly. AD, Kerberos and OIDC users keep the existing rule "log in again at least every 12 h"
+  (`min(12 h, setting)`); the directory decides group membership, so their sessions must be re-evaluated often.
+  The rule is judged on the application clock, like the AD rule before.
+
+### 15.3 Login throttling (finding 6)
+`LoginLimiter` keeps its limit of 10 failures / 5 min per (client address, user name) and gains a second counter
+per **client address across all user names** (`login_ip_max_failures`, default 20, `0` = off), which is what stops
+password spraying.
+
+- Only failures count; a success does not reset the address counter (one valid account must not buy fresh guesses).
+- A throttled address cannot start **new password logins** until the window has passed; existing sessions and API
+  tokens are not affected, and Kerberos SSO attempts neither count nor are blocked (browsers on non-domain machines
+  fail the automatic attempt routinely). This is what keeps a NAT'd office usable: 20 mistyped passwords within
+  five minutes from one address is not ordinary use, and the worst case is a five-minute wait for new logins.
+- The client address is the TCP peer, or the rightmost `X-Forwarded-For` entry when `NETMON_TRUST_PROXY=true`
+  (the entry the trusted proxy appended; a client-supplied value is never used).
+- `POST /api/auth/change-password` counts a wrong current password like a failed login, per user (from any
+  address) and per address: a stolen session cannot be used to guess the password unthrottled.
+- The counters are in memory (one process); a restart clears them.
+
+### 15.4 Security headers (finding 8)
+The application sets the headers itself (`netmon.app.harden`, on every response including the guard's own error
+answers), so native installs without a reverse proxy have them; the production Caddyfile only fills in
+`Strict-Transport-Security`, `X-Content-Type-Options` and `Referrer-Policy` when a response lacks them (`?` default
+form) and sets no CSP / `X-Frame-Options` of its own.
+
+- **CSP** as strict as the built SPA allows: `script-src 'self'` plus the SHA-256 of the one inline script Vite
+  keeps in `index.html` (the theme bootstrap; hashed at start, so a rebuilt SPA needs no code change) — no
+  `unsafe-inline`, no `unsafe-eval`. `style-src 'self'` with `style-src-attr 'unsafe-inline'`: the bundle has one
+  stylesheet and no inline `<style>`, but the chart library writes inline `style` attributes in its tooltips.
+  `connect-src 'self'` covers the API, SSE and the same-origin WebSocket. `object-src 'none'`, `base-uri 'self'`,
+  `form-action 'self'`.
+- **Framing.** `frame-ancestors 'self'` plus `X-Frame-Options: SAMEORIGIN`. A wall screen may legitimately embed
+  the NOC view: the setting `frame_ancestors` adds origins; while it is not empty `X-Frame-Options` is omitted
+  (it cannot express an allow-list). Entries are validated on write and again on read.
+- **HSTS** `max-age=31536000` only on HTTPS requests (no `includeSubDomains`: the host may have HTTP-only
+  siblings). Browsers ignore HSTS received over a connection with certificate errors, so a self-signed native
+  install is not locked out.
+- `/api/docs`, the stored report document and the OIDC landing page carry their own, narrower policies.
+
+### 15.5 HTML sinks in the SPA (finding 10)
+The built bundle's `dangerouslySetInnerHTML` / `.innerHTML` occurrences are almost all library code (React,
+ECharts, markdown-it). The application's own sinks:
+
+| Sink | Data that reaches it | Result |
+|---|---|---|
+| `AnswerView` (`dangerouslySetInnerHTML`) | assistant output, which may quote device names, syslog text, LLDP neighbours | safe: markdown-it with `html: false`, images / autolinks / HTML rules disabled, every text and code renderer escapes, links only for validated `nm:` refs (`https://` for Knowledge Base sources) |
+| ECharts tooltip `formatter` (history chart) | the **unit** of a custom SNMP channel (free text) | **fixed**: escaped (`lib/html.ts`) |
+| ECharts tooltip `formatter` (log histogram) | series names, colours | **fixed** (defence in depth; names are translations today) |
+| ECharts tooltip `formatter` (assistant usage) | the **currency** setting (free text) | **fixed**: escaped |
+| ECharts tooltip `formatter` (topology) | device names, hosts, LLDP neighbour names, port names | already escaped; now uses the shared helper |
+| ECharts default tooltips (flows) | interface / host / application names | safe: ECharts encodes names and values in its default tooltip |
+| OIDC landing page (server-rendered) | the `next` path | **fixed**: the JSON inside `<script>` escapes `<`, `>`, `&` (a `next` of `/x</script>…` could close the element) |
+
+Everything else is rendered by React as text. The CSP (15.4) is the second layer: no inline or foreign script runs
+even if a sink is missed.

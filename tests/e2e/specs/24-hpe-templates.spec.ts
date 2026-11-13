@@ -143,9 +143,10 @@ test('Comware sensors and values', async () => {
     }, { timeout: 90_000, intervals: [2000, 5000] })
     .toEqual([]);
   expect(s['Fan 2'].status).toBe('down');
-  expect(s['Fan 2'].status_message).toBe('Fan 2: unexpected value (41)');
+  // [1.3.1] fan/PSU use the shared HH3C fault-code table (value_map_ref hh3c_error_status, poller/value_maps.py)
+  expect(s['Fan 2'].status_message).toBe('Fan 2: Fan fault (fanError, 41)');
   expect(s['Fan 1'].status).toBe('up');
-  expect(s['Fan 1'].status_message).toBe('Fan 1: normal (2)');
+  expect(s['Fan 1'].status_message).toBe('Fan 1: Normal (normal, 2)');
   expect(s['PSU 1'].status).toBe('up');
   expect(channel(s['CPU Board'])).toBe(12);
   expect(channel(s['Memory Board'])).toBe(41);

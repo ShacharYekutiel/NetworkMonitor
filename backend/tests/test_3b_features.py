@@ -1050,7 +1050,7 @@ async def test_template_walk_draft_and_user_save(
     tpl = rt.ai_features.templates
     walked: list[str] = []
 
-    async def fake_walker(host, creds, base, max_rows, deadline):  # noqa: ANN001
+    async def fake_walker(host, creds, base, max_rows, deadline, sink=None):  # noqa: ANN001
         walked.append(base)
         if base == "1.3.6.1.2.1.1":
             return [

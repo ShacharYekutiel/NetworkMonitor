@@ -643,6 +643,14 @@ async def test_redact_internal_ips_defaults_true(rt: Runtime, admin: httpx.Async
     async with rt.sessionmaker() as s:
         cfg = await acfg.load(s)
     assert cfg["redact_internal_ips"] is True and cfg["region"] == "eu-west-1"
+    # the AI features read the row through features.common (their own defaults): same answer
+    from netmon.assistant.features import common
+
+    async with rt.sessionmaker() as s:
+        a = await common.assistant_settings(s)
+    assert a["redact_internal_ips"] is True
+    key = "redact_internal_ips"
+    assert common.ASSISTANT_DEFAULTS[key] is acfg.DEFAULT_ASSISTANT[key]
 
 
 # ------------------------------------------------- temporary credentials (ASIA + session token)
@@ -806,7 +814,7 @@ async def test_migration_0008_up_down_up(mode: str, rt: Runtime) -> None:
             pytest.skip("TimescaleDB not available")
         conn = await asyncpg.connect(_plain(url))
         try:
-            assert await conn.fetchval("SELECT version_num FROM alembic_version") == "0010"
+            assert await conn.fetchval("SELECT version_num FROM alembic_version") == "0011"
             assert tables <= await present(conn)
             uid = await conn.fetchval(
                 "INSERT INTO users (username, password_hash, role) VALUES ('user1', 'x', 'admin') "
@@ -875,7 +883,7 @@ async def test_migration_0008_up_down_up(mode: str, rt: Runtime) -> None:
         await run_migrations(engine)
         conn = await asyncpg.connect(_plain(url))
         try:
-            assert await conn.fetchval("SELECT version_num FROM alembic_version") == "0010"
+            assert await conn.fetchval("SELECT version_num FROM alembic_version") == "0011"
             assert tables <= await present(conn)
         finally:
             await conn.close()

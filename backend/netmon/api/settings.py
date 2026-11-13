@@ -11,6 +11,7 @@ from netmon.db.timescale import reapply_retention
 from netmon.flows import settings as flow_settings
 from netmon.schemas import SettingsPut, SmtpTestIn
 from netmon.services import audit
+from netmon.services import security as security_svc
 from netmon.services import settings as settings_svc
 
 router = APIRouter()
@@ -53,6 +54,9 @@ async def put_settings(body: SettingsPut, _: Admin, rt: RT, session: DB, ctx: Au
     await _put_3_plain(body, fields, current, session)
     await _put_3c(body, fields, current, rt, session)  # [3] SSO toggles, reports, chat ack
     await flow_settings.put(body, fields, session)  # [3] flows
+    for key in security_svc.KEYS:  # [1.4.1]
+        if key in fields and getattr(body, key) is not None:
+            await settings_svc.put(session, key, getattr(body, key))
     retention_changed = False
     if "smtp" in fields and body.smtp is not None:
         smtp = dict(current["smtp"])
@@ -101,6 +105,7 @@ async def put_settings(body: SettingsPut, _: Admin, rt: RT, session: DB, ctx: Au
     await _apply_2b3_ingest(rt, current, values)
     await _apply_3(rt, current, values)
     await flow_settings.after_put(rt, current, values)  # [3] flows
+    security_svc.apply(rt, values)  # [1.4.1] cached policy + egress filter
     return settings_svc.settings_out(values, rt.secret_key)
 
 

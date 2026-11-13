@@ -28,6 +28,7 @@ from netmon.reports.scheduler import (
 from netmon.schemas import _email
 from netmon.services import audit, settings_p3c
 from netmon.services.features import require
+from netmon.services.security import DOCUMENT_CSP
 from netmon.services.serialize import iso, page
 
 
@@ -380,6 +381,8 @@ async def get_run_html(run_id: int, _: Viewer, session: DB) -> Response:
             "Content-Disposition": f'attachment; filename="{fname}"; '
             f"filename*=UTF-8''{quote(fname)}",
             "Cache-Control": "no-store",
+            # [1.4.1] a stored document: inline styles only, never scripts
+            "Content-Security-Policy": DOCUMENT_CSP,
         },
     )
 

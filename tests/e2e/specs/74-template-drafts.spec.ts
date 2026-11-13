@@ -8,6 +8,7 @@ import { join } from 'node:path';
 import { apiAs, loginViaApi, type Api } from '../lib/helpers';
 import { PY, SIM_DIR, raw } from '../lib/lab';
 import { ensureGroupNamed, setFeatures } from '../lib/lab3';
+import { T, setLang } from '../lib/lab2b2';
 import { PHASE3B, audit, ensureAssistant, lastSeq, mock, modelCalls, shot3b } from '../lib/lab3b';
 
 // default mode (not serial): one worker runs the tests in order; a failure restarts the worker (beforeAll is
@@ -16,6 +17,7 @@ test.describe.configure({ mode: 'default' });
 test.skip(!PHASE3B, 'phase-3b Bedrock mock not running');
 
 const IP = '127.0.0.147';
+const V3_IP = '127.0.0.155'; // [maint-1.4] SNMPv3 authNoPriv agent (user netmon, SHA); .148 is spec 76's
 let api: Api;
 let agent: ChildProcess | null = null;
 let dev: any;
@@ -46,6 +48,7 @@ test.beforeAll(async () => {
 });
 test.afterAll(async () => {
   spawnSync('pkill', ['-f', `${IP}:1161`]);
+  spawnSync('pkill', ['-f', `${V3_IP}:1161`]);
   await raw(api, 'DELETE', '/api/device-templates/user/qa_draft_x100').catch(() => undefined);
 });
 
@@ -148,4 +151,46 @@ test('POST /api/device-templates/user: overwrite rules, invalid YAML 422, always
   expect(bad.body.error.code).toBe('invalid_template');
   expect((await raw(api, 'GET', '/api/assistant/template-drafts/walks/1')).body.error.code).toBe('feature_disabled');
   await setFeatures(api, { ai_template_drafts: true });
+});
+
+test('[maint-1.4] wrong SNMPv3 password: the walk reports the rejected credentials (API + UI en/he), not a timeout', async ({ page }) => {
+  test.setTimeout(120_000);
+  spawnSync('pkill', ['-f', `${V3_IP}:1161`]);
+  const v3 = spawn(PY, [join(SIM_DIR, 'snmp_agent.py'), '--host', V3_IP, '--port', '1161', '--data', join(SIM_DIR, 'bedrock', 'snmp_x100'),
+    '--v3-user', 'netmon', '--v3-auth-proto', 'SHA', '--v3-auth-key', 'NetmonAuth2026'], { stdio: ['ignore', 'pipe', 'ignore'], detached: true });
+  let out = '';
+  v3.stdout!.on('data', (d) => (out += d));
+  await expect.poll(() => out.includes('READY'), { timeout: 30_000 }).toBe(true);
+  const g = await ensureGroupNamed(api, 'QA Assistant 3b');
+  const existing = (await api.get(`/api/devices?q=${V3_IP}&page_size=20`)).items.find((d: any) => d.host === V3_IP);
+  const bad = existing ?? await api.post('/api/devices', { group_id: g.id, name: 'qa142-v3-wrong', host: V3_IP, auto_sensors: [],
+    snmp_credentials: { version: 'v3', port: 1161, timeout_s: 2, retries: 1, v3_username: 'netmon', v3_security_level: 'authNoPriv',
+      v3_auth_protocol: 'SHA', v3_auth_key: 'WrongAuthKey99' } });
+  // API: failed with auth_failed and the device's reason; the other subtrees are not tried with the same keys
+  const started = await api.post('/api/assistant/template-drafts/walks', { device_id: bad.id, presets: ['system', 'entity', 'enterprise'], oids: [] });
+  const w = await waitWalk(started.id);
+  expect(w.status).toBe('failed');
+  expect(w.error_code).toBe('auth_failed');
+  expect(w.error).toMatch(/digest/i);
+  expect(w.outcomes.map((o: any) => [o.status, o.error_code])).toEqual([['error', 'auth_failed'], ['skipped', 'auth_failed'], ['skipped', 'auth_failed']]);
+  // UI (en, then he)
+  await loginViaApi(page, undefined, '/templates');
+  for (const lang of ['en', 'he'] as const) {
+    if (lang === 'he') await setLang(page, 'he');
+    await page.getByTestId('template-draft-open').click();
+    const wizard = page.getByTestId('template-draft');
+    await wizard.locator('select').first().selectOption(String(bad.id));
+    await wizard.getByTestId('walk-start').click();
+    await expect(wizard.getByTestId('walk-status')).toHaveAttribute('data-status', 'failed', { timeout: 60_000 });
+    const err = wizard.getByTestId('walk-error');
+    await expect(err).toHaveAttribute('data-code', 'auth_failed');
+    await expect(err).toContainText(T('tdraft.walkError.auth_failed', {}, lang));
+    await expect(err).toContainText('Wrong SNMP PDU digest');
+    await expect(err).not.toContainText(T('tdraft.walkError.timeout', {}, lang));
+    await shot3b(page, `74-walk-auth-failed-${lang}`);
+    await page.keyboard.press('Escape');
+    await expect(wizard).toBeHidden();
+  }
+  await setLang(page, 'en');
+  spawnSync('pkill', ['-f', `${V3_IP}:1161`]);
 });

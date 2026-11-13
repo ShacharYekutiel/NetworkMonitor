@@ -390,7 +390,20 @@
     "smtpTestOk": "Test email sent.",
     "healthLine": "Version {{version}} · database {{db}} · {{mode}} · poller {{poller}} · sensors scheduled: {{count}}",
     "security": {
-      "none": "None"
+      "none": "None",
+      "title": "Security",
+      "intro": "Hardening options. The defaults are the secure choice; change one only when your deployment needs it.",
+      "sessionMaxAge": "Maximum session age (hours)",
+      "sessionMaxAgeHint": "A login ends after this long even when it is in use (1–720; default 168 = 7 days). Active Directory, Kerberos and Microsoft sign-in sessions end after 12 hours at the latest.",
+      "sessionMaxAgeErr": "Enter 1–720.",
+      "loginIpCap": "Failed logins per address (5 minutes)",
+      "loginIpCapHint": "After this many failed password logins from one address, across all user names, new logins from it wait until the 5 minutes pass. Signed-in users are not affected. 0 = off (default 20).",
+      "loginIpCapErr": "Enter 0–10000.",
+      "allowLoopback": "Allow monitoring and notification targets on this server (loopback)",
+      "allowLoopbackHint": "Off: HTTP sensors, webhooks and Teams channels cannot reach 127.0.0.1 / localhost. Turn on only to monitor a service on the NetworkMonitor server itself. Link-local and cloud metadata addresses are always blocked; private network addresses are always allowed.",
+      "frameAncestors": "Sites that may embed NetworkMonitor in a frame",
+      "frameAncestorsHint": "One origin per line, for example https://wall.example.com. Empty = only NetworkMonitor itself (recommended). Needed only when a wall screen page embeds the NOC view.",
+      "frameAncestorsErr": "Each line must be an origin such as https://wall.example.com (scheme and host, optional port), at most 20."
     },
     "timezone": "Time zone",
     "timezoneHint": "Used for weekly maintenance windows and the times in notifications.",
@@ -457,7 +470,10 @@
     "confirmPassword": "Confirm new password",
     "passwordChanged": "Password changed.",
     "ldapManaged": "Your account is managed in Active Directory. Change your password and email there.",
-    "oidcManaged": "This account signs in with Microsoft Entra ID; its password is managed there."
+    "oidcManaged": "This account signs in with Microsoft Entra ID; its password is managed there.",
+    "sessions": "Sessions",
+    "sessionsHint": "Sign out ends this browser's session on the server. If you think someone else may be using your account, sign out of every browser and device at once (API tokens are not affected).",
+    "logoutEverywhere": "Sign out everywhere"
   },
   "validation": {
     "required": "Required.",
@@ -1749,7 +1765,8 @@
       "syslog": "Syslog",
       "traps": "Traps",
       "unknown": "Unknown sources",
-      "rules": "Rules"
+      "rules": "Rules",
+      "digest": "Digest"
     },
     "range": "Time range",
     "preset": {
@@ -3744,6 +3761,20 @@
       "failed": "Walk failed",
       "cancelled": "Walk cancelled"
     },
+    "outcome": {
+      "ok": "complete",
+      "truncated": "value limit reached",
+      "timeout": "time budget ran out (partial)",
+      "error": "failed",
+      "skipped": "not walked"
+    },
+    "walkError": {
+      "auth_failed": "The device rejected the SNMP credentials (wrong password or key, unknown SNMPv3 user, security level or access). Check the device's SNMP settings in NetworkMonitor.",
+      "unreachable": "The device did not answer SNMP: it is unreachable, SNMP is off, or the community is wrong (agents do not answer a wrong community; some do not answer wrong SNMPv3 keys either).",
+      "timeout": "The device answered too slowly: a subtree ran out of its time budget. The values collected so far are kept.",
+      "snmp_error": "The device answered with an SNMP error."
+    },
+    "walkErrorDetail": "Device response:",
     "varbinds": "{{n}} values",
     "cancelWalk": "Cancel walk",
     "templateId": "Template ID (optional)",

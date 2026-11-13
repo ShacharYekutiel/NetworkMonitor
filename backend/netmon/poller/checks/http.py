@@ -14,6 +14,7 @@ import httpx
 from netmon import __version__
 from netmon.poller.types import CheckContext, CheckResult
 from netmon.tlsutil import httpx_verify
+from netmon.util.egress import EgressBlocked, guarded_client, open_checked_connection
 
 
 def host_for_url(host: str) -> str:
@@ -82,7 +83,8 @@ def days_left(der: bytes, now: datetime | None = None) -> float:
 
 
 async def probe_cert_days(host: str, port: int, timeout: float) -> float | None:
-    """Unverified TLS handshake to read the peer certificate."""
+    """Unverified TLS handshake to read the peer certificate ([1.4.1] to a checked address:
+    the SSRF egress filter applies here too)."""
     ctx = ssl.create_default_context()
     ctx.check_hostname = False
     ctx.verify_mode = ssl.CERT_NONE
@@ -94,10 +96,10 @@ async def probe_cert_days(host: str, port: int, timeout: float) -> float | None:
         pass
     try:
         reader, writer = await asyncio.wait_for(
-            asyncio.open_connection(host, port, ssl=ctx, server_hostname=server_hostname),
+            open_checked_connection(host, port, ssl=ctx, server_hostname=server_hostname),
             timeout,
         )
-    except (OSError, TimeoutError, ssl.SSLError):
+    except (OSError, TimeoutError, ssl.SSLError, httpx.HTTPError):
         return None
     try:
         sslobj = writer.get_extra_info("ssl_object")
@@ -136,7 +138,7 @@ async def run(ctx: CheckContext) -> CheckResult:
     ssl_days: float | None = None
     start = time.perf_counter()
     try:
-        async with httpx.AsyncClient(
+        async with guarded_client(  # [1.4.1] SSRF egress filter, checked on every redirect hop
             verify=httpx_verify(bool(cfg.get("verify_tls", True))),
             follow_redirects=bool(cfg.get("follow_redirects", True)),
             timeout=timeout,
@@ -147,6 +149,8 @@ async def run(ctx: CheckContext) -> CheckResult:
                     ssl_days = _stream_cert_days(resp)
                 body = await resp.aread()
             elapsed_ms = (time.perf_counter() - start) * 1000.0
+    except EgressBlocked as exc:
+        return CheckResult(False, str(exc)[:300])
     except httpx.TimeoutException:
         return CheckResult(False, f"Request timed out after {timeout:g} s")
     except httpx.HTTPError as exc:
