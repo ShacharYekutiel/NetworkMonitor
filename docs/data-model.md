@@ -4235,8 +4235,9 @@ no `value_map_ref`) get `value_map_ref = "hh3c_error_status"` and `value_map = {
 
 # **[4]** Phase 4 additions
 
-Scope: shared AWS connections, AWS cloud inventory and VPC Flow Logs with alerts (4d, first), high availability (4a),
-optics/PoE, certificates, compliance, S3 backups, traffic capture (4c). On-call was removed from phase 4.
+Scope (contract revision 3): shared AWS connections, AWS cloud inventory and VPC Flow Logs with alert rules (4d,
+first), high availability (4a), optics/PoE, certificates, compliance, S3 backups, traffic capture (4c). On-call was
+removed from phase 4; the exotic options of revision 2 were cut (architecture § 15.0.3).
 Migrations are named by **ordered placeholders `P4-1` … `P4-10`**; the real revision number is the next free one at
 merge time ([architecture § 15.15](architecture.md#1515-pr-split-and-team-plan-4)). Plain PostgreSQL DDL only in
 migrations; hypertables are created by the Timescale bootstrap (fallback: plain tables with `(…, time DESC)` + BRIN
@@ -4247,24 +4248,23 @@ indexes, batched retention in the hourly loop), as in phase 3. API shapes:
 
 | Name | Values |
 |---|---|
-| `feature` | … 28 values of 1.4.0, **[4]** `aws_inventory`, `aws_flow_logs`, `flow_alerts`, `aws_change_alerts`, `ai_cloud_tools`, `ha`, `cert_monitor`, `optics_dom`, `poe_ports`, `config_compliance`, `s3_backup`, `s3_config_export`, `packet_capture` (41) |
+| `feature` | … 28 values of 1.4.0, **[4]** `aws_inventory`, `aws_flow_logs`, `ha`, `cert_monitor`, `optics_dom`, `poe_ports`, `config_compliance`, `s3_backup`, `packet_capture` (37) |
 | `sensor_type` | + `aws_dx_connection`, `aws_dx_vif`, `aws_vpn_connection`, `aws_tgw_attachment`, `flow_alert`, `aws_change` (event sensors), `tls_cert`, `optics`, `poe_budget`, `config_compliance` |
 | `event_rules.kind` | `trap`, `syslog`, **[4]** `flow_threshold`, `aws_change` |
 | `event_conditions.source` | `rule`, `flap` (unchanged; phase-4 conditions are `rule`) |
-| **[4]** `aws_auth_mode` | `roles_anywhere`, `access_key`, `default_chain`, `assume_role` |
-| **[4]** `aws_partition` | `aws`, `aws-us-gov`, `aws-cn`, `custom` (S3-compatible storage only) |
+| **[4]** `aws_auth_mode` | `roles_anywhere`, `access_key`, `default_chain` |
 | **[4]** `aws_access_mode` | `direct`, `assume_role`, `ra_role` |
 | **[4]** `aws_resource_type` | `vpc`, `subnet`, `route_table`, `eni`, `security_group`, `network_acl`, `igw`, `egress_igw`, `nat_gw`, `vpc_endpoint`, `peering`, `prefix_list`, `eip`, `tgw`, `tgw_attachment`, `tgw_route_table`, `tgw_peering`, `tgw_connect`, `vgw`, `vpn`, `cgw`, `instance`, `flow_log`, `dx_connection`, `dx_lag`, `dx_vif`, `dx_gateway`, `dx_gateway_association` (a registry in code; the column is `text` with a CHECK so a follow-up adds a type with a one-line migration) |
 | **[4]** `flowlog_log_type` | `vpc`, `tgw` |
 | **[4]** `flowlog_destination` | `s3`, `cwl` |
 | **[4]** `flowlog_file_format` | `auto`, `text`, `parquet` |
-| **[4]** `flowlog_layout` | `auto`, `plain`, `plain_hourly`, `hive`, `hive_hourly`, `generic` |
+| **[4]** `flowlog_layout` | `auto`, `plain`, `plain_hourly`, `hive`, `hive_hourly`, `generic` (Firehose-to-S3) |
 | **[4]** `flowlog_backlog_policy` | `skip_old`, `catch_up` |
 | **[4]** `flowlog_object_state` | `done`, `failed`, `skipped_old`, `too_large` |
 | **[4]** `flow_exporter_kind` | `device`, `aws_vpc`, `aws_tgw`, `aws_flowlog` |
 | `flow_exporters.protocols` | + `vpc_flow_log`, `tgw_flow_log` |
 | **[4]** `ha_role` | `single`, `active`, `standby`, `fenced` |
-| **[4]** `ha_dns_method` | `none`, `ad_gss_tsig`, `rfc2136_tsig`, `route53`, `webhook` |
+| **[4]** `ha_dns_method` | `ad_gss_tsig`, `route53` |
 | **[4]** `ha_event_kind` | `heartbeat_lost`, `heartbeat_restored`, `quorum_ok`, `quorum_failed`, `grant_requested`, `grant_refused`, `promoted`, `fenced`, `self_fenced`, `resumed`, `switchover_started`, `switchover_done`, `failover_forced`, `rejoin_requested`, `rejoined`, `rebuild`, `replay_done`, `dns_updated`, `dns_failed`, `witness_unreachable`, `witness_restored`, `replication_broken`, `replication_restored` |
 | **[4]** `optics_status` | `ok`, `warning`, `alarm`, `no_signal`, `unsupported` |
 | **[4]** `compliance_kind` | `must_contain`, `must_not_contain`, `block`, `count` |
@@ -4288,85 +4288,107 @@ endpoint with a valid `test_id`; `PUT /api/settings` with `true` → `422 test_r
 |---|---|---|
 | `feature_aws_inventory_enabled` | inventory schedule, `/api/cloud/*` (inventory), AWS state sensors run | schedule stopped; `/api/cloud/*` 409 except settings/accounts/test; state sensors `unknown` with message "feature off"; data kept, change retention runs |
 | `feature_aws_flow_logs_enabled` | source polling, traffic views, overlay, flow-only map | polling stopped (register and cursors kept); traffic endpoints 409; aggregates kept (phase-3 retention) |
-| `feature_flow_alerts_enabled` | `flow_threshold` rules evaluated | not evaluated; open conditions cleared with message "Flow alerts are turned off" (as the 2b-3 `OFF_MESSAGE`); rules and state kept |
-| `feature_aws_change_alerts_enabled` | `aws_change` rules evaluated | same |
-| `feature_ai_cloud_tools_enabled` | the cloud tools are offered to the model | tools not offered |
 | `feature_ha_enabled` | automatic failover armed, witness heartbeats, DNS updates, standby quorum/readiness probes, `/ha` actions except *Force failover* | no automatic failover, no witness traffic, no DNS updates; **replication and the standby's read-only mode continue** (they depend on the database role, not the toggle); `/ha` shows status; CLI `failover --force` still works |
 | `feature_cert_monitor_enabled` | `tls_cert` sensors run, inventory, daily check | sensors not scheduled; `/api/certificates*` 409; data kept |
 | `feature_optics_dom_enabled` | DOM columns read, `optics` sensors | not read; optics tabs hidden; samples kept |
 | `feature_poe_ports_enabled` | per-port PoE power read, samples, `poe_budget` sensors | power not read (2b-2 state/class unchanged); samples kept |
 | `feature_config_compliance_enabled` | evaluation, results, reports section, compliance sensors | no evaluation; `/api/compliance*` 409; results kept |
-| `feature_s3_backup_enabled` | schedule, *Back up now*, restore | schedule stopped; settings/test/list remain; restore 409 |
-| `feature_s3_config_export_enabled` | export on new versions + nightly reconciliation | no export; `config_export_state` kept |
+| `feature_s3_backup_enabled` | schedule, *Back up now*, restore, config export (when `config_export_mode` ≠ `off`) | schedule and export stopped; settings/test/list remain; restore 409; `config_export_state` kept |
 | `feature_packet_capture_enabled` | captures can start | running captures stopped (`feature_off`); files kept until expiry; analyzer of existing captures 409 |
 
-Dependencies (`422 feature_dependency`): `flow_alerts` and `aws_change_alerts` need `event_alerts`; `aws_change_alerts`
-needs `aws_inventory`; `ai_cloud_tools` needs `assistant`; `s3_config_export` needs a passing `s3_backup` test in the
-last 30 days. `flow_alerts` without any flow source ON, and `config_compliance` without `config_backup`, are allowed
-(they idle).
+No phase-4 feature has a `422 feature_dependency` on another one. Revision 3 removed four toggles (architecture
+§ 15.0.1): `flow_threshold` / `aws_change` event rules are evaluated while `event_alerts` is ON (and, for
+`aws_change`, `aws_inventory`) and the rule is enabled — a rule whose data feature is OFF idles with
+`feature_off:<name>`; the assistant's cloud tools are offered while `assistant` and their data feature are ON; config
+export is `s3_backup.config_export_mode`. `config_compliance` without `config_backup` is allowed (it idles).
 
 ## [4] AWS connections (migration P4-1)
+
+Implementation spec: [architecture § 15.1](architecture.md#spec-4-0a). Partition `aws` only; one hop per consumer.
 
 ### `aws_connections`
 | Column | Type | Constraints |
 |---|---|---|
 | id | integer | PK identity |
-| name | varchar(64) | NOT NULL UNIQUE |
-| is_default | boolean | NOT NULL DEFAULT false; partial unique index `WHERE is_default` (exactly one row) |
+| name | varchar(64) | NOT NULL UNIQUE; 1–64 printable characters, trimmed |
+| is_default | boolean | NOT NULL DEFAULT false; partial unique index `aws_connections_one_default ON (is_default) WHERE is_default` |
 | auth_mode | text | NOT NULL CHECK in aws_auth_mode |
-| partition | text | NOT NULL DEFAULT 'aws' CHECK in aws_partition |
-| region | varchar(32) | NOT NULL — default region of the connection (region syntax) |
-| sts_region | varchar(32) | NULL — NULL = `region` |
+| region | varchar(32) | NOT NULL — 3b `REGION_RE`; the STS region and the default Roles Anywhere region |
 | proxy_mode | text | NOT NULL DEFAULT 'env' CHECK in (`env`, `direct`, `custom`) |
-| proxy_url | varchar(512) | NULL — netguard-checked, no credentials (as 3b) |
-| endpoint_overrides | jsonb | NOT NULL DEFAULT '[]' — `[{"service": "sts", "region": "il-central-1", "url": "https://vpce-…"}]`, ≤ 40 rows, unique (service, region); `url` = `https://host[:port]`, netguard-checked; services: `sts`, `rolesanywhere`, `bedrock-runtime`, `bedrock`, `bedrock-agent-runtime`, `ec2`, `directconnect`, `logs`, `monitoring`, `s3`, `route53`, `organizations` |
-| source_connection_id | integer | NULL FK `aws_connections.id` ON DELETE RESTRICT — `assume_role` mode only |
-| role_arn | varchar(2048) | NULL — `assume_role` mode: the role to assume |
-| external_id | varchar(1224) | NULL — `assume_role` mode (2–1224 chars, `[\w+=,.@:/-]`) |
-| assume_session_seconds | integer | NOT NULL DEFAULT 3600 CHECK 900–3600 |
-| settings | jsonb | NOT NULL DEFAULT '{}' — the mode's fields, same names as 3b: `access_key_id`, `secret_access_key_enc`, `session_token_enc`, `access_key_created_at`, `ra_region`, `ra_trust_anchor_arn`, `ra_profile_arn`, `ra_role_arn`, `ra_session_seconds`, `ra_cert_pem`, `ra_chain_pem`, `ra_key_enc`, `ra_cert_uploaded_at`, `ra_csr_pem`, `ra_csr_key_enc`, `ra_csr_subject`, `ra_csr_created_at` |
-| reencrypted | boolean | NOT NULL DEFAULT true (false only for the row copied by P4-1 until the first start) |
-| generation | integer | NOT NULL DEFAULT 0 — bumped on every change of a credential field (cache key) |
+| proxy_url | varchar(512) | NULL — required for `custom`; 3b `proxy_error` rules (http(s)://host:port, no credentials, netguard) |
+| endpoint_overrides | jsonb | NOT NULL DEFAULT '[]' — `[{"service": "sts", "region": "il-central-1", "url": "https://vpce-0abc-xyz.sts.il-central-1.vpce.amazonaws.com"}]`; ≤ 40 rows; unique (service, region); `service` in the registered list (4-0a: `sts`, `rolesanywhere`; later PRs add `ec2`, `directconnect`, `logs`, `monitoring`, `s3`, `route53`, `sns`); `region` matches `REGION_RE`; `url` passes the 3b `endpoint_error` (https://host[:port], no path / query / credentials, netguard) |
+| settings | jsonb | NOT NULL DEFAULT '{}' — the mode's fields, same names and rules as the 3b `assistant` object: `access_key_id`, `secret_access_key_enc`, `session_token_enc`, `access_key_created_at`, `ra_region` (null = `region`), `ra_trust_anchor_arn`, `ra_profile_arn`, `ra_role_arn`, `ra_session_seconds` (900–43200, default 3600), `ra_cert_pem`, `ra_chain_pem`, `ra_key_enc`, `ra_cert_uploaded_at`, `ra_csr_pem`, `ra_csr_key_enc`, `ra_csr_subject`, `ra_csr_created_at` |
+| aad_scope | varchar(48) | NOT NULL — `assistant` for the row created by P4-1; `aws.conn.<16 hex>` for every other row (generated at create, never changed) |
 | last_test | jsonb | NULL — `{"ok", "at", "by", "error_code", "account", "arn"}` |
-| created_at, updated_at | timestamptz | NOT NULL |
+| created_at, updated_at | timestamptz | NOT NULL DEFAULT now() |
 
-- Secrets: AES-GCM, AAD `b"aws.conn.<id>.<field>"` (`secret_access_key`, `session_token`, `ra_key`, `ra_csr_key`).
-  The S3-compatible partition `custom` requires `auth_mode = access_key` and an `s3` override.
-- Validation: chain depth ≤ 2 connections, no cycle; `role_arn` matches
-  `^arn:(aws|aws-us-gov|aws-cn):iam::\d{12}:role/[\w+=,.@/-]{1,576}$` and its partition equals the connection's.
-- Host certificate files (`NETMON_AWS_RA_CERT_FILE` …, 3b) apply to the **default** connection only.
-- Delete: `409 conflict` while referenced by a consumer or by another connection.
+- **Secrets**: AES-GCM (`services/crypto.py`) with AAD `f"{aad_scope}.{field}".encode()`, `field` ∈
+  `secret_access_key`, `session_token`, `ra_key`, `ra_csr_key`. For `aad_scope = 'assistant'` these are exactly the
+  1.4.x AADs (`AAD_SECRET_ACCESS_KEY` … in `assistant/config.py`), so P4-1 copies ciphertexts verbatim.
+- **Validation** (pure `aws.connections.field_errors` / `required_errors`): the 3b rules for the mode's fields
+  (`TRUST_ANCHOR_RE`, `PROFILE_RE`, `ROLE_RE` narrowed to `arn:aws:`; `ACCESS_KEY_RE`; session token ≤ 4096); an ARN
+  value containing `arn:` twice → "the ARN appears twice — paste it once"; required fields per mode as 3b
+  `required_errors` (without the Bedrock `model_id`).
+- **Host certificate files** (`NETMON_AWS_RA_CERT_FILE`, `…_KEY_FILE`, `…_CHAIN_FILE`, 3b) apply to the **default**
+  connection only, when it is `roles_anywhere`; certificate upload / CSR on that connection then answer `409
+  conflict` (as 3b).
+- `connection_hash(view)` (pure, test binding and cache key) = SHA-256 of the canonical JSON of `auth_mode`, `region`,
+  `proxy_mode`, `proxy_url`, `endpoint_overrides` (sorted), the non-secret `settings` fields, and SHA-256 of each
+  secret / certificate / chain / key (3b `connection_hash` method).
+- **Delete**: `409 conflict` while a consumer references it (explicitly, or implicitly through `connection_id: null`
+  while it is the default), or while it is the default and another connection exists. Deleting the last connection
+  is allowed when nothing uses it.
 
 ### Consumer access (the same shape everywhere)
-`connection_id integer NULL` (FK `aws_connections.id` ON DELETE RESTRICT; NULL = the default connection) and
-`access jsonb NOT NULL DEFAULT '{"mode": "direct"}'` = `{"mode": aws_access_mode, "role_arn": str | null,
-"external_id": str | null}`. `assume_role` and `ra_role` need `role_arn`; `ra_role` needs a `roles_anywhere`
-connection and a role in the profile's account; `external_id` only with `assume_role`. Stored on: `aws_accounts`,
-`aws_flowlog_sources` (columns), and inside the settings objects `assistant`, `assistant_kb`, `s3_backup`, `ha.dns`
-(keys `connection_id`, `access`).
+`connection_id integer NULL` (FK `aws_connections.id` ON DELETE RESTRICT where it is a column; null = the default
+connection) and `access jsonb NOT NULL DEFAULT '{"mode": "direct"}'` = `{"mode": aws_access_mode, "role_arn": str |
+null, "external_id": str | null}`.
+- `assume_role`: `role_arn` required (`^arn:aws:iam::\d{12}:role/[\w+=,.@/-]{1,512}$`); `external_id` optional,
+  2–1224 characters of `[\w+=,.@:/-]`.
+- `ra_role`: `role_arn` required, the connection must be `roles_anywhere`, the role's account must equal the
+  profile ARN's account (`422` "must be in the profile's account"); `external_id` must be null.
+- `direct`: `role_arn` and `external_id` null.
+- `external_id` is stored in clear (it is not a secret in the AWS model), returned to admins, never written to audit
+  rows or logs (audit shows `external_id_set: true`).
+- Stored in: the settings object `assistant` (4-0a); later `aws_accounts`, `aws_flowlog_sources` (columns),
+  `s3_backup`, `ha.dns` (keys).
 
 ### `assistant` settings object (3b) after P4-1
-Gains `"connection_id": <id of "Default">` and `"access": {"mode": "direct"}`. Its legacy authentication keys
-(`auth_mode`, `access_key_id`, `secret_access_key_enc`, `session_token_enc`, `access_key_created_at`, every `ra_*`,
-`proxy_mode`, `proxy_url`) are **left in place and no longer read**; they are dropped by the first migration of the
-release after phase 4. `region`, `model_id*`, `endpoint_url`, `control_endpoint_url`, `prompt_caching`, the
-data-sharing options, prices and `chat_models` are unchanged. `endpoint_url` / `control_endpoint_url` stay on the
-assistant (they are Bedrock-specific) and win over a connection override for the same service.
-The assistant's `connection_hash` (test binding) now covers: the 1.4.0 non-auth connection fields, `connection_id`,
-the connection's `generation`, and `access`.
+- Gains `"connection_id": <id> | null` and `"access": {"mode": "direct", "role_arn": null, "external_id": null}`.
+- `region` (Bedrock region), `model_id*`, `endpoint_url`, `control_endpoint_url`, `prompt_caching`, the
+  data-sharing options, `prices`, `chat_models`, `last_test` are unchanged.
+- **Legacy authentication keys** (`auth_mode`, `access_key_id`, `secret_access_key_enc`, `session_token_enc`,
+  `access_key_created_at`, every `ra_*` incl. `ra_endpoint_url`, `proxy_mode`, `proxy_url`) stay in the row, are no
+  longer read by the app, and are **mirrored** from the `aad_scope = 'assistant'` connection while the assistant uses
+  it with access `direct` (architecture § 15.1.4). Dropped by the first migration of the release after phase 4.
+- `connection_hash` of the assistant (test binding): SHA-256 over `region`, `model_id`, `model_id_light`,
+  `endpoint_url`, `control_endpoint_url`, `prompt_caching`, the resolved connection id, that connection's
+  `connection_hash`, `access.mode`, `access.role_arn` and SHA-256 of `access.external_id`.
+- `assistant_kb` is unchanged (the Knowledge Base uses the assistant's chain).
 
-### Credential chain vectors (pure `aws.credentials.chain_key`, `aws.sts.session_name`)
-- connection 1 (`roles_anywhere`), access `direct` → hops `[]`; key `(1, gen, ())`.
-- connection 1, access `{assume_role, arn:aws:iam::222222222222:role/netmon-bedrock, ext}` → hops
-  `[("assume_role", role, sha256(ext))]`.
-- connection 2 (`assume_role` from 1, role H), access `{assume_role, role S}` → hops `[H, S]`; depth 3 → accepted;
-  a connection 3 on top of 2 → `422` (`chain_too_deep`).
-- `session_name("assistant", "office1")` → `netmon-assistant-office1`; node name with a space or over length →
-  characters outside `[A-Za-z0-9+=,.@_-]` replaced by `-`, cut to 64.
-- STS answer `<Error><Code>AccessDenied</Code>…is not authorized to perform: sts:SetSourceIdentity…` on hop 1 →
-  `aws_assume_role_denied`, `details.hints[0] = "set_source_identity"`; `…sts:TagSession…` → hint `tag_session`;
-  no action named → hints `["trust_policy", "external_id", "set_source_identity", "scp"]` when the base is Roles
-  Anywhere, without `set_source_identity` otherwise.
+### Pure vectors (`aws.credcache.chain_key`, `aws.sts.session_name`, `aws.errors.map_sts`, `aws.errors.hints_for`, `aws.certs.source_identity`)
+- Chain key: connection 1 (hash `h1`), access `direct` → `(1, "h1", "direct", None, None)`; access `{assume_role,
+  arn:aws:iam::222222222222:role/netmon-bedrock, "ext"}` → `(1, "h1", "assume_role", "arn:…:role/netmon-bedrock",
+  sha256("ext"))`; after a save of connection 1 (hash `h2`) both keys change.
+- `session_name("assistant")` → `netmon-assistant`; with `NETMON_NODE_NAME=office 1` → `netmon-assistant-office-1`;
+  a 70-character result is cut to 64.
+- `source_identity`: CN `netmonitor.example.net` → `CN=netmonitor.example.net`; a CN of 62 characters → the CN
+  itself; no CN, serial 291 → `ID=0123`; CN `NetMonitor Server` → `CN=NetMonitor Server` + warning
+  `cn_not_source_identity_safe`.
+- `map_sts` (HTTP 403, `<ErrorResponse><Error><Type>Sender</Type><Code>AccessDenied</Code><Message>User:
+  arn:aws:sts::111111111111:assumed-role/netmon-base/1f71c5 is not authorized to perform: sts:SetSourceIdentity on
+  resource: arn:aws:iam::222222222222:role/netmon-bedrock</Message></Error></ErrorResponse>`) →
+  `aws_assume_role_denied`, `details[0] = {"hop": 1, "from_arn": "arn:aws:sts::111111111111:assumed-role/netmon-base/1f71c5",
+  "role_arn": "arn:aws:iam::222222222222:role/netmon-bedrock", "action": "sts:SetSourceIdentity"}`.
+- `hints_for`: action `sts:SetSourceIdentity` → `["set_source_identity"]`; `sts:TagSession` → `["tag_session"]`;
+  `sts:AssumeRole` with a Roles Anywhere base → `["caller_policy", "trust_policy", "external_id",
+  "set_source_identity", "scp"]`; the same with an access-key base → without `set_source_identity`;
+  `RegionDisabledException` → `["sts_region"]`; `CreateSession` 403 "Unable to assume role" →
+  `["ra_trust_policy", "ra_subject_cn", "ra_issuer_cn", "ra_profile_role"]` with `values` `{trust_anchor_arn,
+  cert_cn, issuer_cn, profile_arn, role_arn}` taken from the connection and its certificate; "Untrusted signing
+  certificate" → `["ra_untrusted_cert"]`; an `httpx.ConnectError` to `sts.il-central-1.amazonaws.com` →
+  `["vpc_endpoint_or_proxy"]` with `values.host`.
+- `awsxml` refuses `<!DOCTYPE` and `<!ENTITY` (→ `aws_network` "invalid response") and inputs over the size cap.
 
 ## [4] Cloud (4d)
 
@@ -4477,7 +4499,6 @@ Phase-3 code that keys exporters by address (`flows/query.py`, the receiver cach
 | connection_id, access | | consumer access |
 | bucket | varchar(63) | NULL (s3) — `^[a-z0-9][a-z0-9.-]{1,61}[a-z0-9]$` |
 | prefix | varchar(512) | NOT NULL DEFAULT '' (s3; the part before `AWSLogs/`; no `..`, no leading `/`) |
-| check_bucket_owner | boolean | NOT NULL DEFAULT true — send `x-amz-expected-bucket-owner: <account_id>` |
 | file_format | text | NOT NULL DEFAULT 'auto' CHECK in flowlog_file_format |
 | layout | text | NOT NULL DEFAULT 'auto' CHECK in flowlog_layout |
 | detected | jsonb | NOT NULL DEFAULT '{}' — what the last Test / poll found: `{"layout", "file_format", "hive_service_key": "aws-service"\|"service", "fields": [...], "flow_log_ids": [...]}` |
@@ -4560,7 +4581,7 @@ NULL for the new kinds. `match` shapes (validated by pure `cloud.alerts.validate
 ```
 Limits: ≤ 200 rules per new kind; `window_min × for_windows` ≤ 1440; lists ≤ 50 entries. `scope` / `group_id` /
 `device_id` keep their 2b-3 meaning (the device that carries the condition; `global` = resolved from the subject).
-Built-in rules are inserted by P4-4 with `enabled = false` and `builtin_key` `flow.reject_spike`,
+Rule kinds have no feature toggle of their own (see Feature toggles). Built-in rules are inserted by P4-4 with `enabled = false` and `builtin_key` `flow.reject_spike`,
 `flow.reject_ratio`, `flow.link_silent`, `flow.link_utilisation`, `flow.tgw_drops`, `flow.if_utilisation`,
 `aws.sg_open_world`, `aws.sg_ingress_added`, `aws.route_changed`, `aws.eni_created`, `aws.nacl_changed`,
 `aws.peering_or_attachment_created`, `aws.igw_attached`, `aws.flow_log_deleted`, `aws.vif_bgp_down`,
@@ -4626,15 +4647,13 @@ Built-in rules are inserted by P4-4 with `enabled = false` and `builtin_key` `fl
   "quorum_min_ok": 3,                      // absolute minimum of reachable devices
   "spool_max_gb": 10, "spool_hours": 72,
   "notify_channel_ids": [],                // HA events to these channels (in addition to system events)
-  "dns": { "method": "none",               // ha_dns_method: none | ad_gss_tsig | rfc2136_tsig | route53 | webhook
+  "dns": { "method": "ad_gss_tsig",        // ha_dns_method: ad_gss_tsig | route53
            "record": "netmonitor.example.net", "ttl": 60,
            "node_addresses": {"office1": "10.0.0.50", "aws1": "10.20.1.50"},
-           "servers": ["dc1.example.net", "dc2.example.net"], "zone": "example.net",   // ad_gss_tsig, rfc2136_tsig
+           "servers": ["dc1.example.net", "dc2.example.net"], "zone": "example.net",   // ad_gss_tsig
            "ad_principal": "svc-netmon-dns@EXAMPLE.NET", "ad_keytab_enc": null,
-           "tsig_key_name": null, "tsig_algorithm": "hmac-sha256", "tsig_secret_enc": null,
            "route53_zone_id": null, "route53_record": null,
-           "connection_id": null, "access": {"mode": "direct"},                        // route53: consumer access
-           "webhook_url": null, "webhook_secret_enc": null },
+           "connection_id": null, "access": {"mode": "direct"} },                      // route53: consumer access
   "ca_cert_pem": null, "ca_key_enc": null,           // HA CA (§ 15.3.10)
   "repl_password_enc": null,
   "node_tokens_enc": null,                           // {"office1": "...", "aws1": "...", "witness": "..."}
@@ -4831,14 +4850,13 @@ No tables, columns or settings (architecture § 15.9). `alert_rules` is unchange
 { "bucket": "example-netmon-backup", "prefix": "netmonitor/", "region": "il-central-1",
   "account_id": null,                                   // optional: expected bucket owner
   "connection_id": null, "access": {"mode": "direct"},  // consumer access
-  "path_style": false,                                  // true for S3-compatible storage
-  "sse": "sse_s3", "kms_key_arn": null,                 // sse_s3 | sse_kms | dsse_kms | none (S3-compatible only)
+  "sse": "sse_s3", "kms_key_arn": null,                 // sse_s3 | sse_kms | dsse_kms
   "storage_class": "STANDARD",                          // any S3 storage class name ^[A-Z_]{1,32}$; archive classes refused
   "schedule_time": "02:47", "schedule_enabled": true,
   "retention_mode": "lifecycle",                        // app | lifecycle | both
   "keep_daily": 14, "keep_monthly": 12,                 // 1–365 / 0–120; modes app and both
   "include_key": false, "passphrase_enc": null,         // AAD b"s3_backup.passphrase"
-  "config_export_mode": "all_versions",                 // all_versions | latest_only
+  "config_export_mode": "off",                          // off | all_versions | latest_only (needs config_backup)
   "last_test": null }                                   // {"ok","at","by","warnings":["no_delete"]}
 ```
 
@@ -4929,12 +4947,12 @@ Placeholders are substituted after validation: `interface` must exist in the dev
 match `^[A-Za-z][A-Za-z0-9/._:-]{0,63}$` for firewalls), `filter` only characters `[A-Za-z0-9 .:/()!&|<>=_-]` and
 quotes are refused, numbers are integers within limits — no shell metacharacters ever reach the device.
 Every regex in a driver file (`free_regex`, `done_regex`, `errors`, `expect`) is compiled with RE2 through `saferegex` when the
-driver is loaded; a pattern RE2 refuses makes the driver invalid (load error for built-ins, `422` for a user driver).
+driver is loaded; a pattern RE2 refuses makes the driver invalid (a load error; CI loads every shipped driver).
 
 ## [4] Settings keys (summary)
 Objects: `aws_cloud`, `ha`, `s3_backup` (only through their own endpoints; never in `GET /api/settings`); AWS
 connections are rows of `aws_connections`, not a settings object.
-Scalars (in `GET/PUT /api/settings`): the 13 new `feature_*_enabled`, `aws_inventory_interval_min`,
+Scalars (in `GET/PUT /api/settings`): the 9 new `feature_*_enabled`, `aws_inventory_interval_min`,
 `aws_change_retention_days`, `aws_change_collapse`, `aws_flowlogs_poll_min`, `aws_flowlogs_max_records_s`,
 `aws_flowlogs_parquet_mem_mb`, `aws_reject_retention_days`, `aws_edge_retention_days`, `aws_edges_per_minute`,
 `cert_warning_days`, `cert_critical_days`, `cert_daily_check_time`, `cert_discovery_ports`, `cert_issuer_rules`,
@@ -4950,7 +4968,7 @@ placeholders is fixed; the numbers are not.
 
 | ID | PR | `upgrade()` | `downgrade()` |
 |---|---|---|---|
-| P4-1 | 4-0a AWS connections | `aws_connections`; insert "Default" (`is_default`, `reencrypted = false`) from the `assistant` row when it holds any auth field, else an empty `roles_anywhere` connection; set `assistant.connection_id` / `access`; the legacy `assistant` auth keys are **not** removed | drop the keys `connection_id` / `access` from `assistant` and `assistant_kb`, drop the table (the legacy keys are still there, so 1.4.x works); refused when another connection or an `assume_role` access exists unless `NETMON_FORCE_DOWNGRADE=1` |
+| P4-1 | 4-0a AWS connections | `aws_connections` + index `aws_connections_one_default`; when the `assistant` row holds any authentication value: insert "Default" (`is_default`, `aad_scope = 'assistant'`, auth keys and ciphertexts copied verbatim, `region` = `ra_region` or `region`, `ra_endpoint_url` → override `(rolesanywhere, region)`) and set `assistant.connection_id` / `access`; otherwise no row. The legacy `assistant` auth keys are **not** removed (exact steps: architecture § 15.1.4) | drop the keys `connection_id` / `access` from `assistant`, drop the table (the legacy keys are still there, so 1.4.x works); refused when a connection other than the `aad_scope = 'assistant'` row exists or the assistant uses a hop, unless `NETMON_FORCE_DOWNGRADE=1` |
 | P4-2 | 4d-1a inventory | `aws_accounts`, `aws_resources`, `aws_resource_changes`, `aws_ip_index`; `sensors_type_check` + `aws_dx_connection`, `aws_dx_vif`, `aws_vpn_connection`, `aws_tgw_attachment` | reverse (delete those sensors first) |
 | P4-3 | 4d-2a flow logs | `aws_flowlog_sources`, `aws_flowlog_objects`, `aws_if_index`, `aws_flow_paths`, `aws_flow_rejects`, `aws_flow_edges`, `aws_tgw_drops`; `flow_exporters` changes | delete non-device exporters (cascade their aggregates), restore `address NOT NULL UNIQUE` and the protocols CHECK, drop columns and tables |
 | P4-4 | 4d-3a alerts | `event_rules_kind_check`; `sensors_type_check` + `flow_alert`, `aws_change`; `flow_rule_state`; built-in rules (disabled) | delete rules and sensors of the new kinds, reverse |

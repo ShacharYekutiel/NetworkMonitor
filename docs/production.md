@@ -437,15 +437,26 @@ restart (new PostgreSQL flags: `wal_log_hints=on`, replication slots, `ssl`, hba
 otherwise).
 
 ### AWS (connections, cloud inventory, VPC Flow Logs, S3) — no server change
-- The 1.4.0 AWS authentication of the assistant (IAM Roles Anywhere with the PKI certificate, or the access key)
-  becomes the connection "Default" in *Settings → AWS* automatically (first phase-4 migration + re-encryption at the
-  first start); the assistant keeps working, and a container rollback to 1.4.x still finds its settings.
-- Any layout is supported: Roles Anywhere in the network account with `sts:AssumeRole` into the Bedrock account (the
-  owner's target), Roles Anywhere in the Bedrock account (as deployed for 1.4.0), a single account, access keys or an
-  instance role. The move between layouts has no downtime: architecture § 15.1.7.
+- The 1.4.x AWS authentication of the assistant (IAM Roles Anywhere with the PKI certificate, or the access key)
+  becomes the connection "Default" in *Settings → AWS* automatically (first phase-4 migration; the encrypted values
+  are copied as they are). The assistant keeps working. The old settings stay in place and are kept in sync while
+  the assistant uses "Default" directly, so a container rollback to 1.4.x still finds them — provided the 1.4.x
+  image tolerates the newer database revision (architecture § 15.1.9, rule R1; without it a container-only
+  rollback after any release with a migration needs `ops/restore.sh`).
+- Supported layouts: Roles Anywhere in the network account with one `sts:AssumeRole` hop into the Bedrock account
+  (the owner's target), Roles Anywhere in the Bedrock account (as deployed for 1.4.0), a single account, access keys
+  or an instance role. The move between layouts has no downtime: architecture § 15.1.9; the owner's acceptance
+  checklist on real AWS: § 15.1.12. *Settings → AWS → Expected IAM policies* shows the exact trust and permission
+  policies for the values entered (trust anchor ARN once, the certificate's CN and issuer CN, the source identity
+  `CN=<CN>` for the second hop; `sts:SetSourceIdentity` on both sides of the hop, no `sts:TagSession` needed there).
+- Certificate from the internal CA (AD CS): *Generate CSR* in the connection's certificate card, submit it with
+  `certreq -submit -attrib "CertificateTemplate:<template name>" netmonitor.csr netmonitor.cer` — the template
+  **name**, not its display name (error 0x80094800 otherwise) — and upload the issued `.cer` / `.p7b` without a key.
+  Use a CN without spaces (e.g. `netmonitor.example.net`): it becomes the session's source identity.
 - Policies and Terraform examples: `deploy/production/aws/` (`render-policies.py`, `terraform/network-base`,
-  `terraform/bedrock-base`, `terraform/single-account`; added by PR 4-0b).
-- Network: `sts.<region>.amazonaws.com` is a new required host for role chains. Interface VPC endpoints (`sts`, `ec2`,
+  `terraform/bedrock-base`, `terraform/single-account`; added by PR 4-0b). The renderer needs the issuer CN and the
+  certificate CN as arguments (no organisation-specific defaults).
+- Network: `sts.<region>.amazonaws.com` is a new required host when a consumer uses a role hop. Interface VPC endpoints (`sts`, `ec2`,
   `logs`, `monitoring`, `s3`, `rolesanywhere`, `bedrock-runtime`) are entered per (service, region) in *Settings →
   AWS*; otherwise the outbound proxy (`/etc/netmon-gitops/app.env`). `ops/assistant-net.sh check` covers the new
   hosts.
@@ -471,19 +482,20 @@ otherwise).
   rewind is impossible.
 - **Backups:** `backup.sh` dumps the DB only on the active node; the standby archives its data volume only.
 - **Witness:** `deploy/witness/` (compose + `witness.cfn.yaml`), a `t4g.nano` in a separate VPC, port 8443 from the two
-  nodes and the proxy egress; alerts through SNS, a webhook, Teams, Telegram or SMTP; the witness may also run on any Docker host outside AWS. It runs the same image version.
+  nodes and the proxy egress; alerts through SNS, e-mail (SMTP), Teams or Telegram; the witness may also run on any
+  Docker host outside AWS. It runs the same image version.
 - **DNS:** recommended — the active node updates `netmonitor.mnidom.net` in AD by secure dynamic update (GSS-TSIG)
   with the dedicated account `svc-netmon-dns` that has Write on that record only (architecture § 15.11.4);
-  other selectable methods: RFC 2136 with a TSIG key, Route 53, a webhook, or none (architecture § 15.3.9).
-  Alternative — CNAME to a Route 53 private zone record updated by the active node (does not resolve from the office
-  during a DX outage). Both nodes' certificates must contain `netmonitor.mnidom.net` and the node names.
+  the other method: CNAME to a Route 53 private zone record updated by the active node (does not resolve from the
+  office during a DX outage; architecture § 15.3.9). Both nodes' certificates must contain `netmonitor.mnidom.net` and the node names.
 - **Devices** send traps/syslog/flows to **both** node addresses and allow SNMP from both; the system never changes
   device configuration — the `/ha` page lists which devices already send to the standby.
 - **Status:** `ops/status.sh` (role, epoch, lag, witness, spool) and `ops/ha-status.sh` (JSON).
 
 ### Backups to S3
-In-app (`s3_backup`): daily `pg_dump` streamed to S3 at 02:47, retention by S3 lifecycle or in the app, restore from
-the UI (maintenance mode, safety dump, database swap, restart). The host backups of `backup.sh` stay; `secret.key` is
+In-app (`s3_backup`, AWS S3): daily `pg_dump` streamed to S3 at 02:47, retention by S3 lifecycle or in the app,
+restore from the UI (maintenance mode, safety dump, database swap, restart), optional export of config versions to
+the same bucket. The host backups of `backup.sh` stay; `secret.key` is
 uploaded only wrapped with a passphrase (option). Bucket: versioning (+ Object Lock) recommended.
 
 ### Traffic capture add-on (optional)

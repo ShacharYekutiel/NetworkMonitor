@@ -2694,8 +2694,9 @@ The check message of a code from the table is `<label>: <text> (<mib>, <code>)` 
 
 ## [4] Phase 4 contract
 
-Shared AWS connections, AWS cloud view and VPC Flow Logs with alerts (first), high availability, certificates,
-optics/PoE, compliance, S3 backups, traffic capture (on-call was removed from phase 4). Table semantics: [data-model.md § Phase 4](data-model.md#4-phase-4-additions);
+Contract revision 3. Shared AWS connections, AWS cloud view and VPC Flow Logs with alert rules (first), high
+availability, certificates, optics/PoE, compliance, S3 backups, traffic capture (on-call was removed from phase 4;
+the exotic options of revision 2 were cut — architecture § 15.0.3). Table semantics: [data-model.md § Phase 4](data-model.md#4-phase-4-additions);
 flows and decisions: architecture.md § 15. All earlier conventions apply; everything is additive and **OFF by
 default**. Writes are `admin`; reads as in architecture § 15.0.1. A feature's endpoints answer `409
 feature_disabled` with its name while it is OFF, except its settings/test endpoints (marked *prep*), which work while
@@ -2705,7 +2706,6 @@ OFF so the configure-first form can be filled and tested.
 | HTTP | code | When / `message` |
 |---|---|---|
 | 422 | `test_required` | Enabling a configure-first feature (or changing one of its connection fields while ON) without a valid `test_id`: "Run a successful Test first" (`details: [{"feature": "s3_backup"}]`). The 3b code `assistant_test_required` stays for the assistant. |
-| 422 | `feature_dependency` | e.g. `s3_config_export` without a passing `s3_backup` test |
 | 409 | `ha_read_only` | Any write on a standby or fenced node: "This node is the standby (read-only). Use the active node." (`details: [{"role": "standby", "active_node": "office1", "active_url": "https://office1.mnidom.net"}]`) |
 | 409 | `ha_not_ready` | Switchover preconditions not met (`details: [{"reason": "lag_too_high" \| "peer_not_standby" \| "witness_unreachable" \| "not_active"}]`) |
 | 409 | `ha_refused` | The witness refused a grant (`details: [{"reason": "holder_alive" \| "no_quorum" \| "lag_too_high" \| "epoch_mismatch" \| "recent_grant" \| "auto_failover_off"}]`) |
@@ -2714,14 +2714,15 @@ OFF so the configure-first form can be filled and tested.
 | 410 | `pairing_expired` | Pairing code expired, used or attempts exhausted |
 | 503 | `maintenance` | Restore in progress |
 | 502 | `aws_access_denied` | AWS refused an action; `details: [{"action": "ec2:DescribeNatGateways", "account": "…", "region": "…", "resource": null}]` |
-| 502 | `aws_assume_role_denied` | STS refused a hop; `details: [{"hop": 1, "from_arn": "…", "role_arn": "…", "hints": ["set_source_identity", "trust_policy", "external_id"]}]` |
+| 502 | `aws_assume_role_denied` | STS refused a hop; `details: [{"hop": 1, "from_arn": "…", "role_arn": "…", "action": "sts:SetSourceIdentity" \| "sts:TagSession" \| "sts:AssumeRole" \| null}]`; in a Test the step carries the `hints` |
 | 502 | `aws_assume_role_invalid` | STS rejected the request (role ARN, region disabled, duration) |
+| 422 | `key_mismatch` | (3b code) certificate upload in CSR mode that does not match the pending CSR's key; `details: [{"csr_subject", "csr_created_at", "cert_subject"}]` |
 | 502 | `aws_wrong_region` | The bucket is in another region (`details: [{"bucket_region": "eu-west-1"}]`); redirects are not followed |
 | 502 | `aws_not_found` | Bucket, key or log group does not exist (Test) |
 | 409 | `aws_connection_unconfigured` | A consumer's connection is missing or incomplete |
 | 502 | `aws_throttled`, `aws_network`, `aws_auth_failed`, `aws_token_expired`, `aws_clock_skew` | as 3b, for any AWS service |
 | 422 | `unsupported_format` | A flow-log object is neither gzip text nor Parquet, or its header / schema has no known field |
-| 422 | `unsupported_compression` | Generic-layout object compressed with something other than none / gzip / zip |
+| 422 | `unsupported_compression` | Firehose-to-S3 object compressed with something other than none / gzip / zip (Snappy: owner decision D3) |
 | 422 | `unsupported_option` | A matrix choice that this build does not include yet (`details: [{"field": "file_format", "value": "parquet", "arrives_with": "4d-2c"}]`) |
 | 422 | `parquet_support_missing` | Parquet source on an installation without the `parquet` extra (`details: [{"install": "pip install 'netmon[parquet]'"}]`) |
 | 409 | `capture_limit` | Too many running captures (`details: [{"running": 2, "max": 2}]`) or quota reached |
@@ -2732,9 +2733,8 @@ OFF so the configure-first form can be filled and tested.
 
 ### [4] Type changes
 ```ts
-type FeatureName = /* 1.4.0 names */ | "aws_inventory" | "aws_flow_logs" | "flow_alerts" | "aws_change_alerts"
-  | "ai_cloud_tools" | "ha" | "cert_monitor" | "optics_dom" | "poe_ports" | "config_compliance" | "s3_backup"
-  | "s3_config_export" | "packet_capture";
+type FeatureName = /* 1.4.0 names */ | "aws_inventory" | "aws_flow_logs" | "ha" | "cert_monitor" | "optics_dom"
+  | "poe_ports" | "config_compliance" | "s3_backup" | "packet_capture";
 type SensorType = /* … */ | "aws_dx_connection" | "aws_dx_vif" | "aws_vpn_connection" | "aws_tgw_attachment"
   | "flow_alert" | "aws_change" | "tls_cert" | "optics" | "poe_budget" | "config_compliance";
 type FlowExporter = { /* … */ address: string | null; kind: "device" | "aws_vpc" | "aws_tgw" | "aws_flowlog";
@@ -2749,7 +2749,7 @@ type TestResult = { ok: boolean; test_id: string | null; expires_at: string | nu
 ```
 - `GET /api/health` gains `"ha": {"role": HaRole, "node": "office1", "epoch": 8, "peer": "aws1", "lag_s": 0.4} | null`
   (null when single) and `"capture_addon": "absent" | "ready" | "error"`.
-- `GET /api/settings/public` `features` gains the 13 names, and `"ha": {"role", "node", "active_node",
+- `GET /api/settings/public` `features` gains the 9 names, and `"ha": {"role", "node", "active_node",
   "active_url"} | null` (for the banner, also before login).
 - Every notification payload (webhook JSON, email footer, Telegram/Teams text) gains `node` and `epoch` when `ha` is
   configured.
@@ -2757,53 +2757,81 @@ type TestResult = { ok: boolean; test_id: string | null; expires_at: string | nu
   "test_id": "…"}`; `POST …/test` with `{"settings": <partial unsaved values>}` → `200 TestResult` (also when
   `ok` is false), `429 rate_limited` (10 per admin per 10 min), audited `<feature>.test`.
 
-### [4] Shared AWS connections (admin; always available — it is configuration)
+### [4] Shared AWS connections (admin, session only; always available — it is configuration)
+Implementation spec: [architecture § 15.1](architecture.md#spec-4-0a). API tokens get `403` on `/api/aws/*` (as on
+`/api/assistant*`).
 ```ts
 type AwsAccess = { mode: "direct" | "assume_role" | "ra_role"; role_arn: string | null; external_id: string | null };
-type AwsEndpointOverride = { service: string; region: string; url: string };
+type AwsEndpointOverride = { service: "sts" | "rolesanywhere" /* later PRs add services */; region: string; url: string };
+type AwsCertInfo = /* 3b CertInfo */ { subject: string; issuer: string; serial_hex: string; not_before: string;
+  not_after: string; sha256: string; key_type: string; key_bits: number; chain: object[]; source: "uploaded" | "files";
+  uploaded_at: string | null; key_unreadable: boolean;
+  /* [4] */ subject_cn: string | null; issuer_cn: string | null; source_identity: string; warnings: string[] };
+type AwsCsrInfo = { subject: string; created_at: string; pem: string; key_unreadable: boolean };
+type AwsChainHop = { hop: 0 | 1; kind: "roles_anywhere" | "access_key" | "default_chain" | "assume_role" | "ra_role";
+  arn: string | null; account: string | null; expires_at: string | null; last_refresh: string | null };
 type AwsConnection = { id: number; name: string; is_default: boolean;
-  auth_mode: "roles_anywhere" | "access_key" | "default_chain" | "assume_role";
-  partition: "aws" | "aws-us-gov" | "aws-cn" | "custom"; region: string; sts_region: string | null;
+  auth_mode: "roles_anywhere" | "access_key" | "default_chain"; region: string;
   proxy_mode: "env" | "direct" | "custom"; proxy_url: string | null; endpoint_overrides: AwsEndpointOverride[];
-  source_connection_id: number | null; role_arn: string | null; external_id: string | null;
-  assume_session_seconds: number;
-  /* the mode's fields with the 3b secret rules: */ access_key_id: string | null; secret_access_key: null;
-  secret_access_key_set: boolean; secret_access_key_unreadable: boolean; session_token: null; session_token_set: boolean;
+  /* mode fields, 3b secret rules */ access_key_id: string | null; secret_access_key: null; secret_access_key_set: boolean;
+  secret_access_key_unreadable: boolean; session_token: null; session_token_set: boolean;
+  session_token_unreadable: boolean; access_key_created_at: string | null;
   ra_region: string | null; ra_trust_anchor_arn: string | null; ra_profile_arn: string | null;
-  ra_role_arn: string | null; ra_session_seconds: number; certificate: CertInfo | null; csr: CsrInfo | null;
-  overridden_on: { node: string; auth_mode: "default_chain" }[];
-  used_by: { kind: "assistant" | "assistant_kb" | "aws_account" | "flowlog_source" | "s3_backup" | "ha_dns" | "connection";
-             id: number | null; name: string }[];
-  chain: { hop: number; kind: "base" | "assume_role" | "ra_role"; arn: string | null; account: string | null;
-           expires_at: string | null }[];             // live state of the cached chain (no secrets)
+  ra_role_arn: string | null; ra_session_seconds: number;
+  certificate: AwsCertInfo | null; certificate_host_files: boolean; csr: AwsCsrInfo | null;
+  used_by: { kind: "assistant" /* later: "aws_account" | "flowlog_source" | "s3_backup" | "ha_dns" */;
+             id: number | null; name: string; access_mode: AwsAccess["mode"] }[];
+  chains: { consumer: string; hops: AwsChainHop[]; state: "ok" | "error" | "idle"; error_code: string | null }[];
   last_test: { ok: boolean; at: string; by: string; error_code: string | null; account: string | null; arn: string | null } | null;
-  warnings: string[] };
-type TestStep = { step: string; hop: number | null; ok: boolean; detail: string; ms: number; error_code: string | null;
-  hints: string[] };   // hints: "trust_policy" | "external_id" | "set_source_identity" | "tag_session" | "caller_policy" | "scp" | "vpc_endpoint_or_proxy" | "missing:<action>"
+  warnings: string[]; created_at: string; updated_at: string };
+type AwsConnectionIn = Partial<Pick<AwsConnection, "name" | "auth_mode" | "region" | "proxy_mode" | "proxy_url"
+  | "endpoint_overrides" | "access_key_id" | "access_key_created_at" | "ra_region" | "ra_trust_anchor_arn"
+  | "ra_profile_arn" | "ra_role_arn" | "ra_session_seconds">> & {
+  secret_access_key?: string | null;   // null keep, "" clear, string replace (3b rule)
+  session_token?: string | null };
+type Hint = { code: string; text: string; values: Record<string, string> };
+type TestStep = { step: string; hop: 0 | 1 | null; ok: boolean; detail: string; ms: number; error_code: string | null;
+  hints: Hint[] };
 ```
-| Method & path | Request | Response |
-|---|---|---|
-| `GET /api/aws/connections` | — | `AwsConnection[]` |
-| `POST /api/aws/connections` | writable fields | `201 AwsConnection`; `422` (`chain_too_deep`, `cycle`, netguard message per field); audited `aws_connection.create` |
-| `GET /api/aws/connections/{id}` | — | `AwsConnection` |
-| `PATCH /api/aws/connections/{id}` | partial writable fields; `test_id` when a credential / endpoint field changes while any enabled configure-first consumer uses the connection | `AwsConnection`; `422 test_required`; audited `aws_connection.update` (no secrets) |
-| `DELETE /api/aws/connections/{id}` | — | `204`; `409 conflict` with `details: [{"used_by": [...]}]`; the default cannot be deleted while another connection exists |
-| `POST /api/aws/connections/{id}/default` | — | `AwsConnection[]`; audited |
-| `POST /api/aws/connections/test` | `{"connection_id": 3 \| null, "settings": partial \| null, "access": AwsAccess \| null, "service": "sts" \| "ec2" \| "s3" \| null}` — an unsaved form (`connection_id: null` + `settings`) or a saved connection with unsaved edits | `TestResult`: steps `config`, `base`, `identity:base`, `hop:<n>`, `identity:<n>`, optional service probe; `429 rate_limited` |
-| `POST /api/aws/connections/{id}/cert`, `DELETE …/cert`, `POST / GET / DELETE …/cert/csr` | as 3b `/api/assistant/cert*` | as 3b |
-| `POST /api/aws/connections/{id}/cert/copy` | `{"from_connection_id": 1}` | `AwsConnection` (certificate, chain and key copied server-side and re-encrypted; audited `aws_connection.cert_copy`) |
-| `POST /api/aws/external-id` | — | `{"external_id": "<32 random chars>"}` (helper; nothing stored) |
+Hint codes: `ra_trust_policy`, `ra_subject_cn`, `ra_issuer_cn`, `ra_profile_role`, `ra_untrusted_cert`,
+`ra_disabled`, `ra_revoked`, `set_source_identity`, `tag_session`, `caller_policy`, `trust_policy`, `external_id`,
+`scp`, `sts_region`, `role_arn_invalid`, `max_session`, `vpc_endpoint_or_proxy`, `cn_not_source_identity_safe`
+(texts and values: architecture § 15.1.7).
 
-**Assistant compatibility (no frontend break in PR 4-0a):** `GET/PUT /api/assistant/settings`, `POST
-/api/assistant/test` and `/api/assistant/cert*` keep their 1.4.0 request and response shapes. The authentication
-fields in them (`auth_mode`, access key, `ra_*`, `proxy_mode`, `proxy_url`, certificate) are read from and written to
-**the connection the assistant uses**; `/api/assistant/cert*` are aliases of that connection's `/cert*`. Additions:
-`AssistantSettings` gains `connection_id: number` and `access: AwsAccess` (both writable; changing either needs a
-`test_id` while the assistant is ON, as any connection field today); `POST /api/assistant/test` returns the hop
-steps before `endpoint` / `converse`; `GET /api/assistant/status` gains `chain` (as `AwsConnection.chain`).
-`PUT /api/assistant/knowledge` accepts `connection_id` / `access` the same way (default: the assistant's).
-Writing an auth field through the assistant endpoint when the connection is used by other consumers answers
-`409 conflict` (`details: [{"used_by": [...]}]`, message "Edit this connection in Settings → AWS").
+| Method & path | Request | Response / errors |
+|---|---|---|
+| `GET /api/aws/connections` | — | `AwsConnection[]` (default first, then by name) |
+| `POST /api/aws/connections` | `AwsConnectionIn` with `name`, `auth_mode`, `region` required | `201 AwsConnection` (the first connection gets `is_default: true`); `422 validation_error` with `loc` per field (netguard message for URLs; "the ARN appears twice — paste it once"); `409 conflict` duplicate name; audited `aws_connection.create` |
+| `GET /api/aws/connections/{id}` | — | `AwsConnection`; `404` |
+| `PATCH /api/aws/connections/{id}` | `AwsConnectionIn` + optional `test_id` | `AwsConnection`; `422 test_required` (`details: [{"connection_id", "used_by": ["assistant"]}]`) when a credential field (anything but `name`) changes while an ON configure-first consumer uses the connection and `test_id` is not a valid `aws_connection` test of the new values; audited `aws_connection.update` (changed field names; secrets as `*_set`) |
+| `DELETE /api/aws/connections/{id}` | — | `204`; `409 conflict` with `details: [{"used_by": [...]}]` while used, or `[{"reason": "default"}]` while it is the default and another connection exists; audited |
+| `POST /api/aws/connections/{id}/default` | — | `AwsConnection[]`; audited `aws_connection.set_default` |
+| `POST /api/aws/connections/test` | `{"connection_id": 3 \| null, "connection": AwsConnectionIn \| null, "access": AwsAccess \| null}` — `connection_id: null` + `connection` = an unsaved form; both = a saved connection with unsaved edits; `access` adds the hop | `200 TestResult` (also when `ok` is false): steps `config`, `credentials`, `identity`, [`hop`, `hop_identity`]; without `access`, one hop per distinct access of the connection's current consumers. `test_id` (kind `aws_connection`) on success; `429 rate_limited` (10 per admin per 10 min, shared with the 3b tests); audited `aws_connection.test` |
+| `GET /api/aws/connections/{id}/policies` | `?role_arn=&external_id=` (optional: the hop to render) | `{"base_trust_policy": object \| null, "hop_caller_policy": object \| null, "hop_trust_policy": object \| null, "notes": string[]}` — JSON rendered from the stored values: `aws:SourceArn` = the trust anchor ARN (once), `aws:PrincipalTag/x509Subject/CN` = the certificate's CN, `aws:PrincipalTag/x509Issuer/CN` = its issuer CN, hop trust policy with principal = `ra_role_arn` (or the key's user ARN from the last test), `sts:ExternalId`, `aws:SourceIdentity` = the certificate's source identity; null parts when values are missing (`notes` says which) |
+| `POST /api/aws/connections/{id}/cert` | `multipart`: `file` (PEM, DER, PKCS#12, PKCS#7 `.p7b`; ≤ 64 KiB), optional `key`, `password` | `AwsCertInfo`; while a CSR is pending and no key is uploaded, the CSR's key is used; `422 invalid_certificate`, `invalid_private_key`, `key_mismatch` (`details: [{"csr_subject", "csr_created_at", "cert_subject"}]` in CSR mode); `409 conflict` with host files; audited `aws_connection.cert_upload` |
+| `DELETE /api/aws/connections/{id}/cert` | — | `204`; `409 conflict` while an ON consumer uses this `roles_anywhere` connection; audited |
+| `POST /api/aws/connections/{id}/cert/csr` | `{"common_name", "key_type": "rsa" \| "ec", "key_size": null, "organization": null, "organizational_unit": null}` | `AwsCsrInfo` + `warnings` (`cn_not_source_identity_safe`); audited `aws_connection.csr_create` |
+| `GET /api/aws/connections/{id}/cert/csr` | — | `application/pkcs10` download (`netmonitor-<connection name slug>.csr`); `404` |
+| `DELETE /api/aws/connections/{id}/cert/csr` | — | `204`; audited |
+| `POST /api/aws/connections/{id}/cert/copy` | `{"from_connection_id": 1}` | `AwsConnection` (certificate, chain and key decrypted with the source AAD, encrypted with the target's); `422` when the source has no certificate or an unreadable key; audited `aws_connection.cert_copy` |
+| `POST /api/aws/external-id` | — | `{"external_id": "<32 characters [A-Za-z0-9]>"}` (nothing stored) |
+
+**Assistant endpoints (changed by 4-0a):**
+- `GET /api/assistant/settings` — the authentication fields of 1.4.x are **removed** (`auth_mode`, `access_key_id`,
+  `secret_access_key*`, `session_token*`, `access_key_created_at`, `ra_*`, `proxy_mode`, `proxy_url`,
+  `certificate`, `certificate_host_files`, `csr`); added `connection_id: number | null`, `access: AwsAccess`,
+  `connection: {id, name, auth_mode, is_default, account, arn, state} | null` (read-only). `warnings` keeps the
+  Bedrock warnings; certificate / key warnings move to the connection.
+- `PUT /api/assistant/settings` — accepts `connection_id` and `access` (validated as "Consumer access"); changing
+  either while the assistant is ON needs a `test_id` (`422 assistant_test_required`, unchanged code). A removed field
+  in the body → `422 validation_error`, `loc: ["body", "<field>"]`, message "moved to Settings → AWS".
+- `POST /api/assistant/test` — body `{"settings": partial}` may carry `connection_id` / `access`; the result's steps
+  are `config`, `credentials`, `identity`, [`hop`, `hop_identity`], `endpoint`, `converse` (each with `hop` and
+  `hints`); `via`, `endpoint_host`, `address_class` as 3b.
+- `/api/assistant/cert*` — **removed** (use `/api/aws/connections/{id}/cert*`).
+- `GET /api/assistant/status` gains `aws: {"connection_id", "connection_name", "access_mode", "hops": AwsChainHop[],
+  "last_error": {"code", "message", "at"} | null}`.
+- `POST /api/assistant/models`, `/api/assistant/knowledge*` use the assistant's chain; shapes unchanged.
 
 ### [4] Cloud inventory (feature `aws_inventory`; reads: viewer)
 ```ts
@@ -2836,7 +2864,6 @@ type CloudGraph = { level: "structure" | "overlay" | "flow_only";
 | `POST /api/cloud/test` *prep* | `{"account": partial AwsAccount \| null, "account_id": null}` (one unsaved or saved account; null = all enabled) | `TestResult` steps per account: the chain steps of the connection test, `regions` (`DescribeRegions` when `all_regions`), `ec2:<region>` (`DescribeVpcs`), `directconnect:<region>` (`DescribeConnections`), `permissions` (one cheap call per inventory action; missing ones in `hints` as `missing:<action>` — a warning, not a failure) |
 | `GET /api/cloud/accounts` *prep* / `POST` / `PATCH /{id}` / `DELETE /{id}` | `AwsAccount` writable fields | `AwsAccount`; audited `aws_account.*` |
 | `POST /api/cloud/accounts/{id}/device` *prep* | `{"name": null, "group_id": null}` | `AwsAccount` with the created cloud device's `device_id` (architecture § 15.2.7) |
-| `POST /api/cloud/accounts/import` *prep* | `{"connection_id": null, "access": AwsAccess \| null, "role_name_pattern": "netmon-readonly", "dry_run": true}` | `{"accounts": [{"account_id", "name", "status", "exists": false, "role_arn"}]}`; with `dry_run: false` and `"account_ids": [...]` creates the rows (disabled until tested); `502 aws_access_denied` names `organizations:ListAccounts` |
 | `POST /api/cloud/refresh` | `{"account_id": null}` | `202 {"started": true}`; `409 conflict` while running |
 | `GET /api/cloud/status` | — | `{"running": false, "last_refresh", "next_refresh", "counts": {"vpc": 6, …}, "errors": [...]}` |
 | `GET /api/cloud/resources` | `?type=&account_id=&region=&vpc_id=&q=&include_deleted=false&page=&page_size=` | page of `AwsResource` |
@@ -2849,7 +2876,7 @@ type CloudGraph = { level: "structure" | "overlay" | "flow_only";
 ```ts
 type FlowLogSource = { id: number; name: string; enabled: boolean; log_type: "vpc" | "tgw"; destination: "s3" | "cwl";
   account_id: string; region: string; connection_id: number | null; access: AwsAccess;
-  bucket: string | null; prefix: string; check_bucket_owner: boolean;
+  bucket: string | null; prefix: string;   // x-amz-expected-bucket-owner: account_id is always sent
   file_format: "auto" | "text" | "parquet"; layout: "auto" | "plain" | "plain_hourly" | "hive" | "hive_hourly" | "generic";
   generic_pattern: string | null; source_accounts: string[]; source_regions: string[]; flow_log_ids: string[];
   log_group: string | null; stream_prefix: string | null; fields: string[] | null;
@@ -2868,7 +2895,6 @@ type FlowLogCapabilities = { file_formats: string[]; destinations: string[]; log
 | `GET /api/cloud/flowlogs/discovered` *prep* | `?account_id=&live=false` | `{"items": [{"flow_log_id", "account_id", "region", "resource_id", "resource_level", "log_type", "destination": "s3" \| "cwl" \| "firehose", "destination_arn", "file_format", "hive", "hourly", "log_format", "aggregation_s", "source_id": null, "prefill": partial FlowLogSource}]}` (from the inventory, or a live `DescribeFlowLogs` with `live=true`; `firehose` items are informational) |
 | `GET/POST /api/cloud/flowlogs/sources` *prep*, `PATCH/DELETE /{id}` | `FlowLogSource` writable fields | `FlowLogSource`; `422 unsupported_option` for a choice this build does not have yet; audited |
 | `POST /api/cloud/flowlogs/test` *prep* | `{"source": partial \| null, "source_id": null}` | `TestResult`: chain steps, `list` (S3 `ListObjectsV2` of the newest partition / `DescribeLogGroups`), `layout` (detected layout, Hive spelling, flow-log ids found), `read` (one object / one page), `format` (text or Parquet, field list and where it came from), `parse` (records parsed / errors in the sample, newest record age) |
-| `POST /api/cloud/flowlogs/sources/{id}/backfill` | `{"from": "…", "to": "…"}` (≤ 31 days) | `202`; `409 conflict` while one runs |
 | `GET /api/cloud/flowlogs/status` | — | `{"sources": [{"id", "stats"}], "records_per_min": 12000, "budget": {"max_records_s", "used_pct"}}` |
 | `GET /api/cloud/traffic/summary` | `?from&to&exporter_kind&account_id&vpc_id&subnet_id&eni_id&tgw_id&site&direction` | `{"bytes", "packets", "by_path": [{"path": 3, "label": "virtual private gateway", "bytes"}], "sites": [{"site", "to_aws_bytes", "from_aws_bytes", "series": [[t, in, out], …]}], "approximate": false}` |
 | `GET /api/cloud/traffic/top` | `?kind=talkers\|apps\|conversations\|aws_services&from&to&vpc_id&eni_id&tgw_id&limit=20` | phase-3 top shapes with cloud names |
@@ -2879,9 +2905,11 @@ type FlowLogCapabilities = { file_formats: string[]; destinations: string[]; log
 The phase-3 flow endpoints accept `?exporter_kind=device|aws_vpc|aws_tgw|aws_flowlog` (default `device`, so existing
 clients see no change) and return `kind`, `ext_key`, `name` on exporters; `address` becomes `string | null`.
 
-### [4] Flow-threshold and AWS-change alerts (features `flow_alerts`, `aws_change_alerts`)
+### [4] Flow-threshold and AWS-change rules (event-rule kinds; no toggles of their own)
 The existing event-rule endpoints (`GET/POST /api/event-rules`, `PATCH/DELETE /api/event-rules/{id}`, test and
-conditions endpoints of 2b-3) accept the two new kinds; no new router.
+conditions endpoints of 2b-3) accept the two new kinds; no new router. Rules need `event_alerts` ON to evaluate;
+`aws_change` rules also `aws_inventory`; a rule whose data feature is OFF is stored and reports `state.warnings:
+["feature_off:aws_inventory"]`.
 ```ts
 type EventRule = { /* 2b-3 fields */ kind: "trap" | "syslog" | "flow_threshold" | "aws_change";
   match: TrapMatch | SyslogMatch | FlowThresholdMatch | AwsChangeMatch;   // shapes: data-model § [4] `event_rules` changes
@@ -2889,7 +2917,7 @@ type EventRule = { /* 2b-3 fields */ kind: "trap" | "syslog" | "flow_threshold" 
 ```
 | Method & path | Request | Response |
 |---|---|---|
-| `POST /api/event-rules`, `PATCH /api/event-rules/{id}` | kind `flow_threshold` / `aws_change` with its `match` | `EventRule`; `422 validation_error` with `loc` into `match` (RE2 message for `name_regex`); `409 feature_disabled` when the kind's feature is OFF; `warnings: ["no_target_device"]` when no device resolves |
+| `POST /api/event-rules`, `PATCH /api/event-rules/{id}` | kind `flow_threshold` / `aws_change` with its `match` | `EventRule`; `422 validation_error` with `loc` into `match` (RE2 message for `name_regex`); `warnings: ["no_target_device"]` when no device resolves, `["feature_off:<name>"]` when its data feature is OFF |
 | `POST /api/event-rules/preview` | `{"rule": EventRule fields, "from": "…", "to": "…"}` (≤ 7 days) | flow rule: `{"windows": [{"end", "group", "value", "baseline", "breach"}], "would_open": 3}` computed from stored aggregates; change rule: `{"matches": [{"time", "resource_id", "message"}]}` from stored changes. Nothing is written. Lets the admin tune a rule against real history before enabling it |
 | `GET /api/event-rules?kind=flow_threshold` | — | as 2b-3, with `state` |
 Event sensors `flow_alert` and `aws_change` appear through the normal sensor endpoints; their conditions through the
@@ -2925,7 +2953,7 @@ type HaStatus = { configured: boolean; enabled: boolean; this_node: string; role
 | `POST /api/ha/pair` (no session; peer address only; called by `ha-join.sh`) | `{"code_proof": hmac, "node": "aws1"}` | `200 {"bundle": "<base64 ciphertext>"}`; `410 pairing_expired`; `403` from another address |
 | `POST /api/ha/witness-bundle` *prep* | — | `200 application/octet-stream` (encrypted with a code shown once in header `X-Bundle-Code`) |
 | `POST /api/ha/dns/keytab` *prep* (method `ad_gss_tsig`) | `multipart` `file` (≤ 16 KiB) | `{"principals": ["svc-netmon-dns@EXAMPLE.NET"], "kvno": 3}`; audited |
-| `PUT /api/ha/settings` `dns` fields per method | `rfc2136_tsig`: `servers`, `zone`, `tsig_key_name`, `tsig_algorithm`, `tsig_secret` (write-only); `route53`: zone, record, `connection_id`, `access`; `webhook`: `webhook_url`, `webhook_secret` (write-only) | secrets returned as `*_set` flags |
+| `PUT /api/ha/settings` `dns` fields per method | `ad_gss_tsig`: `servers`, `zone`, `record`, `ad_principal` (keytab via the endpoint above); `route53`: `route53_zone_id`, `route53_record`, `connection_id`, `access` | secrets returned as `*_set` flags |
 | `GET/PUT /api/ha/anchors` | `{"anchors": [{"device_id": 12, "probe": "auto" \| "icmp" \| "snmp" \| "tcp:443"}]}` (≤ 20) | same |
 | `POST /api/ha/switchover` | `{"to": "aws1"}` | `202 {"epoch_from": 7}`; `409 ha_not_ready`; `409 ha_refused`; progress via WS `ha.state`; audited |
 | `POST /api/ha/failover` (on the standby; allowed while `ha` is OFF) | `{"confirm": "FAILOVER aws1", "password": "…"}` | `202`; `422 confirmation_mismatch`; `401 reauth_required`; `409 ha_not_ready` (`peer_reachable` — use switchover); audited `ha.failover_forced` |
@@ -2983,10 +3011,10 @@ CLI: `netmon ha status|switchover [--to N]|failover --force --confirm N|fence|ev
 ### [4] On-call — removed
 No endpoints (architecture § 15.9). `AlertRule` is unchanged by phase 4.
 
-### [4] S3 backups (features `s3_backup`, `s3_config_export`; admin)
+### [4] S3 backups (feature `s3_backup`; admin)
 | Method & path | Request | Response |
 |---|---|---|
-| `GET /api/backups/s3/settings` *prep* / `PUT` | `s3_backup` fields incl. `connection_id`, `access`, `account_id`, `path_style`, `retention_mode` (passphrase write-only: `passphrase: null` keeps, `""` clears; response `passphrase_set`) + `enabled`, `test_id` | settings; `422 test_required` |
+| `GET /api/backups/s3/settings` *prep* / `PUT` | `s3_backup` fields incl. `connection_id`, `access`, `account_id`, `retention_mode`, `config_export_mode` (passphrase write-only: `passphrase: null` keeps, `""` clears; response `passphrase_set`) + `enabled`, `test_id` | settings; `422 test_required` |
 | `POST /api/backups/s3/test` *prep* | `{"settings": partial}` | `TestResult`: the chain steps, then `put`, `get`, `delete` (warning `no_delete`; the result proposes `retention_mode`), `list`, `pg_dump` (client version matches server), `createdb` (restore possible) |
 | `POST /api/backups/s3/run` | `{"kind": "db" \| "config_export_all"}` | `202 {"run_id"}`; `409 conflict` while one runs |
 | `GET /api/backups/s3/runs` | `?kind&page` | page of `backup_runs` |
@@ -3023,7 +3051,7 @@ type PacketRow = { no: number; t: number; src: string; dst: string; proto: strin
 | `GET /api/captures/{id}/stats` | `?kind=phs\|conv_ip\|conv_tcp\|conv_udp\|endpoints_ip\|io&interval=1` | stat-specific JSON (tables / series) |
 Viewing (`packets`, `follow`, `stats`) is audited once per capture per admin per hour (`capture.view`).
 
-### [4] Assistant cloud tools (feature `ai_cloud_tools`)
+### [4] Assistant cloud tools (no toggle: offered while `assistant` and the data feature are ON)
 No new endpoint. `GET /api/assistant/status` lists the tools `cloud_find`, `cloud_resource`, `cloud_sg_allows`,
 `cloud_route`, `cloud_changes`, `cloud_top_talkers`, `cloud_rejects`, `cloud_edges` with the 3b availability reasons
 (`feature_off:aws_inventory` …). Tool steps and citations use the 3b stream events; citation links point to
@@ -3031,9 +3059,9 @@ No new endpoint. `GET /api/assistant/status` lists the tools `cloud_find`, `clou
 
 ### [4] Audit actions (feature `audit`)
 `aws_connection.create|update|delete|set_default|test|cert_upload|cert_delete|cert_copy|csr_create|csr_delete`
-(details: name, mode, role ARNs, changed field names — never ExternalId values or secrets), `aws_account.create|update|delete|import`,
+(details: name, mode, role ARNs, changed field names — never ExternalId values or secrets), `aws_account.create|update|delete`,
 `cloud.settings_update`, `cloud.test`, `cloud.refresh`, `flowlog_source.create|update|delete`, `flowlog.test`,
-`flowlog.backfill`, `event_rule.*` (existing; covers the new kinds),
+`event_rule.*` (existing; covers the new kinds),
 `ha.settings_update`, `ha.test`, `ha.pairing_create|pairing_delete|pair` (bundle fetched, with the peer address),
 `ha.witness_bundle`, `ha.dns_keytab_upload`, `ha.anchors_update`, `ha.switchover`, `ha.failover_forced`,
 `ha.rejoin_request`, `ha.promoted` (system), `ha.fenced` (system), `compliance_rule.create|update|delete|import`,
@@ -3046,7 +3074,7 @@ existing audit rows cover the cloud tools (tool name and arguments, as 3b). Sour
 ### [4] WebSocket additions
 | type | data | When / who |
 |---|---|---|
-| `features.changed` | 13 new names | as 2b-3 |
+| `features.changed` | 9 new names | as 2b-3 |
 | `ha.state` | `{"role", "epoch", "holder", "nodes": [{"name", "role", "reachable", "lag_s"}], "event": {"kind", "time"} \| null}` | on any change and every 10 s while a switchover runs; all users (banner) |
 | `role.changed` | `{"role": "standby", "active_url": "https://…"}` | this node changed role; all sockets (the SPA reloads into read-only mode) |
 | `cloud.refresh` | `{"running": false, "finished_at", "errors": 0, "changes": 4}` | inventory refresh finished; viewers |

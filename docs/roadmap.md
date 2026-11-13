@@ -226,79 +226,85 @@ redaction off in the app, on in Telegram; Roles Anywhere recommended (UI upload 
 Mnidom-PKI-SERV-CA); Knowledge Base implemented, OFF.
 
 ## Phase 4 (contract branch `phase4-contract`; PRs branch off `main` after 1.4.1)
-Contract (revision 2, 2026-11-13): architecture.md § 15, data-model.md § Phase 4 (migrations `P4-1`–`P4-10`:
-ordered placeholders, the real numbers are assigned at merge time because 1.4.1 / 1.4.2 may add migrations first),
-api.md § Phase 4. Owner summary (Hebrew): docs/phase4-summary.he.md.
+Contract (revision 3, 2026-11-13): architecture.md § 15, data-model.md § Phase 4 (migrations `P4-1`–`P4-10`:
+ordered placeholders, the real numbers are assigned at merge time; P4-1 will most likely be `0013` after 1.4.1's
+`0011` and 1.4.2's `0012`), api.md § Phase 4. Owner summary (Hebrew): docs/phase4-summary.he.md.
 
 **Owner rules:** every feature behind its own toggle, **OFF by default**; nothing mandatory (a single server with
 everything OFF behaves as 1.4.x); configure-first features (AWS cloud, flow logs, HA, S3 backups, capture) show the
 form always with the switch at the bottom next to *Test connection*, unlocked only after a successful test in the
 current session; **the system never changes device configuration**; AWS access is read-only (S3 backups write only
-to their bucket prefix; the Route 53 DNS method writes one record); the security baseline of 1.3.3–1.4.1 (RE2 for
-every pattern, `netguard` at save and connect time for every admin-supplied host, AES-GCM secrets) applies to every
-feature.
+to their bucket prefix; the Route 53 DNS method writes one record); the security baseline of 1.3.3–1.4.2 (RE2 for
+every pattern, `netguard` at save time and the 1.4.1 egress guard at connect time for every admin-supplied host,
+AES-GCM secrets) applies to every feature.
 
-**Owner rule (2026-11-13): always offer every option and let the user choose.** NetworkMonitor is meant for
-different organisations, so a feature must not assume one organisation's layout. Where AWS (or a vendor) offers
-several ways, all of them are supported and selectable in the UI; nothing is hard-wired to "what we happen to use".
-The audit of the whole contract against this rule is architecture § 15.0.3. For VPC Flow Logs it means, per flow-log
-source the admin adds:
+**Owner rule (2026-11-13, narrowed in revision 3): every option an ordinary customer has.** NetworkMonitor is meant
+for different organisations, so a feature must not assume one organisation's layout. Everything AWS (or a vendor)
+offers an ordinary customer is supported and selectable: every flow-log type, destination and format, any number of
+accounts and regions, Roles Anywhere in either account of a two-account layout or a single account, any link type
+between a site and AWS. Exotic cases are not built; each has one line in *Later / on request* below (list:
+architecture § 15.0.3). For VPC Flow Logs, per flow-log source:
 - **what is logged:** VPC, subnet, network interface (ENI), Transit Gateway and TGW attachment flow logs;
-- **where it is delivered:** S3 in the same account, S3 in another account (e.g. a central log-archive account, read
-  with its own assume-role ARN or through a bucket policy), or CloudWatch Logs; a Firehose stream that lands in S3 is
-  read as S3 (generic layout);
-- **file format:** plain text (gzip) and Parquet; the default record format and custom formats (the field list is read
-  from the file header / Parquet schema / flow-log definition); field versions 2–11; Hive-compatible prefixes and
-  per-hour partitions on or off;
+- **where it is delivered:** S3 in the same account, S3 in another account (read with its own assume-role ARN or
+  through a bucket policy), CloudWatch Logs, or a Firehose stream that delivers to S3;
+- **file format:** plain text (gzip) and Parquet; the default record format and custom formats; field versions
+  2–11; Hive-compatible prefixes and per-hour partitions on or off;
 - **scope:** any number of accounts and regions.
+
+**Toggles (revision 3, fewer and coarser):** `aws_inventory`, `aws_flow_logs`, `ha`, `cert_monitor`, `optics_dom`,
+`poe_ports`, `config_compliance`, `s3_backup`, `packet_capture` (9; the Features page goes from 28 to 37). Flow and
+AWS-change alert rules are event-rule kinds (they follow `event_alerts`), the assistant's cloud tools follow
+`assistant` and their data feature, and config export is an option of S3 backups.
 
 Order of work (PR list with scope, tests and what the owner prepares: architecture § 15.15):
 
-16. **Shared AWS connections** (PR 4-0a/b; *Settings → AWS*). Any number of connections (IAM Roles Anywhere, access
-    key, default chain, or assume-role on top of another connection); every consumer (assistant, each cloud account,
-    each flow-log source, S3 backup, Route 53) picks a connection and optionally "assume role ARN + ExternalId" or
-    another role of the same Roles Anywhere profile. The Test names the hop that failed. The 1.4.0 assistant settings
-    become the connection "Default" automatically; a rollback to 1.4.x keeps working.
-    **Cross-account (owner decision, 2026-11-13):** the owner's layout — all networking in a *network* account, Bedrock
-    in another, **Roles Anywhere in the network account** and Bedrock reached by `sts:AssumeRole` — and the opposite
-    layout deployed for 1.4.0 (Roles Anywhere in the Bedrock account) and a single account are all supported.
-    Verified against the AWS docs: a Roles Anywhere profile vends only roles of its own account; Roles Anywhere sets a
-    source identity, so `sts:SetSourceIdentity` is needed in the calling role's policy **and** in the target role's
-    trust policy; certificate tags are not available on the second hop (the trust policy conditions on the base role
-    ARN, the ExternalId and `aws:SourceIdentity`); chained sessions last at most 1 hour (refreshed automatically).
-    The regional STS endpoint is a new required host (`assistant-net.sh check`); `render-policies.py` and a validated
-    Terraform example (`deploy/production/aws/terraform/`, three layouts) ship with it. Migration without downtime:
-    architecture § 15.1.7.
+16. **Shared AWS connections** (PR 4-0a/b; *Settings → AWS*; **starts now**, in parallel with 1.4.2). A list of
+    connections with one default (IAM Roles Anywhere, access key, or the default chain); every consumer (assistant
+    first, later each cloud account, each flow-log source, S3 backup, Route 53) picks a connection and how to use
+    it: directly, **one** `sts:AssumeRole` hop (+ ExternalId) into any account, or another role of the same Roles
+    Anywhere profile. The Test names the hop that failed and gives a hint with the exact values to compare (doubled
+    trust-anchor ARN, certificate CN vs the CN in the trust policy, `sts:SetSourceIdentity` on both sides, ExternalId).
+    The Roles Anywhere certificate card moves to the AWS tab; uploading the issued certificate after *Generate CSR*
+    needs no key (PEM, DER or `.p7b`); the CSR panel shows the `certreq` command with the AD CS template *name*.
+    The 1.4.x assistant settings become the connection "Default" automatically and stay mirrored for a container
+    rollback. **Cross-account (owner decision):** the owner's layout (Roles Anywhere in the network account,
+    Bedrock reached by `sts:AssumeRole`), the 1.4.0 layout (Roles Anywhere in the Bedrock account) and a single
+    account are all supported; checked against the AWS docs: `sts:SetSourceIdentity` is needed in the calling
+    role's policy **and** the target trust policy; `sts:TagSession` is not needed on the second hop (no tags are
+    passed and tags are not transitive); chained sessions last at most 1 hour (refreshed automatically). Spec:
+    architecture § 15.1; migration without downtime: § 15.1.9; owner acceptance on real AWS: § 15.1.12.
+    4-0b: `render-policies.py`, a validated Terraform example (three layouts), STS in `assistant-net.sh check`.
 17. **4d — AWS cloud view and VPC Flow Logs** (PRs 4d-1a … 4d-4):
     - read-only inventory (VPCs, subnets, ENIs, SGs, NACLs, routes, prefix lists, TGW + route tables, DX
       connections / LAGs / VIFs / gateways, VPN tunnels, endpoints) for any number of accounts and regions; state
       sensors for DX, VIF, VPN and TGW attachments; sites instead of one "office";
-    - flow logs in slices — S3 text → traffic map → Parquet → CloudWatch Logs → Transit Gateway → generic layout —
-      **complete only when every option of the matrix exists**; into the phase-3 flow views; site ↔ AWS traffic,
-      rejected flows, TGW drops;
-    - **cloud topology in three levels (owner question "can the topology come from the flow logs?"):** (1) structure
-      from the inventory APIs; (2) a traffic overlay from the flow logs on that map; (3) a flow-only communication
-      graph by CIDR blocks for an organisation that grants no inventory permissions;
-    - **alerts (owner addition; reuses the existing event-rule engine and RE2):** flow-threshold rules (spike in
-      REJECT flows, a VPN tunnel / DX link / interface going silent, utilisation, TGW drops) on AWS and on device
-      flows, and AWS change rules (security-group rule, route table, new ENI …), with noise control;
-    - optional: read-only assistant tools over the cloud inventory and flows (3b redaction and read-only
-      transaction rules).
+    - flow logs in slices — S3 text → traffic map (**first owner test stop on the real network**) → Parquet →
+      CloudWatch Logs → Transit Gateway → Firehose-to-S3 — **complete only when every option exists**; into the
+      phase-3 flow views; site ↔ AWS traffic, rejected flows, TGW drops; Snappy-compressed Firehose objects are out
+      of scope (owner decision);
+    - **cloud topology in three levels:** (1) structure from the inventory APIs; (2) a traffic overlay from the
+      flow logs; (3) a flow-only communication graph by CIDR blocks for an organisation without inventory
+      permissions;
+    - **alert rules** (event-rule kinds on the existing engine, RE2): flow thresholds (spike in REJECT flows, a VPN
+      tunnel / DX link / interface going silent, utilisation, TGW drops) on AWS and device flows, and AWS changes
+      (security-group rule, route table, new ENI …), with noise control;
+    - read-only assistant tools over the cloud inventory and flows (3b redaction and read-only transaction rules).
 18. **4c — certificates** (expiry warning, inventory), **optics DOM + PoE per port**, **S3 backups** (scheduled DB
-    backups, restore from the UI, export of config versions; any bucket / account / storage class, optional
-    S3-compatible storage).
+    backups, restore from the UI, optional export of config versions; any bucket / account / storage class in AWS
+    S3).
 19. **4a — high availability:** two nodes anywhere, PostgreSQL streaming replication, a witness on any third host
-    (also alerts when a server dies: SNS, webhook, Teams, Telegram or SMTP), automatic failover guarded by a device
-    quorum (an outage of the link between the sites never causes a takeover), epoch fencing, switchover/failover
-    button + CLI, DNS by AD secure dynamic update, RFC 2136 TSIG, Route 53, a webhook or none, two-node GitOps, `/ha`
-    status page.
+    (also alerts when a server dies: SNS, e-mail, Teams or Telegram), automatic failover guarded by a device quorum
+    (an outage of the link between the sites never causes a takeover), epoch fencing, switchover/failover button +
+    CLI, DNS by AD secure dynamic update or Route 53, two-node GitOps, `/ha` status page.
 20. **4c — configuration compliance** (RE2 patterns, rule packs per driver, import/export) and **traffic capture**
     (on-device over SSH and from a permanent mirror; browser analyzer with tshark in an isolated add-on container).
     (On-call schedules and escalation were removed from phase 4 by the owner — see *Parked*.)
 - **4b — isolated zones / remote probes:** deferred (principle: the central server initiates the connection).
 
-Open decisions for the owner: architecture § 15.16 (D1–D6; all are priority / scope / cost — no "which do you use"
-questions remain).
+Owner decisions on revision 2 (architecture § 15.16): D1 `pyarrow` in the standard image; D2 first real-network
+test after S3-text flow logs and the map; D3 Snappy Firehose objects out of scope; D4 small paid AWS test resources
+approved; D5 4-0a starts now; D6 HA after certificates / optics / S3 backups. Owner test stops: after 4-0a, after
+the map (PR 6), after 4d, after S3 backups, after HA, after capture.
 
 ## Parked by the owner (★, come back later)
 - ★ **User → location** ("where is user X connected?") for the assistant and Find. Sources discussed: Check Point
@@ -313,12 +319,16 @@ From an authorized penetration test of our own system. Owner decision: ship 1.4.
 rather than in a parallel 1.3.x line. Each release is re-verified on a lab instance against the pentest report.
 - **1.3.3 (done, in production):** ReDoS fixed — all user/admin regex on RE2, save-time validation, config-backup
   `statement_timeout`.
-- **1.4.1 (after 1.4.0, no migration):** SSRF egress filter for the webhook / Teams / HTTP-sensor targets (reuse the 3b
-  `netguard` helper); security headers (CSP, clickjacking, nosniff); session revoked on logout; a global per-IP login
-  cap (password spraying) and an absolute session lifetime.
-- **1.4.2 (heavier, scope to confirm with owner):** encrypt the SNMP community / v3 keys at rest (migration); container
+- **1.4.1 (finished, branch `release-1.4.1`, PR #33; migration `0011`):** connect-time SSRF egress guard
+  (`netmon.util.egress`) for the webhook / Teams / HTTP-sensor targets on top of the 3b `netguard` rules; security
+  headers (CSP, clickjacking, nosniff); session revoked on logout (`revoked_sessions`); a global per-IP login cap
+  (password spraying) and an absolute session lifetime; a Security settings card.
+- **1.4.2 (in progress, branch `release-1.4.2`; migration `0012`):** encrypt the SNMP community / v3 keys at rest; container
   hardening (`cap_drop`, `no-new-privileges`, read-only); branch protection + CODEOWNERS on `deploy/production`; triage
   the dependabot advisories (currently 19: 3 critical, 1 high, 14 moderate, 1 low).
+  Proposed addition (architect, for the coordinator): start the app against a database revision the image does not
+  know instead of failing (`netmon/db/migrate.py`), so the automatic container rollback works after a release with a
+  migration — architecture § 15.1.9 rule R1.
 - The assistant's own pentest findings (endpoint SSRF guard, IP masking on by default, pattern-based secret redaction)
   already shipped on the `phase3b` branch for 1.4.0.
 
@@ -331,11 +341,22 @@ rather than in a parallel 1.3.x line. Each release is re-verified on a lab insta
 ## Later / ideas
 - Template editor in the UI.
 - Remote probes for multiple sites (phase 4b, deferred).
-- Phase 4 follow-ups: S3 event notifications (SQS) instead of listing, flow logs pushed by Firehose to an HTTP
-  endpoint, Snappy-compressed Firehose objects, CloudTrail / EventBridge as a change source (who changed it, within
-  seconds), more inventory types (load balancers, Network Firewall, Cloud WAN, Client VPN), next-hop drawing from the
-  version-11 flow-log fields, removal of the legacy assistant authentication fields (first release after phase 4).
-  (AWS change alerts, flow-threshold alerts, Parquet and Transit Gateway flow logs were promoted into 4d above.)
+- Phase 4 follow-ups: S3 event notifications (SQS) instead of listing; flow logs pushed by Firehose to an HTTP
+  endpoint; Snappy-compressed Firehose objects (owner decision D3); CloudTrail / EventBridge as a change source (who
+  changed it, within seconds); more inventory types (load balancers, Network Firewall, Cloud WAN, Client VPN);
+  next-hop drawing from the version-11 flow-log fields; removal of the legacy assistant authentication keys (first
+  release after phase 4).
+- **Later / on request — cut from phase 4 in contract revision 3** (exotic for an ordinary customer; architecture
+  § 15.0.3):
+  - AWS GovCloud / China partitions (and a custom partition);
+  - multi-hop credential chains ("hub" connections that assume a role on top of another connection);
+  - S3-compatible backup targets (MinIO, Ceph, NetApp);
+  - HA DNS: RFC 2136 with a TSIG key, a webhook to the organisation's automation, "manual" (no DNS update);
+  - witness alerts through a generic webhook;
+  - import of accounts from AWS Organizations;
+  - per-node AWS credential override (an HA standby replacing a connection's identity by its instance role);
+  - manual flow-log backfill beyond the source's lookback (≤ 7 days);
+  - user-uploaded capture drivers.
 - Phase 3 follow-ups: config-backup driver editor, Telnet (only if a device needs it), server-side PDF reports,
   Kerberos SSO on native Windows (SSPI), a flow worker process.
 - Phase 3b follow-ups: model summarisation of long conversations, Teams inbound questions (needs a reachable bot
