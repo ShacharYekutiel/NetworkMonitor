@@ -11,6 +11,7 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator, model_valida
 
 from netmon.auth.ldap_config import LdapSettingsIn
 from netmon.flows.settings import FlowSettingsMixin
+from netmon.schemas.assistant import Phase3bSettingsMixin
 from netmon.schemas.ingest import IngestSettingsMixin, source_addresses
 from netmon.schemas.phase3 import (
     ConfigBackupSettingsMixin,
@@ -19,6 +20,7 @@ from netmon.schemas.phase3 import (
     SshCredentialsIn,
 )
 from netmon.schemas.phase3c import Phase3CSettingsMixin
+from netmon.schemas.security import SecuritySettingsMixin
 
 USERNAME_RE = re.compile(r"^[A-Za-z0-9._-]{3,64}$")
 EMAIL_RE = re.compile(r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
@@ -27,6 +29,7 @@ Role = Literal["admin", "viewer"]
 Language = Literal["en", "he"]
 StatusLit = Literal["up", "warning", "down", "paused", "unknown", "unreachable"]
 InventoryMode = Literal["auto", "on", "off"]  # [2b-2]
+Impact = Literal["critical", "warning", "none"]  # [1.3]
 
 
 class _In(BaseModel):
@@ -84,6 +87,12 @@ class MePatch(_In):
     language: Language | None = None
 
     _e = field_validator("email")(lambda cls, v: _email(v))
+
+
+class LogoutIn(_In):
+    """[1.4.1] `everywhere`: end every session of the user, not only this one."""
+
+    everywhere: bool = False
 
 
 class ChangePasswordIn(_In):
@@ -293,6 +302,8 @@ class SensorCreate(_In):
     enabled: bool = True
     sort_order: int = 0
     channels: list[dict[str, Any]] | None = None
+    # [1.3] null/absent: snmp_interface by port importance, every other type critical
+    impact: Impact | None = None
 
 
 class SensorPatch(_In):
@@ -303,6 +314,14 @@ class SensorPatch(_In):
     enabled: bool | None = None
     sort_order: int | None = None
     channels: list[dict[str, Any]] | None = None
+    impact: Impact | None = None  # [1.3]
+
+
+class BulkImpactIn(_In):
+    """[1.3] POST /api/sensors/bulk-impact"""
+
+    sensor_ids: list[int] = Field(min_length=1, max_length=1000)
+    impact: Impact
 
 
 class SensorTestIn(_In):
@@ -341,6 +360,7 @@ class EmailConfig(BaseModel):
     model_config = ConfigDict(extra="forbid")
     to: list[str] = Field(min_length=1, max_length=20)
     ack_link: bool = False  # [3] chat_ack: "Acknowledge" link in problem mails
+    ai_note_email: bool = True  # [3b] AI note as a threaded reply (§ 14.8.3)
 
     @field_validator("to")
     @classmethod
@@ -382,6 +402,7 @@ class TelegramConfig(BaseModel):
     disable_notification: bool = False
     ack_buttons: bool = False  # [3] chat_ack: inline "Acknowledge" button (callback)
     ack_link: bool = False  # [3] chat_ack: URL button to the ack page (without ack_buttons)
+    ai_ask: bool = False  # [3b] `/ask` to this bot (feature ai_chat_ask, § 14.8.9)
 
     @field_validator("bot_token")
     @classmethod
@@ -433,6 +454,7 @@ class AlertRuleCreate(_In):
     escalation_after_s: int | None = Field(default=None, ge=60, le=604800)  # [2b-1]
     escalation_channel_ids: list[int] = Field(default_factory=list, max_length=100)
     repeat_every_s: int | None = Field(default=None, ge=300, le=604800)
+    ai_note: bool = False  # [3b] AI note after the problem notification (§ 14.8.3)
 
 
 class AlertRulePatch(_In):
@@ -445,6 +467,7 @@ class AlertRulePatch(_In):
     escalation_after_s: int | None = Field(default=None, ge=60, le=604800)  # [2b-1]
     escalation_channel_ids: list[int] | None = Field(default=None, max_length=100)
     repeat_every_s: int | None = Field(default=None, ge=300, le=604800)
+    ai_note: bool | None = None  # [3b]
 
 
 # ---------------------------------------------------------------- [2b-1] acknowledge
@@ -558,6 +581,8 @@ class SettingsPut(
     NewdevSettingsMixin,
     FlowSettingsMixin,
     Phase3CSettingsMixin,  # [3] reports / chat ack
+    Phase3bSettingsMixin,  # [3b] assistant toggles and scalar keys
+    SecuritySettingsMixin,  # [1.4.1] egress filter, session lifetime, login cap, framing
 ):
     smtp: SmtpIn | None = None
     retention_days: int | None = Field(default=None, ge=1, le=3650)
@@ -765,3 +790,17 @@ class ImportRequest(_In):
 
 class ApplyTemplateRequest(_In):
     template_id: str
+    # [1.3] which interfaces get snmp_interface sensors: "important" | "none" | "all" | ifIndexes
+    interfaces: Literal["important", "none", "all"] | list[int] = "important"
+    remove_unselected_interfaces: bool = False
+
+    @field_validator("interfaces")
+    @classmethod
+    def _ifaces(cls, v: Any) -> Any:
+        if isinstance(v, list):
+            if len(v) > 1000:
+                raise ValueError("at most 1000 ifIndexes")
+            if any(i < 1 or i > 2147483647 for i in v):
+                raise ValueError("ifIndexes must be 1-2147483647")
+            return sorted(set(v))
+        return v

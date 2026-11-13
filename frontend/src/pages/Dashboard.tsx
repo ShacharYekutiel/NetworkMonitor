@@ -1,3 +1,5 @@
+import { DashboardIncidents } from '../components/assistant/Incidents';
+import { ExplainButton } from '../components/assistant/ExplainButton';
 import { useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { useQuery } from '@tanstack/react-query';
@@ -80,6 +82,8 @@ export function DashboardPage() {
           </span>
         </Link>
       )}
+      {/* [3b] open incidents (feature ai_correlation) */}
+      <DashboardIncidents />
       <div className="grid grid-cols-1 items-start gap-4 2xl:grid-cols-2">
         <Card
           title={
@@ -94,7 +98,16 @@ export function DashboardPage() {
             <SensorTable
               sensors={data.problem_sensors}
               showDevice
-              actions={isAdmin ? (s) => <AckAction sensor={s} /> : undefined}
+              actions={
+                isAdmin
+                  ? (s) => (
+                      <span className="inline-flex items-center gap-1">
+                        <ExplainButton sensorId={s.id} />
+                        <AckAction sensor={s} />
+                      </span>
+                    )
+                  : undefined
+              }
             />
           ) : (
             <div className="flex flex-col items-center gap-2.5 px-4 py-9 text-center text-[13px] font-medium text-status-up">

@@ -5,6 +5,7 @@ import { GridComponent, TooltipComponent } from 'echarts/components';
 import { CanvasRenderer } from 'echarts/renderers';
 import { useTranslation } from 'react-i18next';
 import { useTheme } from '../../hooks/theme';
+import { histogramTooltipHtml } from '../../lib/html';
 import { SEVERITY_HEX, severityHex, severityTone } from '../../lib/logs';
 import { chartTokens } from '../../lib/chartTokens';
 
@@ -81,13 +82,12 @@ export function Histogram({
             if (!ps.length) return '';
             const i = ps[0].dataIndex;
             const head = new Date(Date.parse(times[i])).toLocaleString(locale);
-            const rows = ps
-              .filter((p) => p.value[1] > 0)
-              .map(
-                (p) =>
-                  `<span style="color:${p.color}">●</span> ${p.seriesName}: <b>${p.value[1]}</b>`,
-              );
-            return [head, ...rows].join('<br/>');
+            return histogramTooltipHtml(
+              head,
+              ps
+                .filter((p) => p.value[1] > 0)
+                .map((p) => ({ name: p.seriesName, color: p.color, value: p.value[1] })),
+            );
           },
         },
         xAxis: {

@@ -96,9 +96,8 @@ function useAckMutations() {
 export function AckAction({ sensor, size = 'sm' }: { sensor: Sensor; size?: 'sm' | 'md' }) {
   const { t } = useTranslation();
   const { isAdmin } = useAuth();
-  const { ack, unack } = useAckMutations();
+  const { unack } = useAckMutations();
   const [open, setOpen] = useState(false);
-  const [comment, setComment] = useState('');
   if (!isAdmin) return null;
   if (sensor.acknowledgement)
     return (
@@ -118,49 +117,61 @@ export function AckAction({ sensor, size = 'sm' }: { sensor: Sensor; size?: 'sm'
       <Button
         size={size}
         variant={size === 'md' ? 'secondary' : 'ghost'}
-        onClick={() => {
-          setComment('');
-          ack.reset();
-          setOpen(true);
-        }}
+        onClick={() => setOpen(true)}
       >
         <CheckIcon size={12} /> {t('ack.action')}
       </Button>
-      <Modal
-        open={open}
-        onClose={() => setOpen(false)}
-        title={t('ack.title', { name: `${sensor.device_name} / ${sensor.name}` })}
-        footer={
-          <>
-            <Button onClick={() => setOpen(false)}>{t('common.cancel')}</Button>
-            <Button
-              variant="primary"
-              busy={ack.isPending}
-              onClick={() =>
-                ack.mutate(
-                  { id: sensor.id, comment: comment.trim() },
-                  { onSuccess: () => setOpen(false) },
-                )
-              }
-            >
-              {t('ack.action')}
-            </Button>
-          </>
-        }
-      >
-        <p className="mb-3 text-sm text-ink-muted">{t('ack.explain')}</p>
-        <Field label={t('ack.comment')} hint={t('ack.commentHint')}>
-          <Textarea
-            rows={3}
-            maxLength={1000}
-            value={comment}
-            onChange={(e) => setComment(e.target.value)}
-            dir="auto"
-            autoFocus
-          />
-        </Field>
-        <ErrorBox className="mt-3" error={ack.error} />
-      </Modal>
+      {open && <AckDialog sensor={sensor} onClose={() => setOpen(false)} />}
     </>
+  );
+}
+
+/**
+ * The "Acknowledge" dialog (optional comment) of a problem sensor; mounted while open.
+ * [3b] Also used by the tree context menu, which only knows the sensor's id and names.
+ */
+export function AckDialog({
+  sensor,
+  onClose,
+}: {
+  sensor: Pick<Sensor, 'id' | 'name' | 'device_name'>;
+  onClose: () => void;
+}) {
+  const { t } = useTranslation();
+  const { ack } = useAckMutations();
+  const [comment, setComment] = useState('');
+  return (
+    <Modal
+      open
+      onClose={onClose}
+      title={t('ack.title', { name: `${sensor.device_name} / ${sensor.name}` })}
+      footer={
+        <>
+          <Button onClick={onClose}>{t('common.cancel')}</Button>
+          <Button
+            variant="primary"
+            busy={ack.isPending}
+            onClick={() =>
+              ack.mutate({ id: sensor.id, comment: comment.trim() }, { onSuccess: onClose })
+            }
+          >
+            {t('ack.action')}
+          </Button>
+        </>
+      }
+    >
+      <p className="mb-3 text-sm text-slate-600 dark:text-slate-300">{t('ack.explain')}</p>
+      <Field label={t('ack.comment')} hint={t('ack.commentHint')}>
+        <Textarea
+          rows={3}
+          maxLength={1000}
+          value={comment}
+          onChange={(e) => setComment(e.target.value)}
+          dir="auto"
+          autoFocus
+        />
+      </Field>
+      <ErrorBox className="mt-3" error={ack.error} />
+    </Modal>
   );
 }

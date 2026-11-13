@@ -32,6 +32,7 @@ import { FeatureSection, useSaveSettings } from './common';
 import { IngestStatusCard } from './IngestStatus';
 import { FeatureToggleCard } from './FeatureToggle';
 import { featuresFromSettings, featuresOfTab, ingestOn } from '../../lib/features';
+import { cardAnchor } from '../../lib/settingsIndex';
 
 const LEVELS: SnmpSecurityLevel[] = ['noAuthNoPriv', 'authNoPriv', 'authPriv'];
 const AUTH: SnmpAuthProtocol[] = ['MD5', 'SHA', 'SHA224', 'SHA256', 'SHA384', 'SHA512'];
@@ -156,7 +157,7 @@ export function LinkScopeRadio({
   const { t } = useTranslation();
   return (
     <FieldGroup label={t('ingestSettings.linkScope.label')}>
-      <div className="space-y-1.5" data-testid="linkdown-scope">
+      <div className="space-y-1.5" data-testid="linkdown-scope" data-anchor="setting-link-scope">
         {(['important', 'all'] as const).map((v) => (
           <label key={v} className="flex cursor-pointer items-start gap-2 text-sm">
             <input
@@ -180,6 +181,60 @@ export function LinkScopeRadio({
   );
 }
 
+/** [1.3] Trunk ports: always alert on them, and what counts as a trunk. */
+export function TrunkScopeFields({
+  includeTrunks,
+  onIncludeTrunks,
+  minTagged,
+  onMinTagged,
+  invalid,
+}: {
+  includeTrunks: boolean;
+  onIncludeTrunks: (v: boolean) => void;
+  minTagged: string;
+  onMinTagged: (v: string) => void;
+  invalid: boolean;
+}) {
+  const { t } = useTranslation();
+  return (
+    <div
+      className="grid grid-cols-1 gap-3 sm:grid-cols-2"
+      data-testid="trunk-scope"
+      data-anchor="setting-trunk-scope"
+    >
+      <div className="space-y-1">
+        <Checkbox
+          label={t('ingestSettings.trunks.include')}
+          checked={includeTrunks}
+          onChange={onIncludeTrunks}
+        />
+        <p className="text-xs text-slate-500">{t('ingestSettings.trunks.includeHint')}</p>
+      </div>
+      <Field
+        label={t('ingestSettings.trunks.minTagged')}
+        hint={
+          invalid ? (
+            <span className="text-red-600">{t('ingestSettings.trunks.minTaggedErr')}</span>
+          ) : (
+            t('ingestSettings.trunks.minTaggedHint')
+          )
+        }
+      >
+        <Input
+          type="number"
+          min={1}
+          max={100}
+          value={minTagged}
+          onChange={(e) => onMinTagged(e.target.value)}
+          dir="ltr"
+          className="max-w-[8rem]"
+          data-testid="trunk-min-tagged"
+        />
+      </Field>
+    </div>
+  );
+}
+
 export function IngestSettingsCard({ settings }: { settings: Settings }) {
   const { t } = useTranslation();
   const [trapDays, setTrapDays] = useState('30');
@@ -191,8 +246,12 @@ export function IngestSettingsCard({ settings }: { settings: Settings }) {
   const [ignored, setIgnored] = useState('');
   const [v3, setV3] = useState<V3Row[]>([]);
   const [linkScope, setLinkScope] = useState<'important' | 'all'>('important');
+  const [includeTrunks, setIncludeTrunks] = useState(true);
+  const [minTagged, setMinTagged] = useState('2');
   useEffect(() => {
     setLinkScope(settings.event_linkdown_scope ?? 'important');
+    setIncludeTrunks(settings.event_linkdown_include_trunks ?? true);
+    setMinTagged(String(settings.trunk_min_tagged_vlans ?? 2));
     setTrapDays(String(settings.trap_retention_days ?? 30));
     setSyslogDays(String(settings.syslog_retention_days ?? 30));
     setCheck(settings.trap_community_check ?? 'any');
@@ -215,6 +274,7 @@ export function IngestSettingsCard({ settings }: { settings: Settings }) {
     ignored: ign.invalid.length > 0 || ign.tooMany,
     v3: v3.some((r) => v3RowError(r, v3) !== null),
     known: check === 'known' && !(replaceComm ? comm.length : settings.trap_communities_count),
+    minTagged: !intInRange(minTagged, 1, 100),
   };
   const invalid = Object.values(errs).some(Boolean) || commBad;
   const submit = (e: FormEvent) => {
@@ -228,6 +288,8 @@ export function IngestSettingsCard({ settings }: { settings: Settings }) {
       ingest_ignored_sources: ign.list,
       trap_v3_users: v3Input(v3),
       event_linkdown_scope: linkScope,
+      event_linkdown_include_trunks: includeTrunks,
+      trunk_min_tagged_vlans: Number(minTagged),
     };
     if (replaceComm) body.trap_communities = comm;
     save.mutate(body);
@@ -235,7 +297,7 @@ export function IngestSettingsCard({ settings }: { settings: Settings }) {
   const bad = (on: boolean, key: string, ok?: string) =>
     on ? <span className="text-status-down">{t(key)}</span> : ok;
   return (
-    <Card title={t('ingestSettings.title')}>
+    <Card title={t('ingestSettings.title')} anchor={cardAnchor('ingest')}>
       <form onSubmit={submit} className="space-y-4" data-testid="ingest-settings">
         <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
           <Field
@@ -327,6 +389,13 @@ export function IngestSettingsCard({ settings }: { settings: Settings }) {
           <V3UsersEditor rows={v3} onChange={setV3} />
         </fieldset>
         <LinkScopeRadio value={linkScope} onChange={setLinkScope} />
+        <TrunkScopeFields
+          includeTrunks={includeTrunks}
+          onIncludeTrunks={setIncludeTrunks}
+          minTagged={minTagged}
+          onMinTagged={setMinTagged}
+          invalid={errs.minTagged}
+        />
         <Field
           label={t('ingestSettings.ignored')}
           hint={
@@ -378,7 +447,7 @@ export function FlappingCard({ settings }: { settings: Settings }) {
   };
   const invalid = e.threshold || e.window || e.quiet;
   return (
-    <Card title={t('flapping.title')}>
+    <Card title={t('flapping.title')} anchor={cardAnchor('flapping')}>
       <form
         className="space-y-4"
         data-testid="flapping-settings"
@@ -470,7 +539,7 @@ export function AuditRetentionCard({ settings }: { settings: Settings }) {
   const save = useSaveSettings();
   const bad = !intInRange(days, 30, 3650);
   return (
-    <Card title={t('audit.settingsTitle')}>
+    <Card title={t('audit.settingsTitle')} anchor={cardAnchor('audit')}>
       <form
         className="flex flex-wrap items-end gap-3"
         onSubmit={(e) => {
@@ -507,6 +576,114 @@ export function AuditRetentionCard({ settings }: { settings: Settings }) {
   );
 }
 
+const KNOWN_REPETITIVE: Record<string, string> = {
+  '1.3.6.1.4.1.25506.2.38.1.6.3.0.1': 'hh3cPeriodicalTrap',
+  '1.3.6.1.2.1.192.0.1': 'syslogMsgNotification',
+};
+const OID_RE = /^\.?[0-9]+(\.[0-9]+){1,127}$/;
+
+/** [1.2.1] Repetitive traps (heartbeats, syslog sent as traps): keep only the newest N. */
+export function TrapCollapseCard({ settings }: { settings: Settings }) {
+  const { t } = useTranslation();
+  const [on, setOn] = useState(false);
+  const [keep, setKeep] = useState('10');
+  const [oids, setOids] = useState('');
+  useEffect(() => {
+    setOn(settings.trap_collapse_enabled ?? false);
+    setKeep(String(settings.trap_collapse_keep ?? 10));
+    setOids((settings.trap_collapse_oids ?? []).join('\n'));
+  }, [settings]);
+  const save = useSaveSettings();
+  const list = oids
+    .split(/[\s,]+/)
+    .map((x) => x.trim())
+    .filter(Boolean);
+  const badOids = list.filter((o) => !OID_RE.test(o));
+  const e = { keep: !intInRange(keep, 1, 1000), oids: badOids.length > 0 || list.length > 64 };
+  const invalid = e.keep || e.oids;
+  return (
+    <Card title={t('trapCollapse.title')} anchor={cardAnchor('trapCollapse')}>
+      <form
+        className="space-y-4"
+        data-testid="trap-collapse-settings"
+        onSubmit={(ev) => {
+          ev.preventDefault();
+          if (!invalid)
+            save.mutate({
+              trap_collapse_enabled: on,
+              trap_collapse_keep: Number(keep),
+              trap_collapse_oids: list,
+            });
+        }}
+      >
+        <p className="text-xs text-slate-500">{t('trapCollapse.intro')}</p>
+        <Checkbox label={t('trapCollapse.enabled')} checked={on} onChange={setOn} />
+        <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
+          <Field
+            label={t('trapCollapse.keep')}
+            hint={
+              e.keep ? (
+                <span className="text-red-600">{t('trapCollapse.keepErr')}</span>
+              ) : (
+                t('trapCollapse.keepHint')
+              )
+            }
+          >
+            <Input
+              type="number"
+              min={1}
+              max={1000}
+              value={keep}
+              onChange={(x) => setKeep(x.target.value)}
+              dir="ltr"
+            />
+          </Field>
+          <div className="sm:col-span-2">
+            <Field
+              label={t('trapCollapse.oids')}
+              hint={
+                e.oids ? (
+                  <span className="text-red-600">
+                    {t('trapCollapse.oidsErr', { list: badOids.join(', ') })}
+                  </span>
+                ) : (
+                  t('trapCollapse.oidsHint')
+                )
+              }
+            >
+              <Textarea
+                rows={3}
+                value={oids}
+                onChange={(x) => setOids(x.target.value)}
+                dir="ltr"
+                className="font-mono"
+              />
+            </Field>
+            <ul className="mt-1 space-y-0.5 text-xs text-slate-500">
+              {list
+                .filter((o) => KNOWN_REPETITIVE[o.replace(/^\./, '')])
+                .map((o) => (
+                  <li key={o}>
+                    <bdi dir="ltr" className="font-mono">
+                      {KNOWN_REPETITIVE[o.replace(/^\./, '')]}
+                    </bdi>{' '}
+                    — {t(`trapCollapse.known.${KNOWN_REPETITIVE[o.replace(/^\./, '')]}`)}
+                  </li>
+                ))}
+            </ul>
+          </div>
+        </div>
+        <div className="flex justify-end">
+          <Button type="submit" variant="primary" busy={save.isPending} disabled={invalid}>
+            {t('common.save')}
+          </Button>
+        </div>
+        <ErrorBox error={save.error} />
+      </form>
+    </Card>
+  );
+}
+
 /** Settings tab "Traps & syslog": switches at the top; settings, status and flapping while on. */
 export function IngestTab({ settings }: { settings: Settings }) {
   const f = featuresFromSettings(settings);
@@ -515,6 +692,9 @@ export function IngestTab({ settings }: { settings: Settings }) {
       <FeatureToggleCard names={featuresOfTab('ingest')} settings={settings} />
       <FeatureSection feature={['traps', 'syslog']} settings={settings}>
         <IngestSettingsCard settings={settings} />
+      </FeatureSection>
+      <FeatureSection feature="traps" settings={settings}>
+        <TrapCollapseCard settings={settings} />
       </FeatureSection>
       {ingestOn(f) && <IngestStatusCard />}
       <FeatureSection feature="flapping" settings={settings}>

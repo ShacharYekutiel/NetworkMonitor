@@ -18,6 +18,7 @@ from netmon.ports import dns
 from netmon.ports.collect import (
     PortWalks,
     collect_arp,
+    collect_irf,
     collect_lag,
     collect_ports,
     get_uptime,
@@ -74,6 +75,7 @@ PORT_COLUMNS = (
     "collected_at",
     "lag_if_index",  # [2b-3]
     "lag_attached",
+    "irf_port",  # [1.3.1]
 )
 _UPSERT_PORT = text(
     f"INSERT INTO switch_ports (device_id, {', '.join(PORT_COLUMNS)}) VALUES (:device_id, "
@@ -185,6 +187,8 @@ async def _walk_all(rt: Runtime, host: str, creds: dict[str, Any], flags: Device
         # [2b-3] LAG membership walks #13 / #14 only while the feature is ON
         if walks.error is None and rt.features.enabled("lag"):
             await collect_lag(walk, walks)
+        if walks.error is None:  # [1.3.1] IRF physical ports (Comware; empty elsewhere)
+            await collect_irf(walk, walks)
     if flags.arp:
         opt_errors: list[str] = []
 
@@ -235,6 +239,10 @@ async def run_device(rt: Runtime, device_id: int, trigger: str = "scheduled") ->
         from netmon.services import events as events_svc
 
         events_svc.published(rt, port_events)
+    ingest = getattr(rt, "ingest", None)
+    if ok and flags.ports and ingest is not None:
+        ingest.ports.pop(device_id, None)  # [1.3] important-port cache follows the new rows
+        await ingest.lags.reconcile(device_id)  # [1.3] LAG degraded from fresh ifOperStatus
     newdev = getattr(rt, "newdev", None)
     if ok and flags.ports and newdev is not None and newdev.enabled:
         await newdev.after_fdb(device_id, started)  # [3] new-device detection
@@ -300,11 +308,13 @@ async def _store(
                 sources["vlan_mib"] = snap.sources.get("vlan_mib")
                 sources["lag"] = snap.sources.get("lag", "skipped")  # [2b-3]
                 sources["lag_mib"] = snap.sources.get("lag_mib")
+                sources["irf"] = snap.sources.get("irf", "skipped")  # [1.3.1]
                 n_ports = len(snap.rows)
             else:
                 sources.update({k: "skipped" for k in PORT_SOURCES})
                 sources["fdb_mib"] = sources["vlan_mib"] = None
                 sources["lag"], sources["lag_mib"] = "skipped", None
+                sources["irf"] = "skipped"
             if flags.arp:
                 state = walks.sources.get("arp", "error")
                 sources["arp"] = state

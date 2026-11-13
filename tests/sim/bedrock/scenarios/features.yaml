@@ -1,0 +1,271 @@
+# AI-feature purposes (docs/architecture.md §14.8). `$input` is the JSON found in the user text (the feature's
+# gathered input); every path uses default(...) because the exact input shape is the backend's choice.
+scenarios:
+  - name: test_ping
+    purpose: test
+    turns:
+      - tool_use: [{name: ping, input: {}}]
+    usage: {inputTokens: 25, outputTokens: 12}
+
+  # ---------------------------------------------------------------- 14.8.1 explain
+  - name: explain_alert
+    purpose: explain
+    turns:
+      - tool_use: [{name: list_events, input: {device_id: '{{ $input.device.id | default(1) }}', since: '{{ $day_ago }}', until: '{{ $now }}', limit: 20}}]
+      - text: |-
+          **What happened:** {{ $input.sensor.name | default("The sensor") }} on {{ $input.device.name | default("the device") }} went **{{ $input.event.new_status | default("down") }}**.
+
+          **What preceded it:**
+          {{ $.data.items | take(5) | each("- {time} [{kind}](nm:{ref}) {message}") | default("- nothing recorded") }}
+
+          **Affected:** {{ $input.dependents_count | default(0) }} dependent devices.
+
+          **Likely cause** (hypothesis, confidence: medium): the upstream link or the device itself stopped answering.
+
+          **Next checks:**
+          1. Check the uplink port of the device.
+          2. Look at the syslog of the device around the problem start.
+    final: '**What happened:** see the events above. **Likely cause** (hypothesis, confidence: low).'
+
+  - name: explain_alert_he
+    purpose: explain
+    priority: 5
+    lang: he
+    turns:
+      - text: |-
+          **מה קרה:** החיישן עבר למצב תקלה.
+
+          **מה קדם לכך:**
+          - אין אירועים קודמים.
+
+          **מושפעים:** אין.
+
+          **סיבה אפשרית** (השערה, ביטחון: נמוך): הקישור למעלה.
+
+          **בדיקות הבאות:**
+          1. בדוק את פורט ה-uplink.
+
+  # ---------------------------------------------------------------- 14.8.2 incident summary
+  - name: incident_summary
+    purpose: incident
+    forced:
+      report_incident_summary:
+        title: 'Uplink failure on {{ $input.root_candidates[0].name | default("the root device") }}'
+        summary: 'The root device went down and its dependents became unreachable. AI summary from the mock.'
+        root_cause_guess: {device_id: '{{ $input.root_candidates[0].id | default(0) }}', confidence: medium}
+    turns:
+      - text: '{"title": "Uplink failure on {{ $input.root_candidates[0].name | default("the root device") }}", "summary": "The root device went down and its dependents became unreachable. AI summary from the mock.", "root_cause_guess": {"device_id": {{ $input.root_candidates[0].id | default(0) }}, "confidence": "medium"}}'
+
+  # ---------------------------------------------------------------- 14.8.3 alert note
+  - name: alert_note
+    purpose: alert_note
+    forced:
+      report_alert_note: {note: 'Upstream link of {{ $input.device.name | default("the device") }} is the likely cause; check the uplink port.'}
+    turns:
+      - text: 'Likely cause: the upstream link of {{ $input.device.name | default("the device") }} failed; check the uplink port first.'
+
+  - name: alert_note_he
+    purpose: alert_note
+    priority: 5
+    lang: he
+    turns:
+      - text: 'סיבה אפשרית: הקישור למעלה של המכשיר נפל; בדוק את פורט ה-uplink.'
+
+  # ---------------------------------------------------------------- 14.8.4 config diff
+  - name: diff_explain
+    purpose: diff_explain
+    forced:
+      report_diff_explanation:
+        summary:
+          - 'An SNMP write community was added.'
+          - 'The SSH management ACL was removed.'
+        risks:
+          - {severity: high, title: 'SNMP write community added', explanation: 'Anyone with the community can change the device.', lines: [1]}
+          - {severity: high, title: 'SSH ACL removed', explanation: 'SSH is now reachable from any address.', lines: [2]}
+        confidence: medium
+    turns: []
+
+  # ---------------------------------------------------------------- 14.8.5 syslog digest
+  - name: syslog_digest
+    purpose: digest
+    turns:
+      - text: |-
+          - **{{ $input.by_program[0].key | default("A program") }}** logged far more than usual ({{ $input.by_program[0].count | default("?") }} vs. a baseline of {{ $input.by_program[0].baseline | default("?") }}).
+          - New message type: "{{ $input.new_types[0].example | default("?") }}" ([example](nm:{{ $input.new_types[0].example_ref | default("syslog/0") }})).
+          - Busiest device: [{{ $input.by_device[0].key | default("?") }}](nm:{{ $input.by_device[0].ref | default("device/0") }}).
+
+  # ---------------------------------------------------------------- 14.8.6 rule drafts
+  - name: rule_draft_alert
+    purpose: rule_draft
+    turns:
+      - tool_use: [{name: list_notification_channels, input: {}}]
+      - tool_use:
+          - name: propose_alert_rule
+            input:
+              name: 'Core switches down 2 min'
+              sensor_id: null
+              on_statuses: [down]
+              delay_s: 120
+              enabled: true
+              channel_ids: ['{{ $tool.list_notification_channels.data.items | where("type=telegram") | first | get("id") | default(0) }}']
+              explanation: 'Alerts on Telegram when any monitored sensor is down for 2 minutes.'
+              assumptions: ['"core switch" was interpreted as any sensor; restrict the rule to a sensor if needed.']
+
+  - name: rule_draft_event
+    purpose: rule_draft
+    priority: 5
+    match: '\bevent rule\b|syslog|trap|"kind":\s*"event_rule"'
+    turns:
+      - tool_use:
+          - name: propose_event_rule
+            input:
+              name: 'Login failures'
+              kind: syslog
+              enabled: true
+              scope: global
+              group_id: null
+              device_id: null
+              match: {severity_max: 5, facilities: [], programs: [], text: 'Login failed', text_regex: false}
+              action: warning
+              clear_after_min: 30
+              explanation: 'Raises a warning on syslog login failures.'
+              assumptions: ['Applies to every device.']
+
+  # Hebrew description -> name, explanation and assumptions in Hebrew; technical values unchanged
+  - name: rule_draft_alert_he
+    purpose: rule_draft
+    priority: 6
+    lang: he
+    match_system: 'propose_alert_rule'
+    turns:
+      - tool_use: [{name: list_notification_channels, input: {}}]
+      - tool_use:
+          - name: propose_alert_rule
+            input:
+              name: 'מתגי ליבה למטה 2 דקות'
+              sensor_id: null
+              on_statuses: [down]
+              delay_s: 120
+              enabled: true
+              channel_ids: ['{{ $tool.list_notification_channels.data.items | first | get("id") | default(0) }}']
+              explanation: 'שולח התראה כשחיישן כלשהו במצב תקלה במשך 2 דקות.'
+              assumptions: ['"מתג ליבה" פורש ככל חיישן; אפשר לצמצם לחיישן מסוים.']
+
+  - name: rule_draft_event_he
+    purpose: rule_draft
+    priority: 6
+    lang: he
+    match_system: 'propose_event_rule'
+    turns:
+      - tool_use:
+          - name: propose_event_rule
+            input:
+              name: 'כשלי התחברות SSH במתגים'
+              kind: syslog
+              enabled: true
+              scope: global
+              group_id: null
+              device_id: null
+              match: {severity_max: null, facilities: [], programs: [SSHS, sshd], text: '[Ff]ail(ed|ure)?', text_regex: true}
+              action: warning
+              clear_after_min: 30
+              explanation: 'מעלה אזהרה על הודעות syslog של כשל בהתחברות SSH.'
+              assumptions: ['לכללי אירועים אין סף ספירה ("יותר מ-3 פעמים ב-5 דקות"): כל הודעה תואמת נספרת.']
+
+  # not a rule at all ("make me coffee") -> the explicit cannot-draft answer, reason in Hebrew
+  - name: rule_draft_cannot_he
+    purpose: rule_draft
+    priority: 20
+    match: 'קפה|coffee'
+    turns:
+      - tool_use:
+          - name: propose_event_rule
+            input:
+              cannot_draft: true
+              reason: 'הבקשה "תכין לי קפה" לא מתארת אירוע רשת להתאמה. תאר הודעת syslog או trap, למשל: "אזהרה כשמתג שולח כשל התחברות SSH".'
+              explanation: '-'
+        if_not_offered:
+          tool_use:
+            - name: propose_alert_rule
+              input:
+                cannot_draft: true
+                reason: 'הבקשה "תכין לי קפה" לא מתארת מצב של חיישן להתראה. תאר מה לנטר, למשל: "התראה בטלגרם כשמתג ליבה למטה 2 דקות".'
+                name: '-'
+                on_statuses: [down]
+                channel_ids: [0]
+                explanation: '-'
+
+  # ---------------------------------------------------------------- 14.8.7 template drafts
+  - name: template_draft
+    purpose: template_draft
+    turns:
+      - tool_use:
+          - name: propose_template
+            input:
+              yaml: |-
+                schema: 1
+                id: qa_draft_x100
+                version: 1
+                vendor: qa
+                verified: false
+                verified_note: "AI draft"
+                name: {en: "QA X100 (draft)", he: "QA X100 (טיוטה)"}
+                description: {en: "Drafted from an SNMP walk", he: "טיוטה מסריקת SNMP"}
+                requires_snmp: true
+                priority: 40
+                match:
+                  - {requires_snmp: true, enterprises: [{{ $question | re("1\.3\.6\.1\.4\.1\.(\d+)") | default(99999) }}]}
+                entries:
+                  - {kind: sensor, type: ping, name: {en: Ping, he: פינג}}
+                  - {kind: sensor, type: snmp_system, name: {en: System, he: מערכת}}
+                  - kind: sensor
+                    type: snmp_custom
+                    name: {en: Vendor value, he: ערך יצרן}
+                    config: {oid: '{{ $question | re("(1\.3\.6\.1\.4\.1\.\d+(?:\.\d+)*\.0)\b") | default("1.3.6.1.4.1.99999.1.0") }}', value_type: gauge, unit: '', label: Value}
+                    channels: [{key: value}]
+                    probe: true
+                    confidence: unverified
+              notes: 'Drafted by the mock from the first enterprise OID of the walk.'
+              confidence_per_sensor: [{name: Vendor value, confidence: low}]
+
+  # notes that are not about a device template -> cannot draft (reason in the notes' language)
+  - name: template_draft_cannot_he
+    purpose: template_draft
+    priority: 20
+    match: 'קפה|coffee'
+    turns:
+      - tool_use:
+          - name: propose_template
+            input:
+              yaml: ''
+              cannot_draft: true
+              reason: 'ההערות "תכין לי קפה" לא מתארות תבנית מכשיר, ובסריקה אין ערכים ייחודיים למכשיר.'
+
+  # ---------------------------------------------------------------- 14.8.10 report summary
+  - name: report_summary
+    purpose: report_summary
+    turns:
+      - text: 'Availability over the period was {{ $question | re("\"[a-z_]*(?:pct|percent|availability)[a-z_]*\":\s*(\d+(?:\.\d+)?)") | default("n/a") }} % for the monitored devices. The main incidents were short outages; no notable configuration changes were reported.'
+
+  - name: report_summary_he
+    purpose: report_summary
+    priority: 5
+    lang: he
+    turns:
+      - text: 'הזמינות בתקופה הייתה {{ $question | re("\"[a-z_]*(?:pct|percent|availability)[a-z_]*\":\s*(\d+(?:\.\d+)?)") | default("n/a") }} % למכשירים המנוטרים. התקלות העיקריות היו הפסקות קצרות.'
+
+  # ---------------------------------------------------------------- neutral audit title (owner rule: no question text)
+  - name: audit_title
+    purpose: title
+    turns:
+      - text: 'Network status question'
+    usage: {inputTokens: 90, outputTokens: 5}
+
+  # a model that ignores "Write in English" (the app falls back to "Assistant question")
+  - name: audit_title_he
+    purpose: title
+    priority: 5
+    lang: he
+    turns:
+      - text: 'שאלה על מצב הרשת'
+    usage: {inputTokens: 90, outputTokens: 5}

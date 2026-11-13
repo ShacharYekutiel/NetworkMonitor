@@ -116,6 +116,22 @@ single specs can run on their own.
 | `60-chat-ack` | **[3]** Telegram poller (getUpdates), link code -> `/link` via the mock -> linked + reply, single use; problem -> inline button, stranger press refused (show_alert), linked admin press -> acknowledged + `✓ admin hh:mm` markup, already acknowledged; Teams card `Action.OpenUrl` -> `/ack#` -> acknowledge with comment, `ack_stale` after recovery; forged link; 409 webhook conflict -> take over; chat_ack OFF -> no buttons |
 | `61-viewer-3` | **[3]** Viewer: backup metadata only, 24 admin endpoints 403, read endpoints 200, `storage_bytes` null; UI without content/diff/download/backup/search/run/acknowledge; ack page "admins only" via the webhook `ack_url` |
 | `62-rtl-mobile-3` | **[3]** Hebrew at 1440 and 390 px: config text `ltr` in an `rtl` page, `/config-backups` `/flows` `/new-devices` `/reports` without horizontal overflow, IPs/MACs `ltr` |
+| `63-assistant-settings` | **[3b]** Fresh install: assistant + 10 AI features OFF, USD prices, 409 except prepare endpoints; configure-first bottom switch locked until a Test in the session; `assistant_test_required`; bad secret -> `aws_auth_failed` (mock saw `InvalidSignatureException`); certificate upload (7 invalid cases, PEM, `.pfx`, metadata only, audited); CSR flow (server key, PKCS#10 download, signed by the test PKI, certificate-only upload); Roles Anywhere Test through the UI (X.509 signature verified by the mock), switch -> ON, region edit locks; il-central-1 needs `global.` (warning `global_inference_profile`); `test_id` bound to admin + values; audit dependency; rate limit 10/10 min; viewer + API tokens 403 |
+| `64-assistant-ask` | **[3b]** Example chip -> streamed answer, tool step, links, sources, AI notice; Converse request shape (system prompt sentences, cachePoints, closed tool schemas, json toolResult); SSE contract (headers, ids, events, usage = mock usage); Copy, feedback; follow-up sends history; rename/delete; re-attach with `Last-Event-ID`; validation; Enter / Shift+Enter |
+| `65-assistant-tools-features` | **[3b]** Tools follow features: syslog OFF/ON, config tools only with config_backup + send_config_excerpts + masking (no unmasked secret reaches the model), flows/traps/new devices/timeline; tool error -> `status: error` + retry; 3 rounds; 3 parallel tool calls |
+| `66-assistant-errors-caps` | **[3b]** Throttling retried (1 s / 4 s) then error; 10 AWS error modes -> mapped codes + health state; UI banner + Retry (retryable only); Stop within 1 s (Bedrock stream closed); busy 409; stalled stream -> `assistant_timeout`; model-call / tool-call / max_tokens limits -> final no-tool call + `limit_reached`; daily cap; USD cost estimate + monthly cost cap; usage page = mock usage |
+| `67-assistant-privacy` | **[3b]** Internal-IP redaction (placeholders to the model, real addresses in the UI, args translated back); seeded secret markers never sent; injection corpus via syslog with the "obeying" mock model: `update_device` -> `unknown_tool`, no write, no `<img>` / external href / forged ref links; audit rows without the question text |
+| `68-explain-alert` | **[3b]** Explain on the dashboard -> drawer with the 5 sections, gathered input has the preceding syslog; cache (no model call), Refresh; follow-up in the explain conversation; feature OFF 409, viewer 403 |
+| `69-correlation` | **[3b]** Parent down + 4 dependents unreachable -> one incident, deterministic title, root, AI summary (non-streamed); resolved on recovery; mock unavailable -> title only; graph refresh for newly added dependencies; feature OFF 409 |
+| `70-alert-notes` | **[3b]** AI note after the alert: Telegram `editMessageText` (+ refused edit -> reply), Teams follow-up card, threaded email reply; once per problem, never on recovery; slower than the timeout -> skipped, alert on time; rule form checkbox |
+| `71-config-diff-explain` | **[3b]** Comware `risk-a` -> `risk-b` (tests/sim/ssh/configs/comware): high flags `snmp_community_added`, `mgmt_acl_removed`, info `ntp_changed`; forced `report_diff_explanation` over the masked diff, cache; UI panel; mock error keeps flags; `feature_idle` |
+| `72-syslog-digest` | **[3b]** 8 days of syslog through the receiver with the test clock; digest of D-1: spike unusual (x6.5), new message type with `nm:syslog` example, AI bullets, email; mock error -> statistics only; 7-day / 5-runs limits |
+| `73-rule-drafts` | **[3b]** Alert-rule draft (delay 120, Telegram channel, nothing saved), repair round, UI Describe -> prefilled form -> normal save (audited); event-rule draft + Test; gates |
+| `74-template-drafts` | **[3b]** snmpsim X100 (`tests/sim/bedrock/snmp_x100`, PEN 99999): forbidden subtrees refused / never walked, secrets redacted before the model, draft valid, UI wizard -> Save as user template -> applied to the device |
+| `75-knowledge` | **[3b]** KB configure-first form + Test (mock Retrieve) + bottom switch; answer cites `kb/<n>` (https clickable, s3 text); KB error -> `kb_unavailable`; injected KB passage cannot exfiltrate; OFF |
+| `76-chat-ask` | **[3b]** Telegram `/ask` from a linked admin: "Working on it…" edited to the escaped HTML answer + Full answer link, channel telegram; `/ask@bot`, IP placeholders stay in Telegram; viewer / unlinked / group refused; injected HTML escaped; busy; OFF |
+| `77-report-summary` | **[3b]** AI paragraph (en/he) at the top of report data, email and page; numbers checked (unverified -> dropped); mock error -> report ok without it; OFF -> `disabled`; per-report opt-in |
+| `78-assistant-rtl-mobile` | **[3b]** Hebrew question -> "Answer in Hebrew", rtl answer with ltr IPs; ask/settings/usage/incident pages at 1440 and 390 px without horizontal overflow |
 | `18-discovery-rtl-mobile` | **[2a]** Discovery + results in Hebrew (RTL, translated classes/templates, LTR IPs), phone width without horizontal overflow (en/he); screenshots to `$QA2A_SHOT_DIR` (default `$SCREENSHOT_DIR/qa-2a`) |
 
 Timing: sensors use `interval_s = 10` (the API minimum). Waits are `expect.poll` / auto-retrying
@@ -258,6 +274,22 @@ S=$(mktemp -d); backend/.venv/bin/python tests/sim/ssh/fake_device.py --lab --st
 backend/.venv/bin/python tests/sim/ssh/selftest.py && backend/.venv/bin/python -W ignore tests/sim/ssh/engine_check.py
 backend/.venv/bin/python tests/sim/flows/selftest.py && backend/.venv/bin/python tests/sim/flows/decoder_check.py
 tests/sim/kdc/setup_kdc.sh start /tmp/kdc && backend/.venv/bin/python tests/sim/kdc/client_token.py spnego --kdc-dir /tmp/kdc
+```
+
+## Phase 3b simulators (architecture.md §14.11; started by `tests/e2e/run.sh` unless `E2E_PHASE3B=0`)
+
+| Simulator | What | Self-check |
+|---|---|---|
+| `sim/bedrock/mock_bedrock.py` | Amazon Bedrock mock (one process, HTTP + HTTPS with the test PKI): Converse / ConverseStream (own event-stream encoder), scripted model (`scenarios/*.yaml`, purpose marker + question regex + language, JSONPath-style templates, forced tools), 30 error/behaviour modes, Bedrock-like request validation, KB Retrieve, Roles Anywhere CreateSession (X.509 signature + chain), control plane, IMDSv2, container credentials; every AWS request verified with **botocore SigV4Auth**; request log `GET /_requests`. In-process: `MockBedrock` / `pytest_fixture.py`. Details: `sim/bedrock/README.md` | `pytest tests/sim/bedrock` (contract vectors, signatures, sessions, scenarios, modes, cancel detection) |
+| `sim/bedrock/pki.py` | Test PKI: root -> issuing CA -> leaves (RSA/EC P-256/P-384, expired, expiring, wrong CA, CA:TRUE, no digitalSignature, RSA 1024), PKCS#1/SEC1/encrypted keys, `.pfx`, TLS server cert, `sign-csr` for the CSR flow | (self-test above) |
+| `sim/bedrock/injection/` | Prompt-injection corpus (17 attacker texts per surface) + `injection_checks.py` (answer / DOM / Telegram / outgoing-request checks) | (self-test above) |
+| `sim/bedrock/snmp_x100/` | snmpsim data of a device with an unknown enterprise subtree (PEN 99999), forbidden ARP/USM/community tables and a value with secrets | — |
+| `sim/telegram_mock.py` (extended) | `editMessageText` (must exist in the chat, "not modified", HTML/length checks), `reply_to_message_id` validation, `/_sent`, `/_control {"edit_too_old": true}` | — |
+| `sim/ssh/configs/comware/risk-a.txt`, `risk-b.txt` | Comware change adding `snmp-agent community write` and removing `ssh server acl 2001` (spec 71) | — |
+
+```bash
+backend/.venv/bin/python -m pytest tests/sim/bedrock -q
+backend/.venv/bin/python tests/sim/bedrock/mock_bedrock.py --port 0 --https-port 0 --pki /tmp/bpki   # READY {...}
 ```
 
 ## Other suites

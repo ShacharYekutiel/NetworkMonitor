@@ -27,7 +27,7 @@ from netmon.runtime import Runtime
 TEST_DATABASE_URL = os.environ.get("TEST_DATABASE_URL")
 
 # [2b-3] shared fixtures of the auth / audit / tokens / Teams / AD tests
-pytest_plugins = ["tests.fixtures_2b3_auth"]
+pytest_plugins = ["tests.fixtures_2b3_auth", "tests.fixtures_3b_agent"]  # [3b] agent / mock
 
 # [2b-1] coalescing window of the dependency cascade (0.5 s in production)
 __import__("netmon.services.dependencies", fromlist=["x"]).CASCADE_DEBOUNCE_S = 0.02
@@ -50,7 +50,12 @@ TABLES = (
     # devices), new-device alerts, reports, kiosk, chat ack, flapping episodes
     "ssh_host_keys, config_backup_status, config_versions, known_macs, mac_allowlist, "
     "port_flap_episodes, reports, report_runs, kiosk_screens, chat_identities, "
-    "chat_link_codes, telegram_poll_state"
+    "chat_link_codes, telegram_poll_state, "
+    # [3b] assistant and AI features (migration 0008)
+    "assistant_conversations, assistant_messages, assistant_tool_calls, assistant_usage, "
+    "assistant_artifacts, assistant_incidents, assistant_incident_members, "
+    "assistant_note_targets, assistant_syslog_signatures, assistant_snmp_walks, "
+    "revoked_sessions"  # [1.4.1]
 )
 
 
@@ -62,6 +67,16 @@ def db_url_for(name: str) -> str:
     assert TEST_DATABASE_URL
     parts = urlsplit(_plain(TEST_DATABASE_URL))
     return urlunsplit((parts.scheme, parts.netloc, f"/{name}", parts.query, ""))
+
+
+@pytest.fixture(autouse=True)
+def _loopback_targets_allowed() -> None:
+    """[1.4.1] The suite's local test servers (webhook receivers, HTTP sensor targets) live on
+    127.0.0.1: loopback targets are allowed by default; tests/test_141_*.py switch the SSRF
+    egress filter back to its production default for their cases."""
+    from netmon.util import egress
+
+    egress.override_loopback(True)
 
 
 @pytest.fixture(scope="session")
@@ -172,7 +187,12 @@ async def clean(rt: Runtime, app: Any) -> AsyncIterator[None]:
         await conn.close()
     rt._has_users = False  # noqa: SLF001
     rt._rollup_snapshot = None  # noqa: SLF001
-    app.state.login_limiter._fails.clear()  # noqa: SLF001
+    app.state.login_limiter.clear()
+    # [1.4.1] default security policy, no revoked sessions
+    from netmon.services import security as security_svc
+
+    security_svc.apply(rt, {})
+    rt.revoked_sessions.clear()
     # [2b-3] API tokens and Active Directory throttles / memory
     app.state.token_limiter.clear()
     app.state.token_stamper.clear()

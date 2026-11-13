@@ -9,9 +9,11 @@ from sqlalchemy import select
 from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from netmon.assistant.config import SCALAR_DEFAULTS as ASSISTANT_DEFAULTS
 from netmon.flows.settings import DEFAULTS as FLOW_DEFAULTS
 from netmon.models import Setting
 from netmon.services.features import FEATURES
+from netmon.services.security import DEFAULTS as SECURITY_DEFAULTS
 from netmon.services.settings_p3c import DEFAULTS as P3C_DEFAULTS
 
 DEFAULTS: dict[str, Any] = {
@@ -61,10 +63,24 @@ DEFAULTS: dict[str, Any] = {
     "trap_v3_users": [],
     "ingest_unknown_sources": "store",
     "ingest_ignored_sources": [],
+    # [1.2.1] repetitive traps: keep only the newest N per source and OID (OFF by default)
+    "trap_collapse_enabled": False,
+    "trap_collapse_oids": [
+        "1.3.6.1.4.1.25506.2.38.1.6.3.0.1",
+        "1.3.6.1.2.1.192.0.1",
+    ],
+    "trap_collapse_keep": 10,
+    "trap_names_version": "",  # internal: OID name table version of the stored trap names
     "flap_threshold": 5,
     "flap_window_min": 10,
     "flap_quiet_min": 15,
     "event_linkdown_scope": "important",
+    # [1.3] important ports: trunk = mode trunk with >= N tagged VLANs; trunks count for the
+    # link-down / flapping scope "important"
+    "trunk_min_tagged_vlans": 2,
+    "event_linkdown_include_trunks": True,
+    # internal: version of the one-time interface-sensor impact backfill that has run
+    "impact_backfill_version": "",
     "siem_targets": [],
     # [3] config backup (data-model § [3] Settings keys)
     "config_backup_time": "02:47",
@@ -89,6 +105,11 @@ DEFAULTS: dict[str, Any] = {
     **FLOW_DEFAULTS,
     # [3] SSO objects, reports, chat acknowledge (netmon.services.settings_p3c)
     **P3C_DEFAULTS,
+    # [3b] assistant scalar keys (the `assistant` / `assistant_kb` objects are served by
+    # /api/assistant/settings and /api/assistant/knowledge, netmon.assistant.config)
+    **ASSISTANT_DEFAULTS,
+    # [1.4.1] security hardening (netmon.services.security)
+    **SECURITY_DEFAULTS,
 }
 
 # [3] plain keys written by PUT /api/settings as they come (validated by the schema mixins)
@@ -202,6 +223,8 @@ def settings_out(values: dict[str, Any], secret_key: str | None = None) -> dict[
             k: values[k]
             for k in ("report_retention_days", "chat_ack_ttl_h", "telegram_poll_timeout_s")
         },
+        **{k: values[k] for k in ASSISTANT_DEFAULTS},  # [3b]
+        **{k: values[k] for k in SECURITY_DEFAULTS},  # [1.4.1]
     }
 
 
@@ -233,10 +256,17 @@ def ingest_settings_out(values: dict[str, Any]) -> dict[str, Any]:
             "trap_v3_users": users,
             "ingest_unknown_sources": values["ingest_unknown_sources"],
             "ingest_ignored_sources": list(values.get("ingest_ignored_sources") or []),
+            "trap_collapse_enabled": bool(values.get("trap_collapse_enabled", False)),
+            "trap_collapse_oids": list(values.get("trap_collapse_oids") or []),
+            "trap_collapse_keep": int(values.get("trap_collapse_keep") or 10),
             "flap_threshold": values["flap_threshold"],
             "flap_window_min": values["flap_window_min"],
             "flap_quiet_min": values["flap_quiet_min"],
             "event_linkdown_scope": values["event_linkdown_scope"],
+            "trunk_min_tagged_vlans": int(values.get("trunk_min_tagged_vlans") or 2),  # [1.3]
+            "event_linkdown_include_trunks": bool(
+                values.get("event_linkdown_include_trunks", True)
+            ),
             "siem_targets": list(values.get("siem_targets") or []),
         }
     )

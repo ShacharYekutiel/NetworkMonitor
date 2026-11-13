@@ -11,6 +11,7 @@ from netmon.db.timescale import reapply_retention
 from netmon.flows import settings as flow_settings
 from netmon.schemas import SettingsPut, SmtpTestIn
 from netmon.services import audit
+from netmon.services import security as security_svc
 from netmon.services import settings as settings_svc
 
 router = APIRouter()
@@ -47,11 +48,15 @@ async def get_settings(_: Admin, rt: RT, session: DB) -> dict:
 async def put_settings(body: SettingsPut, _: Admin, rt: RT, session: DB, ctx: Audit) -> dict:
     current = await settings_svc.get_all(session)
     fields = body.model_fields_set
+    await _put_3b(body, fields, current, session)  # [3b] before any feature toggle is written
     await _put_2b3_auth(body, fields, current, rt, session)
     await _put_2b3_ingest(body, fields, current, session)
     await _put_3_plain(body, fields, current, session)
     await _put_3c(body, fields, current, rt, session)  # [3] SSO toggles, reports, chat ack
     await flow_settings.put(body, fields, session)  # [3] flows
+    for key in security_svc.KEYS:  # [1.4.1]
+        if key in fields and getattr(body, key) is not None:
+            await settings_svc.put(session, key, getattr(body, key))
     retention_changed = False
     if "smtp" in fields and body.smtp is not None:
         smtp = dict(current["smtp"])
@@ -100,6 +105,7 @@ async def put_settings(body: SettingsPut, _: Admin, rt: RT, session: DB, ctx: Au
     await _apply_2b3_ingest(rt, current, values)
     await _apply_3(rt, current, values)
     await flow_settings.after_put(rt, current, values)  # [3] flows
+    security_svc.apply(rt, values)  # [1.4.1] cached policy + egress filter
     return settings_svc.settings_out(values, rt.secret_key)
 
 
@@ -130,6 +136,9 @@ async def _put_2b3_auth(
 
 
 INGEST_PLAIN_KEYS = (
+    "trap_collapse_enabled",
+    "trap_collapse_oids",
+    "trap_collapse_keep",
     "trap_retention_days",
     "syslog_retention_days",
     "trap_community_check",
@@ -139,6 +148,8 @@ INGEST_PLAIN_KEYS = (
     "flap_window_min",
     "flap_quiet_min",
     "event_linkdown_scope",
+    "trunk_min_tagged_vlans",  # [1.3]
+    "event_linkdown_include_trunks",
 )
 
 
@@ -219,6 +230,39 @@ async def _put_3c(body: SettingsPut, fields: set[str], current: dict, rt: RT, se
         raise ApiError(422, "validation_error", "Single sign-on is not configured", errors)
 
 
+async def _put_3b(body: SettingsPut, fields: set[str], current: dict, session: DB) -> None:
+    """[3b] `assistant` / `ai_knowledge` can only be turned ON through their configure-first
+    endpoints (422 assistant_test_required); `assistant` needs `audit` (both directions,
+    422 feature_dependency); the scalar keys are written as they come."""
+    from netmon.schemas.assistant import NULLABLE_KEYS, SCALAR_KEYS
+
+    def wanted(name: str) -> bool | None:
+        key = f"feature_{name}_enabled"
+        return getattr(body, key) if key in fields and getattr(body, key) is not None else None
+
+    for name in ("assistant", "ai_knowledge"):
+        if wanted(name) is True and not current.get(f"feature_{name}_enabled"):
+            raise ApiError(
+                422,
+                "assistant_test_required",
+                "Run a successful Test connection first (Settings → Assistant)",
+                [{"feature": name}],
+            )
+    assistant_on = (
+        bool(current.get("feature_assistant_enabled")) and wanted("assistant") is not False
+    )
+    if assistant_on and wanted("audit") is False:
+        raise ApiError(
+            422,
+            "feature_dependency",
+            "Turn the assistant off before the audit log",
+            [{"feature": "assistant", "requires": "audit"}],
+        )
+    for key in SCALAR_KEYS:
+        if key in fields and (getattr(body, key) is not None or key in NULLABLE_KEYS):
+            await settings_svc.put(session, key, getattr(body, key))
+
+
 async def _put_3_plain(body: SettingsPut, fields: set[str], current: dict, session: DB) -> None:
     """[3] config backup and new-device keys (the feature toggles are written with the 2b-3
     ones: FEATURES covers all 17)."""
@@ -268,7 +312,12 @@ async def _apply_2b3_ingest(rt: RT, before: dict, after: dict) -> None:
             "trap_v3_users",
             "ingest_unknown_sources",
             "ingest_ignored_sources",
+            "trap_collapse_enabled",
+            "trap_collapse_oids",
+            "trap_collapse_keep",
             "event_linkdown_scope",
+            "trunk_min_tagged_vlans",  # [1.3]
+            "event_linkdown_include_trunks",
             "flap_threshold",
             "flap_window_min",
             "flap_quiet_min",

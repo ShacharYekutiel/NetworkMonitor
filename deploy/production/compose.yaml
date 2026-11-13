@@ -15,6 +15,7 @@
 #   ${NETMON_ETC_DIR:-/etc/netmon-gitops}/site.env                NETMON_FQDN for Caddy
 #   ${NETMON_ETC_DIR:-/etc/netmon-gitops}/app.env                 optional app overrides
 #   ${NETMON_ETC_DIR:-/etc/netmon-gitops}/ca/                     corporate CAs for the app
+#   ${NETMON_ETC_DIR:-/etc/netmon-gitops}/aws/                    [3b] optional Roles Anywhere cert/key
 #
 # Production NEVER uses ":latest" — NETMON_IMAGE comes from release.env and is checked by
 # ops/check-release.sh (exact version, optional @sha256 digest).
@@ -118,6 +119,10 @@ services:
       - netmon-data:/data
       # Corporate root CAs (TLS-inspecting proxy) trusted by the app at runtime.
       - ${NETMON_ETC_DIR:-/etc/netmon-gitops}/ca:/etc/netmon/certs:ro
+      # [3b] Optional host files for the assistant's IAM Roles Anywhere certificate (only
+      # when app.env sets NETMON_AWS_RA_CERT_FILE=/etc/netmon/aws/...; the default is the
+      # certificate uploaded in Settings -> Assistant, stored encrypted in the DB).
+      - ${NETMON_ETC_DIR:-/etc/netmon-gitops}/aws:/etc/netmon/aws:ro
     # The web UI/API is reachable only through Caddy (8080 is not published).
     expose:
       - "8080"

@@ -5,17 +5,14 @@ import { GraphChart } from 'echarts/charts';
 import { TooltipComponent } from 'echarts/components';
 import { CanvasRenderer } from 'echarts/renderers';
 import { useTranslation } from 'react-i18next';
+import { escapeHtml } from '../lib/html';
 import type { LayoutPosition, TopologyGraph } from '../api/types';
 import { buildGraph, forceRepulsion, isRealDrag, type GraphNodeDatum } from '../lib/topology';
 import { chartTokens } from '../lib/chartTokens';
 
 echarts.use([GraphChart, TooltipComponent, CanvasRenderer]);
 
-const esc = (s: string) =>
-  s.replace(
-    /[&<>"']/g,
-    (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c]!,
-  );
+const esc = escapeHtml; // [1.4.1] shared helper (lib/html.ts)
 
 type ItemLayoutData = { getItemLayout(i: number): [number, number] | null; count(): number };
 type ModelAccess = {

@@ -133,13 +133,20 @@ async def run(ctx: CheckContext) -> CheckResult:
             return CheckResult(False, "Value is not an integer")
         mapping = cfg.get("value_map") or {}
         entry = mapping.get(str(int(raw)))
+        default = cfg.get("value_map_default") or "warning"
         if entry is not None:
             status, text = entry.get("status", "warning"), entry.get("text") or str(raw)
+            msg = f"{name}: {text} ({int(raw)})"
+        elif cfg.get("value_map_ref"):  # [1.3.1] shared code table, localized text
+            from netmon.poller.value_maps import resolve
+
+            named, msg, _ = resolve(str(cfg["value_map_ref"]), int(raw), ctx.lang)
+            status, msg = named or default, f"{name}: {msg}"
         else:
-            status, text = cfg.get("value_map_default") or "warning", "unexpected value"
+            status, msg = default, f"{name}: unexpected value ({int(raw)})"
         return CheckResult(
             True,
-            f"{name}: {text} ({int(raw)})"[:200],
+            msg[:200],
             {"value": float(int(raw))},
             status_override=status,
         )

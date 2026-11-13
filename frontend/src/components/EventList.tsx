@@ -5,13 +5,15 @@ import { formatDateTime, formatRelative } from '../lib/format';
 import { StatusBadge } from './Status';
 import { ChevronIcon, WrenchIcon } from './icons';
 import { StatusMessage } from './Dependency';
+import { useLocalizeMessage } from '../hooks/localize';
 import { Empty, Table, td, th } from './ui';
+import { ExplainButton } from './assistant/ExplainButton';
 
 export function EventKindLabel({ kind }: { kind: NmEvent['kind'] }) {
   const { t } = useTranslation();
   return (
     <span className="inline-flex h-[22px] items-center whitespace-nowrap rounded-sm border border-line bg-surface-sunken px-2 text-xs font-medium text-ink-muted">
-      {t(`eventKind.${kind}`)}
+      {t(`eventKind.${kind}`, { defaultValue: kind })}
     </span>
   );
 }
@@ -39,6 +41,7 @@ export function EventsTable({
   showKind?: boolean;
 }) {
   const { t } = useTranslation();
+  const localize = useLocalizeMessage();
   if (!events.length) return <Empty>{t('events.none')}</Empty>;
   return (
     <Table>
@@ -86,8 +89,18 @@ export function EventsTable({
               {ev.device_id !== null && ev.new_status === 'unreachable' ? (
                 <StatusMessage message={ev.message} status="unreachable" deviceId={ev.device_id} />
               ) : (
-                ev.message
+                localize(ev.message)
               )}
+              {/* [3b] Explain (AI) on problem transitions */}
+              {ev.kind === 'status_change' &&
+                ev.sensor_id !== null &&
+                (ev.new_status === 'down' ||
+                  ev.new_status === 'warning' ||
+                  ev.new_status === 'unreachable') && (
+                  <span className="ms-2 inline-block align-middle">
+                    <ExplainButton sensorId={ev.sensor_id} eventId={ev.id} />
+                  </span>
+                )}
             </td>
           </tr>
         ))}

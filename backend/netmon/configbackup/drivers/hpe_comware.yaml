@@ -1,7 +1,7 @@
 id: hpe_comware
 name: 'HPE Comware 7'
 version: 1
-confidence: unverified
+confidence: verified
 priority: 100
 match:
   templates: ['hpe_comware']
@@ -20,4 +20,4 @@ secrets:
   - '^\s*snmp-agent community (?:(?:read|write)\s+)?(?:simple\s+|cipher\s+)?(\S+)'
   - '\b(?:authentication-mode|privacy-mode)\s+\S+\s+(?!cipher\b|simple\b)(\S+)'
   - '\b(?:key|password)\s+(?:\S+\s+)?(?:simple|cipher)\s+(\S+)'
-notes: 'IRF: one config for the stack. Verify on FF 5945.'
+notes: 'IRF: one config for the stack. Verified on an FF 5945 IRF in the office (1.2.0).'

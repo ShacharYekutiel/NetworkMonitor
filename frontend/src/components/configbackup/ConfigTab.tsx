@@ -1,6 +1,7 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { keepPreviousData, useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useTranslation } from 'react-i18next';
+import { useSearchParams } from 'react-router-dom';
 import { isApiError } from '../../api/client';
 import { endpoints3, qk3 } from '../../api/endpoints3';
 import type { Device } from '../../api/types';
@@ -17,6 +18,7 @@ import {
   type DiffRow,
 } from '../../lib/configBackup';
 import { DetailRows } from '../Drawer';
+import { DiffExplain } from '../assistant/DiffExplain';
 import { Pagination } from '../Pagination';
 import { useToast } from '../toast';
 import {
@@ -83,14 +85,23 @@ const rowTone: Record<DiffRow['type'], string> = {
   meta: 'text-ink-muted',
 };
 
-function UnifiedDiff({ rows }: { rows: DiffRow[] }) {
+function UnifiedDiff({ rows, hl }: { rows: DiffRow[]; hl?: ReadonlySet<number> }) {
   return (
     <table dir="ltr" className="w-full font-mono text-xs" data-testid="diff-unified">
       <tbody>
         {rows
-          .filter((r) => r.type !== 'meta')
-          .map((r, i) => (
-            <tr key={i} className={rowTone[r.type]}>
+          // [3b] line = 1-based line of the unified diff text (risk flags refer to it)
+          .map((r, i) => ({ r, line: i + 1 }))
+          .filter(({ r }) => r.type !== 'meta')
+          .map(({ r, line }, i) => (
+            <tr
+              key={i}
+              data-diff-line={line}
+              className={cx(
+                rowTone[r.type],
+                hl?.has(line) && 'outline outline-2 -outline-offset-2 outline-status-warning',
+              )}
+            >
               <td className="w-10 select-none pe-2 text-right text-ink-subtle">{r.oldNo ?? ''}</td>
               <td className="w-10 select-none pe-2 text-right text-ink-subtle">{r.newNo ?? ''}</td>
               <td className="w-4 select-none text-ink-muted">
@@ -181,6 +192,18 @@ function DiffView({
     queryFn: () => endpoints3.configDiff(deviceId, from, to),
   });
   const rows = useMemo(() => parseUnifiedDiff(q.data?.diff ?? ''), [q.data]);
+  // [3b] risk flags / AI risks point at diff lines
+  const [hl, setHl] = useState<ReadonlySet<number>>(new Set());
+  const scrollRef = useRef<HTMLDivElement>(null);
+  const showLines = (lines: number[]) => {
+    setMode('unified');
+    setHl(new Set(lines));
+    requestAnimationFrame(() =>
+      scrollRef.current
+        ?.querySelector(`[data-diff-line="${lines[0]}"]`)
+        ?.scrollIntoView({ block: 'center', behavior: 'smooth' }),
+    );
+  };
   return (
     <Card
       title={t('configBackup.diff')}
@@ -227,6 +250,14 @@ function DiffView({
       </div>
       {q.isLoading && <Loading />}
       <ErrorBox error={q.error} className="m-3" />
+      {q.data && rows.some((r) => r.type === 'add' || r.type === 'del') && (
+        <DiffExplain
+          deviceId={deviceId}
+          from={q.data.from.id}
+          to={q.data.to.id}
+          onLines={showLines}
+        />
+      )}
       {q.data?.truncated && (
         <p className="px-3 pt-2 text-xs text-status-warning">{t('configBackup.diffTruncated')}</p>
       )}
@@ -234,8 +265,8 @@ function DiffView({
         <Empty>{t('configBackup.noDifferences')}</Empty>
       )}
       {q.data && rows.length > 0 && (
-        <div className="max-h-[70vh] overflow-auto p-2">
-          {wide && mode === 'auto' ? <SideDiff rows={rows} /> : <UnifiedDiff rows={rows} />}
+        <div className="max-h-[70vh] overflow-auto p-2" ref={scrollRef}>
+          {wide && mode === 'auto' ? <SideDiff rows={rows} /> : <UnifiedDiff rows={rows} hl={hl} />}
         </div>
       )}
     </Card>
@@ -383,8 +414,14 @@ export function ConfigTab({ device }: { device: Device }) {
   const toast = useToast();
   const qc = useQueryClient();
   const [page, setPage] = useState(1);
-  const [view, setView] = useState<number | null>(null);
-  const [diff, setDiff] = useState<{ from: number; to: number | null } | null>(null);
+  // [3b] deep links from the assistant: ?version=<vid> or ?from=<a>&to=<b>
+  const [params] = useSearchParams();
+  const pInt = (k: string) => (/^\d+$/.test(params.get(k) ?? '') ? Number(params.get(k)) : null);
+  const [view, setView] = useState<number | null>(() => pInt('version'));
+  const [diff, setDiff] = useState<{ from: number; to: number | null } | null>(() => {
+    const f = pInt('from');
+    return f !== null ? { from: f, to: pInt('to') } : null;
+  });
   const status = useQuery({
     queryKey: qk3.deviceConfig(device.id),
     queryFn: () => endpoints3.deviceConfig(device.id),

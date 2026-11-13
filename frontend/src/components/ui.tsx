@@ -178,15 +178,19 @@ export function Card({
   children,
   className,
   bodyClassName,
+  anchor,
 }: {
   title?: ReactNode;
   actions?: ReactNode;
   children: ReactNode;
   className?: string;
   bodyClassName?: string;
+  /** `data-anchor` for in-page links (e.g. the Settings search). */
+  anchor?: string;
 }) {
   return (
     <section
+      data-anchor={anchor}
       className={cx(
         // min-w-0: as a grid/flex item the card must not grow to its table's width;
         // wide tables scroll inside the card instead.

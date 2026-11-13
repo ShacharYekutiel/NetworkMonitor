@@ -25,6 +25,8 @@ export const AUDIT_ACTION_PREFIXES = [
   'kiosk_screen.',
   'chatack.',
   'channel.',
+  // [3b]
+  'assistant.',
 ];
 export const AUDIT_ENTITY_TYPES = [
   'device',
@@ -38,6 +40,9 @@ export const AUDIT_ENTITY_TYPES = [
   'discovery_profile',
   'user',
   'api_token',
+  // [3b]
+  'assistant_conversation',
+  'assistant_message',
 ];
 
 /** A value of the `changes` diff as text: secrets stay "***", objects as compact JSON. */

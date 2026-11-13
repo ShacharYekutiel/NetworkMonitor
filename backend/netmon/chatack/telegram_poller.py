@@ -1,7 +1,8 @@
 """[3] Telegram update poller (feature component `chat_ack`, architecture § 13.8.2).
 
 One long-poll task per distinct bot token among enabled telegram channels with
-`ack_buttons`: `getUpdates(offset, timeout, allowed_updates=["callback_query","message"])`
+`ack_buttons` ([3b] or `ai_ask` while `ai_chat_ask` is ON):
+`getUpdates(offset, timeout, allowed_updates=["callback_query","message"])`
 through the proxy (httpx `trust_env=True`, read timeout timeout + 15 s), errors back off
 5 → 60 s. The offset is persisted per bot (`telegram_poll_state`, key SHA-256 of the token),
 so a press is processed once across restarts. `409 Conflict` (webhook set / another consumer)
@@ -118,6 +119,12 @@ class TelegramPollers:
         if not self.on:
             return
         wanted: dict[str, tuple[str, list[int]]] = {}
+        features = getattr(self.rt, "features", None)
+        ask_on = bool(  # [3b] bots of channels with `ai_ask` are polled for /ask too
+            features is not None
+            and features.enabled("assistant")
+            and features.enabled("ai_chat_ask")
+        )
         async with self.rt.sessionmaker() as session:
             for ch in await session.execute(
                 text(
@@ -127,7 +134,7 @@ class TelegramPollers:
             ):
                 cfg = ch.config or {}
                 token = str(cfg.get("bot_token") or "")
-                if not token or not cfg.get("ack_buttons"):
+                if not token or not (cfg.get("ack_buttons") or (ask_on and cfg.get("ai_ask"))):
                     continue
                 k = bot_key(token)
                 wanted.setdefault(k, (token, []))[1].append(ch.id)
@@ -310,6 +317,9 @@ class TelegramPollers:
             log.info("Telegram %s failed: %s", method, exc)
 
     async def handle_message(self, bot: _Bot, msg: dict[str, Any]) -> None:
+        ai = getattr(self.rt, "ai_features", None)  # [3b] /ask (§ 14.8.9)
+        if ai is not None and await ai.chat_ask_handle(self, bot, msg):
+            return
         cmd = linking.parse_command(str(msg.get("text") or ""), bot.username)
         sender = msg.get("from") or {}
         chat = msg.get("chat") or {}

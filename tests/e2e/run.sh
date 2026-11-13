@@ -29,6 +29,11 @@
 #                  for flows ($NETFLOW_PORT, $IPFIX_PORT, $SFLOW_PORT). The 2b-3 fake AD, Teams mock, CA and
 #                  syslog/trap ports are shared (aliases for lib/lab3.ts: LDAPS_PORT, TEAMS_MOCK_PORT,
 #                  FAKE_AD_URL, FAKE_AD_CA).
+#   E2E_PHASE3B=0  do not start the phase-3b Bedrock mock (default 1; docs/architecture.md §14.11):
+#                  tests/sim/bedrock/mock_bedrock.py on $BEDROCK_URL (http) and $BEDROCK_HTTPS_URL (TLS with the
+#                  test PKI in $BEDROCK_PKI, whose trust.pem is appended to NETMON_EXTRA_CA_FILE); request log
+#                  copied to test-results/logs/bedrock.jsonl. The backend gets AWS_EC2_METADATA_SERVICE_ENDPOINT
+#                  pointing at the mock and runs WITHOUT inherited AWS_* credentials / container URIs.
 set -euo pipefail
 
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -90,6 +95,10 @@ while len(out) < 3:
 print(*out)')
   SSH_CTL_PORT="$(free_port tcp)"; SMTP_PORT="$(free_port tcp)"; SMTP_HTTP_PORT="$(free_port tcp)"
   OIDC_PORT="$(free_port tcp)"
+fi
+E2E_PHASE3B="${E2E_PHASE3B:-1}"
+if [ "$E2E_PHASE3B" = "1" ]; then
+  BEDROCK_PORT="$(free_port tcp)"; BEDROCK_HTTPS_PORT="$(free_port tcp)"
 fi
 DB_URL="$("$PY" - "$PG_ADMIN_URL" "$DB" <<'EOF'
 import sys
@@ -198,6 +207,18 @@ if [ "$E2E_PHASE3" = "1" ]; then
 export NETMON_OIDC_AUTHORITY=http://127.0.0.1:$OIDC_PORT"
 fi
 
+EXTRA_CA_FILES="$CERTS_DIR/ca.pem"
+P3B_ENV=""
+if [ "$E2E_PHASE3B" = "1" ]; then
+  echo "e2e: phase-3b Bedrock mock (http :$BEDROCK_PORT, https :$BEDROCK_HTTPS_PORT)"
+  BEDROCK_PKI="$WORK/bedrock-pki"
+  "$PY" "$ROOT/tests/sim/bedrock/pki.py" "$BEDROCK_PKI" >/dev/null
+  "$PY" "$ROOT/tests/sim/bedrock/mock_bedrock.py" --port "$BEDROCK_PORT" --https-port "$BEDROCK_HTTPS_PORT" \
+    --pki "$BEDROCK_PKI" --log "$WORK/bedrock.jsonl" >"$LOGS/bedrock_mock.log" 2>&1 & PIDS+=($!)
+  EXTRA_CA_FILES="$CERTS_DIR/ca.pem:$BEDROCK_PKI/trust.pem"
+  P3B_ENV="export AWS_EC2_METADATA_SERVICE_ENDPOINT=http://127.0.0.1:$BEDROCK_PORT"
+fi
+
 echo "e2e: netmon serve on :$APP_PORT (NETMON_TEST_MODE=1)"
 # The backend runs from a script so specs can restart it ($BACKEND_RESTART, used by the escalation
 # persistence spec). The current pid is in $WORK/backend.pid; the log is appended across restarts.
@@ -207,8 +228,13 @@ export DATABASE_URL="$DB_URL" NETMON_DATA_DIR="$WORK/data" NETMON_HOST=127.0.0.1
 export NETMON_LOG_LEVEL=info NETMON_TELEGRAM_API_BASE="$TELEGRAM_MOCK_URL" NETMON_TEST_MODE=1
 export NETMON_TEST_PTR_FILE="$ROOT/tests/sim/ports/ptr.json"
 export NETMON_TRAP_PORT="$TRAP_PORT" NETMON_SYSLOG_PORT="$SYSLOG_PORT" NETMON_SYSLOG_TCP_PORT="$SYSLOG_PORT"
-export NETMON_INGEST_HOST=127.0.0.1 NETMON_EXTRA_CA_FILE="$CERTS_DIR/ca.pem"
+export NETMON_INGEST_HOST=127.0.0.1 NETMON_EXTRA_CA_FILE="$EXTRA_CA_FILES"
+# [3b] deterministic AWS default chain: nothing inherited from the shell (the mock IMDS is the only source)
+unset AWS_ACCESS_KEY_ID AWS_SECRET_ACCESS_KEY AWS_SESSION_TOKEN AWS_PROFILE AWS_CONTAINER_CREDENTIALS_FULL_URI \
+  AWS_CONTAINER_CREDENTIALS_RELATIVE_URI AWS_CONTAINER_AUTHORIZATION_TOKEN AWS_CONTAINER_AUTHORIZATION_TOKEN_FILE \
+  AWS_EC2_METADATA_DISABLED
 $P3_ENV
+$P3B_ENV
 exec "$NETMON" serve >>"$LOGS/backend.log" 2>&1
 BACKEND_EOF
 cat >"$WORK/restart_backend.sh" <<RESTART_EOF
@@ -251,6 +277,9 @@ wait_for fake_ad grep -q READY "$LOGS/fake_ad.log"
 wait_for fake_ad_wrong grep -q READY "$LOGS/fake_ad_wrong.log"
 wait_for siem_sink grep -q READY "$LOGS/siem_sink.log"
 wait_for teams_mock grep -q READY "$LOGS/teams_mock.log"
+if [ "$E2E_PHASE3B" = "1" ]; then
+  wait_for bedrock_mock grep -q READY "$LOGS/bedrock_mock.log"
+fi
 if [ "$E2E_PHASE3" = "1" ]; then
   wait_for ssh_sim curl -fsS "http://127.0.0.1:$SSH_CTL_PORT/health"
   wait_for smtp_sink curl -fsS "http://127.0.0.1:$SMTP_HTTP_PORT/health"
@@ -286,13 +315,17 @@ if [ "$E2E_PHASE3" = "1" ]; then
     export KDC_DIR KRB5_CONFIG="$KDC_DIR/krb5.conf" KDC_KEYTAB="$KDC_DIR/http.keytab"
   fi
 fi
+if [ "$E2E_PHASE3B" = "1" ]; then
+  export BEDROCK_URL="http://127.0.0.1:$BEDROCK_PORT" BEDROCK_HTTPS_URL="https://localhost:$BEDROCK_HTTPS_PORT" BEDROCK_PKI
+  export QA3B_SHOT_DIR="${QA3B_SHOT_DIR:-$SCREENSHOT_DIR/qa-3b}"
+fi
 echo "e2e: running playwright against $BASE_URL"
 set +e
 (cd "$HERE" && npx playwright test "$@")
 rc=$?
 set -e
 cp "$WORK/webhooks.jsonl" "$LOGS/webhooks.jsonl" 2>/dev/null || true
-for f in ldap-binds.jsonl siem.jsonl teams.jsonl; do cp "$WORK/$f" "$LOGS/$f" 2>/dev/null || true; done
+for f in ldap-binds.jsonl siem.jsonl teams.jsonl bedrock.jsonl; do cp "$WORK/$f" "$LOGS/$f" 2>/dev/null || true; done
 if [ "$E2E_PHASE3" = "1" ]; then
   cp "$P3/ssh/commands.jsonl" "$LOGS/ssh_commands.jsonl" 2>/dev/null || true
   cp "$P3/mails.jsonl" "$LOGS/mails.jsonl" 2>/dev/null || true

@@ -32,6 +32,7 @@ class Context:
     inv: Inventory
     threshold: int
     reverse_dns: bool
+    trunk_min: int = 2  # [1.3] trunk_min_tagged_vlans
     links: dict[int, list[dict[str, Any]]] = field(default_factory=dict)  # by device id
     neighbors: dict[int, dict[str, Any]] = field(default_factory=dict)
     _device_info: dict[int, dict[str, Any]] | None = None
@@ -102,6 +103,7 @@ async def load_context(session: Any, inv: Inventory, device_ids: list[int]) -> C
         inv,
         int(values["uplink_mac_threshold"]),
         bool(values["reverse_dns"]),
+        int(values.get("trunk_min_tagged_vlans") or 2),
     )
     if device_ids:
         rows = (
@@ -239,6 +241,7 @@ def port_out(
     macs: list[dict[str, Any]],
     sensor: tuple[int, str] | None,
     lag: LagCtx | None = None,
+    important_reasons: list[str] | None = None,
 ) -> dict[str, Any]:
     """Port (api.md). `macs`: PortMac dicts (with `_last_seen`) of the present rows; `sensor`:
     the linked snmp_interface sensor (id, status); `lag`: the LAG structure while the `lag`
@@ -284,6 +287,7 @@ def port_out(
         picked = view.first_mac([{**m, "last_seen": m["_last_seen"], "_m": m} for m in macs_sorted])
         first = picked["_m"] if picked else None
     has_poe = any(row[k] is not None for k in ("poe_admin_enabled", "poe_detection", "poe_class"))
+    reasons_imp = list(important_reasons or [])
     return {
         "if_index": row["if_index"],
         "name": row["name"],
@@ -330,8 +334,28 @@ def port_out(
         "lag": lag_ref,  # [2b-3]
         "lag_members": lag_members,
         "vlans_from_lag": vlans_from_lag,
+        # [1.3] importance, connected hosts, LLDP neighbour
+        "important": bool(reasons_imp),
+        "important_reasons": reasons_imp,
+        "irf_port": row.get("irf_port"),  # [1.3.1]
+        "connected": connected_out(is_up, mac_count, macs_sorted, first),
+        "neighbor_name": primary["name"] if primary else None,
+        "neighbor_mgmt_address": primary["mgmt_address"] if primary else None,
         "_neighbors": nbs,
         "_macs_all": macs_sorted,
+    }
+
+
+def connected_out(
+    is_uplink: bool, mac_count: int, macs: list[dict[str, Any]], first: dict[str, Any] | None
+) -> dict[str, Any]:
+    """[1.3] Port.connected: the number of MACs on the port (an uplink: its MAC count, the
+    MACs themselves are not loaded) and the first one (the port modal's choice; null for
+    uplinks)."""
+    keys = ("mac", "ip", "hostname", "vendor", "device_id", "device_name")
+    return {
+        "count": int(mac_count) if is_uplink else len(macs),
+        "first": {k: first.get(k) for k in keys} if first is not None else None,
     }
 
 

@@ -227,7 +227,7 @@ class TopologyRunner:
         if row is None:
             return  # the row stays `running`; the next start() clears it
         self.rt.hub.broadcast("topology.refresh", {"refresh": refresh_out(row)}, admin_only=True)
-        self.rt.hub.broadcast("topology.updated", {"reason": "refresh", "refresh_id": refresh_id})
+        self.rt.topology_changed("refresh", refresh_id)
 
     async def _finish(
         self, refresh_id: int, status: str, error: str | None, stats: dict[str, int]

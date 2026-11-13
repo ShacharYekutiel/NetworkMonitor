@@ -38,7 +38,16 @@ POST   /_inject               add an update. Raw: {"callback_query": {...}} / {"
 DELETE /_updates, /_polls     clear them
 GET    /_updates              every injected update and whether it was delivered (and the confirming offset)
 GET    /_polls                getUpdates requests (time, token, params, status, returned update ids)
-POST   /_control              {"webhook": bool, "poll_conflict": bool, "fail_methods": {"answerCallbackQuery": 400}}
+POST   /_control              {"webhook": bool, "poll_conflict": bool, "fail_methods": {"answerCallbackQuery": 400},
+                               "edit_too_old": bool}
+
+[3b] AI notes and /ask (architecture.md §14.8.3, §14.8.9):
+POST /bot<token>/editMessageText  the message must have been sent by the mock in that chat (else 400 "message to
+                              edit not found"), new text must differ ("message is not modified"), HTML/length/markup
+                              checked like sendMessage; {"edit_too_old": true} -> 400 "message can't be edited"
+                              (fallback: sendMessage with reply_to_message_id, which must name a sent message).
+GET    /_sent                 current state of every sent message: {"<id>": {"chat", "text", "reply_markup",
+                              "edits", "parse_mode", "reply_to"}}
 GET    /_control              current control state
 """
 
@@ -63,9 +72,10 @@ COUNTER = {"message_id": 0}
 COND = threading.Condition(LOCK)
 UPDATES: list[dict] = []          # injected updates {"update": {...}, "delivered": bool, "confirmed": bool}
 POLLS: list[dict] = []
-CONTROL: dict = {"webhook": False, "poll_conflict": False, "fail_methods": {}}
+CONTROL: dict = {"webhook": False, "poll_conflict": False, "fail_methods": {}, "edit_too_old": False}
 UPDATE_SEQ = {"id": 500000}
 PRIVATE_CHATS: set[str] = set()   # [3] private chats of injected users (replies to /link are deliverable)
+SENT: dict[int, dict] = {}         # [3b] message_id -> {"chat": str, "text": str, "reply_markup": ..., "edits": n}
 POLL_MAX_S = 50.0
 
 # Telegram's supported HTML tags (https://core.telegram.org/bots/api#html-style).
@@ -157,6 +167,9 @@ class Handler(BaseHTTPRequestHandler):
         path = self.path.split("?", 1)[0]
         if path == "/health":
             self._send(200, "ok")
+        elif path == "/_sent":
+            with LOCK:
+                self._send(200, {str(k): v for k, v in SENT.items()})
         elif path == "/_messages":
             with LOCK:
                 self._send(200, list(MESSAGES))
@@ -190,7 +203,7 @@ class Handler(BaseHTTPRequestHandler):
         elif path == "/_control":
             b = self._body()
             with LOCK:
-                for k in ("webhook", "poll_conflict", "fail_methods"):
+                for k in ("webhook", "poll_conflict", "fail_methods", "edit_too_old"):
                     if k in b:
                         CONTROL[k] = b[k]
                 self._send(200, dict(CONTROL))
@@ -265,6 +278,8 @@ class Handler(BaseHTTPRequestHandler):
         if method == "getWebhookInfo":
             url = "https://example.invalid/hook" if CONTROL["webhook"] else ""
             return 200, {"ok": True, "result": {"url": url, "has_custom_certificate": False, "pending_update_count": 0}}
+        if method == "editMessageText":
+            return _edit_text(body)
         if method != "sendMessage":
             return tg_error(404, "Not Found: method not found")
         chat = body.get("chat_id")
@@ -292,9 +307,16 @@ class Handler(BaseHTTPRequestHandler):
             err = markup_error(body.get("reply_markup"))
             if err:
                 return tg_error(400, f"Bad Request: {err}")
+        rt = body.get("reply_to_message_id") or (body.get("reply_parameters") or {}).get("message_id")
+        if rt is not None and not body.get("allow_sending_without_reply"):
+            sent = SENT.get(int(rt)) if str(rt).lstrip("-").isdigit() else None
+            if not sent or sent["chat"] != chat:
+                return tg_error(400, "Bad Request: message to be replied not found")
         with LOCK:
             COUNTER["message_id"] += 1
             mid = COUNTER["message_id"]
+            SENT[mid] = {"chat": chat, "text": text, "reply_markup": _markup(body.get("reply_markup")), "edits": 0,
+                         "parse_mode": body.get("parse_mode"), "reply_to": rt}
         return 200, {
             "ok": True,
             "result": {
@@ -305,6 +327,45 @@ class Handler(BaseHTTPRequestHandler):
                 **({"reply_markup": _markup(body.get("reply_markup"))} if body.get("reply_markup") else {}),
             },
         }
+
+
+def _edit_text(body: dict) -> tuple[int, dict]:
+    """[3b] editMessageText (alert-note line, /ask answer). Like the API: the message must exist in that chat,
+    the new content must differ, HTML must parse, <= 4096 chars; reply_markup is replaced (omitted = removed)."""
+    chat = "" if body.get("chat_id") is None else str(body.get("chat_id"))
+    mid = body.get("message_id")
+    if not chat or mid is None:
+        return tg_error(400, "Bad Request: message identifier is not specified")
+    with LOCK:
+        sent = SENT.get(int(mid)) if str(mid).lstrip("-").isdigit() else None
+    if not sent or sent["chat"] != chat:
+        return tg_error(400, "Bad Request: message to edit not found")
+    if CONTROL.get("edit_too_old"):
+        return tg_error(400, "Bad Request: message can't be edited")
+    text = body.get("text")
+    if not isinstance(text, str) or not text.strip():
+        return tg_error(400, "Bad Request: message text is empty")
+    if len(text) > 4096:
+        return tg_error(400, "Bad Request: message is too long")
+    if body.get("parse_mode") == "HTML":
+        err = html_error(text)
+        if err:
+            return tg_error(400, f"Bad Request: can't parse entities: {err}")
+    markup = _markup(body.get("reply_markup")) if body.get("reply_markup") is not None else None
+    if markup is not None:
+        err = markup_error(markup)
+        if err:
+            return tg_error(400, f"Bad Request: {err}")
+    if text == sent["text"] and markup == sent["reply_markup"]:
+        return tg_error(400, "Bad Request: message is not modified: specified new message content and reply markup "
+                             "are exactly the same as a current content and reply markup of the message")
+    with LOCK:
+        sent.update({"text": text, "reply_markup": markup, "edits": sent["edits"] + 1, "parse_mode": body.get("parse_mode")})
+    res = {"message_id": int(mid), "date": int(time.time()), "edit_date": int(time.time()),
+           "chat": {"id": int(chat) if chat.lstrip("-").isdigit() else chat}, "text": text}
+    if markup is not None:
+        res["reply_markup"] = markup
+    return 200, {"ok": True, "result": res}
 
 
 def _markup(m: object) -> object:

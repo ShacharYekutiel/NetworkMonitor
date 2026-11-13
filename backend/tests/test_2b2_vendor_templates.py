@@ -410,3 +410,54 @@ async def test_aruba_instant(admin: httpx.AsyncClient, vendor_agents) -> None:  
     assert (st["AP AP-Lobby"]["status"], st["AP AP-Store"]["status"]) == ("up", "down")
     clients = st["Wi-Fi clients"]
     assert next(c["value"] for c in clients["channels"] if c["key"] == "matched") == 5
+
+
+# ------------------------------------------------------------------ ENTITY-SENSOR scale
+ENT_SENSOR = "1.3.6.1.2.1.99.1.1.1"
+ENT_NAME = "1.3.6.1.2.1.47.1.1.1.1.7"
+
+
+def aruba_cx_records() -> list[Record]:
+    """Owner's office test: an Aruba CX reports 23000 for 23 °C (entPhySensorScale units(9),
+    entPhySensorPrecision 3). A second row uses milli(8) with precision 0, a third a fan (rpm)
+    that the celsius filter leaves out."""
+    recs = system("Aruba JL658A 6300M", "1.3.6.1.4.1.47196.4.1.1.1.200", "cx-1")
+    rows = [  # index, name, type, scale, precision, value
+        (1001, "Inlet", 8, 9, 3, 23000),
+        (1002, "ASIC", 8, 8, 0, 45500),
+        (2001, "Fan 1", 10, 9, 0, 5200),
+    ]
+    for i, name, typ, scale, prec, value in rows:
+        recs += [
+            (f"{ENT_SENSOR}.1.{i}", 2, str(typ)),
+            (f"{ENT_SENSOR}.2.{i}", 2, str(scale)),
+            (f"{ENT_SENSOR}.3.{i}", 2, str(prec)),
+            (f"{ENT_SENSOR}.4.{i}", 2, str(value)),
+            (f"{ENT_SENSOR}.5.{i}", 2, "1"),
+            (f"{ENT_NAME}.{i}", 4, name),
+        ]
+    recs += interfaces([(1, "1/1/1", 6, 1)])
+    return recs
+
+
+@pytest.fixture(scope="module")
+def cx_agent() -> Iterator[Any]:
+    ip = "127.0.7.99"
+    agent = start_agent(ip, _free_udp_port(ip), {"public": aruba_cx_records()})
+    if agent is None:
+        pytest.skip("snmpsim not available")
+    yield agent
+    agent.stop()
+
+
+async def test_entity_sensor_scale_applied(admin: httpx.AsyncClient, cx_agent: Any) -> None:
+    res = await _apply(admin, cx_agent, "aruba_cx", "cx-1")
+    temps = {c["name"]: c["sensor_id"] for c in res["created"] if c["name"].startswith("Temp")}
+    assert set(temps) == {"Temperature Inlet", "Temperature ASIC"}, res
+    got = {}
+    for name, sid in temps.items():
+        r = await admin.post(f"/api/sensors/{sid}/run")
+        assert r.status_code == 200, r.text
+        body = r.json()
+        got[name] = (body["status"], body["channels"][0]["value"])
+    assert got == {"Temperature Inlet": ("up", 23.0), "Temperature ASIC": ("up", 45.5)}

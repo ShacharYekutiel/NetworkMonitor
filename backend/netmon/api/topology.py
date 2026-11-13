@@ -374,7 +374,7 @@ async def _link_json(session: DB, link_id: int) -> dict:
 
 def _changed(rt: RT, link_id: int, action: str) -> None:
     rt.hub.broadcast("config.changed", {"entity": "topology_link", "id": link_id, "action": action})
-    rt.hub.broadcast("topology.updated", {"reason": "link", "refresh_id": None})
+    rt.topology_changed("link")
 
 
 LINK_AUDIT_FIELDS = (
@@ -501,7 +501,7 @@ async def delete_stale_links(
     )
     await session.commit()
     if n:
-        rt.hub.broadcast("topology.updated", {"reason": "link", "refresh_id": None})
+        rt.topology_changed("link")
     return {"deleted": len(n)}
 
 
@@ -521,7 +521,7 @@ async def put_layout(body: LayoutIn, _: Admin, rt: RT, session: DB) -> Response:
             {"k": p.node, "x": p.x, "y": p.y},
         )
     await session.commit()
-    rt.hub.broadcast("topology.updated", {"reason": "layout", "refresh_id": None})
+    rt.topology_changed("layout")
     return Response(status_code=204)
 
 
@@ -529,7 +529,7 @@ async def put_layout(body: LayoutIn, _: Admin, rt: RT, session: DB) -> Response:
 async def delete_layout(_: Admin, rt: RT, session: DB) -> Response:
     await session.execute(text("DELETE FROM topology_layout"))
     await session.commit()
-    rt.hub.broadcast("topology.updated", {"reason": "layout", "refresh_id": None})
+    rt.topology_changed("layout")
     return Response(status_code=204)
 
 

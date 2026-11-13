@@ -32,6 +32,7 @@ import {
   th,
 } from '../ui';
 import { FeatureTab } from './FeatureToggle';
+import { cardAnchor } from '../../lib/settingsIndex';
 
 export function QrCode({ text, size = 192 }: { text: string; size?: number }) {
   const m = useMemo(() => qrMatrix(text), [text]);
@@ -333,6 +334,7 @@ export function NocTab({ settings }: { settings: Settings }) {
   return (
     <FeatureTab feature="noc" settings={settings}>
       <Card
+        anchor={cardAnchor('noc')}
         title={t('kiosk.title')}
         bodyClassName="p-0"
         actions={

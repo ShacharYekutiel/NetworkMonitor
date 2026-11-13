@@ -4,6 +4,26 @@ import type { FeatureName, Settings } from '../../api/types';
 import { FEATURE_GROUPS, featuresFromSettings, featureTab } from '../../lib/features';
 import { Card, cx } from '../ui';
 import { FeatureToggleList } from './FeatureToggle';
+import { cardAnchor } from '../../lib/settingsIndex';
+import { AI_FEATURES } from '../../api/types';
+import { useAssistantStatus } from '../assistant/common';
+
+/** [3b] state / idle reason / status line of an assistant feature (GET /api/assistant/status). */
+function AiStatusLine({ name }: { name: FeatureName }) {
+  const { t } = useTranslation();
+  const isAi = name === 'assistant' || (AI_FEATURES as readonly string[]).includes(name);
+  const st = useAssistantStatus(isAi);
+  if (!isAi || !st.data) return null;
+  if (name === 'assistant')
+    return <span className="text-xs text-slate-500">{t(`assistant.state.${st.data.state}`)}</span>;
+  const f = st.data.features.find((x) => x.name === name);
+  if (!f) return null;
+  if (f.idle_reason)
+    return (
+      <span className="text-xs text-amber-700 dark:text-amber-300">{t('assistant.idleShort')}</span>
+    );
+  return f.status_line ? <span className="text-xs text-slate-500">{f.status_line}</span> : null;
+}
 
 /** Read-only row of a feature switched in its own tab: name, on/off and a link to that tab. */
 function OverviewRow({ name, on }: { name: FeatureName; on: boolean }) {
@@ -22,6 +42,7 @@ function OverviewRow({ name, on }: { name: FeatureName; on: boolean }) {
       <span className={cx('text-xs', on ? 'text-status-up' : 'text-ink-muted')}>
         {on ? t('features.on') : t('features.off')}
       </span>
+      {on && <AiStatusLine name={name} />}
       <Link
         to={`/settings?tab=${tab}`}
         className="ms-auto text-xs font-medium text-accent-ink hover:underline"
@@ -61,7 +82,7 @@ export function FeaturesTab({ settings }: { settings: Settings }) {
   })).filter((g) => g.names.length);
   return (
     <div className="space-y-6">
-      <Card title={t('features.title')} bodyClassName="p-0">
+      <Card title={t('features.title')} bodyClassName="p-0" anchor={cardAnchor('features')}>
         <p className="border-b border-line px-4 py-2 text-xs text-ink-muted">
           {t('features.intro')}
         </p>

@@ -6,6 +6,7 @@ import type {
   CheckResult,
   Device,
   Sensor,
+  SensorImpact,
   SensorType,
   SnmpInterface,
   SnmpStorage,
@@ -25,6 +26,7 @@ import { formatValue, storageUsedPct } from '../lib/format';
 import { errorMessage } from '../lib/errors';
 import { CheckResultView } from './CheckResultView';
 import { SensorConfigFields } from './SensorConfigFields';
+import { ImpactField } from './SensorImpact';
 import { useToast } from './toast';
 import {
   Button,
@@ -449,12 +451,14 @@ export function EditSensorModal({
   const [name, setName] = useState(sensor.name);
   const [interval, setInterval] = useState(String(sensor.interval_s));
   const [sortOrder, setSortOrder] = useState(String(sensor.sort_order));
+  const [impact, setImpact] = useState<SensorImpact>(sensor.impact ?? 'critical');
   const [raw, setRaw] = useState<RawConfig>({});
   const [errors, setErrors] = useState<ConfigErrors>({});
 
   useEffect(() => {
     if (!open) return;
     setName(sensor.name);
+    setImpact(sensor.impact ?? 'critical');
     setInterval(String(sensor.interval_s));
     setSortOrder(String(sensor.sort_order));
     if (def) setRaw(rawFromConfig(def.config_fields, sensor.config));
@@ -478,7 +482,7 @@ export function EditSensorModal({
   const submit = (e: FormEvent) => {
     e.preventDefault();
     if (passive) {
-      m.mutate({ name: name.trim(), sort_order: Number(sortOrder) || 0 });
+      m.mutate({ name: name.trim(), sort_order: Number(sortOrder) || 0, impact });
       return;
     }
     if (!def || intervalVal === 'invalid' || intervalVal === undefined) return;
@@ -490,6 +494,7 @@ export function EditSensorModal({
       interval_s: intervalVal,
       sort_order: Number(sortOrder) || 0,
       config,
+      impact,
     });
   };
 
@@ -537,6 +542,7 @@ export function EditSensorModal({
               />
             </Field>
           </div>
+          <ImpactField value={impact} onChange={setImpact} />
           {sensor.type === 'snmp_disk' && (
             <StoragePicker
               deviceId={sensor.device_id}

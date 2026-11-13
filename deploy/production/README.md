@@ -12,10 +12,12 @@
 - `config/settings.env` — הגדרות אפליקציה שאינן סודיות (אזור זמן `Asia/Jerusalem` וכו').
 - `caddy/Caddyfile` — הגדרות ה-reverse proxy.
 - `ops/` — סקריפטים לשרת: ‏`bootstrap.sh`, ‏`sync.sh`, ‏`backup.sh`, ‏`restore.sh`, ‏`make-csr.sh`,
-  ‏`install-cert.sh`, ‏`status.sh`, ‏`ingest-firewall.sh` ‏(אופציונלי: מי רשאי לשלוח traps/syslog/flows).
+  ‏`install-cert.sh`, ‏`status.sh`, ‏`ingest-firewall.sh` ‏(אופציונלי: מי רשאי לשלוח traps/syslog/flows),
+  ‏`assistant-net.sh` ‏(עוזר AI: ‏NO_PROXY ובדיקת הנתיב ל-Bedrock).
+- `aws/` — תבניות IAM לעוזר AI ‏(Amazon Bedrock) ו-`render-policies.py` שממלא אותן — ראו "שלב 3b".
 - `systemd/` — ה-timers: סנכרון כל 2 דקות, גיבוי יומי ב-02:17; ‏`netmon-ingest-firewall.service` ‏(מותקן,
   **לא** מופעל — רק אם בוחרים בו).
-- `tests/` — בדיקת הלוגיקה של `sync.sh` בלי Docker ‏(רצה ב-CI).
+- `tests/` — בדיקות של `sync.sh`, ‏`install-cert.sh` ו-`assistant-net.sh` בלי Docker ‏(רצות ב-CI).
 
 סודות **אינם** ב-git. הם נמצאים רק בשרת, בקבצים של root תחת `/etc/netmon-gitops/`.
 
@@ -256,6 +258,7 @@ NOTIFY_ON_SUCCESS=0       # 1 = גם הודעה על deploy מוצלח
 | `/etc/netmon-gitops/tls/` | `cert.pem`, ‏`key.pem` (בשימוש), ‏`netmon.key`, ‏`netmon.csr` |
 | `/etc/netmon-gitops/proxy.env`, `app.env` | proxy (אם הוגדר); הגדרות מקומיות לאפליקציה (`HTTPS_PROXY` / `NO_PROXY` ל-Telegram, ‏Teams, ‏Entra ID) |
 | `/etc/netmon-gitops/ca/` | תעודות CA שהאפליקציה סומכת עליהן (מועתקות מ-`/usr/local/share/ca-certificates`) |
+| `/etc/netmon-gitops/aws/` | ‏(3b, אופציונלי) תעודה ומפתח ל-IAM Roles Anywhere אם בוחרים בקבצים בשרת במקום העלאה בממשק; מופיע בקונטיינר כ-`/etc/netmon/aws` |
 | `/etc/netmon-gitops/notify.env` | webhook להתראות (אופציונלי) |
 | `/etc/netmon-gitops/ingest-allow.conf` | הרשתות שרשאיות לשלוח traps/syslog/flows (אופציונלי, `ingest-firewall.sh`) |
 | `/var/lib/netmon-gitops/` | `deployed_rev`, ‏`bad_trees`, ‏`history.log` |
@@ -286,6 +289,7 @@ sudo /usr/local/lib/netmon-gitops/sync.sh --dry-run   # מה הסנכרון הי
 | בהגדרות ← תכונות: `Address already in use` | תוכנה אחרת בשרת תופסת את 162/514: ‏`sudo ss -lunpt '( sport = :162 or sport = :514 )'`. |
 | flows ממכשיר הפסיקו להגיע אחרי deploy | רשומת conntrack ישנה; ‏`sync.sh` מנקה גם את 2055/4739/6343. ידנית: `sudo conntrack -D -p udp --dport 6343` ‏(ו-2055, ‏4739). |
 | Kerberos SSO נכשל / הדפדפן מציג טופס | `status.sh` ← "Time" ‏(הפרש שעון מעל 5 דקות); הכתובת בדפדפן חייבת להיות ה-FQDN ‏(`https://netmonitor` מפנה אליו); האתר ב-Local intranet; ‏`setspn -L` מציג SPN אחד. |
+| עוזר AI: ‏Test נכשל | ‏`sudo /opt/netmon/deploy/production/ops/assistant-net.sh check --host <vpce name>`; הטבלה ב"תקלות — עוזר AI". |
 | אישור מ-Telegram לא עובד / Telegram "נתקע" | ה-proxy מנתק בקשות ארוכות: מורידים את *Telegram poll timeout* בהגדרות (10–50 שניות). ‏`HTTPS_PROXY` ב-`app.env`? |
 
 ## SNMP traps ו-syslog ‏(שלב 2b-3)
@@ -480,3 +484,257 @@ NO_PROXY=localhost,127.0.0.1,::1,db,netmon,proxy,.mnidom.net,<internal webhook t
 ואז: ‏`cd /opt/netmon/deploy/production && sudo docker compose --env-file release.env up -d netmon` ‏(יוצר מחדש את
 הקונטיינר עם הסביבה החדשה). ה-proxy חייב לאפשר **בקשות ארוכות (70 שניות ומעלה)** ל-`api.telegram.org` ‏(long polling
 של *Chat acknowledge*). אם הוא מנתק אותן, מורידים את *Telegram poll timeout* בהגדרות (10–50, ברירת מחדל 50).
+
+---
+
+## שלב 3b: עוזר AI ‏"שאל את הרשת" ‏(Amazon Bedrock)
+
+**אחרי השדרוג הכול כבוי.** בשרת אין קונטיינר חדש, אין פורט נכנס ואין חבילה חדשה. כל ההגדרות נעשות ב-AWS ובממשק
+(*הגדרות ← עוזר*). המסמך באנגלית: ‏`docs/production.md` ‏(Phase 3b). החוזה: ‏`docs/architecture.md` ‏§14.9.
+
+סדר העבודה: ‏(1) אזור ו-inference profile ← ‏(2) רשת ← ‏(3) ‏IAM Roles Anywhere ‏(או (4) מפתח גישה) ← ‏(5) ‏Knowledge Base
+(אופציונלי) ← בממשק: מילוי הטופס ← **Test connection** ← המתג בתחתית הטופס ← ‏(6) תקרת עלות.
+
+מה נוסף בתיקייה הזו:
+
+| קובץ | תפקיד |
+|---|---|
+| `ops/assistant-net.sh` | ‏`check`: לכל כתובת של Bedrock / ‏Roles Anywhere / ‏KB ‏(ולכל שם של VPC endpoint) — ‏DNS, כתובת פרטית/ציבורית, האם האפליקציה תצא **ישירות** או **דרך ה-proxy** (אותם כללי `NO_PROXY` כמו באפליקציה), והאם יש מענה. ‏`no-proxy`: מוסיף ל-`NO_PROXY` ב-`app.env` ‏(פעם אחת). |
+| `ops/status.sh` | סעיף חדש *Assistant*: המצב מ-`/api/health`, ה-proxy והאם `*.vpce.amazonaws.com` עוקף אותו, קבצי תעודה בשרת (אם נבחרו). |
+| `aws/*.json` | תבניות IAM עם placeholders: ‏policy ל-Bedrock, ‏policy ל-KB ‏(רק אם יש KB), ‏policy לכפתור *List models* ‏(אופציונלי), ‏trust policy ל-Roles Anywhere, ‏policy ל-VPC endpoint. |
+| `aws/render-policies.py` | ממלא את התבניות (Python בלבד, רץ גם במחשב Windows של מנהל ה-AWS). |
+
+<div dir="ltr">
+
+```bash
+cd deploy/production/aws
+python3 render-policies.py --account 111122223333 --region us-east-1 \
+  --profile us.anthropic.<model> [--light-profile us.anthropic.<light-model>] \
+  [--ra-region <region>] [--trust-anchor-id <uuid | ARN>] [--kb-id <KB-ID>] [--cert-cn netmonitor.mnidom.net]
+# -> ./out/*.json  (תבנית שחסר לה ערך מדולגת עם הודעה)
+```
+
+</div>
+
+‏[1.4.1] ‏`--trust-anchor-id` מקבל את המזהה בלבד (uuid) **או** את ה-ARN המלא כפי שהוא מופיע בקונסולה; עם ARN הסקריפט בודק שהאזור והחשבון שבו תואמים ל-`--ra-region` ‏(או `--region`) ול-`--account` ועוצר עם הודעה ברורה אם לא. ‏`--cert-cn` חייב להיות **זהה בדיוק** ל-CN שב-Subject של התעודה שהונפקה (בדיקה: `openssl x509 -in netmonitor.cer -noout -subject` או `certutil -dump netmonitor.cer`); הסקריפט מדפיס איזה CN ואיזה trust anchor ה-trust policy שנוצר מצפה להם.
+
+### 1. בחירת אזור ו-inference profile
+
+ב-il-central-1 מודלי Claude זמינים **רק** דרך ה-inference profile הגלובלי (`global.`). שתי אפשרויות:
+
+| | **א. us-east-1 + ‏`us.` ‏(מומלץ)** | **ב. il-central-1 + ‏`global.`** |
+|---|---|---|
+| איפה השאלות מעובדות | רק באזורי ארה"ב שב-profile | בכל אזור מסחרי של AWS בעולם |
+| בטופס | אזור `us-east-1`, מודל `us.anthropic.<model>` | אזור `il-central-1`, מודל `global.anthropic.<model>` |
+| רשת מהמשרד | צריך נתיב ל-us-east-1 ‏(Direct Connect gateway, ‏TGW peering או ה-endpoint הציבורי דרך ה-proxy — סעיף 2) | ‏VPC endpoint ב-VPC הקיים ב-il-central-1 שכבר מגיעים אליו ב-Direct Connect — הכי פשוט |
+| זמן תגובה | ‏~150ms נוספים לכל round trip — זניח לעומת זמן המודל (שניות) | הכי קרוב ל-endpoint; המודל עצמו עשוי לרוץ רחוק |
+| מדיניות | גאוגרפיה ברורה (ארה"ב) לצוות אבטחת המידע | צריך לאשר "בכל מקום"; ‏SCP שמגביל אזורים צריך לאפשר global inference |
+| מחיר | לפי דף התמחור של AWS ל-profile של ארה"ב | לפי דף התמחור ל-profile הגלובלי (AWS תמחרו global ו-geographic אחרת — להשוות) |
+
+בשני המקרים: ‏Bedrock לא שומר את השאלות כברירת מחדל (סעיף 6), החשבונית וה-metrics הם באזור המקור, ואפשר להחליף
+בהמשך (נדרש Test חדש).
+
+**הפעלת גישה למודל** (פעם אחת לכל חשבון AWS, באזור שנבחר): קונסולת Bedrock ← מעבר לאזור ← *Model catalog* ←
+*Anthropic* ← מודל Claude עדכני ← אם מתבקש: מילוי **טופס ה-use case** של Anthropic ו/או *Request model access*
+(הממשק השתנה עם הזמן: בקונסולות חדשות המודל נפתח בשימוש הראשון, אבל ל-Anthropic עדיין נדרש הטופס החד-פעמי).
+את השלב הזה עושה מנהל ה-AWS עם הרשאות admin ‏(SCP שחוסם `aws-marketplace:*` יכול לחסום את השימוש הראשון).
+
+**מציאת ה-inference profile ID:** קונסולת Bedrock ← *Infer* ← *Cross-region inference* ‏(בגרסאות מסוימות:
+*Inference profiles*) ← לשונית *System-defined* ← השורה של מודל Claude שנבחר עם הקידומת `us.` ‏(א) או `global.` ‏(ב)
+← מעתיקים את **Inference profile ID** ‏(למשל `us.anthropic.claude-<model>-v1:0`) ושומרים את ה-**ARN** בשביל ה-policy.
+ב-CLI:
+
+<div dir="ltr">
+
+```bash
+aws bedrock list-inference-profiles --region us-east-1 \
+  --query "inferenceProfileSummaries[?contains(inferenceProfileId,'anthropic')].[inferenceProfileId,status]" --output table
+```
+
+</div>
+
+*מודל קל* (אופציונלי): ‏profile של מודל Claude זול יותר מאותה רשימה, לתכונות הרקע (הערות להתראות, קורלציה, digest,
+סיכומי דוחות). מזהה מודל "חשוף" (בלי `us.` / `global.`) נכשל עם "on-demand throughput isn't supported"
+(`bedrock_model_invalid`).
+
+**SCP:** ‏cross-region inference נבדק גם באזורי היעד. אם הארגון מגביל אזורים (`aws:RequestedRegion`), מנהל ה-AWS
+צריך לאפשר את אזורי ה-profile של ארה"ב (א), או לפעול לפי התיעוד של AWS ל-global inference profiles ‏(ב).
+
+### 2. רשת
+
+| כתובת (באזור שנבחר `<r>`) | מתי |
+|---|---|
+| `bedrock-runtime.<r>.amazonaws.com` ‏(או שם ה-VPC endpoint) | תמיד |
+| `rolesanywhere.<r>.amazonaws.com` ‏(או VPC endpoint) | ‏IAM Roles Anywhere |
+| `bedrock-agent-runtime.<r>.amazonaws.com` | רק עם Knowledge Base |
+| `bedrock.<r>.amazonaws.com` | רק לכפתור *List models* ‏(אופציונלי) |
+
+הכול HTTPS/443 **יוצא** מהשרת; שום דבר נכנס. **שעון:** ‏AWS דוחה בקשות עם הפרש של יותר מ-5 דקות — NTP מול ה-DC
+(כמו ב-Kerberos; ‏`status.sh` ← *Time*).
+
+**VPC interface endpoints ‏(מומלץ).** באזור ה-endpoint שקוראים לו (א: us-east-1, ‏ב: il-central-1): קונסולת VPC ←
+*Endpoints* ← *Create endpoint* ← *AWS services* ← `com.amazonaws.<r>.bedrock-runtime` ‏(ועוד
+`com.amazonaws.<r>.rolesanywhere` אם הוא קיים באזור ורוצים גם את Roles Anywhere בפרטי; ‏
+`com.amazonaws.<r>.bedrock-agent-runtime` ל-KB) ← subnets בשני AZ ← **security group: נכנס TCP 443 מכתובת שרת
+NetMonitor** ‏(`/32`; טווחי המשרד רק אם צריך) ← policy: ‏*Custom* עם `aws/vpc-endpoint-policy.json` המלא (רק ה-role/user
+של NetMonitor).
+
+**הגעה ל-us-east-1 מהמשרד (אפשרות א).** ה-Direct Connect נוחת היום ב-il-central-1. לפי סדר עדיפות:
+1. **Direct Connect gateway ‏(גלובלי) ← us-east-1.** ‏DX gateway לא שייך לאזור: משייכים את ה-DX gateway הקיים
+   (ב-transit VIF — ל-Transit Gateway ב-us-east-1; ב-private VIF — ל-virtual private gateway של VPC ב-us-east-1)
+   ומוסיפים את ה-CIDR של ה-VPC ב-us-east-1 ל-*allowed prefixes*. הנתב במשרד לומד אותו ב-BGP, והתעבורה עוברת
+   ב-backbone של AWS. ‏DX gateway לא מנתב בין ה-VPCs שמשויכים אליו — לא צריך את זה כאן (רק משרד ↔ us-east-1). ‏CIDRs
+   בלי חפיפה.
+2. **Transit Gateway inter-region peering.** ‏peering בין ה-TGW ב-il-central-1 ‏(שכבר מגיעים אליו ב-DX) ל-TGW
+   ב-us-east-1; ‏routes **סטטיים** בשני הצדדים (ל-peering אין propagation) ל-CIDR של us-east-1 ולטווחי המשרד, ופרסום
+   ה-CIDR של us-east-1 למשרד ב-DX. העברת נתונים בין אזורים בתשלום לפי GB ‏(זניח לטקסט).
+3. **ה-endpoint הציבורי דרך ה-proxy הארגוני** (בלי עבודת רשת ב-AWS): *Endpoint URL* ריק, *Proxy: from environment*
+   ‏(או *custom*), ומאשרים ב-proxy את `bedrock-runtime.us-east-1.amazonaws.com` ו-`rolesanywhere.<r>.amazonaws.com`.
+   התעבורה מוצפנת מקצה לקצה וחתומה (SigV4). ה-proxy לא צריך "לאגור" תשובות זורמות (Test מזהיר `stream_buffered`).
+   ‏public VIF ב-Direct Connect, אם קיים, מגיע גם הוא ל-endpoints הציבוריים.
+
+VPC peering **לא** מתאים לתעבורה מהמשרד (לא טרנזיטיבי).
+
+**DNS.** עדיף להזין ב-*Endpoint URL* את **השם הייחודי של ה-endpoint** מלשונית *Details*
+(`https://vpce-0abc…-xyz.bedrock-runtime.<r>.vpce.amazonaws.com`, בלי path): הוא נפתר ב-DNS הציבורי לכתובות הפרטיות
+של ה-endpoint, ולכן לא צריך שינוי DNS. רק אם השם האזורי (`bedrock-runtime.<r>.amazonaws.com`) חייב להיפתר לכתובת
+פרטית: *private DNS* ב-endpoint, ‏Route 53 Resolver **inbound endpoint** באותו VPC, ו-**conditional forwarder** ב-DNS
+של ה-AD לשם המדויק הזה (forwarder לכל `amazonaws.com` ישבור גישה לשירותי AWS אחרים). אותו דבר ל-`rolesanywhere`.
+
+**proxy ו-NO_PROXY.** כשיש proxy ב-`app.env`, שם של VPC endpoint חייב לעקוף אותו (אחרת הבקשה יוצאת לאינטרנט, או
+נכשלת כי ה-proxy לא מכיר את השם). אחת משתיים: *Proxy: direct* בטופס (משפיע רק על קריאות ה-AWS של העוזר), או להשאיר
+*from environment* ו:
+
+<div dir="ltr">
+
+```bash
+sudo /opt/netmon/deploy/production/ops/assistant-net.sh no-proxy --restart .vpce.amazonaws.com
+# שמות אזוריים שנפתרים לכתובת פרטית (private DNS), למשל:
+sudo /opt/netmon/deploy/production/ops/assistant-net.sh no-proxy --restart bedrock-runtime.il-central-1.amazonaws.com rolesanywhere.il-central-1.amazonaws.com
+# בדיקה (קריאה בלבד): DNS, ישיר/proxy, מענה
+sudo /opt/netmon/deploy/production/ops/assistant-net.sh check --region us-east-1 --host vpce-0abc…-xyz.bedrock-runtime.us-east-1.vpce.amazonaws.com
+```
+
+</div>
+
+בשרת חדש `bootstrap.sh` כבר מכניס `.vpce.amazonaws.com` ל-`NO_PROXY`. ‏*Test connection* בממשק מציג את הכתובת,
+‏`via: direct|proxy …`, סוג הכתובת (ב-DX מצופה `private`) ומזהיר `vpce_via_proxy`.
+בהתקנה בלי Docker: ‏`install.sh --https-proxy …` / ‏`install.ps1 -HttpsProxy …` מוסיפים תמיד `.vpce.amazonaws.com`;
+שמות אזוריים פרטיים מוסיפים עם `--no-proxy` / ‏`-NoProxy`.
+
+### 3. ‏IAM Roles Anywhere ‏(מומלץ)
+
+השרת מקבל מ-AWS הרשאות **זמניות** (ברירת מחדל שעה) בעזרת תעודה מה-PKI הפנימי — אין סוד קבוע. יוצרים הכול באזור
+אחד שבו IAM Roles Anywhere זמין (בדרך כלל אזור ה-Bedrock מסעיף 1; לבדוק שהשירות קיים שם) — זה *Roles Anywhere region*
+בטופס.
+
+1. **Trust anchor.** מנהל ה-PKI מייצא את תעודת ה-**CA המנפיק** ‏*Mnidom-PKI-SERV-CA* כ-Base-64 ‏(PEM) ‏(קונסולת ה-CA ←
+   Properties ← *View certificate* ← *Copy to file* ← Base-64, או `certutil -ca.cert serv-ca.cer` ואז `certutil -encode`).
+   מנהל ה-AWS: ‏IAM Roles Anywhere ← *Create a trust anchor* ← שם `mnidom-pki-serv-ca` ← *External certificate bundle* ←
+   מדביקים את ה-PEM. (אם בוחרים ב-PKI-ROOT-CA כ-anchor, מעלים באפליקציה את ה-CA המנפיק כ-chain.) לפני חידוש תעודת
+   ה-CA עצמה — מוסיפים את התעודה החדשה ל-bundle, כך ששתיהן מוכרות בזמן המעבר.
+2. **ביטול תעודות (CRL).** ‏Roles Anywhere **לא** מוריד CRL מה-CDP בעצמו. מייבאים את ה-CRL של ה-CA ומרעננים אותו לפי
+   לוח הפרסום של ה-CA (למשל משימה מתוזמנת על ה-CA או על מחשב ניהול):
+
+   <div dir="ltr">
+
+   ```bash
+   aws rolesanywhere import-crl --region <ra-region> --name mnidom-pki-serv-ca --enabled \
+     --crl-data fileb://Mnidom-PKI-SERV-CA.crl --trust-anchor-arn <trust-anchor-arn>
+   aws rolesanywhere update-crl --region <ra-region> --crl-id <crl-id> --crl-data fileb://Mnidom-PKI-SERV-CA.crl
+   ```
+
+   </div>
+
+   בלי ייבוא CRL — מסתמכים על תוקף קצר של התעודה. עצירת חירום: *Disable* ל-profile או ל-trust anchor.
+3. **Role** בשם `netmon-bedrock`: ‏IAM ← Roles ← *Create role* ← *Custom trust policy* ← מדביקים את
+   `aws/rolesanywhere-trust-policy.json` המלא. הוא סומך רק על `rolesanywhere.amazonaws.com`, רק דרך ה-trust anchor
+   הזה (`aws:SourceArn`), ורק על תעודה עם subject ‏`CN=netmonitor.mnidom.net` שהונפקה על ידי `CN=Mnidom-PKI-SERV-CA`
+   (`aws:PrincipalTag/x509Subject/CN`, ‏`…/x509Issuer/CN`; מוודאים את שני הערכים על התעודה שהונפקה:
+   ‏`openssl x509 -in netmonitor.cer -noout -subject -issuer`). הרשאות: ‏inline policy מתוך
+   `aws/bedrock-invoke-policy.json` המלא; ‏`aws/bedrock-knowledge-base-policy.json` **רק** אם משתמשים ב-KB;
+   ‏`aws/bedrock-list-models-policy.json` רק לכפתור *List models*.
+   - ‏Converse ו-ConverseStream מורשים דרך `bedrock:InvokeModel` ו-`bedrock:InvokeModelWithResponseStream` ‏(אין פעולת
+     IAM נפרדת בשם `bedrock:Converse`). שום דבר אחר: לא `bedrock:*`, לא כתיבה, לא `iam:*`.
+   - ההצהרה הראשונה מתירה את ה-inference profile שנבחר; השנייה מתירה את המודל עצמו **בכל אזור** (profile חוצה אזורים
+     מנתב לכמה אזורים; ה-`*` מכסה גם את ה-ARN בלי אזור של profiles גלובליים) — **רק** כשהקריאה עוברת דרך ה-profile
+     הזה (`bedrock:InferenceProfileArn`).
+   - *Maximum session duration* של ה-role ≥ משך ה-session בטופס (ברירת מחדל 3600 שניות).
+4. **Profile:** ‏IAM Roles Anywhere ← *Create a profile* ← שם `netmonitor` ← role ‏`netmon-bedrock` ← משך session שעה
+   (≥ ההגדרה בטופס). רושמים את שלושת ה-ARNs: ‏trust anchor, ‏profile, ‏role.
+5. **התעודה — CSR שנוצר באפליקציה.** *הגדרות ← עוזר* ← אימות *IAM Roles Anywhere* ← **יצירת CSR**: האפליקציה יוצרת
+   את המפתח הפרטי (הוא לא יוצא מהשרת; נשמר מוצפן ב-DB) ומורידה `netmonitor.csr` עם `CN=netmonitor.mnidom.net`.
+   מנהל ה-PKI מנפיק מתבנית עם: ‏key usage *Digital Signature*; ‏EKU **Client Authentication**; ‏subject *Supply in the
+   request*; ‏RSA 2048 ומעלה או ECDSA P-256/P-384; ‏SHA-256; תוקף שנה (עד שנתיים). למשל: שכפול התבנית *Computer* בשם
+   `NetMonBedrockClient` ‏(Compatibility ‏2008 ומעלה; *Extensions ← Application Policies* = רק Client Authentication;
+   *Subject Name* = Supply in the request), פרסום התבנית, ואז:
+
+   <div dir="ltr">
+
+   ```
+   certreq -submit -config "<ca-host>\Mnidom-PKI-SERV-CA" -attrib "CertificateTemplate:NetMonBedrockClient" netmonitor.csr netmonitor.cer
+   ```
+
+   </div>
+
+   מעלים את `netmonitor.cer` ‏(PEM או DER; ‏chain רק אם ה-anchor הוא ה-root) באותו טופס — האפליקציה בודקת שהתעודה
+   מתאימה למפתח ומציגה subject, ‏issuer ותפוגה. חלופות: העלאת `.pfx` מ-AD CS, או קבצים בשרת:
+   ‏`NETMON_AWS_RA_CERT_FILE=/etc/netmon/aws/cert.pem` ‏(וגם `_KEY_FILE`, ‏`_CHAIN_FILE`) ב-`app.env`; הקבצים
+   ב-`/etc/netmon-gitops/aws/`, המפתח `0600` בבעלות uid ‏`10001`.
+6. **בטופס:** אזור, אזור Roles Anywhere, שלושת ה-ARNs, מזהה המודל (סעיף 1), ‏Endpoint URL ו-endpoint של Roles Anywhere
+   (סעיף 2; ריק = ציבורי), מצב proxy ← **Test connection** ← המתג בתחתית.
+7. **חידוש.** ‏30 יום לפני התפוגה יש אזהרה (בממשק, אירוע `system` יומי, ו-`status.sh` לקבצים בשרת): שוב *יצירת CSR*
+   (מפתח חדש) ← הנפקה ← העלאה ← Test. ב-AWS לא משנים כלום כל עוד ה-CN וה-CA המנפיק זהים. אחרי המעבר מבטלים
+   (revoke) את התעודה הישנה ב-CA ומרעננים את ה-CRL ב-AWS.
+
+### 4. חלופה: מפתח גישה קבוע (access key)
+
+רק אם אי אפשר Roles Anywhere. ‏IAM ← Users ← `netmon-bedrock-key`, **בלי גישה לקונסולה**, ‏inline policy = אותו
+`aws/bedrock-invoke-policy.json` המלא (+ ‏policy של KB אם יש). *Security credentials* ← *Create access key* ←
+*Application running outside AWS*. בטופס: אימות *Access key*, ה-Key ID, הסוד (נשמר מוצפן, לא מוצג שוב) ותאריך
+היצירה (תזכורת אחרי 90 יום). החלפה כל 90 יום: יוצרים מפתח שני ← מזינים ← Test ← *Deactivate* לישן ← מוחקים אחרי
+שבוע. אפשר להוסיף תנאי IAM על `aws:SourceVpce` ‏(VPC endpoint) או `aws:SourceIp` ‏(endpoint ציבורי — כתובת היציאה של
+ה-proxy). אם יש policy ל-VPC endpoint — מוסיפים לו גם את ה-ARN של המשתמש.
+
+### 5. ‏Knowledge Base ‏(אופציונלי, התכונה `ai_knowledge`)
+
+1. ‏S3 bucket **באותו אזור** של Bedrock ‏(Block public access, הצפנה SSE-S3 או SSE-KMS) עם נהלים ו-runbooks ‏(PDF,
+   ‏DOCX, ‏HTML, ‏MD, ‏TXT). **בלי סודות במסמכים** — קטעים מהם מוצגים למנהלים ונשלחים למודל.
+2. ‏Bedrock ← *Knowledge Bases* ← *Create* ← מקור S3 ← מודל embeddings **רב-לשוני** (עברית + אנגלית) ← vector store
+   (להשוות את העלות החודשית המינימלית של האפשרויות לפני הבחירה) ← *Sync*; לתזמן סנכרון או לסנכרן אחרי כל שינוי.
+3. מעתיקים את **Knowledge Base ID**, ממלאים את ה-policies עם `--kb-id` ומצרפים את
+   `bedrock-knowledge-base-policy.json` ל-role/user ‏(`bedrock:Retrieve` על ה-KB הזה בלבד).
+4. רשת: ‏VPC endpoint ‏`com.amazonaws.<r>.bedrock-agent-runtime` ‏(או אישור `bedrock-agent-runtime.<r>.amazonaws.com`
+   ב-proxy).
+5. *הגדרות ← עוזר ← Knowledge Base*: ‏KB ID ו-endpoint ← **Test** ← המתג בתחתית.
+
+### 6. עלות, תקרה חודשית, טיפול בנתונים
+
+- עלות = טוקנים נכנסים × מחיר + טוקנים יוצאים × מחיר (+ cache). שאלה טיפוסית: ‏6,000–20,000 טוקנים נכנסים ב-2–4 קריאות
+  למודל ו-300–900 יוצאים. במחירים *להמחשה* של 3 / 15 דולר למיליון טוקנים — כ-0.03 דולר לשאלה, כדולר ליום ל-30 שאלות.
+- בממשק (*הגדרות ← עוזר ← שימוש ותקרות*): מזינים את **המחירים** של המודל וה-profile שנבחרו מדף התמחור של Amazon
+  Bedrock ‏(דולר למיליון טוקנים; האפליקציה לא מגיעה עם מחירים), ואז **תקרת עלות חודשית בדולרים** (למשל 50). בנוסף:
+  תקרת טוקנים (ברירת מחדל 5M בחודש), שאלות ליום לכל מנהל (50), ועצירת רקע (80%: תכונות הרקע נעצרות קודם, השימוש
+  האינטראקטיבי ב-100%). בלי מחירים פועלת רק תקרת הטוקנים.
+- שומר שני ב-AWS: ‏*AWS Budgets* ← cost budget מסונן לשירות Amazon Bedrock עם התראת מייל ב-80% / ‏100%. אחרי כמה ימים
+  משווים את דף השימוש באפליקציה ל-Cost Explorer.
+- **טיפול בנתונים — לאימות של צוות אבטחת המידע** מול תנאי השירות העדכניים של AWS, ה-DPA של AWS וההגדרות של החשבון
+  (האפליקציה לא נותנת הצהרת תאימות משלה): לפי התיעוד של AWS בזמן הכתיבה, Amazon Bedrock לא שומר שאלות ותשובות כברירת
+  מחדל, לא משתמש בהן לאימון מודלים ולא משתף אותן עם ספק המודל; העיבוד נעשה באזור המקור או באזורי ה-profile שנבחר
+  (`us.` — אזורי ארה"ב; ‏`global.` — כל אזור מסחרי); **model invocation logging** הוא אופציה ברמת החשבון (*Bedrock ←
+  Settings*) שאם הופעלה — כותבת שאלות ותשובות ל-CloudWatch Logs / ‏S3 של החשבון. מה NetMonitor שולח ומה הוא מסנן:
+  ‏`docs/architecture.md` ‏§14.6.1.
+
+### תקלות — עוזר AI
+
+| שלב ב-Test / קוד | מה לבדוק |
+|---|---|
+| ‏`endpoint` נכשל, ‏`aws_network` | ‏`assistant-net.sh check …`; ה-SG של ה-endpoint מתיר 443 מהשרת; ניתוב ב-DX; ‏`NO_PROXY` / *Proxy: direct*; ה-CA הארגוני ב-`/etc/netmon-gitops/ca` אם ה-proxy פותח TLS. |
+| אזהרת `vpce_via_proxy` | ‏`assistant-net.sh no-proxy --restart .vpce.amazonaws.com` או *Proxy: direct*. |
+| ‏`rolesanywhere_failed` ‏"Untrusted certificate" | ב-trust anchor יש את ה-CA המנפיק? הועלה chain כשה-anchor הוא ה-root? ה-CRL מסמן את התעודה כמבוטלת? |
+| ‏`rolesanywhere_failed` ‏"Unable to assume role" | ‏CN / ‏issuer CN / ‏ARN של ה-trust anchor ב-trust policy; ה-role ב-profile; משך session ≤ המקסימום של ה-profile/role. |
+| ‏`aws_clock_skew` | ‏NTP ‏(`status.sh` ← Time). |
+| ‏`bedrock_model_access` | גישה למודל / טופס use case של Anthropic באותו אזור (סעיף 1). |
+| ‏`bedrock_model_invalid` | מזהה **profile** ‏(`us.…` / ‏`global.…`), לא מזהה מודל חשוף; ה-profile קיים באזור. |
+| ‏`bedrock_access_denied` | ה-ARNs ב-policy ‏(אזור, חשבון, profile, מודל); ‏policy של ה-VPC endpoint; ‏SCP ל-cross-region inference. |
+| אזהרת `stream_buffered` | ה-proxy אוגר תשובות — ‏VPC endpoint עם *Proxy: direct*, או חריגה ב-proxy. |

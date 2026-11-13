@@ -36,6 +36,7 @@ import {
 } from '../ui';
 import { useSaveSettings } from './common';
 import { InlineFeatureSwitch } from './FeatureToggle';
+import { cardAnchor } from '../../lib/settingsIndex';
 
 function Ok({ ok }: { ok: boolean }) {
   const { t } = useTranslation();
@@ -266,7 +267,7 @@ export function LdapCard({ settings }: { settings: Settings }) {
     : undefined;
   return (
     <div className="space-y-6">
-      <Card title={t('ldap.title')}>
+      <Card title={t('ldap.title')} anchor={cardAnchor('ldap')}>
         <form onSubmit={submit} className="space-y-4" data-testid="ldap-settings">
           <p className="text-xs text-ink-muted">{t('ldap.intro')}</p>
           {stored?.bind_password_unreadable && (
@@ -415,7 +416,7 @@ export function LdapCard({ settings }: { settings: Settings }) {
           {test.data && <LdapTestView r={test.data} />}
         </form>
       </Card>
-      <Card title={t('ldap.testUserTitle')}>
+      <Card title={t('ldap.testUserTitle')} anchor={cardAnchor('ldapTest')}>
         <form
           className="space-y-3"
           onSubmit={(e) => {

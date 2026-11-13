@@ -9,8 +9,8 @@ Thumbs.db
 __pycache__/
 *.py[cod]
 *.egg-info/
-.venv/
-venv/
+.venv
+venv
 .pytest_cache/
 .ruff_cache/
 .mypy_cache/
@@ -18,7 +18,7 @@ venv/
 htmlcov/
 
 # --- Node
-node_modules/
+node_modules
 coverage/
 
 # --- Build output

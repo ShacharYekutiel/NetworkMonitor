@@ -16,8 +16,26 @@ const R: Record<string, any> = {};
 const D: Record<string, any> = {};
 let importResp: any = null;
 
-const ARUBA = ['1', '2', 'CPU', 'Fan Sensor', 'Memory 1', 'Over-temperature Sensor', 'Ping', 'PoE 1 budget', 'PoE 1 power', 'PoE 1 usage', 'Power Supply Sensor', 'System'];
-const COMWARE = ['CPU Board', 'Fan 1', 'Fan 2', 'GigabitEthernet1/0/1', 'GigabitEthernet1/0/2', 'Memory Board', 'PSU 1', 'Ping', 'System', 'Temperature Board'];
+// [1.3] discovery import applies the template with interfaces "important" (api.md § [1.3] Template apply): see IF_ALLOWED.
+const ARUBA = ['CPU', 'Fan Sensor', 'Memory 1', 'Over-temperature Sensor', 'Ping', 'PoE 1 budget', 'PoE 1 power', 'PoE 1 usage', 'Power Supply Sensor', 'System'];
+const COMWARE = ['CPU Board', 'Fan 1', 'Fan 2', 'Memory Board', 'PSU 1', 'Ping', 'System', 'Temperature Board'];
+// [1.3] interface sensors only on important ports (uplink = LLDP neighbour that is a known switch/AP device). Whether
+// the neighbours exist as devices at import time depends on the earlier specs, so only these ports may appear.
+const IF_ALLOWED: Record<string, string[]> = { '127.0.0.51': ['1', '2'], '127.0.0.52': ['GigabitEthernet1/0/1', 'GigabitEthernet1/0/2'] };
+
+/** Removes the interface sensors from `s` after checking that each is an allowed port and important. */
+async function interfaceSensorsOnImportantPortsOnly(ip: string, deviceId: number, s: Record<string, any>): Promise<void> {
+  const ifs = Object.values(s).filter((x: any) => x.type === 'snmp_interface');
+  if (ifs.length) {
+    const ports = (await api.get(`/api/devices/${deviceId}/ports`)).ports;
+    for (const x of ifs as any[]) {
+      expect(IF_ALLOWED[ip], `${ip}: interface sensor ${x.name}`).toContain(x.name);
+      expect(ports.find((p: any) => p.if_index === x.config.if_index)?.important, `${ip}: ${x.name} important`).toBe(true);
+      expect(x.impact).toBe('critical');
+    }
+  }
+  for (const x of ifs as any[]) delete s[x.name];
+}
 
 async function sensorsByName(deviceId: number): Promise<Record<string, any>> {
   const items = (await api.get(`/api/sensors?device_id=${deviceId}&page_size=1000`)).items;
@@ -80,6 +98,7 @@ test('ArubaOS-Switch sensors and values', async () => {
   D.aruba = await findDevice(api, '127.0.0.51');
   expect(D.aruba).toBeTruthy();
   let s = await sensorsByName(D.aruba.id);
+  await interfaceSensorsOnImportantPortsOnly('127.0.0.51', D.aruba.id, s);
   // DEFECT (contract): "PoE 1 power" uses the same OID as "PoE 1 usage" (…105.1.3.1.1.4.1); the snmp_custom
   // idempotency key is config.oid, so apply skips it as `exists`. §10.4 expects it -> soft.
   expect.soft(Object.keys(s).sort(), 'ArubaOS sensor names').toEqual([...ARUBA].sort());
@@ -91,7 +110,8 @@ test('ArubaOS-Switch sensors and values', async () => {
   await expect
     .poll(async () => {
       s = await sensorsByName(D.aruba.id);
-      return ['CPU', 'Memory 1', 'Power Supply Sensor', 'Fan Sensor', 'PoE 1 usage', 'PoE 1 power', 'PoE 1 budget', '1', '2'].filter((n) => s[n] && s[n].status === 'unknown');
+      await interfaceSensorsOnImportantPortsOnly('127.0.0.51', D.aruba.id, s);
+      return ['CPU', 'Memory 1', 'Power Supply Sensor', 'Fan Sensor', 'PoE 1 usage', 'PoE 1 power', 'PoE 1 budget'].filter((n) => s[n] && s[n].status === 'unknown');
     }, { timeout: 90_000, intervals: [2000, 5000] })
     .toEqual([]);
   expect(s['Power Supply Sensor'].status).toBe('down');
@@ -104,8 +124,6 @@ test('ArubaOS-Switch sensors and values', async () => {
   expect(channel(s['PoE 1 usage'])).toBeCloseTo(12.16, 1);
   if (s['PoE 1 power']) expect(channel(s['PoE 1 power'])).toBe(45);
   expect(channel(s['PoE 1 budget'])).toBe(370);
-  expect(s['1'].type).toBe('snmp_interface');
-  expect(s['1'].config).toMatchObject({ if_index: 1 });
   // Config of the enum sensor (snmp_custom value_type enum).
   expect(s['Power Supply Sensor'].config).toMatchObject({ value_type: 'enum', value_map_default: 'warning', oid: '1.3.6.1.4.1.11.2.14.11.1.2.6.1.4.2' });
   expect(s['Power Supply Sensor'].config.value_map['2']).toEqual({ status: 'down', text: 'bad' });
@@ -115,6 +133,7 @@ test('Comware sensors and values', async () => {
   D.comware = await findDevice(api, '127.0.0.52');
   expect(D.comware).toBeTruthy();
   let s = await sensorsByName(D.comware.id);
+  await interfaceSensorsOnImportantPortsOnly('127.0.0.52', D.comware.id, s);
   expect(Object.keys(s).sort()).toEqual([...COMWARE].sort());
   expect(Object.keys(s).some((n) => /PoE|Vlan|NULL|InLoop|Chassis/.test(n))).toBe(false);
   await expect
@@ -132,7 +151,6 @@ test('Comware sensors and values', async () => {
   expect(channel(s['Memory Board'])).toBe(41);
   expect(channel(s['Temperature Board'])).toBe(43);
   expect(s['CPU Board'].config).toMatchObject({ oid: '1.3.6.1.4.1.25506.2.6.1.1.1.1.6.2' });
-  expect(s['GigabitEthernet1/0/1'].config).toMatchObject({ if_index: 1 });
 });
 
 test('sensor page of the enum sensor shows the mapped text; screenshot', async ({ page }) => {

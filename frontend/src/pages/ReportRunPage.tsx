@@ -431,6 +431,14 @@ export function ReportRunPage() {
           <div className="flex flex-wrap items-center gap-2 text-sm">
             <RunStatusBadge status={run.status} />
             <DeliveriesCell run={run} />
+            {/* [3b] AI summary status (run details only) */}
+            {run.ai_summary_status && run.ai_summary_status !== 'ok' && (
+              <span className="text-xs text-slate-500" data-testid="ai-summary-status">
+                {t('reports.aiSummaryStatus', {
+                  status: t(`reports.aiStatus.${run.ai_summary_status}`),
+                })}
+              </span>
+            )}
           </div>
         </div>
       )}
@@ -455,6 +463,19 @@ export function ReportRunPage() {
               {tr('reports.generated', { time: fmt(d.generated_at) })}
             </p>
           </header>
+          {d.ai_summary && (
+            <section
+              className="rounded-md bg-violet-50 p-3 ring-1 ring-inset ring-violet-200 print:bg-transparent"
+              data-testid="report-ai-summary"
+            >
+              <h2 className="mb-1 text-xs font-semibold uppercase tracking-wide text-violet-800">
+                {tr('reports.aiSummaryLabel')}
+              </h2>
+              <p className="whitespace-pre-line text-sm" dir="auto">
+                {d.ai_summary}
+              </p>
+            </section>
+          )}
           {d.sections.map((s) => (
             <ReportSectionView key={s} s={s} d={d} tr={tr} fmt={fmt} />
           ))}

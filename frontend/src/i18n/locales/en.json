@@ -78,11 +78,13 @@
     "newDevices": "New devices",
     "backups": "Backups",
     "reports": "Reports",
+    "assistant": "Ask the network",
     "inventory": "Inventory",
     "health": "Sensors by status",
     "toggleInventory": "Show or hide the inventory",
     "short": {
       "dashboard": "Overview",
+      "assistant": "Ask",
       "events": "Events",
       "logs": "Logs",
       "map": "Map",
@@ -362,7 +364,11 @@
     "telegram": "Telegram",
     "testSent": "Test message sent.",
     "testSavedHint": "Sends a test with the saved settings — save first.",
-    "teams": "Microsoft Teams"
+    "teams": "Microsoft Teams",
+    "aiAsk": "Allow /ask",
+    "aiAskHint": "Linked administrators can ask the assistant in a private chat with this bot.",
+    "aiNoteEmail": "Send AI notes as a reply",
+    "aiNoteEmailHint": "For alert rules with an AI note: a threaded reply to the alert email."
   },
   "rules": {
     "title": "Alert rules",
@@ -377,7 +383,9 @@
     "channels": "Channels",
     "noChannels": "Create a notification channel first.",
     "none": "No alert rules yet.",
-    "deleteTitle": "Delete rule"
+    "deleteTitle": "Delete rule",
+    "aiNote": "AI note",
+    "aiNoteHint": "After the first problem notification, a short AI note is added (Telegram edit, Teams follow-up, email reply). The alert is never delayed."
   },
   "settings": {
     "title": "Settings",
@@ -405,7 +413,20 @@
     "smtpTestOk": "Test email sent.",
     "healthLine": "Version {{version}} · database {{db}} · {{mode}} · poller {{poller}} · sensors scheduled: {{count}}",
     "security": {
-      "none": "None"
+      "none": "None",
+      "title": "Security",
+      "intro": "Hardening options. The defaults are the secure choice; change one only when your deployment needs it.",
+      "sessionMaxAge": "Maximum session age (hours)",
+      "sessionMaxAgeHint": "A login ends after this long even when it is in use (1–720; default 168 = 7 days). Active Directory, Kerberos and Microsoft sign-in sessions end after 12 hours at the latest.",
+      "sessionMaxAgeErr": "Enter 1–720.",
+      "loginIpCap": "Failed logins per address (5 minutes)",
+      "loginIpCapHint": "After this many failed password logins from one address, across all user names, new logins from it wait until the 5 minutes pass. Signed-in users are not affected. 0 = off (default 20).",
+      "loginIpCapErr": "Enter 0–10000.",
+      "allowLoopback": "Allow monitoring and notification targets on this server (loopback)",
+      "allowLoopbackHint": "Off: HTTP sensors, webhooks and Teams channels cannot reach 127.0.0.1 / localhost. Turn on only to monitor a service on the NetworkMonitor server itself. Link-local and cloud metadata addresses are always blocked; private network addresses are always allowed.",
+      "frameAncestors": "Sites that may embed NetworkMonitor in a frame",
+      "frameAncestorsHint": "One origin per line, for example https://wall.example.com. Empty = only NetworkMonitor itself (recommended). Needed only when a wall screen page embeds the NOC view.",
+      "frameAncestorsErr": "Each line must be an origin such as https://wall.example.com (scheme and host, optional port), at most 20."
     },
     "timezone": "Time zone",
     "timezoneHint": "Used for weekly maintenance windows and the times in notifications.",
@@ -440,7 +461,8 @@
       "newDevices": "New devices",
       "reports": "Reports",
       "noc": "NOC screens",
-      "chatAck": "Chat acknowledge"
+      "chatAck": "Chat acknowledge",
+      "assistant": "Assistant (AI)"
     }
   },
   "users": {
@@ -471,7 +493,10 @@
     "confirmPassword": "Confirm new password",
     "passwordChanged": "Password changed.",
     "ldapManaged": "Your account is managed in Active Directory. Change your password and email there.",
-    "oidcManaged": "This account signs in with Microsoft Entra ID; its password is managed there."
+    "oidcManaged": "This account signs in with Microsoft Entra ID; its password is managed there.",
+    "sessions": "Sessions",
+    "sessionsHint": "Sign out ends this browser's session on the server. If you think someone else may be using your account, sign out of every browser and device at once (API tokens are not affected).",
+    "logoutEverywhere": "Sign out everywhere"
   },
   "validation": {
     "required": "Required.",
@@ -555,7 +580,37 @@
     "ack_stale": "This problem is no longer active.",
     "not_in_group": "Your account is not in any NetworkMonitor role.",
     "oidc_group_overage": "Your account is in too many groups for Entra ID to list them; use app roles instead.",
-    "inactive": "This account is disabled."
+    "inactive": "This account is disabled.",
+    "assistant_test_required": "Run a successful Test connection first.",
+    "feature_dependency": "This feature depends on another one.",
+    "feature_dependency_named": "{{feature}} requires {{requires}} — turn it on first (or turn {{feature}} off first).",
+    "feature_idle": "The feature is on but waiting for a dependency.",
+    "feature_idle_named": "{{feature}} is waiting for: {{needs}}.",
+    "assistant_busy": "You already have a question running.",
+    "assistant_busy_global": "Too many questions are running, try again shortly.",
+    "assistant_cap_reached": "A usage cap was reached.",
+    "conversation_full": "This conversation is full (40 turns) — start a new one.",
+    "invalid_certificate": "The certificate is not usable.",
+    "key_mismatch": "The key does not match the certificate.",
+    "bedrock_throttled": "Amazon Bedrock is busy (throttled). Try again in a minute.",
+    "bedrock_quota": "Your AWS account's Bedrock quota is exhausted for this model.",
+    "bedrock_model_access": "This model is not enabled for your AWS account in this region (Bedrock → Model access).",
+    "bedrock_access_denied": "AWS denied access: the role/user lacks bedrock:InvokeModel on this model or profile.",
+    "bedrock_model_invalid": "The model ID is not valid in this region. Use an inference profile ID whose prefix matches the region (us. for us-*, eu. for eu-*, apac. for ap-*).",
+    "bedrock_unavailable": "Amazon Bedrock could not answer right now.",
+    "bedrock_validation": "Amazon Bedrock rejected the request.",
+    "aws_auth_failed": "AWS rejected the credentials.",
+    "aws_token_expired": "AWS rejected the credentials: the session token has expired. Temporary credentials (IAM Identity Center / SSO) last only a few hours — paste a fresh access key ID, secret and session token.",
+    "aws_session_token_required": "The access key ID is a temporary key (ASIA…): it needs the session token. Paste the session token too, or use an IAM user key (AKIA…).",
+    "aws_clock_skew": "The server clock differs from AWS time by more than 5 minutes (check NTP).",
+    "rolesanywhere_failed": "IAM Roles Anywhere refused the certificate (check trust anchor, profile, role trust policy and CRL).",
+    "aws_network": "Cannot reach AWS.",
+    "assistant_timeout": "The answer took too long.",
+    "kb_unavailable": "The Knowledge Base test failed.",
+    "walk_running": "A walk of this device is already running.",
+    "template_exists": "A user template with this ID already exists.",
+    "invalid_template": "The template YAML fails validation.",
+    "stream_interrupted": "The connection to the answer was lost."
   },
   "sensorType": {
     "ping": "Ping",
@@ -654,7 +709,8 @@
       "match": "Match",
       "value_map": "Value map",
       "value_map_default": "Status of other values",
-      "percent_base": "Percent base"
+      "percent_base": "Percent base",
+      "value_map_ref": "Shared code table"
     },
     "snmp_disk": {
       "storage_descr": "Storage (description)",
@@ -725,6 +781,10 @@
       "percent_base": {
         "total": "Divisor is the total",
         "sum": "Divisor is the other part (sum)"
+      },
+      "value_map_ref": {
+        "none": "None (own value map only)",
+        "hh3c_error_status": "HPE Comware hardware fault codes"
       }
     }
   },
@@ -1179,7 +1239,9 @@
       "text": "Text: at most 32 characters.",
       "tooMany": "At most 32 values.",
       "empty": "Add at least one value."
-    }
+    },
+    "mib": "MIB name",
+    "own": "own entry"
   },
   "topology": {
     "title": "Network map",
@@ -1301,16 +1363,23 @@
     "member": "Member {{n}}",
     "uplinkGroup": "Uplink / SFP ports",
     "legend": {
-      "empty": "Empty",
+      "empty": "No link",
       "connected": "Connected",
       "alert": "Connected, alert",
-      "emptyAlert": "Empty, alert",
+      "emptyAlert": "No link, alert",
       "disabled": "Disabled",
       "client": "Client",
       "ap": "Access point",
       "switch": "Switch / uplink",
       "trunk": "Trunk",
       "macCount": "MACs learned (uplink)"
+    },
+    "legendHint": {
+      "empty": "No cable, or the device on the other side is off.",
+      "connected": "Link up, no problem.",
+      "alert": "Link up, but there is a problem: the port's interface sensor is down or in warning, errors were counted since the last read, or a PoE fault.",
+      "emptyAlert": "No link, and there is a problem: usually a monitored port (it has an interface sensor) that went down; also errors since the last read or a PoE fault.",
+      "disabled": "Shut down in the switch configuration (shutdown). Never raises an alert."
     },
     "portN": "Port {{name}}",
     "vlanN": "VLAN {{vlan}}",
@@ -1375,7 +1444,9 @@
       "errors": "Errors (Δ)",
       "lastChange": "Last change",
       "ifIndex": "ifIndex",
-      "kind": "Kind"
+      "kind": "Kind",
+      "connIp": "Connected IP",
+      "connName": "Name / neighbor"
     },
     "filter": "Filter ports",
     "filterPlaceholder": "Filter: port, alias, MAC, IP, hostname, vendor, neighbour…",
@@ -1463,6 +1534,13 @@
       "viaLag": "LAG",
       "vlansFromLag": "VLANs inherited from the LAG",
       "macViaLag": "Learned on the LAG"
+    },
+    "exportCsv": "Export CSV",
+    "conn": {
+      "neighbor": "LLDP",
+      "neighborTitle": "LLDP/CDP neighbor",
+      "moreTitle_one": "{{count}} more device on this port",
+      "moreTitle_other": "{{count}} more devices on this port"
     }
   },
   "health": {
@@ -1547,7 +1625,19 @@
       "sso_oidc": "Sign in with Microsoft (Entra ID)",
       "reports": "Scheduled reports",
       "noc": "NOC wall screens",
-      "chat_ack": "Acknowledge from Telegram/Teams"
+      "chat_ack": "Acknowledge from Telegram/Teams",
+      "assistant": "Assistant (Amazon Bedrock)",
+      "ai_explain_alert": "Explain alerts",
+      "ai_correlation": "Incident correlation",
+      "ai_alert_notes": "AI notes in alerts",
+      "ai_config_diff": "Config change explanation",
+      "ai_syslog_digest": "Daily syslog digest",
+      "ai_rule_drafts": "Rule drafts from a description",
+      "ai_template_drafts": "Template drafts from an SNMP walk",
+      "ai_knowledge": "Knowledge Base",
+      "ai_chat_ask": "Ask from Telegram (/ask)",
+      "ai_report_summary": "AI summary in reports",
+      "send_config_excerpts": "Send configuration excerpts"
     },
     "desc": {
       "traps": "Receive SNMP traps (v1/v2c/v3) from devices, store and search them.",
@@ -1566,7 +1656,18 @@
       "sso_oidc": "A \"Sign in with Microsoft\" button (Entra ID, with MFA).",
       "reports": "Weekly or monthly reports by email or channel: availability, alerts, ports, changes.",
       "noc": "Full-screen status pages for wall screens, opened with a secret link from allowed addresses only.",
-      "chat_ack": "An \"Acknowledge\" button in Telegram, and a link in Teams and email messages."
+      "chat_ack": "An \"Acknowledge\" button in Telegram, and a link in Teams and email messages.",
+      "assistant": "Connection to Amazon Bedrock and the \"Ask the network\" page for administrators. Master switch of every AI feature.",
+      "ai_explain_alert": "An \"Explain\" button on problems, events and sensors: what happened, what preceded it, likely cause and next checks.",
+      "ai_correlation": "Groups related problems (dependencies, topology, same device) into incidents with a short AI summary.",
+      "ai_alert_notes": "Adds a 1–2 line AI note after the first problem notification of rules that opt in. Never delays the alert.",
+      "ai_config_diff": "Risk flags and a plain-language explanation on configuration diffs.",
+      "ai_syslog_digest": "Every morning: what was unusual in yesterday's syslog compared to the previous week.",
+      "ai_rule_drafts": "\"Describe the rule…\" in the alert-rule and event-rule forms fills the form with a draft for review.",
+      "ai_template_drafts": "Bounded read-only SNMP walk of a device and a device-template YAML draft for review.",
+      "ai_knowledge": "Lets the assistant search your Amazon Bedrock Knowledge Base (runbooks, diagrams) and cite it.",
+      "ai_chat_ask": "Linked administrators can send /ask <question> to the Telegram bot in a private chat.",
+      "ai_report_summary": "A short narrative paragraph at the top of reports that opt in."
     },
     "hint": {
       "needsIngest": "Needs SNMP traps or Syslog to be on to receive anything.",
@@ -1584,7 +1685,18 @@
       "oidcSetup": "Needs an Entra ID app registration and outbound HTTPS through the proxy.",
       "reportsDelivery": "Scheduled sends need SMTP or a Teams/Telegram channel.",
       "publicUrl": "The Teams/email link needs the public URL (Settings → General).",
-      "telegramButtons": "Telegram buttons need a Telegram channel with \"Acknowledge\" buttons turned on."
+      "telegramButtons": "Telegram buttons need a Telegram channel with \"Acknowledge\" buttons turned on.",
+      "assistantAudit": "Needs the Audit log feature (every question is audited).",
+      "needsAssistant": "Waits for the assistant connection (Settings → Assistant).",
+      "needsConfigBackup": "Needs Config backup.",
+      "needsSyslog": "Needs Syslog.",
+      "needsReports": "Needs Reports.",
+      "needsChatAck": "Needs Chat acknowledge (account linking and the Telegram poller).",
+      "configExcerpts": "Also needs \"Send configuration excerpts\" (Data sharing) and masked configurations.",
+      "alertNotes": "Opt in per alert rule; Telegram, Teams and email channels.",
+      "ruleDraftsIngest": "Event-rule drafts need Traps or Syslog.",
+      "kbAws": "Needs a Knowledge Base in your AWS account.",
+      "chatAskChannel": "Enable \"Allow /ask\" on a Telegram channel."
     },
     "status": {
       "on": "Active",
@@ -1619,7 +1731,8 @@
       "logs": "Logs & events",
       "network": "Network",
       "access": "Access",
-      "notifications": "Notifications"
+      "notifications": "Notifications",
+      "assistant": "Assistant (AI)"
     },
     "backupBuiltinTitle": "Enable the built-in config-change triggers?",
     "backupBuiltinText": "These rules start a backup when a device reports a configuration change in syslog. Enable the selected ones now.",
@@ -1909,7 +2022,8 @@
       "backup_failed": "Backup failed",
       "host_key": "SSH host key changed",
       "config_changed": "Configuration changed",
-      "new_mac": "New device"
+      "new_mac": "New device",
+      "lag_degraded": "LAG degraded"
     }
   },
   "flapping": {
@@ -2021,6 +2135,13 @@
       "importantHint": "Uplinks, LAGs and ports with an interface sensor — no alert for every PC switched off at night.",
       "all": "All ports",
       "allHint": "Every port that goes down or flaps raises an alert."
+    },
+    "trunks": {
+      "include": "Include all trunk ports",
+      "includeHint": "Link-down and flapping alerts also for every trunk port, even when it is not an uplink.",
+      "minTagged": "Trunk = port with at least N tagged VLANs",
+      "minTaggedHint": "Access ports with a voice VLAN carry one tagged VLAN; keep N at 2 or more so IP-phone ports are not treated as trunks.",
+      "minTaggedErr": "Enter a whole number from 1 to 100."
     }
   },
   "siem": {
@@ -2205,7 +2326,8 @@
       "report": "Reports",
       "kiosk_screen": "NOC screens",
       "chatack": "Chat acknowledge",
-      "channel": "Channels"
+      "channel": "Channels",
+      "assistant": "AI assistant"
     },
     "entityType": {
       "device": "Device",
@@ -2218,7 +2340,9 @@
       "topology_link": "Topology link",
       "discovery_profile": "Discovery profile",
       "user": "User",
-      "api_token": "API token"
+      "api_token": "API token",
+      "assistant_conversation": "Assistant conversation",
+      "assistant_message": "Assistant answer"
     }
   },
   "timeline": {
@@ -2868,6 +2992,18 @@
       "period": "Choose both dates.",
       "periodOrder": "The end must be after the start.",
       "periodLong": "At most 92 days."
+    },
+    "aiSummary": "AI summary",
+    "aiSummaryHint": "A short AI paragraph at the top of the report (numbers are checked against the report data).",
+    "aiSummaryLabel": "AI-generated summary",
+    "aiSummaryStatus": "AI summary: {{status}}",
+    "aiStatus": {
+      "ok": "added",
+      "failed": "failed",
+      "skipped_cap": "skipped (cap reached)",
+      "timeout": "timed out",
+      "unverified_numbers": "dropped (numbers did not match the data)",
+      "disabled": "feature off"
     }
   },
   "reportSection": {
@@ -2990,6 +3126,792 @@
     "teamsLimit": "In Teams the Acknowledge button opens NetworkMonitor in your browser; it works from the office network or VPN.",
     "emailHint": "Adds an Acknowledge link that opens NetworkMonitor.",
     "needsPublicUrl": "Links need the public URL (Settings → General)."
+  },
+  "trapCollapse": {
+    "title": "Repetitive traps",
+    "intro": "Some devices send the same trap over and over (a heartbeat, or every syslog message as a trap). Keep only the newest traps of these OIDs per source; event rules still see every trap.",
+    "enabled": "Keep only the newest traps of these OIDs",
+    "keep": "Traps to keep per source and OID",
+    "keepHint": "1–1000",
+    "keepErr": "Enter 1–1000.",
+    "oids": "Trap OIDs",
+    "oidsHint": "Numeric OIDs, one per line (up to 64).",
+    "oidsErr": "Not a numeric OID: {{list}}",
+    "known": {
+      "hh3cPeriodicalTrap": "Comware heartbeat, sent when no other trap was sent for a while",
+      "syslogMsgNotification": "a syslog message sent as a trap (it also arrives as syslog)"
+    }
+  },
+  "impact": {
+    "label": "Impact on device status",
+    "option": {
+      "critical": "Critical",
+      "warning": "Warning",
+      "none": "None"
+    },
+    "hint": {
+      "critical": "The device takes this sensor's status (down makes the device down).",
+      "warning": "A failure of this sensor makes the device at most \"warning\".",
+      "none": "This sensor never changes the device status."
+    },
+    "tag": {
+      "warning": "warning only",
+      "none": "no impact"
+    },
+    "tagTitle": "Impact on device status: {{impact}}",
+    "selectSensor": "Select {{name}}",
+    "selected_one": "{{count}} selected",
+    "selected_other": "{{count}} selected",
+    "setImpact": "Set impact…",
+    "clearSelection": "Clear selection",
+    "bulkTitle_one": "Set impact of {{count}} sensor",
+    "bulkTitle_other": "Set impact of {{count}} sensors",
+    "apply": "Apply",
+    "bulkDone_one": "Impact updated for {{count}} sensor.",
+    "bulkDone_other": "Impact updated for {{count}} sensors."
+  },
+  "applyPorts": {
+    "title": "Ports",
+    "choice": {
+      "none": "None",
+      "important": "Important ports",
+      "all": "All",
+      "choose": "Choose ports"
+    },
+    "hint": {
+      "none": "No interface sensors are created.",
+      "important": "Uplinks, LAGs, trunks and IRF ports only (recommended).",
+      "all": "An interface sensor for every port the template matches.",
+      "choose": "Pick the ports yourself."
+    },
+    "reason": {
+      "uplink": "Uplink",
+      "lag": "LAG",
+      "trunk": "Trunk",
+      "irf": "IRF port"
+    },
+    "hasSensor": "monitored",
+    "hasSensorTitle": "This port already has an interface sensor",
+    "search": "Search name or alias…",
+    "clear": "Clear",
+    "selectImportant": "Select important",
+    "selectedOf": "{{n}} of {{total}} selected",
+    "noPorts": "No ports found on this device.",
+    "inventoryMissing": "The port inventory of this device has not been collected, so important ports (uplinks, LAGs, trunks, IRF ports) could not be determined.",
+    "removeUnselected": "Remove interface sensors of ports not selected",
+    "removeCount_one": "{{count}} existing interface sensor will be deleted, with its history.",
+    "removeCount_other": "{{count}} existing interface sensors will be deleted, with their history.",
+    "removedTitle_one": "Removed {{count}} sensor",
+    "removedTitle_other": "Removed {{count}} sensors"
+  },
+  "assistant": {
+    "title": "Ask the network",
+    "open": "Open Ask the network",
+    "ai": "AI",
+    "aiGenerated": "AI-generated",
+    "mayBeWrong": "AI-generated — may be wrong. Check the linked data before acting.",
+    "intro": "Ask about devices, sensors, events, logs, traffic and configuration changes of this network. Answers cite the data they use.",
+    "example": {
+      "down": "Which devices are down right now and since when?",
+      "yesterday": "What happened on core-sw yesterday between 14:00 and 15:00?",
+      "talkers": "Who are the top talkers on the uplink of sw-floor2 in the last hour?",
+      "mac": "Where is MAC 3c:a8:2a:10:20:30 connected?",
+      "configChanges": "Which switches had configuration changes this week?",
+      "availability": "What was the availability of the branch routers last month?",
+      "syslogErrors": "Which devices logged the most errors today?"
+    },
+    "placeholder": "Ask a question about the network…",
+    "question": "Question",
+    "send": "Send",
+    "stop": "Stop",
+    "enterHint": "Enter sends, Shift+Enter adds a line",
+    "remaining_one": "{{count}} question left today",
+    "remaining_other": "{{count}} questions left today",
+    "thinking": "Working on it…",
+    "history": "Conversations",
+    "newConversation": "New",
+    "searchHistory": "Search conversations",
+    "noConversations": "No conversations yet.",
+    "untitled": "Untitled",
+    "rename": "Rename",
+    "deleteConversation": "Delete conversation",
+    "deleteAll": "Delete all",
+    "deleteAllConfirm": "Delete all your conversations? The audit log is kept.",
+    "usageLink": "Usage",
+    "kind": {
+      "chat": "Chat",
+      "explain": "Explain",
+      "rule_draft": "Rule draft",
+      "template_draft": "Template draft"
+    },
+    "continueInAsk": "Continue in Ask",
+    "copy": "Copy",
+    "copied": "Copied",
+    "copyFailed": "Could not copy",
+    "thumbsUp": "Helpful",
+    "thumbsDown": "Not helpful",
+    "feedbackComment": "What was wrong? (optional)",
+    "sources": "Sources",
+    "tokens": "{{n}} tokens",
+    "stepDone": "{{rows}} rows · {{ms}} ms",
+    "stepFailed": "failed: {{error}}",
+    "truncated": "truncated",
+    "cancelled": "Stopped. The partial answer was kept.",
+    "showRunning": "Show the running answer",
+    "capDetail": "({{cap}}: {{used}} of {{limit}})",
+    "cap": {
+      "user_daily": "your daily questions",
+      "monthly_tokens": "monthly token cap",
+      "monthly_cost": "monthly cost cap",
+      "purpose_daily": "daily cap of this feature",
+      "chat_hourly": "hourly /ask limit"
+    },
+    "notice": {
+      "limit_reached": "I stopped after the lookup limit; the answer may be incomplete.",
+      "truncated_context": "Older parts of the conversation were shortened to fit.",
+      "retrying": "Amazon Bedrock was busy — retrying…",
+      "kb_unavailable": "The Knowledge Base could not be searched; answering without it.",
+      "usage_estimated": "Stopped early: the token usage of this answer is estimated."
+    },
+    "state": {
+      "disabled": "Off",
+      "unconfigured": "Not configured",
+      "ready": "Ready",
+      "degraded": "Degraded",
+      "error": "Error"
+    },
+    "idle": "Idle — waiting for: {{reason}}",
+    "idleShort": "Idle (a dependency is missing)",
+    "idleNeed": {
+      "send_config_excerpts": "Send configuration excerpts",
+      "audit": "Audit log"
+    },
+    "warning": {
+      "cert_expiring": "The Roles Anywhere certificate expires in less than 30 days.",
+      "vpce_via_proxy": "The VPC endpoint is reached through the proxy. Add .vpce.amazonaws.com to NO_PROXY or use proxy mode \"direct\".",
+      "stream_buffered": "The answer arrived in one piece: a proxy seems to buffer streamed responses.",
+      "cache_unsupported": "This model does not support prompt caching; it was turned off automatically.",
+      "access_key_old": "The access key is older than 90 days — rotate it.",
+      "key_file_mode": "The private key file on the host is readable by other users.",
+      "temporary_credentials": "Temporary credentials (session token) expire after a few hours — fine for a trial; for the server use an IAM user key, Roles Anywhere or the default chain."
+    },
+    "tool": {
+      "generic": "Running {{tool}}…",
+      "search_devices": "Searching devices…",
+      "get_device": "Reading the device…",
+      "list_problems": "Listing problems…",
+      "search_sensors": "Searching sensors…",
+      "get_sensor_history": "Reading sensor history…",
+      "list_events": "Reading events…",
+      "list_maintenance": "Checking maintenance windows…",
+      "topology_neighbors": "Reading topology neighbours…",
+      "topology_path": "Tracing the path…",
+      "get_device_ports": "Reading ports…",
+      "find_mac_or_ip": "Searching MAC/IP…",
+      "availability": "Calculating availability…",
+      "list_groups": "Reading groups…",
+      "get_timeline": "Reading the device timeline…",
+      "search_syslog": "Searching syslog…",
+      "syslog_stats": "Counting syslog…",
+      "search_traps": "Searching traps…",
+      "flow_top": "Reading top traffic…",
+      "flow_interface_series": "Reading interface traffic…",
+      "list_new_devices": "Checking new devices…",
+      "config_versions": "Reading configuration versions…",
+      "config_diff": "Comparing configurations…",
+      "config_search": "Searching configurations…",
+      "list_notification_channels": "Reading notification channels…",
+      "search_knowledge": "Searching the Knowledge Base…"
+    },
+    "settings": {
+      "section": {
+        "connection": "Connection",
+        "dataSharing": "Data sharing",
+        "limits": "Limits & cost",
+        "conversations": "Conversations",
+        "capabilities": "Capabilities",
+        "kb": "Knowledge Base",
+        "chatModels": "Chat models"
+      },
+      "connection": "Amazon Bedrock connection",
+      "connectionIntro": "Fill in the connection, run Test connection, then turn the assistant on at the bottom. Recommended: region us-east-1 with a us. inference profile, authenticated with IAM Roles Anywhere.",
+      "authMode": "Authentication",
+      "recommended": "Recommended",
+      "auth": {
+        "roles_anywhere": "IAM Roles Anywhere (certificate)",
+        "access_key": "Access key",
+        "default_chain": "Default credential chain"
+      },
+      "authHint": {
+        "roles_anywhere": "Temporary credentials from a certificate of your internal PKI. No long-lived secret is stored.",
+        "access_key": "Static key of a dedicated IAM user with only the Bedrock policy.",
+        "default_chain": "Environment variables, container credentials or the EC2 instance role (for a server running in AWS)."
+      },
+      "raTrustAnchor": "Trust anchor ARN",
+      "raProfile": "Profile ARN",
+      "raRole": "Role ARN",
+      "raRegion": "Roles Anywhere region",
+      "raRegionHint": "Empty = the Bedrock region",
+      "raSession": "Session length (seconds)",
+      "raSessionHint": "900–43200; not longer than the profile allows",
+      "raEndpoint": "Roles Anywhere endpoint URL",
+      "raEndpointHint": "Empty = public endpoint; or a VPC endpoint (https://…)",
+      "arnAccounts": "The ARNs belong to different AWS accounts — check them.",
+      "accessKeyAdvice": "IAM Roles Anywhere is recommended: an access key is a long-lived secret. Use a dedicated IAM user with only the Bedrock policy.",
+      "accessKeyId": "Access key ID",
+      "secretKey": "Secret access key",
+      "keyCreated": "Key created on",
+      "keyCreatedHint": "Optional — reminder after 90 days",
+      "keyOld": "The key is {{days}} days old — rotate it.",
+      "secretUnreadable": "The stored secret cannot be decrypted (secret.key changed). Enter it again.",
+      "sessionToken": "Session token (temporary credentials)",
+      "sessionTokenHint": "Only for temporary keys (ASIA…), e.g. from IAM Identity Center (SSO) → “Access keys”. Leave empty for an IAM user key (AKIA…).",
+      "sessionTokenStored": "A session token is stored. Paste a new one to replace it.",
+      "sessionTokenClear": "Clear the stored session token",
+      "sessionTokenUnreadable": "The stored session token cannot be decrypted (secret.key changed). Enter it again.",
+      "defaultChainInfo": "Credentials come from AWS_ACCESS_KEY_ID / AWS_SECRET_ACCESS_KEY, container credentials or the EC2 instance metadata (IMDSv2; Docker needs hop limit 2). Test shows which source was used.",
+      "region": "AWS region",
+      "regionHint": "Recommended us-east-1; il-central-1 is supported with a global. profile",
+      "modelId": "Model / inference profile ID",
+      "modelHint": "Bedrock → Model catalog → a Claude model → Cross-region inference → copy the profile ID",
+      "listModels": "List models",
+      "noModels": "No Anthropic models found in this region.",
+      "modelKind": {
+        "inference_profile": "inference profile",
+        "foundation_model": "foundation model"
+      },
+      "modelLight": "Light model (optional)",
+      "modelLightHint": "Cheaper model for background features (notes, incidents, digest, reports)",
+      "geo": {
+        "us": "Data location: requests are processed only in AWS regions in the United States (us. profile). Recommended.",
+        "eu": "Data location: requests are processed only in AWS regions in the European Union (eu. profile).",
+        "apac": "Data location: requests are processed only in AWS regions in Asia Pacific (apac. profile).",
+        "jp": "Data location: requests are processed only in AWS regions in Japan (jp. profile).",
+        "au": "Data location: requests are processed only in AWS regions in Australia (au. profile).",
+        "ca": "Data location: requests are processed only in AWS regions in Canada (ca. profile).",
+        "us-gov": "Data location: requests are processed only in AWS GovCloud (US) regions.",
+        "global": "Warning: a global. profile lets AWS process each request in any commercial AWS region worldwide. Use it only if your policy allows it (it is needed in il-central-1).",
+        "regional": "Data location: processed only in {{region}}. Many current models are offered only through inference profiles — if the test fails with \"on-demand throughput isn't supported\", use a profile ID.",
+        "arn": "Data location: wherever this inference profile or provisioned model routes requests.",
+        "ilCentral": "In il-central-1, Claude models are reachable only through global cross-region inference (global. profile)."
+      },
+      "endpoint": "Bedrock endpoint URL",
+      "endpointHint": "Empty = public endpoint; for PrivateLink use the VPC endpoint DNS name (https://vpce-….bedrock-runtime.<region>.vpce.amazonaws.com)",
+      "controlEndpoint": "Control-plane endpoint URL",
+      "controlEndpointHint": "Optional, only for List models",
+      "proxyMode": "Proxy",
+      "proxy": {
+        "env": "From the environment (HTTPS_PROXY / NO_PROXY)",
+        "direct": "Direct (no proxy)",
+        "custom": "Custom proxy"
+      },
+      "proxyHint": {
+        "env": "VPC endpoint hosts must be listed in NO_PROXY.",
+        "direct": "For a VPC endpoint reached over Direct Connect.",
+        "custom": "http://host:port, no credentials."
+      },
+      "proxyUrl": "Proxy URL",
+      "promptCaching": "Prompt caching",
+      "promptCachingHint": "Follow-up model calls of a question pay the cheaper cache-read rate. Turned off automatically if the model does not support it.",
+      "test": "Test connection",
+      "lastTest": "Last test: {{result}} · {{time}} · {{by}}",
+      "missing": {
+        "certificate": "Upload a certificate (or generate a CSR) first.",
+        "secret": "Enter the secret access key.",
+        "sessionToken": "A temporary key (ASIA…) needs the session token."
+      },
+      "enableNeedsTest": "Run a successful Test connection with these values first.",
+      "changeNeedsTest": "Connection fields changed: run Test connection before saving.",
+      "dataSharing": "Data sharing",
+      "sendConfig": "Send configuration excerpts",
+      "sendConfigHint": "Lets the assistant read masked configuration backups (config tools, config-change explanation). Off: no configuration text is sent.",
+      "maskOff": "Configuration masking is off in Config backup settings — config tools stay unavailable until it is on.",
+      "redactIps": "Redact internal IP addresses",
+      "redactTradeoff": "Internal addresses are replaced by placeholders (IP-1, IP-2…) before sending; you still see real addresses. Trade-off: the model can no longer reason about subnets, gateways or address plans, so answers about addressing get worse. Device names and MACs are not redacted.",
+      "internalCidrs": "Extra internal ranges (CIDR)",
+      "internalCidrsHint": "RFC 1918, CGNAT, link-local and ULA are always internal. Up to 64 ranges.",
+      "badCidrs": "Invalid ranges: {{list}}",
+      "tooManyCidrs": "At most 64 ranges.",
+      "chatRedact": "Keep IP placeholders in Telegram /ask answers",
+      "chatRedactHint": "Chat messages are stored in Telegram's cloud; the full answer with real addresses stays in the app.",
+      "dataHandling": "Data handling (verify yourself)",
+      "dataHandlingText": "According to AWS documentation at the time of writing, Amazon Bedrock does not store prompts and answers by default, does not use them for training and does not share them with the model provider; inference stays in the selected region or the regions of the chosen profile geography. Model invocation logging is an account-level opt-in that writes prompts to your CloudWatch/S3. Check the current AWS terms and your account settings — this is not a compliance statement.",
+      "linkDataProtection": "Bedrock data protection",
+      "linkInvocationLogging": "Model invocation logging",
+      "linkCrossRegion": "Cross-region inference",
+      "auditTitlesOnly": "The audit log records questions by conversation title only — the question text itself is never written to the audit log.",
+      "limits": "Limits & cost",
+      "conversations": "Conversations",
+      "capabilities": "Capabilities",
+      "capabilitiesIntro": "Each AI feature has its own switch (off by default). A feature that is on while a dependency is off stays idle and sends nothing.",
+      "defaultLanguage": "Default language",
+      "emailsHint": "One address per line, up to 20",
+      "badEmails": "Invalid addresses: {{list}}",
+      "err": {
+        "region": "Invalid region (e.g. us-east-1)",
+        "model": "Invalid model ID",
+        "url": "https:// URL without a path",
+        "proxy": "http://host:port",
+        "arn": "Invalid ARN",
+        "session": "900–43200",
+        "accessKey": "AKIA… or ASIA… followed by 16 characters",
+        "sessionToken": "Up to 4096 base64 characters (A–Z, a–z, 0–9, + / =)",
+        "range": "{{min}}–{{max}}",
+        "time": "HH:MM",
+        "money": "A number ≥ 0"
+      }
+    },
+    "cert": {
+      "title": "Roles Anywhere certificate",
+      "none": "No certificate yet.",
+      "mode": {
+        "upload": "Upload certificate and key",
+        "csr": "Generate a CSR"
+      },
+      "csrIntro": "The server creates the private key (it never leaves the server) and a certificate request. Submit the CSR to your internal CA, then upload the issued certificate here.",
+      "csrPending": "Pending request {{subject}} created {{time}}.",
+      "cn": "Common name (CN)",
+      "keyType": "Key type",
+      "generateCsr": "Generate CSR",
+      "downloadCsr": "Download CSR",
+      "discardCsr": "Discard request",
+      "csrNext": "Next: let your CA sign it (Client Authentication), then upload the certificate below.",
+      "file": "Certificate (PEM with chain, or .pfx/.p12)",
+      "fileHint": "≤ 64 KiB",
+      "signedFile": "Issued certificate (PEM)",
+      "signedHint": "The certificate your CA issued for the pending request",
+      "keyFile": "Private key (PEM)",
+      "keyHint": "Not needed for .pfx/.p12",
+      "password": "Password",
+      "passwordHint": "For an encrypted key or a .pfx; never stored",
+      "upload": "Upload",
+      "uploadedOk": "Certificate uploaded",
+      "subject": "Subject",
+      "issuer": "Issuer",
+      "serial": "Serial",
+      "validity": "Valid",
+      "daysLeft_one": "{{count}} day left",
+      "daysLeft_other": "{{count}} days left",
+      "expired": "expired",
+      "key": "Key",
+      "keyUnreadable": "The stored key cannot be decrypted (secret.key changed) — upload again.",
+      "chain": "Chain",
+      "source": "Source",
+      "fromFiles": "Host files (NETMON_AWS_RA_CERT_FILE)",
+      "uploaded": "Uploaded {{time}}",
+      "filesReadOnly": "The certificate comes from host files and is read-only here.",
+      "delete": "Delete certificate",
+      "deleteConfirm": "Delete the uploaded certificate and key?",
+      "requirements": "Requirements: X.509 v3, CA:FALSE, key usage Digital Signature, SHA-256 or stronger, RSA ≥ 2048 or ECDSA P-256/P-384; Client Authentication recommended."
+    },
+    "test": {
+      "step": {
+        "config": "Settings",
+        "credentials": "Credentials",
+        "endpoint": "Endpoint (TCP + TLS)",
+        "converse": "Model call",
+        "knowledge": "Knowledge Base"
+      },
+      "endpoint": "Endpoint",
+      "class": {
+        "private": "private address",
+        "public": "public address"
+      },
+      "via": "via",
+      "ttfe": "first event after {{ms}} ms",
+      "ok": "Connection works. You can turn the assistant on below.",
+      "okShort": "OK"
+    },
+    "prices": {
+      "title": "Prices (for the cost estimate)",
+      "hint": "Enter the prices of your model and region from the AWS pricing page. Without prices only tokens are shown and the cost cap is inactive. Cache read/write default to 10 % / 125 % of input.",
+      "currency": "Currency",
+      "input": "Input per 1M tokens ({{currency}})",
+      "output": "Output per 1M tokens ({{currency}})",
+      "cacheRead": "Cache read per 1M ({{currency}})",
+      "cacheWrite": "Cache write per 1M ({{currency}})"
+    },
+    "key": {
+      "assistant_daily_questions_per_user": "Questions per admin per day",
+      "assistant_monthly_token_cap": "Monthly token cap",
+      "assistant_monthly_cost_cap": "Monthly cost cap (USD)",
+      "assistant_background_stop_pct": "Background stop (% of cap)",
+      "assistant_max_model_calls": "Model calls per question",
+      "assistant_max_tool_calls": "Lookups per question",
+      "assistant_max_output_tokens": "Output tokens per call",
+      "assistant_question_timeout_s": "Question timeout (s)",
+      "assistant_max_concurrent": "Concurrent questions (all admins)",
+      "assistant_context_budget_tokens": "Context budget (tokens)",
+      "assistant_retention_days": "Keep conversations (days)",
+      "assistant_artifact_retention_days": "Keep AI results (days)",
+      "correlation_window_min": "Correlation window (min)",
+      "correlation_min_alerts": "Minimum problems per incident",
+      "correlation_daily_summaries": "AI summaries per day",
+      "correlation_attach_to_alert": "Send the incident summary as the root alert's AI note",
+      "alert_note_timeout_s": "Note deadline after the alert (s)",
+      "alert_notes_daily_cap": "Notes per day",
+      "config_diff_auto": "Explain the latest change automatically",
+      "config_diff_daily_cap": "Explanations per day",
+      "digest_time": "Digest time",
+      "digest_language": "Digest language",
+      "digest_email_to": "Email the digest to",
+      "digest_channel_ids": "Send the digest to channels",
+      "chat_ask_per_user_hour": "/ask per admin per hour"
+    },
+    "hint": {
+      "tokenCap": "Input + output (+10 % of cache reads)",
+      "costCap": "Empty = no cost cap; active only when prices are set",
+      "backgroundStop": "Background features stop at this share of a cap",
+      "noPrices": "No prices entered: the usage page shows tokens only and the cost cap is inactive.",
+      "attach": "Only for root alerts of rules with an AI note.",
+      "notesWhere": "Turn on \"AI note\" in each alert rule that should get one.",
+      "diffAuto": "Otherwise the explanation runs when you click \"Explain changes\".",
+      "reportOptIn": "Turn on \"AI summary\" in each report that should get one.",
+      "ruleDraftsWhere": "Use \"Describe the rule…\" in new alert rules (Notifications) and event rules (Traps & Syslog → Rules).",
+      "templateDraftsWhere": "Use \"Draft a template from a device\" on the Templates page.",
+      "explainWhere": "\"Explain\" appears on dashboard problems, sensor pages, events and incidents."
+    },
+    "chatAsk": {
+      "howTo": "In a private chat with the bot, send /ask followed by a question (up to 1000 characters).",
+      "linking": "Only administrators whose Telegram account is linked (Account → Chat accounts) can ask. Enable \"Allow /ask\" on the Telegram channel of the bot.",
+      "teams": "Teams is not supported: Teams workflows cannot send messages to an internal server.",
+      "accountLink": "Link my Telegram account",
+      "channelsLink": "Notification channels",
+      "accountInfo": "Assistant: once linked, you can send /ask <question> to the bot in a private chat."
+    },
+    "kb": {
+      "title": "Knowledge Base",
+      "intro": "Amazon Bedrock Knowledge Base with your runbooks and documents. Fill in, run Test, then turn it on at the bottom.",
+      "configureBelow": "Configured in the Knowledge Base section below",
+      "id": "Knowledge Base ID",
+      "idHint": "10 characters, A–Z and 0–9",
+      "region": "Region",
+      "regionHint": "Empty = the assistant region",
+      "endpoint": "Endpoint URL",
+      "endpointHint": "Empty = public bedrock-agent-runtime; or a VPC endpoint",
+      "results": "Passages per search",
+      "minScore": "Minimum score",
+      "description": "Description (shown to the model)",
+      "descriptionHint": "e.g. \"IT runbooks and network diagrams\" (≤ 300)",
+      "invalid": "Invalid value",
+      "test": "Test Knowledge Base",
+      "testOk": "{{n}} results in {{ms}} ms"
+    },
+    "model": "Model",
+    "chatModels": {
+      "title": "Chat models",
+      "hint": "Models and inference profiles an administrator can choose in the chat (up to 8). The main model is always offered and is the default. Telegram /ask and the background AI features keep using the main and light models. Changing this list does not need a new connection test.",
+      "defaultList": "No list: the chat offers the main model and the light model (when set).",
+      "id": "Model or inference profile ID",
+      "label": "Display name",
+      "labelPlaceholder": "Display name (optional)",
+      "add": "Add model",
+      "remove": "Remove",
+      "max": "At most {{n}} models.",
+      "effective": "Offered in the chat:",
+      "default": "default",
+      "error": {
+        "invalid": "Invalid model or inference profile ID",
+        "duplicate": "This model is already in the list",
+        "label": "The display name is too long (60 characters at most)"
+      }
+    }
+  },
+  "explain": {
+    "button": "Explain",
+    "title": "Explain this alert",
+    "explainedAt": "Explained {{time}}",
+    "refresh": "Refresh"
+  },
+  "incident": {
+    "title": "Incidents",
+    "openTitle": "Open incidents",
+    "all": "All incidents",
+    "none": "No incidents.",
+    "tab": {
+      "events": "Events",
+      "incidents": "Incidents"
+    },
+    "titleLine": "{{root}} {{rootStatus}} — {{members}} {{status}}",
+    "unit": {
+      "devices_one": "{{count}} device",
+      "devices_other": "{{count}} devices",
+      "sensors_one": "{{count}} sensor",
+      "sensors_other": "{{count}} sensors"
+    },
+    "state": {
+      "open": "Open",
+      "resolved": "Resolved",
+      "stale": "Stale"
+    },
+    "stateFilter": "State",
+    "recovered": "recovered",
+    "rootCandidate": "Root candidate",
+    "rootCandidates": "Root candidates",
+    "rootGuess": "AI guess for the root cause: {{name}} (confidence: {{confidence}})",
+    "summary": "Summary",
+    "summarize": "New AI summary",
+    "noAi": "No AI summary (deterministic grouping only).",
+    "noAckAll": "Acknowledge each alert in its usual place — there is no bulk acknowledge here.",
+    "members_one": "{{count}} member",
+    "members_other": "{{count}} members",
+    "device": "Device",
+    "sensor": "Sensor",
+    "recoveredAt": "Recovered",
+    "root": "root"
+  },
+  "confidence3": {
+    "low": "low",
+    "medium": "medium",
+    "high": "high"
+  },
+  "diffRisk": {
+    "title": "Change review",
+    "explain": "Explain changes",
+    "refresh": "Explain again",
+    "noFlags": "No risky patterns found.",
+    "lines": "lines {{lines}}",
+    "confidence": "Confidence: {{level}}",
+    "truncated": "The diff was too long; only part of it was explained.",
+    "severity": {
+      "high": "High",
+      "medium": "Medium",
+      "info": "Info"
+    },
+    "side": {
+      "added": "added",
+      "removed": "removed"
+    },
+    "snmp_community_added": "SNMP community or v3 user added/changed",
+    "mgmt_acl_removed": "Management access ACL removed",
+    "mgmt_opened": "Management (SSH/Telnet/HTTP) opened",
+    "acl_permit_any": "ACL rule permitting any added",
+    "acl_rule_removed": "ACL rule removed",
+    "expert_password_changed": "Expert password changed",
+    "privileged_user_added": "Privileged user added or privilege raised",
+    "local_user_added": "Local user added or changed",
+    "aaa_changed": "AAA / RADIUS / TACACS changed",
+    "syslog_host_removed": "Syslog/logging host removed",
+    "ntp_changed": "NTP server changed",
+    "interface_shutdown": "Interface shut down",
+    "interface_enabled": "Interface enabled (undo shutdown)",
+    "vlan_removed": "VLAN removed",
+    "vlan_removed_cmd": "VLAN removed",
+    "routing_changed": "Routing changed"
+  },
+  "digest": {
+    "title": "Syslog digest",
+    "open": "Open the digests",
+    "dayTitle": "Syslog digest — {{day}}",
+    "none": "No digests yet.",
+    "day": "Day",
+    "status": "Status",
+    "st": {
+      "ok": "Ready",
+      "failed": "AI failed",
+      "skipped": "Skipped",
+      "running": "Running"
+    },
+    "unusual": "Unusual",
+    "newTypes": "New types",
+    "total": "Messages",
+    "runNow": "Run now",
+    "sendToo": "Also send",
+    "summary": "What was unusual",
+    "totals": "{{total}} messages · {{unusual}} unusual · {{newTypes}} new types",
+    "learning": "The baseline is still learning (fewer than 3 earlier days).",
+    "sampled": "The day had too many messages; statistics are sampled.",
+    "aiUnavailable": "AI summary unavailable — the statistics below are complete.",
+    "newTypesTitle": "New message types",
+    "example": "Example",
+    "count": "Count",
+    "key": "Key",
+    "baseline": "Baseline",
+    "ratio": "Ratio",
+    "unusualBadge": "unusual",
+    "bySeverity": "By severity",
+    "byProgram": "By program",
+    "byDevice": "By device",
+    "byHour": "By hour",
+    "deliveries": "Deliveries"
+  },
+  "draft": {
+    "describe": "Describe the rule…",
+    "describeLabel": "Describe the rule in your words",
+    "alertPlaceholder": "e.g. Alert me on Telegram when any core switch is down for 2 minutes",
+    "eventPlaceholder": "e.g. Warning when a switch logs a port security violation",
+    "draft": "Draft",
+    "working": "The assistant is drafting…",
+    "banner": "Draft by the assistant — review every field before saving.",
+    "assumptions": "Assumptions",
+    "validationErrors": "Fix before saving",
+    "cannotTitle": "The assistant could not draft a rule from this description.",
+    "cannotHint": "Describe what to watch for and what should happen, for example:",
+    "cannotExampleAlert": "Alert me on Telegram when any core switch is down for 2 minutes",
+    "cannotExampleEvent": "Warning when a switch logs an SSH login failure (program SSHS or sshd)"
+  },
+  "tdraft": {
+    "open": "Draft a template from a device",
+    "title": "Draft a template from a device",
+    "step": {
+      "setup": "Device and subtrees",
+      "walk": "SNMP walk",
+      "draft": "Review and save"
+    },
+    "intro": "A bounded, read-only SNMP walk of the device; the assistant then drafts a device template for you to review. Credentials are never sent to AWS.",
+    "device": "Device",
+    "subtrees": "Subtrees",
+    "subtreesHint": "At most 8 subtrees in total",
+    "preset": {
+      "system": "System (1.3.6.1.2.1.1)",
+      "entity": "ENTITY-MIB physical table",
+      "host_resources": "HOST-RESOURCES",
+      "enterprise": "Vendor subtree (from sysObjectID)",
+      "if_sample": "IF-MIB (first 8 rows)",
+      "entity_sensor": "ENTITY-SENSOR"
+    },
+    "customOids": "Extra OIDs",
+    "customOidsHint": "Optional, separated by spaces or commas",
+    "badOids": "Invalid OIDs: {{oids}}",
+    "tooMany": "At most 8 subtrees in total.",
+    "neverWalked": "Never walked: SNMP users, communities, VACM, route, ARP and FDB tables.",
+    "startWalk": "Start walk",
+    "walkStatus": {
+      "running": "Walking…",
+      "ok": "Walk finished",
+      "partial": "Walk partially finished",
+      "failed": "Walk failed",
+      "cancelled": "Walk cancelled"
+    },
+    "varbinds": "{{n}} values",
+    "cancelWalk": "Cancel walk",
+    "templateId": "Template ID (optional)",
+    "templateIdHint": "lower-case letters, digits and _",
+    "notes": "Notes for the assistant (optional)",
+    "notesHint": "e.g. \"monitor PSU and fan status\"",
+    "makeDraft": "Draft template",
+    "drafting": "The assistant is drafting the template…",
+    "back": "Back",
+    "reviewBanner": "Draft by the assistant — review every OID and threshold before saving. Every OID entry is marked confidence: unverified.",
+    "valid": "The draft passes template validation.",
+    "invalid": "The draft has validation errors — fix them before saving:",
+    "yaml": "Template YAML",
+    "save": "Save as user template",
+    "overwrite": "Overwrite the existing user template",
+    "saved": "Saved {{file}}",
+    "cannotTitle": "The assistant could not draft a template from this walk.",
+    "cannotHint": "Walk the subtrees with the device's own values (enterprise, ENTITY, HOST-RESOURCES) and describe what to monitor, for example:",
+    "cannotExample": "monitor PSU and fan status and CPU temperature"
+  },
+  "usage": {
+    "title": "Assistant usage",
+    "estimateNote": "Cost is an estimate — your AWS bill is authoritative.",
+    "prevMonth": "Previous month",
+    "nextMonth": "Next month",
+    "thisMonth": "This month",
+    "projection": "projected {{pct}} % by month end",
+    "backgroundStopped": "Background AI features are paused (near the cap)",
+    "open": "Usage page",
+    "questions": "Questions",
+    "tokens": "Tokens",
+    "ofCap": "of {{cap}}",
+    "cost": "≈ Cost",
+    "noPrices": "no prices entered",
+    "pctOfCap": "Of monthly cap",
+    "projectionTile": "Projected at month end",
+    "perDay": "Tokens per day",
+    "none": "No usage this month.",
+    "perUser": "Per administrator",
+    "user": "User",
+    "system": "System (background)",
+    "perPurpose": "Per feature",
+    "purpose": "Feature",
+    "calls": "Calls",
+    "topTools": "Top lookups",
+    "tool": "Tool",
+    "errors": "Errors",
+    "avgMs": "Avg ms",
+    "errorsTitle": "Errors",
+    "noErrors": "No errors.",
+    "feedback": "Feedback: {{up}} helpful, {{down}} not helpful ({{pct}} % helpful)",
+    "last12": "Last 12 months",
+    "month": "Month",
+    "kbNote": "Knowledge Base searches are billed by AWS separately (vector store and embeddings).",
+    "purposes": {
+      "ask": "Ask",
+      "explain": "Explain",
+      "incident": "Incident summaries",
+      "alert_note": "Alert notes",
+      "diff_explain": "Config changes",
+      "digest": "Syslog digest",
+      "rule_draft": "Rule drafts",
+      "template_draft": "Template drafts",
+      "chat_ask": "Telegram /ask",
+      "report_summary": "Report summaries",
+      "test": "Connection tests",
+      "title": "Audit titles"
+    },
+    "perModel": "Per model",
+    "model": "Model",
+    "inputTokens": "Input",
+    "outputTokens": "Output",
+    "unknownModel": "Unknown model",
+    "cacheRead": "Input tokens read from the prompt cache",
+    "cached": "cached"
+  },
+  "treeMenu": {
+    "label": {
+      "group": "Group {{name}}",
+      "device": "Device {{name}}",
+      "sensor": "Sensor {{name}}"
+    },
+    "action": {
+      "open": "Open",
+      "openNewTab": "Open in new tab",
+      "addDevice": "Add device here",
+      "addSubgroup": "Add subgroup",
+      "pauseAll": "Pause all devices",
+      "resumeAll": "Resume all devices",
+      "maintenance": "Maintenance window…",
+      "discovery": "Run discovery: {{name}}",
+      "addSensor": "Add sensor…",
+      "applyTemplate": "Apply template…",
+      "runAll": "Run all sensors now",
+      "pause": "Pause",
+      "resume": "Resume",
+      "tabPorts": "Ports tab",
+      "tabTimeline": "Timeline tab",
+      "tabConfig": "Configuration tab",
+      "explain": "Explain with AI",
+      "copyIp": "Copy IP address",
+      "copyName": "Copy name",
+      "runNow": "Run now",
+      "acknowledge": "Acknowledge…",
+      "edit": "Edit…",
+      "delete": "Delete…"
+    },
+    "progress": {
+      "pausing": "Pausing devices…",
+      "resuming": "Resuming devices…",
+      "running": "Running sensors…"
+    },
+    "done": {
+      "paused": "Device paused",
+      "resumed": "Device resumed",
+      "pausedAll": "Paused {{ok}} of {{total}} devices",
+      "resumedAll": "Resumed {{ok}} of {{total}} devices",
+      "ranAll": "Ran {{ok}} of {{total}} sensors",
+      "discovery": "Discovery started",
+      "copied": "Copied to clipboard",
+      "copyFailed": "Could not copy to the clipboard"
+    }
+  },
+  "settingsSearch": {
+    "label": "Search settings",
+    "placeholder": "Search settings…",
+    "clear": "Clear search",
+    "none": "No settings found",
+    "requires": "Requires the {{feature}} feature — turn it on in {{tab}}"
   },
   "auth": {
     "tagline1": "Every port.",

@@ -27,7 +27,8 @@ import { LdapTab } from '../components/features/LdapSettings';
 import { SiemTab } from '../components/features/SiemSettings';
 import { FeatureSection } from '../components/features/common';
 import { FeatureToggleCard } from '../components/features/FeatureToggle';
-import { SETTINGS_TABS, type SettingsTab } from '../lib/features';
+import { ALL_OFF, featuresFromSettings, SETTINGS_TABS, type SettingsTab } from '../lib/features';
+import { SettingsSearch } from '../components/SettingsSearch';
 import { TabBar } from '../components/TabBar';
 import {
   BackupSettingsTab,
@@ -36,8 +37,11 @@ import {
   NewDeviceSettingsTab,
   ReportSettingsTab,
 } from '../components/features/Phase3Settings';
+import { SecurityCard } from '../components/settings/SecuritySettings';
 import { SsoTab } from '../components/features/SsoSettings';
 import { NocTab } from '../components/features/NocSettings';
+import { cardAnchor } from '../lib/settingsIndex';
+import { AssistantSettingsTab } from '../components/assistant/AssistantSettingsTab';
 
 function SmtpCard({ settings }: { settings: Settings }) {
   const { t } = useTranslation();
@@ -95,7 +99,7 @@ function SmtpCard({ settings }: { settings: Settings }) {
   };
 
   return (
-    <Card title={t('settings.smtp')}>
+    <Card title={t('settings.smtp')} anchor={cardAnchor('smtp')}>
       <form onSubmit={submit} className="space-y-4">
         <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
           <Field label={t('settings.smtpHost')} className="sm:col-span-2">
@@ -234,7 +238,7 @@ function GeneralCard({ settings }: { settings: Settings }) {
   };
 
   return (
-    <Card title={t('settings.general')}>
+    <Card title={t('settings.general')} anchor={cardAnchor('general')}>
       <form onSubmit={submit} className="space-y-4">
         <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
           <Field label={t('settings.retentionDays')} hint={t('settings.retentionHint')}>
@@ -367,7 +371,7 @@ function PortsCard({ settings }: { settings: Settings }) {
   const hint = (bad: boolean, ok: string, errKey: string) =>
     bad ? <span className="text-status-down">{t(errKey)}</span> : ok;
   return (
-    <Card title={t('settings.ports.title')}>
+    <Card title={t('settings.ports.title')} anchor={cardAnchor('ports')}>
       <form onSubmit={submit} className="space-y-4" data-testid="ports-settings">
         <p className="text-xs text-ink-muted">{t('settings.ports.intro')}</p>
         <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
@@ -448,6 +452,8 @@ export function SettingsPage() {
   const [params, setParams] = useSearchParams();
   const p = params.get('tab') as SettingsTab | null;
   const tab: SettingsTab = p && SETTINGS_TABS.includes(p) ? p : 'general';
+  const openTab = (k: SettingsTab) =>
+    setParams(k === 'general' ? {} : { tab: k }, { replace: true });
   return (
     <div className="space-y-6">
       <PageHeader
@@ -463,11 +469,12 @@ export function SettingsPage() {
           })
         }
       />
+      <SettingsSearch features={q.data ? featuresFromSettings(q.data) : ALL_OFF} onTab={openTab} />
       <TabBar
         tabs={[...SETTINGS_TABS]}
         value={tab}
         label={t('settings.title')}
-        onChange={(k) => setParams(k === 'general' ? {} : { tab: k }, { replace: true })}
+        onChange={openTab}
         render={(k) => t(`settings.tab.${k}`)}
       />
       {q.isLoading && <Loading />}
@@ -477,6 +484,7 @@ export function SettingsPage() {
           <GeneralCard settings={q.data} />
           <PortsCard settings={q.data} />
           <SmtpCard settings={q.data} />
+          <SecurityCard settings={q.data} />
         </>
       )}
       {q.data && tab === 'features' && <FeaturesTab settings={q.data} />}
@@ -490,6 +498,7 @@ export function SettingsPage() {
       {q.data && tab === 'reports' && <ReportSettingsTab settings={q.data} />}
       {q.data && tab === 'noc' && <NocTab settings={q.data} />}
       {q.data && tab === 'chatAck' && <ChatAckSettingsTab settings={q.data} />}
+      {q.data && tab === 'assistant' && <AssistantSettingsTab settings={q.data} />}
       {q.data && tab === 'audit' && (
         <>
           <FeatureToggleCard names={['audit']} settings={q.data} />

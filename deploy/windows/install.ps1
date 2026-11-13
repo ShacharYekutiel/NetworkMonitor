@@ -79,8 +79,10 @@
     must allow long requests (>= 70 s) to api.telegram.org (Telegram long polling).
 
 .PARAMETER NoProxy
-    Extra NO_PROXY entries for the service (internal webhook targets), e.g.
-    .corp.local,10.0.0.0/8. localhost and 127.0.0.1 are always included.
+    Extra NO_PROXY entries for the service (internal webhook targets, Amazon Bedrock endpoint
+    names that resolve privately), e.g. .corp.local,bedrock-runtime.il-central-1.amazonaws.com.
+    localhost, 127.0.0.1 and .vpce.amazonaws.com (Bedrock VPC endpoint names) are always
+    included.
 
 .EXAMPLE
     powershell -ExecutionPolicy Bypass -File .\deploy\windows\install.ps1 -Port 8081
@@ -670,10 +672,15 @@ try {
     elseif ($prevProxy) { $proxy = $prevProxy }
     elseif ($env:HTTPS_PROXY) { $proxy = $env:HTTPS_PROXY }
     if ($proxy) {
-        $noProxyList = 'localhost,127.0.0.1,::1'
+        # [3b] .vpce.amazonaws.com: Bedrock VPC endpoint names resolve to private addresses
+        # (Direct Connect) and must never go through the proxy.
+        $noProxyList = 'localhost,127.0.0.1,::1,.vpce.amazonaws.com'
         if ($NoProxy) { $noProxyList = "$noProxyList,$NoProxy" }
         elseif ($prevNoProxy) { $noProxyList = $prevNoProxy }
         elseif ($env:NO_PROXY) { $noProxyList = "$noProxyList,$($env:NO_PROXY)" }
+        if (($noProxyList -split ',') -notcontains '.vpce.amazonaws.com') {
+            $noProxyList = "$noProxyList,.vpce.amazonaws.com"
+        }
         $proxyEnv = @("HTTPS_PROXY=$proxy", "HTTP_PROXY=$proxy", "NO_PROXY=$noProxyList")
         Write-Ok "Service outbound proxy: $(($proxy -split '://')[0])://... (NO_PROXY=$noProxyList)"
     }

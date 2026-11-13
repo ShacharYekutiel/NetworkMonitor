@@ -29,6 +29,7 @@ import {
 import { FeatureSection, useSaveSettings } from './common';
 import { FeatureToggleCard } from './FeatureToggle';
 import { useIngestStatus } from './IngestStatus';
+import { cardAnchor } from '../../lib/settingsIndex';
 
 function TestButton({
   body,
@@ -236,6 +237,7 @@ export function SiemCard({ settings }: { settings: Settings }) {
   const fw = (id?: string) => ingest.data?.forwarders.find((f) => f.id === id);
   return (
     <Card
+      anchor={cardAnchor('siem')}
       title={t('siem.title')}
       actions={
         <Button

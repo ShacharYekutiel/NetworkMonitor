@@ -1,4 +1,5 @@
-# NetworkMonitor — Data Model (Phase 1 + Phase 2a + Phase 2b-1 + Phase 2b-2 + Phase 2b-3 + Phase 3)
+# NetworkMonitor — Data Model (Phase 1 + Phase 2a + Phase 2b-1 + Phase 2b-2 + Phase 2b-3 + Phase 3 + Phase 3b)
+# NetworkMonitor — Data Model (Phase 1 + Phase 2a + Phase 2b-1 + Phase 2b-2 + Phase 2b-3 + Phase 3 + 1.3)
 
 Sections and rows marked **[2a]** belong to the Phase 2a contract (auto-discovery, device templates,
 `snmp_custom` / `snmp_disk` sensors, Telegram channel). Everything else is the Phase 1 contract and is unchanged.
@@ -12,6 +13,12 @@ Active Directory, audit log, timeline, Teams, API tokens) are in [§ Phase 2b-3]
 migration `0006`.
 Sections marked **[3]** (config backup, flows, new-device alerts, SSO, reports, NOC screens, chat acknowledge)
 are in [§ Phase 3](#3-phase-3-additions), migration `0007`.
+Sections marked **[3b]** (assistant on Amazon Bedrock and the AI features) are in
+[§ Phase 3b](#3b-phase-3b-additions), migration `0010`.
+Sections marked **[1.3]** (sensor impact, important ports, LAG degraded, template options, IRF) are in
+[§ Release 1.3](#13-release-13-additions), migration `0008`.
+Sections marked **[1.3.1]** (IRF ports are important, named value maps, IRF role names) are in
+[§ Release 1.3.1](#131-release-131-additions), migration `0009`.
 
 PostgreSQL ≥ 14 holds the data, and TimescaleDB is optional (see [architecture.md §6](architecture.md)). Alembic
 migrations own the schema.
@@ -102,6 +109,7 @@ The API layer prevents cycles: if `parent_id` would make the group its own ances
 | last_status_change_at | timestamptz | NULL |
 | state | jsonb | NOT NULL DEFAULT '{}'. Internal poller state (e.g. the last SNMP counters). **Never exposed by the API.** |
 | sort_order | integer | NOT NULL DEFAULT 0 |
+| impact | text | **[1.3]** NOT NULL DEFAULT `critical` CHECK in (`critical`,`warning`,`none`): contribution to the device status ([§ 1.3](#13-sensor-impact)) |
 | created_at, updated_at | timestamptz | |
 
 Index: `(status)`.
@@ -558,6 +566,7 @@ Channels (primary: `disk_used_pct`):
   - else if it has no sensors → `unknown`;
   - else if all sensors are `paused` → `paused`;
   - else the highest-severity status among its non-paused sensors.
+  - **[1.3]** each sensor contributes its status through its `impact` first ([§ 1.3 Sensor impact](#13-sensor-impact)).
 - **Group status:** the highest-severity status over its direct devices and its child groups, with paused
   members excluded. A group with no members, or only paused members → `unknown` or `paused` respectively.
   A child group that has no members at all (no devices anywhere below it) is not counted as a member, so an
@@ -1348,6 +1357,7 @@ the list (`null` = any). `suggest()` gains the `sys_object_id` argument. Existin
 | Field | Type | Default | Meaning |
 |---|---|---|---|
 | `skip_zero` | bool | false | Rows whose walked value is `0` or not numeric are ignored (not counted towards `max`). |
+| `entity_sensor_scale` | bool | false | **[1.2.1]** ENTITY-SENSOR-MIB tables: at apply time read `entPhySensorScale` (`…99.1.1.1.2`) and `entPhySensorPrecision` (`…99.1.1.1.3`) per row and store `multiplier = 10^(3·(scale−9) − precision)` (times the entry's own multiplier) in the sensor config. Unreadable/out-of-range values count as units / 0. Omitted from the parsed template when false. |
 | `filters` | `{"oid": str, "in": int[] \| null, "not_in": int[] \| null}[]` | `[]` | Each filter GETs `oid + "." + S` for the row suffix S; the row is kept only when the value (integer) is in `in` (when set) and not in `not_in` (when set). A missing/non-integer value drops the row. All filters must pass. |
 
 `config` of an `snmp_table` entry may contain every `snmp_custom` key except `oid`/`percent_of_oid`/`label`
@@ -1399,6 +1409,8 @@ Common enum maps (stored in the entry config):
   default `warning`. Enum values: **medium-high** confidence.
 - `HH3C_ERROR_MAP` (hh3cEntityExtErrorStatus): `{"2":{"status":"up","text":"normal"}}`, default **`down`**
   (every other value is a fault: postFailure(3), fanError(41), psuError(51), rpsError(61), hardwareFaulty(91), …).
+  **[1.3.1]** replaced in `hpe_comware` by the shared code table `hh3c_error_status` (`value_map_ref`,
+  localized texts, [§ 1.3.1 Named value maps](#131-named-value-maps)); migration 0009 moves unedited sensors to it.
   `normal(2)` / `notSupported(1)` / `entityAbsent(4)`: **medium** confidence.
 
 ### `hpe_arubaos_switch` entries
@@ -2655,8 +2667,12 @@ is allowed (precedence decides) but the API returns a warning list in the device
 
 Table CHECK: scope/group/device consistency as `maintenance_windows`. API validation (422): action `ignore`
 has no key/clear; warning/down rules need `clear_match` or `clear_after_min` (a condition must be able to end;
-manual clear exists but is not enough); regexes compile (Python `re`, `IGNORECASE`), ≤ 200 chars; OIDs
-numeric dotted.
+manual clear exists but is not enough); regexes compile, ≤ 200 chars; OIDs numeric dotted.
+**[1.3.3]** every rule regex (varbind `regex`, syslog `text`, `key_regex`) is validated and matched with
+**RE2** (`netmon.util.saferegex`), a linear-time engine, not Python `re` — this closes the ReDoS exposure on
+the unauthenticated UDP trap/syslog ingest path. Validation (422) rejects features RE2 cannot run in linear
+time (**backreferences, lookaround**); matching stays case-insensitive. A stored pre-1.3.3 pattern RE2 cannot
+compile is treated as no-match and logged at startup (listing the rule ids). See architecture § 12.15.
 
 ```json
 // TrapMatch
@@ -2688,6 +2704,9 @@ in scope for the device sorted by `(priority, id)`, `ctx` (important-port predic
 varbind → important; else important when an `snmp_interface` sensor of the device has `config.if_index` =
 ifIndex, or the `switch_ports` row has kind `lag` or `lag_if_index` not null, or the port is an uplink per
 data-model § Uplinks; a device with no `switch_ports` rows and no `snmp_interface` sensors → important.
+**[1.3]** replaced by [§ 1.3 Important ports](#13-important-ports): the shared definition (uplink, LAG / member,
+trunk while `event_linkdown_include_trunks`) plus ports whose `snmp_interface` sensor has impact **`critical`**;
+a device with neither `switch_ports` rows nor critical interface sensors → every port important.
 
 ### Built-in rules (seeded by `0006`, **enabled = false**)
 | builtin_key | name (en / he) | kind | priority | match | action | key | clear |
@@ -2755,6 +2774,7 @@ Ten-GigabitEthernet1/0/49 changed to down.`; TCP/TLS frame = `<length> <message>
 |---|---|---|
 | lag_if_index | integer | NULL — aggregator ifIndex of this physical port |
 | lag_attached | boolean | NULL — true: attached (LAG-MIB); false: configured (ifStack) but LAG-MIB reports not attached; null: membership known from ifStack only |
+| irf_port **[1.3.1]** | smallint | NULL — the IRF port (1/2) this physical port is bound to (Comware IRF, [§ 1.3.1 IRF ports](#131-irf-physical-ports)); null: not an IRF port |
 
 `port_inventory_status.sources` gains key `lag` (`source_state`) and `lag_mib` (`"ieee8023"` \| `"if_stack"` \|
 `"both"` \| null). Walks and `resolve_lag`: architecture § 12.6.
@@ -2889,6 +2909,10 @@ Expired/revoked tokens are deleted 30 days after expiry/revocation by the daily 
 | `trap_v3_users` | object[] | [] | ≤ 32 `{username, security_level, auth_protocol, auth_key, priv_protocol, priv_key}` (same value sets as SnmpCredentials; keys secret) |
 | `ingest_unknown_sources` | `"store"` \| `"drop"` | `"store"` | |
 | `ingest_ignored_sources` | str[] | [] | ≤ 256 IPs or CIDRs |
+| `trap_collapse_enabled` | bool | false | **[1.2.1]** keep only the newest traps of `trap_collapse_oids` per source IP and OID (pruned after each write and once when turned on; event rules still see every trap) |
+| `trap_collapse_oids` | str[] | hh3cPeriodicalTrap, syslogMsgNotification | ≤ 64 numeric OIDs (leading dot stripped) |
+| `trap_collapse_keep` | int | 10 | 1–1000 |
+| `trap_names_version` | str | "" | internal: OID name table version the stored `traps.trap_name` values were last updated to (startup backfill) |
 | `flap_threshold`, `flap_window_min`, `flap_quiet_min` | int | 5, 10, 15 | § Port flapping |
 | `event_linkdown_scope` | `"important"` \| `"all"` | `"important"` | link-down / flapping alert scope (architecture § 12.3, § 12.4); other values → 422 |
 | `siem_targets` | object[] | [] | § SIEM |
@@ -3593,3 +3617,644 @@ append-only trigger `audit_log_immutable` disabled for that statement), restore 
 users WHERE source = 'oidc'`, restore the user checks; `DELETE FROM events WHERE kind IN ('config_change','new_device')`,
 restore the kind check; `DELETE FROM sensors WHERE type IN ('config_backup','new_mac')`, restore the type check
 and `ux_sensors_event_type`. Settings rows stay (harmless).
+
+# **[3b]** Phase 3b additions
+
+Scope: the "Ask the network" assistant (Amazon Bedrock Converse with read-only tools) and 10 AI features. All
+schema changes are in **migration `0010`** ([§ Phase 3b migration](#3b-phase-3b-migration-0010)). Everything is
+additive. API shapes: [api.md § Phase 3b](api.md#3b-phase-3b-contract). Components and flows:
+[architecture.md § 14](architecture.md#14-phase-3b-ask-the-network-assistant-and-ai-features-amazon-bedrock).
+
+## [3b] Enum changes
+
+| Name | Values |
+|---|---|
+| `feature` | … 19 values of 2b-3 + 3, **[3b]** `assistant`, `ai_explain_alert`, `ai_correlation`, `ai_alert_notes`, `ai_config_diff`, `ai_syslog_digest`, `ai_rule_drafts`, `ai_template_drafts`, `ai_knowledge`, `ai_chat_ask`, `ai_report_summary` (28 toggles in total; Teams and API tokens are not toggles) |
+| **[3b]** `assistant_purpose` | `ask`, `explain`, `incident`, `alert_note`, `diff_explain`, `digest`, `rule_draft`, `template_draft`, `chat_ask`, `report_summary`, `test`, `title` (the neutral audit title of a question, light model) |
+| **[3b]** `assistant_channel` | `web`, `telegram` |
+| **[3b]** `conversation_kind` | `chat`, `explain`, `rule_draft`, `template_draft` |
+| **[3b]** `message_role` | `user`, `assistant` |
+| **[3b]** `message_status` | `running`, `complete`, `cancelled`, `error`, `limit_reached` |
+| **[3b]** `artifact_kind` | `explain`, `incident_summary`, `alert_note`, `diff_explain`, `digest`, `rule_draft`, `template_draft`, `report_summary` |
+| **[3b]** `artifact_status` | `ok`, `failed`, `skipped`, `running` |
+| **[3b]** `incident_state` | `open`, `resolved`, `stale` |
+| **[3b]** `walk_status` | `running`, `ok`, `partial`, `failed`, `cancelled` |
+| **[3b]** `auth_mode` | `roles_anywhere`, `access_key`, `default_chain` |
+| **[3b]** `proxy_mode` | `env`, `direct`, `custom` |
+
+## [3b] Feature toggles
+
+Keys `feature_<name>_enabled` (bool, **default `false`**, also on upgraded installs; no migration writes them).
+`feature_assistant_enabled` and `feature_ai_knowledge_enabled` can be turned ON only through their configure-first
+endpoints with a valid `test_id` (architecture § 14.2.6); `PUT /api/settings` setting them to `true` →
+`422 assistant_test_required`; `false` is accepted there. `feature_assistant_enabled` ON requires
+`feature_audit_enabled` ON, and `audit` cannot be turned OFF while `assistant` is ON (`422 feature_dependency`).
+
+| Key | ON | OFF means exactly |
+|---|---|---|
+| `feature_assistant_enabled` | credentials provider, agent executor, `/assistant`, conversations, usage | running questions cancelled; credentials dropped from memory; `/api/assistant/*` 409 except `GET/PUT /api/assistant/settings`, `POST /api/assistant/test`, `POST|DELETE /api/assistant/cert`, `POST /api/assistant/models`, `GET /api/assistant/usage` (prepare, review cost); every AI feature idles; conversations, usage, artifacts kept; retention still runs |
+| `feature_ai_explain_alert_enabled` | *Explain* buttons, `POST /api/assistant/explain` | endpoint 409, buttons hidden; stored explanations kept (readable in conversations) |
+| `feature_ai_correlation_enabled` | correlation listener, incident API, WS `incident.update` | listener stopped (open incidents set `stale`); `/api/incidents*` 409; incidents kept |
+| `feature_ai_alert_notes_enabled` | note worker, `alert_rules.ai_note` honoured | no note jobs (queue dropped); `ai_note` flags kept and ignored; alerts unchanged |
+| `feature_ai_config_diff_enabled` | `POST /api/assistant/config-diff/explain`, risk flags in the diff view | endpoint 409; flags not shown; stored explanations kept |
+| `feature_ai_syslog_digest_enabled` | digest scheduler, digest API, signature register updates | scheduler stopped; `/api/assistant/digests*` 409; digests and signatures kept |
+| `feature_ai_rule_drafts_enabled` | `POST /api/assistant/rule-drafts` | 409; the rule forms hide *Describe* |
+| `feature_ai_template_drafts_enabled` | walks and drafts | running walks cancelled; `/api/assistant/template-drafts*` 409; `POST /api/device-templates/user` stays available (normal admin feature) |
+| `feature_ai_knowledge_enabled` | `search_knowledge` offered | tool not offered; `GET/PUT /api/assistant/knowledge` and `POST /api/assistant/knowledge/test` stay available |
+| `feature_ai_chat_ask_enabled` | `/ask` handled by the phase-3 poller for channels with `ai_ask` | `/ask` answered "Asking is turned off" (only while the poller runs for `chat_ack`), no question started |
+| `feature_ai_report_summary_enabled` | `reports.ai_summary` honoured | reports render without the summary (`ai_summary_status = "disabled"`) |
+
+## [3b] Settings
+
+### Assistant connection and data sharing (key `assistant`, object)
+```json
+{ "auth_mode": "roles_anywhere",                  // roles_anywhere | access_key | default_chain
+  "region": "us-east-1",                          // required; [a-z]{2}(-gov)?-[a-z]+-\d; default us-east-1
+                                                   //   (owner: us-east-1 + us. profile recommended;
+                                                   //   il-central-1 + global. profile supported)
+  "model_id": "",                                  // required to enable, 1–256 chars, [A-Za-z0-9.:/_-];
+                                                   //   no default (never hard-coded); global. → warning
+  "model_id_light": null,                          // optional, same syntax
+  "endpoint_url": null,                            // null = https://bedrock-runtime.<region>.amazonaws.com
+  "control_endpoint_url": null,                    // optional, for List models
+  "proxy_mode": "env", "proxy_url": null,          // custom: http(s)://host:port, no userinfo
+  "prompt_caching": true,
+  "access_key_id": null,                           // AKIA/ASIA + 16 [A-Z0-9]
+  "secret_access_key_enc": null,                   // AAD b"assistant.secret_access_key"; API: secret_access_key (write-only), _set, _unreadable
+  "session_token_enc": null,                       // optional session token of temporary credentials (ASIA… ids, e.g.
+                                                   //   IAM Identity Center / STS), ≤ 4096 base64 chars, AAD
+                                                   //   b"assistant.session_token"; API: session_token (write-only, "" clears),
+                                                   //   session_token_set, session_token_unreadable; sent as X-Amz-Security-Token
+  "access_key_created_at": null,                   // optional date, reminder only
+  "ra_region": null,                               // null = region
+  "ra_endpoint_url": null,
+  "ra_trust_anchor_arn": null,                     // arn:aws[a-z-]*:rolesanywhere:<region>:<12 digits>:trust-anchor/<uuid>
+  "ra_profile_arn": null,                          // …:profile/<uuid>
+  "ra_role_arn": null,                             // arn:aws[a-z-]*:iam::<12 digits>:role/<path/name>
+  "ra_session_seconds": 3600,                      // 900–43200
+  "ra_cert_pem": null, "ra_chain_pem": null,       // public; stored as uploaded (normalised PEM)
+  "ra_key_enc": null,                              // PKCS#8 PEM, AAD b"assistant.ra_key"; never returned
+  "ra_cert_uploaded_at": null,
+  "ra_csr_pem": null, "ra_csr_subject": null,      // [3b owner] Generate CSR: pending CSR (public)
+  "ra_csr_key_enc": null,                          // its key, PKCS#8 PEM, AAD b"assistant.ra_csr_key"; never returned
+  "ra_csr_created_at": null,
+  "last_test": null,                               // {"ok", "at", "by", "error_code"} of the last Test
+  "send_config_excerpts": false,
+  "redact_internal_ips": false,
+  "internal_cidrs": [],                            // ≤ 64 extra CIDRs treated as internal
+  "chat_redact_ips": true,
+  "prices": { "currency": "USD", "input_per_mtok": null, "output_per_mtok": null,
+              "cache_read_per_mtok": null, "cache_write_per_mtok": null },  // numbers ≥ 0, ≤ 1000
+                                                   // currency label, default USD (the cost cap is in it);
+                                                   // one price set for every model
+  "chat_models": [] }                              // [3b owner] [{"id": <model id, MODEL syntax>, "label": str|null
+                                                   //   (≤ 60)}], ≤ 8, unique ids; models an admin may pick in the
+                                                   //   chat composer. Allowed list = model_id first (always, the
+                                                   //   default) + these; [] = model_id + model_id_light (if set).
+                                                   //   Not a connection field (no test_id). Telegram /ask and the
+                                                   //   AI features keep model_id / model_id_light
+```
+Validation per auth mode when enabling/testing: `roles_anywhere` needs the three ARNs + a certificate and key
+(uploaded or host files); `access_key` needs both key fields, and an `ASIA…` (temporary) key id also needs
+`session_token_enc` (otherwise the Test fails at the credentials step with `aws_session_token_required`; a set
+token adds the warning `temporary_credentials`); `default_chain` needs nothing else. ARNs' account
+ids must be equal (warning, not error). A connection-field change while ON needs a `test_id`
+(architecture § 14.2.6). **Connection fields** (hashed for `test_id`): `auth_mode`, `region`, `model_id`,
+`model_id_light`, `endpoint_url`, `control_endpoint_url`, `proxy_mode`, `proxy_url`, `prompt_caching`,
+`access_key_id`, SHA-256 of the decrypted secret key, SHA-256 of the decrypted session token, every `ra_*` field (cert/chain/key by SHA-256).
+
+### Knowledge Base (key `assistant_kb`, object)
+```json
+{ "knowledge_base_id": "ABCDEFGHIJ",   // [0-9A-Z]{10}
+  "region": null,                      // null = assistant.region
+  "endpoint_url": null,                // null = https://bedrock-agent-runtime.<region>.amazonaws.com
+  "results": 5,                        // 1–10
+  "min_score": 0.0,                    // 0–1
+  "description": "IT runbooks and network diagrams" }   // ≤ 300 chars, shown to the model
+```
+KB connection fields for its `test_id`: all of the above except `description`, plus the assistant connection hash.
+
+### Scalar keys
+| Key | Type | Default | Limits / meaning |
+|---|---|---|---|
+| `feature_*_enabled` (11 new keys) | bool | `false` | § [3b] Feature toggles |
+| `assistant_daily_questions_per_user` | int | 50 | 1–1000 |
+| `assistant_monthly_token_cap` | int | 5000000 | 100000–1000000000 (input + output + 10 % of cache reads + cache writes) |
+| `assistant_monthly_cost_cap` | number \| null | null | ≥ 0, USD (the prices' currency); admin setting, effective only with prices; questions stop at it, background work at `assistant_background_stop_pct` |
+| `assistant_background_stop_pct` | int | 80 | 10–100 |
+| `assistant_max_model_calls` | int | 8 | 2–15 |
+| `assistant_max_tool_calls` | int | 12 | 1–30 |
+| `assistant_max_output_tokens` | int | 2000 | 256–8192 |
+| `assistant_question_timeout_s` | int | 120 | 30–300 |
+| `assistant_max_concurrent` | int | 4 | 1–16 |
+| `assistant_context_budget_tokens` | int | 40000 | 8000–150000 |
+| `assistant_retention_days` | int | 90 | 1–730 |
+| `assistant_artifact_retention_days` | int | 180 | 7–730 |
+| `correlation_window_min` | int | 5 | 1–30 |
+| `correlation_min_alerts` | int | 3 | 2–50 |
+| `correlation_attach_to_alert` | bool | false | |
+| `correlation_daily_summaries` | int | 50 | 0–500 |
+| `alert_note_timeout_s` | int | 45 | 10–120 |
+| `alert_notes_daily_cap` | int | 100 | 0–5000 |
+| `config_diff_auto` | bool | false | explain the latest change automatically when the diff view opens |
+| `config_diff_daily_cap` | int | 50 | 0–500 |
+| `digest_time` | `HH:MM` | `"07:17"` | local time |
+| `digest_language` | `"en"` \| `"he"` \| null | null | null = `default_language` |
+| `digest_email_to` | string[] | [] | ≤ 20 addresses |
+| `digest_channel_ids` | int[] | [] | Teams/Telegram/email channel ids, ≤ 10 |
+| `chat_ask_per_user_hour` | int | 10 | 1–60 |
+
+## [3b] `assistant_conversations`
+| Column | Type | Constraints |
+|---|---|---|
+| id | bigint | PK identity |
+| user_id | integer | NOT NULL FK `users.id` ON DELETE CASCADE |
+| kind | text | NOT NULL DEFAULT 'chat' CHECK in conversation_kind |
+| channel | text | NOT NULL DEFAULT 'web' CHECK in assistant_channel |
+| title | varchar(200) | NOT NULL — first question cut to 80 chars (rename ≤ 200) |
+| language | varchar(2) | NOT NULL DEFAULT 'en' — of the last question |
+| ref_sensor_id | integer | NULL FK `sensors.id` ON DELETE SET NULL — `explain` |
+| ref_event_id | bigint | NULL — `explain` (no FK: events may be retention-deleted) |
+| redaction_map | jsonb | NOT NULL DEFAULT '{}' — `{"IP-1": "10.0.0.9", …}` (never sent to the model) |
+| known_refs | text[] | NOT NULL DEFAULT '{}' — refs issued by tools in this conversation (≤ 5000, oldest dropped) |
+| message_count | integer | NOT NULL DEFAULT 0 |
+| created_at, updated_at, last_message_at | timestamptz | NOT NULL DEFAULT now() |
+
+Indexes: `(user_id, last_message_at DESC)`, `(last_message_at)` (retention), `(ref_sensor_id, ref_event_id) WHERE kind = 'explain'`.
+
+## [3b] `assistant_messages`
+| Column | Type | Constraints |
+|---|---|---|
+| id | bigint | PK identity |
+| conversation_id | bigint | NOT NULL FK ON DELETE CASCADE |
+| seq | integer | NOT NULL — 1, 2, … within the conversation; UNIQUE (conversation_id, seq) |
+| role | text | NOT NULL CHECK in message_role |
+| purpose | text | NOT NULL CHECK in assistant_purpose |
+| content | text | NOT NULL DEFAULT '' — user: the question as typed (≤ 2000); assistant: final answer Markdown with validated `nm:` links, de-tokenised |
+| notes | jsonb | NOT NULL DEFAULT '[]' — texts of intermediate rounds `[{"round": 1, "text": "…"}]` |
+| sources | jsonb | NOT NULL DEFAULT '[]' — `[{"ref": "device/12", "label": "core-sw"}]`; KB sources `{"ref": "kb/1", "label": "…", "url": "…"}` |
+| converse_turns | jsonb | NULL — assistant only: the Converse messages of this exchange as sent (toolUse + toolResult blocks, redacted, capped); ≤ 512 KiB |
+| status | text | NOT NULL DEFAULT 'complete' CHECK in message_status |
+| error_code | varchar(64) | NULL |
+| notices | text[] | NOT NULL DEFAULT '{}' — `limit_reached`, `truncated_context`, `kb_unavailable`, `usage_estimated` (no Bedrock usage metadata: tokens estimated), … |
+| stop_reason | varchar(32) | NULL — last Bedrock `stopReason` |
+| model_id | varchar(256) | NULL |
+| model_calls, tool_calls | integer | NOT NULL DEFAULT 0 |
+| input_tokens, output_tokens, cache_read_tokens, cache_write_tokens | integer | NOT NULL DEFAULT 0 |
+| cost_estimate | numeric(12,6) | NULL — null without prices |
+| duration_ms | integer | NULL |
+| feedback | smallint | NULL CHECK in (-1, 1) |
+| feedback_comment | varchar(1000) | NULL |
+| created_at | timestamptz | NOT NULL DEFAULT now() |
+| finished_at | timestamptz | NULL |
+
+Index: `(conversation_id, seq)` (unique). At startup, rows still `running` become `error` with `error_code =
+'interrupted'`.
+
+## [3b] `assistant_tool_calls`
+| Column | Type | Constraints |
+|---|---|---|
+| id | bigint | PK identity |
+| message_id | bigint | NOT NULL FK `assistant_messages.id` ON DELETE CASCADE |
+| seq | integer | NOT NULL |
+| round | smallint | NOT NULL — model call number |
+| tool_use_id | varchar(64) | NOT NULL — Bedrock `toolUseId` |
+| tool | varchar(64) | NOT NULL |
+| arguments | jsonb | NOT NULL — as validated (placeholders translated back are **not** stored; the model's form is stored) |
+| ok | boolean | NOT NULL |
+| error_code | varchar(64) | NULL |
+| rows | integer | NULL |
+| result_bytes | integer | NOT NULL DEFAULT 0 |
+| truncated | boolean | NOT NULL DEFAULT false |
+| duration_ms | integer | NOT NULL |
+| started_at | timestamptz | NOT NULL |
+
+Index `(message_id, seq)`.
+
+## [3b] `assistant_usage`
+| Column | Type | Constraints |
+|---|---|---|
+| day | date | NOT NULL — local date (`settings.timezone`) |
+| user_id | integer | NOT NULL — 0 = system (background purposes); no FK (survives user deletion) |
+| purpose | text | NOT NULL CHECK in assistant_purpose |
+| model_id | text | NOT NULL DEFAULT `''` — **[3b owner]** the model / inference profile of the counted calls (≤ 256 chars); `''` = no model call (the `questions` counter, errors before a call) |
+| questions, model_calls, tool_calls, errors, throttles | integer | NOT NULL DEFAULT 0 |
+| input_tokens, output_tokens, cache_read_tokens, cache_write_tokens | bigint | NOT NULL DEFAULT 0 |
+| cost_estimate | numeric(14,6) | NOT NULL DEFAULT 0 — at the prices valid when counted |
+
+PK `(day, user_id, purpose, model_id)`. Upsert (`ON CONFLICT … DO UPDATE SET x = x + EXCLUDED.x`) after every model call (tokens)
+and at question start (`questions`). Monthly totals: `SUM` over the month's days. Retention 730 days.
+**Cap arithmetic** (pure `usage.cap_tokens(row) = input + output + cache_write + ceil(cache_read / 10)`).
+
+## [3b] `assistant_artifacts`
+| Column | Type | Constraints |
+|---|---|---|
+| id | bigint | PK identity |
+| kind | text | NOT NULL CHECK in artifact_kind |
+| key | varchar(200) | NOT NULL — `explain:<sensor>:<event>`, `incident:<id>:<n>`, `note:<event_id>`, `diff:<device>:<from>:<to>`, `digest:<yyyy-mm-dd>`, `draft:<uuid>`, `report:<run_id>` |
+| status | text | NOT NULL CHECK in artifact_status |
+| skip_reason | varchar(64) | NULL — `cap`, `background_stop`, `timeout`, `queue_full`, `unsupported_channel`, `feature_off`, `unverified_numbers`, error codes |
+| content | text | NOT NULL DEFAULT '' — Markdown / plain text |
+| data | jsonb | NOT NULL DEFAULT '{}' — kind-specific (diff: `{"flags": [...], "risks": [...]}`; digest: `{"stats": …}`; drafts: `{"draft": …, "validation": …}`) |
+| conversation_id | bigint | NULL FK ON DELETE SET NULL |
+| created_by | integer | NULL (user id; null = system) |
+| model_id | varchar(256) | NULL |
+| input_tokens, output_tokens | integer | NOT NULL DEFAULT 0 |
+| cost_estimate | numeric(12,6) | NULL |
+| created_at | timestamptz | NOT NULL DEFAULT now() |
+
+UNIQUE `(kind, key)` (a refresh replaces the row). Index `(created_at)` for retention (`assistant_artifact_retention_days`; digests 400 days).
+
+## [3b] `assistant_incidents` and `assistant_incident_members`
+`assistant_incidents`:
+
+| Column | Type | Constraints |
+|---|---|---|
+| id | bigint | PK identity |
+| state | text | NOT NULL CHECK in incident_state |
+| opened_at | timestamptz | NOT NULL |
+| last_change_at | timestamptz | NOT NULL |
+| resolved_at | timestamptz | NULL |
+| title | varchar(200) | NOT NULL — deterministic title (en; the UI builds he from `title_fields`) |
+| title_fields | jsonb | NOT NULL — `{"root": "core-sw", "root_status": "down", "count": 14, "unit": "devices", "status": "unreachable"}` |
+| root_device_id | integer | NULL FK `devices.id` ON DELETE SET NULL |
+| root_candidates | integer[] | NOT NULL DEFAULT '{}' |
+| ai_title | varchar(200) | NULL |
+| ai_summary | text | NULL |
+| ai_root_guess | jsonb | NULL — `{"device_id": 3, "confidence": "high"}` |
+| ai_summaries | smallint | NOT NULL DEFAULT 0 — ≤ 5 |
+| member_count | integer | NOT NULL DEFAULT 0 |
+| note_sent | boolean | NOT NULL DEFAULT false — attach-to-alert done |
+
+Indexes `(state, last_change_at DESC)`, `(opened_at DESC)`.
+
+`assistant_incident_members`: `incident_id` bigint FK ON DELETE CASCADE, `event_id` bigint NOT NULL (the
+`status_change` event), `sensor_id` integer NULL, `device_id` integer NULL, `status` text, `time` timestamptz,
+`recovered_at` timestamptz NULL; PK `(incident_id, event_id)`; index `(sensor_id, time DESC)`. Retention with
+artifacts (resolved incidents older than `assistant_artifact_retention_days`).
+
+## [3b] `assistant_note_targets`
+Where a problem notification was delivered, so the note can follow it (written by the dispatcher only for rules with
+`ai_note` while `ai_alert_notes` is ON):
+
+| Column | Type | Constraints |
+|---|---|---|
+| id | bigint | PK identity |
+| event_id | bigint | NOT NULL |
+| rule_id | integer | NULL FK `alert_rules.id` ON DELETE SET NULL |
+| channel_id | integer | NOT NULL FK `notification_channels.id` ON DELETE CASCADE |
+| channel_type | text | NOT NULL — `telegram`, `teams`, `email` |
+| ref | jsonb | NOT NULL — telegram `{"chat_id": "…", "message_id": 123, "text": "<sent html>"}`; email `{"message_id": "<…@netmon>", "subject": "…", "to": [...]}`; teams `{}` |
+| sent_at | timestamptz | NOT NULL |
+| note_status | text | NULL — `sent`, `edited`, `replied`, `skipped:<reason>` |
+
+Index `(event_id)`; rows older than 2 days deleted hourly.
+
+## [3b] `assistant_syslog_signatures`
+| Column | Type | Constraints |
+|---|---|---|
+| signature | char(16) | PK — hex of SHA-1 of the normalised text |
+| sample | varchar(300) | NOT NULL — normalised text (placeholders) |
+| first_seen, last_seen | date | NOT NULL |
+| days_seen | integer | NOT NULL DEFAULT 1 |
+| count | bigint | NOT NULL DEFAULT 0 |
+
+Updated by the digest job; rows with `last_seen` older than 30 days deleted.
+
+## [3b] `assistant_snmp_walks`
+| Column | Type | Constraints |
+|---|---|---|
+| id | bigint | PK identity |
+| device_id | integer | NOT NULL FK ON DELETE CASCADE |
+| requested_by | integer | NULL |
+| status | text | NOT NULL CHECK in walk_status |
+| subtrees | text[] | NOT NULL |
+| varbinds | jsonb | NOT NULL DEFAULT '[]' — `[["1.3.6.1.2.1.1.1.0", "OctetString", "…≤ 256 chars"]]`, ≤ 5000 |
+| counts | jsonb | NOT NULL DEFAULT '{}' — per subtree |
+| error | varchar(300) | NULL |
+| started_at | timestamptz | NOT NULL |
+| finished_at | timestamptz | NULL |
+
+Retention 7 days.
+
+## [3b] Column additions
+- `alert_rules.ai_note boolean NOT NULL DEFAULT false`.
+- `reports.ai_summary boolean NOT NULL DEFAULT false`; `report_runs.ai_summary_status text NULL` CHECK in
+  (`ok`, `failed`, `skipped_cap`, `timeout`, `unverified_numbers`, `disabled`); `ReportData` (json in
+  `report_runs.data`) gains `ai_summary: string | null`.
+- `notification_channels.config`: Telegram gains `ai_ask: bool` (default false); email gains `ai_note_email: bool`
+  (default true).
+- `audit_log.source` CHECK gains `telegram` (for `assistant.question` from `/ask`).
+
+## [3b] Pure vectors
+
+### Signing vectors (`netmon.assistant.sigv4`)
+1. **AWS `get-vanilla`:** `GET /`, headers `Host: example.amazonaws.com`, `X-Amz-Date: 20150830T123600Z`, empty body,
+   key `AKIDEXAMPLE` / `wJalrXUtnFEMI/K7MDENG+bPxRfiCYEXAMPLEKEY`, region `us-east-1`, service `service` → signature
+   `5fa00fa31553b73ebf1942676e86291e8372ff2a2260956d9b8aae1d763fbf31`.
+2. **Bedrock Converse:** model id `eu.anthropic.claude-test-v1:0` → request path
+   `/model/eu.anthropic.claude-test-v1%3A0/converse` (model id percent-encoded with no safe characters); canonical
+   URI **`/model/eu.anthropic.claude-test-v1%253A0/converse`** (each segment encoded again); body
+   `{"messages":[{"role":"user","content":[{"text":"ping"}]}],"inferenceConfig":{"maxTokens":5}}` (exact bytes,
+   SHA-256 `6df0851f0b28f3a611972fc70e4b1125520ef1133a54940f39609fb54f780a69`); headers `Host:
+   bedrock-runtime.eu-central-1.amazonaws.com`, `Content-Type: application/json`, `X-Amz-Date: 20261109T120000Z`,
+   `X-Amz-Security-Token: FQoGZXIvYXdzEXAMPLETOKEN`; signed headers `content-type;host;x-amz-date;x-amz-security-token`;
+   same key as vector 1, region `eu-central-1`, service **`bedrock`** → canonical request SHA-256
+   `52ce1d34b2b4abf31938695167c6d8c532ce88217496117380e25836634cf708`, signature
+   `2584eff908463e2cb9f972d9e432585ee8fb20adc50f7e26ffa5a24b2065a3e8`.
+3. **Roles Anywhere CreateSession:** `POST /sessions`, body
+   `{"durationSeconds":3600,"profileArn":"arn:aws:rolesanywhere:eu-central-1:111122223333:profile/p-1","roleArn":"arn:aws:iam::111122223333:role/netmon-bedrock","trustAnchorArn":"arn:aws:rolesanywhere:eu-central-1:111122223333:trust-anchor/ta-1"}`
+   (SHA-256 `b156a6b2d763ba2b892b764f394878e1e0283bcd6625c4f5016b0d177b9996c2`), headers `Host:
+   rolesanywhere.eu-central-1.amazonaws.com`, `Content-Type: application/json`, `X-Amz-Date: 20261109T120000Z`,
+   `X-Amz-X509: MIIBTESTCERT` (placeholder) → signed headers `content-type;host;x-amz-date;x-amz-x509`, string to sign
+   ```
+   AWS4-X509-RSA-SHA256
+   20261109T120000Z
+   20261109/eu-central-1/rolesanywhere/aws4_request
+   5fb1c33641630cafe7c989350f015c1e6226cfc92d1ccf977798482982629f68
+   ```
+   The test signs it with a generated RSA key (PKCS#1 v1.5, SHA-256) and verifies with the public key; ECDSA variant:
+   algorithm `AWS4-X509-ECDSA-SHA256`, DER signature verified. `Credential=` uses the leaf serial in **decimal**
+   (serial `0x1234` → `4660`). With a chain, `x-amz-x509-chain` is signed too (signed headers
+   `content-type;host;x-amz-date;x-amz-x509;x-amz-x509-chain`).
+
+### Event-stream vector (`netmon.assistant.eventstream`)
+Hex of one message (159 bytes), headers `:event-type` = `contentBlockDelta`, `:content-type` = `application/json`,
+`:message-type` = `event` (header value type 7 = string), payload
+`{"contentBlockIndex":0,"delta":{"text":"Hi"},"p":"abcd"}`:
+```
+0000009f00000057c37babff0b3a6576656e742d74797065070011636f6e74656e74426c6f636b44656c74610d3a636f6e74656e742d74
+7970650700106170706c69636174696f6e2f6a736f6e0d3a6d6573736167652d747970650700056576656e747b22636f6e74656e744
+26c6f636b496e646578223a302c2264656c7461223a7b2274657874223a224869227d2c2270223a2261626364227df2ace5ff
+```
+(prelude total length 159, headers length 87, prelude CRC32 `c37babff`, message CRC32 `f2ace5ff`). Feeding it in
+1-byte chunks yields exactly one message; flipping any prelude byte → `bad_prelude_crc`; flipping a payload byte →
+`bad_message_crc`; total length > 1 MiB → `frame_too_large`. Exception frames: `:message-type` = `exception`,
+`:exception-type` = `throttlingException`.
+
+### Redaction vectors (`redact.apply`)
+| Input | Output |
+|---|---|
+| ` snmp-agent community read cipher $c$3$abcd==` | ` snmp-agent community read cipher <secret removed>` |
+| `password=Hunter2 user=jdoe` | `password=<secret removed> user=jdoe` |
+| `username admin secret 9 $9$xyz` | `username admin secret <secret removed>` |
+| `-----BEGIN RSA PRIVATE KEY-----…-----END RSA PRIVATE KEY-----` | `<pem removed>` |
+| `Link down on Gi1/0/1 from 10.0.0.9` (redaction on) | `Link down on Gi1/0/1 from IP-1`; again `10.0.0.9` in the same conversation → `IP-1`; `10.0.0.10` → `IP-2` |
+| `8.8.8.8 unreachable` (redaction on) | unchanged (public) |
+| tool argument `{"ip": "IP-2"}` | translated to `{"ip": "10.0.0.10"}` before the tool runs; unknown placeholder → `invalid_arguments` |
+| `abc\x1b[31mred\x00` | `abc[31mred` (control characters removed) |
+
+### Language vectors (`detect_language`)
+`"Which devices are down?"` → `en`; `"אילו מכשירים למטה?"` → `he`; `"מה קרה ל-core-sw אתמול?"` → `he` (Hebrew
+letters 11 of 17 ≥ 30 %); `"10.0.0.1?"` → user's UI language.
+
+### Correlation vectors (`correlate.cluster`, window 5 min, min 3)
+Graph: `core` parent of `a`, `b`, `c` (2b-1 dependencies); `x` unrelated; topology link `core`–`dist`.
+- `core` down 12:00:00, `a` `b` `c` unreachable 12:00:30 → one incident, root `core`, title `core down — 3 devices
+  unreachable`.
+- add `x` down 12:01 → not a member (no edge).
+- `dist` down 12:03 → member (topology neighbour of `core`), title unchanged root.
+- `a` warning 12:10 alone after the incident's last change 12:03 → not a member (window passed) and no new incident (1 < 3).
+- two problems only (`core`, `a`) → no incident.
+
+### Diff risk-flag vectors (`risk_flags`, data file `risk_rules.yaml`)
+| Driver | Diff line | Flag |
+|---|---|---|
+| `hpe_comware` | `+ snmp-agent community write cipher <secret removed>` | `snmp_community_added` high |
+| `hpe_comware` | `- ssh server acl 2001` | `mgmt_acl_removed` high |
+| `cisco_ios` | `+ access-list 10 permit any` | `acl_permit_any` high |
+| `hpe_arubaos_switch` | `- logging 10.0.0.50` | `syslog_host_removed` medium |
+| `cisco_ios` | `+ username tmp privilege 15 secret <secret removed>` | `privileged_user_added` high |
+| any | `+ ntp server 1.2.3.4` | `ntp_changed` info |
+| any | `+ description uplink` | none |
+
+### Digest vectors (`digest.signature`, `digest.compare`)
+`"Interface GigabitEthernet1/0/12 changed state to down"` and `"Interface GigabitEthernet1/0/7 changed state to
+down"` → same signature (normalised `interface gigabitethernet<n>/<n>/<n> changed state to down`);
+`"Login failed for user 'bob' from 10.1.1.5"` → `login failed for user <str> from <ip>`. Compare: baseline mean 10,
+day 35 → unusual (×3.5, +25); baseline 10, day 25 → not (×2.5); baseline 0, day 20 for severity ≤ 3 → unusual.
+
+### Pricing vector (`pricing.estimate`)
+Prices input 3, output 15, cache read empty (→ 0.3), cache write empty (→ 3.75) per million; usage input 6000, output
+600, cache read 6000, cache write 0 → 0.018 + 0.009 + 0.0018 = **0.0288**. Cap tokens: 6000 + 600 + 0 + 600 = 7200.
+
+### Context trim vectors (`context.trim`, budget 1000 estimated tokens)
+Conversation of 6 exchanges each with a 1500-char tool result: step 1 stubs results of exchanges 1–5 (oldest first)
+until under budget; still over → drops exchanges 2.. keeping 1 and the last 4; the current exchange is never dropped.
+
+## [3b] Phase 3b migration (`0010`)
+File `backend/netmon/migrations/versions/0010_phase3b.py`, `revision = "0010"`, `down_revision = "0009"` (on top of
+[1.3.1 `0009`](#131-migration-0009)). Plain PostgreSQL DDL only. **[3b owner]** renumbered from `0009` when 1.3.1 was
+merged; a development database that ran the earlier 3b `0009` is not on the 1.3.1 chain and is recreated.
+
+`upgrade()`:
+1. `CREATE TABLE assistant_conversations`, `assistant_messages`, `assistant_tool_calls` (+ indexes).
+2. `CREATE TABLE assistant_usage` (with `model_id`, PK `(day, user_id, purpose, model_id)`; **[3b owner]** edited
+   in place while phase 3b is unreleased — a database that already ran the earlier `0008` needs, once:
+   `ALTER TABLE assistant_usage ADD COLUMN IF NOT EXISTS model_id text NOT NULL DEFAULT ''; ALTER TABLE
+   assistant_usage DROP CONSTRAINT assistant_usage_pkey; ALTER TABLE assistant_usage ADD PRIMARY KEY (day, user_id,
+   purpose, model_id);`).
+3. `CREATE TABLE assistant_artifacts`, `assistant_incidents`, `assistant_incident_members`.
+4. `CREATE TABLE assistant_note_targets`, `assistant_syslog_signatures`, `assistant_snmp_walks`.
+5. `ALTER TABLE alert_rules ADD ai_note boolean NOT NULL DEFAULT false`; `ALTER TABLE reports ADD ai_summary boolean
+   NOT NULL DEFAULT false`; `ALTER TABLE report_runs ADD ai_summary_status text NULL` (+ check).
+6. `audit_log_source_check` + `'telegram'`.
+
+Implementation additions (compatible with the tables above): index `ix_assistant_snmp_walks_device (device_id,
+started_at DESC)`; `assistant_incidents.ai_summaries` CHECK 0–5; `assistant_incident_members.status` / `time`
+nullable as listed. Owner decision (3b): no `assistant_audit_question_text` key — the question text is never
+written to the audit log (architecture § 14.7).
+
+`downgrade()` (reverse): `UPDATE audit_log SET source = NULL WHERE source = 'telegram'` (with the append-only
+trigger disabled for that statement, as in `0007`), restore the check; drop the columns of step 5; drop the tables of
+steps 4 → 1. Settings rows stay (harmless).
+
+---
+
+# **[1.3]** Release 1.3 additions
+
+Core-behaviour improvements (no feature toggle). API: [api.md § 1.3](api.md#13-release-13-contract). Behaviour:
+[architecture.md § 14](architecture.md#14-release-13-sensor-impact-important-ports-interface-selection-connected-hosts-lag-degraded-irf).
+
+## [1.3] Sensor impact
+`sensors.impact` (`critical` default | `warning` | `none`) decides what a sensor contributes to its **device**
+status (pure `netmon.services.status.impact_status`):
+
+| sensor status | critical | warning | none |
+|---|---|---|---|
+| down | down | **warning** | **up** |
+| unreachable | unreachable | **warning** | **up** |
+| warning | warning | warning | **up** |
+| up / unknown / paused | unchanged | unchanged | unchanged |
+
+The device rollup ([§ Status rollup](#status-rollup-computed-on-read-not-stored)) then runs unchanged on these
+contributions. Decision for "all sensors `none`": `paused` and `unknown` are passed through for every impact, so a
+device whose sensors are all `none` is `paused` when they are all paused, `unknown` while one is unknown, else `up`
+— never a problem status. The sensor's own status, its events, alerts, notifications, acknowledge and maintenance
+are unchanged by impact. `status_counts` still count raw sensor statuses.
+
+Every consumer goes through `Inventory` (`load_inventory` → `compute`): device and group status in the API, tree,
+dashboard `device_counts`, kiosk, topology/ports neighbour status, the `device.status` / `group.status` WS
+rollup. Not affected: the dependency cascade ("parent down" tests the parent's sensors, reachability, not the
+rolled-up status) and report availability (computed from the ping / system sensor's own status history).
+
+Defaults: every new sensor `critical`, except a new `snmp_interface` sensor without an explicit impact
+(`POST /api/sensors`, template apply): important port → `critical`, other port → `warning`, device without port
+inventory → `critical`. IRF and all other template sensors: `critical`.
+
+**Upgrade backfill** (`netmon.services.impact.backfill`, spawned at startup, guarded by the internal settings key
+`impact_backfill_version` = `"1"`): `snmp_interface` sensors with impact `critical` of devices that have
+`switch_ports` rows → `warning` when their ifIndex is not important; important ports keep `critical`; devices
+without port inventory are left as they are. Runs once (a failure is logged and retried at the next start).
+
+## [1.3] Important ports
+One definition, pure `netmon.ports.importance.port_reasons(rows, neighbors_of, threshold, trunk_min)`; reasons in
+this order:
+
+| reason | when |
+|---|---|
+| `uplink` | the 2b-2 rule (§ Uplinks: a switch/router/AP device neighbour, or `mac_count` > `uplink_mac_threshold`); a LAG uses its own and all members' neighbours; a member also inherits its LAG's uplink state |
+| `lag` | `kind = 'lag'` or `lag_if_index` not null (stored LAG data, whether or not the `lag` feature is ON) |
+| `trunk` | `mode = 'trunk'` and ≥ `trunk_min_tagged_vlans` tagged VLANs; a member without its own VLANs uses its LAG's (`member_vlans`). One tagged VLAN (hybrid access + voice VLAN) is not a trunk at the default 2 |
+| `irf` **[1.3.1]** | `irf_port` not null: an IRF physical port of an HPE Comware IRF stack (an IRF link down hurts the whole stack). Always important, also for the link-down scope (unlike trunks it does not depend on `event_linkdown_include_trunks`) |
+
+Used by: ports API (`important`, `important_reasons`), apply selection and `/apply-template/interfaces`, the
+new-interface-sensor impact and the backfill, and the ingest `PortInfo` (link-down / flapping scope
+`important`), where trunks count only while `event_linkdown_include_trunks` is true and ports with a
+**critical** interface sensor are added.
+
+## [1.3] Settings keys
+| Key | Type | Default | Limits / meaning |
+|---|---|---|---|
+| `trunk_min_tagged_vlans` | int | 2 | 1–100: tagged VLANs a trunk needs |
+| `event_linkdown_include_trunks` | bool | true | trunks are important for link-down / flapping alerts under scope `important` (scope `all` unchanged) |
+| `impact_backfill_version` | str | "" | internal (not in the API): the impact backfill that has run |
+
+A change of the first two reloads the ingest configuration and drops the cached important-port sets.
+
+## [1.3] LAG degraded condition
+`condition_source` gains **`lag_degraded`**: on the device's `trap` event sensor, `rule_id` NULL, `key` = the LAG
+ifIndex, status `warning`, message `LAG <name> degraded (<up> of <n> members up)`, `expires_at` = last refresh
++ the built-in link-down rule's `clear_after_min` (1440). Raised while 0 < up < n; removed when all members are up
+or all are down (fully down = the existing link-down alert). Active while `event_alerts` is ON and the built-in
+`trap_link_down` rule is enabled and in scope for the device; disabling / editing that rule or turning
+`event_alerts` OFF deletes these conditions. Members = physical `switch_ports` rows whose `lag_if_index` is a
+`lag` row of the device; member state = stored `oper_status`, overridden by linkDown/linkUp traps until the next
+successful port inventory run (`reconcile`). `rules.Rule` gains `builtin_key`.
+
+## [1.3] Template options
+| Entry | Key | Meaning |
+|---|---|---|
+| `sensor` | `expect_from_probe: {channel, bound}` (only when set) | needs `probe: true`; at apply time the probe's value of `channel` becomes the channel threshold `bound` (`warning_min` / `warning_max` / `down_min` / `down_max`). A probe without that value → skipped `probe_failed` "No value". |
+| `snmp_table` | `when` (only when set; same shape as sensor `when`) | evaluated before the walk; a failing condition → one skip `not_applicable` `Condition not met: <oid>` |
+
+## [1.3] IRF sensors (`hpe_comware` v4, [1.3.1] v5)
+Before the `snmp_interfaces` entry; every IRF entry has `when [{oid: hh3cStackMemberNum.0, not_in: [0, 1]}]` (only
+IRF stacks of ≥ 2 members). **[1.3.1]** Verified on the owner's HPE 5510-HI IRF stack (4 members, ring) with
+`deploy/tools/irf_dump.py`: `confidence: high`, notes "verified on HPE 5510-HI IRF, 4 members, ring" (1.3:
+`confidence: low`, `verified: false`). HH3C-STACK-MIB, `hh3cStack` = `1.3.6.1.4.1.25506.2.91`:
+
+| # | Entry | OID | Details |
+|---|---|---|---|
+| 1 | `IRF members` (`snmp_custom` gauge, unit `#`, probe, interval 120) | hh3cStackMemberNum `…2.91.1.2.0` | `expect_from_probe {channel: value, bound: down_min}`: down when fewer members than at apply time (re-apply after adding a member) |
+| 2 | `IRF role · {label}` (`snmp_table`, enum, max 16, interval 120) | hh3cStackBoardRole `…2.91.3.1.1` (INDEX entPhysicalIndex), **[1.3.1]** label hh3cStackBoardBelongtoMember `…2.91.3.1.2` (same INDEX) with `label_format` `Unit {label}` / `יחידה {label}` → `IRF role · Unit 1` / `תפקיד IRF · יחידה 1` (1.3: label entPhysicalName = "Board" on every member → "IRF role Board · Unit n"; `rename_from` renames those on re-apply) | slave(1) → up "standby", master(2) → up "master", loading(3) / other(4) → warning; default warning. A member that leaves loses its row → check fails → down |
+| 3 | `IRF port {index}` (`snmp_table`, enum, max 16, interval 120) | hh3cStackPortStatus `…2.91.4.1.3` (INDEX memberID.portIndex) | up(1) → up, down(2) / silent(3) / disabled(4) → warning; rows `disabled` at apply time are not created (IRF port without links) |
+| 4 | `IRF links up` (`snmp_walk_count`, probe, interval 120) | the same column, `count_values [1]` | channel `matched` `down_min 1`: every IRF port down → down |
+
+Enumerations from H3C's HH3C-STACK-MIB reference (mibs.observium.org object pages); table layout from the
+Observium MIB browser. Impact: `critical` (default).
+
+## [1.3] Migration (`0008`)
+File `backend/netmon/migrations/versions/0008_v13.py`, `revision = "0008"`, `down_revision = "0007"`. Plain DDL.
+
+`upgrade()`: `ALTER TABLE sensors ADD COLUMN impact text NOT NULL DEFAULT 'critical'` + `sensors_impact_check`;
+`event_conditions_source_check` re-added with `'lag_degraded'`.
+`downgrade()`: `DELETE FROM event_conditions WHERE source = 'lag_degraded'`, restore the source check, drop the
+impact check and column, delete the settings row `impact_backfill_version` (the backfill runs again after a
+re-upgrade).
+
+
+---
+
+# **[1.3.1]** Release 1.3.1 additions
+
+Patch release after 1.3.0 in production (HPE 5510-HI IRF stack, 4 members, ring). Improvements of existing
+behaviour: **not feature-flagged**.
+
+## [1.3.1] IRF physical ports
+The port inventory run (after walks #2-#14) reads HH3C-STACK-MIB **hh3cStackPhyPortInfoBelongtoPort**
+`1.3.6.1.4.1.25506.2.91.5.1.1` (INDEX entPhysicalIndex; value = the IRF port 1/2 the physical port is bound to,
+0 = not an IRF port). Only when it has rows bound to an IRF port: ENTITY-MIB **entAliasMappingIdentifier**
+`1.3.6.1.2.1.47.1.3.2.1.2` (INDEX entPhysicalIndex.entLogicalIndexOrZero, value `ifIndex.<n>`; logical 0 wins)
+and, for the entities without an alias mapping (or whose ifIndex does not exist), **entPhysicalName**
+`1.3.6.1.2.1.47.1.1.1.1.7`, matched case-insensitively to exactly one port's `name`, else exactly one port's
+`descr`. Pure functions `collect.parse_irf_belongto`, `parse_alias_mapping`, `map_irf_ports`.
+
+On other devices the first walk returns no rows (one PDU): nothing else is read. `sources.irf` (`source_state`):
+`ok` / `empty` (no IRF-bound rows) / `unmapped` (rows, but no port matched) / `error` (the IRF column or the
+needed name walk failed; a failed alias walk falls back to the names) / `skipped`. `error` keeps the previous
+`switch_ports.irf_port` values (as the other optional sources); `empty` clears them (stack dissolved).
+
+## [1.3.1] Interface sensor impact of IRF ports
+New `snmp_interface` sensors (sensor form, template apply) default to `critical` on IRF ports (they are
+important). **Existing** sensors are not changed: `sensors.impact` does not record whether a value was set by
+the 1.3 backfill or by a user, and the audit log (feature-flagged) cannot tell it reliably, so the release does
+not override a possible user choice. The owner sets IRF-port interface sensors to `critical` once (bulk impact).
+
+## [1.3.1] Named value maps
+`snmp_custom` config gains **`value_map_ref`** (`enum`, options `""` + the names below; stored only when set,
+`""` clears it). With it, an enum sensor uses a shared code table (`netmon/poller/value_maps.py`) for every
+value its own `value_map` does not list (own entries win; `value_map` may be empty). Status message:
+`<label>: <text> (<mib>, <code>)`, text in the server `default_language` (as notifications); an unknown code:
+`<label>: <unknown text>` with status `value_map_default`. `GET /api/sensor-types` returns
+the tables as `value_maps` (texts `{en, he}`), so the UI shows them in the viewer's language (value text,
+value-map table with a MIB column). Texts live only in the table: corrections reach every sensor that uses it.
+
+| name | codes (status down unless noted; text en / he) |
+|---|---|
+| `hh3c_error_status` (HH3C-ENTITY-EXT-MIB hh3cEntityExtErrorStatus) | 1 notSupported, 2 normal (**up**, Normal / תקין), 3 postFailure (Power-on self-test failed / בדיקת חומרה נכשלה בהפעלה), 4 entityAbsent, 11 poeError, 21 stackError, 22 stackPortBlocked, 23 stackPortFailed, 31 sfpRecvError, 32 sfpSendError, 33 sfpBothError, 41 fanError, 51 psuError (Power supply fault / ספק כוח תקול), 61 rpsError, 71 moduleFaulty, 81 sensorError, 91 hardwareFaulty; unknown: "Unknown fault code (N)" / "קוד תקלה לא מוכר (N)" |
+
+`hpe_comware` fan/PSU entry: config `{"value_type":"enum","value_map_ref":"hh3c_error_status",
+"value_map_default":"down"}` (was `HH3C_ERROR_MAP`, which showed faults as "unexpected value (51)").
+
+## [1.3.1] Template options (`snmp_table`)
+| Key | Meaning |
+|---|---|
+| `label_format` (l10n, needs `{label}`; only when set) | the row label text is formatted, e.g. member `1` → `Unit 1` (before the unique-label suffixes) |
+| `rename_from: {name (l10n), label_oid \| null}` (only when set) | how an earlier template version named the rows. Re-applying renames an existing sensor (same identity) whose name is still such a name in either language (`name` with `{label}` = the `label_oid` text, or the index), also with the unique-label suffixes ` · <unit>` / ` #n`; a name the user changed is kept (skip `exists`, message `Renamed`) |
+
+## [1.3.1] Migration (`0009`)
+File `backend/netmon/migrations/versions/0009_v131.py`, `revision = "0009"`, `down_revision = "0008"`.
+`upgrade()`: `ALTER TABLE switch_ports ADD COLUMN irf_port smallint NULL`; `snmp_custom` sensors on
+hh3cEntityExtErrorStatus (`config.oid` under `1.3.6.1.4.1.25506.2.6.1.1.1.1.19.`) whose config is still exactly the
+1.3 template's (`value_type` enum, `value_map` `{"2":{"status":"up","text":"normal"}}`, `value_map_default` down,
+no `value_map_ref`) get `value_map_ref = "hh3c_error_status"` and `value_map = {}`; edited maps are left alone.
+`downgrade()`: sensors with `value_map_ref` lose it (an empty `value_map` gets the 1.3 map back); drop the column.
+
+
+## [1.4.1] Security settings
+Settings keys (table `settings`, code defaults in `netmon.services.security.DEFAULTS`; cached on the runtime, so
+they take effect right after `PUT /api/settings` without a restart):
+
+| Key | Type | Default | Notes |
+|---|---|---|---|
+| `egress_allow_loopback` | bool | `false` | SSRF egress filter: loopback targets of webhook / Teams channels and HTTP sensors. Also forced on by `NETMON_TEST_MODE` (the E2E simulators are on `127.0.0.x`). |
+| `session_max_age_h` | int 1–720 | `168` | absolute session lifetime; `ldap` / `oidc` users: `min(12, value)` |
+| `login_ip_max_failures` | int 0–10000 | `20` | failed logins per client address / 5 min; `0` = off |
+| `frame_ancestors` | text[] (≤ 20 origins) | `[]` | extra CSP `frame-ancestors` sources; validated again when read, so a hand-edited row can never inject a directive |
+
+## [1.4.1] `revoked_sessions`
+Session ids ended by `POST /api/auth/logout`. Loaded into memory at start (the server is one process); a cookie
+whose `sid` is listed is refused.
+
+| Column | Type | Notes |
+|---|---|---|
+| `sid` | varchar(64) PK | the `sid` claim of the revoked session |
+| `user_id` | integer NULL → `users(id)` ON DELETE CASCADE | |
+| `revoked_at` | timestamptz NOT NULL DEFAULT now() | |
+| `expires_at` | timestamptz NOT NULL, indexed | `revoked_at` + 31 days (longer than the largest `session_max_age_h`); rows past it are deleted at start and on every logout |
+
+## [1.4.1] Migration (`0011`)
+File `backend/netmon/migrations/versions/0011_v141.py`, `revision = "0011"`, `down_revision = "0010"`.
+`upgrade()`: `CREATE TABLE revoked_sessions` and its `expires_at` index. No data is changed.
+`downgrade()`: drop the table (1.4.0 ignores the `sid` claim, so sessions issued by 1.4.1 keep working).

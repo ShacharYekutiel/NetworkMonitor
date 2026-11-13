@@ -37,6 +37,7 @@ import {
   th,
 } from '../ui';
 import { InlineFeatureSwitch } from './FeatureToggle';
+import { cardAnchor } from '../../lib/settingsIndex';
 
 function StateBadge({ k }: { k: KerberosSettings }) {
   const { t } = useTranslation();
@@ -104,7 +105,11 @@ function KerberosCard({ settings }: { settings: Settings }) {
     ldapOn: settings.feature_ldap_enabled === true,
   });
   return (
-    <Card title={t('kerberos.title')} actions={k && <StateBadge k={k} />}>
+    <Card
+      title={t('kerberos.title')}
+      anchor={cardAnchor('kerberos')}
+      actions={k && <StateBadge k={k} />}
+    >
       {q.isLoading && <Loading />}
       <ErrorBox error={q.error} />
       {k && (
@@ -319,7 +324,7 @@ function OidcCard({ settings }: { settings: Settings }) {
     role_source: source,
   });
   return (
-    <Card title={t('oidc.title')}>
+    <Card title={t('oidc.title')} anchor={cardAnchor('oidc')}>
       {q.isLoading && <Loading />}
       <ErrorBox error={q.error} />
       {o && (

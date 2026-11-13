@@ -25,6 +25,7 @@ import {
   RadarIcon,
   ReportIcon,
   SearchIcon,
+  SparkIcon,
   UsersIcon,
   WrenchIcon,
   XIcon,
@@ -35,6 +36,7 @@ import { TreeNav } from './Tree';
 import { GlobalMaintenanceBanner } from './Maintenance';
 import { cx } from './ui';
 import { useFeatures } from '../hooks/features';
+import { useSensorTypes } from '../hooks/queries';
 import { ingestOn } from '../lib/features';
 
 /** The product mark (docs/design-system/assets/netmon-mark.svg, same as the favicon). */
@@ -272,6 +274,7 @@ export function isTreePage(pathname: string): boolean {
 
 export function Layout() {
   const { t } = useTranslation();
+  useSensorTypes(); // [1.3.1] named value maps for enum value texts everywhere
   const { isAdmin } = useAuth();
   const { features } = useFeatures();
   const counts = useSensorCounts();
@@ -313,6 +316,16 @@ export function Layout() {
           label={t('nav.dashboard')}
           short={t('nav.short.dashboard')}
         />,
+        // [3b] admins, feature `assistant` ON
+        isAdmin && features.assistant && (
+          <RailItem
+            key="assistant"
+            to="/assistant"
+            icon={<SparkIcon {...RAIL_ICON} />}
+            label={t('nav.assistant')}
+            short={t('nav.short.assistant')}
+          />
+        ),
         <RailItem
           key="events"
           to="/events"

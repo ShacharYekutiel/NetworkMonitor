@@ -28,6 +28,12 @@
 #     keytab is uploaded in the UI and stored encrypted in the DB; the app materialises it
 #     under /data/run/ only while the feature is ON. asyncssh (config backup) is a core
 #     dependency (pure Python on top of `cryptography`).
+#   - [3b] "Ask the network" assistant (Amazon Bedrock): no new package. The app signs AWS
+#     requests itself (SigV4 and the IAM Roles Anywhere X.509 variant) on top of httpx and
+#     `cryptography`; botocore/boto3 are NOT installed (botocore is a CI test dependency
+#     only). Outbound HTTPS follows HTTPS_PROXY / NO_PROXY (or "Proxy: direct" in the
+#     assistant settings) and trusts the same CAs as above. Optional Roles Anywhere
+#     certificate host files: NETMON_AWS_RA_CERT_FILE / _KEY_FILE / _CHAIN_FILE.
 #
 # Corporate TLS inspection: drop the organisation's root CA (*.crt / *.pem / *.cer, PEM
 # or DER) into deploy/certs/ and rebuild. Every stage that reaches the network (npm, pip,
@@ -153,7 +159,9 @@ RUN pip install --upgrade pip \
  # login, phase 2b-3; asyncssh and the kerberos extra, phase 3) must be installed and
  # consistent in the venv.
  && pip check \
- && python -c "import asyncssh, gssapi, ldap3; print('asyncssh', asyncssh.__version__, '/ gssapi ok')"
+ # [1.3.3] re2: google-re2 bundles libre2 in its manylinux wheel (no apt package); confirm
+ # the wheel imports here so a broken install fails the build rather than at runtime.
+ && python -c "import asyncssh, gssapi, ldap3, re2; print('asyncssh', asyncssh.__version__, '/ gssapi ok / re2 ok')"
 
 # ---------------------------------------------------------------------------
 # Stage 3: runtime
@@ -185,7 +193,7 @@ RUN groupadd --system --gid "${NETMON_GID}" netmon \
 COPY --from=backend /opt/netmon/venv /opt/netmon/venv
 # The compiled gssapi extension must load against the runtime's shared libraries (a
 # missing libgssapi-krb5-2 would otherwise only show up when Kerberos SSO is turned on).
-RUN /opt/netmon/venv/bin/python -c "import gssapi.raw, asyncssh" \
+RUN /opt/netmon/venv/bin/python -c "import gssapi.raw, asyncssh, re2" \
  && /opt/netmon/venv/bin/pip check
 
 ENV PATH=/opt/netmon/venv/bin:$PATH \

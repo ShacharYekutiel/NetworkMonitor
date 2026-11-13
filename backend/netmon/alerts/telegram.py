@@ -45,9 +45,10 @@ async def send_telegram(
     text: str,
     parse_mode: str | None = "HTML",
     reply_markup: dict[str, Any] | None = None,
-) -> None:
+) -> dict[str, Any] | None:
     """POST {base}/bot{token}/sendMessage. Raises TelegramError with a token-free message.
-    [3] `reply_markup`: the chat-ack inline keyboard (callback or URL button)."""
+    [3] `reply_markup`: the chat-ack inline keyboard (callback or URL button).
+    [3b] Returns the sent Message object (`message_id`, `chat`) for the AI note follow-up."""
     token = str(config.get("bot_token") or "")
     if not token:
         raise TelegramError("No bot token configured")
@@ -79,7 +80,8 @@ async def send_telegram(
         data = None
     if isinstance(data, dict):
         if data.get("ok") is True and resp.status_code == 200:
-            return
+            result = data.get("result")
+            return result if isinstance(result, dict) else None
         if data.get("ok") is False or "description" in data:
             desc = str(data.get("description") or f"Telegram returned HTTP {resp.status_code}")
             raise TelegramError(scrub(desc, token))

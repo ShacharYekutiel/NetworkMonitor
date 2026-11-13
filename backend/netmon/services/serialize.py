@@ -247,6 +247,7 @@ def sensor_out(
         "primary_channel": tdef.primary_channel if tdef else "",
         "channels": [channel_out(c) for c in ordered_channels(s)],
         "sort_order": s.sort_order,
+        "impact": getattr(s, "impact", None) or "critical",  # [1.3]
         "acknowledgement": acknowledgement_out(s),
         "in_maintenance": bool(in_maintenance),
         "created_at": iso(s.created_at),
@@ -282,9 +283,14 @@ def public_channel_config(type_: str, config: dict[str, Any]) -> dict[str, Any]:
             "disable_notification": bool(config.get("disable_notification", False)),
             "ack_buttons": bool(config.get("ack_buttons", False)),  # [3] chat_ack
             "ack_link": bool(config.get("ack_link", False)),
+            "ai_ask": bool(config.get("ai_ask", False)),  # [3b] Telegram /ask (§ 14.8.9)
         }
     if type_ == "email":  # [3] chat_ack link flag (default false on older rows)
-        return {**config, "ack_link": bool(config.get("ack_link", False))}
+        return {
+            **config,
+            "ack_link": bool(config.get("ack_link", False)),
+            "ai_note_email": bool(config.get("ai_note_email", True)),  # [3b] § 14.8.3
+        }
     if type_ == "teams":  # [2b-3] the Workflows URL is signed: write-only
         from netmon.alerts.teams import config_out
 

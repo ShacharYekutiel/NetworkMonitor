@@ -96,6 +96,8 @@ class Runtime:
         self.reports: Any = None
         self.telegram_pollers: Any = None
         self.kiosk: Any = None
+        self.assistant: Any = None  # [3b] netmon.assistant.service.AssistantService
+        self.ai_features: Any = None  # [3b] netmon.assistant.features.component.AiFeatures
         self.event_sensors: Any = None  # netmon.ingest.event_sensors.EventSensors
         self.flapping: Any = None  # netmon.ingest.flapping.FlapManager
         self.trgm_enabled = False
@@ -114,6 +116,11 @@ class Runtime:
         self._rollup_event = asyncio.Event()
         self._rollup_snapshot: dict[tuple[str, int], tuple[str, tuple[int, ...]]] | None = None
         self._bg: set[asyncio.Task[Any]] = set()
+        # [1.4.1] cached security settings and the session ids revoked by a logout
+        from netmon.services.security import DEFAULT_POLICY
+
+        self.security = DEFAULT_POLICY
+        self.revoked_sessions: set[str] = set()
         self.started = False
         self.on_lock_lost: Any = self._on_lock_lost
 
@@ -141,6 +148,10 @@ class Runtime:
             self._tasks.append(asyncio.create_task(self._lock_watch_loop(), name="netmon-lock"))
         if migrate:
             await run_migrations(self.engine)
+        from netmon.services import security as security_svc
+
+        await security_svc.load(self)  # [1.4.1] egress filter, session lifetime, login cap
+        await security_svc.load_revoked(self)
         async with self.sessionmaker() as session:
             retention_days = await settings_svc.get(session, "retention_days")
         ts = await timescale.bootstrap_status(
@@ -158,6 +169,10 @@ class Runtime:
         self.ingest_retention_policy_ok = await timescale.bootstrap_ingest(
             self.engine, self.timescale_enabled, int(trap_days), int(syslog_days)
         )
+        # [1.2.1] stored trap names follow the built-in OID name table (once per table version)
+        self.spawn(self._backfill_trap_names())
+        # [1.3] interface sensors on unimportant ports -> impact warning (once)
+        self.spawn(self._backfill_impact())
         from netmon.topology.refresh import TopologyRunner
 
         self.topology = TopologyRunner(self)
@@ -219,6 +234,23 @@ class Runtime:
         from netmon.auth.sso_component import register_components
 
         register_components(self)
+        # [3b] assistant connection layer (rt.assistant; netmon.assistant.service)
+        from netmon.assistant.service import AssistantService
+
+        self.assistant = AssistantService(self)
+        self.features.register(self.assistant)
+        from netmon.assistant import agent as assistant_agent
+
+        assistant_agent.attach(self.assistant)  # [3b] runs, cancel on OFF, tool status
+        # [3b] AI features: correlation, alert notes, digest, template walks, /ask (§ 14.8)
+        from netmon.assistant.features.component import AiFeatures
+
+        self.ai_features = AiFeatures(self)
+        self.features.register(self.ai_features)
+        try:
+            await assistant_agent.mark_interrupted(self)
+        except Exception:  # noqa: BLE001
+            log.exception("Marking interrupted assistant answers failed")
         try:
             await self.features.start()
         except Exception:  # noqa: BLE001 - the server always starts
@@ -236,6 +268,8 @@ class Runtime:
             self.scheduler = Scheduler(self)
             await self.scheduler.start()
         await events_svc.write_system_event(self, "NetworkMonitor started")
+        # [1.4.1] existing targets the egress filter now refuses: one WARNING (off the start path)
+        self.spawn(self._report_blocked_targets())
         if s.netmon_test_mode:
             log.warning(
                 "NETMON_TEST_MODE is on: PUT /api/test/clock can shift the maintenance/alerting "
@@ -250,6 +284,23 @@ class Runtime:
             )
         self.started = True
         log.info("NetworkMonitor %s started (timescale=%s)", self.version, self.timescale_enabled)
+
+    async def _report_blocked_targets(self) -> None:
+        """[1.4.1] HTTP sensors / webhook / Teams channels that point at a target the SSRF egress
+        filter refuses: a startup WARNING and a `system` event naming them."""
+        from netmon.services import security as security_svc
+
+        try:
+            blocked = await security_svc.warn_blocked_targets(self)
+            if blocked:
+                await events_svc.write_system_event(
+                    self,
+                    f"{len(blocked)} monitoring / notification target(s) are blocked by the "
+                    "egress filter (loopback / link-local / cloud metadata): "
+                    + "; ".join(blocked)[:900],
+                )
+        except Exception:  # noqa: BLE001 - a report only
+            log.exception("Checking the existing targets against the egress filter failed")
 
     async def stop(self) -> None:
         # [2b-3] receivers first (sockets closed), pipeline flush <= 5 s, forwarders <= 2 s
@@ -415,6 +466,22 @@ class Runtime:
             events_svc.published(self, evs)
 
     # ------------------------------------------------------------------ helpers
+    async def _backfill_trap_names(self) -> None:
+        from netmon.ingest import collapse
+
+        try:
+            await collapse.backfill_names(self)
+        except Exception as exc:  # noqa: BLE001 - names are cosmetic, never block startup
+            log.warning("Cannot update the stored trap names: %s", exc)
+
+    async def _backfill_impact(self) -> None:
+        from netmon.services import impact
+
+        try:
+            await impact.backfill(self)
+        except Exception as exc:  # noqa: BLE001 - never block startup; retried next start
+            log.warning("Cannot set the impact of existing interface sensors: %s", exc)
+
     def spawn(self, coro: Any) -> asyncio.Future[Any]:
         task = asyncio.ensure_future(coro)
         self._bg.add(task)
@@ -477,6 +544,20 @@ class Runtime:
                 {"id": id_, "status": value[0], "status_counts": dict(counts)},
             )
 
+    def correlation_graph_changed(self) -> None:
+        """[3b] § 14.8.2: drop the correlation dependency/topology graph cache (60 s TTL stays
+        as the backstop)."""
+        ai = self.ai_features
+        corr = getattr(ai, "correlation", None) if ai is not None else None
+        if corr is not None:
+            corr.invalidate()
+
+    def topology_changed(self, reason: str, refresh_id: int | None = None) -> None:
+        """Topology links or layout changed: `topology.updated` + correlation graph refresh."""
+        self.hub.broadcast("topology.updated", {"reason": reason, "refresh_id": refresh_id})
+        if reason != "layout":
+            self.correlation_graph_changed()
+
     def config_changed(self, entity: str, id_: int, action: str) -> None:
         self.hub.broadcast("config.changed", {"entity": entity, "id": id_, "action": action})
         if entity == "notification_channel" and self.telegram_pollers is not None:
@@ -492,5 +573,6 @@ class Runtime:
             self.newdev.mark_dirty()  # [3] new_mac sensors of new in-scope switches
         if entity in ("device", "group"):
             self.cascade.invalidate()  # dependencies may have changed
+            self.correlation_graph_changed()  # [3b] § 14.8.2: dependency graph
             if self.maintenance is not None:
                 self.maintenance.request()  # coverage may have changed (moves, new devices)

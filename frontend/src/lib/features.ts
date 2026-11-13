@@ -99,6 +99,45 @@ export function featureHints(name: FeatureName, f: Features, s?: Settings): Feat
       if (s && !s.public_base_url) out.push({ key: 'features.hint.publicUrl', tone: 'warn' });
       out.push({ key: 'features.hint.telegramButtons', tone: 'info' });
       break;
+    // [3b] dependency hints (§ 14.0.1); a feature ON with a missing dependency idles
+    case 'assistant':
+      if (!f.audit) out.push({ key: 'features.hint.assistantAudit', tone: 'warn' });
+      break;
+    case 'ai_explain_alert':
+    case 'ai_correlation':
+    case 'ai_template_drafts':
+      if (!f.assistant) out.push({ key: 'features.hint.needsAssistant', tone: 'warn' });
+      break;
+    case 'ai_alert_notes':
+      if (!f.assistant) out.push({ key: 'features.hint.needsAssistant', tone: 'warn' });
+      out.push({ key: 'features.hint.alertNotes', tone: 'info' });
+      break;
+    case 'ai_config_diff':
+      if (!f.assistant) out.push({ key: 'features.hint.needsAssistant', tone: 'warn' });
+      if (!f.config_backup) out.push({ key: 'features.hint.needsConfigBackup', tone: 'warn' });
+      out.push({ key: 'features.hint.configExcerpts', tone: 'info' });
+      break;
+    case 'ai_syslog_digest':
+      if (!f.assistant) out.push({ key: 'features.hint.needsAssistant', tone: 'warn' });
+      if (!f.syslog) out.push({ key: 'features.hint.needsSyslog', tone: 'warn' });
+      break;
+    case 'ai_rule_drafts':
+      if (!f.assistant) out.push({ key: 'features.hint.needsAssistant', tone: 'warn' });
+      out.push({ key: 'features.hint.ruleDraftsIngest', tone: 'info' });
+      break;
+    case 'ai_knowledge':
+      if (!f.assistant) out.push({ key: 'features.hint.needsAssistant', tone: 'warn' });
+      out.push({ key: 'features.hint.kbAws', tone: 'info' });
+      break;
+    case 'ai_chat_ask':
+      if (!f.assistant) out.push({ key: 'features.hint.needsAssistant', tone: 'warn' });
+      if (!f.chat_ack) out.push({ key: 'features.hint.needsChatAck', tone: 'warn' });
+      out.push({ key: 'features.hint.chatAskChannel', tone: 'info' });
+      break;
+    case 'ai_report_summary':
+      if (!f.assistant) out.push({ key: 'features.hint.needsAssistant', tone: 'warn' });
+      if (!f.reports) out.push({ key: 'features.hint.needsReports', tone: 'warn' });
+      break;
   }
   return out;
 }
@@ -110,6 +149,23 @@ export const FEATURE_GROUPS: { key: string; names: FeatureName[] }[] = [
   { key: 'network', names: ['lag', 'config_backup', 'flows', 'new_device_alerts'] },
   { key: 'access', names: ['ldap', 'sso_kerberos', 'sso_oidc'] },
   { key: 'notifications', names: ['chat_ack'] },
+  // [3b]
+  {
+    key: 'assistant',
+    names: [
+      'assistant',
+      'ai_explain_alert',
+      'ai_correlation',
+      'ai_alert_notes',
+      'ai_config_diff',
+      'ai_syslog_digest',
+      'ai_rule_drafts',
+      'ai_template_drafts',
+      'ai_knowledge',
+      'ai_chat_ask',
+      'ai_report_summary',
+    ],
+  },
 ];
 
 /** [3] Phase-3 features (their status lines come from their own status endpoints). */
@@ -199,6 +255,7 @@ export const SETTINGS_TABS = [
   'noc',
   'chatAck',
   'audit',
+  'assistant', // [3b]
 ] as const;
 export type SettingsTab = (typeof SETTINGS_TABS)[number];
 
@@ -223,6 +280,18 @@ export const FEATURE_TABS: Partial<Record<FeatureName, SettingsTab>> = {
   reports: 'reports',
   noc: 'noc',
   chat_ack: 'chatAck',
+  // [3b] every assistant toggle lives in Settings → Assistant (configure-first + capabilities)
+  assistant: 'assistant',
+  ai_explain_alert: 'assistant',
+  ai_correlation: 'assistant',
+  ai_alert_notes: 'assistant',
+  ai_config_diff: 'assistant',
+  ai_syslog_digest: 'assistant',
+  ai_rule_drafts: 'assistant',
+  ai_template_drafts: 'assistant',
+  ai_knowledge: 'assistant',
+  ai_chat_ask: 'assistant',
+  ai_report_summary: 'assistant',
 };
 
 /** The settings tab holding the feature's toggle. */

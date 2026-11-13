@@ -10,6 +10,8 @@ import type {
   SshCredentials,
 } from './types3';
 export * from './types3';
+export * from './types3b';
+import type { AssistantMessage, AssistantState, Incident, Settings3b, SnmpWalk } from './types3b';
 
 export type Status = 'up' | 'warning' | 'down' | 'paused' | 'unknown' | 'unreachable'; // [2b-1] unreachable
 export type ChannelStatus = 'up' | 'warning' | 'down' | 'unknown';
@@ -255,9 +257,15 @@ export type Sensor = {
   /** [2b-1] */
   acknowledgement: Acknowledgement | null;
   in_maintenance: boolean;
+  /** [1.3] how the sensor's status rolls up into the device status (absent on older servers = critical) */
+  impact?: SensorImpact;
   created_at: string;
   updated_at: string;
 };
+
+/** [1.3] critical: the device follows the sensor; warning: at most warning; none: ignored. */
+export type SensorImpact = 'critical' | 'warning' | 'none';
+export const SENSOR_IMPACTS: SensorImpact[] = ['critical', 'warning', 'none'];
 
 export type EventKind =
   | 'status_change'
@@ -330,6 +338,8 @@ export type Health = {
   /** [3] */
   flows_rollup?: 'cagg' | 'table' | null;
   kerberos?: 'ready' | 'unavailable' | 'disabled' | 'error';
+  /** [3b] */
+  assistant?: AssistantState;
 };
 
 // Tree
@@ -403,6 +413,19 @@ export type ChannelDef = {
   down_max: number | null;
 };
 
+/** [1.3.1] a named enum value map (GET /api/sensor-types `value_maps`); texts per language */
+export type NamedValueMap = {
+  title: { en: string; he: string };
+  codes: {
+    value: string;
+    status: 'up' | 'warning' | 'down';
+    mib: string;
+    text: { en: string; he: string };
+  }[];
+  /** text of a code the table does not know; `{code}` = the value */
+  unknown: { en: string; he: string };
+};
+
 export type SensorTypeDef = {
   type: SensorType;
   requires_snmp: boolean;
@@ -459,7 +482,11 @@ export type UnreachableDevice = {
   parent_device_name: string | null;
 };
 
-export type EmailChannelConfig = { to: string[]; /** [3] */ ack_link?: boolean };
+export type EmailChannelConfig = {
+  to: string[];
+  /** [3] */ ack_link?: boolean;
+  /** [3b] */ ai_note_email?: boolean;
+};
 export type WebhookChannelConfig = {
   url: string;
   headers: Record<string, string>;
@@ -476,6 +503,8 @@ export type TelegramChannelConfig = {
   /** [3] chat ack */
   ack_buttons?: boolean;
   ack_link?: boolean;
+  /** [3b] /ask (feature ai_chat_ask) */
+  ai_ask?: boolean;
 };
 /** Request form: bot_token is a real string (or omitted/null = keep). */
 export type TelegramChannelConfigInput = {
@@ -485,6 +514,7 @@ export type TelegramChannelConfigInput = {
   disable_notification: boolean;
   ack_buttons?: boolean;
   ack_link?: boolean;
+  ai_ask?: boolean;
 };
 /** [2b-3] url is a write-only secret */
 export type TeamsChannelConfig = {
@@ -521,6 +551,8 @@ export type AlertRule = {
   escalation_after_s: number | null;
   escalation_channel_ids: number[];
   repeat_every_s: number | null;
+  /** [3b] AI note after the problem notification (feature ai_alert_notes) */
+  ai_note?: boolean;
   created_at: string;
   updated_at: string;
 };
@@ -555,8 +587,17 @@ export type Settings = {
   port_mac_retention_days: number;
   /** [2b-2] */
   reverse_dns: boolean;
+  /** [1.4.1] webhook / Teams / HTTP-sensor targets on this server (loopback) are allowed */
+  egress_allow_loopback?: boolean;
+  /** [1.4.1] absolute lifetime of a login session, hours (1–720; AD / OIDC: at most 12) */
+  session_max_age_h?: number;
+  /** [1.4.1] failed logins per client address in 5 minutes, all user names; 0 = off */
+  login_ip_max_failures?: number;
+  /** [1.4.1] origins that may embed the app in a frame, besides the app itself */
+  frame_ancestors?: string[];
 } & Partial<Settings2b3> &
-  Partial<Settings3>;
+  Partial<Settings3> &
+  Partial<Settings3b>;
 export type SettingsInput = Partial<
   Omit<Settings, 'smtp' | 'trap_communities' | 'trap_v3_users' | 'ldap' | 'trap_communities_count'>
 > & {
@@ -686,7 +727,21 @@ export type WsMessage =
       type: 'chat_ack.poller';
       ts: string;
       data: { bot_username: string; state: 'polling' | 'error'; last_error: string | null };
-    };
+    }
+  // [3b]
+  | {
+      type: 'assistant.message';
+      ts: string;
+      data: { conversation_id: number; message_id: number; status: AssistantMessage['status'] };
+    }
+  | {
+      type: 'assistant.state';
+      ts: string;
+      data: { state: AssistantState; error_code: string | null };
+    }
+  | { type: 'incident.update'; ts: string; data: { incident: Incident } }
+  | { type: 'digest.ready'; ts: string; data: { day: string; status: string } }
+  | { type: 'walk.update'; ts: string; data: { walk: SnmpWalk } };
 
 // ---------------------------------------------------------------------------
 // [2a] Discovery, device templates, snmp storage
@@ -965,7 +1020,33 @@ export type ApplyTemplateResult = {
   template_id: string;
   created: { sensor_id: number; name: string; type: SensorType }[];
   skipped: SkippedSensor[];
+  /** [1.3] interface sensors removed (remove_unselected_interfaces) */
+  removed?: { sensor_id: number; name: string }[];
 };
+
+/** [1.3] which interfaces an `snmp_interfaces` entry creates sensors for */
+export type ApplyInterfacesMode = 'important' | 'none' | 'all';
+export type ApplyTemplateRequest = {
+  template_id: string;
+  interfaces?: ApplyInterfacesMode | number[];
+  remove_unselected_interfaces?: boolean;
+};
+/** [1.3.1] irf: an IRF physical port of a Comware IRF stack */
+export type ApplyInterfaceReason = 'uplink' | 'lag' | 'trunk' | 'irf';
+export const APPLY_INTERFACE_REASONS: ApplyInterfaceReason[] = ['uplink', 'lag', 'trunk'];
+export type ApplyInterface = {
+  if_index: number;
+  name: string;
+  alias: string;
+  oper_status: IfStatus | string;
+  speed_bps: number | null;
+  kind: PortKind | string;
+  important: boolean;
+  reasons: ApplyInterfaceReason[];
+  has_sensor: boolean;
+  sensor_id: number | null;
+};
+export type ApplyInterfacesResponse = { items: ApplyInterface[]; inventory: 'ok' | 'missing' };
 
 export type ImportItem = { result_id: number; template_id: string; name?: string | null };
 export type ImportRequest = { group_id?: number | null; items: ImportItem[] };
@@ -1347,6 +1428,23 @@ export type Port = {
   lag?: { if_index: number; name: string; attached: boolean | null } | null;
   lag_members?: number[];
   vlans_from_lag?: boolean;
+  /** [1.3.1] IRF port (1/2) of an IRF physical port, else null */
+  irf_port?: number | null;
+  /** [1.3] connected end devices (first = the most likely one) */
+  connected?: { count: number; first: PortConnectedHost | null };
+  /** [1.3] LLDP/CDP neighbour name and management address (null = none) */
+  neighbor_name?: string | null;
+  neighbor_mgmt_address?: string | null;
+};
+
+/** [1.3] */
+export type PortConnectedHost = {
+  mac: string;
+  ip: string | null;
+  hostname: string | null;
+  vendor: string | null;
+  device_id: number | null;
+  device_name: string | null;
 };
 
 export type PortDetail = Port & {
@@ -1394,6 +1492,8 @@ export type PortInventoryStatus = {
     arp: SourceState;
     /** [2b-3] */
     lag?: SourceState;
+    /** [1.3.1] IRF physical ports (HH3C-STACK-MIB) */
+    irf?: SourceState;
   };
   /** [2b-3] */
   lag_mib?: 'ieee8023' | 'if_stack' | 'both' | null;
@@ -1481,7 +1581,19 @@ export type FeatureName =
   | 'sso_oidc'
   | 'reports'
   | 'noc'
-  | 'chat_ack';
+  | 'chat_ack'
+  // [3b]
+  | 'assistant'
+  | 'ai_explain_alert'
+  | 'ai_correlation'
+  | 'ai_alert_notes'
+  | 'ai_config_diff'
+  | 'ai_syslog_digest'
+  | 'ai_rule_drafts'
+  | 'ai_template_drafts'
+  | 'ai_knowledge'
+  | 'ai_chat_ask'
+  | 'ai_report_summary';
 export const FEATURE_NAMES: FeatureName[] = [
   'traps',
   'syslog',
@@ -1500,6 +1612,18 @@ export const FEATURE_NAMES: FeatureName[] = [
   'reports',
   'noc',
   'chat_ack',
+  // [3b]
+  'assistant',
+  'ai_explain_alert',
+  'ai_correlation',
+  'ai_alert_notes',
+  'ai_config_diff',
+  'ai_syslog_digest',
+  'ai_rule_drafts',
+  'ai_template_drafts',
+  'ai_knowledge',
+  'ai_chat_ask',
+  'ai_report_summary',
 ];
 export type Features = Record<FeatureName, boolean>;
 
@@ -1739,7 +1863,14 @@ export type RuleTestResult = {
 
 export type EventCondition = {
   id: number;
-  source: 'rule' | 'flap' | 'backup_failed' | 'host_key' | 'config_changed' | 'new_mac'; // [3]
+  source:
+    | 'rule'
+    | 'flap'
+    | 'backup_failed'
+    | 'host_key'
+    | 'config_changed'
+    | 'new_mac' // [3]
+    | 'lag_degraded'; // [1.3]
   rule_id: number | null;
   rule_name: string | null;
   key: string;
@@ -1828,11 +1959,19 @@ export type Settings2b3 = {
   trap_v3_users: TrapV3User[];
   ingest_unknown_sources: 'store' | 'drop';
   ingest_ignored_sources: string[];
+  /** [1.2.1] repetitive traps: keep the newest `trap_collapse_keep` per source and OID */
+  trap_collapse_enabled: boolean;
+  trap_collapse_oids: string[];
+  trap_collapse_keep: number;
   flap_threshold: number;
   flap_window_min: number;
   flap_quiet_min: number;
   /** [2b-3] owner decision: link-down/up and flapping alerts for important ports only, or all */
   event_linkdown_scope: 'important' | 'all';
+  /** [1.3] trunk = a port with at least this many tagged VLANs (1–100, default 2) */
+  trunk_min_tagged_vlans?: number;
+  /** [1.3] link-down/flapping alerts also for every trunk port (default true) */
+  event_linkdown_include_trunks?: boolean;
   siem_targets: SiemTarget[];
   ldap: LdapSettings;
 };

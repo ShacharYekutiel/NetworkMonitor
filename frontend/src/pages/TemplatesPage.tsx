@@ -4,6 +4,7 @@ import { useTranslation } from 'react-i18next';
 import { endpoints, qk } from '../api/endpoints';
 import type { DeviceTemplate, TemplateLibraryStatus, TemplateLoadError } from '../api/types';
 import { RefreshIcon } from '../components/icons';
+import { TemplateDraftButton } from '../components/assistant/TemplateDraftWizard';
 import { ConfidenceChip, useTemplateLibrary, VerifiedBadge } from '../components/Templates';
 import {
   Button,
@@ -238,9 +239,12 @@ export function TemplatesPage() {
         subtitle={t('templates.subtitle')}
         actions={
           isAdmin && (
-            <Button busy={reload.isPending} onClick={() => reload.mutate()}>
-              <RefreshIcon size={14} /> {t('templates.reload')}
-            </Button>
+            <>
+              <TemplateDraftButton />
+              <Button busy={reload.isPending} onClick={() => reload.mutate()}>
+                <RefreshIcon size={14} /> {t('templates.reload')}
+              </Button>
+            </>
           )
         }
       />

@@ -175,6 +175,9 @@ export function applyLiveMessage(
       batch.add(qk.settings);
       batch.add(qk.ingestStatus);
       batch.add(['device-ports']);
+      batch.add(['assistant-settings']); // [3b]
+      batch.add(['assistant-status']);
+      batch.add(['assistant-knowledge']);
       break;
     }
     case 'ingest.receiver':
@@ -208,6 +211,27 @@ export function applyLiveMessage(
       break;
     case 'chat_ack.poller':
       batch.add(qk3.telegramStatus);
+      break;
+    // [3b]
+    case 'assistant.state':
+      batch.add(['assistant-status']);
+      batch.add(['assistant-settings']);
+      batch.add(['health']);
+      break;
+    case 'assistant.message':
+      batch.add(['assistant-conversations']);
+      batch.add(['assistant-conversation', msg.data.conversation_id]);
+      batch.add(['assistant-status']);
+      break;
+    case 'incident.update':
+      batch.add(['incidents']);
+      batch.add(['incident', msg.data.incident.id]);
+      break;
+    case 'digest.ready':
+      batch.add(['assistant-digests']);
+      batch.add(['assistant-digest', msg.data.day]);
+      break;
+    case 'walk.update':
       break;
     case 'config.changed': {
       const { entity, id } = msg.data;

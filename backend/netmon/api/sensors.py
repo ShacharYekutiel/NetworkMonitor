@@ -26,7 +26,7 @@ from netmon.poller.sensor_types import (
 )
 from netmon.poller.snmp_client import DEFAULT_SNMP
 from netmon.poller.types import SEVERITY, CheckContext, evaluate
-from netmon.schemas import AcknowledgeIn, SensorCreate, SensorPatch, SensorTestIn
+from netmon.schemas import AcknowledgeIn, BulkImpactIn, SensorCreate, SensorPatch, SensorTestIn
 from netmon.services import audit
 from netmon.services import events as events_svc
 from netmon.services import history as history_svc
@@ -49,7 +49,12 @@ router = APIRouter()
 
 @router.get("/api/sensor-types")
 async def sensor_types(_: Viewer) -> dict:
-    return {"items": [SENSOR_TYPES[t].to_api() for t in SENSOR_TYPES_ORDER]}
+    from netmon.poller.value_maps import api_value_maps
+
+    return {
+        "items": [SENSOR_TYPES[t].to_api() for t in SENSOR_TYPES_ORDER],
+        "value_maps": api_value_maps(),  # [1.3.1] named value maps (texts en/he)
+    }
 
 
 async def _sensor_full(session: DB, sensor_id: int) -> tuple[Sensor, Device]:
@@ -143,7 +148,16 @@ async def sensors_page(
     return page([_out(s, d, reveal, maint) for s, d in rows], total, page_no, page_size)
 
 
-SENSOR_AUDIT_FIELDS = ("name", "type", "device_id", "config", "interval_s", "enabled", "sort_order")
+SENSOR_AUDIT_FIELDS = (
+    "name",
+    "type",
+    "device_id",
+    "config",
+    "interval_s",
+    "enabled",
+    "sort_order",
+    "impact",  # [1.3]
+)
 
 
 def sensor_audit_values(s: Sensor) -> dict[str, Any]:
@@ -159,6 +173,22 @@ def sensor_audit_values(s: Sensor) -> dict[str, Any]:
 
 def sensor_entity(s: Sensor) -> audit.Entity:
     return audit.entity("sensor", s.id, s.name, device_id=s.device_id)
+
+
+async def check_sensor_egress(type_: str, config: dict[str, Any], host: str | None) -> None:
+    """[1.4.1] Early field error for an HTTP sensor URL the SSRF egress filter refuses (the
+    filter itself is enforced when the check runs, on every redirect hop)."""
+    if type_ != "http":
+        return
+    from netmon.poller.checks.http import host_for_url
+    from netmon.util import egress
+
+    url = str(config.get("url") or "")
+    if host:
+        url = url.replace("{host}", host_for_url(host))
+    reason = await egress.url_block_reason(url)
+    if reason:
+        raise validation_error(["body", "config", "url"], reason)
 
 
 @router.post("/api/sensors", status_code=201)
@@ -183,14 +213,23 @@ async def create_sensor(body: SensorCreate, _: Admin, rt: RT, session: DB, ctx: 
             )
         device.event_sensor_optout = [t for t in device.event_sensor_optout or [] if t != tdef.type]
     cfg = validate_config(tdef.type, {} if passive else body.config)
+    await check_sensor_egress(tdef.type, cfg, device.host)
     overrides = {} if passive else validate_channel_overrides(tdef.type, body.channels)
     interval = (
         60
         if passive
         else body.interval_s or int(await settings_svc.get(session, "default_interval_s"))
     )
+    impact = body.impact  # [1.3] interface sensors default by port importance
+    if impact is None:
+        impact = "critical"
+        if tdef.type == "snmp_interface":
+            from netmon.services.impact import interface_impact, sensor_if_index
+
+            impact = await interface_impact(session, device.id, sensor_if_index(cfg))
     s = Sensor(
         device_id=device.id,
+        impact=impact,
         name=(body.name or "").strip() or default_sensor_name(tdef.type, cfg),
         type=tdef.type,
         config=cfg,
@@ -233,13 +272,14 @@ async def patch_sensor(
     s, d = await _sensor_full(session, sensor_id)
     before = sensor_audit_values(s)
     fields = body.model_fields_set
-    if is_passive(s.type):  # [2b-3] event sensors: name, enabled, sort_order only
-        fields = fields & {"name", "enabled", "sort_order"}
+    if is_passive(s.type):  # [2b-3] event sensors: name, enabled, sort_order ([1.3] impact)
+        fields = fields & {"name", "enabled", "sort_order", "impact"}
     if "type" in fields and body.type is not None and body.type != s.type:
         raise ApiError(400, "invalid_sensor_type", "The sensor type cannot be changed")
     if "config" in fields and body.config is not None:
         old = dict(s.config)
         s.config = validate_config(s.type, body.config, base=dict(s.config))
+        await check_sensor_egress(s.type, s.config, d.host)
         if s.type == "snmp_interface" and s.config.get("if_index") != old.get("if_index"):
             s.state = {}  # different interface: counters are no longer comparable
         if s.type == "snmp_custom":
@@ -260,6 +300,8 @@ async def patch_sensor(
         s.interval_s = body.interval_s
     if "sort_order" in fields and body.sort_order is not None:
         s.sort_order = body.sort_order
+    if "impact" in fields and body.impact is not None:
+        s.impact = body.impact  # [1.3]
     evs = []
     if "enabled" in fields and body.enabled is not None and body.enabled != s.enabled:
         s.enabled = body.enabled
@@ -289,6 +331,41 @@ async def patch_sensor(
         await rt.scheduler.upsert(s.id)
     rt.config_changed("sensor", s.id, "updated")
     return _out(s, d, maint=rt.maintenance)
+
+
+# ---------------------------------------------------------------- [1.3] bulk impact
+@router.post("/api/sensors/bulk-impact")
+async def bulk_impact(body: BulkImpactIn, _: Admin, rt: RT, session: DB, ctx: Audit) -> dict:
+    """Set the impact of up to 1000 sensors (one `sensor.update` audit row per changed
+    sensor). Unknown ids -> 422 (nothing changed)."""
+    ids = sorted(set(body.sensor_ids))
+    rows = (
+        (await session.execute(select(Sensor).where(Sensor.id.in_(ids)).with_for_update()))
+        .scalars()
+        .all()
+    )
+    missing = sorted(set(ids) - {s.id for s in rows})
+    if missing:
+        raise validation_error(["body", "sensor_ids"], f"unknown sensor ids: {missing[:20]}")
+    updated = 0
+    devices: set[int] = set()
+    for s in rows:
+        if s.impact == body.impact:
+            continue
+        devices.add(s.device_id)
+        await audit.record(
+            session,
+            ctx,
+            "sensor.update",
+            sensor_entity(s),
+            {"impact": [s.impact, body.impact]},
+        )
+        s.impact = body.impact
+        updated += 1
+    await session.commit()
+    for device_id in sorted(devices):  # one message per device, not per sensor
+        rt.config_changed("device", device_id, "updated")
+    return {"updated": updated}
 
 
 # ---------------------------------------------------------------- [2b-1] acknowledge
@@ -451,8 +528,11 @@ async def test_sensor(body: SensorTestIn, _: Admin, rt: RT, session: DB) -> dict
                 creds = dict(DEFAULT_SNMP)
     else:
         raise validation_error(["body", "device_id"], "device_id or host is required")
+    from netmon.services.sensors import check_language
+
+    lang = await check_language(session, cfg)  # [1.3.1]
     await session.close()
-    ctx = CheckContext(None, tdef.type, cfg, host, creds, {}, timeout_s=60.0)
+    ctx = CheckContext(None, tdef.type, cfg, host, creds, {}, timeout_s=60.0, lang=lang)
     raw, duration, checked_at = await execute_check(ctx, rt.semaphore)
     ev = evaluate(raw, default_thresholds(tdef.type, overrides, cfg), duration, checked_at)
     return check_result_out(ev)

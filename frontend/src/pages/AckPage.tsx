@@ -9,6 +9,8 @@ import { AckDetails } from '../components/Acknowledge';
 import { StatusBadge } from '../components/Status';
 import { Button, ErrorBox, Field, Loading, Notice, Textarea } from '../components/ui';
 import { useFeatures } from '../hooks/features';
+import { useLocalizeMessage } from '../hooks/localize';
+import { useSensorTypes } from '../hooks/queries';
 import { formatDateTime, formatRelative } from '../lib/format';
 import { ACK_TOKEN_KEY, ackTokenFromHash } from '../lib/kiosk';
 import { AuthShell } from './AuthShell';
@@ -26,6 +28,8 @@ function readToken(): string | null {
 /** [3] Ack page (/ack#<token>): problem summary + Acknowledge (admin), outside the app shell. */
 export function AckPage() {
   const { t } = useTranslation();
+  useSensorTypes(); // [1.3.2] outside the app shell: load the named value maps here
+  const localize = useLocalizeMessage();
   const { features } = useFeatures();
   const [token] = useState(readToken);
   const [comment, setComment] = useState('');
@@ -80,7 +84,7 @@ export function AckPage() {
                     </Link>
                   </div>
                   <p className="text-ink-muted">
-                    <bdi dir="auto">{r.sensor.status_message}</bdi>
+                    <bdi dir="auto">{localize(r.sensor.status_message)}</bdi>
                   </p>
                   {r.problem_since && (
                     <p className="text-xs text-ink-muted">

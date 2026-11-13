@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import asyncio
 import secrets
+import time
 from collections.abc import AsyncIterator
 from datetime import UTC, datetime, timedelta
 from typing import Any
@@ -131,6 +132,55 @@ async def test_rule_test_preview_and_viewer(
     assert (await viewer.post("/api/event-rules", json=rule)).status_code == 403
 
 
+# ------------------------------------------------------------------ [1.3.3] ReDoS fix
+async def test_event_rule_rejects_unsafe_regex(rt: Runtime, admin: httpx.AsyncClient) -> None:
+    """RE2-incompatible patterns (backreference, lookaround) are rejected at save time."""
+    await features(admin, syslog=True)
+    base = {"name": "r", "kind": "syslog", "scope": "global", "action": "down",
+            "match": {"text_regex": True}, "clear_after_min": 10}  # fmt: skip
+    for pat in (r"(a)\1", "(?=secret)", "(?<=x)y"):
+        r = await admin.post(
+            "/api/event-rules", json={**base, "match": {"text": pat, "text_regex": True}}
+        )
+        assert r.status_code == 422, (pat, r.text)
+    # an unsafe key_regex is rejected too
+    r = await admin.post(
+        "/api/event-rules",
+        json={**base, "match": {"text": "down", "text_regex": True}, "key_regex": r"(a)\1"},
+    )
+    assert r.status_code == 422
+    # a catastrophic-for-`re` but RE2-safe pattern is accepted (it is linear under RE2)
+    r = await admin.post(
+        "/api/event-rules", json={**base, "match": {"text": "(a+)+$", "text_regex": True}}
+    )
+    assert r.status_code == 201, r.text
+
+
+async def test_event_rule_test_redos_does_not_block_loop(
+    rt: Runtime, admin: httpx.AsyncClient
+) -> None:
+    """A ReDoS pattern tested against a hostile message returns promptly and the scan runs off
+    the event loop, so a concurrent request is served meanwhile."""
+    _, sp = ports(rt)
+    await make_device(admin, name="sw81", host=src("127.0.0.81"))
+    await features(admin, syslog=True)
+    send_udp(sp, b"<13>" + b"a" * 60 + b"!")  # hostile payload for `(a+)+$`
+    await wait_for(lambda: has(admin, "/api/syslog", 1))
+    rule = {"name": "redos", "kind": "syslog", "scope": "global", "action": "down",
+            "match": {"text": "(a+)+$", "text_regex": True}, "clear_after_min": 10}  # fmt: skip
+    start = time.perf_counter()
+    test_resp, status_resp = await asyncio.gather(
+        admin.post("/api/event-rules/test", json={"rule": rule, "hours": 1}),
+        admin.get("/api/setup/status"),
+    )
+    elapsed = time.perf_counter() - start
+    assert test_resp.status_code == 200, test_resp.text
+    assert test_resp.json()["scanned"] >= 1
+    assert status_resp.status_code == 200
+    assert status_resp.json() == {"setup_required": False}
+    assert elapsed < 2.0  # linear matching + worker thread: nowhere near a hang
+
+
 # ------------------------------------------------------------------ event sensors
 async def test_event_alert_flow(rt: Runtime, admin: httpx.AsyncClient, clock: FakeClock) -> None:
     tp, sp = ports(rt)
@@ -245,7 +295,13 @@ async def test_important_ports_and_linkdown_scope(rt: Runtime, admin: httpx.Asyn
                 {"d": d["id"], "i": idx, "n": f"Gi1/0/{idx}"},
             )
         await s.commit()
-    await make_sensor(admin, d["id"], "snmp_interface", {"if_index": 5, "if_name": "Gi1/0/5"})
+    # [1.3] a port with a *critical* interface sensor is important (a new interface sensor on
+    # an unimportant port defaults to impact warning)
+    sens = await make_sensor(
+        admin, d["id"], "snmp_interface", {"if_index": 5, "if_name": "Gi1/0/5"}
+    )
+    assert sens["impact"] == "warning"
+    await admin.patch(f"/api/sensors/{sens['id']}", json={"impact": "critical"})
     await features(admin, traps=True, event_alerts=True)
     rid = (await rules_by_key(admin))["trap_link_down"]["id"]
     await admin.patch(f"/api/event-rules/{rid}", json={"enabled": True})
@@ -257,7 +313,7 @@ async def test_important_ports_and_linkdown_scope(rt: Runtime, admin: httpx.Asyn
     assert ts["status"] == "up"
     t = (await admin.get("/api/traps")).json()["items"][0]
     assert t["summary"].endswith("port=Gi1/0/7") and t["matched_rule_ids"] == []
-    send_udp(tp, link(LINK_DOWN, 5))  # interface sensor -> important
+    send_udp(tp, link(LINK_DOWN, 5))  # critical interface sensor -> important
     await wait_for(lambda: _status(admin, d["id"], "trap", "warning"))
     await admin.put("/api/settings", json={"event_linkdown_scope": "all"})
     send_udp(tp, link(LINK_DOWN, 7))
@@ -477,7 +533,7 @@ async def test_migration_0006_up_down_up(mode: str, rt: Runtime) -> None:
         await timescale.bootstrap_ingest(engine, enabled, 30, 30)
         conn = await asyncpg.connect(_plain(url))
         try:
-            assert await conn.fetchval("SELECT version_num FROM alembic_version") == "0007"
+            assert await conn.fetchval("SELECT version_num FROM alembic_version") == "0011"
             assert await conn.fetchval("SELECT count(*) FROM event_rules WHERE NOT enabled") == 7
             if mode == "timescale":
                 ht = await conn.fetchval(
@@ -573,7 +629,7 @@ async def test_migration_0006_up_down_up(mode: str, rt: Runtime) -> None:
         await run_migrations(engine)
         conn = await asyncpg.connect(_plain(url))
         try:
-            assert await conn.fetchval("SELECT version_num FROM alembic_version") == "0007"
+            assert await conn.fetchval("SELECT version_num FROM alembic_version") == "0011"
             assert await conn.fetchval("SELECT count(*) FROM event_rules") == 7
         finally:
             await conn.close()

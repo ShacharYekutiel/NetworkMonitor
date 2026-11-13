@@ -35,6 +35,7 @@ class AlertRule(TimestampMixin, Base):
         ARRAY(Integer), nullable=False, default=list
     )
     repeat_every_s: Mapped[int | None] = mapped_column(Integer)
+    ai_note: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)  # [3b]
 
 
 class AlertRuleChannel(Base):

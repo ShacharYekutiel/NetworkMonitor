@@ -77,6 +77,11 @@ jobs:
           python -m pip install --upgrade pip
           pip install -e ".[dev,kerberos]"
           python -c "import asyncssh, gssapi; print('asyncssh', asyncssh.__version__, '/ gssapi ok')"
+          # [3b] botocore is a TEST-ONLY dependency: the Bedrock mock (tests/sim/bedrock) checks
+          # every request with botocore's SigV4Auth as an independent implementation. The app
+          # itself signs with its own SigV4 code (httpx) and the image never contains botocore.
+          pip install "botocore>=1.34"
+          python -c "import botocore; print('botocore', botocore.__version__, '(tests only)')"
 
       # [2b-3] The syslog/trap text search uses pg_trgm (contrib). Both service images ship
       # it; fail fast with a clear message if an image ever drops it.
@@ -251,6 +256,30 @@ jobs:
             http://localhost:8080/api/settings -o /dev/null
           python3 .github/scripts/ingest-check.py flows-listening
           python3 .github/scripts/ingest-check.py flows-pipeline
+
+      # [3b] Assistant (Amazon Bedrock): no new image package (own SigV4 over httpx +
+      # cryptography, botocore/boto3 must NOT be in the image), no new port, OFF by default.
+      - name: Phase 3b (assistant off by default, no AWS SDK in the image)
+        run: |
+          set -eu
+          $COMPOSE exec -T netmon python -c '
+          import importlib.util as u, sys
+          import cryptography, httpx
+          bad = [m for m in ("botocore", "boto3", "aiobotocore") if u.find_spec(m)]
+          print("httpx", httpx.__version__, "/ cryptography", cryptography.__version__, "/ AWS SDKs:", bad or "none")
+          sys.exit(1 if bad else 0)'
+          curl -fsS http://localhost:8080/api/health -o health.json
+          python3 - <<'EOF'
+          import json
+          h = json.load(open("health.json"))
+          assert h.get("assistant") == "disabled", h
+          print("assistant:", h["assistant"])
+          EOF
+          code="$(curl -s -o ask.json -w '%{http_code}' -b cookies.txt -X POST -H 'Content-Type: application/json' \
+            -d '{"conversation_id":null,"question":"ping"}' http://localhost:8080/api/assistant/ask)"
+          cat ask.json; echo
+          test "$code" = 409
+          grep -q '"code":"feature_disabled"' ask.json
 
       - name: Restart keeps data and password
         run: |

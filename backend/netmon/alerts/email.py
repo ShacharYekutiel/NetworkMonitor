@@ -14,8 +14,15 @@ class SmtpError(Exception):
 
 
 async def send_email(
-    smtp: dict[str, Any], to: list[str], subject: str, text: str, html: str | None = None
-) -> None:
+    smtp: dict[str, Any],
+    to: list[str],
+    subject: str,
+    text: str,
+    html: str | None = None,
+    headers: dict[str, str] | None = None,
+) -> str:
+    """Send one message; returns its Message-ID. [3b] `headers`: extra headers (the AI note
+    reply's In-Reply-To / References)."""
     if not smtp.get("host"):
         raise SmtpError("SMTP server is not configured")
     if not smtp.get("from_address"):
@@ -25,6 +32,8 @@ async def send_email(
     msg["To"] = ", ".join(to)
     msg["Subject"] = subject
     msg["Message-ID"] = make_msgid(domain=smtp["from_address"].split("@")[-1] or None)
+    for name, value in (headers or {}).items():
+        msg[name] = value
     msg.set_content(text)
     if html:
         msg.add_alternative(html, subtype="html")
@@ -43,3 +52,4 @@ async def send_email(
         )
     except (aiosmtplib.SMTPException, OSError, TimeoutError) as exc:
         raise SmtpError(str(exc) or type(exc).__name__) from exc
+    return str(msg["Message-ID"])
