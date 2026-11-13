@@ -3700,7 +3700,7 @@ endpoints with a valid `test_id` (architecture § 14.2.6); `PUT /api/settings` s
   "ra_csr_created_at": null,
   "last_test": null,                               // {"ok", "at", "by", "error_code"} of the last Test
   "send_config_excerpts": false,
-  "redact_internal_ips": false,
+  "redact_internal_ips": true,                     // [1.4.0] default true (pentest finding B); a row without the key → true
   "internal_cidrs": [],                            // ≤ 64 extra CIDRs treated as internal
   "chat_redact_ips": true,
   "prices": { "currency": "USD", "input_per_mtok": null, "output_per_mtok": null,

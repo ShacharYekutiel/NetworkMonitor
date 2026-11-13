@@ -1091,7 +1091,7 @@ Create examples:
   "channel_ids": [1], "escalation_after_s": 900, "escalation_channel_ids": [4], "repeat_every_s": 3600 }
 ```
 
-Defaults: `null`, `[]`, `null`. Validation in [data-model.md](data-model.md#escalation-and-persistent-alert-state).
+Defaults: `null`, `[]`, `null`. Validation in [data-model.md](data-model.md#2b-1-escalation-and-persistent-alert-state).
 PATCH: `escalation_channel_ids` replaces the set; sending `escalation_after_s: null` also clears
 `escalation_channel_ids`.
 
@@ -2704,7 +2704,7 @@ The check message of a code from the table is `<label>: <text> (<mib>, <code>)` 
 
 ### [1.3.1] Device templates
 `snmp_table` entries may carry `label_format` and `rename_from` (only when set;
-[data-model § 1.3.1](data-model.md#131-template-options)).
+[data-model § 1.3.1](data-model.md#131-template-options-snmp_table)).
 
 
 ## [1.4.1] Release 1.4.1 contract (security hardening)

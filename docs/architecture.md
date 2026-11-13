@@ -1,5 +1,4 @@
-# NetworkMonitor — Architecture (Phase 1 / MVP + Phase 2a + Phase 2b-1 + Phase 2b-2 + Phase 2b-3 + Phase 3 + Phase 3b)
-# NetworkMonitor — Architecture (Phase 1 / MVP + Phase 2a + Phase 2b-1 + Phase 2b-2 + Phase 2b-3 + Phase 3 + 1.3)
+# NetworkMonitor — Architecture (Phase 1 / MVP + Phase 2a + Phase 2b-1 + Phase 2b-2 + Phase 2b-3 + Phase 3 + Phase 3b + 1.3)
 
 Phase 2a (auto-discovery, device templates, `snmp_custom`/`snmp_disk`, Telegram) is described in
 [§ 9](#9-phase-2a-discovery-templates-custom-snmp-telegram); items elsewhere marked **[2a]** belong to it.
@@ -21,6 +20,12 @@ Release 1.3 (sensor impact on the device status, one important-port definition, 
 apply, connected hosts and CSV on the ports view, trunk / LAG-degraded alerts, IRF sensors) is described in
 [§ 14](#14-release-13-sensor-impact-important-ports-interface-selection-connected-hosts-lag-degraded-irf); items
 marked **[1.3]** belong to it.
+**Note on numbering:** Phase 3b and Release 1.3 both carry the number 14 (they were written in parallel), and both
+have subsections 14.1–14.8. They are deliberately not renumbered: the heading anchors and about 200 "§ 14.x"
+references in code comments, tests and the other contracts point into both. A "§ 14.x" reference about the
+assistant / AI features (or tagged **[3b]**) means Phase 3b; one about sensor impact, important ports, interface
+selection, connected hosts, trunk/LAG alerts, IRF, named value maps or settings search (tagged **[1.3]** /
+**[1.3.1]**) means Release 1.3. New sections continue at § 15.
 
 NetworkMonitor is a license-free, PRTG-like network monitor. One Python process serves the REST API, the
 WebSocket, the built React SPA, and runs the poller and the alert engine. PostgreSQL holds everything, and
@@ -3834,6 +3839,9 @@ rendered answer has no `<img>`, no external `href`, forged refs rendered as text
 | Q6 | Knowledge Base now? | Implemented, OFF by default. |
 
 ## 14. Release 1.3: sensor impact, important ports, interface selection, connected hosts, LAG degraded, IRF
+
+> Numbering: this is the second section 14 (the first is [§ 14 Phase 3b](#14-phase-3b-ask-the-network-assistant-and-ai-features-amazon-bedrock)).
+> It is kept as is so existing anchors and "§ 14.x" references stay valid; see the note at the top of this document.
 
 Requests of the owner's network team after 1.2.0 in production (FF 5945 IRF, ArubaOS-Switch, Aruba CX). Owner
 decision: core-behaviour improvements, **no feature toggle**. Contract: [api.md § 1.3](api.md#13-release-13-contract),
