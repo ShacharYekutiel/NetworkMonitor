@@ -12,6 +12,7 @@ import asyncio
 import contextlib
 import json
 import logging
+import os
 import time
 from pathlib import Path
 from typing import Any
@@ -290,7 +291,7 @@ class TemplateDrafts:
             from netmon.services.sensors import group_chain
 
             chain = await group_chain(session, dev.group_id)
-            creds, _, _ = resolve_credentials(dev.snmp_credentials, chain)
+            creds, _, _ = resolve_credentials(dev.snmp_credentials, chain, dev.id)
             row = (
                 await session.execute(
                     text(
@@ -787,6 +788,21 @@ def _err_msg(exc: Any) -> str:
     return str(getattr(exc, "message", None) or str(exc))
 
 
+def _inside(base: Path, rel: str) -> str:
+    """[1.4.2] The real path of `rel` below `base`; refuses anything that resolves outside
+    it (the id is already checked by ID_RE and the vendor sanitised: defence in depth)."""
+    root = os.path.realpath(base)
+    full = os.path.realpath(os.path.join(root, rel))
+    if not full.startswith(root + os.sep):
+        raise ApiError(
+            422,
+            "invalid_template",
+            "The template id or vendor is not a valid file name",
+            [{"path": "id", "error": "invalid file name"}],
+        )
+    return full
+
+
 # ------------------------------------------------------------------ normal save (always on)
 async def save_user_template(rt: Any, ctx: Any, yaml_text: str, overwrite: bool) -> dict[str, Any]:
     """`POST /api/device-templates/user`: validate, write
@@ -821,9 +837,11 @@ async def save_user_template(rt: Any, ctx: Any, yaml_text: str, overwrite: bool)
     )
     udir = registry.user_dir(rt)
     rel = f"{vendor}/{tpl['id']}.yaml"
-    path = udir / vendor / f"{tpl['id']}.yaml"
-    existing = [p for p in udir.rglob(f"{tpl['id']}.*")] if udir.is_dir() else []
-    if (existing or path.exists()) and not overwrite:
+    path = Path(_inside(udir, os.path.join(vendor, f"{tpl['id']}.yaml")))
+    existing = (
+        [Path(_inside(udir, str(p))) for p in udir.rglob(f"{tpl['id']}.*")] if udir.is_dir() else []
+    )
+    if (existing or path.exists()) and not overwrite:  # noqa: ASYNC240 - one stat
         raise ApiError(
             409,
             "template_exists",

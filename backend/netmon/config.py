@@ -110,6 +110,10 @@ class Settings(BaseSettings):
     netmon_ipfix_port: int = Field(default=4739, ge=0, le=65535, alias="NETMON_IPFIX_PORT")
     netmon_sflow_port: int = Field(default=6343, ge=0, le=65535, alias="NETMON_SFLOW_PORT")
     netmon_flow_host: str = Field(default="0.0.0.0", alias="NETMON_FLOW_HOST")
+    # [1.4.2] HSTS includeSubDomains (only when every host under the domain serves HTTPS)
+    netmon_hsts_include_subdomains: bool = Field(
+        default=False, alias="NETMON_HSTS_INCLUDE_SUBDOMAINS"
+    )
 
     @property
     def syslog_tcp_port(self) -> int:

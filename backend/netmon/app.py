@@ -161,6 +161,8 @@ def create_app(
     app.state.directory = Directory()
     install_error_handlers(app)
 
+    hsts = security_svc.hsts_value(bool(settings.netmon_hsts_include_subdomains))
+
     def harden(request: Request, response: Response) -> Response:
         """[1.4.1] Security headers on every response (also the guard's own error answers):
         CSP with `frame-ancestors`, X-Frame-Options, nosniff, Referrer-Policy, and HSTS when
@@ -172,6 +174,7 @@ def create_app(
             csp=security_svc.build_csp(pol, script_hashes),
             https=https,
             path=request.url.path,
+            hsts=hsts,
         ).items():
             response.headers.setdefault(name, value)
         return response
