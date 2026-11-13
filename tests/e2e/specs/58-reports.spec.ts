@@ -131,7 +131,7 @@ test('Run now (send): availability equals the formula on the sensor events; emai
 
 test('report page: print stylesheet (A4 media emulation), Print / Save as PDF button, no navigation in print', async ({ page }) => {
   await loginViaApi(page, undefined, `/reports/runs/${runId}`);
-  await expect(page.getByText('qa3-report-web').first()).toBeVisible({ timeout: 20_000 });
+  await expect(page.getByRole('main').getByText('qa3-report-web').first()).toBeVisible({ timeout: 20_000 });
   await expect(page.getByRole('button', { name: tx('reports.print', /print/i) })).toBeVisible();
   await shot3(page, '58-report-page');
   await page.emulateMedia({ media: 'print' });
