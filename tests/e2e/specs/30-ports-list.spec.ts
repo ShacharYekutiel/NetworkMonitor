@@ -29,7 +29,8 @@ test('default columns, physical-only toggle, connected texts', async ({ page }) 
   await page.evaluate(() => localStorage.removeItem('netmon.ports.columns'));
   await openPorts(page, lab.aos.id, 'list');
   const heads = (await list(page).locator('thead th').allInnerTexts()).map((s) => s.trim().toLowerCase());
-  expect(heads).toEqual(['port', 'status', 'connected', 'vlan', 'mode', 'speed', 'poe', 'rxtx'].map((c) => T(`ports.col.${c}`).toLowerCase()));
+  // [1.3] the "Connected" default column became "IP" + "Name / neighbor" (api.md [1.3] Ports, architecture § 14.4)
+  expect(heads).toEqual(['port', 'status', 'connIp', 'connName', 'vlan', 'mode', 'speed', 'poe', 'rxtx'].map((c) => T(`ports.col.${c}`).toLowerCase()));
   // physical + lag by default: 1-10 + Trk1, not DEFAULT_VLAN
   expect(await firstCells(page)).toEqual(['1', '2', '3', '4', '5', '6', '7', '8', '9', '10', 'Trk1']);
   await list(page).getByRole('checkbox', { name: T('ports.physicalOnly') }).uncheck();
@@ -90,7 +91,9 @@ test('column chooser: Alias + IP + Vendor persist after a reload (localStorage)'
   await openPorts(page, lab.aos.id, 'list');
   await list(page).getByRole('button', { name: T('ports.columns') }).click();
   const chooser = page.getByTestId('column-chooser');
-  for (const c of ['alias', 'ip', 'vendor']) await chooser.getByRole('checkbox', { name: T(`ports.col.${c}`) }).check();
+  // [1.3] the connected-IP column is labelled "Connected IP", distinct from the 2b-2 "IP" column
+  for (const c of ['alias', 'vendor']) await chooser.getByRole('checkbox', { name: T(`ports.col.${c}`) }).check();
+  await chooser.getByRole('checkbox', { name: T('ports.col.ip'), exact: true }).check();
   await chooser.getByRole('checkbox', { name: T('ports.col.rxtx') }).uncheck();
   await page.keyboard.press('Escape');
   // headers are CSS upper-case: compare case-insensitively
@@ -108,10 +111,10 @@ test('column chooser: Alias + IP + Vendor persist after a reload (localStorage)'
   const r1 = bodyRows(page).first();
   await expect(r1).toContainText('Reception PC');
   await expect(r1).toContainText(/VMware/i);
-  // corrupt value -> defaults, no crash
+  // corrupt value -> defaults, no crash ([1.3] 9 headers: Port + 8 default columns incl. IP and Name / neighbor)
   await page.evaluate(() => localStorage.setItem('netmon.ports.columns', '{oops'));
   await page.reload();
-  await expect(list(page).locator('thead th')).toHaveCount(8);
+  await expect(list(page).locator('thead th')).toHaveCount(9);
   await page.evaluate(() => localStorage.removeItem('netmon.ports.columns'));
 });
 

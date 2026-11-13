@@ -35,6 +35,7 @@ export const ASSISTANT_WARNINGS = [
   'cache_unsupported',
   'access_key_old',
   'key_file_mode',
+  'temporary_credentials',
 ] as const;
 export type AssistantWarning = (typeof ASSISTANT_WARNINGS)[number];
 
@@ -79,6 +80,10 @@ export type AssistantSettings = {
   secret_access_key: null;
   secret_access_key_set: boolean;
   secret_access_key_unreadable: boolean;
+  /** [3b] optional session token of temporary (ASIA…) keys — write-only like the secret */
+  session_token?: null;
+  session_token_set?: boolean;
+  session_token_unreadable?: boolean;
   access_key_created_at: string | null;
   ra_region: string | null;
   ra_endpoint_url: string | null;
@@ -92,6 +97,10 @@ export type AssistantSettings = {
   internal_cidrs: string[];
   chat_redact_ips: boolean;
   prices: AssistantPrices;
+  /** [3b owner] models offered in the chat ([] = main + light); not a connection field */
+  chat_models?: ChatModel[];
+  /** the allowed chat models: main model first (the default), then the configured ones */
+  chat_models_effective?: ChatModel[];
   last_test: { ok: boolean; at: string; by: string; error_code: string | null } | null;
   warnings: AssistantWarning[];
   /** [3b owner decision] pending CSR (key generated on the server) */
@@ -113,6 +122,8 @@ export type AssistantConnectionInput = {
   access_key_id: string | null;
   /** omitted/null keeps, "" clears, a string replaces */
   secret_access_key?: string | null;
+  /** omitted/null keeps, "" clears, a string replaces (temporary ASIA… keys) */
+  session_token?: string | null;
   access_key_created_at: string | null;
   ra_region: string | null;
   ra_endpoint_url: string | null;
@@ -128,6 +139,7 @@ export type AssistantSettingsInput = Partial<AssistantConnectionInput> & {
   internal_cidrs?: string[];
   chat_redact_ips?: boolean;
   prices?: AssistantPrices;
+  chat_models?: ChatModel[];
   enabled?: boolean;
   test_id?: string;
 };
@@ -217,7 +229,13 @@ export type AssistantStatus = {
   features: AssistantFeatureStatus[];
   me: { questions_today: number; daily_limit: number; running_message_id: number | null };
   month: UsageMonthSummary;
+  /** [3b owner] models the chat composer offers (main model first = default) */
+  chat_models?: ChatModel[];
+  default_model_id?: string | null;
 };
+
+/** [3b owner] a model / inference profile offered in the chat (optional display label). */
+export type ChatModel = { id: string; label: string | null };
 
 // Ask, stream, conversations -------------------------------------------------
 
@@ -420,9 +438,15 @@ export type Digest = DigestSummary & {
 };
 
 export type RuleDraftKind = 'alert_rule' | 'event_rule';
+/** [3b owner] No draft possible: the model's own answer, or the server's placeholder backstop. */
+export type CannotDraft = { reason: string; source: 'model' | 'placeholder' };
 export type RuleDraft = {
   kind: RuleDraftKind;
-  draft: Record<string, unknown>;
+  /** null together with `cannot_draft`. */
+  draft: Record<string, unknown> | null;
+  cannot_draft?: CannotDraft | null;
+  /** Language of name/explanation/assumptions/reason (from the description, else the UI). */
+  language?: 'en' | 'he';
   explanation: string;
   assumptions: string[];
   validation: { ok: boolean; errors: { loc: (string | number)[]; msg: string }[] };
@@ -466,6 +490,9 @@ export type TemplateDraft = {
   errors: { path: string; error: string }[];
   warnings: string[];
   notes: string;
+  /** yaml is "" when set. */
+  cannot_draft?: CannotDraft | null;
+  language?: 'en' | 'he';
   repair_rounds: number;
   conversation_id: number;
   usage: { input_tokens: number; output_tokens: number };
@@ -509,10 +536,23 @@ export type UsageReport = UsageMonthSummary & {
     cost_estimate: number | null;
   }[];
   by_purpose: { purpose: string; calls: number; tokens: number; cost_estimate: number | null }[];
+  /** [3b owner] per model / inference profile, tokens desc; model_id "" = unknown */
+  by_model?: ModelUsage[];
   top_tools: { tool: string; calls: number; errors: number; avg_ms: number }[];
   errors: { code: string; count: number }[];
   feedback: { up: number; down: number };
   last_12_months: { month: string; tokens: number; cost_estimate: number | null }[];
+};
+
+export type ModelUsage = {
+  model_id: string;
+  calls: number;
+  input_tokens: number;
+  output_tokens: number;
+  cache_read_tokens: number;
+  cache_write_tokens: number;
+  tokens: number;
+  cost_estimate: number | null;
 };
 
 export type ReportAiSummaryStatus =

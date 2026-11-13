@@ -262,8 +262,14 @@ export function FaceplateLegend() {
       className="flex flex-wrap items-center gap-x-4 gap-y-2 text-xs text-slate-600 dark:text-slate-300"
       data-testid="faceplate-legend"
     >
+      {/* [1.3.2] each tile explains itself on hover (title) */}
       {LEGEND_TILES.map((l) => (
-        <span key={l.key} className={item}>
+        <span
+          key={l.key}
+          className={cx(item, 'cursor-help')}
+          title={t(`ports.legendHint.${l.key}`)}
+          data-testid={`legend-${l.kind}`}
+        >
           <TileGlyph kind={l.kind} icon={l.icon} className="!h-5 !w-5" />
           {t(`ports.legend.${l.key}`)}
         </span>

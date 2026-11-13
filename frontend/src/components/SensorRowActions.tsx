@@ -10,11 +10,13 @@ import { useToast } from './toast';
 import { Button } from './ui';
 import { AckAction } from './Acknowledge';
 import { isEventSensor } from './EventConditions';
+import { useLocalizeMessage } from '../hooks/localize';
 
 export function useRunNow() {
   const { t } = useTranslation();
   const qc = useQueryClient();
   const toast = useToast();
+  const localize = useLocalizeMessage();
   return useMutation({
     mutationFn: (s: Sensor) => endpoints.runSensor(s.id),
     onSuccess: (r, s) => {
@@ -22,7 +24,7 @@ export function useRunNow() {
       void qc.invalidateQueries({ queryKey: ['history', s.id] });
       toast.push(
         r.ok ? 'success' : 'error',
-        `${s.name}: ${t(`status.${r.status}`)}${r.message ? ` — ${r.message}` : ''}`,
+        `${s.name}: ${t(`status.${r.status}`)}${r.message ? ` — ${localize(r.message)}` : ''}`,
       );
     },
     onError: (e) => toast.push('error', errorMessage(t, e)),

@@ -107,6 +107,64 @@ test('event-rule draft (syslog) -> valid EventRule fields; the event-rule form h
   await expect(page.getByRole('button', { name: tx('eventRules.test', /^Test( against the last 24 h)?$/i) }).first()).toBeVisible();
 });
 
+// [3b owner] "make me coffee" -> the explicit cannot-draft outcome (200, draft null, reason in the description's
+// language); the UI shows the reason + an example, never a broken form.
+const COFFEE = 'תכין לי קפה';
+const SSH_HE = 'התרע כשמישהו נכשל בהתחברות SSH למתג יותר מ-3 פעמים ב-5 דקות';
+const isHebrew = (s: string) => /[֐-׿]/.test(s);
+
+test('cannot draft: Hebrew nonsense -> 200 {draft: null, cannot_draft: {reason (he)}}, no repair round', async () => {
+  for (const kind of ['alert_rule', 'event_rule']) {
+    const since = await lastSeq();
+    const d = await api.post('/api/assistant/rule-drafts', { kind, description: COFFEE });
+    expect(d.draft).toBeNull();
+    expect(d.cannot_draft).toMatchObject({ source: 'model' });
+    expect(isHebrew(d.cannot_draft.reason)).toBe(true);
+    expect(d.language).toBe('he');
+    expect(d.validation).toEqual({ ok: false, errors: [] });
+    const calls = (await modelCalls(since)).filter((c) => c.purpose === 'rule_draft');
+    expect(calls.length).toBe(1);
+    expect(calls[0].question).toContain('(Answer in Hebrew.)');
+  }
+});
+
+test('UI: cannot draft shows the reason and an example, the form stays empty', async ({ page }) => {
+  await loginViaApi(page, undefined, '/logs?tab=rules');
+  await page.getByRole('button', { name: /New rule|eventRules\.new|Add/i }).first().click().catch(() => undefined);
+  await page.getByTestId('describe-rule').click();
+  await page.getByTestId('describe-text').fill(COFFEE);
+  await page.getByTestId('draft-button').click();
+  const notice = page.getByTestId('cannot-draft');
+  await expect(notice).toBeVisible({ timeout: 60_000 });
+  await expect(page.getByTestId('cannot-draft-reason')).toContainText('קפה');
+  await expect(notice).toContainText(tx('draft.cannotExampleEvent', /SSH login failure/i));
+  await expect(page.getByTestId('draft-banner')).toHaveCount(0);
+  await shot3b(page, '73-cannot-draft');
+});
+
+test('Hebrew description -> Hebrew name/explanation; the drafted regex reaches the form Text field and the saved rule', async ({ page }) => {
+  const d = await api.post('/api/assistant/rule-drafts', { kind: 'event_rule', description: SSH_HE });
+  expect(d.cannot_draft).toBeNull();
+  expect(d.language).toBe('he');
+  expect(isHebrew(d.draft.name) && isHebrew(d.explanation)).toBe(true);
+  expect(d.draft.match).toMatchObject({ text: '[Ff]ail(ed|ure)?', text_regex: true });
+  await loginViaApi(page, undefined, '/logs?tab=rules');
+  await page.getByRole('button', { name: /New rule|eventRules\.new|Add/i }).first().click().catch(() => undefined);
+  await page.getByTestId('describe-rule').click();
+  await page.getByTestId('describe-text').fill(SSH_HE);
+  await page.getByTestId('draft-button').click();
+  await expect(page.getByTestId('draft-banner')).toBeVisible({ timeout: 60_000 });
+  const editor = page.getByTestId('rule-editor');
+  await expect(editor.getByRole('textbox', { name: /^Text(?! is)/ }).first()).toHaveValue('[Ff]ail(ed|ure)?');
+  const created = page.waitForResponse((r) => r.url().endsWith('/api/event-rules') && r.request().method() === 'POST');
+  await editor.getByRole('button', { name: /^(Save|common\.save)$/ }).last().click();
+  const resp = await created;
+  expect(resp.status()).toBe(201);
+  const rule = await resp.json();
+  expect(rule.match).toMatchObject({ text: '[Ff]ail(ed|ure)?', text_regex: true });
+  await raw(api, 'DELETE', `/api/event-rules/${rule.id}`).catch(() => undefined);
+});
+
 test('validation and gates: description 5–1000 chars; feature OFF -> 409 and no Describe box', async ({ page }) => {
   expect((await raw(api, 'POST', '/api/assistant/rule-drafts', { kind: 'alert_rule', description: 'x' })).status).toBe(422);
   expect((await raw(api, 'POST', '/api/assistant/rule-drafts', { kind: 'nope', description: 'alert me' })).status).toBe(422);

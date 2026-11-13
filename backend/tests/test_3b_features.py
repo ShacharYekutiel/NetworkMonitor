@@ -894,6 +894,139 @@ async def test_rule_draft_validation_errors_are_returned(
     assert len([x for x in asst.requests("converse") if x["purpose"] == "rule_draft"]) == 2
 
 
+async def test_rule_draft_cannot_draft_in_hebrew(rt: Any, admin: httpx.AsyncClient, asst: Any):
+    """A "make me coffee" description: the explicit cannot-draft answer → 200 with draft null and
+    the reason (in Hebrew, the description's language); no repair round, nothing saved."""
+    await on(rt, "ai_rule_drafts", "syslog")
+    for kind in ("alert_rule", "event_rule"):
+        n0 = len([x for x in asst.requests("converse") if x["purpose"] == "rule_draft"])
+        r = await admin.post(
+            "/api/assistant/rule-drafts", json={"kind": kind, "description": "תכין לי קפה"}
+        )
+        assert r.status_code == 200, r.text
+        d = r.json()
+        assert d["draft"] is None and d["cannot_draft"]["source"] == "model", d
+        assert "קפה" in d["cannot_draft"]["reason"] and d["language"] == "he"
+        assert d["validation"] == {"ok": False, "errors": []} and d["assumptions"] == []
+        reqs = [x for x in asst.requests("converse") if x["purpose"] == "rule_draft"][n0:]
+        assert len(reqs) == 1 and reqs[0]["scenario"] == "rule_draft_cannot_he"
+        assert "(Answer in Hebrew.)" in reqs[0]["question"] and reqs[0]["lang"] == "he"
+        assert "cannot_draft" in json.dumps(reqs[0]["body"]["system"])
+    assert not await q(rt, "SELECT 1 FROM alert_rules")
+    acts = await audit_actions(rt, "assistant.rule_draft")
+    assert acts and all(a["changes"]["cannot_draft"][1] == "model" for a in acts), acts
+
+
+async def test_rule_draft_placeholder_backstop(rt: Any, admin: httpx.AsyncClient, asst: Any):
+    """A draft full of <UNKNOWN> / without match criteria is not shown as a broken form."""
+    await on(rt, "ai_rule_drafts", "syslog")
+    asst.add_scenario(
+        {
+            "name": "placeholder_draft",
+            "purpose": "rule_draft",
+            "match": "unclear wish",
+            "turns": [
+                {
+                    "tool_use": [
+                        {
+                            "name": "propose_event_rule",
+                            "input": {
+                                "name": "<UNKNOWN>",
+                                "kind": "syslog",
+                                "match": {"programs": [], "text": None},
+                                "action": "warning",
+                                "explanation": "Placeholder.",
+                                "assumptions": ["<UNKNOWN> program"],
+                            },
+                        }
+                    ]
+                }
+            ],
+        }
+    )
+    r = await admin.post(
+        "/api/assistant/rule-drafts",
+        json={"kind": "event_rule", "description": "an unclear wish"},
+    )
+    assert r.status_code == 200, r.text
+    d = r.json()
+    assert d["draft"] is None and d["cannot_draft"]["source"] == "placeholder"
+    assert d["cannot_draft"]["reason"].startswith("The description does not say")
+    assert d["explanation"] == "" and d["language"] == "en"
+    reqs = [x for x in asst.requests("converse") if x["purpose"] == "rule_draft"]
+    assert len(reqs) == 1  # no repair round for a placeholder
+    assert "(Answer in English.)" in reqs[0]["question"]
+
+
+async def test_rule_draft_hebrew_text_regex_reaches_the_saved_rule(
+    rt: Any, admin: httpx.AsyncClient, asst: Any
+):
+    """Hebrew description → Hebrew name/explanation/assumptions, technical values unchanged; the
+    drafted text pattern is in `match.text` and survives the normal save (also when the model
+    puts the pattern into `text_regex` — the owner's empty-Text-field bug)."""
+    await on(rt, "ai_rule_drafts", "syslog")
+    r = await admin.post(
+        "/api/assistant/rule-drafts",
+        json={
+            "kind": "event_rule",
+            "description": "התרע כשמישהו נכשל בהתחברות SSH למתג יותר מ-3 פעמים ב-5 דקות",
+        },
+    )
+    assert r.status_code == 200, r.text
+    d = r.json()
+    assert d["cannot_draft"] is None and d["validation"]["ok"], d
+    assert d["language"] == "he" and "SSH" in d["draft"]["name"]
+    assert any("\u0590" <= c <= "\u05ff" for c in d["draft"]["name"] + d["explanation"])
+    assert d["draft"]["match"]["text"] == "[Ff]ail(ed|ure)?"
+    assert d["draft"]["match"]["text_regex"] is True
+    saved = await admin.post("/api/event-rules", json=d["draft"])
+    assert saved.status_code == 201, saved.text
+    assert saved.json()["match"]["text"] == "[Ff]ail(ed|ure)?"
+    assert saved.json()["match"]["text_regex"] is True
+    # the model slip: pattern in text_regex (a string), single `program`
+    asst.add_scenario(
+        {
+            "name": "regex_in_flag",
+            "purpose": "rule_draft",
+            "match": "ssh fail",
+            "turns": [
+                {
+                    "tool_use": [
+                        {
+                            "name": "propose_event_rule",
+                            "input": {
+                                "name": "SSH login failures",
+                                "kind": "syslog",
+                                "scope": "global",
+                                "match": {
+                                    "program": "sshd",
+                                    "text_regex": "Failed password for .* from",
+                                },
+                                "action": "warning",
+                                "clear_after_min": 30,
+                                "explanation": "e",
+                            },
+                        }
+                    ]
+                }
+            ],
+        }
+    )
+    r = await admin.post(
+        "/api/assistant/rule-drafts", json={"kind": "event_rule", "description": "ssh fail x3"}
+    )
+    d = r.json()
+    assert d["validation"]["ok"], d
+    assert d["draft"]["match"] == {
+        "programs": ["sshd"],
+        "text": "Failed password for .* from",
+        "text_regex": True,
+    }
+    saved = await admin.post("/api/event-rules", json=d["draft"])
+    assert saved.status_code == 201, saved.text
+    assert saved.json()["match"]["text"] == "Failed password for .* from"
+
+
 # --------------------------------------------------------------------------- templates (§ 14.8.7)
 VALID_TEMPLATE = """schema: 1
 id: qa_user_x100
@@ -996,6 +1129,19 @@ async def test_template_walk_draft_and_user_save(
     req = [x for x in asst.requests("converse") if x["purpose"] == "template_draft"][0]
     assert req["forced_tool"] == "propose_template" and "1.3.6.1.6.3.15" not in json.dumps(
         req["body"]
+    )
+    assert d["cannot_draft"] is None and "(Answer in English.)" in req["question"]
+    # notes that are not about a template: the explicit cannot-draft answer, in Hebrew
+    r = await admin.post(
+        "/api/assistant/template-drafts", json={"walk_id": wid, "notes": "תכין לי קפה"}
+    )
+    assert r.status_code == 200, r.text
+    c = r.json()
+    assert c["cannot_draft"]["source"] == "model" and "קפה" in c["cannot_draft"]["reason"]
+    assert c["yaml"] == "" and c["valid"] is False and c["language"] == "he"
+    req = [x for x in asst.requests("converse") if x["purpose"] == "template_draft"][-1]
+    assert (
+        "(Answer in Hebrew.)" in req["question"] and req["scenario"] == "template_draft_cannot_he"
     )
     assert await audit_actions(rt, "assistant.template_walk") and await audit_actions(
         rt, "assistant.template_draft"
@@ -1207,8 +1353,9 @@ async def test_usage_through_real_usage_service_and_client(
     assert r.status_code == 200, r.text
     rows = await q(
         rt,
-        "SELECT user_id, purpose, questions, model_calls, input_tokens FROM "
-        "assistant_usage WHERE purpose = 'rule_draft'",
+        "SELECT user_id, purpose, sum(questions) questions, sum(model_calls) model_calls, "
+        "sum(input_tokens) input_tokens FROM assistant_usage WHERE purpose = 'rule_draft' "
+        "GROUP BY user_id, purpose",  # [3b owner] rows per model: '' holds the question
     )
     assert len(rows) == 1 and rows[0]["questions"] == 1
     assert rows[0]["model_calls"] == 2 and rows[0]["input_tokens"] > 0  # tool round + proposal

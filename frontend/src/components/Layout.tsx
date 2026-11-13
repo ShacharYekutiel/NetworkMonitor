@@ -34,6 +34,7 @@ import {
   SparkIcon,
 } from './icons';
 import { useFeatures } from '../hooks/features';
+import { useSensorTypes } from '../hooks/queries';
 import { ingestOn } from '../lib/features';
 
 function NavItem({ to, icon, label }: { to: string; icon: React.ReactNode; label: string }) {
@@ -158,6 +159,7 @@ function HeaderSearch() {
 
 export function Layout() {
   const { t } = useTranslation();
+  useSensorTypes(); // [1.3.1] named value maps for enum value texts everywhere
   const { isAdmin } = useAuth();
   const { features } = useFeatures();
   const [collapsed, setCollapsed] = useLocalState('netmon.sidebarCollapsed', false);

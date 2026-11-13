@@ -66,8 +66,9 @@ TEST_DATABASE_URL=postgresql://netmon:netmon@localhost:5432/postgres pytest -q
     `text-start`), never `ml-/mr-/left-/right-`. Directional icons flip with `rtl:rotate-180`.
   - Numbers, IPs and hostnames are wrapped in `<bdi>` / `dir="ltr"` spans.
   - ECharts time axes stay left-to-right in both languages.
-- Status colors (Tailwind): up `green-600`, warning `amber-500`, down `red-600`, paused `gray-400`, unknown `slate-500`,
-  **[2b-1]** unreachable `violet-500` (`#8b5cf6`).
+- Visual design: follow `docs/design-system/` (rules in its `README.md`, values in `tokens.json`, rollout in
+  `IMPLEMENTATION.md`). Colours, fonts and radii come only from the design tokens — no hard-coded Tailwind palette
+  classes. Status colours are the `status-*` tokens (up, warning, down, unreachable, unknown, paused).
 - Language choice: use the logged-in `user.language`. Before login, use `localStorage['netmon.lang']`, then
   `GET /api/settings/public`'s `default_language`.
 - Tests: Vitest + Testing Library, colocated as `*.test.tsx`. `npm run build` must finish with **zero** TS errors.
@@ -272,7 +273,7 @@ both Timescale mode and fallback mode, and on Windows paths (no POSIX-only calls
   ReadableStream parser, `Last-Event-ID` re-attach, abort) — not `EventSource`; answers use `dir="auto"` per block,
   IPs/MACs/OIDs/code `dir="ltr"`; the bottom switch component `ConfigureFirstSwitch` is shared by both
   configure-first forms.
-- Existing test changes allowed in 3b (contract changes on purpose): `test_migrations.py` (head `0008`), feature lists
+- Existing test changes allowed in 3b (contract changes on purpose): `test_migrations.py` (head `0010`), feature lists
   (28 names), `AlertRule`/`Report`/`ReportRun`/`ReportData`/channel-config shape tests (new keys), audit `source`
   values, `test_audit` (turning `audit` OFF while `assistant` is ON is refused). Any other failing existing test is a
   regression.

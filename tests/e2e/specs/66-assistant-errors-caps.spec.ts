@@ -54,7 +54,7 @@ for (const [mode, code, text] of [
   ['model_invalid', 'bedrock_model_invalid', /model ID is not valid in us-east-1/],
   ['quota', 'bedrock_quota', /quota/],
   ['validation', 'bedrock_validation', /Malformed input request/],
-  ['expired_token', 'aws_auth_failed', /AWS rejected the credentials/],
+  ['expired_token', 'aws_token_expired', /session token has expired/],
   ['clock_skew', 'aws_clock_skew', /clock/],
   ['unavailable', 'bedrock_unavailable', /could not answer right now/],
   ['stream_error:2', 'bedrock_unavailable', /could not answer right now/],
@@ -68,7 +68,7 @@ for (const [mode, code, text] of [
     expect(r.error.message).toMatch(text);
     expect(r.message.status).toBe('error');
     expect(r.message.error.code).toBe(code);
-    if (['bedrock_access_denied', 'bedrock_model_access', 'bedrock_model_invalid', 'aws_auth_failed', 'aws_clock_skew'].includes(code)) {
+    if (['bedrock_access_denied', 'bedrock_model_access', 'bedrock_model_invalid', 'aws_auth_failed', 'aws_token_expired', 'aws_clock_skew'].includes(code)) {
       expect((await api.get('/api/health')).assistant).toBe('error');
       const st = await api.get('/api/assistant/status');
       expect(st.state_error.code).toBe(code);

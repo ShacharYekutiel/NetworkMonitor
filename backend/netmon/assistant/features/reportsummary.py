@@ -9,12 +9,15 @@ from __future__ import annotations
 
 import asyncio
 import copy
+import logging
 import re
 from typing import Any
 
 from sqlalchemy import text
 
 from netmon.assistant.features import common
+
+log = logging.getLogger("netmon.assistant.report_summary")
 
 DEADLINE_S = 60.0
 TOP_ROWS = 20
@@ -114,11 +117,13 @@ async def summarize(
                 session=session,
             )
     except Exception:  # noqa: BLE001
+        log.warning("Report %s AI summary: preparation failed", rid, exc_info=True)
         return None, "failed"
     policy = common.redact_policy(a)
     facts = common.redact_value(trim_data(data), policy)
     comp = None
     status: str
+    reason = ""
     summary: str | None = None
     try:
         comp = await asyncio.wait_for(
@@ -134,7 +139,7 @@ async def summarize(
         )
         text_ = clean(str(common.detokenize(comp.text, policy)))
         if not text_:
-            status = "failed"
+            status, reason = "failed", "empty answer"
         elif not verify_percentages(text_, data):
             status = "unverified_numbers"
         else:
@@ -143,6 +148,7 @@ async def summarize(
         status = "timeout"
     except Exception as exc:  # noqa: BLE001
         err = common.to_ai_error(exc)
+        reason = f"{err.code}: {err.message}"[:300]
         status = (
             "skipped_cap"
             if err.code in ("background_stop", "assistant_cap_reached", "cap")
@@ -168,9 +174,18 @@ async def summarize(
         "assistant.report_summary",
         "report",
         rid,
-        {"report_id": rid, "run_id": run.get("id"), "status": status, **common.usage_changes(comp)},
+        {
+            "report_id": rid,
+            "run_id": run.get("id"),
+            "status": status,
+            **({"reason": reason} if reason else {}),
+            **common.usage_changes(comp),
+        },
         name=report.get("name"),
     )
+    if status != "ok":
+        # owner's office test: the report page only said "AI summary: failed"
+        log.warning("Report %s AI summary %s%s", rid, status, f" ({reason})" if reason else "")
     return summary, status
 
 

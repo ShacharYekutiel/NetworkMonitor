@@ -70,6 +70,29 @@ def test_app_builds_authpriv_user_data() -> None:
     assert user.privProtocol and tuple(user.privProtocol) != (1, 3, 6, 1, 6, 3, 10, 1, 2, 1)
 
 
+def test_non_ascii_credentials_do_not_raise() -> None:
+    """A password with a non-ASCII character (a Hebrew letter, a smart quote, a stray NBSP)
+    used to raise PyAsn1UnicodeEncodeError and fail every SNMP read of the device. Credentials
+    are byte strings, so the builder must encode them, not hand pysnmp a us-ascii str."""
+    from netmon.poller import snmp_client
+
+    assert snmp_client._cred_bytes("pwש") == "pwש".encode()
+    assert snmp_client._cred_bytes(None, b"public") == b"public"
+    assert snmp_client._cred_bytes(b"raw") == b"raw"
+    for level in ("authNoPriv", "authPriv"):
+        creds = {
+            "version": "v3",
+            "v3_username": "Sentinאl",
+            "v3_security_level": level,
+            "v3_auth_protocol": "SHA256",
+            "v3_auth_key": "Secretש",
+            "v3_priv_protocol": "AES128",
+            "v3_priv_key": "Privאte",
+        }
+        snmp_client._auth_data(creds)  # must not raise
+    snmp_client._auth_data({"version": "v2c", "community": "communיty"})
+
+
 # ------------------------------------------------------------------ end to end (snmpsim)
 _NOBODY_PROBE: str | None = None
 

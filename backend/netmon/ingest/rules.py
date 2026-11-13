@@ -9,6 +9,7 @@ from dataclasses import dataclass, field
 from typing import Any
 
 from netmon.ingest import oid_names
+from netmon.util.saferegex import SafePatternError, SafeRegex, check_safe, compile_safe
 
 IF_INDEX_OID = oid_names.IF_INDEX_COLUMN
 MAX_KEY = 128
@@ -34,16 +35,20 @@ class Rule:
     clear_match: dict[str, Any] | None = None
     clear_after_min: int | None = None
     enabled: bool = True
-    _compiled: dict[str, re.Pattern[str] | None] = field(default_factory=dict, repr=False)
+    builtin_key: str | None = None  # [1.3] (LAG degraded follows the built-in link-down rule)
+    _compiled: dict[str, SafeRegex | None] = field(default_factory=dict, repr=False)
 
-    def regex(self, pattern: str | None) -> re.Pattern[str] | None:
+    def regex(self, pattern: str | None) -> SafeRegex | None:
+        # [1.3.3] Compile with RE2 (linear time, no catastrophic backtracking). A pattern
+        # RE2 cannot compile (syntax, or an unsupported feature such as a backreference)
+        # yields None and is treated as no-match, as the old `re.error` path was; such
+        # patterns are rejected at save time by `check_regex`, see also event_sensors scan.
         if not pattern:
             return None
         if pattern not in self._compiled:
-            try:
-                self._compiled[pattern] = re.compile(pattern, re.IGNORECASE)
-            except re.error:
-                self._compiled[pattern] = None
+            self._compiled[pattern] = compile_safe(
+                pattern, ignorecase=True, max_input=MAX_TEXT_SCAN
+            )
         return self._compiled[pattern]
 
     @classmethod
@@ -63,6 +68,7 @@ class Rule:
             clear_match=dict(r["clear_match"]) if r.get("clear_match") else None,
             clear_after_min=r.get("clear_after_min"),
             enabled=bool(r.get("enabled", True)),
+            builtin_key=r.get("builtin_key"),
         )
 
 
@@ -267,19 +273,44 @@ def sort_rules(rules: list[Rule]) -> list[Rule]:
     return sorted(rules, key=lambda r: (r.priority, r.id))
 
 
+# ------------------------------------------------------------------ [1.3.3] stored-pattern scan
+def rule_patterns(rule: Rule) -> list[str]:
+    """Every regex pattern a rule compiles at match time (match + clear_match varbind/text
+    regexes and, for syslog, key_regex)."""
+    pats: list[str] = []
+    for m in (rule.match, rule.clear_match):
+        if not m:
+            continue
+        if m.get("text_regex") and m.get("text"):
+            pats.append(str(m["text"]))
+        for cond in m.get("varbinds") or []:
+            if cond.get("op") == "regex" and cond.get("value"):
+                pats.append(str(cond["value"]))
+    if rule.key_regex:
+        pats.append(str(rule.key_regex))
+    return pats
+
+
+def unsafe_rule_patterns(rule: Rule) -> list[str]:
+    """Patterns stored on `rule` that RE2 cannot compile (so they can never match and are
+    silently inert). Pre-1.3.3 rules validated under Python `re` may contain these; surfaced
+    as a startup warning so an admin can rewrite them."""
+    return [p for p in rule_patterns(rule) if compile_safe(p, ignorecase=True) is None]
+
+
 # ------------------------------------------------------------------ validation
 def _err(errors: list[dict[str, Any]], loc: list[str | int], msg: str) -> None:
     errors.append({"loc": ["body", *loc], "msg": msg})
 
 
 def check_regex(pattern: str, loc: list[str | int], errors: list[dict[str, Any]]) -> None:
-    if len(pattern) > MAX_REGEX:
-        _err(errors, loc, f"at most {MAX_REGEX} characters")
-        return
+    # [1.3.3] Reject at save time any pattern RE2 cannot run safely: too long, a syntax
+    # error, or a feature RE2 does not support in linear time (backreferences, lookaround).
+    # Admins then cannot store a dangerous or unsupported pattern (422 field error).
     try:
-        re.compile(pattern, re.IGNORECASE)
-    except re.error as exc:
-        _err(errors, loc, f"invalid regular expression: {exc}")
+        check_safe(pattern, max_len=MAX_REGEX, ignorecase=True)
+    except SafePatternError as exc:
+        _err(errors, loc, str(exc))
 
 
 def check_oid(value: Any, loc: list[str | int], errors: list[dict[str, Any]]) -> str | None:
@@ -447,11 +478,7 @@ def validate_rule(data: dict[str, Any]) -> dict[str, Any]:
             _err(errors, ["key_varbind_oid"], "only for trap rules")
         if key_regex:
             check_regex(key_regex, ["key_regex"], errors)
-            rx = None
-            try:
-                rx = re.compile(key_regex)
-            except re.error:
-                pass
+            rx = compile_safe(key_regex, ignorecase=False)
             if rx is not None and rx.groups != 1:
                 _err(errors, ["key_regex"], "must have exactly one capture group")
     enabled = data.get("enabled", True)

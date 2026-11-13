@@ -7,6 +7,10 @@ Items marked **[2b-2]** are specified in [§ Phase 2b-2](#2b-2-phase-2b-2-contra
 Items marked **[2b-3]** are specified in [§ Phase 2b-3](#2b-3-phase-2b-3-contract).
 Items marked **[3]** are specified in [§ Phase 3](#3-phase-3-contract).
 Items marked **[3b]** are specified in [§ Phase 3b](#3b-phase-3b-contract).
+Items marked **[1.3]** (release 1.3: sensor impact, important ports, interface selection on template apply,
+connected hosts / CSV on ports, LAG degraded, IRF) are specified in [§ Release 1.3](#13-release-13-contract).
+Items marked **[1.3.1]** (IRF ports important, named value maps) are specified in
+[§ Release 1.3.1](#131-release-131-contract).
 Items marked **[4]** are specified in [§ Phase 4](#4-phase-4-contract).
 
 This file is the contract between the backend (`backend/netmon/schemas`) and the frontend
@@ -285,6 +289,8 @@ The top-level `groups` holds the root groups (`parent_id = null`).
 | `PATCH /api/devices/{id}` | admin | Subset of the create fields. `"enabled": false` pauses all of its sensors. | `Device` |
 | `DELETE /api/devices/{id}` | admin | — | `204` (cascades to its sensors) |
 | `GET /api/devices/{id}/snmp/interfaces` | admin | — | See below. A timeout or auth failure → `502 snmp_error`. |
+| **[1.3]** `GET /api/devices/{id}/ports.csv` | viewer | — | Ports × connected MACs as CSV ([§ 1.3](#13-release-13-contract)) |
+| **[1.3]** `GET /api/devices/{id}/apply-template/interfaces` | admin | Query `template_id` | Interface choices of the apply dialog ([§ 1.3](#13-release-13-contract)) |
 
 Create request:
 
@@ -349,7 +355,8 @@ Create request:
 | `GET /api/sensors` | viewer | Query: `device_id`, `group_id` (recursive), `status`, `type`, `q` (name) | Page of `Sensor`, sorted by `device_name, sort_order, name`. A `status` filter returns the "worst first" order: severity desc, then `last_status_change_at` asc. |
 | `POST /api/sensors` | admin | See below | `201 Sensor` |
 | `GET /api/sensors/{id}` | viewer | — | `Sensor` |
-| `PATCH /api/sensors/{id}` | admin | Subset of `{name, config, interval_s, enabled, sort_order, channels}`. `type` cannot change. `config` is merged over the stored config. | `Sensor` |
+| `PATCH /api/sensors/{id}` | admin | Subset of `{name, config, interval_s, enabled, sort_order, channels}` (**[1.3]** + `impact`). `type` cannot change. `config` is merged over the stored config. | `Sensor` |
+| **[1.3]** `POST /api/sensors/bulk-impact` | admin | `{"sensor_ids": [7, 8], "impact": "warning"}` | `{"updated": n}` ([§ 1.3](#13-release-13-contract)) |
 | `DELETE /api/sensors/{id}` | admin | — | `204` |
 | `POST /api/sensors/{id}/run` | admin | — (no body) | `200 CheckResult`. Runs the check now and persists it (measurements, status, events, WS) like a scheduled run. Does not move the schedule. A paused sensor (or disabled device) → `409 sensor_paused`. |
 | `POST /api/sensors/test` | admin | `{"device_id":3,"type":"http","config":{...}}`. You may send `"host"` instead of `device_id`; a test against an unsaved device then uses `"snmp_credentials"` from the body. | `200 CheckResult`. Persists **nothing**. |
@@ -1423,6 +1430,7 @@ type TemplateEntry =
   | { kind: "snmp_table"; walk_oid: string; label_oid: string | null; label2_oid: string | null;
       percent_of_column: string | null; name: L10n; config: Record<string, unknown>; channels: ChannelOverride[];
       max: number; skip_zero: boolean; filters: TemplateFilter[]; interval_s: number | null;
+      entity_sensor_scale?: true;  // [1.2.1] present only when set
       confidence: Confidence | null; notes: string };
 type DeviceTemplate = { id: string; name: L10n; description: L10n; requires_snmp: boolean; priority: number;
   match: TemplateRule[]; entries: TemplateEntry[];
@@ -2172,6 +2180,7 @@ except the preparation endpoints listed in data-model § [3b] Feature toggles; a
 | 429 | `assistant_busy` | Global concurrency reached ("Too many questions are running, try again shortly") |
 | 429 | `assistant_cap_reached` | `details: [{"cap": "user_daily" \| "monthly_tokens" \| "monthly_cost" \| "purpose_daily" \| "chat_hourly", "limit": 50, "used": 50, "resets_at": "…"}]` |
 | 409 | `conversation_full` | 40 turns reached — start a new conversation |
+| 422 | `model_not_allowed` | **[3b owner]** `POST /api/assistant/ask` with a `model_id` that is not one of the allowed chat models (`details: [{"loc": ["body", "model_id"], "model_id": "…", "allowed": ["us.anthropic…", …]}]`) |
 | 422 | `invalid_certificate` | Upload not parseable, not a leaf (`CA:TRUE`), no Digital Signature usage, expired, unsupported key (`details: [{"reason": "…"}]`) |
 | 422 | `invalid_private_key` | Key not parseable / wrong password (no key material in the message) |
 | 422 | `key_mismatch` | Key does not match the certificate |
@@ -2183,6 +2192,8 @@ except the preparation endpoints listed in data-model § [3b] Feature toggles; a
 | 502 | `bedrock_unavailable` | "Amazon Bedrock could not answer right now." |
 | 502 | `bedrock_validation` | AWS message (≤ 300 chars) |
 | 502 | `aws_auth_failed` | "AWS rejected the credentials." (+ AWS error type) |
+| 502 | `aws_token_expired` | AWS answered `ExpiredTokenException` / `ExpiredToken`: "AWS rejected the credentials: the session token has expired. …" — paste fresh temporary credentials (access key id, secret, session token). Same retry (forced credentials refresh) and `error` state as `aws_auth_failed` |
+| 409 | `aws_session_token_required` | `access_key` mode with a temporary key id (`ASIA…`) and no `session_token`: the Test fails at the `credentials` step before any AWS call ("The access key id is a temporary key (ASIA…): it needs the session token. …") |
 | 502 | `aws_clock_skew` | "The server clock differs from AWS time by more than 5 minutes (NTP)." (`details: [{"server_time": "…"}]`) |
 | 502 | `rolesanywhere_failed` | AWS message + hint |
 | 502 | `aws_network` | "Cannot reach <host>: <exception text>" (`details: [{"host": "…", "via": "direct" \| "proxy http://…"}]`) |
@@ -2226,6 +2237,7 @@ type AssistantSettings = {
   proxy_mode: "env" | "direct" | "custom"; proxy_url: string | null; prompt_caching: boolean;
   access_key_id: string | null;
   secret_access_key: null; secret_access_key_set: boolean; secret_access_key_unreadable: boolean;
+  session_token: null; session_token_set: boolean; session_token_unreadable: boolean;  // optional, temporary (ASIA…) keys
   access_key_created_at: string | null;
   ra_region: string | null; ra_endpoint_url: string | null;
   ra_trust_anchor_arn: string | null; ra_profile_arn: string | null; ra_role_arn: string | null;
@@ -2234,9 +2246,16 @@ type AssistantSettings = {
   send_config_excerpts: boolean; redact_internal_ips: boolean; internal_cidrs: string[]; chat_redact_ips: boolean;
   prices: { currency: string; input_per_mtok: number | null; output_per_mtok: number | null;
             cache_read_per_mtok: number | null; cache_write_per_mtok: number | null };
+  // [3b owner] models offered in the chat composer (writable, ≤ 8, unique ids, label ≤ 60 chars or null;
+  // null/[] = default). NOT a connection field: changing it needs no new Test (a model_id change still does)
+  chat_models: ChatModel[];
+  chat_models_effective: ChatModel[];   // read-only: main model first (always allowed, the default), then the
+                                        // configured entries; [] configured = [model_id, model_id_light if set]
   last_test: { ok: boolean; at: string; by: string; error_code: string | null } | null;
   warnings: ("cert_expiring" | "vpce_via_proxy" | "stream_buffered" | "cache_unsupported" | "access_key_old" | "key_file_mode"
-             | "global_inference_profile" | "arn_accounts_differ")[];
+             | "global_inference_profile" | "arn_accounts_differ" | "temporary_credentials")[];
+  // temporary_credentials: access_key mode with a session token — they expire (hours); for the server use an
+  // IAM user key, Roles Anywhere or the default chain
   // [3b owner decisions] data location per profile prefix, CSR flow
   profile: ProfileInfo; profile_light: ProfileInfo;            // classification of model_id / model_id_light
   profile_scopes: { scope: "global" | "geo" | "in_region" | "arn"; prefix: string;
@@ -2244,6 +2263,7 @@ type AssistantSettings = {
   recommended: { region: "us-east-1"; profile_prefix: "us" };
   certificate_host_files: boolean;                             // NETMON_AWS_RA_CERT_FILE/_KEY_FILE in use
   csr: { subject: string; created_at: string; pem: string; key_unreadable: boolean } | null };  // pending CSR
+type ChatModel = { id: string; label: string | null };      // id: model / inference-profile id ([A-Za-z0-9.:/_-]{1,256})
 type ProfileInfo = { scope: "global" | "geo" | "in_region" | "arn" | null; prefix: string | null;
   geography: string | null; explanation: { en: string; he: string } | null;
   warning: "global_inference_profile" | null };              // global. → warning only, never refused
@@ -2258,12 +2278,13 @@ type AssistantTestResult = { ok: boolean; test_id: string | null; expires_at: st
   usage: { input_tokens: number; output_tokens: number } | null; warnings: string[];
   error: { code: string; message: string } | null };
 // step error_code: a mapped AWS code (api.md [3b] Errors) or "validation_error" (config step); warnings as in
-// AssistantSettings (+ "stream_buffered", "global_inference_profile")
+// AssistantSettings (+ "stream_buffered", "global_inference_profile", "temporary_credentials" when the tested
+// access-key settings carry a session token)
 ```
 | Method & path | Request | Response |
 |---|---|---|
 | `GET /api/assistant/settings` | — | `AssistantSettings` (allowed while OFF) |
-| `PUT /api/assistant/settings` | partial `AssistantSettings` writable fields + optional `"enabled": bool`, `"test_id": string` (secret rules: `secret_access_key` omitted/null keeps, `""` clears, string replaces) | `AssistantSettings`; `422` validation; `422 assistant_test_required`; `422 feature_dependency`; audited `assistant.settings_update` (+ `feature.enable|disable`) |
+| `PUT /api/assistant/settings` | partial `AssistantSettings` writable fields + optional `"enabled": bool`, `"test_id": string` (secret rules for `secret_access_key` (≤ 256) and `session_token` (≤ 4096, base64 characters; whitespace removed): omitted/null keeps, `""` clears, string replaces; both stored encrypted, audited only as changed) | `AssistantSettings`; `422` validation; `422 assistant_test_required`; `422 feature_dependency`; audited `assistant.settings_update` (+ `feature.enable|disable`) |
 | `POST /api/assistant/test` | `{"settings": <partial writable fields, optional>}` merged over stored | `200 AssistantTestResult` (also when `ok` is false — the step carries the code); `429 rate_limited` (10 per admin per 10 min); audited `assistant.test` |
 | `POST /api/assistant/cert` | `multipart/form-data`: `file` (PEM cert[+chain] or `.pfx`/`.p12`, ≤ 64 KiB), `key` (PEM, optional with PEM), `password` (optional) | `200 CertInfo`; `422 invalid_certificate` / `invalid_private_key` / `key_mismatch`; audited `assistant.cert_upload` (metadata) — refused `409 conflict` when host files are configured |
 | `DELETE /api/assistant/cert` | — | `204`; `409 conflict` while `assistant` is ON with `auth_mode = roles_anywhere`; audited |
@@ -2271,12 +2292,12 @@ type AssistantTestResult = { ok: boolean; test_id: string | null; expires_at: st
 | `GET /api/assistant/cert/csr` | — | `200 application/pkcs10` (`attachment; filename="netmonitor-bedrock.csr"`); `404` when none |
 | `DELETE /api/assistant/cert/csr` | — | `204` (discard the pending CSR and its key); audited `assistant.csr_delete` |
 | `POST /api/assistant/models` | `{"settings": <partial, optional>}` | `200 {"items": [{"id": "eu.anthropic.claude-…", "name": "…", "kind": "inference_profile" \| "foundation_model", "streaming": true, "status": "ACTIVE"}], "error": null}` (Anthropic only); on failure `200 {"items": [], "error": {"code", "message"}}` |
-| `GET /api/assistant/status` | — (409 while `assistant` is OFF) | `{"state", "state_error", "tools": [{"name": "search_syslog", "available": false, "reason": "feature_off:syslog"}], "features": [{"name": "ai_correlation", "enabled": true, "idle_reason": null, "status_line": "2 open incidents"}], "me": {"questions_today": 3, "daily_limit": 50, "running_message_id": null}, "month": UsageMonthSummary}` |
+| `GET /api/assistant/status` | — (409 while `assistant` is OFF) | `{"state", "state_error", "tools": [{"name": "search_syslog", "available": false, "reason": "feature_off:syslog"}], "features": [{"name": "ai_correlation", "enabled": true, "idle_reason": null, "status_line": "2 open incidents"}], "me": {"questions_today": 3, "daily_limit": 50, "running_message_id": null}, "month": UsageMonthSummary, "chat_models": ChatModel[] /* = chat_models_effective */, "default_model_id": "us.anthropic…" \| null}` |
 
 ### [3b] Ask, stream, conversations
 | Method & path | Request | Response |
 |---|---|---|
-| `POST /api/assistant/ask` | `{"conversation_id": 12 \| null, "question": "…"}` (1–2000 chars) | `200 text/event-stream` (below); pre-stream errors as JSON: `409 feature_disabled`, `409 assistant_busy`, `429 assistant_busy`, `429 assistant_cap_reached`, `409 conversation_full`, `404` (not own conversation) |
+| `POST /api/assistant/ask` | `{"conversation_id": 12 \| null, "question": "…", "model_id": "us.anthropic…" \| null}` (1–2000 chars; **[3b owner]** `model_id` optional, one of `chat_models_effective`, null/omitted = the main model) | `200 text/event-stream` (below); pre-stream errors as JSON: `422 model_not_allowed`, `409 feature_disabled`, `409 assistant_busy`, `429 assistant_busy`, `429 assistant_cap_reached`, `409 conversation_full`, `404` (not own conversation). The chosen model is used for every model call of that answer (tool rounds included), stored in the message's `model_id`, the `assistant.answer` audit (`model_id`) and the usage counters; the audit-title call stays on the light model; caps and limits are unchanged. Telegram `/ask` and the AI features keep the main / light models |
 | `GET /api/assistant/messages/{id}/stream` | header `Last-Event-ID` (optional) | `200 text/event-stream`: replay + live; a finished message → its `done` immediately; not own → `404` |
 | `POST /api/assistant/messages/{id}/cancel` | — | `200 {"status": "cancelled"}` (idempotent; a finished message → current status); audited `assistant.cancel` |
 | `POST /api/assistant/messages/{id}/feedback` | `{"rating": 1 \| -1 \| 0, "comment": "…" \| null}` (0 clears, comment ≤ 1000) | `200 AssistantMessage`; audited `assistant.feedback` (rating only) |
@@ -2401,11 +2422,11 @@ Tool errors are sent with `"status": "error"` and the error envelope as `json`. 
 | `GET /api/assistant/digests` | `ai_syslog_digest` | Query `page`, `page_size` | page of `DigestSummary` (newest first) |
 | `GET /api/assistant/digests/{day}` | `ai_syslog_digest` | `day` = `YYYY-MM-DD` | `Digest` |
 | `POST /api/assistant/digests/{day}/run` | `ai_syslog_digest` | `{"send": false}` (last 7 days only) | `202 Digest` (`status: "running"`); `429 assistant_cap_reached` (> 5 manual per day) |
-| `POST /api/assistant/rule-drafts` | `ai_rule_drafts` | `{"kind": "alert_rule" \| "event_rule", "description": "…" (5–1000)}` | `200 RuleDraft` (≤ 45 s); audited `assistant.rule_draft` |
+| `POST /api/assistant/rule-drafts` | `ai_rule_drafts` | `{"kind": "alert_rule" \| "event_rule", "description": "…" (5–1000)}` | `200 RuleDraft` (≤ 45 s; also when no draft is possible: `draft: null` + `cannot_draft`, see below); audited `assistant.rule_draft` (`cannot_draft: "model" \| "placeholder" \| null`) |
 | `POST /api/assistant/template-drafts/walks` | `ai_template_drafts` | `{"device_id": 3, "presets": ["system", "entity", "host_resources", "enterprise", "if_sample", "entity_sensor"], "oids": ["1.3.6.1.4.1.25506.2.6"]}` (≤ 8 subtrees in total) | `202 SnmpWalk`; `409 walk_running`; `422` forbidden subtree (`details: [{"oid": "1.3.6.1.6.3.15", "reason": "never_walked"}]`); audited `assistant.template_walk` |
 | `GET /api/assistant/template-drafts/walks/{id}` | `ai_template_drafts` | — | `SnmpWalk` (with `varbinds` when finished, ≤ 5000) |
 | `POST /api/assistant/template-drafts/walks/{id}/cancel` | `ai_template_drafts` | — | `200 SnmpWalk` |
-| `POST /api/assistant/template-drafts` | `ai_template_drafts` | `{"walk_id": 5, "template_id": "acme_x100" \| null, "notes": "…" \| null}` | `200 TemplateDraft` (≤ 90 s); audited `assistant.template_draft` |
+| `POST /api/assistant/template-drafts` | `ai_template_drafts` | `{"walk_id": 5, "template_id": "acme_x100" \| null, "notes": "…" \| null}` | `200 TemplateDraft` (≤ 90 s; `yaml: ""` + `cannot_draft` when no template is possible); audited `assistant.template_draft` |
 | `POST /api/device-templates/user` | **always available** (admin, not an assistant endpoint; API tokens refused) | `{"yaml": "…" (≤ 256 KiB), "overwrite": false}` | `201 {"template": DeviceTemplate, "file": "acme/acme_x100.yaml", "library": TemplateLibraryStatus}`; `422 invalid_template`; `409 template_exists`; registry reloaded, `templates.reloaded` WS; audited `device_template.create_user` |
 | `GET /api/assistant/knowledge` | (prepare: allowed while `ai_knowledge` OFF; needs `assistant` settings) | — | `{"enabled": false, "knowledge_base_id": "…", "region": null, "endpoint_url": null, "results": 5, "min_score": 0, "description": "…", "last_test": {…} \| null}` |
 | `PUT /api/assistant/knowledge` | same | writable fields + `"enabled"`, `"test_id"` | same shape; `422 assistant_test_required` for OFF→ON or KB field change while ON |
@@ -2438,15 +2459,32 @@ type Digest = DigestSummary & { language: "en" | "he"; baseline_days: number;
   ai_markdown: string | null; deliveries: { target: string; ok: boolean; error: string | null; at: string }[] };
 type DigestRow = { key: string; ref: string | null; count: number; baseline: number | null; ratio: number | null; unusual: boolean };
 type RuleDraft = { kind: "alert_rule" | "event_rule";
-  draft: Record<string, unknown>;              // exactly the writable fields of AlertRule / EventRule create
+  draft: Record<string, unknown> | null;       // exactly the writable fields of AlertRule / EventRule create; null with cannot_draft
+  // [3b owner] "cannot draft" is a normal outcome (200, same shape, no form is opened): the model answered
+  // {cannot_draft: true, reason} (source "model": the text describes no condition/event to match, or it cannot be
+  // expressed with the supported fields), or the server's deterministic backstop rejected a placeholder draft
+  // (source "placeholder": empty draft, a `<UNKNOWN>`-style value, a placeholder name, no statuses / no match
+  // criteria on a global event rule; generic reason). No validation and no repair round then:
+  // explanation "", assumptions [], validation {ok: false, errors: []}.
+  cannot_draft: { reason: string; source: "model" | "placeholder" } | null;
+  language: "en" | "he";                       // detected from the description as in the chat (no letters → UI language);
+                                               // name, explanation, assumptions and reason are written in it,
+                                               // technical values (ids, OIDs, regexes, programs, kinds) unchanged
   explanation: string; assumptions: string[];
   validation: { ok: boolean; errors: { loc: (string | number)[]; msg: string }[] };
   conversation_id: number; usage: { input_tokens: number; output_tokens: number } };
+// Event-rule drafts are normalised before validation: a pattern the model put into `text_regex` (a string) or
+// under `pattern` / `regex` / `message` moves to `match.text` (with `text_regex: true` for regex keys), a single
+// `program` becomes `programs: [...]`, `text_regex` is coerced to a boolean.
 type SnmpWalk = { id: number; device_id: number; status: "running" | "ok" | "partial" | "failed" | "cancelled";
   subtrees: string[]; counts: Record<string, number>; total: number; error: string | null;
   started_at: string; finished_at: string | null; varbinds?: [string, string, string][] };
 type TemplateDraft = { walk_id: number; yaml: string; valid: boolean;
   errors: { path: string; error: string }[]; warnings: string[]; notes: string; repair_rounds: number;
+  // [3b owner] as RuleDraft: the model's {cannot_draft, reason} (notes that are not about a device template, nothing
+  // device-specific in the walk) or the backstop (empty YAML / `<UNKNOWN>` placeholders); yaml "", valid false
+  cannot_draft: { reason: string; source: "model" | "placeholder" } | null;
+  language: "en" | "he";                       // from the admin's notes (no letters / no notes → UI language): notes, reason
   conversation_id: number; usage: { input_tokens: number; output_tokens: number } };
 type UsageMonthSummary = { month: string; tokens: number; token_cap: number; cost_estimate: number | null;
   cost_cap: number | null; currency: string | null; pct_of_cap: number; projection_pct: number;
@@ -2455,6 +2493,12 @@ type UsageReport = UsageMonthSummary & {
   by_day: { day: string; questions: number; tokens: number; cost_estimate: number | null }[];
   by_user: { user_id: number; username: string; questions: number; tokens: number; cost_estimate: number | null }[];  // user 0 = "system"
   by_purpose: { purpose: string; calls: number; tokens: number; cost_estimate: number | null }[];
+  // [3b owner] per model / inference profile of the month (assistant_usage.model_id), tokens desc then id;
+  // rows without any model call are left out; model_id "" = tokens counted without a model id (cost null).
+  // cost: the recorded estimates (one price set for every model, at the prices valid when counted), null
+  // without prices
+  by_model: { model_id: string; calls: number; input_tokens: number; output_tokens: number;
+              cache_read_tokens: number; cache_write_tokens: number; tokens: number; cost_estimate: number | null }[];
   top_tools: { tool: string; calls: number; errors: number; avg_ms: number }[];
   errors: { code: string; count: number }[]; feedback: { up: number; down: number };
   last_12_months: { month: string; tokens: number; cost_estimate: number | null }[] };
@@ -2496,6 +2540,157 @@ arguments (tool name, size, duration only).
 | `walk.update` | `{"walk": SnmpWalk}` (without varbinds) | progress every 2 s / finish; the requesting admin |
 | `features.changed` | 11 new names | as 2b-3 |
 | `templates.reloaded` | as 2b-2 | after `POST /api/device-templates/user` |
+
+---
+
+## [1.3] Release 1.3 contract
+
+Improvements of core behaviour requested by the owner's network team after 1.2.0 in production (HPE Comware FF 5945
+IRF, ArubaOS-Switch, Aruba CX). **Not feature-flagged** (owner decision): everything below is always active.
+Semantics: [data-model.md § 1.3](data-model.md#13-release-13-additions); behaviour:
+[architecture.md § 14](architecture.md#14-release-13-sensor-impact-important-ports-interface-selection-connected-hosts-lag-degraded-irf).
+
+### [1.3] Type changes
+
+```ts
+type Impact = "critical" | "warning" | "none";
+type Sensor = Sensor & { impact: Impact };          // GET/POST/PATCH sensor responses, sensor lists, dashboard
+// GET /api/tree: every sensor node gains `impact: Impact`
+// SensorCreate gains `impact?: Impact | null` (absent/null: snmp_interface -> by port importance, else "critical")
+// SensorPatch gains `impact?: Impact` (also allowed on passive event sensors)
+
+type ImportantReason = "uplink" | "lag" | "trunk" | "irf";   // [1.3.1] irf
+type PortConnectedHost = { mac: string; ip: string | null; hostname: string | null; vendor: string | null;
+  device_id: number | null; device_name: string | null };
+type Port = Port & {                                // also PortDetail
+  important: boolean;                               // important_reasons.length > 0
+  important_reasons: ImportantReason[];             // in this order; trunks always listed (see settings)
+  connected: { count: number;                       // MACs on the port (uplink: its mac_count, MACs not loaded)
+               first: PortConnectedHost | null };   // = first_mac (null for uplinks / no MAC)
+  neighbor_name: string | null;                     // primary neighbour's name (= neighbor.name)
+  neighbor_mgmt_address: string | null };           // primary neighbour's management address
+
+type ApplyTemplateRequest = { template_id: string;
+  interfaces?: "important" | "none" | "all" | number[];   // default "important"; number[] = ifIndexes, ≤ 1000
+  remove_unselected_interfaces?: boolean };               // default false
+type ApplyTemplateResult = ApplyTemplateResult & {
+  removed: { sensor_id: number; name: string }[] };       // [] unless remove_unselected_interfaces
+```
+
+`status_counts` (device / group / dashboard `sensor_counts`) keep counting raw **sensor** statuses; only the
+**device status** (and therefore group status, `device_counts`, tree, kiosk, `device.status` WS) honours impact.
+
+### [1.3] Sensor impact
+| Method & path | Role | Request | Response |
+|---|---|---|---|
+| `POST /api/sensors/bulk-impact` | admin | `{"sensor_ids": int[] (1–1000), "impact": Impact}` | `200 {"updated": n}` — `n` = sensors whose impact actually changed. An unknown id → `422 validation_error` (nothing changed). One `sensor.update` audit row per changed sensor (`changes.impact = [old, new]`). WS: `config.changed` (`device`, `updated`) once per affected device, then `device.status` / `group.status` as usual. |
+
+No generic sensor bulk endpoint existed before 1.3; this is a new endpoint.
+
+### [1.3] Template apply: interface selection
+`POST /api/devices/{id}/apply-template` takes the new request fields above.
+
+- `"important"` (default): interfaces of the template's `snmp_interfaces` entries that are important
+  ([data-model § Important ports](data-model.md#13-important-ports)), then the entry filters (`oper_up_only`,
+  `exclude_if_types`, name regexes, `max`) as before. Without port inventory rows the server first runs a port
+  inventory (only when it is effective for the device; up to ≈ 20 s inside the request). Still none: a switch
+  (port inventory `on`, or class `switch`) → only LAG interfaces (ifType 161) are important; any other device
+  (server, router, firewall, AP) → the 1.2 selection (as `"all"`).
+- `"all"`: the 1.2 behaviour (entry filters + `oper_up_only` + `max`).
+- `"none"`: no interface sensors.
+- `number[]`: exactly these ifIndexes; `oper_up_only` and `max` are bypassed, the type / name filters are not.
+  An ifIndex the device does not have → skipped `not_applicable` "Interface 99 not found"; one excluded by
+  the template's filters → skipped `not_applicable` "Excluded by the template". Interfaces are only created
+  through a template that has an `snmp_interfaces` entry.
+- New interface sensors get `impact` `critical` on important ports, `warning` on the others; `critical` when
+  the device has no port inventory.
+- `remove_unselected_interfaces: true`: deletes this device's `snmp_interface` sensors whose ifIndex is not
+  selected and reports them in `removed`. Selected = the ifIndexes of the list; `"none"` = nothing (all are
+  removed); `"important"` / `"all"` = the interfaces passing the entries' type / name filters (and important,
+  for `"important"`) **before** `oper_up_only` / `max`, so a down uplink keeps its sensor. With `"important"` /
+  `"all"` nothing is removed when the template has no `snmp_interfaces` entry or the SNMP enumeration failed.
+  Audited inside `device.apply_template` (`changes.removed`).
+- A switch whose port inventory cannot run yet (no SNMP sensor so far, e.g. just imported by discovery) is
+  applied in two steps inside the same request: all other entries first, then one bounded port inventory run,
+  then the `snmp_interfaces` entries on its result (`created` / `skipped` are concatenated). Discovery import
+  uses `"important"` the same way.
+
+**`GET /api/devices/{id}/apply-template/interfaces?template_id=`** (admin) — the dialog's list:
+
+```json
+{ "items": [
+  { "if_index": 3, "name": "Gi1/0/3", "alias": "", "oper_status": "up", "speed_bps": 1000000000,
+    "kind": "physical", "important": true, "reasons": ["trunk"], "has_sensor": false, "sensor_id": null } ],
+  "inventory": "ok" }
+```
+
+- `inventory: "ok"`: rows from the stored port inventory (`switch_ports`), importance as in the ports view.
+  No inventory: one bounded port inventory run (≈ 20 s, only when effective; class detection first if needed);
+  still none → `"missing"` and the rows come from the SNMP enumeration with `important: false` except LAG
+  interfaces (`reasons: ["lag"]`). SNMP failure then → `502 snmp_error`.
+- Rows are filtered by the template's `snmp_interfaces` type / name filters (all rows when it has none), sorted
+  by ifIndex. `kind` is the 2b-2 `PortKind`. `sensor_id` = the existing `snmp_interface` sensor of that ifIndex
+  (lowest id). Unknown `template_id` → `422`; unknown device → `404`.
+
+### [1.3] Ports: CSV export
+**`GET /api/devices/{id}/ports.csv`** (viewer): `text/csv; charset=utf-8`, UTF-8 **with BOM** (Excel / Hebrew),
+`Content-Disposition: attachment; filename="ports-<device name>.csv"`, CRLF lines, spreadsheet formula guard
+(a cell starting with `= + - @` is prefixed with `'`). Header:
+`port,alias,status,vlan,mode,mac,ip,hostname,vendor,neighbor`. One row per port × present MAC (the MACs the
+port view lists, including LAG MACs on members while `lag` is ON); a port without MACs and every uplink → one row
+with empty mac/ip/hostname/vendor. `status` = `PortState`; `vlan` = the MAC's VLAN, else the port's PVID; `mode`
+= `access` / `trunk` / empty; `neighbor` = `"<name> (<mgmt address>)"` (or the name only). `404` for an unknown
+device.
+
+### [1.3] Settings
+| Key | Type | Default | Limits |
+|---|---|---|---|
+| `trunk_min_tagged_vlans` | int | 2 | 1–100 (else 422) |
+| `event_linkdown_include_trunks` | bool | true | |
+
+Both are in `GET/PUT /api/settings`; a change reloads the ingest configuration (important-port caches dropped).
+
+### [1.3] Event conditions
+`EventCondition.source` gains **`lag_degraded`** (on the device's `trap` sensor, `key` = the LAG ifIndex,
+`rule_id` null, status `warning`, message `LAG BAGG1 degraded (1 of 2 members up)`).
+
+### [1.3] Device templates
+Template entries may carry `expect_from_probe` (sensor entries, only when set) and `when` (`snmp_table` entries,
+only when set); `GET /api/device-templates*` returns them as stored ([data-model § 1.3](data-model.md#13-template-options)).
+
+---
+
+## [1.3.1] Release 1.3.1 contract
+
+Patch release; not feature-flagged. Semantics: [data-model.md § 1.3.1](data-model.md#131-release-131-additions).
+
+### [1.3.1] Ports
+```ts
+type ImportantReason = "uplink" | "lag" | "trunk" | "irf";   // order as listed
+type Port = Port & {                     // also PortDetail
+  irf_port: number | null };             // IRF port (1/2) of an IRF physical port (Comware), else null
+type PortSources = PortSources & { irf: SourceState };   // ok | empty | unmapped | error | skipped
+```
+`important_reasons` contains `irf` for IRF physical ports; `GET /api/devices/{id}/apply-template/interfaces`
+items list it in `reasons` (so "important" selects them). The CSV export is unchanged.
+
+### [1.3.1] Sensor types and named value maps
+```ts
+type NamedValueMap = {
+  title: { en: string; he: string };
+  codes: { value: string; status: "up" | "warning" | "down"; mib: string;
+           text: { en: string; he: string } }[];
+  unknown: { en: string; he: string } };          // "{code}" = the value
+// GET /api/sensor-types -> { items: SensorTypeInfo[]; value_maps: Record<string, NamedValueMap> }
+// snmp_custom config gains value_map_ref?: "" | "hh3c_error_status"
+//   (enum field; stored only when set, "" clears; with it value_map may be empty for value_type enum)
+```
+The check message of a code from the table is `<label>: <text> (<mib>, <code>)` in the server
+`default_language`; the UI renders values and the value-map table from `value_maps` in the viewer's language.
+
+### [1.3.1] Device templates
+`snmp_table` entries may carry `label_format` and `rename_from` (only when set;
+[data-model § 1.3.1](data-model.md#131-template-options)).
 
 ## [4] Phase 4 contract
 

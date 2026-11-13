@@ -261,6 +261,11 @@ def test_system_prompt_ask_items() -> None:
     other = prompt.system_prompt("alert_note", prompt.PromptCtx(now=ctx.now, purpose_block="X"))
     assert "Politely refuse" not in other and other.endswith("X")
     assert "Addresses like IP-7" not in other
+    # citations (the `[label](nm:<ref>)` template) belong to chat only; a feature purpose that
+    # forbids links must not carry it, or the light model echoes the literal word "label"
+    # (owner's office test: the report summary had " label" after every value).
+    assert "[label](nm:" not in other and "refs that appear in tool results" not in other
+    assert "[label](nm:" in text  # the chat purpose keeps citations
 
 
 def test_converse_request_shape() -> None:
@@ -414,8 +419,8 @@ def test_sse_buffer_is_bounded() -> None:
         ("one two three four five six seven eight", "en", "one two three four five six"),
         ("IP-3 reachability QA3B-AUDIT-PROBE-4412", "en", "reachability"),
         ("", "en", "Assistant question"),
-        ("10.0.0.1 192.168.1.1", "he", "שאלה לעוזר"),
-        ("מצב המתגים ברשת", "he", "מצב המתגים ברשת"),
+        ("10.0.0.1 192.168.1.1", "he", "Assistant question"),  # audit log is English only
+        ("מצב המתגים ברשת", "he", "Assistant question"),  # a Hebrew title falls back (English only)
         ("first line\nsecond line", "en", "first line"),
     ],
 )

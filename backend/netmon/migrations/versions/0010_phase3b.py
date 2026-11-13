@@ -3,17 +3,17 @@
 Conversations, messages, tool calls, usage counters, AI artifacts, incidents, alert-note
 targets, syslog signatures, SNMP walks; `alert_rules.ai_note`, `reports.ai_summary`,
 `report_runs.ai_summary_status`; audit source `telegram`. Plain PostgreSQL DDL only
-(data-model "[3b] Phase 3b migration (0008)").
+(data-model "[3b] Phase 3b migration (0010)").
 
-Revision ID: 0008
-Revises: 0007
+Revision ID: 0010
+Revises: 0009
 Create Date: 2026-11-10
 """
 
 from alembic import op
 
-revision = "0008"
-down_revision = "0007"
+revision = "0010"
+down_revision = "0009"
 branch_labels = None
 depends_on = None
 
@@ -115,13 +115,15 @@ UPGRADE = [
         started_at timestamptz NOT NULL
     )""",
     "CREATE INDEX ix_assistant_tool_calls_message ON assistant_tool_calls (message_id, seq)",
-    # 2. usage counters (user_id 0 = system; no FK so the rows survive user deletion)
+    # 2. usage counters (user_id 0 = system; no FK so the rows survive user deletion;
+    #    model_id = the model / inference profile of the counted calls, '' = no model call)
     f"""
     CREATE TABLE assistant_usage (
         day date NOT NULL,
         user_id integer NOT NULL,
         purpose text NOT NULL CONSTRAINT assistant_usage_purpose_check
             CHECK (purpose IN ({PURPOSES})),
+        model_id text NOT NULL DEFAULT '',
         questions integer NOT NULL DEFAULT 0,
         model_calls integer NOT NULL DEFAULT 0,
         tool_calls integer NOT NULL DEFAULT 0,
@@ -132,7 +134,7 @@ UPGRADE = [
         cache_read_tokens bigint NOT NULL DEFAULT 0,
         cache_write_tokens bigint NOT NULL DEFAULT 0,
         cost_estimate numeric(14,6) NOT NULL DEFAULT 0,
-        PRIMARY KEY (day, user_id, purpose)
+        PRIMARY KEY (day, user_id, purpose, model_id)
     )""",
     # 3. artifacts, incidents
     f"""

@@ -167,8 +167,22 @@ export const endpoints3b = {
   status: () => api.get<AssistantStatus>('/assistant/status'),
 
   // ask, stream, conversations
-  ask: (conversationId: number | null, question: string, h: StreamHandlers) =>
-    readStream('POST', '/assistant/ask', { conversation_id: conversationId, question }, h),
+  ask: (
+    conversationId: number | null,
+    question: string,
+    h: StreamHandlers,
+    modelId?: string | null,
+  ) =>
+    readStream(
+      'POST',
+      '/assistant/ask',
+      {
+        conversation_id: conversationId,
+        question,
+        ...(modelId ? { model_id: modelId } : {}),
+      },
+      h,
+    ),
   attach: (messageId: number, lastEventId: number | null, h: StreamHandlers) =>
     readStream('GET', `/assistant/messages/${messageId}/stream`, undefined, { ...h, lastEventId }),
   cancel: (messageId: number) =>

@@ -45,10 +45,56 @@ const EVENT_KEYS = [
   'clear_after_min',
 ] as const;
 
+const TEXT_ALIASES = ['pattern', 'regex', 'message', 'text_pattern', 'message_regex'] as const;
+const REGEX_ALIASES: readonly string[] = ['pattern', 'regex', 'text_pattern', 'message_regex'];
+
+/**
+ * The usual model slips in a syslog match (the server normalises too; this keeps old artifacts
+ * and other clients safe): the pattern in `text_regex` (a string) or under an alias key instead
+ * of `text`, a single `program`, a non-boolean `text_regex`. Trap matches pass unchanged.
+ */
+export function normalizeDraftMatch(m: unknown, kind: unknown = 'syslog'): unknown {
+  if (kind === 'trap' || !m || typeof m !== 'object' || Array.isArray(m)) return m;
+  const o: Record<string, unknown> = { ...(m as Record<string, unknown>) };
+  const hasText = typeof o.text === 'string' && o.text.trim() !== '';
+  if (typeof o.text_regex === 'string') {
+    const v = o.text_regex.trim();
+    const boolWord = ['true', 'false', '1', '0', 'yes', 'no'].includes(v.toLowerCase());
+    if (v && !boolWord && !hasText) {
+      o.text = o.text_regex;
+      o.text_regex = true;
+    } else o.text_regex = ['true', '1', 'yes'].includes(v.toLowerCase());
+  }
+  if (!(typeof o.text === 'string' && o.text.trim() !== '')) {
+    for (const k of TEXT_ALIASES) {
+      const v = o[k];
+      if (typeof v === 'string' && v.trim()) {
+        o.text = v;
+        if (REGEX_ALIASES.includes(k) && o.text_regex === undefined) o.text_regex = true;
+        break;
+      }
+    }
+  }
+  for (const k of TEXT_ALIASES) delete o[k];
+  if (typeof o.program === 'string' && o.program.trim() && !Array.isArray(o.programs))
+    o.programs = [o.program.trim()];
+  delete o.program;
+  if ('text_regex' in o && typeof o.text_regex !== 'boolean') o.text_regex = !!o.text_regex;
+  // a complete syslog shape for the form (missing keys would throw in matchToForm)
+  o.severity_max = typeof o.severity_max === 'number' ? o.severity_max : null;
+  o.facilities = Array.isArray(o.facilities) ? o.facilities : [];
+  o.programs = Array.isArray(o.programs) ? o.programs : [];
+  o.text = typeof o.text === 'string' ? o.text : null;
+  o.text_regex = o.text_regex === true;
+  return o;
+}
+
 /** Event-rule draft → its writable fields (shape checks are done by the form's validator). */
 export function eventDraftToForm(d: Record<string, unknown>): EventRuleInput {
   const out: Record<string, unknown> = {};
   for (const k of EVENT_KEYS) if (k in d) out[k] = d[k];
+  if (out.match) out.match = normalizeDraftMatch(out.match, out.kind);
+  if (out.clear_match) out.clear_match = normalizeDraftMatch(out.clear_match, out.kind);
   return out as EventRuleInput;
 }
 

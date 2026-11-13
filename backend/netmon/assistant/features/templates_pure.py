@@ -271,6 +271,15 @@ PROPOSE_TEMPLATE_TOOL = {
             "properties": {
                 "yaml": {"type": "string"},
                 "notes": {"type": "string"},
+                "cannot_draft": {
+                    "type": "boolean",
+                    "description": "true when no useful template can be drafted from this walk",
+                },
+                "reason": {
+                    "type": "string",
+                    "maxLength": 500,
+                    "description": "why no template is possible (only with cannot_draft)",
+                },
                 "confidence_per_sensor": {
                     "type": "array",
                     "items": {
@@ -285,3 +294,25 @@ PROPOSE_TEMPLATE_TOOL = {
         }
     },
 }
+
+
+TEMPLATE_CANNOT_REASON = {
+    "en": (
+        "The walk and the notes do not give enough to build a template (no device-specific "
+        "values to monitor), so no draft was made."
+    ),
+    "he": (
+        "הסריקה וההערות לא מספיקות לבניית תבנית (אין ערכים ייחודיים למכשיר לניטור), "
+        "ולכן לא נוצרה טיוטה."
+    ),
+}
+
+
+def template_is_placeholder(yaml_text: str) -> bool:
+    """Deterministic backstop (pure): an empty YAML or `<UNKNOWN>`-style placeholders."""
+    return not (yaml_text or "").strip() or bool(PLACEHOLDER_RE.search(yaml_text))
+
+
+PLACEHOLDER_RE = re.compile(
+    r"<\s*(unknown|placeholder|todo|tbd|fill[ _-]?in|n/?a|\.\.\.|\?+)\s*>", re.I
+)

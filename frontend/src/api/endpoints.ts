@@ -1,4 +1,5 @@
 import { api, buildUrl } from './client';
+import { setNamedValueMaps } from '../lib/valueMaps';
 import type { BackupMode, SshCredentialsInput } from './types3';
 import type {
   ApiToken,
@@ -38,6 +39,9 @@ import type {
   TopologyRefresh,
   AlertRule,
   ApplyTemplateResult,
+  ApplyTemplateRequest,
+  ApplyInterfacesResponse,
+  SensorImpact,
   DeviceTemplate,
   DeviceTemplatesResponse,
   DevicePorts,
@@ -116,6 +120,9 @@ export const qk = {
   dependencySuggestions: (root?: number | null) => ['dependencySuggestions', root ?? null] as const,
   // [2b-2]
   devicePorts: (deviceId: number) => ['device-ports', deviceId] as const,
+  /** [1.3] */
+  applyInterfaces: (deviceId: number, templateId: string) =>
+    ['apply-interfaces', deviceId, templateId] as const,
   portDetail: (deviceId: number, ifIndex: number, includeUplinkMacs = false) =>
     ['port-detail', deviceId, ifIndex, includeUplinkMacs] as const,
   macSearch: (q: MacSearchQuery) => ['mac-search', q] as const,
@@ -175,6 +182,8 @@ export type SensorInput = {
   enabled?: boolean;
   sort_order?: number;
   channels?: ChannelThresholdInput[];
+  /** [1.3] */
+  impact?: SensorImpact;
 };
 
 export type EventQuery = {
@@ -372,7 +381,16 @@ export const endpoints = {
     api.get<{ items: SnmpInterface[] }>(`/devices/${id}/snmp/interfaces`),
 
   // sensors
-  sensorTypes: () => api.get<{ items: SensorTypeDef[] }>('/sensor-types'),
+  sensorTypes: () =>
+    api
+      .get<{
+        items: SensorTypeDef[];
+        value_maps?: Record<string, import('./types').NamedValueMap>;
+      }>('/sensor-types')
+      .then((d) => {
+        setNamedValueMaps(d.value_maps); // [1.3.1]
+        return d;
+      }),
   sensors: (params?: {
     device_id?: number;
     group_id?: number;
@@ -416,8 +434,20 @@ export const endpoints = {
   reloadTemplates: () => api.post<TemplateLibraryStatus>('/device-templates/reload'),
   deviceTemplate: (id: string) =>
     api.get<DeviceTemplate>(`/device-templates/${encodeURIComponent(id)}`),
-  applyTemplate: (deviceId: number, template_id: string) =>
-    api.post<ApplyTemplateResult>(`/devices/${deviceId}/apply-template`, { template_id }),
+  applyTemplate: (
+    deviceId: number,
+    template_id: string,
+    opts?: Omit<ApplyTemplateRequest, 'template_id'>,
+  ) =>
+    api.post<ApplyTemplateResult>(`/devices/${deviceId}/apply-template`, { template_id, ...opts }),
+  /** [1.3] interfaces an snmp_interfaces entry would cover, with importance */
+  applyTemplateInterfaces: (deviceId: number, template_id: string) =>
+    api.get<ApplyInterfacesResponse>(`/devices/${deviceId}/apply-template/interfaces`, {
+      template_id,
+    }),
+  /** [1.3] */
+  bulkSensorImpact: (sensor_ids: number[], impact: SensorImpact) =>
+    api.post<{ updated: number }>('/sensors/bulk-impact', { sensor_ids, impact }),
 
   // [2a] discovery
   discoveryProfiles: () =>
@@ -480,6 +510,8 @@ export const endpoints = {
   saveLayout: (positions: LayoutPosition[]) => api.put<void>('/topology/layout', { positions }),
   resetLayout: () => api.del('/topology/layout'),
   // [2b-2] ports and MAC/IP search
+  /** [1.3] CSV download of the device's ports table */
+  devicePortsCsvUrl: (id: number) => buildUrl(`/devices/${id}/ports.csv`),
   devicePorts: (id: number, kinds?: PortKind[]) =>
     api.get<DevicePorts>(`/devices/${id}/ports`, kinds?.length ? { kind: kinds } : undefined),
   portDetail: (id: number, ifIndex: number, includeUplinkMacs = false) =>

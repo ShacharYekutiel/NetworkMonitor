@@ -5,12 +5,15 @@ import {
   arnAccountsDiffer,
   compactTokens,
   connErrors,
+  connInput,
   connKey,
+  connMissing,
   copyableMarkdown,
   daysUntil,
   EMPTY_LIVE,
   formatCost,
   isRetryable,
+  isTemporaryKey,
   nmRoute,
   parseCidrs,
   profileScope,
@@ -23,7 +26,13 @@ import {
 import { renderAnswer } from './markdown';
 import { normalizeFeatures } from './features';
 import type { AssistantMessage, StreamEvent } from '../api/types';
-import { alertDraftToForm, eventDraftToForm } from './drafts';
+import {
+  alertDraftToForm,
+  eventDraftRuleForm,
+  eventDraftToForm,
+  normalizeDraftMatch,
+} from './drafts';
+import { formToInput } from './eventRules';
 
 describe('SseParser', () => {
   const sample =
@@ -201,6 +210,8 @@ describe('connection form', () => {
     access_key_id: '',
     secret_access_key: '',
     clear_secret: false,
+    session_token: '',
+    clear_session_token: false,
     access_key_created_at: '',
     ra_region: '',
     ra_endpoint_url: '',
@@ -230,6 +241,37 @@ describe('connection form', () => {
     expect(connKey(base)).toBe(connKey({ ...base }));
     expect(connKey(base)).not.toBe(connKey({ ...base, region: 'il-central-1' }));
     expect(connKey(base, 'a')).not.toBe(connKey(base, 'b'));
+  });
+  it('session token of temporary (ASIA…) keys', () => {
+    const asia: ConnForm = {
+      ...base,
+      auth_mode: 'access_key',
+      access_key_id: 'ASIAABCDEFGHIJKLMNOP',
+    };
+    expect(connErrors(asia)).toEqual({});
+    expect(isTemporaryKey('ASIAABCDEFGHIJKLMNOP')).toBe(true);
+    expect(isTemporaryKey('AKIAABCDEFGHIJKLMNOP')).toBe(false);
+    // write-only: omitted when empty, whitespace of a pasted token removed, "" clears
+    expect('session_token' in connInput(asia)).toBe(false);
+    expect(connInput({ ...asia, session_token: ' IQoJb3Jp\nZ2lu== ' }).session_token).toBe(
+      'IQoJb3JpZ2lu==',
+    );
+    expect(
+      connInput({ ...asia, session_token: 'x', clear_session_token: true }).session_token,
+    ).toBe('');
+    // a new or cleared token locks the switch again (new key)
+    expect(connKey(asia)).not.toBe(connKey({ ...asia, session_token: 'IQoJ' }));
+    expect(connKey(asia)).not.toBe(connKey({ ...asia, clear_session_token: true }));
+    expect(connErrors({ ...asia, session_token: 'bad<token>' }).session_token).toBe('sessionToken');
+    expect(connErrors({ ...asia, session_token: 'A'.repeat(4097) }).session_token).toBeTruthy();
+    const stored = { certificate: null, secret_access_key_set: true, session_token_set: false };
+    expect(connMissing(asia, stored)).toEqual(['sessionToken']);
+    expect(connMissing({ ...asia, session_token: 'IQoJ' }, stored)).toEqual([]);
+    expect(connMissing(asia, { ...stored, session_token_set: true })).toEqual([]);
+    expect(
+      connMissing({ ...asia, clear_session_token: true }, { ...stored, session_token_set: true }),
+    ).toEqual(['sessionToken']);
+    expect(connMissing({ ...asia, access_key_id: 'AKIAABCDEFGHIJKLMNOP' }, stored)).toEqual([]);
   });
   it('arn accounts', () => {
     expect(arnAccountsDiffer(base)).toBe(false);
@@ -298,5 +340,59 @@ describe('rule drafts → forms', () => {
       name: 'r',
       kind: 'syslog',
     });
+  });
+});
+
+describe('[3b owner] event-rule draft text/regex reaches the form', () => {
+  it('keeps text + text_regex from a well-formed draft', () => {
+    const f = eventDraftRuleForm({
+      name: 'כשלי SSH',
+      kind: 'syslog',
+      match: {
+        severity_max: null,
+        facilities: [],
+        programs: ['SSHS'],
+        text: '[Ff]ail(ed|ure)?',
+        text_regex: true,
+      },
+      action: 'warning',
+      clear_after_min: 30,
+    });
+    expect(f.match.text).toBe('[Ff]ail(ed|ure)?');
+    expect(f.match.textRegex).toBe(true);
+    expect(f.match.programs).toBe('SSHS');
+    const input = formToInput(f);
+    expect(input.match).toMatchObject({ text: '[Ff]ail(ed|ure)?', text_regex: true });
+  });
+  it('repairs the pattern put into text_regex and a single program (owner bug)', () => {
+    const f = eventDraftRuleForm({
+      name: 'SSH',
+      kind: 'syslog',
+      match: { program: 'sshd', text_regex: 'Failed password for .* from' },
+      action: 'warning',
+    });
+    expect(f.match.text).toBe('Failed password for .* from');
+    expect(f.match.textRegex).toBe(true);
+    expect(f.match.programs).toBe('sshd');
+    expect(formToInput(f).match).toMatchObject({
+      programs: ['sshd'],
+      text: 'Failed password for .* from',
+      text_regex: true,
+    });
+  });
+  it('normalises aliases, leaves trap matches alone', () => {
+    expect(normalizeDraftMatch({ pattern: 'a|b' })).toEqual({
+      text: 'a|b',
+      text_regex: true,
+      severity_max: null,
+      facilities: [],
+      programs: [],
+    });
+    expect(normalizeDraftMatch({ message: 'down', text_regex: 'false' })).toMatchObject({
+      text: 'down',
+      text_regex: false,
+    });
+    const trap = { trap_oids: ['1.3.6.1.6.3.1.1.5.3'], varbinds: [], ports: 'any' };
+    expect(normalizeDraftMatch(trap, 'trap')).toBe(trap);
   });
 });

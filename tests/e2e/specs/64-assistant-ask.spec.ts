@@ -6,7 +6,7 @@ import { BASE_URL, apiAs, loginViaApi, type Api } from '../lib/helpers';
 import { raw } from '../lib/lab';
 import { tx } from '../lib/lab3';
 import {
-  MODEL, PHASE3B, ask, askInUi, askOk, audit, ensureAssistant, lastSeq, mock, modelCalls, openStream, shot3b, changes, problem } from '../lib/lab3b';
+  LIGHT_MODEL, MODEL, PHASE3B, ask, askInUi, askOk, audit, ensureAssistant, lastSeq, mock, modelCalls, openStream, shot3b, changes, problem } from '../lib/lab3b';
 
 // default mode (not serial): one worker runs the tests in order; a failure restarts the worker (beforeAll is
 // idempotent) instead of skipping the remaining tests, so every contract item gets a verdict
@@ -219,4 +219,35 @@ test('UI: Enter sends, Shift+Enter is a newline; remaining-questions counter sho
   await expect(page.getByTestId('answer').last()).toContainText('logical broadcast domain', { timeout: 60_000 });
   await askInUi(page, 'what is a VLAN? [qa:notools]');
   await expect(page.getByTestId('answer')).toHaveCount(2, { timeout: 60_000 });
+});
+
+test('[3b owner] chat models: composer select, chosen model on every call, 422 for others, usage per model', async ({ page }) => {
+  test.setTimeout(150_000);
+  const r = await raw(api, 'PUT', '/api/assistant/settings', { chat_models: [{ id: LIGHT_MODEL, label: 'Fast' }] });
+  expect(r.status, 'chat_models needs no new connection test').toBe(200);
+  try {
+    expect(r.body.chat_models_effective.map((m: any) => m.id)).toEqual([MODEL, LIGHT_MODEL]);
+    const bad = await ask(api, 'hi [qa:notools]', null, '/api/assistant/ask',
+      { conversation_id: null, question: 'hi [qa:notools]', model_id: 'us.anthropic.claude-nope-v1:0' });
+    expect(bad.status).toBe(422);
+    expect(bad.error.code).toBe('model_not_allowed');
+    // UI: default = main model; choosing "Fast" sends model_id and every model call uses it
+    await loginViaApi(page, undefined, '/assistant');
+    const select = page.getByTestId('chat-model');
+    await expect(select).toHaveValue(MODEL, { timeout: 20_000 });
+    await select.selectOption(LIGHT_MODEL);
+    const since = await lastSeq();
+    await askInUi(page, CHIP);
+    await expect(page.getByTestId('answer').last()).toContainText('qa3b-ask-web', { timeout: 60_000 });
+    const calls = await modelCalls(since);
+    expect(calls.length).toBeGreaterThan(0);
+    for (const c of calls) expect(c.model_id).toBe(LIGHT_MODEL);
+    await page.reload();
+    await expect(page.getByTestId('chat-model')).toHaveValue(LIGHT_MODEL, { timeout: 20_000 });
+    const usage = await api.get('/api/assistant/usage');
+    expect(usage.by_model.map((m: any) => m.model_id)).toContain(LIGHT_MODEL);
+  } finally {
+    await raw(api, 'PUT', '/api/assistant/settings', { chat_models: [] });
+    await page.evaluate(() => { try { localStorage.clear(); } catch { /* ignore */ } }).catch(() => undefined);
+  }
 });

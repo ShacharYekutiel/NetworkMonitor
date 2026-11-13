@@ -92,6 +92,20 @@ test('draft: forced propose_template over the compacted, redacted walk; YAML val
   expect((await audit(api, 'action=assistant.template_draft'))[0]).toBeTruthy();
 });
 
+// [3b owner] notes that are not about a template -> explicit cannot-draft (200, yaml "", reason in the notes' language)
+test('cannot draft: Hebrew nonsense notes -> {yaml: "", valid: false, cannot_draft: {reason (he)}}', async () => {
+  const since = await lastSeq();
+  const d = await api.post('/api/assistant/template-drafts', { walk_id: walkId, template_id: null, notes: 'תכין לי קפה' });
+  expect(d.cannot_draft).toMatchObject({ source: 'model' });
+  expect(/[֐-׿]/.test(d.cannot_draft.reason)).toBe(true);
+  expect(d.yaml).toBe('');
+  expect(d.valid).toBe(false);
+  expect(d.language).toBe('he');
+  const calls = (await modelCalls(since)).filter((c) => c.purpose === 'template_draft');
+  expect(calls.length, 'no repair rounds').toBe(1);
+  expect(calls[0].question).toContain('(Answer in Hebrew.)');
+});
+
 test('UI wizard: device -> walk -> draft editor (valid) -> Save as user template -> applied to the device', async ({ page }) => {
   test.setTimeout(180_000);
   await raw(api, 'DELETE', '/api/device-templates/user/qa_draft_x100').catch(() => undefined);

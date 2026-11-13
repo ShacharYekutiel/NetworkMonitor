@@ -148,8 +148,8 @@ class AssistantService:
 
     @staticmethod
     def _conn_view(cfg: dict[str, Any]) -> dict[str, Any]:
-        keys = (*config.CONNECTION_FIELDS, "secret_access_key_enc", "ra_cert_pem", "ra_chain_pem",
-                "ra_key_enc")  # fmt: skip
+        keys = (*config.CONNECTION_FIELDS, "secret_access_key_enc", "session_token_enc",
+                "ra_cert_pem", "ra_chain_pem", "ra_key_enc")  # fmt: skip
         return {k: cfg.get(k) for k in keys}
 
     async def _drop_client(self) -> None:
@@ -280,9 +280,18 @@ class AssistantService:
             secret = config.secret_access_key(cfg, self.secret_key)
         except config.Unreadable:
             secret = None
+        try:
+            token = config.session_token(cfg, self.secret_key)
+        except config.Unreadable:
+            token = None
         cert_pem, chain_pem, key_pem = self.material_pems(cfg)
         return config.connection_hash(
-            cfg, secret_plain=secret, cert_pem=cert_pem, chain_pem=chain_pem, key_pem=key_pem
+            cfg,
+            secret_plain=secret,
+            cert_pem=cert_pem,
+            chain_pem=chain_pem,
+            key_pem=key_pem,
+            token_plain=token,
         )
 
     def has_cert_and_key(self, cfg: dict[str, Any]) -> tuple[bool, bool]:
@@ -303,7 +312,17 @@ class AssistantService:
                 ) from None
             if not cfg.get("access_key_id") or not secret:
                 raise make("assistant_unconfigured")
-            return StaticProvider(cfg["access_key_id"], secret)
+            try:
+                token = config.session_token(cfg, self.secret_key)
+            except config.Unreadable:
+                raise AssistantError(
+                    "aws_auth_failed",
+                    "The stored session token cannot be decrypted (secret.key changed?); "
+                    "enter it again.",
+                ) from None
+            if config.is_temporary_key(cfg["access_key_id"]) and not token:
+                raise make("aws_session_token_required")
+            return StaticProvider(cfg["access_key_id"], secret, token)
         if mode == "roles_anywhere":
             return RolesAnywhereProvider(cfg, lambda: self.ra_material(cfg), http)
         if mode == "default_chain":
@@ -491,6 +510,8 @@ class AssistantService:
                     out.append("access_key_old")
             except ValueError:
                 pass
+        if config.temporary_credentials(cfg):
+            out.append("temporary_credentials")
         out += profiles.warnings_for([cfg.get("model_id"), cfg.get("model_id_light")])
         if cfg.get("auth_mode") == "roles_anywhere" and config.arn_account_warning(cfg):
             out.append("arn_accounts_differ")
@@ -501,6 +522,7 @@ class AssistantService:
         features = getattr(self.rt, "features", None)
         info, cert_warns = self.cert_status(cfg)
         secret_set = bool(cfg.get("secret_access_key_enc"))
+        token_set = bool(cfg.get("session_token_enc"))
         prices = {**config.DEFAULT_ASSISTANT["prices"], **(cfg.get("prices") or {})}
         csr = None
         if cfg.get("ra_csr_pem"):
@@ -532,6 +554,12 @@ class AssistantService:
             and config.secret_unreadable(
                 cfg, self.secret_key, "secret_access_key_enc", config.AAD_SECRET_ACCESS_KEY
             ),
+            "session_token": None,
+            "session_token_set": token_set,
+            "session_token_unreadable": token_set
+            and config.secret_unreadable(
+                cfg, self.secret_key, "session_token_enc", config.AAD_SESSION_TOKEN
+            ),
             "access_key_created_at": cfg.get("access_key_created_at"),
             "ra_region": cfg.get("ra_region"),
             "ra_endpoint_url": cfg.get("ra_endpoint_url"),
@@ -547,6 +575,12 @@ class AssistantService:
             "internal_cidrs": list(cfg.get("internal_cidrs") or []),
             "chat_redact_ips": bool(cfg.get("chat_redact_ips", True)),
             "prices": prices,
+            "chat_models": [
+                {"id": m.get("id"), "label": m.get("label")}
+                for m in (cfg.get("chat_models") or [])
+                if isinstance(m, dict)
+            ],
+            "chat_models_effective": config.chat_models_effective(cfg),
             "last_test": cfg.get("last_test"),
             "warnings": self.warnings(cfg, cert_warns),
             # owner decision 3b: data-location explanation per inference-profile prefix

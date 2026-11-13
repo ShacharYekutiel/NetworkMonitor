@@ -8,6 +8,9 @@ from dataclasses import asdict, dataclass, field
 from typing import Any
 
 from netmon.api.errors import ApiError
+from netmon.poller.value_maps import NAMED_VALUE_MAPS
+
+NAMED_VALUE_MAP_NAMES = list(NAMED_VALUE_MAPS)
 
 SENSOR_TYPES_ORDER = [
     "ping",
@@ -212,6 +215,8 @@ SENSOR_TYPES: dict[str, SensorTypeDef] = {
             ConfigField(
                 "value_map_default", "enum", default="warning", options=["up", "warning", "down"]
             ),
+            # [1.3.1] a shared code table (poller.value_maps); stored only when set
+            ConfigField("value_map_ref", "enum", default="", options=["", *NAMED_VALUE_MAP_NAMES]),
             # [2b-2] "sum": value = raw / (raw + other) x 100 (percent_of_oid = the other part)
             ConfigField("percent_base", "enum", default="total", options=["total", "sum"]),
         ],
@@ -254,7 +259,7 @@ SENSOR_TYPES: dict[str, SensorTypeDef] = {
 
 # [2b-2] optional keys that are stored only when given (absent = the default); keeps the
 # stored config of sensors created before the key existed unchanged
-OMIT_WHEN_ABSENT = {("snmp_custom", "percent_base")}
+OMIT_WHEN_ABSENT = {("snmp_custom", "percent_base"), ("snmp_custom", "value_map_ref")}
 
 OID_RE = re.compile(r"^\.?[0-2](\.\d+){1,127}$")
 
@@ -424,7 +429,13 @@ def _validate_snmp_custom(out: dict[str, Any], loc_prefix: str, errors: list) ->
         errors.append({"loc": ["body", loc_prefix, "label"], "msg": "must be 0-64 characters"})
     if out.get("multiplier") == 0:
         errors.append({"loc": ["body", loc_prefix, "multiplier"], "msg": "must not be 0"})
-    if out.get("value_type") == "enum" and not out.get("value_map"):
+    if out.get("value_map_ref") == "" or out.get("value_map_ref") is None:
+        out.pop("value_map_ref", None)  # "" clears the named map
+    if (
+        out.get("value_type") == "enum"
+        and not out.get("value_map")
+        and not out.get("value_map_ref")
+    ):
         errors.append(
             {
                 "loc": ["body", loc_prefix, "value_map"],

@@ -62,7 +62,8 @@ async def test_ask_one_tool_round_links_audit_ws(rt: Any, admin: httpx.AsyncClie
     assert names[0] == "start" and names[-1] == "done"
     assert [i for i, _, _ in events] == list(range(1, len(events) + 1))
     start = events[0][2]
-    assert start["language"] == "en" and start["redaction"] is False
+    # [3b Finding B] internal-IP masking defaults ON (the assistant row sets no override)
+    assert start["language"] == "en" and start["redaction"] is True
     steps = events_of(events, "step")
     assert [s["state"] for s in steps] == ["running", "done"]
     assert steps[1]["tool"] == "list_problems" and steps[1]["ok"] is True and steps[1]["rows"] == 1

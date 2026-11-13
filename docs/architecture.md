@@ -1,4 +1,4 @@
-# NetworkMonitor — Architecture (Phase 1 / MVP + Phase 2a + Phase 2b-1 + Phase 2b-2 + Phase 2b-3 + Phase 3 + Phase 3b + Phase 4)
+# NetworkMonitor — Architecture (Phase 1 / MVP + Phase 2a + Phase 2b-1 + Phase 2b-2 + Phase 2b-3 + Phase 3 + Phase 3b + 1.3 + Phase 4)
 
 Phase 2a (auto-discovery, device templates, `snmp_custom`/`snmp_disk`, Telegram) is described in
 [§ 9](#9-phase-2a-discovery-templates-custom-snmp-telegram); items elsewhere marked **[2a]** belong to it.
@@ -16,6 +16,10 @@ reports, NOC wall screen, acknowledge from Telegram/Teams) is described in
 **[3]** belong to it.
 Phase 3b ("Ask the network" assistant and AI features on Amazon Bedrock) is described in
 [§ 14](#14-phase-3b-ask-the-network-assistant-and-ai-features-amazon-bedrock); items marked **[3b]** belong to it.
+Release 1.3 (sensor impact on the device status, one important-port definition, interface selection on template
+apply, connected hosts and CSV on the ports view, trunk / LAG-degraded alerts, IRF sensors) is described in
+[§ 14](#14-release-13-sensor-impact-important-ports-interface-selection-connected-hosts-lag-degraded-irf); items
+marked **[1.3]** belong to it.
 Phase 4 (AWS cloud view and VPC Flow Logs first, then high availability with a witness, optics/PoE, certificate
 monitoring, configuration compliance, on-call, S3 backups, traffic capture) is described in
 [§ 15](#15-phase-4-aws-cloud-view-and-vpc-flow-logs-high-availability-monitoring-depth-on-call-s3-backups-traffic-capture);
@@ -1336,6 +1340,16 @@ maintenance suppression and after-maintenance sends, rollups, tree, dashboard, w
   `clear_after_min` since the last match). Evaluation per message (pure `rules.evaluate`, data-model § Rule
   evaluation): 1) every rule whose `clear_match` matches clears its condition for that key; 2) the first rule
   (in order) whose `match` matches raises/refreshes its condition (or stops on `ignore`).
+- **[1.3.3] Regex safety (ReDoS fix):** all rule regexes — varbind `regex`, syslog `text` (`text_regex`), the
+  syslog `key_regex` — compile and match with **RE2** (`netmon.util.saferegex`, a linear-time engine with no
+  catastrophic backtracking), not Python `re`. This matters most on the **unauthenticated** UDP trap/syslog
+  ingest path, where a crafted pattern or message could otherwise freeze the whole event loop. Patterns are
+  validated with RE2 at **save time** (`check_regex` → `422`): a feature RE2 cannot run in linear time
+  (backreferences, lookaround) is rejected, so an admin cannot store a dangerous or unsupported pattern. A
+  stored pattern RE2 cannot compile is treated as no-match (as an `re.error` was); `event_sensors.reload` logs a
+  startup WARNING listing the ids of any such pre-1.3.3 rules so they can be rewritten. `POST
+  /api/event-rules/test` additionally runs the scan in a worker thread (`asyncio.to_thread`) as defence in
+  depth. See § 12.15.
 - **Status:** worst active condition (`down` > `warning`), none → `up`. `status_message` =
   `"<rule name>: <summary>"` of the worst, most recent condition, plus `" (+N more)"`. Status changes are
   applied exactly like a check result (sensor row locked, `status_change` event with `in_maintenance`,
@@ -1355,7 +1369,8 @@ maintenance suppression and after-maintenance sends, rollups, tree, dashboard, w
 - **Important ports** (port filter `important`, avoids an alert for every PC switched off at night): the
   trap's ifIndex has an `snmp_interface` sensor, or is a LAG / LAG member, or is an uplink per the 2b-2 view
   rule; a device with neither port inventory data nor interface sensors → every port is important; a trap
-  without an ifIndex varbind → important.
+  without an ifIndex varbind → important. **[1.3]** now the shared definition (uplink, LAG / member, trunk
+  while `event_linkdown_include_trunks`) plus ports whose interface sensor has impact `critical` (§ 14.2).
 - **Link-down scope** (owner decision, setting `event_linkdown_scope`): `important` (default, the rule
   above) or `all` (every port with a linkDown/linkUp or ifOperStatus change). With `all` the port filter
   `important` matches every port (built-in Link down rule and custom rules using it), and flapping (§ 12.4)
@@ -1785,7 +1800,7 @@ ingestion continues).
 | Malformed packets | Decoders never raise past the receiver (`parse_error`); pyasn1 decode errors caught per datagram. |
 | NUL / invalid UTF-8 / control chars | Replaced (U+FFFD); React escapes on render; messages never rendered as HTML. |
 | SQL injection via search | Parameters only; ILIKE patterns escape `\ % _`. |
-| ReDoS in admin regexes | Admin-only input, ≤ 200 chars, compiled at save (422 on error), applied to ≤ 8 KiB text. |
+| ReDoS in event-rule regexes | **[1.3.3]** all rule regexes run on **RE2** (`netmon.util.saferegex`), a linear-time engine with no catastrophic backtracking — critical because rule matching runs on the **unauthenticated** UDP trap/syslog ingest path (`pipeline` → `rules.evaluate`). Patterns are ≤ 200 chars, validated with RE2 at save (`422`, rejecting backreferences/lookaround), and applied to ≤ 8 KiB text. Pre-1.3.3 patterns RE2 cannot compile are logged at startup and treated as no-match. `POST /api/event-rules/test` also runs off the event loop (`asyncio.to_thread`). |
 | LDAP injection | RFC 4515 escaping of every value and DN in filters; fixed attribute lists; no user value as base DN. |
 | Anonymous bind via empty password | Rejected before contacting AD. |
 | AD lockout through brute force | Per-username directory guard (5/15 min) + existing IP throttle. |
@@ -2022,12 +2037,16 @@ data-model). No driver → state `no_driver` (shown, not an error).
 - **Search:** `pg_trgm` GIN index on `content` of **latest versions only** (partial index `WHERE is_latest`,
   created by the 2b-3 trigram bootstrap); `GET /api/config-backups/search?q=` returns devices with matching lines
   (≤ 20 lines per device with line numbers, ≤ 200 devices; `regex=true` uses PostgreSQL `~*` with a 200-char
-  pattern compiled first in Python to reject invalid ones). Matching is **per line**: the stored config is one
-  text value, so the pattern is sent as `(?n)<pattern>` (newline-sensitive ARE: `^`/`$` match at line breaks,
-  `.` and `[^…]` do not cross them; a leading `(?flags)` of the pattern is merged into it, e.g. `(?ni)`); the
-  trigram index is still used. Lines are then matched in Python one by one; a device whose text matched only
-  across lines (explicit `\n`) has no matching line and is not listed. `all_versions=true` scans every version in a `since`
-  range (sequential; ≤ 31 days).
+  pattern). **[1.3.3]** the pattern is validated first with **RE2** (`netmon.util.saferegex.check_safe`,
+  linear-time engine): too long, a syntax error, or a feature RE2 cannot run in linear time (backreferences,
+  lookaround) → `422`, so no attacker-controlled pattern reaches Python's backtracking `re`. The `~*` scan runs
+  under a per-query `SET LOCAL statement_timeout` (3000 ms, § 13.12) so a pathological pattern cannot hang
+  PostgreSQL either. Matching is **per line**: the stored config is one text value, so the pattern is sent as
+  `(?n)<pattern>` (newline-sensitive ARE: `^`/`$` match at line breaks, `.` and `[^…]` do not cross them; a
+  leading `(?flags)` of the pattern is merged into it, e.g. `(?ni)`); the trigram index is still used. Lines are
+  then matched in Python one by one **with RE2** (`(?m)` + ignorecase, mirroring the old `re.MULTILINE |
+  re.IGNORECASE`); a device whose text matched only across lines (explicit `\n`) has no matching line and is not
+  listed. `all_versions=true` scans every version in a `since` range (sequential; ≤ 31 days).
 - **Export:** one version as a `text/plain` attachment (`<device>_<yyyymmdd-hhmm>.cfg`); "Download all latest"
   as a streamed ZIP (built in a thread, ≤ 2000 devices). Masked secrets stay masked; unmasked storage exists only
   when the admin turned masking off (UI warning "Secrets will be stored in the database and in exports").
@@ -2685,6 +2704,7 @@ fallback with rows present.
 | SSH MITM / impostor device | TOFU pinning, key checked before auth; change → down + manual accept. |
 | SSH credentials at rest | AES-256-GCM (`services.crypto`, AAD per field), write-only in the API, redacted in audit/logs; `secret.key` lost → "re-enter credentials" flag + `system` event, backups fail `no_credentials`. |
 | Secrets inside stored configs | Masked by default (driver regexes); content admin-only; reads/exports audited. |
+| ReDoS in config-backup search | **[1.3.3]** the `regex=true` pattern is validated with **RE2** first (`saferegex.check_safe`; `422` on a backreference/lookaround or syntax error) and the Python per-line refinement runs on RE2 (linear), so no backtracking `re` runs on an admin-supplied pattern; the PostgreSQL `~*` scan runs under `SET LOCAL statement_timeout = 3000` so a pathological pattern cannot hang the database either. |
 | Hanging / slow devices | Per-prompt and total timeouts, output cap, global semaphore; never blocks the loop. |
 | Flow floods / spoofed exporters | Per-exporter and global budgets, bounded queues, unknown exporters need acceptance, `DOCKER-USER` filtering; spoofed data only skews statistics (no alerts are driven by flows in phase 3). |
 | Malicious flow datagrams | Pure decoders with explicit length checks; any exception per datagram → `parse_error`; template cache bounded. |
@@ -2732,7 +2752,7 @@ fallback with rows present.
 ## 14. Phase 3b: "Ask the network" assistant and AI features (Amazon Bedrock)
 
 Contract details: [data-model.md § Phase 3b](data-model.md#3b-phase-3b-additions) (tables, settings, pure
-vectors, migration `0008`) and [api.md § Phase 3b](api.md#3b-phase-3b-contract) (types, tool schemas, endpoints,
+vectors, migration `0010`) and [api.md § Phase 3b](api.md#3b-phase-3b-contract) (types, tool schemas, endpoints,
 SSE stream, errors, WS). Backend, frontend, QA and devops implement in parallel against those files and this
 section. Sections are marked **[3b]**. Everything is additive to phase 3 and stacked on it (branch `phase3b`).
 The product stays **read-only towards devices**, and the language model is **read-only towards the product**.
@@ -2879,7 +2899,13 @@ listener → alert-note worker → digest scheduler; the Telegram `/ask` handler
   Route 53 Resolver inbound endpoint / AD conditional forwarder makes it resolve privately. The same for the
   Knowledge Base (`bedrock-agent-runtime`, `assistant_kb.endpoint_url`), Roles Anywhere (`ra_endpoint_url`) and the
   optional control plane (`control_endpoint_url`). `https://` only (`http://` accepted only with
-  `NETMON_TEST_MODE=1`); a path is not allowed; the host is shown in *Test*.
+  `NETMON_TEST_MODE=1`); a path is not allowed; the host is shown in *Test*. `[3b]` **SSRF guard**
+  (`netmon.util.netguard.blocked_endpoint_host`, wired into the endpoint/KB/proxy validators and enforced before the
+  *Test* / *List models* / KB-test endpoints connect): the host must not be loopback (blocked outside test mode),
+  link-local / cloud-metadata (`169.254.0.0/16` incl. `169.254.169.254`, `fe80::/10`, the `100.100.100.200` alias and
+  literal `metadata*` hostnames), unspecified or multicast. Ordinary **private** VPC-endpoint IPs (`10.x`/`172.16.x`/
+  `192.168.x`) stay allowed, so PrivateLink keeps working. A hostname is best-effort resolved and blocked if any
+  address is blocked (validation-time only — a TOCTOU re-resolve is accepted for this admin-gated path).
 - **Proxy** (`assistant.proxy_mode`): `env` (default) — httpx `trust_env=True`: `HTTPS_PROXY` / `NO_PROXY` from the
   process environment (§ 13.9.1 `app.env`); `direct` — never use a proxy (VPC endpoint over Direct Connect);
   `custom` — `assistant.proxy_url` (`http://host:port`, no credentials in 3b). With `env` and a VPC endpoint, the
@@ -2961,7 +2987,8 @@ HTTP status; inside a stream from the `:exception-type` header. Mapping (codes a
 | `AccessDeniedException` whose message mentions model access | `bedrock_model_access` | no | "This model is not enabled for your AWS account in <region> (Bedrock → Model access)." |
 | other `AccessDeniedException` | `bedrock_access_denied` | no | "AWS denied access: the role/user lacks bedrock:InvokeModel… on this model or profile." |
 | `ResourceNotFoundException`, `ValidationException` "model identifier is invalid", "on-demand throughput isn't supported" | `bedrock_model_invalid` | no | "The model ID is not valid in <region>. Use an inference profile ID (e.g. eu.anthropic…)." |
-| `UnrecognizedClientException`, `InvalidSignatureException`, `ExpiredTokenException`, `IncompleteSignature` | `aws_auth_failed` | one retry after a forced credentials refresh | "AWS rejected the credentials." |
+| `UnrecognizedClientException`, `InvalidSignatureException`, `IncompleteSignature` | `aws_auth_failed` | one retry after a forced credentials refresh | "AWS rejected the credentials." |
+| `ExpiredTokenException`, `ExpiredToken` | `aws_token_expired` | one retry after a forced credentials refresh | "AWS rejected the credentials: the session token has expired. …" (paste fresh temporary credentials) |
 | `InvalidSignatureException` / `SignatureDoesNotMatch` mentioning "Signature expired" / time | `aws_clock_skew` | no | "The server clock differs from AWS time by more than 5 minutes (NTP)." |
 | Roles Anywhere `CreateSession` 4xx (`AccessDeniedException` "Untrusted certificate", "Unable to assume role"…) | `rolesanywhere_failed` | no | the AWS message + hint (trust anchor, profile, role trust policy, CRL) |
 | `ModelTimeoutException`, `ModelErrorException`, `ModelNotReadyException`, `ServiceUnavailableException`, `InternalServerException`, `modelStreamErrorException` | `bedrock_unavailable` | 1 retry after 2 s, only before any text was streamed | "Amazon Bedrock could not answer right now." |
@@ -3229,9 +3256,14 @@ inputs alike):
 2. **Secret patterns** (always): lines/values matching `password|passwd|secret|community|psk|pre-shared|key
    (string|chain)|auth-key|priv-key|private-key|token|bearer` followed by a value → value replaced by
    `<secret removed>`; PEM blocks → `<pem removed>`; `$1$`/`$5$`/`$6$`/`$9$`/Cisco type 7/8/9 hashes →
-   `<hash removed>`. Vectors in data-model. Configs are already masked by the drivers (§ 13.2.5); this is a second
-   net, also for syslog/trap text.
-3. **Optional internal-IP redaction** (`assistant.redact_internal_ips`, default **false**): IPv4/IPv6 addresses in
+   `<hash removed>`. `[3b]` In addition to the keyword rules, pattern-based detection runs as defence in depth for
+   non-keyworded secrets: AWS access-key ids (`AKIA…`/`ASIA…`) and high-entropy base64 blobs (≥ 40 chars, mixed
+   case + a digit) → `<secret removed>`; PEM blocks are already covered. Deliberately conservative — ordinary words,
+   IPs, hostnames, OIDs, MACs, UUIDs and long single-case hex (fingerprints/sha sums) are left intact. Vectors in
+   data-model. Configs are already masked by the drivers (§ 13.2.5); this is a second net, also for syslog/trap text.
+3. **Optional internal-IP redaction** (`assistant.redact_internal_ips`, default **true** `[3b]` — changed from
+   false; existing installs that never set the key start masking internal IPs on upgrade, an admin may turn it
+   off): IPv4/IPv6 addresses in
    RFC 1918, 100.64/10, 169.254/16, 127/8, fc00::/7, fe80::/10 and the admin's extra `internal_cidrs` are replaced
    by stable per-conversation placeholders `IP-1`, `IP-2`, … (map stored in the conversation, never sent);
    placeholders in the model's tool arguments are translated back before the tool runs, and in answers before they
@@ -3439,6 +3471,17 @@ Unless stated otherwise the model is `model_id`; "light" = `model_id_light` when
 - **Validation (no DB write):** the draft is validated with the same pydantic model and the same reference checks
   (ids exist, channels exist, event-rule match syntax/regex compile via the 2b-3 validators); errors are returned
   with the draft (`validation.errors`); one automatic repair round sends the errors back to the model.
+- **Cannot draft:** the forced tool also accepts `cannot_draft: true` + `reason`; the prompt tells the model to use it
+  when the text does not describe a condition/event to match or cannot be expressed with the supported fields
+  (never `<UNKNOWN>` placeholders). A deterministic backstop treats an empty / placeholder draft (a `<UNKNOWN>`-style
+  value, a placeholder name, no statuses, no match criteria on a global event rule) the same way with a generic
+  reason. The API answers 200 with `draft: null` and `cannot_draft: {reason, source}`; the SPA shows the reason and an
+  example of a good description instead of opening the form.
+- **Language:** detected from the description like the chat (§ 14.3.5; no letters → the UI language) and appended
+  to the description as the answer instruction; name, explanation, assumptions and reason are written in it, technical
+  values stay as they are. The event-rule prompt carries the exact match shape (the pattern is `text`, `text_regex`
+  is a boolean; no count/time-window thresholds) and a short vendor syslog reference (data), e.g. Comware SSH
+  failures = program `SSHS`.
 - **Admin review:** the SPA opens the **normal form** prefilled, with a banner "Draft by the assistant — review
   every field before saving" and the explanation/assumptions; for event rules the existing *Test against the last
   24 h* button is highlighted. Saving uses the normal `POST /api/alert-rules` / `POST /api/event-rules` (audited as
@@ -3466,6 +3509,9 @@ Unless stated otherwise the model is `model_id`; "light" = `model_id_light` when
   confidence_per_sensor[]}`. Server validation with the **existing template validator** (`templates.library`, pure);
   errors → up to 2 repair rounds; the final result returns `{yaml, valid, errors[], warnings[]}` — invalid drafts are
   still shown (with errors) for manual fixing; every OID used must appear in the walk (unknown → warning).
+  `propose_template` also accepts `cannot_draft` + `reason` (notes that are not about a template, nothing
+  device-specific in the walk); empty / `<UNKNOWN>` YAML is treated the same (generic reason) — 200 with `yaml: ""`
+  and `cannot_draft`. Notes and reason follow the language of the admin's notes (else the UI language).
 - **Admin review and save:** an editor (monospace, `dir="ltr"`) with the YAML, validation result and *Validate*;
   *Save as user template* calls the **new normal endpoint** `POST /api/device-templates/user` (admin, always
   available, independent of the AI: writes `${NETMON_DATA_DIR}/templates/<vendor>/<id>.yaml` after validation,
@@ -3696,7 +3742,7 @@ caching fallback, test endpoint steps + `test_id` rules (wrong user, changed fie
 `audit`, feature gates (syslog OFF → `search_syslog` not offered, endpoint 409s), all 10 AI features (inputs exactly
 as specified in the mock log; alert-note timing: the notification is sent before the model call starts — asserted
 with timestamps of the Telegram mock; note timeout → skip; Telegram edit/reply fallback; Teams follow-up; email
-reply headers), conversation retention, migration `0008` up/down on Timescale and fallback.
+reply headers), conversation retention, migration `0010` up/down on Timescale and fallback.
 
 **Injection corpus** (`tests/sim/bedrock/injection/`): syslog lines, `sysDescr`, `ifAlias`, LLDP names, config
 descriptions and KB passages containing "ignore previous instructions", fake `nm:` refs, Markdown images with
@@ -3777,6 +3823,109 @@ rendered answer has no `<img>`, no external `href`, forged refs rendered as text
 | Q4 | Redact internal IP addresses? | As proposed: off in the app, on for Telegram `/ask`. |
 | Q5 | Roles Anywhere certificate? | Roles Anywhere is the recommended method: certificate uploaded in the UI (encrypted), trust anchor Mnidom-PKI-SERV-CA; plus a **Generate CSR** action (key kept on the server). Static access key = simple alternative; default chain for future AWS hosting. |
 | Q6 | Knowledge Base now? | Implemented, OFF by default. |
+
+## 14. Release 1.3: sensor impact, important ports, interface selection, connected hosts, LAG degraded, IRF
+
+Requests of the owner's network team after 1.2.0 in production (FF 5945 IRF, ArubaOS-Switch, Aruba CX). Owner
+decision: core-behaviour improvements, **no feature toggle**. Contract: [api.md § 1.3](api.md#13-release-13-contract),
+[data-model.md § 1.3](data-model.md#13-release-13-additions). Migration `0008`.
+
+### 14.1 Sensor impact ("the switch is red only for critical problems") [1.3]
+- `sensors.impact`: `critical` (as before), `warning` (a problem shows at most as warning on the device), `none`
+  (never a device problem). Applied in exactly one place — `Inventory.compute` (`services/status.py`) — so the
+  API device/group status, tree, dashboard and kiosk counters and the live `device.status` / `group.status`
+  rollup all agree. Sensor status, events, alerts, notifications, maintenance and acknowledge are unchanged.
+- Editing: sensor PATCH and the new `POST /api/sensors/bulk-impact` (audited). Changes trigger the normal
+  rollup broadcast.
+- Upgrade: a one-time startup task (`services/impact.backfill`, guarded by `impact_backfill_version`, like
+  the 1.2.1 trap-name backfill) lowers interface sensors on unimportant ports to `warning`.
+
+### 14.2 One "important port" definition [1.3]
+`netmon/ports/importance.py` (pure core + loader): uplink OR LAG / member OR trunk (≥ `trunk_min_tagged_vlans`
+tagged VLANs, default 2, so access ports with one tagged voice VLAN are not trunks). Reasons are exposed per
+port. Consumers: ports API, template apply and its dialog list, interface-sensor impact (new sensors and
+backfill), ingest `PortInfo` (link-down / flapping scope; trunks only while `event_linkdown_include_trunks`,
+plus ports with a **critical** interface sensor — the 1.2 rule "any interface sensor makes a port important"
+became "a critical one", otherwise the backfill would have made every sensored port important). The ingest
+cache of a device is dropped after each successful port inventory run and on a settings change.
+
+### 14.3 Template apply: interface selection [1.3]
+`interfaces = "important" | "none" | "all" | ifIndex[]` and `remove_unselected_interfaces`
+(`templates/selection.py`, `templates/apply.py`). "important" without inventory runs one bounded port inventory
+(≈ 20 s); if there is still none, switches get only their LAG interfaces, other devices keep the 1.2
+selection (importance is a switch-port notion; a server's or firewall's interfaces must not disappear). The
+dialog list endpoint applies the same rules. A switch whose inventory cannot run yet (no SNMP sensor, e.g. just
+imported by discovery) is applied in two steps: the other entries, then the bounded inventory run, then the
+interfaces. Discovery import uses "important" this way (≈ 20 s more per imported switch, bounded).
+
+### 14.4 Connected hosts and CSV [1.3]
+Port rows gain `connected {count, first}` (the same MAC/ARP/DNS/OUI data and first-MAC choice as the port modal)
+and the primary LLDP/CDP neighbour's `neighbor_name` / `neighbor_mgmt_address`. `GET /ports.csv` exports one row
+per port × MAC (UTF-8 BOM for Excel / Hebrew, formula guard as the audit export).
+
+### 14.5 Trunk and LAG alerts [1.3]
+- With `event_linkdown_include_trunks` (default on), trunk ports are important: linkDown / linkUp traps on them
+  raise / clear the built-in Link-down condition.
+- **LAG degraded** (`ingest/lag_monitor.py`): part of the built-in link-down behaviour (needs `event_alerts` ON
+  and the built-in Link-down rule enabled / in scope; no toggle of its own). A member linkDown / linkUp (from
+  the stored LAG membership) re-evaluates its LAG in the background (serialised, trap order kept); after every
+  successful port inventory run the device's LAGs are reconciled from fresh ifOperStatus and the trap overrides
+  are reset. 0 < up < n → condition `lag_degraded` (warning, "LAG BAGG1 degraded (1 of 2 members up)") on the
+  device's `trap` sensor; all up or all down → removed (fully down stays the existing link-down alert). It goes
+  through the normal condition / status path, so maintenance, acknowledge, escalation and recovery behave as
+  for every other condition; it expires like the Link-down rule (24 h after the last refresh).
+
+### 14.6 IRF sensors (Comware) [1.3]
+`hpe_comware` v4 adds four HH3C-STACK-MIB entries (member count with the count at apply time as `down_min`,
+per-member role, per-IRF-port status, "IRF links up" count), created only when hh3cStackMemberNum ≥ 2. Two
+generic template options were added for this: `expect_from_probe` (a threshold from the probe value at apply
+time) and `when` on `snmp_table` entries. All four are `confidence: low` / `verified: false`.
+**[1.3.1]** Verified on the owner's HPE 5510-HI IRF stack (4 members, ring): `confidence: high`. The role rows
+are labelled by hh3cStackBoardBelongtoMember (`IRF role · Unit 1`; entPhysicalName is "Board" on every member),
+and re-applying renames the 1.3.0 "IRF role Board · Unit n" sensors (`rename_from`).
+
+### 14.6a IRF physical ports are important [1.3.1]
+The port inventory run reads hh3cStackPhyPortInfoBelongtoPort (one walk; empty on non-Comware devices) and maps
+the entities to ifIndexes via entAliasMappingTable, else entPhysicalName = ifName. `switch_ports.irf_port`
+(1/2) makes the port important with reason `irf`: new interface sensors on it default to `critical`, it is in
+the `important` link-down scope and selected by "important ports" on template apply. Existing interface
+sensors keep their impact (the stored impact does not say whether a user chose it); set them with bulk impact.
+A failed walk keeps the previous values (`sources.irf = error`).
+
+### 14.6b Named value maps [1.3.1]
+Enum value texts can come from a shared code table (`value_map_ref`, `netmon/poller/value_maps.py`) with
+en/he texts: the check writes the message in the server language, the UI shows the viewer's language. The
+Comware fan/PSU entry uses `hh3c_error_status` (51 → "Power supply fault (psuError, 51)" / "ספק כוח תקול
+(psuError, 51)" instead of "unexpected value (51)"); migration 0009 moves unedited sensors to it.
+
+### 14.6c Settings search [1.3.1]
+A search box at the top of the Settings page searches every tab without rendering it: a declarative index
+(`frontend/src/lib/settingsIndex.ts`: cards with tab, title key, feature and fields with label/hint keys) is
+matched case-insensitively in the UI language and, in Hebrew, also in English ("trunk", "SNMP", "LDAP").
+A result shows label and tab › card; click or Enter switches the tab, scrolls to the card or field
+(`data-anchor`) and outlines it briefly; Esc clears. A setting whose feature is off is marked "requires …" and
+leads to that feature's switch (`data-feature`). Not feature-flagged (improvement of an existing page); a
+vitest test keeps the index keys, tabs and anchors in sync with the locales and components.
+**[3b]** The Assistant (AI) tab is indexed too: the configure-first cards (Bedrock connection incl. main and light
+model, chat models, data sharing, limits & cost, conversations, capabilities, Knowledge Base) are always shown; the
+per-feature settings of correlation, alert notes, config-diff, syslog digest and Telegram /ask carry their AI
+feature and lead to its Capabilities switch while it is off. "Bedrock", "AI", "assistant" / "עוזר" find them.
+
+### 14.7 Owner notes and verification [1.3]
+- **IRF verification** ([1.3.1] done on an HPE 5510-HI stack)**:** run `deploy/tools/irf_dump.py <FF 5945 IP>` in the app container (read-only; uses the
+  device's stored SNMP credentials, prints no secrets) and send the output: it prints hh3cStackMemberNum, the
+  device-config, board-role and IRF-port tables with entPhysicalName, which is what the IRF entries read.
+- After the upgrade, interface sensors on access ports show `warning` impact (the switch turns yellow, not red,
+  when a PC port goes down). Change single sensors in the sensor form or many at once with bulk impact.
+- Re-apply the Comware / ArubaOS / CX templates with "Choose ports" to add sensors for uplinks, trunks and LAGs
+  and (optionally) remove the access-port sensors.
+
+### 14.8 QA and tests [1.3]
+`tests/test_13_units.py` (impact table, rollup, importance reasons, LAG states, template options, request
+validation), `tests/test_13.py` (impact API / rollup / bulk / backfill, ports importance / connected / CSV,
+settings, PortInfo, link-down on trunks and LAG degraded with real traps, migration 0008 up/down/up in both
+modes), `tests/test_13_apply.py` (snmpsim: apply selection important / list / all / none with removal, no
+inventory for a server and a switch, Comware IRF entries on a 2-member stack and a single switch).
 
 ## 15. Phase 4: AWS cloud view and VPC Flow Logs, high availability, monitoring depth, on-call, S3 backups, traffic capture
 

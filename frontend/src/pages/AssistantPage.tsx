@@ -16,12 +16,21 @@ import {
   Input,
   Loading,
   PageHeader,
+  Select,
   Textarea,
 } from '../components/ui';
+import { useAuth } from '../hooks/auth';
 import { FeatureOffNotice, useFeatures } from '../hooks/features';
 import { useLiveMessages } from '../hooks/live';
 import { useAnswerStream } from '../hooks/useAnswerStream';
-import { remainingQuestions, visibleExamples } from '../lib/assistant';
+import {
+  chatModelOptions,
+  pickChatModel,
+  readChatModel,
+  rememberChatModel,
+  remainingQuestions,
+  visibleExamples,
+} from '../lib/assistant';
 import { formatRelative } from '../lib/format';
 
 const MAX_Q = 2000;
@@ -211,7 +220,13 @@ export function AssistantPage() {
   const navigate = useNavigate();
   const qc = useQueryClient();
   const status = useAssistantStatus();
+  const { user } = useAuth();
   const [question, setQuestion] = useState('');
+  // [3b owner] model choice: remembered per user (localStorage), default = the main model
+  const [chosenModel, setChosenModel] = useState<string | null>(() => readChatModel(user?.id));
+  useEffect(() => {
+    setChosenModel(readChatModel(user?.id));
+  }, [user?.id]);
   const [pending, setPending] = useState<string | null>(null);
   const lastQuestion = useRef('');
   const bottom = useRef<HTMLDivElement>(null);
@@ -272,13 +287,15 @@ export function AssistantPage() {
   if (!loaded) return <Loading />;
   if (!features.assistant) return <FeatureOffNotice feature="assistant" />;
 
+  const modelOptions = chatModelOptions(status.data?.chat_models ?? []);
+  const model = pickChatModel(modelOptions, chosenModel, status.data?.default_model_id);
   const send = (text: string) => {
     const q = text.trim();
     if (!q || q.length > MAX_Q || stream.running) return;
     lastQuestion.current = q;
     setPending(q);
     setQuestion('');
-    void stream.ask(conversationId, q);
+    void stream.ask(conversationId, q, model);
   };
   const submit = (e: FormEvent) => {
     e.preventDefault();
@@ -392,6 +409,28 @@ export function AssistantPage() {
               )}
               <span className="hidden sm:inline">{t('assistant.enterHint')}</span>
               <span className="flex-1" />
+              {model && (
+                <label className="inline-flex items-center gap-1">
+                  <span>{t('assistant.model')}</span>
+                  <Select
+                    value={model}
+                    onChange={(e) => {
+                      setChosenModel(e.target.value);
+                      rememberChatModel(user?.id, e.target.value);
+                    }}
+                    disabled={stream.running || modelOptions.length < 2}
+                    className="w-auto max-w-[14rem] py-1 text-xs"
+                    data-testid="chat-model"
+                    title={model}
+                  >
+                    {modelOptions.map((m) => (
+                      <option key={m.id} value={m.id} title={m.id}>
+                        {m.name}
+                      </option>
+                    ))}
+                  </Select>
+                </label>
+              )}
               {stream.running ? (
                 <Button size="sm" onClick={() => void stream.stop()}>
                   {t('assistant.stop')}

@@ -4,6 +4,8 @@ import { useTranslation } from 'react-i18next';
 import type { Port } from '../../api/types';
 import { formatDateTime, formatRelative } from '../../lib/format';
 import {
+  COLUMN_HIDE_CLASS,
+  connectedHostView,
   connectedView,
   errorsDelta,
   filterPorts,
@@ -82,6 +84,76 @@ function ColumnChooser({
   );
 }
 
+/** [1.3] Name/neighbour cell: LLDP neighbour, else the first connected host (+N more). */
+function ConnNameCell({ p, showIp }: { p: Port; showIp: boolean }) {
+  const { t } = useTranslation();
+  const v = connectedHostView(p);
+  const link = (id: number, text: string) => (
+    <Link
+      to={`/devices/${id}`}
+      onClick={(e) => e.stopPropagation()}
+      className="text-sky-700 hover:underline dark:text-sky-400"
+    >
+      <bdi dir="auto">{text}</bdi>
+    </Link>
+  );
+  // On narrow screens the IP column is hidden: show the IP under the name instead.
+  const ipLine = (ip: string | null) =>
+    ip ? (
+      <div className={cx('text-xs text-slate-500', showIp && 'sm:hidden')}>
+        <bdi dir="ltr">{ip}</bdi>
+      </div>
+    ) : null;
+  if (v.kind === 'neighbor')
+    return (
+      <div className="max-w-[16rem]" data-testid="port-conn-name">
+        <span className="inline-flex items-center gap-1">
+          <span
+            className="rounded bg-slate-100 px-1 text-[10px] font-semibold text-slate-600 dark:bg-slate-800 dark:text-slate-300"
+            title={t('ports.conn.neighborTitle')}
+          >
+            {t('ports.conn.neighbor')}
+          </span>
+          {v.device_id ? link(v.device_id, v.name) : <bdi dir="auto">{v.name}</bdi>}
+        </span>
+        {ipLine(v.ip)}
+      </div>
+    );
+  if (v.kind === 'uplink')
+    return <span className="text-slate-500">{t('ports.macCount', { count: v.count })}</span>;
+  if (v.kind === 'none') return <span className="text-slate-400">—</span>;
+  const label = v.device_id ? (
+    link(v.device_id, v.device_name ?? v.hostname ?? v.ip ?? v.mac)
+  ) : v.hostname ? (
+    <bdi dir="ltr">{v.hostname}</bdi>
+  ) : v.vendor ? (
+    <bdi dir="auto" className="text-slate-500">
+      {v.vendor}
+    </bdi>
+  ) : (
+    <bdi dir="ltr" className="font-mono text-xs">
+      {v.mac}
+    </bdi>
+  );
+  return (
+    <div className="max-w-[16rem]" data-testid="port-conn-name">
+      <span className="inline-flex min-w-0 items-center gap-1">
+        <span className="truncate">{label}</span>
+        {v.more > 0 && (
+          <span
+            className="shrink-0 rounded bg-slate-100 px-1 text-[10px] font-semibold text-slate-600 dark:bg-slate-800 dark:text-slate-300"
+            title={t('ports.conn.moreTitle', { count: v.more })}
+            data-testid="port-conn-more"
+          >
+            +{v.more}
+          </span>
+        )}
+      </span>
+      {ipLine(v.ip)}
+    </div>
+  );
+}
+
 export function PortList({
   ports,
   selected,
@@ -154,6 +226,19 @@ export function PortList({
           );
         return <span className="text-slate-400">—</span>;
       }
+      case 'connIp': {
+        const v = connectedHostView(p);
+        const ip = v.kind === 'neighbor' || v.kind === 'host' ? v.ip : null;
+        return ip ? (
+          <bdi dir="ltr" data-testid="port-conn-ip">
+            {ip}
+          </bdi>
+        ) : (
+          <span className="text-slate-400">—</span>
+        );
+      }
+      case 'connName':
+        return <ConnNameCell p={p} showIp={columns.includes('connIp')} />;
       case 'vlan':
         return (
           <span>
@@ -247,7 +332,7 @@ export function PortList({
               <tr>
                 <th className={cx(thBase, stickyCell, 'z-20')}>{t('ports.col.port')}</th>
                 {columns.map((c) => (
-                  <th key={c} className={thBase}>
+                  <th key={c} className={cx(thBase, COLUMN_HIDE_CLASS[c])}>
                     {t(`ports.col.${c}`)}
                   </th>
                 ))}
@@ -320,7 +405,7 @@ export function PortList({
                       )}
                     </td>
                     {columns.map((c) => (
-                      <td key={c} className={cx(tdBase, 'tabular-nums')}>
+                      <td key={c} className={cx(tdBase, 'tabular-nums', COLUMN_HIDE_CLASS[c])}>
                         {cell(p, c)}
                       </td>
                     ))}

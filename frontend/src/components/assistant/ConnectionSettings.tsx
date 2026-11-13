@@ -25,6 +25,7 @@ import {
   type ConnForm,
 } from '../../lib/assistant';
 import { formatDateTime } from '../../lib/format';
+import { cardAnchor } from '../../lib/settingsIndex';
 import { Toggle } from '../features/common';
 import { CheckIcon, CopyIcon, XIcon } from '../icons';
 import { SecretField } from '../SnmpEditor';
@@ -64,6 +65,7 @@ const ERR_KEYS: Record<string, string> = {
   arn: 'assistant.settings.err.arn',
   session: 'assistant.settings.err.session',
   accessKey: 'assistant.settings.err.accessKey',
+  sessionToken: 'assistant.settings.err.sessionToken',
 };
 
 function Hint({ err, hint }: { err?: string; hint?: string }) {
@@ -418,6 +420,15 @@ function TestResultView({ r }: { r: AssistantTestResult }) {
             <span dir="auto" className="basis-full ps-5 text-slate-600 dark:text-slate-400">
               {s.error_code ? errText({ code: s.error_code, message: s.detail }) : s.detail}
             </span>
+            {s.error_code && s.detail && (
+              <bdi
+                dir="ltr"
+                className="basis-full ps-5 font-mono text-[11px] text-slate-500"
+                data-testid="test-step-raw"
+              >
+                {s.detail}
+              </bdi>
+            )}
           </li>
         ))}
       </ul>
@@ -454,6 +465,68 @@ function TestResultView({ r }: { r: AssistantTestResult }) {
 }
 
 /**
+ * Optional session token of temporary credentials (ASIA… keys, e.g. IAM Identity Center): write-only
+ * like the secret — the stored value is never shown; type a new one to replace it, or clear it.
+ */
+function SessionTokenField({
+  value,
+  isSet,
+  clear,
+  err,
+  onValue,
+  onClear,
+}: {
+  value: string;
+  isSet: boolean;
+  clear: boolean;
+  err?: string;
+  onValue: (v: string) => void;
+  onClear: (v: boolean) => void;
+}) {
+  const { t } = useTranslation();
+  return (
+    <div data-testid="session-token-field" data-set={isSet}>
+      <Field
+        label={t('assistant.settings.sessionToken')}
+        hint={
+          <Hint
+            err={err}
+            hint={
+              isSet
+                ? t('assistant.settings.sessionTokenStored')
+                : t('assistant.settings.sessionTokenHint')
+            }
+          />
+        }
+      >
+        <Textarea
+          value={value}
+          rows={3}
+          disabled={clear}
+          placeholder={isSet ? t('secret.stored') : ''}
+          onChange={(e) => onValue(e.target.value)}
+          dir="ltr"
+          autoComplete="off"
+          spellCheck={false}
+          className="font-mono text-[11px]"
+          aria-invalid={!!err}
+          data-testid="session-token"
+        />
+      </Field>
+      {isSet && (
+        <span className="mt-1 block">
+          <Checkbox
+            label={t('assistant.settings.sessionTokenClear')}
+            checked={clear}
+            onChange={onClear}
+          />
+        </span>
+      )}
+    </div>
+  );
+}
+
+/**
  * [3b] Settings → Assistant → Connection (configure-first, § 14.2.6): the form is always shown;
  * Test connection + the enable switch at the bottom; the switch is locked until a test of the
  * current form values succeeded in this page session (any connection edit locks it again).
@@ -482,6 +555,7 @@ export function ConnectionSettings({ s, auditOn }: { s: AssistantSettings; audit
     s.prompt_caching,
     s.access_key_id,
     s.secret_access_key_set,
+    s.session_token_set,
     s.access_key_created_at,
     s.ra_region,
     s.ra_endpoint_url,
@@ -548,6 +622,7 @@ export function ConnectionSettings({ s, auditOn }: { s: AssistantSettings; audit
   return (
     <Card
       title={t('assistant.settings.connection')}
+      anchor={cardAnchor('assistantConnection')}
       actions={<AssistantStateBadge state={s.state} />}
     >
       <form onSubmit={submit} className="space-y-4" data-testid="assistant-connection">
@@ -732,6 +807,19 @@ export function ConnectionSettings({ s, auditOn }: { s: AssistantSettings; audit
             </div>
             {s.secret_access_key_unreadable && (
               <p className="text-xs text-red-600">{t('assistant.settings.secretUnreadable')}</p>
+            )}
+            <SessionTokenField
+              value={f.session_token}
+              isSet={!!s.session_token_set}
+              clear={f.clear_session_token}
+              err={errs.session_token}
+              onValue={(v) => set('session_token', v)}
+              onClear={(v) => set('clear_session_token', v)}
+            />
+            {s.session_token_unreadable && (
+              <p className="text-xs text-red-600" data-testid="session-token-unreadable">
+                {t('assistant.settings.sessionTokenUnreadable')}
+              </p>
             )}
           </div>
         )}
@@ -922,7 +1010,11 @@ export function ConnectionSettings({ s, auditOn }: { s: AssistantSettings; audit
           )}
           <ErrorBox error={test.error} />
           {testResult && <TestResultView r={testResult} />}
-          <div className="flex flex-wrap items-center gap-2" data-testid="assistant-switch">
+          <div
+            className="flex flex-wrap items-center gap-2"
+            data-testid="assistant-switch"
+            data-feature="assistant"
+          >
             <Toggle
               checked={s.enabled}
               onChange={(v) => toggle.mutate(v)}

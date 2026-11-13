@@ -79,6 +79,7 @@ SENSOR_KEYS = {
     "updated_at",
     "acknowledgement",
     "in_maintenance",
+    "impact",  # [1.3]
 }
 
 
@@ -437,6 +438,7 @@ async def test_tree(admin: httpx.AsyncClient) -> None:
         "primary_unit": "ms",
         "last_check_at": None,
         "acknowledged": False,
+        "impact": "critical",  # [1.3]
     }
 
 

@@ -75,7 +75,8 @@ _LANG_NAMES = {"en": "English", "he": "Hebrew"}
 
 
 def title_system(language: str) -> str:
-    name = _LANG_NAMES.get(language, "English")
+    # owner rule: audit titles are English only (the conversation title keeps the user's language)
+    name = "English"
     return (
         "[purpose: title]\n"
         "Task: write a short, neutral topic title (at most 6 words) for the network-monitoring "
@@ -170,6 +171,9 @@ class AgentOptions:
     audit_extra: dict[str, Any] = field(default_factory=dict)
     light: bool = False
     language: str | None = None  # force the answer language
+    # [3b owner] model chosen in the chat composer (validated against `chat_models` by the
+    # API); None = the main model (or the light one with `light`). Titles stay on the light model.
+    model_id: str | None = None
 
 
 @dataclass
@@ -774,7 +778,18 @@ class _Loop:
             )
         return {"role": "user", "content": content}
 
+    def _current_model(self) -> str | None:
+        """The model / inference profile of this run's calls (usage per model)."""
+        if self.model_id:
+            return self.model_id
+        if self.opts.model_id:
+            return self.opts.model_id
+        with contextlib.suppress(Exception):
+            return str(self.client.model_for(None, self.opts.light))
+        return None
+
     async def _record_usage(self, usage: dict[str, int], **kw: Any) -> None:
+        kw.setdefault("model_id", self._current_model())
         cost = await _usage_record(self.rt, self.user.id, self.opts.purpose, usage, **kw)
         if cost is not None and any(usage.values()):
             self.totals.cost = (self.totals.cost or 0.0) + cost
@@ -966,7 +981,9 @@ class _Loop:
         parts: list[str] = []
         self.partial = parts
         self.totals.model_calls += 1
-        stream = self.client.converse_stream(req, light=self.opts.light)
+        stream = self.client.converse_stream(
+            req, model_id=self.opts.model_id, light=self.opts.light
+        )
         self.run.http_streams.add(stream)
         received = False
         cancelled = False
@@ -1022,7 +1039,7 @@ class _Loop:
                 await asyncio.shield(self._record_usage(u, model_calls=1))
         if self.model_id is None:
             with contextlib.suppress(Exception):
-                self.model_id = self.client.model_for(None, self.opts.light)
+                self.model_id = self.client.model_for(self.opts.model_id, self.opts.light)
         return asm, "".join(parts)
 
     async def _run_tools(
@@ -1289,7 +1306,7 @@ class _Loop:
                     session,
                     self.opts.audit_ctx,
                     "assistant.answer",
-                    audit.entity("assistant_message", run.message_id),
+                    audit.entity("assistant_message", run.message_id, audit_title),
                     {
                         "message_id": run.message_id,
                         "conversation_id": run.conversation_id,

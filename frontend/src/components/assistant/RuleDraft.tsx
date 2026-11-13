@@ -2,10 +2,10 @@ import { useState } from 'react';
 import { useMutation } from '@tanstack/react-query';
 import { useTranslation } from 'react-i18next';
 import { endpoints3b } from '../../api/endpoints3b';
-import type { RuleDraft, RuleDraftKind } from '../../api/types';
+import type { CannotDraft, RuleDraft, RuleDraftKind } from '../../api/types';
 import { SparkIcon } from '../icons';
 import { Button, ErrorBox, Textarea } from '../ui';
-import { AiBadge, useAiFeature } from './common';
+import { AiBadge, CannotDraftNotice, useAiFeature } from './common';
 
 /**
  * [3b] "Describe the rule…" + Draft (§ 14.8.6) at the top of a NEW rule form. The draft only
@@ -22,9 +22,16 @@ export function RuleDraftBox({
   const on = useAiFeature('ai_rule_drafts');
   const [open, setOpen] = useState(false);
   const [text, setText] = useState('');
+  const [cannot, setCannot] = useState<CannotDraft | null>(null);
   const m = useMutation({
     mutationFn: () => endpoints3b.ruleDraft(kind, text.trim()),
+    onMutate: () => setCannot(null),
     onSuccess: (d) => {
+      // no draft possible: keep the box open with the reason, never prefill the form
+      if (d.cannot_draft || !d.draft) {
+        setCannot(d.cannot_draft ?? { reason: '', source: 'placeholder' });
+        return;
+      }
       onDraft(d);
       setOpen(false);
     },
@@ -54,7 +61,10 @@ export function RuleDraftBox({
           placeholder={
             kind === 'alert_rule' ? t('draft.alertPlaceholder') : t('draft.eventPlaceholder')
           }
-          onChange={(e) => setText(e.target.value)}
+          onChange={(e) => {
+            setText(e.target.value);
+            setCannot(null);
+          }}
           className="mt-1"
           data-testid="describe-text"
         />
@@ -75,6 +85,16 @@ export function RuleDraftBox({
         </Button>
         {m.isPending && <span className="text-xs text-slate-500">{t('draft.working')}</span>}
       </div>
+      {cannot && (
+        <CannotDraftNotice
+          title={t('draft.cannotTitle')}
+          reason={cannot.reason}
+          hint={t('draft.cannotHint')}
+          example={
+            kind === 'alert_rule' ? t('draft.cannotExampleAlert') : t('draft.cannotExampleEvent')
+          }
+        />
+      )}
       <ErrorBox error={m.error} />
     </div>
   );

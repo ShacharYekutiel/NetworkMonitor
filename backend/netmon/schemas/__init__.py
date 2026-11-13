@@ -28,6 +28,7 @@ Role = Literal["admin", "viewer"]
 Language = Literal["en", "he"]
 StatusLit = Literal["up", "warning", "down", "paused", "unknown", "unreachable"]
 InventoryMode = Literal["auto", "on", "off"]  # [2b-2]
+Impact = Literal["critical", "warning", "none"]  # [1.3]
 
 
 class _In(BaseModel):
@@ -294,6 +295,8 @@ class SensorCreate(_In):
     enabled: bool = True
     sort_order: int = 0
     channels: list[dict[str, Any]] | None = None
+    # [1.3] null/absent: snmp_interface by port importance, every other type critical
+    impact: Impact | None = None
 
 
 class SensorPatch(_In):
@@ -304,6 +307,14 @@ class SensorPatch(_In):
     enabled: bool | None = None
     sort_order: int | None = None
     channels: list[dict[str, Any]] | None = None
+    impact: Impact | None = None  # [1.3]
+
+
+class BulkImpactIn(_In):
+    """[1.3] POST /api/sensors/bulk-impact"""
+
+    sensor_ids: list[int] = Field(min_length=1, max_length=1000)
+    impact: Impact
 
 
 class SensorTestIn(_In):
@@ -771,3 +782,17 @@ class ImportRequest(_In):
 
 class ApplyTemplateRequest(_In):
     template_id: str
+    # [1.3] which interfaces get snmp_interface sensors: "important" | "none" | "all" | ifIndexes
+    interfaces: Literal["important", "none", "all"] | list[int] = "important"
+    remove_unselected_interfaces: bool = False
+
+    @field_validator("interfaces")
+    @classmethod
+    def _ifaces(cls, v: Any) -> Any:
+        if isinstance(v, list):
+            if len(v) > 1000:
+                raise ValueError("at most 1000 ifIndexes")
+            if any(i < 1 or i > 2147483647 for i in v):
+                raise ValueError("ifIndexes must be 1-2147483647")
+            return sorted(set(v))
+        return v

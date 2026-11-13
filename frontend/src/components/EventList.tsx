@@ -5,12 +5,15 @@ import { formatDateTime, formatRelative } from '../lib/format';
 import { StatusBadge } from './Status';
 import { ChevronIcon, WrenchIcon } from './icons';
 import { StatusMessage } from './Dependency';
+import { useLocalizeMessage } from '../hooks/localize';
 import { Empty, Table, td, th } from './ui';
 import { ExplainButton } from './assistant/ExplainButton';
 
 export function EventKindLabel({ kind }: { kind: NmEvent['kind'] }) {
   const { t } = useTranslation();
-  return <span className="text-xs text-slate-500">{t(`eventKind.${kind}`)}</span>;
+  return (
+    <span className="text-xs text-slate-500">{t(`eventKind.${kind}`, { defaultValue: kind })}</span>
+  );
 }
 
 export function StatusTransition({ ev }: { ev: NmEvent }) {
@@ -36,6 +39,7 @@ export function EventsTable({
   showKind?: boolean;
 }) {
   const { t } = useTranslation();
+  const localize = useLocalizeMessage();
   if (!events.length) return <Empty>{t('events.none')}</Empty>;
   return (
     <Table>
@@ -80,7 +84,7 @@ export function EventsTable({
               {ev.device_id !== null && ev.new_status === 'unreachable' ? (
                 <StatusMessage message={ev.message} status="unreachable" deviceId={ev.device_id} />
               ) : (
-                ev.message
+                localize(ev.message)
               )}
               {/* [3b] Explain (AI) on problem transitions */}
               {ev.kind === 'status_change' &&

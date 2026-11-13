@@ -173,8 +173,19 @@ async def _import_one(
     rt.config_changed("device", device_id, "created")
     template = get_template(item["template_id"])
     assert template is not None
+    # [1.3] interface sensors on important ports only (a switch: after one bounded port
+    # inventory run, see templates.selection)
+    from netmon.templates.selection import REFRESH_WAIT_S
+
     result = await apply_template(
-        rt, device_id, template, lang, budget_s=apply_budget_s, broadcast=False
+        rt,
+        device_id,
+        template,
+        lang,
+        budget_s=apply_budget_s,
+        broadcast=False,
+        interfaces="important",
+        refresh_s=REFRESH_WAIT_S,
     )
     return "created", {
         "result_id": rid,

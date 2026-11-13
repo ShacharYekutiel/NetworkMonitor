@@ -536,7 +536,7 @@
     "backup_running": "גיבוי של ההתקן הזה כבר רץ.",
     "host_key_mismatch": "המפתח של ההתקן השתנה שוב מאז שהוצג. טענו מחדש ובדקו את טביעת האצבע החדשה.",
     "no_host_key_change": "המפתח של ההתקן לא השתנה; אין מה לאשר.",
-    "invalid_private_key": "לא ניתן לקרוא את המפתח הפרטי (פורמט, ביטוי סיסמה או סיסמה שגויים).",
+    "invalid_private_key": "לא ניתן לקרוא את המפתח הפרטי (תבנית או ססמת מפתח שגויה).",
     "ssh_error": "בדיקת SSH נכשלה",
     "invalid_keytab": "לא ניתן לקרוא את קובץ ה-keytab, או שהגרסה שלו אינה נתמכת.",
     "sso_failed": "הכניסה האחודה נכשלה.",
@@ -566,10 +566,12 @@
     "bedrock_quota": "מכסת Bedrock של חשבון ה-AWS שלך נוצלה עבור מודל זה.",
     "bedrock_model_access": "המודל אינו מופעל בחשבון ה-AWS שלך באזור זה (Bedrock ← Model access).",
     "bedrock_access_denied": "AWS דחה את הגישה: לתפקיד/למשתמש אין bedrock:InvokeModel על המודל או הפרופיל.",
-    "bedrock_model_invalid": "מזהה המודל אינו תקף באזור זה. השתמש במזהה פרופיל הסקה (למשל us.anthropic…).",
+    "bedrock_model_invalid": "מזהה המודל אינו תקף באזור זה. השתמשו במזהה פרופיל הסקה שהקידומת שלו מתאימה לאזור (us. לאזורי us-*, ‏eu. לאזורי eu-*, ‏apac. לאזורי ap-*).",
     "bedrock_unavailable": "Amazon Bedrock לא הצליח לענות כרגע.",
     "bedrock_validation": "Amazon Bedrock דחה את הבקשה.",
     "aws_auth_failed": "AWS דחה את ההרשאות.",
+    "aws_token_expired": "AWS דחה את ההרשאות: פג תוקפו של ה-session token. הרשאות זמניות (IAM Identity Center / SSO) תקפות רק כמה שעות — הדבק מזהה מפתח גישה, סוד ו-session token חדשים.",
+    "aws_session_token_required": "מזהה מפתח הגישה הוא מפתח זמני (ASIA…) ונדרש עבורו session token. הדבק גם את ה-session token, או השתמש במפתח של משתמש IAM ‏(AKIA…).",
     "aws_clock_skew": "שעון השרת שונה משעון AWS ביותר מ-5 דקות (בדוק NTP).",
     "rolesanywhere_failed": "IAM Roles Anywhere דחה את התעודה (בדוק עוגן אמון, פרופיל, מדיניות האמון של התפקיד ו-CRL).",
     "aws_network": "לא ניתן להגיע ל-AWS.",
@@ -677,7 +679,8 @@
       "match": "התאמה",
       "value_map": "מיפוי ערכים",
       "value_map_default": "מצב לערכים אחרים",
-      "percent_base": "בסיס האחוז"
+      "percent_base": "בסיס האחוז",
+      "value_map_ref": "טבלת קודים משותפת"
     },
     "snmp_disk": {
       "storage_descr": "אחסון (תיאור)",
@@ -748,6 +751,10 @@
       "percent_base": {
         "total": "המחלק הוא הסך הכולל",
         "sum": "המחלק הוא החלק האחר (סכום)"
+      },
+      "value_map_ref": {
+        "none": "ללא (מפת ערכים בלבד)",
+        "hh3c_error_status": "קודי תקלת חומרה של HPE Comware"
       }
     }
   },
@@ -1210,7 +1217,9 @@
       "text": "טקסט: עד 32 תווים.",
       "tooMany": "עד 32 ערכים.",
       "empty": "הוסיפו לפחות ערך אחד."
-    }
+    },
+    "mib": "שם ב-MIB",
+    "own": "ערך מותאם"
   },
   "topology": {
     "title": "מפת רשת",
@@ -1339,16 +1348,23 @@
     "member": "חבר {{n}}",
     "uplinkGroup": "פורטי Uplink / SFP",
     "legend": {
-      "empty": "ריק",
+      "empty": "ללא קישור",
       "connected": "מחובר",
-      "alert": "מחובר, התראה",
-      "emptyAlert": "ריק, התראה",
+      "alert": "מחובר, בהתראה",
+      "emptyAlert": "ללא קישור, בהתראה",
       "disabled": "מושבת",
       "client": "לקוח",
       "ap": "נקודת גישה",
       "switch": "מתג / Uplink",
       "trunk": "Trunk",
       "macCount": "כתובות MAC שנלמדו (Uplink)"
+    },
+    "legendHint": {
+      "empty": "אין כבל, או שהמכשיר בצד השני כבוי.",
+      "connected": "יש קישור, ללא בעיות.",
+      "alert": "יש קישור, אבל יש בעיה: חיישן הממשק של הפורט למטה או באזהרה, נספרו שגיאות מאז הקריאה הקודמת, או תקלת PoE.",
+      "emptyAlert": "אין קישור, ויש בעיה: בדרך כלל פורט מנוטר (יש לו חיישן ממשק) שנפל; או שגיאות מאז הקריאה הקודמת, או תקלת PoE.",
+      "disabled": "מושבת בהגדרות המתג (shutdown). לעולם לא מתריע."
     },
     "portN": "פורט {{name}}",
     "vlanN": "VLAN {{vlan}}",
@@ -1414,7 +1430,9 @@
       "errors": "שגיאות (Δ)",
       "lastChange": "שינוי אחרון",
       "ifIndex": "ifIndex",
-      "kind": "סוג"
+      "kind": "סוג",
+      "connIp": "IP מחובר",
+      "connName": "שם / שכן"
     },
     "filter": "סינון פורטים",
     "filterPlaceholder": "סינון: פורט, כינוי, MAC, IP, שם מארח, יצרן, שכן…",
@@ -1503,6 +1521,14 @@
       "viaLag": "LAG",
       "vlansFromLag": "VLANs נורשו מה-LAG",
       "macViaLag": "נלמד ב-LAG"
+    },
+    "exportCsv": "ייצוא CSV",
+    "conn": {
+      "neighbor": "LLDP",
+      "neighborTitle": "שכן LLDP/CDP",
+      "moreTitle_one": "עוד התקן אחד בפורט זה",
+      "moreTitle_two": "עוד 2 התקנים בפורט זה",
+      "moreTitle_other": "עוד {{count}} התקנים בפורט זה"
     }
   },
   "health": {
@@ -1985,7 +2011,8 @@
       "backup_failed": "הגיבוי נכשל",
       "host_key": "מפתח SSH של ההתקן השתנה",
       "config_changed": "התצורה השתנתה",
-      "new_mac": "התקן חדש"
+      "new_mac": "התקן חדש",
+      "lag_degraded": "LAG פגוע"
     }
   },
   "flapping": {
@@ -2097,6 +2124,13 @@
       "importantHint": "Uplinks,‏ LAG ופורטים עם חיישן ממשק — בלי התראה על כל מחשב שנכבה בלילה.",
       "all": "כל הפורטים",
       "allHint": "כל פורט שנופל או מרצד מעלה התראה."
+    },
+    "trunks": {
+      "include": "כלול את כל פורטי ה-trunk",
+      "includeHint": "התראות על נפילת קישור ועל ריצוד גם לכל פורט trunk, גם אם אינו אפלינק.",
+      "minTagged": "Trunk = פורט עם לפחות N רשתות VLAN מתויגות",
+      "minTaggedHint": "פורטי גישה עם VLAN קולי נושאים VLAN מתויג אחד; השאירו N על 2 או יותר כדי שפורטים של טלפונים לא ייחשבו trunk.",
+      "minTaggedErr": "יש להזין מספר שלם בין 1 ל-100."
     }
   },
   "siem": {
@@ -2281,7 +2315,8 @@
       "report": "דוחות",
       "kiosk_screen": "מסכי NOC",
       "chatack": "אישור מהצ'אט",
-      "channel": "ערוצים"
+      "channel": "ערוצים",
+      "assistant": "עוזר AI"
     },
     "entityType": {
       "device": "התקן",
@@ -2294,7 +2329,9 @@
       "topology_link": "קישור טופולוגיה",
       "discovery_profile": "פרופיל גילוי",
       "user": "משתמש",
-      "api_token": "אסימון API"
+      "api_token": "אסימון API",
+      "assistant_conversation": "שיחה עם העוזר",
+      "assistant_message": "תשובת העוזר"
     }
   },
   "timeline": {
@@ -3080,6 +3117,88 @@
     "emailHint": "מוסיף קישור לאישור טיפול שפותח את NetworkMonitor.",
     "needsPublicUrl": "קישורים דורשים את הכתובת הציבורית (הגדרות ← כללי)."
   },
+  "trapCollapse": {
+    "title": "מלכודות חוזרות",
+    "intro": "יש התקנים ששולחים את אותה מלכודת שוב ושוב (דופק, או כל הודעת Syslog גם כמלכודת). אפשר לשמור רק את המלכודות האחרונות של ה-OIDs האלה לכל מקור. כללי האירועים עדיין רואים כל מלכודת.",
+    "enabled": "לשמור רק את המלכודות האחרונות של ה-OIDs האלה",
+    "keep": "כמה מלכודות לשמור לכל מקור ו-OID",
+    "keepHint": "1–1000",
+    "keepErr": "הזינו 1–1000.",
+    "oids": "OIDs של מלכודות",
+    "oidsHint": "OIDs מספריים, אחד בכל שורה (עד 64).",
+    "oidsErr": "לא OID מספרי: {{list}}",
+    "known": {
+      "hh3cPeriodicalTrap": "דופק של Comware, נשלח כשלא נשלחה מלכודת אחרת זמן מה",
+      "syslogMsgNotification": "הודעת Syslog שנשלחת גם כמלכודת (היא מגיעה גם כ-Syslog)"
+    }
+  },
+  "impact": {
+    "label": "השפעה על מצב ההתקן",
+    "option": {
+      "critical": "קריטי",
+      "warning": "אזהרה",
+      "none": "ללא"
+    },
+    "hint": {
+      "critical": "ההתקן מקבל את מצב החיישן (חיישן למטה מוריד את ההתקן).",
+      "warning": "תקלה בחיישן זה תעביר את ההתקן לכל היותר ל\"אזהרה\".",
+      "none": "חיישן זה לעולם לא משנה את מצב ההתקן."
+    },
+    "tag": {
+      "warning": "אזהרה בלבד",
+      "none": "ללא השפעה"
+    },
+    "tagTitle": "השפעה על מצב ההתקן: {{impact}}",
+    "selectSensor": "בחירת {{name}}",
+    "selected_one": "נבחר אחד",
+    "selected_two": "2 נבחרו",
+    "selected_other": "{{count}} נבחרו",
+    "setImpact": "הגדרת השפעה…",
+    "clearSelection": "ניקוי הבחירה",
+    "bulkTitle_one": "הגדרת השפעה לחיישן אחד",
+    "bulkTitle_two": "הגדרת השפעה ל-2 חיישנים",
+    "bulkTitle_other": "הגדרת השפעה ל-{{count}} חיישנים",
+    "apply": "החלה",
+    "bulkDone_one": "ההשפעה עודכנה לחיישן אחד.",
+    "bulkDone_two": "ההשפעה עודכנה ל-2 חיישנים.",
+    "bulkDone_other": "ההשפעה עודכנה ל-{{count}} חיישנים."
+  },
+  "applyPorts": {
+    "title": "פורטים",
+    "choice": {
+      "none": "ללא",
+      "important": "פורטים חשובים",
+      "all": "הכול",
+      "choose": "בחירת פורטים"
+    },
+    "hint": {
+      "none": "לא ייווצרו חיישני ממשק.",
+      "important": "אפלינקים, LAG, trunk ופורטי IRF בלבד (מומלץ).",
+      "all": "חיישן ממשק לכל פורט שהתבנית מתאימה לו.",
+      "choose": "בחירה ידנית של הפורטים."
+    },
+    "reason": {
+      "uplink": "אפלינק",
+      "lag": "LAG",
+      "trunk": "Trunk",
+      "irf": "פורט IRF"
+    },
+    "hasSensor": "מנוטר",
+    "hasSensorTitle": "לפורט זה כבר יש חיישן ממשק",
+    "search": "חיפוש לפי שם או כינוי…",
+    "clear": "ניקוי",
+    "selectImportant": "בחירת החשובים",
+    "selectedOf": "{{n}} מתוך {{total}} נבחרו",
+    "noPorts": "לא נמצאו פורטים בהתקן זה.",
+    "inventoryMissing": "מלאי הפורטים של התקן זה לא נאסף, ולכן לא ניתן היה לקבוע אילו פורטים חשובים (אפלינקים, LAG, trunk, פורטי IRF).",
+    "removeUnselected": "מחיקת חיישני הממשק של פורטים שלא נבחרו",
+    "removeCount_one": "חיישן ממשק קיים אחד יימחק, עם ההיסטוריה שלו.",
+    "removeCount_two": "2 חיישני ממשק קיימים יימחקו, עם ההיסטוריה שלהם.",
+    "removeCount_other": "{{count}} חיישני ממשק קיימים יימחקו, עם ההיסטוריה שלהם.",
+    "removedTitle_one": "נמחק חיישן אחד",
+    "removedTitle_two": "נמחקו 2 חיישנים",
+    "removedTitle_other": "נמחקו {{count}} חיישנים"
+  },
   "assistant": {
     "title": "שאל את הרשת",
     "open": "פתח את \"שאל את הרשת\"",
@@ -3169,7 +3288,8 @@
       "stream_buffered": "התשובה הגיעה בחתיכה אחת: נראה שפרוקסי אוגר תגובות זורמות.",
       "cache_unsupported": "המודל אינו תומך ב-prompt caching; האפשרות כובתה אוטומטית.",
       "access_key_old": "מפתח הגישה ישן מ-90 יום — יש להחליפו.",
-      "key_file_mode": "קובץ המפתח הפרטי בשרת קריא למשתמשים אחרים."
+      "key_file_mode": "קובץ המפתח הפרטי בשרת קריא למשתמשים אחרים.",
+      "temporary_credentials": "הרשאות זמניות (session token) פגות אחרי כמה שעות — מתאים לניסיון; לשרת השתמש במפתח של משתמש IAM, ב-Roles Anywhere או בשרשרת ברירת המחדל."
     },
     "tool": {
       "generic": "מריץ {{tool}}…",
@@ -3206,7 +3326,8 @@
         "limits": "מגבלות ועלות",
         "conversations": "שיחות",
         "capabilities": "יכולות",
-        "kb": "מאגר ידע"
+        "kb": "מאגר ידע",
+        "chatModels": "מודלים לצ׳אט"
       },
       "connection": "חיבור ל-Amazon Bedrock",
       "connectionIntro": "מלא את פרטי החיבור, הרץ \"בדיקת חיבור\" ואז הפעל את העוזר בתחתית. מומלץ: אזור us-east-1 עם פרופיל הסקה ‎us.‎ ואימות באמצעות IAM Roles Anywhere.",
@@ -3239,6 +3360,11 @@
       "keyCreatedHint": "רשות — תזכורת אחרי 90 יום",
       "keyOld": "המפתח בן {{days}} יום — יש להחליפו.",
       "secretUnreadable": "לא ניתן לפענח את הסוד השמור (secret.key השתנה). הזן אותו מחדש.",
+      "sessionToken": "Session token (הרשאות זמניות)",
+      "sessionTokenHint": "רק למפתחות זמניים (ASIA…), למשל מ-IAM Identity Center ‏(SSO) ← “Access keys”. השאר ריק למפתח של משתמש IAM ‏(AKIA…).",
+      "sessionTokenStored": "שמור session token. הדבק חדש כדי להחליף אותו.",
+      "sessionTokenClear": "מחיקת ה-session token השמור",
+      "sessionTokenUnreadable": "לא ניתן לפענח את ה-session token השמור (secret.key השתנה). הזן אותו מחדש.",
       "defaultChainInfo": "ההרשאות נלקחות מ-AWS_ACCESS_KEY_ID / AWS_SECRET_ACCESS_KEY, מהרשאות הקונטיינר או ממטא-נתוני מכונת EC2 ‏(IMDSv2; ב-Docker נדרש hop limit 2). הבדיקה מציגה באיזה מקור נעשה שימוש.",
       "region": "אזור AWS",
       "regionHint": "מומלץ us-east-1; ‏il-central-1 נתמך עם פרופיל ‎global.‎",
@@ -3287,7 +3413,8 @@
       "lastTest": "בדיקה אחרונה: {{result}} · {{time}} · {{by}}",
       "missing": {
         "certificate": "העלה קודם תעודה (או צור CSR).",
-        "secret": "הזן את מפתח הגישה הסודי."
+        "secret": "הזן את מפתח הגישה הסודי.",
+        "sessionToken": "מפתח זמני (ASIA…) דורש session token."
       },
       "enableNeedsTest": "יש להריץ קודם בדיקת חיבור מוצלחת עם הערכים האלה.",
       "changeNeedsTest": "שדות החיבור השתנו: הרץ בדיקת חיבור לפני השמירה.",
@@ -3324,6 +3451,7 @@
         "arn": "ARN לא תקין",
         "session": "900–43200",
         "accessKey": "AKIA… או ASIA… ואחריו 16 תווים",
+        "sessionToken": "עד 4096 תווי base64 ‏(A–Z, a–z, 0–9, + / =)",
         "range": "{{min}}–{{max}}",
         "time": "HH:MM",
         "money": "מספר ≥ 0"
@@ -3465,6 +3593,25 @@
       "invalid": "ערך לא תקין",
       "test": "בדיקת מאגר הידע",
       "testOk": "{{n}} תוצאות ב-{{ms}} ms"
+    },
+    "model": "מודל",
+    "chatModels": {
+      "title": "מודלים לצ׳אט",
+      "hint": "מודלים ופרופילי הסקה שמנהל יכול לבחור בצ׳אט (עד 8). המודל הראשי מוצע תמיד והוא ברירת המחדל. ‎/ask בטלגרם ויכולות ה-AI ברקע ממשיכים להשתמש במודל הראשי ובמודל הקל. שינוי הרשימה אינו דורש בדיקת חיבור חדשה.",
+      "defaultList": "אין רשימה: הצ׳אט מציע את המודל הראשי ואת המודל הקל (אם הוגדר).",
+      "id": "מזהה מודל או פרופיל הסקה",
+      "label": "שם לתצוגה",
+      "labelPlaceholder": "שם לתצוגה (רשות)",
+      "add": "הוספת מודל",
+      "remove": "הסרה",
+      "max": "לכל היותר {{n}} מודלים.",
+      "effective": "מוצעים בצ׳אט:",
+      "default": "ברירת מחדל",
+      "error": {
+        "invalid": "מזהה מודל או פרופיל הסקה לא תקין",
+        "duplicate": "המודל כבר ברשימה",
+        "label": "השם לתצוגה ארוך מדי (עד 60 תווים)"
+      }
     }
   },
   "explain": {
@@ -3597,7 +3744,11 @@
     "working": "העוזר מכין טיוטה…",
     "banner": "טיוטה של העוזר — בדוק כל שדה לפני השמירה.",
     "assumptions": "הנחות",
-    "validationErrors": "יש לתקן לפני השמירה"
+    "validationErrors": "יש לתקן לפני השמירה",
+    "cannotTitle": "העוזר לא הצליח להכין טיוטת כלל מהתיאור הזה.",
+    "cannotHint": "תאר מה לנטר ומה צריך לקרות, למשל:",
+    "cannotExampleAlert": "התרע לי בטלגרם כשמתג ליבה כלשהו מושבת במשך 2 דקות",
+    "cannotExampleEvent": "אזהרה כשמתג רושם כשל התחברות SSH (תוכנה SSHS או sshd)"
   },
   "tdraft": {
     "open": "טיוטת תבנית מהתקן",
@@ -3647,7 +3798,10 @@
     "yaml": "YAML של התבנית",
     "save": "שמירה כתבנית משתמש",
     "overwrite": "החלפת תבנית המשתמש הקיימת",
-    "saved": "נשמר {{file}}"
+    "saved": "נשמר {{file}}",
+    "cannotTitle": "העוזר לא הצליח להכין טיוטת תבנית מהסריקה הזו.",
+    "cannotHint": "סרוק את תתי-העצים עם ערכי ההתקן עצמו (enterprise, ENTITY, HOST-RESOURCES) ותאר מה לנטר, למשל:",
+    "cannotExample": "לנטר מצב ספקי כוח ומאווררים וטמפרטורת מעבד"
   },
   "usage": {
     "title": "שימוש בעוזר",
@@ -3696,7 +3850,14 @@
       "report_summary": "סיכומי דוחות",
       "test": "בדיקות חיבור",
       "title": "כותרות ליומן ביקורת"
-    }
+    },
+    "perModel": "לפי מודל",
+    "model": "מודל",
+    "inputTokens": "קלט",
+    "outputTokens": "פלט",
+    "unknownModel": "מודל לא ידוע",
+    "cacheRead": "טוקני קלט שנקראו ממטמון ההנחיות",
+    "cached": "ממטמון"
   },
   "treeMenu": {
     "label": {
@@ -3744,5 +3905,12 @@
       "copied": "הועתק ללוח",
       "copyFailed": "לא ניתן להעתיק ללוח"
     }
+  },
+  "settingsSearch": {
+    "label": "חיפוש בהגדרות",
+    "placeholder": "חיפוש בהגדרות…",
+    "clear": "ניקוי החיפוש",
+    "none": "לא נמצאו הגדרות",
+    "requires": "דורש את התכונה {{feature}} — הפעילו אותה בלשונית {{tab}}"
   }
 }

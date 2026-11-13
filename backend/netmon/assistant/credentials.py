@@ -1,7 +1,8 @@
 """[3b] AWS credential providers (architecture § 14.2.3).
 
 - `RolesAnywhereProvider`: X.509-signed `POST /sessions` → temporary credentials;
-- `StaticProvider`: access key id + secret (write-only setting);
+- `StaticProvider`: access key id + secret (+ optional session token of temporary `ASIA…`
+  credentials; write-only settings);
 - `DefaultChainProvider`: environment → container credentials → EC2 IMDSv2 (never via a proxy);
 - `CachingProvider`: in-memory cache, refreshed 5 min before expiration, single-flight refresh,
   `get(force=True)` after an `aws_auth_failed` answer.
@@ -64,8 +65,12 @@ def _utcnow() -> datetime:
 class StaticProvider:
     source = "access_key"
 
-    def __init__(self, access_key_id: str, secret_access_key: str) -> None:
-        self._creds = Credentials(access_key_id, secret_access_key, source="access_key")
+    def __init__(
+        self, access_key_id: str, secret_access_key: str, session_token: str | None = None
+    ) -> None:
+        self._creds = Credentials(
+            access_key_id, secret_access_key, session_token or None, source="access_key"
+        )
 
     async def fetch(self) -> Credentials:
         return self._creds

@@ -600,6 +600,166 @@ async def test_knowledge_base_and_models(rt: Runtime, env: httpx.AsyncClient, mo
     assert {m["kind"] for m in models["items"]} == {"inference_profile", "foundation_model"}
 
 
+async def test_ssrf_blocked_endpoints_reject_before_outbound(
+    env: httpx.AsyncClient, mock: Any
+) -> None:
+    """A metadata/link-local endpoint is rejected (422) before any outbound request; the
+    mock Bedrock sees no traffic. 169.254.169.254 and metadata.google.internal are blocked
+    even in test mode (loopback is not, so the harness keeps using 127.0.0.1)."""
+    c = env
+    await enable(c, conn(mock, endpoint_url=mock.url))
+    await c.put("/api/assistant/knowledge", json={"knowledge_base_id": "QAKBTEST01"})
+    before = len(mock.requests())  # count only the blocked calls below
+    blocked: list[tuple[str, dict[str, Any]]] = [
+        ("/api/assistant/models", {"settings": conn(mock, endpoint_url="https://169.254.169.254")}),
+        ("/api/assistant/test", {"settings": conn(mock, endpoint_url="http://169.254.169.254")}),
+        (
+            "/api/assistant/test",
+            {"settings": conn(mock, proxy_mode="custom", proxy_url="http://169.254.169.254:80")},
+        ),
+        (
+            "/api/assistant/knowledge/test",
+            {"settings": {"endpoint_url": "https://metadata.google.internal"}},
+        ),
+    ]
+    for path, body in blocked:
+        r = await c.post(path, json=body)
+        assert r.status_code == 422, (path, r.text)
+        assert r.json()["error"]["code"] == "validation_error", r.text
+    assert len(mock.requests()) == before, "a blocked endpoint must not reach the network"
+
+
+async def test_redact_internal_ips_defaults_true(rt: Runtime, admin: httpx.AsyncClient) -> None:
+    """[3b Finding B] masking defaults ON: a fresh install and a stored row that predates
+    the key both resolve `redact_internal_ips` to True."""
+    from netmon.assistant import config as acfg
+
+    assert acfg.DEFAULT_ASSISTANT["redact_internal_ips"] is True
+    async with rt.sessionmaker() as s:
+        assert (await acfg.load(s))["redact_internal_ips"] is True
+        # a row written before the key existed (upgrade path)
+        await acfg.save(s, {"region": "eu-west-1", "model_id": "m"})
+        await s.commit()
+    async with rt.sessionmaker() as s:
+        cfg = await acfg.load(s)
+    assert cfg["redact_internal_ips"] is True and cfg["region"] == "eu-west-1"
+
+
+# ------------------------------------------------- temporary credentials (ASIA + session token)
+ASIA_ID = "ASIA" + "T" * 16
+ASIA_SECRET = "tmpSecret0000000000000000000000000000000"
+ASIA_TOKEN = "IQoJb3JpZ2luX2VjEJr//////////wEaCXVzLWVhc3QtMSJHMEUCIQ" + "A" * 400 + "=="
+
+
+def _register_session(mock: Any, *, expired: bool = False) -> None:
+    import time
+
+    with mock.state.lock:
+        mock.state.sessions[ASIA_ID] = {
+            "access_key_id": ASIA_ID,
+            "secret": ASIA_SECRET,
+            "token": ASIA_TOKEN,
+            "source": "control",
+            "expires_at": time.time() + (-5 if expired else 3600),
+            "issued_at": time.time(),
+        }
+
+
+def temp_conn(mock: Any, **kw: Any) -> dict[str, Any]:
+    return conn(mock, access_key_id=ASIA_ID, secret_access_key=ASIA_SECRET, **kw)
+
+
+async def test_session_token_settings(
+    rt: Runtime, env: httpx.AsyncClient, mock: Any, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    c = env
+    await feats(c, audit=True)
+    r = await c.put("/api/assistant/settings", json=temp_conn(mock, session_token=ASIA_TOKEN))
+    assert r.status_code == 200, r.text
+    s = r.json()
+    assert s["session_token"] is None and s["session_token_set"] is True
+    assert s["session_token_unreadable"] is False and s["access_key_id"] == ASIA_ID
+    assert ASIA_TOKEN not in r.text and not any(k.endswith("_enc") for k in s)
+    assert "temporary_credentials" in s["warnings"]
+    rows = (await c.get("/api/audit", params={"action": "assistant.settings_update"})).json()
+    assert ASIA_TOKEN not in str(rows) and "session_token_enc" in str(rows)
+    # omitted keeps; too long / invalid characters -> 422; "" clears
+    r = await c.put("/api/assistant/settings", json={"model_id_light": MODEL})
+    assert r.json()["session_token_set"] is True
+    for bad in ("A" * 4097, "abc\r\nX-Evil: 1"):
+        r = await c.put("/api/assistant/settings", json={"session_token": bad})
+        assert r.status_code == 422, bad
+    r = await c.put("/api/assistant/settings", json={"session_token": ""})
+    s = r.json()
+    assert s["session_token_set"] is False and "temporary_credentials" not in s["warnings"]
+    # a token stored under another secret.key is reported unreadable (re-enter)
+    await c.put("/api/assistant/settings", json={"session_token": ASIA_TOKEN})
+    monkeypatch.setattr(rt, "secret_key", "another-secret-key-0000000000000000")
+    s = rt.assistant.settings_out()  # (the API session itself depends on secret.key)
+    assert s["session_token_set"] is True and s["session_token_unreadable"] is True
+
+
+async def test_temporary_key_needs_session_token(env: httpx.AsyncClient, mock: Any) -> None:
+    _register_session(mock)
+    n = len(mock.requests())
+    res = (await env.post("/api/assistant/test", json={"settings": temp_conn(mock)})).json()
+    assert not res["ok"] and res["test_id"] is None
+    assert [s["step"] for s in res["steps"]] == ["config", "credentials"]
+    assert res["steps"][0]["ok"] and res["steps"][1]["error_code"] == "aws_session_token_required"
+    assert res["error"]["code"] == "aws_session_token_required"
+    assert "ASIA" in res["error"]["message"] and "session token" in res["error"]["message"]
+    assert len(mock.requests()) == n  # failed before any AWS call
+    # an AKIA key without a token is unaffected
+    res = (await env.post("/api/assistant/test", json={"settings": conn(mock)})).json()
+    assert res["ok"] and "temporary_credentials" not in res["warnings"], res
+
+
+async def test_session_token_sent_and_expired(
+    rt: Runtime, env: httpx.AsyncClient, mock: Any
+) -> None:
+    c = env
+    _register_session(mock)
+    settings = temp_conn(mock, session_token=ASIA_TOKEN)
+    res = (await c.post("/api/assistant/test", json={"settings": settings})).json()
+    assert res["ok"], res
+    assert "temporary_credentials" in res["warnings"]
+    sig = mock.requests("converse_stream")[-1]["sig"]
+    assert sig["ok"] and sig["access_key_id"] == ASIA_ID
+    assert "x-amz-security-token" in sig["signed_headers"] and "warning" not in sig
+    # a test of token A does not unlock token B (the token is a connection field)
+    await feats(c, audit=True)
+    r = await c.put(
+        "/api/assistant/settings",
+        json={**settings, "session_token": ASIA_TOKEN[:-2] + "QQ", "enabled": True,
+              "test_id": res["test_id"]},
+    )  # fmt: skip
+    assert r.status_code == 422 and r.json()["error"]["code"] == "assistant_test_required"
+    r = await c.put(
+        "/api/assistant/settings", json={**settings, "enabled": True, "test_id": res["test_id"]}
+    )
+    assert r.status_code == 200 and r.json()["state"] == "ready", r.text
+    # while ON, a new token needs a new test
+    r = await c.put("/api/assistant/settings", json={"session_token": ASIA_TOKEN + "QQ=="})
+    assert r.status_code == 422 and r.json()["error"]["code"] == "assistant_test_required"
+    # the token expires -> aws_token_expired (distinct message), health state error
+    _register_session(mock, expired=True)
+    res = (await c.post("/api/assistant/test", json={"settings": settings})).json()
+    assert not res["ok"] and res["steps"][-1]["step"] == "converse"
+    assert res["error"]["code"] == "aws_token_expired", res
+    assert "session token has expired" in res["error"]["message"]
+    with pytest.raises(AssistantError) as e:
+        await rt.assistant.client.converse(
+            {
+                "messages": [{"role": "user", "content": [{"text": "hello"}]}],
+                "inferenceConfig": {"maxTokens": 50},
+            }
+        )
+    assert e.value.code == "aws_token_expired"
+    st = (await c.get("/api/assistant/settings")).json()
+    assert st["state"] == "error" and st["state_error"]["code"] == "aws_token_expired"
+    await feats(c, assistant=False)
+
+
 # ---------------------------------------------------------------- migration 0008
 @pytest.mark.parametrize("mode", ["timescale", "fallback"])
 async def test_migration_0008_up_down_up(mode: str, rt: Runtime) -> None:
@@ -646,7 +806,7 @@ async def test_migration_0008_up_down_up(mode: str, rt: Runtime) -> None:
             pytest.skip("TimescaleDB not available")
         conn = await asyncpg.connect(_plain(url))
         try:
-            assert await conn.fetchval("SELECT version_num FROM alembic_version") == "0008"
+            assert await conn.fetchval("SELECT version_num FROM alembic_version") == "0010"
             assert tables <= await present(conn)
             uid = await conn.fetchval(
                 "INSERT INTO users (username, password_hash, role) VALUES ('user1', 'x', 'admin') "
@@ -715,7 +875,7 @@ async def test_migration_0008_up_down_up(mode: str, rt: Runtime) -> None:
         await run_migrations(engine)
         conn = await asyncpg.connect(_plain(url))
         try:
-            assert await conn.fetchval("SELECT version_num FROM alembic_version") == "0008"
+            assert await conn.fetchval("SELECT version_num FROM alembic_version") == "0010"
             assert tables <= await present(conn)
         finally:
             await conn.close()

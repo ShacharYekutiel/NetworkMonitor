@@ -34,6 +34,7 @@ from netmon.assistant import (
 from netmon.assistant.bedrock import BedrockClient, StreamAssembler, strip_cache_points
 from netmon.assistant.credentials import CachingProvider, Credentials, DefaultChainProvider
 from netmon.assistant.errors import AssistantError, map_error, map_stream_exception
+from netmon.util import netguard
 
 AK, SK = "AKIDEXAMPLE", "wJalrXUtnFEMI/K7MDENG+bPxRfiCYEXAMPLEKEY"
 
@@ -306,7 +307,7 @@ def _h(t: str) -> dict[str, str]:
             403,
             "ExpiredTokenException",
             "The security token included in the request is expired",
-            "aws_auth_failed",
+            "aws_token_expired",
         ),  # noqa: E501
         (
             403,
@@ -419,7 +420,17 @@ def test_settings_validation_and_hash() -> None:
     }
     fields = {e["loc"][-1] for e in config.field_errors(bad, test_mode=False)}
     assert fields == {"region", "endpoint_url", "proxy_url", "ra_role_arn"}
+    # loopback is allowed in test mode (the local mock harness uses 127.0.0.1) ...
     assert config.endpoint_error("http://127.0.0.1:9", test_mode=True) is None
+    # ... but blocked in production, together with link-local / metadata (always blocked)
+    assert config.endpoint_error("https://127.0.0.1", test_mode=False) == netguard.BLOCKED_MSG
+    assert config.endpoint_error("http://169.254.169.254", test_mode=True) == netguard.BLOCKED_MSG
+    # localhost (a loopback alias) is blocked in production; http:// is also allowed in test
+    # mode, where the loopback alias is relaxed just like 127.0.0.1
+    assert config.endpoint_error("https://localhost", test_mode=False) == netguard.BLOCKED_MSG
+    assert config.endpoint_error("http://localhost:8080", test_mode=True) is None
+    # a normal public host and a normal private VPC-endpoint IP are accepted
+    assert config.endpoint_error("https://10.0.0.5", test_mode=False) is None
     assert (
         config.endpoint_error(
             "https://vpce-1.bedrock-runtime.us-east-1.vpce.amazonaws.com/x", test_mode=False
@@ -788,8 +799,15 @@ async def test_converse_retries_and_fallbacks() -> None:
             _err("ThrottlingException", "slow", 429),
             _err("ThrottlingException", "slow", 429),
             _err("ValidationException", "This model does not support prompt caching (cachePoint)."),
-            _err("ValidationException", "temperature is not supported for this model"),
-            _err("ValidationException", "tool_choice type tool is not supported for this model"),
+            _err(
+                "ValidationException",
+                "The model returned the following errors: temperature is not supported.",
+            ),
+            _err(
+                "ValidationException",
+                'The model returned the following errors: tool_choice: type "tool" and "any" '
+                "are not supported for this model.",
+            ),
             ok,
         ]
     )
@@ -897,3 +915,162 @@ def test_retrieve_parse() -> None:
             "location_type": "S3",
         }
     ]
+
+
+def test_auth_failure_keeps_the_aws_type_and_message() -> None:
+    """Owner's office test: "AWS rejected the credentials" alone did not say whether the key
+    id is unknown or the signature (secret / a TLS-inspecting proxy) is wrong."""
+    from netmon.assistant.errors import classify
+
+    e = classify(
+        "UnrecognizedClientException", "The security token included in the request is invalid.", 403
+    )
+    assert e.code == "aws_auth_failed"
+    assert "UnrecognizedClientException" in e.message and "security token" in e.message
+    e = classify(
+        "InvalidSignatureException", "The request signature we calculated does not match", 403
+    )
+    assert "InvalidSignatureException" in e.message
+
+
+# ---------------------------------------------------------------- session token (temporary keys)
+ASIA = "ASIA" + "B" * 16
+TOKEN = "IQoJb3JpZ2luX2VjEJr//////////wEaCXVzLWVhc3QtMSJHMEUCIQ=="
+
+
+def test_session_token_merge_encrypt_clear() -> None:
+    cfg = dict(config.DEFAULT_ASSISTANT, auth_mode="access_key", access_key_id=ASIA)
+    merged = config.merge(cfg, {"session_token": TOKEN, "secret_access_key": "s3cr3t"}, "k")
+    enc = merged["session_token_enc"]
+    assert enc.startswith("v1:") and TOKEN not in json.dumps(merged)
+    assert config.session_token(merged, "k") == TOKEN
+    # its own AAD: the ciphertext does not decrypt as the secret access key (no field swap)
+    with pytest.raises(config.Unreadable):
+        config.decrypt_opt("k", enc, config.AAD_SECRET_ACCESS_KEY)
+    with pytest.raises(config.Unreadable):
+        config.session_token(merged, "other-key")
+    assert config.secret_unreadable(
+        merged, "other-key", "session_token_enc", config.AAD_SESSION_TOKEN
+    )
+    # None keeps, "" clears
+    assert config.merge(merged, {"session_token": None}, "k")["session_token_enc"] == enc
+    assert config.merge(merged, {"session_token": ""}, "k")["session_token_enc"] is None
+    assert config.temporary_credentials(merged)
+    assert not config.temporary_credentials({**merged, "auth_mode": "roles_anywhere"})
+    assert not config.temporary_credentials({**merged, "session_token_enc": None})
+    # the token is part of the connection hash (a new token needs a new test)
+    kw = {"secret_plain": "s3cr3t", "cert_pem": None, "chain_pem": None, "key_pem": None}
+    h0 = config.connection_hash(merged, **kw)
+    assert h0 == config.connection_hash(merged, **kw, token_plain=None)
+    h1 = config.connection_hash(merged, **kw, token_plain=TOKEN)
+    h2 = config.connection_hash(merged, **kw, token_plain=TOKEN + "A")
+    assert len({h0, h1, h2}) == 3
+    # an unreadable stored token is reported by required_errors (enable / test)
+    errs = config.required_errors(merged, "other-key", has_cert=False, has_key=False)
+    assert any(e["loc"][-1] == "session_token" for e in errs)
+    ok = config.required_errors(merged, "k", has_cert=False, has_key=False)
+    assert not any(e["loc"][-1] == "session_token" for e in ok)
+
+
+def test_session_token_schema_and_key_ids() -> None:
+    from pydantic import ValidationError
+
+    from netmon.schemas.assistant import AssistantFields
+
+    assert config.ACCESS_KEY_RE.match(ASIA) and config.ACCESS_KEY_RE.match("AKIA" + "C" * 16)
+    assert config.is_temporary_key(ASIA) and not config.is_temporary_key("AKIA" + "C" * 16)
+    assert not config.is_temporary_key(None)
+    f = AssistantFields(access_key_id=ASIA, session_token=TOKEN[:20] + "\n " + TOKEN[20:])
+    assert f.session_token == TOKEN and f.changes()["session_token"] == TOKEN
+    assert AssistantFields(session_token="").changes()["session_token"] == ""
+    assert "session_token" not in AssistantFields(region="us-east-1").changes()
+    for bad in ("abc\r\nX-Evil: 1", "tok<en>", "x" * 4097):
+        with pytest.raises(ValidationError):
+            AssistantFields(session_token=bad)
+    assert len(AssistantFields(session_token="A" * 4096).session_token or "") == 4096
+
+
+async def test_static_provider_session_token_signed() -> None:
+    from netmon.assistant.credentials import StaticProvider
+
+    creds = await StaticProvider(ASIA, SK, TOKEN).fetch()
+    assert creds.session_token == TOKEN and creds.source == "access_key"
+    assert TOKEN not in repr(creds)
+    assert (await StaticProvider(AK, SK).fetch()).session_token is None
+    assert (await StaticProvider(AK, SK, "").fetch()).session_token is None
+    signed = sigv4.sign_v4(
+        "POST",
+        "https://bedrock-runtime.us-east-1.amazonaws.com/model/x/converse",
+        {"Content-Type": "application/json"},
+        b"{}",
+        access_key=creds.access_key_id,
+        secret_key=creds.secret_access_key,
+        session_token=creds.session_token,
+        region="us-east-1",
+        service="bedrock",
+        amzdate="20261111T120000Z",
+    ).headers
+    assert signed["X-Amz-Security-Token"] == TOKEN
+    assert "x-amz-security-token" in signed["Authorization"]
+
+
+def test_expired_token_mapping() -> None:
+    for etype in ("ExpiredTokenException", "ExpiredToken"):
+        err = map_error(
+            403,
+            {"x-amzn-ErrorType": f"{etype}:http://internal.amazon.com/coral/"},
+            b'{"message": "The security token included in the request is expired"}',
+        )
+        assert err.code == "aws_token_expired", etype
+        assert "session token has expired" in err.message and err.status == 502
+        assert err.retry_policy == "auth" and err.is_error_state
+    err = map_stream_exception("ExpiredTokenException", {"message": "expired"})
+    assert err.code == "aws_token_expired"
+    # other credential errors keep aws_auth_failed
+    err = map_error(403, {"x-amzn-ErrorType": "UnrecognizedClientException"}, b"{}")
+    assert err.code == "aws_auth_failed"
+    from netmon.assistant.errors import make
+
+    req = make("aws_session_token_required")
+    assert "ASIA" in req.message and "session token" in req.message and req.is_error_state
+
+
+def test_model_errors_keep_the_aws_message() -> None:
+    from netmon.assistant.errors import classify
+
+    e = classify(
+        "ResourceNotFoundException",
+        "Model use case details have not been submitted for this account.",
+        404,
+        region="us-east-1",
+    )
+    assert e.code == "bedrock_model_access" and "use case details" in e.message
+    e = classify(
+        "ValidationException", "The provided model identifier is invalid.", 400, region="us-east-1"
+    )
+    assert e.code == "bedrock_model_invalid" and "provided model identifier is invalid" in e.message
+
+
+def test_feature_rejection_not_read_as_bad_model_id() -> None:
+    """Owner's office test: us.anthropic.claude-opus-5-5 rejects a forced toolChoice with a
+    ValidationException that starts with "The model returned the following errors:". That must
+    classify as bedrock_validation (so the client drops the forced tool and retries), not as
+    bedrock_model_invalid."""
+    from netmon.assistant.errors import classify
+
+    real = (
+        "The model returned the following errors: "
+        'tool_choice: type "tool" and "any" are not supported for this model.'
+    )
+    assert (
+        classify("ValidationException", real, 400, region="us-east-1").code == "bedrock_validation"
+    )
+    assert (
+        classify("ValidationException", "The model returned: temperature not supported", 400).code
+        == "bedrock_validation"
+    )
+    # a genuinely bad model id is still bedrock_model_invalid
+    assert (
+        classify("ValidationException", "The provided model identifier is invalid.", 400).code
+        == "bedrock_model_invalid"
+    )

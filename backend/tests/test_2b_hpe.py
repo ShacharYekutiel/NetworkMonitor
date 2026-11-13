@@ -172,8 +172,10 @@ async def _device(admin: httpx.AsyncClient, ip: str, port: int, name: str) -> di
     )
 
 
-async def _apply(admin: httpx.AsyncClient, did: int, template: str) -> dict[str, Any]:
-    r = await admin.post(f"/api/devices/{did}/apply-template", json={"template_id": template})
+async def _apply(admin: httpx.AsyncClient, did: int, template: str, **body: Any) -> dict[str, Any]:
+    r = await admin.post(
+        f"/api/devices/{did}/apply-template", json={"template_id": template, **body}
+    )
     assert r.status_code == 200, r.text
     return r.json()
 
@@ -225,8 +227,9 @@ async def test_arubaos_template(admin: httpx.AsyncClient, agents: dict[str, int]
     assert sensors["PoE 1 power"]["channels"][0]["unit"] == "W"
     budget = sensors["PoE 1 budget"]
     assert budget["channels"][0]["last_value"] == 370 and budget["interval_s"] == 3600
-    # idempotent
-    again = await _apply(admin, dev["id"], "hpe_arubaos_switch")
+    # idempotent ([1.3] the re-apply finds a switch with port inventory now: "important" would
+    # select only the important ports, so the 1.2 selection is asked for explicitly)
+    again = await _apply(admin, dev["id"], "hpe_arubaos_switch", interfaces="all")
     assert again["created"] == [] and {s["reason"] for s in again["skipped"]} == {"exists"}
     # identify -> switch / hp / suggests the ArubaOS template
     r = await admin.post(f"/api/devices/{dev['id']}/identify")
@@ -269,10 +272,10 @@ async def test_comware_template(admin: httpx.AsyncClient, agents: dict[str, int]
     assert temp["channels"][0]["warning_max"] == 65 and temp["status"] == "up"
     assert (
         sensors["Fan 1"]["status"] == "up"
-        and sensors["Fan 1"]["status_message"] == "Fan 1: normal (2)"
+        and sensors["Fan 1"]["status_message"] == "Fan 1: Normal (normal, 2)"  # [1.3.1] code table
     )
     fan2 = sensors["Fan 2"]
-    assert fan2["status"] == "down" and fan2["status_message"] == "Fan 2: unexpected value (41)"
+    assert fan2["status"] == "down" and fan2["status_message"] == "Fan 2: Fan fault (fanError, 41)"
     assert sensors["PSU 1"]["status"] == "up"
     r = await admin.post(f"/api/devices/{dev['id']}/identify")
     ident = r.json()

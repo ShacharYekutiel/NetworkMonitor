@@ -9,6 +9,7 @@ import { CheckIcon, ChevronIcon, FolderIcon, SearchIcon, ServerIcon, WrenchIcon 
 import { StatusDot } from './Status';
 import { TreeMenuProvider, useTreeItemMenu } from './treemenu/TreeContextMenu';
 import { cx, ErrorBox, Input, Spinner, Value } from './ui';
+import { useLocalizeMessage } from '../hooks/localize';
 
 type Expanded = Record<string, boolean>;
 
@@ -77,6 +78,7 @@ function filterGroups(groups: TreeGroup[], q: string): TreeGroup[] {
 function SensorRow({ s, d, depth }: { s: TreeSensor; d: TreeDevice; depth: number }) {
   const { t } = useTranslation();
   const menu = useTreeItemMenu({ kind: 'sensor', sensor: s, device: d });
+  const localize = useLocalizeMessage();
   return (
     <NavLink
       {...menu}
@@ -84,7 +86,7 @@ function SensorRow({ s, d, depth }: { s: TreeSensor; d: TreeDevice; depth: numbe
       data-tree-item="sensor"
       className={({ isActive }) => cx(rowBase, isActive && activeRow)}
       style={{ paddingInlineStart: `${depth * 14 + 26}px`, ...noCallout }}
-      title={s.status_message || s.name}
+      title={localize(s.status_message) || s.name}
     >
       <StatusDot status={s.status} />
       <span className="min-w-0 flex-1 truncate">{s.name}</span>

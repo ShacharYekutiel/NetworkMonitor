@@ -222,6 +222,7 @@ async def tree(_: Viewer, rt: RT, session: DB) -> dict:
             "primary_unit": ch.unit if ch else None,
             "last_check_at": iso(s.last_check_at),
             "acknowledged": s.ack_at is not None,
+            "impact": s.impact,  # [1.3]
         }
 
     def device_node(did: int) -> dict:

@@ -7,8 +7,10 @@ Interface (`rt.assistant.usage`):
         # "resets_at"}]); with count_question=True (default) it also counts the question.
         # purpose_daily_cap=N: per-purpose daily cap (counts `questions` of that purpose today,
         # all users) — used by the AI features (alert notes, correlation summaries, …).
-    cost = await usage.record(user_id, "ask", usage_dict, model_calls=1, tool_calls=0)
-        # after every model call (tokens; cost estimate at the current prices → Decimal|None)
+    cost = await usage.record(user_id, "ask", usage_dict, model_calls=1, tool_calls=0,
+                              model_id="us.anthropic…")
+        # after every model call (tokens; cost estimate at the current prices → Decimal|None;
+        # model_id keys the per-model report, '' = no model call)
     await usage.record_error(user_id, purpose, code)          # errors / throttles counters
     await usage.background_allowed()                          # False at the background stop %
     await usage.month_summary()                               # UsageMonthSummary (api.md)
@@ -48,6 +50,47 @@ def cap_tokens(row: dict[str, Any]) -> int:
         + int(row.get("cache_write_tokens") or 0)
         + math.ceil(int(row.get("cache_read_tokens") or 0) / 10)
     )
+
+
+MODEL_KEY_MAX = 256
+TOKEN_KEYS = ("input_tokens", "output_tokens", "cache_read_tokens", "cache_write_tokens")
+
+
+def model_key(model_id: str | None) -> str:
+    """The `assistant_usage.model_id` key of a call ('' = no model call)."""
+    return (model_id or "").strip()[:MODEL_KEY_MAX]
+
+
+def by_model_rows(rows: list[dict[str, Any]], *, has_cost: bool) -> list[dict[str, Any]]:
+    """`UsageReport.by_model` from per-model sums (`model_id`, `calls`, token sums, `c` = the
+    recorded cost). Rows without a model call ('' = question counters / errors before a model
+    call) are left out unless they carry tokens (counted under an unknown model: `model_id`
+    "", cost null). Cost: the recorded estimates (at the prices valid when counted; one price
+    set for every model), null without prices. Sorted by `tokens` desc, then model id."""
+    out = []
+    for r in rows:
+        mid = r.get("model_id") or ""
+        tok = {k: int(r.get(k) or 0) for k in TOKEN_KEYS}
+        calls = int(r.get("calls") or 0)
+        if not mid and not any(tok.values()):
+            continue
+        if mid and not calls and not any(tok.values()):
+            continue  # errors only (no model answer): nothing to show per model
+        c = r.get("c")
+        out.append(
+            {
+                "model_id": mid,
+                "calls": calls,
+                "input_tokens": tok["input_tokens"],
+                "output_tokens": tok["output_tokens"],
+                "cache_read_tokens": tok["cache_read_tokens"],
+                "cache_write_tokens": tok["cache_write_tokens"],
+                "tokens": cap_tokens(tok),
+                "cost_estimate": float(c) if has_cost and mid and c is not None else None,
+            }
+        )
+    out.sort(key=lambda x: (-x["tokens"], x["model_id"]))
+    return out
 
 
 def is_background(purpose: str) -> bool:
@@ -98,13 +141,13 @@ def cap_check(
 # ---------------------------------------------------------------- service
 _UPSERT = text(
     """
-    INSERT INTO assistant_usage (day, user_id, purpose, questions, model_calls, tool_calls,
-        errors, throttles, input_tokens, output_tokens, cache_read_tokens, cache_write_tokens,
-        cost_estimate)
-    VALUES (:day, :user_id, :purpose, :questions, :model_calls, :tool_calls, :errors,
-        :throttles, :input_tokens, :output_tokens, :cache_read_tokens, :cache_write_tokens,
-        :cost)
-    ON CONFLICT (day, user_id, purpose) DO UPDATE SET
+    INSERT INTO assistant_usage (day, user_id, purpose, model_id, questions, model_calls,
+        tool_calls, errors, throttles, input_tokens, output_tokens, cache_read_tokens,
+        cache_write_tokens, cost_estimate)
+    VALUES (:day, :user_id, :purpose, :model_id, :questions, :model_calls, :tool_calls,
+        :errors, :throttles, :input_tokens, :output_tokens, :cache_read_tokens,
+        :cache_write_tokens, :cost)
+    ON CONFLICT (day, user_id, purpose, model_id) DO UPDATE SET
         questions = assistant_usage.questions + EXCLUDED.questions,
         model_calls = assistant_usage.model_calls + EXCLUDED.model_calls,
         tool_calls = assistant_usage.tool_calls + EXCLUDED.tool_calls,
@@ -281,6 +324,7 @@ class UsageService:
             "day": day,
             "user_id": int(user_id),
             "purpose": purpose,
+            "model_id": "",
             "questions": 0,
             "model_calls": 0,
             "tool_calls": 0,
@@ -306,9 +350,11 @@ class UsageService:
         errors: int = 0,
         throttles: int = 0,
         questions: int = 0,
+        model_id: str | None = None,
     ) -> Decimal | None:
         """Count one model call's tokens (Bedrock `usage` or our counter names) and return
-        its cost estimate (None without prices)."""
+        its cost estimate (None without prices). `model_id`: the model / inference profile
+        the call used (per-model report); None / "" = no model call."""
         from netmon.assistant.bedrock import usage_of
 
         u = usage or {}
@@ -323,6 +369,7 @@ class UsageService:
                 day,
                 user_id,
                 purpose,
+                model_id=model_key(model_id),
                 questions=questions,
                 model_calls=model_calls,
                 tool_calls=tool_calls,
@@ -337,7 +384,9 @@ class UsageService:
             await session.commit()
         return cost
 
-    async def record_error(self, user_id: int, purpose: str, code: str) -> None:
+    async def record_error(
+        self, user_id: int, purpose: str, code: str, model_id: str | None = None
+    ) -> None:
         await self.record(
             user_id,
             purpose,
@@ -345,6 +394,7 @@ class UsageService:
             model_calls=0,
             errors=1,
             throttles=1 if code == "bedrock_throttled" else 0,
+            model_id=model_id,
         )
 
     async def cost_of(self, usage: dict[str, Any]) -> Decimal | None:
@@ -455,6 +505,19 @@ class UsageService:
                 }
                 for r in rows
             ]
+            rows = await session.execute(
+                text(
+                    "SELECT model_id, sum(model_calls) calls, sum(input_tokens) i, "
+                    "sum(output_tokens) o, sum(cache_read_tokens) cr, sum(cache_write_tokens) cw, "
+                    "sum(cost_estimate) c FROM assistant_usage WHERE day >= :a AND day < :b "
+                    "GROUP BY model_id"
+                ),
+                p,
+            )
+            by_model = by_model_rows(
+                [{"model_id": r.model_id, "calls": r.calls, "c": r.c, **_tok(r)} for r in rows],
+                has_cost=has_cost,
+            )
             tz = (await self.today(session))[1]
             ta = datetime.combine(a, time(0), tz)
             tb = datetime.combine(b, time(0), tz)
@@ -522,6 +585,7 @@ class UsageService:
             "by_day": by_day,
             "by_user": by_user,
             "by_purpose": by_purpose,
+            "by_model": by_model,
             "top_tools": top_tools,
             "errors": errors,
             "feedback": {"up": int(fb.up or 0), "down": int(fb.down or 0)},
