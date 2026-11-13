@@ -246,6 +246,15 @@ Order (owner decision: the AWS VPC Flow Logs feature moved to the beginning):
     link/interface utilisation) and AWS change alerts (a new Security Group rule, a route-table change, a new ENI).
     Optional and cheap: give the 3b assistant read-only tools over the cloud inventory and flows ("which SG allows X",
     "top talkers to AWS").
+    **Cross-account (owner requirement, 2026-11-13):** Bedrock and the Roles Anywhere base role live in one AWS
+    account (`NetMonitor-Bedrock`); all networking (VPCs, TGW, DX, the flow logs) lives in a separate *network*
+    account. The network account is read through `sts:AssumeRole` from the base credentials (role chaining, <= 1 h,
+    refreshed automatically): a read-only role in the network account trusts the base role (optional ExternalId), and
+    the base role gets `sts:AssumeRole` on it. Contract fix needed in architecture § 15.1: with Roles Anywhere a role
+    in a *different* account must always use the AssumeRole chain (a second `CreateSession` only works for roles in the
+    profile's own account) - decide by comparing the account id of the role ARN with the profile's.
+    `render-policies.py` gains the two cross-account policies (trust policy for the network role, assume permission
+    for the base role).
 18. **4c — certificates** (30-day warning, inventory), **optics DOM + PoE per port**, **S3 backups** (scheduled DB
     backups, restore from the UI, export of config versions).
 19. **4a — high availability:** office primary, standby on the DR site / AWS, PostgreSQL streaming replication,
