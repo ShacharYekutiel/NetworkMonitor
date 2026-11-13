@@ -109,7 +109,7 @@ test('create "Network account" in the UI; CSR → PKCS#7 upload of the issued ce
   await form.getByTestId('aws-ra_trust_anchor_arn').fill(NET_TA);
   await form.getByTestId('aws-ra_profile_arn').fill(NET_PROFILE);
   await form.getByTestId('aws-ra_role_arn').fill(NET_BASE_ROLE);
-  await form.getByLabel('Proxy', { exact: true }).selectOption('direct');
+  await form.locator('select:has(option[value="custom"])').selectOption('direct');
   for (const svc of ['sts', 'rolesanywhere']) {
     await form.getByTestId('add-override').click();
     const row = form.locator('[data-override]').last();

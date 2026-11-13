@@ -279,11 +279,14 @@ test('regions: il-central-1 needs a global. profile (us. -> bedrock_model_invali
 
 test('test_id rules: bound to the admin and the connection values; audit OFF -> 422 feature_dependency', async () => {
   const admin2 = await ensureAdmin2(api);
-  const t = await testConnection(api, akSettings());
+  // [4] the access-key values live on the E2E connection; the assistant's own change under test is prompt caching
+  // (a connection field of the assistant hash), so the PUT below really changes something
+  const cur = await assistantSettings(api);
+  const fields = { ...(await assistantFields(api, akSettings())), prompt_caching: !cur.prompt_caching };
+  const t = await testConnection(api, fields);
   expect(t.body.ok).toBe(true);
   expect(t.body.test_id).toMatch(/^[0-9a-f-]{16,}$/i);
   // another admin cannot use it
-  const fields = await assistantFields(api, akSettings());
   const other = await raw(admin2, 'PUT', '/api/assistant/settings', { ...fields, test_id: t.body.test_id });
   expect(other.body.error.code).toBe('assistant_test_required');
   // a changed connection field invalidates it
@@ -297,7 +300,7 @@ test('test_id rules: bound to the admin and the connection values; audit OFF -> 
   // with the matching test_id the connection change is accepted
   const ok = await raw(api, 'PUT', '/api/assistant/settings', { ...fields, test_id: t.body.test_id });
   expect(ok.status, ok.text).toBe(200);
-  expect(ok.body).toMatchObject({ enabled: true, model_id: MODEL, region: 'us-east-1', connection: { name: CONN_NAME, auth_mode: 'access_key' } });
+  expect(ok.body).toMatchObject({ enabled: true, model_id: MODEL, region: 'us-east-1', prompt_caching: fields.prompt_caching, connection: { name: CONN_NAME, auth_mode: 'access_key' } });
 });
 
 test('OFF is always possible; enabling with audit OFF refused; ON again (access key) for the next specs', async () => {
