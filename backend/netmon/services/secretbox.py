@@ -64,6 +64,16 @@ def configure(secret_key: str | None, plaintext_copy: bool | None = None) -> Non
         _PLAINTEXT_COPY = bool(plaintext_copy)
 
 
+def state() -> tuple[str | None, bool]:
+    """The process-wide configuration (one server per process; a test that starts a second
+    runtime restores the previous state when it stops it)."""
+    return _KEY, _PLAINTEXT_COPY
+
+
+def restore(saved: tuple[str | None, bool]) -> None:
+    configure(saved[0], saved[1])
+
+
 def set_plaintext_copy(on: bool) -> None:
     global _PLAINTEXT_COPY
     _PLAINTEXT_COPY = bool(on)

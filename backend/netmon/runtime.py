@@ -142,6 +142,7 @@ class Runtime:
         ssh_credentials.configure(self.secret_key)  # [3]
         from netmon.services import secretbox
 
+        self._secretbox_saved = secretbox.state()
         secretbox.configure(self.secret_key)  # [1.4.2] secrets at rest
         self.engine = make_engine(s.async_database_url)
         self.sessionmaker = make_sessionmaker(self.engine)
@@ -307,6 +308,11 @@ class Runtime:
             log.exception("Checking the existing targets against the egress filter failed")
 
     async def stop(self) -> None:
+        saved = getattr(self, "_secretbox_saved", None)
+        if saved is not None:  # [1.4.2] a second runtime in one process (tests)
+            from netmon.services import secretbox
+
+            secretbox.restore(saved)
         # [2b-3] receivers first (sockets closed), pipeline flush <= 5 s, forwarders <= 2 s
         with contextlib.suppress(Exception):
             await self.features.stop()
