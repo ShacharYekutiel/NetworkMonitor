@@ -3,14 +3,14 @@
 
     python tests/sim/bedrock/pki.py OUT_DIR          # writes the files below + OUT_DIR/manifest.json
 
-Hierarchy (mirrors the owner's AD CS): `QA PKI-ROOT-CA` -> `QA Mnidom-PKI-SERV-CA` (issuing) -> leaves.
+Hierarchy (mirrors the owner's AD CS): `QA PKI-ROOT-CA` -> `QA Example Issuing CA` (issuing) -> leaves.
 The mock's default trust anchor is the **issuing CA** (owner recommendation, no chain upload needed);
 `--anchor root` on the mock requires the chain (`X-Amz-X509-Chain`).
 
 Files (PEM unless noted; keys PKCS#8 unencrypted unless noted):
     root.pem root.key  issuing.pem issuing.key  other-ca.pem other-ca.key (unrelated CA, "wrong CA")
     chain.pem                       issuing CA only (what the admin uploads as the chain)
-    leaf-rsa.pem leaf-rsa.key       RSA 2048, CN=netmonitor-bedrock.mnidom.net, CA:FALSE, KU digitalSignature,
+    leaf-rsa.pem leaf-rsa.key       RSA 2048, CN=netmonitor.example.net, CA:FALSE, KU digitalSignature,
                                     EKU clientAuth, serial 0x1234 (decimal 4660), valid 1 year
     leaf-rsa.pkcs1.key              same key, PKCS#1 ("BEGIN RSA PRIVATE KEY")
     leaf-rsa.enc.key                same key, encrypted PKCS#8, password `Key-pass-1`
@@ -53,7 +53,7 @@ from cryptography.hazmat.primitives.asymmetric import ec, rsa
 from cryptography.hazmat.primitives.serialization import pkcs7, pkcs12
 from cryptography.x509.oid import ExtendedKeyUsageOID, NameOID
 
-LEAF_CN = "netmonitor-bedrock.mnidom.net"
+LEAF_CN = "netmonitor.example.net"
 PFX_PASSWORD = "Pfx-pass-1"
 KEY_PASSWORD = "Key-pass-1"
 NOW = dt.datetime.now(dt.timezone.utc)
@@ -134,7 +134,7 @@ def make_pki(out_dir: str | Path) -> dict:
     root_k = _rsa(3072)
     root = _cert(root_k, "QA PKI-ROOT-CA", None, None, ca=True, not_after=NOW + dt.timedelta(days=3650))
     iss_k = _rsa(2048)
-    iss = _cert(iss_k, "QA Mnidom-PKI-SERV-CA", root, root_k, ca=True, not_after=NOW + dt.timedelta(days=1825))
+    iss = _cert(iss_k, "QA Example Issuing CA", root, root_k, ca=True, not_after=NOW + dt.timedelta(days=1825))
     other_k = ec.generate_private_key(ec.SECP256R1())
     other = _cert(other_k, "QA Other-CA", None, None, ca=True, not_after=NOW + dt.timedelta(days=3650))
     w("root.pem", _pem(root)); w("root.key", _key_pem(root_k))

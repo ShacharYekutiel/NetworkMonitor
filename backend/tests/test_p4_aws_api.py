@@ -388,7 +388,7 @@ async def test_hop_failures_name_the_hop_with_hints(env: httpx.AsyncClient, mock
     trust_model(mock, require_tag_session=True)
     assert hint_codes(await _hop_fail(c, cid, hop_access())) == ["tag_session"]
     # wrong source identity condition (CN in the trust policy != certificate CN)
-    trust_model(mock, require_source_identity="CN=netmonitor.mnidom.net")
+    trust_model(mock, require_source_identity="CN=other-host.example.net")
     assert hint_codes(await _hop_fail(c, cid, hop_access()))[0] == "caller_policy"
     # STS not activated in the region
     trust_model(mock)
@@ -422,9 +422,9 @@ async def test_roles_anywhere_failures_and_sts_unreachable(
     mock.mode("unable_to_assume", "sessions", times=1)
     for h in (await ctest(c, {"connection_id": a["id"]}))["steps"][-1]["hints"]:
         vals.update(h["values"])
-    assert vals["cert_cn"] == "netmonitor-bedrock.mnidom.net"
+    assert vals["cert_cn"] == "netmonitor.example.net"
     assert (
-        vals["issuer_cn"] == "QA Mnidom-PKI-SERV-CA" and vals["trust_anchor_arn"].count("arn:") == 1
+        vals["issuer_cn"] == "QA Example Issuing CA" and vals["trust_anchor_arn"].count("arn:") == 1
     )
     # STS unreachable: only a warning with access direct, fatal with a hop
     dead = [
@@ -453,10 +453,8 @@ async def test_rendered_policies(env: httpx.AsyncClient, mock: Any) -> None:
     p = r.json()
     base = p["base_trust_policy"]["Statement"][0]["Condition"]
     assert base["ArnEquals"]["aws:SourceArn"] == NET_TA and str(p).count(NET_TA) == 1
-    assert (
-        base["StringEquals"]["aws:PrincipalTag/x509Subject/CN"] == "netmonitor-bedrock.mnidom.net"
-    )
-    assert base["StringEquals"]["aws:PrincipalTag/x509Issuer/CN"] == "QA Mnidom-PKI-SERV-CA"
+    assert base["StringEquals"]["aws:PrincipalTag/x509Subject/CN"] == "netmonitor.example.net"
+    assert base["StringEquals"]["aws:PrincipalTag/x509Issuer/CN"] == "QA Example Issuing CA"
     hop = p["hop_trust_policy"]["Statement"][0]
     assert hop["Principal"] == {"AWS": NET_BASE_ROLE}
     assert hop["Condition"]["StringEquals"] == {
@@ -527,7 +525,9 @@ async def test_egress_save_time_and_connect_time(env: httpx.AsyncClient, mock: A
         )
         assert r.status_code == 422, r.text
         assert r.json()["error"]["details"][0]["loc"] == ["body", "endpoint_overrides"]
-        assert "imds-alias.example.net" in r.json()["error"]["details"][0]["msg"]
+        assert r.json()["error"]["details"][0]["msg"] == (
+            f"imds-alias.example.net: {netguard.BLOCKED_MSG}"
+        )
     finally:
         netguard._default_resolver = monkeypatch_resolver  # type: ignore[assignment]
     for ok in ("https://10.0.0.5", "https://172.16.4.4:8443"):
@@ -613,7 +613,11 @@ async def test_certificates_pkcs7_csr_mismatch_cn_and_copy(
     assert r.status_code == 422 and r.json()["error"]["code"] == "key_mismatch"
     d = r.json()["error"]["details"][0]
     assert d["csr_subject"] == "CN=NetMonitor Server" and d["csr_created_at"]
-    assert "netmonitor-bedrock.mnidom.net" in d["cert_subject"]
+    other = x509.load_pem_x509_certificate(pki_file(mock, "leaf-ec.pem"))
+    assert d["cert_subject"] == other.subject.rfc4514_string()
+    assert other.subject.get_attributes_for_oid(x509.NameOID.COMMON_NAME)[0].value == (
+        "netmonitor.example.net"
+    )
     r = await c.post(f"/api/aws/connections/{a['id']}/cert", files={"file": ("i.p7b", p7)})
     assert r.status_code == 200, r.text
     info = r.json()

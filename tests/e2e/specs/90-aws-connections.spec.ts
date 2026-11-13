@@ -29,7 +29,7 @@ const NET_PROFILE = `arn:aws:rolesanywhere:us-east-1:${NET}:profile/9a1b2c3d-000
 const NET_BASE_ROLE = `arn:aws:iam::${NET}:role/netmon-base`;
 const BEDROCK_ROLE = `arn:aws:iam::${BEDROCK_ACCT}:role/netmon-bedrock`;
 const EXT_ID = 'Qx7Rm2Lp9Vn4Tc8Wb1Zd6Hk3Js5Fg0Ay';
-const LEAF_CN = 'netmonitor-bedrock.mnidom.net';
+const LEAF_CN = 'netmonitor.example.net';
 const NET_NAME = 'Network account';
 const SHOTS = process.env.P40A_SHOT_DIR ?? '';
 

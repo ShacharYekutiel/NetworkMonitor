@@ -37,7 +37,7 @@ NET_PROFILE = (
 NET_BASE_ROLE = f"arn:aws:iam::{NET_ACCT}:role/netmon-base"
 NET_OTHER_ROLE = f"arn:aws:iam::{NET_ACCT}:role/netmon-readonly"
 EXT_ID = "Qx7Rm2Lp9Vn4Tc8Wb1Zd6Hk3Js5Fg0Ay"
-LEAF_SI = "CN=netmonitor-bedrock.mnidom.net"
+LEAF_SI = "CN=netmonitor.example.net"
 STATIC_ARN = STATIC_USER
 
 
