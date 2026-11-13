@@ -236,6 +236,18 @@ current session; **the system never changes switch configuration**; all AWS feat
 and use read-only AWS permissions (S3 backups write only to their bucket prefix).
 
 Order (owner decision: the AWS VPC Flow Logs feature moved to the beginning):
+**Owner rule (2026-11-13): always offer every option and let the user choose.** NetworkMonitor is meant for
+different organisations, so a feature must not assume one organisation's layout. Where AWS (or a vendor) offers
+several ways, all of them are supported and selectable in the UI; nothing is hard-wired to "what we happen to use".
+For VPC Flow Logs this means, per flow-log source the admin adds:
+- **what is logged:** VPC, subnet, network interface (ENI), Transit Gateway and TGW attachment flow logs;
+- **where it is delivered:** S3 in the same account, S3 in another account (e.g. a central log-archive account, read
+  with its own assume-role ARN), or CloudWatch Logs; a Firehose stream that lands in S3 is read as S3;
+- **file format:** plain text (gzip) and Parquet; the default record format and custom formats (the field list is read
+  from the flow-log definition / file header); Hive-compatible prefixes and per-hour partitions on or off;
+- **scope:** any number of accounts and regions.
+(Parquet and Transit Gateway flow logs therefore move from "Later" into 4d.)
+
 16. **Shared AWS connection** (*Settings → AWS*; the 3b Roles Anywhere / access key moved there).
 17. **4d — AWS cloud view and VPC Flow Logs:** read-only inventory (VPCs, subnets, ENIs, SGs, NACLs, routes, TGW,
     DX connections/VIFs/gateways, endpoints) for several accounts/regions, cloud topology map, DX/VIF state sensors;
@@ -302,8 +314,8 @@ rather than in a parallel 1.3.x line. Each release is re-verified on a lab insta
 ## Later / ideas
 - Template editor in the UI.
 - Remote probes for multiple sites (phase 4b, deferred).
-- Phase 4 follow-ups: Transit Gateway flow logs, Parquet flow logs, SMS/voice paging, S3 event notifications (SQS)
-  instead of listing. (AWS change alerts and flow-threshold alerts were promoted into 4d above.)
+- Phase 4 follow-ups: SMS/voice paging, S3 event notifications (SQS) instead of listing, flow logs pushed by Firehose
+  to an HTTP endpoint. (AWS change alerts and flow-threshold alerts were promoted into 4d above.)
 - Phase 3 follow-ups: config-backup driver editor, Telnet (only if a device needs it), server-side PDF reports,
   Kerberos SSO on native Windows (SSPI), a flow worker process.
 - Phase 3b follow-ups: model summarisation of long conversations, Teams inbound questions (needs a reachable bot
