@@ -154,4 +154,30 @@ grep -q 'trust-anchor/0f0e-1"' "$T/pol2/rolesanywhere-trust-policy.json" || fail
 ! grep -rq '<[A-Z_]*>' "$T/pol2" || fail "placeholder left"
 ok "render-policies.py: us. and global. profiles, light model, trust policy, KB"
 
+# [1.4.1] --trust-anchor-id takes the bare id or the full ARN (used to render a doubled ARN);
+# region / account of the ARN are cross-checked; --cert-cn is validated and echoed
+ARN='arn:aws:rolesanywhere:eu-west-1:111122223333:trust-anchor/6f1c2d3e-0000-4a5b-8c7d-9e0f1a2b3c4d'
+WANT='"aws:SourceArn": "arn:aws:rolesanywhere:eu-west-1:111122223333:trust-anchor/6f1c2d3e-0000-4a5b-8c7d-9e0f1a2b3c4d"'
+render() { python3 -I "$PROD/aws/render-policies.py" --account 111122223333 --region us-east-1 \
+  --profile 'us.anthropic.claude-x-v1:0' "$@" >"$T/out" 2>&1; }
+render --ra-region eu-west-1 --trust-anchor-id "$ARN" --cert-cn nm.example.org --out "$T/pol3" || fail "render with ARN: $(cat "$T/out")"
+grep -qF "$WANT" "$T/pol3/rolesanywhere-trust-policy.json" || fail "ARN not reduced to the id"
+[[ "$(grep -o 'trust-anchor/' "$T/pol3/rolesanywhere-trust-policy.json" | wc -l)" == 1 ]] || fail "doubled ARN"
+grep -q '"aws:PrincipalTag/x509Subject/CN": "nm.example.org"' "$T/pol3/rolesanywhere-trust-policy.json" || fail "cert CN"
+grep -q 'expects certificate subject CN = nm.example.org' "$T/out" || fail "CN not echoed"
+render --ra-region eu-west-1 --trust-anchor-id 6f1c2d3e-0000-4a5b-8c7d-9e0f1a2b3c4d --out "$T/pol4" || fail "render with id"
+grep -qF "$WANT" "$T/pol4/rolesanywhere-trust-policy.json" || fail "bare id"
+render --trust-anchor-id "$ARN" --out "$T/pol5" && fail "region mismatch accepted"
+grep -q 'ARN is in region eu-west-1, but the Roles Anywhere region is us-east-1' "$T/out" || fail "region mismatch message: $(cat "$T/out")"
+render --ra-region eu-west-1 --trust-anchor-id "${ARN/111122223333/999988887777}" --out "$T/pol5" && fail "account mismatch accepted"
+grep -q 'ARN is in account 999988887777, but --account is 111122223333' "$T/out" || fail "account mismatch message"
+render --trust-anchor-id 'arn:aws:iam::111122223333:role/x' --out "$T/pol5" && fail "foreign ARN accepted"
+render --trust-anchor-id 'trust-anchor/abc' --out "$T/pol5" && fail "path accepted"
+for cn in 'CN=nm.example.org' 'nm.example.org, O=Mnidom' '*.example.org' ' nm.example.org' ''; do
+  render --ra-region eu-west-1 --trust-anchor-id "$ARN" --cert-cn "$cn" --out "$T/pol5" && fail "bad CN accepted: '$cn'"
+  grep -q -- '--cert-cn' "$T/out" || fail "bad CN message: '$cn'"
+done
+[[ ! -e $T/pol5 ]] || [[ -z "$(ls -A "$T/pol5")" ]] || fail "files written despite an error"
+ok "render-policies.py: trust anchor id or ARN (cross-checked), certificate CN validated and echoed"
+
 echo "all $pass checks passed"
