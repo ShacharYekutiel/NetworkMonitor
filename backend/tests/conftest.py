@@ -31,6 +31,33 @@ pytest_plugins = ["tests.fixtures_2b3_auth", "tests.fixtures_3b_agent"]  # [3b] 
 
 # [2b-1] coalescing window of the dependency cascade (0.5 s in production)
 __import__("netmon.services.dependencies", fromlist=["x"]).CASCADE_DEBOUNCE_S = 0.02
+
+
+def migration_head() -> str:
+    """[4] The migration head of this tree (phase-4 revision numbers are re-assigned at merge
+    time, so no test writes a number down)."""
+    from alembic.script import ScriptDirectory
+
+    from netmon.db.migrate import _alembic_config
+
+    head = ScriptDirectory.from_config(_alembic_config()).get_current_head()
+    assert head is not None
+    return str(head)
+
+
+def revision_of(placeholder: str) -> tuple[str, str]:
+    """[4] `(revision, down_revision)` of the phase-4 migration whose module declares
+    `PLACEHOLDER = placeholder` (e.g. "P4-1")."""
+    from alembic.script import ScriptDirectory
+
+    from netmon.db.migrate import _alembic_config
+
+    for rev in ScriptDirectory.from_config(_alembic_config()).walk_revisions():
+        if getattr(rev.module, "PLACEHOLDER", None) == placeholder:
+            return str(rev.revision), str(rev.down_revision)
+    raise LookupError(placeholder)
+
+
 requires_db = pytest.mark.skipif(not TEST_DATABASE_URL, reason="TEST_DATABASE_URL not set")
 
 TABLES = (
@@ -55,7 +82,8 @@ TABLES = (
     "assistant_conversations, assistant_messages, assistant_tool_calls, assistant_usage, "
     "assistant_artifacts, assistant_incidents, assistant_incident_members, "
     "assistant_note_targets, assistant_syslog_signatures, assistant_snmp_walks, "
-    "revoked_sessions"  # [1.4.1]
+    "revoked_sessions, "  # [1.4.1]
+    "aws_connections"  # [4] PR 4-0a
 )
 
 
@@ -216,6 +244,10 @@ async def clean(rt: Runtime, app: Any) -> AsyncIterator[None]:
         rt.alerts.sender = __import__("netmon.alerts.engine", fromlist=["x"]).send_to_channel
         rt.alerts._sent.clear()  # noqa: SLF001
     rt.cascade.invalidate()
+    rt.aws.invalidate()  # [4] credential chains of the removed connections
+    rt.aws.tests.clear()
+    if rt.assistant is not None:
+        rt.assistant.view = None
     rt.clock.set_offset(0)
     if rt.maintenance is not None:
         rt.maintenance.reset_state()

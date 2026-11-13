@@ -97,6 +97,10 @@ class Runtime:
         self.telegram_pollers: Any = None
         self.kiosk: Any = None
         self.assistant: Any = None  # [3b] netmon.assistant.service.AssistantService
+        # [4] shared AWS credential chains + configure-first test ids (netmon.aws.credcache)
+        from netmon.aws.credcache import AwsRuntime
+
+        self.aws: Any = AwsRuntime(self)
         self.ai_features: Any = None  # [3b] netmon.assistant.features.component.AiFeatures
         self.event_sensors: Any = None  # netmon.ingest.event_sensors.EventSensors
         self.flapping: Any = None  # netmon.ingest.flapping.FlapManager
@@ -327,6 +331,8 @@ class Runtime:
             await self.scheduler.stop()
         if self.alerts:
             await self.alerts.stop()
+        with contextlib.suppress(Exception):
+            await self.aws.aclose()  # [4] credential chains and their HTTP clients
         for t in self._tasks:
             t.cancel()
         for t in self._tasks:

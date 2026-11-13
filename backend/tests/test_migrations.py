@@ -15,11 +15,18 @@ from netmon.db.engine import make_engine
 from netmon.db.migrate import run_migrations
 from netmon.runtime import LockHeldError, Runtime
 from netmon.services import retention
-from tests.conftest import TEST_DATABASE_URL, _plain, db_url_for, make_settings, requires_db
+from tests.conftest import (
+    TEST_DATABASE_URL,
+    _plain,
+    db_url_for,
+    make_settings,
+    migration_head,
+    requires_db,
+)
 from tests.test_poller import _check_history
 
 pytestmark = requires_db
-HEAD = "0011"  # head after run_migrations(): ... 0010 3b -> 0011 v1.4.1
+HEAD = migration_head()  # head after run_migrations() ([4] numbers re-assigned at merge time)
 
 
 async def _tables(url: str) -> set[str]:

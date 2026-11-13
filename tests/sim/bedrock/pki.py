@@ -28,6 +28,8 @@ Files (PEM unless noted; keys PKCS#8 unencrypted unless noted):
     server.pem server.key           TLS server cert for localhost/127.0.0.1 (+ *.amazonaws.com names) by issuing CA
     server-bundle.pem               server + issuing CA (what a TLS server must present)
     trust.pem                       root + issuing (append to NETMON_EXTRA_CA_FILE so the backend trusts the mock)
+    [4] leaf-rsa.p7b / leaf-rsa.p7b.der   PKCS#7 bundle (leaf + issuing CA), PEM and DER (AD CS / certreq output)
+    [4] leaf-cn-space.pem/.key      CN "NetMonitor Server" (a space)    -> warning cn_not_source_identity_safe
 
 Importable: `make_pki(out_dir) -> dict` (the manifest; idempotent - existing manifest is reused).
 
@@ -48,7 +50,7 @@ from pathlib import Path
 from cryptography import x509
 from cryptography.hazmat.primitives import hashes, serialization
 from cryptography.hazmat.primitives.asymmetric import ec, rsa
-from cryptography.hazmat.primitives.serialization import pkcs12
+from cryptography.hazmat.primitives.serialization import pkcs7, pkcs12
 from cryptography.x509.oid import ExtendedKeyUsageOID, NameOID
 
 LEAF_CN = "netmonitor-bedrock.mnidom.net"
@@ -163,6 +165,11 @@ def make_pki(out_dir: str | Path) -> dict:
     w("leaf-rsa-bundle.pem", _pem(c_rsa) + _pem(iss))
     w("leaf-rsa.pfx", pkcs12.serialize_key_and_certificates(
         b"netmon-bedrock", k_rsa, c_rsa, [iss], serialization.BestAvailableEncryption(PFX_PASSWORD.encode())))
+
+    # [4] PKCS#7 bundles (PEM and DER) of the RSA leaf + issuing CA
+    w("leaf-rsa.p7b", pkcs7.serialize_certificates([c_rsa, iss], serialization.Encoding.PEM))
+    w("leaf-rsa.p7b.der", pkcs7.serialize_certificates([c_rsa, iss], serialization.Encoding.DER))
+    leaf("leaf-cn-space", _rsa(), cn="NetMonitor Server")
 
     k_ec = ec.generate_private_key(ec.SECP256R1())
     c_ec = leaf("leaf-ec", k_ec, serial=0x5678)

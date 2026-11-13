@@ -169,6 +169,8 @@ def verify_x509_request(method: str, host: str, raw_path: str, query: str, heade
             return False, "AccessDeniedException", "Unable to parse X-Amz-X509-Chain", info
     info["subject"] = leaf.subject.rfc4514_string()
     info["leaf_serial"] = str(leaf.serial_number)
+    cns = leaf.subject.get_attributes_for_oid(x509.oid.NameOID.COMMON_NAME)  # [4] source identity
+    info["leaf_cn"] = str(cns[0].value) if cns else None
     if a["key"] != str(leaf.serial_number):
         return False, "AccessDeniedException", (
             f"Credential serial {a['key']} does not match the certificate serial {leaf.serial_number} (decimal)"), info

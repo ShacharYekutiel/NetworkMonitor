@@ -25,7 +25,8 @@ CLEANUP_AFTER_DAYS = 30
 # paths a bearer token may never reach (a token cannot mint tokens or change users/passwords)
 # [3b] the assistant and the AI features are session-only (questions cost money and belong
 # to a person; api.md "[3b] Phase 3b contract")
-BARRED_PREFIXES = ("/api/auth/", "/api/users", "/api/tokens", "/api/assistant", "/api/incidents")
+BARRED_PREFIXES = ("/api/auth/", "/api/users", "/api/tokens", "/api/assistant", "/api/incidents",
+                   "/api/aws/")  # fmt: skip
 BARRED_PATHS = ("/api/users", "/api/tokens", "/api/device-templates/user")
 
 

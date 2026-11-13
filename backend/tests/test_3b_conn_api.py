@@ -1,7 +1,12 @@
 """[3b] Connection layer against the Bedrock mock (tests/sim/bedrock): feature registration and
 dependencies, settings + secrets, Test connection and the configure-first `test_id`, access
 key / Roles Anywhere (upload, PKCS#12, CSR) / default chain (IMDSv2), error mapping and the
-health state, usage caps, Knowledge Base, List models, access control, migration 0008."""
+health state, usage caps, Knowledge Base, List models, access control, migration 0008.
+
+[4] PR 4-0a: the authentication lives in the shared AWS connection "Default"
+(`/api/aws/connections`); the assistant settings carry the Bedrock fields and `connection_id` /
+`access`. The tests below create the connection first (`put_conn`) and send only the
+assistant fields to `/api/assistant/*`; the certificate endpoints are the connection's."""
 
 from __future__ import annotations
 
@@ -21,7 +26,8 @@ from cryptography.hazmat.primitives import hashes, serialization
 from netmon.assistant.errors import AssistantError
 from netmon.runtime import Runtime
 from netmon.services.features import FEATURES, PHASE3B_FEATURES
-from tests.conftest import TEST_DATABASE_URL, _plain, db_url_for, requires_db
+from tests.aws_helpers import split
+from tests.conftest import TEST_DATABASE_URL, _plain, db_url_for, migration_head, requires_db
 
 pytestmark = requires_db
 
@@ -83,6 +89,31 @@ def conn(mock: Any, mode: str = "access_key", **kw: Any) -> dict[str, Any]:
     return s
 
 
+async def put_conn(
+    c: httpx.AsyncClient,
+    mock: Any,
+    mode: str = "access_key",
+    *,
+    test_id: str | None = None,
+    **kw: Any,
+) -> dict[str, Any]:
+    """[4] Create or update the connection "Default" from the 1.4.x-shaped fields of `conn()`
+    (STS pointed at the mock) and return the assistant (Bedrock) fields."""
+    cf, af = split({**conn(mock, mode, **kw), "sts_endpoint_url": mock.url})
+    existing = [x for x in (await c.get("/api/aws/connections")).json() if x["name"] == "Default"]
+    if existing:
+        body = {**cf, **({"test_id": test_id} if test_id else {})}
+        r = await c.patch(f"/api/aws/connections/{existing[0]['id']}", json=body)
+    else:
+        r = await c.post("/api/aws/connections", json={**cf, "name": "Default"})
+    assert r.status_code in (200, 201), r.text
+    return af
+
+
+async def conn_id(c: httpx.AsyncClient) -> int:
+    return int((await c.get("/api/aws/connections")).json()[0]["id"])
+
+
 async def feats(c: httpx.AsyncClient, **kw: bool) -> dict[str, Any]:
     r = await c.put("/api/settings", json={f"feature_{k}_enabled": v for k, v in kw.items()})
     assert r.status_code == 200, r.text
@@ -103,8 +134,9 @@ async def enable(c: httpx.AsyncClient, settings: dict[str, Any]) -> dict[str, An
     return res
 
 
-def upload(c: httpx.AsyncClient, files: dict[str, Any]) -> Any:
-    return c.post("/api/assistant/cert", files=files)
+async def upload(c: httpx.AsyncClient, files: dict[str, Any]) -> Any:
+    cid = await conn_id(c)
+    return await c.post(f"/api/aws/connections/{cid}/cert", files=files)
 
 
 def pki_file(mock: Any, name: str) -> bytes:
@@ -176,11 +208,22 @@ async def test_settings_secrets_and_profiles(env: httpx.AsyncClient, mock: Any) 
     assert s["enabled"] is False and s["state"] == "disabled" and s["region"] == "us-east-1"
     assert s["recommended"] == {"region": "us-east-1", "profile_prefix": "us"}
     assert {p["scope"] for p in s["profile_scopes"]} >= {"global", "geo", "in_region"}
+    await feats(c, audit=True)
+    # [4] a 1.4.x authentication field is refused with its loc
     r = await c.put("/api/assistant/settings", json=conn(mock))
+    assert r.status_code == 422 and r.json()["error"]["code"] == "validation_error"
+    locs = {tuple(d["loc"]) for d in r.json()["error"]["details"]}
+    assert ("body", "auth_mode") in locs and ("body", "secret_access_key") in locs
+    assert "moved to Settings → AWS" in r.text
+    r = await c.put("/api/assistant/settings", json=await put_conn(c, mock))
     assert r.status_code == 200, r.text
     s = r.json()
-    assert s["secret_access_key"] is None and s["secret_access_key_set"] is True
-    assert not any(k.endswith("_enc") for k in s) and SECRET not in r.text
+    assert "secret_access_key" not in s and "auth_mode" not in s and "certificate" not in s
+    assert s["connection_id"] is None and s["access"]["mode"] == "direct"
+    assert s["connection"]["name"] == "Default" and s["connection"]["is_default"] is True
+    cn = (await c.get("/api/aws/connections")).json()[0]
+    assert cn["secret_access_key"] is None and cn["secret_access_key_set"] is True
+    assert not any(k.endswith("_enc") for k in cn) and SECRET not in str(cn)
     assert s["profile"]["scope"] == "geo" and s["profile"]["geography"] == "us"
     # owner option: il-central-1 + global. profile -> warning, not refused
     r = await c.put(
@@ -200,28 +243,37 @@ async def test_settings_secrets_and_profiles(env: httpx.AsyncClient, mock: Any) 
         {"endpoint_url": "ftp://x"},
         {"internal_cidrs": ["10.0.0.0/33"]},
         {"bogus": 1},
+        {"connection_id": 999},
+        {"access": {"mode": "assume_role", "role_arn": "nope"}},
     ):
         assert (await c.put("/api/assistant/settings", json=bad)).status_code == 422, bad
-    r = await c.put("/api/assistant/settings", json={"secret_access_key": ""})
+    cid = await conn_id(c)
+    for bad in ({"access_key_id": "nope"}, {"ra_session_seconds": 10}, {"region": "Europe"}):
+        assert (await c.patch(f"/api/aws/connections/{cid}", json=bad)).status_code == 422, bad
+    r = await c.patch(f"/api/aws/connections/{cid}", json={"secret_access_key": ""})
     assert r.json()["secret_access_key_set"] is False
-    rows = (await c.get("/api/audit", params={"action": "assistant.settings_update"})).json()
-    assert SECRET not in str(rows)
+    for action in ("assistant.settings_update", "aws_connection.create", "aws_connection.update"):
+        rows = (await c.get("/api/audit", params={"action": action})).json()
+        assert rows["items"] and SECRET not in str(rows), action
 
 
 async def test_access_key_test_and_enable(
     rt: Runtime, app: Any, env: httpx.AsyncClient, mock: Any
 ) -> None:
     c = env
-    settings = conn(mock)
+    settings = await put_conn(c, mock)
     r = await c.post("/api/assistant/test", json={"settings": settings})
     res = r.json()
     assert res["ok"] and res["test_id"] and res["via"] == "direct", res
-    assert [s["step"] for s in res["steps"]] == ["config", "credentials", "endpoint", "converse"]
+    assert [s["step"] for s in res["steps"]] == [
+        "config", "credentials", "identity", "endpoint", "converse"
+    ]  # fmt: skip
     assert all(s["ok"] for s in res["steps"]) and res["usage"]["input_tokens"] > 0
+    assert [s["hop"] for s in res["steps"]] == [None, 0, 0, None, None]
     log = mock.requests("converse_stream")
     assert log and log[-1]["sig"]["ok"] and log[-1]["forced_tool"] == "ping"
     # nothing was saved by the test; enabling with audit OFF -> 422 feature_dependency
-    assert (await c.get("/api/assistant/settings")).json()["secret_access_key_set"] is False
+    assert (await c.get("/api/assistant/settings")).json()["model_id"] == ""
     r = await c.put(
         "/api/assistant/settings", json={**settings, "enabled": True, "test_id": res["test_id"]}
     )
@@ -307,40 +359,29 @@ async def test_rate_limit(env: httpx.AsyncClient, mock: Any) -> None:
     ],
 )
 async def test_test_error_modes(env: httpx.AsyncClient, mock: Any, mode: str, code: str) -> None:
+    settings = await put_conn(env, mock)
     mock.mode(mode, "converse")
-    res = (await env.post("/api/assistant/test", json={"settings": conn(mock)})).json()
+    res = (await env.post("/api/assistant/test", json={"settings": settings})).json()
     assert not res["ok"] and res["test_id"] is None
     assert res["steps"][-1]["step"] == "converse" and res["steps"][-1]["error_code"] == code
     assert res["error"]["code"] == code
 
 
 async def test_bad_secret_and_network(env: httpx.AsyncClient, mock: Any) -> None:
-    res = (
-        await env.post(
-            "/api/assistant/test",
-            json={
-                "settings": conn(mock, secret_access_key="wrong-secret-0000000000000000000000000")
-            },
-        )
-    ).json()
+    settings = await put_conn(env, mock, secret_access_key="wrong-secret-0000000000000000000000000")
+    res = (await env.post("/api/assistant/test", json={"settings": settings})).json()
     assert res["error"]["code"] == "aws_auth_failed", res
-    res = (
-        await env.post(
-            "/api/assistant/test", json={"settings": conn(mock, endpoint_url="http://127.0.0.1:9")}
-        )
-    ).json()
+    assert res["steps"][-1]["step"] == "identity"  # [4] STS sees the wrong secret first
+    settings = await put_conn(env, mock, endpoint_url="http://127.0.0.1:9")
+    res = (await env.post("/api/assistant/test", json={"settings": settings})).json()
     assert res["steps"][-1]["step"] == "endpoint" and res["error"]["code"] == "aws_network"
-    res = (
-        await env.post(
-            "/api/assistant/test",
-            json={"settings": conn(mock, access_key_id=None, secret_access_key="")},
-        )
-    ).json()
+    settings = await put_conn(env, mock, access_key_id=None, secret_access_key="")
+    res = (await env.post("/api/assistant/test", json={"settings": settings})).json()
     assert res["steps"][0]["step"] == "config" and not res["steps"][0]["ok"]
 
 
 async def test_live_errors_update_health(rt: Runtime, env: httpx.AsyncClient, mock: Any) -> None:
-    await enable(env, conn(mock))
+    await enable(env, await put_conn(env, mock))
     mock.mode("access_denied", "converse", times=1)
     req = {
         "messages": [{"role": "user", "content": [{"text": "x"}]}],
@@ -369,6 +410,7 @@ async def test_roles_anywhere_upload_and_session_cache(
 ) -> None:
     c = env
     await feats(c, audit=True)
+    settings = await put_conn(c, mock, "roles_anywhere")
     r = await upload(
         c,
         {
@@ -378,6 +420,7 @@ async def test_roles_anywhere_upload_and_session_cache(
     )
     assert r.status_code == 200, r.text
     info = r.json()
+    assert info["subject_cn"] == mock.pki["leaf_cn"] and info["source_identity"].startswith("CN=")
     assert (
         info["serial_decimal"] == "4660"
         and info["key_type"] == "rsa"
@@ -413,9 +456,8 @@ async def test_roles_anywhere_upload_and_session_cache(
         },
     )
     assert r.status_code == 200 and r.json()["key_type"] == "ec", r.text
-    s = (await c.get("/api/assistant/settings")).json()
+    s = (await c.get("/api/aws/connections")).json()[0]
     assert s["certificate"]["key_type"] == "ec" and s["certificate"]["chain"]
-    settings = conn(mock, "roles_anywhere")
     res = await enable(c, settings)
     assert "source roles_anywhere" in res["steps"][1]["detail"]
     sessions = mock.requests("create_session")
@@ -431,29 +473,36 @@ async def test_roles_anywhere_upload_and_session_cache(
     await rt.assistant.client.converse(req)
     assert len(mock.requests("create_session")) == n + 1  # one session for the live client
     # deleting the certificate while ON in roles_anywhere mode is refused
-    assert (await c.delete("/api/assistant/cert")).status_code == 409
+    cid = await conn_id(c)
+    assert (await c.delete(f"/api/aws/connections/{cid}/cert")).status_code == 409
     # untrusted certificate -> rolesanywhere_failed with a hint
     mock.mode("untrusted_cert", "sessions")
     res = (await c.post("/api/assistant/test", json={"settings": settings})).json()
     assert (
         res["error"]["code"] == "rolesanywhere_failed" and "trust anchor" in res["error"]["message"]
     )
-    rows = (await c.get("/api/audit", params={"action": "assistant.cert_upload"})).json()["items"]
+    hints = [h["code"] for h in res["steps"][-1]["hints"]]
+    assert res["steps"][-1]["step"] == "credentials" and hints == ["ra_untrusted_cert"], res
+    rows = (await c.get("/api/audit", params={"action": "aws_connection.cert_upload"})).json()[
+        "items"
+    ]
     assert rows and "PRIVATE" not in str(rows)
 
 
 async def test_csr_generate_and_upload(env: httpx.AsyncClient, mock: Any) -> None:
     c = env
     await feats(c, audit=True)
+    settings = await put_conn(c, mock, "roles_anywhere")
+    cid = await conn_id(c)
     r = await c.post(
-        "/api/assistant/cert/csr",
+        f"/api/aws/connections/{cid}/cert/csr",
         json={"common_name": "netmonitor-bedrock.mnidom.net", "key_type": "ec"},
     )
     assert r.status_code == 200, r.text
     assert "BEGIN CERTIFICATE REQUEST" in r.json()["pem"] and "PRIVATE" not in r.text
-    d = await c.get("/api/assistant/cert/csr")
-    assert d.status_code == 200 and "attachment" in d.headers["content-disposition"]
-    s = (await c.get("/api/assistant/settings")).json()
+    d = await c.get(f"/api/aws/connections/{cid}/cert/csr")
+    assert d.status_code == 200 and "netmonitor-default.csr" in d.headers["content-disposition"]
+    s = (await c.get(f"/api/aws/connections/{cid}")).json()
     assert s["csr"]["subject"] == "CN=netmonitor-bedrock.mnidom.net"
     # the internal CA (the mock's issuing CA) signs the CSR
     csr = x509.load_pem_x509_csr(d.content)
@@ -478,18 +527,16 @@ async def test_csr_generate_and_upload(env: httpx.AsyncClient, mock: Any) -> Non
     r = await upload(c, {"file": ("issued.pem", cert.public_bytes(serialization.Encoding.PEM))})
     assert r.status_code == 200, r.text
     assert r.json()["serial_decimal"] == str(0xBEEF)
-    s = (await c.get("/api/assistant/settings")).json()
+    s = (await c.get(f"/api/aws/connections/{cid}")).json()
     assert s["csr"] is None and s["certificate"]["serial_decimal"] == str(0xBEEF)
-    res = (
-        await c.post("/api/assistant/test", json={"settings": conn(mock, "roles_anywhere")})
-    ).json()
+    res = (await c.post("/api/assistant/test", json={"settings": settings})).json()
     assert res["ok"], res
-    assert (await c.delete("/api/assistant/cert/csr")).status_code == 204
-    assert (await c.get("/api/assistant/cert/csr")).status_code == 404
+    assert (await c.delete(f"/api/aws/connections/{cid}/cert/csr")).status_code == 204
+    assert (await c.get(f"/api/aws/connections/{cid}/cert/csr")).status_code == 404
     acts = {
         r["action"] for r in (await c.get("/api/audit", params={"page_size": 200})).json()["items"]
     }
-    assert {"assistant.csr_create", "assistant.cert_upload"} <= acts
+    assert {"aws_connection.csr_create", "aws_connection.cert_upload"} <= acts
 
 
 async def test_default_chain_imds(
@@ -497,16 +544,13 @@ async def test_default_chain_imds(
 ) -> None:
     monkeypatch.setenv("AWS_EC2_METADATA_SERVICE_ENDPOINT", mock.url)
     monkeypatch.delenv("AWS_EC2_METADATA_DISABLED", raising=False)
-    res = (
-        await env.post("/api/assistant/test", json={"settings": conn(mock, "default_chain")})
-    ).json()
+    settings = await put_conn(env, mock, "default_chain")
+    res = (await env.post("/api/assistant/test", json={"settings": settings})).json()
     assert res["ok"], res
     assert "source imds" in res["steps"][1]["detail"]
     assert mock.requests("imds_token")[-1]["ttl"] == 21600
     monkeypatch.setenv("AWS_EC2_METADATA_DISABLED", "true")
-    res = (
-        await env.post("/api/assistant/test", json={"settings": conn(mock, "default_chain")})
-    ).json()
+    res = (await env.post("/api/assistant/test", json={"settings": settings})).json()
     assert res["error"]["code"] == "aws_auth_failed" and "environment" in res["error"]["message"]
 
 
@@ -581,7 +625,7 @@ async def test_knowledge_base_and_models(rt: Runtime, env: httpx.AsyncClient, mo
     r = await c.put("/api/assistant/knowledge", json={"enabled": True})
     assert r.status_code == 422 and r.json()["error"]["code"] == "assistant_test_required"
     assert (await c.post("/api/assistant/knowledge/test", json={})).status_code == 409
-    await enable(c, conn(mock, endpoint_url=mock.url))
+    await enable(c, await put_conn(c, mock, endpoint_url=mock.url))
     await c.put("/api/assistant/knowledge", json={"endpoint_url": mock.url})
     res = (await c.post("/api/assistant/knowledge/test", json={})).json()
     assert res["ok"] and res["results"] >= 1 and res["test_id"], res
@@ -607,16 +651,26 @@ async def test_ssrf_blocked_endpoints_reject_before_outbound(
     mock Bedrock sees no traffic. 169.254.169.254 and metadata.google.internal are blocked
     even in test mode (loopback is not, so the harness keeps using 127.0.0.1)."""
     c = env
-    await enable(c, conn(mock, endpoint_url=mock.url))
+    settings = await put_conn(c, mock, endpoint_url=mock.url)
+    await enable(c, settings)
     await c.put("/api/assistant/knowledge", json={"knowledge_base_id": "QAKBTEST01"})
     before = len(mock.requests())  # count only the blocked calls below
+    meta = "http://169.254.169.254"
     blocked: list[tuple[str, dict[str, Any]]] = [
-        ("/api/assistant/models", {"settings": conn(mock, endpoint_url="https://169.254.169.254")}),
-        ("/api/assistant/test", {"settings": conn(mock, endpoint_url="http://169.254.169.254")}),
+        ("/api/assistant/models", {"settings": {**settings, "endpoint_url": meta}}),
+        ("/api/assistant/test", {"settings": {**settings, "endpoint_url": meta}}),
         (
-            "/api/assistant/test",
-            {"settings": conn(mock, proxy_mode="custom", proxy_url="http://169.254.169.254:80")},
-        ),
+            "/api/aws/connections/test",
+            {
+                "connection": {
+                    "name": "x",
+                    "auth_mode": "default_chain",
+                    "region": "us-east-1",
+                    "proxy_mode": "custom",
+                    "proxy_url": meta + ":80",
+                }
+            },
+        ),  # fmt: skip
         (
             "/api/assistant/knowledge/test",
             {"settings": {"endpoint_url": "https://metadata.google.internal"}},
@@ -624,8 +678,17 @@ async def test_ssrf_blocked_endpoints_reject_before_outbound(
     ]
     for path, body in blocked:
         r = await c.post(path, json=body)
+        if path == "/api/aws/connections/test":  # [4] the Test result: the config step fails
+            assert r.status_code == 200 and r.json()["steps"][0]["step"] == "config", r.text
+            assert r.json()["error"]["code"] == "validation_error", r.text
+            continue
         assert r.status_code == 422, (path, r.text)
         assert r.json()["error"]["code"] == "validation_error", r.text
+    cid = await conn_id(c)
+    r = await c.patch(
+        f"/api/aws/connections/{cid}", json={"proxy_mode": "custom", "proxy_url": meta + ":80"}
+    )
+    assert r.status_code == 422 and r.json()["error"]["code"] == "validation_error", r.text
     assert len(mock.requests()) == before, "a blocked endpoint must not reach the network"
 
 
@@ -674,35 +737,44 @@ async def test_session_token_settings(
 ) -> None:
     c = env
     await feats(c, audit=True)
-    r = await c.put("/api/assistant/settings", json=temp_conn(mock, session_token=ASIA_TOKEN))
-    assert r.status_code == 200, r.text
+    await put_conn(c, mock, access_key_id=ASIA_ID, secret_access_key=ASIA_SECRET,
+                   session_token=ASIA_TOKEN)  # fmt: skip
+    cid = await conn_id(c)
+    r = await c.get(f"/api/aws/connections/{cid}")
     s = r.json()
     assert s["session_token"] is None and s["session_token_set"] is True
     assert s["session_token_unreadable"] is False and s["access_key_id"] == ASIA_ID
     assert ASIA_TOKEN not in r.text and not any(k.endswith("_enc") for k in s)
     assert "temporary_credentials" in s["warnings"]
-    rows = (await c.get("/api/audit", params={"action": "assistant.settings_update"})).json()
-    assert ASIA_TOKEN not in str(rows) and "session_token_enc" in str(rows)
+    rows = (await c.get("/api/audit", params={"action": "aws_connection.create"})).json()
+    assert ASIA_TOKEN not in str(rows) and "session_token_set" in str(rows)
     # omitted keeps; too long / invalid characters -> 422; "" clears
-    r = await c.put("/api/assistant/settings", json={"model_id_light": MODEL})
+    r = await c.patch(f"/api/aws/connections/{cid}", json={"name": "Default"})
     assert r.json()["session_token_set"] is True
     for bad in ("A" * 4097, "abc\r\nX-Evil: 1"):
-        r = await c.put("/api/assistant/settings", json={"session_token": bad})
+        r = await c.patch(f"/api/aws/connections/{cid}", json={"session_token": bad})
         assert r.status_code == 422, bad
-    r = await c.put("/api/assistant/settings", json={"session_token": ""})
+    r = await c.patch(f"/api/aws/connections/{cid}", json={"session_token": ""})
     s = r.json()
     assert s["session_token_set"] is False and "temporary_credentials" not in s["warnings"]
     # a token stored under another secret.key is reported unreadable (re-enter)
-    await c.put("/api/assistant/settings", json={"session_token": ASIA_TOKEN})
+    await c.patch(f"/api/aws/connections/{cid}", json={"session_token": ASIA_TOKEN})
+    from netmon.api.aws_connections import connection_out
+    from netmon.aws import connections as conns
+
     monkeypatch.setattr(rt, "secret_key", "another-secret-key-0000000000000000")
-    s = rt.assistant.settings_out()  # (the API session itself depends on secret.key)
+    async with rt.sessionmaker() as session:
+        row = await conns.get_row(session, cid)
+        assert row is not None
+        s = await connection_out(rt, session, row)  # (the API session depends on secret.key)
     assert s["session_token_set"] is True and s["session_token_unreadable"] is True
 
 
 async def test_temporary_key_needs_session_token(env: httpx.AsyncClient, mock: Any) -> None:
     _register_session(mock)
+    settings = await put_conn(env, mock, access_key_id=ASIA_ID, secret_access_key=ASIA_SECRET)
     n = len(mock.requests())
-    res = (await env.post("/api/assistant/test", json={"settings": temp_conn(mock)})).json()
+    res = (await env.post("/api/assistant/test", json={"settings": settings})).json()
     assert not res["ok"] and res["test_id"] is None
     assert [s["step"] for s in res["steps"]] == ["config", "credentials"]
     assert res["steps"][0]["ok"] and res["steps"][1]["error_code"] == "aws_session_token_required"
@@ -710,7 +782,8 @@ async def test_temporary_key_needs_session_token(env: httpx.AsyncClient, mock: A
     assert "ASIA" in res["error"]["message"] and "session token" in res["error"]["message"]
     assert len(mock.requests()) == n  # failed before any AWS call
     # an AKIA key without a token is unaffected
-    res = (await env.post("/api/assistant/test", json={"settings": conn(mock)})).json()
+    settings = await put_conn(env, mock)
+    res = (await env.post("/api/assistant/test", json={"settings": settings})).json()
     assert res["ok"] and "temporary_credentials" not in res["warnings"], res
 
 
@@ -719,32 +792,35 @@ async def test_session_token_sent_and_expired(
 ) -> None:
     c = env
     _register_session(mock)
-    settings = temp_conn(mock, session_token=ASIA_TOKEN)
+    settings = await put_conn(c, mock, access_key_id=ASIA_ID, secret_access_key=ASIA_SECRET,
+                              session_token=ASIA_TOKEN)  # fmt: skip
+    cid = await conn_id(c)
     res = (await c.post("/api/assistant/test", json={"settings": settings})).json()
     assert res["ok"], res
     assert "temporary_credentials" in res["warnings"]
     sig = mock.requests("converse_stream")[-1]["sig"]
     assert sig["ok"] and sig["access_key_id"] == ASIA_ID
     assert "x-amz-security-token" in sig["signed_headers"] and "warning" not in sig
-    # a test of token A does not unlock token B (the token is a connection field)
+    # a test of token A does not unlock token B (the token is part of the connection hash)
     await feats(c, audit=True)
+    await c.patch(f"/api/aws/connections/{cid}", json={"session_token": ASIA_TOKEN[:-2] + "QQ"})
     r = await c.put(
-        "/api/assistant/settings",
-        json={**settings, "session_token": ASIA_TOKEN[:-2] + "QQ", "enabled": True,
-              "test_id": res["test_id"]},
-    )  # fmt: skip
+        "/api/assistant/settings", json={**settings, "enabled": True, "test_id": res["test_id"]}
+    )
     assert r.status_code == 422 and r.json()["error"]["code"] == "assistant_test_required"
+    await c.patch(f"/api/aws/connections/{cid}", json={"session_token": ASIA_TOKEN})
     r = await c.put(
         "/api/assistant/settings", json={**settings, "enabled": True, "test_id": res["test_id"]}
     )
     assert r.status_code == 200 and r.json()["state"] == "ready", r.text
-    # while ON, a new token needs a new test
-    r = await c.put("/api/assistant/settings", json={"session_token": ASIA_TOKEN + "QQ=="})
-    assert r.status_code == 422 and r.json()["error"]["code"] == "assistant_test_required"
+    # while ON, a new token needs a new test (of the connection)
+    r = await c.patch(f"/api/aws/connections/{cid}", json={"session_token": ASIA_TOKEN + "QQ=="})
+    assert r.status_code == 422 and r.json()["error"]["code"] == "test_required"
+    assert r.json()["error"]["details"] == [{"connection_id": cid, "used_by": ["assistant"]}]
     # the token expires -> aws_token_expired (distinct message), health state error
     _register_session(mock, expired=True)
     res = (await c.post("/api/assistant/test", json={"settings": settings})).json()
-    assert not res["ok"] and res["steps"][-1]["step"] == "converse"
+    assert not res["ok"] and res["steps"][-1]["step"] == "identity"  # [4] STS first
     assert res["error"]["code"] == "aws_token_expired", res
     assert "session token has expired" in res["error"]["message"]
     with pytest.raises(AssistantError) as e:
@@ -806,7 +882,9 @@ async def test_migration_0008_up_down_up(mode: str, rt: Runtime) -> None:
             pytest.skip("TimescaleDB not available")
         conn = await asyncpg.connect(_plain(url))
         try:
-            assert await conn.fetchval("SELECT version_num FROM alembic_version") == "0011"
+            assert (
+                await conn.fetchval("SELECT version_num FROM alembic_version") == migration_head()
+            )
             assert tables <= await present(conn)
             uid = await conn.fetchval(
                 "INSERT INTO users (username, password_hash, role) VALUES ('user1', 'x', 'admin') "
@@ -875,7 +953,9 @@ async def test_migration_0008_up_down_up(mode: str, rt: Runtime) -> None:
         await run_migrations(engine)
         conn = await asyncpg.connect(_plain(url))
         try:
-            assert await conn.fetchval("SELECT version_num FROM alembic_version") == "0011"
+            assert (
+                await conn.fetchval("SELECT version_num FROM alembic_version") == migration_head()
+            )
             assert tables <= await present(conn)
         finally:
             await conn.close()

@@ -15,7 +15,7 @@ import pytest
 from sqlalchemy import text
 
 from netmon.runtime import Runtime
-from tests.conftest import _plain, make_device, make_sensor
+from tests.conftest import _plain, make_device, make_sensor, migration_head
 from tests.conftest import requires_db as _requires_db
 from tests.ingest_helpers import send_udp, src, v2c_trap, wait_for
 from tests.test_2b3_ingest import features, ports
@@ -437,7 +437,7 @@ async def test_migration_0008_up_down_up(mode: str, rt: Runtime) -> None:
         await timescale.bootstrap_status(engine, 90, disabled=mode == "fallback")
         c = await asyncpg.connect(url)
         try:
-            assert await c.fetchval("SELECT version_num FROM alembic_version") == "0011"
+            assert await c.fetchval("SELECT version_num FROM alembic_version") == migration_head()
             gid = await c.fetchval("INSERT INTO groups (name) VALUES ('g') RETURNING id")
             did = await c.fetchval(
                 "INSERT INTO devices (group_id, name, host) VALUES ($1, 'd', '10.0.0.1') "
@@ -482,7 +482,7 @@ async def test_migration_0008_up_down_up(mode: str, rt: Runtime) -> None:
         await run_migrations(engine)
         c = await asyncpg.connect(url)
         try:
-            assert await c.fetchval("SELECT version_num FROM alembic_version") == "0011"
+            assert await c.fetchval("SELECT version_num FROM alembic_version") == migration_head()
             assert await c.fetchval("SELECT impact FROM sensors LIMIT 1") == "critical"
         finally:
             await c.close()

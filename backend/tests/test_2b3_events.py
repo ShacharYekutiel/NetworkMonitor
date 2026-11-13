@@ -19,7 +19,14 @@ from netmon.db import timescale
 from netmon.db.engine import make_engine
 from netmon.db.migrate import run_migrations
 from netmon.runtime import Runtime
-from tests.conftest import TEST_DATABASE_URL, _plain, db_url_for, make_device, make_sensor
+from tests.conftest import (
+    TEST_DATABASE_URL,
+    _plain,
+    db_url_for,
+    make_device,
+    make_sensor,
+    migration_head,
+)
 from tests.conftest import requires_db as _requires_db
 from tests.ingest_helpers import send_udp, src, v2c_trap, wait_for
 from tests.test_2b3_ingest import features, has, ports
@@ -533,7 +540,9 @@ async def test_migration_0006_up_down_up(mode: str, rt: Runtime) -> None:
         await timescale.bootstrap_ingest(engine, enabled, 30, 30)
         conn = await asyncpg.connect(_plain(url))
         try:
-            assert await conn.fetchval("SELECT version_num FROM alembic_version") == "0011"
+            assert (
+                await conn.fetchval("SELECT version_num FROM alembic_version") == migration_head()
+            )
             assert await conn.fetchval("SELECT count(*) FROM event_rules WHERE NOT enabled") == 7
             if mode == "timescale":
                 ht = await conn.fetchval(
@@ -629,7 +638,9 @@ async def test_migration_0006_up_down_up(mode: str, rt: Runtime) -> None:
         await run_migrations(engine)
         conn = await asyncpg.connect(_plain(url))
         try:
-            assert await conn.fetchval("SELECT version_num FROM alembic_version") == "0011"
+            assert (
+                await conn.fetchval("SELECT version_num FROM alembic_version") == migration_head()
+            )
             assert await conn.fetchval("SELECT count(*) FROM event_rules") == 7
         finally:
             await conn.close()

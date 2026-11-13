@@ -23,6 +23,7 @@ from netmon.api import (  # [3]
     assistant_settings,  # [3b]
     audit,
     auth,
+    aws_connections,  # [4] shared AWS connections
     chatack,
     configbackup,
     dashboard,
@@ -66,7 +67,23 @@ log = logging.getLogger("netmon.app")
 MUTATING = {"POST", "PUT", "PATCH", "DELETE"}
 SETUP_EXEMPT_PREFIXES = ("/api/setup", "/api/auth/")
 # [3] multipart/form-data uploads; [3b] Roles Anywhere certificate
-UPLOAD_PATHS = {"/api/sso/kerberos/keytab", "/api/assistant/cert"}
+UPLOAD_PATHS = {"/api/sso/kerberos/keytab"}
+
+
+def is_upload_path(path: str) -> bool:
+    """[4] multipart uploads: the keytab and the Roles Anywhere certificate of a connection
+    (`/api/aws/connections/{id}/cert`)."""
+    if path in UPLOAD_PATHS:
+        return True
+    parts = path.split("/")
+    return (
+        len(parts) == 6
+        and parts[1:4] == ["api", "aws", "connections"]
+        and parts[4].isdigit()
+        and parts[5] == "cert"
+    )
+
+
 SETUP_EXEMPT_PATHS = {"/api/health", "/api/settings/public", "/api/setup"}
 
 PLACEHOLDER = """<!doctype html>
@@ -195,7 +212,7 @@ def create_app(
                 and not origin_matches(origin, request.headers, request.url.scheme, trust)
             ):
                 return error_response(403, "forbidden", "Cross-origin request rejected")
-            if path.startswith("/api/") and path not in UPLOAD_PATHS:
+            if path.startswith("/api/") and not is_upload_path(path):
                 length = request.headers.get("content-length")
                 has_body = (length is not None and length.strip() not in ("", "0")) or (
                     "transfer-encoding" in request.headers
@@ -247,7 +264,8 @@ def create_app(
         kiosk.router,  # [3]
         chatack.router,  # [3]
         assistant_chat.router,  # [3b]
-        assistant_settings.router,  # [3b] connection, test, certificate, usage, knowledge
+        assistant_settings.router,  # [3b] connection, test, usage, knowledge
+        aws_connections.router,  # [4] shared AWS connections (PR 4-0a)
         assistant_features.router,  # [3b] explain, incidents, diffs, digests, drafts
         timeline.router,
         testclock.router,
