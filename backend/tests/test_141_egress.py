@@ -268,6 +268,7 @@ def tls_target(tmp_path_factory: pytest.TempPathFactory) -> Iterator[tuple[int, 
     handler = type("Handler", (_Target,), {"seen": [], "redirect_to": None})
     server = ThreadingHTTPServer(("127.0.0.1", 0), handler)
     sctx = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
+    sctx.minimum_version = ssl.TLSVersion.TLSv1_2
     sctx.load_cert_chain(d / "c.pem", d / "k.pem")
     sctx.sni_callback = lambda sock, name, c: sni.append(name or "")
     server.socket = sctx.wrap_socket(server.socket, server_side=True)

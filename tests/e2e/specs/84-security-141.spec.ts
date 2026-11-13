@@ -3,6 +3,7 @@
 // (dashboard, device, sensor with a chart, events, topology, logs, notifications, settings,
 // reports, account, the NOC kiosk page, the /ack page, the login page in Hebrew); the security
 // headers are present; a logout kills the cookie server-side; the Security settings card saves.
+import { randomUUID } from 'node:crypto';
 import { expect, request as pwRequest, test, type BrowserContext, type Page } from '@playwright/test';
 import { ADMIN, Api, BASE_URL, HTTP_TARGET_URL, apiAs, defaultGroupId, loginViaApi, uid, waitForSensor } from '../lib/helpers';
 
@@ -75,7 +76,7 @@ test('security headers on the SPA, the API and error answers', async () => {
   }
   // the index.html the server ships has exactly one inline script, and its hash is in the policy
   const html = await (await anon.get('/')).text();
-  expect(html.match(/<script>/g)?.length ?? 0).toBeLessThanOrEqual(1);
+  expect(html.match(/<script\s*>/gi)?.length ?? 0).toBeLessThanOrEqual(1);
   await anon.dispose();
 });
 
@@ -252,7 +253,7 @@ test('pentest reproduction: SSRF targets are refused on save (metadata always; l
 });
 
 test('account page: "Sign out everywhere" also ends the session in the other browser', async ({ browser }) => {
-  const user = { username: uid('sec141').replace(/[^a-z0-9]/g, '').slice(0, 20), password: 'Everywhere-pass-1' };
+  const user = { username: `sec141${randomUUID().replace(/-/g, '').slice(0, 12)}`, password: 'Everywhere-pass-1' };
   await api.post('/api/users', { ...user, role: 'viewer' });
   const a = await browser.newContext();
   const b = await browser.newContext();

@@ -121,7 +121,7 @@ def inline_script_hashes(html: str) -> tuple[str, ...]:
     """CSP hash sources of the inline <script> blocks of a page (the SPA's index.html has one:
     the theme bootstrap). Scripts with a `src` are covered by 'self'."""
     out: list[str] = []
-    for m in re.finditer(r"<script(?P<attrs>[^>]*)>(?P<body>.*?)</script>", html, re.S | re.I):
+    for m in re.finditer(r"<script(?P<attrs>[^>]*)>(?P<body>.*?)</script\s*>", html, re.S | re.I):
         if re.search(r"\bsrc\s*=", m.group("attrs"), re.I) or not m.group("body").strip():
             continue
         out.append(script_hash(m.group("body")))

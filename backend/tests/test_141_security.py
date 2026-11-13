@@ -399,7 +399,8 @@ def test_csp_builder_and_inline_script_hashes() -> None:
     pol = security_svc.policy_from({"frame_ancestors": ["https://ok.example", "x; script-src *"]})
     assert pol.frame_ancestors == ("https://ok.example",)
     docs = security_svc.security_headers(pol, csp=csp, https=False, path="/api/docs")
-    assert "cdn.jsdelivr.net" in docs["Content-Security-Policy"]
+    sources = docs["Content-Security-Policy"].replace(";", " ").split()
+    assert "https://cdn.jsdelivr.net" in sources
     assert docs["X-Frame-Options"] == "DENY"
 
 
