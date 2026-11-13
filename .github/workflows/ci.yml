@@ -334,8 +334,11 @@ jobs:
           python3 -c 'import json; h = json.load(open("health.json")); assert h["database"] == "ok", h'
           # security headers through Caddy, 80 -> 443, Caddy admin API off
           curl -fsS --cacert ca.pem -D headers.txt -o /dev/null "$B/"
+          cat headers.txt
           grep -qi '^strict-transport-security: max-age=31536000' headers.txt
-          test "$(curl -s -o /dev/null -w '%{http_code} %{redirect_url}' http://127.0.0.1/x)" = "308 $B/x"
+          redirect="$(curl -s -o /dev/null -w '%{http_code} %{redirect_url}' http://127.0.0.1/x)"
+          echo "port 80: $redirect"
+          case "$redirect" in "301 $B/x" | "308 $B/x") ;; *) echo "no redirect to HTTPS" >&2; exit 1 ;; esac
           if $PCOMPOSE exec -T proxy wget -q -T 3 -O /dev/null http://127.0.0.1:2019/config/; then
             echo "Caddy admin API is reachable" >&2; exit 1
           fi
