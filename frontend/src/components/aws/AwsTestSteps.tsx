@@ -48,16 +48,13 @@ export function HintItem({ h }: { h: AwsHint }) {
     <li className="space-y-1" data-hint={h.code}>
       <p dir="auto">{text}</p>
       {values.length > 0 && (
-        <dl
-          className="grid grid-cols-[auto_1fr] gap-x-2 gap-y-0.5 text-[11px]"
-          aria-label={t('aws.test.values')}
-        >
+        <dl className="space-y-0.5 text-[11px]" aria-label={t('aws.test.values')}>
           {values.map(([k, v]) => (
-            <div key={k} className="contents">
+            <div key={k} className="flex flex-wrap items-baseline gap-x-2">
               <dt className="font-mono text-slate-500" dir="ltr">
                 {k}
               </dt>
-              <dd dir="ltr" className="break-all text-start font-mono" data-value={k}>
+              <dd dir="ltr" className="min-w-0 break-all font-mono" data-value={k}>
                 {v}
               </dd>
             </div>

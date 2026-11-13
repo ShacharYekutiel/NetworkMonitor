@@ -271,7 +271,7 @@ export function AwsConnectionsCard({ assistantOn }: { assistantOn: boolean }) {
                       )}
                     </td>
                     <td className={cx(td, 'text-end')}>
-                      <div className="flex flex-wrap justify-end gap-1">
+                      <div className="flex justify-end gap-1 whitespace-nowrap">
                         <Button size="sm" onClick={() => setEditing(c.id)} data-testid="aws-edit">
                           {t('common.edit')}
                         </Button>

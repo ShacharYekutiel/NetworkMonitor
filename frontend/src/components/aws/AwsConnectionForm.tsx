@@ -430,7 +430,7 @@ export function AwsConnectionForm({
                   );
                 return (
                   <div key={i} className="space-y-0.5" data-override={i}>
-                    <div className="grid grid-cols-[7rem_8rem_1fr_auto] items-center gap-2 max-sm:grid-cols-2">
+                    <div className="grid grid-cols-[10rem_8rem_1fr_auto] items-center gap-2 max-sm:grid-cols-2">
                       <Select
                         value={o.service}
                         aria-label={t('aws.form.overrideService')}
