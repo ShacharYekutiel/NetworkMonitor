@@ -17,7 +17,7 @@ test.describe.configure({ mode: 'default' });
 test.skip(!PHASE3B, 'phase-3b Bedrock mock not running');
 
 const IP = '127.0.0.147';
-const V3_IP = '127.0.0.148'; // [maint-1.4] SNMPv3 authNoPriv agent (user netmon, SHA)
+const V3_IP = '127.0.0.155'; // [maint-1.4] SNMPv3 authNoPriv agent (user netmon, SHA); .148 is spec 76's
 let api: Api;
 let agent: ChildProcess | null = null;
 let dev: any;

@@ -4,7 +4,7 @@
     backend/.venv/bin/python tests/sim/snmp_agent.py --port 11161
     backend/.venv/bin/python tests/sim/snmp_agent.py --host 127.0.0.21 --port 1161 \
         --data tests/sim/discovery/opnsense            # Phase 2a discovery lab (see tests/sim/lab.sh)
-    backend/.venv/bin/python tests/sim/snmp_agent.py --host 127.0.0.148 --port 1161 \
+    backend/.venv/bin/python tests/sim/snmp_agent.py --host 127.0.0.155 --port 1161 \
         --v3-user netmon --v3-auth-key NetmonAuth2026  # + an SNMPv3 authNoPriv (SHA) user
 
 Default: community `public` (v1/v2c), data tests/sim/snmp. The device "netmon-sim" exposes:
