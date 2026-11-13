@@ -1788,7 +1788,8 @@
       "syslog": "Syslog",
       "traps": "Traps",
       "unknown": "Unknown sources",
-      "rules": "Rules"
+      "rules": "Rules",
+      "digest": "Digest"
     },
     "range": "Time range",
     "preset": {

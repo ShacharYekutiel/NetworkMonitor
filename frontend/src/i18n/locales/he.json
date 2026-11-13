@@ -1816,7 +1816,8 @@
       "syslog": "Syslog",
       "traps": "מלכודות",
       "unknown": "מקורות לא מוכרים",
-      "rules": "כללים"
+      "rules": "כללים",
+      "digest": "תקציר"
     },
     "range": "טווח זמן",
     "preset": {
