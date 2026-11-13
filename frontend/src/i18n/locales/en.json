@@ -3760,6 +3760,20 @@
       "failed": "Walk failed",
       "cancelled": "Walk cancelled"
     },
+    "outcome": {
+      "ok": "complete",
+      "truncated": "value limit reached",
+      "timeout": "time budget ran out (partial)",
+      "error": "failed",
+      "skipped": "not walked"
+    },
+    "walkError": {
+      "auth_failed": "The device rejected the SNMP credentials (wrong password or key, unknown SNMPv3 user, security level or access). Check the device's SNMP settings in NetworkMonitor.",
+      "unreachable": "The device did not answer SNMP: it is unreachable, SNMP is off, or the community is wrong (agents do not answer a wrong community; some do not answer wrong SNMPv3 keys either).",
+      "timeout": "The device answered too slowly: a subtree ran out of its time budget. The values collected so far are kept.",
+      "snmp_error": "The device answered with an SNMP error."
+    },
+    "walkErrorDetail": "Device response:",
     "varbinds": "{{n}} values",
     "cancelWalk": "Cancel walk",
     "templateId": "Template ID (optional)",

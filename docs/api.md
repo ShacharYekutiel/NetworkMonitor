@@ -2479,7 +2479,20 @@ type RuleDraft = { kind: "alert_rule" | "event_rule";
 // `program` becomes `programs: [...]`, `text_regex` is coerced to a boolean.
 type SnmpWalk = { id: number; device_id: number; status: "running" | "ok" | "partial" | "failed" | "cancelled";
   subtrees: string[]; counts: Record<string, number>; total: number; error: string | null;
+  // [maint-1.4] per-subtree outcome in walk order (standard subtrees first, own time budget each; architecture
+  // § 14.8.7); [] for walks stored before. error_code: why the walk (first unfinished subtree) did not finish;
+  // `error` is the device's / SNMP library's own text (English).
+  outcomes: { subtree: string;             // an OID, or "enterprise" when sysObjectID could not be read
+    status: "ok" | "truncated" | "timeout" | "error" | "skipped"; count: number;
+    error_code: WalkErrorCode | null; error: string | null }[];
+  error_code: WalkErrorCode | null;
   started_at: string; finished_at: string | null; varbinds?: [string, string, string][] };
+type WalkErrorCode = "auth_failed"   // the device rejected the credentials (SNMPv3 wrong digest / unknown user /
+                                     // security level / decryption, authorizationError, noAccess) — stops the walk
+  | "unreachable"                    // no answer at all (down, SNMP off, wrong v1/v2c community) — stops the walk
+                                     // when nothing was collected yet
+  | "timeout"                        // a subtree ran out of its time budget (what it collected is kept)
+  | "snmp_error";                    // any other SNMP error
 type TemplateDraft = { walk_id: number; yaml: string; valid: boolean;
   errors: { path: string; error: string }[]; warnings: string[]; notes: string; repair_rounds: number;
   // [3b owner] as RuleDraft: the model's {cannot_draft, reason} (notes that are not about a device template, nothing

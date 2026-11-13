@@ -3493,8 +3493,20 @@ Unless stated otherwise the model is `model_id`; "light" = `model_id_light` when
   IF-MIB `ifTable`/`ifXTable` first 8 rows, ENTITY-SENSOR `1.3.6.1.2.1.99.1.1`, custom OIDs ≤ 8).
 - **Bounded read-only walk** (admin-initiated, job, `POST /api/assistant/template-drafts/walks`): the device's
   effective SNMP credentials (never sent anywhere), existing pysnmp walk functions (GETBULK max-repetitions 10,
-  GETNEXT for v1), ≤ 5000 varbinds total, ≤ 2000 per subtree, ≤ 60 s, ≤ 8 subtrees, 1 walk per device at a time,
-  3 walks globally. **Never walked:** `1.3.6.1.6.3.15` (USM users), `1.3.6.1.6.3.18` (communities),
+  GETNEXT for v1), ≤ 5000 varbinds total, ≤ 2000 per subtree, ≤ 8 subtrees, 1 walk per device at a time,
+  3 walks globally. **Time `[maint-1.4]`:** every subtree has its own budget — 20 s for a standard (`1.3.6.1.2.1.*`)
+  subtree, 45 s for a vendor one (the enterprise subtree, vendor OIDs) — within a 90 s cap for the whole walk (was one
+  shared 60 s budget: a huge vendor subtree such as hh3c starved the standard subtrees and the walk reported a
+  timeout). The standard subtrees are walked first, the enterprise subtree last (its PEN taken from the walked
+  `sysObjectID.0`, else a GET). A subtree that runs out of time keeps what it collected; each subtree gets an
+  outcome `ok` / `truncated` (varbind cap) / `timeout` / `error` / `skipped`, and the walk is `ok` (all ok or
+  truncated), `partial` (values collected, something did not finish) or `failed` (nothing collected). **Real SNMP
+  errors:** an SNMP failure is classified `auth_failed` (the device rejected the credentials: SNMPv3 wrong digest /
+  unknown user / security level / decryption, `authorizationError`, `noAccess`), `unreachable` (no answer at all —
+  for v1/v2c also a wrong community) or `snmp_error`; `auth_failed`, or `unreachable` before anything was
+  collected, stops the walk (the remaining subtrees are `skipped`, not retried with the same keys). The walk carries
+  `error_code` + the device's own text; the wizard shows a localized explanation (en/he) and the text.
+  **Never walked:** `1.3.6.1.6.3.15` (USM users), `1.3.6.1.6.3.18` (communities),
   `1.3.6.1.6.3.16` (VACM), `1.3.6.1.2.1.4.21`/`.24` (route tables), `1.3.6.1.2.1.4.22`/`.35` (ARP/neighbour),
   `1.3.6.1.2.1.17.4`/`.7` (FDB) — volume and privacy. Stored 7 days (`assistant_snmp_walks`).
 - **Compaction before the model (pure `templates.compact_walk`):** OIDs with type and value (strings ≤ 64 chars,

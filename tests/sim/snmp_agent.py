@@ -4,6 +4,8 @@
     backend/.venv/bin/python tests/sim/snmp_agent.py --port 11161
     backend/.venv/bin/python tests/sim/snmp_agent.py --host 127.0.0.21 --port 1161 \
         --data tests/sim/discovery/opnsense            # Phase 2a discovery lab (see tests/sim/lab.sh)
+    backend/.venv/bin/python tests/sim/snmp_agent.py --host 127.0.0.148 --port 1161 \
+        --v3-user netmon --v3-auth-key NetmonAuth2026  # + an SNMPv3 authNoPriv (SHA) user
 
 Default: community `public` (v1/v2c), data tests/sim/snmp. The device "netmon-sim" exposes:
   - SNMPv2-MIB system (sysUpTime grows in real time)
@@ -61,6 +63,10 @@ def main() -> int:
     p.add_argument("--host", default="127.0.0.1", help="bind address (any 127.0.0.x works on Linux)")
     p.add_argument("--data", default=str(HERE / "snmp"), help="directory with <community>.snmprec files")
     p.add_argument("--community", default=None, help="community for the readiness probe (default: first .snmprec)")
+    # [maint-1.4] optional SNMPv3 USM user (authNoPriv; v1/v2c communities keep working for the probe)
+    p.add_argument("--v3-user", default=None, help="SNMPv3 user (with --v3-auth-key)")
+    p.add_argument("--v3-auth-proto", default="SHA", help="MD5, SHA, SHA256, ...")
+    p.add_argument("--v3-auth-key", default=None)
     a = p.parse_args()
 
     exe = shutil.which("snmpsim-command-responder") or str(
@@ -80,6 +86,8 @@ def main() -> int:
         f"--cache-dir={cache}",
         f"--agent-udpv4-endpoint={a.host}:{a.port}",
     ]
+    if a.v3_user:
+        args += [f"--v3-user={a.v3_user}", f"--v3-auth-proto={a.v3_auth_proto}", f"--v3-auth-key={a.v3_auth_key}"]
     if hasattr(os, "geteuid") and os.geteuid() == 0:
         shutil.chown(cache, "nobody")
         args += ["--process-user=nobody", "--process-group=nogroup"]
