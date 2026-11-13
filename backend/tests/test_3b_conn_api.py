@@ -643,6 +643,14 @@ async def test_redact_internal_ips_defaults_true(rt: Runtime, admin: httpx.Async
     async with rt.sessionmaker() as s:
         cfg = await acfg.load(s)
     assert cfg["redact_internal_ips"] is True and cfg["region"] == "eu-west-1"
+    # the AI features read the row through features.common (their own defaults): same answer
+    from netmon.assistant.features import common
+
+    async with rt.sessionmaker() as s:
+        a = await common.assistant_settings(s)
+    assert a["redact_internal_ips"] is True
+    key = "redact_internal_ips"
+    assert common.ASSISTANT_DEFAULTS[key] is acfg.DEFAULT_ASSISTANT[key]
 
 
 # ------------------------------------------------- temporary credentials (ASIA + session token)
