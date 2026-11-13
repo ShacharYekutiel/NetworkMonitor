@@ -347,7 +347,11 @@ export const endpoints = {
     api.patch<{ user: User }>('/auth/me', body),
   login: (username: string, password: string) =>
     api.post<{ user: User }>('/auth/login', { username, password }, { skipAuthRedirect: true }),
-  logout: () => api.post<void>('/auth/logout', undefined, { skipAuthRedirect: true }),
+  /** [1.4.1] ends this session server-side; `everywhere` ends every session of the user */
+  logout: (everywhere = false) =>
+    api.post<void>('/auth/logout', everywhere ? { everywhere: true } : undefined, {
+      skipAuthRedirect: true,
+    }),
   changePassword: (current_password: string, new_password: string) =>
     api.post<void>('/auth/change-password', { current_password, new_password }),
 

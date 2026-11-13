@@ -10,6 +10,7 @@ import {
 } from 'echarts/components';
 import { CanvasRenderer } from 'echarts/renderers';
 import { useTranslation } from 'react-i18next';
+import { escapeHtml, historyTooltipHtml } from '../lib/html';
 import type { HistoryPoint, NmEvent, Status } from '../api/types';
 import { useTheme } from '../hooks/theme';
 import { formatValue } from '../lib/format';
@@ -96,10 +97,16 @@ export function HistoryChart({
             const lo = low[i]?.[1];
             const b = band[i]?.[1];
             const when = new Date(ps[0].axisValue).toLocaleString(locale);
-            if (a === null || a === undefined) return when;
             const hi =
               lo !== null && lo !== undefined && b !== null && b !== undefined ? lo + b : null;
-            return `${when}<br/>${t('chart.avg')}: <b>${formatValue(a, unit)}</b><br/>${t('chart.min')}: ${formatValue(lo, unit)}<br/>${t('chart.max')}: ${formatValue(hi, unit)}`;
+            // [1.4.1] escaped: the unit of a custom sensor channel is free text
+            return historyTooltipHtml({
+              when,
+              avg: a === null || a === undefined ? null : formatValue(a, unit),
+              min: formatValue(lo, unit),
+              max: formatValue(hi, unit),
+              labels: { avg: t('chart.avg'), min: t('chart.min'), max: t('chart.max') },
+            });
           },
         },
         xAxis: {
@@ -169,7 +176,7 @@ export function HistoryChart({
                   animation: false,
                   label: { show: false },
                   tooltip: {
-                    formatter: (p: { data?: { name?: string } }) => p.data?.name ?? '',
+                    formatter: (p: { data?: { name?: string } }) => escapeHtml(p.data?.name ?? ''),
                   },
                   data: marks.map((m) => ({
                     xAxis: m.t,

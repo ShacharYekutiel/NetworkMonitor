@@ -587,6 +587,14 @@ export type Settings = {
   port_mac_retention_days: number;
   /** [2b-2] */
   reverse_dns: boolean;
+  /** [1.4.1] webhook / Teams / HTTP-sensor targets on this server (loopback) are allowed */
+  egress_allow_loopback?: boolean;
+  /** [1.4.1] absolute lifetime of a login session, hours (1–720; AD / OIDC: at most 12) */
+  session_max_age_h?: number;
+  /** [1.4.1] failed logins per client address in 5 minutes, all user names; 0 = off */
+  login_ip_max_failures?: number;
+  /** [1.4.1] origins that may embed the app in a frame, besides the app itself */
+  frame_ancestors?: string[];
 } & Partial<Settings2b3> &
   Partial<Settings3> &
   Partial<Settings3b>;
