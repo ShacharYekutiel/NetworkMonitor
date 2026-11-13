@@ -158,6 +158,14 @@ async def _walk(admin: httpx.AsyncClient, rt: Any, device_id: int, presets: list
     return w
 
 
+@pytest.fixture
+def real_walker(rt: Any, monkeypatch: pytest.MonkeyPatch) -> None:
+    """The runtime is shared by the session and other tests replace the walker: use the real one."""
+    tpl = rt.ai_features.templates
+    monkeypatch.setattr(tpl, "walker", tmod.typed_walk)
+    monkeypatch.setattr(tpl, "sys_object_id", None)
+
+
 def by_subtree(w: dict[str, Any]) -> dict[str, dict[str, Any]]:
     return {o["subtree"]: o for o in w["outcomes"]}
 
@@ -209,6 +217,7 @@ async def test_slow_vendor_subtree_does_not_starve_the_standard_ones(
 
 
 @requires_db
+@pytest.mark.usefixtures("real_walker")
 async def test_comware_snmpsim_outcomes_ok_truncated_timeout(
     rt: Any,
     admin: httpx.AsyncClient,
@@ -249,6 +258,7 @@ async def test_comware_snmpsim_outcomes_ok_truncated_timeout(
 
 
 @requires_db
+@pytest.mark.usefixtures("real_walker")
 async def test_wrong_v3_password_reports_auth_failure(
     rt: Any, admin: httpx.AsyncClient, asst: Any, v3_agent: Any
 ) -> None:
@@ -283,6 +293,7 @@ async def test_wrong_v3_password_reports_auth_failure(
 
 
 @requires_db
+@pytest.mark.usefixtures("real_walker")
 async def test_unreachable_device_reports_unreachable(
     rt: Any, admin: httpx.AsyncClient, asst: Any
 ) -> None:
