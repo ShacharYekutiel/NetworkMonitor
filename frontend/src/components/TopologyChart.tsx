@@ -9,6 +9,7 @@ import { escapeHtml } from '../lib/html';
 import type { LayoutPosition, TopologyGraph } from '../api/types';
 import { buildGraph, forceRepulsion, isRealDrag, type GraphNodeDatum } from '../lib/topology';
 import { chartTokens } from '../lib/chartTokens';
+import { cx } from './ui';
 
 echarts.use([GraphChart, TooltipComponent, CanvasRenderer]);
 
@@ -44,6 +45,7 @@ export function TopologyChart({
   onLinkClick,
   onBackgroundClick,
   resetToken,
+  className,
 }: {
   graph: TopologyGraph;
   dark: boolean;
@@ -59,6 +61,8 @@ export function TopologyChart({
   onBackgroundClick: () => void;
   /** changes when the layout was reset: forces a fresh force layout */
   resetToken: number;
+  /** size of the canvas (default: 60% of the viewport height, at least 22rem) */
+  className?: string;
 }) {
   const ref = useRef<HTMLDivElement>(null);
   const chart = useRef<echarts.ECharts | null>(null);
@@ -255,7 +259,7 @@ export function TopologyChart({
     <div
       dir="ltr"
       ref={ref}
-      className="h-[60vh] min-h-[22rem] w-full touch-none"
+      className={cx(className ?? 'h-[60vh] min-h-[22rem]', 'w-full touch-none')}
       role="img"
       aria-label={t('topology.title')}
     />

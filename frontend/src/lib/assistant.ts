@@ -7,6 +7,7 @@ import type {
   AuthMode,
   Features,
   StreamEvent,
+  UsageReport,
 } from '../api/types';
 import type { RawSseEvent } from './sse';
 
@@ -620,4 +621,21 @@ export function rememberChatModel(userId: number | null | undefined, id: string)
   } catch {
     /* storage unavailable (private mode, blocked): not remembered */
   }
+}
+
+// --- usage chart ---------------------------------------------------------------
+
+/** Every day of `month` ("YYYY-MM"), with the reported values (zero on days without usage). */
+export function monthDays(month: string, byDay: UsageReport['by_day']): UsageReport['by_day'] {
+  const [y, m] = month.split('-').map(Number);
+  const n = y && m ? new Date(Date.UTC(y, m, 0)).getUTCDate() : 0;
+  const have = new Map(byDay.map((d) => [d.day, d]));
+  const out: UsageReport['by_day'] = [];
+  for (let i = 1; i <= n; i++) {
+    const day = `${month}-${String(i).padStart(2, '0')}`;
+    out.push(have.get(day) ?? { day, questions: 0, tokens: 0, cost_estimate: null });
+  }
+  // A day outside the month (should not happen) is still shown rather than dropped.
+  for (const d of byDay) if (!d.day.startsWith(month)) out.push(d);
+  return out;
 }

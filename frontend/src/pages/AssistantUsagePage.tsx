@@ -3,7 +3,7 @@ import { keepPreviousData, useQuery } from '@tanstack/react-query';
 import { useTranslation } from 'react-i18next';
 import * as echarts from 'echarts/core';
 import { BarChart } from 'echarts/charts';
-import { GridComponent, TooltipComponent } from 'echarts/components';
+import { GridComponent, LegendComponent, TooltipComponent } from 'echarts/components';
 import { CanvasRenderer } from 'echarts/renderers';
 import { endpoints3b, qk3b } from '../api/endpoints3b';
 import { usageTooltipHtml } from '../lib/html';
@@ -27,14 +27,15 @@ import {
   compactTokens,
   formatCost,
   friendlyModelName,
+  monthDays,
   monthKey,
   pctTone,
   shiftMonth,
 } from '../lib/assistant';
 
-echarts.use([BarChart, GridComponent, TooltipComponent, CanvasRenderer]);
+echarts.use([BarChart, GridComponent, LegendComponent, TooltipComponent, CanvasRenderer]);
 
-function DailyBars({ r }: { r: UsageReport }) {
+function DailyBars({ r, month }: { r: UsageReport; month: string }) {
   const ref = useRef<HTMLDivElement>(null);
   const chart = useRef<echarts.ECharts | null>(null);
   const { dark } = useTheme();
@@ -54,22 +55,37 @@ function DailyBars({ r }: { r: UsageReport }) {
   useEffect(() => {
     const c = chart.current;
     if (!c) return;
+    // Same chart language as HistoryChart / logs Histogram: token colours, mono axis labels,
+    // a legend on top, the grid sized by its labels.
     const tk = chartTokens(dark);
     const text = tk.inkSubtle;
     const grid = tk.chartGrid;
+    const mono = { fontFamily: tk.fontMono, fontSize: 10.5 };
+    const days = monthDays(month, r.by_day);
+    const name = t('usage.tokens');
     c.setOption(
       {
         animation: false,
         textStyle: { color: text, fontFamily: tk.fontSans },
-        grid: { left: 56, right: 16, top: 16, bottom: 32 },
+        grid: { left: 8, right: 16, top: 32, bottom: 8, containLabel: true },
+        legend: {
+          top: 0,
+          left: 0,
+          icon: 'roundRect',
+          itemWidth: 12,
+          itemHeight: 8,
+          textStyle: { color: tk.inkMuted, fontSize: 12 },
+          data: [name],
+        },
         tooltip: {
           trigger: 'axis',
           backgroundColor: tk.surfaceRaised,
           borderColor: tk.border,
           textStyle: { color: tk.ink, fontSize: 12 },
+          axisPointer: { type: 'shadow', shadowStyle: { color: tk.surfaceSunken, opacity: 0.6 } },
           formatter: (params: unknown) => {
             const p = (params as { dataIndex: number }[])[0];
-            const d = r.by_day[p?.dataIndex ?? 0];
+            const d = days[p?.dataIndex ?? 0];
             if (!d) return '';
             // [1.4.1] escaped (the currency is a free-text setting)
             return usageTooltipHtml({
@@ -83,33 +99,32 @@ function DailyBars({ r }: { r: UsageReport }) {
         },
         xAxis: {
           type: 'category',
-          data: r.by_day.map((d) => d.day.slice(8)),
+          data: days.map((d) => String(Number(d.day.slice(8)))),
           axisLine: { lineStyle: { color: grid } },
-          axisLabel: { color: text, fontFamily: tk.fontMono, fontSize: 10.5 },
+          axisTick: { show: false },
+          axisLabel: { color: text, ...mono, hideOverlap: true },
         },
         yAxis: {
           type: 'value',
+          minInterval: 1,
           splitLine: { lineStyle: { color: grid } },
-          axisLabel: {
-            color: text,
-            fontFamily: tk.fontMono,
-            fontSize: 10.5,
-            formatter: (v: number) => compactTokens(v),
-          },
+          axisLabel: { color: text, ...mono, formatter: (v: number) => compactTokens(v) },
         },
         series: [
           {
+            name,
             type: 'bar',
-            barMaxWidth: 24,
-            data: r.by_day.map((d) => d.tokens),
-            itemStyle: { color: tk.chart1 },
+            barMaxWidth: 18,
+            data: days.map((d) => d.tokens),
+            itemStyle: { color: tk.chart1, borderRadius: [2, 2, 0, 0] },
+            emphasis: { itemStyle: { color: tk.accent } },
           },
         ],
       },
       true,
     );
-  }, [r, dark, t]);
-  return <div ref={ref} className="h-56 w-full" dir="ltr" data-testid="usage-chart" />;
+  }, [r, month, dark, t]);
+  return <div ref={ref} className="h-64 w-full" dir="ltr" data-testid="usage-chart" />;
 }
 
 function Tile({
@@ -232,7 +247,7 @@ export function AssistantUsagePage() {
             />
           </div>
           <Card title={t('usage.perDay')}>
-            {r.by_day.length ? <DailyBars r={r} /> : <Empty>{t('usage.none')}</Empty>}
+            {r.by_day.length ? <DailyBars r={r} month={month} /> : <Empty>{t('usage.none')}</Empty>}
           </Card>
           <div className="grid grid-cols-1 gap-4 xl:grid-cols-2">
             <Card title={t('usage.perUser')} bodyClassName="p-0">

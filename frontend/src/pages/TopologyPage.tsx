@@ -18,6 +18,7 @@ import { DeviceFormModal, GroupSelect } from '../components/EntityForms';
 import { LinkIcon, PlusIcon, RefreshIcon, TrashIcon, WrenchIcon, XIcon } from '../components/icons';
 import { StatusBadge, StatusDot } from '../components/Status';
 import { TopologyChart } from '../components/TopologyChart';
+import { useFillHeight } from '../hooks/fillHeight';
 import { useToast } from '../components/toast';
 import {
   Button,
@@ -763,6 +764,8 @@ export function TopologyPage() {
         )
       : undefined;
   const running = !!data && (data.refresh_running || data.last_refresh?.status === 'running');
+  // The map canvas fills the viewport under the header (never shorter than 22rem).
+  const canvas = useFillHeight<HTMLElement>(352, [!!data]);
 
   const onNode = (n: GraphNodeDatum) => {
     if (n.kind === 'device') navigate(`/devices/${n.refId}`);
@@ -855,7 +858,11 @@ export function TopologyPage() {
       {data && (
         <div className="grid grid-cols-1 items-start gap-4 lg:grid-cols-[minmax(0,1fr)_320px]">
           {/* The map canvas: surface-sunken with a dot grid (design system: TopologyNode). */}
-          <section className="min-w-0 overflow-hidden rounded-lg border border-line bg-surface-sunken bg-[radial-gradient(var(--border)_1px,transparent_1px)] [background-size:16px_16px]">
+          <section
+            ref={canvas.ref}
+            style={canvas.height ? { height: canvas.height } : undefined}
+            className="flex min-w-0 flex-col overflow-hidden rounded-lg border border-line bg-surface-sunken bg-[radial-gradient(var(--border)_1px,transparent_1px)] [background-size:16px_16px]"
+          >
             {data.nodes.length ? (
               <TopologyChart
                 graph={data}
@@ -869,6 +876,7 @@ export function TopologyPage() {
                 onLinkClick={(id) => setSel({ kind: 'link', id })}
                 onBackgroundClick={() => setSel(null)}
                 resetToken={resetToken}
+                className="min-h-0 flex-1"
               />
             ) : (
               <Empty>{t('topology.empty')}</Empty>
