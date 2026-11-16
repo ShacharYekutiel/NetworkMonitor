@@ -205,7 +205,9 @@ async def test_ports_lab(rt, admin: httpx.AsyncClient, agents, ptr_file) -> None
         "power_class": 3,
         "power_w": None,
     }
-    assert p1["mac_count"] == 1 and p1["connected_kind"] == "client" and not p1["alert"]
+    assert p1["mac_count"] == 1 and not p1["alert"]
+    # [premium] one VMware MAC -> a virtual machine / server, from the OUI
+    assert (p1["connected_kind"], p1["connected_kind_source"]) == ("server", "oui")
     m = p1["first_mac"]
     assert m["mac"] == "00:50:56:01:00:01" and m["ip"] == "10.0.0.11"
     assert m["hostname"] == "pc-reception.lan" and m["vendor"] == "VMware, Inc."
@@ -225,7 +227,7 @@ async def test_ports_lab(rt, admin: httpx.AsyncClient, agents, ptr_file) -> None
     assert m4["mac"] == "da:a1:19:00:00:04" and m4["locally_administered"] is True
     assert m4["vendor"] is None and m4["ip"] == "10.0.0.14"  # from the legacy ARP host
     assert p[4]["poe"]["power_class"] == 4
-    assert (p[5]["state"], p[5]["connected_kind"]) == ("admin_down", "none")
+    assert (p[5]["state"], p[5]["connected_kind"]) == ("admin_down", None)
     assert p[5]["poe"]["admin_enabled"] is False and p[5]["poe"]["detection"] == "disabled"
     assert (p[6]["state"], p[6]["speed_bps"], p[6]["duplex"]) == ("down", None, "unknown")
     assert (p[7]["mode"], p[7]["pvid"], p[7]["untagged_vlans"]) == ("access", 10, [10])
@@ -240,7 +242,7 @@ async def test_ports_lab(rt, admin: httpx.AsyncClient, agents, ptr_file) -> None
         [10, 20],
     )
     assert (p9["is_uplink"], p9["uplink_reason"], p9["mac_count"]) == (True, "mac_count", 7)
-    assert p9["macs"] == [] and p9["first_mac"] is None and p9["connected_kind"] == "client"
+    assert p9["macs"] == [] and p9["first_mac"] is None and p9["connected_kind"] == "unknown"
     assert p9["speed_bps"] == 10_000_000_000 and p9["poe"] is None
     p10 = p[10]
     assert (p10["is_uplink"], p10["uplink_reason"], p10["connected_kind"], p10["trunk"]) == (

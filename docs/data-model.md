@@ -1629,7 +1629,7 @@ API shapes: [api.md § Phase 2b-2](api.md#2b-2-phase-2b-2-contract). Components 
 | **[2b-2]** `port_mode` | `access`, `trunk` |
 | **[2b-2]** `duplex` | `full`, `half`, `unknown` |
 | **[2b-2]** `poe_detection` | `disabled`, `searching`, `delivering`, `fault`, `test`, `other_fault` |
-| **[2b-2]** `connected_kind` | `none`, `client`, `ap`, `switch` (computed) |
+| **[2b-2]** `connected_kind` | `none`, `client`, `ap`, `switch` (computed) — **[premium]** replaced by `computer`, `phone`, `ap`, `printer`, `camera`, `server`, `switch`, `router`, `unknown` or NULL ([§ Premium](#premium-premium-ui-additions)) |
 | **[2b-2]** `uplink_reason` | `neighbor`, `mac_count` (computed) |
 | **[2b-2]** `health_category` | `cpu`, `memory`, `temperature`, `poe`, `psu`, `fan` (computed) |
 | **[2b-2]** `source_state` | `ok`, `empty`, `error`, `skipped`, `unmapped` |
@@ -1910,7 +1910,7 @@ linked interface sensor, `settings.uplink_mac_threshold`.
   `sensor` (the linked `snmp_interface` sensor is `down` or `warning`), `errors`
   (`in_errors_delta + out_errors_delta > 0`, NULLs as 0), `poe_fault` (`poe_detection` ∈ {`fault`,
   `other_fault`}).
-- **connected_kind**: state ≠ `up` → `none`; primary neighbour is a device of class `switch` or `router` →
+- **connected_kind** (2b-2; **replaced in [premium]**, see [§ Premium UI additions](#premium-premium-ui-additions)): state ≠ `up` → `none`; primary neighbour is a device of class `switch` or `router` →
   `switch`; class `access_point` → `ap`; otherwise → `client` (also for a MAC-count uplink and for unmanaged
   LLDP neighbours such as phones).
 - **trunk** = `mode = trunk`.
@@ -4312,3 +4312,84 @@ stored value has to be encrypted or decrypted.
 - `downgrade()`: the exact 1.4.1 form — plaintext restored where only the encrypted copy exists (after
   `remove-plaintext`), every `*_enc` / `_sealed` removed, `secrets_plaintext_removed` deleted. A value that has no
   plaintext and cannot be decrypted with this `secret.key` stops the downgrade with an error; nothing is changed.
+
+# **[premium]** Premium UI additions
+
+API: [api.md § Premium UI additions](api.md#premium-premium-ui-additions). No feature toggle; nothing here is ever
+sent to a device.
+
+## [premium] Connected device kind (computed on read, pure `netmon.ports.kind.derive`)
+`Port.connected_kind` / `connected_kind_source` of a port, first rule that gives a kind wins:
+
+1. **Manual override**: a `port_kind_overrides` row of (device, ifIndex) → that kind, source `manual`. Returned
+   whatever the port state (a labelled port that is down keeps its label).
+2. Port state ≠ `up` → NULL / NULL.
+3. **Primary neighbour** (the 2b-2 rule, LAG members inherit their LAG's): source = the link source (`lldp`, `cdp`;
+   a manual topology link → `manual`).
+   - a monitored device → by its effective class: `switch` → `switch`, `router` → `router`, `access_point` → `ap`,
+     `printer` → `printer`, `server` / `nas` → `server`, `workstation` → `computer`. Class `unknown`: `switch` when
+     the port is a LAG, a LAG member or a trunk (an uplink to a managed device), else go on with rule 4.
+   - an unmanaged neighbour → its `topology_neighbors.capabilities`, by priority `telephone` → `phone`,
+     `wlan_ap` → `ap`, `bridge` → `switch`, `router` / `docsis` → `router`, `station` → `computer` (a phone also
+     announces `bridge`; an L3 switch `bridge` + `router`); else its `sys_descr` (LLDP system description / CDP
+     platform) by keywords (`IP Phone`, `SEP…`, `AIR-`, `access point`, `printer`, `camera`, `ESXi`, …); else rule 4.
+4. **MAC table** (source `oui`; the present `port_macs` of the port, the LAG's for a member): no MAC → NULL / NULL.
+   One MAC → its vendor kind (below), else `computer`. Several MACs (or an uplink by MAC count, whose MACs are not
+   loaded) → `phone` when one of them is a phone MAC (a PC behind a phone), else `server` when one is a
+   hypervisor MAC (virtual machines), else `unknown`.
+
+**Vendor kind** (heuristic, offline): the MAC's first three octets → `PREFIX_KINDS` (a few blocks registered under a
+mixed vendor name: Hyper-V `00:15:5D`, Aruba blocks now listed as Hewlett Packard Enterprise), else the IEEE MA-L
+organisation (`netmon.ports.oui`, the bundled listing) matched, case-insensitively at its start, against
+`VENDOR_KINDS` — about 50 vendors whose blocks are dominated by one product kind: printers (Brother, Canon, Epson,
+Lexmark, Xerox, Ricoh, Kyocera, Konica Minolta, Zebra, Toshiba TEC, FUJIFILM BI, Pantum), cameras (Axis,
+Hikvision, Dahua, Uniview, Hanwha Vision, Vivotek, Mobotix, Avigilon, Bosch Security, Reolink, Milesight), phones
+(Yealink, Polycom, Grandstream, snom, Avaya, Mitel, Fanvil, Gigaset, Spectralink), access points (Ubiquiti, Ruckus,
+Cambium, Cisco Meraki, Mist, EnGenius), servers / hypervisors (VMware, Supermicro, Nutanix, XenSource, Proxmox,
+Parallels, VirtualBox). Mixed vendors (Cisco, HP / HPE, Dell, Lenovo, Apple, …) are not listed, so their MACs read
+as `computer`; a locally administered (random) MAC has no vendor. A unit test checks every pattern against the
+bundled listing.
+
+## [premium] `port_kind_overrides`
+| Column | Type | Constraints |
+|---|---|---|
+| device_id | integer | NOT NULL FK `devices.id` ON DELETE CASCADE; PK (device_id, if_index) |
+| if_index | integer | NOT NULL — the port's ifIndex (the `port_key` of the API) |
+| kind | text | NOT NULL CHECK in (`computer`, `phone`, `ap`, `printer`, `camera`, `server`, `switch`, `router`, `unknown`) |
+| updated_at | timestamptz | NOT NULL DEFAULT now() |
+| updated_by | integer | NULL — user id (no FK, like `audit_log.actor_user_id`) |
+
+Written only by `PUT /api/devices/{id}/ports/{if_index}/connected-kind` (`kind: null` deletes the row). Not tied to
+`switch_ports` rows, so a port that is briefly missing from a snapshot keeps its label.
+
+## [premium] `topology_neighbors.capabilities`
+`text[] NULL` — the system capabilities of an unmanaged LLDP / CDP neighbour, normalised names: LLDP
+`lldpRemSysCapEnabled` (column 12 of `lldpRemTable`), or `lldpRemSysCapSupported` (11) when nothing is enabled, bits
+→ `other`, `repeater`, `bridge`, `wlan_ap`, `router`, `telephone`, `docsis`, `station`, `cvlan`, `svlan`, `tpmr`; CDP
+`cdpCacheCapabilities` (column 9) → `router` (0x01), `bridge` (0x02 / 0x04 / 0x08), `station` (0x10), `repeater`
+(0x40), `telephone` (0x80). Both come from the table walks the topology refresh already does (no new SNMP
+request). Updated on every refresh that sees the neighbour (an empty set keeps the stored value); NULL until the
+first refresh after the upgrade.
+
+## [premium] Home map setting
+Settings key `home_map` (table `settings`, default in `netmon.services.home_map.DEFAULT`; not part of
+`GET /api/settings`, served by `GET/PUT /api/settings/home-map`):
+
+| Field | Type | Default | Notes |
+|---|---|---|---|
+| `mode` | `auto` \| `backbone` | `auto` | |
+| `show_internet` | bool | `true` | internet tile above the backbone (backbone mode) |
+| `backbone_device_ids` | int[] (≤ 8, ordered) | `[]` | ids that no longer exist are skipped when read |
+| `max_groups` | int 1–50 | `12` | leaves under the last node |
+
+The map itself is computed on read (`netmon.services.home_map`), see api.md.
+
+## [premium] Migration (`0013`)
+File `backend/netmon/migrations/versions/0013_premium.py`, `revision = "0013"`, `down_revision = "0012"` (the
+number may change when another `0013` is merged first: the id is written only in that file; tests read the head
+from the migration scripts). Plain DDL, identical in TimescaleDB and plain PostgreSQL mode, idempotent.
+`upgrade()`: `CREATE TABLE port_kind_overrides`; `ALTER TABLE topology_neighbors ADD COLUMN capabilities text[]`.
+`downgrade()`: drops both (the overrides are lost; 1.4.2 does not use them).
+
+The 1.4.2 start-up check for the secrets-at-rest form and `netmon secrets remove-plaintext` accept any revision at
+or after `0012` (they compared with `0012` exactly).

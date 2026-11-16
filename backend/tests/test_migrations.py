@@ -12,14 +12,14 @@ from sqlalchemy import text
 
 from netmon.db import timescale
 from netmon.db.engine import make_engine
-from netmon.db.migrate import run_migrations
+from netmon.db.migrate import migration_head, run_migrations
 from netmon.runtime import LockHeldError, Runtime
 from netmon.services import retention
 from tests.conftest import TEST_DATABASE_URL, _plain, db_url_for, make_settings, requires_db
 from tests.test_poller import _check_history
 
 pytestmark = requires_db
-HEAD = "0012"  # head after run_migrations(): ... 0011 v1.4.1 -> 0012 v1.4.2
+HEAD = migration_head()  # this version's head (the migration scripts), never hard-coded
 
 
 async def _tables(url: str) -> set[str]:
@@ -521,5 +521,99 @@ async def test_database_newer_than_this_version_starts_without_migrating(  # typ
         finally:
             await engine.dispose()
     finally:
+        await admin.execute(f'DROP DATABASE IF EXISTS "{name}" WITH (FORCE)')
+        await admin.close()
+
+
+# ------------------------------------------------------------------ [premium] connected kind
+def _premium_revision() -> tuple[str, str]:
+    """(revision, down_revision) of the migration that adds `port_kind_overrides` (found by
+    content: its number may change when branches merge)."""
+    from alembic.script import ScriptDirectory
+
+    from netmon.db.migrate import _alembic_config
+
+    for sc in ScriptDirectory.from_config(_alembic_config()).walk_revisions():
+        if "port_kind_overrides" in " ".join(getattr(sc.module, "UPGRADE", [])):
+            return sc.revision, str(sc.down_revision)
+    raise AssertionError("migration not found")
+
+
+@pytest.mark.parametrize("mode", ["timescale", "fallback"])
+async def test_migration_premium_up_down_up(mode: str, rt) -> None:  # type: ignore[no-untyped-def]
+    assert TEST_DATABASE_URL
+    if mode == "timescale" and rt.settings.netmon_disable_timescale:
+        pytest.skip("suite runs in forced fallback mode")
+    _, down = _premium_revision()
+    name = f"netmon_test_mp_{secrets.token_hex(3)}"
+    admin = await asyncpg.connect(_plain(TEST_DATABASE_URL))
+    await admin.execute(f'CREATE DATABASE "{name}"')
+    engine = make_engine(db_url_for(name).replace("postgresql://", "postgresql+asyncpg://"))
+    url = db_url_for(name)
+
+    async def columns(conn: asyncpg.Connection) -> set[str]:
+        rows = await conn.fetch(
+            "SELECT column_name FROM information_schema.columns "
+            "WHERE table_name = 'topology_neighbors'"
+        )
+        return {r["column_name"] for r in rows}
+
+    try:
+        await run_migrations(engine)
+        enabled = await timescale.bootstrap(engine, 90, disabled=(mode == "fallback"))
+        if mode == "timescale" and not enabled:
+            pytest.skip("TimescaleDB not available")
+        conn = await asyncpg.connect(_plain(url))
+        try:
+            assert await conn.fetchval("SELECT version_num FROM alembic_version") == HEAD
+            assert "port_kind_overrides" in await _tables(url)
+            assert "capabilities" in await columns(conn)
+            gid = await conn.fetchval("INSERT INTO groups (name) VALUES ('g') RETURNING id")
+            did = await conn.fetchval(
+                "INSERT INTO devices (group_id, name, host) VALUES ($1, 'd', 'h') RETURNING id", gid
+            )
+            await conn.execute(
+                "INSERT INTO port_kind_overrides (device_id, if_index, kind) VALUES ($1, 3, "
+                "'printer')",
+                did,
+            )
+            with pytest.raises(asyncpg.CheckViolationError):
+                await conn.execute(
+                    "INSERT INTO port_kind_overrides (device_id, if_index, kind) "
+                    "VALUES ($1, 4, 'toaster')",
+                    did,
+                )
+            await conn.execute(
+                "INSERT INTO topology_neighbors (chassis_id, capabilities) "
+                "VALUES ('aa:bb:cc:dd:ee:ff', '{bridge,telephone}')"
+            )
+            await conn.execute(
+                "INSERT INTO measurements (time, sensor_id, channel, value) "
+                "VALUES (now(), 1, 'value', 1)"
+            )
+        finally:
+            await conn.close()
+        async with engine.connect() as c:
+            await c.run_sync(lambda sc: _alembic(sc, "downgrade", down))
+            await c.commit()
+        conn = await asyncpg.connect(_plain(url))
+        try:
+            assert await conn.fetchval("SELECT version_num FROM alembic_version") == down
+            assert "port_kind_overrides" not in await _tables(url)
+            assert "capabilities" not in await columns(conn)
+            assert await conn.fetchval("SELECT count(*) FROM topology_neighbors") == 1
+            assert await conn.fetchval("SELECT count(*) FROM measurements") == 1
+        finally:
+            await conn.close()
+        await run_migrations(engine)  # up again
+        conn = await asyncpg.connect(_plain(url))
+        try:
+            assert await conn.fetchval("SELECT version_num FROM alembic_version") == HEAD
+            assert await conn.fetchval("SELECT count(*) FROM port_kind_overrides") == 0
+            assert "capabilities" in await columns(conn)
+        finally:
+            await conn.close()
+    finally:
+        await engine.dispose()
         await admin.execute(f'DROP DATABASE IF EXISTS "{name}" WITH (FORCE)')
         await admin.close()
