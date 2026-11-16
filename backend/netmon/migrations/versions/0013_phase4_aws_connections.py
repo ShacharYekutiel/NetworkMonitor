@@ -1,9 +1,8 @@
 """[4] P4-1 — shared AWS connections (PR 4-0a; architecture § 15.1.4, data-model § [4] "AWS
 connections (migration P4-1)").
 
-The revision number is the next free one on this branch and is re-assigned when the PR merges
-(release 1.4.2 adds its own migration in parallel): `revision` / `down_revision` below are the
-ONLY place the number is written (tests find this migration by `PLACEHOLDER = "P4-1"`).
+Revision 0013, after release 1.4.2's 0012 (secrets at rest): `revision` / `down_revision` below
+are the ONLY place the number is written (tests find this migration by `PLACEHOLDER = "P4-1"`).
 
 upgrade (plain SQL, idempotent):
 1. `aws_connections` + the partial unique index `aws_connections_one_default`;
@@ -19,8 +18,8 @@ connection other than the `aad_scope = 'assistant'` row exists or the assistant 
 connection or a hop, unless NETMON_FORCE_DOWNGRADE=1 (the legacy keys then hold the last
 mirrored state).
 
-Revision ID: 0012
-Revises: 0011
+Revision ID: 0013
+Revises: 0012
 Create Date: 2026-11-13
 """
 
@@ -30,8 +29,8 @@ import os
 import sqlalchemy as sa
 from alembic import op
 
-revision = "0012"
-down_revision = "0011"
+revision = "0013"
+down_revision = "0012"
 branch_labels = None
 depends_on = None
 

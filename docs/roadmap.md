@@ -227,7 +227,7 @@ Mnidom-PKI-SERV-CA); Knowledge Base implemented, OFF.
 
 ## Phase 4 (contract branch `phase4-contract`; PRs branch off `main` after 1.4.1)
 Contract (revision 3, 2026-11-13): architecture.md § 15, data-model.md § Phase 4 (migrations `P4-1`–`P4-10`:
-ordered placeholders, the real numbers are assigned at merge time; P4-1 will most likely be `0013` after 1.4.1's
+ordered placeholders, the real numbers are assigned at merge time; P4-1 is `0013` after 1.4.1's
 `0011` and 1.4.2's `0012`), api.md § Phase 4. Owner summary (Hebrew): docs/phase4-summary.he.md.
 
 **Owner rules:** every feature behind its own toggle, **OFF by default**; nothing mandatory (a single server with

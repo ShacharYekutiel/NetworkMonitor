@@ -4156,7 +4156,7 @@ endpoints, errors, WS). Sections are marked **[4]**; the owner's sub-phase lette
 VPC Flow Logs (moved to the **start** of phase 4 by the owner), **4a** high availability, **4b** isolated zones
 (deferred), **4c** monitoring depth. Everything is additive to release 1.4.x (`main`: 1.4.0, migration head
 `0010_phase3b`; release 1.4.1 adds `0011` (`revoked_sessions`), release 1.4.2 adds `0012` (secrets at rest), so
-P4-1 will most likely be `0013`). Owner summary in Hebrew: [phase4-summary.he.md](phase4-summary.he.md).
+P4-1 is `0013`). Owner summary in Hebrew: [phase4-summary.he.md](phase4-summary.he.md).
 
 **Contract revision 3 (2026-11-13).** The owner decided on revision 2: (1) the rule "always offer every option" is
 narrowed to *what AWS or the vendor offers an ordinary customer*; the exotic cases of revision 2 move to *Later / on
@@ -4738,10 +4738,11 @@ reachable (`assistant-net.sh check` from PR 4-0b, or the `identity` step).
 Found while implementing against the real 1.4.1 code; the sections above stay the design, these
 points are what the code does where the text was silent, ambiguous or not implementable:
 
-1. **Migration id.** P4-1 is `backend/netmon/migrations/versions/0012_phase4_aws_connections.py`
-   (`revision = "0012"`, `down_revision = "0011"` — the only place the number is written; the
+1. **Migration id.** P4-1 is `backend/netmon/migrations/versions/0013_phase4_aws_connections.py`
+   (`revision = "0013"`, `down_revision = "0012"` — the only place the number is written; the
    module declares `PLACEHOLDER = "P4-1"` and the tests find it by that, and read the head from
-   the script directory). Release 1.4.2 adds its own `0012` in parallel: renumber at merge.
+   the script directory). It was `0012` on this branch until release 1.4.2 took `0012` (secrets
+   at rest); renumbered to `0013` when `main` (1.4.2) was merged in.
 2. **Who uses a connection** (`used_by`, delete `409`, `test_required`): the assistant counts as
    a consumer of the connection it names, or of the default when `connection_id` is null **and**
    the assistant is ON or has a model configured. Otherwise a fresh install that never set up the
@@ -6029,7 +6030,7 @@ enough to test alone and leaves `main` releasable (everything new is OFF). **PR 
 connect-time egress guard).
 
 **Migrations.** `main` is at `0010_phase3b`; 1.4.1 adds `0011`, 1.4.2 adds `0012`. Phase-4 migrations therefore have
-**ordered placeholders P4-1 … P4-10** (P4-1 will most likely be `0013`). Rules: (1) a PR names its file
+**ordered placeholders P4-1 … P4-10** (P4-1 is `0013`, after 1.4.2's `0012`). Rules: (1) a PR names its file
 `NNNN_phase4_<name>.py` with the **next free number at the moment it merges** and `down_revision` = the head of
 `main` at that moment; a PR that falls behind renumbers in its last rebase; (2) the relative order P4-1 < P4-2 < …
 is fixed by the dependencies below and may only be changed in this table; (3) no document, test name or code
