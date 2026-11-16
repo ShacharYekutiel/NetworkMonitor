@@ -1,0 +1,929 @@
+<!doctype html><html lang="he" dir="rtl"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover"><title>Network Monitor — premium prototype</title></head><body>
+<title>Network Monitor Premium</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=Heebo:wght@300;400;500;600;700&display=swap">
+<style>
+/* Layout: the device is the hero (product shot), quick actions under it, inset-grouped lists beside it.
+   Calm neutrals, one ink colour for controls, status colours only for status. */
+:root {
+  --bg: #f5f5f7; --bg2: #ececef; --card: #ffffff; --card2: #f9f9fb; --ink: #1d1d1f; --ink2: #6e6e73; --ink3: #8e8e93; --line: rgba(0, 0, 0, .08); --line2: rgba(0, 0, 0, .14);
+  --btn: #1d1d1f; --btn-ink: #ffffff; --chip: rgba(0, 0, 0, .05); --shadow: 0 1px 1px rgba(0, 0, 0, .03), 0 4px 10px rgba(0, 0, 0, .03), 0 18px 40px rgba(0, 0, 0, .05);
+  --up: #28a745; --warn: #e88a00; --down: #e5372b; --unreach: #8e5cd9; --paused: #8e8e93;
+  --up-bg: rgba(40, 167, 69, .1); --warn-bg: rgba(232, 138, 0, .12); --down-bg: rgba(229, 55, 43, .1);
+  --stage: radial-gradient(46% 62% at 50% 0%, #ffffff 0%, rgba(255, 255, 255, 0) 100%), linear-gradient(180deg, #e9e9ee 0%, #f5f5f7 58%, #e4e4e9 100%); --floor: rgba(0, 0, 0, .22); --spec: rgba(255, 255, 255, .9); --page: linear-gradient(180deg, #fbfbfd, #f5f5f7 420px);
+  --island: #000000; --island-ink: #ffffff;
+  --f: "Heebo", "Inter", -apple-system, system-ui, sans-serif; --fn: "Inter", -apple-system, system-ui, sans-serif;
+  --ease: cubic-bezier(.32, .72, 0, 1);
+}
+@media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) {
+  --bg: #000000; --bg2: #0d0d0f; --card: #1c1c1e; --card2: #232326; --ink: #f5f5f7; --ink2: #a1a1a6; --ink3: #7c7c80; --line: rgba(255, 255, 255, .08); --line2: rgba(255, 255, 255, .16);
+  --btn: #f5f5f7; --btn-ink: #000000; --chip: rgba(255, 255, 255, .08); --shadow: inset 0 1px 0 rgba(255, 255, 255, .06), 0 0 0 1px rgba(255, 255, 255, .04);
+  --up: #32d74b; --warn: #ff9f0a; --down: #ff453a; --unreach: #bf5af2; --paused: #98989d;
+  --up-bg: rgba(50, 215, 75, .14); --warn-bg: rgba(255, 159, 10, .16); --down-bg: rgba(255, 69, 58, .16);
+  --stage: radial-gradient(42% 62% at 50% 0%, rgba(255, 255, 255, .16) 0%, rgba(255, 255, 255, 0) 100%), linear-gradient(180deg, #0b0b0d 0%, #000 60%, #060607 100%); --floor: rgba(0, 0, 0, .85); --spec: rgba(255, 255, 255, .5); --page: #000;
+  --island: #1c1c1e; --island-ink: #f5f5f7; color-scheme: dark; } }
+:root[data-theme="dark"] {
+  --bg: #000000; --bg2: #0d0d0f; --card: #1c1c1e; --card2: #232326; --ink: #f5f5f7; --ink2: #a1a1a6; --ink3: #7c7c80; --line: rgba(255, 255, 255, .08); --line2: rgba(255, 255, 255, .16);
+  --btn: #f5f5f7; --btn-ink: #000000; --chip: rgba(255, 255, 255, .08); --shadow: inset 0 1px 0 rgba(255, 255, 255, .06), 0 0 0 1px rgba(255, 255, 255, .04);
+  --up: #32d74b; --warn: #ff9f0a; --down: #ff453a; --unreach: #bf5af2; --paused: #98989d;
+  --up-bg: rgba(50, 215, 75, .14); --warn-bg: rgba(255, 159, 10, .16); --down-bg: rgba(255, 69, 58, .16);
+  --stage: radial-gradient(42% 62% at 50% 0%, rgba(255, 255, 255, .16) 0%, rgba(255, 255, 255, 0) 100%), linear-gradient(180deg, #0b0b0d 0%, #000 60%, #060607 100%); --floor: rgba(0, 0, 0, .85); --spec: rgba(255, 255, 255, .5); --page: #000;
+  --island: #1c1c1e; --island-ink: #f5f5f7; color-scheme: dark; }
+
+*, *::before, *::after { box-sizing: border-box; }
+html, body { height: 100%; }
+body { margin: 0; background: var(--page, var(--bg)); color: var(--ink); font: 400 15px/1.45 var(--f); -webkit-font-smoothing: antialiased; transition: background-color .4s, color .4s; }
+button { font: inherit; color: inherit; border: 0; background: none; cursor: pointer; }
+:focus-visible { outline: 2px solid var(--ink); outline-offset: 3px; border-radius: 10px; }
+.num { font-family: var(--fn); font-variant-numeric: tabular-nums; }
+.ltr { direction: ltr; unicode-bidi: isolate; }
+.ico { width: 20px; height: 20px; fill: none; stroke: currentColor; stroke-width: 1.7; stroke-linecap: round; stroke-linejoin: round; flex: none; }
+
+/* top bar + dynamic island */
+.top { position: sticky; top: env(safe-area-inset-top, 0px); z-index: 20; height: 64px; display: grid; grid-template-columns: 1fr auto 1fr; align-items: center; padding-left: max(24px, env(safe-area-inset-left, 0px)); padding-right: max(24px, env(safe-area-inset-right, 0px)); background: color-mix(in srgb, var(--bg) 78%, transparent); backdrop-filter: saturate(1.8) blur(20px); -webkit-backdrop-filter: saturate(1.8) blur(20px); }
+body::before { content: ""; position: fixed; inset: 0 0 auto; height: env(safe-area-inset-top, 0px); z-index: 30; background: var(--bg); }
+.brand { display: flex; align-items: center; gap: 10px; font: 600 16px var(--fn); letter-spacing: -.01em; direction: ltr; justify-self: start; }
+.brand svg { width: 26px; height: 26px; }
+.island { justify-self: center; height: 36px; min-width: 150px; padding: 0 16px; border-radius: 999px; background: var(--island); color: var(--island-ink); display: flex; align-items: center; justify-content: center; gap: 10px; font: 500 13.5px var(--f); box-shadow: 0 4px 18px rgba(0, 0, 0, .18); transition: min-width .6s var(--ease), height .6s var(--ease), background-color .4s; overflow: hidden; white-space: nowrap; }
+.island .d { width: 8px; height: 8px; border-radius: 50%; background: var(--up); box-shadow: 0 0 10px var(--up); }
+.island.alert { min-width: 360px; height: 44px; }
+.island.alert .d { background: var(--down); box-shadow: 0 0 12px var(--down); animation: beat 1.2s ease-in-out infinite; }
+@keyframes beat { 50% { transform: scale(1.5); opacity: .6; } }
+.island .x { font: 500 12px var(--fn); opacity: .6; }
+.tools { justify-self: end; display: flex; align-items: center; gap: 6px; }
+.round { width: 36px; height: 36px; border-radius: 50%; display: inline-flex; align-items: center; justify-content: center; color: var(--ink2); transition: background-color .2s, color .2s; }
+.round:hover { background: var(--chip); color: var(--ink); }
+.me { width: 32px; height: 32px; border-radius: 50%; background: linear-gradient(135deg, #8e8e93, #3a3a3c); color: #fff; display: inline-flex; align-items: center; justify-content: center; font: 600 13px var(--fn); margin-inline-start: 6px; }
+
+/* views + push transition */
+.views { position: relative; max-width: 1240px; margin: 0 auto; padding-left: max(24px, env(safe-area-inset-left, 0px)); padding-right: max(24px, env(safe-area-inset-right, 0px)); padding-block: 8px 64px; }
+.view { display: none; }
+.view.on { display: block; }
+.back { display: inline-flex; align-items: center; gap: 4px; height: 36px; padding: 0 10px 0 4px; margin-inline-start: -8px; border-radius: 10px; color: var(--ink); font-weight: 500; }
+.back:hover { background: var(--chip); }
+.back .ico { transform: scaleX(-1); }
+
+/* home: centred title, full-width product stage with a floor reflection, round actions under it */
+.home { display: grid; gap: 0; grid-template-columns: minmax(0, 1fr); }
+.hero-t { text-align: center; display: grid; justify-items: center; gap: 6px; padding-top: 18px; }
+.site { display: inline-flex; align-items: center; gap: 6px; height: 32px; padding: 0 14px; border-radius: 999px; background: var(--chip); font: 500 14px var(--f); color: var(--ink2); }
+.headline { margin: 10px 0 0; font: 600 clamp(44px, 6vw, 76px)/1 var(--f); letter-spacing: -.035em; }
+.headline .n { font-family: var(--fn); font-weight: 600; color: var(--down); }
+.subline { margin: 6px 0 0; color: var(--ink2); font-size: 17px; }
+.stage { position: relative; margin-top: 8px; border-radius: 36px; background: var(--stage); height: 520px; display: flex; flex-direction: column; align-items: center; justify-content: center; overflow: hidden; }
+.stage.full { margin-inline: calc(-1 * max(24px, env(safe-area-inset-left, 0px))); border-radius: 0; background: transparent; height: 560px; justify-content: flex-start; padding-top: 64px; }
+.stage.full::before { content: ""; position: absolute; inset: 0; background: var(--stage); -webkit-mask: radial-gradient(ellipse 62% 58% at 50% 46%, #000 40%, transparent 100%); mask: radial-gradient(ellipse 62% 58% at 50% 46%, #000 40%, transparent 100%); }
+.stack { --rx: 0deg; --ry: 0deg; position: relative; width: min(1000px, 86%); display: grid; gap: 14px; transform-style: preserve-3d; transform: rotateX(calc(-13deg + var(--rx))) rotateY(calc(-21deg + var(--ry))); transform-origin: 50% 50%; transition: transform 1.1s var(--ease); z-index: 1; }
+.stack::after { display: none; }
+.rig { position: relative; width: min(820px, 68%); z-index: 1; perspective: 2600px; perspective-origin: 50% 20%; }
+.rig::after { content: ""; position: absolute; left: 4%; right: -6%; bottom: -70px; height: 60px; border-radius: 50%; background: var(--floor); filter: blur(26px); z-index: -1; }
+.rig .stack { width: 100%; }
+.mirror { position: absolute; left: 0; right: 0; top: calc(100% + 10px); height: 100%; pointer-events: none; overflow: hidden; -webkit-mask: linear-gradient(rgba(0, 0, 0, .55), transparent 75%); mask: linear-gradient(rgba(0, 0, 0, .55), transparent 75%); }
+.flip { display: grid; gap: 9px; transform: perspective(1700px) rotateX(calc(-12deg - var(--rx, 0deg))) rotateY(var(--ry, 0deg)) scaleY(-1); transform-origin: 50% 50%; transform-box: border-box; opacity: .5; filter: blur(1px); transition: transform .9s var(--ease); }
+.mirror .pin { display: none; }
+.unit { position: relative; transform-style: preserve-3d; }
+.u3 { position: relative; width: 100%; aspect-ratio: 1000 / 70; transform-style: preserve-3d; }
+.u3.fw { aspect-ratio: 1000 / 60; }
+.u3 .f { position: absolute; left: 0; top: 0; }
+.u3 .front { width: var(--w); height: var(--h); transform: translateZ(calc(var(--d) / 2)); }
+.u3 .top { width: var(--w); height: var(--d); top: calc((var(--h) - var(--d)) / 2); transform: rotateX(90deg) translateZ(calc(var(--h) / 2)); border-radius: 4px; background: repeating-linear-gradient(90deg, rgba(0, 0, 0, .55) 0 4px, transparent 4px 12px) 6% 82% / 30% 9% no-repeat, repeating-linear-gradient(90deg, rgba(0, 0, 0, .55) 0 4px, transparent 4px 12px) 64% 82% / 30% 9% no-repeat, linear-gradient(90deg, rgba(255, 255, 255, .05), transparent 40%, rgba(255, 255, 255, .05)), linear-gradient(180deg, #3a3b40, #2a2b2f 30%, #232427); box-shadow: inset 0 0 0 1px rgba(255, 255, 255, .06); }
+.u3 .top::after { content: ""; position: absolute; left: 8%; top: 18%; width: 18%; height: 14%; border-radius: 3px; background: linear-gradient(180deg, #d9d9de, #b9b9bf); opacity: .85; box-shadow: inset 0 -6px 0 rgba(0, 0, 0, .08); }
+.u3 .bottom { width: var(--w); height: var(--d); top: calc((var(--h) - var(--d)) / 2); transform: rotateX(-90deg) translateZ(calc(var(--h) / 2)); background: #0d0d0f; }
+.u3 .side { width: var(--d); height: var(--h); left: calc((var(--w) - var(--d)) / 2); background: radial-gradient(circle, #0b0b0c 1.4px, transparent 1.8px) 0 0 / 9px 9px, linear-gradient(90deg, #1c1d20, #2a2b2f 50%, #18191b); box-shadow: inset 0 1px 0 rgba(255, 255, 255, .08); }
+.u3 .right { transform: rotateY(90deg) translateZ(calc(var(--w) / 2)); }
+.u3 .left { transform: rotateY(-90deg) translateZ(calc(var(--w) / 2)); }
+.u3 .back { width: var(--w); height: var(--h); transform: rotateY(180deg) translateZ(calc(var(--d) / 2)); background: #141416; }
+.u3 .front svg { filter: none !important; }
+.unit svg { direction: ltr; display: block; width: 100%; height: 100%; }
+.pins { position: absolute; inset: 0; pointer-events: none; z-index: 3; }
+.pins .pin { left: 0; top: 0; transition: opacity .4s; }
+.pin { position: absolute; display: flex; align-items: center; gap: 8px; padding: 7px 14px 7px 11px; border-radius: 999px; background: color-mix(in srgb, var(--card) 82%, transparent); backdrop-filter: blur(16px) saturate(1.6); -webkit-backdrop-filter: blur(16px) saturate(1.6); box-shadow: 0 6px 20px rgba(0, 0, 0, .14), inset 0 0 0 .5px var(--line2); font: 500 13px var(--f); white-space: nowrap; color: var(--ink); z-index: 2; }
+.pin i { width: 8px; height: 8px; border-radius: 50%; background: var(--c); flex: none; box-shadow: 0 0 10px var(--c); }
+.pin b { font-weight: 600; font-family: var(--fn); }
+.quick { display: flex; justify-content: center; gap: clamp(18px, 4vw, 44px); margin-top: -8px; position: relative; z-index: 2; }
+.qa { display: grid; justify-items: center; gap: 10px; font: 500 13.5px var(--f); color: var(--ink2); transition: color .2s; }
+.qa:hover { color: var(--ink); }
+.qa span.c { width: 62px; height: 62px; border-radius: 50%; display: inline-flex; align-items: center; justify-content: center; background: var(--card); color: var(--ink); box-shadow: var(--shadow); transition: transform .5s var(--ease), background-color .3s; }
+.qa:hover span.c { transform: translateY(-3px); }
+.qa:active span.c { transform: scale(.94); }
+.qa.on span.c { background: var(--btn); color: var(--btn-ink); }
+.qa .ico { width: 22px; height: 22px; }
+.counts { display: flex; justify-content: center; gap: 0; margin: 46px auto 8px; width: 100%; max-width: 760px; }
+.counts div { flex: 1; display: grid; justify-items: center; gap: 2px; padding: 4px 8px; }
+.counts div + div { border-inline-start: 1px solid var(--line); }
+.counts b { font: 500 clamp(30px, 3.4vw, 42px)/1.05 var(--fn); letter-spacing: -.03em; color: var(--c, var(--ink)); }
+.counts span { font-size: 14px; color: var(--ink2); white-space: nowrap; }
+.lower { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 28px; margin-top: 30px; align-items: start; }
+.group { background: var(--card); border-radius: 24px; box-shadow: var(--shadow); overflow: hidden; }
+.gtitle { margin: 26px 6px 12px; font: 600 22px var(--f); letter-spacing: -.01em; display: flex; align-items: baseline; justify-content: space-between; }
+.gtitle a { font: 500 14px var(--f); color: var(--ink2); text-decoration: none; cursor: pointer; }
+.gtitle:first-child { margin-top: 0; }
+.row { width: 100%; display: flex; align-items: center; gap: 14px; padding: 16px 20px; text-align: start; position: relative; transition: background-color .2s; }
+.row + .row::before { content: ""; position: absolute; top: 0; inset-inline-start: 66px; inset-inline-end: 0; height: 1px; background: var(--line); }
+.row:hover { background: var(--card2); }
+.row .ri { width: 34px; height: 34px; border-radius: 10px; display: inline-flex; align-items: center; justify-content: center; background: var(--chip); color: var(--ink); flex: none; }
+.row .rt { flex: 1; min-width: 0; display: grid; }
+.row .rt b { font-weight: 500; font-size: 15.5px; }
+.row .rt span { color: var(--ink2); font-size: 13.5px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.row .rv { color: var(--ink2); font: 500 14px var(--fn); }
+.row .rv, .prow .dur, .kv dd { unicode-bidi: plaintext; }
+.row .chev { color: var(--ink3); }
+.row .chev .ico { width: 16px; height: 16px; transform: scaleX(-1); }
+.badge { min-width: 22px; height: 22px; padding: 0 7px; border-radius: 999px; background: var(--down); color: #fff; font: 600 12.5px var(--fn); display: inline-flex; align-items: center; justify-content: center; }
+.sdot { width: 10px; height: 10px; border-radius: 50%; background: var(--c); flex: none; }
+.c-up { --c: var(--up); --cb: var(--up-bg); } .c-warn { --c: var(--warn); --cb: var(--warn-bg); } .c-down { --c: var(--down); --cb: var(--down-bg); } .c-unreach { --c: var(--unreach); } .c-paused { --c: var(--paused); }
+.tag { display: inline-flex; align-items: center; height: 24px; padding: 0 9px; border-radius: 999px; background: var(--cb, var(--chip)); color: var(--c, var(--ink2)); font: 600 12px var(--f); }
+.stats { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 0; }
+.stats div { padding: 16px 18px; display: grid; gap: 2px; }
+.stats div + div { border-inline-start: 1px solid var(--line); }
+.stats b { font: 600 28px/1.1 var(--fn); letter-spacing: -.02em; color: var(--c, var(--ink)); }
+.stats span { font-size: 13px; color: var(--ink2); }
+
+/* device */
+.dev-hero { display: grid; gap: 6px; margin: 10px 0 0; }
+.dev-hero h1 { margin: 0; font: 600 clamp(34px, 4vw, 48px)/1.05 var(--fn); letter-spacing: -.025em; direction: ltr; text-align: right; }
+.dev-hero p { margin: 0; color: var(--ink2); }
+.dev-stage { height: 300px; margin-top: 18px; }
+.dev-stage { perspective: 2600px; }
+.dev-stage .stack { width: min(900px, 78%); gap: 16px; transform: rotateX(calc(-14deg + var(--rx))) rotateY(calc(-20deg + var(--ry))); }
+.dev-stage { height: 440px; }
+.port-hit { cursor: pointer; }
+.port-hit:hover rect.hole { stroke: #fff; stroke-width: 1.2; }
+.dev-grid { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 24px; margin-top: 24px; align-items: start; }
+.rings { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; }
+.ring { background: var(--card); border-radius: 20px; box-shadow: var(--shadow); padding: 16px; display: grid; justify-items: center; gap: 8px; }
+.ring svg { width: 92px; height: 92px; transform: rotate(-90deg); }
+.ring .tr { fill: none; stroke: var(--chip); stroke-width: 10; }
+.ring .v { fill: none; stroke: var(--c); stroke-width: 10; stroke-linecap: round; transition: stroke-dashoffset 1.2s var(--ease); }
+.ring .lbl { display: grid; justify-items: center; }
+.ring .lbl b { font: 600 22px var(--fn); letter-spacing: -.02em; }
+.ring .lbl span { font-size: 13px; color: var(--ink2); }
+.seg { display: inline-flex; padding: 3px; border-radius: 11px; background: var(--chip); margin: 26px 0 12px; }
+.seg button { height: 32px; padding: 0 16px; border-radius: 9px; font: 500 14px var(--f); color: var(--ink2); transition: background-color .25s, color .25s, box-shadow .25s; }
+.seg button.on { background: var(--card); color: var(--ink); box-shadow: 0 1px 3px rgba(0, 0, 0, .12); }
+.sheet .tag { justify-self: start; }
+.sheet { background: var(--card); border-radius: 20px; box-shadow: var(--shadow); padding: 18px 20px; display: grid; gap: 12px; }
+.sheet h3 { margin: 0; font: 600 22px var(--fn); letter-spacing: -.02em; direction: ltr; text-align: right; }
+.kv { display: grid; grid-template-columns: auto 1fr; gap: 10px 18px; margin: 0; font-size: 14.5px; }
+.kv dt { color: var(--ink2); }
+.kv dd { margin: 0; text-align: end; font-family: var(--fn); }
+.actions { display: flex; gap: 10px; flex-wrap: wrap; }
+.pbtn { height: 40px; padding: 0 18px; border-radius: 999px; background: var(--btn); color: var(--btn-ink); font: 500 14.5px var(--f); display: inline-flex; align-items: center; gap: 8px; transition: transform .2s; }
+.pbtn:active { transform: scale(.97); }
+.sbtn { height: 40px; padding: 0 18px; border-radius: 999px; background: var(--chip); color: var(--ink); font: 500 14.5px var(--f); display: inline-flex; align-items: center; gap: 8px; }
+.sbtn.red { color: var(--down); }
+
+/* problems */
+.ptitle { margin: 6px 0 18px; font: 600 40px/1.1 var(--f); letter-spacing: -.02em; }
+.prow { display: grid; grid-template-columns: auto minmax(0, 1fr) auto; gap: 14px; align-items: center; padding: 16px 18px; position: relative; }
+.prow + .prow::before { content: ""; position: absolute; top: 0; inset-inline-start: 18px; inset-inline-end: 0; height: 1px; background: var(--line); }
+.prow .ic { width: 40px; height: 40px; border-radius: 12px; background: var(--cb); color: var(--c); display: inline-flex; align-items: center; justify-content: center; }
+.prow .t { display: grid; gap: 2px; min-width: 0; }
+.prow .t b { font: 600 16px var(--fn); direction: ltr; text-align: right; }
+.prow .t span { color: var(--ink2); font-size: 14px; }
+.prow .e { display: flex; align-items: center; gap: 10px; }
+.prow .dur { font: 500 13px var(--fn); color: var(--ink2); }
+.ack { height: 32px; padding: 0 14px; border-radius: 999px; background: var(--chip); font: 500 13.5px var(--f); }
+.ack.done { color: var(--up); background: var(--up-bg); }
+
+/* toast */
+.toast { position: fixed; z-index: 40; left: 50%; bottom: max(24px, env(safe-area-inset-bottom, 0px)); transform: translate(-50%, 30px); opacity: 0; visibility: hidden; background: var(--btn); color: var(--btn-ink); border-radius: 999px; padding: 12px 20px; font: 500 14px var(--f); box-shadow: 0 10px 30px rgba(0, 0, 0, .25); transition: transform .5s var(--ease), opacity .3s, visibility .3s; }
+.toast.on { transform: translate(-50%, 0); opacity: 1; visibility: visible; }
+
+
+/* ---------- shared page anatomy ---------- */
+.pg-h { display: grid; gap: 6px; margin: 4px 0 22px; }
+.pg-h h1 { margin: 0; font: 600 clamp(32px, 3.6vw, 44px)/1.08 var(--f); letter-spacing: -.025em; }
+.pg-h h1 .lt { font-family: var(--fn); direction: ltr; unicode-bidi: isolate; }
+.pg-h p { margin: 0; color: var(--ink2); font-size: 16px; }
+.pg-h .acts { display: flex; gap: 10px; flex-wrap: wrap; margin-top: 10px; }
+.two { display: grid; grid-template-columns: minmax(0, 1.4fr) minmax(0, 1fr); gap: 24px; align-items: start; }
+.two.even { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); }
+.three { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 16px; }
+.card { background: var(--card); border-radius: 24px; box-shadow: var(--shadow); padding: 20px 22px; display: grid; gap: 12px; min-width: 0; }
+.card h3 { margin: 0; font: 600 17px var(--f); display: flex; align-items: center; justify-content: space-between; gap: 10px; }
+.card .muted, .muted { color: var(--ink2); }
+.small { font-size: 13.5px; }
+.big { font: 600 44px/1 var(--fn); letter-spacing: -.03em; }
+.big small { font-size: 18px; color: var(--ink2); margin-inline-start: 4px; letter-spacing: 0; }
+.chips { display: flex; gap: 8px; flex-wrap: wrap; }
+.chip { height: 32px; padding: 0 14px; border-radius: 999px; background: var(--chip); color: var(--ink2); font: 500 13.5px var(--f); display: inline-flex; align-items: center; gap: 6px; }
+.chip.on { background: var(--btn); color: var(--btn-ink); }
+.sw { position: relative; width: 51px; height: 31px; border-radius: 999px; background: var(--chip); flex: none; transition: background-color .3s; }
+.sw::after { content: ""; position: absolute; top: 2px; inset-inline-end: 2px; width: 27px; height: 27px; border-radius: 50%; background: #fff; box-shadow: 0 2px 6px rgba(0, 0, 0, .2); transition: inset-inline-end .3s var(--ease); }
+.sw.on { background: var(--up); }
+.sw.on::after { inset-inline-end: 22px; }
+.field { display: grid; gap: 6px; }
+.field label { font-size: 13.5px; color: var(--ink2); }
+.input { height: 44px; border-radius: 12px; border: 0; background: var(--chip); color: var(--ink); padding: 0 14px; font: 400 15px var(--f); outline: none; width: 100%; }
+.input:focus { box-shadow: 0 0 0 2px var(--ink); }
+.input.lt { font-family: var(--fn); direction: ltr; text-align: right; }
+textarea.input { height: auto; padding: 12px 14px; resize: vertical; }
+.chart { width: 100%; height: auto; display: block; overflow: visible; }
+.chart .gl { stroke: var(--line); }
+.chart text { fill: var(--ink3); font: 500 11px var(--fn); }
+.bars { display: flex; align-items: flex-end; gap: 3px; height: 120px; }
+.bars i { flex: 1; border-radius: 4px 4px 2px 2px; background: var(--chip); min-height: 3px; }
+.bars i.h { background: var(--down); } .bars i.w { background: var(--warn); } .bars i.u { background: color-mix(in srgb, var(--ink) 22%, transparent); }
+.axis { display: flex; justify-content: space-between; font: 500 11.5px var(--fn); color: var(--ink3); margin-top: 8px; direction: ltr; }
+.share { height: 6px; border-radius: 999px; background: var(--chip); overflow: hidden; }
+.share i { display: block; height: 100%; border-radius: 999px; background: var(--ink); }
+.row .rt b.lt { font-family: var(--fn); direction: ltr; unicode-bidi: isolate; text-align: right; }
+.rowx { display: flex; align-items: center; gap: 14px; padding: 15px 20px; position: relative; }
+.rowx + .rowx::before { content: ""; position: absolute; top: 0; inset-inline-start: 20px; inset-inline-end: 0; height: 1px; background: var(--line); }
+.rowx .rt { flex: 1; min-width: 0; display: grid; }
+.rowx .rt b { font-weight: 500; }
+.rowx .rt span { color: var(--ink2); font-size: 13.5px; }
+.mono { font-family: var(--fn); direction: ltr; unicode-bidi: isolate; }
+.code { font: 400 12.5px/1.65 ui-monospace, "SF Mono", Menlo, monospace; direction: ltr; text-align: left; background: var(--chip); border-radius: 16px; padding: 14px 0; overflow-x: auto; }
+.code div { padding: 0 16px; white-space: pre; }
+.code .add { background: var(--up-bg); color: var(--up); }
+.code .del { background: var(--down-bg); color: var(--down); }
+.code .hk { color: var(--ink3); }
+.week { display: grid; grid-template-columns: repeat(7, minmax(0, 1fr)); gap: 10px; }
+.day { background: var(--card); border-radius: 18px; box-shadow: var(--shadow); padding: 12px; min-height: 150px; display: grid; align-content: start; gap: 8px; }
+.day b { font: 600 13px var(--f); color: var(--ink2); }
+.day b span { display: block; font: 600 26px var(--fn); color: var(--ink); }
+.day.today b span { color: var(--down); }
+.win { border-radius: 12px; padding: 8px 10px; background: var(--chip); font-size: 12.5px; display: grid; gap: 2px; }
+.win.on { background: var(--btn); color: var(--btn-ink); }
+.win span { opacity: .7; font-family: var(--fn); }
+.spot { display: flex; align-items: center; gap: 12px; height: 64px; padding: 0 22px; border-radius: 20px; background: var(--card); box-shadow: var(--shadow); font-size: 20px; }
+.spot input { flex: 1; min-width: 0; border: 0; outline: none; background: none; color: var(--ink); font: 500 20px var(--fn); direction: ltr; text-align: right; }
+.spot .ico { width: 24px; height: 24px; color: var(--ink2); }
+.paper { background: #fff; color: #1d1d1f; border-radius: 6px; box-shadow: 0 30px 80px rgba(0, 0, 0, .18); padding: 46px 52px; display: grid; gap: 22px; max-width: 820px; margin: 0 auto; }
+.paper h2 { margin: 0; font: 600 30px var(--f); letter-spacing: -.02em; }
+.paper table { width: 100%; border-collapse: collapse; font-size: 14px; }
+.paper td, .paper th { padding: 9px 4px; border-bottom: 1px solid #e5e5ea; text-align: start; }
+.paper th { color: #6e6e73; font-weight: 500; font-size: 12.5px; }
+.paper .n { text-align: end; font-family: var(--fn); }
+.tl { display: grid; }
+.tl .it { display: grid; grid-template-columns: 70px 22px minmax(0, 1fr); gap: 12px; }
+.tl .tm { font: 500 14px var(--fn); color: var(--ink2); padding-top: 16px; text-align: end; }
+.tl .ln { position: relative; display: flex; justify-content: center; }
+.tl .ln::before { content: ""; position: absolute; top: 0; bottom: 0; width: 2px; background: var(--line); }
+.tl .ln span { position: relative; margin-top: 18px; width: 12px; height: 12px; border-radius: 50%; background: var(--c, var(--ink3)); box-shadow: 0 0 0 4px var(--bg); }
+.tl .bd { padding: 14px 0 16px; border-bottom: 1px solid var(--line); display: grid; gap: 2px; }
+.tl .bd span { color: var(--ink2); font-size: 14px; }
+.topo { position: relative; height: 560px; border-radius: 28px; background: var(--stage); overflow: hidden; }
+.topo svg { position: absolute; inset: 0; width: 100%; height: 100%; }
+.topo .lk { stroke: color-mix(in srgb, var(--ink) 22%, transparent); stroke-width: 2; fill: none; }
+.topo .lk.bad { stroke: var(--down); stroke-dasharray: 7 6; }
+.topo .lk.flow { stroke: var(--up); stroke-width: 2; stroke-dasharray: 2 14; stroke-linecap: round; animation: flow 1.6s linear infinite; opacity: .8; }
+@keyframes flow { to { stroke-dashoffset: -32; } }
+.node { position: absolute; transform: translate(-50%, -50%); display: grid; justify-items: center; gap: 8px; cursor: pointer; }
+.node .dv { display: block; width: 132px; }
+.minidev { display: block; width: 150px; flex: none; }
+.minidev svg, .node .dv svg { display: block; width: 100%; height: 100%; direction: ltr; }
+.m3 { display: block; perspective: 900px; padding: 16px 6px 10px; }
+.m3 .stack { width: 100%; transform: scale(.84) rotateX(-24deg) rotateY(24deg); }
+.m3 .unit { display: block; }
+.m3 .u3 .top::after { display: none; }
+.node .m3 { padding: 22px 4px 6px; }
+.row:hover .m3 .stack { transform: scale(.84) rotateX(-24deg) rotateY(12deg); }
+.row .rt .lt, .node .nm { white-space: nowrap; }
+.minidev { margin-inline-start: 14px; }
+.topo-scroll { border-radius: 28px; overflow-x: auto; scrollbar-width: none; }
+.topo-scroll::-webkit-scrollbar { display: none; }
+@media (max-width: 600px) { .topo { width: 660px; height: 470px; } }
+.wall { overflow: hidden; }
+.wall .body .rig { width: 82% !important; justify-self: center; }
+.auth .art > b { margin-top: 70px; }
+
+.node .nm { display: flex; align-items: center; gap: 6px; padding: 4px 10px; border-radius: 999px; background: var(--card); box-shadow: var(--shadow); font: 600 12px var(--fn); }
+.node .nm i { width: 7px; height: 7px; border-radius: 50%; background: var(--c); }
+.plain { list-style: none; margin: 0; padding: 0; display: grid; gap: 10px; }
+.plain li { display: flex; justify-content: space-between; gap: 10px; font-size: 14.5px; }
+.plain li span { color: var(--ink2); }
+/* menu sheet */
+.scrim { position: fixed; inset: 0; z-index: 50; background: rgba(0, 0, 0, .35); opacity: 0; pointer-events: none; transition: opacity .35s; backdrop-filter: blur(4px); -webkit-backdrop-filter: blur(4px); }
+.scrim.on { opacity: 1; pointer-events: auto; }
+.menu { position: fixed; z-index: 51; top: 0; bottom: 0; inset-inline-end: 0; width: min(380px, 92vw); background: var(--bg); padding: max(20px, env(safe-area-inset-top, 0px)) 16px 24px; overflow-y: auto; transform: translateX(-104%); transition: transform .5s var(--ease); box-shadow: 0 0 60px rgba(0, 0, 0, .25); }
+[dir="rtl"] .menu { transform: translateX(-104%); }
+.menu.on { transform: none; }
+.menu h2 { font: 600 28px var(--f); margin: 6px 6px 14px; }
+.menu .gtitle { font-size: 14px; color: var(--ink2); margin: 18px 10px 8px; }
+.menu .row { padding: 12px 16px; }
+.menu .row .ri { width: 30px; height: 30px; border-radius: 9px; }
+/* bare screens: login, setup, wall, chat ack */
+body.bare .top { display: none; }
+body.bare .views { max-width: none; padding: 0; }
+.auth { min-height: 100vh; display: grid; grid-template-columns: minmax(0, 1.1fr) minmax(0, 1fr); }
+.auth .art { background: var(--stage); display: flex; flex-direction: column; justify-content: center; align-items: center; gap: 40px; padding: 40px; position: relative; overflow: hidden; }
+.auth .art .rig { width: min(560px, 80%); }
+.auth .form { display: flex; align-items: center; justify-content: center; padding: 40px 24px; }
+.auth .box { width: min(380px, 100%); display: grid; gap: 16px; }
+.auth h1 { margin: 0; font: 600 40px/1.1 var(--f); letter-spacing: -.02em; }
+.sso { height: 48px; border-radius: 14px; background: var(--card); box-shadow: var(--shadow); display: flex; align-items: center; justify-content: center; gap: 10px; font: 500 15px var(--f); }
+.or { display: flex; align-items: center; gap: 12px; color: var(--ink3); font-size: 13px; }
+.or::before, .or::after { content: ""; flex: 1; height: 1px; background: var(--line); }
+.wide { height: 50px; border-radius: 14px; background: var(--btn); color: var(--btn-ink); font: 600 16px var(--f); }
+.wall { min-height: 100vh; background: #000; color: #f5f5f7; padding: 34px 44px; display: grid; grid-template-rows: auto auto 1fr; gap: 26px; }
+.wall .hd { display: flex; align-items: center; justify-content: space-between; }
+.wall .hd h1 { margin: 0; font: 600 34px var(--f); }
+.wall .clock { font: 300 64px/1 var(--fn); letter-spacing: -.03em; }
+.wall .nums { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 16px; }
+.wall .nums div { background: #1c1c1e; border-radius: 26px; padding: 22px 26px; display: grid; gap: 4px; }
+.wall .nums b { font: 500 72px/1 var(--fn); letter-spacing: -.04em; color: var(--c, #f5f5f7); }
+.wall .nums span { font-size: 18px; color: #a1a1a6; }
+.wall .body { display: grid; grid-template-columns: minmax(0, 1.2fr) minmax(0, 1fr); gap: 26px; align-items: center; }
+.wall .lst { display: grid; gap: 12px; }
+.wall .lst div { background: #1c1c1e; border-radius: 22px; padding: 18px 22px; display: grid; grid-template-columns: auto 1fr auto; gap: 16px; align-items: center; font-size: 20px; }
+.wall .lst i { width: 14px; height: 14px; border-radius: 50%; background: var(--c); box-shadow: 0 0 14px var(--c); }
+.wall .lst span { font: 500 18px var(--fn); color: #a1a1a6; }
+.phone-wrap { min-height: 100vh; display: flex; align-items: center; justify-content: center; padding: 30px 16px; background: var(--bg2); }
+.phone { width: min(390px, 100%); border-radius: 48px; background: var(--bg); box-shadow: 0 0 0 10px #1d1d1f, 0 40px 90px rgba(0, 0, 0, .35); padding: 56px 20px 30px; display: grid; gap: 16px; }
+.exit { position: fixed; z-index: 60; top: max(16px, env(safe-area-inset-top, 0px)); inset-inline-start: 16px; height: 38px; padding: 0 16px; border-radius: 999px; background: rgba(120, 120, 128, .32); color: #fff; backdrop-filter: blur(12px); -webkit-backdrop-filter: blur(12px); font: 500 14px var(--f); display: none; align-items: center; gap: 6px; }
+body.bare .exit { display: inline-flex; }
+
+@media (max-width: 900px) {
+  .two, .two.even, .three { grid-template-columns: minmax(0, 1fr); }
+  .week { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .topo { height: 460px; }
+  .node .dv { width: 92px; }
+  .auth { grid-template-columns: minmax(0, 1fr); }
+  .auth .art { min-height: 300px; }
+  .wall { padding: 20px; }
+  .wall .nums { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .wall .body { grid-template-columns: minmax(0, 1fr); }
+  .wall .clock { font-size: 40px; }
+  .paper { padding: 28px 20px; }
+
+  .lower, .dev-grid { grid-template-columns: minmax(0, 1fr); }
+  .stage { height: 300px; }
+  .stage.full { height: 360px; padding-top: 44px; }
+  .rig { width: 80%; }
+  .dev-stage .stack { width: 84%; }
+  .stack .pin[style*="left"] { left: 0 !important; }
+  .stack .pin[style*="right"] { right: 0 !important; }
+  .quick { gap: 6px; justify-content: space-between; margin-top: 18px; } .quick .qa { font-size: 11px; min-width: 0; } .quick .qa .c { width: 50px; height: 50px; }
+  .counts { margin-top: 30px; }
+  .counts span { font-size: 12.5px; }
+  .pin { font-size: 11.5px; padding: 5px 10px 5px 8px; }
+  .island.alert { min-width: 240px; }
+  .island .x { display: none; }
+  .brand span { display: none; }
+  .rings { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+  .ring svg { width: 72px; height: 72px; }
+  .stats { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .stats div:nth-child(3) { border-inline-start: 0; }
+  .stats div:nth-child(n+3) { border-top: 1px solid var(--line); }
+}
+@media (max-width: 520px) { .quick { gap: 14px; } .qa span.c { width: 52px; height: 52px; } .qa { font-size: 12px; } .island .t2 { display: none; } }
+@media (prefers-reduced-motion: reduce) { .island .d { animation: none !important; } * { transition-duration: .01s !important; } }
+
+/* calm: no hardware outside home/device */
+.node .dv { width: 56px; height: 56px; display: grid; place-items: center; border-radius: 18px; background: var(--card); box-shadow: var(--shadow), 0 0 0 1px color-mix(in srgb, var(--ink) 8%, transparent); color: var(--ink); transition: transform .4s var(--ease); }
+.topo .node .dv .ico { position: static; inset: auto; width: 24px; height: 24px; }
+.node.sel .dv { outline: none; }
+.node.c-down .dv { box-shadow: var(--shadow), 0 0 0 2px var(--down); }
+.node.c-warn .dv { box-shadow: var(--shadow), 0 0 0 2px var(--warn); }
+.node.sel .dv { background: var(--ink); color: var(--bg); }
+.node:hover .dv { transform: translateY(-2px); }
+.panel { direction: ltr; border-radius: 14px; overflow-x: auto; scrollbar-width: none; background: #111; padding: 10px; margin-bottom: 18px; }
+.panel svg { display: block; width: 100%; min-width: 720px; height: auto; direction: ltr; }
+.auth .art { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 16px; }
+.auth .art .mark { width: 76px; height: 76px; display: grid; place-items: center; border-radius: 22px; background: var(--ink); color: var(--bg); }
+.auth .art .mark .ico { width: 38px; height: 38px; }
+.auth .art > b { margin-top: 0 !important; }
+.wall .body.solo { display: block; }
+.wall .body.solo .lst { max-width: none; }
+.wall .body.solo .lst > div { padding-block: 22px; font-size: 1.15em; }
+
+/* home dial */
+.dial { position: relative; width: min(440px, 86vw); aspect-ratio: 1; margin: 0 auto; }
+.dial svg { position: absolute; inset: 0; width: 100%; height: 100%; overflow: visible; }
+.dial .trk { fill: none; stroke: color-mix(in srgb, var(--ink) 6%, transparent); stroke-width: 34; }
+.dial .inner { fill: var(--card); filter: drop-shadow(0 18px 40px rgba(0, 0, 0, .10)); }
+.dial .tk { stroke-width: 4; stroke-linecap: round; stroke: color-mix(in srgb, var(--ink) 22%, transparent); animation: tkIn .9s var(--ease) both; animation-delay: calc(var(--i) * 18ms); }
+.dial .t-up { stroke: color-mix(in srgb, var(--up) 70%, var(--ink) 0%); opacity: .55; }
+.dial .t-down { stroke: var(--down); stroke-width: 6; }
+.dial .t-warn { stroke: var(--warn); stroke-width: 6; }
+.dial .t-unreach { stroke: var(--unreach, #bf5af2); stroke-width: 6; }
+@keyframes tkIn { from { opacity: 0; } }
+.dial .dc { position: absolute; inset: 0; display: grid; place-content: center; text-align: center; gap: 6px; }
+.dial .dc b { font: 600 72px/1 var(--f); letter-spacing: -.03em; }
+.dial .dc b small { font-size: .4em; color: var(--ink2); font-weight: 500; letter-spacing: 0; }
+.dial .dc span { font-size: 14px; color: var(--ink2); }
+.dial .dl { position: absolute; display: inline-flex; align-items: center; gap: 6px; padding: 5px 11px; border-radius: 999px; background: var(--card); box-shadow: var(--shadow); font: 600 12px var(--fn); direction: ltr; white-space: nowrap; cursor: pointer; transform: translateY(-50%); }
+.dial .dl.s-l { transform: translate(0, -50%); }
+.dial .dl.s-r { transform: translate(-100%, -50%); }
+.dial .dl i { width: 7px; height: 7px; border-radius: 50%; background: var(--c); }
+.stage.full { height: auto; padding: 40px 0 10px; }
+/* device: front panel */
+.dev-stage { height: auto !important; perspective: none !important; padding: 34px 3%; overflow-x: auto; direction: ltr; scrollbar-width: none; }
+.dev-stage .stack { width: 100% !important; min-width: 760px; transform: none !important; gap: 10px !important; }
+.dev-stage .unit { background: #0c0c0e; border-radius: 12px; padding: 8px 10px; box-shadow: 0 1px 0 rgba(255, 255, 255, .06) inset, 0 20px 40px rgba(0, 0, 0, .18); }
+.dev-stage .unit svg { height: auto !important; }
+@media (max-width: 600px) { .dial { width: 78vw; } .dial .dl { display: none; } .dial .dc b { font-size: 52px; } .dev-stage { padding: 16px 12px; border-radius: 22px; } }
+
+/* home: the network at a glance */
+.hmap { position: relative; width: min(1040px, 100%); height: 520px; margin: 0 auto 70px; }
+.hmap > svg { position: absolute; inset: 0; width: 100%; height: 100%; overflow: visible; }
+.hmap .ln { fill: none; stroke: color-mix(in srgb, var(--ink) 16%, transparent); stroke-width: 1.5; }
+.hmap .ln.flow { stroke: var(--up); stroke-width: 2; stroke-dasharray: 1.5 14; stroke-linecap: round; opacity: .7; animation: flow 1.8s linear infinite; }
+.hmap .ln.bad { stroke: var(--down); stroke-dasharray: 5 5; opacity: .8; }
+.hmap .ln.warn { stroke: var(--warn); stroke-dasharray: 5 5; opacity: .8; }
+.hn { position: absolute; transform: translate(-50%, -32px); display: grid; justify-items: center; gap: 3px; background: none; border: 0; padding: 0; color: var(--ink); cursor: pointer; font: inherit; }
+.hn .tile { width: 64px; height: 64px; display: grid; place-items: center; border-radius: 20px; background: var(--card); box-shadow: var(--shadow), 0 0 0 1px color-mix(in srgb, var(--ink) 7%, transparent); transition: transform .4s var(--ease), box-shadow .3s; margin-bottom: 7px; }
+.hn .tile .ico { width: 28px; height: 28px; }
+.hn.c-down .tile { box-shadow: var(--shadow), 0 0 0 2px var(--down), 0 0 0 8px color-mix(in srgb, var(--down) 12%, transparent); color: var(--down); }
+.hn.c-warn .tile { box-shadow: var(--shadow), 0 0 0 2px var(--warn), 0 0 0 8px color-mix(in srgb, var(--warn) 12%, transparent); color: var(--warn); }
+.hn.c-unreach .tile { box-shadow: var(--shadow), 0 0 0 2px var(--unreach, #bf5af2); color: var(--unreach, #bf5af2); }
+.hn:hover .tile { transform: translateY(-3px); }
+.hn b { font: 600 14px var(--fn); white-space: nowrap; }
+.hn b.lt { direction: ltr; }
+.hn small { display: inline-flex; align-items: center; gap: 5px; font-size: 12px; color: var(--ink2); white-space: nowrap; }
+.hn small i { width: 6px; height: 6px; border-radius: 50%; background: var(--c); }
+.hn:not(.c-up) small { color: var(--ink); }
+@media (max-width: 600px) {
+  .hmap { height: 470px; margin-bottom: 50px; }
+  .hn .tile { width: 46px; height: 46px; border-radius: 15px; margin-bottom: 5px; }
+  .hn { transform: translate(-50%, -23px); }
+  .hn .tile .ico { width: 22px; height: 22px; }
+  .hn b { font-size: 11px; }
+  .hn small { font-size: 9.5px; gap: 3px; }
+  .hn small i { display: none; }
+}
+
+/* port legend */
+.plegend { display: flex; flex-wrap: wrap; justify-content: center; gap: 8px 18px; margin: 14px auto 6px; font-size: 12.5px; color: var(--ink2); max-width: 980px; }
+.plegend span { display: inline-flex; align-items: center; gap: 6px; white-space: nowrap; }
+.plegend svg { width: 15px; height: 15px; color: var(--ink); }
+.plegend i { width: 13px; height: 13px; border-radius: 3px; border: 1.5px solid; }
+.plegend .sep { width: 1px; height: 14px; background: color-mix(in srgb, var(--ink) 18%, transparent); }
+.card .plegend { justify-content: flex-start; font-size: 11.5px; gap: 6px 12px; margin: -6px 0 16px; }
+
+.dev-stage .stack, .dev-stage .unit { direction: ltr; }
+.dev-stage { display: block !important; }
+@media (min-width: 900px) { .dev-stage { margin-inline: calc(50% - 50vw + 40px); border-radius: 30px; padding: 40px 3%; } }
+</style>
+
+<div dir="rtl" lang="he">
+<header class="top">
+  <span class="brand"><svg viewBox="0 0 32 32" aria-hidden="true"><rect width="32" height="32" rx="8" fill="currentColor"/><path d="M5 18h6l3-8 5 14 3-6h6" fill="none" stroke="var(--bg)" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"/></svg><span>Network Monitor</span></span>
+  <button class="island" id="island" type="button" aria-live="polite"><span class="d"></span><span class="t" id="islandT">הכול תקין</span><span class="x num" id="islandX"></span></button>
+  <span class="tools">
+    <button class="round" type="button" aria-label="חיפוש"><svg class="ico" viewBox="0 0 24 24"><circle cx="11" cy="11" r="6.5"/><path d="M20 20l-4.2-4.2"/></svg></button>
+    <button class="round" type="button" id="theme" aria-label="מצב בהיר או כהה"><svg class="ico" viewBox="0 0 24 24"><path d="M12 3a9 9 0 109 9 7 7 0 01-9-9z"/></svg></button>
+    <button class="round" type="button" id="menuBtn" aria-label="כל המסכים"><svg class="ico" viewBox="0 0 24 24"><path d="M4 7h16M4 12h16M4 17h16"/></svg></button>
+    <span class="me">ד</span>
+  </span>
+</header>
+
+<main class="views">
+  <!-- HOME -->
+  <section class="view on" id="v-home" aria-label="סקירה">
+    <div class="home">
+      <div class="hero-t">
+        <span class="site">מטה תל אביב <svg class="ico" viewBox="0 0 24 24" style="width:15px;height:15px"><path d="M6 9l6 6 6-6"/></svg></span>
+        <h1 class="headline" id="headline"><span class="n" id="hN">3</span> דורשים טיפול</h1>
+        <p class="subline">412 חיישנים ב-38 התקנים · הכול אחר תקין</p>
+      </div>
+      <div class="stage full" id="homeStage"><div class="hmap" id="homeDial"></div></div>
+      <div class="quick">
+        <button class="qa on" type="button" data-go="problems"><span class="c"><svg class="ico" viewBox="0 0 24 24"><path d="M12 4l9 16H3z"/><path d="M12 10v4M12 17h.01"/></svg></span>תקלות</button>
+        <button class="qa" type="button" data-toast="בדיקה רצה על 38 התקנים"><span class="c"><svg class="ico" viewBox="0 0 24 24"><path d="M20 12a8 8 0 11-2.3-5.6M20 4v4h-4"/></svg></span>בדיקה עכשיו</button>
+        <button class="qa" type="button" data-toast="חלון תחזוקה של שעה הופעל"><span class="c"><svg class="ico" viewBox="0 0 24 24"><path d="M14.7 6.3a4 4 0 00-5.4 5.2L3.6 17.2a1.6 1.6 0 002.2 2.2l5.7-5.7a4 4 0 005.2-5.4l-2.5 2.5-2.1-.5-.5-2.1z"/></svg></span>תחזוקה</button>
+        <button class="qa" type="button" data-toast="חיפוש MAC / IP"><span class="c"><svg class="ico" viewBox="0 0 24 24"><circle cx="11" cy="11" r="6.5"/><path d="M20 20l-4.2-4.2"/></svg></span>איתור</button>
+        <button class="qa" type="button" data-go="device"><span class="c"><svg class="ico" viewBox="0 0 24 24"><rect x="3" y="7" width="18" height="10" rx="2"/><path d="M7 12h.01M10 12h.01M13 12h.01"/></svg></span>התקנים</button>
+      </div>
+      <div class="counts"><div class="c-down"><b class="num" id="sDown" data-count="3">3</b><span>תקלה</span></div><div class="c-warn"><b class="num" data-count="5">5</b><span>אזהרה</span></div><div class="c-unreach"><b class="num" data-count="6">6</b><span>לא נגיש</span></div><div><b class="num" id="sUp" data-count="392">392</b><span>תקין</span></div></div>
+      <div class="lower">
+        <div><h2 class="gtitle">דורשים טיפול <a data-go="problems">הכול</a></h2><div class="group" id="homeProblems"></div></div>
+        <div><h2 class="gtitle">הרשת</h2><div class="group" id="homeNav"></div></div>
+      </div>
+    </div>
+  </section>
+
+  <!-- DEVICE -->
+  <section class="view" id="v-device" aria-label="התקן">
+    <button class="back" type="button" data-go="home"><svg class="ico" viewBox="0 0 24 24"><path d="M9 6l6 6-6 6"/></svg>סקירה</button>
+    <div class="dev-hero"><h1>core-sw-01</h1><p>Cisco C9300-48P · מטה תל אביב, ליבה · פעיל 41 ימים <span class="tag c-warn">אזהרה · CPU</span></p></div>
+    <div class="stage dev-stage"><div class="stack" id="devStack"></div></div><div id="devLegend"></div>
+    <div class="dev-grid">
+      <div>
+        <div class="rings" id="rings"></div>
+        <div class="seg" role="tablist"><button class="on" type="button">פורטים</button><button type="button">חיישנים</button><button type="button">ציר זמן</button></div>
+        <div class="group" id="sensors"></div>
+      </div>
+      <div class="sheet" id="portSheet"></div>
+    </div>
+  </section>
+
+  <!-- PROBLEMS -->
+  <section class="view" id="v-problems" aria-label="תקלות">
+    <button class="back" type="button" data-go="home"><svg class="ico" viewBox="0 0 24 24"><path d="M9 6l6 6-6 6"/></svg>סקירה</button>
+    <h1 class="ptitle">תקלות</h1>
+    <div class="seg" role="tablist" style="margin-top:0"><button class="on" type="button">פתוחות</button><button type="button">בטיפול</button><button type="button">נפתרו היום</button></div>
+    <div class="group" id="allProblems"></div>
+  </section>
+  <section class="view" id="v-page" aria-live="polite"></section>
+</main>
+<div class="scrim" id="scrim"></div>
+<nav class="menu" id="menu" aria-label="כל המסכים"></nav>
+<button class="exit" type="button" id="exitBare"><svg class="ico" viewBox="0 0 24 24" style="width:16px;height:16px;transform:scaleX(-1)"><path d="M9 6l6 6-6 6"/></svg>חזרה למערכת</button>
+<div class="toast" id="toast" role="status"></div>
+</div>
+
+<script>
+(() => {
+const $ = (s, r = document) => r.querySelector(s), $$ = (s, r = document) => [...r.querySelectorAll(s)];
+const reduce = matchMedia('(prefers-reduced-motion: reduce)').matches;
+
+/* ---------- product renders (SVG) ---------- */
+const PORTC = {
+  up: { fill: '#1d6b30', frame: '#3fe066', ink: '#eafff0' },
+  bad: { fill: '#7a1c17', frame: '#ff5a50', ink: '#ffecea' },
+  warn: { fill: '#7a4a08', frame: '#ffaa2b', ink: '#fff4e2' },
+  off: { fill: '#0b0b0d', frame: '#3d3e42', ink: '#6b6b70' },
+};
+const PT = {
+  pc: { name: 'מחשב', d: '<rect x="3" y="4" width="18" height="12" rx="1.6"/><path d="M8.5 20h7M12 16v4"/>' },
+  phone: { name: 'טלפון IP', d: '<rect x="4" y="3" width="16" height="18" rx="2.5"/><path d="M8 7h8M8 11h.01M12 11h.01M16 11h.01M8 15h.01M12 15h.01M16 15h.01"/>' },
+  ap: { name: 'נקודת WiFi', d: '<path d="M2.5 9.5a13.5 13.5 0 0119 0M6 13a8.5 8.5 0 0112 0M9.2 16.4a4 4 0 015.6 0"/><circle cx="12" cy="19.6" r="1"/>' },
+  printer: { name: 'מדפסת', d: '<path d="M7 8V3h10v5"/><rect x="3" y="8" width="18" height="9" rx="1.6"/><path d="M7 14h10v7H7z"/>' },
+  cam: { name: 'מצלמה', d: '<rect x="2" y="7" width="14" height="10" rx="2"/><path d="M16 11l6-3.5v9L16 13"/>' },
+  server: { name: 'שרת', d: '<rect x="3.5" y="3.5" width="17" height="7" rx="1.6"/><rect x="3.5" y="13.5" width="17" height="7" rx="1.6"/><path d="M7.5 7h.01M7.5 17h.01"/>' },
+  uplink: { name: 'מתג (אפליינק)', d: '<path d="M12 20V5M6 11l6-6 6 6"/>' },
+};
+function portType(n, kind) {
+  if (kind === 'fw') return n <= 2 ? 'uplink' : n <= 6 ? 'server' : 'pc';
+  if (n <= 2) return 'uplink';
+  if (n % 11 === 0) return 'ap';
+  if (n % 13 === 0) return 'printer';
+  if (n % 9 === 0) return 'cam';
+  if (n % 5 === 0) return 'phone';
+  if (n >= 43) return 'server';
+  return 'pc';
+}
+const portLegend = () => `<div class="plegend">${Object.entries(PT).map(([k, v]) => `<span><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">${v.d}</svg>${v.name}</span>`).join('')}<span class="sep"></span>${[['up', 'פעיל'], ['bad', 'תקלה'], ['warn', 'אזהרה'], ['off', 'פנוי']].map(([k, t]) => `<span><i style="background:${PORTC[k].fill};border-color:${PORTC[k].frame}"></i>${t}</span>`).join('')}</div>`;
+function device({ name, model, ports = 48, sfp = 4, bad = [], warn = [], up = null, sel = null, kind = 'switch', id }) {
+  const W = 1000, H = kind === 'fw' ? 60 : 70;
+  const g = id || name;
+  let s = `<svg viewBox="0 0 ${W} ${H}" aria-label="${name}"><defs>
+    <linearGradient id="b-${g}" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#3a3b3f"/><stop offset=".08" stop-color="#2a2b2e"/><stop offset=".9" stop-color="#1b1c1e"/><stop offset="1" stop-color="#111214"/></linearGradient>
+    <linearGradient id="e-${g}" x1="0" y1="0" x2="1" y2="0"><stop offset="0" stop-color="#4a4b50"/><stop offset=".5" stop-color="#2c2d31"/><stop offset="1" stop-color="#4a4b50"/></linearGradient>
+    <linearGradient id="h-${g}" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#050506"/><stop offset="1" stop-color="#17181a"/></linearGradient>
+    <linearGradient id="sp-${g}" x1="0" y1="0" x2="1" y2="0"><stop offset="0" stop-color="#fff" stop-opacity="0"/><stop offset=".35" stop-color="#fff" stop-opacity=".55"/><stop offset=".65" stop-color="#fff" stop-opacity=".55"/><stop offset="1" stop-color="#fff" stop-opacity="0"/></linearGradient>
+    <filter id="gl-${g}" x="-200%" y="-200%" width="500%" height="500%"><feGaussianBlur stdDeviation="2.4"/></filter></defs>
+    <rect x="0" y="0" width="${W}" height="${H}" rx="5" fill="url(#b-${g})"/>
+    <rect x="0" y="0" width="22" height="${H}" rx="4" fill="url(#e-${g})"/><rect x="${W - 22}" y="0" width="22" height="${H}" rx="4" fill="url(#e-${g})"/>
+    <circle cx="11" cy="${H / 2}" r="3.2" fill="#0d0d0f"/><circle cx="${W - 11}" cy="${H / 2}" r="3.2" fill="#0d0d0f"/>
+    <path d="M22 1.2H${W - 22}" stroke="url(#sp-${g})" stroke-width="1.2"/><path d="M22 ${H - 1.2}H${W - 22}" stroke="#000" stroke-opacity=".6"/>
+    <circle cx="11" cy="9" r="2.4" fill="#5a5b60"/><circle cx="11" cy="${H - 9}" r="2.4" fill="#5a5b60"/><circle cx="${W - 11}" cy="9" r="2.4" fill="#5a5b60"/><circle cx="${W - 11}" cy="${H - 9}" r="2.4" fill="#5a5b60"/>
+    ${Array.from({ length: 9 }, (_, i) => `<rect x="${W - 150 + i * 7}" y="${H / 2 - 12}" width="3" height="24" rx="1.5" fill="#101113"/>`).join('')}
+    <text x="40" y="${H / 2 - 4}" fill="#d8d8dc" font-family="Inter" font-size="12" font-weight="600" letter-spacing="1">${name.toUpperCase()}</text>
+    <text x="40" y="${H / 2 + 12}" fill="#8e8e93" font-family="Inter" font-size="9.5" letter-spacing=".5">${model}</text>`;
+  const x0 = kind === 'fw' ? 330 : 180, pw = 21, ph = 21, gap = 1.6, blk = 7;
+  const cols = Math.ceil(ports / 2);
+  for (let i = 0; i < ports; i++) {
+    const c = Math.floor(i / 2), r = i % 2, n = i + 1;
+    const x = x0 + c * (pw + gap) + Math.floor(c / 6) * blk, y = r ? H / 2 + 1.5 : H / 2 - 1.5 - ph;
+    const st = bad.includes(n) ? 'bad' : warn.includes(n) ? 'warn' : (up ? up.has(n) : (n * 7) % 10 < 7) ? 'up' : 'off';
+    const P = PORTC[st], t = portType(n, kind), isSel = sel === n;
+    s += `<g class="port-hit" data-p="${n}"><title>${n} · ${PT[t].name}</title>` +
+      (isSel ? `<rect x="${x - 2.4}" y="${y - 2.4}" width="${pw + 4.8}" height="${ph + 4.8}" rx="4" fill="none" stroke="#fff" stroke-width="1.6"/>` : '') +
+      `<rect x="${x}" y="${y}" width="${pw}" height="${ph}" rx="2.6" fill="${P.fill}" stroke="${P.frame}" stroke-width="1.1"/>` +
+      (st === 'off' ? `<rect x="${x + 5}" y="${y + (r ? ph - 4.5 : 2)}" width="${pw - 10}" height="2.5" rx=".6" fill="#2b2c30"/>`
+        : `<g transform="translate(${x + 3} ${y + 3}) scale(${(pw - 6) / 24})" fill="none" stroke="${P.ink}" stroke-width="2.3" stroke-linecap="round" stroke-linejoin="round">${PT[t].d}</g>`) + `</g>`;
+  }
+  const sx = x0 + cols * (pw + gap) + Math.ceil(cols / 6) * blk + 18;
+  for (let i = 0; i < sfp; i++) { const x = sx + Math.floor(i / 2) * 30, y = i % 2 ? H / 2 + 5 : H / 2 - 5 - 12; s += `<rect x="${x}" y="${y}" width="24" height="12" rx="1.5" fill="#08090a" stroke="#4a4b50" stroke-width=".7"/><circle cx="${x + 27}" cy="${y + 6}" r="1.4" fill="${i < 2 ? '#32d74b' : '#2a2b2e'}"/>`; }
+  s += `<circle cx="${W - 60}" cy="${H / 2 - 9}" r="2.4" fill="${bad.length ? '#ff453a' : warn.length ? '#ff9f0a' : '#32d74b'}"/><circle cx="${W - 60}" cy="${H / 2 + 9}" r="2.4" fill="#32d74b"/><text x="${W - 50}" y="${H / 2 - 6}" fill="#8e8e93" font-family="Inter" font-size="8">SYS</text><text x="${W - 50}" y="${H / 2 + 12}" fill="#8e8e93" font-family="Inter" font-size="8">PWR</text>`;
+  return s + '</svg>';
+}
+const box = (svg, extra = '', fw = false) => `<div class="u3 ${fw ? 'fw' : ''}"><div class="f back"></div><div class="f bottom"></div><div class="f left side"></div><div class="f right side"></div><div class="f top"></div><div class="f front">${svg}${extra}</div></div>`;
+function size3d() { $$('.u3').forEach(u => { const w = u.clientWidth, h = u.clientHeight; u.style.setProperty('--w', w + 'px'); u.style.setProperty('--h', h + 'px'); u.style.setProperty('--d', Math.round(w * .58) + 'px'); }); }
+addEventListener('resize', size3d);
+const pin = (txt, cls, side, top) => `<span class="pin ${cls}" style="${side}:-10px;top:${top}"><i></i>${txt}</span>`;
+const upSet = new Set([1, 2, 3, 4, 5, 6, 8, 9, 10, 11, 13, 14, 15, 17, 18, 19, 20, 22, 25, 26, 27, 29, 30, 31, 33, 34, 37, 38, 41, 42, 45]);
+
+let PINS = [];
+function placePins() {
+  const layer = $('#homePins'); if (!layer || !layer.offsetParent) return;
+  const L = layer.getBoundingClientRect(), fronts = $$('#homeStack .front'), els = layer.children;
+  PINS.forEach((p, i) => { const f = fronts[p.u], el = els[i]; if (!f || !el) return; const r = f.getBoundingClientRect(); const x = p.side === 'r' ? r.right - L.left - el.offsetWidth * .35 : r.left - L.left - el.offsetWidth * .65; const y = r.top - L.top + r.height * .5 - el.offsetHeight / 2; const xc = Math.min(L.width - el.offsetWidth - 10, Math.max(10, x)); el.style.transform = `translate(${xc.toFixed(1)}px, ${y.toFixed(1)}px)`; });
+}
+(function tick() { placePins(); requestAnimationFrame(tick); })();
+const HI = {
+  globe: '<circle cx="12" cy="12" r="8.5"/><path d="M3.5 12h17M12 3.5c2.6 2.6 3.6 5.4 3.6 8.5s-1 5.9-3.6 8.5c-2.6-2.6-3.6-5.4-3.6-8.5s1-5.9 3.6-8.5z"/>',
+  shield: '<path d="M12 3l8 3v6c0 4.5-3.4 8-8 9-4.6-1-8-4.5-8-9V6z"/>',
+  sw: '<rect x="3" y="7" width="18" height="10" rx="2"/><path d="M7 12h.01M10 12h.01M13 12h.01M16 12h.01"/>',
+  srv: '<rect x="4" y="4" width="16" height="7" rx="1.6"/><rect x="4" y="13" width="16" height="7" rx="1.6"/><path d="M8 7.5h.01M8 16.5h.01"/>',
+  wifi: '<path d="M3 9.5a13 13 0 0118 0M6 13a8.5 8.5 0 0112 0M9 16.5a4 4 0 016 0"/><circle cx="12" cy="19.5" r=".8"/>',
+  branch: '<path d="M4 20V9l8-5 8 5v11"/><path d="M9 20v-6h6v6"/>',
+  ups: '<path d="M13 3L5 13.5h6L10 21l8-10.5h-6z"/>',
+};
+const hico = k => `<svg class="ico" viewBox="0 0 24 24">${HI[k]}</svg>`;
+function homeStack(alert) {
+  const N = [
+    { id: 'inet', x: 50, y: 5, i: 'globe', t: 'אינטרנט', s: '2 ספקים', c: alert ? 'warn' : 'up', note: alert ? 'ספק אחד בלבד' : '' },
+    { id: 'fw', x: 50, y: 31, i: 'shield', t: 'fw-edge-01', s: 'FortiGate', c: alert ? 'down' : 'up', note: alert ? 'WAN2 לא מגיב' : '', go: 'problems', lt: 1 },
+    { id: 'core', x: 50, y: 57, i: 'sw', t: 'ליבה', s: '3 התקנים', c: 'warn', note: 'CPU 87%', go: 'device' },
+    { id: 'acc', x: 10, y: 90, i: 'sw', t: 'גישה', s: '14 מתגים', c: 'down', note: 'אפליינק נפל', go: 'group' },
+    { id: 'srv', x: 30, y: 90, i: 'srv', t: 'שרתים', s: '9 התקנים', c: 'down', note: 'דיסק מלא', go: 'problems' },
+    { id: 'wifi', x: 50, y: 90, i: 'wifi', t: 'WiFi', s: '7 נקודות', c: 'unreach', note: 'ap-06 לא נגיש', go: 'problems' },
+    { id: 'ups', x: 70, y: 90, i: 'ups', t: 'חשמל', s: '2 UPS', c: 'warn', note: 'סוללה 38%', go: 'problems' },
+    { id: 'br', x: 90, y: 90, i: 'branch', t: 'סניפים', s: '3 אתרים', c: 'down', note: 'חיפה מנותק', go: 'problems' },
+  ];
+  const at = Object.fromEntries(N.map(n => [n.id, n]));
+  const L = [['inet', 'fw', alert ? 'warn' : ''], ['fw', 'core', ''], ['core', 'acc', 'bad'], ['core', 'srv', ''], ['core', 'wifi', ''], ['core', 'ups', ''], ['core', 'br', 'bad']];
+  const path = ([a, b]) => { const A = at[a], B = at[b], y0 = A.y + 15, y1 = B.y - 7, my = y1 - 6, d = Math.sign(B.x - A.x); return A.x === B.x ? `M${A.x} ${y0}V${y1}` : `M${A.x} ${y0}V${my - 3}Q${A.x} ${my} ${A.x + d * 2} ${my}H${B.x - d * 2}Q${B.x} ${my} ${B.x} ${my + 3}V${y1}`; };
+  $('#homeDial').innerHTML = `<svg viewBox="0 0 100 100" preserveAspectRatio="none" aria-hidden="true">${[...L].sort((x, y) => (y[2] ? 1 : 0) - (x[2] ? 1 : 0)).map(l => `<path class="ln ${l[2]}" d="${path(l)}" vector-effect="non-scaling-stroke"/>${l[2] ? '' : `<path class="ln flow" d="${path(l)}" vector-effect="non-scaling-stroke"/>`}`).join('')}</svg>` +
+    N.map(n => `<button type="button" class="hn c-${n.c}" style="left:${n.x}%;top:${n.y}%" ${n.go ? `data-go="${n.go}"` : ''}><span class="tile">${hico(n.i)}</span><b class="${n.lt ? 'lt' : ''}">${n.t}</b><small>${n.c === 'up' ? n.s : `<i></i>${n.note}`}</small></button>`).join('');
+}
+/* ---------- data ---------- */
+let PROBLEMS = [
+  { id: 'disk', c: 'down', dev: 'srv-backup', what: 'דיסק ‎/data מלא ב-96%', dur: '1:03:11', icon: 'disk' },
+  { id: 'up', c: 'down', dev: 'access-sw-12', what: 'אפליינק Gi0/1 ללא לינק', dur: '31:40', icon: 'port' },
+  { id: 'hfa', c: 'down', dev: 'rtr-hfa', what: 'סניף חיפה · אין תשובה לפינג', dur: '4:02', icon: 'ping' },
+  { id: 'cpu', c: 'warn', dev: 'core-sw-01', what: 'CPU על 87%, מעל 85%', dur: '2:55', icon: 'cpu', go: 'device' },
+  { id: 'trf', c: 'warn', dev: 'core-sw-01', what: 'תעבורה נכנסת 81% ב-Gi1/0/49', dur: '21:09', icon: 'trf', go: 'device' },
+];
+const ICON = {
+  disk: '<ellipse cx="12" cy="6" rx="7" ry="2.5"/><path d="M5 6v12c0 1.4 3.1 2.5 7 2.5s7-1.1 7-2.5V6"/>',
+  port: '<rect x="4" y="6" width="16" height="12" rx="2"/><path d="M8 18v-4h2v-2h4v2h2v4"/>',
+  ping: '<path d="M3 12h4l3-7 4 14 3-7h4"/>', cpu: '<rect x="6" y="6" width="12" height="12" rx="2"/><path d="M9 2v4M15 2v4M9 18v4M15 18v4M2 9h4M2 15h4M18 9h4M18 15h4"/>',
+  trf: '<path d="M4 8h13l-3-3M20 16H7l3 3"/>', wan: '<circle cx="12" cy="12" r="8"/><path d="M4 12h16M12 4c2.5 3 2.5 13 0 16M12 4c-2.5 3-2.5 13 0 16"/>',
+};
+const ic = k => `<svg class="ico" viewBox="0 0 24 24">${ICON[k]}</svg>`;
+const acked = new Set();
+function problemRows(list, compact) {
+  return list.map(p => compact
+    ? `<button class="row c-${p.c}" type="button" ${p.go ? `data-go="${p.go}"` : 'data-go="problems"'}><span class="sdot"></span><span class="rt"><b class="ltr" style="text-align:right">${p.dev}</b><span>${p.what}</span></span><span class="rv">${p.dur}</span><span class="chev"><svg class="ico" viewBox="0 0 24 24"><path d="M9 6l6 6-6 6"/></svg></span></button>`
+    : `<div class="prow c-${p.c}"><span class="ic">${ic(p.icon)}</span><span class="t"><b>${p.dev}</b><span>${p.what}</span></span><span class="e"><span class="dur">${p.dur}</span><button class="ack ${acked.has(p.id) ? 'done' : ''}" type="button" data-ack="${p.id}">${acked.has(p.id) ? 'בטיפול' : 'אישור'}</button></span></div>`).join('');
+}
+function renderLists() { $('#homeProblems').innerHTML = problemRows(PROBLEMS.slice(0, 4), true); $('#allProblems').innerHTML = problemRows(PROBLEMS, false); }
+
+/* ---------- device page ---------- */
+function renderDevice(sel = 21) {
+  $('#devStack').innerHTML = `<div class="unit">${device({ name: 'core-sw-01', model: 'C9300-48P · member 1', bad: [21], warn: [49], up: upSet, sel, id: 'd1' })}</div><div class="unit">${device({ name: 'core-sw-01', model: 'C9300-48P · member 2', up: new Set([1, 2, 3, 5, 7, 9, 10, 12, 14, 16, 18, 21, 24]), id: 'd2' })}</div>`;
+  size3d();
+  $$('#devStack .port-hit').forEach(p => p.addEventListener('click', () => { if (p.closest('.unit') === $('#devStack .unit')) renderDevice(+p.dataset.p); }));
+  const down = sel === 21, up = upSet.has(sel);
+  $('#portSheet').innerHTML = `<span class="tag ${down ? 'c-down' : up ? 'c-up' : ''}">${down ? 'אין לינק מאז 10:44' : up ? 'מחובר · 1 Gbit/s' : 'ריק'}</span><h3>Gi1/0/${sel}</h3>
+    <dl class="kv"><dt>תיאור</dt><dd>${down ? 'Desk 3.21 · Finance' : 'Desk 3.' + sel}</dd><dt>VLAN</dt><dd>20 · access</dd><dt>PoE</dt><dd>${up ? 'פעיל · 6.2 W' : 'כבוי'}</dd><dt>מחובר לאחרונה</dt><dd class="ltr">${down ? '00:50:56:ab:31:0c' : up ? '00:50:56:ab:12:9f' : '—'}</dd><dt>שגיאות (Δ)</dt><dd>0</dd></dl>
+    <div class="actions"><button class="pbtn" type="button" data-toast="הפורט נבדק">בדיקה עכשיו</button><button class="sbtn" type="button" data-toast="היסטוריית MAC">היסטוריה</button><button class="sbtn red" type="button" data-toast="ההתראות לפורט הושתקו">השתקה</button></div>`;
+}
+function renderRings() {
+  const R = [['CPU', 87, '%', 'warn'], ['זיכרון', 61, '%', 'up'], ['PoE', 42, '%', 'up']];
+  const C = 2 * Math.PI * 40;
+  $('#rings').innerHTML = R.map(([l, v, u, c]) => `<div class="ring c-${c}"><svg viewBox="0 0 100 100"><circle class="tr" cx="50" cy="50" r="40"/><circle class="v" cx="50" cy="50" r="40" stroke-dasharray="${C}" stroke-dashoffset="${C}" data-to="${C * (1 - v / 100)}"/></svg><span class="lbl"><b class="num">${v}${u}</b><span>${l}</span></span></div>`).join('');
+  requestAnimationFrame(() => requestAnimationFrame(() => $$('#rings .v').forEach(c => c.style.strokeDashoffset = c.dataset.to)));
+  const S = [['up', 'Ping', '1.2 ms'], ['warn', 'CPU', '87%'], ['up', 'זיכרון', '61%'], ['down', 'Gi1/0/21', 'אין לינק'], ['up', 'Gi1/0/49 תעבורה', '812 Mbit/s'], ['up', 'ספקי כוח', '2 מתוך 2']];
+  $('#sensors').innerHTML = S.map(([c, n, v]) => `<div class="row c-${c}"><span class="sdot"></span><span class="rt"><b>${n}</b></span><span class="rv">${v}</span></div>`).join('');
+}
+
+/* ---------- navigation: a stack, like iOS ---------- */
+let cur = 'home'; const stack = [];
+const FIXED = { home: 1, problems: 1, device: 1 };
+function viewOf(name) { return FIXED[name] ? $('#v-' + name) : $('#v-page'); }
+function show(to, fwd) {
+  const from = $('.view.on'), next = viewOf(to);
+  const bare = !!(PAGES[to] && PAGES[to].bare);
+  const swap = () => {
+    if (to === 'device') { renderDevice(21); renderRings(); }
+    if (!FIXED[to]) { next.innerHTML = PAGES[to].html(); }
+    from.classList.remove('on'); next.classList.add('on'); document.body.classList.toggle('bare', bare); scrollTo(0, 0); size3d(); document.querySelectorAll('.topo-scroll').forEach(e => { e.scrollLeft = -(e.scrollWidth - e.clientWidth) / 2; });
+    if (!FIXED[to] && PAGES[to].init) PAGES[to].init(next);
+    if (to === 'home') countUp();
+    if (!reduce) {
+      const dx = fwd ? -60 : 60;
+      next.animate([{ opacity: 0, transform: `translateX(${dx}px)` }, { opacity: 1, transform: 'none' }], { duration: 520, easing: 'cubic-bezier(.32,.72,0,1)' });
+      $$('.stack .unit', next).forEach((u, i) => u.animate([{ transform: 'translateY(50px) translateZ(-200px)' }, { transform: 'none' }], { duration: 1000, delay: 80 + i * 70, easing: 'cubic-bezier(.32,.72,0,1)', fill: 'backwards' }));
+    }
+  };
+  if (reduce || from === next) { if (from === next && !reduce) next.animate([{ opacity: 1 }, { opacity: 0 }], { duration: 160 }).onfinish = swap; else swap(); return; }
+  from.animate([{ opacity: 1, transform: 'none' }, { opacity: 0, transform: `translateX(${fwd ? 30 : -30}px) scale(.985)` }], { duration: 240, easing: 'cubic-bezier(.32,.72,0,1)' }).onfinish = swap;
+}
+let fromMenu = false;
+document.addEventListener('click', e => { fromMenu = !!e.target.closest('#menu'); }, true);
+function go(to) { if (to === cur) return; if (!FIXED[to] && !PAGES[to]) return; if (fromMenu && to !== 'home') { stack.length = 0; stack.push('home'); } else stack.push(cur); fromMenu = false; cur = to; closeMenu(); show(to, true); }
+function back() { const to = stack.pop() || 'home'; cur = to; show(to, false); }
+function home() { stack.length = 0; cur = 'home'; closeMenu(); show('home', false); }
+document.addEventListener('click', e => {
+  if (e.target.closest('.back')) { e.preventDefault(); back(); return; }
+  const g = e.target.closest('[data-go]'); if (g) { e.preventDefault(); go(g.dataset.go); return; }
+  const t = e.target.closest('[data-toast]'); if (t) toast(t.dataset.toast);
+  const a = e.target.closest('[data-ack]'); if (a) { const id = a.dataset.ack; acked.has(id) ? acked.delete(id) : acked.add(id); renderLists(); if (acked.has(id)) toast('סומן כבטיפול · ההתראות הושתקו'); }
+});
+let tt; function toast(m) { const el = $('#toast'); el.textContent = m; el.classList.add('on'); clearTimeout(tt); tt = setTimeout(() => el.classList.remove('on'), 2200); }
+
+/* ---------- theme ---------- */
+$('#theme').addEventListener('click', () => { const r = document.documentElement; const dark = r.dataset.theme ? r.dataset.theme === 'dark' : matchMedia('(prefers-color-scheme: dark)').matches; r.dataset.theme = dark ? 'light' : 'dark'; });
+
+/* ---------- live incident through the island ---------- */
+const island = $('#island');
+let t0 = 0, timer;
+function incident() {
+  island.classList.add('alert'); $('#islandT').innerHTML = '<span class="ltr">fw-edge-01</span> · WAN2 לא מגיב'; t0 = Date.now();
+  timer = setInterval(() => { const s = Math.floor((Date.now() - t0) / 1000); $('#islandX').textContent = `0:${String(s).padStart(2, '0')}`; }, 1000);
+  PROBLEMS.unshift({ id: 'wan', c: 'down', dev: 'fw-edge-01', what: 'WAN2 · 4 מתוך 4 פינגים אבדו', dur: '0:00', icon: 'wan' });
+  renderLists(); homeStack(true);
+  $('#hN').textContent = '4'; $('#sDown').textContent = '4'; $('#sUp').textContent = '391';
+  if (!reduce && $('#homeDial .hn.c-down .tile')) $('#homeDial .hn.c-down .tile').animate([{ transform: 'translateX(0)' }, { transform: 'translateX(-6px)' }, { transform: 'translateX(5px)' }, { transform: 'translateX(-3px)' }, { transform: 'none' }], { duration: 500 });
+}
+function recover() {
+  clearInterval(timer); island.classList.remove('alert'); $('#islandT').textContent = 'הכול תקין'; $('#islandX').textContent = '';
+  PROBLEMS = PROBLEMS.filter(p => p.id !== 'wan'); renderLists(); homeStack(false);
+  $('#hN').textContent = '3'; $('#sDown').textContent = '3'; $('#sUp').textContent = '392'; toast('fw-edge-01 חזר לפעול אחרי 18 שניות');
+  setTimeout(incident, 40000);
+}
+island.addEventListener('click', () => { if (island.classList.contains('alert')) { go('problems'); } });
+setTimeout(incident, 5000);
+setInterval(() => { if (island.classList.contains('alert') && Date.now() - t0 > 18000) recover(); }, 1000);
+
+/* ================= all other screens ================= */
+const I = {
+  chev: '<path d="M9 6l6 6-6 6"/>', back: '<path d="M9 6l6 6-6 6"/>',
+  dev: '<rect x="3" y="7" width="18" height="10" rx="2"/><path d="M7 12h.01M10 12h.01M13 12h.01"/>',
+  map: '<circle cx="5" cy="6" r="2.5"/><circle cx="19" cy="6" r="2.5"/><circle cx="12" cy="18" r="2.5"/><path d="M7.5 6h9M6.2 8.2l4.6 7.6M17.8 8.2l-4.6 7.6"/>',
+  logs: '<path d="M5 6h14M5 10h14M5 14h9M5 18h6"/>', flow: '<path d="M4 8h13l-3-3M20 16H7l3 3"/>',
+  backup: '<ellipse cx="12" cy="6" rx="7" ry="2.5"/><path d="M5 6v12c0 1.4 3.1 2.5 7 2.5s7-1.1 7-2.5V6M5 12c0 1.4 3.1 2.5 7 2.5s7-1.1 7-2.5"/>',
+  newdev: '<rect x="3" y="5" width="13" height="10" rx="2"/><path d="M7 19h5M9.5 15v4M19 8v6M16 11h6"/>',
+  report: '<path d="M7 3h7l5 5v13H7z"/><path d="M14 3v5h5M10 13h6M10 17h6"/>', wrench: '<path d="M14.7 6.3a4 4 0 00-5.4 5.2L3.6 17.2a1.6 1.6 0 002.2 2.2l5.7-5.7a4 4 0 005.2-5.4l-2.5 2.5-2.1-.5-.5-2.1z"/>',
+  radar: '<circle cx="12" cy="12" r="8"/><circle cx="12" cy="12" r="4"/><path d="M12 12l5-5"/>', layers: '<path d="M12 3l9 5-9 5-9-5z"/><path d="M3 13l9 5 9-5"/>',
+  search: '<circle cx="11" cy="11" r="6.5"/><path d="M20 20l-4.2-4.2"/>', bell: '<path d="M6 16V11a6 6 0 0112 0v5l2 2H4z"/><path d="M10 20a2 2 0 004 0"/>',
+  cog: '<circle cx="12" cy="12" r="3"/><path d="M12 2v3M12 19v3M2 12h3M19 12h3M4.9 4.9l2.1 2.1M17 17l2.1 2.1M4.9 19.1L7 17M17 7l2.1-2.1"/>',
+  users: '<circle cx="9" cy="8" r="3.5"/><path d="M2.5 20a6.5 6.5 0 0113 0M16 4.5a3.5 3.5 0 010 7M21.5 20a6.5 6.5 0 00-4-6"/>',
+  audit: '<path d="M12 3l8 3v6c0 4.5-3.4 8-8 9-4.6-1-8-4.5-8-9V6z"/><path d="M9 12l2 2 4-4"/>', user: '<circle cx="12" cy="8" r="4"/><path d="M4 21a8 8 0 0116 0"/>',
+  events: '<circle cx="12" cy="12" r="8"/><path d="M12 7v5l3 2"/>', folder: '<path d="M3 7a2 2 0 012-2h4l2 2h8a2 2 0 012 2v8a2 2 0 01-2 2H5a2 2 0 01-2-2z"/>',
+  key: '<circle cx="8" cy="15" r="4"/><path d="M11 12l9-9M16 7l3 3"/>', tv: '<rect x="3" y="5" width="18" height="12" rx="2"/><path d="M8 21h8"/>',
+  phone: '<rect x="7" y="2" width="10" height="20" rx="2.5"/><path d="M11 18h2"/>', door: '<path d="M14 3h5v18h-5M10 17l5-5-5-5M15 12H3"/>',
+  sensor: '<path d="M3 12h4l3-7 4 14 3-7h4"/>', plus: '<path d="M12 5v14M5 12h14"/>', check: '<path d="M5 12l5 5L20 7"/>',
+};
+const ico = (k, cls = '') => `<svg class="ico ${cls}" viewBox="0 0 24 24">${I[k]}</svg>`;
+const chev = `<span class="chev">${ico('chev')}</span>`;
+const LABEL = { home: 'סקירה', problems: 'תקלות', device: 'core-sw-01' };
+const backBtn = () => { const prev = stack[stack.length - 1] || 'home'; return `<button class="back" type="button">${ico('back')}${LABEL[prev] || (PAGES[prev] && PAGES[prev].t) || 'סקירה'}</button>`; };
+const head = (t, sub = '', acts = '') => `${backBtn()}<div class="pg-h"><h1>${t}</h1>${sub ? `<p>${sub}</p>` : ''}${acts ? `<div class="acts">${acts}</div>` : ''}</div>`;
+const row = ({ i, t, s = '', v = '', c = '', go = '', toast = '', lt = false, dot = false }) => `<button class="row ${c ? 'c-' + c : ''}" type="button" ${go ? `data-go="${go}"` : toast ? `data-toast="${toast}"` : ''}>${dot ? '<span class="sdot"></span>' : i ? `<span class="ri">${ico(i)}</span>` : ''}<span class="rt"><b class="${lt ? 'lt' : ''}">${t}</b>${s ? `<span>${s}</span>` : ''}</span>${v ? `<span class="rv">${v}</span>` : ''}${go || toast ? chev : ''}</button>`;
+const grp = (title, rows, link = '') => `<div>${title ? `<h2 class="gtitle">${title}${link}</h2>` : ''}<div class="group">${rows.join('')}</div></div>`;
+const segs = (items, on = 0, id = '') => `<div class="seg" role="tablist" ${id ? `id="${id}"` : ''} style="margin-top:0">${items.map((x, i) => `<button class="${i === on ? 'on' : ''}" type="button" data-i="${i}">${x}</button>`).join('')}</div>`;
+const tag = (c, t) => `<span class="tag c-${c}">${t}</span>`;
+const sw = on => `<span class="sw ${on ? 'on' : ''}" role="switch" aria-checked="${on}"></span>`;
+const kv = pairs => `<dl class="kv">${pairs.map(([k, v]) => `<dt>${k}</dt><dd>${v}</dd>`).join('')}</dl>`;
+let seed = 11; const rnd = () => (seed = (seed * 16807) % 2147483647) / 2147483647;
+function line(vals, { h = 180, c = 'var(--ink)', area = true, thr = null } = {}) {
+  const W = 600, mx = Math.max(...vals, thr || 0) * 1.12, pts = vals.map((v, i) => [i * W / (vals.length - 1), h - v / mx * h]);
+  const d = pts.map((p, i) => (i ? 'L' : 'M') + p[0].toFixed(1) + ' ' + p[1].toFixed(1)).join(' ');
+  return `<svg class="chart" viewBox="0 0 ${W} ${h}" preserveAspectRatio="none" style="height:${h}px">${[.25, .5, .75].map(f => `<line class="gl" x1="0" x2="${W}" y1="${h * f}" y2="${h * f}"/>`).join('')}${area ? `<path d="${d} L${W} ${h} L0 ${h}Z" fill="${c}" opacity=".08"/>` : ''}${thr ? `<line x1="0" x2="${W}" y1="${h - thr / mx * h}" y2="${h - thr / mx * h}" stroke="var(--warn)" stroke-dasharray="6 6" vector-effect="non-scaling-stroke"/>` : ''}<path d="${d}" fill="none" stroke="${c}" stroke-width="2.4" vector-effect="non-scaling-stroke" stroke-linejoin="round"/></svg>`;
+}
+const bars = (n, f) => `<div class="bars">${Array.from({ length: n }, (_, i) => { const [v, k] = f(i); return `<i class="${k}" style="height:${v}%"></i>`; }).join('')}</div>`;
+const mini = (name, model, opts = {}) => device({ name, model, id: 'mini-' + name + (opts.k || ''), ...opts });
+const mini3 = (name, model, opts = {}) => `<span class="m3"><span class="stack"><span class="unit">${box(mini(name, model, opts), '', opts.kind === 'fw')}</span></span></span>`;
+
+/* sections: home list + menu */
+const SECTIONS = [
+  ['ניטור', [['problems', 'problems', 'תקלות', 'alert'], ['events', 'events', 'אירועים', 'events'], ['logs', 'logs', 'לוגים ו-Traps', 'logs'], ['topology', 'map', 'מפת רשת', 'map'], ['flows', 'flow', 'תעבורה', 'flow'], ['find', 'search', 'איתור MAC / IP', 'search']]],
+  ['ציוד', [['group', 'folder', 'קבוצות והתקנים', 'folder'], ['device', 'dev', 'core-sw-01', 'dev'], ['sensor', 'sensor', 'חיישן', 'sensor'], ['newdevices', 'newdev', 'התקנים חדשים', 'newdev'], ['backups', 'backup', 'גיבויי קונפיגורציה', 'backup'], ['discovery', 'radar', 'גילוי רשת', 'radar'], ['templates', 'layers', 'תבניות', 'layers']]],
+  ['תפעול', [['maintenance', 'wrench', 'חלונות תחזוקה', 'wrench'], ['reports', 'report', 'דוחות', 'report'], ['notifications', 'bell', 'התראות', 'bell']]],
+  ['ניהול', [['settings', 'cog', 'הגדרות', 'cog'], ['users', 'users', 'משתמשים', 'users'], ['audit', 'audit', 'יומן ביקורת', 'audit'], ['account', 'user', 'החשבון שלי', 'user']]],
+  ['מסכים מיוחדים', [['login', 'door', 'מסך כניסה', 'door'], ['setup', 'cog', 'התקנה ראשונה', 'cog'], ['wall', 'tv', 'מסך קיר NOC', 'tv'], ['chatack', 'phone', 'אישור מהצ\'אט', 'phone']]],
+];
+I.alert = '<path d="M12 4l9 16H3z"/><path d="M12 10v4M12 17h.01"/>';
+const SUB = { problems: '3 תקלות · 5 אזהרות', events: '214 היום', logs: '18,442 בשעה האחרונה', topology: '14 קישורים · אחד למטה', flows: '1.2 Gbit/s ליציאה', find: 'איפה מחובר התקן?', group: '4 קבוצות · 38 התקנים', newdevices: '4 חדשים לאישור', backups: '32 תקינים · אחד נכשל', discovery: 'סריקה רצה · 67%', templates: '14 תבניות', maintenance: 'חלון אחד פעיל', reports: 'הבא: יום ראשון 08:00', notifications: '4 ערוצים · 3 כללים' };
+function buildNav() {
+  $('#homeNav').innerHTML = ['topology', 'logs', 'flows', 'group', 'newdevices', 'backups', 'maintenance', 'reports'].map(k => { const it = SECTIONS.flatMap(x => x[1]).find(x => x[0] === k); return row({ i: it[3], t: it[2], s: SUB[k] || '', go: k }); }).join('') + row({ i: 'layers', t: 'כל המסכים', s: 'הגדרות, משתמשים, תבניות ועוד', go: '' }).replace('<button class="row "', '<button class="row" data-menu');
+  $('#menu').innerHTML = `<h2>כל המסכים</h2>` + SECTIONS.map(([g, items]) => `<h3 class="gtitle">${g}</h3><div class="group">${items.map(([k, , t, i]) => row({ i, t, go: k, lt: /[a-z]/.test(t) && !/[א-ת]/.test(t) })).join('')}</div>`).join('');
+}
+function openMenu() { $('#menu').classList.add('on'); $('#scrim').classList.add('on'); }
+function closeMenu() { $('#menu').classList.remove('on'); $('#scrim').classList.remove('on'); }
+$('#menuBtn').addEventListener('click', openMenu); $('#scrim').addEventListener('click', closeMenu);
+document.addEventListener('click', e => { if (e.target.closest('[data-menu]')) openMenu(); if (e.target.closest('.seg button')) { const b = e.target.closest('.seg button'); $$('button', b.parentElement).forEach(x => x.classList.toggle('on', x === b)); if (b.parentElement.id && SEGS[b.parentElement.id]) SEGS[b.parentElement.id](+b.dataset.i); } if (e.target.closest('.sw')) { const t = e.target.closest('.sw'); t.classList.toggle('on'); t.setAttribute('aria-checked', t.classList.contains('on')); } if (e.target.closest('.chip')) { const c = e.target.closest('.chip'); if (c.parentElement.classList.contains('chips') && c.parentElement.dataset.single !== undefined) $$('.chip', c.parentElement).forEach(x => x.classList.toggle('on', x === c)); else if (c.parentElement.classList.contains('chips')) c.classList.toggle('on'); } });
+$('#exitBare').addEventListener('click', home);
+const SEGS = {};
+
+const PAGES = {
+  /* ---------- groups ---------- */
+  group: { t: 'קבוצות', html: () => head('מטה תל אביב', '26 התקנים · 206 חיישנים · תלוי ב-fw-edge-01', `<button class="pbtn" type="button" data-toast="הוספת התקן">${ico('plus')}הוספת התקן</button><button class="sbtn" type="button" data-toast="החלת תבנית">החלת תבנית</button>`) +
+    `<div class="two"><div>${grp('תתי-קבוצות', [row({ i: 'folder', t: 'ליבה', s: '3 התקנים · 51 חיישנים', v: tag('warn', '1 אזהרה'), go: 'device' }), row({ i: 'folder', t: 'גישה · קומה 1', s: '14 התקנים · 91 חיישנים', v: tag('down', '1 תקלה'), toast: 'קבוצה' }), row({ i: 'folder', t: 'שרתים', s: '9 התקנים · 64 חיישנים', v: tag('down', '1 תקלה'), toast: 'קבוצה' })])}
+    <h2 class="gtitle">התקנים</h2><div class="group">${[['core-sw-01', 'C9300-48P', 'warn', [21], [49]], ['core-sw-02', 'C9300-48P', 'up', [], []], ['fw-edge-01', 'FortiGate 100F', 'up', [], []], ['access-sw-12', 'C9200L-48P', 'down', [1, 2], []]].map(([n, m, c, b, w]) => `<button class="row c-${c}" type="button" data-go="device"><span class="ri">${ico(n.startsWith('fw') ? 'audit' : 'dev')}</span><span class="rt"><b class="lt">${n}</b><span>${m}</span></span><span class="sdot"></span>${chev}</button>`).join('')}</div></div>
+    <div class="card"><h3>תלות</h3><p class="muted small" style="margin:0">כשההתקן שמעל נופל, החיישנים שמתחתיו מסומנים "לא נגיש" ולא שולחים התראות.</p>${kv([['תלוי ב', '<span class="mono">fw-edge-01</span>'], ['חיישן תלות', 'Ping אוטומטי'], ['תחזוקה', 'ראשון 02:00–04:00']])}<button class="sbtn" type="button" data-toast="עריכת תלות">עריכה</button></div></div>` },
+
+  /* ---------- sensor ---------- */
+  sensor: { t: 'חיישן', html: () => head('<span class="lt">Gi1/0/49</span> · תעבורה', 'core-sw-01 · SNMP Interface · כל 60 שניות', `<button class="pbtn" type="button" data-toast="סומן כבטיפול">אישור</button><button class="sbtn" type="button" data-toast="נבדק עכשיו">בדיקה עכשיו</button><button class="sbtn" type="button" data-toast="החיישן הושהה">השהיה</button>`) +
+    `<div class="two"><div class="card"><div style="display:flex;justify-content:space-between;align-items:flex-end;gap:16px;flex-wrap:wrap"><div><span class="muted small">נכנס עכשיו</span><div class="big">812<small>Mbit/s</small></div><span class="tag c-warn">אזהרה · 81% מעל 80%</span></div>${segs(['שעה', '24 שעות', '7 ימים', '30 ימים'], 1)}</div>
+    ${line(Array.from({ length: 60 }, (_, i) => 480 + 220 * Math.sin(i / 6) + i * 4 + rnd() * 60), { h: 220, thr: 800 })}<div class="axis"><span>10:00</span><span>16:00</span><span>22:00</span><span>04:00</span><span>עכשיו</span></div></div>
+    <div style="display:grid;gap:16px"><div class="card"><h3>ערוצים</h3><ul class="plain"><li>נכנס <b class="mono">812.4 Mbit/s</b></li><li>יוצא <b class="mono">233.1 Mbit/s</b></li><li>ניצולת נכנסת <b class="mono">81.2%</b></li><li>שגיאות (Δ) <b class="mono">0</b></li></ul></div>
+    <div class="card"><h3>ספים</h3><div class="field"><label>אזהרה מעל (Mbit/s)</label><input class="input lt" value="800"></div><div class="field"><label>תקלה מעל (Mbit/s)</label><input class="input lt" value="950"></div><button class="pbtn" type="button" data-toast="הספים נשמרו">שמירה</button></div></div></div>
+    ${grp('אירועים', [row({ dot: true, c: 'warn', t: 'תקין ← אזהרה', s: 'ניצולת 81% · היום 10:21' }), row({ dot: true, c: 'up', t: 'אזהרה ← תקין', s: 'ניצולת 42% · אתמול 23:10' })])}` },
+
+  /* ---------- events ---------- */
+  events: { t: 'אירועים', html: () => head('אירועים', 'כל מה שקרה, מהחדש לישן') + `<div class="chips" data-single style="margin-bottom:18px"><button class="chip on" type="button">הכול</button><button class="chip" type="button">שינויי סטטוס</button><button class="chip" type="button">התראות</button><button class="chip" type="button">אישורים</button><button class="chip" type="button">תחזוקה</button><button class="chip" type="button">גילוי</button></div>
+    <div class="card" style="padding:6px 22px"><div class="tl">${[['10:42', 'down', 'fw-edge-01 · WAN2 נפל', 'אין תשובה · נשלח ל-NOC בטלגרם ובמייל'], ['10:38', 'warn', 'core-sw-01 · CPU עלה ל-87%', 'מעל סף 85% במשך 2 דקות'], ['10:31', 'up', 'יוסי אישר את ap-f1-lobby', '"מחליפים מזרק PoE, צפי 11:00"'], ['10:21', 'up', 'rtr-hfa חזר לענות', 'סניף חיפה · 18 ms · נפל ל-4 דקות'], ['10:00', 'paused', 'חלון תחזוקה "חיווט קומה 2" התחיל', 'ההתראות ל-6 התקנים מושהות עד 12:00'], ['03:00', 'up', 'גילוי לילי הסתיים', 'נמצאו 2 התקנים חדשים ב-10.20.30.0/24']].map(([t, c, b, d]) => `<div class="it c-${c}"><span class="tm">${t}</span><span class="ln"><span></span></span><span class="bd"><b>${b}</b><span>${d}</span></span></div>`).join('')}</div></div>` },
+
+  /* ---------- logs ---------- */
+  logs: { t: 'לוגים', html: () => head('לוגים ו-Traps', '18,442 הודעות מ-31 התקנים בשעה האחרונה') + segs(['Syslog', 'Traps', 'מקורות לא מוכרים', 'כללים'], 0, 'logSeg') + `<div id="logBody" style="margin-top:18px"></div>`, init: () => SEGS.logSeg(0) },
+
+  /* ---------- topology ---------- */
+  topology: { t: 'מפה', html: () => {
+    const N = [['fw-edge-01', 50, 14, 'up', 'FortiGate', 16, 'fw'], ['core-sw-01', 28, 42, 'warn', 'C9300', 48], ['core-sw-02', 72, 42, 'up', 'C9300', 48], ['access-sw-11', 12, 74, 'up', 'C9200L', 48], ['access-sw-12', 37, 74, 'down', 'C9200L', 48], ['access-sw-21', 62, 74, 'up', 'C9200L', 48], ['dist-dc', 88, 74, 'up', 'Aruba 6300', 48]];
+    const P = Object.fromEntries(N.map(n => [n[0], n]));
+    const L = [['fw-edge-01', 'core-sw-01'], ['fw-edge-01', 'core-sw-02'], ['core-sw-01', 'core-sw-02'], ['core-sw-01', 'access-sw-11'], ['core-sw-01', 'access-sw-12', 'bad'], ['core-sw-02', 'access-sw-21'], ['core-sw-02', 'dist-dc']];
+    return head('מפת רשת', 'קישורי LLDP/CDP · נקודות ירוקות הן תעבורה חיה') + `<div class="topo-scroll"><div class="topo"><svg viewBox="0 0 100 100" preserveAspectRatio="none">${L.map(([a, b, k]) => { const A = P[a], B = P[b]; return `<path class="lk ${k || ''}" vector-effect="non-scaling-stroke" d="M${A[1]} ${A[2]} L${B[1]} ${B[2]}"/>${k ? '' : `<path class="lk flow" vector-effect="non-scaling-stroke" d="M${A[1]} ${A[2]} L${B[1]} ${B[2]}"/>`}`; }).join('')}</svg>
+    ${N.map(([n, x, y, c, m, ports, k]) => `<div class="node c-${c} ${n === 'core-sw-01' ? 'sel' : ''}" style="left:${x}%;top:${y}%" data-go="device"><span class="dv">${ico(k === 'fw' ? 'audit' : 'dev')}</span><span class="nm"><i></i>${n}</span></div>`).join('')}</div></div>`; } },
+
+  /* ---------- flows ---------- */
+  flows: { t: 'תעבורה', html: () => head('תעבורה', 'NetFlow · IPFIX · sFlow מ-4 exporters') + `<div style="display:flex;justify-content:space-between;gap:12px;flex-wrap:wrap;margin-bottom:16px">${segs(['שעה', '6 שעות', '24 שעות', '7 ימים'], 0)}<div class="chips"><button class="chip on" type="button">לפי אפליקציה</button><button class="chip" type="button">לפי מארח</button></div></div>
+    <div class="card"><div style="display:flex;gap:40px;flex-wrap:wrap"><div><span class="muted small">שיא נכנס</span><div class="big">1.2<small>Gbit/s</small></div></div><div><span class="muted small">נפח בשעה</span><div class="big">133<small>GB</small></div></div></div>
+    ${bars(60, i => { const v = 40 + 30 * Math.sin(i / 6) + rnd() * 18; return [v, 'u']; })}<div class="axis"><span>09:45</span><span>10:00</span><span>10:15</span><span>10:30</span><span>עכשיו</span></div></div>
+    <div class="three" style="margin-top:24px">${[['מי מדבר הכי הרבה', [['nas-01', '41.2 GB', 100], ['fin-pc-14', '12.8 GB', 31], ['srv-backup', '9.4 GB', 23], ['cameras', '7.7 GB', 19]]], ['אפליקציות', [['HTTPS', '52.1 GB', 100], ['SMB', '30.6 GB', 59], ['rsync', '18.0 GB', 35], ['RTSP', '7.7 GB', 15]]], ['שיחות', [['nas-01 → srv-backup', '17.2 GB', 100], ['fin-pc-14 → nas-01', '9.9 GB', 58], ['cameras → nvr-01', '7.6 GB', 44], ['it-ws-02 → GitHub', '2.0 GB', 12]]]].map(([t, rs]) => `<div class="card"><h3>${t}</h3>${rs.map(([n, v, w]) => `<div style="display:grid;gap:6px"><div style="display:flex;justify-content:space-between;font-size:14.5px"><span class="mono">${n}</span><b class="mono" style="font-weight:500">${v}</b></div><div class="share"><i style="width:${w}%"></i></div></div>`).join('')}</div>`).join('')}</div>` },
+
+  /* ---------- find ---------- */
+  find: { t: 'איתור', html: () => head('איתור MAC / IP', 'איפה מחובר התקן? חיפוש בכל טבלאות ה-MAC של המתגים.') + `<label class="spot">${ico('search')}<input value="00:50:56:ab:12:9f" aria-label="MAC או IP"></label>
+    <div class="two" style="margin-top:24px"><div class="card"><h3>הכי סביר: פורט גישה ${tag('up', 'עכשיו')}</h3><div class="panel">${mini('access-sw-12', 'C9200L-48P', { sel: 17, up: new Set([1, 3, 5, 9, 11, 13, 15, 17, 19, 23, 25, 29]), k: 'f' })}</div>${portLegend()}${kv([['מתג', '<span class="mono">access-sw-12</span>'], ['פורט', '<span class="mono">Gi1/0/17</span> · VLAN 20'], ['כתובת IP', '<span class="mono">10.20.20.57</span>'], ['שם', '<span class="mono">fin-pc-14</span> · VMware']])}</div>
+    ${grp('', [row({ dot: true, c: 'up', t: 'access-sw-12 · Gi1/0/17', s: 'פורט גישה · עכשיו', lt: true, go: 'device' }), row({ dot: true, c: 'up', t: 'core-sw-01 · Gi1/0/48', s: 'אפליינק · עכשיו', lt: true }), row({ dot: true, c: 'paused', t: 'core-sw-02 · Po1', s: 'אפליינק · אתמול 17:02', lt: true })])}</div>` },
+
+  /* ---------- new devices ---------- */
+  newdevices: { t: 'התקנים חדשים', html: () => head('התקנים חדשים', 'כתובות MAC שנראו לראשונה בפורטי גישה, אחרי תקופת לימוד', `<button class="pbtn" type="button" data-toast="2 התקנים אושרו כמוכרים">אישור הנבחרים (2)</button><button class="sbtn" type="button" data-toast="הלימוד התחיל מחדש">התחלת לימוד מחדש</button>`) +
+    `<div class="three" style="margin-bottom:24px"><div class="card"><span class="muted small">מצב</span><div class="big" style="font-size:30px">בהשגחה</div><span class="muted small">התקן שלא נראה מעולם יפעיל התראה</span></div><div class="card"><span class="muted small">חדשים לאישור</span><div class="big" style="color:var(--warn)">4</div></div><div class="card"><span class="muted small">התקנים מוכרים</span><div class="big">1,284</div></div></div>
+    ${segs(['זוהו', 'מוכרים', 'רשימת היתר'], 0)}<div class="group" style="margin-top:12px">${[['3c:22:fb:91:0e:7a', 'Apple · MacBook-Dana', 'access-sw-12 · Gi1/0/9', '10:31', 1], ['b8:27:eb:44:10:02', 'Raspberry Pi', 'access-sw-11 · Gi1/0/33', '09:58', 1], ['da:a1:19:6c:22:f0', 'כתובת אקראית', 'access-sw-21 · Gi1/0/4', '09:12', 0], ['00:1b:a9:0c:33:51', 'Brother · מדפסת', 'access-sw-12 · Gi1/0/40', '08:40', 0]].map(([m, v, w, t, on]) => `<div class="rowx"><span class="sw ${on ? 'on' : ''}" style="transform:scale(.8)"></span><span class="rt"><b class="mono" style="text-align:right">${m}</b><span>${v} · ${w}</span></span><span class="muted small mono">${t}</span><button class="ack" type="button" data-toast="סומן כמוכר">מוכר</button></div>`).join('')}</div>` },
+
+  /* ---------- backups ---------- */
+  backups: { t: 'גיבויים', html: () => head('גיבויי קונפיגורציה', '33 התקנים · גיבוי לילי ב-02:00 · ריצה מקבילית 4', `<button class="pbtn" type="button" data-toast="32 גיבויים בתור">גיבוי הכול</button><button class="sbtn" type="button" data-toast="חיפוש בקונפיגורציות">חיפוש בקונפיגורציות</button>`) +
+    `<div class="two"><div class="group">${[['core-sw-01', 'השתנה היום 09:14', 'up', '30'], ['core-sw-02', 'ללא שינוי', 'up', '18'], ['fw-edge-01', '3 ניסיונות כושלים ברצף', 'down', '24'], ['dist-dc', 'מפתח SSH השתנה', 'warn', '12'], ['access-sw-11', 'ללא שינוי', 'up', '9']].map(([n, s2, c, v]) => `<button class="row c-${c}" type="button" data-go="diff"><span class="sdot"></span><span class="rt"><b class="lt">${n}</b><span>${s2}</span></span><span class="rv">${v} גרסאות</span>${chev}</button>`).join('')}</div>
+    <div class="card"><h3>core-sw-01</h3>${kv([['גיבוי', 'אוטומטי · Cisco IOS-XE'], ['הבא', 'מחר 02:00'], ['שמורות', '30 גרסאות']])}<div class="group" style="box-shadow:none;background:var(--chip)">${[['גרסה 30', 'היום 09:14 · Syslog', '+4 −1'], ['גרסה 29', 'היום 02:00 · מתוזמן', '—'], ['גרסה 28', '6 בנוב׳ · מתוזמן', '+12 −3']].map(([a, b, c]) => `<button class="row" type="button" data-go="diff"><span class="rt"><b>${a}</b><span>${b}</span></span><span class="rv">${c}</span>${chev}</button>`).join('')}</div><span class="muted small">סיסמאות ומפתחות מוסתרים בעותק השמור.</span></div></div>` },
+  diff: { t: 'השוואה', html: () => head('<span class="lt">core-sw-01</span> · השוואת גרסאות', 'גרסה 29 (היום 02:00) מול גרסה 30 (היום 09:14)', `${segs(['מאוחד', 'זה לצד זה'], 0)}<button class="sbtn" type="button" data-toast="הקובץ הורד">הורדה</button>`) +
+    `<div class="card"><div class="code">${[['hk', '@@ interface GigabitEthernet1/0/21 @@'], ['', ' interface GigabitEthernet1/0/21'], ['del', '-  description Desk 3.21 - Finance'], ['add', '+  description Desk 3.21 - Finance (moved to VLAN 30)'], ['del', '-  switchport access vlan 20'], ['add', '+  switchport access vlan 30'], ['', '   switchport mode access'], ['add', '+  storm-control broadcast level 1.00'], ['', ' !'], ['hk', '@@ ntp @@'], ['', ' ntp server 10.20.0.10'], ['add', '+ntp server 10.20.0.11']].map(([c, t]) => `<div class="${c}">${t.replace(/</g, '&lt;')}</div>`).join('')}</div></div>` },
+
+  /* ---------- discovery + scan ---------- */
+  discovery: { t: 'גילוי', html: () => head('גילוי רשת', 'סריקת טווחי כתובות, זיהוי התקנים והוספה עם תבנית') + `<div class="two"><div class="card"><h3>סריקה חדשה</h3><div class="field"><label>יעדים</label><textarea class="input lt" rows="3">10.20.0.0/24
+10.20.1.10-10.20.1.60</textarea></div><div class="chips"><button class="chip on" type="button">Ping</button><button class="chip on" type="button">SNMP</button><button class="chip on" type="button">Reverse DNS</button><button class="chip" type="button">פורטי TCP</button></div><div class="field"><label>קבוצת יעד</label><input class="input" value="מטה תל אביב / גישה · קומה 1"></div><div class="actions"><button class="pbtn" type="button" data-go="scan">התחלת סריקה</button><button class="sbtn" type="button" data-toast="נשמר כפרופיל">שמירה כפרופיל</button></div></div>
+    <div>${grp('סריקות אחרונות', [row({ dot: true, c: 'warn', t: 'סריקה #42 · רצה', s: '205 מתוך 307 · נמצאו 37', go: 'scan' }), row({ dot: true, c: 'up', t: 'סריקה #41 · לילית', s: 'אתמול 03:00 · נמצאו 214', go: 'scan' }), row({ dot: true, c: 'up', t: 'סריקה #40', s: '8 בנוב׳ · נמצאו 19', go: 'scan' })])}${grp('פרופילים שמורים', [row({ i: 'radar', t: 'מטה לילי', s: 'כל יום 03:00 · התראה במייל', toast: 'פרופיל' }), row({ i: 'radar', t: 'חוות שרתים', s: 'כל שבוע · אירוע בלבד', toast: 'פרופיל' })])}</div></div>` },
+  scan: { t: 'סריקה', html: () => head('סריקה #42', '3 יעדים · 307 כתובות · התחילה 10:40', `<button class="pbtn" type="button" data-toast="4 התקנים נוספו">הוספת 4 התקנים</button><button class="sbtn" type="button" data-toast="הסריקה בוטלה">ביטול</button>`) +
+    `<div class="card" style="margin-bottom:22px"><div style="display:flex;justify-content:space-between"><b>סורק…</b><span class="mono muted">205 / 307</span></div><div class="share" style="height:8px"><i style="width:67%"></i></div></div>
+    <div class="group">${[['10.20.1.23', 'access-sw-23', 'Cisco C9200L-24P', 'Cisco Catalyst', 1], ['10.20.1.40', 'ap-f3-east', 'Ubiquiti U6-Pro', 'UniFi AP', 1], ['10.20.1.52', 'nas-02', 'Synology DS920+', 'Synology DSM', 1], ['10.20.1.51', 'PRN-F3-HP', 'HP LaserJet', 'Printer', 0], ['10.20.1.11', 'access-sw-11', 'קיים במערכת', '—', 0]].map(([ip, n, m, t, on]) => `<div class="rowx"><span class="sw ${on ? 'on' : ''}" style="transform:scale(.8)"></span><span class="rt"><b class="mono" style="text-align:right">${n}</b><span>${m} · תבנית: ${t}</span></span><span class="mono muted small">${ip}</span></div>`).join('')}</div>` },
+
+  /* ---------- templates ---------- */
+  templates: { t: 'תבניות', html: () => head('תבניות', 'סטים מוכנים של חיישנים לפי יצרן ודגם. החלה מוסיפה רק מה שחסר.', `<button class="sbtn" type="button" data-toast="14 תבניות נטענו">טעינה מחדש</button>`) +
+    `<div class="three">${[['Cisco Catalyst', 'Ping · CPU · זיכרון · ממשקים · ספקי כוח · מאווררים', 'מאומתת', 'v3'], ['Fortinet FortiGate', 'Ping · CPU · זיכרון · Sessions · WAN · HA', 'מאומתת', 'v2'], ['HPE Comware / IRF', 'Ping · CPU · IRF · ממשקים · טמפרטורה', 'מאומתת', 'v2'], ['Aruba CX', 'Ping · CPU · ENTITY-SENSOR · ממשקים', 'מאומתת', 'v2'], ['Synology DSM', 'Ping · RAID · דיסקים · טמפרטורה', 'מאומתת', 'v2'], ['UniFi AP', 'Ping · לקוחות · אפליינק', 'בסיסית', 'v1']].map(([n, d, st, v]) => `<div class="card"><h3>${n}<span class="tag ${st === 'מאומתת' ? 'c-up' : ''}">${st}</span></h3><span class="muted small">${d}</span><div style="display:flex;justify-content:space-between;align-items:center"><span class="mono muted small">${v}</span><button class="sbtn" type="button" data-toast="התבנית הוחלה">החלה</button></div></div>`).join('')}</div>` },
+
+  /* ---------- maintenance ---------- */
+  maintenance: { t: 'תחזוקה', html: () => head('חלונות תחזוקה', 'בזמן חלון פעיל ההתראות מושהות · אזור זמן: ירושלים', `<button class="pbtn" type="button" data-toast="חלון חדש">${ico('plus')}חלון חדש</button>`) +
+    `<div class="week">${['ב׳ 9', 'ג׳ 10', 'ד׳ 11', 'ה׳ 12', 'ו׳ 13', 'ש׳ 14', 'א׳ 15'].map((d, i) => `<div class="day ${i === 3 ? 'today' : ''}"><b>${d.split(' ')[0]}<span>${d.split(' ')[1]}</span></b>${i === 3 ? '<div class="win on">חיווט קומה 2<span>10:00–12:00</span></div>' : ''}${i === 2 ? '<div class="win">עדכון fw-edge-01<span>02:00–03:00</span></div>' : ''}${i === 6 ? '<div class="win">תחזוקה שבועית<span>02:00–04:00</span></div>' : ''}</div>`).join('')}</div>
+    ${grp('חלונות', [row({ dot: true, c: 'up', t: 'חיווט קומה 2 · פעיל', s: 'גישה · קומה 2 · היום 10:00–12:00', toast: 'עריכה' }), row({ dot: true, c: 'paused', t: 'תחזוקה שבועית', s: 'מטה תל אביב · כל ראשון 02:00', toast: 'עריכה' }), row({ dot: true, c: 'paused', t: 'עדכון fw-edge-01', s: 'רביעי 02:00–03:00', toast: 'עריכה' })])}` },
+
+  /* ---------- reports ---------- */
+  reports: { t: 'דוחות', html: () => head('דוחות', 'זמינות, תקלות, פורטים ושינויי קונפיגורציה — בתזמון או לפי דרישה', `<button class="pbtn" type="button" data-toast="דוח חדש">${ico('plus')}דוח חדש</button>`) +
+    `<div class="two even">${grp('הגדרות דוחות', [row({ i: 'report', t: 'זמינות חודשית — מטה', s: 'ב-1 לכל חודש 07:00 · 3 נמענים', toast: 'עריכה' }), row({ i: 'report', t: 'סיכום NOC שבועי', s: 'כל ראשון 08:00 · 5 נמענים', toast: 'עריכה' }), row({ i: 'report', t: 'שינויי קונפיגורציה — ליבה', s: 'לפי דרישה', toast: 'עריכה' })])}${grp('הרצות', [row({ dot: true, c: 'up', t: 'סיכום NOC שבועי', s: '2–8 בנובמבר · נשלח', go: 'reportrun' }), row({ dot: true, c: 'warn', t: 'זמינות חודשית — מטה', s: 'אוקטובר · נשלח חלקית', go: 'reportrun' })])}</div>` },
+  reportrun: { t: 'דוח', html: () => head('זמינות חודשית — מטה', 'אוקטובר 2026 · נוצר 1 בנובמבר 07:00', `<button class="sbtn" type="button" data-toast="HTML הורד">הורדה</button><button class="sbtn" type="button" data-toast="נשלח שוב">שליחה מחדש</button>`) +
+    `<article class="paper"><span style="color:#6e6e73">Network Monitor · מטה תל אביב</span><h2>זמינות כוללת 99.87%</h2><div style="display:flex;gap:40px;flex-wrap:wrap"><div><div style="font:600 32px var(--fn)">26</div><span style="color:#6e6e73">התקנים</span></div><div><div style="font:600 32px var(--fn)">3:38</div><span style="color:#6e6e73">שעות השבתה</span></div><div><div style="font:600 32px var(--fn)">8</div><span style="color:#6e6e73">תקלות</span></div></div>
+    <table><tr><th>קבוצה</th><th class="n">התקנים</th><th class="n">זמינות</th><th class="n">השבתה</th></tr><tr><td>ליבה</td><td class="n">3</td><td class="n">99.98%</td><td class="n">0:09</td></tr><tr><td>גישה · קומה 1</td><td class="n">14</td><td class="n">99.91%</td><td class="n">0:40</td></tr><tr><td>שרתים</td><td class="n">9</td><td class="n">99.62%</td><td class="n">2:49</td></tr></table></article>` },
+
+  /* ---------- notifications ---------- */
+  notifications: { t: 'התראות', html: () => head('התראות', 'ערוצים מעבירים · כללים מחליטים מי מקבל מה ומתי', `<button class="pbtn" type="button" data-toast="ערוץ חדש">${ico('plus')}ערוץ</button><button class="sbtn" type="button" data-toast="כלל חדש">כלל</button>`) +
+    `<div class="two even"><div>${grp('ערוצים', [['NOC בתורנות', 'מייל · 3 נמענים', 1], ['NOC בטלגרם', 'טלגרם · כפתור אישור', 1], ['מנהל IT', 'מייל', 1], ['מערכת קריאות', 'Webhook', 0]].map(([t, s2, on]) => `<div class="rowx"><span class="ri" style="width:34px;height:34px;border-radius:10px;background:var(--chip);display:inline-flex;align-items:center;justify-content:center">${ico('bell')}</span><span class="rt"><b>${t}</b><span>${s2}</span></span>${sw(on)}</div>`))}</div>
+    <div>${grp('כללים', [row({ i: 'bell', t: 'ליבה למטה', s: 'תקלה + אזהרה · אחרי 60 שניות · אסקלציה אחרי 30 דק׳', toast: 'עריכה' }), row({ i: 'bell', t: 'סניפים', s: 'תקלה · אחרי 5 דקות', toast: 'עריכה' }), row({ i: 'bell', t: 'הכול', s: 'תקלה · אחרי 10 דקות · Webhook', toast: 'עריכה' })])}
+    <div class="card" style="margin-top:22px"><h3>אסקלציה · "ליבה למטה"</h3><div class="tl">${[['0:00', 'down', 'התקלה מתחילה'], ['1:00', 'warn', 'NOC בתורנות + טלגרם'], ['30:00', 'warn', 'אין אישור → מנהל IT'], ['כל שעה', 'paused', 'תזכורת עד אישור']].map(([t, c, b]) => `<div class="it c-${c}"><span class="tm">${t}</span><span class="ln"><span></span></span><span class="bd"><b>${b}</b></span></div>`).join('')}</div></div></div></div>` },
+
+  /* ---------- settings ---------- */
+  settings: { t: 'הגדרות', html: () => head('הגדרות') + `<label class="spot" style="height:52px;font-size:16px;margin-bottom:22px">${ico('search')}<input placeholder="חיפוש בהגדרות" style="font:400 16px var(--f);direction:rtl;text-align:right"></label>
+    <div class="two even"><div>${grp('יכולות', [['Syslog ו-Traps', 'logs', 1], ['תעבורה (NetFlow)', 'flow', 1], ['גיבוי קונפיגורציה', 'backup', 1], ['התראה על התקנים חדשים', 'newdev', 1], ['דוחות', 'report', 1], ['מסכי קיר NOC', 'tv', 0], ['העברה ל-SIEM', 'audit', 0]].map(([t, i, on]) => `<div class="rowx"><span class="ri" style="width:34px;height:34px;border-radius:10px;background:var(--chip);display:inline-flex;align-items:center;justify-content:center">${ico(i)}</span><span class="rt"><b>${t}</b></span>${sw(on)}</div>`))}</div>
+    <div>${grp('כללי', [row({ i: 'cog', t: 'כללי', s: 'מרווח ברירת מחדל 60 ש׳ · עברית', toast: 'כללי' }), row({ i: 'backup', t: 'שמירת נתונים', s: 'מדידות 90 יום · אירועים 365', toast: 'שמירה' }), row({ i: 'bell', t: 'דואר יוצא (SMTP)', s: 'smtp.corp.local · STARTTLS', toast: 'SMTP' }), row({ i: 'users', t: 'Active Directory', s: 'CORP · מחובר', toast: 'AD' }), row({ i: 'key', t: 'כניסה יחידה (SSO)', s: 'Windows · Microsoft Entra', toast: 'SSO' }), row({ i: 'audit', t: 'יומן ביקורת', s: 'שמירה 365 יום', go: 'audit' })])}</div></div>` },
+
+  /* ---------- users + audit + account ---------- */
+  users: { t: 'משתמשים', html: () => head('משתמשים', 'מנהלים מנהלים הכול · צופים רואים בלבד', `<button class="pbtn" type="button" data-toast="משתמש חדש">${ico('plus')}משתמש</button>`) +
+    `<div class="group">${[['dana', 'מנהלת מערכת', 'מקומי', 'עכשיו'], ['yossi', 'מנהל מערכת', 'AD', 'היום 09:40'], ['eli', 'צופה', 'AD', 'היום 08:02'], ['noc-screen', 'צופה', 'מקומי', 'היום 06:00']].map(([u, r, src, l]) => `<button class="row" type="button" data-toast="עריכת משתמש"><span class="me" style="margin:0;width:38px;height:38px">${u[0].toUpperCase()}</span><span class="rt"><b class="lt">${u}</b><span>${r} · ${src}</span></span><span class="rv">${l}</span>${chev}</button>`).join('')}</div>` },
+  audit: { t: 'ביקורת', html: () => head('יומן ביקורת', 'כל שינוי וכל כניסה · נשמר 365 יום', `<button class="sbtn" type="button" data-toast="CSV הורד">ייצוא CSV</button>`) +
+    `<div class="two"><div class="group">${[['dana', 'עדכנה את הכלל "ליבה למטה"', '10:42', 'up'], ['yossi', 'אישר את ap-f1-lobby', '10:40', 'up'], ['backup-script', 'הריץ גיבוי ל-core-sw-01 (טוקן)', '10:31', 'paused'], ['eli', 'כניסה נכשלה', '09:12', 'down']].map(([u, a, t, c]) => `<button class="row c-${c}" type="button" data-toast="פרטי השינוי"><span class="me" style="margin:0;width:36px;height:36px">${u[0].toUpperCase()}</span><span class="rt"><b>${a}</b><span class="mono" style="text-align:right">${u}</span></span><span class="rv">${t}</span>${chev}</button>`).join('')}</div>
+    <div class="card"><h3>שינוי · הכלל "ליבה למטה"</h3>${kv([['השהיה', '<span class="mono">120 → 60</span>'], ['סטטוסים', 'תקלה → תקלה + אזהרה'], ['אסקלציה', '— → מנהל IT']])}<span class="muted small">dana · 10:42 · 10.20.9.4</span></div></div>` },
+  account: { t: 'חשבון', html: () => head('החשבון שלי') + `<div class="two even"><div class="card" style="justify-items:start"><span class="me" style="width:64px;height:64px;font-size:26px;margin:0">ד</span><div><b style="font-size:22px">dana</b><div class="muted">מנהלת מערכת · משתמשת מקומית</div></div>${segs(['מערכת', 'בהיר', 'כהה'], 0)}<div class="field" style="width:100%"><label>שפה</label><input class="input" value="עברית"></div></div>
+    <div>${grp('חשבונות צ\'אט', [row({ i: 'phone', t: 'טלגרם · @dana_noc', s: 'קושר 4 באוקטובר · שימוש אחרון היום', toast: 'ניתוק' })])}${grp('טוקני API', [row({ i: 'key', t: 'backup-script', s: 'פעיל · עד 8 בפבר׳ 2027', toast: 'ביטול' }), row({ i: 'key', t: 'grafana', s: 'פעיל · ללא תפוגה', toast: 'ביטול' })])}${grp('אבטחה', [row({ i: 'key', t: 'שינוי סיסמה', toast: 'שינוי סיסמה' })])}</div></div>` },
+
+  /* ---------- bare screens ---------- */
+  login: { t: 'כניסה', bare: true, html: () => `<div class="auth"><div class="art"><span class="mark">${ico('sensor')}</span><b style="font:600 40px/1.1 var(--f);direction:ltr;text-align:center">Network Monitor</b><span class="muted">כל הרשת. במבט אחד.</span></div>
+    <div class="form"><div class="box"><h1>כניסה</h1><span class="muted">התחברו כדי לראות מה קורה ברשת.</span><button class="sso" type="button" data-go="home">${ico('dev')}כניסה עם Windows</button><button class="sso" type="button" data-go="home">${ico('key')}כניסה עם Microsoft</button><span class="or">או</span><div class="field"><label>שם משתמש</label><input class="input lt" value="CORP\\dana"></div><div class="field"><label>סיסמה</label><input class="input" type="password" value="••••••••"></div><button class="wide" type="button" data-go="home">כניסה</button></div></div></div>` },
+  setup: { t: 'התקנה', bare: true, html: () => `<div class="auth"><div class="art"><b style="font:600 56px/1 var(--f);text-align:center">ברוכים הבאים<br><span class="mono">Network Monitor</span></b><span class="muted">שני צעדים ואתם בפנים.</span></div><div class="form"><div class="box"><div class="chips"><span class="chip">1 · שפה</span><span class="chip on">2 · מנהל מערכת</span></div><h1>יוצרים מנהל</h1><div class="field"><label>שם משתמש</label><input class="input lt" value="admin"></div><div class="field"><label>סיסמה</label><input class="input" type="password"></div><div class="field"><label>אימות סיסמה</label><input class="input" type="password"></div><button class="wide" type="button" data-go="home">יצירה וכניסה</button></div></div></div>` },
+  wall: { t: 'מסך קיר', bare: true, html: () => `<div class="wall"><div class="hd"><h1>NOC · מטה תל אביב</h1><span class="clock mono" id="wallClock">10:44</span></div><div class="nums"><div style="--c:#ff453a"><b>3</b><span>בתקלה</span></div><div style="--c:#ff9f0a"><b>5</b><span>אזהרות</span></div><div style="--c:#bf5af2"><b>6</b><span>לא נגישים</span></div><div><b>2</b><span>בטיפול</span></div><div style="--c:#32d74b"><b>392</b><span>תקינים</span></div></div>
+    <div class="body solo">    <div class="lst"><div style="--c:#ff453a"><i></i><b>srv-backup · דיסק מלא</b><span>1:03:11</span></div><div style="--c:#ff453a"><i></i><b>access-sw-12 · אפליינק</b><span>31:40</span></div><div style="--c:#ff453a"><i></i><b>rtr-hfa · סניף חיפה</b><span>4:02</span></div><div style="--c:#ff9f0a"><i></i><b>core-sw-01 · CPU 87%</b><span>2:55</span></div></div></div></div>`, init: () => size3d() },
+  chatack: { t: 'אישור', bare: true, html: () => `<div class="phone-wrap"><div class="phone"><div style="display:flex;align-items:center;gap:8px;font:600 15px var(--fn);direction:ltr;justify-content:flex-end">Network Monitor</div><div class="card"><span class="tag c-down" style="justify-self:start">תקלה · לפני 2 דקות</span><b class="mono" style="font-size:22px;text-align:right">fw-edge-01 · WAN2</b><span class="muted">אין תשובה · 4 מתוך 4 פינגים אבדו</span><div class="field"><label>הערה (לא חובה)</label><textarea class="input" rows="2" placeholder="למשל: בטיפול, צפי 11:00"></textarea></div><button class="wide" type="button" data-toast="אושר · ההתראות הושתקו">אישור</button></div><span class="muted small" style="text-align:center">נפתח מהודעת טלגרם · הקישור תקף לשעה</span></div></div>` },
+};
+
+/* logs segment content */
+SEGS.logSeg = i => {
+  const el = $('#logBody'); if (!el) return;
+  if (i === 0) el.innerHTML = `<div class="card">${bars(70, k => { const sp = k >= 54 && k <= 57; return [sp ? 92 : 22 + 14 * Math.sin(k / 6) + rnd() * 12, sp ? 'h' : rnd() < .1 ? 'w' : 'u']; })}<div class="axis"><span>09:45</span><span>10:00</span><span>10:15</span><span>10:30</span><span>עכשיו</span></div></div>
+    <div class="group" style="margin-top:22px">${[['10:44:12', 'core-sw-01', 'down', 'err', 'Interface Gi1/0/21 changed state to down'], ['10:43:58', 'fw-edge-01', 'warn', 'warning', 'SSL VPN login failed for "jdoe"'], ['10:43:40', 'srv-backup', 'down', 'crit', '/dev/sdb: 8 pending sectors'], ['10:42:55', 'access-sw-12', 'warn', 'warning', 'MAC flap 00:50:56:ab:12:9f Gi1/0/17 ↔ Gi1/0/18'], ['10:42:30', 'core-sw-02', 'up', 'info', 'Configured from vty0 by netadmin']].map(([t, d, c, sv, m]) => `<div class="rowx c-${c}"><span class="sdot"></span><span class="rt"><b class="mono" style="text-align:left">${m}</b><span><span class="mono">${d}</span> · ${sv}</span></span><span class="mono muted small">${t}</span></div>`).join('')}</div>`;
+  if (i === 1) el.innerHTML = `<div class="group">${[['linkDown', 'core-sw-01', 'Gi1/0/21 · ifIndex 10121', '10:44'], ['upsOnBattery', 'ups-a1', 'הסוללה בשימוש', '10:41'], ['fgTrapVpnTunDown', 'fw-edge-01', 'מנהרת HFA-HQ למטה', '10:38'], ['linkUp', 'core-sw-01', 'Gi1/0/49', '10:35']].map(([n, d, m, t]) => `<div class="rowx"><span class="rt"><b class="mono" style="text-align:right">${n}</b><span><span class="mono">${d}</span> · ${m}</span></span><span class="mono muted small">${t}</span></div>`).join('')}</div>`;
+  if (i === 2) el.innerHTML = `<div class="group">${[['10.40.0.77', 'printer-b2 · 412 הודעות'], ['10.40.0.9', '37 traps'], ['172.16.5.20', 'cam-gate-07 · 1,290 הודעות']].map(([ip, m]) => `<div class="rowx"><span class="rt"><b class="mono" style="text-align:right">${ip}</b><span>${m}</span></span><button class="ack" type="button" data-toast="שויך להתקן">שיוך</button><button class="ack" type="button" data-toast="נוסף לרשימת ההתעלמות">התעלמות</button></div>`).join('')}</div>`;
+  if (i === 3) el.innerHTML = `<div class="group">${[['Link down בפורטים חשובים', 'Trap · כל ההתקנים', 1, '3 פעילים'], ['UPS על סוללה', 'Trap · חוות שרתים', 1, ''], ['שגיאות דיסק', 'Syslog · שרתים', 1, '1 פעיל'], ['כישלונות VPN', 'Syslog · fw-edge-01', 1, ''], ['פורט מהבהב', '5 שינויים ב-10 דקות', 1, '1 פעיל'], ['שינוי קונפיגורציה', 'Syslog · כל ההתקנים', 0, '']].map(([t, s2, on, a]) => `<div class="rowx"><span class="rt"><b>${t}</b><span>${s2}${a ? ' · ' + a : ''}</span></span>${sw(on)}</div>`).join('')}</div>`;
+};
+buildNav();
+
+homeStack(false); renderLists(); $('#devLegend').innerHTML = portLegend();
+const stage = $('#homeStage');
+if (!reduce && matchMedia('(pointer: fine)').matches) {
+  stage.addEventListener('pointermove', e => { const r = stage.getBoundingClientRect(); const x = (e.clientX - r.left) / r.width - .5, y = (e.clientY - r.top) / r.height - .5; $$('.stack').forEach(el => { el.style.setProperty('--ry', (x * 14).toFixed(2) + 'deg'); el.style.setProperty('--rx', (-y * 6).toFixed(2) + 'deg'); }); });
+  stage.addEventListener('pointerleave', () => $$('.stack').forEach(el => { el.style.setProperty('--ry', '0deg'); el.style.setProperty('--rx', '0deg'); }));
+}
+const dstage = $('.dev-stage');
+if (!reduce && matchMedia('(pointer: fine)').matches) { dstage.addEventListener('pointermove', e => { const r = dstage.getBoundingClientRect(); const x = (e.clientX - r.left) / r.width - .5, y = (e.clientY - r.top) / r.height - .5; const st = $('#devStack'); st.style.setProperty('--ry', (x * 12).toFixed(2) + 'deg'); st.style.setProperty('--rx', (-y * 5).toFixed(2) + 'deg'); }); }
+function countUp() { if (reduce) return; $$('[data-count]').forEach(el => { const end = +el.textContent || +el.dataset.count, t0 = performance.now(); const f = n => { const q = Math.min(1, (n - t0) / 1400); el.textContent = Math.round(end * (1 - Math.pow(1 - q, 4))); if (q < 1) requestAnimationFrame(f); }; requestAnimationFrame(f); }); }
+function enterHome() { if (reduce) return; $$('#homeDial .hn').forEach((u, i) => u.animate([{ transform: 'translateY(70px) translateZ(-260px)' }, { transform: 'none' }], { duration: 1300, delay: 120 + i * 90, easing: 'cubic-bezier(.32,.72,0,1)', fill: 'backwards' })); $$('.hero-t > *').forEach((el, i) => el.animate([{ opacity: 0, transform: 'translateY(14px)', filter: 'blur(6px)' }, { opacity: 1, transform: 'none', filter: 'blur(0)' }], { duration: 900, delay: i * 80, easing: 'cubic-bezier(.32,.72,0,1)', fill: 'backwards' })); countUp(); }
+enterHome();
+})();
+</script>
+</body></html>
