@@ -5,6 +5,7 @@ from __future__ import annotations
 from typing import Any
 
 from netmon.discovery.options import public_options
+from netmon.services import secretbox
 from netmon.services.serialize import iso
 
 
@@ -96,7 +97,7 @@ def profile_out(p: Any) -> dict[str, Any]:
         "name": p.name,
         "targets": list(p.targets or []),
         "group_id": p.group_id,
-        "options": public_options(p.options or {}),
+        "options": public_options(secretbox.open_profile_options(p.id, p.options)),
         "schedule_enabled": p.schedule_enabled,
         "schedule_every_hours": p.schedule_every_hours,
         "notify_new_hosts": p.notify_new_hosts,

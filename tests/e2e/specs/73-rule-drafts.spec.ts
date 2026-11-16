@@ -58,15 +58,31 @@ test('API: alert-rule draft = writable fields (delay 120, Telegram channel), val
 });
 
 test('invalid draft -> one repair round with the validation errors sent back to the model', async () => {
+  // [1.4.0] an empty name is a placeholder (drafts.is_placeholder): cannot draft, no repair round. A draft that
+  // is a real rule but fails validation (a channel that does not exist) gets the repair round.
   await mock.addScenario({ name: 'qa_bad_draft', purpose: 'rule_draft', match: 'repair-me|error|invalid|validation', turns: [
-    { tool_use: [{ name: 'propose_alert_rule', input: { name: '', on_statuses: ['down'], delay_s: 120, enabled: true, channel_ids: [] } }] }] });
+    { tool_use: [{ name: 'propose_alert_rule', input: { name: 'qa repair', on_statuses: ['down'], delay_s: 120, enabled: true, channel_ids: [424242] } }] }] });
   const since = await lastSeq();
   const d = await api.post('/api/assistant/rule-drafts', { kind: 'alert_rule', description: 'repair-me please, alert on down' });
   const calls = (await modelCalls(since)).filter((c) => c.purpose === 'rule_draft');
   expect(calls.length, 'first call + one repair call').toBe(2);
-  expect(JSON.stringify(calls[1].body.messages.at(-1))).toMatch(/channel_ids|name/);
+  expect(JSON.stringify(calls[1].body.messages.at(-1))).toMatch(/channel_ids/);
+  expect(d.cannot_draft).toBeNull();
   expect(d.validation.ok).toBe(false);
-  expect(d.validation.errors.length).toBeGreaterThan(0);
+  expect(d.validation.errors.map((e: any) => e.loc)).toContainEqual(['body', 'channel_ids']);
+  await mock.clearScenarios();
+});
+
+test('empty-name draft -> placeholder backstop: cannot draft, no repair round', async () => {
+  await mock.addScenario({ name: 'qa_empty_name', purpose: 'rule_draft', match: 'empty-name', turns: [
+    { tool_use: [{ name: 'propose_alert_rule', input: { name: '', on_statuses: ['down'], delay_s: 120, enabled: true, channel_ids: [] } }] }] });
+  const since = await lastSeq();
+  const d = await api.post('/api/assistant/rule-drafts', { kind: 'alert_rule', description: 'empty-name please, alert on down' });
+  const calls = (await modelCalls(since)).filter((c) => c.purpose === 'rule_draft');
+  expect(calls.length, 'no repair round for a placeholder').toBe(1);
+  expect(d.draft).toBeNull();
+  expect(d.cannot_draft).toMatchObject({ source: 'placeholder' });
+  expect(d.validation).toEqual({ ok: false, errors: [] });
   await mock.clearScenarios();
 });
 

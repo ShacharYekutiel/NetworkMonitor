@@ -54,9 +54,22 @@ def trap_severity(raised_status: str | None) -> int:
     return SEVERITY_BY_STATUS.get(raised_status, 5)
 
 
+def one_line(text: str) -> str:
+    """[1.4.2] CR / LF / NUL from the received data become spaces: a forwarded record is
+    always exactly one line (a SIEM that splits on newlines cannot be fed a forged record)."""
+    return text.translate(_LINE_BREAKS)
+
+
+_LINE_BREAKS = str.maketrans({"\r": " ", "\n": " ", "\x00": " "})
+
+
 def render_5424(rec: dict[str, Any], version: str) -> str:
     """One forwarded line (no framing). `rec`: the pipeline record dict (kind `syslog` or
     `trap`), see pipeline.Record."""
+    return one_line(_render_5424(rec, version))
+
+
+def _render_5424(rec: dict[str, Any], version: str) -> str:
     sd_origin = origin_sd(str(rec["source_ip"]), version)
     if rec["kind"] == "syslog":
         pri = int(rec["facility"]) * 8 + int(rec["severity"])

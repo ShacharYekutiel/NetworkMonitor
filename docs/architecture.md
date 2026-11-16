@@ -1,5 +1,4 @@
-# NetworkMonitor — Architecture (Phase 1 / MVP + Phase 2a + Phase 2b-1 + Phase 2b-2 + Phase 2b-3 + Phase 3 + Phase 3b)
-# NetworkMonitor — Architecture (Phase 1 / MVP + Phase 2a + Phase 2b-1 + Phase 2b-2 + Phase 2b-3 + Phase 3 + 1.3)
+# NetworkMonitor — Architecture (Phase 1 / MVP + Phase 2a + Phase 2b-1 + Phase 2b-2 + Phase 2b-3 + Phase 3 + Phase 3b + 1.3)
 
 Phase 2a (auto-discovery, device templates, `snmp_custom`/`snmp_disk`, Telegram) is described in
 [§ 9](#9-phase-2a-discovery-templates-custom-snmp-telegram); items elsewhere marked **[2a]** belong to it.
@@ -21,6 +20,12 @@ Release 1.3 (sensor impact on the device status, one important-port definition, 
 apply, connected hosts and CSV on the ports view, trunk / LAG-degraded alerts, IRF sensors) is described in
 [§ 14](#14-release-13-sensor-impact-important-ports-interface-selection-connected-hosts-lag-degraded-irf); items
 marked **[1.3]** belong to it.
+**Note on numbering:** Phase 3b and Release 1.3 both carry the number 14 (they were written in parallel), and both
+have subsections 14.1–14.8. They are deliberately not renumbered: the heading anchors and about 200 "§ 14.x"
+references in code comments, tests and the other contracts point into both. A "§ 14.x" reference about the
+assistant / AI features (or tagged **[3b]**) means Phase 3b; one about sensor impact, important ports, interface
+selection, connected hosts, trunk/LAG alerts, IRF, named value maps or settings search (tagged **[1.3]** /
+**[1.3.1]**) means Release 1.3. New sections continue at § 15.
 
 NetworkMonitor is a license-free, PRTG-like network monitor. One Python process serves the REST API, the
 WebSocket, the built React SPA, and runs the poller and the alert engine. PostgreSQL holds everything, and
@@ -3493,8 +3498,20 @@ Unless stated otherwise the model is `model_id`; "light" = `model_id_light` when
   IF-MIB `ifTable`/`ifXTable` first 8 rows, ENTITY-SENSOR `1.3.6.1.2.1.99.1.1`, custom OIDs ≤ 8).
 - **Bounded read-only walk** (admin-initiated, job, `POST /api/assistant/template-drafts/walks`): the device's
   effective SNMP credentials (never sent anywhere), existing pysnmp walk functions (GETBULK max-repetitions 10,
-  GETNEXT for v1), ≤ 5000 varbinds total, ≤ 2000 per subtree, ≤ 60 s, ≤ 8 subtrees, 1 walk per device at a time,
-  3 walks globally. **Never walked:** `1.3.6.1.6.3.15` (USM users), `1.3.6.1.6.3.18` (communities),
+  GETNEXT for v1), ≤ 5000 varbinds total, ≤ 2000 per subtree, ≤ 8 subtrees, 1 walk per device at a time,
+  3 walks globally. **Time `[maint-1.4]`:** every subtree has its own budget — 20 s for a standard (`1.3.6.1.2.1.*`)
+  subtree, 45 s for a vendor one (the enterprise subtree, vendor OIDs) — within a 90 s cap for the whole walk (was one
+  shared 60 s budget: a huge vendor subtree such as hh3c starved the standard subtrees and the walk reported a
+  timeout). The standard subtrees are walked first, the enterprise subtree last (its PEN taken from the walked
+  `sysObjectID.0`, else a GET). A subtree that runs out of time keeps what it collected; each subtree gets an
+  outcome `ok` / `truncated` (varbind cap) / `timeout` / `error` / `skipped`, and the walk is `ok` (all ok or
+  truncated), `partial` (values collected, something did not finish) or `failed` (nothing collected). **Real SNMP
+  errors:** an SNMP failure is classified `auth_failed` (the device rejected the credentials: SNMPv3 wrong digest /
+  unknown user / security level / decryption, `authorizationError`, `noAccess`), `unreachable` (no answer at all —
+  for v1/v2c also a wrong community) or `snmp_error`; `auth_failed`, or `unreachable` before anything was
+  collected, stops the walk (the remaining subtrees are `skipped`, not retried with the same keys). The walk carries
+  `error_code` + the device's own text; the wizard shows a localized explanation (en/he) and the text.
+  **Never walked:** `1.3.6.1.6.3.15` (USM users), `1.3.6.1.6.3.18` (communities),
   `1.3.6.1.6.3.16` (VACM), `1.3.6.1.2.1.4.21`/`.24` (route tables), `1.3.6.1.2.1.4.22`/`.35` (ARP/neighbour),
   `1.3.6.1.2.1.17.4`/`.7` (FDB) — volume and privacy. Stored 7 days (`assistant_snmp_walks`).
 - **Compaction before the model (pure `templates.compact_walk`):** OIDs with type and value (strings ≤ 64 chars,
@@ -3823,6 +3840,9 @@ rendered answer has no `<img>`, no external `href`, forged refs rendered as text
 
 ## 14. Release 1.3: sensor impact, important ports, interface selection, connected hosts, LAG degraded, IRF
 
+> Numbering: this is the second section 14 (the first is [§ 14 Phase 3b](#14-phase-3b-ask-the-network-assistant-and-ai-features-amazon-bedrock)).
+> It is kept as is so existing anchors and "§ 14.x" references stay valid; see the note at the top of this document.
+
 Requests of the owner's network team after 1.2.0 in production (FF 5945 IRF, ArubaOS-Switch, Aruba CX). Owner
 decision: core-behaviour improvements, **no feature toggle**. Contract: [api.md § 1.3](api.md#13-release-13-contract),
 [data-model.md § 1.3](data-model.md#13-release-13-additions). Migration `0008`.
@@ -4035,3 +4055,86 @@ ECharts, markdown-it). The application's own sinks:
 
 Everything else is rendered by React as text. The CSP (15.4) is the second layer: no inline or foreign script runs
 even if a sink is missed.
+
+## 16. Release 1.4.2: hardening, part 2
+
+[1.4.2] closes pentest finding 9 (SNMP secrets at rest), static review items 5, 9, 11, 12 and the cheap items of
+its "low" list. Same rule as 1.4.1: no feature flags; a hardening that can break a legitimate deployment is a
+setting or a documented override with a secure default. Contract:
+[data-model § 1.4.2](data-model.md#142-secrets-at-rest), [api § 1.4.2](api.md#142-release-142-contract),
+operations: [production § 1.4.2](production.md#142-upgrade-and-rollback-read-before-deploying).
+
+### 16.1 Secrets at rest (finding 9, review item 5)
+- **What was plaintext before 1.4.2:** SNMP communities and v3 auth/priv keys of groups and devices; discovery
+  profile extra communities / extra v3 credentials and the credential snapshot of every scan; trap communities and
+  trap v3 user keys; the SMTP password; the Telegram bot token; the Teams Workflows URL (signed); the webhook URL and
+  headers. Already encrypted since 2b-3 / 3 / 3b: LDAP bind password, Kerberos keytab, OIDC client secret, SSH
+  credentials, the assistant's AWS secrets. Left as they are (documented): HTTP sensor `config.headers` (the API
+  returns them to admins by contract, api.md "HTTP sensor headers"; a secret-header contract is a separate change)
+  and the sensor URL.
+- **Scheme:** encrypted copy with a row-bound AAD, plaintext kept in sync for one release, encrypted copy
+  authoritative only when the plaintext is absent — data-model § [1.4.2] Secrets at rest.
+- **Why not encrypt in place in 1.4.2.** The GitOps rollback (ops/sync.sh) starts the previous image on the
+  already migrated database and never restores it; with the 1.4.1 rollback guard, 1.4.1 *starts* there. A 1.4.1
+  that found ciphertext in `community` would poll every device with a wrong community, send no mail, no Telegram,
+  no Teams. Keeping the plaintext one release makes every rollback to 1.4.1 — automatic or a later `git revert` —
+  safe; the cost is that the database (and its dumps) still holds the plaintext until 1.4.3 or until the admin runs
+  `netmon secrets remove-plaintext`. A deferred-encryption design (encrypt only after the deploy health window) was
+  considered and rejected: it protects the automatic rollback but not a manual one days later.
+- **Never to the model, the log or the audit.** The API masks every secret (`*_set` flags) as before; the audit
+  masks any `*_enc` / `_sealed` leaf, the webhook URL (new) and discovery `extra_communities` (they were logged in
+  clear before 1.4.2; migration 0012 scrubs old rows). httpx/httpcore are pinned to WARNING whatever
+  `NETMON_LOG_LEVEL` is (they log request URLs, which carry the Telegram token / signed URLs). Assistant tools read
+  no credential column. Config backups keep `config_backup_mask_secrets` (default on).
+- **`secret.key`.** Lost or replaced: every encrypted copy is unreadable; while the plaintext copy exists nothing
+  breaks (the plaintext wins), after `remove-plaintext` those secrets read as not set (SNMP sensors fail with an
+  authentication / timeout error, the device page says the stored credentials cannot be read) and must be entered
+  again — or restore `secret.key` from the data-volume backup (`netmon-data-*.tar.gz` holds it; the DB dump alone
+  does not). Rotation: `netmon secrets rekey` (server stopped) re-encrypts every encrypted value of every release
+  (SNMP, channels, settings, SSH, LDAP, Kerberos, OIDC, assistant) in one transaction, then replaces the key file
+  (`secret.key.old` kept). It is also the JWT key: everyone signs in again, and chat-acknowledge links in messages
+  already sent stop working.
+
+### 16.2 Container hardening (review item 9)
+`deploy/production/compose.yaml` and `deploy/docker-compose.yml`, anchor `x-hardening`: `cap_drop: [ALL]`,
+`no-new-privileges`, `read_only: true` with `tmpfs` for `/tmp`, `pids_limit`, memory limits.
+
+| Service | User | Capabilities added back | Writable | Limits |
+|---|---|---|---|---|
+| `init` (one-shot) | root | `CHOWN`, `DAC_OVERRIDE`, `FOWNER` (create / chown the shared files) | `/data`, `/tmp` | 64 MB, 64 pids |
+| `db` | **70:70** (postgres; was root → su-exec) | none | data volume, `/tmp`, `/var/run/postgresql` (tmpfs) | 1024 pids; no memory limit (shared_buffers sized to the host at creation) |
+| `netmon` | 10001 (unchanged) | none | `/data`, `/tmp` | 4 GB, 2048 pids |
+| `proxy` (Caddy) | root | `NET_BIND_SERVICE` only | its two volumes, `/tmp` | 512 MB, 256 pids |
+
+- **ICMP** keeps using unprivileged ping sockets (`net.ipv4.ping_group_range`); the `ping` binary fallback (file
+  capability `cap_net_raw`) can no longer gain its capability under no-new-privileges — it was the last resort for
+  hosts without the sysctl, which compose always sets.
+- **Traps / syslog / flows** listen on ports > 1024 inside the container; Docker publishes 162 / 514 / 2055 / 4739 /
+  6343 from the host, which needs no container capability.
+- **Kerberos** writes keytab, krb5.conf and replay cache under `/data/run`; **SSH config backup** is plain outbound
+  TCP. Both are exercised in CI inside the hardened container (`.github/scripts/kerberos-selftest.py`,
+  `ssh-selftest.py`).
+- **Caddy** keeps uid 0 (it must read the host's root-only `0600` TLS key) but holds only `NET_BIND_SERVICE` (the
+  image's `caddy` binary carries that file capability; without it in the bounding set the kernel refuses to
+  execute it). Its admin API is off (`admin off`; `install-cert.sh` restarts instead of `caddy reload`); the health
+  check uses a loopback-only listener on 8099. Left for a later release: a non-root Caddy (needs the key readable by
+  that user first, and the deploy that would change it runs the previously installed `sync.sh`).
+- CI (`docker` job) starts both compose files for real and asserts all of the above (`hardening-check.sh`).
+
+### 16.3 Supply chain
+- `.github/CODEOWNERS` (deploy/production, workflows, deploy/certs, Dockerfile); branch-protection settings to
+  enable: production.md § [1.4.2] Branch protection.
+- `production.yml` fails when a file other than the placeholders is committed under `deploy/certs/` (review item
+  12) and when CODEOWNERS stops covering the deploy paths. `ops/check-release.sh` now **requires** the image digest
+  (item 11; emergency override `NETMON_ALLOW_UNPINNED_IMAGE=1`), and `release.yml` fails instead of warning when the
+  image job reports no digest.
+- Dependency advisories: reproduced with `pip-audit` / `npm audit`; table in the 1.4.2 PR.
+
+### 16.4 Static review "low" items
+Done: LIKE wildcards in the new-devices search are literal; the Kerberos realm written to `krb5.conf` must match
+`[A-Z0-9][A-Z0-9._-]*` (a default realm derived from the AD domain cannot inject lines); SIEM forwarded records are
+always one line (CR / LF / NUL → space); `restore.sh` refuses archives with absolute paths, `..` or links; Caddy admin
+API off; HSTS `includeSubDomains` is an option (`NETMON_HSTS_INCLUDE_SUBDOMAINS` for the app, `NETMON_HSTS` in
+`site.env` for Caddy), default unchanged; the user template save resolves the final path and refuses anything outside
+the user template directory. Not done (documented in the PR): rate limit on the current-password check, admin API
+tokens able to change SSO/LDAP, `/api/docs` without login.

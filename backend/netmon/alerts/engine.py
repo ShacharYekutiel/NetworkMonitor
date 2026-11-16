@@ -22,6 +22,7 @@ from netmon.alerts.email import send_email
 from netmon.alerts.telegram import send_telegram
 from netmon.alerts.webhook import send_webhook
 from netmon.services import events as events_svc
+from netmon.services import secretbox
 from netmon.services import settings as settings_svc
 from netmon.services.serialize import iso, now_utc
 
@@ -686,7 +687,8 @@ class AlertEngine:
                         "id": ch.id,
                         "name": ch.name,
                         "type": ch.type,
-                        "config": dict(ch.config),
+                        # [1.4.2] secrets decrypted only for the send
+                        "config": secretbox.open_channel(ch.type, ch.id, ch.config),
                     }
             for p in plans:
                 if p.sends:

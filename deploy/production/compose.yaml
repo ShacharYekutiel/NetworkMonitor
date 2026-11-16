@@ -28,6 +28,18 @@ x-logging: &logging
     max-size: "10m"
     max-file: "5"
 
+# [1.4.2] Container hardening (docs/production.md "[1.4.2] Container hardening"): every
+# service drops ALL Linux capabilities and adds back only what it needs, cannot gain
+# privileges (no-new-privileges: setuid/file capabilities are ignored), runs with a read-only
+# root filesystem (writable: its volumes and a small /tmp tmpfs) and has resource limits.
+# The limits are defaults sized well above normal use; change them here (PR) if a large
+# installation needs more. The database has no memory limit on purpose: its shared_buffers
+# were tuned to the host's RAM when it was created, a lower cap would get it OOM-killed.
+x-hardening: &hardening
+  cap_drop: [ALL]
+  security_opt: ["no-new-privileges:true"]
+  read_only: true
+
 services:
   # One-shot: create the shared data volume layout and a random DB password if absent.
   # (Identical to deploy/docker-compose.yml.)
@@ -35,6 +47,13 @@ services:
     image: busybox:1.37
     restart: "no"
     network_mode: none
+    <<: *hardening
+    # root, but only to create / chown the shared files: no other capability
+    cap_add: [CHOWN, DAC_OVERRIDE, FOWNER]
+    tmpfs:
+      - /tmp:size=16m,mode=1777  # ops/restore.sh keeps db_password there while extracting
+    mem_limit: 64m
+    pids_limit: 64
     volumes:
       - netmon-data:/data
     environment:
@@ -61,6 +80,14 @@ services:
   db:
     image: timescale/timescaledb:2.31.0-pg16
     restart: unless-stopped
+    # [1.4.2] runs directly as the image's postgres user (uid/gid 70, the owner of the data
+    # directory) instead of starting as root and switching: no capability needed at all.
+    user: "70:70"
+    <<: *hardening
+    tmpfs:
+      - /tmp:size=64m,mode=1777
+      - /var/run/postgresql:size=8m,uid=70,gid=70,mode=0775
+    pids_limit: 1024
     depends_on:
       init:
         condition: service_completed_successfully
@@ -86,6 +113,15 @@ services:
   netmon:
     image: ${NETMON_IMAGE:?NETMON_IMAGE is not set - pass --env-file release.env}
     restart: unless-stopped
+    # [1.4.2] Non-root (uid 10001, from the image) and NO capability: ICMP uses unprivileged
+    # ping sockets (the sysctl below), the receivers listen on ports > 1024 inside the
+    # container (Docker publishes 162/514), SSH / LDAP / Kerberos / HTTPS are plain
+    # outbound sockets. Writes go to /data (volume) and /tmp (tmpfs) only.
+    <<: *hardening
+    tmpfs:
+      - /tmp:size=64m,mode=1777
+    mem_limit: 4g
+    pids_limit: 2048
     depends_on:
       init:
         condition: service_completed_successfully
@@ -156,6 +192,17 @@ services:
   proxy:
     image: caddy:2.10.2-alpine
     restart: unless-stopped
+    # [1.4.2] uid 0 with ONE capability, NET_BIND_SERVICE (80/443; the image's caddy binary
+    # carries it as a file capability and cannot even start without it): it reads the
+    # root-only TLS key and writes its root-owned volumes as their owner, nothing else.
+    # A non-root user needs the host key readable by that user first (docs/production.md
+    # "[1.4.2] Container hardening", left for a later release).
+    <<: *hardening
+    cap_add: [NET_BIND_SERVICE]
+    tmpfs:
+      - /tmp:size=16m,mode=1777
+    mem_limit: 512m
+    pids_limit: 256
     depends_on:
       - netmon
     ports:
@@ -170,7 +217,8 @@ services:
       - caddy-data:/data
       - caddy-config:/config
     healthcheck:
-      test: ["CMD", "wget", "-q", "-O", "/dev/null", "http://127.0.0.1:2019/config/"]
+      # [1.4.2] the admin API is off; a health listener inside the container only
+      test: ["CMD", "wget", "-q", "-O", "/dev/null", "http://127.0.0.1:8099/"]
       interval: 15s
       timeout: 5s
       retries: 4
