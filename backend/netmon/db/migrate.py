@@ -37,7 +37,7 @@ def newer_database_revision(sync_conn, cfg: Config) -> str | None:  # type: igno
     return None if known is not None else current
 
 
-SECRETS_AT_REST_REVISION = "0012"  # [1.4.2] first revision with the encrypted secret copies
+AT_REST_REVISION = "0012"  # [1.4.2] first revision with the encrypted secret copies
 
 
 def revision_at_or_after(revision: str | None, base: str) -> bool:

@@ -13,7 +13,7 @@ import asyncpg
 import pytest
 
 from netmon.db.migrate import (
-    SECRETS_AT_REST_REVISION,
+    AT_REST_REVISION,
     db_revision,
     revision_at_or_after,
     run_migrations,
@@ -26,7 +26,7 @@ COMMUNITY = "gate-comm-4411"
 
 def test_revision_at_or_after() -> None:
     head = migration_head()
-    assert head != SECRETS_AT_REST_REVISION  # phase 4 adds revisions after 1.4.2's 0012
+    assert head != AT_REST_REVISION  # phase 4 adds revisions after 1.4.2's 0012
     assert revision_at_or_after("0012", "0012")
     assert revision_at_or_after(head, "0012")
     assert revision_at_or_after(head, head)

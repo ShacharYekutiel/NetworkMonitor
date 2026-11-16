@@ -176,7 +176,7 @@ async def _reset_password(username: str) -> int:
     return 0
 
 
-def _secrets_revision_error(rev: str | None, needed: str) -> str:
+def _revision_error(rev: str | None, needed: str) -> str:
     """[1.4.2] Why `netmon secrets` refuses at this database revision."""
     from alembic.script import ScriptDirectory
     from alembic.util.exc import CommandError
@@ -208,7 +208,7 @@ async def _secrets(action: str, old_key_file: str | None = None) -> int:
     from sqlalchemy import text
 
     from netmon.db.engine import make_engine, wait_for_db
-    from netmon.db.migrate import SECRETS_AT_REST_REVISION, db_revision, revision_at_or_after
+    from netmon.db.migrate import AT_REST_REVISION, db_revision, revision_at_or_after
     from netmon.services import rekey, secretbox
 
     settings = load_settings()
@@ -220,8 +220,8 @@ async def _secrets(action: str, old_key_file: str | None = None) -> int:
     try:
         await wait_for_db(engine, timeout_s=10)
         rev = await db_revision(engine)
-        if not revision_at_or_after(rev, SECRETS_AT_REST_REVISION):
-            print(_secrets_revision_error(rev, SECRETS_AT_REST_REVISION), file=sys.stderr)
+        if not revision_at_or_after(rev, AT_REST_REVISION):
+            print(_revision_error(rev, AT_REST_REVISION), file=sys.stderr)
             return 1
         async with engine.connect() as conn:
             removed = (

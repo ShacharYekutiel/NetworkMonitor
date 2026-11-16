@@ -370,11 +370,11 @@ class Runtime:
         1.4.1 changed after a rollback. Idempotent and cheap (configuration rows only)."""
         from sqlalchemy import text
 
-        from netmon.db.migrate import SECRETS_AT_REST_REVISION, db_revision, revision_at_or_after
+        from netmon.db.migrate import AT_REST_REVISION, db_revision, revision_at_or_after
         from netmon.services import secretbox
 
         assert self.engine is not None
-        if not revision_at_or_after(await db_revision(self.engine), SECRETS_AT_REST_REVISION):
+        if not revision_at_or_after(await db_revision(self.engine), AT_REST_REVISION):
             return  # not migrated (migrate=False), older than 0012, or migrated by a newer release
         async with self.engine.begin() as conn:
             removed = (
