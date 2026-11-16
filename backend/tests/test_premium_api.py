@@ -118,10 +118,15 @@ async def test_ports_connected_kind_derivation(rt: Runtime, admin: httpx.AsyncCl
         6: (None, None),
         7: ("switch", "manual"),  # manual topology link to a managed switch
         8: ("unknown", "oui"),
-        9: ("switch", "manual"),  # member of a LAG to a managed (unknown-class) device
+        9: (None, None),  # LAG member: nothing of its own while the `lag` feature is off
         11: ("switch", "manual"),
     }
     assert all(p[i]["connected_kind_override"] is None for i in p)
+    # with the `lag` feature on, a member inherits its LAG's neighbour
+    r = await admin.put("/api/settings", json={"feature_lag_enabled": True})
+    assert r.status_code == 200, r.text
+    p = _by_index((await admin.get(f"/api/devices/{ids['sw']}/ports")).json())
+    assert (p[9]["connected_kind"], p[9]["connected_kind_source"]) == ("switch", "manual")
     # the port detail carries the same fields
     r = await admin.get(f"/api/devices/{ids['sw']}/ports/1")
     assert r.status_code == 200, r.text
