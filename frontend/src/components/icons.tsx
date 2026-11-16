@@ -376,3 +376,82 @@ export const IncidentIcon = (p: P) => (
     <path d="M8 7.5l2.8 8.3M16 7.5l-2.8 8.3M8.5 6h7" />
   </Svg>
 );
+
+// ---------------------------------------------------------------------------
+// Premium (docs/design-system/premium/prototype.html): 24-grid line icons.
+
+export const PinIcon = (p: P) => (
+  <Svg {...p}>
+    <path d="M9 4h6l-1 6 3 3v2H7v-2l3-3z" />
+    <path d="M12 15v5" />
+  </Svg>
+);
+export const PhoneIcon = (p: P) => (
+  <Svg {...p}>
+    <rect x="4" y="3" width="16" height="18" rx="2.5" />
+    <path d="M8 7h8M8 11h.01M12 11h.01M16 11h.01M8 15h.01M12 15h.01M16 15h.01" />
+  </Svg>
+);
+export const CameraIcon = (p: P) => (
+  <Svg {...p}>
+    <rect x="2" y="7" width="14" height="10" rx="2" />
+    <path d="M16 11l6-3.5v9L16 13" />
+  </Svg>
+);
+export const UplinkIcon = (p: P) => (
+  <Svg {...p}>
+    <path d="M12 20V5M6 11l6-6 6 6" />
+  </Svg>
+);
+export const ShieldIcon = (p: P) => (
+  <Svg {...p}>
+    <path d="M12 3l8 3v6c0 4.5-3.4 8-8 9-4.6-1-8-4.5-8-9V6z" />
+  </Svg>
+);
+export const BoltIcon = (p: P) => (
+  <Svg {...p}>
+    <path d="M13 3L5 13.5h6L10 21l8-10.5h-6z" />
+  </Svg>
+);
+export const BranchIcon = (p: P) => (
+  <Svg {...p}>
+    <path d="M4 20V9l8-5 8 5v11" />
+    <path d="M9 20v-6h6v6" />
+  </Svg>
+);
+export const PCIcon = (p: P) => (
+  <Svg {...p}>
+    <rect x="3" y="4" width="18" height="12" rx="1.6" />
+    <path d="M8.5 20h7M12 16v4" />
+  </Svg>
+);
+export const ServerStackIcon = (p: P) => (
+  <Svg {...p}>
+    <rect x="3.5" y="3.5" width="17" height="7" rx="1.6" />
+    <rect x="3.5" y="13.5" width="17" height="7" rx="1.6" />
+    <path d="M7.5 7h.01M7.5 17h.01" />
+  </Svg>
+);
+export const DeviceIcon = (p: P) => (
+  <Svg {...p}>
+    <rect x="3" y="7" width="18" height="10" rx="2" />
+    <path d="M7 12h.01M10 12h.01M13 12h.01M16 12h.01" />
+  </Svg>
+);
+export const ApIcon = (p: P) => (
+  <Svg {...p}>
+    <path d="M2.5 9.5a13.5 13.5 0 0119 0M6 13a8.5 8.5 0 0112 0M9.2 16.4a4 4 0 015.6 0" />
+    <circle cx="12" cy="19.6" r="1" />
+  </Svg>
+);
+export const SensorIcon = (p: P) => (
+  <Svg {...p}>
+    <path d="M3 12h4l3-7 4 14 3-7h4" />
+  </Svg>
+);
+export const ScreensIcon = (p: P) => (
+  <Svg {...p}>
+    <path d="M12 3l9 5-9 5-9-5z" />
+    <path d="M3 13l9 5 9-5" />
+  </Svg>
+);

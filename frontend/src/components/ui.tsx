@@ -10,8 +10,9 @@ import {
   type TextareaHTMLAttributes,
 } from 'react';
 import { createPortal } from 'react-dom';
+import { Link, useLocation } from 'react-router';
 import { useTranslation } from 'react-i18next';
-import { XIcon } from './icons';
+import { ChevronIcon, XIcon } from './icons';
 import { errorMessage, type ErrorContext } from '../lib/errors';
 
 export function cx(...c: (string | false | null | undefined)[]): string {
@@ -19,18 +20,22 @@ export function cx(...c: (string | false | null | undefined)[]): string {
 }
 
 type Variant = 'primary' | 'secondary' | 'danger' | 'ghost';
+/**
+ * Premium buttons (prototype .pbtn / .sbtn): pills; primary is the one ink colour, secondary sits
+ * on the chip ground, danger is chip ground with red text (Apple's destructive style).
+ */
 const VARIANTS: Record<Variant, string> = {
-  primary: 'border border-transparent bg-accent text-accent-on hover:bg-accent-hover',
-  secondary: 'border border-line-strong bg-surface text-ink hover:border-ink-muted',
-  danger: 'border border-transparent bg-danger text-on-danger hover:opacity-90',
-  ghost: 'border border-transparent text-ink-muted hover:bg-surface-hover hover:text-ink',
+  primary: 'bg-accent text-accent-on hover:bg-accent-hover',
+  secondary: 'bg-chip text-ink hover:bg-[color-mix(in_srgb,var(--ink)_10%,transparent)]',
+  danger: 'bg-chip text-status-down hover:bg-status-down-soft',
+  ghost: 'text-ink-muted hover:bg-chip hover:text-ink',
 };
 
 const BUTTON_BASE =
-  'inline-flex items-center justify-center gap-1.5 whitespace-nowrap rounded-md font-semibold transition-colors focus:outline-none focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-focus';
-const BUTTON_SIZE = { sm: 'h-[26px] px-[9px] text-xs', md: 'h-[34px] px-3.5 text-[13px]' };
+  'inline-flex items-center justify-center gap-2 whitespace-nowrap rounded-full border-0 font-medium transition-[background-color,color,transform] duration-200 active:scale-[0.97] focus:outline-none focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-focus';
+const BUTTON_SIZE = { sm: 'h-8 px-3.5 text-[13px]', md: 'h-10 px-[18px] text-[14.5px]' };
 /** Square icon-only buttons (always with an aria-label). */
-export const ICON_BUTTON = { sm: '!w-[26px] !px-0', md: '!w-[34px] !px-0' };
+export const ICON_BUTTON = { sm: '!w-8 !px-0', md: '!w-10 !px-0' };
 
 export const Button = forwardRef<
   HTMLButtonElement,
@@ -69,11 +74,11 @@ export function buttonClass(variant: Variant = 'secondary', size: 'sm' | 'md' = 
 }
 
 /**
- * Inputs (design system: field tokens): an enabled field stands out from the page (white with a
- * 3:1 outline in light, inset in dark); a disabled one is flat with the panel, dashed and dim.
+ * Inputs (prototype .input): a filled, borderless 12px-radius field with a faint inset edge so it
+ * is found on grey pages; focus draws a 2px ink ring. Disabled fields are flat and dim.
  */
 const inputBase =
-  'block rounded-md border border-field-border bg-field px-2.5 py-1.5 text-sm text-ink placeholder:text-ink-subtle hover:border-ink-subtle focus:border-transparent focus:outline focus:outline-2 focus:-outline-offset-1 focus:outline-focus disabled:cursor-not-allowed disabled:border-dashed disabled:border-line-strong disabled:bg-field-disabled disabled:text-ink-subtle disabled:hover:border-line-strong';
+  'block rounded-md border-0 bg-field px-3.5 py-2.5 text-[14.5px] leading-5 text-ink shadow-[inset_0_0_0_1px_var(--field-border)] placeholder:text-ink-subtle focus:shadow-[inset_0_0_0_2px_var(--focus)] focus:outline-none disabled:cursor-not-allowed disabled:bg-field-disabled disabled:text-ink-subtle disabled:shadow-[inset_0_0_0_1px_var(--border)]';
 
 /** Full width unless the caller sets a width (`w-44` would otherwise lose to `w-full`). */
 function fieldClass(className: string | undefined, extra?: string): string {
@@ -114,12 +119,12 @@ export function Field({
 }) {
   return (
     <label className={cx('block min-w-0', className)}>
-      <span className="mb-1.5 block text-xs font-medium text-ink-muted">
+      <span className="mb-1.5 block text-[13.5px] text-ink-muted">
         {label}
         {required && <span className="ms-0.5 text-status-down">*</span>}
       </span>
       {children}
-      {hint && <span className="mt-1 block text-xs text-ink-subtle">{hint}</span>}
+      {hint && <span className="mt-1.5 block text-xs text-ink-subtle">{hint}</span>}
     </label>
   );
 }
@@ -141,12 +146,12 @@ export function FieldGroup({
   const id = useId();
   return (
     <div role="group" aria-labelledby={id} className={cx('block min-w-0', className)}>
-      <span id={id} className="mb-1.5 block text-xs font-medium text-ink-muted">
+      <span id={id} className="mb-1.5 block text-[13.5px] text-ink-muted">
         {label}
         {required && <span className="ms-0.5 text-status-down">*</span>}
       </span>
       {children}
-      {hint && <span className="mt-1 block text-xs text-ink-subtle">{hint}</span>}
+      {hint && <span className="mt-1.5 block text-xs text-ink-subtle">{hint}</span>}
     </div>
   );
 }
@@ -163,7 +168,7 @@ export function Checkbox({
   disabled?: boolean;
 }) {
   return (
-    <label className="inline-flex cursor-pointer items-center gap-2 text-sm">
+    <label className="inline-flex cursor-pointer items-center gap-2 text-[14.5px]">
       <input
         type="checkbox"
         className="m-0 h-4 w-4 accent-accent"
@@ -198,18 +203,22 @@ export function Card({
       className={cx(
         // min-w-0: as a grid/flex item the card must not grow to its table's width;
         // wide tables scroll inside the card instead.
-        'min-w-0 rounded-lg border border-line bg-surface',
+        'min-w-0 overflow-hidden rounded-xl bg-surface shadow-card',
         className,
       )}
     >
       {(title || actions) && (
-        <header className="flex min-h-[44px] items-center justify-between gap-2 border-b border-line px-3.5 py-2">
-          <h2 className="text-sm font-semibold">{title}</h2>
-          {actions && <div className="flex items-center gap-2">{actions}</div>}
+        <header className="flex min-h-[56px] flex-wrap items-center justify-between gap-2.5 px-[22px] pb-2 pt-4">
+          <h2 className="text-[17px] font-semibold leading-snug">{title}</h2>
+          {actions && <div className="flex flex-wrap items-center gap-2">{actions}</div>}
         </header>
       )}
       {/* bodyClassName replaces the default padding ("p-4 p-0" would keep p-4: later in the CSS). */}
-      <div className={bodyClassName ?? 'p-4'}>{children}</div>
+      <div
+        className={bodyClassName ?? (title || actions ? 'px-[22px] pb-5 pt-1' : 'px-[22px] py-5')}
+      >
+        {children}
+      </div>
     </section>
   );
 }
@@ -258,24 +267,21 @@ export function ErrorBox({
   return (
     <div
       role="alert"
-      className={cx(
-        'rounded-lg bg-status-down-soft px-3.5 py-2.5 text-sm border-s-2 border-status-down text-ink',
-        className,
-      )}
+      className={cx('rounded-lg bg-status-down-soft px-4 py-3 text-[14.5px] text-ink', className)}
     >
       {errorMessage(t, error, context)}
     </div>
   );
 }
 
-/** Inline message (design system: Banner): the tone's soft ground, ink text, a tone edge. */
-export const BANNER = 'rounded-lg border-s-2 px-3.5 py-2.5 text-[13px] text-ink';
+/** Inline message (premium: a quiet rounded panel on the tone's soft ground, ink text). */
+export const BANNER = 'rounded-lg px-4 py-3 text-[14px] text-ink';
 export const BANNER_TONE = {
-  info: 'border-accent-ink bg-accent-soft',
-  success: 'border-status-up bg-status-up-soft',
-  warning: 'border-status-warning bg-status-warning-soft',
-  error: 'border-status-down bg-status-down-soft',
-  neutral: 'border-line-strong bg-surface-sunken',
+  info: 'bg-accent-soft',
+  success: 'bg-status-up-soft',
+  warning: 'bg-status-warning-soft',
+  error: 'bg-status-down-soft',
+  neutral: 'bg-chip',
 } as const;
 
 export function Notice({
@@ -291,7 +297,7 @@ export function Notice({
 }
 
 export function Empty({ children }: { children: ReactNode }) {
-  return <div className="p-6 text-center text-sm text-ink-muted">{children}</div>;
+  return <div className="p-8 text-center text-[14.5px] text-ink-muted">{children}</div>;
 }
 
 const FOCUSABLE =
@@ -306,6 +312,7 @@ export function Modal({
   wide,
   closeOnBackdrop,
   testId,
+  sheet,
 }: {
   open: boolean;
   title: ReactNode;
@@ -316,6 +323,8 @@ export function Modal({
   /** [2b-2] a click on the backdrop closes the dialog (read-only dialogs; forms keep their data) */
   closeOnBackdrop?: boolean;
   testId?: string;
+  /** premium sheet: slides in from the end edge at full height instead of a centred dialog */
+  sheet?: boolean;
 }) {
   const { t } = useTranslation();
   const titleId = useId();
@@ -366,7 +375,10 @@ export function Modal({
   // Rendered into <body> so the fixed overlay is not affected by the parent's layout (e.g. space-y margins).
   return createPortal(
     <div
-      className="fixed inset-0 z-50 m-0 flex items-start justify-center overflow-y-auto bg-overlay p-4 pt-16"
+      className={cx(
+        'fixed inset-0 z-50 m-0 flex bg-overlay backdrop-blur-[4px] motion-safe:animate-[nm-fade-in_.25s_ease-out]',
+        sheet ? 'justify-end' : 'items-start justify-center overflow-y-auto p-4 pt-16',
+      )}
       data-testid={testId ? `${testId}-backdrop` : undefined}
       onMouseDown={(e) => {
         downOnBackdrop.current = e.target === e.currentTarget;
@@ -384,28 +396,36 @@ export function Modal({
         data-testid={testId}
         tabIndex={-1}
         className={cx(
-          'w-full rounded-lg bg-surface-raised text-ink shadow-pop focus:outline-none',
-          wide ? 'max-w-3xl' : 'max-w-lg',
+          'w-full bg-surface-raised text-ink shadow-pop focus:outline-none',
+          sheet
+            ? 'flex h-full max-w-[min(520px,94vw)] flex-col rounded-s-xl motion-safe:animate-[nm-sheet-in_.45s_cubic-bezier(.32,.72,0,1)]'
+            : cx('rounded-xl', wide ? 'max-w-3xl' : 'max-w-lg'),
         )}
       >
-        <header className="flex items-center justify-between gap-2 border-b border-line px-4 py-3.5">
-          <h3 id={titleId} className="min-w-0 text-base font-semibold">
+        <header className="flex items-center justify-between gap-2 px-6 pb-2 pt-5">
+          <h3 id={titleId} className="min-w-0 text-[19px] font-semibold tracking-[-0.01em]">
             {title}
           </h3>
           <button
             type="button"
             onClick={onClose}
-            className="rounded-md p-1 text-ink-muted hover:bg-surface-hover hover:text-ink"
+            className="inline-flex h-8 w-8 items-center justify-center rounded-full bg-chip text-ink-muted hover:text-ink"
             aria-label={t('common.close')}
           >
-            <XIcon />
+            <XIcon size={16} />
           </button>
         </header>
-        <div data-modal-body className="max-h-[70vh] overflow-y-auto p-4">
+        <div
+          data-modal-body
+          className={cx(
+            'overflow-y-auto px-6 pb-5 pt-2',
+            sheet ? 'min-h-0 flex-1' : 'max-h-[70vh]',
+          )}
+        >
           {children}
         </div>
         {footer && (
-          <footer className="flex justify-end gap-2 rounded-b-lg border-t border-line bg-surface-sunken px-4 py-3">
+          <footer className="flex flex-wrap justify-end gap-2.5 border-t border-line px-6 py-4">
             {footer}
           </footer>
         )}
@@ -455,12 +475,33 @@ export function ConfirmDialog({
   );
 }
 
+/** iOS-style back link ("‹ Overview") above a page title; hidden on the overview itself. */
+export function BackLink({ to = '/', label }: { to?: string; label?: ReactNode }) {
+  const { t } = useTranslation();
+  const { pathname } = useLocation();
+  if (to === '/' && pathname === '/') return null;
+  return (
+    <Link
+      to={to}
+      className="-ms-2 inline-flex h-9 items-center gap-1 self-start rounded-[10px] pe-2.5 ps-1 font-medium text-ink no-underline hover:bg-chip"
+    >
+      <ChevronIcon size={18} strokeWidth={2} className="rotate-180 rtl:rotate-0" />
+      {label ?? t('nav.short.dashboard')}
+    </Link>
+  );
+}
+
+/**
+ * Page header (prototype .pg-h): the back link (or the breadcrumbs of a tree page), a 32–44px
+ * title, a grey subline, and the actions at the end.
+ */
 export function PageHeader({
   title,
   subtitle,
   actions,
   breadcrumbs,
   meta,
+  back,
 }: {
   title: ReactNode;
   subtitle?: ReactNode;
@@ -468,22 +509,26 @@ export function PageHeader({
   breadcrumbs?: ReactNode;
   /** A row of facts under the subtitle (design system: PageHeader "meta"). */
   meta?: ReactNode;
+  /** false: no back link (e.g. the overview) */
+  back?: false;
 }) {
   return (
-    <div className="mb-4 flex flex-wrap items-end justify-between gap-3">
-      <div className="min-w-0">
-        {breadcrumbs && <div className="mb-2 text-xs text-ink-subtle">{breadcrumbs}</div>}
-        <h1 className="flex min-w-0 items-center gap-2.5 truncate text-2xl font-semibold leading-[30px] tracking-[-0.01em]">
-          {title}
-        </h1>
-        {subtitle && <div className="mt-1.5 text-[13px] text-ink-muted">{subtitle}</div>}
-        {meta && (
-          <div className="mt-2.5 flex flex-wrap items-center gap-x-[22px] gap-y-1.5 text-[13px] text-ink-muted">
-            {meta}
-          </div>
-        )}
+    <div className="mb-6 mt-1 grid gap-1.5">
+      {breadcrumbs ?? (back !== false && <BackLink />)}
+      <div className="flex flex-wrap items-end justify-between gap-x-6 gap-y-3">
+        <div className="min-w-0">
+          <h1 className="m-0 flex min-w-0 flex-wrap items-center gap-x-3 gap-y-1 break-words text-[clamp(32px,3.6vw,44px)] font-semibold leading-[1.08] tracking-[-0.025em]">
+            {title}
+          </h1>
+          {subtitle && <div className="mt-2 text-base text-ink-muted">{subtitle}</div>}
+          {meta && (
+            <div className="mt-2.5 flex flex-wrap items-center gap-x-[22px] gap-y-1.5 text-sm text-ink-muted">
+              {meta}
+            </div>
+          )}
+        </div>
+        {actions && <div className="flex flex-wrap items-center gap-2.5">{actions}</div>}
       </div>
-      {actions && <div className="flex flex-wrap items-center gap-2">{actions}</div>}
     </div>
   );
 }
@@ -491,14 +536,18 @@ export function PageHeader({
 export function Table({ children }: { children: ReactNode }) {
   return (
     <div className="overflow-x-auto">
-      <table className="w-full text-sm">{children}</table>
+      <table className="w-full text-sm [&_tbody>tr:last-child>td]:border-b-0 [&_tbody>tr:hover>td]:bg-surface-hover">
+        {children}
+      </table>
     </div>
   );
 }
 
+/** Dense table cells (operator lists); the outer cells line up with the card's 22px padding. */
 export const th =
-  'whitespace-nowrap border-b border-line bg-surface-sunken px-3 py-2 text-start text-xs font-medium text-ink-muted';
-export const td = 'border-b border-line px-3 py-[7px] align-middle';
+  'whitespace-nowrap border-b border-line px-3 py-2.5 text-start text-xs font-medium text-ink-muted first:ps-[22px] last:pe-[22px]';
+export const td =
+  'border-b border-line px-3 py-2.5 align-middle transition-colors first:ps-[22px] last:pe-[22px]';
 
 /** Left-to-right isolate for numbers, IPs, hostnames and URLs inside RTL text. */
 export function Ltr({ children, className }: { children: ReactNode; className?: string }) {
@@ -543,44 +592,117 @@ export function TruncLtr({
   );
 }
 
-/** A tab of a role=tablist row (design system: Tabs). */
+/** A tab of a role=tablist row: a segment of the premium segmented control (prototype .seg). */
 export function tabClass(on: boolean): string {
   return cx(
-    '-mb-px inline-flex items-center gap-2 whitespace-nowrap border-b-2 px-3.5 py-2.5 text-sm leading-4',
+    'inline-flex h-8 shrink-0 items-center gap-2 whitespace-nowrap rounded-[9px] px-4 text-sm font-medium transition-[background-color,color,box-shadow] duration-200',
     on
-      ? 'border-accent-ink font-semibold text-ink'
-      : 'border-transparent font-medium text-ink-muted hover:text-ink',
+      ? 'bg-surface text-ink shadow-[0_1px_3px_rgba(0,0,0,0.12)]'
+      : 'text-ink-muted hover:text-ink',
   );
 }
 
-/**
- * A tab of a wrapping tablist (many tabs, e.g. Settings): a compact pill; the selected one has
- * the accent-soft ground, an accent underline and semibold ink, so it reads at a glance on any row.
- */
+/** The track of a segmented control / tab row. */
+export const SEG_TRACK =
+  'inline-flex max-w-full gap-0.5 self-start overflow-x-auto rounded-[11px] bg-chip p-[3px] [scrollbar-width:none]';
+
+/** A tab of a wrapping tablist (many tabs, e.g. Settings): a chip; the selected one is ink. */
 export function wrapTabClass(on: boolean): string {
   return cx(
-    'inline-flex h-8 items-center gap-2 whitespace-nowrap rounded-md px-3 text-sm leading-4',
-    on
-      ? 'bg-accent-soft font-semibold text-ink shadow-[inset_0_-2px_0_var(--accent-ink)]'
-      : 'font-medium text-ink-muted hover:bg-surface-hover hover:text-ink',
+    'inline-flex h-8 items-center gap-2 whitespace-nowrap rounded-full px-3.5 text-[13.5px] font-medium transition-colors',
+    on ? 'bg-accent text-accent-on' : 'bg-chip text-ink-muted hover:text-ink',
   );
 }
 
-/** Segmented control: the group and its options (design system: SegmentedControl). */
-export const SEG_GROUP =
-  'inline-flex gap-0.5 self-start rounded-md border border-line-strong bg-surface-sunken p-0.5';
+/** Segmented control: the group and its options (prototype .seg). */
+export const SEG_GROUP = SEG_TRACK;
 export function segClass(on: boolean): string {
   return cx(
-    'h-6 whitespace-nowrap rounded-sm px-2.5 text-xs font-medium',
-    on ? 'bg-surface-raised text-ink ring-1 ring-line-strong' : 'text-ink-muted hover:text-ink',
+    'h-7 whitespace-nowrap rounded-[8px] px-3 text-[13px] font-medium transition-[background-color,color,box-shadow] duration-200',
+    on
+      ? 'bg-surface text-ink shadow-[0_1px_3px_rgba(0,0,0,0.12)]'
+      : 'text-ink-muted hover:text-ink',
   );
 }
 
-/** Chip: a small neutral or accent label (design system: StatusBadge "chip"). */
+/** A segmented control as tabs (role=tablist / tab). */
+export function SegmentedControl<T extends string>({
+  label,
+  value,
+  onChange,
+  options,
+  className,
+  size = 'md',
+}: {
+  label: string;
+  value: T;
+  onChange: (v: T) => void;
+  options: { value: T; label: ReactNode }[];
+  className?: string;
+  size?: 'sm' | 'md';
+}) {
+  return (
+    <div role="tablist" aria-label={label} className={cx(SEG_TRACK, className)}>
+      {options.map((o) => (
+        <button
+          key={o.value}
+          type="button"
+          role="tab"
+          aria-selected={value === o.value}
+          onClick={() => onChange(o.value)}
+          className={size === 'sm' ? segClass(value === o.value) : tabClass(value === o.value)}
+        >
+          {o.label}
+        </button>
+      ))}
+    </div>
+  );
+}
+
+/** Apple switch (prototype .sw): role=switch, 51×31, green when on. */
+export function Switch({
+  checked,
+  onChange,
+  label,
+  disabled,
+  className,
+}: {
+  checked: boolean;
+  onChange: (v: boolean) => void;
+  label: string;
+  disabled?: boolean;
+  className?: string;
+}) {
+  return (
+    <button
+      type="button"
+      role="switch"
+      aria-checked={checked}
+      aria-label={label}
+      disabled={disabled}
+      onClick={() => onChange(!checked)}
+      className={cx(
+        'relative h-[31px] w-[51px] shrink-0 rounded-full transition-colors duration-300 disabled:cursor-not-allowed disabled:opacity-50',
+        checked ? 'bg-status-up' : 'bg-chip',
+        className,
+      )}
+    >
+      <span
+        aria-hidden="true"
+        className={cx(
+          'absolute top-[2px] h-[27px] w-[27px] rounded-full bg-white shadow-[0_2px_6px_rgba(0,0,0,0.2)] transition-[inset-inline-start] duration-300 ease-premium',
+          checked ? 'start-[22px]' : 'start-[2px]',
+        )}
+      />
+    </button>
+  );
+}
+
+/** Chip: a neutral or accent label (prototype .chip). */
 export const CHIP =
-  'inline-flex h-[22px] items-center gap-[5px] whitespace-nowrap rounded-sm px-2 text-xs font-medium';
+  'inline-flex h-7 items-center gap-1.5 whitespace-nowrap rounded-full px-3 text-[13px] font-medium';
 export const CHIP_TONE = {
-  neutral: 'border border-line bg-surface-sunken text-ink-muted',
+  neutral: 'bg-chip text-ink-muted',
   accent: 'bg-accent-soft text-accent-ink',
   ack: 'bg-ack-soft text-ack',
 } as const;
@@ -602,11 +724,11 @@ export function Chip({
   );
 }
 
-/** Dense tag inside rows and lists (design system: chip at tab size): soft ground, no outline. */
+/** Tag inside rows and lists (prototype .tag): a soft pill, 600 weight. */
 export const TAG =
-  'inline-flex h-[18px] items-center gap-1 whitespace-nowrap rounded-sm px-[5px] align-middle text-[11px] font-semibold leading-none';
+  'inline-flex h-[22px] items-center gap-1 whitespace-nowrap rounded-full px-2 align-middle text-xs font-semibold leading-none';
 export const TAG_TONE = {
-  neutral: 'border border-line bg-surface-sunken text-ink-muted',
+  neutral: 'bg-chip text-ink-muted',
   accent: 'bg-accent-soft text-accent-ink',
   warning: 'bg-status-warning-soft text-status-warning',
   down: 'bg-status-down-soft text-status-down',
@@ -614,16 +736,163 @@ export const TAG_TONE = {
   paused: 'bg-status-paused-soft text-status-paused',
 } as const;
 
-/** A count next to a card title (neutral pill, mono numerals). */
+/** A count next to a card title (neutral pill, Inter numerals). */
 export function CountPill({ n, className }: { n: number; className?: string }) {
   return (
     <span
       className={cx(
-        'inline-flex h-[18px] min-w-[20px] items-center justify-center rounded-sm border border-line bg-surface-sunken px-[5px] font-mono text-[11px] font-semibold tabular-nums text-ink-muted',
+        'num inline-flex h-[22px] min-w-[22px] items-center justify-center rounded-full bg-chip px-[7px] text-xs font-semibold text-ink-muted',
         className,
       )}
     >
       {n}
     </span>
+  );
+}
+
+/** Key-value list (prototype .kv): grey keys, values at the end in Inter. */
+export function KeyValue({
+  items,
+  className,
+}: {
+  items: { k: ReactNode; v: ReactNode; testId?: string }[];
+  className?: string;
+}) {
+  return (
+    <dl
+      className={cx(
+        'm-0 grid grid-cols-[auto_minmax(0,1fr)] gap-x-[18px] gap-y-2.5 text-[14.5px]',
+        className,
+      )}
+    >
+      {items.map((it, i) => (
+        <div key={i} className="contents" data-testid={it.testId}>
+          <dt className="text-ink-muted">{it.k}</dt>
+          <dd className="m-0 min-w-0 break-words text-end [unicode-bidi:plaintext]">{it.v}</dd>
+        </div>
+      ))}
+    </dl>
+  );
+}
+
+/** Title above a grouped list (prototype .gtitle): 22px, optional link at the end. */
+export function GroupTitle({
+  children,
+  action,
+  id,
+}: {
+  children: ReactNode;
+  action?: ReactNode;
+  id?: string;
+}) {
+  return (
+    <div className="mx-1.5 mb-3 mt-[26px] flex items-baseline justify-between gap-3 first:mt-0">
+      <h2 id={id} className="m-0 text-[22px] font-semibold tracking-[-0.01em]">
+        {children}
+      </h2>
+      {action && <span className="text-sm text-ink-muted">{action}</span>}
+    </div>
+  );
+}
+
+/** Grouped list (prototype .group): rounded card, rows divided by inset hairlines. */
+export function GroupList({
+  children,
+  className,
+  label,
+}: {
+  children: ReactNode;
+  className?: string;
+  label?: string;
+}) {
+  return (
+    <ul
+      aria-label={label}
+      className={cx(
+        'm-0 list-none overflow-hidden rounded-xl bg-surface p-0 shadow-card',
+        // hairline between rows, inset past the icon tile
+        '[&>li+li]:relative [&>li+li]:before:absolute [&>li+li]:before:end-0 [&>li+li]:before:start-[66px] [&>li+li]:before:top-0 [&>li+li]:before:h-px [&>li+li]:before:bg-line',
+        className,
+      )}
+    >
+      {children}
+    </ul>
+  );
+}
+
+/**
+ * A grouped-list row (prototype .row): icon tile or status dot, title + subline, a value, a chevron.
+ * `to` makes the whole row a link; otherwise extra controls go in `end`.
+ */
+export function ListRow({
+  icon,
+  dot,
+  title,
+  subtitle,
+  value,
+  end,
+  to,
+  onClick,
+  chevron,
+  className,
+  testId,
+}: {
+  icon?: ReactNode;
+  /** a status dot instead of an icon tile (pass the Tailwind bg class) */
+  dot?: string;
+  title: ReactNode;
+  subtitle?: ReactNode;
+  value?: ReactNode;
+  end?: ReactNode;
+  to?: string;
+  onClick?: () => void;
+  chevron?: boolean;
+  className?: string;
+  testId?: string;
+}) {
+  const inner = (
+    <>
+      {dot ? (
+        <span aria-hidden="true" className={cx('h-2.5 w-2.5 shrink-0 rounded-full', dot)} />
+      ) : (
+        icon && (
+          <span className="inline-flex h-[34px] w-[34px] shrink-0 items-center justify-center rounded-[10px] bg-chip text-ink">
+            {icon}
+          </span>
+        )
+      )}
+      <span className="grid min-w-0 flex-1">
+        <b className="truncate text-[15.5px] font-medium">{title}</b>
+        {subtitle && <span className="truncate text-[13.5px] text-ink-muted">{subtitle}</span>}
+      </span>
+      {value !== undefined && value !== null && (
+        <span className="num shrink-0 text-sm font-medium text-ink-muted [unicode-bidi:plaintext]">
+          {value}
+        </span>
+      )}
+      {end}
+      {(chevron ?? !!(to || onClick)) && (
+        <ChevronIcon size={16} className="shrink-0 text-ink-subtle rtl:rotate-180" />
+      )}
+    </>
+  );
+  const cls = cx(
+    'flex w-full items-center gap-3.5 px-5 py-4 text-start text-ink no-underline transition-colors',
+    (to || onClick) && 'hover:bg-surface-hover',
+  );
+  return (
+    <li className={className} data-testid={testId}>
+      {to ? (
+        <Link to={to} className={cls}>
+          {inner}
+        </Link>
+      ) : onClick ? (
+        <button type="button" onClick={onClick} className={cls}>
+          {inner}
+        </button>
+      ) : (
+        <div className={cls}>{inner}</div>
+      )}
+    </li>
   );
 }

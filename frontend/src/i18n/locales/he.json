@@ -101,6 +101,20 @@
       "users": "משתמשים",
       "audit": "ביקורת",
       "inventory": "מלאי"
+    },
+    "allScreens": "כל המסכים",
+    "openMenu": "כל המסכים",
+    "closeMenu": "סגירת התפריט",
+    "pin": "נעיצת התפריט בצד",
+    "unpin": "ביטול נעיצת התפריט",
+    "menuView": "תצוגת התפריט",
+    "screens": "מסכים",
+    "search": "חיפוש",
+    "section": {
+      "monitor": "ניטור",
+      "equipment": "ציוד",
+      "operations": "תפעול",
+      "admin": "ניהול"
     }
   },
   "tree": {
@@ -3970,5 +3984,20 @@
   "auth": {
     "tagline1": "כל פורט.",
     "tagline2": "כל אות."
+  },
+  "island": {
+    "ok": "הכול תקין",
+    "down_one": "תקלה אחת",
+    "down_other": "{{count}} תקלות",
+    "attention_one": "אחד דורש טיפול",
+    "attention_other": "{{count}} דורשים טיפול",
+    "warnings_one": "אזהרה אחת",
+    "warnings_other": "{{count}} אזהרות",
+    "sensors_one": "חיישן אחד",
+    "sensors_other": "{{count}} חיישנים",
+    "down_two": "2 תקלות",
+    "attention_two": "2 דורשים טיפול",
+    "warnings_two": "2 אזהרות",
+    "sensors_two": "2 חיישנים"
   }
 }

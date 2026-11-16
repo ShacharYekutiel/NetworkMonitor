@@ -75,6 +75,14 @@
     opacity: 0.6;
   }
 }
+@keyframes nm-sheet-in {
+  from {
+    transform: translateX(var(--nm-sheet-from, 100%));
+  }
+}
+[dir='rtl'] {
+  --nm-sheet-from: -100%;
+}
 @keyframes nm-fade-in {
   from {
     opacity: 0;

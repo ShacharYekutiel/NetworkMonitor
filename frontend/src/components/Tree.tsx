@@ -14,10 +14,9 @@ import { useLocalizeMessage } from '../hooks/localize';
 type Expanded = Record<string, boolean>;
 
 const rowBase =
-  'group flex h-7 min-w-0 items-center gap-1.5 whitespace-nowrap rounded-sm px-1.5 text-[13px] text-ink hover:bg-surface-hover';
-// The selected node: hover ground, semibold, and an accent marker on its inline-start edge.
-const activeRow =
-  'bg-surface-hover font-semibold shadow-[inset_2px_0_0_var(--accent-ink)] rtl:shadow-[inset_-2px_0_0_var(--accent-ink)]';
+  'group flex h-8 min-w-0 items-center gap-2 whitespace-nowrap rounded-[10px] px-2 text-[14px] text-ink hover:bg-surface-hover';
+// The selected node (premium menu): the nav-active ground and semibold ink.
+const activeRow = 'bg-nav-active font-semibold';
 /** [3b] no iOS link callout on long press (it opens the tree context menu instead) */
 const noCallout = { WebkitTouchCallout: 'none' } as const;
 
@@ -244,20 +243,20 @@ function TreeNavInner() {
 
   return (
     <div className="flex min-h-0 flex-1 flex-col">
-      <div className="relative px-2.5 pb-1.5 pt-2.5">
+      <div className="relative px-3 pb-2 pt-3">
         <SearchIcon
-          size={14}
-          className="pointer-events-none absolute start-[18px] top-[18px] text-ink-subtle"
+          size={15}
+          className="pointer-events-none absolute start-[24px] top-[24px] text-ink-subtle"
         />
         <Input
           value={q}
           onChange={(e) => setQ(e.target.value)}
           placeholder={t('tree.search')}
-          className="h-[30px] bg-surface ps-7 text-xs"
+          className="h-9 ps-9 text-sm"
           aria-label={t('tree.search')}
         />
       </div>
-      <div className="min-h-0 flex-1 overflow-y-auto px-1.5 pb-2.5">
+      <div className="min-h-0 flex-1 overflow-y-auto px-2 pb-3">
         {isLoading && (
           <div className="flex justify-center p-4 text-ink-subtle">
             <Spinner />

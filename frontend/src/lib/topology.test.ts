@@ -136,8 +136,11 @@ describe('topology graph builder', () => {
     expect(core.symbol.startsWith('image://data:image/svg+xml')).toBe(true);
     expect(svg(core.symbol)).toContain(STATUS_HEX.down);
     expect(svg(child.symbol)).toContain(STATUS_HEX.unreachable);
-    expect(svg(child.symbol)).toContain(LIGHT_TOKENS.accent);
-    expect(svg(core.symbol)).not.toContain(LIGHT_TOKENS.accent);
+    // (the accent is the ink colour now, so the badge is found by its circle at the corner)
+    expect(svg(child.symbol)).toContain(
+      `<circle cx="8" cy="8" r="7.5" fill="${LIGHT_TOKENS.accent}"`,
+    );
+    expect(svg(core.symbol)).not.toContain('<circle cx="8" cy="8"');
     expect(svg(ghost.symbol)).toContain('stroke-dasharray');
     expect(b.needsLayout).toBe(true);
     // degree drives nothing but is exposed as value

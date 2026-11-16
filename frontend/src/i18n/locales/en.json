@@ -101,6 +101,20 @@
       "users": "Users",
       "audit": "Audit",
       "inventory": "Inventory"
+    },
+    "allScreens": "All screens",
+    "openMenu": "All screens",
+    "closeMenu": "Close the menu",
+    "pin": "Keep the menu open",
+    "unpin": "Stop keeping the menu open",
+    "menuView": "Menu view",
+    "screens": "Screens",
+    "search": "Search",
+    "section": {
+      "monitor": "Monitoring",
+      "equipment": "Equipment",
+      "operations": "Operations",
+      "admin": "Administration"
     }
   },
   "tree": {
@@ -3931,5 +3945,16 @@
   "auth": {
     "tagline1": "Every port.",
     "tagline2": "Every signal."
+  },
+  "island": {
+    "ok": "All OK",
+    "down_one": "{{count}} down",
+    "down_other": "{{count}} down",
+    "attention_one": "{{count}} needs attention",
+    "attention_other": "{{count}} need attention",
+    "warnings_one": "{{count}} warning",
+    "warnings_other": "{{count}} warnings",
+    "sensors_one": "{{count}} sensor",
+    "sensors_other": "{{count}} sensors"
   }
 }

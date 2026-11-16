@@ -14,7 +14,14 @@ const LANGUAGES: { code: Language; label: string }[] = [
   { code: 'he', label: 'עברית' },
 ];
 
-export function LanguageSwitcher({ className }: { className?: string }) {
+export function LanguageSwitcher({
+  className,
+  compact,
+}: {
+  className?: string;
+  /** round 36px button of the top bar (no globe, no caret) */
+  compact?: boolean;
+}) {
   const { t, i18n } = useTranslation();
   const { user, setUser } = useAuth();
   const current = (i18n.language === 'he' ? 'he' : 'en') as Language;
@@ -67,26 +74,32 @@ export function LanguageSwitcher({ className }: { className?: string }) {
         aria-expanded={open}
         aria-controls={menuId}
         aria-label={`${t('common.language')}: ${currentLabel}`}
-        className="inline-flex h-[26px] items-center gap-[5px] rounded-sm border border-chrome-border px-2 font-mono text-[11px] font-semibold leading-none text-chrome-muted hover:bg-chrome-field hover:text-chrome-ink"
+        className={
+          compact
+            ? 'num inline-flex h-9 w-9 items-center justify-center rounded-full text-[12px] font-semibold text-chrome-muted transition-colors hover:bg-chrome-field hover:text-chrome-ink'
+            : 'inline-flex h-9 items-center gap-1.5 rounded-full bg-chip px-3 text-[13px] font-medium leading-none text-chrome-muted hover:text-chrome-ink'
+        }
       >
-        <GlobeIcon size={14} strokeWidth={1.75} />
+        {!compact && <GlobeIcon size={15} strokeWidth={1.7} />}
         <span lang={current}>{current === 'he' ? 'עב' : 'EN'}</span>
-        <svg
-          width="10"
-          height="10"
-          viewBox="0 0 10 10"
-          aria-hidden="true"
-          className={cx('transition-transform', open && 'rotate-180')}
-        >
-          <path d="M1 3l4 4 4-4" fill="none" stroke="currentColor" strokeWidth="1.5" />
-        </svg>
+        {!compact && (
+          <svg
+            width="10"
+            height="10"
+            viewBox="0 0 10 10"
+            aria-hidden="true"
+            className={cx('transition-transform', open && 'rotate-180')}
+          >
+            <path d="M1 3l4 4 4-4" fill="none" stroke="currentColor" strokeWidth="1.5" />
+          </svg>
+        )}
       </button>
       {open && (
         <ul
           id={menuId}
           role="listbox"
           aria-label={t('common.language')}
-          className="absolute end-0 top-full z-50 mt-1 min-w-[8rem] overflow-hidden rounded-lg bg-surface-raised p-1 text-[13px] text-ink shadow-pop"
+          className="absolute end-0 top-full z-50 mt-2 min-w-[9rem] overflow-hidden rounded-lg bg-surface-raised p-1.5 text-sm text-ink shadow-pop"
         >
           {LANGUAGES.map((l) => {
             const selected = l.code === current;
@@ -98,10 +111,8 @@ export function LanguageSwitcher({ className }: { className?: string }) {
                   dir={l.code === 'he' ? 'rtl' : 'ltr'}
                   onClick={() => choose(l.code)}
                   className={cx(
-                    'flex w-full items-center justify-between gap-3 rounded-sm px-[9px] py-[7px] text-start',
-                    selected
-                      ? 'bg-accent-soft font-medium text-accent-ink'
-                      : 'hover:bg-surface-hover',
+                    'flex w-full items-center justify-between gap-3 rounded-[10px] px-3 py-2 text-start',
+                    selected ? 'bg-nav-active font-medium text-ink' : 'hover:bg-surface-hover',
                   )}
                 >
                   <span>{l.label}</span>
@@ -127,11 +138,11 @@ export function ThemeToggle() {
     <button
       type="button"
       onClick={() => setChoice(NEXT[choice])}
-      className="inline-flex h-[34px] w-[34px] items-center justify-center rounded-md text-chrome-muted hover:bg-chrome-field hover:text-chrome-ink"
+      className="inline-flex h-9 w-9 items-center justify-center rounded-full text-chrome-muted transition-colors hover:bg-chrome-field hover:text-chrome-ink"
       title={label}
       aria-label={label}
     >
-      <Icon size={16} strokeWidth={1.75} />
+      <Icon size={20} strokeWidth={1.7} />
     </button>
   );
 }
