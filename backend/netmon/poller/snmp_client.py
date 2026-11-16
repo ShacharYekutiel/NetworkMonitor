@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 import hashlib
 import ipaddress
+import time
 from typing import Any
 
 DEFAULT_SNMP: dict[str, Any] = {
@@ -62,8 +63,37 @@ def _close_engine(engine: Any) -> None:
 
 _engine_locks: dict[str, asyncio.Lock] = {}
 
+# [1.4.2] pysnmp forgets a device's SNMPv3 clock (engine boots / time) after 300 s without an
+# authenticated answer from it, but keeps the discovered engine id, so the next request goes
+# out with boots = time = 0 and no new discovery. Some agents (HPE Comware) do not answer
+# that at all: every later query of the device times out until the process restarts (seen
+# after the credentials were wrong for five minutes, a pause, an outage). An engine that is
+# about to be used for such a device is therefore replaced by a fresh one, which discovers
+# and synchronises again. The old engine is closed later: other devices may be mid-request.
+V3_RESYNC_IDLE_S = 240.0
+_RETIRED_CLOSE_DELAY_S = 120.0
+_now = time.monotonic  # replaced in tests
+_last_ok: dict[str, dict[str, float]] = {}  # engine key -> {host: monotonic time of last answer}
 
-async def _get_engine(creds: dict[str, Any] | None = None) -> Any:
+
+def _retire_engine(key: str, loop: asyncio.AbstractEventLoop) -> None:
+    engine = _engines.pop(key, None)
+    _last_ok.pop(key, None)
+    if engine is not None:
+        loop.call_later(_RETIRED_CLOSE_DELAY_S, _close_engine, engine)
+
+
+def _engine_key(creds: dict[str, Any] | None) -> str:
+    return "v12" if not creds or creds.get("version") != "v3" else _v3_fingerprint(creds)
+
+
+def mark_answered(creds: dict[str, Any], host: str) -> None:
+    """An SNMPv3 answer arrived from `host` (keeps its clock in the engine fresh)."""
+    if creds.get("version") == "v3":
+        _last_ok.setdefault(_v3_fingerprint(creds), {})[host] = _now()
+
+
+async def _get_engine(creds: dict[str, Any] | None = None, host: str | None = None) -> Any:
     """The engine for these credentials. A new SnmpEngine loads pysnmp's MIB modules (~60 ms,
     several times that on a slow host), so it is built in a worker thread: building it in the
     event loop froze the whole server on the first query and on every new v3 credential set."""
@@ -75,8 +105,13 @@ async def _get_engine(creds: dict[str, Any] | None = None) -> Any:
         # New event loop (tests, restart): engines are bound to the loop they ran on.
         _engines.clear()
         _engine_locks.clear()
+        _last_ok.clear()
         _engine_loop = loop
-    key = "v12" if not creds or creds.get("version") != "v3" else _v3_fingerprint(creds)
+    key = _engine_key(creds)
+    if host is not None and key != "v12":
+        seen = _last_ok.get(key, {}).get(host)
+        if seen is not None and _now() - seen > V3_RESYNC_IDLE_S:
+            _retire_engine(key, loop)
     engine = _engines.pop(key, None)
     if engine is None:
         lock = _engine_locks.setdefault(key, asyncio.Lock())
@@ -92,6 +127,7 @@ async def _get_engine(creds: dict[str, Any] | None = None) -> Any:
                     if oldest is not None:
                         _close_engine(_engines.pop(oldest))
                         _engine_locks.pop(oldest, None)
+                        _last_ok.pop(oldest, None)
     _engines[key] = engine  # re-insert: most recently used last
     return engine
 
@@ -197,7 +233,7 @@ async def snmp_get(host: str, creds: dict[str, Any], oids: list[str]) -> dict[st
     """GET several OIDs at once. Returns {oid: value_or_None}. noSuchName (v1) -> SnmpError."""
     from pysnmp.hlapi.v3arch import asyncio as h
 
-    engine = await _get_engine(creds)
+    engine = await _get_engine(creds, host)
     target = await _target(host, creds)
     try:
         err_ind, err_status, err_index, var_binds = await h.get_cmd(
@@ -213,6 +249,7 @@ async def snmp_get(host: str, creds: dict[str, Any], oids: list[str]) -> dict[st
     except Exception as exc:  # noqa: BLE001
         raise SnmpError(str(exc) or type(exc).__name__) from exc
     _check(err_ind, err_status, err_index, var_binds)
+    mark_answered(creds, host)
     out: dict[str, Any] = {}
     for oid, val in var_binds:
         out[str(oid)] = convert(val)
@@ -227,7 +264,7 @@ async def snmp_walk(
     """Walk a subtree. Returns [(oid, value)]."""
     from pysnmp.hlapi.v3arch import asyncio as h
 
-    engine = await _get_engine(creds)
+    engine = await _get_engine(creds, host)
     target = await _target(host, creds)
     auth = _auth_data(creds)
     obj = h.ObjectType(h.ObjectIdentity(base_oid))
@@ -258,6 +295,7 @@ async def snmp_walk(
                 if err_status.prettyPrint() == "noSuchName":
                     break
                 raise SnmpError(f"SNMP error: {err_status.prettyPrint()}")
+            mark_answered(creds, host)
             for oid, val in var_binds:
                 soid = str(oid)
                 if not soid.startswith(prefix):
@@ -292,15 +330,24 @@ def as_text(v: Any) -> str:
 def resolve_credentials(
     device_creds: dict[str, Any] | None,
     group_chain: list[tuple[int, dict[str, Any] | None]],
+    device_id: int | None = None,
 ) -> tuple[dict[str, Any], str, int | None]:
-    """group_chain: [(group_id, creds)] from the device's group up to the root.
+    """group_chain: [(group_id, creds)] from the device's group up to the root. The stored
+    objects may be encrypted ([1.4.2] netmon.services.secretbox: `device_id` is part of the
+    device credentials' AAD); the result is always plaintext.
 
     Returns (credentials, source, group_id)."""
+    from netmon.services import secretbox
+
     if device_creds is not None:
-        return {**DEFAULT_SNMP, **device_creds}, "device", None
+        return (
+            {**DEFAULT_SNMP, **secretbox.open_snmp(device_creds, "device", device_id)},
+            "device",
+            None,
+        )
     for gid, creds in group_chain:
         if creds is not None:
-            return {**DEFAULT_SNMP, **creds}, "group", gid
+            return {**DEFAULT_SNMP, **secretbox.open_snmp(creds, "group", gid)}, "group", gid
     return dict(DEFAULT_SNMP), "default", None
 
 
@@ -317,7 +364,7 @@ async def snmp_get_typed(
     `NoSuchObject` / `NoSuchInstance` / `EndOfMibView`, or `noSuchName` (SNMP v1)."""
     from pysnmp.hlapi.v3arch import asyncio as h
 
-    engine = await _get_engine(creds)
+    engine = await _get_engine(creds, host)
     target = await _target(host, creds)
     try:
         err_ind, err_status, err_index, var_binds = await h.get_cmd(
@@ -332,6 +379,7 @@ async def snmp_get_typed(
         raise SnmpError(str(exc) or type(exc).__name__) from exc
     if err_ind:
         raise SnmpError(str(err_ind))
+    mark_answered(creds, host)
     if err_status and int(err_status) != 0:
         if err_status.prettyPrint() == "noSuchName":
             return {o: (None, "noSuchName") for o in oids}
@@ -351,7 +399,7 @@ async def snmp_getnext(
     order. v1 noSuchName (end of MIB) yields an empty list."""
     from pysnmp.hlapi.v3arch import asyncio as h
 
-    engine = await _get_engine(creds)
+    engine = await _get_engine(creds, host)
     target = await _target(host, creds)
     try:
         err_ind, err_status, _err_index, var_binds = await h.next_cmd(
@@ -367,6 +415,7 @@ async def snmp_getnext(
         raise SnmpError(str(exc) or type(exc).__name__) from exc
     if err_ind:
         raise SnmpError(str(err_ind))
+    mark_answered(creds, host)
     if err_status and int(err_status) != 0:
         if err_status.prettyPrint() == "noSuchName":
             return []

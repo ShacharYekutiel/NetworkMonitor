@@ -533,7 +533,7 @@ async def test_migration_0006_up_down_up(mode: str, rt: Runtime) -> None:
         await timescale.bootstrap_ingest(engine, enabled, 30, 30)
         conn = await asyncpg.connect(_plain(url))
         try:
-            assert await conn.fetchval("SELECT version_num FROM alembic_version") == "0011"
+            assert await conn.fetchval("SELECT version_num FROM alembic_version") == "0012"
             assert await conn.fetchval("SELECT count(*) FROM event_rules WHERE NOT enabled") == 7
             if mode == "timescale":
                 ht = await conn.fetchval(
@@ -629,7 +629,7 @@ async def test_migration_0006_up_down_up(mode: str, rt: Runtime) -> None:
         await run_migrations(engine)
         conn = await asyncpg.connect(_plain(url))
         try:
-            assert await conn.fetchval("SELECT version_num FROM alembic_version") == "0011"
+            assert await conn.fetchval("SELECT version_num FROM alembic_version") == "0012"
             assert await conn.fetchval("SELECT count(*) FROM event_rules") == 7
         finally:
             await conn.close()

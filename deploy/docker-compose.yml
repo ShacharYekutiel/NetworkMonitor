@@ -18,12 +18,29 @@
 
 name: netmon
 
+# [1.4.2] Container hardening (docs/production.md "[1.4.2] Container hardening"): no Linux
+# capability beyond what a service needs, no privilege gain (no-new-privileges), read-only
+# root filesystem (writable: volumes + a small /tmp), resource limits. To relax an item for a
+# special setup, put the change in a compose override file (docker-compose.override.yml)
+# instead of editing this one.
+x-hardening: &hardening
+  cap_drop: [ALL]
+  security_opt: ["no-new-privileges:true"]
+  read_only: true
+
 services:
   # One-shot: create the shared data volume layout and a random DB password if absent.
   init:
     image: ${NETMON_INIT_IMAGE:-busybox:1.37}
     restart: "no"
     network_mode: none
+    <<: *hardening
+    # root, but only to create / chown the shared files: no other capability
+    cap_add: [CHOWN, DAC_OVERRIDE, FOWNER]
+    tmpfs:
+      - /tmp:size=16m,mode=1777  # ops/restore.sh keeps db_password there while extracting
+    mem_limit: 64m
+    pids_limit: 64
     volumes:
       - netmon-data:/data
     environment:
@@ -52,6 +69,15 @@ services:
   db:
     image: ${NETMON_DB_IMAGE:-timescale/timescaledb:2.31.0-pg16}
     restart: unless-stopped
+    # [1.4.2] runs directly as the image's postgres user (alpine images: 70:70, the owner of
+    # the data directory): no capability needed. A Debian-based PostgreSQL image uses
+    # 999 - set NETMON_DB_UID / NETMON_DB_GID in deploy/.env.
+    user: "${NETMON_DB_UID:-70}:${NETMON_DB_GID:-70}"
+    <<: *hardening
+    tmpfs:
+      - /tmp:size=64m,mode=1777
+      - /var/run/postgresql:size=8m,uid=${NETMON_DB_UID:-70},gid=${NETMON_DB_GID:-70},mode=0775
+    pids_limit: 1024
     depends_on:
       init:
         condition: service_completed_successfully
@@ -83,6 +109,13 @@ services:
         PYTHON_IMAGE: ${NETMON_PYTHON_IMAGE:-python:3.12-slim}
     image: ${NETMON_IMAGE:-networkmonitor:local}
     restart: unless-stopped
+    # [1.4.2] non-root (uid 10001) with NO capability: unprivileged ICMP sockets (sysctl
+    # below), receivers on ports > 1024 inside the container; writes to /data and /tmp only.
+    <<: *hardening
+    tmpfs:
+      - /tmp:size=64m,mode=1777
+    mem_limit: ${NETMON_MEM_LIMIT:-4g}
+    pids_limit: 2048
     depends_on:
       init:
         condition: service_completed_successfully

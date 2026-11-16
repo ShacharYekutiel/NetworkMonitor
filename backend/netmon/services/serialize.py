@@ -52,24 +52,36 @@ def user_out(u: Any) -> dict[str, Any]:
     }
 
 
-def snmp_out(creds: dict[str, Any] | None) -> dict[str, Any] | None:
+def snmp_out(
+    creds: dict[str, Any] | None, kind: str | None = None, row_id: int | None = None
+) -> dict[str, Any] | None:
+    """API `SnmpCredentials` (secrets never returned). [1.4.2] Works on the stored form (a
+    secret may be `<name>_enc`); `credentials_unreadable` when an encrypted secret cannot be
+    decrypted with the current secret.key."""
     if creds is None:
         return None
+    from netmon.services import secretbox
+
+    def is_set(name: str) -> bool:
+        return bool(creds.get(name) or creds.get(name + secretbox.ENC))
+
+    unreadable = bool(kind) and secretbox.snmp_unreadable(creds, kind or "", row_id)
     return {
         "version": creds.get("version", "v2c"),
         "port": creds.get("port", 161),
         "timeout_s": creds.get("timeout_s", 2),
         "retries": creds.get("retries", 1),
         "community": None,
-        "community_set": bool(creds.get("community")),
+        "community_set": is_set("community") and not unreadable,
         "v3_username": creds.get("v3_username"),
         "v3_security_level": creds.get("v3_security_level"),
         "v3_auth_protocol": creds.get("v3_auth_protocol"),
         "v3_auth_key": None,
-        "v3_auth_key_set": bool(creds.get("v3_auth_key")),
+        "v3_auth_key_set": is_set("v3_auth_key") and not unreadable,
         "v3_priv_protocol": creds.get("v3_priv_protocol"),
         "v3_priv_key": None,
-        "v3_priv_key_set": bool(creds.get("v3_priv_key")),
+        "v3_priv_key_set": is_set("v3_priv_key") and not unreadable,
+        "credentials_unreadable": unreadable,  # [1.4.2]
     }
 
 
@@ -81,7 +93,7 @@ def group_out(g: Any, inv: Inventory | None) -> dict[str, Any]:
         "parent_id": g.parent_id,
         "name": g.name,
         "description": g.description,
-        "snmp_credentials": snmp_out(g.snmp_credentials),
+        "snmp_credentials": snmp_out(g.snmp_credentials, "group", g.id),
         "ssh_credentials": _ssh_out(getattr(g, "ssh_credentials", None)),  # [3]
         "sort_order": g.sort_order,
         "status": inv.group_status.get(g.id, "unknown") if inv else "unknown",
@@ -106,7 +118,7 @@ def device_out(d: Any, inv: Inventory, maint: Any = None) -> dict[str, Any]:
         "host": d.host,
         "description": d.description,
         "enabled": d.enabled,
-        "snmp_credentials": snmp_out(d.snmp_credentials),
+        "snmp_credentials": snmp_out(d.snmp_credentials, "device", d.id),
         "effective_snmp_source": source,
         "effective_snmp_group_id": gid,
         "sort_order": d.sort_order,
@@ -299,12 +311,14 @@ def public_channel_config(type_: str, config: dict[str, Any]) -> dict[str, Any]:
 
 
 def notification_channel_out(c: Any) -> dict[str, Any]:
+    from netmon.services import secretbox
+
     return {
         "id": c.id,
         "name": c.name,
         "type": c.type,
         "enabled": c.enabled,
-        "config": public_channel_config(c.type, c.config),
+        "config": public_channel_config(c.type, secretbox.open_channel(c.type, c.id, c.config)),
         "created_at": iso(c.created_at),
         "updated_at": iso(c.updated_at),
     }

@@ -37,14 +37,46 @@ def newer_database_revision(sync_conn, cfg: Config) -> str | None:  # type: igno
     return None if known is not None else current
 
 
-async def run_migrations(engine: AsyncEngine) -> None:
+def current_revision(sync_conn) -> str | None:  # type: ignore[no-untyped-def]
+    return MigrationContext.configure(sync_conn).get_current_revision()
+
+
+async def db_revision(engine: AsyncEngine) -> str | None:
+    async with engine.connect() as conn:
+        return await conn.run_sync(current_revision)
+
+
+async def run_migrations(
+    engine: AsyncEngine, *, secret_key: str | None = None, target: str | None = None
+) -> None:
     """Upgrade to this version's head. A database that is ahead of this version is left as it
     is (with a warning) instead of failing with "Can't locate revision": migrations are
     forward-only and additive, so the previous release keeps running on the newer schema after
-    a rollback (ops/sync.sh never restores the database automatically)."""
+    a rollback (ops/sync.sh never restores the database automatically).
+
+    [1.4.2] `secret_key` is handed to data migrations that encrypt / decrypt stored secrets
+    (0012). `target` (`netmon migrate --to REV`) upgrades or downgrades to that revision."""
     cfg = _alembic_config()
 
     def _upgrade(sync_conn) -> None:  # type: ignore[no-untyped-def]
+        cfg.attributes["connection"] = sync_conn
+        cfg.attributes["secret_key"] = secret_key
+        if target is not None:
+            script = ScriptDirectory.from_config(cfg)
+            current = current_revision(sync_conn)
+            goal = script.get_revision(target)
+            if goal is None:
+                raise CommandError(f"unknown revision {target!r}")
+            ancestors = (
+                {r.revision for r in script.iterate_revisions(current, "base")}
+                if current
+                else set()
+            )
+            if current and goal.revision in ancestors and goal.revision != current:
+                command.downgrade(cfg, goal.revision)
+            else:
+                command.upgrade(cfg, goal.revision)
+            return
         ahead = newer_database_revision(sync_conn, cfg)
         if ahead is not None:
             head = ScriptDirectory.from_config(cfg).get_current_head()
@@ -56,7 +88,6 @@ async def run_migrations(engine: AsyncEngine) -> None:
                 head,
             )
             return
-        cfg.attributes["connection"] = sync_conn
         command.upgrade(cfg, "head")
 
     async with engine.connect() as conn:

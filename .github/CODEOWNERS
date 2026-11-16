@@ -1,0 +1,10 @@
+# [1.4.2] Code owners: changes to what the production server deploys and runs as root
+# (deploy/production, the GitOps scripts), to the CI/CD workflows and to the CA folder that
+# is baked into the image need the owner's review. Effective once branch protection
+# requires code-owner reviews (docs/production.md "[1.4.2] Branch protection").
+/deploy/production/            @ShacharYekutiel
+/deploy/production/ops/        @ShacharYekutiel
+/.github/workflows/            @ShacharYekutiel
+/.github/CODEOWNERS            @ShacharYekutiel
+/deploy/certs/                 @ShacharYekutiel
+/Dockerfile                    @ShacharYekutiel

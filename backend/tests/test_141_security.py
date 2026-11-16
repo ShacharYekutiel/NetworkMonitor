@@ -463,7 +463,7 @@ async def test_migration_0011_up_down_up(mode: str, rt: Any) -> None:
         await timescale.bootstrap_status(engine, 90, disabled=mode == "fallback")
         c = await asyncpg.connect(url)
         try:
-            assert await c.fetchval("SELECT version_num FROM alembic_version") == "0011"
+            assert await c.fetchval("SELECT version_num FROM alembic_version") == "0012"
             assert await columns(c) == {
                 "sid": "character varying NO",
                 "user_id": "integer YES",
@@ -496,7 +496,7 @@ async def test_migration_0011_up_down_up(mode: str, rt: Any) -> None:
         await run_migrations(engine)  # and up again
         c = await asyncpg.connect(url)
         try:
-            assert await c.fetchval("SELECT version_num FROM alembic_version") == "0011"
+            assert await c.fetchval("SELECT version_num FROM alembic_version") == "0012"
             assert "sid" in await columns(c)
         finally:
             await c.close()

@@ -544,7 +544,9 @@ class DigestService:
                     ch = chans.get(int(t.split(":", 1)[1]))
                     if ch is None or not ch.enabled:
                         raise RuntimeError("The notification channel is missing or disabled")
-                    cfg = dict(common.jsonb(ch.config) or {})
+                    from netmon.services import secretbox
+
+                    cfg = secretbox.open_channel(ch.type, ch.id, common.jsonb(ch.config))
                     if ch.type == "email":
                         await send_email(smtp, list(cfg.get("to") or []), subject, plain, html_doc)
                     elif ch.type == "teams":

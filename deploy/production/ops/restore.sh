@@ -42,6 +42,12 @@ require_root
 [[ -z $DATA || -s $DATA ]] || die "$DATA not found or empty"
 if [[ -n $DATA ]]; then
   tar -tzf "$DATA" >/dev/null 2>&1 || die "$DATA is not a .tar.gz"
+  # [1.4.2] Only plain relative members below /data: no absolute path, no "..", no links
+  # (backup.sh never writes those; a crafted archive could otherwise write outside /data).
+  bad="$(tar -tzf "$DATA" | grep -E '(^/|(^|/)\.\.(/|$))' | head -n1 || true)"
+  [[ -z $bad ]] || die "$DATA has an unsafe member path: $bad"
+  bad="$(tar -tvzf "$DATA" | grep -E '^[lh]' | head -n1 || true)"
+  [[ -z $bad ]] || die "$DATA contains a link, refused: $bad"
 fi
 
 meta="${DUMP%.dump}"
