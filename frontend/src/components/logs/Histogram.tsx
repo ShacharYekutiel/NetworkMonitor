@@ -3,6 +3,7 @@ import * as echarts from 'echarts/core';
 import { BarChart } from 'echarts/charts';
 import { GridComponent, TooltipComponent } from 'echarts/components';
 import { CanvasRenderer } from 'echarts/renderers';
+import { initChart } from '../../lib/echarts';
 import { useTranslation } from 'react-i18next';
 import { useTheme } from '../../hooks/theme';
 import { histogramTooltipHtml } from '../../lib/html';
@@ -34,7 +35,7 @@ export function Histogram({
 
   useEffect(() => {
     if (!ref.current) return;
-    const c = echarts.init(ref.current, undefined, { renderer: 'canvas' });
+    const c = initChart(ref.current);
     chart.current = c;
     const ro = new ResizeObserver(() => c.resize());
     ro.observe(ref.current);
@@ -94,6 +95,9 @@ export function Histogram({
           type: 'time',
           min: Date.parse(from),
           max: Date.parse(to),
+          // ECharts 5 spaced the ticks of a bar series on a time axis like splitNumber 5
+          // (1 h -> 10 min); ECharts 6 treats it like a line series (1 h -> 5 min).
+          splitNumber: 5,
           axisLine: { lineStyle: { color: grid } },
           axisLabel: {
             color: text,

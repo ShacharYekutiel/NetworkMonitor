@@ -1,7 +1,7 @@
 import { useMemo, useState, type MouseEvent } from 'react';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { useTranslation } from 'react-i18next';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate } from 'react-router';
 import { endpoints3b, qk3b } from '../../api/endpoints3b';
 import type { AssistantMessage, AssistantSource, AssistantStep } from '../../api/types';
 import {

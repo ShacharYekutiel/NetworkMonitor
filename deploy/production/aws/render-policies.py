@@ -3,7 +3,7 @@
 
     python3 render-policies.py --account 111122223333 --region us-east-1 \\
         --profile us.anthropic.<model> [--light-profile us.anthropic.<light-model>] \\
-        [--ra-region us-east-1 --trust-anchor-id <uuid | ARN>] [--cert-cn netmonitor.mnidom.net] \\
+        [--ra-region us-east-1 --trust-anchor-id <uuid | ARN>] [--cert-cn netmonitor.example.net] \\
         [--kb-id ABCDEFGHIJ] [--role-name netmon-bedrock] [--out ./out]
 
 Writes one filled JSON file per template into --out (default ./out). The underlying
@@ -120,7 +120,7 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--light-profile", help="optional cheaper model's inference profile id")
     ap.add_argument("--ra-region", help="IAM Roles Anywhere region (default: --region)")
     ap.add_argument("--trust-anchor-id", help="Roles Anywhere trust anchor: the id (uuid) or the full ARN")
-    ap.add_argument("--cert-cn", default="netmonitor.mnidom.net", help="subject CN of the issued certificate (must match it exactly)")
+    ap.add_argument("--cert-cn", default="netmonitor.example.net", help="subject CN of the issued certificate (must match it exactly)")
     ap.add_argument("--kb-id", help="Bedrock Knowledge Base id (only with the Knowledge Base)")
     ap.add_argument("--role-name", default="netmon-bedrock", help="IAM role name (endpoint policy)")
     ap.add_argument("--out", default="out", help="output folder (default ./out)")

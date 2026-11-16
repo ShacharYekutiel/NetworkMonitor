@@ -126,6 +126,7 @@ def main() -> None:
     c = make_certs(a.certs)
     hook = ThreadingHTTPServer((a.host, a.port), Hook)
     ctx = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
+    ctx.minimum_version = ssl.TLSVersion.TLSv1_2
     ctx.load_cert_chain(c.server, c.server_key)
     hook.socket = ctx.wrap_socket(hook.socket, server_side=True)
     ctl = ThreadingHTTPServer(("127.0.0.1", a.control_port), Control)

@@ -1474,7 +1474,7 @@ Feature `ldap`. Active Directory (and Samba AD) only; generic LDAP servers are n
 user login**; the test endpoints work while the feature is OFF so the admin can verify before enabling):
 servers (failover list; empty → DNS SRV `_ldap._tcp.dc._msdcs.<domain>` via dnspython), security `ldaps`
 (default, 636) or `starttls` (389, StartTLS mandatory — never plaintext), `tls_verify` (default true), domain
-(`mnidom.net`), NetBIOS domain (`MNIDOM`), base DN (default derived from the domain), service account bind DN
+(`example.net`), NetBIOS domain (`EXAMPLE`), base DN (default derived from the domain), service account bind DN
 or UPN + password (**AES-GCM encrypted** with the `secret.key`-derived key, write-only in the API), admin group
 DN, viewer group DN, timeout. Shapes: data-model § LDAP settings.
 
@@ -1519,7 +1519,7 @@ API: local user with lower(username), source=local?  ── yes ─► argon2 ve
   ldap3's `Tls(ca_certs_data=…)` replaces the default store, so the backend passes a full PEM bundle from the
   new helper `tlsutil.trust_bundle_pem()` (OS store — Windows `ssl.enum_certificates("ROOT"/"CA")`, else the
   default verify file/dir — + certifi + extras), `validate=CERT_REQUIRED`, hostname checked: `servers` must use
-  the DC names in their certificates (`dc1.mnidom.net`, not an IP). Production already mounts the corporate CA
+  the DC names in their certificates (`dc1.example.net`, not an IP). Production already mounts the corporate CA
   at `/etc/netmon/certs`.
 - **Never blocks local users:** the local path never touches LDAP; LDAP work runs in threads behind a
   semaphore with hard socket timeouts, so a dead DC costs only the LDAP attempt itself (≤ budget) and the event
@@ -1677,7 +1677,7 @@ in the device form (*Additional source addresses*) or use "Assign to device" on 
   unknown-source policy, ignored sources, ingest status card with receiver states, counters, v3 failures, NAT
   warning), *Flapping* (threshold/window/quiet), *SIEM forwarding* (targets table + Test), *Active Directory*
   (form + Test connection result table per server + Test user login steps), *Audit* (retention).
-- **Login page:** when `features.ldap`, hint "Use your MNIDOM account (MNIDOM\\user or user@mnidom.net)".
+- **Login page:** when `features.ldap`, hint "Use your EXAMPLE account (EXAMPLE\\user or user@example.net)".
 - **Users page:** source badge (Local / AD), display name; LDAP users have no password/role controls.
   *API tokens* page under the account menu (list, create dialog showing the token once with copy button, revoke);
   admins see all tokens on the Users page.
@@ -1713,12 +1713,12 @@ Search (base/one/sub; filters and/or/not/equality/present/substrings and **exten
 `1.2.840.113556.1.4.1941`** on `memberOf`/`member` with transitive closure; attribute selection incl. `1.1`;
 sizeLimit), StartTLS extended op, LDAPS listener, Unbind/Abandon; AD-style bind errors
 (`80090308: LdapErr: DSID-0C09044E, comment: AcceptSecurityContext error, data 52e, v4563`); modes `--hang`
-(accept, never answer) and per-run fixture `--data mnidom.yaml`. `make_certs.py` (cryptography) creates a test
+(accept, never answer) and per-run fixture `--data example.yaml`. `make_certs.py` (cryptography) creates a test
 CA, a server cert for `localhost`/`127.0.0.1`/`dc1.test` and a wrong-name cert; the backend trusts the CA via
 `NETMON_EXTRA_CA_FILE`. Fixture users (password `Passw0rd!` unless stated): `svc-netmon` (service), `jdoe` ∈
 `NetMon-Viewers` → viewer; `asmith` ∈ `IT-Team` ∈ `NetMon-Admins` (nested) → admin; `nogroup` → denied
 `not_in_group`; `olduser` UAC 514 → `account_disabled`; `lockeduser` computed 0x10, bind `data 775` →
-`account_locked`; `expired` computed 0x800000 → `password_expired`; `jdoe` UPN `John.Doe@mnidom.net`
+`account_locked`; `expired` computed 0x800000 → `password_expired`; `jdoe` UPN `John.Doe@example.net`
 (case-insensitive). Backend pytest starts it in-process on free ports; `run.sh` starts it for E2E. An optional
 manual workflow against a Samba AD DC container may be added; it is not required.
 
@@ -1781,7 +1781,7 @@ ingestion continues).
   webhook gets one message; quiet period (test clock) → recovery.
 - `44-lag.spec.ts` — .86/.87 faceplate bars + legend, list chips, modal "Member of Trk1", toggle OFF hides.
 - `45-ad-login.spec.ts` — configure AD (fake), Test connection table, Test user steps, login `jdoe`,
-  `MNIDOM\jdoe`, `John.Doe@mnidom.net` → viewer; `asmith` → admin; denied users show the generic error; local
+  `EXAMPLE\jdoe`, `John.Doe@example.net` → viewer; `asmith` → admin; denied users show the generic error; local
   admin works with the fake AD stopped and with `--hang`; LDAP user profile has no password change.
 - `46-audit.spec.ts` — actions produce entries (device create/update/delete, settings with secret redacted,
   ack, login failure), filters, CSV download content.
@@ -1824,7 +1824,7 @@ ingestion continues).
 - AD: create a read-only service account (e.g. `svc-netmon`, password never expires, no special rights) and two
   groups (e.g. `NetMon-Admins`, `NetMon-Viewers`; nested groups work; do **not** use *Domain Users* — the primary
   group is not visible to the nested-membership query). Check LDAPS on a DC: `openssl s_client -connect
-  dc1.mnidom.net:636 -showcerts` (certificate from Mnidom-PKI-SERV-CA). Keep the local admin account as
+  dc1.example.net:636 -showcerts` (certificate from Example-PKI-SERV-CA). Keep the local admin account as
   break-glass.
 - Please verify and report: Comware/ArubaOS syslog lines appear with correct program/severity (send 3 sample
   lines from *Logs*: copy as text); linkDown/linkUp traps carry ifIndex; a v3 trap from the FF 5945 arrives
@@ -2235,7 +2235,7 @@ Feature `new_device_alerts`. Input: the 2b-2 FDB data written by the port-invent
   6. MAC or its prefix in the **allow-list** (`mac_allowlist`: a full MAC, or a 24/28/36-bit prefix, with a
      comment) → `allowed`, no alert;
   7. otherwise → `new`: event **`new_device`** (`device_id` = the switch, message `New device 00:11:22:33:44:55
-     (Hewlett Packard) on sw-floor2 port 1/0/17, VLAN 20, 10.0.20.57 pc-1234.mnidom.net`) and a condition
+     (Hewlett Packard) on sw-floor2 port 1/0/17, VLAN 20, 10.0.20.57 pc-1234.example.net`) and a condition
      (source `new_mac`, key = MAC, status **warning**) on the switch's passive **`new_mac`** event sensor ("New
      devices", auto-created for in-scope switches while ON — when the feature is turned on, at start-up, on a
      scope or device/group change and at each FDB run, like the `config_backup` sensor; a sensor the user
@@ -2268,11 +2268,11 @@ Caddy → app are fine.
 ```
 browser (domain PC; site trusted for Negotiate)                    app (behind Caddy)
  SPA /login ─ GET /api/auth/sso/kerberos ─────────────────────────► no Authorization ─► 401 WWW-Authenticate: Negotiate
- browser gets a service ticket for HTTP/netmonitor.mnidom.net from the DC
+ browser gets a service ticket for HTTP/netmonitor.example.net from the DC
  GET /api/auth/sso/kerberos  Authorization: Negotiate <SPNEGO(AP-REQ)> ─► gssapi accept in a thread (keytab; no KDC traffic)
                                                                       ├─ NTLM token ─► 401 sso_ntlm (no new challenge)
                                                                       ├─ bad / expired / replay / clock skew ─► 401 sso_failed
-                                                                      └─ principal jdoe@MNIDOM.NET
+                                                                      └─ principal jdoe@EXAMPLE.NET
                                  realm in kerberos.realms? ─ no ─► 401 sso_failed (audit reason sso_realm)
                                  AD lookup by sAMAccountName with the 2b-3 service account (2b-3 path minus the user bind):
                                  account disabled / locked / expired ─► 401; groups ─► role, or not_in_group ─► 401
@@ -2310,7 +2310,7 @@ browser (domain PC; site trusted for Negotiate)                    app (behind C
 #### 13.5.2 OpenID Connect with Microsoft Entra ID (`sso_oidc`)
 - **Flow:** authorization code + **PKCE (S256)**, confidential client (client secret, AES-GCM encrypted at
   rest; certificate credentials are "Later"), scopes `openid profile email`, `response_mode=query`. The redirect
-  URI `https://netmonitor.mnidom.net/api/auth/oidc/callback` is reached by the **browser**, so the server needs
+  URI `https://netmonitor.example.net/api/auth/oidc/callback` is reached by the **browser**, so the server needs
   no inbound internet; it needs **outbound** HTTPS to `login.microsoftonline.com` (discovery, JWKS, token)
   through the corporate proxy (`HTTPS_PROXY` in `app.env`, httpx `trust_env=True`, corporate CA via `tlsutil`).
 - `GET /api/auth/oidc/start?next=/path` → 302 to the authorize endpoint; `state` (32 random bytes), `nonce`, the
@@ -2403,7 +2403,7 @@ Feature `noc`.
   group (optional), widgets (ordered subset of `summary`, `down_devices`, `problems`, `recent_alerts`, `map`,
   `group_tiles`), language, `show_addresses` (default false), `refresh_s` (10–300, default 30), enabled,
   `last_seen_at/ip`.
-- **URL:** `https://netmonitor.mnidom.net/noc#<token>` — the token is in the **fragment**, so it never reaches the
+- **URL:** `https://netmonitor.example.net/noc#<token>` — the token is in the **fragment**, so it never reaches the
   server, Caddy or proxy logs, or a `Referer`. The SPA's `/noc` route skips the login boot sequence, reads the
   fragment, keeps the token in sessionStorage, removes it from the address bar (`history.replaceState`) and sends
   it as the header `X-Netmon-Kiosk: <token>`.
@@ -2508,7 +2508,7 @@ An invalid or expired token → "This link has expired"; already acknowledged �
   three ports). `deploy/docker-compose.yml` publishes the same, overridable by `NETMON_NETFLOW_HOST_PORT`,
   `NETMON_IPFIX_HOST_PORT`, `NETMON_SFLOW_HOST_PORT`.
 - **Outbound proxy:** `/etc/netmon-gitops/app.env` (host file, not in git) gets `HTTPS_PROXY=http://<proxy>:<port>`
-  and `NO_PROXY=localhost,127.0.0.1,db,.mnidom.net` plus the IPs/names of internal webhook targets. httpx calls
+  and `NO_PROXY=localhost,127.0.0.1,db,.example.net` plus the IPs/names of internal webhook targets. httpx calls
   (Telegram, Teams, OIDC, webhooks) honour them (`trust_env=True`); asyncssh, SNMP, flows and LDAP never use a
   proxy. The README documents that the proxy must allow **long-lived requests (≥ 70 s)** to `api.telegram.org`
   (long polling); setting `telegram_poll_timeout_s` (10–50, default 50) shortens the poll if it does not.
@@ -2539,27 +2539,27 @@ exporter (§ 13.3.2). Reports ≈ 200 KB per run. `known_macs` ≈ 200 B per MAC
 | Cisco IOS | `username netmon-backup privilege 15 secret <pw>` (or privilege 1 + `enable` password in the credentials) | `flow exporter NETMON` · `destination 10.0.0.50` · `transport udp 2055` · `export-protocol netflow-v9` …, `cache timeout active 60` |
 
 #### 13.9.4 Kerberos SSO setup (AD admin, once)
-1. DNS: `netmonitor.mnidom.net` must be an **A record** (Chrome/Edge build the SPN from the canonical name; with a
+1. DNS: `netmonitor.example.net` must be an **A record** (Chrome/Edge build the SPN from the canonical name; with a
    CNAME the SPN of the target name would be requested).
 2. Create a service account, e.g. `svc-netmon-http` (password never expires; *This account supports Kerberos AES
    256 bit encryption* checked; no other rights).
-3. SPN and keytab (on a DC, elevated): `setspn -S HTTP/netmonitor.mnidom.net MNIDOM\svc-netmon-http`, then
-   `ktpass /princ HTTP/netmonitor.mnidom.net@MNIDOM.NET /mapuser MNIDOM\svc-netmon-http /crypto AES256-SHA1
+3. SPN and keytab (on a DC, elevated): `setspn -S HTTP/netmonitor.example.net EXAMPLE\svc-netmon-http`, then
+   `ktpass /princ HTTP/netmonitor.example.net@EXAMPLE.NET /mapuser EXAMPLE\svc-netmon-http /crypto AES256-SHA1
    /ptype KRB5_NT_PRINCIPAL /pass <new password> /out netmon-http.keytab` (`ktpass` sets that password on the
    account and maps the UPN to the principal, so the AES salt in the keytab matches AD). Only the FQDN gets an
    SPN: the production Caddyfile is changed so that the short name `https://netmonitor` **redirects** to
-   `https://netmonitor.mnidom.net` (it moves from the app site block to the redirect block; the certificate keeps
+   `https://netmonitor.example.net` (it moves from the app site block to the redirect block; the certificate keeps
    both SANs) — one canonical host for SSO, cookies and the Origin check.
 4. Upload `netmon-http.keytab` in *Settings → Single sign-on → Kerberos*; check that the principal is listed with
    etype 18 (aes256-cts); delete the file afterwards.
-5. Browsers (GPO): add `https://netmonitor.mnidom.net` to the **Local intranet** zone (*Site to Zone Assignment
+5. Browsers (GPO): add `https://netmonitor.example.net` to the **Local intranet** zone (*Site to Zone Assignment
    List*, value 1) — used by Edge and Chrome on Windows — or set the Chrome/Edge policy `AuthServerAllowlist =
-   netmonitor.mnidom.net`. Firefox: `network.negotiate-auth.trusted-uris`.
+   netmonitor.example.net`. Firefox: `network.negotiate-auth.trusted-uris`.
 6. Server time: NTP to the DCs (`timedatectl`; skew > 5 min breaks Kerberos).
 7. `ldap` must be ON and configured (2b-3): SSO users get their role from the same AD groups.
 
 #### 13.9.5 Entra ID setup (only if `sso_oidc` is wanted)
-App registration (single tenant), platform *Web*, redirect URI `https://netmonitor.mnidom.net/api/auth/oidc/callback`,
+App registration (single tenant), platform *Web*, redirect URI `https://netmonitor.example.net/api/auth/oidc/callback`,
 a client secret (note its expiry — the UI shows `client_secret_expires_at` entered by the admin and warns 30 days
 before), app roles `NetMon.Admin` / `NetMon.Viewer` assigned to users/groups in *Enterprise applications*, token
 configuration: optional claims `email`, `preferred_username`. Outbound proxy access to `login.microsoftonline.com`.
@@ -2626,7 +2626,7 @@ egress direction); the scenario's **expected aggregates** are computed by the sa
 `softflowd` replaying a pcap (`softflowd -r test.pcap -n 127.0.0.1:2055 -v 9`) — not required in CI.
 
 **Kerberos** (`tests/sim/kdc/`, Linux only; tests skipped when `krb5kdc` is missing): `setup_kdc.sh` creates an MIT
-KDC realm `MNIDOM.TEST` in a temp dir (apt `krb5-kdc krb5-admin-server krb5-user` in GitHub Actions), principals
+KDC realm `EXAMPLE.TEST` in a temp dir (apt `krb5-kdc krb5-admin-server krb5-user` in GitHub Actions), principals
 `HTTP/localhost`, `HTTP/netmon.test`, users `jdoe`, `asmith`, `nogroup`, `olduser` matching the 2b-3 fake-AD
 fixture, exports the keytab; client tokens via `kinit` + python-gssapi initiator. An NTLM token fixture (captured
 bytes) for refusal tests.
@@ -2744,7 +2744,7 @@ fallback with rows present.
 | Q4 | Config change: event only, or also an alert? Enable the built-in Comware/ArubaOS "config changed" syslog triggers when you turn the feature on? | Event only; offer to enable the trigger rules (one dialog, like 2b-3 built-ins) |
 | Q5 | Flows: which exporters and protocol, sampling rate? | FF 5945 IRF sFlow 1:4096 on uplinks + Check Point NetFlow v9; raw 24 h, minutes 48 h, hourly 30 d, budget 10 000 records/s |
 | Q6 | New devices: learning period, scope (all switches, or exclude the server room / hypervisor ports), ignore randomised MACs? | 7 days, all switches, exclude ports per device as needed, ignore randomised MACs |
-| Q7 | SSO: Kerberos only, or do you have Entra ID and also want "Sign in with Microsoft"? Is `netmonitor.mnidom.net` an A record and can the AD admin create the SPN/keytab (AES)? | Kerberos only (recommended); OIDC stays OFF |
+| Q7 | SSO: Kerberos only, or do you have Entra ID and also want "Sign in with Microsoft"? Is `netmonitor.example.net` an A record and can the AD admin create the SPN/keytab (AES)? | Kerberos only (recommended); OIDC stays OFF |
 | Q8 | Kerberos: sign in automatically on the login page? | Yes |
 | Q9 | Reports: recipients, weekly/monthly timing; availability excludes maintenance and "unreachable" time — agreed? HTML email + printable page instead of PDF acceptable? | Weekly Monday 07:47 + monthly 1st 07:47 to the IT mailbox and Teams channel; exclusions as specified; HTML + print |
 | Q10 | NOC screen: which machine/browser and IP shows it, scope, show IP addresses? | One screen, whole tree, no addresses |
@@ -2925,7 +2925,7 @@ listener → alert-note worker → digest scheduler; the Telegram `/ask` handler
 
 #### 14.2.3 Authentication modes (`assistant.auth_mode`)
 1. **`roles_anywhere`** (recommended for the on-prem server): an X.509 certificate from the internal PKI
-   (Mnidom-PKI-SERV-CA, chained to PKI-ROOT-CA) obtains **temporary credentials** from **IAM Roles Anywhere**:
+   (Example-PKI-SERV-CA, chained to PKI-ROOT-CA) obtains **temporary credentials** from **IAM Roles Anywhere**:
    - `POST https://rolesanywhere.<ra_region>.amazonaws.com/sessions` with JSON `{"durationSeconds",
      "profileArn", "roleArn", "trustAnchorArn"}` signed with the **Roles Anywhere signing process**: SigV4
      canonical request; headers `Content-Type`, `Host`, `X-Amz-Date`, `X-Amz-X509` (base64 DER of the leaf) and,
@@ -2951,16 +2951,16 @@ listener → alert-note worker → digest scheduler; the Telegram `/ask` handler
      day), key/cert mismatch (`422 key_mismatch` on upload), key file readable by others (Linux mode check).
    - Certificate requirements (README): v3, `CA:FALSE`, key usage *Digital Signature*, signature SHA-256 or
      stronger, RSA ≥ 2048 or ECDSA P-256/P-384; EKU *Client Authentication* recommended; subject e.g.
-     `CN=netmonitor-bedrock.mnidom.net` (usable in the role's trust-policy condition).
+     `CN=netmonitor-bedrock.example.net` (usable in the role's trust-policy condition).
    - **Generate CSR (owner decision, like the HTTPS `make-csr` flow):** `POST /api/assistant/cert/csr`
      (`common_name`, `key_type` rsa 2048/3072/4096 | ec P-256/P-384, optional O / OU) generates the key **on the
      server** (stored AES-256-GCM, AAD `b"assistant.ra_csr_key"`, never returned) and a CSR requesting *Digital
      Signature*, *Client Authentication*, `CA:FALSE`; the admin downloads it (`GET /api/assistant/cert/csr`,
-     `netmonitor-bedrock.csr`), has Mnidom-PKI-SERV-CA issue the certificate, and uploads **only the certificate**
+     `netmonitor-bedrock.csr`), has Example-PKI-SERV-CA issue the certificate, and uploads **only the certificate**
      (`POST /api/assistant/cert` without `key`): the pending key is used when it matches (else `422
      key_mismatch`), becomes the Roles Anywhere key and the CSR is cleared. Audited `assistant.csr_create` /
      `assistant.csr_delete`.
-   - Recommended method: Roles Anywhere (trust anchor = Mnidom-PKI-SERV-CA). The static access key stays as the
+   - Recommended method: Roles Anywhere (trust anchor = Example-PKI-SERV-CA). The static access key stays as the
      simple alternative; the default chain is for future AWS hosting.
 2. **`access_key`:** `access_key_id` (shown) + `secret_access_key` (write-only, AES-256-GCM, AAD
    `b"assistant.secret_access_key"`, never returned; `secret_access_key_set`, `secret_access_key_unreadable`).
@@ -3644,15 +3644,15 @@ limited by the `bedrock:InferenceProfileArn` condition; with a single-region mod
 Add a second pair for `model_id_light` when used. No `bedrock:*`, no write actions.
 
 #### 14.9.3 IAM Roles Anywhere setup (AWS admin + PKI admin, once)
-1. **Certificate:** on AD CS (Mnidom-PKI-SERV-CA) issue a certificate for the server from a template with key
+1. **Certificate:** on AD CS (Example-PKI-SERV-CA) issue a certificate for the server from a template with key
    usage *Digital Signature*, EKU *Client Authentication*, RSA 2048/3072 or ECDSA P-256, validity ≤ 1–2 years,
-   subject `CN=netmonitor-bedrock.mnidom.net`. Export as `.pfx` with a password (or PEM cert + key).
+   subject `CN=netmonitor-bedrock.example.net`. Export as `.pfx` with a password (or PEM cert + key).
 2. **Trust anchor** (Roles Anywhere → *Create trust anchor* → *External certificate bundle*): the **issuing CA**
-   certificate Mnidom-PKI-SERV-CA (then no chain upload is needed) — or PKI-ROOT-CA, in which case upload the
+   certificate Example-PKI-SERV-CA (then no chain upload is needed) — or PKI-ROOT-CA, in which case upload the
    issuing CA as the chain in the app (`X-Amz-X509-Chain`).
 3. **Role** `netmon-bedrock` with the policy of § 14.9.2 and a trust policy for principal
    `rolesanywhere.amazonaws.com`, actions `sts:AssumeRole`, `sts:TagSession`, `sts:SetSourceIdentity`, conditions
-   `aws:SourceArn` = the trust anchor ARN and `aws:PrincipalTag/x509Subject/CN` = `netmonitor-bedrock.mnidom.net`.
+   `aws:SourceArn` = the trust anchor ARN and `aws:PrincipalTag/x509Subject/CN` = `netmonitor-bedrock.example.net`.
 4. **Profile** with that role, session duration ≥ the app's `ra_session_seconds` (default 3600).
 5. **Revocation:** Roles Anywhere does not fetch CRLs by itself — import the CA's CRL (`aws rolesanywhere
    import-crl`) and refresh it on the CRL schedule, or rely on short certificate lifetimes; disabling the trust
@@ -3835,7 +3835,7 @@ rendered answer has no `<img>`, no external `href`, forged refs rendered as text
 | Q2 | Monthly budget? | Token caps kept (5 M tokens / month, 50 questions per admin per day); the monthly **USD cost cap** is an admin setting, effective once prices are entered (questions stop at the cap, background work at 80 %). |
 | Q3 | Store the question text in the audit log? | **No.** The audit log stores who, when, the conversation **title**, tools called, tokens / cost. Question text lives only in the conversation (90-day retention). |
 | Q4 | Redact internal IP addresses? | As proposed: off in the app, on for Telegram `/ask`. |
-| Q5 | Roles Anywhere certificate? | Roles Anywhere is the recommended method: certificate uploaded in the UI (encrypted), trust anchor Mnidom-PKI-SERV-CA; plus a **Generate CSR** action (key kept on the server). Static access key = simple alternative; default chain for future AWS hosting. |
+| Q5 | Roles Anywhere certificate? | Roles Anywhere is the recommended method: certificate uploaded in the UI (encrypted), trust anchor Example-PKI-SERV-CA; plus a **Generate CSR** action (key kept on the server). Static access key = simple alternative; default chain for future AWS hosting. |
 | Q6 | Knowledge Base now? | Implemented, OFF by default. |
 
 ## 14. Release 1.3: sensor impact, important ports, interface selection, connected hosts, LAG degraded, IRF

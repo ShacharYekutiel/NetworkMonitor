@@ -281,7 +281,7 @@ export function LdapCard({ settings }: { settings: Settings }) {
                 value={f.domain}
                 onChange={(e) => set({ domain: e.target.value })}
                 dir="ltr"
-                placeholder="mnidom.net"
+                placeholder="example.net"
               />
             </Field>
             <Field label={t('ldap.netbios')} hint={t('ldap.netbiosHint')}>
@@ -289,7 +289,7 @@ export function LdapCard({ settings }: { settings: Settings }) {
                 value={f.netbios_domain}
                 onChange={(e) => set({ netbios_domain: e.target.value })}
                 dir="ltr"
-                placeholder="MNIDOM"
+                placeholder="EXAMPLE"
               />
             </Field>
             <Field label={t('ldap.timeout')} hint={hint('timeout_s')}>
@@ -313,7 +313,7 @@ export function LdapCard({ settings }: { settings: Settings }) {
                 onChange={(e) => set({ servers: e.target.value })}
                 dir="ltr"
                 className="font-mono"
-                placeholder="dc1.mnidom.net&#10;dc2.mnidom.net:636"
+                placeholder="dc1.example.net&#10;dc2.example.net:636"
               />
             </Field>
             <div className="space-y-2">
@@ -341,7 +341,7 @@ export function LdapCard({ settings }: { settings: Settings }) {
                 value={f.base_dn}
                 onChange={(e) => set({ base_dn: e.target.value })}
                 dir="ltr"
-                placeholder="DC=mnidom,DC=net"
+                placeholder="DC=example,DC=net"
               />
             </Field>
             <Field label={t('ldap.bindDn')} hint={t('ldap.bindDnHint')} className="sm:col-span-2">
@@ -350,7 +350,7 @@ export function LdapCard({ settings }: { settings: Settings }) {
                 onChange={(e) => set({ bind_dn: e.target.value })}
                 dir="ltr"
                 autoComplete="off"
-                placeholder="svc-netmon@mnidom.net"
+                placeholder="svc-netmon@example.net"
               />
             </Field>
             <SecretField
@@ -371,7 +371,7 @@ export function LdapCard({ settings }: { settings: Settings }) {
                 value={f.admin_group_dn}
                 onChange={(e) => set({ admin_group_dn: e.target.value })}
                 dir="ltr"
-                placeholder="CN=NetMon-Admins,OU=Groups,DC=mnidom,DC=net"
+                placeholder="CN=NetMon-Admins,OU=Groups,DC=example,DC=net"
               />
             </Field>
             <Field
@@ -383,7 +383,7 @@ export function LdapCard({ settings }: { settings: Settings }) {
                 value={f.viewer_group_dn}
                 onChange={(e) => set({ viewer_group_dn: e.target.value })}
                 dir="ltr"
-                placeholder="CN=NetMon-Viewers,OU=Groups,DC=mnidom,DC=net"
+                placeholder="CN=NetMon-Viewers,OU=Groups,DC=example,DC=net"
               />
             </Field>
           </div>
@@ -432,7 +432,7 @@ export function LdapCard({ settings }: { settings: Settings }) {
                 onChange={(e) => setTestUser(e.target.value)}
                 dir="ltr"
                 autoComplete="off"
-                placeholder="MNIDOM\jdoe"
+                placeholder="EXAMPLE\jdoe"
               />
             </Field>
             <Field label={t('login.password')} className="w-56">

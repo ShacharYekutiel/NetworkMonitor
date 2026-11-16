@@ -107,7 +107,9 @@ async def test_channel_crud_secret_url(
     # legacy connector URL accepted with the flag
     r = await admin.patch(
         f"/api/notification-channels/{ch['id']}",
-        json={"config": {"url": "https://mnidom.webhook.office.com/webhookb2/x/IncomingWebhook/y"}},
+        json={
+            "config": {"url": "https://example.webhook.office.com/webhookb2/x/IncomingWebhook/y"}
+        },
     )
     assert r.json()["config"]["legacy"] is True
     r = await admin.patch(f"/api/notification-channels/{ch['id']}", json={"config": {"url": URL}})

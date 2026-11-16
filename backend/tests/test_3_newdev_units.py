@@ -84,10 +84,10 @@ def test_classify_sightings_and_flood() -> None:
 def test_message() -> None:
     assert d.device_message(
         "00:11:22:33:44:55", "Hewlett Packard", "sw-floor2", "1/0/17", 20, "10.0.20.57",
-        "pc-1234.mnidom.net",
+        "pc-1234.example.net",
     ) == (
         "New device 00:11:22:33:44:55 (Hewlett Packard) on sw-floor2 port 1/0/17, VLAN 20, "
-        "10.0.20.57 pc-1234.mnidom.net"
+        "10.0.20.57 pc-1234.example.net"
     )  # fmt: skip
     assert d.device_message("00:11:22:33:44:55", None, "sw", None, None, None, None) == (
         "New device 00:11:22:33:44:55 on sw"

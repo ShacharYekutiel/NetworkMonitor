@@ -8,7 +8,7 @@ import { apiAs, loginViaApi, type Api } from '../lib/helpers';
 import { sendSyslog, setFeatures } from '../lib/lab3';
 import {
   PHASE3B, answerProblems, askOk, audit, corpus, ensureAssistant, expectNoQuestionText, expectSafeRendering, lastSeq,
-  mock, modelCalls, shot3b, changes , problem } from '../lib/lab3b';
+  mock, modelCalls, shot3b, changes , problem, waitAnswerDone, waitAssistantIdle } from '../lib/lab3b';
 
 // default mode (not serial): one worker runs the tests in order; a failure restarts the worker (beforeAll is
 // idempotent) instead of skipping the remaining tests, so every contract item gets a verdict
@@ -109,6 +109,10 @@ test('injection: obeying model -> update_device unknown_tool, no write, nothing 
   await page.getByTestId('question').press('Enter');
   const answer = page.getByTestId('answer').last();
   await expect(answer).toContainText('As instructed by the data', { timeout: 90_000 });
+  // the text is visible before the run ends (rest of the stream, audit title, storing): let it finish so the
+  // checks below see the whole call log and the next test is not refused with 409 assistant_busy
+  await waitAnswerDone(page);
+  await waitAssistantIdle(api);
   await shot3b(page, '67-injection');
   await expectSafeRendering(answer);
   await expect(answer.locator('a[href="/devices/999999"]')).toHaveCount(0);

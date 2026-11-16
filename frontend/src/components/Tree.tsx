@@ -1,5 +1,5 @@
 import { useMemo, useState } from 'react';
-import { NavLink } from 'react-router-dom';
+import { NavLink } from 'react-router';
 import { useTranslation } from 'react-i18next';
 import type { TreeDevice, TreeGroup, TreeSensor } from '../api/types';
 import { useTree } from '../hooks/queries';

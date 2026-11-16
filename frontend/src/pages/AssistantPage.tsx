@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState, type FormEvent, type KeyboardEvent } from 'react';
 import { keepPreviousData, useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useTranslation } from 'react-i18next';
-import { Link, useNavigate, useParams } from 'react-router-dom';
+import { Link, useNavigate, useParams } from 'react-router';
 import { endpoints3b, qk3b } from '../api/endpoints3b';
 import type { AssistantConversation, AssistantMessage } from '../api/types';
 import { AnswerBlock, PreStreamErrorBox } from '../components/assistant/AnswerView';

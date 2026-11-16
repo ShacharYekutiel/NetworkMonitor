@@ -5,6 +5,7 @@ import * as echarts from 'echarts/core';
 import { BarChart } from 'echarts/charts';
 import { GridComponent, LegendComponent, TooltipComponent } from 'echarts/components';
 import { CanvasRenderer } from 'echarts/renderers';
+import { initChart } from '../lib/echarts';
 import { endpoints3b, qk3b } from '../api/endpoints3b';
 import { usageTooltipHtml } from '../lib/html';
 import { chartTokens } from '../lib/chartTokens';
@@ -42,7 +43,7 @@ function DailyBars({ r, month }: { r: UsageReport; month: string }) {
   const { t } = useTranslation();
   useEffect(() => {
     if (!ref.current) return;
-    const c = echarts.init(ref.current, undefined, { renderer: 'canvas' });
+    const c = initChart(ref.current);
     chart.current = c;
     const ro = new ResizeObserver(() => c.resize());
     ro.observe(ref.current);

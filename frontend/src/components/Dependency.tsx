@@ -1,6 +1,6 @@
 // [2b-1] Device dependencies: device picker, dependency editor, effective parent, parent banner.
 import { useId, useMemo, useState } from 'react';
-import { Link } from 'react-router-dom';
+import { Link } from 'react-router';
 import { useQuery } from '@tanstack/react-query';
 import { Trans, useTranslation } from 'react-i18next';
 import { endpoints, qk } from '../api/endpoints';

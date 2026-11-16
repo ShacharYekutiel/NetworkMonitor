@@ -64,7 +64,7 @@ def trust_test_ca(ad_certs: Any, monkeypatch: pytest.MonkeyPatch) -> Iterator[No
 @pytest.fixture
 async def fake_ad(ad_certs: Any, trust_test_ca: None) -> AsyncIterator[Any]:
     fa, _ = _sim_modules()
-    ad = fa.FakeAD(fa.load_directory(LDAP_SIM / "mnidom.yaml"), certs=ad_certs)
+    ad = fa.FakeAD(fa.load_directory(LDAP_SIM / "example.yaml"), certs=ad_certs)
     await ad.start()
     yield ad
     await ad.stop()
@@ -76,13 +76,13 @@ def ldap_settings(ad: Any, *, security: str = "ldaps", **kw: Any) -> dict[str, A
         "servers": [f"localhost:{port}"],
         "security": security,
         "tls_verify": True,
-        "domain": "mnidom.net",
-        "netbios_domain": "MNIDOM",
-        "base_dn": "DC=mnidom,DC=net",
-        "bind_dn": "svc-netmon@mnidom.net",
+        "domain": "example.net",
+        "netbios_domain": "EXAMPLE",
+        "base_dn": "DC=example,DC=net",
+        "bind_dn": "svc-netmon@example.net",
         "bind_password": "Passw0rd!",
-        "admin_group_dn": "CN=NetMon-Admins,OU=Groups,DC=mnidom,DC=net",
-        "viewer_group_dn": "CN=NetMon-Viewers,OU=Groups,DC=mnidom,DC=net",
+        "admin_group_dn": "CN=NetMon-Admins,OU=Groups,DC=example,DC=net",
+        "viewer_group_dn": "CN=NetMon-Viewers,OU=Groups,DC=example,DC=net",
         "timeout_s": 2,
     }
     out.update(kw)

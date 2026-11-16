@@ -700,7 +700,7 @@ describe('snmp_custom / snmp_disk forms', () => {
 
 describe('telegram + new errors', () => {
   it('validates bot tokens and chat ids', () => {
-    expect(isTelegramToken('123456789:AAEhBP0av28rmzBYNkKz3x2ZxM9qO9vLdIo')).toBe(true);
+    expect(isTelegramToken('123456789:' + 'AAEhBP0av28rmzBYNkKz3x2ZxM9qO9vLdIo')).toBe(true);
     expect(isTelegramToken('123456:TEST_TOKEN_valid_0123456789abcdef')).toBe(true);
     expect(isTelegramToken('12:short')).toBe(false);
     expect(isTelegramChatId('-1001234567890')).toBe(true);

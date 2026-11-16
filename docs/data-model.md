@@ -2597,7 +2597,7 @@ Input: raw bytes (one datagram or TCP frame), receive time, time zone. Pre-proce
 
 | # | Input | facility / severity | Expected fields |
 |---|---|---|---|
-| S1 | `<165>1 2026-11-08T10:00:00.003Z sw1.mnidom.net evntslog 1234 ID47 [exampleSDID@32473 iut="3"] \xEF\xBB\xBFAn application event` | 20 / 5 | rfc5424, device_time `2026-11-08T10:00:00.003Z`, hostname `sw1.mnidom.net`, program `evntslog`, pid `1234`, msgid `ID47`, sd `[exampleSDID@32473 iut="3"]`, message `An application event` |
+| S1 | `<165>1 2026-11-08T10:00:00.003Z sw1.example.net evntslog 1234 ID47 [exampleSDID@32473 iut="3"] \xEF\xBB\xBFAn application event` | 20 / 5 | rfc5424, device_time `2026-11-08T10:00:00.003Z`, hostname `sw1.example.net`, program `evntslog`, pid `1234`, msgid `ID47`, sd `[exampleSDID@32473 iut="3"]`, message `An application event` |
 | S2 | `<34>1 - - - - - - plain` | 4 / 2 | rfc5424, all empty, device_time null, sd null, message `plain` |
 | S3 | `<34>Oct 11 22:14:15 mymachine su: 'su root' failed for lonvick on /dev/pts/8` | 4 / 2 | rfc3164, hostname `mymachine`, program `su`, message `'su root' failed for lonvick on /dev/pts/8`, device_time 2026-10-11T19:14:15Z (Oct 11 2026 is before the receive date, so the current year; IDT +3) |
 | S4 | `<30>Nov  8 09:05:01 gw-hq sshd[2211]: Accepted password for admin` | 3 / 6 | hostname `gw-hq`, program `sshd`, pid `2211`, device_time `2026-11-08T07:05:01Z` (IST +2) |
@@ -2757,7 +2757,7 @@ transitions until 9, then none → **end** at 24; 0 d, 3 u, 6 d, 9 u, 12 d → n
 
 ## [2b-3] SIEM forwarding target (settings `siem_targets`, list ≤ 4)
 ```json
-{ "id": "a1b2c3", "name": "QRadar", "enabled": true, "host": "siem.mnidom.net", "port": 6514,
+{ "id": "a1b2c3", "name": "QRadar", "enabled": true, "host": "siem.example.net", "port": 6514,
   "protocol": "tls", "tls_verify": true,
   "kinds": ["syslog", "trap"], "min_severity": 7, "sources": [], "include_unknown": false }
 ```
@@ -2812,15 +2812,15 @@ users keep `^[A-Za-z0-9._-]{3,64}$`; LDAP users store lower(sAMAccountName) (1�
 
 ### LDAP settings (key `ldap`)
 ```json
-{ "servers": ["dc1.mnidom.net", "dc2.mnidom.net:636"],   // ≤ 8; host | host:port | [v6]:port; [] = DNS SRV
+{ "servers": ["dc1.example.net", "dc2.example.net:636"],   // ≤ 8; host | host:port | [v6]:port; [] = DNS SRV
   "security": "ldaps",                                    // "ldaps" (default port 636) | "starttls" (389)
   "tls_verify": true,
-  "domain": "mnidom.net", "netbios_domain": "MNIDOM",
-  "base_dn": "DC=mnidom,DC=net",                          // "" → derived from domain
-  "bind_dn": "svc-netmon@mnidom.net",                     // DN or UPN
+  "domain": "example.net", "netbios_domain": "EXAMPLE",
+  "base_dn": "DC=example,DC=net",                          // "" → derived from domain
+  "bind_dn": "svc-netmon@example.net",                     // DN or UPN
   "bind_password_enc": "v1:…",                            // stored only; API exposes bind_password (write-only)
-  "admin_group_dn": "CN=NetMon-Admins,OU=Groups,DC=mnidom,DC=net",
-  "viewer_group_dn": "CN=NetMon-Viewers,OU=Groups,DC=mnidom,DC=net",
+  "admin_group_dn": "CN=NetMon-Admins,OU=Groups,DC=example,DC=net",
+  "viewer_group_dn": "CN=NetMon-Viewers,OU=Groups,DC=example,DC=net",
   "timeout_s": 5 }                                        // 1–30
 ```
 Default: servers [], security ldaps, tls_verify true, other strings "", timeout 5, no password. Validation when
@@ -2834,8 +2834,8 @@ servers or domain, base DN (given or derivable), at least one group DN. Group DN
 true` in the API, one `system` event, LDAP logins → 503 `directory_unavailable`.
 
 **Pure helpers** (`netmon.auth.ldap_pure`) with vectors: `parse_login("jdoe")` → sam `jdoe`;
-`("MNIDOM\\jdoe")` → sam `jdoe`; `("mnidom\\jdoe")` → sam (case-insensitive); `("OTHER\\jdoe")` → not a
-directory name; `("John.Doe@MNIDOM.NET")` → upn `John.Doe@MNIDOM.NET`, fallback sam `John.Doe`;
+`("EXAMPLE\\jdoe")` → sam `jdoe`; `("example\\jdoe")` → sam (case-insensitive); `("OTHER\\jdoe")` → not a
+directory name; `("John.Doe@EXAMPLE.NET")` → upn `John.Doe@EXAMPLE.NET`, fallback sam `John.Doe`;
 `("x@other.com")` → upn only; `escape("a*)(uid=*")` → `a\2a\29\28uid=\2a`; `escape("CN=A\\,B")` →
 `CN=A\5c,B`; UAC 512 → ok, 514 → disabled, computed 0x10 → locked, 0x800000 → password_expired;
 `accountExpires` 0 and 9223372036854775807 → never; AD message `…data 775,…` → `account_locked`.
@@ -3357,7 +3357,7 @@ widened to `varchar(64)` already). Sessions: JWT claim `am` (`password` | `kerbe
 
 ### Kerberos settings (key `kerberos`)
 ```json
-{ "realms": ["MNIDOM.NET"],            // accepted client realms (upper-case), 1–8
+{ "realms": ["EXAMPLE.NET"],            // accepted client realms (upper-case), 1–8
   "auto_login": true,
   "keytab_enc": "v1:…",                // stored only; AAD b"kerberos.keytab"; API: keytab_set, keytab_entries
   "keytab_uploaded_at": "2026-11-08T10:00:00Z" }
@@ -3371,8 +3371,8 @@ entries `int32 size` (negative = deleted, skipped), principal components with re
 `invalid_keytab`; truncated → 422; enctype 23 only → warning `rc4_only`; no `HTTP/` principal → warning
 `no_http_principal`.
 
-**Principal → account** (pure `kerberos_pure.split_principal`): `jdoe@MNIDOM.NET` → (`jdoe`, `MNIDOM.NET`);
-`JDoe@mnidom.net` → realm upper-cased; `HTTP/x@MNIDOM.NET` (service principal) → refused `sso_failed`;
+**Principal → account** (pure `kerberos_pure.split_principal`): `jdoe@EXAMPLE.NET` → (`jdoe`, `EXAMPLE.NET`);
+`JDoe@example.net` → realm upper-cased; `HTTP/x@EXAMPLE.NET` (service principal) → refused `sso_failed`;
 `a@b@C` → refused. sAMAccountName = the name part (AD Kerberos principal names equal sAMAccountName).
 
 **NTLM detection vectors** (`token_mech`): `NTLMSSP\0…` → `ntlm`; SPNEGO NegTokenInit (`0x60 … 1.3.6.1.5.5.2`) with
@@ -3449,7 +3449,7 @@ while `flapping` is ON. Index `(started_at DESC)`, `(device_id, started_at DESC)
 | language | text | NOT NULL |
 | data | jsonb | NOT NULL — `ReportData` (api.md) |
 | html | text | NULL — the rendered email/page HTML (≤ 2 MB) |
-| deliveries | jsonb | NOT NULL DEFAULT '[]' — `[{"target": "email:ops@mnidom.net" \| "channel:4", "ok": true, "error": null, "at": "…"}]` |
+| deliveries | jsonb | NOT NULL DEFAULT '[]' — `[{"target": "email:ops@example.net" \| "channel:4", "ok": true, "error": null, "at": "…"}]` |
 | created_by | varchar(64) | NULL |
 
 Index `(report_id, started_at DESC)`, `(started_at DESC)`. Retention `report_retention_days` (30–3650, 400).

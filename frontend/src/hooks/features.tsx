@@ -1,6 +1,6 @@
 import { useQuery } from '@tanstack/react-query';
 import { useTranslation } from 'react-i18next';
-import { Link } from 'react-router-dom';
+import { Link } from 'react-router';
 import { endpoints, qk } from '../api/endpoints';
 import type { FeatureName, Features, PublicSettings } from '../api/types';
 import { featureTab, normalizeFeatures } from '../lib/features';

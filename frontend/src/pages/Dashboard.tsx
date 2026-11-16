@@ -1,7 +1,7 @@
 import { DashboardIncidents } from '../components/assistant/Incidents';
 import { ExplainButton } from '../components/assistant/ExplainButton';
 import { useState } from 'react';
-import { Link, useNavigate } from 'react-router-dom';
+import { Link, useNavigate } from 'react-router';
 import { useQuery } from '@tanstack/react-query';
 import { useTranslation } from 'react-i18next';
 import { endpoints, qk } from '../api/endpoints';

@@ -15,10 +15,10 @@ The issuer is `<authority>/<tenant>/v2.0` (with --issuer-base https://login.micr
 issuer string is used instead while the endpoints stay local).
 
 Users (login_hint = preferred_username; roles = app roles):
-  dana.admin@mnidom.net   NetMon.Admin            vic.viewer@mnidom.net  NetMon.Viewer
-  both@mnidom.net         NetMon.Admin + Viewer   nora.norole@mnidom.net (no roles -> not_in_group)
-  grace.groups@mnidom.net groups [GROUP_ADMIN]    olga.overage@mnidom.net (_claim_names.groups -> overage)
-  admin@mnidom.net        NetMon.Admin, preferred_username "admin" (clashes with the local admin -> sso_conflict)
+  dana.admin@example.net   NetMon.Admin            vic.viewer@example.net  NetMon.Viewer
+  both@example.net         NetMon.Admin + Viewer   nora.norole@example.net (no roles -> not_in_group)
+  grace.groups@example.net groups [GROUP_ADMIN]    olga.overage@example.net (_claim_names.groups -> overage)
+  admin@example.net        NetMon.Admin, preferred_username "admin" (clashes with the local admin -> sso_conflict)
 
 Modes (POST /_control/mode {"mode": "...", "once": false}; also per request `&mock_mode=` on authorize):
   ok, wrong_iss, wrong_aud, wrong_tid, expired (exp = now-301 s), expired_leeway (exp = now-299 s: still valid),
@@ -54,13 +54,13 @@ GROUP_ADMIN = "0b1c2d3e-4f50-6172-8394-a5b6c7d8e9f0"
 GROUP_VIEWER = "1c2d3e4f-5061-7283-94a5-b6c7d8e9f0a1"
 
 USERS = {
-    "dana.admin@mnidom.net": {"name": "Dana Admin", "roles": ["NetMon.Admin"]},
-    "vic.viewer@mnidom.net": {"name": "Vic Viewer", "roles": ["NetMon.Viewer"]},
-    "both@mnidom.net": {"name": "Both Roles", "roles": ["NetMon.Admin", "NetMon.Viewer"]},
-    "nora.norole@mnidom.net": {"name": "Nora NoRole", "roles": []},
-    "grace.groups@mnidom.net": {"name": "Grace Groups", "roles": [], "groups": [GROUP_ADMIN]},
-    "olga.overage@mnidom.net": {"name": "Olga Overage", "roles": [], "overage": True},
-    "admin@mnidom.net": {"name": "Clashing Admin", "roles": ["NetMon.Admin"], "preferred_username": "admin"},
+    "dana.admin@example.net": {"name": "Dana Admin", "roles": ["NetMon.Admin"]},
+    "vic.viewer@example.net": {"name": "Vic Viewer", "roles": ["NetMon.Viewer"]},
+    "both@example.net": {"name": "Both Roles", "roles": ["NetMon.Admin", "NetMon.Viewer"]},
+    "nora.norole@example.net": {"name": "Nora NoRole", "roles": []},
+    "grace.groups@example.net": {"name": "Grace Groups", "roles": [], "groups": [GROUP_ADMIN]},
+    "olga.overage@example.net": {"name": "Olga Overage", "roles": [], "overage": True},
+    "admin@example.net": {"name": "Clashing Admin", "roles": ["NetMon.Admin"], "preferred_username": "admin"},
 }
 for _u, _v in USERS.items():
     _v["oid"] = str(uuid.uuid5(uuid.NAMESPACE_DNS, _u))

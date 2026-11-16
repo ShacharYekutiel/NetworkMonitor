@@ -1,6 +1,6 @@
 import { useState, type FormEvent } from 'react';
 import { useTranslation } from 'react-i18next';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate } from 'react-router';
 import { endpoints } from '../api/endpoints';
 import { browserTimeZone } from '../lib/maintenance';
 import { isApiError } from '../api/client';
