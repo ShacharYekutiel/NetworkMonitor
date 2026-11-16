@@ -10,6 +10,7 @@
 
 from __future__ import annotations
 
+import re
 import struct
 from dataclasses import dataclass
 from typing import Any
@@ -180,8 +181,18 @@ def split_principal(principal: str) -> tuple[str, str] | None:
     return name, realm.upper()
 
 
+REALM_RE = re.compile(r"^[A-Z0-9][A-Z0-9._-]{0,254}$")
+
+
+def safe_realm(realm: str | None) -> str | None:
+    """[1.4.2] A realm that can be written into krb5.conf as it is (no line breaks, spaces,
+    brackets or braces: a value cannot add configuration lines or sections)."""
+    r = (realm or "").strip().upper()
+    return r if REALM_RE.match(r) else None
+
+
 def default_realms(ldap_domain: str | None) -> list[str]:
-    d = (ldap_domain or "").strip().upper()
+    d = safe_realm(ldap_domain)
     return [d] if d else []
 
 
@@ -307,8 +318,9 @@ def keytab_warnings(entries: list[KeytabEntry]) -> list[str]:
 
 def krb5_conf(default_realm: str | None) -> str:
     lines = ["[libdefaults]"]
-    if default_realm:
-        lines.append(f"    default_realm = {default_realm}")
+    realm = safe_realm(default_realm)
+    if realm:
+        lines.append(f"    default_realm = {realm}")
     lines += [
         "    dns_canonicalize_hostname = false",
         "    rdns = false",

@@ -1092,7 +1092,7 @@ Create examples:
   "channel_ids": [1], "escalation_after_s": 900, "escalation_channel_ids": [4], "repeat_every_s": 3600 }
 ```
 
-Defaults: `null`, `[]`, `null`. Validation in [data-model.md](data-model.md#escalation-and-persistent-alert-state).
+Defaults: `null`, `[]`, `null`. Validation in [data-model.md](data-model.md#2b-1-escalation-and-persistent-alert-state).
 PATCH: `escalation_channel_ids` replaces the set; sending `escalation_after_s: null` also clears
 `escalation_channel_ids`.
 
@@ -2480,7 +2480,20 @@ type RuleDraft = { kind: "alert_rule" | "event_rule";
 // `program` becomes `programs: [...]`, `text_regex` is coerced to a boolean.
 type SnmpWalk = { id: number; device_id: number; status: "running" | "ok" | "partial" | "failed" | "cancelled";
   subtrees: string[]; counts: Record<string, number>; total: number; error: string | null;
+  // [maint-1.4] per-subtree outcome in walk order (standard subtrees first, own time budget each; architecture
+  // § 14.8.7); [] for walks stored before. error_code: why the walk (first unfinished subtree) did not finish;
+  // `error` is the device's / SNMP library's own text (English).
+  outcomes: { subtree: string;             // an OID, or "enterprise" when sysObjectID could not be read
+    status: "ok" | "truncated" | "timeout" | "error" | "skipped"; count: number;
+    error_code: WalkErrorCode | null; error: string | null }[];
+  error_code: WalkErrorCode | null;
   started_at: string; finished_at: string | null; varbinds?: [string, string, string][] };
+type WalkErrorCode = "auth_failed"   // the device rejected the credentials (SNMPv3 wrong digest / unknown user /
+                                     // security level / decryption, authorizationError, noAccess) — stops the walk
+  | "unreachable"                    // no answer at all (down, SNMP off, wrong v1/v2c community) — stops the walk
+                                     // when nothing was collected yet
+  | "timeout"                        // a subtree ran out of its time budget (what it collected is kept)
+  | "snmp_error";                    // any other SNMP error
 type TemplateDraft = { walk_id: number; yaml: string; valid: boolean;
   errors: { path: string; error: string }[]; warnings: string[]; notes: string; repair_rounds: number;
   // [3b owner] as RuleDraft: the model's {cannot_draft, reason} (notes that are not about a device template, nothing
@@ -2692,7 +2705,7 @@ The check message of a code from the table is `<label>: <text> (<mib>, <code>)` 
 
 ### [1.3.1] Device templates
 `snmp_table` entries may carry `label_format` and `rename_from` (only when set;
-[data-model § 1.3.1](data-model.md#131-template-options)).
+[data-model § 1.3.1](data-model.md#131-template-options-snmp_table)).
 
 
 ## [1.4.1] Release 1.4.1 contract (security hardening)
@@ -2765,6 +2778,18 @@ Every response of the application (API, SPA, error envelopes) carries:
 Exceptions with their own policy: `/api/docs` (Swagger UI from its CDN, `frame-ancestors 'none'`),
 `GET /api/reports/runs/{id}/html` (a stored document: `default-src 'none'; style-src 'unsafe-inline'; … sandbox`)
 and the OIDC landing page of `GET /api/auth/oidc/callback` (`default-src 'none'` plus the hash of its one script).
+
+## [1.4.2] Release 1.4.2 contract
+Additive only; secrets stay write-only exactly as before (data-model § [1.4.2] Secrets at rest).
+
+- **`SnmpCredentials`** (groups, devices) gains `credentials_unreadable` (bool): a stored secret is encrypted with a
+  `secret.key` this server does not have; the `*_set` flags are then `false` and the secret must be entered again.
+  Same meaning as `SshCredentials.credentials_unreadable` ([3]).
+- **Audit:** the webhook channel `config.url` is masked like the Teams URL (`"***"` when set), and discovery
+  profile `options.extra_communities` is masked (it was recorded in clear before 1.4.2).
+- **Response header:** `Strict-Transport-Security` is `max-age=31536000` by default, `max-age=31536000;
+  includeSubDomains` with `NETMON_HSTS_INCLUDE_SUBDOMAINS=true` (environment; production: `app.env`).
+- **New-devices search** (`GET /api/new-devices?q=`): `%` and `_` match literally.
 
 ## [4] Phase 4 contract
 

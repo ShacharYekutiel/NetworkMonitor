@@ -9,6 +9,7 @@ from sqlalchemy import text
 
 from netmon.api.common import commit_or_conflict
 from netmon.api.deps import DB, RT, Admin, Audit, Page, Viewer
+from netmon.api.discovery import like_escape
 from netmon.api.errors import ApiError, not_found
 from netmon.ingest.query import parse_time
 from netmon.newdev import detector
@@ -77,14 +78,16 @@ async def list_new_devices(
     if q:
         term = q.strip().lower()
         hexq = detector._hex(term)  # noqa: SLF001
-        params["like"] = f"%{term}%"
+        # [1.4.2] % and _ in the search text match literally
+        params["like"] = f"%{like_escape(term)}%"
+        esc = " ESCAPE '\\'"
         cond = [
-            "lower(COALESCE(k.vendor, '')) LIKE :like",
-            "COALESCE(k.first_ip, '') LIKE :like",
-            "lower(COALESCE(k.first_hostname, '')) LIKE :like",
-            "k.mac IN (SELECT a.mac FROM arp_entries a WHERE a.ip LIKE :like)",
+            "lower(COALESCE(k.vendor, '')) LIKE :like" + esc,
+            "COALESCE(k.first_ip, '') LIKE :like" + esc,
+            "lower(COALESCE(k.first_hostname, '')) LIKE :like" + esc,
+            "k.mac IN (SELECT a.mac FROM arp_entries a WHERE a.ip LIKE :like" + esc + ")",
             "k.mac IN (SELECT a.mac FROM arp_entries a JOIN dns_cache c ON c.ip = a.ip "
-            "WHERE lower(COALESCE(c.name, '')) LIKE :like)",
+            "WHERE lower(COALESCE(c.name, '')) LIKE :like" + esc + ")",
         ]
         if hexq and all(ch in "0123456789abcdef" for ch in hexq):
             params["macp"] = hexq + "%"

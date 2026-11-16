@@ -288,7 +288,7 @@ class TopologyRunner:
             if not r.enabled or r.id not in snmp_devices:
                 continue
             chain = [(g, inv.groups[g]["snmp_credentials"]) for g in inv.ancestors(r.group_id)]
-            creds, _, _ = resolve_credentials(r.snmp_credentials, chain)
+            creds, _, _ = resolve_credentials(r.snmp_credentials, chain, r.id)
             targets.append((r, creds))
         stats["devices_total"] = len(targets)
         sem = asyncio.Semaphore(CONCURRENCY)

@@ -11,7 +11,12 @@ MAX_VARBINDS = 5000
 MAX_PER_SUBTREE = 2000
 MAX_SUBTREES = 8
 MAX_CUSTOM = 8
-WALK_TIMEOUT_S = 60.0
+# [maint-1.4] walk budgets: each subtree has its own budget, so a huge vendor subtree (e.g.
+# hh3c) can no longer starve the standard ones; the walk as a whole stays capped. Standard
+# (mib-2) subtrees are walked first.
+SUBTREE_TIMEOUT_S = 20.0  # a standard subtree (1.3.6.1.2.1.*)
+VENDOR_SUBTREE_TIMEOUT_S = 45.0  # anything else (the enterprise subtree, vendor OIDs)
+WALK_TIMEOUT_S = 90.0  # overall cap
 COMPACT_MAX_BYTES = 32 * 1024
 VALUE_MAX = 64
 STORED_VALUE_MAX = 256
@@ -103,6 +108,80 @@ def resolve_subtrees(
     if len(uniq) > MAX_SUBTREES:
         errors.append({"oid": "", "reason": "too_many_subtrees"})
     return uniq, errors
+
+
+MIB2 = "1.3.6.1.2.1"
+# per-subtree outcome of a walk
+OUTCOMES = ("ok", "truncated", "timeout", "error", "skipped")
+# why a subtree (or the walk) failed: the device rejected the credentials, the device did not
+# answer at all, the walk budget ran out, any other SNMP error
+ERROR_CODES = ("auth_failed", "unreachable", "timeout", "snmp_error")
+_AUTH_MARKERS = (
+    "wrong snmp pdu digest",
+    "wrongdigest",
+    "unknown usm user",
+    "unknownusername",
+    "unknown security name",
+    "unsupported snmp security level",
+    "unsupportedseclevel",
+    "decryption error",
+    "decryptionerror",
+    "authorizationerror",
+    "authentication failure",
+    "noaccess",
+)
+_UNREACHABLE_MARKERS = (
+    "no snmp response received",
+    "request timed out",
+    "requesttimedout",
+    "network is unreachable",
+    "no route to host",
+    "connection refused",
+    "name or service not known",
+    "temporary failure in name resolution",
+    "nodename nor servname",
+)
+
+
+def is_standard_subtree(oid: str) -> bool:
+    return _within(norm_oid(oid), MIB2)
+
+
+def subtree_budget(oid: str) -> float:
+    return SUBTREE_TIMEOUT_S if is_standard_subtree(oid) else VENDOR_SUBTREE_TIMEOUT_S
+
+
+def order_subtrees(subtrees: list[str]) -> list[str]:
+    """Standard (mib-2) subtrees first, in the given order; then the vendor ones."""
+    return [s for s in subtrees if is_standard_subtree(s)] + [
+        s for s in subtrees if not is_standard_subtree(s)
+    ]
+
+
+def classify_snmp_error(message: str) -> str:
+    """`auth_failed` (the device rejected the credentials: SNMPv3 wrong digest / unknown user /
+    security level, decryption, authorizationError, noAccess), `unreachable` (no answer at all;
+    for v1/v2c also a wrong community, which agents do not answer) or `snmp_error`."""
+    m = (message or "").lower().replace("_", " ")
+    if any(k in m for k in _AUTH_MARKERS):
+        return "auth_failed"
+    if any(k in m for k in _UNREACHABLE_MARKERS):
+        return "unreachable"
+    return "snmp_error"
+
+
+def walk_summary(outcomes: list[dict[str, Any]], total: int) -> tuple[str, str | None, str | None]:
+    """(status, error_code, error) of a finished walk from its per-subtree outcomes:
+    ok when every subtree finished (or stopped at its varbind cap), failed when nothing was
+    collected and a subtree did not finish, partial otherwise. The error is the first
+    subtree that did not finish."""
+    bad = [o for o in outcomes if o["status"] not in ("ok", "truncated")]
+    if not bad:
+        return "ok", None, None
+    first = next((o for o in bad if o["status"] != "skipped"), bad[0])
+    code = first.get("error_code") or ("timeout" if first["status"] == "timeout" else None)
+    status = "failed" if total == 0 else "partial"
+    return status, code, first.get("error")
 
 
 def row_cap_key(subtree: str, oid: str) -> str | None:

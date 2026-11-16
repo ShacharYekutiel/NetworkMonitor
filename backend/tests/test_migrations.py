@@ -26,7 +26,7 @@ from tests.conftest import (
 from tests.test_poller import _check_history
 
 pytestmark = requires_db
-HEAD = migration_head()  # head after run_migrations() ([4] numbers re-assigned at merge time)
+HEAD = migration_head()  # head after run_migrations(): ... 0012 v1.4.2 -> 0013 [4] AWS connections
 
 
 async def _tables(url: str) -> set[str]:
