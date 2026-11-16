@@ -1,6 +1,6 @@
 import { useMemo, useState, type FormEvent } from 'react';
 import { keepPreviousData, useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { Link, useSearchParams } from 'react-router-dom';
+import { Link, useSearchParams } from 'react-router';
 import { useTranslation } from 'react-i18next';
 import { endpoints, qk } from '../api/endpoints';
 import { endpoints3, qk3, type NewDevicesQuery } from '../api/endpoints3';

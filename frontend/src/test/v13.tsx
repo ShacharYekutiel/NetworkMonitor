@@ -2,7 +2,7 @@
 import type { ReactNode } from 'react';
 import { vi } from 'vitest';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
-import { MemoryRouter } from 'react-router-dom';
+import { MemoryRouter } from 'react-router';
 import { AuthProvider } from '../hooks/auth';
 import { ToastProvider } from '../components/toast';
 import type { Sensor } from '../api/types';

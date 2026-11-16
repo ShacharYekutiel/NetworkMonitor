@@ -1,7 +1,7 @@
 import { useMemo } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useTranslation } from 'react-i18next';
-import { Link, useParams } from 'react-router-dom';
+import { Link, useParams } from 'react-router';
 import { endpoints3b, qk3b } from '../api/endpoints3b';
 import type { IncidentMember, Status } from '../api/types';
 import { AiBadge, AiNotice, useAiFeature } from '../components/assistant/common';

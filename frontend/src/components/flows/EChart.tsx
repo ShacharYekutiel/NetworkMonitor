@@ -8,6 +8,7 @@ import {
   TooltipComponent,
 } from 'echarts/components';
 import { CanvasRenderer } from 'echarts/renderers';
+import { initChart } from '../../lib/echarts';
 import type { EChartsCoreOption } from 'echarts/core';
 import { useTheme } from '../../hooks/theme';
 
@@ -36,7 +37,7 @@ export function EChart({
   const { dark } = useTheme();
   useEffect(() => {
     if (!ref.current) return;
-    const c = echarts.init(ref.current, undefined, { renderer: 'canvas' });
+    const c = initChart(ref.current);
     chart.current = c;
     const ro = new ResizeObserver(() => c.resize());
     ro.observe(ref.current);
