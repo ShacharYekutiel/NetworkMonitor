@@ -476,6 +476,7 @@ export function SettingsPage() {
         label={t('settings.title')}
         onChange={openTab}
         render={(k) => t(`settings.tab.${k}`)}
+        wrap
       />
       {q.isLoading && <Loading />}
       <ErrorBox error={q.error} />

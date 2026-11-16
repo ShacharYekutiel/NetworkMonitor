@@ -68,8 +68,12 @@ export function buttonClass(variant: Variant = 'secondary', size: 'sm' | 'md' = 
   return cx(BUTTON_BASE, BUTTON_SIZE[size], VARIANTS[variant]);
 }
 
+/**
+ * Inputs (design system: field tokens): an enabled field stands out from the page (white with a
+ * 3:1 outline in light, inset in dark); a disabled one is flat with the panel, dashed and dim.
+ */
 const inputBase =
-  'block rounded-md border border-line-strong bg-surface-sunken px-2.5 py-1.5 text-sm text-ink placeholder:text-ink-subtle focus:border-transparent focus:outline focus:outline-2 focus:-outline-offset-1 focus:outline-focus disabled:border-dashed disabled:text-ink-subtle';
+  'block rounded-md border border-field-border bg-field px-2.5 py-1.5 text-sm text-ink placeholder:text-ink-subtle hover:border-ink-subtle focus:border-transparent focus:outline focus:outline-2 focus:-outline-offset-1 focus:outline-focus disabled:cursor-not-allowed disabled:border-dashed disabled:border-line-strong disabled:bg-field-disabled disabled:text-ink-subtle disabled:hover:border-line-strong';
 
 /** Full width unless the caller sets a width (`w-44` would otherwise lose to `w-full`). */
 function fieldClass(className: string | undefined, extra?: string): string {
@@ -546,6 +550,19 @@ export function tabClass(on: boolean): string {
     on
       ? 'border-accent-ink font-semibold text-ink'
       : 'border-transparent font-medium text-ink-muted hover:text-ink',
+  );
+}
+
+/**
+ * A tab of a wrapping tablist (many tabs, e.g. Settings): a compact pill; the selected one has
+ * the accent-soft ground, an accent underline and semibold ink, so it reads at a glance on any row.
+ */
+export function wrapTabClass(on: boolean): string {
+  return cx(
+    'inline-flex h-8 items-center gap-2 whitespace-nowrap rounded-md px-3 text-sm leading-4',
+    on
+      ? 'bg-accent-soft font-semibold text-ink shadow-[inset_0_-2px_0_var(--accent-ink)]'
+      : 'font-medium text-ink-muted hover:bg-surface-hover hover:text-ink',
   );
 }
 

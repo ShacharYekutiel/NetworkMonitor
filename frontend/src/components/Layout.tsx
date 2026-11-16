@@ -81,7 +81,7 @@ function RailItem({
       title={label}
       className={({ isActive }) =>
         cx(
-          'group relative flex w-16 shrink-0 flex-col items-center gap-[5px] rounded-md pb-[5px] pt-1.5 text-center text-[10.5px] font-medium leading-[1.1] no-underline',
+          'group relative flex w-[72px] shrink-0 flex-col items-center gap-[5px] rounded-md pb-[5px] pt-1.5 text-center text-xs font-medium leading-[1.15] no-underline',
           isActive
             ? 'bg-nav-active font-semibold text-nav-active-ink'
             : 'text-chrome-muted hover:bg-chrome-field hover:text-chrome-ink',
@@ -524,26 +524,31 @@ export function Layout() {
           )}
           aria-label={t('nav.sidebar')}
         >
-          <nav className="flex w-rail shrink-0 flex-col items-center gap-px overflow-y-auto border-e border-chrome-border bg-chrome py-2 [scrollbar-width:none]">
-            {visibleGroups.map((g, i) => (
-              <Fragment key={g.key}>
-                {i > 0 && <RailDivider />}
-                {g.items}
-              </Fragment>
-            ))}
-            <div className="hidden min-h-2 flex-1 md:block" />
-            {/* Pinned to the rail's bottom edge, also while the rail scrolls. */}
-            <button
-              type="button"
-              onClick={toggle}
-              aria-label={t('nav.toggleInventory')}
-              aria-controls="nm-inventory"
-              title={t('nav.toggleInventory')}
-              className="sticky bottom-0 hidden w-16 shrink-0 flex-col items-center gap-[5px] rounded-md bg-chrome pb-[5px] pt-1.5 text-center text-[10.5px] font-medium leading-[1.1] text-chrome-muted shadow-[0_-8px_0_var(--chrome)] hover:bg-chrome-field hover:text-chrome-ink md:flex"
-            >
-              <FolderIcon {...RAIL_ICON} />
-              <span>{t('nav.short.inventory')}</span>
-            </button>
+          <nav className="flex w-rail shrink-0 flex-col border-e border-chrome-border bg-chrome">
+            {/* The items scroll above the pinned Inventory button, so none hides under it; the soft
+                fade at the bottom edge hints that the rail scrolls. */}
+            <div className="flex min-h-0 flex-1 flex-col items-center gap-px overflow-y-auto pb-4 pt-2 [mask-image:linear-gradient(to_bottom,black_calc(100%-14px),transparent)] [scrollbar-width:none]">
+              {visibleGroups.map((g, i) => (
+                <Fragment key={g.key}>
+                  {i > 0 && <RailDivider />}
+                  {g.items}
+                </Fragment>
+              ))}
+            </div>
+            {/* Pinned to the rail's bottom edge, outside the scroll area. */}
+            <div className="hidden shrink-0 justify-center border-t border-chrome-border py-1.5 md:flex">
+              <button
+                type="button"
+                onClick={toggle}
+                aria-label={t('nav.toggleInventory')}
+                aria-controls="nm-inventory"
+                title={t('nav.toggleInventory')}
+                className="flex w-[72px] shrink-0 flex-col items-center gap-[5px] rounded-md pb-[5px] pt-1.5 text-center text-xs font-medium leading-[1.15] text-chrome-muted hover:bg-chrome-field hover:text-chrome-ink"
+              >
+                <FolderIcon {...RAIL_ICON} />
+                <span>{t('nav.short.inventory')}</span>
+              </button>
+            </div>
           </nav>
           <div
             id="nm-inventory"

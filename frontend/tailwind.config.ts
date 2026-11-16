@@ -33,6 +33,7 @@ export default {
           hover: v('surface-hover'),
         },
         line: { DEFAULT: v('border'), strong: v('border-strong') },
+        field: { DEFAULT: v('field'), border: v('field-border'), disabled: v('field-disabled') },
         ink: { DEFAULT: v('ink'), muted: v('ink-muted'), subtle: v('ink-subtle') },
         chrome: {
           DEFAULT: v('chrome'),

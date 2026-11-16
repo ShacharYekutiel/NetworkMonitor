@@ -50,7 +50,7 @@ Follow `pages/Dashboard.html` (RTL) and `components/AppShell.*`:
 - Header bar in `chrome`, 52px: mark · wordmark · **health strip** · MAC/IP search · Live dot + clock · language ·
   theme · user. `chrome` follows the theme (near-black in dark, light paper in light). The health strip shows sensor
   counts per status — reuse the existing dashboard query / live cache; it needs no new API.
-- Nav rail (76px, icon + short label, `chrome`) replaces the nav list, in four groups divided by hairlines:
+- Nav rail (80px, icon + short label (12px), `chrome`) replaces the nav list, in four groups divided by hairlines:
   Overview, Events, Logs, Map, Flows · New devices, Backups, Discover, Templates, Find · Maintenance, Reports ·
   Alerts, Settings, Users, Audit. Keep today's visibility rules (admin-only items, `features.*` flags). The rail
   scrolls when the window is short. Short rail labels need new i18n keys (`nav.short.*`) in **both** `he.json` and `en.json`.

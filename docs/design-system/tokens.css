@@ -9,6 +9,9 @@
   --surface-hover: #ece9df;
   --border: #d6d2c4;
   --border-strong: #a9a493;
+  --field: #ffffff;
+  --field-border: #8a8574;
+  --field-disabled: #ebe8df;
   --ink: #14150f;
   --ink-muted: #4f5044;
   --ink-subtle: #6c6d60;
@@ -65,7 +68,7 @@
   --radius-lg: 4px;
   --radius-full: 9999px;
   --header-height: 52px;
-  --rail-width: 76px;
+  --rail-width: 80px;
   --tree-width: 248px;
   --row-height: 36px;
   --content-max: 1680px;
@@ -82,6 +85,9 @@
   --surface-hover: #1f211b;
   --border: #2a2c24;
   --border-strong: #3d4035;
+  --field: #090a08;
+  --field-border: #63665a;
+  --field-disabled: #141511;
   --ink: #ecebe4;
   --ink-muted: #a3a395;
   --ink-subtle: #85867a;
