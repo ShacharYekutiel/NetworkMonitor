@@ -19,10 +19,19 @@
 (app) {
 	tls /etc/caddy/tls/cert.pem /etc/caddy/tls/key.pem
 	encode zstd gzip
+	# [1.4.1] Security headers come from the app itself (Content-Security-Policy with
+	# frame-ancestors, X-Frame-Options, X-Content-Type-Options, Referrer-Policy and, because
+	# the app sees X-Forwarded-Proto: https, Strict-Transport-Security), so a native install
+	# without Caddy has them too and framing follows Settings > Security. Caddy therefore
+	# sets no Content-Security-Policy / X-Frame-Options of its own (a second, different
+	# policy would override the setting).
+	# "?" sets a header only when the response does not already carry it: no duplicates on
+	# proxied responses, and Caddy's own answers (e.g. 502 while the app restarts) stay
+	# covered. Keep the values identical to backend/netmon/services/security.py.
 	header {
-		Strict-Transport-Security "max-age=31536000"
-		X-Content-Type-Options nosniff
-		Referrer-Policy same-origin
+		?Strict-Transport-Security "max-age=31536000"
+		?X-Content-Type-Options nosniff
+		?Referrer-Policy same-origin
 		-Server
 	}
 	# WebSocket (/ws) upgrades are proxied transparently by reverse_proxy.

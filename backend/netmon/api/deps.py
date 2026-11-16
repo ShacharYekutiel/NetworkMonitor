@@ -17,11 +17,11 @@ from netmon.runtime import Runtime
 from netmon.services.audit import AuditCtx, audit_enabled
 from netmon.services.auth import (
     COOKIE_NAME,
-    LDAP_SESSION_MAX_S,
     RENEW_BELOW_S,
     decode_token,
     session_token,
 )
+from netmon.services.security import is_revoked, policy_of
 
 
 def get_rt(request: Request) -> Runtime:
@@ -70,18 +70,20 @@ class AuthInfo:
     role: str  # effective role (a token: min(token role, owner role))
     token_id: int | None = None
     source: str = "local"  # the user's source (local | ldap)
+    sid: str | None = None  # [1.4.1] session id of a cookie session (revoked by logout)
 
 
-def ldap_session_expired(rt: Runtime, user: User, claims: dict[str, Any]) -> bool:
-    """[2b-3] AD users re-authenticate at least every 12 h (`at` = auth time); [3] OIDC too."""
-    if (getattr(user, "source", "local") or "local") not in ("ldap", "oidc"):
-        return False
+def session_expired(rt: Runtime, user: User, claims: dict[str, Any]) -> bool:
+    """[1.4.1] Absolute session lifetime, judged on the app clock from `at` (auth time):
+    `session_max_age_h` for local accounts; AD / OIDC users re-authenticate at least every
+    12 h ([2b-3], [3]) or sooner when the setting is lower."""
     at = claims.get("at", claims.get("iat"))
     try:
         at_f = float(at)
     except (TypeError, ValueError):
         return True
-    return rt.clock.now().timestamp() >= at_f + LDAP_SESSION_MAX_S
+    max_s = policy_of(rt).session_max_s(getattr(user, "source", "local"))
+    return rt.clock.now().timestamp() >= at_f + max_s
 
 
 async def authenticate(rt: Runtime, session: AsyncSession, token: str | None) -> tuple[User, Any]:
@@ -94,10 +96,15 @@ async def authenticate(rt: Runtime, session: AsyncSession, token: str | None) ->
         uid = int(claims["sub"])
     except (KeyError, TypeError, ValueError) as exc:
         raise ApiError(401, "unauthenticated", "Session invalid") from exc
+    # [1.4.1] a session without an id cannot be revoked: cookies issued before 1.4.1 are
+    # refused (one sign-in after the upgrade); a revoked id is refused for good
+    sid = claims.get("sid")
+    if not isinstance(sid, str) or not sid or is_revoked(rt, sid):
+        raise ApiError(401, "unauthenticated", "Session invalid or expired")
     user = await session.get(User, uid)
     if user is None or not user.is_active or claims.get("tv") != user.token_version:
         raise ApiError(401, "unauthenticated", "Session invalid or expired")
-    if ldap_session_expired(rt, user, claims):
+    if session_expired(rt, user, claims):
         raise ApiError(401, "unauthenticated", "Session expired; log in again")
     if user.source == "oidc" and not feature_on(rt, "sso_oidc"):
         # [3] `src = oidc` sessions are refused while the feature is OFF
@@ -144,18 +151,18 @@ async def current_user(request: Request, rt: RT, session: DB) -> User:
         return await _bearer_user(request, rt, session, bearer)
     user, claims = await authenticate(rt, session, request.cookies.get(COOKIE_NAME))
     request.state.auth = AuthInfo(
-        "session", user.id, user.username, user.role, None, user.source or "local"
+        "session", user.id, user.username, user.role, None, user.source or "local", claims["sid"]
     )
     now = time.time()
     am = claims.get("am") if isinstance(claims.get("am"), str) else None  # [3] kept on renewal
-    if user.source in ("ldap", "oidc"):
-        # sliding renewal never extends past at + 12 h (judged on the app clock)
-        at = float(claims.get("at", claims.get("iat")))
-        clock_now = rt.clock.now().timestamp()
-        if int(claims["exp"]) - now < RENEW_BELOW_S and clock_now < at + LDAP_SESSION_MAX_S:
-            request.state.renew_token = session_token(rt, user, at=at, clock_now=clock_now, am=am)
-    elif int(claims["exp"]) - now < RENEW_BELOW_S:
-        request.state.renew_token = session_token(rt, user, am=am)
+    # sliding renewal keeps `at` and `sid`: it never extends past at + max (app clock)
+    at = float(claims.get("at", claims.get("iat")))
+    clock_now = rt.clock.now().timestamp()
+    max_s = policy_of(rt).session_max_s(user.source)
+    if int(claims["exp"]) - now < RENEW_BELOW_S and clock_now < at + max_s:
+        request.state.renew_token = session_token(
+            rt, user, at=at, clock_now=clock_now, am=am, sid=claims["sid"]
+        )
     return user
 
 

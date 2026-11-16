@@ -347,6 +347,20 @@ certificate with `openssl x509 -in netmonitor.cer -noout -subject -issuer` and a
      in **any** region (a cross-region profile routes to several regions; `*` also matches the region-less ARN used
      by `global.` profiles) **only** when the call comes through those profiles (`bedrock:InferenceProfileArn`).
    - Role *Maximum session duration* ≥ the app's session duration (default 3600 s).
+   - **[1.4.1] The CN in the trust policy must equal the subject CN of the issued certificate, character for
+     character.** The role is assumed only when `aws:PrincipalTag/x509Subject/CN` matches; any difference (short
+     name instead of the FQDN, another host name, a CN the CA rewrote from the template) fails with
+     *AccessDenied* on `CreateSession` although the certificate itself is valid. Read the CN from the **issued**
+     certificate, not from the request:
+     ```
+     openssl x509 -in netmonitor.cer -noout -subject -issuer     # Linux; add -inform der for a DER file
+     certutil -dump netmonitor.cer                                # Windows: the "Subject:" and "Issuer:" lines
+     ```
+     and render the policy with exactly that value: `render-policies.py … --cert-cn <subject CN>
+     --trust-anchor-id <id or ARN>`. The script accepts the trust anchor as the bare id **or** as the full ARN from
+     the console (it checks the ARN's region and account against `--ra-region` / `--account` and stops on a
+     mismatch), rejects a value that is not a plain CN (`CN=…`, several RDNs, wildcards) and prints the CN and the
+     trust anchor ARN the rendered policy expects.
 4. **Profile:** IAM Roles Anywhere → *Create a profile* → name `netmonitor` → role `netmon-bedrock` → session
    duration 1 h (must be ≥ the app's setting) → no session policy needed. Note the three ARNs (trust anchor,
    profile, role).
@@ -360,6 +374,18 @@ certificate with `openssl x509 -in netmonitor.cer -noout -subject -issuer` and a
    ```
    certreq -submit -config "<ca-host>\Mnidom-PKI-SERV-CA" -attrib "CertificateTemplate:NetMonBedrockClient" netmonitor.csr netmonitor.cer
    ```
+   [1.4.1] `CertificateTemplate:` takes the **template name** (the *Template name* field on the template's
+   *General* tab, no spaces, e.g. `NetMonBedrockClient`), **not** the *Template display name* (e.g. "NetMon Bedrock
+   Client"); with the display name `certreq` answers *The requested certificate template is not supported by this
+   CA*. `certutil -CATemplates -config "<ca-host>\Mnidom-PKI-SERV-CA"` lists the names the CA offers.
+
+   The certificate card in *Settings → Assistant* has **two modes**:
+   - **Generate a CSR** (this step, recommended): the private key is created on the server and stays there. After
+     the CA has signed the request, upload **only the issued certificate** (`netmonitor.cer`, plus the chain when
+     the anchor is the root). There is no private key to upload — the key field is not shown in this mode, and a
+     certificate that does not belong to the pending request's key is refused.
+   - **Upload certificate and key**: for a key pair created elsewhere (`.pfx`, or PEM certificate + private key).
+     Use it only when the CSR flow is not possible.
    Upload `netmonitor.cer` (PEM or DER; plus the issuing CA as chain only when the anchor is the root) in the same
    form → the app checks that it matches the key and shows subject, issuer, expiry. Alternatives: upload a `.pfx`
    exported from AD CS, or host files (`NETMON_AWS_RA_CERT_FILE` / `_KEY_FILE` / `_CHAIN_FILE` in `app.env` pointing

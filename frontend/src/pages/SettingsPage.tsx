@@ -37,6 +37,7 @@ import {
   NewDeviceSettingsTab,
   ReportSettingsTab,
 } from '../components/features/Phase3Settings';
+import { SecurityCard } from '../components/settings/SecuritySettings';
 import { SsoTab } from '../components/features/SsoSettings';
 import { NocTab } from '../components/features/NocSettings';
 import { cardAnchor } from '../lib/settingsIndex';
@@ -483,6 +484,7 @@ export function SettingsPage() {
           <GeneralCard settings={q.data} />
           <PortsCard settings={q.data} />
           <SmtpCard settings={q.data} />
+          <SecurityCard settings={q.data} />
         </>
       )}
       {q.data && tab === 'features' && <FeaturesTab settings={q.data} />}

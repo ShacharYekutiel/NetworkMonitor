@@ -1,15 +1,15 @@
 name: Image
 
 # Publishes a ready-to-run container image to GitHub Container Registry on every push to
-# main or a phase* branch, so a host that cannot download npm/PyPI packages (corporate
+# main, a phase* or a release-* branch, so a host that cannot download npm/PyPI packages (corporate
 # proxies) can `docker compose pull` instead of building:
 #   ghcr.io/<owner>/<repo>:latest       (main)
-#   ghcr.io/<owner>/<repo>:<branch>     (e.g. phase2)
+#   ghcr.io/<owner>/<repo>:<branch>     (e.g. phase2, release-1.4.1: test it before the merge)
 #   ghcr.io/<owner>/<repo>:sha-<short>  (every build)
 # Version tags (v*) are published by release.yml (amd64).
 on:
   push:
-    branches: ["main", "phase*"]
+    branches: ["main", "phase*", "release-*"]
   workflow_dispatch:
 
 permissions:

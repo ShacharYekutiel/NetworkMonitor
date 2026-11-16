@@ -20,6 +20,7 @@ from netmon.schemas.phase3 import (
     SshCredentialsIn,
 )
 from netmon.schemas.phase3c import Phase3CSettingsMixin
+from netmon.schemas.security import SecuritySettingsMixin
 
 USERNAME_RE = re.compile(r"^[A-Za-z0-9._-]{3,64}$")
 EMAIL_RE = re.compile(r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
@@ -86,6 +87,12 @@ class MePatch(_In):
     language: Language | None = None
 
     _e = field_validator("email")(lambda cls, v: _email(v))
+
+
+class LogoutIn(_In):
+    """[1.4.1] `everywhere`: end every session of the user, not only this one."""
+
+    everywhere: bool = False
 
 
 class ChangePasswordIn(_In):
@@ -575,6 +582,7 @@ class SettingsPut(
     FlowSettingsMixin,
     Phase3CSettingsMixin,  # [3] reports / chat ack
     Phase3bSettingsMixin,  # [3b] assistant toggles and scalar keys
+    SecuritySettingsMixin,  # [1.4.1] egress filter, session lifetime, login cap, framing
 ):
     smtp: SmtpIn | None = None
     retention_days: int | None = Field(default=None, ge=1, le=3650)

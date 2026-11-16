@@ -244,7 +244,7 @@ async def test_migration_0005_up_down_up(mode: str, rt) -> None:  # type: ignore
         assert NEW_TABLES <= await _tables(url)
         conn = await asyncpg.connect(_plain(url))
         try:
-            assert await conn.fetchval("SELECT version_num FROM alembic_version") == "0010"
+            assert await conn.fetchval("SELECT version_num FROM alembic_version") == "0011"
             gid = await conn.fetchval("INSERT INTO groups (name) VALUES ('g') RETURNING id")
             did = await conn.fetchval(
                 "INSERT INTO devices (group_id, name, host) VALUES ($1, 'd', 'h') RETURNING id", gid
@@ -358,7 +358,7 @@ async def test_migration_0005_up_down_up(mode: str, rt) -> None:  # type: ignore
         assert NEW_TABLES <= await _tables(url)
         conn = await asyncpg.connect(_plain(url))
         try:
-            assert await conn.fetchval("SELECT version_num FROM alembic_version") == "0010"
+            assert await conn.fetchval("SELECT version_num FROM alembic_version") == "0011"
             assert await conn.fetchval("SELECT port_inventory FROM devices") == "auto"
             await conn.execute(
                 "INSERT INTO sensors (device_id, name, type, config) VALUES "

@@ -6,6 +6,7 @@ import httpx
 
 from netmon import __version__
 from netmon.tlsutil import httpx_verify
+from netmon.util.egress import EgressBlocked, guarded_client
 
 
 class WebhookError(Exception):
@@ -19,11 +20,13 @@ async def send_webhook(config: dict[str, Any], payload: dict[str, Any]) -> None:
         "User-Agent": f"NetworkMonitor/{__version__}",
     }
     try:
-        async with httpx.AsyncClient(
+        async with guarded_client(  # [1.4.1] SSRF egress filter
             verify=httpx_verify(bool(config.get("verify_tls", True))),
             timeout=float(config.get("timeout_s", 10)),
         ) as client:
             resp = await client.post(config["url"], json=payload, headers=headers)
+    except EgressBlocked as exc:
+        raise WebhookError(str(exc)) from exc
     except httpx.TimeoutException as exc:
         raise WebhookError("Webhook request timed out") from exc
     except httpx.HTTPError as exc:

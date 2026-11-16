@@ -10,7 +10,8 @@ import { ChatAccountsCard } from '../components/chatack/ChatAccounts';
 export function AccountPage() {
   const { t } = useTranslation();
   const toast = useToast();
-  const { user, setUser } = useAuth();
+  const { user, setUser, logout } = useAuth();
+  const [endingAll, setEndingAll] = useState(false);
   const [email, setEmail] = useState(user?.email ?? '');
   const [current, setCurrent] = useState('');
   const [next, setNext] = useState('');
@@ -128,6 +129,21 @@ export function AccountPage() {
           </form>
         </Card>
       )}
+      <Card title={t('account.sessions')}>
+        <p className="text-sm text-slate-600 dark:text-slate-300">{t('account.sessionsHint')}</p>
+        <div className="mt-3 flex justify-end">
+          <Button
+            busy={endingAll}
+            onClick={() => {
+              setEndingAll(true);
+              void logout(true);
+            }}
+            data-testid="logout-everywhere"
+          >
+            {t('account.logoutEverywhere')}
+          </Button>
+        </div>
+      </Card>
       <ChatAccountsCard />
     </div>
   );

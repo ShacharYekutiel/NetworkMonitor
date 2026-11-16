@@ -510,11 +510,13 @@ NO_PROXY=localhost,127.0.0.1,::1,db,netmon,proxy,.mnidom.net,<internal webhook t
 cd deploy/production/aws
 python3 render-policies.py --account 111122223333 --region us-east-1 \
   --profile us.anthropic.<model> [--light-profile us.anthropic.<light-model>] \
-  [--trust-anchor-id <uuid>] [--kb-id <KB-ID>] [--cert-cn netmonitor.mnidom.net]
+  [--ra-region <region>] [--trust-anchor-id <uuid | ARN>] [--kb-id <KB-ID>] [--cert-cn netmonitor.mnidom.net]
 # -> ./out/*.json  (תבנית שחסר לה ערך מדולגת עם הודעה)
 ```
 
 </div>
+
+‏[1.4.1] ‏`--trust-anchor-id` מקבל את המזהה בלבד (uuid) **או** את ה-ARN המלא כפי שהוא מופיע בקונסולה; עם ARN הסקריפט בודק שהאזור והחשבון שבו תואמים ל-`--ra-region` ‏(או `--region`) ול-`--account` ועוצר עם הודעה ברורה אם לא. ‏`--cert-cn` חייב להיות **זהה בדיוק** ל-CN שב-Subject של התעודה שהונפקה (בדיקה: `openssl x509 -in netmonitor.cer -noout -subject` או `certutil -dump netmonitor.cer`); הסקריפט מדפיס איזה CN ואיזה trust anchor ה-trust policy שנוצר מצפה להם.
 
 ### 1. בחירת אזור ו-inference profile
 

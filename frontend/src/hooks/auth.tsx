@@ -24,7 +24,8 @@ type AuthCtx = {
   /** Called after login / setup succeeds. */
   signedIn: (user: User) => void;
   setUser: (user: User) => void;
-  logout: () => Promise<void>;
+  /** [1.4.1] `everywhere`: also end the user's sessions in other browsers */
+  logout: (everywhere?: boolean) => Promise<void>;
   /** Session expired or was revoked. */
   expire: () => void;
   setupRequired: () => void;
@@ -94,16 +95,19 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     setState('authenticated');
   }, []);
 
-  const logout = useCallback(async () => {
-    // [3] the login page must not sign in again automatically (Kerberos) after a logout
-    writeSkip(typeof sessionStorage === 'undefined' ? null : sessionStorage, true);
-    try {
-      await endpoints.logout();
-    } catch {
-      /* ignore */
-    }
-    expire();
-  }, [expire]);
+  const logout = useCallback(
+    async (everywhere = false) => {
+      // [3] the login page must not sign in again automatically (Kerberos) after a logout
+      writeSkip(typeof sessionStorage === 'undefined' ? null : sessionStorage, true);
+      try {
+        await endpoints.logout(everywhere);
+      } catch {
+        /* ignore */
+      }
+      expire();
+    },
+    [expire],
+  );
 
   const value = useMemo<AuthCtx>(
     () => ({

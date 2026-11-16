@@ -87,12 +87,12 @@ async def kerberos_login(request: Request, rt: RT, session: DB) -> Response:
             "Kerberos authentication required",
             headers={"WWW-Authenticate": "Negotiate"},
         )
-    if limiter.blocked(ip, SSO_THROTTLE_NAME):
+    if limiter.blocked(ip, SSO_THROTTLE_NAME, ip_wide=False):
         raise ApiError(429, "rate_limited", "Too many failed logins; try again later")
     mgr = _kerberos(request)
 
     async def failed(reason: str, name: str = "", code: str = "sso_failed") -> ApiError:
-        limiter.fail(ip, SSO_THROTTLE_NAME)
+        limiter.fail(ip, SSO_THROTTLE_NAME, ip_wide=False)
         await _sso_failed(rt, request, reason, "ldap", name)
         if code == "sso_ntlm":
             return ApiError(401, "sso_ntlm", NTLM_MESSAGE)
@@ -409,8 +409,26 @@ SUCCESS_PAGE = """<!doctype html>
 <html><head><meta charset="utf-8"><title>NetworkMonitor</title>
 <meta http-equiv="refresh" content="0;url={url}"></head>
 <body><p>Signing in&hellip; <a href="{url}">continue</a></p>
-<script>window.location.replace({js});</script></body></html>
+<script>{script}</script></body></html>
 """
+
+
+def success_page(nxt: str) -> tuple[str, str]:
+    """(html, Content-Security-Policy) of the page that sends the browser on after sign-in.
+
+    [1.4.1] JSON inside <script>: "<", ">" and "&" are escaped so `next` can never close the
+    element (`</script>`); the one inline script is allowed by its hash (no 'unsafe-inline')."""
+    from netmon.services.security import script_hash
+
+    js_next = json.dumps(nxt)
+    for ch, esc in (("<", "\\u003c"), (">", "\\u003e"), ("&", "\\u0026")):
+        js_next = js_next.replace(ch, esc)
+    script = f"window.location.replace({js_next});"
+    csp = (
+        f"default-src 'none'; script-src {script_hash(script)}; base-uri 'none'; "
+        "form-action 'none'; frame-ancestors 'none'"
+    )
+    return SUCCESS_PAGE.format(url=html.escape(nxt, quote=True), script=script), csp
 
 
 @router.get("/api/auth/oidc/callback")
@@ -467,9 +485,8 @@ async def oidc_callback(request: Request, rt: RT, session: DB) -> Response:
     except _OidcRefused as exc:
         await session.rollback()
         return await fail(exc.code, exc.code, uname)
-    nxt = oidc.safe_next(data.get("next"))
-    page = SUCCESS_PAGE.format(url=html.escape(nxt, quote=True), js=json.dumps(nxt))
-    resp = HTMLResponse(page, headers={"Cache-Control": "no-store"})
+    page, csp = success_page(oidc.safe_next(data.get("next")))
+    resp = HTMLResponse(page, headers={"Cache-Control": "no-store", "Content-Security-Policy": csp})
     set_session_cookie(resp, session_token(rt, user, am="oidc"), _secure(request, rt))
     resp.delete_cookie(oidc.COOKIE_NAME, path=oidc.COOKIE_PATH)
     return resp

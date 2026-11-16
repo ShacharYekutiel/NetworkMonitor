@@ -19,7 +19,7 @@ from tests.conftest import TEST_DATABASE_URL, _plain, db_url_for, make_settings,
 from tests.test_poller import _check_history
 
 pytestmark = requires_db
-HEAD = "0010"  # head after run_migrations(): 0008 v1.3 -> 0009 v1.3.1 -> 0010 3b
+HEAD = "0011"  # head after run_migrations(): ... 0010 3b -> 0011 v1.4.1
 
 
 async def _tables(url: str) -> set[str]:
@@ -485,5 +485,41 @@ async def test_migration_0004_up_down_up(mode: str, rt) -> None:  # type: ignore
             await conn.close()
     finally:
         await engine.dispose()
+        await admin.execute(f'DROP DATABASE IF EXISTS "{name}" WITH (FORCE)')
+        await admin.close()
+
+
+@requires_db
+async def test_database_newer_than_this_version_starts_without_migrating(  # type: ignore[no-untyped-def]
+    tmp_path, caplog
+) -> None:
+    """[1.4.1] Rollback safety: the previous image is started on a database that a newer
+    release already migrated. It must start (and say so) instead of failing with
+    "Can't locate revision"."""
+    import logging
+
+    name = f"netmon_test_{secrets.token_hex(4)}_ahead"
+    admin = await asyncpg.connect(_plain(TEST_DATABASE_URL))
+    try:
+        await admin.execute(f'CREATE DATABASE "{name}"')
+        engine = make_engine(db_url_for(name).replace("postgresql://", "postgresql+asyncpg://"))
+        try:
+            await run_migrations(engine)
+            async with engine.begin() as conn:
+                assert (
+                    await conn.execute(text("SELECT version_num FROM alembic_version"))
+                ).scalar_one() == HEAD
+                await conn.execute(text("UPDATE alembic_version SET version_num = '9999'"))
+            with caplog.at_level(logging.WARNING, logger="netmon.db.migrate"):
+                await run_migrations(engine)  # must not raise
+            assert "9999" in caplog.text and "newer release" in caplog.text
+            async with engine.begin() as conn:
+                # untouched: still the newer revision, nothing was downgraded or re-run
+                assert (
+                    await conn.execute(text("SELECT version_num FROM alembic_version"))
+                ).scalar_one() == "9999"
+        finally:
+            await engine.dispose()
+    finally:
         await admin.execute(f'DROP DATABASE IF EXISTS "{name}" WITH (FORCE)')
         await admin.close()

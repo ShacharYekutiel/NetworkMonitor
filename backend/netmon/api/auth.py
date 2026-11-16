@@ -23,11 +23,21 @@ from netmon.api.deps import (
 )
 from netmon.api.errors import ApiError, not_found
 from netmon.models import Group, User
-from netmon.schemas import ChangePasswordIn, LoginIn, MePatch, SetupIn, UserCreate, UserPatch
+from netmon.schemas import (
+    ChangePasswordIn,
+    LoginIn,
+    LogoutIn,
+    MePatch,
+    SetupIn,
+    UserCreate,
+    UserPatch,
+)
 from netmon.services import audit
+from netmon.services import security as security_svc
 from netmon.services import settings as settings_svc
 from netmon.services.audit import AuditCtx
 from netmon.services.auth import (
+    PW_CHANGE_THROTTLE_IP,
     burn_verify,
     clear_session_cookie,
     cookie_secure,
@@ -374,10 +384,38 @@ async def _note_unreadable_password(rt: RT) -> None:
 
 
 @router.post("/api/auth/logout", status_code=204)
-async def logout(request: Request, rt: RT, user: Viewer, session: DB, ctx: Audit) -> Response:
+async def logout(
+    request: Request,
+    rt: RT,
+    user: Viewer,
+    session: DB,
+    ctx: Audit,
+    body: LogoutIn | None = None,
+) -> Response:
+    """[1.4.1] Ends the session **server-side**: its id (`sid`) is revoked, so a copy of the
+    cookie stops working at once, while the user's other browsers stay signed in.
+    `{"everywhere": true}` ends every session of the user instead (`token_version`)."""
     request.state.renew_token = None
-    await audit.record(session, ctx, "auth.logout", _user_entity(user), source=user.source)
+    auth = getattr(request.state, "auth", None)
+    sid = getattr(auth, "sid", None)
+    everywhere = bool(body and body.everywhere)
+    if everywhere:
+        user.token_version += 1
+    elif sid:
+        await security_svc.revoke_session(rt, session, sid, user.id)
+    await audit.record(
+        session,
+        ctx,
+        "auth.logout",
+        _user_entity(user),
+        {"everywhere": [None, True]} if everywhere else None,
+        source=user.source,
+    )
     await session.commit()
+    if everywhere:
+        await rt.hub.close_user(user.id, 4401)
+    elif sid:
+        await rt.hub.close_session(sid, 4401)
     resp = Response(status_code=204)
     clear_session_cookie(resp, _secure(request, rt))
     return resp
@@ -418,8 +456,21 @@ async def change_password(
 ) -> Response:
     if user.source in ("ldap", "oidc") or user.password_hash is None:
         raise _ldap_managed("password")
+    # [1.4.1] guessing the current password with a stolen session is throttled like a login:
+    # 10 failures / 5 min per user (whatever the address) plus the address-wide counter
+    ip = _client_ip(request, rt)
+    limiter = request.app.state.login_limiter
+    guess_key = f"pw-change:{user.id}"
+    if limiter.blocked(PW_CHANGE_THROTTLE_IP, guess_key, ip_wide=False) or limiter.ip_blocked(ip):
+        raise ApiError(429, "rate_limited", "Too many wrong passwords; try again later")
     if not await verify_password(user.password_hash, body.current_password):
+        limiter.fail(PW_CHANGE_THROTTLE_IP, guess_key, ip_wide=False)
+        limiter.fail(ip, user.username)
+        await audit.record_now(
+            rt, ctx, "auth.login_failed", source=user.source, reason="bad_current_password"
+        )
         raise ApiError(401, "invalid_credentials", "Current password is wrong")
+    limiter.reset(PW_CHANGE_THROTTLE_IP, guess_key)
     user.password_hash = await hash_password(body.new_password)
     user.token_version += 1
     await audit.record(

@@ -188,7 +188,14 @@ async def test_sliding_renewal(rt, admin: httpx.AsyncClient) -> None:  # type: i
     me = (await admin.get("/api/auth/me")).json()["user"]
     now = int(time.time())
     token = jwt.encode(
-        {"sub": str(me["id"]), "role": "admin", "tv": 0, "iat": now - 40000, "exp": now + 3000},
+        {
+            "sub": str(me["id"]),
+            "role": "admin",
+            "tv": 0,
+            "iat": now - 40000,
+            "exp": now + 3000,
+            "sid": "test-session",
+        },
         rt.secret_key,
         algorithm="HS256",
     )

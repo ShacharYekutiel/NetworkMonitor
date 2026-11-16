@@ -89,6 +89,40 @@ export const SETTINGS_CARDS: SettingsCardDef[] = [
       { labelKey: 'settings.smtpTest', hintKey: 'settings.smtpTestHint' },
     ],
   },
+  // [1.4.1] security hardening
+  {
+    id: 'security',
+    tab: 'general',
+    titleKey: 'settings.security.title',
+    hintKey: 'settings.security.intro',
+    terms: ['security', 'hardening', 'ssrf', 'csp', 'session', 'login'],
+    fields: [
+      {
+        labelKey: 'settings.security.sessionMaxAge',
+        hintKey: 'settings.security.sessionMaxAgeHint',
+        terms: ['session', 'timeout', 'logout', 'cookie'],
+        anchor: 'security-session-max-age',
+      },
+      {
+        labelKey: 'settings.security.loginIpCap',
+        hintKey: 'settings.security.loginIpCapHint',
+        terms: ['throttle', 'rate limit', 'brute force', 'password spraying', 'lockout'],
+        anchor: 'security-login-ip-cap',
+      },
+      {
+        labelKey: 'settings.security.allowLoopback',
+        hintKey: 'settings.security.allowLoopbackHint',
+        terms: ['loopback', 'localhost', '127.0.0.1', 'ssrf', 'webhook', 'http'],
+        anchor: 'security-allow-loopback',
+      },
+      {
+        labelKey: 'settings.security.frameAncestors',
+        hintKey: 'settings.security.frameAncestorsHint',
+        terms: ['iframe', 'frame', 'embed', 'clickjacking', 'csp', 'frame-ancestors', 'kiosk'],
+        anchor: 'security-frame-ancestors',
+      },
+    ],
+  },
   // --- Traps & syslog
   {
     id: 'ingest',

@@ -356,6 +356,7 @@ async def test_session_capped_at_12h(app: Any, ad_on: Any, rt: Any) -> None:
                 "exp": now + 3600,
                 "src": "ldap",
                 "at": now - 10 * 3600,
+                "sid": "ldap-test-session",
             },
             rt.secret_key,
             algorithm="HS256",
