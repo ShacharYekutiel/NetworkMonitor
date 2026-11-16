@@ -48,7 +48,8 @@ test('fresh install: assistant and the 10 AI features OFF, USD prices, health "d
   expect(s.prices.currency, 'owner decision: USD').toBe('USD');
   expect(s.ra_session_seconds).toBe(3600);
   expect(s.send_config_excerpts).toBe(false);
-  expect(s.redact_internal_ips).toBe(false);
+  // [1.4.0] pentest finding B: AI features mask internal IPs by default (architecture.md § 14, redaction item 3)
+  expect(s.redact_internal_ips).toBe(true);
   expect(s.chat_redact_ips).toBe(true);
   for (const [m, p, b] of GATED) {
     const r = await raw(api, m, p, b);

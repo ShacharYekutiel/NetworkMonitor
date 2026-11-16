@@ -76,7 +76,9 @@ ASSISTANT_DEFAULTS: dict[str, Any] = {
     "model_id_light": None,
     "prompt_caching": True,
     "send_config_excerpts": False,
-    "redact_internal_ips": False,
+    # [1.4.0] same default as assistant.config.DEFAULT_ASSISTANT (pentest finding B): a stored row
+    # without the key masks internal IPs in the AI features too
+    "redact_internal_ips": True,
     "internal_cidrs": [],
     "chat_redact_ips": True,
     "prices": {

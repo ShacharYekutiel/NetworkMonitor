@@ -10,6 +10,8 @@ import {
   INCIDENT_STATES,
   PROXY_MODES,
   REPORT_AI_STATUSES,
+  WALK_ERROR_CODES,
+  WALK_OUTCOMES,
   WALK_PRESETS,
 } from '../api/types3b';
 import { EXAMPLES } from '../lib/assistant';
@@ -143,6 +145,9 @@ describe('i18n [3b]', () => {
       ...['ok', 'failed', 'skipped', 'running'].map((s) => `digest.st.${s}`),
       ...WALK_PRESETS.map((p) => `tdraft.preset.${p}`),
       ...['running', 'ok', 'partial', 'failed', 'cancelled'].map((s) => `tdraft.walkStatus.${s}`),
+      ...WALK_OUTCOMES.map((s) => `tdraft.outcome.${s}`),
+      ...WALK_ERROR_CODES.map((c) => `tdraft.walkError.${c}`),
+      'tdraft.walkErrorDetail',
       ...REPORT_AI_STATUSES.map((s) => `reports.aiStatus.${s}`),
       ...['low', 'medium', 'high'].map((c) => `confidence3.${c}`),
     ];

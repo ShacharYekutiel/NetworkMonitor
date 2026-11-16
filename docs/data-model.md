@@ -3700,7 +3700,7 @@ endpoints with a valid `test_id` (architecture § 14.2.6); `PUT /api/settings` s
   "ra_csr_created_at": null,
   "last_test": null,                               // {"ok", "at", "by", "error_code"} of the last Test
   "send_config_excerpts": false,
-  "redact_internal_ips": false,
+  "redact_internal_ips": true,                     // [1.4.0] default true (pentest finding B); a row without the key → true
   "internal_cidrs": [],                            // ≤ 64 extra CIDRs treated as internal
   "chat_redact_ips": true,
   "prices": { "currency": "USD", "input_per_mtok": null, "output_per_mtok": null,
@@ -3930,7 +3930,7 @@ Updated by the digest job; rows with `last_seen` older than 30 days deleted.
 | status | text | NOT NULL CHECK in walk_status |
 | subtrees | text[] | NOT NULL |
 | varbinds | jsonb | NOT NULL DEFAULT '[]' — `[["1.3.6.1.2.1.1.1.0", "OctetString", "…≤ 256 chars"]]`, ≤ 5000 |
-| counts | jsonb | NOT NULL DEFAULT '{}' — per subtree |
+| counts | jsonb | NOT NULL DEFAULT '{}' — per subtree; `[maint-1.4]` plus `"_walk": {"outcomes": [{subtree, status, count, error_code, error}], "error_code"}` (api.md `SnmpWalk`; not a count, never an OID) |
 | error | varchar(300) | NULL |
 | started_at | timestamptz | NOT NULL |
 | finished_at | timestamptz | NULL |
