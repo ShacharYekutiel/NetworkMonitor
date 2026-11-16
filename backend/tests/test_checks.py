@@ -150,6 +150,7 @@ def https_port(tmp_path_factory: pytest.TempPathFactory) -> Iterator[int]:
     )
     server = ThreadingHTTPServer(("127.0.0.1", 0), _Handler)
     sctx = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
+    sctx.minimum_version = ssl.TLSVersion.TLSv1_2
     sctx.load_cert_chain(d / "c.pem", d / "k.pem")
     server.socket = sctx.wrap_socket(server.socket, server_side=True)
     yield from _serve(server)

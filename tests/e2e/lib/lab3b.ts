@@ -282,7 +282,7 @@ export async function expectSafeRendering(scope: ReturnType<Page['locator']>, ap
         if (a.name.startsWith('on')) bad.push(`${a.name} on <${el.tagName.toLowerCase()}>`);
         if (['href', 'src', 'srcset', 'action', 'formaction'].includes(a.name)) {
           const v = a.value.trim().toLowerCase();
-          if (v.startsWith('javascript:') || v.startsWith('data:')) bad.push(`${a.name}=${a.value}`);
+          if (/^(javascript|data|vbscript):/.test(v)) bad.push(`${a.name}=${a.value}`);
           else if (/^(https?:)?\/\//.test(v)) {
             const u = new URL(a.value, origin);
             if (u.origin !== new URL(origin).origin) bad.push(`external ${a.name}=${a.value}`);
