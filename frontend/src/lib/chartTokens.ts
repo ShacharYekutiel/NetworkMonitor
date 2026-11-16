@@ -1,8 +1,10 @@
 // Design tokens as literal colours for ECharts and inline SVG, which cannot read CSS variables
 // (docs/design-system/IMPLEMENTATION.md). Values are read from <html> with getComputedStyle;
-// the tables below (copied from src/styles/tokens.css) are the fallback when the variables are
-// unavailable (tests) or the requested theme is not the one applied yet.
+// the tables below are the fallback when the variables are
+// unavailable (tests) or the requested theme is not the one applied yet; they come from the
+// generated token table, so they never drift from tokens.json.
 import type { Status } from '../api/types';
+import { TOKEN_CONSTANTS, TOKEN_VALUES } from '../styles/tokens.gen';
 
 export type ChartTokens = {
   bg: string;
@@ -59,91 +61,26 @@ const VARS: Record<Exclude<keyof ChartTokens, 'status' | 'statusSoft'>, string> 
 };
 
 const STATUSES: Status[] = ['up', 'warning', 'down', 'unreachable', 'unknown', 'paused'];
-const FONTS = {
-  fontSans: '"Barlow", "Heebo", "Segoe UI", system-ui, sans-serif',
-  fontMono: '"JetBrains Mono", ui-monospace, Consolas, monospace',
-  fontDisplay: '"Barlow Condensed", "Heebo", "Arial Narrow", sans-serif',
-};
 
-export const LIGHT_TOKENS: ChartTokens = {
-  bg: '#f2f0e9',
-  surface: '#fbfaf6',
-  surfaceRaised: '#ffffff',
-  surfaceSunken: '#e9e6dc',
-  border: '#d6d2c4',
-  borderStrong: '#a9a493',
-  ink: '#14150f',
-  inkMuted: '#4f5044',
-  inkSubtle: '#6c6d60',
-  accent: '#3f6b12',
-  accentInk: '#3f6b12',
-  accentSoft: '#e7f0d6',
-  onAccent: '#ffffff',
-  onStatus: '#ffffff',
-  ack: '#0f7f74',
-  chart1: '#5a8a00',
-  chart2: '#0077b6',
-  chart3: '#c2338f',
-  chart4: '#1f8a4c',
-  chartGrid: '#e2dfd4',
-  status: {
-    up: '#1f8a4c',
-    warning: '#a35f00',
-    down: '#d03a24',
-    unreachable: '#6b4fd8',
-    unknown: '#5f6155',
-    paused: '#6c6e62',
-  },
-  statusSoft: {
-    up: '#dcf1e3',
-    warning: '#fbecd0',
-    down: '#fbe0da',
-    unreachable: '#ebe5fd',
-    unknown: '#e9e7df',
-    paused: '#eeece5',
-  },
-  ...FONTS,
-};
+/** The literal values of one theme, from the generated token table (src/styles/tokens.gen.ts). */
+function fromTable(theme: 'light' | 'dark'): ChartTokens {
+  const t = TOKEN_VALUES[theme] as Record<string, string>;
+  const c = TOKEN_CONSTANTS as Record<string, string>;
+  const out = {} as ChartTokens;
+  for (const [k, v] of Object.entries(VARS) as [keyof typeof VARS, string][]) {
+    out[k] = t[v] ?? c[v];
+  }
+  out.status = {} as Record<Status, string>;
+  out.statusSoft = {} as Record<Status, string>;
+  for (const s of STATUSES) {
+    out.status[s] = t[`status-${s}`];
+    out.statusSoft[s] = t[`status-${s}-soft`];
+  }
+  return out;
+}
 
-export const DARK_TOKENS: ChartTokens = {
-  bg: '#0c0d0a',
-  surface: '#141511',
-  surfaceRaised: '#1c1d18',
-  surfaceSunken: '#090a08',
-  border: '#2a2c24',
-  borderStrong: '#3d4035',
-  ink: '#ecebe4',
-  inkMuted: '#a3a395',
-  inkSubtle: '#85867a',
-  accent: '#b6e35a',
-  accentInk: '#b6e35a',
-  accentSoft: '#1f2612',
-  onAccent: '#11140b',
-  onStatus: '#0c0d0a',
-  ack: '#4fd6c8',
-  chart1: '#c4f03c',
-  chart2: '#5cc8ff',
-  chart3: '#ff8fd1',
-  chart4: '#4fd68a',
-  chartGrid: '#22241d',
-  status: {
-    up: '#4fd68a',
-    warning: '#ffb627',
-    down: '#ff5c49',
-    unreachable: '#b195ff',
-    unknown: '#8d8f82',
-    paused: '#808276',
-  },
-  statusSoft: {
-    up: '#12251a',
-    warning: '#2c2210',
-    down: '#331410',
-    unreachable: '#221c36',
-    unknown: '#1b1c17',
-    paused: '#171813',
-  },
-  ...FONTS,
-};
+export const LIGHT_TOKENS: ChartTokens = fromTable('light');
+export const DARK_TOKENS: ChartTokens = fromTable('dark');
 
 /**
  * The token values of the `dark` or light theme. Read live from <html> when that theme is the

@@ -11,17 +11,21 @@
     -webkit-font-smoothing: antialiased;
   }
   body {
-    background-color: var(--bg);
+    /* Premium page: a faint light from the top in light mode, true black in dark. */
+    background: linear-gradient(180deg, var(--bg-top), var(--bg) 420px) var(--bg);
     color: var(--ink);
-    font-family: var(--font-sans);
+    font: 400 15px/1.45 var(--font-sans);
   }
-  /* Hebrew text is set in Heebo (Barlow has no Hebrew glyphs). */
+  /* Hebrew text is set in Heebo first (Inter has no Hebrew glyphs). */
   html[lang='he'] body {
-    font-family: 'Heebo', var(--font-sans);
+    font-family: var(--font-hebrew);
   }
   :focus-visible {
     outline: 2px solid var(--focus);
-    outline-offset: 2px;
+    outline-offset: 3px;
+  }
+  ::selection {
+    background: var(--accent-soft);
   }
   ::placeholder {
     color: var(--ink-subtle);
@@ -33,13 +37,13 @@
   }
   input[type='file']::file-selector-button {
     margin-inline-end: 0.75rem;
-    height: 26px;
-    padding: 0 9px;
-    border: 1px solid var(--border-strong);
-    border-radius: var(--radius-md);
-    background: var(--surface);
+    height: 32px;
+    padding: 0 14px;
+    border: 0;
+    border-radius: var(--radius-full);
+    background: var(--chip);
     color: var(--ink);
-    font: 600 12px var(--font-sans);
+    font: 500 13.5px var(--font-sans);
     cursor: pointer;
   }
   /*
@@ -50,6 +54,52 @@
   select optgroup {
     background-color: var(--surface-raised);
     color: var(--ink);
+  }
+}
+
+/* Premium motion: one easing; everything off for prefers-reduced-motion. */
+@keyframes nm-page-in {
+  from {
+    opacity: 0;
+    transform: translateX(var(--nm-page-dx, 30px));
+  }
+}
+@keyframes nm-flow {
+  to {
+    stroke-dashoffset: -32;
+  }
+}
+@keyframes nm-beat {
+  50% {
+    transform: scale(1.5);
+    opacity: 0.6;
+  }
+}
+@keyframes nm-fade-in {
+  from {
+    opacity: 0;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
+}
+
+/* Numbers, names, IPs: Inter with tabular figures, isolated so they never flip in RTL. */
+@layer utilities {
+  .num {
+    font-family: var(--font-display);
+    font-variant-numeric: tabular-nums;
+  }
+  .stage-bg {
+    background:
+      radial-gradient(46% 62% at 50% 0%, var(--stage-glow) 0%, transparent 100%),
+      linear-gradient(180deg, var(--stage-top) 0%, var(--stage-mid) 58%, var(--stage-bottom) 100%);
   }
 }
 

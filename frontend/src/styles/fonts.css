@@ -1,15 +1,14 @@
 /*
- * Bundled fonts (the app runs on-prem, often offline: no Google Fonts).
- * Barlow for interface text, Barlow Condensed for numerals, Heebo for Hebrew, JetBrains Mono for
- * IPs/MACs/OIDs/times. Only the subsets the UI needs; unicode-range keeps downloads lazy.
+ * Bundled fonts (the app runs on-prem, often offline, under a strict CSP: no Google Fonts).
+ * Inter for interface text in English, names and numbers; Heebo for Hebrew; JetBrains Mono for
+ * config, OIDs and code. Only the subsets the UI needs; unicode-range keeps downloads lazy.
  */
-@import '@fontsource/barlow/latin-400.css';
-@import '@fontsource/barlow/latin-500.css';
-@import '@fontsource/barlow/latin-600.css';
-@import '@fontsource/barlow/latin-ext-400.css';
-@import '@fontsource/barlow/latin-ext-500.css';
-@import '@fontsource/barlow/latin-ext-600.css';
-@import '@fontsource/barlow-condensed/latin-600.css';
+@import '@fontsource/inter/latin-400.css';
+@import '@fontsource/inter/latin-500.css';
+@import '@fontsource/inter/latin-600.css';
+@import '@fontsource/inter/latin-ext-400.css';
+@import '@fontsource/inter/latin-ext-500.css';
+@import '@fontsource/inter/latin-ext-600.css';
 @import '@fontsource/heebo/hebrew-400.css';
 @import '@fontsource/heebo/hebrew-500.css';
 @import '@fontsource/heebo/hebrew-600.css';

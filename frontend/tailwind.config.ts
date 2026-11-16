@@ -1,6 +1,9 @@
 import type { Config } from 'tailwindcss';
 
-/** Design tokens (docs/design-system/tokens.json) as CSS variables from src/styles/tokens.css. */
+/**
+ * Design tokens (docs/design-system/tokens.json -> src/styles/tokens.css, `npm run tokens`) as
+ * Tailwind names. Every colour is a CSS variable, so components need no `dark:` variants.
+ */
 const v = (name: string) => `var(--${name})`;
 
 const STATUSES = ['up', 'warning', 'down', 'unreachable', 'unknown', 'paused'] as const;
@@ -12,20 +15,18 @@ for (const s of STATUSES) {
 
 const layout = {
   header: v('header-height'),
-  rail: v('rail-width'),
-  tree: v('tree-width'),
+  menu: v('menu-width'),
   row: v('row-height'),
 };
 
 export default {
   content: ['./index.html', './src/**/*.{ts,tsx}'],
-  // The tokens switch on the `dark` class of <html> (hooks/theme.tsx); components need no
-  // `dark:` colour variants.
+  // The tokens switch on the `dark` class of <html> (hooks/theme.tsx).
   darkMode: 'class',
   theme: {
     extend: {
       colors: {
-        bg: v('bg'),
+        bg: { DEFAULT: v('bg'), top: v('bg-top') },
         surface: {
           DEFAULT: v('surface'),
           raised: v('surface-raised'),
@@ -42,6 +43,7 @@ export default {
           field: v('chrome-field'),
           border: v('chrome-border'),
         },
+        chip: v('chip'),
         accent: {
           DEFAULT: v('accent'),
           hover: v('accent-hover'),
@@ -51,6 +53,7 @@ export default {
         },
         focus: v('focus'),
         nav: { active: v('nav-active'), 'active-ink': v('nav-active-ink') },
+        island: { DEFAULT: v('island'), ink: v('island-ink') },
         status: statusColors,
         ack: { DEFAULT: v('ack'), soft: v('ack-soft') },
         danger: v('danger'),
@@ -67,6 +70,7 @@ export default {
       },
       fontFamily: {
         sans: v('font-sans'),
+        hebrew: v('font-hebrew'),
         display: v('font-display'),
         mono: v('font-mono'),
       },
@@ -75,14 +79,16 @@ export default {
         sm: v('radius-sm'),
         md: v('radius-md'),
         lg: v('radius-lg'),
+        xl: v('radius-xl'),
         full: v('radius-full'),
       },
-      boxShadow: { pop: v('shadow-pop') },
+      boxShadow: { card: v('shadow-card'), pop: v('shadow-pop'), island: v('shadow-island') },
+      transitionTimingFunction: { premium: v('ease') },
       spacing: layout,
       width: layout,
       height: layout,
       inset: layout,
-      maxWidth: { content: v('content-max') },
+      maxWidth: { page: v('page-max'), content: v('content-max') },
       outlineColor: { focus: v('focus') },
       ringColor: { focus: v('focus') },
     },

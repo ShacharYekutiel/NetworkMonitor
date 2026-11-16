@@ -1,2 +1,3 @@
-# Generated from docs/design-system/tokens.json; keep byte-identical to the source.
+# Generated from docs/design-system/tokens.json (npm run tokens); keep byte-identical to the generator output.
 src/styles/tokens.css
+src/styles/tokens.gen.ts
