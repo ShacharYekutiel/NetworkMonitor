@@ -197,7 +197,7 @@ export function PortsTab({ device }: { device: Device }) {
                 </Button>
               )}
               <div
-                className="inline-flex gap-0.5 rounded-md border border-line-strong bg-surface-sunken p-0.5"
+                className="inline-flex gap-0.5 rounded-[11px] bg-chip p-[3px]"
                 role="tablist"
                 aria-label={t('ports.viewToggle')}
               >
@@ -211,7 +211,7 @@ export function PortsTab({ device }: { device: Device }) {
                     className={cx(
                       'inline-flex h-6 items-center gap-1.5 rounded-sm px-2.5 text-xs font-medium',
                       view === v
-                        ? 'bg-surface-raised text-ink ring-1 ring-line-strong'
+                        ? 'bg-surface text-ink shadow-[0_1px_3px_rgba(0,0,0,0.12)]'
                         : 'text-ink-muted hover:text-ink',
                     )}
                   >

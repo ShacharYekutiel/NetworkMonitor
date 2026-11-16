@@ -1,10 +1,9 @@
 import { useEffect, useRef, type ReactNode } from 'react';
-import { cx, tabClass, wrapTabClass } from './ui';
+import { cx, SEG_TRACK, tabClass, wrapTabClass } from './ui';
 
 /**
- * A row of tabs (role=tablist) under a page header. `wrap`: a long set (Settings) wraps onto
- * further rows instead of scrolling sideways; the tabs then become compact pills with the
- * selected one on the accent ground and underline (design system: Tabs, wrapped).
+ * A row of tabs (role=tablist) under a page header, drawn as the premium segmented control.
+ * `wrap`: a long set (Settings) wraps onto further rows as chips, the selected one in ink.
  */
 export function TabBar<T extends string>({
   tabs,
@@ -33,10 +32,7 @@ export function TabBar<T extends string>({
       ref={ref}
       role="tablist"
       aria-label={label}
-      className={cx(
-        'flex border-b border-line',
-        wrap ? 'flex-wrap gap-1 pb-2' : 'overflow-x-auto [scrollbar-width:thin]',
-      )}
+      className={wrap ? 'flex flex-wrap gap-1.5' : cx(SEG_TRACK, 'flex')}
     >
       {tabs.map((k) => (
         <button

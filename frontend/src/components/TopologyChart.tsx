@@ -4,7 +4,7 @@ import * as echarts from 'echarts/core';
 import { GraphChart } from 'echarts/charts';
 import { TooltipComponent } from 'echarts/components';
 import { CanvasRenderer } from 'echarts/renderers';
-import { initChart } from '../lib/echarts';
+import { flatTooltip, initChart } from '../lib/echarts';
 import { useTranslation } from 'react-i18next';
 import { escapeHtml } from '../lib/html';
 import type { LayoutPosition, TopologyGraph } from '../api/types';
@@ -217,8 +217,7 @@ export function TopologyChart({
       tooltip: {
         trigger: 'item' as const,
         confine: true,
-        backgroundColor: tk.surfaceRaised,
-        borderColor: tk.border,
+        ...flatTooltip(tk),
         textStyle: { color: tk.ink, fontSize: 12, fontFamily: tk.fontSans },
         formatter: (p: unknown) => {
           const params = p as { dataType?: string; data: Record<string, unknown> };

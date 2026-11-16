@@ -226,7 +226,7 @@ function Panel({
   className?: string;
 }) {
   return (
-    <section className={cx('min-w-0 rounded-lg border border-line bg-surface', className)}>
+    <section className={cx('min-w-0 rounded-xl bg-surface shadow-card', className)}>
       <h2 className="flex min-h-[56px] items-center border-b border-line px-5 text-xl font-semibold">
         {title}
       </h2>
@@ -417,7 +417,7 @@ function Widget({ w, v, now }: { w: KioskWidget; v: KioskView; now: number }) {
       return (
         <div className="grid grid-cols-2 gap-4 md:grid-cols-4 xl:grid-cols-6">
           {(v.group_tiles ?? []).map((g) => (
-            <div key={g.id} className="rounded-lg border border-line bg-surface p-4">
+            <div key={g.id} className="rounded-xl bg-surface shadow-card p-4">
               <div className="flex items-center gap-2">
                 <span className="truncate text-xl font-semibold">{g.name}</span>
               </div>

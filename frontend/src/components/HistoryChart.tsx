@@ -9,7 +9,7 @@ import {
   TooltipComponent,
 } from 'echarts/components';
 import { CanvasRenderer } from 'echarts/renderers';
-import { initChart } from '../lib/echarts';
+import { flatTooltip, initChart } from '../lib/echarts';
 import { useTranslation } from 'react-i18next';
 import { escapeHtml, historyTooltipHtml } from '../lib/html';
 import type { HistoryPoint, NmEvent, Status } from '../api/types';
@@ -97,8 +97,7 @@ export function HistoryChart({
         },
         tooltip: {
           trigger: 'axis',
-          backgroundColor: tk.surfaceRaised,
-          borderColor: tk.border,
+          ...flatTooltip(tk),
           textStyle: { color: tk.ink, fontSize: 12 },
           axisPointer: { lineStyle: { color: tk.inkMuted, width: 1 } },
           formatter: (params: unknown) => {
@@ -125,7 +124,9 @@ export function HistoryChart({
           type: 'time',
           min: Date.parse(from),
           max: Date.parse(to),
-          axisLine: { lineStyle: { color: grid } },
+          // flat: no axis line, no vertical grid, few faint horizontal lines
+          axisLine: { show: false },
+          axisTick: { show: false },
           axisLabel: {
             color: text,
             ...mono,
@@ -147,6 +148,7 @@ export function HistoryChart({
         yAxis: {
           type: 'value',
           scale: false,
+          splitNumber: 3,
           axisLabel: { color: text, ...mono, formatter: (v: number) => formatValue(v, unit) },
           splitLine: { lineStyle: { color: grid } },
         },
@@ -168,7 +170,7 @@ export function HistoryChart({
             data: band,
             stack: 'band',
             lineStyle: { opacity: 0 },
-            areaStyle: { color: line, opacity: 0.12 },
+            areaStyle: { color: line, opacity: 0.08 },
             itemStyle: { color: line, opacity: 0.4 },
             symbol: 'none',
             silent: true,
@@ -179,7 +181,7 @@ export function HistoryChart({
             type: 'line',
             data: avg,
             symbol: 'none',
-            lineStyle: { color: line, width: 1.75 },
+            lineStyle: { color: line, width: 2.2, join: 'round' },
             itemStyle: { color: line },
             connectNulls: false,
             markLine: marks.length

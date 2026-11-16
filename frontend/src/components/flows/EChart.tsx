@@ -8,7 +8,7 @@ import {
   TooltipComponent,
 } from 'echarts/components';
 import { CanvasRenderer } from 'echarts/renderers';
-import { initChart } from '../../lib/echarts';
+import { flatTooltip, initChart } from '../../lib/echarts';
 import type { EChartsCoreOption } from 'echarts/core';
 import { chartTokens } from '../../lib/chartTokens';
 import { useTheme } from '../../hooks/theme';
@@ -75,8 +75,7 @@ export function EChart({
       ...(o.tooltip
         ? {
             tooltip: {
-              backgroundColor: tk.surfaceRaised,
-              borderColor: tk.border,
+              ...flatTooltip(tk),
               textStyle: { color: tk.ink, fontSize: 12 },
             },
           }

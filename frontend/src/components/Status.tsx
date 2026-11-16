@@ -62,7 +62,7 @@ export function StatusBadge({
     <span
       aria-label={labelled ? t(`status.${status}`) : undefined}
       className={cx(
-        'inline-flex h-5 items-center gap-1 whitespace-nowrap rounded-sm pe-[7px] ps-[5px] text-xs font-semibold',
+        'inline-flex h-[22px] items-center gap-1 whitespace-nowrap rounded-full pe-2 ps-1.5 text-xs font-semibold',
         statusClass(status, STATUS_SOFT),
       )}
     >
@@ -84,7 +84,7 @@ export function StatusCountPills({ counts }: { counts: StatusCounts }) {
           key={s}
           title={t(`status.${s}`)}
           className={cx(
-            'inline-flex h-[18px] min-w-[20px] items-center justify-center whitespace-nowrap rounded-sm px-[5px] font-mono text-[11px] font-bold tabular-nums',
+            'num inline-flex h-5 min-w-[22px] items-center justify-center whitespace-nowrap rounded-full px-[7px] text-xs font-semibold',
             statusClass(s, STATUS_BADGE),
           )}
         >
@@ -99,9 +99,9 @@ export function StatusCountPills({ counts }: { counts: StatusCounts }) {
 export function StatusBar({ counts, thin }: { counts: StatusCounts; thin?: boolean }) {
   const { t } = useTranslation();
   const h = thin ? 'h-1.5' : 'h-2';
-  if (!counts.total) return <div className={cx(h, 'rounded-sm bg-surface-sunken')} />;
+  if (!counts.total) return <div className={cx(h, 'rounded-full bg-chip')} />;
   return (
-    <div className={cx(h, 'flex gap-0.5 overflow-hidden rounded-sm bg-surface-sunken')}>
+    <div className={cx(h, 'flex gap-0.5 overflow-hidden rounded-full bg-chip')}>
       {ORDER.map((s) =>
         counts[s] ? (
           <div
@@ -121,15 +121,6 @@ function isTileHot(s: Status): boolean {
   return s === 'down' || s === 'warning' || s === 'unreachable';
 }
 
-const STATUS_SOFT_BG: Record<Status, string> = {
-  down: 'bg-status-down-soft',
-  warning: 'bg-status-warning-soft',
-  unreachable: 'bg-status-unreachable-soft',
-  unknown: 'bg-status-unknown-soft',
-  paused: 'bg-status-paused-soft',
-  up: 'bg-status-up-soft',
-};
-
 function StatusTile({ status, value }: { status: Status | 'total'; value: number }) {
   const { t } = useTranslation();
   const hot = status !== 'total' && value > 0 && isTileHot(status);
@@ -137,46 +128,40 @@ function StatusTile({ status, value }: { status: Status | 'total'; value: number
   return (
     <div
       className={cx(
-        'min-w-0 px-4 pb-2.5 pt-3',
-        hot ? STATUS_SOFT_BG[status as Status] : 'bg-surface',
+        'grid min-w-0 justify-items-center gap-0.5 px-3 py-4',
         status === 'total' && 'col-span-2 xl:col-span-1',
       )}
     >
-      {/* Value first in the DOM ("392 Up"), the label is shown above it. */}
-      <div className="flex flex-col-reverse gap-2 rounded-lg">
-        <div
-          className={cx(
-            'font-display text-[34px] font-semibold leading-9 tracking-[-0.01em] tabular-nums',
-            hot ? statusClass(status, STATUS_TEXT) : zero ? 'text-ink-subtle' : 'text-ink',
-          )}
-        >
-          {value}
-        </div>
-        <div className="flex min-w-0 items-center gap-[7px] text-[13px] font-medium leading-4 text-ink-muted">
-          {status !== 'total' && (
-            <span
-              className={cx('h-2 w-2 shrink-0 rounded-full', statusClass(status, STATUS_DOT))}
-            />
-          )}
-          <span className="truncate">
-            {status === 'total' ? t('dashboard.total') : t(`status.${status}`)}
-          </span>
-        </div>
+      {/* Value first in the DOM ("392 Up"), the label under it (prototype .counts). */}
+      <div
+        className={cx(
+          'num text-[clamp(28px,3vw,38px)] font-medium leading-[1.05] tracking-[-0.03em]',
+          hot ? statusClass(status, STATUS_TEXT) : zero ? 'text-ink-subtle' : 'text-ink',
+        )}
+      >
+        {value}
+      </div>
+      <div className="flex min-w-0 items-center gap-1.5 text-sm text-ink-muted">
+        {status !== 'total' && (
+          <span className={cx('h-2 w-2 shrink-0 rounded-full', statusClass(status, STATUS_DOT))} />
+        )}
+        <span className="truncate">
+          {status === 'total' ? t('dashboard.total') : t(`status.${status}`)}
+        </span>
       </div>
     </div>
   );
 }
 
 /**
- * Counter tiles joined into one strip divided by hairlines (design system: StatusCounters),
- * worst first; problem tiles take their soft ground. `total` adds a seventh tile.
+ * Counters in a row divided by hairlines (prototype .counts), worst first; numbers in their status
+ * colour when non-zero. `total` adds a seventh counter.
  */
 export function StatusTiles({ counts, total }: { counts: StatusCounts; total?: boolean }) {
   return (
-    // The 1px gaps show the border colour as hairlines.
     <div
       className={cx(
-        'grid grid-cols-2 gap-px overflow-hidden rounded-lg border border-line bg-line sm:grid-cols-3',
+        'grid grid-cols-2 overflow-hidden rounded-xl bg-surface shadow-card sm:grid-cols-3 [&>div+div]:border-s [&>div+div]:border-line',
         total ? 'md:grid-cols-4 xl:grid-cols-7' : 'xl:grid-cols-6',
       )}
     >

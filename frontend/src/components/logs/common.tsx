@@ -86,7 +86,7 @@ export function TimeRangeSelect({
   return (
     <div className="flex flex-wrap items-center gap-1.5">
       <div
-        className="inline-flex gap-0.5 self-start rounded-md border border-line-strong bg-surface-sunken p-0.5"
+        className="inline-flex gap-0.5 self-start rounded-[11px] bg-chip p-[3px]"
         role="group"
         aria-label={t('logs.range')}
       >
@@ -97,9 +97,9 @@ export function TimeRangeSelect({
             aria-pressed={filter.preset === p}
             onClick={() => onChange({ preset: p })}
             className={cx(
-              'h-6 whitespace-nowrap rounded-sm px-2.5 text-xs font-medium',
+              'h-7 whitespace-nowrap rounded-[8px] px-3 text-[13px] font-medium transition-colors',
               filter.preset === p
-                ? 'bg-surface-raised text-ink ring-1 ring-line-strong'
+                ? 'bg-surface text-ink shadow-[0_1px_3px_rgba(0,0,0,0.12)]'
                 : 'text-ink-muted hover:text-ink',
             )}
           >

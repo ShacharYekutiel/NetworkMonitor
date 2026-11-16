@@ -3,7 +3,7 @@ import * as echarts from 'echarts/core';
 import { BarChart } from 'echarts/charts';
 import { GridComponent, TooltipComponent } from 'echarts/components';
 import { CanvasRenderer } from 'echarts/renderers';
-import { initChart } from '../../lib/echarts';
+import { flatTooltip, initChart } from '../../lib/echarts';
 import { useTranslation } from 'react-i18next';
 import { useTheme } from '../../hooks/theme';
 import { histogramTooltipHtml } from '../../lib/html';
@@ -69,8 +69,7 @@ export function Histogram({
         grid: { left: 40, right: 12, top: 8, bottom: 24 },
         tooltip: {
           trigger: 'axis',
-          backgroundColor: tk.surfaceRaised,
-          borderColor: tk.border,
+          ...flatTooltip(tk),
           textStyle: { color: tk.ink, fontSize: 12 },
           axisPointer: { type: '' },
           formatter: (params: unknown) => {

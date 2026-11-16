@@ -71,7 +71,7 @@ function ConversationList({ activeId, onNew }: { activeId: number | null; onNew:
   });
   return (
     <aside
-      className="flex min-h-0 flex-col rounded-lg border border-line bg-surface lg:w-72 lg:shrink-0"
+      className="flex min-h-0 flex-col rounded-xl bg-surface shadow-card lg:w-72 lg:shrink-0"
       aria-label={t('assistant.history')}
     >
       <div className="flex items-center gap-2 border-b border-line p-2">
@@ -333,7 +333,7 @@ export function AssistantPage() {
             navigate('/assistant');
           }}
         />
-        <section className="flex min-h-[60vh] min-w-0 flex-1 flex-col rounded-lg border border-line bg-surface">
+        <section className="flex min-h-[60vh] min-w-0 flex-1 flex-col rounded-xl bg-surface shadow-card">
           <div className="min-h-0 flex-1 space-y-4 overflow-y-auto p-4" data-testid="conversation">
             {empty && (
               <div className="space-y-3">

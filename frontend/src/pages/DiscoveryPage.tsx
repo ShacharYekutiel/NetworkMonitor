@@ -39,6 +39,7 @@ import {
   TruncLtr,
   Value,
   tabClass,
+  SEG_TRACK,
 } from '../components/ui';
 import { useTree } from '../hooks/queries';
 import {
@@ -755,7 +756,7 @@ export function DiscoveryPage() {
   return (
     <div className="space-y-4">
       <PageHeader title={t('discovery.title')} subtitle={t('discovery.subtitle')} />
-      <div role="tablist" className="flex overflow-x-auto border-b border-line">
+      <div role="tablist" className={cx(SEG_TRACK, 'flex')}>
         {(['scans', 'profiles'] as const).map((x) => (
           <button
             key={x}

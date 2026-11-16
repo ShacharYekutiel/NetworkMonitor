@@ -117,7 +117,7 @@ export function GlobalMaintenanceBanner() {
   return (
     <div
       role="status"
-      className="flex flex-wrap items-center gap-x-3 gap-y-1 border-b border-line bg-accent-soft px-4 py-[9px] text-[13px] text-ink lg:px-7"
+      className="mx-auto mt-2 flex max-w-page flex-wrap items-center gap-x-3 gap-y-1 rounded-full bg-accent-soft px-5 py-2.5 text-sm text-ink"
     >
       <WrenchIcon size={16} strokeWidth={1.75} className="shrink-0 text-accent-ink" />
       <span dir="auto">
@@ -367,10 +367,7 @@ export function MaintenanceWindowModal({
             </Field>
           )}
           <FieldGroup label={t('maintenance.kind')} className="sm:col-span-2">
-            <div
-              className="inline-flex gap-0.5 rounded-md border border-line-strong bg-surface-sunken p-0.5"
-              role="group"
-            >
+            <div className="inline-flex gap-0.5 rounded-[11px] bg-chip p-[3px]" role="group">
               {(['once', 'weekly'] as const).map((k) => (
                 <button
                   key={k}
@@ -378,7 +375,7 @@ export function MaintenanceWindowModal({
                   aria-pressed={f.kind === k}
                   onClick={() => set('kind', k)}
                   className={cx(
-                    'h-6 rounded-sm px-2.5 text-xs font-medium',
+                    'h-7 rounded-[8px] px-3 text-[13px] font-medium transition-colors',
                     f.kind === k
                       ? 'bg-surface-raised text-ink shadow-[0_0_0_1px_var(--border-strong)]'
                       : 'text-ink-muted hover:text-ink',

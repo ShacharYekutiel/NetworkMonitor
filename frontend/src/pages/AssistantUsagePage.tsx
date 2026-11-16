@@ -5,7 +5,7 @@ import * as echarts from 'echarts/core';
 import { BarChart } from 'echarts/charts';
 import { GridComponent, LegendComponent, TooltipComponent } from 'echarts/components';
 import { CanvasRenderer } from 'echarts/renderers';
-import { initChart } from '../lib/echarts';
+import { flatTooltip, initChart } from '../lib/echarts';
 import { endpoints3b, qk3b } from '../api/endpoints3b';
 import { usageTooltipHtml } from '../lib/html';
 import { chartTokens } from '../lib/chartTokens';
@@ -80,8 +80,7 @@ function DailyBars({ r, month }: { r: UsageReport; month: string }) {
         },
         tooltip: {
           trigger: 'axis',
-          backgroundColor: tk.surfaceRaised,
-          borderColor: tk.border,
+          ...flatTooltip(tk),
           textStyle: { color: tk.ink, fontSize: 12 },
           axisPointer: { type: 'shadow', shadowStyle: { color: tk.surfaceSunken, opacity: 0.6 } },
           formatter: (params: unknown) => {
