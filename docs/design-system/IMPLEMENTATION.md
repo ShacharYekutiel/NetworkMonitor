@@ -1,5 +1,7 @@
 # Implementing the design system in `frontend/`
 
+> **Superseded on look:** the approved direction is now `premium/` — see [`premium/BUILD.md`](premium/BUILD.md) and `premium/prototype.html`. Keep using this file for i18n/wording/accessibility rules.
+
 Handoff for the frontend developer. The visual design of NetworkMonitor lives in this folder; the app in
 `frontend/` does not use it yet. This document says what to read, in what order to build, and when it is done.
 
