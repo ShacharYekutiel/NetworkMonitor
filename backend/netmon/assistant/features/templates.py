@@ -151,7 +151,7 @@ async def typed_walk(
 
     from netmon.poller import snmp_client as sc
 
-    engine = await sc._get_engine(creds)  # noqa: SLF001 - reuse the poller's engine cache
+    engine = await sc._get_engine(creds, host)  # noqa: SLF001 - reuse the poller's engine cache
     target = await sc._target(host, creds)  # noqa: SLF001
     auth = sc._auth_data(creds)  # noqa: SLF001
     obj = h.ObjectType(h.ObjectIdentity(base_oid))
@@ -183,6 +183,7 @@ async def typed_walk(
                 if err_status.prettyPrint() == "noSuchName":
                     break
                 raise sc.SnmpError(f"SNMP error: {err_status.prettyPrint()}")
+            sc.mark_answered(creds, host)
             for oid, val in var_binds:
                 soid = str(oid)
                 if not soid.startswith(prefix) or _type_name(val) == "EndOfMibView":
