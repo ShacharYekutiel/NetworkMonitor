@@ -56,7 +56,7 @@ export function looksLikeDn(s: string): boolean {
     );
 }
 
-/** "DC=mnidom,DC=net" from "mnidom.net". */
+/** "DC=example,DC=net" from "example.net". */
 export function baseDnFromDomain(domain: string): string {
   return domain
     .trim()

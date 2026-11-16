@@ -98,7 +98,7 @@ test('run 2: Intel MAC alerted with IP + hostname, HP OUI allowed, random/uplink
   const by = Object.fromEntries(all.map((r) => [r.mac, r]));
   expect(by[INTEL]).toMatchObject({
     state: 'new', first_device_name: 'newdev-access', first_port_name: '3', first_vlan: 20,
-    first_ip: '10.0.20.57', first_hostname: 'pc-1234.mnidom.net', locally_administered: false,
+    first_ip: '10.0.20.57', first_hostname: 'pc-1234.example.net', locally_administered: false,
   });
   expect(by[INTEL].vendor ?? '').toMatch(/intel/i);
   expect(by[INTEL].detected_at).not.toBeNull();
@@ -115,7 +115,7 @@ test('run 2: Intel MAC alerted with IP + hostname, HP OUI allowed, random/uplink
   expect(msgs.filter((m) => /^\+6 more new devices on newdev-access/.test(m))).toHaveLength(1);
   const intelMsg = msgs.find((m) => m.includes(INTEL));
   expect(intelMsg, 'the Intel MAC is among the 20 detailed events (or the summary covers it)').toBeTruthy();
-  expect(intelMsg).toMatch(/New device 00:1b:21:aa:00:01 \(Intel.*\) on newdev-access port 3, VLAN 20, 10\.0\.20\.57 pc-1234\.mnidom\.net/);
+  expect(intelMsg).toMatch(/New device 00:1b:21:aa:00:01 \(Intel.*\) on newdev-access port 3, VLAN 20, 10\.0\.20\.57 pc-1234\.example\.net/);
   await expect.poll(async () => (await newMacSensor())?.id ?? 0, { timeout: 30_000, message: 'new_mac sensor exists after detection' }).toBeGreaterThan(0);
   sensorId = (await newMacSensor()).id;
   const s = await api.get(`/api/sensors/${sensorId}`);
@@ -137,7 +137,7 @@ test('UI: Detected tab lists the Intel device ltr; acknowledge as known (bulk) c
   const row = page.getByRole('row').filter({ hasText: INTEL });
   await expect(row).toBeVisible({ timeout: 20_000 });
   await expect(row).toContainText('10.0.20.57');
-  await expect(row).toContainText('pc-1234.mnidom.net');
+  await expect(row).toContainText('pc-1234.example.net');
   expect(await row.getByText(INTEL).evaluate((el) => getComputedStyle(el).direction)).toBe('ltr');
   await shot3(page, '55-new-devices');
   await row.getByRole('button', { name: tx('newDevices.acknowledge', /acknowledge as known/i) }).click();

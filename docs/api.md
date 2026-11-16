@@ -1530,8 +1530,8 @@ type User = { /* Phase 1 fields */ source: "local" | "ldap"; display_name: strin
   "syslog_tcp": ReceiverState}` with `ReceiverState = "listening" | "disabled" | "error"`.
 
 ### [2b-3] Feature toggles and settings
-- `GET /api/settings/public` gains `features: Features` and `ldap: {"domain": "mnidom.net", "netbios_domain":
-  "MNIDOM"} | null` (null while `ldap` is OFF).
+- `GET /api/settings/public` gains `features: Features` and `ldap: {"domain": "example.net", "netbios_domain":
+  "EXAMPLE"} | null` (null while `ldap` is OFF).
 - `Settings` gains every key of data-model § Settings keys. Changes go through `PUT /api/settings` (partial
   merge). `feature_*_enabled` changes are applied at runtime and broadcast as `features.changed`. Unknown
   keys are ignored (not stored, no 422) — this includes `feature_teams_enabled` / `feature_api_tokens_enabled`
@@ -1558,15 +1558,15 @@ type User = { /* Phase 1 fields */ source: "local" | "ldap"; display_name: strin
      "auth_key": null, "auth_key_set": true, "priv_protocol": "AES128", "priv_key": null, "priv_key_set": true } ],
   "ingest_unknown_sources": "store", "ingest_ignored_sources": ["10.9.0.0/16"],
   "flap_threshold": 5, "flap_window_min": 10, "flap_quiet_min": 15, "event_linkdown_scope": "important",
-  "siem_targets": [ { "id": "a1b2c3", "name": "QRadar", "enabled": true, "host": "siem.mnidom.net", "port": 6514,
+  "siem_targets": [ { "id": "a1b2c3", "name": "QRadar", "enabled": true, "host": "siem.example.net", "port": 6514,
      "protocol": "tls", "tls_verify": true, "kinds": ["syslog","trap"], "min_severity": 7, "sources": [],
      "include_unknown": false } ],
-  "ldap": { "servers": ["dc1.mnidom.net","dc2.mnidom.net"], "security": "ldaps", "tls_verify": true,
-     "domain": "mnidom.net", "netbios_domain": "MNIDOM", "base_dn": "DC=mnidom,DC=net",
-     "bind_dn": "svc-netmon@mnidom.net", "bind_password": null, "bind_password_set": true,
+  "ldap": { "servers": ["dc1.example.net","dc2.example.net"], "security": "ldaps", "tls_verify": true,
+     "domain": "example.net", "netbios_domain": "EXAMPLE", "base_dn": "DC=example,DC=net",
+     "bind_dn": "svc-netmon@example.net", "bind_password": null, "bind_password_set": true,
      "bind_password_unreadable": false,
-     "admin_group_dn": "CN=NetMon-Admins,OU=Groups,DC=mnidom,DC=net",
-     "viewer_group_dn": "CN=NetMon-Viewers,OU=Groups,DC=mnidom,DC=net", "timeout_s": 5 } }
+     "admin_group_dn": "CN=NetMon-Admins,OU=Groups,DC=example,DC=net",
+     "viewer_group_dn": "CN=NetMon-Viewers,OU=Groups,DC=example,DC=net", "timeout_s": 5 } }
 ```
 
 ### [2b-3] Cursor pages (traps, syslog, timeline)
@@ -1707,7 +1707,7 @@ type EventCondition = { id: number; source: "rule" | "flap"; rule_id: number | n
           { "title": "Status", "value": "up → down" }, { "title": "Device", "value": "core-sw (10.0.0.2)" },
           { "title": "Sensor", "value": "Ping" }, { "title": "Message", "value": "Host unreachable" },
           { "title": "Since", "value": "2026-11-08 12:00 (Asia/Jerusalem)" }, { "title": "Rule", "value": "All down" } ] } ],
-      "actions": [ { "type": "Action.OpenUrl", "title": "Open in NetworkMonitor", "url": "https://netmon.mnidom.net/sensors/7" } ] } } ] }
+      "actions": [ { "type": "Action.OpenUrl", "title": "Open in NetworkMonitor", "url": "https://netmon.example.net/sensors/7" } ] } } ] }
 ```
   `color`: `Attention` down, `Warning` warning/escalation/reminder, `Good` recovery; the title prefix follows the
   existing stage subjects (`ESCALATION:`, `REMINDER:`, `RECOVERED:`); Hebrew texts when `default_language = he`
@@ -1732,7 +1732,7 @@ Login failure reasons (audit `reason`): `bad_password`, `unknown_user`, `inactiv
 | `POST /api/ldap/test-user` | admin | `{"username": "jdoe", "password": "…", "ldap": <optional partial>}` | `200 LdapUserTestResult` (no user is created; counts toward the directory guard; the password is never logged or audited) |
 
 ```ts
-type LdapServerResult = { server: string;           // "dc1.mnidom.net:636"
+type LdapServerResult = { server: string;           // "dc1.example.net:636"
   ok: boolean; security: "ldaps" | "starttls"; latency_ms: number | null;
   tls: { subject: string; issuer: string; not_after: string; verified: boolean } | null;
   active_directory: boolean;                         // rootDSE supportedCapabilities has 1.2.840.113556.1.4.800
@@ -1939,7 +1939,7 @@ type FlowStatus = { receivers: ReceiverStatus[];           // kinds "netflow" | 
 type FlowQuery = { exporter_id?: number; device_id?: number; if_index?: number; direction?: "in" | "out";
   since?: string; until?: string; limit?: number };        // limit 1–100, default 10; range ≤ 31 d (conversations ≤ 24 h)
 type FlowTopItem = { key: string;                          // ip / "tcp/443" / conversation key
-  label: string;                                          // "10.0.0.9 (srv1.mnidom.net)" / "https (tcp/443)"
+  label: string;                                          // "10.0.0.9 (srv1.example.net)" / "https (tcp/443)"
   ip?: string; hostname?: string | null; device_id?: number | null;     // talkers
   protocol?: number; port?: number; app?: string | null;                // applications
   src_ip?: string; dst_ip?: string; src_port?: number; dst_port?: number; in_if?: number; out_if?: number;  // conversations
@@ -2002,7 +2002,7 @@ Excluding ports: `PATCH /api/devices/{id}` `newdev_excluded_ports`.
 | Method & path | Role | Request | Response |
 |---|---|---|---|
 | `GET /api/auth/sso/kerberos` | public | header `Authorization: Negotiate <b64>` (optional) | no header → `401` `WWW-Authenticate: Negotiate`, error body `{"code": "sso_challenge"}`; valid → `200 {"user": User}` + session cookie (+ `WWW-Authenticate: Negotiate <mutual>` when the context produced a token); NTLM → `401 sso_ntlm` **without** a new challenge; invalid → `401 sso_failed` without a challenge; AD lookup failures as 2b-3 (`401 invalid_credentials` mapped to `sso_failed`, `503 directory_unavailable`); throttled with the 2b-3 IP throttle (failures only) |
-| `GET /api/sso/kerberos` | admin | — | `{"realms": ["MNIDOM.NET"], "auto_login": true, "keytab_set": true, "keytab_uploaded_at": "…", "keytab_entries": [{"principal": "HTTP/netmonitor.mnidom.net@MNIDOM.NET", "kvno": 3, "enctype": 18, "enctype_name": "aes256-cts-hmac-sha1-96"}], "warnings": ["rc4_only" \| "no_http_principal"], "platform_supported": true, "state": "ready" \| "unavailable" \| "disabled" \| "error", "error": null}` |
+| `GET /api/sso/kerberos` | admin | — | `{"realms": ["EXAMPLE.NET"], "auto_login": true, "keytab_set": true, "keytab_uploaded_at": "…", "keytab_entries": [{"principal": "HTTP/netmonitor.example.net@EXAMPLE.NET", "kvno": 3, "enctype": 18, "enctype_name": "aes256-cts-hmac-sha1-96"}], "warnings": ["rc4_only" \| "no_http_principal"], "platform_supported": true, "state": "ready" \| "unavailable" \| "disabled" \| "error", "error": null}` |
 | `PUT /api/sso/kerberos` | admin | `{"realms": [...], "auto_login": true}` | same shape |
 | `POST /api/sso/kerberos/keytab` | admin | `multipart/form-data` field `file` (≤ 64 KiB) | same shape; `422 invalid_keytab`; audited `sso.keytab_upload` (no content) |
 | `DELETE /api/sso/kerberos/keytab` | admin | — | same shape (feature turned OFF first → else `409 conflict`) |
@@ -2016,7 +2016,7 @@ The `/api/sso/kerberos*` admin endpoints work while the feature is OFF (prepare 
 |---|---|---|---|
 | `GET /api/auth/oidc/start` | public | Query `next` (relative path, default `/`) | `302` to the authorize endpoint + `Set-Cookie: netmon_oidc=…`; OFF → `409` JSON |
 | `GET /api/auth/oidc/callback` | public | Query `code`, `state` (or `error`, `error_description`) | success: `200 text/html` (sets the session cookie, navigates to `next`); failure: `302 /login?sso_error=<code>` with code ∈ `sso_failed`, `sso_conflict`, `not_in_group`, `oidc_group_overage`, `oidc_error`, `feature_disabled`, `inactive` |
-| `GET /api/sso/oidc` | admin | — | `{"tenant_id": "…", "client_id": "…", "client_secret": null, "client_secret_set": true, "client_secret_expires_at": null, "role_source": "app_roles", "admin_values": [...], "viewer_values": [...], "button_label": null, "redirect_uri": "https://netmonitor.mnidom.net/api/auth/oidc/callback"}` (`redirect_uri` from `public_base_url`, else from the request) |
+| `GET /api/sso/oidc` | admin | — | `{"tenant_id": "…", "client_id": "…", "client_secret": null, "client_secret_set": true, "client_secret_expires_at": null, "role_source": "app_roles", "admin_values": [...], "viewer_values": [...], "button_label": null, "redirect_uri": "https://netmonitor.example.net/api/auth/oidc/callback"}` (`redirect_uri` from `public_base_url`, else from the request) |
 | `PUT /api/sso/oidc` | admin | the writable fields (secret rules) | same shape |
 | `POST /api/sso/oidc/test` | admin | — | `200 {"ok": true, "issuer": "…", "jwks_keys": 3, "latency_ms": 420}`; `502 oidc_error` |
 
@@ -2067,7 +2067,7 @@ type ReportData = { generated_at: string; period_start: string; period_end: stri
 | `GET /api/reports/runs` | viewer | Query `report_id`, `page`, `page_size` | page of `ReportRun`, newest first |
 | `GET /api/reports/runs/{id}` | viewer | — | `ReportRun & {"data": ReportData}` |
 | `GET /api/reports/runs/{id}/html` | viewer | — | `200 text/html; charset=utf-8`, attachment `netmon-report-<name>-<yyyymmdd>.html` (self-contained, the email body) |
-| `POST /api/reports/runs/{id}/resend` | admin | `{"targets": ["email:ops@mnidom.net", "channel:4"]}` (default: the failed ones) | `202 ReportRun` |
+| `POST /api/reports/runs/{id}/resend` | admin | `{"targets": ["email:ops@example.net", "channel:4"]}` (default: the failed ones) | `202 ReportRun` |
 
 WS: `report.run` `{"run": ReportRun}` on start/finish (admins and viewers).
 
@@ -2077,7 +2077,7 @@ Management (admin):
 | Method & path | Request | Response |
 |---|---|---|
 | `GET /api/kiosk-screens` | — | `{"items": KioskScreen[]}` |
-| `POST /api/kiosk-screens` | writable fields | `201 {"token": "nmk_…", "url": "https://netmonitor.mnidom.net/noc#nmk_…", "item": KioskScreen}` — token shown only here; `url` null without `public_base_url` (the UI builds it from `location.origin`) |
+| `POST /api/kiosk-screens` | writable fields | `201 {"token": "nmk_…", "url": "https://netmonitor.example.net/noc#nmk_…", "item": KioskScreen}` — token shown only here; `url` null without `public_base_url` (the UI builds it from `location.origin`) |
 | `PATCH /api/kiosk-screens/{id}` | subset | `KioskScreen` (open kiosk WS connections receive `kiosk.refresh`) |
 | `POST /api/kiosk-screens/{id}/regenerate` | — | `{"token", "url", "item"}`; old token invalid immediately (WS closed 4403) |
 | `DELETE /api/kiosk-screens/{id}` | — | `204` |
@@ -2124,7 +2124,7 @@ API tokens (2b-3) are refused on `/api/chat-ack/*` and `/api/chat-links*` (`403 
 
 **Telegram message additions** (problem/escalation/reminder, `chat_ack` ON): `sendMessage` gains `"reply_markup":
 {"inline_keyboard": [[{"text": "Acknowledge", "callback_data": "a1.…"}]]}` (`ack_buttons`) or `[[{"text":
-"Acknowledge", "url": "https://netmonitor.mnidom.net/ack#a1.…"}]]` (`ack_link`). After a press:
+"Acknowledge", "url": "https://netmonitor.example.net/ack#a1.…"}]]` (`ack_link`). After a press:
 `answerCallbackQuery {"callback_query_id", "text": "Acknowledged" | <reason>, "show_alert": <refusal>}` and
 `editMessageReplyMarkup {"chat_id", "message_id", "reply_markup": {"inline_keyboard": [[{"text": "✓ jdoe 12:03",
 "callback_data": "noop"}]]}}`. Reason texts (en/he): not linked → "Your Telegram account is not linked to
@@ -2132,7 +2132,7 @@ NetworkMonitor (My profile → Chat accounts)", not admin → "Only administrato
 stale / already acknowledged.
 
 **Teams card addition:** `actions` gains, before "Open in NetworkMonitor", `{"type": "Action.OpenUrl", "title":
-"Acknowledge" | "אישור טיפול", "url": "https://netmonitor.mnidom.net/ack#a1.…"}` (`ack_link`, stages
+"Acknowledge" | "אישור טיפול", "url": "https://netmonitor.example.net/ack#a1.…"}` (`ack_link`, stages
 problem/escalation/reminder). **Email:** a button-styled link "Acknowledge" with the same URL (`ack_link`).
 **Webhook:** `ack_url` (see Type changes).
 
@@ -2289,7 +2289,7 @@ type AssistantTestResult = { ok: boolean; test_id: string | null; expires_at: st
 | `POST /api/assistant/test` | `{"settings": <partial writable fields, optional>}` merged over stored | `200 AssistantTestResult` (also when `ok` is false — the step carries the code); `429 rate_limited` (10 per admin per 10 min); audited `assistant.test` |
 | `POST /api/assistant/cert` | `multipart/form-data`: `file` (PEM cert[+chain] or `.pfx`/`.p12`, ≤ 64 KiB), `key` (PEM, optional with PEM), `password` (optional) | `200 CertInfo`; `422 invalid_certificate` / `invalid_private_key` / `key_mismatch`; audited `assistant.cert_upload` (metadata) — refused `409 conflict` when host files are configured |
 | `DELETE /api/assistant/cert` | — | `204`; `409 conflict` while `assistant` is ON with `auth_mode = roles_anywhere`; audited |
-| `POST /api/assistant/cert/csr` | `{"common_name": "netmonitor-bedrock.mnidom.net", "key_type": "rsa" \| "ec", "key_size": 2048 \| 3072 \| 4096 \| 256 \| 384 \| null, "organization": null, "organizational_unit": null}` | `200 {"subject", "created_at", "pem"}` — key generated and kept on the server (encrypted, never returned); replaces a pending CSR; `409 conflict` with host files; audited `assistant.csr_create`. Then `POST /api/assistant/cert` with only `file` (the issued certificate) uses the pending key (`422 key_mismatch` when it does not match) and clears the CSR |
+| `POST /api/assistant/cert/csr` | `{"common_name": "netmonitor-bedrock.example.net", "key_type": "rsa" \| "ec", "key_size": 2048 \| 3072 \| 4096 \| 256 \| 384 \| null, "organization": null, "organizational_unit": null}` | `200 {"subject", "created_at", "pem"}` — key generated and kept on the server (encrypted, never returned); replaces a pending CSR; `409 conflict` with host files; audited `assistant.csr_create`. Then `POST /api/assistant/cert` with only `file` (the issued certificate) uses the pending key (`422 key_mismatch` when it does not match) and clears the CSR |
 | `GET /api/assistant/cert/csr` | — | `200 application/pkcs10` (`attachment; filename="netmonitor-bedrock.csr"`); `404` when none |
 | `DELETE /api/assistant/cert/csr` | — | `204` (discard the pending CSR and its key); audited `assistant.csr_delete` |
 | `POST /api/assistant/models` | `{"settings": <partial, optional>}` | `200 {"items": [{"id": "eu.anthropic.claude-…", "name": "…", "kind": "inference_profile" \| "foundation_model", "streaming": true, "status": "ACTIVE"}], "error": null}` (Anthropic only); on failure `200 {"items": [], "error": {"code", "message"}}` |

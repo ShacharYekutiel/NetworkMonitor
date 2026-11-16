@@ -554,7 +554,7 @@ async def test_migration_0007_up_down_up(mode: str, rt: Runtime) -> None:
                 )
             await conn.execute(
                 "INSERT INTO users (username, source, display_name) VALUES "
-                "('jane@mnidom.net', 'oidc', 'J')"
+                "('jane@example.net', 'oidc', 'J')"
             )
             await conn.execute(
                 "INSERT INTO audit_log (actor_type, action, source) VALUES "

@@ -18,7 +18,7 @@ interface 3
    name "pc-1234"
    exit
 snmp-server community "Pr1vateCommunity" unrestricted
-snmp-server contact "it@mnidom.net"
+snmp-server contact "it@example.net"
 snmp-server location "Floor 2"
 radius-server host 10.0.0.20 key "R4diusSecret"
 oobm

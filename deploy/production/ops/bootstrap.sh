@@ -81,7 +81,7 @@ PROXY_HTTPS="${PROXY_HTTPS:-$PROXY_HTTP}"
 PROXY_NO="${NO_PROXY:-${no_proxy:-}}"
 if [[ -n $PROXY_HTTPS ]]; then
   base_no="localhost,127.0.0.1,::1,$NETMON_FQDN,netmonitor"
-  # [3] The internal DNS domain (e.g. .mnidom.net: DCs, internal webhook targets) never goes
+  # [3] The internal DNS domain (e.g. .example.net: DCs, internal webhook targets) never goes
   # through the proxy. The app's SSH, SNMP, flows and LDAP never use a proxy anyway.
   [[ $NETMON_FQDN == *.* ]] && base_no+=",.${NETMON_FQDN#*.}"
   PROXY_NO="${PROXY_NO:+$PROXY_NO,}$base_no"

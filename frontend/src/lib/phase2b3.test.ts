@@ -207,10 +207,10 @@ describe('[2b-3] features', () => {
     expect(
       ldapMissing({
         ...l,
-        domain: 'mnidom.net',
-        bind_dn: 'svc@mnidom.net',
+        domain: 'example.net',
+        bind_dn: 'svc@example.net',
         bind_password_set: true,
-        viewer_group_dn: 'CN=V,DC=mnidom,DC=net',
+        viewer_group_dn: 'CN=V,DC=example,DC=net',
       }),
     ).toEqual([]);
   });
@@ -497,17 +497,17 @@ describe('[2b-3] LAG', () => {
 describe('[2b-3] Active Directory', () => {
   it('configure-first switch: unlocked only by a successful test of the stored settings', () => {
     const l = {
-      servers: ['dc1.mnidom.net'],
+      servers: ['dc1.example.net'],
       security: 'ldaps',
       tls_verify: true,
-      domain: 'mnidom.net',
-      netbios_domain: 'MNIDOM',
+      domain: 'example.net',
+      netbios_domain: 'EXAMPLE',
       base_dn: '',
-      bind_dn: 'svc@mnidom.net',
+      bind_dn: 'svc@example.net',
       bind_password: null,
       bind_password_set: true,
       bind_password_unreadable: false,
-      admin_group_dn: 'CN=A,DC=mnidom,DC=net',
+      admin_group_dn: 'CN=A,DC=example,DC=net',
       viewer_group_dn: '',
       timeout_s: 5,
     } as unknown as Parameters<typeof ldapForm>[0];
@@ -528,40 +528,40 @@ describe('[2b-3] Active Directory', () => {
     expect(ldapKey({ ...ldapInput(form), bind_password: 'secret' })).toBe(key);
   });
   it('parses login names like the server (data-model vectors)', () => {
-    expect(parseLogin('jdoe', 'MNIDOM', 'mnidom.net')).toEqual({ kind: 'sam', sam: 'jdoe' });
-    expect(parseLogin('MNIDOM\\jdoe', 'MNIDOM', 'mnidom.net')).toEqual({
+    expect(parseLogin('jdoe', 'EXAMPLE', 'example.net')).toEqual({ kind: 'sam', sam: 'jdoe' });
+    expect(parseLogin('EXAMPLE\\jdoe', 'EXAMPLE', 'example.net')).toEqual({
       kind: 'sam',
       sam: 'jdoe',
     });
-    expect(parseLogin('mnidom\\jdoe', 'MNIDOM', 'mnidom.net')).toEqual({
+    expect(parseLogin('example\\jdoe', 'EXAMPLE', 'example.net')).toEqual({
       kind: 'sam',
       sam: 'jdoe',
     });
-    expect(parseLogin('OTHER\\jdoe', 'MNIDOM', 'mnidom.net')).toEqual({
+    expect(parseLogin('OTHER\\jdoe', 'EXAMPLE', 'example.net')).toEqual({
       kind: 'foreign',
       domain: 'OTHER',
     });
-    expect(parseLogin('John.Doe@MNIDOM.NET', 'MNIDOM', 'mnidom.net')).toEqual({
+    expect(parseLogin('John.Doe@EXAMPLE.NET', 'EXAMPLE', 'example.net')).toEqual({
       kind: 'upn',
-      upn: 'John.Doe@MNIDOM.NET',
+      upn: 'John.Doe@EXAMPLE.NET',
       sam: 'John.Doe',
     });
-    expect(parseLogin('x@other.com', 'MNIDOM', 'mnidom.net')).toEqual({
+    expect(parseLogin('x@other.com', 'EXAMPLE', 'example.net')).toEqual({
       kind: 'upn',
       upn: 'x@other.com',
       sam: null,
     });
   });
   it('validates servers and DNs', () => {
-    expect(isLdapServer('dc1.mnidom.net')).toBe(true);
-    expect(isLdapServer('dc2.mnidom.net:636')).toBe(true);
+    expect(isLdapServer('dc1.example.net')).toBe(true);
+    expect(isLdapServer('dc2.example.net:636')).toBe(true);
     expect(isLdapServer('[2001:db8::1]:636')).toBe(true);
     expect(isLdapServer('ldap://dc1')).toBe(false);
     expect(isLdapServer('dc1:99999')).toBe(false);
-    expect(looksLikeDn('CN=NetMon-Admins,OU=Groups,DC=mnidom,DC=net')).toBe(true);
+    expect(looksLikeDn('CN=NetMon-Admins,OU=Groups,DC=example,DC=net')).toBe(true);
     expect(looksLikeDn('CN=A\\,B,DC=x')).toBe(true);
     expect(looksLikeDn('NetMon-Admins')).toBe(false);
-    expect(baseDnFromDomain('mnidom.net')).toBe('DC=mnidom,DC=net');
+    expect(baseDnFromDomain('example.net')).toBe('DC=example,DC=net');
   });
   it('never echoes the bind password: omitted keeps, "" clears, text replaces', () => {
     const f = ldapForm(undefined);
@@ -574,7 +574,7 @@ describe('[2b-3] Active Directory', () => {
 
 describe('[2b-3] Teams, tokens, audit, SIEM', () => {
   it('detects legacy Office 365 connector URLs', () => {
-    expect(isLegacyTeamsHost(urlHost('https://mnidom.webhook.office.com/webhookb2/x'))).toBe(true);
+    expect(isLegacyTeamsHost(urlHost('https://example.webhook.office.com/webhookb2/x'))).toBe(true);
     expect(isLegacyTeamsHost('outlook.office.com')).toBe(true);
     expect(isLegacyTeamsHost('evilwebhook.office.com')).toBe(false);
     expect(isLegacyTeamsHost('prod-12.westeurope.logic.azure.com')).toBe(false);
@@ -613,7 +613,7 @@ describe('[2b-3] Teams, tokens, audit, SIEM', () => {
     expect(auditTone('device.update')).toBe('normal');
   });
   it('validates SIEM targets', () => {
-    const t = { ...newTarget(), name: 'QRadar', host: 'siem.mnidom.net' };
+    const t = { ...newTarget(), name: 'QRadar', host: 'siem.example.net' };
     expect(validateTarget(t, '', '6514')).toEqual({});
     expect(validateTarget({ ...t, kinds: [] }, '10.0.0.0/8', '0')).toEqual({
       port: 'siem.err.port',

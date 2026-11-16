@@ -24,14 +24,14 @@ NOW = datetime(2026, 11, 8, 12, 0, tzinfo=UTC)
     ("text", "sam", "upn"),
     [
         ("jdoe", "jdoe", None),
-        ("MNIDOM\\jdoe", "jdoe", None),
-        ("mnidom\\jdoe", "jdoe", None),  # NetBIOS domain is case-insensitive
-        ("John.Doe@MNIDOM.NET", "John.Doe", "John.Doe@MNIDOM.NET"),  # fallback sam
+        ("EXAMPLE\\jdoe", "jdoe", None),
+        ("example\\jdoe", "jdoe", None),  # NetBIOS domain is case-insensitive
+        ("John.Doe@EXAMPLE.NET", "John.Doe", "John.Doe@EXAMPLE.NET"),  # fallback sam
         ("x@other.com", None, "x@other.com"),  # UPN only
     ],
 )
 def test_parse_login_vectors(text: str, sam: str | None, upn: str | None) -> None:
-    name = ldap_pure.parse_login(text, "mnidom.net", "MNIDOM")
+    name = ldap_pure.parse_login(text, "example.net", "EXAMPLE")
     assert name is not None
     assert name.sam == sam
     assert name.upn == upn
@@ -39,15 +39,15 @@ def test_parse_login_vectors(text: str, sam: str | None, upn: str | None) -> Non
 
 @pytest.mark.parametrize(
     "text",
-    ["OTHER\\jdoe", "\\jdoe", "MNIDOM\\", "", "a\x00b", "x" * 257, "bad/name", "a*b", "@x"],
+    ["OTHER\\jdoe", "\\jdoe", "EXAMPLE\\", "", "a\x00b", "x" * 257, "bad/name", "a*b", "@x"],
 )
 def test_parse_login_rejects(text: str) -> None:
-    assert ldap_pure.parse_login(text, "mnidom.net", "MNIDOM") is None
+    assert ldap_pure.parse_login(text, "example.net", "EXAMPLE") is None
 
 
 def test_parse_login_domain_first_label() -> None:
     # DOMAIN may also be the domain's first label when no NetBIOS name is set
-    assert ldap_pure.parse_login("mnidom\\jdoe", "mnidom.net", "").sam == "jdoe"  # type: ignore[union-attr]
+    assert ldap_pure.parse_login("example\\jdoe", "example.net", "").sam == "jdoe"  # type: ignore[union-attr]
 
 
 def test_escape_vectors() -> None:
@@ -120,15 +120,15 @@ def test_map_bind_error_without_data() -> None:
 
 
 def test_parse_server_and_base_dn() -> None:
-    assert ldap_pure.parse_server("dc1.mnidom.net", "ldaps") == ("dc1.mnidom.net", 636)
-    assert ldap_pure.parse_server("dc1.mnidom.net", "starttls") == ("dc1.mnidom.net", 389)
-    assert ldap_pure.parse_server("dc2.mnidom.net:3269", "ldaps") == ("dc2.mnidom.net", 3269)
+    assert ldap_pure.parse_server("dc1.example.net", "ldaps") == ("dc1.example.net", 636)
+    assert ldap_pure.parse_server("dc1.example.net", "starttls") == ("dc1.example.net", 389)
+    assert ldap_pure.parse_server("dc2.example.net:3269", "ldaps") == ("dc2.example.net", 3269)
     assert ldap_pure.parse_server("[fd00::1]:636", "ldaps") == ("fd00::1", 636)
     assert ldap_pure.parse_server("[fd00::1]", "starttls") == ("fd00::1", 389)
     with pytest.raises(ValueError):
         ldap_pure.parse_server("dc1:99999", "ldaps")
     assert ldap_pure.server_label("fd00::1", 636) == "[fd00::1]:636"
-    assert ldap_pure.base_dn_from_domain("mnidom.net") == "DC=mnidom,DC=net"
+    assert ldap_pure.base_dn_from_domain("example.net") == "DC=example,DC=net"
     assert ldap_pure.base_dn_from_domain("") == ""
 
 
@@ -163,7 +163,7 @@ def test_ldap_settings_merge_and_out() -> None:
     stored = ldap_config.merge(
         None,
         ldap_config.LdapSettingsIn(
-            domain="mnidom.net", bind_dn="svc@mnidom.net", bind_password="pw"
+            domain="example.net", bind_dn="svc@example.net", bind_password="pw"
         ),
         "sk",
     )
@@ -191,10 +191,10 @@ def test_ldap_settings_validation() -> None:
     ok = ldap_config.merge(
         None,
         ldap_config.LdapSettingsIn(
-            domain="mnidom.net",
-            bind_dn="svc-netmon@mnidom.net",
+            domain="example.net",
+            bind_dn="svc-netmon@example.net",
             bind_password="x",
-            viewer_group_dn="CN=NetMon-Viewers,OU=Groups,DC=mnidom,DC=net",
+            viewer_group_dn="CN=NetMon-Viewers,OU=Groups,DC=example,DC=net",
         ),
         "sk",
     )
@@ -285,7 +285,7 @@ def _payload(**kw: object) -> dict:
         "device": {"id": 2, "name": "core-sw", "host": "10.0.0.2"},
         "group": {"id": 1, "name": "Default"},
         "rule": {"id": 1, "name": "All down"},
-        "url": "https://netmon.mnidom.net/sensors/7",
+        "url": "https://netmon.example.net/sensors/7",
     }
     base.update(kw)
     return base
@@ -335,7 +335,7 @@ def test_teams_card_problem_exact() -> None:
                         {
                             "type": "Action.OpenUrl",
                             "title": "Open in NetworkMonitor",
-                            "url": "https://netmon.mnidom.net/sensors/7",
+                            "url": "https://netmon.example.net/sensors/7",
                         }
                     ],
                 },
@@ -395,7 +395,7 @@ def test_teams_url_helpers() -> None:
         "legacy": False,
         "ack_link": True,  # [3] chat_ack
     }
-    assert teams.is_legacy("https://mnidom.webhook.office.com/webhookb2/x")
+    assert teams.is_legacy("https://example.webhook.office.com/webhookb2/x")
     assert teams.is_legacy("https://outlook.office.com/webhook/x")
     assert not teams.is_legacy("https://x.environment.api.powerplatform.com/x")
     assert "sig=S" not in teams._scrub(f"error for {url}", url)  # noqa: SLF001

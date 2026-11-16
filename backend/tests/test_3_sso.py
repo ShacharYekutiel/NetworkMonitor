@@ -26,7 +26,7 @@ from tests.test_3_sso_units import keytab_entry, make_keytab
 
 pytestmark = requires_db
 
-KEYTAB = make_keytab(keytab_entry("HTTP/netmonitor.mnidom.net@MNIDOM.NET", 3, 18))
+KEYTAB = make_keytab(keytab_entry("HTTP/netmonitor.example.net@EXAMPLE.NET", 3, 18))
 
 
 def neg(principal: str) -> dict[str, str]:
@@ -111,7 +111,7 @@ async def test_keytab_upload_encrypted_and_listed(
     assert out["keytab_set"] is True
     assert out["keytab_entries"] == [
         {
-            "principal": "HTTP/netmonitor.mnidom.net@MNIDOM.NET",
+            "principal": "HTTP/netmonitor.example.net@EXAMPLE.NET",
             "kvno": 3,
             "enctype": 18,
             "enctype_name": "aes256-cts-hmac-sha1-96",
@@ -121,8 +121,8 @@ async def test_keytab_upload_encrypted_and_listed(
     stored = json.loads(await _settings_row(rt, "kerberos"))
     assert stored["keytab_enc"].startswith("v1:")
     assert base64.b64encode(KEYTAB).decode() not in json.dumps(stored)
-    r = await admin.put("/api/sso/kerberos", json={"realms": ["mnidom.net"], "auto_login": False})
-    assert r.status_code == 200 and r.json()["realms"] == ["MNIDOM.NET"]
+    r = await admin.put("/api/sso/kerberos", json={"realms": ["example.net"], "auto_login": False})
+    assert r.status_code == 200 and r.json()["realms"] == ["EXAMPLE.NET"]
     assert r.json()["auto_login"] is False
     # delete is refused while ON
     feats(sso_kerberos=True)
@@ -161,20 +161,20 @@ async def test_kerberos_sign_in_flow(
         assert r.status_code == 401 and r.json()["error"]["code"] == "sso_ntlm"
         assert "www-authenticate" not in r.headers
         # bad ticket
-        r = await c.get("/api/auth/sso/kerberos", headers=neg("BAD@MNIDOM.NET"))
+        r = await c.get("/api/auth/sso/kerberos", headers=neg("BAD@EXAMPLE.NET"))
         assert r.status_code == 401 and r.json()["error"]["code"] == "sso_failed"
         assert "www-authenticate" not in r.headers
         # foreign realm
         r = await c.get("/api/auth/sso/kerberos", headers=neg("jdoe@OTHER.REALM"))
         assert r.status_code == 401 and r.json()["error"]["code"] == "sso_failed"
         # not in a NetMon group
-        r = await c.get("/api/auth/sso/kerberos", headers=neg("nogroup@MNIDOM.NET"))
+        r = await c.get("/api/auth/sso/kerberos", headers=neg("nogroup@EXAMPLE.NET"))
         assert r.status_code == 401
         # disabled account
-        r = await c.get("/api/auth/sso/kerberos", headers=neg("olduser@MNIDOM.NET"))
+        r = await c.get("/api/auth/sso/kerberos", headers=neg("olduser@EXAMPLE.NET"))
         assert r.status_code == 401
         # viewer via group, admin via nested group
-        r = await c.get("/api/auth/sso/kerberos", headers=neg("jdoe@mnidom.net"))
+        r = await c.get("/api/auth/sso/kerberos", headers=neg("jdoe@example.net"))
         assert r.status_code == 200, r.text
         assert (
             r.headers["www-authenticate"]
@@ -190,7 +190,7 @@ async def test_kerberos_sign_in_flow(
         assert claims["am"] == "kerberos" and claims["src"] == "ldap"
         assert claims["exp"] - claims["at"] <= 12 * 3600 + 5
     async with httpx.AsyncClient(transport=transport, base_url="http://testserver") as c:
-        r = await c.get("/api/auth/sso/kerberos", headers=neg("asmith@MNIDOM.NET"))
+        r = await c.get("/api/auth/sso/kerberos", headers=neg("asmith@EXAMPLE.NET"))
         assert r.status_code == 200 and r.json()["user"]["role"] == "admin"
     logins = await _audit(rt, "auth.login")
     methods = [json.loads(r_["changes"]).get("method") for r_ in logins]
@@ -212,9 +212,9 @@ async def test_kerberos_throttle(app: Any, admin: httpx.AsyncClient, krb: Any, f
     transport = httpx.ASGITransport(app=app)
     async with httpx.AsyncClient(transport=transport, base_url="http://testserver") as c:
         for _ in range(10):
-            r = await c.get("/api/auth/sso/kerberos", headers=neg("BAD@MNIDOM.NET"))
+            r = await c.get("/api/auth/sso/kerberos", headers=neg("BAD@EXAMPLE.NET"))
             assert r.status_code == 401
-        r = await c.get("/api/auth/sso/kerberos", headers=neg("jdoe@MNIDOM.NET"))
+        r = await c.get("/api/auth/sso/kerberos", headers=neg("jdoe@EXAMPLE.NET"))
         assert r.status_code == 429
 
 
@@ -326,9 +326,9 @@ async def _flow(app: Any, fake: FakeEntra, claims_kw: dict[str, Any], code: str 
         "nbf": now,
         "nonce": q["nonce"][0],
         "oid": "22222222-2222-2222-2222-22222222aaaa",
-        "preferred_username": "Carol@mnidom.net",
+        "preferred_username": "Carol@example.net",
         "name": "Carol",
-        "email": "carol@mnidom.net",
+        "email": "carol@example.net",
         "roles": ["NetMon.Viewer"],
         **claims_kw,
     }
@@ -360,7 +360,7 @@ async def test_oidc_flow(app: Any, admin: httpx.AsyncClient, entra: FakeEntra, f
         me = await c.get("/api/auth/me")
         assert me.status_code == 200, me.text
         u = me.json()["user"]
-        assert (u["username"], u["source"], u["role"]) == ("carol@mnidom.net", "oidc", "viewer")
+        assert (u["username"], u["source"], u["role"]) == ("carol@example.net", "oidc", "viewer")
         claims = jwt.decode(c.cookies.get("netmon_session"), options={"verify_signature": False})
         assert claims["am"] == "oidc" and claims["src"] == "oidc"
         # LDAP-managed rules apply
@@ -382,7 +382,7 @@ async def test_oidc_flow(app: Any, admin: httpx.AsyncClient, entra: FakeEntra, f
     await c.aclose()
     assert r.status_code == 200
     users = (await admin.get("/api/users")).json()["items"]
-    carol = next(x for x in users if x["username"] == "carol@mnidom.net")
+    carol = next(x for x in users if x["username"] == "carol@example.net")
     assert carol["role"] == "admin" and carol["source"] == "oidc"
     logins = [r_ for r_ in await _audit(admin_rt(admin), "auth.login") if r_["source"] == "oidc"]
     assert logins and json.loads(logins[-1]["changes"])["method"] == [None, "oidc"]

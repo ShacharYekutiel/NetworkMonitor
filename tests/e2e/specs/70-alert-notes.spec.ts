@@ -30,7 +30,7 @@ test.beforeAll(async () => {
   tg = (await api.post('/api/notification-channels', { name: 'qa3b-tg-notes', type: 'telegram', enabled: true,
     config: { bot_token: TG_VALID_TOKEN, chat_id: TG_CHAT_OK, parse_mode: 'HTML', disable_notification: false } })).id;
   teams = (await api.post('/api/notification-channels', { name: 'qa3b-teams-notes', type: 'teams', enabled: true, config: { url: TEAMS_URL() } })).id;
-  mail = (await api.post('/api/notification-channels', { name: 'qa3b-mail-notes', type: 'email', enabled: true, config: { to: ['noc@mnidom.test'], ai_note_email: true } })).id;
+  mail = (await api.post('/api/notification-channels', { name: 'qa3b-mail-notes', type: 'email', enabled: true, config: { to: ['noc@example.test'], ai_note_email: true } })).id;
   p = await problem(api, '127.0.0.145', 'qa3b-notes-web');
   await p.up();
   const r = await api.post('/api/alert-rules', { name: 'qa3b ai note', enabled: true, sensor_id: p.sensor.id, on_statuses: ['down', 'up'], delay_s: 0, channel_ids: [tg, teams, mail], ai_note: true });

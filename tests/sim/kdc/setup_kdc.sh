@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # MIT KDC for the phase-3 Kerberos SSO tests (docs/architecture.md §13.11). Linux only, no root.
 #
-#   tests/sim/kdc/setup_kdc.sh start DIR [PORT]   create realm MNIDOM.TEST in DIR, start krb5kdc on 127.0.0.1:PORT
+#   tests/sim/kdc/setup_kdc.sh start DIR [PORT]   create realm EXAMPLE.TEST in DIR, start krb5kdc on 127.0.0.1:PORT
 #                                                 (default: a free port), export DIR/http.keytab, print env lines
 #   tests/sim/kdc/setup_kdc.sh stop DIR
 #   tests/sim/kdc/setup_kdc.sh kinit DIR USER [CCACHE]   get a TGT for USER (password from DIR/passwords)
@@ -10,10 +10,10 @@
 # Principals: HTTP/localhost, HTTP/127.0.0.1, HTTP/netmon.test (service; keytab DIR/http.keytab, aes256 + aes128),
 # users jdoe, asmith, nogroup, olduser (the 2b-3 fake-AD fixture names; password "Kerb-pass-1"), and a second
 # keytab DIR/rc4.keytab (rc4-hmac only, for the rc4_only warning). Wrong-realm test: configure
-# kerberos.realms without MNIDOM.TEST and sign in as jdoe@MNIDOM.TEST (-> sso_failed, audit sso_realm). Packages: apt krb5-kdc krb5-admin-server krb5-user.
+# kerberos.realms without EXAMPLE.TEST and sign in as jdoe@EXAMPLE.TEST (-> sso_failed, audit sso_realm). Packages: apt krb5-kdc krb5-admin-server krb5-user.
 # Exits 3 when krb5kdc / kdb5_util are missing (callers skip their tests).
 set -euo pipefail
-REALM=MNIDOM.TEST
+REALM=EXAMPLE.TEST
 PASS=Kerb-pass-1
 cmd=${1:?start|stop|kinit|env}; DIR=${2:?DIR}
 mkdir -p "$DIR"; DIR="$(cd "$DIR" && pwd)"

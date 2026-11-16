@@ -17,7 +17,7 @@ username admin privilege 15 secret 9 <secret removed>
 username netmon-backup privilege 15 secret 9 <secret removed>
 no aaa new-model
 !
-ip domain-name mnidom.net
+ip domain-name example.net
 ip name-server 10.0.0.53
 !
 interface GigabitEthernet0/0
