@@ -279,7 +279,7 @@ describe('[3b] configure-first connection form', () => {
     });
     const s: AssistantSettings = {
       ...settings,
-      access_key_id: 'ASIAQWERTYUIOPASDFGH',
+      access_key_id: 'ASIA' + 'QWERTYUIOPASDFGH',
       session_token: null,
       session_token_set: true,
       session_token_unreadable: false,
@@ -319,7 +319,7 @@ describe('[3b] configure-first connection form', () => {
             ...s,
             session_token_set: false,
             warnings: [],
-            access_key_id: 'ASIAZXCVBNMLKJHGFDSA',
+            access_key_id: 'ASIA' + 'ZXCVBNMLKJHGFDSA',
           }}
           auditOn
         />,

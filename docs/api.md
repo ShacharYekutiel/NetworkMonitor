@@ -665,7 +665,7 @@ Create:
 
 ```json
 { "name": "Ops Telegram", "type": "telegram", "enabled": true,
-  "config": { "bot_token": "123456789:AAEhBP0av28rmzBYNkKz3x2ZxM9qO9vLdIo", "chat_id": "-1001234567890",
+  "config": { "bot_token": "<token from @BotFather>", "chat_id": "-1001234567890",
               "parse_mode": "HTML", "disable_notification": false } }
 ```
 
