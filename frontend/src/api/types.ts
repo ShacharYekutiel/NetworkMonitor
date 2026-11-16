@@ -11,6 +11,7 @@ import type {
 } from './types3';
 export * from './types3';
 export * from './types3b';
+export * from './types4';
 import type { AssistantMessage, AssistantState, Incident, Settings3b, SnmpWalk } from './types3b';
 
 export type Status = 'up' | 'warning' | 'down' | 'paused' | 'unknown' | 'unreachable'; // [2b-1] unreachable

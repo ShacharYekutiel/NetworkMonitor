@@ -10,7 +10,7 @@ import { ToastProvider } from '../components/toast';
 import { AnswerBlock } from '../components/assistant/AnswerView';
 import { ConnectionSettings } from '../components/assistant/ConnectionSettings';
 import { RuleDraftBox } from '../components/assistant/RuleDraft';
-import type { AssistantMessage, AssistantSettings } from '../api/types';
+import type { AssistantMessage, AssistantSettings, AwsConnection } from '../api/types';
 import { EMPTY_LIVE } from '../lib/assistant';
 
 function mockFetch(
@@ -45,6 +45,83 @@ function wrap(children: ReactNode) {
     </QueryClientProvider>
   );
 }
+
+function conn(id: number, name: string, auth: AwsConnection['auth_mode'], isDefault = false) {
+  return {
+    id,
+    name,
+    is_default: isDefault,
+    auth_mode: auth,
+    region: 'us-east-1',
+    ra_profile_arn:
+      auth === 'roles_anywhere' ? 'arn:aws:rolesanywhere:us-east-1:111111111111:profile/p-1' : null,
+    certificate: null,
+    updated_at: '2026-11-01T00:00:00Z',
+  } as unknown as AwsConnection;
+}
+
+const hopFailure = {
+  ok: false,
+  test_id: null,
+  expires_at: null,
+  steps: [
+    {
+      step: 'config',
+      hop: null,
+      ok: true,
+      detail: 'auth access_key',
+      ms: 1,
+      error_code: null,
+      hints: [],
+    },
+    {
+      step: 'credentials',
+      hop: 0,
+      ok: true,
+      detail: 'source static',
+      ms: 2,
+      error_code: null,
+      hints: [],
+    },
+    {
+      step: 'identity',
+      hop: 0,
+      ok: true,
+      detail: 'account 111111111111',
+      ms: 3,
+      error_code: null,
+      hints: [],
+    },
+    {
+      step: 'hop',
+      hop: 1,
+      ok: false,
+      detail:
+        'User: arn:aws:sts::111111111111:assumed-role/netmon-base/1a is not authorized to perform: sts:SetSourceIdentity',
+      ms: 4,
+      error_code: 'aws_assume_role_denied',
+      hints: [
+        {
+          code: 'set_source_identity',
+          text: 'server text',
+          values: {
+            source_identity: 'CN=netmonitor.example.net',
+            from_arn: 'arn:aws:sts::111111111111:assumed-role/netmon-base/1a',
+            role_arn: 'arn:aws:iam::222222222222:role/netmon-bedrock',
+          },
+        },
+      ],
+    },
+  ],
+  via: 'direct',
+  endpoint_host: '',
+  address_class: null,
+  model_id: 'us.anthropic.claude-x-v1:0',
+  time_to_first_event_ms: null,
+  usage: null,
+  warnings: [],
+  error: { code: 'aws_assume_role_denied', message: 'denied' },
+};
 
 const baseRoutes = (url: string) => {
   if (url.startsWith('/api/setup/status')) return { status: 200, body: { setup_required: false } };
@@ -151,27 +228,24 @@ const settings: AssistantSettings = {
   enabled: false,
   state: 'disabled',
   state_error: null,
-  auth_mode: 'access_key',
   region: 'us-east-1',
   model_id: 'us.anthropic.claude-x-v1:0',
   model_id_light: null,
   endpoint_url: null,
   control_endpoint_url: null,
-  proxy_mode: 'env',
-  proxy_url: null,
   prompt_caching: true,
-  access_key_id: 'AKIAABCDEFGHIJKLMNOP',
-  secret_access_key: null,
-  secret_access_key_set: true,
-  secret_access_key_unreadable: false,
-  access_key_created_at: null,
-  ra_region: null,
-  ra_endpoint_url: null,
-  ra_trust_anchor_arn: null,
-  ra_profile_arn: null,
-  ra_role_arn: null,
-  ra_session_seconds: 3600,
-  certificate: null,
+  // [4] an installation upgraded from 1.4.x: the migrated "Default" connection, direct
+  connection_id: null,
+  access: { mode: 'direct', role_arn: null, external_id: null },
+  connection: {
+    id: 1,
+    name: 'Default',
+    auth_mode: 'roles_anywhere',
+    is_default: true,
+    account: '111111111111',
+    arn: 'arn:aws:sts::111111111111:assumed-role/netmon-bedrock/1234',
+    state: 'ok',
+  },
   send_config_excerpts: false,
   redact_internal_ips: false,
   internal_cidrs: [],
@@ -221,118 +295,74 @@ describe('[3b] configure-first connection form', () => {
     expect((sw() as HTMLButtonElement).disabled).toBe(true);
   });
 
-  it('temporary credentials: session token field (write-only), warning, ASIA without token', async () => {
+  it('[4] AWS access: an upgraded install shows "Default — direct"; a hop shows its steps and hints', async () => {
     let lastBody: Record<string, unknown> = {};
-    let answer: 'ok' | 'missing' = 'ok';
     mockFetch((url, init) => {
-      if (url.startsWith('/api/assistant/test') && init?.method === 'POST') {
-        const parsed = JSON.parse(String(init.body ?? '{}')) as {
-          settings?: Record<string, unknown>;
-        };
-        lastBody = parsed.settings ?? {};
-        if (answer === 'missing')
-          return {
-            status: 200,
-            body: {
-              ok: false,
-              test_id: null,
-              expires_at: null,
-              steps: [
-                { step: 'config', ok: true, detail: 'auth access_key', ms: 1, error_code: null },
-                {
-                  step: 'credentials',
-                  ok: false,
-                  detail: 'The access key id is a temporary key (ASIA…)',
-                  ms: 1,
-                  error_code: 'aws_session_token_required',
-                },
-              ],
-              via: 'direct',
-              endpoint_host: 'bedrock-runtime.us-east-1.amazonaws.com',
-              address_class: null,
-              model_id: 'us.anthropic.claude-x-v1:0',
-              time_to_first_event_ms: null,
-              usage: null,
-              warnings: [],
-              error: { code: 'aws_session_token_required', message: 'temporary key' },
-            },
-          };
+      if (url.startsWith('/api/aws/connections') && (!init?.method || init.method === 'GET'))
         return {
           status: 200,
-          body: {
-            ok: true,
-            test_id: 'tmp1',
-            expires_at: new Date(Date.now() + 600_000).toISOString(),
-            steps: [{ step: 'converse', ok: true, detail: 'ok', ms: 120, error_code: null }],
-            via: 'direct',
-            endpoint_host: 'bedrock-runtime.us-east-1.amazonaws.com',
-            address_class: 'public',
-            model_id: 'us.anthropic.claude-x-v1:0',
-            time_to_first_event_ms: 300,
-            usage: { input_tokens: 10, output_tokens: 5 },
-            warnings: ['temporary_credentials'],
-            error: null,
-          },
+          body: [conn(1, 'Default', 'roles_anywhere', true), conn(2, 'Keys', 'access_key')],
         };
+      if (url.startsWith('/api/aws/external-id'))
+        return { status: 200, body: { external_id: 'Gen0123456789Gen0123456789abcdef' } };
+      if (url.startsWith('/api/assistant/test') && init?.method === 'POST') {
+        lastBody = (JSON.parse(String(init.body ?? '{}')) as { settings: Record<string, unknown> })
+          .settings;
+        return { status: 200, body: hopFailure };
       }
       return baseRoutes(url);
     });
-    const s: AssistantSettings = {
-      ...settings,
-      access_key_id: 'ASIAQWERTYUIOPASDFGH',
-      session_token: null,
-      session_token_set: true,
-      session_token_unreadable: false,
-      warnings: ['temporary_credentials'],
-    };
-    const { unmount } = render(wrap(<ConnectionSettings s={s} auditOn />));
-    const field = screen.getByTestId('session-token-field');
-    expect(field.getAttribute('data-set')).toBe('true');
-    const ta = screen.getByTestId('session-token') as HTMLTextAreaElement;
-    expect(ta.value).toBe('');
-    expect(ta.placeholder).toMatch(/stored/);
-    expect(document.querySelector('[data-warning="temporary_credentials"]')?.textContent).toMatch(
-      /expire/,
+    render(wrap(<ConnectionSettings s={settings} auditOn />));
+    // zero action after the upgrade: the default connection, used directly
+    expect(screen.getByTestId('assistant-aws-current').textContent).toMatch(
+      /Default — Use the connection directly/,
     );
-    const sw = () => screen.getByRole('switch') as HTMLButtonElement;
-    fireEvent.click(screen.getByTestId('test-connection'));
-    await waitFor(() => expect(sw().disabled).toBe(false));
-    expect('session_token' in lastBody).toBe(false); // the stored token is kept, never sent back
-    expect(screen.getByTestId('test-result').textContent).toMatch(/IAM user key, Roles Anywhere/);
-    // a new token locks the switch again and is sent (whitespace removed)
-    fireEvent.change(ta, { target: { value: 'IQoJb3Jp\nZ2luX2Vj==' } });
-    expect(sw().disabled).toBe(true);
-    fireEvent.click(screen.getByTestId('test-connection'));
-    await waitFor(() => expect(lastBody.session_token).toBe('IQoJb3JpZ2luX2Vj=='));
-    await waitFor(() => expect(sw().disabled).toBe(false));
-    // "Clear" disables the textarea, sends "" and locks again
-    fireEvent.click(screen.getByLabelText(/Clear the stored session token/));
-    expect(ta.disabled).toBe(true);
-    expect(sw().disabled).toBe(true);
-    unmount();
-    // ASIA without a stored token: hint + the credentials-step error text
-    answer = 'missing';
-    render(
-      wrap(
-        <ConnectionSettings
-          s={{
-            ...s,
-            session_token_set: false,
-            warnings: [],
-            access_key_id: 'ASIAZXCVBNMLKJHGFDSA',
-          }}
-          auditOn
-        />,
-      ),
-    );
-    expect(screen.getByTestId('session-token-field').getAttribute('data-set')).toBe('false');
-    expect(screen.getByText(/needs the session token\./)).toBeTruthy();
-    fireEvent.click(screen.getByTestId('test-connection'));
     await waitFor(() =>
-      expect(screen.getByTestId('test-result').textContent).toMatch(
-        /temporary key \(ASIA…\): it needs the session token/,
+      expect(
+        (screen.getByTestId('access-connection') as HTMLSelectElement).options[0].textContent,
+      ).toBe('Default connection (Default)'),
+    );
+    expect((screen.getByTestId('access-direct') as HTMLInputElement).checked).toBe(true);
+    // ra_role is offered for the Roles Anywhere default, not for the access-key connection
+    expect(screen.queryByTestId('access-ra_role')).toBeTruthy();
+    fireEvent.change(screen.getByTestId('access-connection'), { target: { value: '2' } });
+    expect(screen.queryByTestId('access-ra_role')).toBeNull();
+    // Assume a role: role ARN (doubled ARN refused), ExternalId with Generate
+    fireEvent.click(screen.getByTestId('access-assume_role'));
+    const role = screen.getByTestId('access-role-arn');
+    fireEvent.change(role, {
+      target: { value: 'arn:aws:iam::222222222222:role/arn:aws:iam::222222222222:role/b' },
+    });
+    expect(screen.getByText('The ARN appears twice — paste it once.')).toBeTruthy();
+    expect((screen.getByTestId('test-connection') as HTMLButtonElement).disabled).toBe(true);
+    fireEvent.change(role, { target: { value: 'arn:aws:iam::222222222222:role/netmon-bedrock' } });
+    fireEvent.click(screen.getByTestId('external-id-generate'));
+    await waitFor(() =>
+      expect((screen.getByTestId('external-id') as HTMLInputElement).value).toBe(
+        'Gen0123456789Gen0123456789abcdef',
       ),
     );
+    fireEvent.click(screen.getByTestId('test-connection'));
+    await waitFor(() => expect(screen.getByTestId('test-result')).toBeTruthy());
+    expect(lastBody).toMatchObject({
+      connection_id: 2,
+      access: {
+        mode: 'assume_role',
+        role_arn: 'arn:aws:iam::222222222222:role/netmon-bedrock',
+        external_id: 'Gen0123456789Gen0123456789abcdef',
+      },
+    });
+    expect('auth_mode' in lastBody).toBe(false);
+    const hopStep = document.querySelector('[data-step="hop"]')!;
+    expect(hopStep.getAttribute('data-ok')).toBe('false');
+    expect(hopStep.getAttribute('data-hop')).toBe('1');
+    expect(document.querySelector('[data-step="identity"]')!.getAttribute('data-ok')).toBe('true');
+    const hint = hopStep.querySelector('[data-hint="set_source_identity"]')!;
+    expect(hint.textContent).toMatch(/sts:SetSourceIdentity in two places/);
+    expect(hint.querySelector('[data-value="source_identity"]')!.textContent).toBe(
+      'CN=netmonitor.example.net',
+    );
+    expect((screen.getByRole('switch') as HTMLButtonElement).disabled).toBe(true);
   });
 
   it('warns for a global. profile', () => {

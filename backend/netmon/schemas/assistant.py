@@ -5,9 +5,9 @@ from __future__ import annotations
 
 import re
 from datetime import date
-from typing import Literal
+from typing import Any, Literal
 
-from pydantic import BaseModel, ConfigDict, Field, field_validator
+from pydantic import BaseModel, ConfigDict, Field, PrivateAttr, field_validator, model_validator
 
 from netmon.assistant.config import (
     ACCESS_KEY_RE,
@@ -22,6 +22,7 @@ from netmon.assistant.config import (
     TRUST_ANCHOR_RE,
     cidr_error,
 )
+from netmon.schemas.aws import AwsAccessIn  # noqa: E402
 
 # scalar keys written as they come; `assistant_monthly_cost_cap` and `digest_language` may be
 # set to null explicitly
@@ -205,6 +206,10 @@ class AssistantFields(_Strict):
     chat_redact_ips: bool | None = None
     prices: PricesIn | None = None
     chat_models: list[ChatModelIn] | None = Field(default=None, max_length=CHAT_MODELS_MAX)
+    # [4] the shared AWS connection (null = the default) and the access; the 1.4.x
+    # authentication fields above are refused by the endpoints ("moved to Settings → AWS")
+    connection_id: int | None = Field(default=None, ge=1)
+    access: AwsAccessIn | None = None
 
     _region = field_validator("region", "ra_region")(_opt(REGION_RE, "AWS region"))
     _model = field_validator("model_id", "model_id_light")(
@@ -266,6 +271,10 @@ class AssistantFields(_Strict):
                     out.pop(k)
             elif k == "chat_models":
                 out[k] = [m.model_dump() for m in v] if v else []  # null clears
+            elif k == "access":
+                out[k] = v.model_dump() if v is not None else None
+                if out[k] is None:
+                    out.pop(k)
             elif k == "access_key_created_at":
                 out[k] = v.isoformat() if v is not None else None
             elif k in ("region", "model_id", "auth_mode", "proxy_mode") and v is None:
@@ -275,13 +284,38 @@ class AssistantFields(_Strict):
         return out
 
 
-class AssistantSettingsIn(AssistantFields):
+class AssistantFieldsIn(AssistantFields):
+    """[4] The request shape of `/api/assistant/*` (4-0a): the 1.4.x authentication fields are
+    taken out before validation and remembered in `moved` (the endpoint answers 422 "moved to
+    Settings → AWS" with their `loc`)."""
+
+    _moved: list[str] = PrivateAttr(default_factory=list)
+
+    @model_validator(mode="wrap")
+    @classmethod
+    def _take_moved(cls, data: Any, handler: Any) -> Any:
+        from netmon.assistant.config import MOVED_FIELDS
+
+        moved: list[str] = []
+        if isinstance(data, dict):
+            moved = [k for k in data if k in MOVED_FIELDS]
+            data = {k: v for k, v in data.items() if k not in MOVED_FIELDS}
+        obj = handler(data)
+        obj._moved = moved
+        return obj
+
+    @property
+    def moved(self) -> list[str]:
+        return list(self._moved)
+
+
+class AssistantSettingsIn(AssistantFieldsIn):
     enabled: bool | None = None
     test_id: str | None = Field(default=None, max_length=64)
 
 
 class AssistantTestIn(_Strict):
-    settings: AssistantFields | None = None
+    settings: AssistantFieldsIn | None = None
 
 
 class CsrIn(_Strict):

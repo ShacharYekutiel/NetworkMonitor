@@ -618,11 +618,11 @@ def test_cert_upload_variants() -> None:
 
 @pytest.mark.parametrize(("kt", "size"), [("rsa", 2048), ("ec", 256), ("ec", 384)])
 def test_csr_flow(kt: str, size: int) -> None:
-    key_pem, csr_pem = certs.generate_csr("netmonitor-bedrock.mnidom.net", kt, size, "Mnidom")
+    key_pem, csr_pem = certs.generate_csr("netmonitor.example.net", kt, size, "Example")
     csr = x509.load_pem_x509_csr(csr_pem.encode())
     assert csr.is_signature_valid
     assert csr.subject.get_attributes_for_oid(NameOID.COMMON_NAME)[0].value == (
-        "netmonitor-bedrock.mnidom.net"
+        "netmonitor.example.net"
     )
     ku = csr.extensions.get_extension_for_class(x509.KeyUsage).value
     assert ku.digital_signature

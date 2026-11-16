@@ -8,10 +8,7 @@ import type {
   AssistantSettingsInput,
   AssistantStatus,
   AssistantTestResult,
-  CertInfo,
   ConversationDetail,
-  CsrRequest,
-  CsrResult,
   DiffExplanation,
   DiffFlag,
   Digest,
@@ -58,7 +55,7 @@ export type IncidentQuery = {
   page_size?: number;
 };
 
-async function postForm<T>(path: string, fd: FormData): Promise<T> {
+export async function postForm<T>(path: string, fd: FormData): Promise<T> {
   let res: Response;
   try {
     res = await fetch(buildUrl(path), {
@@ -144,24 +141,12 @@ export async function readStream(
 }
 
 export const endpoints3b = {
-  // settings, test, certificate
+  // settings, test ([4] the certificate moved to the AWS connection: endpoints4)
   settings: () => api.get<AssistantSettings>('/assistant/settings'),
   updateSettings: (body: AssistantSettingsInput) =>
     api.put<AssistantSettings>('/assistant/settings', body),
   test: (settings?: Record<string, unknown>) =>
     api.post<AssistantTestResult>('/assistant/test', settings ? { settings } : {}),
-  uploadCert: (file: File, key: File | null, password: string) => {
-    const fd = new FormData();
-    fd.append('file', file);
-    if (key) fd.append('key', key);
-    if (password) fd.append('password', password);
-    return postForm<CertInfo>('/assistant/cert', fd);
-  },
-  deleteCert: () => api.del('/assistant/cert'),
-  /** [3b owner decision] see CsrRequest */
-  createCsr: (body: CsrRequest) => api.post<CsrResult>('/assistant/cert/csr', body),
-  csrDownloadUrl: () => buildUrl('/assistant/cert/csr'),
-  deleteCsr: () => api.del('/assistant/cert/csr'),
   models: (settings?: Record<string, unknown>) =>
     api.post<ModelList>('/assistant/models', settings ? { settings } : {}),
   status: () => api.get<AssistantStatus>('/assistant/status'),

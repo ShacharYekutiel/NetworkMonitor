@@ -3,8 +3,9 @@
 
 Registry of everything encrypted with `netmon.services.crypto`: the 1.4.2 secrets at rest
 (netmon.services.secretbox) and the older ones (SSH credentials, LDAP bind password, Kerberos
-keytab, OIDC client secret, assistant AWS secrets). One transaction: a value that the old key
-cannot decrypt aborts the whole re-key (nothing changed).
+keytab, OIDC client secret, assistant AWS secrets) and [4] the shared AWS connections
+(`aws_connections.settings`, AAD `<aad_scope>.<field>`). One transaction: a value that the old
+key cannot decrypt aborts the whole re-key (nothing changed).
 """
 
 from __future__ import annotations
@@ -35,23 +36,41 @@ class RekeyError(RuntimeError):
     pass
 
 
-def _re(old: str, new: str, value: Any, aad: bytes, where: str) -> str:
+# [4] (AAD, old ciphertext) -> new ciphertext within one re-key: a value stored verbatim in two
+# places (the "Default" AWS connection and its mirror in the 1.4.x `assistant` keys, same AAD)
+# stays byte-identical after the re-key, as the legacy mirror expects.
+Memo = dict[tuple[bytes, str], str]
+
+
+def _re(old: str, new: str, value: Any, aad: bytes, where: str, memo: Memo | None = None) -> str:
+    if memo is not None and (aad, value) in memo:
+        return memo[(aad, value)]
     try:
         plain = crypto.decrypt(old, value, aad)
     except crypto.DecryptError:
         raise RekeyError(
             f"{where} cannot be decrypted with the old key; nothing was changed"
         ) from None
-    return crypto.encrypt(new, plain, aad)
+    out = crypto.encrypt(new, plain, aad)
+    if memo is not None:
+        memo[(aad, value)] = out
+    return out
 
 
-def _fields(old: str, new: str, obj: Any, pairs: list[tuple[str, bytes]], where: str) -> Any:
+def _fields(
+    old: str,
+    new: str,
+    obj: Any,
+    pairs: list[tuple[str, bytes]],
+    where: str,
+    memo: Memo | None = None,
+) -> Any:
     if not isinstance(obj, dict):
         return None
     out, changed = dict(obj), False
     for field, aad in pairs:
         if out.get(field):
-            out[field] = _re(old, new, out[field], aad, f"{where}.{field}")
+            out[field] = _re(old, new, out[field], aad, f"{where}.{field}", memo)
             changed = True
     return out if changed else None
 
@@ -72,6 +91,7 @@ def _sealed(old: str, new: str, value: Any, owner: str) -> Any:
 def rekey_all(conn: Any, old: str, new: str) -> int:
     """Synchronous SQLAlchemy connection. Returns the number of rows rewritten."""
     n = 0
+    memo: Memo = {}
 
     def upd(sql: str, value: Any, **params: Any) -> None:
         nonlocal n
@@ -128,7 +148,7 @@ def rekey_all(conn: Any, old: str, new: str) -> int:
     for r in conn.execute(text("SELECT key, value FROM settings")).all():
         v: Any = None
         if r.key in SETTINGS_FIELDS:
-            v = _fields(old, new, r.value, SETTINGS_FIELDS[r.key], f"settings:{r.key}")
+            v = _fields(old, new, r.value, SETTINGS_FIELDS[r.key], f"settings:{r.key}", memo)
         elif r.key == "smtp":
             v = _box(old, new, r.value, secretbox.SMTP_FIELDS, "settings:smtp")
         elif r.key == "trap_communities":
@@ -143,4 +163,20 @@ def rekey_all(conn: Any, old: str, new: str) -> int:
             v = users if changed else None
         if v is not None:
             upd("UPDATE settings SET value = CAST(:v AS jsonb) WHERE key = :k", v, k=r.key)
+    # [4] shared AWS connections (migration P4-1; absent on a database at 0012)
+    if conn.execute(text("SELECT to_regclass('aws_connections')")).scalar() is not None:
+        from netmon.aws import connections as aws_conns
+
+        for r in conn.execute(text("SELECT id, aad_scope, settings FROM aws_connections")).all():
+            pairs = [
+                (stored, aws_conns.aad(r.aad_scope, name))
+                for stored, name in aws_conns.SECRET_FIELDS.items()
+            ]
+            v = _fields(old, new, r.settings, pairs, f"aws_connection:{r.id}", memo)
+            if v is not None:
+                upd(
+                    "UPDATE aws_connections SET settings = CAST(:v AS jsonb) WHERE id = :i",
+                    v,
+                    i=r.id,
+                )
     return n

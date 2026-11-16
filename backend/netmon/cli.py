@@ -176,12 +176,39 @@ async def _reset_password(username: str) -> int:
     return 0
 
 
+def _revision_error(rev: str | None, needed: str) -> str:
+    """[1.4.2] Why `netmon secrets` refuses at this database revision."""
+    from alembic.script import ScriptDirectory
+    from alembic.util.exc import CommandError
+
+    from netmon.db.migrate import _alembic_config
+
+    if rev is None:
+        return (
+            f"error: the database is not migrated; this command needs migration {needed} or "
+            "later (start the server or run `netmon migrate` first)"
+        )
+    try:
+        known = ScriptDirectory.from_config(_alembic_config()).get_revision(rev) is not None
+    except CommandError:
+        known = False
+    if not known:
+        return (
+            f"error: the database is at migration {rev}, which this version does not know (it "
+            "was migrated by a newer release); run this command with that release's image"
+        )
+    return (
+        f"error: the database is at migration {rev}; this command needs migration {needed} or "
+        "later (start the server or run `netmon migrate` first)"
+    )
+
+
 async def _secrets(action: str, old_key_file: str | None = None) -> int:
     """[1.4.2] `netmon secrets status|remove-plaintext|restore-plaintext|rekey`."""
     from sqlalchemy import text
 
     from netmon.db.engine import make_engine, wait_for_db
-    from netmon.db.migrate import db_revision
+    from netmon.db.migrate import AT_REST_REVISION, db_revision, revision_at_or_after
     from netmon.services import rekey, secretbox
 
     settings = load_settings()
@@ -193,11 +220,8 @@ async def _secrets(action: str, old_key_file: str | None = None) -> int:
     try:
         await wait_for_db(engine, timeout_s=10)
         rev = await db_revision(engine)
-        if rev != "0012":
-            print(
-                f"error: the database is at migration {rev}, this command needs 0012",
-                file=sys.stderr,
-            )
+        if not revision_at_or_after(rev, AT_REST_REVISION):
+            print(_revision_error(rev, AT_REST_REVISION), file=sys.stderr)
             return 1
         async with engine.connect() as conn:
             removed = (

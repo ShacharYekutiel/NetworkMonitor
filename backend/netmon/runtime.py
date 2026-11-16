@@ -97,6 +97,10 @@ class Runtime:
         self.telegram_pollers: Any = None
         self.kiosk: Any = None
         self.assistant: Any = None  # [3b] netmon.assistant.service.AssistantService
+        # [4] shared AWS credential chains + configure-first test ids (netmon.aws.credcache)
+        from netmon.aws.credcache import AwsRuntime
+
+        self.aws: Any = AwsRuntime(self)
         self.ai_features: Any = None  # [3b] netmon.assistant.features.component.AiFeatures
         self.event_sensors: Any = None  # netmon.ingest.event_sensors.EventSensors
         self.flapping: Any = None  # netmon.ingest.flapping.FlapManager
@@ -337,6 +341,8 @@ class Runtime:
             await self.scheduler.stop()
         if self.alerts:
             await self.alerts.stop()
+        with contextlib.suppress(Exception):
+            await self.aws.aclose()  # [4] credential chains and their HTTP clients
         for t in self._tasks:
             t.cancel()
         for t in self._tasks:
@@ -364,12 +370,12 @@ class Runtime:
         1.4.1 changed after a rollback. Idempotent and cheap (configuration rows only)."""
         from sqlalchemy import text
 
-        from netmon.db.migrate import db_revision
+        from netmon.db.migrate import AT_REST_REVISION, db_revision, revision_at_or_after
         from netmon.services import secretbox
 
         assert self.engine is not None
-        if (await db_revision(self.engine)) != "0012":
-            return  # not migrated (migrate=False) or migrated by a newer release
+        if not revision_at_or_after(await db_revision(self.engine), AT_REST_REVISION):
+            return  # not migrated (migrate=False), older than 0012, or migrated by a newer release
         async with self.engine.begin() as conn:
             removed = (
                 await conn.execute(

@@ -1,4 +1,11 @@
 // [3b] Hand-written mirror of docs/api.md "[3b] Phase 3b contract". Field names are exact.
+import type {
+  AssistantAwsStatus,
+  AssistantConnectionRef,
+  AwsAccess,
+  AwsHint,
+  AwsIdentity,
+} from './types4';
 
 export const AI_FEATURES = [
   'ai_explain_alert',
@@ -67,31 +74,18 @@ export type AssistantSettings = {
   enabled: boolean;
   state: AssistantState;
   state_error: { code: string; message: string; at: string } | null;
-  auth_mode: AuthMode;
   region: string;
   model_id: string;
   model_id_light: string | null;
   endpoint_url: string | null;
   control_endpoint_url: string | null;
-  proxy_mode: ProxyMode;
-  proxy_url: string | null;
   prompt_caching: boolean;
-  access_key_id: string | null;
-  secret_access_key: null;
-  secret_access_key_set: boolean;
-  secret_access_key_unreadable: boolean;
-  /** [3b] optional session token of temporary (ASIA…) keys — write-only like the secret */
-  session_token?: null;
-  session_token_set?: boolean;
-  session_token_unreadable?: boolean;
-  access_key_created_at: string | null;
-  ra_region: string | null;
-  ra_endpoint_url: string | null;
-  ra_trust_anchor_arn: string | null;
-  ra_profile_arn: string | null;
-  ra_role_arn: string | null;
-  ra_session_seconds: number;
-  certificate: CertInfo | null;
+  /** [4] the shared AWS connection (null = the default connection) and how Bedrock is reached;
+   *  the 1.4.x authentication fields moved to Settings → AWS (api.md "[4] Shared AWS connections") */
+  connection_id: number | null;
+  access: AwsAccess;
+  /** read-only: the connection the assistant resolves to (null: no connection yet) */
+  connection: AssistantConnectionRef | null;
   send_config_excerpts: boolean;
   redact_internal_ips: boolean;
   internal_cidrs: string[];
@@ -103,34 +97,18 @@ export type AssistantSettings = {
   chat_models_effective?: ChatModel[];
   last_test: { ok: boolean; at: string; by: string; error_code: string | null } | null;
   warnings: AssistantWarning[];
-  /** [3b owner decision] pending CSR (key generated on the server) */
-  csr?: CsrResult | null;
-  certificate_host_files?: boolean;
 };
 
-/** Writable connection fields (hashed for the `test_id`; data-model § [3b] Settings). */
+/** Writable connection fields (hashed for the `test_id`; data-model § [3b] Settings + [4]). */
 export type AssistantConnectionInput = {
-  auth_mode: AuthMode;
   region: string;
   model_id: string;
   model_id_light: string | null;
   endpoint_url: string | null;
   control_endpoint_url: string | null;
-  proxy_mode: ProxyMode;
-  proxy_url: string | null;
   prompt_caching: boolean;
-  access_key_id: string | null;
-  /** omitted/null keeps, "" clears, a string replaces */
-  secret_access_key?: string | null;
-  /** omitted/null keeps, "" clears, a string replaces (temporary ASIA… keys) */
-  session_token?: string | null;
-  access_key_created_at: string | null;
-  ra_region: string | null;
-  ra_endpoint_url: string | null;
-  ra_trust_anchor_arn: string | null;
-  ra_profile_arn: string | null;
-  ra_role_arn: string | null;
-  ra_session_seconds: number;
+  connection_id: number | null;
+  access: AwsAccess;
 };
 
 export type AssistantSettingsInput = Partial<AssistantConnectionInput> & {
@@ -145,20 +123,33 @@ export type AssistantSettingsInput = Partial<AssistantConnectionInput> & {
 };
 
 export type AssistantTestStepName =
-  'config' | 'credentials' | 'endpoint' | 'converse' | 'knowledge';
+  | 'config'
+  | 'credentials'
+  | 'identity'
+  | 'hop'
+  | 'hop_identity'
+  | 'endpoint'
+  | 'converse'
+  | 'knowledge';
 export const ASSISTANT_TEST_STEPS: AssistantTestStepName[] = [
   'config',
   'credentials',
+  'identity',
+  'hop',
+  'hop_identity',
   'endpoint',
   'converse',
   'knowledge',
 ];
 export type AssistantTestStep = {
   step: AssistantTestStepName;
+  /** [4] 0 = the connection's base identity, 1 = the role hop, null = not an AWS identity step */
+  hop?: 0 | 1 | null;
   ok: boolean;
   detail: string;
   ms: number;
   error_code: string | null;
+  hints?: AwsHint[];
 };
 export type AssistantTestResult = {
   ok: boolean;
@@ -173,6 +164,8 @@ export type AssistantTestResult = {
   usage: { input_tokens: number; output_tokens: number } | null;
   warnings: string[];
   error: { code: string; message: string } | null;
+  identity?: AwsIdentity | null;
+  hop_identity?: AwsIdentity | null;
 };
 
 export type ModelListItem = {
@@ -185,10 +178,9 @@ export type ModelListItem = {
 export type ModelList = { items: ModelListItem[]; error: { code: string; message: string } | null };
 
 /**
- * [3b owner decision, not in api.md yet; shape of the backend implementation] "Generate CSR":
- * `POST /api/assistant/cert/csr` creates the key pair on the server (kept encrypted, pending) and
- * returns the CSR; the issued certificate is then uploaded through `POST /api/assistant/cert`
- * without a key. `GET` downloads the pending CSR, `DELETE` discards it.
+ * "Generate CSR" ([4]: per AWS connection, `POST /api/aws/connections/{id}/cert/csr`): the server
+ * creates the key pair (kept encrypted, pending) and returns the CSR; the issued certificate is
+ * then uploaded through `POST …/cert` without a key. `GET` downloads the CSR, `DELETE` discards it.
  */
 export type CsrRequest = {
   common_name: string;
@@ -232,6 +224,8 @@ export type AssistantStatus = {
   /** [3b owner] models the chat composer offers (main model first = default) */
   chat_models?: ChatModel[];
   default_model_id?: string | null;
+  /** [4] the live credential chain of the assistant */
+  aws?: AssistantAwsStatus;
 };
 
 /** [3b owner] a model / inference profile offered in the chat (optional display label). */

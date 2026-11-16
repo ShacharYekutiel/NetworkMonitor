@@ -120,7 +120,7 @@ describe('[1.3.1] settings search index', () => {
       expect.arrayContaining(['assistantCapabilities', 'aiCorrelation', 'feature.ai_alert_notes']),
     );
     expect(ids(enDocs, 'assistant').length).toBeGreaterThan(10);
-    expect(ids(enDocs, 'light model')[0]).toBe('assistantConnection.13');
+    expect(ids(enDocs, 'light model')[0]).toBe('assistantConnection.2');
     expect(ids(enDocs, 'token cap')).toContain('assistantLimits.1');
     const he = ids(heDocs, 'עוזר');
     expect(he).toEqual(
@@ -138,5 +138,36 @@ describe('[1.3.1] settings search index', () => {
     const sw = settingsEntries().find((e) => e.id === 'feature.ai_correlation')!;
     expect(sw.tab).toBe('assistant');
     expect(sw.cardTitleKey).toBe('assistant.settings.capabilities');
+  });
+
+  it("[4] the AWS tab and the assistant's AWS access are found in English and Hebrew", () => {
+    const enDocs = buildDocs(settingsEntries(), tEn);
+    const heDocs = buildDocs(settingsEntries(), tHe, tEn);
+    const ids = (docs: typeof enDocs, q: string) =>
+      searchSettings(docs, q, 200).map((d) => d.entry.id);
+    for (const id of ['awsConnections', 'awsConnection', 'awsCertificate', 'awsPolicies'])
+      expect(settingsEntries().find((e) => e.id === id)?.tab).toBe('aws');
+    // the editor / certificate / policies exist only while a connection is open: their
+    // results fall back to the list card
+    const ta = settingsEntries().find((e) => e.id === 'awsConnection.2')!;
+    expect(ta.labelKey).toBe('aws.form.raTrustAnchor');
+    expect(ta.selectors).toEqual([
+      '[data-anchor="settings-awsConnection"]',
+      '[data-anchor="settings-awsConnections"]',
+    ]);
+    expect(ids(enDocs, 'trust anchor')[0]).toBe('awsConnection.2');
+    expect(ids(heDocs, 'trust anchor')).toContain('awsConnection.2');
+    expect(ids(heDocs, 'עוגן האמון')).toContain('awsConnection.2');
+    expect(ids(enDocs, 'ExternalId')).toContain('assistantAwsAccess.3');
+    expect(ids(heDocs, 'external id')).toContain('assistantAwsAccess.3');
+    expect(ids(enDocs, 'certreq')).toContain('awsCertificate');
+    expect(ids(enDocs, 'setsourceidentity')).toContain('awsPolicies');
+    // the 1.4.x words now lead to the AWS cards, not to the assistant connection card
+    expect(ids(enDocs, 'roles anywhere')).toEqual(expect.arrayContaining(['awsConnection']));
+    expect(ids(enDocs, 'roles anywhere')).not.toContain('assistantConnection');
+    expect(ids(enDocs, 'certificate')).toContain('awsCertificate');
+    // always available (no feature)
+    const off = Object.fromEntries(FEATURE_NAMES.map((n) => [n, false])) as Features;
+    expect(entryAvailable(ta, off)).toBe(true);
   });
 });

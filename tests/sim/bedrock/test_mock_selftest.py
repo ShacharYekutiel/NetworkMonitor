@@ -362,7 +362,7 @@ def test_csr_flow_sign_and_session(mock, tmp_path):
     from cryptography.hazmat.primitives.asymmetric import rsa as _rsa
     from cryptography.x509.oid import NameOID
     key = _rsa.generate_private_key(public_exponent=65537, key_size=2048)
-    csr = (_x509.CertificateSigningRequestBuilder().subject_name(_x509.Name([_x509.NameAttribute(NameOID.COMMON_NAME, "netmonitor-bedrock.mnidom.net")]))
+    csr = (_x509.CertificateSigningRequestBuilder().subject_name(_x509.Name([_x509.NameAttribute(NameOID.COMMON_NAME, "netmonitor.example.net")]))
            .sign(key, hashes.SHA256()))
     pem = pki.sign_csr(mock.pki["dir"], csr.public_bytes(serialization.Encoding.PEM))
     (tmp_path / "c.pem").write_bytes(pem)
