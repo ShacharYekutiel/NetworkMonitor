@@ -530,3 +530,60 @@ async def test_database_newer_than_this_version_starts_without_migrating(  # typ
     finally:
         await admin.execute(f'DROP DATABASE IF EXISTS "{name}" WITH (FORCE)')
         await admin.close()
+
+
+@requires_db
+async def test_142_script_directory_starts_on_phase4_head(  # type: ignore[no-untyped-def]
+    tmp_path, caplog, monkeypatch
+) -> None:
+    """[4] Container rollback to 1.4.2 (architecture § 15.1.9, rule R1): the database is at the
+    phase-4 head, the image only knows the scripts up to 1.4.2's 0012. Simulated with a copy of
+    the migration scripts without every revision after 0012: it must start without migrating."""
+    import logging
+    import shutil
+    from pathlib import Path
+
+    from alembic.config import Config
+    from alembic.script import ScriptDirectory
+
+    from netmon.db import migrate
+
+    real = ScriptDirectory.from_config(migrate._alembic_config())  # noqa: SLF001
+    known_142 = {r.revision for r in real.iterate_revisions("0012", "base")}
+    later = [r for r in real.walk_revisions() if r.revision not in known_142]
+    assert later, "phase 4 adds revisions after 0012"
+    scripts = tmp_path / "migrations"
+    shutil.copytree(str(real.dir), scripts, ignore=shutil.ignore_patterns("__pycache__"))
+    for r in later:
+        (scripts / "versions" / Path(r.path).name).unlink()
+
+    def config_142() -> Config:
+        cfg = Config()
+        cfg.set_main_option("script_location", str(scripts))
+        return cfg
+
+    name = f"netmon_test_{secrets.token_hex(4)}_rb142"
+    admin = await asyncpg.connect(_plain(TEST_DATABASE_URL))
+    try:
+        await admin.execute(f'CREATE DATABASE "{name}"')
+        engine = make_engine(db_url_for(name).replace("postgresql://", "postgresql+asyncpg://"))
+        try:
+            await run_migrations(engine, secret_key=secrets.token_urlsafe(64))
+            async with engine.begin() as conn:
+                assert (
+                    await conn.execute(text("SELECT version_num FROM alembic_version"))
+                ).scalar_one() == HEAD
+            monkeypatch.setattr(migrate, "_alembic_config", config_142)
+            assert ScriptDirectory.from_config(config_142()).get_current_head() == "0012"
+            with caplog.at_level(logging.WARNING, logger="netmon.db.migrate"):
+                await run_migrations(engine)  # must not raise
+            assert HEAD in caplog.text and "newer release" in caplog.text
+            async with engine.begin() as conn:
+                assert (
+                    await conn.execute(text("SELECT version_num FROM alembic_version"))
+                ).scalar_one() == HEAD
+        finally:
+            await engine.dispose()
+    finally:
+        await admin.execute(f'DROP DATABASE IF EXISTS "{name}" WITH (FORCE)')
+        await admin.close()
