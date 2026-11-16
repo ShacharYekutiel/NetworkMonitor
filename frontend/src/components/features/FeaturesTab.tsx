@@ -1,5 +1,5 @@
 import { useTranslation } from 'react-i18next';
-import { Link } from 'react-router-dom';
+import { Link } from 'react-router';
 import type { FeatureName, Settings } from '../../api/types';
 import { FEATURE_GROUPS, featuresFromSettings, featureTab } from '../../lib/features';
 import { Card, cx } from '../ui';

@@ -29,13 +29,13 @@ export default defineConfig({
       output: {
         // Same split as the former Rollup `manualChunks` object form (removed
         // in Vite 8): a group pulls in its dependencies (zrender, scheduler,
-        // the router core) recursively.
+        // the router's cookie helpers) recursively.
         codeSplitting: {
           groups: [
             { name: 'echarts', test: /[\\/]node_modules[\\/]echarts[\\/]/ },
             {
               name: 'react',
-              test: /[\\/]node_modules[\\/](react|react-dom|react-router-dom)[\\/]/,
+              test: /[\\/]node_modules[\\/](react|react-dom|react-router)[\\/]/,
             },
           ],
         },

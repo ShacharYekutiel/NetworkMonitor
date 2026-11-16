@@ -1,5 +1,5 @@
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
-import { BrowserRouter } from 'react-router-dom';
+import { BrowserRouter } from 'react-router';
 import { isApiError } from './api/client';
 import { ToastProvider } from './components/toast';
 import { AuthProvider } from './hooks/auth';
@@ -57,7 +57,9 @@ export function App() {
     <QueryClientProvider client={queryClient}>
       <ThemeProvider>
         <ToastProvider>
-          <BrowserRouter>
+          {/* No startTransition (react-router 7 default): navigate() must land in the same render
+              as the auth state change, or the /login -> "/" redirect beats location.state.from. */}
+          <BrowserRouter useTransitions={false}>
             <AuthProvider>
               <LiveProvider>
                 <AppRoutes />
