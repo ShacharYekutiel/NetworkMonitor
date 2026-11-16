@@ -326,10 +326,23 @@ export async function shot3b(page: Page, name: string): Promise<string> {
 export function questionBox(page: Page) {
   return page.locator('main textarea').first();
 }
+/** The live answer of the Ask page has finished (its Stop button is gone). The answer text is shown while the run
+ * still finishes (audit title by the light model, storing): until the `done` event the page ignores Enter
+ * (AssistantPage `send`: one running question per user), so a test must not type the next question earlier. */
+export async function waitAnswerDone(page: Page, timeout = 60_000): Promise<void> {
+  await expect(page.getByTestId('stop'), 'previous answer still running').toHaveCount(0, { timeout });
+}
 export async function askInUi(page: Page, question: string): Promise<void> {
+  await waitAnswerDone(page);
   const box = questionBox(page);
   await box.fill(question);
   await box.press('Enter');
+}
+/** No running question of the API user (GET /api/assistant/status `me.running_message_id`): a UI test that only
+ * waited for answer text must call this before the next test asks (else 409 assistant_busy). */
+export async function waitAssistantIdle(api: Api, timeout = 30_000): Promise<void> {
+  await expect.poll(async () => (await api.get('/api/assistant/status')).me?.running_message_id ?? null,
+    { timeout, message: 'a running question of this user did not finish' }).toBeNull();
 }
 /** A browser-less API client logged in with an API token (Bearer). */
 export async function tokenApi(admin: Api, role: 'admin' | 'viewer' = 'admin'): Promise<Api> {
