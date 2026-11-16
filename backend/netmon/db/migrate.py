@@ -37,6 +37,26 @@ def newer_database_revision(sync_conn, cfg: Config) -> str | None:  # type: igno
     return None if known is not None else current
 
 
+SECRETS_AT_REST_REVISION = "0012"  # [1.4.2] first revision with the encrypted secret copies
+
+
+def revision_at_or_after(revision: str | None, base: str) -> bool:
+    """True when `revision` is known to this release's migration scripts and is `base` or a
+    descendant of it (i.e. everything `base` added exists). False for no revision (unmigrated
+    database), an older revision, or a revision this release does not know (the database was
+    migrated by a newer release). Code that needs a schema / data form must ask this instead of
+    comparing with one number, which stops matching as soon as a later migration exists."""
+    if revision is None:
+        return False
+    script = ScriptDirectory.from_config(_alembic_config())
+    try:
+        if script.get_revision(revision) is None:
+            return False
+        return any(r.revision == base for r in script.iterate_revisions(revision, "base"))
+    except CommandError:
+        return False
+
+
 def current_revision(sync_conn) -> str | None:  # type: ignore[no-untyped-def]
     return MigrationContext.configure(sync_conn).get_current_revision()
 
