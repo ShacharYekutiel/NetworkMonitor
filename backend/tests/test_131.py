@@ -17,6 +17,7 @@ import asyncpg
 import httpx
 import pytest
 
+from netmon.db.migrate import migration_head
 from netmon.poller.snmp_client import SnmpError
 from netmon.ports.collect import (
     ENT_ALIAS_MAPPING_ID,
@@ -558,7 +559,7 @@ async def test_migration_0009_up_down_up(mode: str, rt: Any) -> None:
         await timescale.bootstrap_status(engine, 90, disabled=mode == "fallback")
         c = await asyncpg.connect(url)
         try:
-            assert await c.fetchval("SELECT version_num FROM alembic_version") == "0012"
+            assert await c.fetchval("SELECT version_num FROM alembic_version") == migration_head()
             assert (await columns(c))["irf_port"] == "smallint YES"
         finally:
             await c.close()
@@ -606,7 +607,7 @@ async def test_migration_0009_up_down_up(mode: str, rt: Any) -> None:
         await run_migrations(engine)
         c = await asyncpg.connect(url)
         try:
-            assert await c.fetchval("SELECT version_num FROM alembic_version") == "0012"
+            assert await c.fetchval("SELECT version_num FROM alembic_version") == migration_head()
             assert "irf_port" in await columns(c)
             got = await configs(c)
             assert got[0] == {**base, "value_map": {}, "value_map_ref": "hh3c_error_status"}

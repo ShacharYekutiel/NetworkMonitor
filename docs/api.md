@@ -11,6 +11,8 @@ Items marked **[1.3]** (release 1.3: sensor impact, important ports, interface s
 connected hosts / CSV on ports, LAG degraded, IRF) are specified in [§ Release 1.3](#13-release-13-contract).
 Items marked **[1.3.1]** (IRF ports important, named value maps) are specified in
 [§ Release 1.3.1](#131-release-131-contract).
+Items marked **[premium]** (connected device kind per port, home network map) are specified in
+[§ Premium UI additions](#premium-premium-ui-additions).
 
 This file is the contract between the backend (`backend/netmon/schemas`) and the frontend
 (`frontend/src/api/types.ts`). **Field names are exact.** For the table semantics see
@@ -1273,7 +1275,7 @@ type TemplateSkipReason = "exists" | "probe_failed" | "snmp_error" | "max_reache
 ```ts
 type PortKind = "physical" | "lag" | "vlan" | "mgmt" | "other";
 type PortState = "up" | "down" | "admin_down" | "absent";
-type ConnectedKind = "none" | "client" | "ap" | "switch";
+type ConnectedKind = "none" | "client" | "ap" | "switch";   // **changed [premium]**: see § Premium UI additions
 type IfStatus = "up" | "down" | "testing" | "unknown" | "dormant" | "notPresent" | "lowerLayerDown";
 type SourceState = "ok" | "empty" | "error" | "skipped" | "unmapped";
 
@@ -1307,7 +1309,7 @@ type Port = { if_index: number; name: string; descr: string; alias: string; kind
   in_bps: number | null; out_bps: number | null;
   in_errors_delta: number | null; out_errors_delta: number | null;
   is_uplink: boolean; uplink_reason: "neighbor" | "mac_count" | null;
-  connected_kind: ConnectedKind; trunk: boolean;
+  connected_kind: ConnectedKind; trunk: boolean;   // [premium] value set changed, + connected_kind_source / _override
   neighbor: PortNeighbor | null;       // primary neighbour
   mac_count: number;
   first_mac: PortMac | null;           // null for uplinks
@@ -2789,3 +2791,140 @@ Additive only; secrets stay write-only exactly as before (data-model § [1.4.2] 
 - **Response header:** `Strict-Transport-Security` is `max-age=31536000` by default, `max-age=31536000;
   includeSubDomains` with `NETMON_HSTS_INCLUDE_SUBDOMAINS=true` (environment; production: `app.env`).
 - **New-devices search** (`GET /api/new-devices?q=`): `%` and `_` match literally.
+
+---
+
+## [premium] Premium UI additions
+
+Two additions for the premium UI (design: `docs/design-system/premium/BUILD.md` §§ 4–5). Semantics and tables:
+[data-model.md § Premium UI additions](data-model.md#premium-premium-ui-additions). No feature toggle. Neither reads
+from or writes to a device: everything is computed from data the server already has (no SNMP on any of these
+requests).
+
+### [premium] Connected device kind per switch port
+
+**Changed:** `Port.connected_kind` (`GET /api/devices/{id}/ports`, `GET /api/devices/{id}/ports/{if_index}`) gets a
+new value set, and `null` replaces `"none"`. Two keys are added.
+
+```ts
+type ConnectedKind = "computer" | "phone" | "ap" | "printer" | "camera" | "server" | "switch" | "router" | "unknown";
+type ConnectedKindSource = "lldp" | "cdp" | "oui" | "manual";
+
+type Port = Port & {
+  connected_kind: ConnectedKind | null;              // null: no link, or nothing learned behind the port
+  connected_kind_source: ConnectedKindSource | null; // what the kind was derived from; null with a null kind
+  connected_kind_override: ConnectedKind | null;     // the stored manual choice (also when the link is down)
+};
+```
+
+| Source | Meaning |
+|---|---|
+| `manual` | A user's choice for this port (`connected_kind_override` is set), or a manual topology link to a monitored device (`connected_kind_override` is null) |
+| `lldp` / `cdp` | The port's primary neighbour learned by LLDP / CDP: a monitored device (by its class) or an unmanaged neighbour (by its LLDP / CDP system capabilities, then its CDP platform / LLDP system description) |
+| `oui` | The MAC table: the vendor of the single learned MAC (a small built-in, heuristic table), `computer` when it matches nothing; several MACs and no neighbour → `unknown` (or `phone` / `server` when one of them is a phone / hypervisor MAC) |
+
+Old → new values (for clients still on the 2b-2 names): `"none"` → `null`; `"switch"` → `"switch"` or `"router"`;
+`"ap"` → `"ap"`; `"client"` → any other kind. The rules, in priority order, are in the data model.
+
+| Method & path | Role | Request | Response |
+|---|---|---|---|
+| `PUT /api/devices/{id}/ports/{if_index}/connected-kind` | admin | `{"kind": ConnectedKind \| null}` (`null` clears the choice) | `200 Port` (the port as the list shows it, with the new kind); `404 not_found` (device, or a port not in the snapshot); `422 validation_error` (`kind` missing or not a `ConnectedKind`) |
+
+- Stored in `port_kind_overrides` (survives every refresh; deleted with the device). Never sent to the device.
+- Audited (`switch_port.update`, entity `switch_port` / id = `if_index` / name `"<device> <port>"`, `device_id`
+  set, `changes: {"connected_kind": [old, new]}`) when the value changes.
+- A change broadcasts `ports.updated` (`{"device_id": 3, "ok": true, "collected_at": <the port's>,
+  "arp_source": false}`), so open ports views and port modals refetch.
+
+Example item of `GET /api/devices/{id}/ports` (trimmed):
+
+```json
+{ "if_index": 4, "name": "GigabitEthernet1/0/4", "state": "up", "is_uplink": false,
+  "connected_kind": "phone", "connected_kind_source": "lldp", "connected_kind_override": null,
+  "neighbor": { "link_id": 12, "source": "lldp", "kind": "neighbor", "device_id": null, "neighbor_id": 3,
+                "name": "SIP-T46U", "port": "WAN", "device_class": null, "status": null,
+                "mgmt_address": "10.0.20.31" } }
+```
+
+### [premium] Home network map
+
+```ts
+type HomeMapSettings = {
+  mode: "auto" | "backbone";          // default "auto"
+  show_internet: boolean;             // default true (backbone mode only)
+  backbone_device_ids: number[];      // ordered, ≤ 8, existing devices, no duplicates; default []
+  max_groups: number;                 // 1–50, default 12: leaves shown under the last node
+};
+type MapNodeStatus = "up" | "warning" | "down" | "unreachable" | "paused" | "unknown";
+type MapNode = {
+  id: string;                         // "internet" | "root" | "d<device id>" | "g<group id>" | "more"
+  kind: "internet" | "device" | "group";
+  role: "internet" | "firewall" | "core" | "group" | null;
+  name: string;
+  subtitle: string;                   // device: model, else vendor, else host; group: "14 devices" (user's language)
+  status: MapNodeStatus;              // worst status inside (the /api/tree rollup)
+  problem: string | null;             // the most severe open problem inside, short (≤ 80 chars), else null
+  counts: { devices: number; sensors: number; down: number; warning: number; unreachable: number };
+  ref: { type: "device" | "group"; id: number } | null;
+  parent_id: string | null };
+type MapLink = { from: string; to: string; status: "up" | "down" | "warning" | "unknown" };
+type HomeMap = { scope: { group_id: number | null; name: string };
+  nodes: MapNode[];                   // parents before children
+  links: MapLink[];                   // one per node with a parent: parent → node
+  configured: boolean };
+```
+
+| Method & path | Role | Request | Response |
+|---|---|---|---|
+| `GET /api/overview/map` | viewer (any signed-in user; same visibility as `/api/tree`) | Query `group_id` (optional) | `200 HomeMap`; `404 not_found` (unknown group) |
+| `GET /api/settings/home-map` | viewer | — | `200 HomeMapSettings` |
+| `PUT /api/settings/home-map` | admin | subset of `HomeMapSettings` (omitted keys keep their value; unknown keys → 422) | `200 HomeMapSettings`; `422 validation_error` (bad mode, `max_groups` out of range, more than 8 / duplicate / unknown device ids — `loc: ["body", "backbone_device_ids", <position>]`). Audited as `settings.update` (key `home_map`). |
+
+Tree (the user chooses; nothing is guessed):
+- **`backbone`** with at least one listed device inside the scope: `[internet]` (when `show_internet`; `kind`/`role`
+  `internet`, `status: "unknown"`, `ref: null`) → the listed devices in the listed order (only those inside the
+  scope; deleted ones are skipped) → the scope's child groups (top-level groups without `group_id`), then the
+  scope group's own devices that are not on the backbone, as leaves under the last backbone device. The first
+  backbone device has `role: "firewall"` when its name / vendor / model / suggested template / sysDescr looks like
+  a firewall (FortiGate, Palo Alto, OPNsense, pfSense, Check Point, Sophos, WatchGuard, SonicWall, SRX, ASA,
+  "firewall"), else `"core"`; the others `"core"`.
+- **`auto`** (default), or `backbone` with no listed device in the scope: a virtual root (`id: "root"`, `kind:
+  "group"`, `role: null`, name = the scope's name — `""` for the whole network, the client shows its own label —
+  `ref` = the scope group or null) → the same leaves. `configured` is `false` when the topology links show one
+  device linked into most of the scope's child groups (≥ 2 and ≥ half of them): a backbone exists that the user has
+  not chosen; the client offers "choose backbone devices". Otherwise `true`. Backbone mode is always `true`.
+- More leaves than `max_groups`: problem leaves (down / warning / unreachable) are kept first, in tree order, up to
+  `max_groups − 1`; the rest are summed into one `"more"` node (`name: "+N"`, `kind: "group"`, `role: "group"`,
+  `ref: null`).
+- Leaf groups: `role: "group"`, `ref: {"type": "group", ...}`; leaf devices: `role: null`.
+- `counts`: monitored devices in the node, their sensors, and the devices whose rolled-up status is down / warning /
+  unreachable.
+- `problem`: among the sensors inside that are `down`, `warning` or `unreachable`, the worst (severity, then
+  not acknowledged first, then the oldest status change): `"<device> · <sensor>"` for groups and the root,
+  `"<sensor>: <status message>"` for a device.
+- Link status (parent → child): `down` when the child is down or unreachable, `warning` when warning, `unknown`
+  when unknown, else `up`.
+- Cost: the inventory rollup plus two small queries (problem sensors; topology links in auto mode only). No SNMP;
+  meant to be polled every ~10 s. No WebSocket message of its own.
+
+Example (`backbone`, `group_id` omitted):
+
+```json
+{ "scope": { "group_id": null, "name": "" },
+  "nodes": [
+    { "id": "internet", "kind": "internet", "role": "internet", "name": "Internet", "subtitle": "", "status": "unknown",
+      "problem": null, "counts": { "devices": 0, "sensors": 0, "down": 0, "warning": 0, "unreachable": 0 },
+      "ref": null, "parent_id": null },
+    { "id": "d1", "kind": "device", "role": "firewall", "name": "fw-1", "subtitle": "FortiGate 60F", "status": "up",
+      "problem": null, "counts": { "devices": 1, "sensors": 4, "down": 0, "warning": 0, "unreachable": 0 },
+      "ref": { "type": "device", "id": 1 }, "parent_id": "internet" },
+    { "id": "d2", "kind": "device", "role": "core", "name": "core-1", "subtitle": "5130 EI", "status": "up",
+      "problem": null, "counts": { "devices": 1, "sensors": 9, "down": 0, "warning": 0, "unreachable": 0 },
+      "ref": { "type": "device", "id": 2 }, "parent_id": "d1" },
+    { "id": "g4", "kind": "group", "role": "group", "name": "Access", "subtitle": "14 devices", "status": "down",
+      "problem": "access-3.example.net · Uplink", "counts": { "devices": 14, "sensors": 61, "down": 1, "warning": 0,
+      "unreachable": 2 }, "ref": { "type": "group", "id": 4 }, "parent_id": "d2" } ],
+  "links": [ { "from": "internet", "to": "d1", "status": "up" }, { "from": "d1", "to": "d2", "status": "up" },
+             { "from": "d2", "to": "g4", "status": "down" } ],
+  "configured": true }
+```

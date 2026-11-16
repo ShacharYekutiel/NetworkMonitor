@@ -19,6 +19,7 @@ from cryptography import x509
 from cryptography.hazmat.primitives import hashes, serialization
 
 from netmon.assistant.errors import AssistantError
+from netmon.db.migrate import migration_head
 from netmon.runtime import Runtime
 from netmon.services.features import FEATURES, PHASE3B_FEATURES
 from tests.conftest import TEST_DATABASE_URL, _plain, db_url_for, requires_db
@@ -814,7 +815,9 @@ async def test_migration_0008_up_down_up(mode: str, rt: Runtime) -> None:
             pytest.skip("TimescaleDB not available")
         conn = await asyncpg.connect(_plain(url))
         try:
-            assert await conn.fetchval("SELECT version_num FROM alembic_version") == "0012"
+            assert (
+                await conn.fetchval("SELECT version_num FROM alembic_version") == migration_head()
+            )
             assert tables <= await present(conn)
             uid = await conn.fetchval(
                 "INSERT INTO users (username, password_hash, role) VALUES ('user1', 'x', 'admin') "
@@ -883,7 +886,9 @@ async def test_migration_0008_up_down_up(mode: str, rt: Runtime) -> None:
         await run_migrations(engine)
         conn = await asyncpg.connect(_plain(url))
         try:
-            assert await conn.fetchval("SELECT version_num FROM alembic_version") == "0012"
+            assert (
+                await conn.fetchval("SELECT version_num FROM alembic_version") == migration_head()
+            )
             assert tables <= await present(conn)
         finally:
             await conn.close()
