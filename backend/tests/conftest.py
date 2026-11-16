@@ -310,3 +310,22 @@ async def make_sensor(
     )
     assert r.status_code == 201, r.text
     return r.json()
+
+
+@pytest.fixture
+async def fresh_db() -> AsyncIterator[tuple[str, Any]]:
+    """[4] An empty database of its own (url, engine); migrate it to the revision a test needs."""
+    from netmon.db.engine import make_engine
+
+    assert TEST_DATABASE_URL
+    name = f"netmon_test_gate_{secrets.token_hex(3)}"
+    admin = await asyncpg.connect(_plain(TEST_DATABASE_URL))
+    await admin.execute(f'CREATE DATABASE "{name}"')
+    url = db_url_for(name)
+    engine = make_engine(url.replace("postgresql://", "postgresql+asyncpg://"))
+    try:
+        yield url, engine
+    finally:
+        await engine.dispose()
+        await admin.execute(f'DROP DATABASE IF EXISTS "{name}" WITH (FORCE)')
+        await admin.close()

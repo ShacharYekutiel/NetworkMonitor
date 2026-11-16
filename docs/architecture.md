@@ -4100,9 +4100,9 @@ operations: [production § 1.4.2](production.md#142-upgrade-and-rollback-read-be
   authentication / timeout error, the device page says the stored credentials cannot be read) and must be entered
   again — or restore `secret.key` from the data-volume backup (`netmon-data-*.tar.gz` holds it; the DB dump alone
   does not). Rotation: `netmon secrets rekey` (server stopped) re-encrypts every encrypted value of every release
-  (SNMP, channels, settings, SSH, LDAP, Kerberos, OIDC, assistant) in one transaction, then replaces the key file
-  (`secret.key.old` kept). It is also the JWT key: everyone signs in again, and chat-acknowledge links in messages
-  already sent stop working.
+  (SNMP, channels, settings, SSH, LDAP, Kerberos, OIDC, assistant; **[4]** AWS connections) in one transaction,
+  then replaces the key file (`secret.key.old` kept). It is also the JWT key: everyone signs in again, and
+  chat-acknowledge links in messages already sent stop working.
 
 ### 16.2 Container hardening (review item 9)
 `deploy/production/compose.yaml` and `deploy/docker-compose.yml`, anchor `x-hardening`: `cap_drop: [ALL]`,
@@ -4810,6 +4810,17 @@ points are what the code does where the text was silent, ambiguous or not implem
     extraction (§ 15.1.10) waits for its second user (PR 4d), the assistant keeps its own
     configure-first form; the E2E "upgrade fixture" (a 1.4.x database) is covered by the
     migration tests (`test_p4_aws_migration.py`) instead of spec 90.
+13. **With 1.4.2 (secrets at rest).** `netmon secrets rekey` (`netmon.services.rekey`)
+    re-encrypts `aws_connections.settings` (`secret_access_key_enc`, `session_token_enc`,
+    `ra_key_enc`, `ra_csr_key_enc`; AAD `<aad_scope>.<field>`) in the same transaction as
+    everything else; a value stored verbatim in two places (the "Default" connection and its
+    legacy mirror in `assistant`) gets the same new ciphertext, so the mirror stays verbatim.
+    The table is skipped on a database at `0012`. The 1.4.2 startup synchronisation and the
+    `netmon secrets` commands run at `0012` **or any later revision this release knows**
+    (`netmon.db.migrate.revision_at_or_after`), not only at `0012`; an unmigrated / older
+    database or one migrated by a newer release is still left alone (the CLI says which).
+    The connection secrets were never plaintext, so `transform_all` / `remove-plaintext` do not
+    touch them.
 
 ### 15.2 AWS cloud view and VPC Flow Logs (4d — first in phase 4) [4]
 

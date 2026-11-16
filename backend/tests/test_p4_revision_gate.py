@@ -6,7 +6,6 @@ from __future__ import annotations
 
 import json
 import secrets
-from collections.abc import AsyncIterator
 from types import SimpleNamespace
 from typing import Any
 
@@ -20,7 +19,7 @@ from netmon.db.migrate import (
     run_migrations,
 )
 from netmon.runtime import Runtime
-from tests.conftest import TEST_DATABASE_URL, _plain, db_url_for, migration_head, requires_db
+from tests.conftest import migration_head, requires_db
 
 COMMUNITY = "gate-comm-4411"
 
@@ -37,24 +36,6 @@ def test_revision_at_or_after() -> None:
     assert not revision_at_or_after("0012", head)
     assert not revision_at_or_after("0099", "0012")  # migrated by a newer release
     assert not revision_at_or_after("not-a-revision", "0012")
-
-
-@pytest.fixture
-async def fresh_db() -> AsyncIterator[tuple[str, Any]]:
-    from netmon.db.engine import make_engine
-
-    assert TEST_DATABASE_URL
-    name = f"netmon_test_gate_{secrets.token_hex(3)}"
-    admin = await asyncpg.connect(_plain(TEST_DATABASE_URL))
-    await admin.execute(f'CREATE DATABASE "{name}"')
-    url = db_url_for(name)
-    engine = make_engine(url.replace("postgresql://", "postgresql+asyncpg://"))
-    try:
-        yield url, engine
-    finally:
-        await engine.dispose()
-        await admin.execute(f'DROP DATABASE IF EXISTS "{name}" WITH (FORCE)')
-        await admin.close()
 
 
 async def _device_as_141(url: str) -> int:
