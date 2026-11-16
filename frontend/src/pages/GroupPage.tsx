@@ -214,7 +214,7 @@ export function GroupPage() {
                       </span>
                     )}
                   </td>
-                  <td className={`${td} font-mono text-[12.5px] text-ink-muted`}>
+                  <td className={`${td} font-mono text-[13px] text-ink-muted`}>
                     <Ltr>{d.host}</Ltr>
                   </td>
                   <td className={td}>

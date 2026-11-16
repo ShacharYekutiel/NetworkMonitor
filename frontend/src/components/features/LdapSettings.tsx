@@ -85,7 +85,7 @@ export function LdapTestView({ r }: { r: LdapTestResult }) {
               <td className={`${td} tabular-nums`}>
                 {s.latency_ms === null ? '—' : `${s.latency_ms} ms`}
               </td>
-              <td className={`${td} text-xs`}>
+              <td className={`${td} text-[13px]`}>
                 {s.tls ? (
                   <div dir="ltr" className="text-left">
                     <div>{s.tls.subject}</div>

@@ -182,7 +182,7 @@ export function IngestStatusBody({ d }: { d: IngestStatus }) {
                   <td className={td}>
                     <bdi dir="ltr">{f.source_ip}</bdi>
                   </td>
-                  <td className={cx(td, 'font-mono text-xs')}>
+                  <td className={cx(td, 'font-mono text-[13px]')}>
                     <bdi dir="ltr">{f.engine_id}</bdi>
                   </td>
                   <td className={td}>

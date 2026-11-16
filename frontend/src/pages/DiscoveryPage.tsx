@@ -305,7 +305,7 @@ function ScansCard() {
           <tbody>
             {scans.data.items.map((s) => (
               <tr key={s.id} className="hover:bg-surface-hover">
-                <td className={`${td} font-mono text-[12.5px] tabular-nums`}>
+                <td className={`${td} font-mono text-[13px] tabular-nums`}>
                   <Link
                     to={`/discovery/scans/${s.id}`}
                     className="font-medium text-accent-ink hover:underline"
@@ -348,10 +348,10 @@ function ScansCard() {
                     {s.targets.join(', ')}
                   </TruncLtr>
                 </td>
-                <td className={`${td} font-mono text-[12.5px] tabular-nums`}>
+                <td className={`${td} font-mono text-[13px] tabular-nums`}>
                   {formatNumber(s.found_hosts, 0)}
                 </td>
-                <td className={`${td} font-mono text-[12.5px] tabular-nums`}>
+                <td className={`${td} font-mono text-[13px] tabular-nums`}>
                   {s.new_hosts > 0 ? (
                     <span className="font-semibold text-accent-ink">
                       {formatNumber(s.new_hosts, 0)}

@@ -403,7 +403,7 @@ function InterfacePicker({
                   <td className={`${td} whitespace-nowrap`}>
                     <Value text={formatValue(i.speed_bps, 'bit/s')} />
                   </td>
-                  <td className={`${td} whitespace-nowrap text-xs`}>
+                  <td className={`${td} whitespace-nowrap text-[13px]`}>
                     <span className={i.oper_status === 'up' ? 'text-status-up' : 'text-ink-muted'}>
                       {i.admin_status}/{i.oper_status}
                     </span>
@@ -742,7 +742,7 @@ function StoragePicker({
                         <span className="ms-2 text-xs text-ink-muted">({t('iface.exists')})</span>
                       )}
                     </td>
-                    <td className={`${td} whitespace-nowrap text-xs text-ink-muted`}>
+                    <td className={`${td} whitespace-nowrap text-[13px] text-ink-muted`}>
                       {t(`storage.types.${r.type}`)}
                     </td>
                     <td className={`${td} whitespace-nowrap tabular-nums`}>

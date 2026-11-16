@@ -406,7 +406,7 @@ function ValueMapTable({ sensor }: { sensor: import('../api/types').Sensor }) {
                 {r.text}
               </td>
               {named && (
-                <td className="font-mono text-xs text-ink-muted">
+                <td className="font-mono text-[13px] text-ink-muted">
                   <Ltr>{r.mib ?? (r.own ? t('valueMap.own') : '')}</Ltr>
                 </td>
               )}

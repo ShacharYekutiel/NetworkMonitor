@@ -127,7 +127,7 @@ function ConnNameCell({ p, showIp }: { p: Port; showIp: boolean }) {
       {v.vendor}
     </bdi>
   ) : (
-    <bdi dir="ltr" className="font-mono text-xs">
+    <bdi dir="ltr" className="font-mono text-[13px]">
       {v.mac}
     </bdi>
   );
@@ -260,7 +260,7 @@ export function PortList({
         return p.duplex ? t(`ports.duplex.${p.duplex}`) : '—';
       case 'mac':
         return (
-          <bdi dir="ltr" className="font-mono text-xs">
+          <bdi dir="ltr" className="font-mono text-[13px]">
             {p.first_mac?.mac ?? '—'}
           </bdi>
         );

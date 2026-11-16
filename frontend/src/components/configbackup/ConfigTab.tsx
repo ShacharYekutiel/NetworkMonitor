@@ -87,7 +87,7 @@ const rowTone: Record<DiffRow['type'], string> = {
 
 function UnifiedDiff({ rows, hl }: { rows: DiffRow[]; hl?: ReadonlySet<number> }) {
   return (
-    <table dir="ltr" className="w-full font-mono text-xs" data-testid="diff-unified">
+    <table dir="ltr" className="w-full font-mono text-[13px]" data-testid="diff-unified">
       <tbody>
         {rows
           // [3b] line = 1-based line of the unified diff text (risk flags refer to it)
@@ -118,7 +118,7 @@ function UnifiedDiff({ rows, hl }: { rows: DiffRow[]; hl?: ReadonlySet<number> }
 function SideDiff({ rows }: { rows: DiffRow[] }) {
   const pairs = useMemo(() => sideBySide(rows), [rows]);
   return (
-    <table dir="ltr" className="w-full table-fixed font-mono text-xs" data-testid="diff-side">
+    <table dir="ltr" className="w-full table-fixed font-mono text-[13px]" data-testid="diff-side">
       <colgroup>
         <col className="w-10" />
         <col />
@@ -302,7 +302,7 @@ function ContentView({ deviceId, version }: { deviceId: number; version: ConfigV
           {version.masked && (
             <p className="mb-1 text-xs text-ink-muted">{t('configBackup.maskedNote')}</p>
           )}
-          <table dir="ltr" className="font-mono text-xs">
+          <table dir="ltr" className="font-mono text-[13px]">
             <tbody>
               {lines.map((l, i) => (
                 <tr key={i}>

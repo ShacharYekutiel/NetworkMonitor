@@ -58,7 +58,7 @@ export function EventsTable({
         {events.map((ev) => (
           <tr key={ev.id} className="hover:bg-surface-hover">
             <td
-              className={`${td} whitespace-nowrap font-mono text-[12.5px] tabular-nums text-ink-subtle`}
+              className={`${td} whitespace-nowrap font-mono text-[13px] tabular-nums text-ink-subtle`}
               title={formatRelative(ev.time)}
             >
               {formatDateTime(ev.time)}

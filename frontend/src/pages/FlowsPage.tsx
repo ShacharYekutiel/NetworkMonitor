@@ -118,13 +118,13 @@ function TopTable({ top, kind }: { top: FlowTop; kind: 'talkers' | 'apps' | 'con
                 </Link>
               ) : null}
             </td>
-            <td className={`${td} text-end font-mono text-[12.5px] tabular-nums`}>
+            <td className={`${td} text-end font-mono text-[13px] tabular-nums`}>
               <bdi dir="ltr">{formatBytes(x.bytes)}</bdi>
             </td>
-            <td className={`${td} text-end font-mono text-[12.5px] tabular-nums`}>
+            <td className={`${td} text-end font-mono text-[13px] tabular-nums`}>
               {formatCount(x.packets)}
             </td>
-            <td className={`${td} text-end font-mono text-[12.5px] tabular-nums`}>
+            <td className={`${td} text-end font-mono text-[13px] tabular-nums`}>
               {formatShare(x.share)}
             </td>
           </tr>
@@ -132,11 +132,11 @@ function TopTable({ top, kind }: { top: FlowTop; kind: 'talkers' | 'apps' | 'con
         {top.other_bytes > 0 && (
           <tr className="text-ink-muted">
             <td className={td}>{t('flows.other')}</td>
-            <td className={`${td} text-end font-mono text-[12.5px] tabular-nums`}>
+            <td className={`${td} text-end font-mono text-[13px] tabular-nums`}>
               <bdi dir="ltr">{formatBytes(top.other_bytes)}</bdi>
             </td>
             <td className={td} />
-            <td className={`${td} text-end font-mono text-[12.5px] tabular-nums`}>
+            <td className={`${td} text-end font-mono text-[13px] tabular-nums`}>
               {top.total_bytes ? formatShare(top.other_bytes / top.total_bytes) : ''}
             </td>
           </tr>
@@ -512,7 +512,7 @@ function ExportersView({
                     {e.protocols.map((p) => t(`exporter.proto.${p}`)).join(', ')}
                   </bdi>
                 </td>
-                <td className={`${td} text-end font-mono text-[12.5px] tabular-nums`}>
+                <td className={`${td} text-end font-mono text-[13px] tabular-nums`}>
                   {t('exporter.perSecond', { n: formatCount(e.records_per_s) })}
                 </td>
                 <td className={`${td} tabular-nums`}>

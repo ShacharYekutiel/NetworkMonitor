@@ -34,7 +34,7 @@ import { useRuleName } from './rules';
 import { useLogFeed } from './useLogFeed';
 
 const th =
-  'sticky top-0 z-10 whitespace-nowrap border-b border-line bg-surface px-2 py-1.5 text-start text-[11px] font-medium text-ink-muted';
+  'sticky top-0 z-10 whitespace-nowrap border-b border-line bg-surface px-2 py-1.5 text-start text-xs font-medium text-ink-muted';
 const td = 'border-b border-line px-2 py-1 align-top';
 
 export function LiveToggle({
@@ -264,7 +264,7 @@ export function SyslogView({ deviceId }: { deviceId?: number }) {
           {!feed.isLoading && !feed.items.length ? (
             <Empty>{t('logs.empty')}</Empty>
           ) : (
-            <table className="w-full text-xs">
+            <table className="w-full text-[13px]">
               <thead>
                 <tr>
                   <th className={th}>{t('logs.col.time')}</th>

@@ -147,11 +147,11 @@ function NeighborRow({ n }: { n: PortNeighbor }) {
 function MacTable({ macs }: { macs: PortMac[] }) {
   const { t } = useTranslation();
   const th =
-    'whitespace-nowrap border-b border-line px-2 py-1.5 text-start text-[11px] font-medium text-ink-muted';
+    'whitespace-nowrap border-b border-line px-2 py-1.5 text-start text-xs font-medium text-ink-muted';
   const td = 'whitespace-nowrap border-b border-line px-2 py-1.5 align-top';
   return (
     <div className="overflow-x-auto" data-testid="mac-table">
-      <table className="w-full text-xs">
+      <table className="w-full text-[13px]">
         <thead>
           <tr>
             <th className={th}>{t('ports.mac.mac')}</th>

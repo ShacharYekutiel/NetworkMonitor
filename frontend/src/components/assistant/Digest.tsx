@@ -243,7 +243,7 @@ export function DigestView({ d }: { d: Digest }) {
                 const route = nmRoute(n.example_ref);
                 return (
                   <tr key={n.signature}>
-                    <td className={`${td} font-mono text-xs`} dir="ltr">
+                    <td className={`${td} font-mono text-[13px]`} dir="ltr">
                       {route ? (
                         <Link to={route} className="text-accent-ink hover:underline">
                           {n.example || n.sample}

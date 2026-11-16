@@ -295,7 +295,7 @@ export function SiemCard({ settings }: { settings: Settings }) {
                       </div>
                     )}
                   </td>
-                  <td className={`${td} whitespace-nowrap text-xs tabular-nums`}>
+                  <td className={`${td} whitespace-nowrap text-[13px] tabular-nums`}>
                     {s
                       ? t('siem.countersLine', {
                           sent: s.sent,

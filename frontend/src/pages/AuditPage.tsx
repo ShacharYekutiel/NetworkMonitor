@@ -41,7 +41,7 @@ function Changes({ e }: { e: AuditEntry }) {
   const rows = changeRows(e.changes);
   if (!rows.length) return <p className="text-xs text-ink-muted">{t('audit.noChanges')}</p>;
   return (
-    <table className="w-full text-xs" data-testid="audit-diff">
+    <table className="w-full text-[13px]" data-testid="audit-diff">
       <thead>
         <tr>
           <th className="px-2 py-1 text-start font-medium text-ink-muted">{t('audit.field')}</th>
@@ -247,7 +247,9 @@ export function AuditPage() {
                                   )}
                                 />
                               </td>
-                              <td className={cx(td, 'whitespace-nowrap text-xs text-ink-muted')}>
+                              <td
+                                className={cx(td, 'whitespace-nowrap text-[13px] text-ink-muted')}
+                              >
                                 {formatDateTime(e.time)}
                               </td>
                               <td className={cx(td, 'whitespace-nowrap')}>
@@ -283,10 +285,10 @@ export function AuditPage() {
                                   '—'
                                 )}
                               </td>
-                              <td className={cx(td, 'font-mono text-xs')}>
+                              <td className={cx(td, 'font-mono text-[13px]')}>
                                 <bdi dir="ltr">{e.ip ?? '—'}</bdi>
                               </td>
-                              <td className={cx(td, 'text-xs text-ink-muted')}>
+                              <td className={cx(td, 'text-[13px] text-ink-muted')}>
                                 {e.reason
                                   ? t(`ldap.reason.${e.reason}`, { defaultValue: e.reason })
                                   : t('audit.changesCount', {

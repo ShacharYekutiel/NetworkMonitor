@@ -251,7 +251,7 @@ function TestResults({ r }: { r: RuleTestResult }) {
       </p>
       {r.items.length > 0 && (
         <div className="max-h-64 overflow-auto rounded ring-1 ring-line">
-          <table className="w-full text-xs">
+          <table className="w-full text-[13px]">
             <tbody>
               {r.items.map((it) => (
                 <tr key={`${it.kind}-${it.id}`} className="border-b border-line">

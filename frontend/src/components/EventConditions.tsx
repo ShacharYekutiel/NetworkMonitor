@@ -62,14 +62,14 @@ function ConditionRow({ c }: { c: EventCondition }) {
       <td className={cx(td, 'tabular-nums')}>
         {c.source === 'flap' ? t('conditions.transitions', { n: c.count }) : c.count}
       </td>
-      <td className={cx(td, 'whitespace-nowrap text-xs')} title={formatDateTime(c.first_at)}>
+      <td className={cx(td, 'whitespace-nowrap text-[13px]')} title={formatDateTime(c.first_at)}>
         {formatRelative(c.first_at)}
       </td>
-      <td className={cx(td, 'whitespace-nowrap text-xs')} title={formatDateTime(c.last_at)}>
+      <td className={cx(td, 'whitespace-nowrap text-[13px]')} title={formatDateTime(c.last_at)}>
         {formatRelative(c.last_at)}
       </td>
       <td
-        className={cx(td, 'whitespace-nowrap text-xs text-ink-muted')}
+        className={cx(td, 'whitespace-nowrap text-[13px] text-ink-muted')}
         title={formatDateTime(c.expires_at)}
       >
         {c.expires_at ? formatRelative(c.expires_at) : t('conditions.noExpiry')}

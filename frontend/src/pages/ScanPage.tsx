@@ -304,7 +304,7 @@ function ResultRow({
             onChange={(e) => onSelect(e.target.checked)}
           />
         </td>
-        <td className={`${td} whitespace-nowrap font-mono text-xs`}>
+        <td className={`${td} whitespace-nowrap font-mono text-[13px]`}>
           <Ltr>{r.ip}</Ltr>
           {r.mac && (
             <div className="text-[11px] text-ink-muted">

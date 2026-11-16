@@ -30,7 +30,7 @@ import { LiveToggle, NewRecordsBar } from './SyslogView';
 import { useLogFeed } from './useLogFeed';
 
 const th =
-  'sticky top-0 z-10 whitespace-nowrap border-b border-line bg-surface px-2 py-1.5 text-start text-[11px] font-medium text-ink-muted';
+  'sticky top-0 z-10 whitespace-nowrap border-b border-line bg-surface px-2 py-1.5 text-start text-xs font-medium text-ink-muted';
 const td = 'border-b border-line px-2 py-1 align-top';
 
 export function TrapDetail({
@@ -89,7 +89,7 @@ export function TrapDetail({
           <div>
             <h4 className="mb-1 text-xs font-semibold text-ink-muted">{t('traps.varbinds')}</h4>
             <div className="overflow-x-auto">
-              <table className="w-full text-xs" data-testid="varbinds">
+              <table className="w-full text-[13px]" data-testid="varbinds">
                 <thead>
                   <tr>
                     <th className={th}>{t('traps.vb.name')}</th>
@@ -235,7 +235,7 @@ export function TrapsView({ deviceId }: { deviceId?: number }) {
           {!feed.isLoading && !feed.items.length ? (
             <Empty>{t('traps.empty')}</Empty>
           ) : (
-            <table className="w-full text-xs">
+            <table className="w-full text-[13px]">
               <thead>
                 <tr>
                   <th className={th}>{t('logs.col.time')}</th>

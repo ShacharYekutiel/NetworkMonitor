@@ -54,7 +54,7 @@ export function TokensTable({ all = false }: { all?: boolean }) {
                   <bdi dir="ltr">{x.username}</bdi>
                 </td>
               )}
-              <td className={`${td} font-mono text-xs`}>
+              <td className={`${td} font-mono text-[13px]`}>
                 <bdi dir="ltr">{x.prefix}…</bdi>
               </td>
               <td className={td}>{t(`role.${x.role}`)}</td>
@@ -69,12 +69,12 @@ export function TokensTable({ all = false }: { all?: boolean }) {
                 </span>
               </td>
               <td
-                className={`${td} whitespace-nowrap text-xs`}
+                className={`${td} whitespace-nowrap text-[13px]`}
                 title={formatDateTime(x.expires_at)}
               >
                 {formatRelative(x.expires_at)}
               </td>
-              <td className={`${td} whitespace-nowrap text-xs text-ink-muted`}>
+              <td className={`${td} whitespace-nowrap text-[13px] text-ink-muted`}>
                 {x.last_used_at ? (
                   <span title={formatDateTime(x.last_used_at)}>
                     {formatRelative(x.last_used_at)}

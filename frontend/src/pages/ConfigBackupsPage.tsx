@@ -101,7 +101,7 @@ function SearchCard() {
                 </Link>
                 <span className="text-xs text-ink-muted">{formatDateTime(it.collected_at)}</span>
               </div>
-              <table dir="ltr" className="w-full font-mono text-xs">
+              <table dir="ltr" className="w-full font-mono text-[13px]">
                 <tbody>
                   {it.matches.map((m) => (
                     <tr key={m.line}>

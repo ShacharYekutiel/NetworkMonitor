@@ -32,7 +32,7 @@ function Row({ x }: { x: MacLocation }) {
       className={cx('hover:bg-surface-hover', !x.present && 'text-ink-muted')}
       data-best={x.best || undefined}
     >
-      <td className={cx(td, 'font-mono text-xs')}>
+      <td className={cx(td, 'font-mono text-[13px]')}>
         <bdi dir="ltr">{x.mac}</bdi>
         {x.best && (
           <span
@@ -269,7 +269,7 @@ export function FindPage() {
                         <td className={td}>
                           <bdi dir="ltr">{a.ip}</bdi>
                         </td>
-                        <td className={cx(td, 'font-mono text-xs')}>
+                        <td className={cx(td, 'font-mono text-[13px]')}>
                           <bdi dir="ltr">{a.mac}</bdi>
                         </td>
                         <td className={td}>

@@ -543,7 +543,7 @@ function RunsCard() {
                     </Link>
                     <div className="text-xs text-ink-muted">{formatDateTime(r.started_at)}</div>
                   </td>
-                  <td className={`${td} text-xs`}>
+                  <td className={`${td} text-[13px]`}>
                     {formatDateTime(r.period_start)} – {formatDateTime(r.period_end)}
                   </td>
                   <td className={td}>
@@ -665,7 +665,7 @@ export function ReportsPage() {
                           '—'
                         )}
                       </td>
-                      <td className={`${td} text-xs`}>
+                      <td className={`${td} text-[13px]`}>
                         {t('reports.recipientsCount', {
                           emails: r.email_to.length,
                           channels: r.channel_ids.length,
