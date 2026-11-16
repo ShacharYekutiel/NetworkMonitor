@@ -84,12 +84,18 @@ test('the nine converted templates equal the 2b-1 data (fixture) with 2b-2 keys 
   // reading 65535 ("no sensor") are filtered out
   const comware = fixture.find((t: any) => t.id === 'hpe_comware');
   for (const e of comware.entries.slice(2, 5)) e.filters = [{ oid: e.walk_oid, in: null, not_in: [65535] }];
+  // [1.3.1] deliberate change (same as backend test_converted_templates_identical_to_2b1): the fan/PSU
+  // hh3cEntityExtErrorStatus entry uses the shared fault-code table instead of its own {"2": normal} map
+  const err = comware.entries.find((e: any) => String(e.walk_oid ?? '').endsWith('.2.6.1.1.1.1.19'));
+  delete err.config.value_map;
+  err.config.value_map_ref = 'hh3c_error_status';
   const r = await api.get('/api/device-templates');
   const nine = r.items.filter((t: any) => CONVERTED.includes(t.id)).map(strip2b2);
   // [1.3] hpe_comware gained four IRF entries (HH3C-STACK-MIB, architecture.md § 14.6): not part of the 2b-1 data
+  // [1.3.1] the role entry is labelled by hh3cStackBoardBelongtoMember: "IRF role · Unit N" (no "Board")
   const cw13 = nine.find((t: any) => t.id === 'hpe_comware');
   const irf = cw13.entries.filter((e: any) => /^IRF /.test(e.name?.en ?? ''));
-  expect(irf.map((e: any) => e.name.en)).toEqual(['IRF members', 'IRF role {label}', 'IRF port {index}', 'IRF links up']);
+  expect(irf.map((e: any) => e.name.en)).toEqual(['IRF members', 'IRF role · {label}', 'IRF port {index}', 'IRF links up']);
   cw13.entries = cw13.entries.filter((e: any) => !irf.includes(e));
   expect(nine.map((t: any) => t.id)).toEqual(fixture.map((t: any) => t.id));
   for (let i = 0; i < nine.length; i++) expect.soft(nine[i], nine[i].id).toEqual(fixture[i]);

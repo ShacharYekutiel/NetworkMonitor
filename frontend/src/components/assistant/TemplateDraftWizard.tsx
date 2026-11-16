@@ -215,24 +215,7 @@ function TemplateDraftWizard({ onClose }: { onClose: () => void }) {
 
         {step === 'walk' && (
           <div className="space-y-3">
-            {w ? (
-              <div className="space-y-1 text-sm" data-testid="walk-status" data-status={w.status}>
-                <p className="flex items-center gap-2">
-                  {w.status === 'running' && <Spinner className="h-4 w-4" />}
-                  {t(`tdraft.walkStatus.${w.status}`)} · {t('tdraft.varbinds', { n: w.total })}
-                </p>
-                <ul className="text-xs text-slate-500" dir="ltr">
-                  {Object.entries(w.counts).map(([oid, n]) => (
-                    <li key={oid}>
-                      {oid}: {n}
-                    </li>
-                  ))}
-                </ul>
-                {w.error && <p className="text-xs text-red-600">{w.error}</p>}
-              </div>
-            ) : (
-              <Spinner />
-            )}
+            {w ? <WalkResult walk={w} /> : <Spinner />}
             <ErrorBox error={walk.error ?? cancel.error} />
             {finished && w.total > 0 && (
               <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
@@ -358,5 +341,50 @@ function TemplateDraftWizard({ onClose }: { onClose: () => void }) {
         )}
       </div>
     </Modal>
+  );
+}
+
+/** [maint-1.4] Walk status, the per-subtree outcome (each subtree has its own time budget) and the
+ * cause when the walk did not finish (rejected credentials / no answer / too slow / SNMP error). */
+export function WalkResult({ walk: w }: { walk: SnmpWalk }) {
+  const { t } = useTranslation();
+  const outcomes = w.outcomes ?? [];
+  return (
+    <div className="space-y-1 text-sm" data-testid="walk-status" data-status={w.status}>
+      <p className="flex items-center gap-2">
+        {w.status === 'running' && <Spinner className="h-4 w-4" />}
+        {t(`tdraft.walkStatus.${w.status}`)} · {t('tdraft.varbinds', { n: w.total })}
+      </p>
+      <ul className="text-xs text-slate-500" data-testid="walk-subtrees">
+        {outcomes.length > 0
+          ? outcomes.map((o) => (
+              <li key={o.subtree} data-outcome={o.status}>
+                <bdi dir="ltr">{o.subtree}</bdi>: {o.count} ·{' '}
+                <span className={o.status === 'ok' ? '' : 'text-amber-700 dark:text-amber-400'}>
+                  {t(`tdraft.outcome.${o.status}`)}
+                </span>
+              </li>
+            ))
+          : Object.entries(w.counts).map(([oid, n]) => (
+              <li key={oid}>
+                <bdi dir="ltr">{oid}</bdi>: {n}
+              </li>
+            ))}
+      </ul>
+      {w.status !== 'running' && (w.error_code || w.error) && (
+        <div
+          className="text-xs text-red-600"
+          data-testid="walk-error"
+          data-code={w.error_code ?? ''}
+        >
+          {w.error_code && <p>{t(`tdraft.walkError.${w.error_code}`)}</p>}
+          {w.error && (
+            <p className="text-slate-500">
+              {t('tdraft.walkErrorDetail')} <bdi dir="ltr">{w.error}</bdi>
+            </p>
+          )}
+        </div>
+      )}
+    </div>
   );
 }

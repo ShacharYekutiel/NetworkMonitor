@@ -1,5 +1,4 @@
-# NetworkMonitor — Architecture (Phase 1 / MVP + Phase 2a + Phase 2b-1 + Phase 2b-2 + Phase 2b-3 + Phase 3 + Phase 3b)
-# NetworkMonitor — Architecture (Phase 1 / MVP + Phase 2a + Phase 2b-1 + Phase 2b-2 + Phase 2b-3 + Phase 3 + 1.3)
+# NetworkMonitor — Architecture (Phase 1 / MVP + Phase 2a + Phase 2b-1 + Phase 2b-2 + Phase 2b-3 + Phase 3 + Phase 3b + 1.3)
 
 Phase 2a (auto-discovery, device templates, `snmp_custom`/`snmp_disk`, Telegram) is described in
 [§ 9](#9-phase-2a-discovery-templates-custom-snmp-telegram); items elsewhere marked **[2a]** belong to it.
@@ -21,6 +20,12 @@ Release 1.3 (sensor impact on the device status, one important-port definition, 
 apply, connected hosts and CSV on the ports view, trunk / LAG-degraded alerts, IRF sensors) is described in
 [§ 14](#14-release-13-sensor-impact-important-ports-interface-selection-connected-hosts-lag-degraded-irf); items
 marked **[1.3]** belong to it.
+**Note on numbering:** Phase 3b and Release 1.3 both carry the number 14 (they were written in parallel), and both
+have subsections 14.1–14.8. They are deliberately not renumbered: the heading anchors and about 200 "§ 14.x"
+references in code comments, tests and the other contracts point into both. A "§ 14.x" reference about the
+assistant / AI features (or tagged **[3b]**) means Phase 3b; one about sensor impact, important ports, interface
+selection, connected hosts, trunk/LAG alerts, IRF, named value maps or settings search (tagged **[1.3]** /
+**[1.3.1]**) means Release 1.3. New sections continue at § 15.
 
 NetworkMonitor is a license-free, PRTG-like network monitor. One Python process serves the REST API, the
 WebSocket, the built React SPA, and runs the poller and the alert engine. PostgreSQL holds everything, and
@@ -3493,8 +3498,20 @@ Unless stated otherwise the model is `model_id`; "light" = `model_id_light` when
   IF-MIB `ifTable`/`ifXTable` first 8 rows, ENTITY-SENSOR `1.3.6.1.2.1.99.1.1`, custom OIDs ≤ 8).
 - **Bounded read-only walk** (admin-initiated, job, `POST /api/assistant/template-drafts/walks`): the device's
   effective SNMP credentials (never sent anywhere), existing pysnmp walk functions (GETBULK max-repetitions 10,
-  GETNEXT for v1), ≤ 5000 varbinds total, ≤ 2000 per subtree, ≤ 60 s, ≤ 8 subtrees, 1 walk per device at a time,
-  3 walks globally. **Never walked:** `1.3.6.1.6.3.15` (USM users), `1.3.6.1.6.3.18` (communities),
+  GETNEXT for v1), ≤ 5000 varbinds total, ≤ 2000 per subtree, ≤ 8 subtrees, 1 walk per device at a time,
+  3 walks globally. **Time `[maint-1.4]`:** every subtree has its own budget — 20 s for a standard (`1.3.6.1.2.1.*`)
+  subtree, 45 s for a vendor one (the enterprise subtree, vendor OIDs) — within a 90 s cap for the whole walk (was one
+  shared 60 s budget: a huge vendor subtree such as hh3c starved the standard subtrees and the walk reported a
+  timeout). The standard subtrees are walked first, the enterprise subtree last (its PEN taken from the walked
+  `sysObjectID.0`, else a GET). A subtree that runs out of time keeps what it collected; each subtree gets an
+  outcome `ok` / `truncated` (varbind cap) / `timeout` / `error` / `skipped`, and the walk is `ok` (all ok or
+  truncated), `partial` (values collected, something did not finish) or `failed` (nothing collected). **Real SNMP
+  errors:** an SNMP failure is classified `auth_failed` (the device rejected the credentials: SNMPv3 wrong digest /
+  unknown user / security level / decryption, `authorizationError`, `noAccess`), `unreachable` (no answer at all —
+  for v1/v2c also a wrong community) or `snmp_error`; `auth_failed`, or `unreachable` before anything was
+  collected, stops the walk (the remaining subtrees are `skipped`, not retried with the same keys). The walk carries
+  `error_code` + the device's own text; the wizard shows a localized explanation (en/he) and the text.
+  **Never walked:** `1.3.6.1.6.3.15` (USM users), `1.3.6.1.6.3.18` (communities),
   `1.3.6.1.6.3.16` (VACM), `1.3.6.1.2.1.4.21`/`.24` (route tables), `1.3.6.1.2.1.4.22`/`.35` (ARP/neighbour),
   `1.3.6.1.2.1.17.4`/`.7` (FDB) — volume and privacy. Stored 7 days (`assistant_snmp_walks`).
 - **Compaction before the model (pure `templates.compact_walk`):** OIDs with type and value (strings ≤ 64 chars,
@@ -3822,6 +3839,9 @@ rendered answer has no `<img>`, no external `href`, forged refs rendered as text
 | Q6 | Knowledge Base now? | Implemented, OFF by default. |
 
 ## 14. Release 1.3: sensor impact, important ports, interface selection, connected hosts, LAG degraded, IRF
+
+> Numbering: this is the second section 14 (the first is [§ 14 Phase 3b](#14-phase-3b-ask-the-network-assistant-and-ai-features-amazon-bedrock)).
+> It is kept as is so existing anchors and "§ 14.x" references stay valid; see the note at the top of this document.
 
 Requests of the owner's network team after 1.2.0 in production (FF 5945 IRF, ArubaOS-Switch, Aruba CX). Owner
 decision: core-behaviour improvements, **no feature toggle**. Contract: [api.md § 1.3](api.md#13-release-13-contract),

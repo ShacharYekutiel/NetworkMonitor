@@ -471,6 +471,19 @@ export const DEFAULT_WALK_PRESETS: WalkPreset[] = [
   'enterprise',
 ];
 export type WalkStatus = 'running' | 'ok' | 'partial' | 'failed' | 'cancelled';
+/** [maint-1.4] per-subtree outcome of a walk (each subtree has its own time budget). */
+export const WALK_OUTCOMES = ['ok', 'truncated', 'timeout', 'error', 'skipped'] as const;
+export type WalkOutcomeStatus = (typeof WALK_OUTCOMES)[number];
+/** [maint-1.4] why a subtree / the walk did not finish: rejected credentials, no answer, budget, other. */
+export const WALK_ERROR_CODES = ['auth_failed', 'unreachable', 'timeout', 'snmp_error'] as const;
+export type WalkErrorCode = (typeof WALK_ERROR_CODES)[number];
+export type WalkOutcome = {
+  subtree: string; // an OID, or "enterprise" when the vendor subtree could not be resolved
+  status: WalkOutcomeStatus;
+  count: number;
+  error_code: WalkErrorCode | null;
+  error: string | null; // the device's / SNMP library's own text (English)
+};
 export type SnmpWalk = {
   id: number;
   device_id: number;
@@ -478,6 +491,8 @@ export type SnmpWalk = {
   subtrees: string[];
   counts: Record<string, number>;
   total: number;
+  outcomes?: WalkOutcome[]; // [maint-1.4] in walk order; [] for walks stored before maint-1.4
+  error_code?: WalkErrorCode | null; // [maint-1.4]
   error: string | null;
   started_at: string;
   finished_at: string | null;
