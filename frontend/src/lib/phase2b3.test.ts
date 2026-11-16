@@ -576,6 +576,7 @@ describe('[2b-3] Teams, tokens, audit, SIEM', () => {
   it('detects legacy Office 365 connector URLs', () => {
     expect(isLegacyTeamsHost(urlHost('https://mnidom.webhook.office.com/webhookb2/x'))).toBe(true);
     expect(isLegacyTeamsHost('outlook.office.com')).toBe(true);
+    expect(isLegacyTeamsHost('evilwebhook.office.com')).toBe(false);
     expect(isLegacyTeamsHost('prod-12.westeurope.logic.azure.com')).toBe(false);
     expect(teamsUrlError('', true)).toBe('validation.required');
     expect(teamsUrlError('', false)).toBeNull();
