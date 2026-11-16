@@ -30,14 +30,19 @@ def _dt(s: str) -> datetime:
 # ------------------------------------------------------------------ syslog vectors S1-S11
 def test_s1_rfc5424_full() -> None:
     r = parse_syslog(
-        b"<165>1 2026-11-08T10:00:00.003Z sw1.mnidom.net evntslog 1234 ID47 "
+        b"<165>1 2026-11-08T10:00:00.003Z sw1.example.net evntslog 1234 ID47 "
         b'[exampleSDID@32473 iut="3"] \xef\xbb\xbfAn application event',
         RECV,
         TZ,
     )
     assert (r.facility, r.severity, r.format) == (20, 5, "rfc5424")
     assert r.device_time == _dt("2026-11-08T10:00:00.003Z")
-    assert (r.hostname, r.program, r.pid, r.msgid) == ("sw1.mnidom.net", "evntslog", "1234", "ID47")
+    assert (r.hostname, r.program, r.pid, r.msgid) == (
+        "sw1.example.net",
+        "evntslog",
+        "1234",
+        "ID47",
+    )
     assert r.structured_data == '[exampleSDID@32473 iut="3"]'
     assert r.message == "An application event"
 
@@ -416,7 +421,7 @@ def test_render_5424_trap_and_filters() -> None:
 # ------------------------------------------------------------------ attribution
 def test_attribution_precedence() -> None:
     devices = [
-        {"id": 1, "name": "sw1.mnidom.net", "host": "10.0.0.1", "enabled": True},
+        {"id": 1, "name": "sw1.example.net", "host": "10.0.0.1", "enabled": True},
         {"id": 2, "name": "sw2", "host": "sw2.local", "enabled": True,
          "source_addresses": ["10.0.0.1"]},
         {"id": 3, "name": "fw", "host": "10.0.0.9", "enabled": False},

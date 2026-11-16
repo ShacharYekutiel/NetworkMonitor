@@ -110,7 +110,7 @@ class LdapSettingsIn(BaseModel):
         v = v.strip()
         if v and not _dn_ok(v):
             raise ValueError(
-                "must be a distinguished name (e.g. CN=NetMon-Admins,DC=mnidom,DC=net)"
+                "must be a distinguished name (e.g. CN=NetMon-Admins,DC=example,DC=net)"
             )
         return v
 

@@ -10,7 +10,7 @@ The test swaps the recording between inventory runs: `$LAB_SH swap snmp-newdev-a
 "newdev-access" (ArubaOS-Switch 2930F, sysObjectID 1.3.6.1.4.1.11.2.3.7.11.181, v2c community public, udp/1161):
   ports 1-8 access (untagged VLAN 20 "CLIENTS"), 9 uplink to "port-aos52" (127.0.0.86) with an LLDP neighbour
   entry AND 40 MACs, 10 trunk (tagged VLANs 10 + 20), 11 DEFAULT_VLAN (vlan interface).
-  ARP (ipNetToPhysicalTable): 00:1b:21:aa:00:01 -> 10.0.20.57 (PTR pc-1234.mnidom.net in tests/sim/ports/ptr.json).
+  ARP (ipNetToPhysicalTable): 00:1b:21:aa:00:01 -> 10.0.20.57 (PTR pc-1234.example.net in tests/sim/ports/ptr.json).
 
 run1 (baseline): port 1 00:50:56:89:00:01, port 2 3c:52:82:89:00:02, port 4 00:23:24:89:00:04,
   port 9 00:16:3e:89:09:01..40, port 10 00:16:3e:89:0a:01..02.

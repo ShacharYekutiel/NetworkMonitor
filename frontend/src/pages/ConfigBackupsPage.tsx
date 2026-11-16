@@ -1,6 +1,6 @@
 import { useState, type FormEvent } from 'react';
 import { keepPreviousData, useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { Link } from 'react-router-dom';
+import { Link } from 'react-router';
 import { useTranslation } from 'react-i18next';
 import { endpoints3, qk3, type ConfigSearchQuery } from '../api/endpoints3';
 import { BACKUP_RESULTS } from '../api/types3';

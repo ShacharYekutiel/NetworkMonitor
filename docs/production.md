@@ -127,26 +127,26 @@ keeps both SANs (`make-csr.sh` is unchanged), so the redirect shows no warning. 
 `/noc` and `/ack` are SPA routes (their tokens are in URL fragments, and Caddy has no access log).
 
 ### Kerberos SSO (AD administrator, once)
-1. DNS: `netmonitor.mnidom.net` must be an **A record** (with a CNAME, Chrome/Edge request a ticket for the target).
+1. DNS: `netmonitor.example.net` must be an **A record** (with a CNAME, Chrome/Edge request a ticket for the target).
 2. Service account, e.g. `svc-netmon-http`: password never expires, *This account supports Kerberos AES 256 bit
    encryption* checked, no other rights.
 3. On a domain controller (elevated prompt):
    ```
-   setspn -S HTTP/netmonitor.mnidom.net MNIDOM\svc-netmon-http
-   ktpass /princ HTTP/netmonitor.mnidom.net@MNIDOM.NET /mapuser MNIDOM\svc-netmon-http /crypto AES256-SHA1 /ptype KRB5_NT_PRINCIPAL /pass <new password> /out netmon-http.keytab
+   setspn -S HTTP/netmonitor.example.net EXAMPLE\svc-netmon-http
+   ktpass /princ HTTP/netmonitor.example.net@EXAMPLE.NET /mapuser EXAMPLE\svc-netmon-http /crypto AES256-SHA1 /ptype KRB5_NT_PRINCIPAL /pass <new password> /out netmon-http.keytab
    ```
    `ktpass` sets that password on the account and maps the principal, so the AES salt in the keytab matches AD.
-   Check with `setspn -L MNIDOM\svc-netmon-http` (exactly one `HTTP/netmonitor.mnidom.net`; `setspn -X` finds
+   Check with `setspn -L EXAMPLE\svc-netmon-http` (exactly one `HTTP/netmonitor.example.net`; `setspn -X` finds
    duplicates). Only the FQDN gets an SPN.
 4. Upload `netmon-http.keytab` in *Settings → Single sign-on → Kerberos*; the principal must be listed with etype 18
    (aes256-cts). Then **delete the file** (it is equivalent to the account's password).
-5. Browsers (GPO): `https://netmonitor.mnidom.net` in the **Local intranet** zone (*Site to Zone Assignment List*,
+5. Browsers (GPO): `https://netmonitor.example.net` in the **Local intranet** zone (*Site to Zone Assignment List*,
    value `1`; used by Edge and Chrome on Windows), or the Chrome/Edge policy `AuthServerAllowlist =
-   netmonitor.mnidom.net`. Firefox: `network.negotiate-auth.trusted-uris`.
+   netmonitor.example.net`. Firefox: `network.negotiate-auth.trusted-uris`.
 6. Server time: NTP to the domain controllers (skew > 5 min breaks Kerberos):
    ```bash
    sudo mkdir -p /etc/systemd/timesyncd.conf.d
-   printf '[Time]\nNTP=dc1.mnidom.net dc2.mnidom.net\n' | sudo tee /etc/systemd/timesyncd.conf.d/netmon.conf
+   printf '[Time]\nNTP=dc1.example.net dc2.example.net\n' | sudo tee /etc/systemd/timesyncd.conf.d/netmon.conf
    sudo systemctl restart systemd-timesyncd && timedatectl timesync-status
    ```
 7. *Active Directory* (`ldap`, 2b-3) must be ON and configured: SSO users get their role from the same AD groups.
@@ -160,7 +160,7 @@ stored AES-GCM-encrypted in the database (covered by the daily DB backup) and wr
 
 ### Entra ID (only if *Sign in with Microsoft* is wanted)
 App registration (single tenant), platform **Web**, redirect URI
-`https://netmonitor.mnidom.net/api/auth/oidc/callback`; a client secret (enter its expiry date in the UI, which warns
+`https://netmonitor.example.net/api/auth/oidc/callback`; a client secret (enter its expiry date in the UI, which warns
 30 days before); app roles `NetMon.Admin` / `NetMon.Viewer` assigned to users/groups in *Enterprise applications*;
 token configuration: optional claims `email`, `preferred_username`. The proxy must allow
 `login.microsoftonline.com`.
@@ -168,12 +168,12 @@ token configuration: optional claims `email`, `preferred_username`. The proxy mu
 ### Outbound proxy for the app
 httpx (Telegram, Teams, OIDC, webhooks, reports) honours `HTTPS_PROXY` / `NO_PROXY` from
 `/etc/netmon-gitops/app.env` (host file, never in git); SSH, SNMP, flows and LDAP never use a proxy. `bootstrap.sh`
-creates `app.env` only once (a new server also gets the internal domain, e.g. `.mnidom.net`, in `NO_PROXY`). On the
+creates `app.env` only once (a new server also gets the internal domain, e.g. `.example.net`, in `NO_PROXY`). On the
 existing server edit it by hand:
 ```
 HTTPS_PROXY=http://<proxy>:<port>
 HTTP_PROXY=http://<proxy>:<port>
-NO_PROXY=localhost,127.0.0.1,::1,db,netmon,proxy,.mnidom.net,<internal webhook targets>
+NO_PROXY=localhost,127.0.0.1,::1,db,netmon,proxy,.example.net,<internal webhook targets>
 ```
 then `cd /opt/netmon/deploy/production && sudo docker compose --env-file release.env up -d netmon` (recreates the
 container with the new environment). The proxy must allow **long requests (≥ 70 s)** to `api.telegram.org`
@@ -319,25 +319,25 @@ The server gets **temporary** AWS credentials (default 1 h) with an X.509 certif
 long-lived secret exists. Create everything in one region where Roles Anywhere is available (normally the Bedrock
 region of § 1; check that IAM Roles Anywhere is offered there) — that is the app's *Roles Anywhere region*.
 
-1. **Trust anchor.** PKI admin exports the **issuing CA** certificate *Mnidom-PKI-SERV-CA* as Base-64 (PEM) (CA
+1. **Trust anchor.** PKI admin exports the **issuing CA** certificate *Example-PKI-SERV-CA* as Base-64 (PEM) (CA
    console → CA properties → *View certificate* → *Copy to file* → Base-64, or `certutil -ca.cert serv-ca.cer` and
-   `certutil -encode`). AWS admin: IAM Roles Anywhere → *Create a trust anchor* → name `mnidom-pki-serv-ca` →
+   `certutil -encode`). AWS admin: IAM Roles Anywhere → *Create a trust anchor* → name `example-pki-serv-ca` →
    *External certificate bundle* → paste the PEM. (If PKI-ROOT-CA is used as the anchor instead, the issuing CA must
    be uploaded as the chain in the app.) Before the CA certificate itself is renewed, add the new CA certificate to
    the bundle so both are trusted during the change-over.
 2. **Revocation (CRL).** Roles Anywhere does **not** download CRLs from the CDP. Import the CA's CRL and refresh it
    on the CA's publication schedule (e.g. a scheduled task on the CA or an admin host):
    ```bash
-   aws rolesanywhere import-crl --region <ra-region> --name mnidom-pki-serv-ca --enabled \
-     --crl-data fileb://Mnidom-PKI-SERV-CA.crl --trust-anchor-arn <trust-anchor-arn>
-   aws rolesanywhere update-crl --region <ra-region> --crl-id <crl-id> --crl-data fileb://Mnidom-PKI-SERV-CA.crl
+   aws rolesanywhere import-crl --region <ra-region> --name example-pki-serv-ca --enabled \
+     --crl-data fileb://Example-PKI-SERV-CA.crl --trust-anchor-arn <trust-anchor-arn>
+   aws rolesanywhere update-crl --region <ra-region> --crl-id <crl-id> --crl-data fileb://Example-PKI-SERV-CA.crl
    ```
    (`certutil -CRL` publishes; the `.crl` is DER.) Without CRL import, rely on short certificate lifetimes; the
    emergency stop is *Disable* on the profile or trust anchor.
 3. **Role** `netmon-bedrock`: IAM → Roles → *Create role* → *Custom trust policy* → paste the filled
    `aws/rolesanywhere-trust-policy.json`. It trusts only `rolesanywhere.amazonaws.com`, only through this trust
-   anchor (`aws:SourceArn`) and only for a certificate with subject `CN=netmonitor.mnidom.net` issued by
-   `CN=Mnidom-PKI-SERV-CA` (`aws:PrincipalTag/x509Subject/CN`, `…/x509Issuer/CN`; confirm both values on the issued
+   anchor (`aws:SourceArn`) and only for a certificate with subject `CN=netmonitor.example.net` issued by
+   `CN=Example-PKI-SERV-CA` (`aws:PrincipalTag/x509Subject/CN`, `…/x509Issuer/CN`; confirm both values on the issued
 certificate with `openssl x509 -in netmonitor.cer -noout -subject -issuer` and adjust the template if they differ). Permissions: add an inline
    policy from the filled `aws/bedrock-invoke-policy.json`; add `aws/bedrock-knowledge-base-policy.json` **only** if
    a Knowledge Base is used and `aws/bedrock-list-models-policy.json` only for the optional *List models* button.
@@ -367,18 +367,18 @@ certificate with `openssl x509 -in netmonitor.cer -noout -subject -issuer` and a
    profile, role).
 5. **Certificate (CSR generated in the app).** *Settings → Assistant* → auth mode *IAM Roles Anywhere* →
    **Create CSR**: the app generates the private key (it never leaves the server; stored encrypted in the DB) and
-   offers `netmonitor.csr` with subject `CN=netmonitor.mnidom.net`. The PKI admin issues it from a template with:
+   offers `netmonitor.csr` with subject `CN=netmonitor.example.net`. The PKI admin issues it from a template with:
    key usage *Digital Signature*; EKU **Client Authentication**; subject *supplied in the request*; RSA ≥ 2048 or ECDSA
    P-256/P-384; SHA-256; validity 1 year (≤ 2). E.g. duplicate the *Computer* template as `NetMonBedrockClient`
    (Compatibility ≥ 2008, *Extensions → Application Policies* = Client Authentication only, *Subject Name* = Supply
    in the request), publish it, then:
    ```
-   certreq -submit -config "<ca-host>\Mnidom-PKI-SERV-CA" -attrib "CertificateTemplate:NetMonBedrockClient" netmonitor.csr netmonitor.cer
+   certreq -submit -config "<ca-host>\Example-PKI-SERV-CA" -attrib "CertificateTemplate:NetMonBedrockClient" netmonitor.csr netmonitor.cer
    ```
    [1.4.1] `CertificateTemplate:` takes the **template name** (the *Template name* field on the template's
    *General* tab, no spaces, e.g. `NetMonBedrockClient`), **not** the *Template display name* (e.g. "NetMon Bedrock
    Client"); with the display name `certreq` answers *The requested certificate template is not supported by this
-   CA*. `certutil -CATemplates -config "<ca-host>\Mnidom-PKI-SERV-CA"` lists the names the CA offers.
+   CA*. `certutil -CATemplates -config "<ca-host>\Example-PKI-SERV-CA"` lists the names the CA offers.
 
    The certificate card in *Settings → Assistant* has **two modes**:
    - **Generate a CSR** (this step, recommended): the private key is created on the server and stays there. After

@@ -20,7 +20,7 @@ import {
 import { errorMessage } from '../lib/errors';
 import { timeZones } from '../lib/maintenance';
 import { portSettingsErrors } from '../lib/ports';
-import { useSearchParams } from 'react-router-dom';
+import { useSearchParams } from 'react-router';
 import { FeaturesTab } from '../components/features/FeaturesTab';
 import { AuditRetentionCard, IngestTab } from '../components/features/IngestSettings';
 import { LdapTab } from '../components/features/LdapSettings';

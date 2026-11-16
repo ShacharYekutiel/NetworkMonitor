@@ -3,7 +3,7 @@
 auth; AUTH PLAIN/LOGIN accepted with any credentials when the client insists) and exposes them over HTTP.
 
     backend/.venv/bin/python tests/sim/smtp_sink.py --smtp-port 18025 --http-port 18026 [--out mails.jsonl]
-    # backend settings: smtp = {"host": "127.0.0.1", "port": 18025, "security": "none", "from": "netmon@mnidom.test"}
+    # backend settings: smtp = {"host": "127.0.0.1", "port": 18025, "security": "none", "from": "netmon@example.test"}
 
 HTTP (127.0.0.1:--http-port):
   GET    /health

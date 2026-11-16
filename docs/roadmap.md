@@ -172,7 +172,7 @@ after an upgrade), switched at runtime without a restart; OFF keeps the data (re
    allow-list (MACs / vendor prefixes), "acknowledge as known", scope by group, randomised MACs ignored, no flood
    when a switch is added.
 10. **Single sign-on:** Kerberos/SPNEGO for domain PCs (toggle `sso_kerberos`, **recommended**; handled by the
-    app, Caddy unchanged except the short-name redirect; keytab for `HTTP/netmonitor.mnidom.net` uploaded in the
+    app, Caddy unchanged except the short-name redirect; keytab for `HTTP/netmonitor.example.net` uploaded in the
     UI; roles from the 2b-3 AD groups) and "Sign in with Microsoft" (Entra ID OIDC, toggle `sso_oidc`, optional).
     The AD form login and local accounts stay.
 11. **Reports** (toggle `reports`): weekly/monthly and on demand — availability (SLA %) per device/group, top
@@ -223,7 +223,7 @@ parts are skipped and alerts/reports are never delayed.
 Owner decisions for 3b (architecture § 14.13): `us-east-1` + `us.` inference profile recommended (`il-central-1` +
 `global.` supported); token caps + an admin USD cost cap; no question text in the audit log (title only); IP
 redaction off in the app, on in Telegram; Roles Anywhere recommended (UI upload or server-side CSR, trust anchor
-Mnidom-PKI-SERV-CA); Knowledge Base implemented, OFF.
+Example-PKI-SERV-CA); Knowledge Base implemented, OFF.
 
 ## Later / ideas
 - Per-port PoE status table.

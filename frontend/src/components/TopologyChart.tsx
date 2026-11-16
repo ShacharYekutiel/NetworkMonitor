@@ -4,6 +4,7 @@ import * as echarts from 'echarts/core';
 import { GraphChart } from 'echarts/charts';
 import { TooltipComponent } from 'echarts/components';
 import { CanvasRenderer } from 'echarts/renderers';
+import { initChart } from '../lib/echarts';
 import { useTranslation } from 'react-i18next';
 import { escapeHtml } from '../lib/html';
 import type { LayoutPosition, TopologyGraph } from '../api/types';
@@ -90,7 +91,7 @@ export function TopologyChart({
 
   useEffect(() => {
     if (!ref.current) return;
-    const c = echarts.init(ref.current, undefined, { renderer: 'canvas' });
+    const c = initChart(ref.current);
     chart.current = c;
     const ro = new ResizeObserver(() => c.resize());
     ro.observe(ref.current);

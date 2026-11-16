@@ -447,14 +447,14 @@ async def test_csr_generate_and_upload(env: httpx.AsyncClient, mock: Any) -> Non
     await feats(c, audit=True)
     r = await c.post(
         "/api/assistant/cert/csr",
-        json={"common_name": "netmonitor-bedrock.mnidom.net", "key_type": "ec"},
+        json={"common_name": "netmonitor-bedrock.example.net", "key_type": "ec"},
     )
     assert r.status_code == 200, r.text
     assert "BEGIN CERTIFICATE REQUEST" in r.json()["pem"] and "PRIVATE" not in r.text
     d = await c.get("/api/assistant/cert/csr")
     assert d.status_code == 200 and "attachment" in d.headers["content-disposition"]
     s = (await c.get("/api/assistant/settings")).json()
-    assert s["csr"]["subject"] == "CN=netmonitor-bedrock.mnidom.net"
+    assert s["csr"]["subject"] == "CN=netmonitor-bedrock.example.net"
     # the internal CA (the mock's issuing CA) signs the CSR
     csr = x509.load_pem_x509_csr(d.content)
     ca = x509.load_pem_x509_certificate(pki_file(mock, "issuing.pem"))

@@ -7,7 +7,7 @@ import {
 } from '../lib/lab2b3';
 
 // [2b-3] 45 — Active Directory login against the fake AD (architecture.md §12.7, api.md [2b-3] Active Directory,
-// fixture tests/sim/ldap/mnidom.yaml): configure, Test connection, Test user, three name forms, nested groups,
+// fixture tests/sim/ldap/example.yaml): configure, Test connection, Test user, three name forms, nested groups,
 // denied users (generic error), local precedence, empty password never reaches AD, DC failover, wrong cert,
 // local admin with the AD stopped / hanging, directory guard, ldap_managed refusals.
 test.describe.configure({ mode: 'serial' });
@@ -66,16 +66,16 @@ test('UI: AD is configure-first: form shown while OFF, switch at the bottom unlo
   await loginViaApi(page, undefined, '/settings?tab=ldap');
   const form = page.getByTestId('ldap-settings');
   await expect(form).toBeVisible();
-  await expect(form.getByPlaceholder('mnidom.net', { exact: true })).toHaveValue('mnidom.net');
+  await expect(form.getByPlaceholder('example.net', { exact: true })).toHaveValue('example.net');
   // nothing at the top: the switch is inside the form, next to Test connection
   const sw = form.getByTestId('feature-toggles').getByRole('switch', { name: tOr('features.name.ldap', 'Active Directory login') });
   await expect(sw).toBeDisabled();
   await expect(form.getByTestId('enable-hint')).toHaveText(tOr('features.enableNeedsTest', 'Test the connection to enable'));
   await shot2b3(page, '45-ad-off-locked');
   // an unsaved edit needs a save first
-  await form.getByPlaceholder('MNIDOM', { exact: true }).fill('MNIDOMX');
+  await form.getByPlaceholder('EXAMPLE', { exact: true }).fill('EXAMPLEX');
   await expect(form.getByTestId('enable-hint')).toHaveText(tOr('features.enableNeedsSave', 'Save the settings and test the connection to enable'));
-  await form.getByPlaceholder('MNIDOM', { exact: true }).fill('MNIDOM');
+  await form.getByPlaceholder('EXAMPLE', { exact: true }).fill('EXAMPLE');
   await form.getByRole('button', { name: tOr('ldap.testConnection', 'Test connection') }).click();
   await expect(page.getByRole('table').filter({ hasText: `localhost:${LDAPS_PORT}` })).toBeVisible({ timeout: 15_000 });
   await expect(sw).toBeEnabled();
@@ -87,7 +87,7 @@ test('UI: AD is configure-first: form shown while OFF, switch at the bottom unlo
   // OFF again from the same switch (the stored settings stay)
   await sw.click();
   await expect.poll(async () => (await publicFeatures(admin)).ldap, { timeout: 10_000 }).toBe(false);
-  await expect(form.getByPlaceholder('mnidom.net', { exact: true })).toHaveValue('mnidom.net');
+  await expect(form.getByPlaceholder('example.net', { exact: true })).toHaveValue('example.net');
   await featureOff(admin, 'ldap');
 });
 
@@ -95,14 +95,14 @@ test('LDAP users get 401 while the feature is OFF; ON publishes the domain hint'
   expect((await tryLogin('jdoe', AD.password)).status).toBe(401);
   await featureOn(admin, 'ldap');
   const pub = await admin.get('/api/settings/public');
-  expect(pub.ldap).toEqual({ domain: 'mnidom.net', netbios_domain: 'MNIDOM' });
+  expect(pub.ldap).toEqual({ domain: 'example.net', netbios_domain: 'EXAMPLE' });
 });
 
 test('three name forms -> viewer; nested group (1 and 2 levels) -> admin; source ldap', async () => {
-  for (const name of ['jdoe', 'MNIDOM\\jdoe', 'mnidom\\jdoe', 'John.Doe@mnidom.net', 'john.doe@MNIDOM.NET']) {
+  for (const name of ['jdoe', 'EXAMPLE\\jdoe', 'example\\jdoe', 'John.Doe@example.net', 'john.doe@EXAMPLE.NET']) {
     const r = await tryLogin(name, AD.password);
     expect.soft(r.status, `${name}: ${JSON.stringify(r.body)}`).toBe(200);
-    if (r.status === 200) expect.soft(r.body.user, name).toMatchObject({ username: 'jdoe', role: 'viewer', source: 'ldap', display_name: 'John Doe', email: 'john.doe@mnidom.net' });
+    if (r.status === 200) expect.soft(r.body.user, name).toMatchObject({ username: 'jdoe', role: 'viewer', source: 'ldap', display_name: 'John Doe', email: 'john.doe@example.net' });
   }
   const a = await tryLogin('asmith', AD.password);
   expect(a.body.user).toMatchObject({ username: 'asmith', role: 'admin', source: 'ldap' });
@@ -233,9 +233,9 @@ test('directory guard: 5 failed AD logins for one username -> 429 (protects AD l
 
 test('UI: login hint, AD login, Settings -> Active Directory test table, profile without password change', async ({ page }) => {
   await page.goto('/login');
-  await expect(page.getByText(/MNIDOM\\user or user@mnidom\.net/)).toBeVisible();
+  await expect(page.getByText(/EXAMPLE\\user or user@example\.net/)).toBeVisible();
   await shot2b3(page, '45-login-hint');
-  await loginViaUi(page, { username: 'MNIDOM\\jdoe', password: AD.password });
+  await loginViaUi(page, { username: 'EXAMPLE\\jdoe', password: AD.password });
   await expect(page.getByRole('navigation').first()).toBeVisible();
   await expect(page).not.toHaveURL(/\/login/);
   await page.goto('/account');

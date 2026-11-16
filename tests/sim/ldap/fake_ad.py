@@ -11,7 +11,7 @@ error, data 52e, v4563`), and a hang mode (connections are accepted and never an
 
 CLI (E2E, tests/e2e/run.sh):
 
-    python tests/sim/ldap/fake_ad.py --data tests/sim/ldap/mnidom.yaml --certs DIR \
+    python tests/sim/ldap/fake_ad.py --data tests/sim/ldap/example.yaml --certs DIR \
         --ldaps-port 16360 --ldap-port 13890 --control-port 18389 [--hang] [--wrong-cert] [--record binds.jsonl]
 
   --certs DIR    output of make_certs.py (created when missing); --wrong-cert serves wrong.pem (CN wrong.test)
@@ -895,7 +895,7 @@ async def _main(a: argparse.Namespace) -> None:
 
 def main() -> None:
     p = argparse.ArgumentParser(description="Fake Active Directory (LDAPv3) for NetworkMonitor tests")
-    p.add_argument("--data", default=str(HERE / "mnidom.yaml"))
+    p.add_argument("--data", default=str(HERE / "example.yaml"))
     p.add_argument("--certs", default="", help="directory for make_certs.py output (needed for LDAPS/StartTLS)")
     p.add_argument("--host", default="127.0.0.1")
     p.add_argument("--ldaps-port", type=int, default=0, help="0 = free port, -1 = no LDAPS listener")

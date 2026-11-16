@@ -57,17 +57,17 @@ async def test_name_forms_and_roles(
 ) -> None:
     for name in (
         "jdoe",
-        "MNIDOM\\jdoe",
-        "mnidom\\JDOE",
-        "John.Doe@mnidom.net",
-        "john.doe@MNIDOM.NET",
+        "EXAMPLE\\jdoe",
+        "example\\JDOE",
+        "John.Doe@example.net",
+        "john.doe@EXAMPLE.NET",
     ):
         r = await _login(app, name)
         assert r.status_code == 200, (name, r.text)
         user = r.json()["user"]
         assert user["username"] == "jdoe" and user["role"] == "viewer"
         assert user["source"] == "ldap" and user["display_name"] == "John Doe"
-        assert user["email"] == "john.doe@mnidom.net" and user["ldap_synced_at"]
+        assert user["email"] == "john.doe@example.net" and user["ldap_synced_at"]
     r = await _login(app, "asmith")  # IT-Team ∈ NetMon-Admins (nested)
     assert r.status_code == 200 and r.json()["user"]["role"] == "admin"
     r = await _login(app, "bhelp")  # Helpdesk ∈ IT-Team ∈ NetMon-Admins
@@ -105,11 +105,11 @@ async def test_denied_users(
 
 
 async def test_filter_injection_is_escaped(app: Any, ad_on: Any, rt: Any) -> None:
-    # unescaped, "*@mnidom.net" would match every account with a UPN (ambiguous/first hit)
-    r = await _login(app, "*@mnidom.net")
+    # unescaped, "*@example.net" would match every account with a UPN (ambiguous/first hit)
+    r = await _login(app, "*@example.net")
     assert r.status_code == 401
     assert (await _audit_rows(rt, "auth.login_failed"))[-1]["reason"] == "unknown_user"
-    r = await _login(app, "x*)(sAMAccountName=jdoe@mnidom.net")
+    r = await _login(app, "x*)(sAMAccountName=jdoe@example.net")
     assert r.status_code == 401
     assert (await _audit_rows(rt, "auth.login_failed"))[-1]["reason"] == "unknown_user"
 
@@ -127,7 +127,7 @@ async def test_directory_guard(app: Any, ad_on: Any) -> None:
     for _ in range(5):
         assert (await _login(app, "jdoe", "bad-one")).status_code == 401
     binds = len(ad_on.binds)
-    r = await _login(app, "MNIDOM\\jdoe", "Passw0rd!")  # same account, other name form
+    r = await _login(app, "EXAMPLE\\jdoe", "Passw0rd!")  # same account, other name form
     assert r.status_code == 429 and r.json()["error"]["code"] == "rate_limited"
     assert len(ad_on.binds) == binds  # the directory is not contacted any more
 
@@ -150,7 +150,7 @@ async def test_wrong_certificate_fails_closed(
     from tests.fixtures_2b3_auth import LDAP_SIM, _sim_modules
 
     fa, _ = _sim_modules()
-    ad = fa.FakeAD(fa.load_directory(LDAP_SIM / "mnidom.yaml"), certs=ad_certs, wrong_cert=True)
+    ad = fa.FakeAD(fa.load_directory(LDAP_SIM / "example.yaml"), certs=ad_certs, wrong_cert=True)
     await ad.start()
     try:
         feats(ldap=True)
@@ -308,7 +308,7 @@ async def test_local_account_wins(app: Any, admin: httpx.AsyncClient, ad_on: Any
     assert (await _login(app, "jdoe", "Local-pass-1")).status_code == 200
     assert len(ad_on.binds) == binds  # AD never contacted for a local name
     # the UPN form resolves to sAMAccountName jdoe, which a local account owns
-    assert (await _login(app, "John.Doe@mnidom.net")).status_code == 401
+    assert (await _login(app, "John.Doe@example.net")).status_code == 401
 
 
 async def test_role_change_at_login(
@@ -396,8 +396,8 @@ async def test_feature_off(
     assert res.status_code == 200 and res.json()["ok"] is True
     feats(ldap=True)
     assert (await admin.get("/api/settings/public")).json()["ldap"] == {
-        "domain": "mnidom.net",
-        "netbios_domain": "MNIDOM",
+        "domain": "example.net",
+        "netbios_domain": "EXAMPLE",
     }
 
 
@@ -408,14 +408,14 @@ async def test_test_endpoints(admin: httpx.AsyncClient, ad_on: Any) -> None:
     assert row["ok"] and row["security"] == "ldaps" and row["active_directory"] is True
     assert row["tls"]["verified"] is True and row["tls"]["subject"] and row["tls"]["not_after"]
     assert res["admin_group"] == {
-        "dn": "CN=NetMon-Admins,OU=Groups,DC=mnidom,DC=net",
+        "dn": "CN=NetMon-Admins,OU=Groups,DC=example,DC=net",
         "found": True,
     }
     # a partial config overrides the stored one (not saved)
     res = (
         await admin.post(
             "/api/ldap/test",
-            json={"ldap": {"viewer_group_dn": "CN=Nope,OU=Groups,DC=mnidom,DC=net"}},
+            json={"ldap": {"viewer_group_dn": "CN=Nope,OU=Groups,DC=example,DC=net"}},
         )
     ).json()
     assert res["ok"] is False and res["viewer_group"]["found"] is False

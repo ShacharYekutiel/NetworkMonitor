@@ -1,4 +1,4 @@
-import { useSearchParams } from 'react-router-dom';
+import { useSearchParams } from 'react-router';
 import { useTranslation } from 'react-i18next';
 import { FeatureOffNotice, useFeatures } from '../hooks/features';
 import { ingestOn } from '../lib/features';

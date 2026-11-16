@@ -18,7 +18,7 @@ const RUN = marker('qa39');
 
 // expected parse results (receive-time independent fields only)
 const EXPECT: Record<string, Record<string, unknown>> = {
-  S1: { format: 'rfc5424', facility: 20, severity: 5, hostname: 'sw1.mnidom.net', program: 'evntslog', pid: '1234', msgid: 'ID47', structured_data: '[exampleSDID@32473 iut="3"]', message: 'An application event' },
+  S1: { format: 'rfc5424', facility: 20, severity: 5, hostname: 'sw1.example.net', program: 'evntslog', pid: '1234', msgid: 'ID47', structured_data: '[exampleSDID@32473 iut="3"]', message: 'An application event' },
   S2: { format: 'rfc5424', facility: 4, severity: 2, hostname: '', program: '', pid: '', msgid: '', structured_data: null, message: 'plain', device_time: null },
   S3: { format: 'rfc3164', facility: 4, severity: 2, hostname: 'mymachine', program: 'su', message: "'su root' failed for lonvick on /dev/pts/8" },
   S4: { format: 'rfc3164', facility: 3, severity: 6, hostname: 'gw-hq', program: 'sshd', pid: '2211', message: 'Accepted password for admin' },

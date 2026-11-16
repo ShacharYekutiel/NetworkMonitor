@@ -15,7 +15,7 @@ set clienv syntax-check off
 set dns mode default
 set dns primary 10.0.0.53
 set dns secondary 10.0.0.54
-set domainname mnidom.net
+set domainname example.net
 set edition default 64-bit
 set expert-password-hash $1$Rb2bVQ$Ks9q0m3Ge0Gyd3b4kM7Lz/
 set format date dd-mmm-yyyy

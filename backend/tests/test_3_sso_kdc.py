@@ -52,7 +52,7 @@ def client_token(kdc: Path, user: str, raw: bool = False) -> bytes:
 def test_real_keytab_parses(kdc: Path) -> None:
     entries = kp.parse_keytab((kdc / "http.keytab").read_bytes())
     principals = {e.principal for e in entries}
-    assert "HTTP/localhost@MNIDOM.TEST" in principals
+    assert "HTTP/localhost@EXAMPLE.TEST" in principals
     assert {18, 17} <= {e.enctype for e in entries}
     assert kp.keytab_warnings(entries) == []
     rc4 = kdc / "rc4.keytab"
@@ -68,14 +68,14 @@ def test_real_acceptor(kdc: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatc
     tok = client_token(kdc, "jdoe")
     assert kp.token_mech(tok) == "kerberos"
     principal, out = gss_accept(str(kdc / "http.keytab"), tok)
-    assert principal == "jdoe@MNIDOM.TEST"
-    assert kp.split_principal(principal) == ("jdoe", "MNIDOM.TEST")
+    assert principal == "jdoe@EXAMPLE.TEST"
+    assert kp.split_principal(principal) == ("jdoe", "EXAMPLE.TEST")
     assert out  # mutual authentication token
     with pytest.raises(KerberosFailure):  # replay cache
         gss_accept(str(kdc / "http.keytab"), tok)
     raw = client_token(kdc, "asmith", raw=True)
     assert kp.token_mech(raw) == "kerberos"
-    assert gss_accept(str(kdc / "http.keytab"), raw)[0] == "asmith@MNIDOM.TEST"
+    assert gss_accept(str(kdc / "http.keytab"), raw)[0] == "asmith@EXAMPLE.TEST"
     rc4 = kdc / "rc4.keytab"
     if rc4.is_file():
         with pytest.raises(KerberosFailure):  # keys of the other keytab do not match
