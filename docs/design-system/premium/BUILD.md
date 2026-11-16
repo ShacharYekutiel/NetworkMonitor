@@ -18,6 +18,11 @@ The prototype is **reference only**: plain HTML/CSS/JS with demo data. Do not sh
 existing stack (React 18 + TS + Vite + Tailwind + react-query + i18next, see `frontend/package.json`). Read its
 `<style>` block for exact sizes, radii and spacing — every number you need is there.
 
+**"תצוגה (אב-טיפוס)" switch:** many screens have a small segmented control at the top left labelled
+"תצוגה (אב-טיפוס)". It only flips the prototype between states (normal / empty / error / busy / wizard step…)
+so you can see each one. **It is not part of the product — do not build it.** Each state it shows is one you
+must build.
+
 ## 2. Screen map (prototype → route → file)
 
 | Prototype screen (menu) | Route | File in `frontend/src/pages/` |
@@ -48,8 +53,33 @@ existing stack (React 18 + TS + Vite + Tailwind + react-query + i18next, see `fr
 | מסך קיר (NOC) | kiosk | `KioskPage.tsx` |
 | אישור (chat ack, phone) | `/ack` | `AckPage.tsx` |
 
-`/tokens` (`TokensPage.tsx`) has no own mockup: build it with the Settings pattern (grouped list + "new" button +
-sheet), same as Users.
+Screens added after the first prototype (menu sections in brackets):
+
+| Prototype screen (menu) | Route | File / component |
+| --- | --- | --- |
+| שאל את הרשת [העוזר] | `/assistant`, `/assistant/c/:id` | `AssistantPage.tsx`, `assistant/AnswerView.tsx` |
+| שימוש בעוזר [העוזר] | `/assistant/usage` | `AssistantUsagePage.tsx` |
+| טיוטת כלל התראה [העוזר] | in the new-rule form: Notifications → rule, Logs → כללים ("תאר את הכלל…") | `assistant/RuleDraft.tsx` |
+| טיוטת תבנית מהתקן [העוזר] | Templates → "טיוטת תבנית מהתקן" | `assistant/TemplateDraftWizard.tsx` |
+| אירועים מקובצים [ניטור] | `/events` → tab "אירועים מקובצים" | `EventsPage.tsx`, `assistant/Incidents.tsx` |
+| אירוע מקובץ (open from the list or the home widget) | `/incidents/:id` | `IncidentPage.tsx` |
+| home widget "אירועים מקובצים פתוחים" | `/` | `Dashboard.tsx`, `assistant/Incidents.tsx` |
+| הסבר (side panel / sheet) — button on sensor, incident, log lines | component, no route | `assistant/ExplainButton.tsx` |
+| core-sw-01 → לשונית פורטים (table, LAG, columns, CSV, connected-device kind) | `/devices/:id` | `device/PortsTab.tsx`, `PortList.tsx`, `PortModal.tsx` |
+| core-sw-01 → לשונית חיישנים (impact tags + bulk dialog) | `/devices/:id` | `SensorTable.tsx`, `SensorImpact.tsx` |
+| החלת תבנית על התקן [ציוד] | from device/group: "החלת תבנית…" | `Templates.tsx`, `ApplyPorts.tsx` |
+| חיישן עם מיפוי ערכים [ציוד] | `/sensors/:id` (lookup sensor) | `SensorPage.tsx`, value-map editor |
+| הגדרות → חיפוש, כללי (אבטחה), העוזר, AWS | `/settings` | `SettingsPage.tsx`, `SettingsSearch.tsx`, `SecuritySettings.tsx`, `assistant/AssistantSettingsTab.tsx`, `assistant/ConnectionSettings.tsx` |
+| חיבור AWS [ניהול] | `/settings` → AWS → connection | `assistant/ConnectionSettings.tsx` |
+| החשבון שלי → התחברויות | `/account` | `AccountPage.tsx` |
+| לוגים → תקציר | `/logs` tab; full view `/assistant/digests`, `/assistant/digests/:day` | `LogsPage.tsx`, `DigestPage.tsx`, `assistant/Digest.tsx` |
+| גיבויים → השוואה עם תגי סיכון | `/config-backups` | `ConfigBackupsPage.tsx`, `assistant/DiffExplain.tsx` |
+| תפריט הקשר (right click on device / group) + progress toast | component | `tree/TreeContextMenu.tsx`, `ContextMenu.tsx`, `toast.tsx` |
+| home → "עריכת מפה" + map not set up yet | `/` | `Dashboard.tsx` |
+| אסימוני API [ניהול] | `/tokens` | `TokensPage.tsx`, `TokensTable.tsx` |
+
+The brief named the chat route `/ask`; the router in `main` uses `/assistant` (and `/assistant/c/:id`). Keep the
+router's routes.
 
 ## 3. Build order
 
@@ -138,6 +168,68 @@ A straight-on SVG of the real front panel, no tilt, no 3D. Port to `components/S
 - **Logs:** segmented control Syslog / Traps / מקורות לא מוכרים / חוקים.
 - **Config backups:** list + side-by-side diff (green/red lines, monospace).
 
+## 6b. Shell and screens added later
+
+**Pinned menu.** The ☰ sheet has a lock button next to its title. Locked: the menu stays open as a fixed 320px
+side panel on the **right** (RTL start), under the top bar, without scrim; rows lose their card background, the
+current screen is highlighted, and the content area shrinks next to it (`padding-inline-start: 320px + 36px`).
+Unlocked: the original slide-in sheet (now also from the right) with scrim. ☰ while locked unlocks it. Remember
+the choice per user (local storage is fine). Bare screens (login, setup, kiosk, ack) never show it.
+
+**New shared components** (all in the prototype `<style>` under "v2"):
+- **Table** `.tbl` — 12.5px grey headers, 1px hairline rows, hover `--card2`, selected row `--chip`, numbers
+  end-aligned in Inter. Lives inside a `.group` card. Wide tables scroll inside the card, never the page.
+- **Sheet** (modal) — centred card, radius 28, blurred scrim, title 24px + round × button, actions bottom-start.
+  Used for every create / confirm / bulk dialog.
+- **Side panel** — 440px card floating on the left (RTL end), radius 28, for "הסבר". The same content can open
+  as a sheet (log lines do this).
+- **Context menu** — translucent blurred card, 34px rows with icon, separators, red destructive item last; opens
+  at the cursor, closes on Escape / outside click / scroll.
+- **Progress toast** — bottom-left card with title, `n / total` and a bar; turns green when done; cancel button.
+- **Empty / error block** — 64px icon tile (error: red tint), title 22px, one line, one or two actions.
+- **Banner** — inline 16px-radius notice tinted by status (warn = limits, down = failures).
+- **Wizard steps** — pills with number → ✓ when done; done steps are clickable to go back.
+- **Checkbox / radio** — 20px; checked = ink fill. **Option card** (`.opt`) for radio choices with a hint.
+- **Citation** `[n]` — small chip in AI text; click opens a popover (type, name, detail, "פתיחה").
+- **AI tag** — small "AI ✦" chip on anything generated, plus the fine print
+  "נוצר ע״י AI — ייתכנו טעויות…".
+
+**Screen notes**
+- **שאל את הרשת:** history list on the right (search, "חדשה", grouped by day, kind under each title), chat in a
+  centred 820px column. User bubble = ink pill at the end side. Answer: tool steps (spinning → ✓ with rows · ms),
+  then text streaming with a caret, then source chips, tokens, copy, 👍/👎. While streaming the send button
+  becomes a stop square; stopping keeps the partial answer with a notice. Composer is sticky at the bottom with
+  the model picker (popover upwards) and "נותרו N שאלות להיום". States: empty (hero + 6 example cards), busy
+  ("Amazon Bedrock עמוס — מנסה שוב…"), error (red banner + retry + to settings), cap reached (warn banner,
+  composer disabled).
+- **שימוש בעוזר:** month switcher, 4 tiles (questions, tokens with bar, ≈ cost, month-end projection — warn colour
+  when > 100%), daily tokens bar chart (time runs left→right, today in ink), per-user table, per-capability
+  share bars, feedback line. Near-cap banner when background AI is paused.
+- **Incidents:** card = status icon tile, title "root — N devices", meta line (since, alerts grouped, root +
+  confidence), member chips coloured by state. Incident page: AI summary (or "אין סיכום AI" + root candidates),
+  timeline, members list with "שורש" / "התאושש" tags, note that there is no bulk ack.
+- **Ports tab:** LAG chips (degraded LAG in warn), filter chips, "עמודות" popover with switches, CSV. Row click
+  selects the port on the faceplate and fills the port card; the card ends with the connected-device chooser
+  (אוטומטי showing what was detected, then 8 kinds). A manual kind shows "ידני" in the table and changes the
+  icon on the faceplate.
+- **Impact:** default (קריטי) shows no tag; "אזהרה בלבד" (warn) and "ללא השפעה" (grey) tags. Checkboxes on sensor
+  rows → floating ink action bar ("N נבחרו · הגדרת השפעה… · ניקוי") → sheet with the 3 options and their hints.
+- **Value map:** table value / MIB name / status picker / text / remove, a fixed "אחר" row, add + save,
+  validation highlights the bad rows in red.
+- **Settings:** search field with a dropdown of matches (matched text highlighted, path under each result,
+  "requires feature" note); picking a result switches tab, scrolls and flashes the target. Tabs כללי / העוזר /
+  AWS. Assistant tab sections: status + connection test (step list), connection with the "גישת AWS" block
+  (connection picker, ישיר / Assume role with role ARN + ExternalId), chat models, data sharing (with an IP
+  redaction preview), limits & cost, knowledge base, capability cards with switches and "ממתין — חסר: …" tags.
+- **AWS connection:** auth segmented (Roles Anywhere / access key), certificate card (subject, issuer, validity,
+  days-left tag, CSR sheet → PEM + download, upload sheet with drop zone), "מדיניות IAM צפויה" code blocks with
+  copy, connection test steps הגדרות → הרשאות → זהות → קפיצה לחשבון אחר; a failed step shows the error and a hint.
+- **Tokens:** table (name, prefix, role, state tag, expiry, last use, revoke). Create sheet → "האסימון נוצר" sheet
+  with the warning that it is shown once, the token with copy, and a curl example. Revoke asks first.
+- **Home:** "עריכת מפה" button (admins) opens a sheet: mode אוטומטי / עמוד שדרה, show "אינטרנט" switch, ordered
+  backbone list (move up/down, remove, add). If the map was never set up, show only the main groups in a row with
+  a quiet hint and a "הגדרת המפה" link — no lines.
+
 ## 7. Rules
 
 - Status colour is used **only** for state (up / warning / down / unreachable / paused), never for decoration.
@@ -152,6 +244,7 @@ A straight-on SVG of the real front panel, no tilt, no 3D. Port to `components/S
 
 ## 8. Done when
 
+- Every state shown by the prototype's "תצוגה" switch exists in the app (empty, error, busy, cap…).
 - Every route in section 2 matches the prototype in light and dark, at 1440px and 390px.
 - No page scrolls sideways on mobile; `npm run lint`, `npm run build` and `npm test` pass.
 - Playwright screenshots of every route in both themes are attached to the PR.
