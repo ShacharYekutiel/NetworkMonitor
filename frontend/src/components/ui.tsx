@@ -13,6 +13,7 @@ import { createPortal } from 'react-dom';
 import { Link, useLocation } from 'react-router';
 import { useTranslation } from 'react-i18next';
 import { ChevronIcon, XIcon } from './icons';
+import { CHECKBOX } from './kit';
 import { errorMessage, type ErrorContext } from '../lib/errors';
 
 export function cx(...c: (string | false | null | undefined)[]): string {
@@ -171,7 +172,7 @@ export function Checkbox({
     <label className="inline-flex cursor-pointer items-center gap-2 text-[14.5px]">
       <input
         type="checkbox"
-        className="m-0 h-4 w-4 accent-accent"
+        className={CHECKBOX}
         checked={checked}
         disabled={disabled}
         onChange={(e) => onChange(e.target.checked)}
@@ -555,10 +556,14 @@ export function Table({ children }: { children: ReactNode }) {
 }
 
 /** Dense table cells (operator lists); the outer cells line up with the card's 22px padding. */
+/** Table cells (prototype .tbl): 12.5px grey headers, hairline rows, hover card2, outer cells on the card's padding. */
 export const th =
-  'whitespace-nowrap border-b border-line px-3 py-2.5 text-start text-xs font-medium text-ink-muted first:ps-[22px] last:pe-[22px]';
+  'whitespace-nowrap border-b border-line px-3.5 pb-2.5 pt-3 text-start text-[12.5px] font-medium text-ink-muted first:ps-5 last:pe-5';
 export const td =
-  'border-b border-line px-3 py-2.5 align-middle transition-colors first:ps-[22px] last:pe-[22px]';
+  'border-b border-line px-3.5 py-3 align-middle transition-colors first:ps-5 last:pe-5';
+/** A selected table row (prototype .tbl tr.sel) and a row with an error (tr.bad). */
+export const TR_SELECTED = '[&>td]:bg-chip';
+export const TR_BAD = '[&>td]:bg-status-down-soft';
 
 /** Left-to-right isolate for numbers, IPs, hostnames and URLs inside RTL text. */
 export function Ltr({ children, className }: { children: ReactNode; className?: string }) {

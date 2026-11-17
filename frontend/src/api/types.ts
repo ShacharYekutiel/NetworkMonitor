@@ -1318,15 +1318,7 @@ export const PORT_STATES: PortState[] = ['up', 'down', 'admin_down', 'absent'];
  * lib/ports.ts portDeviceKind() maps those too.
  */
 export type ConnectedKind =
-  | 'computer'
-  | 'phone'
-  | 'ap'
-  | 'printer'
-  | 'camera'
-  | 'server'
-  | 'switch'
-  | 'router'
-  | 'unknown';
+  'computer' | 'phone' | 'ap' | 'printer' | 'camera' | 'server' | 'switch' | 'router' | 'unknown';
 export const CONNECTED_KINDS: ConnectedKind[] = [
   'computer',
   'phone',

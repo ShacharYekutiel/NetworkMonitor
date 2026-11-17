@@ -1,3 +1,4 @@
+import { CHECKBOX } from './kit';
 import { Link } from 'react-router';
 import { useTranslation } from 'react-i18next';
 import type { Sensor } from '../api/types';
@@ -10,7 +11,7 @@ import { MaintenanceBadge } from './Maintenance';
 import { ImpactTag } from './SensorImpact';
 import { Empty, Table, td, th, Value } from './ui';
 
-const boxCls = 'h-4 w-4 rounded border-line-strong text-accent-ink focus:ring-focus';
+const boxCls = CHECKBOX;
 
 /** [1.3] Row selection (checkboxes + select all) for bulk actions. */
 export type SensorSelection = {
