@@ -52,16 +52,18 @@ test('AOS (contract .61): expected port table', async () => {
       poe: p.poe && [p.poe.admin_enabled, p.poe.detection, p.poe.power_class], mac_count: p.mac_count, uplink: p.is_uplink ? p.uplink_reason : null,
       kind: p.connected_kind, alert: p.alert };
   };
+  // [premium] connected_kind: the device type behind the port (null: nothing learned); ports with
+  // one learned MAC get their kind from the vendor table (asserted exactly in the backend tests).
   const exp: Record<number, any> = {
-    1: { state: 'up', speed: G, duplex: 'full', mode: 'access', pvid: 1, untagged: [1], tagged: [], poe: [true, 'delivering', 3], mac_count: 1, uplink: null, kind: 'client', alert: false },
-    2: { state: 'up', speed: G, duplex: 'full', mode: 'access', pvid: 1, untagged: [1], tagged: [], poe: [true, 'searching', null], mac_count: 2, uplink: null, kind: 'client', alert: false },
-    3: { state: 'up', speed: 100_000_000, duplex: 'half', mode: 'access', pvid: 1, untagged: [1], tagged: [], poe: [true, 'searching', null], mac_count: 0, uplink: null, kind: 'client', alert: false },
-    4: { state: 'up', speed: G, duplex: 'full', mode: 'access', pvid: 1, untagged: [1], tagged: [], poe: [true, 'delivering', 4], mac_count: 1, uplink: null, kind: 'client', alert: false },
-    5: { state: 'admin_down', duplex: null, mode: 'access', pvid: 1, untagged: [1], tagged: [], poe: [false, 'disabled', null], mac_count: 0, uplink: null, kind: 'none', alert: false },
-    6: { state: 'down', speed: null, duplex: 'unknown', mode: 'access', pvid: 1, untagged: [1], tagged: [], poe: [true, 'searching', null], mac_count: 0, uplink: null, kind: 'none', alert: false },
-    7: { state: 'up', speed: G, duplex: 'full', mode: 'access', pvid: 10, untagged: [10], tagged: [], poe: [true, 'delivering', 0], mac_count: 1, uplink: null, kind: 'client', alert: false },
-    8: { state: 'down', duplex: null, mode: 'access', pvid: 1, untagged: [1], tagged: [], poe: [true, 'fault', null], mac_count: 0, uplink: null, kind: 'none', alert: true },
-    9: { state: 'up', speed: 10 * G, duplex: 'full', mode: 'trunk', pvid: 1, untagged: [1], tagged: [10, 20], poe: null, mac_count: 7, uplink: 'mac_count', kind: 'client', alert: false },
+    1: { state: 'up', speed: G, duplex: 'full', mode: 'access', pvid: 1, untagged: [1], tagged: [], poe: [true, 'delivering', 3], mac_count: 1, uplink: null, kind: 'server', alert: false },
+    2: { state: 'up', speed: G, duplex: 'full', mode: 'access', pvid: 1, untagged: [1], tagged: [], poe: [true, 'searching', null], mac_count: 2, uplink: null, kind: expect.any(String), alert: false },
+    3: { state: 'up', speed: 100_000_000, duplex: 'half', mode: 'access', pvid: 1, untagged: [1], tagged: [], poe: [true, 'searching', null], mac_count: 0, uplink: null, kind: null, alert: false },
+    4: { state: 'up', speed: G, duplex: 'full', mode: 'access', pvid: 1, untagged: [1], tagged: [], poe: [true, 'delivering', 4], mac_count: 1, uplink: null, kind: expect.any(String), alert: false },
+    5: { state: 'admin_down', duplex: null, mode: 'access', pvid: 1, untagged: [1], tagged: [], poe: [false, 'disabled', null], mac_count: 0, uplink: null, kind: null, alert: false },
+    6: { state: 'down', speed: null, duplex: 'unknown', mode: 'access', pvid: 1, untagged: [1], tagged: [], poe: [true, 'searching', null], mac_count: 0, uplink: null, kind: null, alert: false },
+    7: { state: 'up', speed: G, duplex: 'full', mode: 'access', pvid: 10, untagged: [10], tagged: [], poe: [true, 'delivering', 0], mac_count: 1, uplink: null, kind: expect.any(String), alert: false },
+    8: { state: 'down', duplex: null, mode: 'access', pvid: 1, untagged: [1], tagged: [], poe: [true, 'fault', null], mac_count: 0, uplink: null, kind: null, alert: true },
+    9: { state: 'up', speed: 10 * G, duplex: 'full', mode: 'trunk', pvid: 1, untagged: [1], tagged: [10, 20], poe: null, mac_count: 7, uplink: 'mac_count', kind: 'unknown', alert: false },
     10: { state: 'up', speed: 10 * G, duplex: 'full', mode: 'trunk', pvid: 1, untagged: [], tagged: [10, 20], poe: null, mac_count: 2, uplink: 'neighbor', kind: 'switch', alert: false },
   };
   for (const [i, e] of Object.entries(exp)) {
@@ -235,14 +237,15 @@ test('tile states, icons and badges (AOS + CW AP port) + legend', async ({ page 
     expect({ 1: await kind(1), 4: await kind(4), 5: await kind(5), 6: await kind(6), 8: await kind(8), 9: await kind(9), 10: await kind(10) }).toEqual({
       1: 'up', 4: 'alert', 5: 'disabled', 6: 'empty', 8: 'emptyAlert', 9: 'up', 10: 'up',
     });
-    // contract colours (§11.5 table) — design-system tokens since the redesign
+    // premium switch panel colours (BUILD.md § 5): up green, alert red, admin-down dark, free socket,
+    // no link + alert = free socket with a red frame
     const glyph = (i: number) => tile(page, i).locator(':scope > span').first();
-    await expect(glyph(1)).toHaveClass(/bg-status-up/);
-    await expect(glyph(4)).toHaveClass(/bg-status-down/);
-    await expect(glyph(5)).toHaveClass(/bg-port-disabled/);
-    await expect(glyph(6)).toHaveClass(/bg-port-empty/);
-    await expect(glyph(8)).toHaveClass(/ring-status-down/);
-    // icons: client monitor on 1, crossed-out on 5, none on 6 / 8 (peach, no icon), switch on 10
+    await expect(glyph(1)).toHaveAttribute('data-color', 'up');
+    await expect(glyph(4)).toHaveAttribute('data-color', 'bad');
+    await expect(glyph(5)).toHaveAttribute('data-color', 'disabled');
+    await expect(glyph(6)).toHaveAttribute('data-color', 'off');
+    await expect(glyph(8)).toHaveAttribute('data-color', 'offBad');
+    // icons: server on 1, crossed-out on 5, none on 6 / 8 (empty sockets), uplink arrow on 10
     await expect(glyph(1).locator('svg')).toHaveCount(1);
     await expect(glyph(5).locator('svg')).toHaveCount(1);
     await expect(glyph(6).locator('svg')).toHaveCount(0);
@@ -251,14 +254,16 @@ test('tile states, icons and badges (AOS + CW AP port) + legend', async ({ page 
     await expect(glyph(9)).toContainText('7');
     await expect(glyph(10).locator('svg')).toHaveCount(2);
     await expect(glyph(10)).not.toContainText(/\d/);
-    // aria-labels "Port 7, up, client, VLAN 10"
-    await expect(tile(page, 7)).toHaveAttribute('aria-label', [T('ports.portN', { name: '7' }), T('ports.state.up'), T('ports.connectedKind.client'), T('ports.vlanN', { vlan: 10 })].join(', '));
+    // aria-labels "Port 7, up, <device type>, VLAN 10"
+    const k7 = portOf(await devicePorts(api, lab.aos.id), 7).connected_kind ?? 'none';
+    await expect(tile(page, 7)).toHaveAttribute('aria-label', [T('ports.portN', { name: '7' }), T('ports.state.up'), T(`ports.connectedKind.${k7}`), T('ports.vlanN', { vlan: 10 })].join(', '));
     expect(await tile(page, 10).getAttribute('aria-label')).toContain(T('ports.connectedKind.switch'));
     expect(await tile(page, 4).getAttribute('aria-label')).toContain(T('ports.alert'));
     expect(await tile(page, 5).getAttribute('aria-label')).toContain(T('ports.state.admin_down'));
-    // legend: five tiles + three icons
+    // legend: the device-type icons + the five port states
     const legend = page.getByTestId('faceplate-legend');
-    for (const k of ['empty', 'connected', 'alert', 'emptyAlert', 'disabled', 'client', 'ap', 'switch']) await expect(legend).toContainText(T(`ports.legend.${k}`));
+    for (const k of ['empty', 'connected', 'alert', 'emptyAlert', 'disabled']) await expect(legend).toContainText(T(`ports.legend.${k}`));
+    for (const k of ['computer', 'phone', 'ap', 'server', 'switch']) await expect(legend).toContainText(T(`ports.connectedKind.${k}`));
     await shot2b2(page, 'faceplate-states-en');
 
     await openPorts(page, lab.cw.id);
@@ -280,7 +285,7 @@ test('Hebrew: page RTL, faceplate stays LTR (not mirrored)', async ({ page }) =>
     const [b1, b3, b9] = [await box(page, 1), await box(page, 3), await box(page, 9)];
     expect(b1.x).toBeLessThan(b3.x);
     expect(b3.x).toBeLessThan(b9.x);
-    await expect(page.getByTestId('faceplate-legend')).toContainText(T('ports.legend.client', {}, 'he'));
+    await expect(page.getByTestId('faceplate-legend')).toContainText(T('ports.connectedKind.computer', {}, 'he'));
     await expect(tile(page, 7)).toHaveAttribute('aria-label', new RegExp(T('ports.state.up', {}, 'he')));
     await shot2b2(page, 'faceplate-aos-he');
   } finally {

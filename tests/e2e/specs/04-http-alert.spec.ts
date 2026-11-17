@@ -20,6 +20,7 @@ import {
   uid,
   waitForSensor,
   webhookRecords,
+  goHome,
 } from '../lib/helpers';
 
 // Scenario (d): HTTP sensor on the toggle server; webhook channel + alert rule; failure -> sensor
@@ -189,7 +190,7 @@ test('target fails -> sensor goes down live, event + webhook; recovers -> up + w
   expect(ev.items[0]).toMatchObject({ old_status: 'up', new_status: 'down', sensor_name: sensorName });
 
   // Dashboard problem list (client-side navigation, the WS keeps it fresh).
-  await page.getByRole('complementary').getByRole('link', { name: 'Dashboard' }).click();
+  await goHome(page);
   await expect(card(page, 'Down and warning sensors').getByRole('link', { name: sensorName })).toBeVisible();
   await expectSameDocument(page);
 

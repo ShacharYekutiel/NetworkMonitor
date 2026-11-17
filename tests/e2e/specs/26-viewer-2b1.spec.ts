@@ -1,5 +1,5 @@
 import { expect, test } from '@playwright/test';
-import { Api, VIEWER, apiAs, defaultGroupId, loginViaApi, uid } from '../lib/helpers';
+import { Api, VIEWER, apiAs, defaultGroupId, loginViaApi, uid, menuNav } from '../lib/helpers';
 import { ensureViewer, raw } from '../lib/lab';
 import { findDevice, httpDevice, shot2b, target, waitStatus } from '../lib/lab2b';
 
@@ -73,7 +73,8 @@ test('viewer writes -> 403 forbidden', async () => {
 
 test('viewer UI: map visible without admin toolbar; maintenance read-only; no Acknowledge button', async ({ page }) => {
   await loginViaApi(page, VIEWER, '/topology');
-  await expect(page.getByRole('navigation').getByRole('link', { name: 'Map' })).toBeVisible();
+  const nav = await menuNav(page, { pin: true });
+  await expect(nav.getByRole('link', { name: 'Map' })).toBeVisible();
   await expect(page.locator('main canvas').first()).toBeVisible();
   for (const b of [/^Refresh topology/, /^Add link/, /^Suggest dependencies/, /^Reset layout/, /^Delete \d+ stale/]) {
     await expect(page.getByRole('button', { name: b })).toHaveCount(0);
@@ -81,7 +82,7 @@ test('viewer UI: map visible without admin toolbar; maintenance read-only; no Ac
   await expect(page.getByText(/Include stale/)).toBeVisible();
   await shot2b(page, 'viewer-topology-en');
 
-  await page.getByRole('navigation').getByRole('link', { name: 'Maintenance' }).click();
+  await nav.getByRole('link', { name: 'Maintenance' }).click();
   await expect(page).toHaveURL(/\/maintenance/);
   await expect(page.getByText(/Viewer window/).first()).toBeVisible();
   await expect(page.getByRole('button', { name: /Add maintenance window/ })).toHaveCount(0);

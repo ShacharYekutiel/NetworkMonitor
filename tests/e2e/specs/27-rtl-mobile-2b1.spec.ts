@@ -1,5 +1,5 @@
 import { expect, test, type Page } from '@playwright/test';
-import { Api, apiAs, defaultGroupId, loginViaApi, uid } from '../lib/helpers';
+import { Api, apiAs, defaultGroupId, loginViaApi, uid, menuNav } from '../lib/helpers';
 import { horizontalOverflow, raw } from '../lib/lab';
 import { httpDevice, shot2b, target, waitStatus } from '../lib/lab2b';
 
@@ -66,7 +66,8 @@ test('English screenshots of the new pages (desktop)', async ({ page }) => {
 test('Hebrew: dir=rtl, translated texts, LTR IPs; screenshots', async ({ page }) => {
   await loginViaApi(page, undefined, '/maintenance');
   await setLang(page, 'he');
-  const nav = page.getByRole('navigation').first();
+  const nav = await menuNav(page);
+  await expect(nav.getByRole('link', { name: 'תחזוקה' })).toBeVisible();
   // nav.maintenance / nav.map exist in Hebrew (not the English fallback).
   await expect(nav.getByRole('link', { name: 'Maintenance' })).toHaveCount(0);
   await expect(nav.getByRole('link', { name: 'Map' })).toHaveCount(0);

@@ -1,5 +1,5 @@
 import { expect, test } from '@playwright/test';
-import { apiAs, defaultGroupId, loginViaApi, uid } from '../lib/helpers';
+import { apiAs, defaultGroupId, loginViaApi, uid, menuGo } from '../lib/helpers';
 
 // Cross-cutting UI checks against the real backend (each test is independent).
 
@@ -28,7 +28,7 @@ test('a lost session (401) sends the SPA back to the login page', async ({ page,
   await expect(page.getByRole('heading', { level: 1, name: 'Dashboard' })).toBeVisible();
   await context.clearCookies();
   // Client-side navigation triggers new API calls, which now answer 401.
-  await page.getByRole('complementary').getByRole('link', { name: 'Events' }).click();
+  await menuGo(page, 'Events');
   await expect(page).toHaveURL(/\/login$/, { timeout: 15_000 });
 });
 

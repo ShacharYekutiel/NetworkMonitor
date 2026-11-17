@@ -173,6 +173,8 @@ function ProblemRow({ s, now }: { s: Sensor; now: number }) {
         title={t(`status.${s.status}`)}
         className={cx('h-2.5 w-2.5 shrink-0 rounded-full', statusClass(s.status, STATUS_DOT))}
       />
+      {/* the status word with the colour (status never by colour alone) */}
+      <span className="sr-only">{t(`status.${s.status}`)}</span>
       <span className="grid min-w-0 flex-1">
         <span className="flex min-w-0 items-baseline gap-1.5 text-[15.5px]">
           <Link

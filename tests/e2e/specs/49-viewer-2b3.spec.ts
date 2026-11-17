@@ -1,5 +1,5 @@
 import { expect, test } from '@playwright/test';
-import { Api, VIEWER, apiAs, loginViaApi } from '../lib/helpers';
+import { Api, VIEWER, apiAs, loginViaApi, menuNav } from '../lib/helpers';
 import { ensureViewer, raw } from '../lib/lab';
 import { ensurePortLab, type PortLab } from '../lib/lab2b2';
 import { SRC, eventSensor, featureOn, marker, sendSyslog, tOr, waitItems, waitReceivers } from '../lib/lab2b3';
@@ -78,7 +78,7 @@ test('viewer tokens: own only, role viewer; admin role refused', async () => {
 test('viewer UI: Logs visible, no Rules editing / Assign / Ignore, no Audit nav, sensor without Clear', async ({ page }) => {
   await loginViaApi(page, VIEWER, '/logs');
   await expect(page.getByRole('tab', { name: tOr('logs.tab.syslog', 'Syslog') })).toBeVisible();
-  await expect(page.getByRole('navigation').first().getByRole('link', { name: tOr('nav.audit', 'Audit') })).toHaveCount(0);
+  await expect((await menuNav(page)).getByRole('link', { name: tOr('nav.audit', 'Audit') })).toHaveCount(0);
   await page.getByRole('tab', { name: tOr('logs.tab.unknown', 'Unknown sources') }).click();
   await expect(page.getByRole('button', { name: tOr('unknownSources.assign', 'Assign to device') })).toHaveCount(0);
   await expect(page.getByRole('button', { name: tOr('unknownSources.ignore', 'Ignore') })).toHaveCount(0);

@@ -92,7 +92,8 @@ export function chartTokens(dark: boolean): ChartTokens {
   const root = document.documentElement;
   if (root.classList.contains('dark') !== dark) return fallback;
   const cs = getComputedStyle(root);
-  const read = (name: string, fb: string) => cs.getPropertyValue(`--${name}`).trim() || fb;
+  const read = (name: string, fb: string) =>
+    canvasColor(cs.getPropertyValue(`--${name}`).trim()) || fb;
   const out = {
     ...fallback,
     status: { ...fallback.status },
@@ -106,6 +107,18 @@ export function chartTokens(dark: boolean): ChartTokens {
     out.statusSoft[s] = read(`status-${s}-soft`, fallback.statusSoft[s]);
   }
   return out;
+}
+
+/**
+ * ECharts/zrender cannot parse #rgba / #rrggbbaa, which the CSS minifier makes of the rgba() tokens
+ * (`rgba(0, 0, 0, 0.08)` -> `#00000014`): turn those back into rgba().
+ */
+export function canvasColor(v: string): string {
+  const m = /^#([0-9a-f]{4}|[0-9a-f]{8})$/i.exec(v);
+  if (!m) return v;
+  const h = m[1].length === 4 ? [...m[1]].map((c) => c + c).join('') : m[1];
+  const n = [0, 2, 4, 6].map((i) => parseInt(h.slice(i, i + 2), 16));
+  return `rgba(${n[0]}, ${n[1]}, ${n[2]}, ${Math.round((n[3] / 255) * 1000) / 1000})`;
 }
 
 /** Colour of a status (unknown for anything else). */

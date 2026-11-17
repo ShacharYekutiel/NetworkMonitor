@@ -1,7 +1,7 @@
 import { expect, test } from '@playwright/test';
 import { createSocket } from 'node:dgram';
 import { createConnection } from 'node:net';
-import { Api, VIEWER, apiAs, loginViaApi } from '../lib/helpers';
+import { Api, VIEWER, apiAs, loginViaApi, menuNav } from '../lib/helpers';
 import { ensureViewer, raw } from '../lib/lab';
 import {
   FEATURES, OID, SRC, SYSLOG_PORT, TRAP_PORT, expectFeatureDisabled, featureOff, featureOn, linkVarbinds, marker,
@@ -154,7 +154,7 @@ test('traps: ON without restart -> received and stored; OFF -> socket closed, no
 test('syslog: ON opens UDP+TCP, OFF closes them (TCP refused), toggle broadcast reaches the SPA without reload', async ({ page }) => {
   await loginViaApi(page, VIEWER);
   await page.evaluate(() => ((window as any).__e2eNoReload = true));
-  const logsNav = page.getByRole('navigation').first().getByRole('link', { name: tOr('nav.logs', 'Logs') });
+  const logsNav = (await menuNav(page, { pin: true })).getByRole('link', { name: tOr('nav.logs', 'Logs') });
   await expect(logsNav).toHaveCount(0);
   await featureOn(admin, 'syslog');
   await waitReceivers(admin, ['syslog_udp', 'syslog_tcp'], 'listening');
@@ -220,7 +220,7 @@ test('viewer cannot change toggles (403)', async () => {
 
 test('UI: each feature is switched in one place (own tab, else Features); overview links; nav follows', async ({ page }) => {
   await loginViaApi(page);
-  const nav = page.getByRole('navigation').first();
+  const nav = await menuNav(page, { pin: true });
   await expect(nav.getByRole('link', { name: tOr('nav.logs', 'Logs') })).toHaveCount(0);
   await expect(nav.getByRole('link', { name: tOr('nav.audit', 'Audit') })).toHaveCount(0);
   await page.goto('/settings');

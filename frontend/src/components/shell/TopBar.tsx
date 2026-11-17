@@ -134,11 +134,17 @@ function UserMenu() {
         className="flex items-center rounded-full"
         aria-haspopup="menu"
         aria-expanded={open}
-        aria-label={name === user.username ? name : `${name} (${user.username})`}
         title={`${name} · ${t(`role.${user.role}`)}`}
       >
-        <span className="num inline-flex h-8 w-8 items-center justify-center rounded-full bg-[linear-gradient(135deg,#8e8e93,#3a3a3c)] text-[13px] font-semibold text-white">
+        <span
+          aria-hidden="true"
+          className="num inline-flex h-8 w-8 items-center justify-center rounded-full bg-[linear-gradient(135deg,#8e8e93,#3a3a3c)] text-[13px] font-semibold text-white"
+        >
           {name.slice(0, 1).toUpperCase()}
+        </span>
+        {/* the accessible name: who is signed in and the role */}
+        <span className="sr-only">
+          {name === user.username ? name : `${name} (${user.username})`} · {t(`role.${user.role}`)}
         </span>
       </button>
       {open && (

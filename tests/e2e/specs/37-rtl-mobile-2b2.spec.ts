@@ -1,5 +1,5 @@
 import { expect, test, type Page } from '@playwright/test';
-import { Api, apiAs, loginViaApi } from '../lib/helpers';
+import { Api, apiAs, loginViaApi, menuNav } from '../lib/helpers';
 import { horizontalOverflow } from '../lib/lab';
 import { T, box, ensurePortLab, openPorts, setLang, shot2b2, tile, type PortLab } from '../lib/lab2b2';
 
@@ -111,7 +111,7 @@ for (const lang of ['en', 'he'] as const) {
     await shot2b2(page, `desktop-templates-${lang}`);
     if (lang === 'he') {
       // Hebrew device page tabs / nav
-      await expect(page.getByRole('navigation').first()).toContainText(T('nav.find', {}, 'he'));
+      await expect(await menuNav(page)).toContainText(T('nav.find', {}, 'he'));
     }
   });
 }

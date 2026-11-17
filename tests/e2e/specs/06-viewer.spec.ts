@@ -8,6 +8,7 @@ import {
   loginViaApi,
   loginViaUi,
   uid,
+  menuNav,
 } from '../lib/helpers';
 
 // Scenario (f): a viewer created by the admin logs in, sees no admin pages or write buttons, and the
@@ -50,7 +51,7 @@ test('viewer sees no admin navigation or write buttons', async ({ page }) => {
   await loginViaUi(page, VIEWER);
   await expect(page.getByRole('heading', { level: 1, name: 'Dashboard' })).toBeVisible();
   await expect(page.getByRole('button', { name: /viewer1/ })).toContainText('Viewer');
-  const nav = page.getByRole('complementary');
+  const nav = await menuNav(page);
   await expect(nav.getByRole('link', { name: 'Dashboard' })).toBeVisible();
   await expect(nav.getByRole('link', { name: 'Events' })).toBeVisible();
   for (const name of ['Notifications', 'Settings', 'Users']) {

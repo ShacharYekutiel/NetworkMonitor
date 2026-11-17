@@ -3,7 +3,7 @@ import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
 import { TOKEN_VALUES } from './tokens.gen';
-import { DARK_TOKENS, LIGHT_TOKENS } from '../lib/chartTokens';
+import { DARK_TOKENS, LIGHT_TOKENS, canvasColor } from '../lib/chartTokens';
 
 const read = (rel: string) => readFileSync(fileURLToPath(new URL(rel, import.meta.url)), 'utf8');
 const json = JSON.parse(read('../../../docs/design-system/tokens.json')) as {
@@ -32,5 +32,11 @@ describe('design tokens', () => {
     expect(DARK_TOKENS.surface).toBe(TOKEN_VALUES.dark.surface);
     expect(DARK_TOKENS.bg).toBe('#000000');
     expect(LIGHT_TOKENS.fontDisplay).toContain('Inter');
+  });
+
+  it('minified 8-digit hex colours are turned back into rgba() for the canvas', () => {
+    expect(canvasColor('#00000014')).toBe('rgba(0, 0, 0, 0.078)');
+    expect(canvasColor('#fff8')).toBe('rgba(255, 255, 255, 0.533)');
+    expect(canvasColor('#1d1d1f')).toBe('#1d1d1f');
   });
 });

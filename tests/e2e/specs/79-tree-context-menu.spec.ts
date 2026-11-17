@@ -2,7 +2,7 @@
 // device, viewer sees only safe actions, Copy IP, Pause / Resume through the menu, Shift+F10 opens it on the
 // focused tree item, Esc closes it and focus returns to the item.
 import { expect, test, type Page } from '@playwright/test';
-import { BASE_URL, VIEWER, apiAs, defaultGroupId, loginViaApi, treeDevice, uid, type Api } from '../lib/helpers';
+import { BASE_URL, VIEWER, apiAs, defaultGroupId, loginViaApi, treeDevice, uid, type Api, showTree } from '../lib/helpers';
 import { ensureViewer } from '../lib/lab';
 
 test.describe.configure({ mode: 'serial' });
@@ -41,6 +41,7 @@ const items = async (page: Page) =>
 
 test('admin: right click a device opens the menu at the pointer with the admin actions', async ({ page }) => {
   await loginViaApi(page, undefined, '/');
+  await showTree(page);
   const row = treeDevice(page, dev.id);
   await expect(row).toBeVisible();
   const box = (await row.boundingBox())!;
@@ -73,6 +74,7 @@ test('admin: right click a device opens the menu at the pointer with the admin a
 test('Copy IP puts the host on the clipboard', async ({ page, context }) => {
   await context.grantPermissions(['clipboard-read', 'clipboard-write'], { origin: BASE_URL });
   await loginViaApi(page, undefined, '/');
+  await showTree(page);
   await treeDevice(page, dev.id).click({ button: 'right' });
   await menu(page).getByRole('menuitem', { name: 'Copy IP address' }).click();
   await expect(menu(page)).toHaveCount(0);
@@ -82,6 +84,7 @@ test('Copy IP puts the host on the clipboard', async ({ page, context }) => {
 
 test('Pause / Resume through the menu (tree and API follow)', async ({ page }) => {
   await loginViaApi(page, undefined, '/');
+  await showTree(page);
   const row = treeDevice(page, dev.id);
   await row.click({ button: 'right' });
   await menu(page).getByRole('menuitem', { name: 'Pause', exact: true }).click();
@@ -105,6 +108,7 @@ test('Pause / Resume through the menu (tree and API follow)', async ({ page }) =
 
 test('keyboard: Shift+F10 opens it on the focused item, arrows move, Esc closes and focus returns', async ({ page }) => {
   await loginViaApi(page, undefined, '/');
+  await showTree(page);
   const row = treeDevice(page, dev.id);
   await row.focus();
   await page.keyboard.press('Shift+F10');
@@ -130,6 +134,7 @@ test('keyboard: Shift+F10 opens it on the focused item, arrows move, Esc closes 
 
 test('viewer: only the safe actions', async ({ page }) => {
   await loginViaApi(page, VIEWER, '/');
+  await showTree(page);
   await treeDevice(page, dev.id).click({ button: 'right' });
   await expect(menu(page)).toBeVisible();
   const labels = await items(page);
@@ -143,6 +148,7 @@ test('viewer: only the safe actions', async ({ page }) => {
 
 test('Hebrew: translated and mirrored (opens to the left of the pointer)', async ({ page }) => {
   await loginViaApi(page, undefined, '/');
+  await showTree(page);
   await page.request.patch('/api/auth/me', { data: { language: 'he' } });
   await page.reload();
   await expect(page.locator('html')).toHaveAttribute('dir', 'rtl');

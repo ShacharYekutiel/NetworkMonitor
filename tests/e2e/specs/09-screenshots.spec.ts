@@ -1,7 +1,7 @@
 import { expect, test, type Browser, type Page } from '@playwright/test';
 import { mkdirSync } from 'node:fs';
 import { join } from 'node:path';
-import { ADMIN, BASE_URL, SCREENSHOT_DIR, apiAs } from '../lib/helpers';
+import { ADMIN, BASE_URL, SCREENSHOT_DIR, apiAs, showTree } from '../lib/helpers';
 
 // Screenshots of key screens of the real system (runs last, so the history has more points).
 // Not assertions about pixels: it only checks that each screen rendered.
@@ -38,6 +38,7 @@ test('dashboard (en, he)', async ({ browser }) => {
     await expect(page.locator('html')).toHaveAttribute('dir', lang === 'he' ? 'rtl' : 'ltr');
     await expect(page.locator('main h1')).toBeVisible();
     // Expand all devices in the tree for a fuller picture.
+    await showTree(page);
     await page.locator('aside a[href^="/devices/"]').first().waitFor();
     const closed = page.locator('aside button[aria-expanded="false"]:not(.invisible)');
     while ((await closed.count()) > 0) await closed.first().click();

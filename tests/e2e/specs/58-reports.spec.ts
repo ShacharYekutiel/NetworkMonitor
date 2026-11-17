@@ -136,7 +136,7 @@ test('report page: print stylesheet (A4 media emulation), Print / Save as PDF bu
   await shot3(page, '58-report-page');
   await page.emulateMedia({ media: 'print' });
   await expect(page.getByRole('main').getByText('qa3-report-web').first()).toBeVisible();
-  await expect(page.getByRole('navigation').first()).toBeHidden();
+  await expect(page.getByTestId('menu-button')).toBeHidden();
   await page.pdf?.({ path: `${process.env.QA3_SHOT_DIR ?? '/tmp'}/58-report.pdf`, format: 'A4' }).catch(() => undefined);
   await page.emulateMedia({ media: 'screen' });
 });

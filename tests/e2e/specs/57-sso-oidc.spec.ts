@@ -83,7 +83,7 @@ test('Sign in with Microsoft -> admin via app role NetMon.Admin, lands on next',
 
 test('viewer role, no role -> not_in_group message, group overage -> hint', async ({ page }) => {
   await signIn(page, 'vic.viewer@example.net');
-  await expect(page.getByRole('navigation').first()).toBeVisible({ timeout: 20_000 });
+  await expect(page.getByTestId('menu-button')).toBeVisible({ timeout: 20_000 });
   expect((await (await page.request.get('/api/auth/me')).json()).user.role).toBe('viewer');
   await page.request.post('/api/auth/logout');
   await page.context().clearCookies();
@@ -97,7 +97,7 @@ test('viewer role, no role -> not_in_group message, group overage -> hint', asyn
   await signIn(page, 'olga.overage@example.net');
   await expect(page).toHaveURL(/sso_error=oidc_group_overage/, { timeout: 20_000 });
   await signIn(page, 'grace.groups@example.net');
-  await expect(page.getByRole('navigation').first()).toBeVisible({ timeout: 20_000 });
+  await expect(page.getByTestId('menu-button')).toBeVisible({ timeout: 20_000 });
   expect((await (await page.request.get('/api/auth/me')).json()).user.role).toBe('admin');
   await page.request.post('/api/auth/logout');
   await api.put('/api/sso/oidc', { role_source: 'app_roles', admin_values: ['NetMon.Admin'], viewer_values: ['NetMon.Viewer'] });
@@ -118,7 +118,7 @@ test('id_token validation: wrong aud/iss/tid, expired, bad nonce, unknown kid, b
     await signIn(page, 'dana.admin@example.net');
     // rotate: the JWKS refetch on an unknown kid is limited to once per 5 min (§13.5.2), and unknown_kid above
     // already used it -> a rotation within 5 min fails by design; checked softly
-    await expect(page.getByRole('navigation').first(), `mode ${mode} accepted`).toBeVisible({ timeout: 20_000 });
+    await expect(page.getByTestId('menu-button'), `mode ${mode} accepted`).toBeVisible({ timeout: 20_000 });
     await page.request.post('/api/auth/logout');
   }
   await oidcMode('ok');
@@ -142,7 +142,7 @@ test('open redirect: next=//evil, /\\evil, https://evil are refused (start 4xx o
       await page.context().clearCookies();
       await oidcDefaultUser('dana.admin@example.net');
       await page.goto(`/api/auth/oidc/start?next=${encodeURIComponent(next)}`);
-      await expect(page.getByRole('navigation').first()).toBeVisible({ timeout: 20_000 });
+      await expect(page.getByTestId('menu-button')).toBeVisible({ timeout: 20_000 });
       const u = new URL(page.url());
       expect(u.origin, `next=${next}`).toBe(new URL(page.url()).origin);
       expect(u.hostname).not.toContain('evil');
@@ -155,7 +155,7 @@ test('open redirect: next=//evil, /\\evil, https://evil are refused (start 4xx o
 
 test('local login still works with SSO on; OIDC users refused while the feature is OFF', async ({ page }) => {
   await signIn(page, 'vic.viewer@example.net');
-  await expect(page.getByRole('navigation').first()).toBeVisible({ timeout: 20_000 });
+  await expect(page.getByTestId('menu-button')).toBeVisible({ timeout: 20_000 });
   await setFeatures(api, { sso_oidc: false });
   await expect.poll(async () => (await page.request.get('/api/auth/me')).status(), { timeout: 15_000 }).toBe(401);
   const local = await (await apiAs()).get('/api/auth/me');
@@ -169,6 +169,6 @@ test('key rotation: a token signed with a newly published key is accepted (JWKS 
   await page.context().clearCookies();
   await oidcMode('rotate', true);
   await signIn(page, 'dana.admin@example.net');
-  await expect(page.getByRole('navigation').first(), 'key rotation accepted').toBeVisible({ timeout: 20_000 });
+  await expect(page.getByTestId('menu-button'), 'key rotation accepted').toBeVisible({ timeout: 20_000 });
   await oidcMode('ok');
 });

@@ -344,7 +344,7 @@ test('viewer: no entry point, every /api/assistant/* and AI endpoint 403; API to
   }
   await page.request.post('/api/auth/login', { data: VIEWER });
   await page.goto('/');
-  await expect(page.getByRole('navigation').first()).toBeVisible();
+  await expect(page.getByTestId('menu-button')).toBeVisible();
   await expect(page.locator('a[href="/assistant"]')).toHaveCount(0);
   await page.goto('/assistant');
   await expect(page.getByTestId('question')).toHaveCount(0);
