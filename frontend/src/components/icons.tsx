@@ -455,3 +455,15 @@ export const ScreensIcon = (p: P) => (
     <path d="M3 13l9 5 9-5" />
   </Svg>
 );
+export const LockIcon = (p: P) => (
+  <Svg {...p}>
+    <rect x="5" y="11" width="14" height="10" rx="2.5" />
+    <path d="M8 11V8a4 4 0 018 0v3" />
+  </Svg>
+);
+export const UnlockIcon = (p: P) => (
+  <Svg {...p}>
+    <rect x="5" y="11" width="14" height="10" rx="2.5" />
+    <path d="M8 11V8a4 4 0 017.6-1.7" />
+  </Svg>
+);

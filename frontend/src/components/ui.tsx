@@ -323,7 +323,8 @@ export function Modal({
   /** [2b-2] a click on the backdrop closes the dialog (read-only dialogs; forms keep their data) */
   closeOnBackdrop?: boolean;
   testId?: string;
-  /** premium sheet: slides in from the end edge at full height instead of a centred dialog */
+  /** premium side panel (prototype .spanel): a 440px card floating at the end edge, instead of the
+   * centred sheet; for explanations and detail cards */
   sheet?: boolean;
 }) {
   const { t } = useTranslation();
@@ -376,8 +377,10 @@ export function Modal({
   return createPortal(
     <div
       className={cx(
-        'fixed inset-0 z-50 m-0 flex bg-overlay backdrop-blur-[4px] motion-safe:animate-[nm-fade-in_.25s_ease-out]',
-        sheet ? 'justify-end' : 'items-start justify-center overflow-y-auto p-4 pt-16',
+        'fixed inset-0 z-50 m-0 flex bg-overlay backdrop-blur-[6px] motion-safe:animate-[nm-fade-in_.25s_ease-out]',
+        sheet
+          ? 'justify-end pb-3 pe-3 pt-[76px]'
+          : 'items-start justify-center overflow-y-auto p-6 pt-[8vh]',
       )}
       data-testid={testId ? `${testId}-backdrop` : undefined}
       onMouseDown={(e) => {
@@ -396,14 +399,21 @@ export function Modal({
         data-testid={testId}
         tabIndex={-1}
         className={cx(
-          'w-full bg-surface-raised text-ink shadow-pop focus:outline-none',
+          // prototype .msheet: centred card, radius 28; .spanel: 440px floating panel at the end
+          'w-full rounded-[28px] bg-surface text-ink shadow-[0_30px_90px_rgba(0,0,0,0.28),0_0_0_1px_var(--border)] focus:outline-none',
           sheet
-            ? 'flex h-full max-w-[min(520px,94vw)] flex-col rounded-s-xl motion-safe:animate-[nm-sheet-in_.45s_cubic-bezier(.32,.72,0,1)]'
-            : cx('rounded-xl', wide ? 'max-w-3xl' : 'max-w-lg'),
+            ? 'flex h-full max-w-[min(440px,94vw)] flex-col motion-safe:animate-[nm-panel-in_.5s_cubic-bezier(.32,.72,0,1)]'
+            : cx(
+                'motion-safe:animate-[nm-pop-in_.45s_cubic-bezier(.32,.72,0,1)]',
+                wide ? 'max-w-[760px]' : 'max-w-[560px]',
+              ),
         )}
       >
-        <header className="flex items-center justify-between gap-2 px-6 pb-2 pt-5">
-          <h3 id={titleId} className="min-w-0 text-[19px] font-semibold tracking-[-0.01em]">
+        <header className="flex items-center justify-between gap-3 px-[26px] pb-2 pt-6">
+          <h3
+            id={titleId}
+            className="min-w-0 text-2xl font-semibold leading-tight tracking-[-0.02em]"
+          >
             {title}
           </h3>
           <button
@@ -418,14 +428,15 @@ export function Modal({
         <div
           data-modal-body
           className={cx(
-            'overflow-y-auto px-6 pb-5 pt-2',
+            'overflow-y-auto px-[26px] pb-4 pt-2',
             sheet ? 'min-h-0 flex-1' : 'max-h-[70vh]',
           )}
         >
           {children}
         </div>
         {footer && (
-          <footer className="flex flex-wrap justify-end gap-2.5 border-t border-line px-6 py-4">
+          // actions at the bottom start, primary first (prototype .mfoot)
+          <footer className="flex flex-row-reverse flex-wrap justify-end gap-2.5 px-[26px] pb-[22px] pt-1">
             {footer}
           </footer>
         )}

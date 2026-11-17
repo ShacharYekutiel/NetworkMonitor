@@ -18,7 +18,8 @@ import {
   LogsIcon,
   MapIcon,
   NewDeviceIcon,
-  PinIcon,
+  LockIcon,
+  UnlockIcon,
   RadarIcon,
   ReportIcon,
   SearchIcon,
@@ -120,13 +121,19 @@ export function MenuPanel({
         pinned
           ? 'relative z-20 h-full border-e border-line pt-header'
           : cx(
-              'fixed inset-y-0 end-0 z-[51] max-w-[92vw] shadow-[0_0_60px_rgba(0,0,0,0.25)] transition-transform duration-500 ease-premium',
-              open ? 'translate-x-0' : 'translate-x-[104%] rtl:-translate-x-[104%]',
+              // BUILD.md § 6b: the sheet slides in from the start side (right in Hebrew)
+              'fixed inset-y-0 start-0 z-[51] max-w-[92vw] shadow-[0_0_60px_rgba(0,0,0,0.25)] transition-transform duration-500 ease-premium',
+              open ? 'translate-x-0' : '-translate-x-[104%] rtl:translate-x-[104%]',
             ),
       )}
     >
-      <div className="flex shrink-0 items-center gap-1.5 px-4 pb-2 pt-5">
-        <h2 className="m-0 me-auto ps-1.5 text-[26px] font-semibold leading-tight tracking-[-0.02em]">
+      <div className={cx('flex shrink-0 items-center gap-1.5 px-4 pb-2', pinned ? 'pt-3' : 'pt-5')}>
+        <h2
+          className={cx(
+            'm-0 me-auto ps-1.5 font-semibold leading-tight tracking-[-0.02em]',
+            pinned ? 'text-xl' : 'text-[26px]',
+          )}
+        >
           {t('nav.allScreens')}
         </h2>
         <button
@@ -141,7 +148,11 @@ export function MenuPanel({
             pinned ? 'bg-accent text-accent-on' : 'text-ink-muted hover:bg-chip hover:text-ink',
           )}
         >
-          <PinIcon size={18} strokeWidth={1.8} className={cx(!pinned && 'rotate-45')} />
+          {pinned ? (
+            <LockIcon size={18} strokeWidth={1.8} />
+          ) : (
+            <UnlockIcon size={18} strokeWidth={1.8} />
+          )}
         </button>
         {!pinned && (
           <button
@@ -176,7 +187,13 @@ export function MenuPanel({
               <h3 className="mx-2.5 mb-2 mt-[18px] text-sm font-semibold text-ink-muted">
                 {t(`nav.section.${s.key}`)}
               </h3>
-              <ul className="m-0 list-none overflow-hidden rounded-xl bg-surface p-0 shadow-card">
+              <ul
+                className={cx(
+                  'm-0 list-none p-0',
+                  // pinned: rows without the card ground (§ 6b)
+                  pinned ? 'grid gap-0.5' : 'overflow-hidden rounded-xl bg-surface shadow-card',
+                )}
+              >
                 {s.items.map((it) => {
                   const Icon = ICONS[it.icon];
                   const on = it.key === active;
@@ -184,7 +201,11 @@ export function MenuPanel({
                   return (
                     <li
                       key={it.key}
-                      className="relative [&+li]:before:absolute [&+li]:before:end-0 [&+li]:before:start-[58px] [&+li]:before:top-0 [&+li]:before:h-px [&+li]:before:bg-line"
+                      className={cx(
+                        'relative',
+                        !pinned &&
+                          '[&+li]:before:absolute [&+li]:before:end-0 [&+li]:before:start-[58px] [&+li]:before:top-0 [&+li]:before:h-px [&+li]:before:bg-line',
+                      )}
                     >
                       <NavLink
                         to={it.to}
@@ -192,7 +213,8 @@ export function MenuPanel({
                         aria-current={on ? 'page' : undefined}
                         onClick={() => !pinned && onClose()}
                         className={cx(
-                          'flex items-center gap-3 px-4 py-[11px] text-[15px] no-underline transition-colors',
+                          'flex items-center gap-3 text-[15px] no-underline transition-colors',
+                          pinned ? 'rounded-[10px] px-3 py-[9px]' : 'px-4 py-[11px]',
                           on
                             ? 'bg-nav-active font-semibold text-nav-active-ink'
                             : 'text-ink hover:bg-surface-hover',
@@ -212,11 +234,13 @@ export function MenuPanel({
                             {badge}
                           </span>
                         )}
-                        <ChevronIcon
-                          size={15}
-                          className="shrink-0 text-ink-subtle rtl:rotate-180"
-                          aria-hidden="true"
-                        />
+                        {!pinned && (
+                          <ChevronIcon
+                            size={15}
+                            className="shrink-0 text-ink-subtle rtl:rotate-180"
+                            aria-hidden="true"
+                          />
+                        )}
                       </NavLink>
                     </li>
                   );

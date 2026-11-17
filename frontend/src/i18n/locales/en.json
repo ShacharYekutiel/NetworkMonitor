@@ -3956,5 +3956,63 @@
     "warnings_other": "{{count}} warnings",
     "sensors_one": "{{count}} sensor",
     "sensors_other": "{{count}} sensors"
+  },
+  "home": {
+    "needAttention_one": "needs attention",
+    "needAttention_other": "need attention",
+    "allGood": "All good",
+    "subline": "{{sensors}} on {{devices}}",
+    "restOk": "everything else is up",
+    "site": "Site",
+    "allSites": "All sites",
+    "network": "Network",
+    "all": "All",
+    "quick": "Quick actions",
+    "counters": "Sensors by status",
+    "qa": {
+      "problems": "Problems",
+      "events": "Events",
+      "maintenance": "Maintenance",
+      "find": "Find",
+      "map": "Map",
+      "devices": "Devices"
+    },
+    "sub": {
+      "map": "LLDP/CDP links between devices",
+      "logs": "Syslog and SNMP traps",
+      "flows": "NetFlow · IPFIX · sFlow",
+      "newDevices": "Devices seen for the first time",
+      "backups": "Configuration history and diffs",
+      "maintenance": "Planned windows without alerts",
+      "reports": "Scheduled availability reports",
+      "templates": "Sensor sets per device type",
+      "events": "Everything that happened, newest first",
+      "all": "Settings, users, templates and more"
+    },
+    "days_one": "{{count}} day",
+    "days_other": "{{count}} days",
+    "map": {
+      "label": "Network map",
+      "edit": "Edit map",
+      "mode": "Mode",
+      "mode_auto": "Automatic",
+      "mode_backbone": "Backbone",
+      "modeHint_auto": "The map is built from the topology (LLDP/CDP) and the group tree.",
+      "modeHint_backbone": "You choose the backbone devices in order; the main groups hang under the last one.",
+      "showInternet": "Show \"Internet\"",
+      "backbone": "Backbone devices, top to bottom",
+      "noBackbone": "No devices. Add at least one.",
+      "addDevice": "Add a device…",
+      "maxGroups": "Groups at most",
+      "up": "Move up",
+      "down": "Move down",
+      "remove": "Remove",
+      "saved": "Map saved",
+      "editSub": "The map on the home screen · admins only",
+      "showInternetHint": "A top node that stands for the internet providers",
+      "notSet": "The map is not set up yet",
+      "notSetText": "The main groups are shown for now. Choose the backbone devices to see the path from the internet to every group.",
+      "setup": "Set up the map"
+    }
   }
 }
