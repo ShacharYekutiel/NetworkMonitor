@@ -857,12 +857,12 @@ export function TopologyPage() {
       <ErrorBox error={g.error} />
       {data && (
         <div className="grid grid-cols-1 items-start gap-4 lg:grid-cols-[minmax(0,1fr)_320px]">
-          {/* The map canvas: surface-sunken with a dot grid (design system: TopologyNode). */}
+          {/* The map canvas: the stage of the home map (prototype .topo: radius 28, no grid). */}
           <section
             ref={canvas.ref}
             style={canvas.height ? { height: canvas.height } : undefined}
             // min height: the chart must never be created at 0 px (ECharts 6 view transform)
-            className="flex min-h-[22rem] min-w-0 flex-col overflow-hidden rounded-lg border border-line bg-surface-sunken bg-[radial-gradient(var(--border)_1px,transparent_1px)] [background-size:16px_16px]"
+            className="stage-bg flex min-h-[22rem] min-w-0 flex-col overflow-hidden rounded-[28px]"
           >
             {data.nodes.length ? (
               <TopologyChart
@@ -877,6 +877,7 @@ export function TopologyPage() {
                 onLinkClick={(id) => setSel({ kind: 'link', id })}
                 onBackgroundClick={() => setSel(null)}
                 resetToken={resetToken}
+                selected={selNeighbor?.key ?? null}
                 className="min-h-0 flex-1"
               />
             ) : (

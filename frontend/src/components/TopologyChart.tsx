@@ -46,6 +46,7 @@ export function TopologyChart({
   onLinkClick,
   onBackgroundClick,
   resetToken,
+  selected,
   className,
 }: {
   graph: TopologyGraph;
@@ -62,6 +63,8 @@ export function TopologyChart({
   onBackgroundClick: () => void;
   /** changes when the layout was reset: forces a fresh force layout */
   resetToken: number;
+  /** key of the selected node (inverted tile) */
+  selected?: string | null;
   /** size of the canvas (default: 60% of the viewport height, at least 22rem) */
   className?: string;
 }) {
@@ -156,7 +159,7 @@ export function TopologyChart({
   useEffect(() => {
     const c = chart.current;
     if (!c) return;
-    const built = buildGraph(graph, { dark, showTraffic, positions });
+    const built = buildGraph(graph, { dark, showTraffic, positions, selected });
     idsRef.current = built.nodes.map((n) => n.id);
     nodesRef.current = built.nodes;
     const tk = chartTokens(dark);
@@ -171,22 +174,31 @@ export function TopologyChart({
       autoCurveness: true,
       symbolKeepAspect: true,
       edgeSymbol: ['none', 'none'],
+      // The name pill under the tile (prototype .topo .node .nm): Inter 12/500 on surface, a soft
+      // shadow; an opaque plate keeps names readable where links cross them.
       label: {
         show: true,
         position: 'bottom' as const,
-        fontSize: 11,
-        fontWeight: 600,
-        fontFamily: tk.fontMono,
+        fontSize: 12,
+        fontWeight: 500,
+        fontFamily: tk.fontDisplay,
         color: text,
-        overflow: 'truncate' as const,
-        width: 120,
-        // An opaque plate keeps names readable where edges cross them.
         backgroundColor: tk.surface,
-        borderColor: tk.border,
-        borderWidth: 1,
-        padding: [2, 6],
-        borderRadius: 2,
-        distance: 4,
+        borderRadius: 999,
+        padding: [5, 10],
+        shadowBlur: 10,
+        shadowOffsetY: 2,
+        shadowColor: dark ? 'rgba(0,0,0,0.5)' : 'rgba(0,0,0,0.10)',
+        distance: -6,
+        rich: {
+          n: {
+            fontSize: 12,
+            fontWeight: 500,
+            fontFamily: tk.fontDisplay,
+            color: text,
+            padding: [0, 6, 0, 0],
+          },
+        },
       },
       edgeLabel: {
         fontSize: 10,
@@ -195,15 +207,14 @@ export function TopologyChart({
         fontFamily: tk.fontMono,
         color: tk.inkMuted,
         backgroundColor: tk.surface,
-        borderColor: tk.borderStrong,
-        borderWidth: 1,
-        padding: [1, 4],
-        borderRadius: 2,
+        padding: [2, 7],
+        borderRadius: 999,
       },
-      emphasis: { focus: 'adjacency' as const, lineStyle: { width: 4 } },
+      emphasis: { focus: 'adjacency' as const, lineStyle: { width: 3 } },
       force: {
-        repulsion: forceRepulsion(nodes.length),
-        edgeLength: [90, 170],
+        // the 56px tiles and their name pills need room: twice the base repulsion
+        repulsion: forceRepulsion(nodes.length) * 2.4,
+        edgeLength: [120, 210],
         gravity: 0.08,
         friction: 0.6,
         layoutAnimation: false,
@@ -252,7 +263,7 @@ export function TopologyChart({
     } else {
       c.setOption({ ...base, series: [series('none', built.nodes)] }, { replaceMerge: ['series'] });
     }
-  }, [graph, dark, showTraffic, positions, resetToken, t]);
+  }, [graph, dark, showTraffic, positions, resetToken, selected, t]);
 
   // The canvas is never mirrored: coordinates are absolute (architecture.md § 10.3 RTL).
   return (

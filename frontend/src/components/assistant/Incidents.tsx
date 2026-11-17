@@ -14,15 +14,18 @@ import { AiBadge, useAiFeature } from './common';
 
 /** Deterministic title from its fields ("core-sw down — 14 devices unreachable"), he/en. */
 export function useIncidentTitle() {
-  const { t } = useTranslation();
+  const { t, i18n } = useTranslation();
+  // status words sit mid-sentence: "rtr-hfa down — 4 devices unreachable" (no-op in Hebrew)
+  const word = (s: string) =>
+    t(`status.${s}`, { defaultValue: s }).toLocaleLowerCase(i18n.language);
   return (i: Incident) => {
     const f = i.title_fields;
     if (!f?.root) return i.title;
     return t('incident.titleLine', {
       root: f.root,
-      rootStatus: t(`status.${f.root_status}`, { defaultValue: f.root_status }),
+      rootStatus: word(f.root_status),
       members: t(`incident.unit.${f.unit}`, { count: f.count }),
-      status: t(`status.${f.status}`, { defaultValue: f.status }),
+      status: word(f.status),
     });
   };
 }

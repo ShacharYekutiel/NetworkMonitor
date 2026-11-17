@@ -27,8 +27,9 @@ const CLASS_SVG: Record<DeviceClass, string> = {
   server:
     '<rect x="3" y="4" width="18" height="7" rx="1.5"/><rect x="3" y="13" width="18" height="7" rx="1.5"/><path d="M7 7.5h.01M7 16.5h.01"/>',
   workstation: '<rect x="3" y="4" width="18" height="12" rx="2"/><path d="M8 20h8M12 16v4"/>',
+  // not detected yet: the generic device tile of the home map (a "?" read as an error)
   unknown:
-    '<circle cx="12" cy="12" r="9"/><path d="M9.5 9.5a2.5 2.5 0 015 .5c0 1.5-2.5 2-2.5 3.5M12 17h.01"/>',
+    '<rect x="3" y="7" width="18" height="10" rx="2"/><path d="M7 12h.01M10 12h.01M13 12h.01M16 12h.01"/>',
 };
 const WRENCH =
   '<path d="M14.7 6.3a4 4 0 00-5.4 5.2L3.6 17.2a1.6 1.6 0 002.2 2.2l5.7-5.7a4 4 0 005.2-5.4l-2.5 2.5-2.1-.5-.5-2.1z"/>';
@@ -36,41 +37,64 @@ const WRENCH =
 /** Links without an interface sensor: the `border-strong` token. */
 export const NEUTRAL_EDGE = { light: LIGHT_TOKENS.borderStrong, dark: DARK_TOKENS.borderStrong };
 
+const SHIELD =
+  '<path d="M12 3l8 3v6c0 4.5-3.4 8-8 9-4.6-1-8-4.5-8-9V6z"/><path d="M9 12l2 2 4-4"/>';
+/** A firewall is recognised by its name, as on the home map and the group page. */
+const FW_NAME = /(^|[^a-z])(fw|firewall|fortigate|asa|pfsense|palo)([^a-z]|$)/i;
+/** States that draw a ring and colour the icon (status colour only where something is wrong). */
+const RING: ReadonlySet<Status> = new Set(['warning', 'down', 'unreachable', 'paused']);
+
 /**
- * Device node symbol (design system: TopologyNode): a square tile on `surface` with a
- * status-coloured outline, the class icon, a status dot in the corner and an optional wrench badge.
+ * Device node symbol (premium BUILD.md § 6 "Topology": the quiet tiles of the home map): a 56px
+ * rounded tile on `surface` with a soft shadow and the class icon. A problem adds a 2px ring and a
+ * soft halo in the status colour and colours the icon; the selected node is an inverted (ink) tile;
+ * maintenance adds the wrench badge.
  */
 export function deviceSymbol(
   status: Status,
   cls: DeviceClass | null,
   maintenance: boolean,
   dark: boolean,
+  opts: { name?: string; selected?: boolean } = {},
 ): string {
   const tk = chartTokens(dark);
   const color = statusColor(tk, status);
-  const icon = CLASS_SVG[cls ?? 'unknown'] ?? CLASS_SVG.unknown;
+  const ring = RING.has(status);
+  const icon = FW_NAME.test(opts.name ?? '')
+    ? SHIELD
+    : (CLASS_SVG[cls ?? 'unknown'] ?? CLASS_SVG.unknown);
+  const fill = opts.selected ? tk.ink : tk.surface;
+  const ink = opts.selected ? tk.surface : ring ? color : tk.ink;
   const badge = maintenance
-    ? `<circle cx="8" cy="8" r="7.5" fill="${tk.accent}" stroke="${tk.surface}" stroke-width="2"/>` +
-      `<g transform="translate(2.6 2.6) scale(0.45)" fill="none" stroke="${tk.onAccent}" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round">${WRENCH}</g>`
+    ? `<circle cx="13" cy="13" r="8" fill="${tk.accent}" stroke="${tk.surface}" stroke-width="2"/>` +
+      `<g transform="translate(7.4 7.4) scale(0.47)" fill="none" stroke="${tk.onAccent}" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round">${WRENCH}</g>`
     : '';
+  const shadow = dark ? '0.55' : '0.13';
   const svg =
-    `<svg xmlns="http://www.w3.org/2000/svg" width="52" height="52" viewBox="0 0 52 52">` +
-    `<rect x="5" y="5" width="42" height="42" rx="3" fill="${tk.surface}" stroke="${color}" stroke-width="2"/>` +
-    `<g transform="translate(16 16) scale(0.8333)" fill="none" stroke="${tk.ink}" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round">${icon}</g>` +
-    `<circle cx="46" cy="6" r="5" fill="${color}" stroke="${tk.surface}" stroke-width="1.5"/>` +
+    `<svg xmlns="http://www.w3.org/2000/svg" width="72" height="72" viewBox="0 0 72 72">` +
+    `<defs><filter id="s" x="-30%" y="-30%" width="160%" height="170%"><feDropShadow dx="0" dy="3" stdDeviation="3.5" flood-color="#000" flood-opacity="${shadow}"/></filter></defs>` +
+    (ring
+      ? `<rect x="4" y="4" width="64" height="64" rx="22" fill="none" stroke="${color}" stroke-opacity="0.16" stroke-width="8"/>`
+      : '') +
+    `<rect x="8" y="8" width="56" height="56" rx="18" fill="${fill}" filter="url(#s)"` +
+    (ring ? ` stroke="${color}" stroke-width="2"` : '') +
+    `/>` +
+    `<g transform="translate(25 25) scale(0.9167)" fill="none" stroke="${ink}" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">${icon}</g>` +
     badge +
     `</svg>`;
   return `image://data:image/svg+xml;charset=utf-8,${encodeURIComponent(svg)}`;
 }
 
-/** Unmanaged neighbour: a dashed "ghost" tile with a question mark. */
-export function ghostSymbol(dark: boolean): string {
+/** Unmanaged neighbour: a quiet dashed tile with a question mark, no shadow. */
+export function ghostSymbol(dark: boolean, selected = false): string {
   const tk = chartTokens(dark);
   const stroke = tk.borderStrong;
+  const fill = selected ? tk.ink : tk.surfaceSunken;
+  const ink = selected ? tk.surface : tk.inkSubtle;
   const svg =
-    `<svg xmlns="http://www.w3.org/2000/svg" width="52" height="52" viewBox="0 0 52 52">` +
-    `<rect x="5" y="5" width="42" height="42" rx="3" fill="${tk.surfaceSunken}" stroke="${stroke}" stroke-width="2" stroke-dasharray="5 4"/>` +
-    `<g transform="translate(16 16) scale(0.8333)" fill="none" stroke="${tk.inkSubtle}" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M9.5 9.5a2.5 2.5 0 015 .5c0 1.5-2.5 2-2.5 3.5M12 17h.01"/></g>` +
+    `<svg xmlns="http://www.w3.org/2000/svg" width="72" height="72" viewBox="0 0 72 72">` +
+    `<rect x="12" y="12" width="48" height="48" rx="16" fill="${fill}" stroke="${stroke}" stroke-width="1.5" stroke-dasharray="5 4"/>` +
+    `<g transform="translate(26 26) scale(0.8333)" fill="none" stroke="${ink}" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M9.5 9.5a2.5 2.5 0 015 .5c0 1.5-2.5 2-2.5 3.5M12 17h.01"/></g>` +
     `</svg>`;
   return `image://data:image/svg+xml;charset=utf-8,${encodeURIComponent(svg)}`;
 }
@@ -129,7 +153,8 @@ export type GraphNodeDatum = {
   symbolSize: number;
   value: number;
   itemStyle: { opacity: number };
-  label: { color: string };
+  /** the name pill under the tile: the name and a status dot (rich text) */
+  label: { color: string; formatter?: string; rich?: Record<string, Record<string, unknown>> };
 };
 
 export type GraphLinkDatum = {
@@ -156,7 +181,13 @@ export type BuiltGraph = {
  */
 export function buildGraph(
   g: Pick<TopologyGraph, 'nodes' | 'links'>,
-  opts: { dark: boolean; showTraffic: boolean; positions?: Record<string, [number, number]> },
+  opts: {
+    dark: boolean;
+    showTraffic: boolean;
+    positions?: Record<string, [number, number]>;
+    /** key of the selected node: drawn as an inverted (ink) tile */
+    selected?: string | null;
+  },
 ): BuiltGraph {
   const { dark, showTraffic } = opts;
   const tk = chartTokens(dark);
@@ -177,10 +208,11 @@ export function buildGraph(
       stale: l.stale,
       lineStyle: {
         color: linkColor(l, dark),
-        width: 2.5,
+        // premium: hairline links (1.5px), a broken link 2px red dashed
+        width: linkState(l) === 'down' ? 2 : 1.5,
         // Down links are dashed too (status never by colour alone); stale ones also fade.
         type: l.stale || linkState(l) === 'down' ? 'dashed' : 'solid',
-        opacity: l.stale ? 0.4 : 0.9,
+        opacity: l.stale ? 0.4 : 0.85,
       },
       label: { show: !!label, formatter: label, color: tk.inkMuted },
     });
@@ -205,10 +237,20 @@ export function buildGraph(
         maintenance: n.in_maintenance,
         ghost: false,
         inFilter: n.in_filter,
-        symbol: deviceSymbol(n.status, n.device_class, n.in_maintenance, dark),
-        symbolSize: 54,
+        symbol: deviceSymbol(n.status, n.device_class, n.in_maintenance, dark, {
+          name: n.name,
+          selected: opts.selected === n.key,
+        }),
+        symbolSize: 72,
         itemStyle: { opacity: n.in_filter ? 1 : 0.45 },
-        label: { color: text },
+        label: {
+          color: text,
+          // "{n|name}{d|}": the dot is a 7px status swatch next to the name (prototype .nm i)
+          formatter: '{n|{b}}{d|}',
+          rich: {
+            d: { width: 7, height: 7, borderRadius: 4, backgroundColor: statusColor(tk, n.status) },
+          },
+        },
       };
     return {
       ...base,
@@ -217,8 +259,8 @@ export function buildGraph(
       maintenance: false,
       ghost: true,
       inFilter: true,
-      symbol: ghostSymbol(dark),
-      symbolSize: 44,
+      symbol: ghostSymbol(dark, opts.selected === n.key),
+      symbolSize: 72,
       itemStyle: { opacity: 0.9 },
       label: { color: tk.inkSubtle },
     };

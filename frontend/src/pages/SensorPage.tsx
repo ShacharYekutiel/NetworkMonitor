@@ -299,6 +299,11 @@ export function SensorPage() {
               </div>
             </section>
           )}
+          {/* prototype: the events list right under the chart */}
+          <section aria-labelledby="sensor-events">
+            <GroupTitle id="sensor-events">{t('sensors.events')}</GroupTitle>
+            {events.data ? <EventRows events={events.data.items} /> : <Loading />}
+          </section>
         </div>
 
         <div className="flex min-w-0 flex-col gap-4">
@@ -393,11 +398,6 @@ export function SensorPage() {
           </Card>
         </div>
       </div>
-
-      <section aria-labelledby="sensor-events" className="mt-2">
-        <GroupTitle id="sensor-events">{t('sensors.events')}</GroupTitle>
-        {events.data ? <EventRows events={events.data.items} /> : <Loading />}
-      </section>
 
       {isAdmin && <EditSensorModal open={editing} onClose={() => setEditing(false)} sensor={s} />}
       <ConfirmDialog
