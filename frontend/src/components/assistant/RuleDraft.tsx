@@ -1,10 +1,11 @@
-import { useState } from 'react';
+import { useId, useState } from 'react';
 import { useMutation } from '@tanstack/react-query';
 import { useTranslation } from 'react-i18next';
 import { endpoints3b } from '../../api/endpoints3b';
 import type { CannotDraft, RuleDraft, RuleDraftKind } from '../../api/types';
-import { SparkIcon } from '../icons';
-import { BANNER, BANNER_TONE, Button, cx, ErrorBox, Textarea } from '../ui';
+import { SparkIcon, XIcon } from '../icons';
+import { Banner, WizardSteps } from '../kit';
+import { Button, ErrorBox, Spinner, Textarea } from '../ui';
 import { AiBadge, CannotDraftNotice, useAiFeature } from './common';
 
 /**
@@ -23,6 +24,7 @@ export function RuleDraftBox({
   const [open, setOpen] = useState(false);
   const [text, setText] = useState('');
   const [cannot, setCannot] = useState<CannotDraft | null>(null);
+  const fieldId = useId();
   const m = useMutation({
     mutationFn: () => endpoints3b.ruleDraft(kind, text.trim()),
     onMutate: () => setCannot(null),
@@ -42,18 +44,30 @@ export function RuleDraftBox({
       <button
         type="button"
         onClick={() => setOpen(true)}
-        className="inline-flex items-center gap-1.5 text-xs font-medium text-accent-ink hover:underline"
+        className="inline-flex h-9 items-center gap-2 rounded-full bg-chip pe-4 ps-3 text-[13.5px] font-medium text-ink transition-colors hover:text-accent-ink"
         data-testid="describe-rule"
       >
-        <SparkIcon size={12} /> {t('draft.describe')}
+        <SparkIcon size={15} className="text-accent-ink" /> {t('draft.describe')}
       </button>
     );
   const len = text.trim().length;
+  const examples = [1, 2, 3].map((i) =>
+    t(`draft.${kind === 'alert_rule' ? 'exAlert' : 'exEvent'}${i}`),
+  );
   return (
-    <div className={cx(BANNER, BANNER_TONE.info, 'space-y-2')}>
-      <label className="block text-xs font-medium text-ink-muted">
-        {t('draft.describeLabel')}
+    // the template draft wizard's look: steps, a card with the field, example chips, actions
+    <div className="grid gap-3.5 rounded-[20px] bg-surface-sunken p-4" data-testid="rule-draft-box">
+      <WizardSteps
+        label={t('draft.stepsLabel')}
+        current={m.isPending ? 1 : 0}
+        steps={[t('draft.step.describe'), t('draft.step.draft'), t('draft.step.review')]}
+      />
+      <div className="-mt-[22px] grid gap-1.5">
+        <label className="text-[13.5px] text-ink-muted" htmlFor={fieldId}>
+          {t('draft.describeLabel')}
+        </label>
         <Textarea
+          id={fieldId}
           rows={3}
           maxLength={1000}
           value={text}
@@ -65,25 +79,48 @@ export function RuleDraftBox({
             setText(e.target.value);
             setCannot(null);
           }}
-          className="mt-1"
+          disabled={m.isPending}
           data-testid="describe-text"
         />
-      </label>
-      <div className="flex flex-wrap items-center gap-2">
+      </div>
+      <div className="flex flex-wrap gap-1.5" aria-label={t('draft.examples')} role="group">
+        {examples.map((x) => (
+          <button
+            key={x}
+            type="button"
+            onClick={() => {
+              setText(x);
+              setCannot(null);
+            }}
+            disabled={m.isPending}
+            className="inline-flex min-h-8 items-center rounded-full bg-surface px-3 py-1 text-start text-[13px] text-ink-muted transition-colors hover:text-ink"
+          >
+            {x}
+          </button>
+        ))}
+      </div>
+      {m.isPending ? (
+        <p className="m-0 flex items-center gap-2.5 text-sm text-ink-muted" role="status">
+          <Spinner className="h-4 w-4" />
+          {t('draft.working')}
+        </p>
+      ) : null}
+      <div className="flex flex-wrap items-center gap-2.5">
         <Button
-          size="sm"
           variant="primary"
           onClick={() => m.mutate()}
           busy={m.isPending}
           disabled={len < 5}
           data-testid="draft-button"
         >
-          <SparkIcon size={12} /> {t('draft.draft')}
+          <SparkIcon size={14} /> {t('draft.draft')}
         </Button>
-        <Button size="sm" variant="ghost" onClick={() => setOpen(false)}>
-          {t('common.cancel')}
+        <Button onClick={() => setOpen(false)} disabled={m.isPending}>
+          {t('draft.manual')}
         </Button>
-        {m.isPending && <span className="text-xs text-ink-muted">{t('draft.working')}</span>}
+        <span className="ms-auto">
+          <AiBadge />
+        </span>
       </div>
       {cannot && (
         <CannotDraftNotice
@@ -103,34 +140,46 @@ export function RuleDraftBox({
 /** Banner over a form prefilled by a draft: review notice, explanation, assumptions, validation. */
 export function DraftBanner({ draft, onDismiss }: { draft: RuleDraft; onDismiss?: () => void }) {
   const { t } = useTranslation();
+  const errors = !draft.validation.ok ? draft.validation.errors : [];
   return (
     <div
-      className={cx(BANNER, BANNER_TONE.warning, 'space-y-1')}
+      className="grid gap-3 rounded-[20px] bg-surface-sunken p-4"
       data-testid="draft-banner"
       role="note"
     >
-      <p className="flex items-center gap-2 font-medium">
-        <AiBadge />
-        {t('draft.banner')}
+      <WizardSteps
+        label={t('draft.stepsLabel')}
+        current={2}
+        steps={[t('draft.step.describe'), t('draft.step.draft'), t('draft.step.review')]}
+      />
+      <div className="-mt-[22px] flex items-start gap-3 rounded-lg bg-accent-soft px-4 py-3.5">
+        <SparkIcon size={20} className="mt-px shrink-0 text-accent-ink" />
+        <div className="grid flex-1 gap-1">
+          <b className="flex flex-wrap items-center gap-2 font-semibold">
+            {t('draft.banner')}
+            <AiBadge />
+          </b>
+          {draft.explanation && (
+            <span dir="auto" className="text-[13.5px] text-ink-muted">
+              {draft.explanation}
+            </span>
+          )}
+        </div>
         {onDismiss && (
           <button
             type="button"
-            className="ms-auto text-xs text-accent-ink underline"
+            aria-label={t('common.close')}
+            className="inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-full text-ink-muted hover:bg-surface"
             onClick={onDismiss}
           >
-            {t('common.close')}
+            <XIcon size={16} />
           </button>
         )}
-      </p>
-      {draft.explanation && (
-        <p dir="auto" className="text-xs">
-          {draft.explanation}
-        </p>
-      )}
+      </div>
       {draft.assumptions.length > 0 && (
-        <div className="text-xs">
-          <span className="font-medium">{t('draft.assumptions')}:</span>
-          <ul className="list-disc ps-5">
+        <div className="grid gap-1.5 px-1">
+          <span className="text-[13.5px] font-semibold">{t('draft.assumptions')}</span>
+          <ul className="m-0 grid list-disc gap-1 ps-5 text-[13.5px] text-ink-muted">
             {draft.assumptions.map((a, i) => (
               <li key={i} dir="auto">
                 {a}
@@ -139,18 +188,18 @@ export function DraftBanner({ draft, onDismiss }: { draft: RuleDraft; onDismiss?
           </ul>
         </div>
       )}
-      {!draft.validation.ok && draft.validation.errors.length > 0 && (
-        <div className="text-xs text-status-down">
-          <span className="font-medium">{t('draft.validationErrors')}:</span>
-          <ul className="list-disc ps-5">
-            {draft.validation.errors.map((e, i) => (
+      {errors.length > 0 && (
+        <Banner tone="down" title={t('draft.validationErrors')}>
+          <ul className="m-0 list-disc ps-5">
+            {errors.map((e, i) => (
               <li key={i}>
                 <bdi dir="ltr">{e.loc.join('.')}</bdi>: {e.msg}
               </li>
             ))}
           </ul>
-        </div>
+        </Banner>
       )}
+      <p className="m-0 px-1 text-xs text-ink-muted">{t('assistant.mayBeWrong')}</p>
     </div>
   );
 }

@@ -17,20 +17,31 @@ import type {
 } from '../api/types';
 import { NOTIFICATION_TYPES } from '../api/types';
 import type { WebhookChannelConfig } from '../api/types';
-import { ChevronIcon, EditIcon, EscalateIcon, PlusIcon, TrashIcon } from '../components/icons';
+import {
+  BellIcon,
+  ChevronIcon,
+  EditIcon,
+  EscalateIcon,
+  LinkIcon,
+  PlusIcon,
+  TrashIcon,
+  UsersIcon,
+} from '../components/icons';
+import { ActionRow, EmptyState, Timeline, TimelineEntry } from '../components/kit';
+import type { TFunction } from 'i18next';
 import { escalationForm, escalationToInput, type EscalationForm } from '../lib/escalation';
 import { formatDuration } from '../lib/format';
-import { StatusBadge } from '../components/Status';
 import { useToast } from '../components/toast';
 import {
   Button,
   Card,
   Checkbox,
   ConfirmDialog,
-  Empty,
   ErrorBox,
   Field,
   FieldGroup,
+  GroupList,
+  GroupTitle,
   Input,
   Loading,
   Ltr,
@@ -38,10 +49,8 @@ import {
   Notice,
   PageHeader,
   Select,
-  Table,
+  Switch,
   Textarea,
-  td,
-  th,
 } from '../components/ui';
 import { errorMessage } from '../lib/errors';
 import { headersToText, textToHeaders } from '../lib/sensorConfig';
@@ -794,6 +803,88 @@ function RuleModal({
   );
 }
 
+const CHANNEL_ICON: Record<NotificationType, typeof BellIcon> = {
+  email: BellIcon,
+  telegram: BellIcon,
+  teams: UsersIcon,
+  webhook: LinkIcon,
+};
+
+/** Rule row subline: "Down + Warning · after 1 min · escalates after 30 min · NOC, Telegram". */
+function ruleSummary(t: TFunction, r: AlertRule, chName: (id: number) => string): string {
+  const parts = [r.on_statuses.map((s) => t(`status.${s}`)).join(' + ')];
+  parts.push(
+    r.delay_s
+      ? t('notifications.afterDelay', { d: formatDuration(r.delay_s) })
+      : t('notifications.now'),
+  );
+  if (r.escalation_after_s != null)
+    parts.push(t('notifications.escalatesAfter', { d: formatDuration(r.escalation_after_s) }));
+  if (r.repeat_every_s != null)
+    parts.push(t('notifications.remindsEvery', { d: formatDuration(r.repeat_every_s) }));
+  parts.push(r.channel_ids.map(chName).join(', '));
+  return parts.join(' · ');
+}
+
+/** What happens when the rule fires (prototype "אסקלציה · …" card): a timeline from the rule. */
+function RuleFlowCard({ rule, chName }: { rule: AlertRule; chName: (id: number) => string }) {
+  const { t } = useTranslation();
+  const bad = rule.on_statuses.filter((s) => s !== 'up');
+  const startTone = bad.includes('down') ? 'down' : bad.length ? 'warning' : 'up';
+  return (
+    <Card
+      title={t('notifications.flowTitle', { name: rule.name })}
+      className="mt-[22px]"
+      bodyClassName="px-[22px] pb-3 pt-1"
+    >
+      <div data-testid="rule-flow">
+        <Timeline label={t('notifications.flowTitle', { name: rule.name })}>
+          <TimelineEntry
+            time={formatDuration(0)}
+            tone={startTone}
+            title={t('notifications.tlStart')}
+          >
+            {(bad.length ? bad : rule.on_statuses).map((s) => t(`status.${s}`)).join(' + ')}
+          </TimelineEntry>
+          <TimelineEntry
+            time={formatDuration(rule.delay_s)}
+            tone="warning"
+            title={rule.channel_ids.map(chName).join(', ')}
+          >
+            {rule.delay_s ? t('notifications.tlNotifyStill') : t('notifications.tlNotify')}
+          </TimelineEntry>
+          {rule.escalation_after_s != null && (
+            <TimelineEntry
+              time={formatDuration(rule.escalation_after_s)}
+              tone="warning"
+              title={rule.escalation_channel_ids.map(chName).join(', ')}
+            >
+              {t('notifications.tlEscalate')}
+            </TimelineEntry>
+          )}
+          {rule.repeat_every_s != null && (
+            <TimelineEntry
+              time={t('notifications.tlEvery', { d: formatDuration(rule.repeat_every_s) })}
+              tone="paused"
+              title={t('notifications.tlRemind')}
+            >
+              {rule.channel_ids.map(chName).join(', ')}
+            </TimelineEntry>
+          )}
+          {rule.on_statuses.includes('up') && (
+            <TimelineEntry time="✓" tone="up" title={t('notifications.tlRecovery')}>
+              {t('notifications.tlRecoveryHint')}
+            </TimelineEntry>
+          )}
+        </Timeline>
+        {rule.escalation_after_s == null && rule.repeat_every_s == null && (
+          <p className="m-0 pb-2 pt-3 text-sm text-ink-muted">{t('notifications.noEscalation')}</p>
+        )}
+      </div>
+    </Card>
+  );
+}
+
 export function NotificationsPage() {
   const { t } = useTranslation();
   const qc = useQueryClient();
@@ -804,6 +895,7 @@ export function NotificationsPage() {
   const [ruleEdit, setRuleEdit] = useState<AlertRule | 'new' | null>(null);
   const [chDel, setChDel] = useState<NotificationChannel | null>(null);
   const [ruleDel, setRuleDel] = useState<AlertRule | null>(null);
+  const [selId, setSelId] = useState<number | null>(null);
 
   const test = useMutation({
     mutationFn: (c: NotificationChannel) => endpoints.testChannel(c.id),
@@ -834,181 +926,215 @@ export function NotificationsPage() {
     onSuccess: () => void qc.invalidateQueries({ queryKey: ['alertRules'] }),
     onError: (e) => toast.push('error', errorMessage(t, e)),
   });
+  const toggleCh = useMutation({
+    mutationFn: (c: NotificationChannel) => endpoints.updateChannel(c.id, { enabled: !c.enabled }),
+    onSuccess: () => void qc.invalidateQueries({ queryKey: qk.channels }),
+    onError: (e) => toast.push('error', errorMessage(t, e)),
+  });
 
   const chName = (id: number) => channels.data?.items.find((c) => c.id === id)?.name ?? `#${id}`;
+  const ruleItems = rules.data?.items ?? [];
+  // the card shows the chosen rule, else the first one with an escalation, else the first one
+  const shown =
+    ruleItems.find((r) => r.id === selId) ??
+    ruleItems.find((r) => r.escalation_after_s != null || r.repeat_every_s != null) ??
+    ruleItems[0];
 
   return (
-    <div className="space-y-6">
-      <PageHeader title={t('notifications.title')} />
-      <Card
-        title={t('channels.title')}
-        bodyClassName="p-0"
+    <div>
+      <PageHeader
+        title={t('notifications.title')}
+        subtitle={t('notifications.subtitle')}
         actions={
-          <Button size="sm" variant="primary" onClick={() => setChEdit('new')}>
-            <PlusIcon size={14} /> {t('channels.add')}
-          </Button>
+          <>
+            <Button variant="primary" onClick={() => setChEdit('new')}>
+              <PlusIcon size={14} /> {t('channels.add')}
+            </Button>
+            <Button onClick={() => setRuleEdit('new')}>
+              <PlusIcon size={14} /> {t('rules.add')}
+            </Button>
+          </>
         }
-      >
-        {channels.isLoading && <Loading />}
-        <ErrorBox error={channels.error} className="m-3" />
-        {channels.data && !channels.data.items.length && <Empty>{t('channels.none')}</Empty>}
-        {channels.data && channels.data.items.length > 0 && (
-          <Table>
-            <thead>
-              <tr>
-                <th className={th}>{t('common.name')}</th>
-                <th className={th}>{t('channels.type')}</th>
-                <th className={th}>{t('channels.target')}</th>
-                <th className={th}>{t('common.enabled')}</th>
-                <th className={th} />
-              </tr>
-            </thead>
-            <tbody>
-              {channels.data.items.map((c) => (
-                <tr key={c.id}>
-                  <td className={`${td} font-medium`}>{c.name}</td>
-                  <td className={td}>{t(`channels.${c.type}`)}</td>
-                  <td className={`${td} max-w-xs truncate text-ink-muted`}>
-                    <Ltr>{channelTarget(c)}</Ltr>
-                    {c.type === 'teams' && (c.config as TeamsChannelConfig).legacy && (
-                      <span className="ms-1 text-xs text-status-warning" title={t('teams.legacy')}>
-                        ({t('teams.legacyShort')})
-                      </span>
-                    )}
-                  </td>
-                  <td className={td}>{c.enabled ? t('common.yes') : t('common.no')}</td>
-                  <td className={`${td} whitespace-nowrap text-end`}>
-                    <Button
-                      size="sm"
-                      busy={test.isPending && test.variables?.id === c.id}
-                      onClick={() => test.mutate(c)}
-                    >
-                      {t('channels.test')}
-                    </Button>{' '}
-                    <Button
-                      size="sm"
-                      variant="ghost"
-                      aria-label={t('common.edit')}
-                      onClick={() => setChEdit(c)}
-                    >
-                      <EditIcon size={14} />
-                    </Button>
-                    <Button
-                      size="sm"
-                      variant="ghost"
-                      aria-label={t('common.delete')}
-                      onClick={() => setChDel(c)}
-                    >
-                      <TrashIcon size={14} />
-                    </Button>
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </Table>
-        )}
-      </Card>
-
-      <Card
-        title={t('rules.title')}
-        bodyClassName="p-0"
-        actions={
-          <Button size="sm" variant="primary" onClick={() => setRuleEdit('new')}>
-            <PlusIcon size={14} /> {t('rules.add')}
-          </Button>
-        }
-      >
-        {rules.isLoading && <Loading />}
-        <ErrorBox error={rules.error} className="m-3" />
-        {rules.data && !rules.data.items.length && <Empty>{t('rules.none')}</Empty>}
-        {rules.data && rules.data.items.length > 0 && (
-          <Table>
-            <thead>
-              <tr>
-                <th className={th}>{t('common.name')}</th>
-                <th className={th}>{t('rules.scope')}</th>
-                <th className={th}>{t('rules.onStatuses')}</th>
-                <th className={th}>{t('rules.delay')}</th>
-                <th className={th}>{t('rules.channels')}</th>
-                <th className={th}>{t('common.enabled')}</th>
-                <th className={th} />
-              </tr>
-            </thead>
-            <tbody>
-              {rules.data.items.map((r) => (
-                <tr key={r.id}>
-                  <td className={`${td} font-medium`}>
-                    <span className="inline-flex items-center gap-1.5">
-                      {r.name}
-                      {(r.escalation_after_s != null || r.repeat_every_s != null) && (
-                        <span
-                          className="text-accent-ink"
-                          title={[
-                            r.escalation_after_s != null &&
-                              t('escalation.summary', {
-                                after: formatDuration(r.escalation_after_s),
-                                channels: r.escalation_channel_ids.map(chName).join(', '),
-                              }),
-                            r.repeat_every_s != null &&
-                              t('escalation.summaryRepeat', {
-                                every: formatDuration(r.repeat_every_s),
-                              }),
-                          ]
-                            .filter(Boolean)
-                            .join(' · ')}
+      />
+      {/* prototype .two.even: channels | rules + the flow of one rule */}
+      <div className="grid grid-cols-1 items-start gap-6 lg:grid-cols-2">
+        <section aria-labelledby="nt-channels" data-testid="channels">
+          <GroupTitle id="nt-channels">{t('channels.title')}</GroupTitle>
+          {channels.isLoading && <Loading />}
+          <ErrorBox error={channels.error} className="mb-3" />
+          {channels.data && !channels.data.items.length && (
+            <div className="rounded-xl bg-surface shadow-card">
+              <EmptyState
+                icon={BellIcon}
+                title={t('channels.none')}
+                actions={
+                  <Button variant="primary" onClick={() => setChEdit('new')}>
+                    <PlusIcon size={14} /> {t('channels.addFirst')}
+                  </Button>
+                }
+              >
+                {t('channels.noneHint')}
+              </EmptyState>
+            </div>
+          )}
+          {channels.data && channels.data.items.length > 0 && (
+            <GroupList label={t('channels.title')}>
+              {channels.data.items.map((c) => {
+                const Icon = CHANNEL_ICON[c.type] ?? BellIcon;
+                const legacy = c.type === 'teams' && (c.config as TeamsChannelConfig).legacy;
+                return (
+                  <ActionRow
+                    key={c.id}
+                    testId="channel-row"
+                    wrap
+                    dim={!c.enabled}
+                    icon={<Icon size={17} />}
+                    onClick={() => setChEdit(c)}
+                    title={<bdi dir="auto">{c.name}</bdi>}
+                    subtitle={
+                      <>
+                        {t(`channels.${c.type}`)}
+                        {channelTarget(c) && (
+                          <>
+                            {' · '}
+                            <Ltr>{channelTarget(c)}</Ltr>
+                          </>
+                        )}
+                        {legacy && (
+                          <span className="ms-1 text-status-warning" title={t('teams.legacy')}>
+                            ({t('teams.legacyShort')})
+                          </span>
+                        )}
+                      </>
+                    }
+                    end={
+                      <>
+                        <Button
+                          size="sm"
+                          busy={test.isPending && test.variables?.id === c.id}
+                          onClick={() => test.mutate(c)}
                         >
-                          <EscalateIcon
-                            size={13}
-                            aria-hidden={false}
-                            aria-label={t('escalation.title')}
-                          />
-                        </span>
-                      )}
-                    </span>
-                  </td>
-                  <td className={td}>
-                    {r.sensor_id === null
-                      ? t('rules.global')
-                      : (r.sensor_name ?? `#${r.sensor_id}`)}
-                  </td>
-                  <td className={td}>
-                    <span className="inline-flex gap-1">
-                      {r.on_statuses.map((s) => (
-                        <StatusBadge key={s} status={s} />
-                      ))}
-                    </span>
-                  </td>
-                  <td className={`${td} tabular-nums`}>
-                    <Ltr>{r.delay_s} s</Ltr>
-                  </td>
-                  <td className={td}>{r.channel_ids.map(chName).join(', ')}</td>
-                  <td className={td}>
-                    <Checkbox label="" checked={r.enabled} onChange={() => toggleRule.mutate(r)} />
-                  </td>
-                  <td className={`${td} whitespace-nowrap text-end`}>
-                    <Button
-                      size="sm"
-                      variant="ghost"
-                      aria-label={t('common.edit')}
-                      onClick={() => setRuleEdit(r)}
-                    >
-                      <EditIcon size={14} />
+                          {t('channels.test')}
+                        </Button>
+                        <Button
+                          size="sm"
+                          variant="ghost"
+                          aria-label={t('common.edit')}
+                          onClick={() => setChEdit(c)}
+                        >
+                          <EditIcon size={14} />
+                        </Button>
+                        <Button
+                          size="sm"
+                          variant="ghost"
+                          aria-label={t('common.delete')}
+                          onClick={() => setChDel(c)}
+                        >
+                          <TrashIcon size={14} />
+                        </Button>
+                        <Switch
+                          checked={c.enabled}
+                          onChange={() => toggleCh.mutate(c)}
+                          disabled={toggleCh.isPending && toggleCh.variables?.id === c.id}
+                          label={t('channels.enabledLabel', { name: c.name })}
+                          className="ms-1"
+                        />
+                      </>
+                    }
+                  />
+                );
+              })}
+            </GroupList>
+          )}
+        </section>
+
+        <section aria-labelledby="nt-rules" data-testid="rules">
+          <GroupTitle id="nt-rules">{t('rules.title')}</GroupTitle>
+          {rules.isLoading && <Loading />}
+          <ErrorBox error={rules.error} className="mb-3" />
+          {rules.data && !ruleItems.length && (
+            <div className="rounded-xl bg-surface shadow-card">
+              <EmptyState
+                icon={EscalateIcon}
+                title={t('rules.none')}
+                actions={
+                  channels.data?.items.length ? (
+                    <Button variant="primary" onClick={() => setRuleEdit('new')}>
+                      <PlusIcon size={14} /> {t('rules.addFirst')}
                     </Button>
-                    <Button
-                      size="sm"
-                      variant="ghost"
-                      aria-label={t('common.delete')}
-                      onClick={() => setRuleDel(r)}
-                    >
-                      <TrashIcon size={14} />
-                    </Button>
-                  </td>
-                </tr>
+                  ) : undefined
+                }
+              >
+                {channels.data?.items.length ? t('rules.noneHint') : t('rules.noChannels')}
+              </EmptyState>
+            </div>
+          )}
+          {ruleItems.length > 0 && (
+            <GroupList label={t('rules.title')}>
+              {ruleItems.map((r) => (
+                <ActionRow
+                  key={r.id}
+                  testId="rule-row"
+                  wrap
+                  dim={!r.enabled}
+                  selected={shown?.id === r.id}
+                  icon={
+                    r.escalation_after_s != null || r.repeat_every_s != null ? (
+                      <EscalateIcon
+                        size={17}
+                        aria-hidden={false}
+                        aria-label={t('escalation.title')}
+                      />
+                    ) : (
+                      <BellIcon size={17} />
+                    )
+                  }
+                  onClick={() => setSelId(r.id)}
+                  title={
+                    <>
+                      <bdi dir="auto">{r.name}</bdi>
+                      <span className="ms-2 text-[13px] font-normal text-ink-muted">
+                        {r.sensor_id === null
+                          ? t('rules.global')
+                          : (r.sensor_name ?? `#${r.sensor_id}`)}
+                      </span>
+                    </>
+                  }
+                  subtitle={ruleSummary(t, r, chName)}
+                  end={
+                    <>
+                      <Button
+                        size="sm"
+                        variant="ghost"
+                        aria-label={t('common.edit')}
+                        onClick={() => setRuleEdit(r)}
+                      >
+                        <EditIcon size={14} />
+                      </Button>
+                      <Button
+                        size="sm"
+                        variant="ghost"
+                        aria-label={t('common.delete')}
+                        onClick={() => setRuleDel(r)}
+                      >
+                        <TrashIcon size={14} />
+                      </Button>
+                      <Switch
+                        checked={r.enabled}
+                        onChange={() => toggleRule.mutate(r)}
+                        disabled={toggleRule.isPending && toggleRule.variables?.id === r.id}
+                        label={t('rules.enabledLabel', { name: r.name })}
+                        className="ms-1"
+                      />
+                    </>
+                  }
+                />
               ))}
-            </tbody>
-          </Table>
-        )}
-      </Card>
+            </GroupList>
+          )}
+          {shown && <RuleFlowCard rule={shown} chName={chName} />}
+        </section>
+      </div>
 
       <ChannelModal
         open={chEdit !== null}

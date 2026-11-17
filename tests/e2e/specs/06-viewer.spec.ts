@@ -42,7 +42,7 @@ test('admin creates a viewer on the Users page', async ({ page }) => {
   await dlg.getByLabel(/^Password/).fill(VIEWER.password);
   await dlg.getByRole('button', { name: 'Save' }).click();
   await expect(dlg).toBeHidden();
-  const row = page.getByRole('row').filter({ hasText: VIEWER.username });
+  const row = page.getByTestId('user-row').filter({ hasText: VIEWER.username });
   await expect(row).toContainText('Viewer');
   await expect(row).toContainText('viewer1@example.com');
 });

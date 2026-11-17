@@ -610,6 +610,7 @@ export function Popover({
  */
 export function ActionRow({
   icon,
+  lead,
   dot,
   title,
   subtitle,
@@ -618,9 +619,14 @@ export function ActionRow({
   end,
   dim,
   wrap,
+  selected,
   testId,
 }: {
   icon?: ReactNode;
+  /** shown as is in place of the icon tile (e.g. an Avatar) */
+  lead?: ReactNode;
+  /** the row shown in a detail card next to the list (prototype: selected row = --chip) */
+  selected?: boolean;
   /** the grey line may wrap (rows with several controls at the end) */
   wrap?: boolean;
   /** a status dot instead of an icon tile (Tailwind bg class) */
@@ -636,15 +642,16 @@ export function ActionRow({
 }) {
   const body = (
     <>
-      {dot ? (
-        <span aria-hidden="true" className={cx('h-2.5 w-2.5 shrink-0 rounded-full', dot)} />
-      ) : (
-        icon && (
-          <span className="inline-flex h-[34px] w-[34px] shrink-0 items-center justify-center rounded-[10px] bg-chip text-ink">
-            {icon}
-          </span>
-        )
-      )}
+      {lead ??
+        (dot ? (
+          <span aria-hidden="true" className={cx('h-2.5 w-2.5 shrink-0 rounded-full', dot)} />
+        ) : (
+          icon && (
+            <span className="inline-flex h-[34px] w-[34px] shrink-0 items-center justify-center rounded-[10px] bg-chip text-ink">
+              {icon}
+            </span>
+          )
+        ))}
       <span className="grid min-w-0 flex-1">
         <b className="truncate text-[15.5px] font-medium">{title}</b>
         {subtitle && (
@@ -662,7 +669,7 @@ export function ActionRow({
       data-testid={testId}
       className={cx(
         'flex items-center gap-2 pe-4 transition-colors',
-        (to || onClick) && 'hover:bg-surface-hover',
+        selected ? 'bg-chip' : (to || onClick) && 'hover:bg-surface-hover',
         dim && 'opacity-60',
       )}
     >
@@ -672,7 +679,12 @@ export function ActionRow({
           {!end && <ChevronIcon size={16} className="shrink-0 text-ink-subtle rtl:rotate-180" />}
         </Link>
       ) : onClick ? (
-        <button type="button" onClick={onClick} className={main}>
+        <button
+          type="button"
+          onClick={onClick}
+          className={main}
+          aria-current={selected ? 'true' : undefined}
+        >
           {body}
         </button>
       ) : (
@@ -680,5 +692,27 @@ export function ActionRow({
       )}
       {end && <div className="flex shrink-0 flex-wrap items-center justify-end gap-1">{end}</div>}
     </li>
+  );
+}
+
+const AVATAR_SIZE = {
+  sm: 'h-9 w-9 text-[14px]',
+  md: 'h-[38px] w-[38px] text-[15px]',
+  lg: 'h-16 w-16 text-[26px]',
+} as const;
+
+/** A person's round initial (prototype .me): grey gradient, white Inter initial. */
+export function Avatar({ name, size = 'md' }: { name: string; size?: keyof typeof AVATAR_SIZE }) {
+  const initial = [...(name.trim() || '?')][0].toUpperCase();
+  return (
+    <span
+      aria-hidden="true"
+      className={cx(
+        'num inline-flex shrink-0 items-center justify-center rounded-full bg-[linear-gradient(135deg,#8e8e93,#3a3a3c)] font-semibold text-white',
+        AVATAR_SIZE[size],
+      )}
+    >
+      {initial}
+    </span>
   );
 }

@@ -20,10 +20,24 @@ import { formatDateTime } from '../../lib/format';
 import { cardAnchor } from '../../lib/settingsIndex';
 import { Toggle, useSaveSettings } from '../features/common';
 import { useFeatureToggle } from '../features/FeatureToggle';
-import { CheckIcon, XIcon } from '../icons';
+import {
+  BackupIcon,
+  BellIcon,
+  CheckIcon,
+  EditIcon,
+  IncidentIcon,
+  LayersIcon,
+  LogsIcon,
+  PhoneIcon,
+  ReportIcon,
+  SearchIcon,
+  SparkIcon,
+  XIcon,
+} from '../icons';
 import { useToast } from '../toast';
 import {
   Button,
+  buttonClass,
   Card,
   Checkbox,
   cx,
@@ -33,6 +47,8 @@ import {
   Input,
   Loading,
   Select,
+  TAG,
+  TAG_TONE,
   Textarea,
 } from '../ui';
 import { useAssistantErrorText, useAssistantStatus } from './common';
@@ -692,6 +708,29 @@ function FeatureSettings({ name, settings }: { name: AiFeatureName; settings: Se
   }
 }
 
+/** Capabilities with a settings form (shown under the cards while ON). */
+const FORM_FEATURES = new Set<AiFeatureName>([
+  'ai_correlation',
+  'ai_alert_notes',
+  'ai_config_diff',
+  'ai_syslog_digest',
+  'ai_chat_ask',
+]);
+
+const CAP_ICON: Record<AiFeatureName, typeof SparkIcon> = {
+  ai_explain_alert: SparkIcon,
+  ai_correlation: IncidentIcon,
+  ai_alert_notes: BellIcon,
+  ai_config_diff: BackupIcon,
+  ai_syslog_digest: LogsIcon,
+  ai_rule_drafts: EditIcon,
+  ai_template_drafts: LayersIcon,
+  ai_knowledge: SearchIcon,
+  ai_chat_ask: PhoneIcon,
+  ai_report_summary: ReportIcon,
+};
+
+/** One capability (prototype .cap): icon tile, name + what it does + "waiting — needs …", switch. */
 function CapabilityRow({
   name,
   settings,
@@ -708,37 +747,32 @@ function CapabilityRow({
   const on = f[name];
   const hints = featureHints(name, f, settings);
   const kb = name === 'ai_knowledge';
+  const Icon = CAP_ICON[name] ?? SparkIcon;
+  // short hints stay in the card; the forms are listed under the cards (CapabilitiesCard)
+  const hintInCard = on && !kb && !FORM_FEATURES.has(name);
   return (
-    <li className="space-y-2 px-4 py-3" data-feature={name}>
-      <div className="flex items-start gap-3">
-        <div className="pt-0.5">
-          {kb ? (
+    <li
+      className="grid min-w-0 content-start gap-3 self-stretch rounded-xl bg-surface px-[18px] py-4 shadow-card"
+      data-feature={name}
+    >
+      <div className="grid grid-cols-[auto_minmax(0,1fr)_auto] items-start gap-3">
+        <span className="grid h-9 w-9 place-items-center rounded-[11px] bg-chip text-ink">
+          <Icon size={18} />
+        </span>
+        <div className="grid min-w-0 gap-[3px]">
+          <b className="font-semibold">{t(`features.name.${name}`)}</b>
+          <span className="text-[13px] leading-[1.45] text-ink-muted">
+            {t(`features.desc.${name}`)}
+          </span>
+          {on && info?.idle_reason && (
             <span
               className={cx(
-                'inline-block h-2 w-2 rounded-full',
-                on ? 'bg-status-up' : 'bg-status-paused',
+                TAG,
+                TAG_TONE.warning,
+                'mt-1 h-auto justify-self-start py-1 leading-snug',
               )}
-              aria-hidden
-            />
-          ) : (
-            <Toggle
-              checked={on}
-              onChange={(v) => ft.toggle(name, v)}
-              label={t(`features.name.${name}`)}
-              busy={ft.pending === name}
-            />
-          )}
-        </div>
-        <div className="min-w-0 flex-1 space-y-0.5">
-          <div className="flex flex-wrap items-baseline gap-2">
-            <span className="font-medium">{t(`features.name.${name}`)}</span>
-            <span className={cx('text-xs', on ? 'text-status-up' : 'text-ink-muted')}>
-              {on ? t('features.on') : t('features.off')}
-            </span>
-          </div>
-          <p className="text-sm text-ink-muted">{t(`features.desc.${name}`)}</p>
-          {on && info?.idle_reason && (
-            <p className="text-xs text-status-warning" data-testid="idle-reason">
+              data-testid="idle-reason"
+            >
               {t('assistant.idle', {
                 reason: info.idle_reason
                   .split(',')
@@ -749,11 +783,13 @@ function CapabilityRow({
                   )
                   .join(', '),
               })}
-            </p>
+            </span>
           )}
-          {on && info?.status_line && <p className="text-xs text-status-up">{info.status_line}</p>}
+          {on && info?.status_line && (
+            <span className="text-xs text-status-up">{info.status_line}</span>
+          )}
           {hints.map((h) => (
-            <p
+            <span
               key={h.key}
               className={cx(
                 'text-xs',
@@ -761,7 +797,7 @@ function CapabilityRow({
               )}
             >
               {t(h.key)}
-            </p>
+            </span>
           ))}
           {kb && (
             <a href="#assistant-kb" className="text-xs text-accent-ink hover:underline">
@@ -770,9 +806,21 @@ function CapabilityRow({
           )}
           {!!ft.errors[name] && <ErrorBox error={ft.errors[name]} className="mt-1" />}
         </div>
+        {kb ? (
+          <span className={cx(TAG, on ? TAG_TONE.up : TAG_TONE.neutral, 'mt-1')}>
+            {on ? t('features.on') : t('features.off')}
+          </span>
+        ) : (
+          <Toggle
+            checked={on}
+            onChange={(v) => ft.toggle(name, v)}
+            label={t(`features.name.${name}`)}
+            busy={ft.pending === name}
+          />
+        )}
       </div>
-      {on && !kb && (
-        <div className="ms-12" data-anchor={FEATURE_SETTINGS_ANCHOR[name]}>
+      {hintInCard && (
+        <div className="sm:ms-12" data-anchor={FEATURE_SETTINGS_ANCHOR[name]}>
           <FeatureSettings name={name} settings={settings} />
         </div>
       )}
@@ -783,22 +831,82 @@ function CapabilityRow({
 function CapabilitiesCard({ settings }: { settings: Settings }) {
   const { t } = useTranslation();
   const ft = useFeatureToggle();
+  const f = featuresFromSettings(settings);
+  // prototype .sec "יכולות": a title, one line, then the capability cards two per row
   return (
-    <Card
-      title={t('assistant.settings.capabilities')}
-      bodyClassName="p-0"
-      anchor={cardAnchor('assistantCapabilities')}
-    >
-      <p className="border-b border-line px-4 py-2 text-xs text-ink-muted">
-        {t('assistant.settings.capabilitiesIntro')}
-      </p>
-      <ul className="divide-y divide-line" data-testid="capabilities">
+    <section data-anchor={cardAnchor('assistantCapabilities')} className="grid gap-3.5">
+      <h2 className="m-0 mx-1 text-[20px] font-semibold tracking-[-0.01em]">
+        {t('assistant.settings.capabilities')}
+      </h2>
+      <p className="m-0 mx-1 text-sm text-ink-muted">{t('assistant.settings.capabilitiesIntro')}</p>
+      <ul
+        className="m-0 grid list-none grid-cols-1 gap-3 p-0 lg:grid-cols-2"
+        data-testid="capabilities"
+      >
         {AI_FEATURES.map((n) => (
           <CapabilityRow key={n} name={n} settings={settings} ft={ft} />
         ))}
       </ul>
+      {AI_FEATURES.filter((n) => FORM_FEATURES.has(n) && f[n]).map((n) => (
+        <Card key={n} title={t(`features.name.${n}`)}>
+          <div data-anchor={FEATURE_SETTINGS_ANCHOR[n]} data-feature-settings={n}>
+            <FeatureSettings name={n} settings={settings} />
+          </div>
+        </Card>
+      ))}
       {ft.dialogs}
-    </Card>
+    </section>
+  );
+}
+
+const STATE_TAG: Record<AssistantSettings['state'], keyof typeof TAG_TONE> = {
+  ready: 'up',
+  degraded: 'warning',
+  error: 'down',
+  disabled: 'neutral',
+  unconfigured: 'neutral',
+};
+
+/** Status at the top of the tab (prototype #c-status): ink tile, state tag, where it runs, links. */
+function StatusHero({ s, on }: { s: AssistantSettings; on: boolean }) {
+  const { t } = useTranslation();
+  const err = useAssistantErrorText();
+  return (
+    <div
+      className="grid grid-cols-[auto_minmax(0,1fr)] items-center gap-x-4 gap-y-3 rounded-xl bg-surface px-[22px] py-5 shadow-card sm:grid-cols-[auto_minmax(0,1fr)_auto]"
+      data-testid="assistant-hero"
+    >
+      <span className="grid h-12 w-12 place-items-center rounded-[15px] bg-accent text-accent-on">
+        <SparkIcon size={22} />
+      </span>
+      <span className="grid min-w-0 gap-0.5">
+        <b className="flex flex-wrap items-center gap-2 text-[18px] font-semibold">
+          {t('assistant.settings.heroTitle')}
+          <span className={cx(TAG, TAG_TONE[STATE_TAG[s.state]])}>
+            {t(`assistant.state.${s.state}`)}
+          </span>
+        </b>
+        <span className="text-sm text-ink-muted">
+          Amazon Bedrock · <bdi dir="ltr">{s.region}</bdi> ·{' '}
+          <bdi dir="ltr" className="font-display">
+            {s.model_id}
+          </bdi>
+          {' · '}
+          {t(`assistant.settings.auth.${s.auth_mode}`, { defaultValue: s.auth_mode })}
+        </span>
+        {s.state_error && <span className="text-sm text-status-down">{err(s.state_error)}</span>}
+      </span>
+      <span className="col-span-2 flex flex-wrap gap-2.5 sm:col-span-1">
+        {on && (
+          <Link to="/assistant" className={buttonClass('primary')}>
+            {t('assistant.open')}
+          </Link>
+        )}
+        <Link to="/assistant/usage" className={buttonClass()}>
+          {t('assistant.settings.usagePage')}
+        </Link>
+      </span>
+    </div>
   );
 }
 
@@ -1066,20 +1174,17 @@ export function AssistantSettingsTab({ settings }: { settings: Settings }) {
   ] as const;
   return (
     <div className="space-y-6" data-testid="assistant-settings">
-      <nav
-        className="flex flex-wrap gap-x-4 gap-y-1 text-xs"
-        aria-label={t('settings.tab.assistant')}
-      >
+      <StatusHero s={s} on={f.assistant} />
+      <nav className="flex flex-wrap gap-2" aria-label={t('settings.tab.assistant')}>
         {sections.map((k) => (
-          <a key={k} href={`#as-${k}`} className="text-accent-ink hover:underline">
+          <a
+            key={k}
+            href={`#as-${k}`}
+            className="inline-flex h-8 items-center rounded-full bg-chip px-3.5 text-[13px] font-medium text-ink-muted no-underline transition-colors hover:text-ink"
+          >
             {t(`assistant.settings.section.${k}`)}
           </a>
         ))}
-        {f.assistant && (
-          <Link to="/assistant" className="ms-auto font-medium text-accent-ink hover:underline">
-            {t('assistant.open')}
-          </Link>
-        )}
       </nav>
       <div id="as-connection">
         <ConnectionSettings s={s} auditOn={f.audit} />

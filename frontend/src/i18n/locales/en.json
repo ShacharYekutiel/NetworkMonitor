@@ -373,7 +373,22 @@
     "next": "Next page"
   },
   "notifications": {
-    "title": "Notifications"
+    "title": "Notifications",
+    "subtitle": "Channels deliver · rules decide who gets what and when",
+    "afterDelay": "after {{d}}",
+    "now": "at once",
+    "escalatesAfter": "escalation after {{d}}",
+    "remindsEvery": "reminder every {{d}}",
+    "flowTitle": "Escalation · “{{name}}”",
+    "tlStart": "The problem starts",
+    "tlNotify": "Notified at once",
+    "tlNotifyStill": "Notified if the status still holds",
+    "tlEscalate": "Not acknowledged → escalation",
+    "tlEvery": "every {{d}}",
+    "tlRemind": "Reminder until acknowledged",
+    "tlRecovery": "Recovery",
+    "tlRecoveryHint": "“Up” is sent to the same channels",
+    "noEscalation": "No escalation or reminder in this rule."
   },
   "channels": {
     "title": "Notification channels",
@@ -400,7 +415,10 @@
     "aiAsk": "Allow /ask",
     "aiAskHint": "Linked administrators can ask the assistant in a private chat with this bot.",
     "aiNoteEmail": "Send AI notes as a reply",
-    "aiNoteEmailHint": "For alert rules with an AI note: a threaded reply to the alert email."
+    "aiNoteEmailHint": "For alert rules with an AI note: a threaded reply to the alert email.",
+    "addFirst": "Add a channel",
+    "noneHint": "A channel is where alerts go: email, Telegram, Microsoft Teams or a webhook.",
+    "enabledLabel": "{{name}} enabled"
   },
   "rules": {
     "title": "Alert rules",
@@ -417,7 +435,10 @@
     "none": "No alert rules yet.",
     "deleteTitle": "Delete rule",
     "aiNote": "AI note",
-    "aiNoteHint": "After the first problem notification, a short AI note is added (Telegram edit, Teams follow-up, email reply). The alert is never delayed."
+    "aiNoteHint": "After the first problem notification, a short AI note is added (Telegram edit, Teams follow-up, email reply). The alert is never delayed.",
+    "addFirst": "Add a rule",
+    "noneHint": "A rule decides which problems are sent to which channels, and when.",
+    "enabledLabel": "{{name}} enabled"
   },
   "settings": {
     "title": "Settings",
@@ -513,7 +534,14 @@
     "you": "you",
     "deleteTitle": "Delete user",
     "source": "Source",
-    "ldapManaged": "This user is managed in Active Directory: password, role and email come from AD. You can change the language, deactivate or delete the user (deleted users are re-created at their next login)."
+    "ldapManaged": "This user is managed in Active Directory: password, role and email come from AD. You can change the language, deactivate or delete the user (deleted users are re-created at their next login).",
+    "subtitle": "Admins manage everything · viewers only see",
+    "countAdmins_one": "{{count}} admin",
+    "countAdmins_other": "{{count}} admins",
+    "countViewers_one": "{{count}} viewer",
+    "countViewers_other": "{{count}} viewers",
+    "inactive": "inactive",
+    "neverLoggedIn": "never signed in"
   },
   "account": {
     "title": "My account",
@@ -528,7 +556,14 @@
     "oidcManaged": "This account signs in with Microsoft Entra ID; its password is managed there.",
     "sessions": "Sessions",
     "sessionsHint": "Sign out ends this browser's session on the server. If you think someone else may be using your account, sign out of every browser and device at once (API tokens are not affected).",
-    "logoutEverywhere": "Sign out everywhere"
+    "logoutEverywhere": "Sign out everywhere",
+    "activeTokens_one": "{{count}} active token",
+    "activeTokens_other": "{{count}} active tokens",
+    "myTokens": "My API tokens",
+    "logoutHere": "Sign out",
+    "logoutEverywhereConfirm": "Every session of yours ends, including this one. You will sign in again on each device. API tokens keep working.",
+    "logoutEverywhereGo": "Sign out of everything",
+    "sessionsDirectoryHint": "Directory and Microsoft sign-ins end after 12 hours at the latest."
   },
   "validation": {
     "required": "Required.",
@@ -2443,6 +2478,32 @@
       "api_token": "API token",
       "assistant_conversation": "Assistant conversation",
       "assistant_message": "Assistant answer"
+    },
+    "subtitle": "Every change and every sign-in · kept {{days}} days",
+    "noneHint": "Nothing matches these filters. Widen the time range or clear a filter.",
+    "failed": "failed",
+    "removal": "removal",
+    "verb": {
+      "create": "created",
+      "update": "changed",
+      "delete": "deleted",
+      "revoke": "revoked",
+      "enable": "turned on",
+      "disable": "turned off",
+      "run": "run",
+      "test": "tested",
+      "export": "exported",
+      "ack": "acknowledged",
+      "acknowledge": "acknowledged",
+      "unacknowledge": "acknowledgement removed",
+      "settings_update": "settings changed",
+      "unlink": "unlinked"
+    },
+    "authVerb": {
+      "login": "Signed in",
+      "login_failed": "Sign-in failed",
+      "logout": "Signed out",
+      "password_change": "Password changed"
     }
   },
   "timeline": {
@@ -2489,7 +2550,14 @@
     },
     "revoke": "Revoke",
     "revokeTitle": "Revoke token",
-    "revokeConfirm": "Revoke \"{{name}}\"? Scripts using it stop working at once."
+    "revokeConfirm": "Revoke \"{{name}}\"? Scripts using it stop working at once.",
+    "daysLeft_one": "{{count}} day left",
+    "daysLeft_other": "{{count}} days left",
+    "done": "Done",
+    "noneHint": "Create a token for a script that reads or changes NetworkMonitor.",
+    "noneAllHint": "No user has created an API token yet.",
+    "showOnceTitle": "Shown only once",
+    "yourToken": "Your token"
   },
   "teams": {
     "help": "In Teams: channel → Workflows → \"Post to a channel when a webhook request is received\", then paste the URL here.",
@@ -3591,7 +3659,9 @@
         "range": "{{min}}–{{max}}",
         "time": "HH:MM",
         "money": "A number ≥ 0"
-      }
+      },
+      "heroTitle": "Assistant",
+      "usagePage": "Usage page"
     },
     "cert": {
       "title": "Roles Anywhere certificate",
@@ -3905,7 +3975,21 @@
     "cannotTitle": "The assistant could not draft a rule from this description.",
     "cannotHint": "Describe what to watch for and what should happen, for example:",
     "cannotExampleAlert": "Alert me on Telegram when any core switch is down for 2 minutes",
-    "cannotExampleEvent": "Warning when a switch logs an SSH login failure (program SSHS or sshd)"
+    "cannotExampleEvent": "Warning when a switch logs an SSH login failure (program SSHS or sshd)",
+    "examples": "Examples",
+    "manual": "Fill in by hand",
+    "stepsLabel": "Draft steps",
+    "step": {
+      "describe": "Describe",
+      "draft": "Draft",
+      "review": "Review and save"
+    },
+    "exAlert1": "Telegram when any core switch is down for 2 minutes",
+    "exAlert2": "Email the IT manager when a branch does not answer for 5 minutes",
+    "exAlert3": "Alert on every warning of the servers group",
+    "exEvent1": "Warning when a switch logs a port security violation",
+    "exEvent2": "Problem when a UPS goes on battery (trap)",
+    "exEvent3": "Warning when an SSH sign-in fails"
   },
   "tdraft": {
     "open": "Draft a template from a device",

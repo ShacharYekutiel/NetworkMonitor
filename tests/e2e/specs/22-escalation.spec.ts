@@ -69,7 +69,7 @@ test('alert rule form: Escalation section (minutes in the UI, seconds in the API
   expect(r).toMatchObject({ escalation_after_s: 60, escalation_channel_ids: [esc], repeat_every_s: 300, channel_ids: [primary], delay_s: 0 });
   ruleId = r.id;
   // List shows the escalation icon.
-  await expect(page.getByRole('row').filter({ hasText: name }).getByLabel('Escalation and reminders')).toBeVisible();
+  await expect(page.getByTestId('rule-row').filter({ hasText: name }).getByLabel('Escalation and reminders')).toBeVisible();
 });
 
 test('validation of the escalation fields (422)', async () => {

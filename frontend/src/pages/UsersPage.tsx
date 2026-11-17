@@ -7,7 +7,6 @@ import { EditIcon, PlusIcon, TrashIcon } from '../components/icons';
 import { useToast } from '../components/toast';
 import {
   Button,
-  Card,
   CHIP,
   CHIP_TONE,
   cx,
@@ -15,18 +14,18 @@ import {
   ConfirmDialog,
   ErrorBox,
   Field,
+  GroupList,
+  GroupTitle,
   Input,
   Loading,
   Modal,
   Notice,
   PageHeader,
   Select,
-  Table,
-  td,
-  th,
 } from '../components/ui';
+import { ActionRow, Avatar } from '../components/kit';
 import { useAuth } from '../hooks/auth';
-import { formatDateTime } from '../lib/format';
+import { formatDateTime, formatRelative } from '../lib/format';
 import { TokensTable } from '../components/TokensTable';
 
 /** [2b-3] Local / AD badge. */
@@ -189,88 +188,111 @@ export function UsersPage() {
       setDeleting(null);
     },
   });
+  const items = q.data?.items ?? [];
+  const admins = items.filter((u) => u.role === 'admin').length;
 
   return (
-    <div className="space-y-4">
+    <div>
       <PageHeader
         title={t('users.title')}
+        subtitle={t('users.subtitle')}
+        meta={
+          q.data && (
+            <>
+              <span>{t('users.countAdmins', { count: admins })}</span>
+              <span>{t('users.countViewers', { count: items.length - admins })}</span>
+            </>
+          )
+        }
         actions={
           <Button variant="primary" onClick={() => setEditing('new')}>
             <PlusIcon size={14} /> {t('users.add')}
           </Button>
         }
       />
-      <Card bodyClassName="p-0">
-        {q.isLoading && <Loading />}
-        <ErrorBox error={q.error} className="m-3" />
-        {q.data && (
-          <Table>
-            <thead>
-              <tr>
-                <th className={th}>{t('users.username')}</th>
-                <th className={th}>{t('users.source')}</th>
-                <th className={th}>{t('users.email')}</th>
-                <th className={th}>{t('users.role')}</th>
-                <th className={th}>{t('users.language')}</th>
-                <th className={th}>{t('users.active')}</th>
-                <th className={th}>{t('users.lastLogin')}</th>
-                <th className={th} />
-              </tr>
-            </thead>
-            <tbody>
-              {q.data.items.map((u) => (
-                <tr key={u.id} className={u.is_active ? undefined : 'opacity-60'}>
-                  <td className={`${td} font-medium`}>
+      {q.isLoading && <Loading />}
+      <ErrorBox error={q.error} className="mb-3" />
+      {q.data && (
+        <GroupList label={t('users.title')}>
+          {items.map((u) => (
+            <ActionRow
+              key={u.id}
+              testId="user-row"
+              wrap
+              dim={!u.is_active}
+              lead={<Avatar name={u.username} />}
+              onClick={() => setEditing(u)}
+              title={
+                <>
+                  <bdi dir="ltr" className="font-display">
                     {u.username}
-                    {me?.id === u.id && (
-                      <span className="ms-1 text-xs text-ink-muted">({t('users.you')})</span>
-                    )}
-                    {u.display_name && (
-                      <div className="text-xs font-normal text-ink-muted">
-                        <bdi dir="auto">{u.display_name}</bdi>
-                      </div>
-                    )}
-                  </td>
-                  <td className={td}>
-                    <SourceBadge source={u.source} />
-                  </td>
-                  <td className={td} dir="ltr">
-                    {u.email ?? '—'}
-                  </td>
-                  <td className={td}>{t(`role.${u.role}`)}</td>
-                  <td className={td}>{u.language === 'he' ? 'עברית' : 'English'}</td>
-                  <td className={td}>{u.is_active ? t('common.yes') : t('common.no')}</td>
-                  <td className={`${td} whitespace-nowrap text-ink-muted`}>
-                    {formatDateTime(u.last_login_at)}
-                  </td>
-                  <td className={`${td} whitespace-nowrap text-end`}>
-                    <Button
-                      size="sm"
-                      variant="ghost"
-                      aria-label={t('common.edit')}
-                      onClick={() => setEditing(u)}
-                    >
-                      <EditIcon size={14} />
-                    </Button>
-                    <Button
-                      size="sm"
-                      variant="ghost"
-                      aria-label={t('common.delete')}
-                      disabled={me?.id === u.id}
-                      onClick={() => setDeleting(u)}
-                    >
-                      <TrashIcon size={14} />
-                    </Button>
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </Table>
-        )}
-      </Card>
-      <Card title={t('tokens.allTitle')} bodyClassName="p-0">
-        <TokensTable all />
-      </Card>
+                  </bdi>
+                  {me?.id === u.id && (
+                    <span className="ms-1.5 text-[13px] font-normal text-ink-muted">
+                      ({t('users.you')})
+                    </span>
+                  )}
+                  {u.display_name && (
+                    <span className="ms-2 text-[13px] font-normal text-ink-muted">
+                      <bdi dir="auto">{u.display_name}</bdi>
+                    </span>
+                  )}
+                </>
+              }
+              subtitle={
+                <>
+                  {t(`role.${u.role}`)}
+                  {' · '}
+                  {t(
+                    `user.source.${u.source === 'ldap' || u.source === 'oidc' ? u.source : 'local'}`,
+                  )}
+                  {u.email && (
+                    <>
+                      {' · '}
+                      <bdi dir="ltr">{u.email}</bdi>
+                    </>
+                  )}
+                  {u.language === 'he' ? ' · עברית' : ' · English'}
+                  {!u.is_active && ` · ${t('users.inactive')}`}
+                </>
+              }
+              end={
+                <>
+                  <span
+                    className="num me-2 whitespace-nowrap text-sm font-medium text-ink-muted"
+                    title={`${t('users.lastLogin')}: ${formatDateTime(u.last_login_at)}`}
+                  >
+                    {u.last_login_at ? formatRelative(u.last_login_at) : t('users.neverLoggedIn')}
+                  </span>
+                  <Button
+                    size="sm"
+                    variant="ghost"
+                    aria-label={t('common.edit')}
+                    onClick={() => setEditing(u)}
+                  >
+                    <EditIcon size={14} />
+                  </Button>
+                  <Button
+                    size="sm"
+                    variant="ghost"
+                    aria-label={t('common.delete')}
+                    disabled={me?.id === u.id}
+                    onClick={() => setDeleting(u)}
+                  >
+                    <TrashIcon size={14} />
+                  </Button>
+                </>
+              }
+            />
+          ))}
+        </GroupList>
+      )}
+      <section aria-labelledby="all-tokens" className="mt-[26px]">
+        <GroupTitle id="all-tokens">{t('tokens.allTitle')}</GroupTitle>
+        <div className="min-w-0 overflow-hidden rounded-xl bg-surface shadow-card">
+          <TokensTable all />
+        </div>
+      </section>
       <UserModal
         open={editing !== null}
         onClose={() => setEditing(null)}

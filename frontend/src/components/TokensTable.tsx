@@ -4,13 +4,15 @@ import { useTranslation } from 'react-i18next';
 import { endpoints, qk } from '../api/endpoints';
 import type { ApiToken } from '../api/types';
 import { formatDateTime, formatRelative } from '../lib/format';
-import { sortTokens } from '../lib/tokens';
-import { ConfirmDialog, cx, Empty, ErrorBox, Loading, Button, Table, td, th } from './ui';
+import { daysLeft, sortTokens } from '../lib/tokens';
+import { KeyIcon } from './icons';
+import { EmptyState } from './kit';
+import { ConfirmDialog, cx, ErrorBox, Loading, Button, Table, TAG, TAG_TONE, td, th } from './ui';
 
-const STATE_CLS: Record<ApiToken['state'], string> = {
-  active: 'bg-status-up-soft text-status-up',
-  expired: 'bg-surface-sunken text-ink-muted',
-  revoked: 'bg-status-down-soft text-status-down',
+const STATE_TONE: Record<ApiToken['state'], keyof typeof TAG_TONE> = {
+  active: 'up',
+  expired: 'neutral',
+  revoked: 'down',
 };
 
 /** [2b-3] Token list (own, or every user's for admins with `all`) with revoke. */
@@ -29,7 +31,12 @@ export function TokensTable({ all = false }: { all?: boolean }) {
   if (q.isLoading) return <Loading />;
   if (q.error) return <ErrorBox error={q.error} className="m-3" />;
   const items = sortTokens(q.data?.items ?? []);
-  if (!items.length) return <Empty>{t('tokens.none')}</Empty>;
+  if (!items.length)
+    return (
+      <EmptyState icon={KeyIcon} title={t('tokens.none')}>
+        {all ? t('tokens.noneAllHint') : t('tokens.noneHint')}
+      </EmptyState>
+    );
   return (
     <>
       <Table>
@@ -47,26 +54,32 @@ export function TokensTable({ all = false }: { all?: boolean }) {
         </thead>
         <tbody>
           {items.map((x) => (
-            <tr key={x.id} className={x.state === 'active' ? undefined : 'opacity-60'}>
-              <td className={`${td} font-medium`}>{x.name}</td>
+            <tr
+              key={x.id}
+              className={x.state === 'active' ? undefined : 'opacity-60'}
+              data-testid="token-row"
+            >
+              <td className={`${td} font-medium`}>
+                <bdi dir="auto">{x.name}</bdi>
+              </td>
               {all && (
                 <td className={td}>
                   <bdi dir="ltr">{x.username}</bdi>
                 </td>
               )}
-              <td className={`${td} font-mono text-[13px]`}>
+              <td className={`${td} font-mono text-[13px] text-ink-muted`}>
                 <bdi dir="ltr">{x.prefix}…</bdi>
               </td>
               <td className={td}>{t(`role.${x.role}`)}</td>
               <td className={td}>
-                <span
-                  className={cx(
-                    'rounded px-1.5 py-0.5 text-[11px] font-medium',
-                    STATE_CLS[x.state],
-                  )}
-                >
+                <span className={cx(TAG, TAG_TONE[STATE_TONE[x.state]])}>
                   {t(`tokens.states.${x.state}`)}
                 </span>
+                {x.state === 'active' && daysLeft(x.expires_at) < 14 && (
+                  <span className={cx(TAG, TAG_TONE.warning, 'ms-1')}>
+                    {t('tokens.daysLeft', { count: Math.max(0, daysLeft(x.expires_at)) })}
+                  </span>
+                )}
               </td>
               <td
                 className={`${td} whitespace-nowrap text-[13px]`}
@@ -90,7 +103,12 @@ export function TokensTable({ all = false }: { all?: boolean }) {
               </td>
               <td className={`${td} text-end`}>
                 {x.state === 'active' && (
-                  <Button size="sm" variant="ghost" onClick={() => setRevoking(x)}>
+                  <Button
+                    size="sm"
+                    variant="ghost"
+                    className="text-status-down"
+                    onClick={() => setRevoking(x)}
+                  >
                     {t('tokens.revoke')}
                   </Button>
                 )}

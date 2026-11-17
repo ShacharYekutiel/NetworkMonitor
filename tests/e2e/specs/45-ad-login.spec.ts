@@ -252,5 +252,5 @@ test('UI: login hint, AD login, Settings -> Active Directory test table, profile
   await expect(page.getByRole('table').filter({ hasText: `localhost:${LDAPS_PORT}` })).toBeVisible({ timeout: 15_000 });
   await shot2b3(page, '45-ad-settings-test');
   await page.goto('/users');
-  await expect(page.getByRole('row').filter({ hasText: 'asmith' })).toContainText(tOr('user.source.ldap', 'AD'));
+  await expect(page.getByTestId('user-row').filter({ hasText: 'asmith' })).toContainText(tOr('user.source.ldap', 'AD'));
 });

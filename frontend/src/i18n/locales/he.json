@@ -383,7 +383,22 @@
     "next": "העמוד הבא"
   },
   "notifications": {
-    "title": "התראות"
+    "title": "התראות",
+    "subtitle": "ערוצים מעבירים · כללים מחליטים מי מקבל מה ומתי",
+    "afterDelay": "אחרי {{d}}",
+    "now": "מיד",
+    "escalatesAfter": "אסקלציה אחרי {{d}}",
+    "remindsEvery": "תזכורת כל {{d}}",
+    "flowTitle": "אסקלציה · ״{{name}}״",
+    "tlStart": "התקלה מתחילה",
+    "tlNotify": "נשלחת התראה מיד",
+    "tlNotifyStill": "נשלחת התראה אם המצב נמשך",
+    "tlEscalate": "אין אישור → אסקלציה",
+    "tlEvery": "כל {{d}}",
+    "tlRemind": "תזכורת עד אישור",
+    "tlRecovery": "התאוששות",
+    "tlRecoveryHint": "הודעת ״תקין״ נשלחת לאותם ערוצים",
+    "noEscalation": "אין אסקלציה או תזכורת בכלל הזה."
   },
   "channels": {
     "title": "ערוצי התראה",
@@ -410,7 +425,10 @@
     "aiAsk": "אפשר ‎/ask",
     "aiAskHint": "מנהלים מקושרים יכולים לשאול את העוזר בצ׳אט פרטי עם הבוט הזה.",
     "aiNoteEmail": "שליחת הערות AI כתשובה",
-    "aiNoteEmailHint": "לכללי התראה עם הערת AI: תשובה בשרשור של הודעת ההתראה."
+    "aiNoteEmailHint": "לכללי התראה עם הערת AI: תשובה בשרשור של הודעת ההתראה.",
+    "addFirst": "הוספת ערוץ",
+    "noneHint": "ערוץ הוא היעד של ההתראות: מייל, טלגרם, Microsoft Teams או Webhook.",
+    "enabledLabel": "{{name}} פעיל"
   },
   "rules": {
     "title": "כללי התראה",
@@ -427,7 +445,10 @@
     "none": "אין עדיין כללי התראה.",
     "deleteTitle": "מחיקת כלל",
     "aiNote": "הערת AI",
-    "aiNoteHint": "אחרי הודעת התקלה הראשונה מתווספת הערת AI קצרה (עריכה בטלגרם, הודעת המשך ב-Teams, תשובה בדוא״ל). ההתראה לעולם אינה מתעכבת."
+    "aiNoteHint": "אחרי הודעת התקלה הראשונה מתווספת הערת AI קצרה (עריכה בטלגרם, הודעת המשך ב-Teams, תשובה בדוא״ל). ההתראה לעולם אינה מתעכבת.",
+    "addFirst": "הוספת כלל",
+    "noneHint": "כלל מחליט אילו תקלות נשלחות לאילו ערוצים, ומתי.",
+    "enabledLabel": "{{name}} פעיל"
   },
   "settings": {
     "title": "הגדרות",
@@ -523,7 +544,16 @@
     "you": "את/ה",
     "deleteTitle": "מחיקת משתמש",
     "source": "מקור",
-    "ldapManaged": "משתמש זה מנוהל ב-Active Directory: הסיסמה, התפקיד והדוא\"ל מגיעים מ-AD. אפשר לשנות שפה, להשבית או למחוק את המשתמש (משתמש שנמחק ייווצר מחדש בכניסה הבאה)."
+    "ldapManaged": "משתמש זה מנוהל ב-Active Directory: הסיסמה, התפקיד והדוא\"ל מגיעים מ-AD. אפשר לשנות שפה, להשבית או למחוק את המשתמש (משתמש שנמחק ייווצר מחדש בכניסה הבאה).",
+    "subtitle": "מנהלים מנהלים הכול · צופים רואים בלבד",
+    "countAdmins_one": "מנהל אחד",
+    "countAdmins_other": "{{count}} מנהלים",
+    "countViewers_one": "צופה אחד",
+    "countViewers_other": "{{count}} צופים",
+    "inactive": "לא פעיל",
+    "neverLoggedIn": "לא התחבר מעולם",
+    "countAdmins_two": "2 מנהלים",
+    "countViewers_two": "2 צופים"
   },
   "account": {
     "title": "החשבון שלי",
@@ -538,7 +568,15 @@
     "oidcManaged": "החשבון הזה נכנס עם Microsoft Entra ID, והסיסמה שלו מנוהלת שם.",
     "sessions": "התחברויות",
     "sessionsHint": "התנתקות מסיימת בשרת את ההתחברות של הדפדפן הזה. אם ייתכן שמישהו אחר משתמש בחשבון שלכם, התנתקו בבת אחת מכל הדפדפנים והמכשירים (אסימוני API אינם מושפעים).",
-    "logoutEverywhere": "התנתקות מכל המכשירים"
+    "logoutEverywhere": "התנתקות מכל המכשירים",
+    "activeTokens_one": "אסימון פעיל אחד",
+    "activeTokens_other": "{{count}} אסימונים פעילים",
+    "myTokens": "אסימוני ה-API שלי",
+    "logoutHere": "התנתקות",
+    "logoutEverywhereConfirm": "כל ההתחברויות שלך יסתיימו, כולל זו. תצטרכו להתחבר מחדש בכל מכשיר. אסימוני API ימשיכו לעבוד.",
+    "logoutEverywhereGo": "התנתקות מהכול",
+    "sessionsDirectoryHint": "התחברויות AD, Kerberos ו-Microsoft מסתיימות לכל המאוחר אחרי 12 שעות.",
+    "activeTokens_two": "2 אסימונים פעילים"
   },
   "validation": {
     "required": "שדה חובה.",
@@ -2475,6 +2513,32 @@
       "api_token": "אסימון API",
       "assistant_conversation": "שיחה עם העוזר",
       "assistant_message": "תשובת העוזר"
+    },
+    "subtitle": "כל שינוי וכל כניסה · נשמר {{days}} יום",
+    "noneHint": "אין רשומות שמתאימות לסינון. הרחיבו את טווח הזמן או נקו מסנן.",
+    "failed": "נכשל",
+    "removal": "מחיקה",
+    "verb": {
+      "create": "נוצר",
+      "update": "שונה",
+      "delete": "נמחק",
+      "revoke": "בוטל",
+      "enable": "הופעל",
+      "disable": "כובה",
+      "run": "הרצה",
+      "test": "בדיקה",
+      "export": "ייצוא",
+      "ack": "אושר",
+      "acknowledge": "אושר",
+      "unacknowledge": "האישור בוטל",
+      "settings_update": "ההגדרות שונו",
+      "unlink": "הקישור נותק"
+    },
+    "authVerb": {
+      "login": "התחברות",
+      "login_failed": "כניסה נכשלה",
+      "logout": "התנתקות",
+      "password_change": "הסיסמה שונתה"
     }
   },
   "timeline": {
@@ -2521,7 +2585,15 @@
     },
     "revoke": "ביטול",
     "revokeTitle": "ביטול אסימון",
-    "revokeConfirm": "לבטל את \"{{name}}\"? סקריפטים שמשתמשים בו יפסיקו לעבוד מיד."
+    "revokeConfirm": "לבטל את \"{{name}}\"? סקריפטים שמשתמשים בו יפסיקו לעבוד מיד.",
+    "daysLeft_one": "נשאר יום אחד",
+    "daysLeft_other": "נשארו {{count}} ימים",
+    "done": "סיום",
+    "noneHint": "צרו אסימון לסקריפט שקורא או משנה את NetworkMonitor.",
+    "noneAllHint": "אף משתמש עוד לא יצר אסימון API.",
+    "showOnceTitle": "מוצג פעם אחת בלבד",
+    "yourToken": "האסימון שלך",
+    "daysLeft_two": "נשארו יומיים"
   },
   "teams": {
     "help": "ב-Teams: ערוץ ← Workflows ← \"Post to a channel when a webhook request is received\", ואז הדביקו כאן את הכתובת.",
@@ -3632,7 +3704,9 @@
         "range": "{{min}}–{{max}}",
         "time": "HH:MM",
         "money": "מספר ≥ 0"
-      }
+      },
+      "heroTitle": "העוזר",
+      "usagePage": "דף השימוש"
     },
     "cert": {
       "title": "תעודת Roles Anywhere",
@@ -3952,7 +4026,21 @@
     "cannotTitle": "העוזר לא הצליח להכין טיוטת כלל מהתיאור הזה.",
     "cannotHint": "תאר מה לנטר ומה צריך לקרות, למשל:",
     "cannotExampleAlert": "התרע לי בטלגרם כשמתג ליבה כלשהו מושבת במשך 2 דקות",
-    "cannotExampleEvent": "אזהרה כשמתג רושם כשל התחברות SSH (תוכנה SSHS או sshd)"
+    "cannotExampleEvent": "אזהרה כשמתג רושם כשל התחברות SSH (תוכנה SSHS או sshd)",
+    "examples": "דוגמאות",
+    "manual": "מילוי ידני",
+    "stepsLabel": "שלבי הטיוטה",
+    "step": {
+      "describe": "תיאור",
+      "draft": "טיוטה",
+      "review": "בדיקה ושמירה"
+    },
+    "exAlert1": "טלגרם כשמתג ליבה כלשהו מושבת במשך 2 דקות",
+    "exAlert2": "מייל למנהל IT כשסניף לא עונה 5 דקות",
+    "exAlert3": "התראה על כל אזהרה בקבוצת השרתים",
+    "exEvent1": "אזהרה כשמתג רושם הפרת port security",
+    "exEvent2": "תקלה כש-UPS עובר לסוללה (trap)",
+    "exEvent3": "אזהרה כשכניסת SSH נכשלת"
   },
   "tdraft": {
     "open": "טיוטת תבנית מהתקן",
