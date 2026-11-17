@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { OverviewMapNode } from '../api/premium';
-import { edgePath, elapsed, layoutMap, mapIcon } from './homeMap';
+import { edgePath, elapsed, layoutMap, MAP_LABEL, MAP_TILE, mapIcon } from './homeMap';
 
 const node = (
   id: string,
@@ -57,6 +57,21 @@ describe('home map layout', () => {
   it('draws straight lines for a chain and rounded buses otherwise', () => {
     expect(edgePath({ x: 10, y: 0 }, { x: 10, y: 200 })).toMatch(/^M10 \S+V\S+$/);
     expect(edgePath({ x: 10, y: 0 }, { x: 110, y: 200 })).toContain('Q');
+  });
+
+  it('starts a link below the whole label block of its parent (name + caption)', () => {
+    const start = (d: string) => Number(/^M\S+ (\S+)V/.exec(d)![1]);
+    for (const b of [
+      { x: 10, y: 160 },
+      { x: 140, y: 160 },
+    ])
+      expect(start(edgePath({ x: 10, y: 0 }, b))).toBeGreaterThan(MAP_TILE / 2 + MAP_LABEL);
+    // the bus of a row of children still sits between the parent's caption and the child tiles
+    const l = layoutMap([node('r', null), node('a', 'r'), node('b', 'r')], [], { minWidth: 400 });
+    for (const e of l.edges) {
+      const ys = [...e.d.matchAll(/[MVQ ]-?[\d.]+ (-?[\d.]+)/g)].map((m) => Number(m[1]));
+      expect(Math.min(...ys)).toBeGreaterThan(e.from.y + MAP_TILE / 2 + MAP_LABEL);
+    }
   });
 
   it('picks icons by role and by group name', () => {

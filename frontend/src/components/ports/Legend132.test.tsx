@@ -30,6 +30,16 @@ describe('[1.3.2] faceplate legend labels and hints', () => {
     expect(ea.getAttribute('title')).toContain('חיישן ממשק');
   });
 
+  it('leaves the device kinds out when no port has a detected kind', () => {
+    const { unmount } = render(<FaceplateLegend />);
+    expect(screen.getByTestId('legend-kind-computer')).toBeTruthy();
+    unmount();
+    render(<FaceplateLegend kinds={false} />);
+    expect(screen.queryByTestId('legend-kind-computer')).toBeNull();
+    expect(screen.getByTestId('legend-up')).toBeTruthy();
+    expect(screen.getByTestId('legend-trunk').textContent).toContain('Trunk');
+  });
+
   it('en and he define the same hint keys', () => {
     expect(Object.keys(he.ports.legendHint).sort()).toEqual(
       Object.keys(en.ports.legendHint).sort(),

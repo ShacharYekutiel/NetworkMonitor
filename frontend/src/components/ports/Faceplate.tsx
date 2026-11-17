@@ -372,25 +372,30 @@ const LEGEND_TILES: { kind: TileKind; key: string }[] = [
   { kind: 'disabled', key: 'disabled' },
 ];
 
-/** Under the panel (BUILD.md § 5): the icons of what is connected, then the port states. */
-export function FaceplateLegend() {
+/** Under the panel (BUILD.md § 5): the icons of what is connected, then the port states.
+ * `kinds` false (no port on the device has a detected kind) leaves the device-kind entries out. */
+export function FaceplateLegend({ kinds = true }: { kinds?: boolean }) {
   const { t } = useTranslation();
-  const item = 'inline-flex items-center gap-1.5 whitespace-nowrap';
+  const item = 'inline-flex items-center gap-2 whitespace-nowrap';
   return (
     <div
-      className="flex flex-wrap items-center justify-center gap-x-[18px] gap-y-2 text-[12.5px] text-ink-muted"
+      className="flex flex-wrap items-center justify-center gap-x-5 gap-y-2.5 text-[12.5px] text-ink-muted"
       data-testid="faceplate-legend"
     >
-      {CONNECTED_KINDS.map((k) => {
-        const Icon = KIND_ICONS[k];
-        return (
-          <span key={k} className={item} data-testid={`legend-kind-${k}`}>
-            <Icon size={15} className="text-ink" />
-            {t(`ports.connectedKind.${k}`)}
-          </span>
-        );
-      })}
-      <span className="h-3.5 w-px bg-line-strong" aria-hidden="true" />
+      {kinds && (
+        <>
+          {CONNECTED_KINDS.map((k) => {
+            const Icon = KIND_ICONS[k];
+            return (
+              <span key={k} className={item} data-testid={`legend-kind-${k}`}>
+                <Icon size={15} className="text-ink" />
+                {t(`ports.connectedKind.${k}`)}
+              </span>
+            );
+          })}
+          <span className="h-3.5 w-px bg-line-strong" aria-hidden="true" />
+        </>
+      )}
       {/* [1.3.2] each state explains itself on hover (title) */}
       {LEGEND_TILES.map((l) => (
         <span
@@ -407,12 +412,24 @@ export function FaceplateLegend() {
           {t(`ports.legend.${l.key}`)}
         </span>
       ))}
-      <span className={item}>
-        <TileGlyph kind="up" icon="switch" trunk className="!h-[18px] !w-[18px] !p-[2px]" />
+      <span className="h-3.5 w-px bg-line-strong" aria-hidden="true" />
+      {/* the two port marks on their own, the size they have on the panel's tiles, never overlapping */}
+      <span className={item} data-testid="legend-trunk">
+        <span
+          aria-hidden="true"
+          className="flex h-4 w-4 items-center justify-center rounded-full bg-[#1c1c1e] text-[#3fe066] ring-1 ring-[#3fe066]"
+        >
+          <TrunkIcon size={10} strokeWidth={3} />
+        </span>
         {t('ports.legend.trunk')}
       </span>
-      <span className={item}>
-        <TileGlyph kind="up" icon="computer" badge="12" className="!h-[18px] !w-[18px] !p-[2px]" />
+      <span className={item} data-testid="legend-mac-count">
+        <span
+          aria-hidden="true"
+          className="num min-w-[18px] rounded-full bg-white px-1 text-center text-[10px] font-semibold leading-4 text-black ring-1 ring-[#111]"
+        >
+          12
+        </span>
         {t('ports.legend.macCount')}
       </span>
     </div>

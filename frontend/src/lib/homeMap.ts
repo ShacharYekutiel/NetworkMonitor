@@ -3,8 +3,11 @@
 import type { MapLinkStatus, OverviewMapLink, OverviewMapNode } from '../api/premium';
 
 export const MAP_TILE = 64;
-/** Height of the name + one-line caption under a tile. */
-export const MAP_LABEL = 40;
+/**
+ * Height of the label block under a tile (HomeMap NodeTile): 7px margin + 3px gap + the 20px name
+ * line + 3px gap + the 16px caption line. Links start below it, never through the caption.
+ */
+export const MAP_LABEL = 50;
 
 export type PlacedNode = { node: OverviewMapNode; x: number; y: number; depth: number };
 export type PlacedEdge = { from: PlacedNode; to: PlacedNode; status: MapLinkStatus; d: string };
@@ -21,7 +24,7 @@ export function layoutMap(
   {
     minWidth,
     colWidth = 132,
-    rowHeight = 150,
+    rowHeight = 160,
     top = 48,
   }: {
     minWidth: number;
@@ -114,7 +117,7 @@ export function layoutMap(
 
 /** Parent bottom (under its caption) -> a bus line above the child -> child top, rounded corners. */
 export function edgePath(a: { x: number; y: number }, b: { x: number; y: number }): string {
-  const y0 = a.y + MAP_TILE / 2 + MAP_LABEL + 4;
+  const y0 = a.y + MAP_TILE / 2 + MAP_LABEL + 6;
   const y1 = b.y - MAP_TILE / 2 - 6;
   if (Math.abs(a.x - b.x) < 0.5) return `M${r1(a.x)} ${r1(y0)}V${r1(y1)}`;
   const my = y1 - 18;

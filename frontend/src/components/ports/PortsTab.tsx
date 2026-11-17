@@ -8,6 +8,7 @@ import { useAuth } from '../../hooks/auth';
 import { errorMessage } from '../../lib/errors';
 import { formatRelative } from '../../lib/format';
 import { onPortsUpdated, refetchIfInvalidated } from '../../lib/liveCache';
+import { portDeviceKind } from '../../lib/ports';
 import { ListIcon, PanelIcon, RefreshIcon } from '../icons';
 import { useToast } from '../toast';
 import { Button, buttonClass, Card, cx, ErrorBox, Loading, Notice } from '../ui';
@@ -238,7 +239,7 @@ export function PortsTab({ device }: { device: Device }) {
                 model={device.identity?.model ?? device.identity?.vendor ?? device.description}
                 status={device.status}
               />
-              <FaceplateLegend />
+              <FaceplateLegend kinds={data.ports.some((p) => portDeviceKind(p) !== null)} />
             </div>
           ) : (
             <Card bodyClassName="p-4">

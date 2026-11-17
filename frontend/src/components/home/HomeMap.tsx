@@ -82,13 +82,13 @@ function NodeTile({ n, x, y }: { n: OverviewMapNode; x: number; y: number }) {
       </span>
       <b
         dir={latin ? 'ltr' : undefined}
-        className="max-w-[150px] truncate text-sm font-semibold [font-family:var(--font-display)]"
+        className="max-w-[150px] truncate text-sm font-semibold leading-5 [font-family:var(--font-display)]"
       >
         {name}
       </b>
       <small
         className={cx(
-          'inline-flex max-w-[160px] items-center gap-[5px] truncate text-xs',
+          'inline-flex max-w-[160px] items-center gap-[5px] truncate text-xs leading-4',
           bad ? 'text-ink' : 'text-ink-muted',
         )}
       >
