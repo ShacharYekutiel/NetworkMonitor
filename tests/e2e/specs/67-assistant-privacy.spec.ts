@@ -164,7 +164,11 @@ test('audit: question / tool_call / answer rows exist for every question, withou
   expect(changes(an)).toMatchObject({ status: 'complete', model_calls: 2, tool_calls: 1 });
   // the audit page lists them (and the CSV export has no question text either)
   await loginViaApi(page, undefined, '/audit');
-  await expect(page.getByText('assistant.question').first()).toBeVisible({ timeout: 20_000 });
+  // rows read "AI assistant · question"; the action code is in the detail card of the selected row
+  const qRow = page.getByTestId('audit-row').filter({ hasText: /AI assistant · question/ }).first();
+  await expect(qRow).toBeVisible({ timeout: 20_000 });
+  await qRow.click();
+  await expect(page.locator('section').filter({ has: page.getByTestId('audit-detail') }).getByText('assistant.question', { exact: true })).toBeVisible();
   const csv = await (await api.ctx.fetch(`/api/audit/export.csv?action=assistant.`)).text();
   expect(csv).not.toContain('QA3B-AUDIT-PROBE-4412');
 });
