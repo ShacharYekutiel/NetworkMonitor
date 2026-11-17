@@ -5,9 +5,10 @@ import { endpoints, qk } from '../../api/endpoints';
 import { endpoints3b, qk3b } from '../../api/endpoints3b';
 import type { DiffFlag, RiskSeverity } from '../../api/types';
 import { formatCost } from '../../lib/assistant';
-import { SparkIcon } from '../icons';
+import { CheckIcon, RefreshIcon, SparkIcon } from '../icons';
+import { AiTag } from '../kit';
 import { Button, cx, ErrorBox, Spinner, TAG, TAG_TONE } from '../ui';
-import { AiBadge, AiNotice, useAiFeature, useAssistantErrorText } from './common';
+import { AiNotice, useAiFeature, useAssistantErrorText } from './common';
 
 const SEV_CLS: Record<RiskSeverity, string> = {
   high: TAG_TONE.down,
@@ -67,9 +68,25 @@ export function DiffExplain({
   );
   const ai = explain.data?.ai;
   return (
-    <div className="space-y-2 border-b border-line p-3" data-testid="diff-explain">
-      <div className="flex flex-wrap items-center gap-2">
-        <h3 className="text-sm font-semibold">{t('diffRisk.title')}</h3>
+    // prototype "סקירת השינוי": a card with the flags as rows (tag, what, where, "to line"),
+    // the AI text under them, "explain again" at the end
+    <section
+      className="grid gap-1 rounded-xl bg-surface px-[22px] pb-5 pt-4 shadow-card"
+      data-testid="diff-explain"
+      aria-labelledby="diff-explain-title"
+    >
+      <header className="flex min-h-[40px] flex-wrap items-center gap-2.5">
+        <h2 id="diff-explain-title" className="m-0 text-[17px] font-semibold">
+          {t('diffRisk.title')}
+        </h2>
+        {ai && <AiTag />}
+        {ai && (
+          <span className="text-[13px] text-ink-muted">
+            {t('diffRisk.confidence', { level: t(`confidence3.${ai.confidence}`) })}
+            {explain.data?.cost_estimate != null &&
+              ` · ≈ ${formatCost(explain.data.cost_estimate, null)}`}
+          </span>
+        )}
         {flags.isLoading && <Spinner className="h-3.5 w-3.5" />}
         <span className="flex-1" />
         <Button
@@ -78,59 +95,64 @@ export function DiffExplain({
           busy={explain.isPending}
           data-testid="diff-explain-button"
         >
-          <SparkIcon size={12} className="text-accent-ink" />
+          {explain.data ? <RefreshIcon size={13} /> : <SparkIcon size={13} />}
           {explain.data ? t('diffRisk.refresh') : t('diffRisk.explain')}
         </Button>
-      </div>
+      </header>
       <ErrorBox error={flags.error} />
       {flags.data && !list.length && (
-        <p className="text-xs text-ink-muted">{t('diffRisk.noFlags')}</p>
+        <div className="flex items-center gap-2.5 rounded-[14px] bg-status-up-soft px-3.5 py-3 text-sm">
+          <CheckIcon size={16} className="text-status-up" />
+          {t('diffRisk.noFlags')}
+        </div>
       )}
       {list.length > 0 && (
-        <ul className="space-y-1" data-testid="diff-flags">
+        <ul
+          className="m-0 list-none p-0 [&>li+li]:border-t [&>li+li]:border-line"
+          data-testid="diff-flags"
+        >
           {list.map((f, i) => (
-            <li key={`${f.rule_id}-${i}`} className="flex flex-wrap items-center gap-2 text-sm">
+            <li
+              key={`${f.rule_id}-${i}`}
+              className="grid grid-cols-[auto_minmax(0,1fr)_auto] items-center gap-3 py-3"
+            >
               <SeverityChip severity={f.severity} />
-              <button
-                type="button"
-                className="text-start hover:underline"
-                onClick={() => onLines?.(f.lines)}
-                data-rule={f.rule_id}
-              >
-                {t(f.title_key, {
-                  defaultValue: t(`diffRisk.${f.rule_id}`, { defaultValue: f.rule_id }),
-                })}
-              </button>
-              <span className="text-xs text-ink-muted">
-                {t(`diffRisk.side.${f.side}`)}
-                {f.lines.length > 0 && (
-                  <>
-                    {' · '}
-                    <bdi dir="ltr">
-                      {t('diffRisk.lines', { lines: f.lines.slice(0, 6).join(', ') })}
-                    </bdi>
-                  </>
-                )}
+              <span className="grid gap-0.5">
+                <b className="font-medium">
+                  {t(f.title_key, {
+                    defaultValue: t(`diffRisk.${f.rule_id}`, { defaultValue: f.rule_id }),
+                  })}
+                </b>
+                <span className="text-[13px] text-ink-muted">
+                  {t(`diffRisk.side.${f.side}`)}
+                  {f.lines.length > 0 && (
+                    <>
+                      {' · '}
+                      <bdi dir="ltr">
+                        {t('diffRisk.lines', { lines: f.lines.slice(0, 6).join(', ') })}
+                      </bdi>
+                    </>
+                  )}
+                </span>
               </span>
+              {f.lines.length > 0 && onLines && (
+                <Button size="sm" onClick={() => onLines(f.lines)} data-rule={f.rule_id}>
+                  {t('diffRisk.toLine')}
+                </Button>
+              )}
             </li>
           ))}
         </ul>
       )}
       <ErrorBox error={explain.error} />
       {explain.data?.status === 'failed' && explain.data.error && (
-        <p role="alert" className="text-sm text-status-down">
+        <p role="alert" className="m-0 text-sm text-status-down">
           {errText(explain.data.error)}
         </p>
       )}
       {ai && (
-        <div className="space-y-2 rounded-md bg-accent-soft p-2" data-testid="diff-ai">
-          <div className="flex items-center gap-2 text-xs text-ink-muted">
-            <AiBadge />
-            {t('diffRisk.confidence', { level: t(`confidence3.${ai.confidence}`) })}
-            {explain.data?.cost_estimate != null &&
-              ` · ≈ ${formatCost(explain.data.cost_estimate, null)}`}
-          </div>
-          <ul className="list-disc space-y-0.5 ps-5 text-sm">
+        <div className="grid gap-3 border-t border-line pt-3" data-testid="diff-ai">
+          <ul className="m-0 grid gap-1.5 ps-5 leading-relaxed">
             {ai.summary.map((s, i) => (
               <li key={i} dir="auto">
                 {s}
@@ -138,9 +160,9 @@ export function DiffExplain({
             ))}
           </ul>
           {ai.risks.length > 0 && (
-            <ul className="space-y-1">
+            <ul className="m-0 grid list-none gap-2.5 p-0">
               {ai.risks.map((r, i) => (
-                <li key={i} className="text-sm">
+                <li key={i} className="grid gap-1">
                   <span className="inline-flex flex-wrap items-center gap-2">
                     <SeverityChip severity={r.severity} />
                     <button
@@ -152,17 +174,19 @@ export function DiffExplain({
                       {r.title}
                     </button>
                   </span>
-                  <p className="text-xs text-ink-muted" dir="auto">
+                  <p className="m-0 text-[13.5px] text-ink-muted" dir="auto">
                     {r.explanation}
                   </p>
                 </li>
               ))}
             </ul>
           )}
-          {ai.truncated && <p className="text-xs text-status-warning">{t('diffRisk.truncated')}</p>}
+          {ai.truncated && (
+            <p className="m-0 text-xs text-status-warning">{t('diffRisk.truncated')}</p>
+          )}
           <AiNotice />
         </div>
       )}
-    </div>
+    </section>
   );
 }

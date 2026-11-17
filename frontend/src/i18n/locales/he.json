@@ -2634,7 +2634,15 @@
       "no_credentials": "אין פרטי SSH בהתקן או בקבוצות שלו.",
       "no_driver": "אין מנהל התקן שמתאים להתקן הזה; בחרו אחד בהגדרות ההתקן.",
       "host_key_changed": "מפתח ה-SSH של ההתקן השתנה; אשרו את המפתח החדש או אפסו אותו."
-    }
+    },
+    "diffMode": "תצוגת ההשוואה",
+    "changedAt": "השתנה {{when}}",
+    "noChange": "ללא שינוי",
+    "kept": "שמורות",
+    "versionsN_one": "גרסה אחת",
+    "versionsN_two": "2 גרסאות",
+    "versionsN_other": "{{count}} גרסאות",
+    "devices": "התקנים"
   },
   "driver": {
     "label": "מנהל התקן",
@@ -3850,7 +3858,9 @@
     "interface_enabled": "ממשק הופעל",
     "vlan_removed": "הוסר VLAN",
     "vlan_removed_cmd": "הוסר VLAN",
-    "routing_changed": "שונה ניתוב"
+    "routing_changed": "שונה ניתוב",
+    "toLine": "לשורה",
+    "riskTag": "סיכון {{level}}"
   },
   "digest": {
     "title": "תקציר syslog",

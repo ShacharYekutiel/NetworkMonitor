@@ -6,11 +6,13 @@ import { isApiError } from '../../api/client';
 import { endpoints3, qk3 } from '../../api/endpoints3';
 import type { Device } from '../../api/types';
 import type { BackupStatus, ConfigVersion } from '../../api/types3';
+import type { DiffFlag, RiskSeverity } from '../../api/types';
+import { endpoints3b, qk3b } from '../../api/endpoints3b';
+import { useAiFeature } from '../assistant/common';
 import { useAuth } from '../../hooks/auth';
 import { errorMessage } from '../../lib/errors';
 import { formatDateTime, formatRelative } from '../../lib/format';
 import {
-  changeStat,
   hostKeyChanged,
   parseUnifiedDiff,
   resultTone,
@@ -31,8 +33,11 @@ import {
   ErrorBox,
   Loading,
   Notice,
+  SegmentedControl,
   Select,
   Table,
+  TAG,
+  TAG_TONE,
   td,
   th,
 } from '../ui';
@@ -40,21 +45,19 @@ import {
 export function ResultBadge({ s }: { s: Pick<BackupStatus, 'last_result' | 'running'> }) {
   const { t } = useTranslation();
   if (s.running)
-    return (
-      <span className="inline-flex items-center gap-1 rounded bg-accent-soft px-1.5 py-0.5 text-xs font-medium text-accent-ink">
-        <span className="h-2 w-2 rounded-full bg-accent" />
-        {t('configBackup.running')}
-      </span>
-    );
+    return <span className={cx(TAG, TAG_TONE.accent)}>{t('configBackup.running')}</span>;
   const tone = resultTone(s.last_result);
   return (
     <span
       className={cx(
-        'rounded px-1.5 py-0.5 text-xs font-medium',
-        tone === 'ok' && 'bg-status-up-soft text-status-up',
-        tone === 'error' && 'bg-status-down-soft text-status-down',
-        tone === 'warn' && 'bg-status-warning-soft text-status-warning',
-        tone === 'muted' && 'bg-surface-sunken text-ink',
+        TAG,
+        tone === 'ok'
+          ? TAG_TONE.up
+          : tone === 'error'
+            ? TAG_TONE.down
+            : tone === 'warn'
+              ? TAG_TONE.warning
+              : TAG_TONE.neutral,
       )}
     >
       {s.last_result ? t(`configBackup.result.${s.last_result}`) : t('configBackup.never')}
@@ -77,17 +80,49 @@ function useWide(minPx: number): boolean {
   return wide;
 }
 
+// prototype .code: added lines green, removed red, hunk headers grey
 const rowTone: Record<DiffRow['type'], string> = {
   add: 'bg-status-up-soft text-status-up',
   del: 'bg-status-down-soft text-status-down',
-  hunk: 'bg-accent-soft text-accent-ink',
-  context: '',
+  hunk: 'text-ink-subtle',
+  context: 'text-ink',
   meta: 'text-ink-muted',
 };
 
-function UnifiedDiff({ rows, hl }: { rows: DiffRow[]; hl?: ReadonlySet<number> }) {
+const RISK_TAG: Record<RiskSeverity, string> = {
+  high: 'bg-status-down text-white',
+  medium: 'bg-status-warning text-white',
+  info: 'bg-surface text-ink-muted',
+};
+const SEV_RANK: Record<RiskSeverity, number> = { high: 3, medium: 2, info: 1 };
+
+/** Worst flag severity per unified-diff line (the inline risk tags of the prototype). */
+function riskByLine(flags: DiffFlag[] | undefined): Map<number, RiskSeverity> {
+  const m = new Map<number, RiskSeverity>();
+  for (const f of flags ?? [])
+    for (const l of f.lines) {
+      const cur = m.get(l);
+      if (!cur || SEV_RANK[f.severity] > SEV_RANK[cur]) m.set(l, f.severity);
+    }
+  return m;
+}
+
+function UnifiedDiff({
+  rows,
+  hl,
+  risks,
+}: {
+  rows: DiffRow[];
+  hl?: ReadonlySet<number>;
+  risks?: Map<number, RiskSeverity>;
+}) {
+  const { t } = useTranslation();
   return (
-    <table dir="ltr" className="w-full font-mono text-[13px]" data-testid="diff-unified">
+    <table
+      dir="ltr"
+      className="w-full font-mono text-[12.5px] leading-[1.65]"
+      data-testid="diff-unified"
+    >
       <tbody>
         {rows
           // [3b] line = 1-based line of the unified diff text (risk flags refer to it)
@@ -102,12 +137,26 @@ function UnifiedDiff({ rows, hl }: { rows: DiffRow[]; hl?: ReadonlySet<number> }
                 hl?.has(line) && 'outline outline-2 -outline-offset-2 outline-status-warning',
               )}
             >
-              <td className="w-10 select-none pe-2 text-right text-ink-subtle">{r.oldNo ?? ''}</td>
+              <td className="w-12 select-none ps-4 pe-2 text-right text-ink-subtle">
+                {r.oldNo ?? ''}
+              </td>
               <td className="w-10 select-none pe-2 text-right text-ink-subtle">{r.newNo ?? ''}</td>
-              <td className="w-4 select-none text-ink-muted">
+              <td className="w-4 select-none opacity-70">
                 {r.type === 'add' ? '+' : r.type === 'del' ? '−' : ''}
               </td>
-              <td className="whitespace-pre-wrap break-all text-left">{r.text}</td>
+              <td className="whitespace-pre-wrap break-all pe-4 text-left">
+                {risks?.get(line) && (
+                  <span
+                    className={cx(
+                      'float-right ms-3 rounded-full px-2 py-px font-sans text-[11px] font-semibold',
+                      RISK_TAG[risks.get(line)!],
+                    )}
+                  >
+                    {t(`diffRisk.severity.${risks.get(line)!}`)}
+                  </span>
+                )}
+                {r.text}
+              </td>
             </tr>
           ))}
       </tbody>
@@ -118,9 +167,13 @@ function UnifiedDiff({ rows, hl }: { rows: DiffRow[]; hl?: ReadonlySet<number> }
 function SideDiff({ rows }: { rows: DiffRow[] }) {
   const pairs = useMemo(() => sideBySide(rows), [rows]);
   return (
-    <table dir="ltr" className="w-full table-fixed font-mono text-[13px]" data-testid="diff-side">
+    <table
+      dir="ltr"
+      className="w-full table-fixed font-mono text-[12.5px] leading-[1.65]"
+      data-testid="diff-side"
+    >
       <colgroup>
-        <col className="w-10" />
+        <col className="w-12" />
         <col />
         <col className="w-10" />
         <col />
@@ -129,16 +182,18 @@ function SideDiff({ rows }: { rows: DiffRow[] }) {
         {pairs.map((p, i) =>
           p.hunk ? (
             <tr key={i} className={rowTone.hunk}>
-              <td colSpan={4} className="px-1 text-left">
+              <td colSpan={4} className="px-4 text-left">
                 {p.hunk}
               </td>
             </tr>
           ) : (
             <tr key={i}>
-              <td className="select-none pe-2 text-right text-ink-subtle">{p.left?.oldNo ?? ''}</td>
+              <td className="select-none ps-4 pe-2 text-right text-ink-subtle">
+                {p.left?.oldNo ?? ''}
+              </td>
               <td
                 className={cx(
-                  'whitespace-pre-wrap break-all text-left',
+                  'whitespace-pre-wrap break-all border-e border-line pe-3 text-left',
                   p.left && p.left.type === 'del' && rowTone.del,
                 )}
               >
@@ -149,7 +204,7 @@ function SideDiff({ rows }: { rows: DiffRow[] }) {
               </td>
               <td
                 className={cx(
-                  'whitespace-pre-wrap break-all text-left',
+                  'whitespace-pre-wrap break-all pe-4 text-left',
                   p.right && p.right.type === 'add' && rowTone.add,
                 )}
               >
@@ -167,7 +222,12 @@ function versionLabel(t: (k: string, o?: Record<string, unknown>) => string, v: 
   return `${t('configBackup.versionNo', { n: v.version_no })} · ${formatDateTime(v.collected_at)}`;
 }
 
-function DiffView({
+/**
+ * Two versions compared (prototype "השוואה"): from / to, unified or side by side, the change
+ * statistics and download; the risk review card (DiffExplain) above the code; flagged lines carry
+ * an inline risk tag in the unified view.
+ */
+export function DiffView({
   deviceId,
   versions,
   initialFrom,
@@ -192,6 +252,13 @@ function DiffView({
     queryFn: () => endpoints3.configDiff(deviceId, from, to),
   });
   const rows = useMemo(() => parseUnifiedDiff(q.data?.diff ?? ''), [q.data]);
+  const aiOn = useAiFeature('ai_config_diff');
+  const flags = useQuery({
+    queryKey: qk3b.diffFlags(deviceId, q.data?.from.id ?? 0, q.data?.to.id ?? 0),
+    queryFn: () => endpoints3b.diffFlags(deviceId, q.data!.from.id, q.data!.to.id),
+    enabled: aiOn && !!q.data,
+  });
+  const risks = useMemo(() => riskByLine(flags.data?.flags), [flags.data]);
   // [3b] risk flags / AI risks point at diff lines
   const [hl, setHl] = useState<ReadonlySet<number>>(new Set());
   const scrollRef = useRef<HTMLDivElement>(null);
@@ -204,53 +271,11 @@ function DiffView({
         ?.scrollIntoView({ block: 'center', behavior: 'smooth' }),
     );
   };
+  const side = wide && mode === 'auto';
+  const changed = rows.some((r) => r.type === 'add' || r.type === 'del');
   return (
-    <Card
-      title={t('configBackup.diff')}
-      bodyClassName="p-0"
-      actions={
-        q.data && (
-          <span className="text-xs tabular-nums">
-            <bdi dir="ltr">{changeStat(q.data.added, q.data.removed)}</bdi>
-          </span>
-        )
-      }
-    >
-      <div className="flex flex-wrap items-end gap-2 border-b border-line p-3 text-sm">
-        <label className="flex items-center gap-1">
-          <span className="text-xs text-ink-muted">{t('configBackup.from')}</span>
-          <Select value={from} onChange={(e) => setFrom(Number(e.target.value))} className="w-auto">
-            {versions.map((v) => (
-              <option key={v.id} value={v.id}>
-                {versionLabel(t, v)}
-              </option>
-            ))}
-          </Select>
-        </label>
-        <label className="flex items-center gap-1">
-          <span className="text-xs text-ink-muted">{t('configBackup.to')}</span>
-          <Select
-            value={to ?? ''}
-            onChange={(e) => setTo(e.target.value ? Number(e.target.value) : null)}
-            className="w-auto"
-          >
-            <option value="">{t('configBackup.latest')}</option>
-            {versions.map((v) => (
-              <option key={v.id} value={v.id}>
-                {versionLabel(t, v)}
-              </option>
-            ))}
-          </Select>
-        </label>
-        {wide && (
-          <Button size="sm" onClick={() => setMode((m) => (m === 'auto' ? 'unified' : 'auto'))}>
-            {mode === 'auto' ? t('configBackup.unified') : t('configBackup.sideBySide')}
-          </Button>
-        )}
-      </div>
-      {q.isLoading && <Loading />}
-      <ErrorBox error={q.error} className="m-3" />
-      {q.data && rows.some((r) => r.type === 'add' || r.type === 'del') && (
+    <div className="grid gap-4" data-testid="diff-view">
+      {q.data && changed && (
         <DiffExplain
           deviceId={deviceId}
           from={q.data.from.id}
@@ -258,18 +283,86 @@ function DiffView({
           onLines={showLines}
         />
       )}
-      {q.data?.truncated && (
-        <p className="px-3 pt-2 text-xs text-status-warning">{t('configBackup.diffTruncated')}</p>
-      )}
-      {q.data && !rows.some((r) => r.type === 'add' || r.type === 'del') && (
-        <Empty>{t('configBackup.noDifferences')}</Empty>
-      )}
-      {q.data && rows.length > 0 && (
-        <div className="max-h-[70vh] overflow-auto p-2" ref={scrollRef}>
-          {wide && mode === 'auto' ? <SideDiff rows={rows} /> : <UnifiedDiff rows={rows} hl={hl} />}
+      <Card
+        title={t('configBackup.diff')}
+        bodyClassName="px-[22px] pb-5 pt-1"
+        actions={
+          <>
+            {q.data && (
+              <span className="num text-[13px] font-medium" dir="ltr">
+                <span className="text-status-up">+{q.data.added}</span>{' '}
+                <span className="text-status-down">−{q.data.removed}</span>
+              </span>
+            )}
+            {wide && (
+              <SegmentedControl
+                label={t('configBackup.diffMode')}
+                size="sm"
+                value={side ? 'side' : 'unified'}
+                onChange={(v) => setMode(v === 'side' ? 'auto' : 'unified')}
+                options={[
+                  { value: 'unified', label: t('configBackup.unified') },
+                  { value: 'side', label: t('configBackup.sideBySide') },
+                ]}
+              />
+            )}
+            {q.data && (
+              <a
+                className={buttonClass('secondary', 'sm')}
+                href={endpoints3.configDownloadUrl(deviceId, q.data.to.id)}
+                download
+              >
+                {t('configBackup.download')}
+              </a>
+            )}
+          </>
+        }
+      >
+        <div className="mb-4 flex flex-wrap items-center gap-3 text-sm">
+          <label className="flex items-center gap-2">
+            <span className="text-ink-muted">{t('configBackup.from')}</span>
+            <Select
+              value={from}
+              onChange={(e) => setFrom(Number(e.target.value))}
+              className="w-auto"
+            >
+              {versions.map((v) => (
+                <option key={v.id} value={v.id}>
+                  {versionLabel(t, v)}
+                </option>
+              ))}
+            </Select>
+          </label>
+          <label className="flex items-center gap-2">
+            <span className="text-ink-muted">{t('configBackup.to')}</span>
+            <Select
+              value={to ?? ''}
+              onChange={(e) => setTo(e.target.value ? Number(e.target.value) : null)}
+              className="w-auto"
+            >
+              <option value="">{t('configBackup.latest')}</option>
+              {versions.map((v) => (
+                <option key={v.id} value={v.id}>
+                  {versionLabel(t, v)}
+                </option>
+              ))}
+            </Select>
+          </label>
         </div>
-      )}
-    </Card>
+        {q.isLoading && <Loading />}
+        <ErrorBox error={q.error} />
+        {q.data?.truncated && (
+          <p className="m-0 mb-2 text-xs text-status-warning">{t('configBackup.diffTruncated')}</p>
+        )}
+        {q.data && !changed && <Empty>{t('configBackup.noDifferences')}</Empty>}
+        {q.data && rows.length > 0 && (
+          // prototype .code: chip background, radius 16, mono 12.5/1.65, LTR
+          <div className="max-h-[70vh] overflow-auto rounded-[16px] bg-chip py-3.5" ref={scrollRef}>
+            {side ? <SideDiff rows={rows} /> : <UnifiedDiff rows={rows} hl={hl} risks={risks} />}
+          </div>
+        )}
+      </Card>
+    </div>
   );
 }
 

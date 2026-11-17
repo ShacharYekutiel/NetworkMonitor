@@ -2602,7 +2602,14 @@
       "no_credentials": "No SSH credentials on the device or its groups.",
       "no_driver": "No driver matches this device; choose one in the device settings.",
       "host_key_changed": "The SSH host key changed; accept the new key or reset it."
-    }
+    },
+    "diffMode": "Diff view",
+    "changedAt": "Changed {{when}}",
+    "noChange": "No change",
+    "kept": "Kept",
+    "versionsN_one": "1 version",
+    "versionsN_other": "{{count}} versions",
+    "devices": "Devices"
   },
   "driver": {
     "label": "Driver",
@@ -3804,7 +3811,9 @@
     "interface_enabled": "Interface enabled (undo shutdown)",
     "vlan_removed": "VLAN removed",
     "vlan_removed_cmd": "VLAN removed",
-    "routing_changed": "Routing changed"
+    "routing_changed": "Routing changed",
+    "toLine": "To the line",
+    "riskTag": "{{level}} risk"
   },
   "digest": {
     "title": "Syslog digest",
