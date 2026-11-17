@@ -121,6 +121,10 @@ class Runtime:
 
         self.security = DEFAULT_POLICY
         self.revoked_sessions: set[str] = set()
+        # [premium] at most one `user_sessions` write per session and minute
+        from netmon.services.sessions import TouchThrottle
+
+        self.session_touch = TouchThrottle()
         self.started = False
         self.on_lock_lost: Any = self._on_lock_lost
 
@@ -157,6 +161,9 @@ class Runtime:
 
         await security_svc.load(self)  # [1.4.1] egress filter, session lifetime, login cap
         await security_svc.load_revoked(self)
+        from netmon.services import sessions as sessions_svc
+
+        await sessions_svc.prune_all(self)  # [premium] signed-in browsers registry
         async with self.sessionmaker() as session:
             retention_days = await settings_svc.get(session, "retention_days")
         ts = await timescale.bootstrap_status(
