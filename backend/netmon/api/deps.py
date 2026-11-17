@@ -14,6 +14,7 @@ from starlette.requests import HTTPConnection
 from netmon.api.errors import ApiError
 from netmon.models import User
 from netmon.runtime import Runtime
+from netmon.services import sessions as sessions_svc
 from netmon.services.audit import AuditCtx, audit_enabled
 from netmon.services.auth import (
     COOKIE_NAME,
@@ -153,6 +154,20 @@ async def current_user(request: Request, rt: RT, session: DB) -> User:
     request.state.auth = AuthInfo(
         "session", user.id, user.username, user.role, None, user.source or "local", claims["sid"]
     )
+    # [premium] signed-in browsers registry: written at most once a minute per session
+    if sessions_svc.throttle_of(rt).due(claims["sid"]):
+        await sessions_svc.touch(
+            rt,
+            sessions_svc.Seen(
+                sid=claims["sid"],
+                user_id=user.id,
+                token_version=user.token_version,
+                auth_at=float(claims.get("at", claims.get("iat"))),
+                ip=client_ip(request, rt),
+                user_agent=request.headers.get("user-agent"),
+            ),
+            source=user.source,
+        )
     now = time.time()
     am = claims.get("am") if isinstance(claims.get("am"), str) else None  # [3] kept on renewal
     # sliding renewal keeps `at` and `sid`: it never extends past at + max (app clock)

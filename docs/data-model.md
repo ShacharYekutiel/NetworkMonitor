@@ -2865,7 +2865,9 @@ Trigger `audit_log_immutable` (plpgsql, migration `0006`): `BEFORE UPDATE` → r
 unless `current_setting('netmon.audit_purge', true) = 'on'`. Retention (hourly loop): `SET LOCAL
 netmon.audit_purge = 'on'; DELETE … WHERE time < now() − audit_retention_days` (batches of 50 000).
 
-Actions: `auth.login`, `auth.login_failed`, `auth.logout`, `<entity>.create|update|delete` for `device`,
+Actions: `auth.login`, `auth.login_failed`, `auth.logout` (**[1.4.1]** `changes.everywhere` for logout
+everywhere; **[premium]** `changes.session = [null, <public id>]` for a session ended from the signed-in browsers
+list), `<entity>.create|update|delete` for `device`,
 `group`, `sensor`, `alert_rule`, `notification_channel`, `maintenance_window`, `event_rule`, `topology_link`,
 `discovery_profile`, `user`, `api_token` (create/revoke = `api_token.create|revoke`), `device.apply_template`,
 `discovery.import`, `settings.update` (entity null, `changes` per key; the `ldap` object diffed per field),
@@ -4244,7 +4246,7 @@ they take effect right after `PUT /api/settings` without a restart):
 | `frame_ancestors` | text[] (≤ 20 origins) | `[]` | extra CSP `frame-ancestors` sources; validated again when read, so a hand-edited row can never inject a directive |
 
 ## [1.4.1] `revoked_sessions`
-Session ids ended by `POST /api/auth/logout`. Loaded into memory at start (the server is one process); a cookie
+Session ids ended by `POST /api/auth/logout` (**[premium]** or `DELETE /api/auth/sessions/{id}`). Loaded into memory at start (the server is one process); a cookie
 whose `sid` is listed is refused.
 
 | Column | Type | Notes |
@@ -4383,6 +4385,40 @@ Settings key `home_map` (table `settings`, default in `netmon.services.home_map.
 | `max_groups` | int 1–50 | `12` | leaves under the last node |
 
 The map itself is computed on read (`netmon.services.home_map`), see api.md.
+
+## [premium] `user_sessions` (signed-in browsers)
+A registry of login sessions for `GET` / `DELETE /api/auth/sessions` (code: `netmon.services.sessions`). It is
+**not** the credential: a session is valid by the 1.4.1 rules (signed cookie, `token_version`, `sid` not in
+`revoked_sessions`, absolute lifetime) whether or not it has a row.
+
+| Column | Type | Notes |
+|---|---|---|
+| `id` | bigserial PK | internal |
+| `public_id` | varchar(32) NOT NULL UNIQUE | the API `id`: random (`secrets.token_urlsafe(12)`), unrelated to the cookie and its `sid` |
+| `sid` | varchar(64) NOT NULL UNIQUE | the session's `sid` claim (never returned by the API) |
+| `user_id` | integer NOT NULL → `users(id)` ON DELETE CASCADE, indexed | |
+| `token_version` | integer NOT NULL | the cookie's `tv`; a row whose value differs from the user's is dead |
+| `created_at` | timestamptz NOT NULL | sign-in time (the cookie's `at`, kept across renewals) |
+| `last_seen_at` | timestamptz NULL, indexed | last request (app clock) |
+| `ip` | varchar(64) NULL | client address of that request (`netmon.api.deps.client_ip`, the audit-log rule) |
+| `user_agent` | varchar(256) NULL | User-Agent of that request (non-printable characters removed, truncated) |
+
+- **Written** by the session authentication of every HTTP request (`current_user`), at most once per minute per
+  session: an in-memory throttle per `sid`, and the upsert itself only updates a row whose `last_seen_at` is a
+  minute old or more. The first write of a `sid` inserts the row (also for a session issued before migration 0014)
+  unless the `sid` is revoked. WebSocket and API token requests never write.
+- **Listed / deletable** while alive: `token_version` = the user's, `created_at` within `session_max_age_h`
+  (AD / OIDC: 12 h), `last_seen_at` within 12 h + 2 min (the cookie lifetime), `sid` not revoked; the current
+  session always.
+- **Removed**: the row of a session ended by logout or by `DELETE /api/auth/sessions/{id}`; all rows of the user on
+  logout everywhere; dead rows of a user when one of their sessions is first recorded; at start, rows idle longer
+  than 31 days and rows whose `token_version` is outdated.
+
+## [premium] Migration (`0014`)
+File `backend/netmon/migrations/versions/0014_sessions.py`, `revision = "0014"`, `down_revision = "0013"`. Plain DDL,
+identical in TimescaleDB and plain PostgreSQL mode, idempotent. `upgrade()`: `CREATE TABLE user_sessions` and its
+two indexes; no data is changed and no session is signed out. `downgrade()`: drops the table (every session keeps
+working; only the list is lost).
 
 ## [premium] Migration (`0013`)
 File `backend/netmon/migrations/versions/0013_premium.py`, `revision = "0013"`, `down_revision = "0012"` (the
