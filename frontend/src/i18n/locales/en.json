@@ -572,7 +572,10 @@
     "thisBrowser": "This browser",
     "lastActive": "active {{when}}",
     "signOut": "Sign out",
-    "signOutSession": "Sign out {{name}}"
+    "signOutSession": "Sign out {{name}}",
+    "sessionsAll_one": "Show all {{count}}",
+    "sessionsAll_other": "Show all {{count}}",
+    "sessionsFewer": "Show fewer"
   },
   "validation": {
     "required": "Required.",
@@ -4310,7 +4313,6 @@
   "aiStatus": {
     "openIncidents_zero": "No open incidents",
     "openIncidents_one": "{{count}} open incident",
-    "openIncidents_two": "{{count}} open incidents",
     "openIncidents_other": "{{count}} open incidents",
     "lastDigest": "Last digest {{day}}: {{status}}",
     "lastDigestReason": "Last digest {{day}}: {{status}} ({{reason}})",

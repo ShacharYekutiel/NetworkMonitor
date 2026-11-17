@@ -585,7 +585,11 @@
     "thisBrowser": "הדפדפן הזה",
     "lastActive": "פעיל {{when}}",
     "signOut": "התנתקות",
-    "signOutSession": "התנתקות {{name}}"
+    "signOutSession": "התנתקות {{name}}",
+    "sessionsAll_one": "הצגת כולם ({{count}})",
+    "sessionsAll_other": "הצגת כולם ({{count}})",
+    "sessionsFewer": "הצגת פחות",
+    "sessionsAll_two": "הצגת שניהם"
   },
   "validation": {
     "required": "שדה חובה.",

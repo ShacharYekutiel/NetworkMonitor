@@ -84,6 +84,8 @@ function Preferences() {
  * IP and last activity, "this browser", and a per-row sign-out (this browser = the normal sign
  * out). A server without the sessions API (404) keeps the text-only card.
  */
+const SESSIONS_SHOWN = 5;
+
 function SessionList({
   onLogoutHere,
   endingHere,
@@ -95,6 +97,7 @@ function SessionList({
   const qc = useQueryClient();
   const toast = useToast();
   const [ending, setEnding] = useState<string | null>(null);
+  const [all, setAll] = useState(false);
   const q = useQuery({
     queryKey: qk.sessions,
     queryFn: endpoints.sessions,
@@ -117,68 +120,91 @@ function SessionList({
   });
   if (isApiError(q.error) && q.error.status === 404) return null;
   if (q.error) return <ErrorBox error={q.error} className="mx-[22px]" />;
-  const items = q.data?.items;
-  if (!items?.length) return null;
+  const listed = q.data?.items;
+  if (!listed?.length) return null;
+  // this browser first, then the others by last activity (the server's order); long lists fold
+  const sorted = [...listed.filter((s) => s.current), ...listed.filter((s) => !s.current)];
+  const items = all ? sorted : sorted.slice(0, SESSIONS_SHOWN);
   return (
-    <ul
-      className="m-0 list-none p-0 [&>li+li]:border-t [&>li+li]:border-line"
-      data-testid="session-list"
-      aria-label={t('account.sessions')}
-    >
-      {items.map((s) => {
-        const ua = parseUserAgent(s.user_agent);
-        const label = userAgentLabel(s.user_agent) ?? t('account.unknownBrowser');
-        const seen = s.last_seen_at ?? s.created_at;
-        const Icon = ua?.mobile ? PhoneIcon : DesktopIcon;
-        return (
-          <li
-            key={s.id}
-            className="flex items-center gap-3.5 px-[22px] py-3"
-            data-testid="session-row"
-            data-current={s.current ? 'true' : undefined}
-          >
-            <span className="inline-flex h-[34px] w-[34px] shrink-0 items-center justify-center rounded-[10px] bg-chip text-ink">
-              <Icon size={17} />
-            </span>
-            <span className="grid min-w-0 flex-1">
-              <b className="flex min-w-0 items-center gap-2 text-[15.5px] font-medium">
-                <bdi dir="auto" className="truncate font-display" title={s.user_agent ?? undefined}>
-                  {label}
-                </bdi>
-                {s.current && (
-                  <span className={cx(TAG, TAG_TONE.up, 'shrink-0')} data-testid="session-current">
-                    {t('account.thisBrowser')}
+    <div className="grid">
+      <ul
+        className="m-0 list-none p-0 [&>li+li]:border-t [&>li+li]:border-line"
+        data-testid="session-list"
+        aria-label={t('account.sessions')}
+      >
+        {items.map((s) => {
+          const ua = parseUserAgent(s.user_agent);
+          const label = userAgentLabel(s.user_agent) ?? t('account.unknownBrowser');
+          const seen = s.last_seen_at ?? s.created_at;
+          const Icon = ua?.mobile ? PhoneIcon : DesktopIcon;
+          return (
+            <li
+              key={s.id}
+              className="flex items-center gap-3.5 px-[22px] py-3"
+              data-testid="session-row"
+              data-current={s.current ? 'true' : undefined}
+            >
+              <span className="inline-flex h-[34px] w-[34px] shrink-0 items-center justify-center rounded-[10px] bg-chip text-ink">
+                <Icon size={17} />
+              </span>
+              <span className="grid min-w-0 flex-1">
+                <b className="flex min-w-0 items-center gap-2 text-[15.5px] font-medium">
+                  <bdi
+                    dir="auto"
+                    className="truncate font-display"
+                    title={s.user_agent ?? undefined}
+                  >
+                    {label}
+                  </bdi>
+                  {s.current && (
+                    <span
+                      className={cx(TAG, TAG_TONE.up, 'shrink-0')}
+                      data-testid="session-current"
+                    >
+                      {t('account.thisBrowser')}
+                    </span>
+                  )}
+                </b>
+                <span className="truncate text-[13.5px] text-ink-muted">
+                  {s.ip && (
+                    <>
+                      <bdi dir="ltr" className="font-display">
+                        {s.ip}
+                      </bdi>
+                      {' · '}
+                    </>
+                  )}
+                  <span title={formatDateTime(seen)}>
+                    {t('account.lastActive', { when: formatRelative(seen) })}
                   </span>
-                )}
-              </b>
-              <span className="truncate text-[13.5px] text-ink-muted">
-                {s.ip && (
-                  <>
-                    <bdi dir="ltr" className="font-display">
-                      {s.ip}
-                    </bdi>
-                    {' · '}
-                  </>
-                )}
-                <span title={formatDateTime(seen)}>
-                  {t('account.lastActive', { when: formatRelative(seen) })}
                 </span>
               </span>
-            </span>
-            <Button
-              size="sm"
-              busy={s.current ? endingHere : ending === s.id}
-              disabled={ending !== null && ending !== s.id}
-              onClick={() => (s.current ? onLogoutHere() : end.mutate(s.id))}
-              data-testid="session-signout"
-              aria-label={t('account.signOutSession', { name: label })}
-            >
-              {t('account.signOut')}
-            </Button>
-          </li>
-        );
-      })}
-    </ul>
+              <Button
+                size="sm"
+                busy={s.current ? endingHere : ending === s.id}
+                disabled={ending !== null && ending !== s.id}
+                onClick={() => (s.current ? onLogoutHere() : end.mutate(s.id))}
+                data-testid="session-signout"
+                aria-label={t('account.signOutSession', { name: label })}
+              >
+                {t('account.signOut')}
+              </Button>
+            </li>
+          );
+        })}
+      </ul>
+      {sorted.length > SESSIONS_SHOWN && (
+        <button
+          type="button"
+          onClick={() => setAll((x) => !x)}
+          className="mx-[22px] mt-1 justify-self-start text-[13.5px] font-medium text-ink-muted hover:text-ink"
+          data-testid="session-more"
+          aria-expanded={all}
+        >
+          {all ? t('account.sessionsFewer') : t('account.sessionsAll', { count: sorted.length })}
+        </button>
+      )}
+    </div>
   );
 }
 

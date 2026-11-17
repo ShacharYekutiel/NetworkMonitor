@@ -225,13 +225,13 @@ export function AuditPage() {
           <Card bodyClassName="px-5 py-4" className="mb-6">
             <form
               onSubmit={submit}
-              className="grid grid-cols-1 items-start gap-3 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-[minmax(230px,1.3fr)_minmax(230px,1.3fr)_repeat(4,minmax(0,1fr))_auto]"
+              className="grid grid-cols-1 items-start gap-3 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-[repeat(2,minmax(0,1.5fr))_repeat(4,minmax(0,1fr))_auto]"
               data-testid="audit-filters"
             >
               <label className="grid min-w-0 gap-1.5 text-[13px] text-ink-muted">
                 {t('logs.from')}
                 <Input
-                  className="h-10"
+                  className="h-10 min-w-0"
                   type="datetime-local"
                   value={form.since}
                   onChange={(e) => set({ since: e.target.value })}
@@ -241,7 +241,7 @@ export function AuditPage() {
               <label className="grid min-w-0 gap-1.5 text-[13px] text-ink-muted">
                 {t('logs.to')}
                 <Input
-                  className="h-10"
+                  className="h-10 min-w-0"
                   type="datetime-local"
                   value={form.until}
                   onChange={(e) => set({ until: e.target.value })}

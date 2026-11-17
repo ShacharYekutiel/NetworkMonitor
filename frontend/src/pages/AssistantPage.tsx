@@ -111,7 +111,7 @@ function ConversationList({ activeId, onNew }: { activeId: number | null; onNew:
             placeholder={t('assistant.searchHistory')}
             aria-label={t('assistant.searchHistory')}
             onChange={(e) => setQ(e.target.value)}
-            className="h-full min-w-0 flex-1 bg-transparent text-sm text-ink outline-none placeholder:text-ink-subtle"
+            className="h-full w-0 min-w-0 flex-1 bg-transparent text-sm text-ink outline-none placeholder:text-ink-subtle"
           />
         </label>
         <Button variant="primary" onClick={onNew} className="!h-[42px] !px-3.5">
