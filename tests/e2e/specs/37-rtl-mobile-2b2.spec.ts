@@ -52,6 +52,8 @@ for (const lang of ['en', 'he'] as const) {
     // LTR: port 1 sits right after the rack ear and the name plate, even in Hebrew
     const scBox = (await sc.boundingBox())!;
     expect(b1.x - scBox.x).toBeLessThan(260);
+    // the premium page header is taller: bring the panel up first (vertical only)
+    await sc.evaluate((e) => e.scrollIntoView({ block: 'center', inline: 'nearest' }));
     await sc.evaluate((e) => (e.scrollLeft = e.scrollWidth));
     await expect(tile(page, 52)).toBeInViewport();
     await noOverflow(page, `ports 52 scrolled ${lang}`);
