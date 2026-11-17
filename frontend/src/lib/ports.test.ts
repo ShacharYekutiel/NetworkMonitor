@@ -101,7 +101,7 @@ describe('tile state mapping (one case per legend row)', () => {
       'ap',
     ],
     [
-      'up → green, client',
+      'up → green, computer (a pre-premium "client" maps to computer)',
       {
         state: 'up',
         alert: false,
@@ -111,7 +111,33 @@ describe('tile state mapping (one case per legend row)', () => {
         mac_count: 1,
       },
       'up',
-      'client',
+      'computer',
+    ],
+    [
+      'up → green, premium kind (phone)',
+      {
+        state: 'up',
+        alert: false,
+        connected_kind: 'phone',
+        trunk: false,
+        uplink_reason: null,
+        mac_count: 1,
+      },
+      'up',
+      'phone',
+    ],
+    [
+      'up, nothing learned (null) → lit socket, no icon',
+      {
+        state: 'up',
+        alert: false,
+        connected_kind: null,
+        trunk: false,
+        uplink_reason: null,
+        mac_count: 0,
+      },
+      'up',
+      null,
     ],
     [
       'up → green, switch',

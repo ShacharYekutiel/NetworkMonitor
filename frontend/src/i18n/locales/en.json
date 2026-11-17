@@ -1386,7 +1386,11 @@
       "ap": "Access point",
       "switch": "Switch / uplink",
       "trunk": "Trunk",
-      "macCount": "MACs learned (uplink)"
+      "macCount": "MACs learned (uplink)",
+      "free": "Free",
+      "up": "Up",
+      "bad": "Down / alert",
+      "warn": "Warning"
     },
     "legendHint": {
       "empty": "No cable, or the device on the other side is off.",
@@ -1414,10 +1418,16 @@
       "lowerLayerDown": "lower layer down"
     },
     "connectedKind": {
-      "none": "nothing",
-      "client": "client",
-      "ap": "access point",
-      "switch": "switch"
+      "none": "nothing detected",
+      "ap": "Wi-Fi access point",
+      "switch": "switch (uplink)",
+      "computer": "computer",
+      "phone": "IP phone",
+      "printer": "printer",
+      "camera": "camera",
+      "server": "server",
+      "router": "router",
+      "unknown": "unknown device"
     },
     "mode": {
       "access": "Access",
@@ -1555,6 +1565,33 @@
       "neighborTitle": "LLDP/CDP neighbor",
       "moreTitle_one": "{{count}} more device on this port",
       "moreTitle_other": "{{count}} more devices on this port"
+    },
+    "kindShort": {
+      "computer": "Computer",
+      "phone": "Phone",
+      "ap": "AP",
+      "printer": "Printer",
+      "camera": "Camera",
+      "server": "Server",
+      "switch": "Switch",
+      "router": "Router",
+      "unknown": "Unknown"
+    },
+    "kindChooser": {
+      "title": "Connected device type",
+      "auto": "Automatic",
+      "detected": "detected: {{kind}}",
+      "nothing": "nothing detected",
+      "hint": "Changes the icon on the port and in the table. \"Automatic\" comes from LLDP/CDP and the MAC address.",
+      "manual": "manual",
+      "saved": "The device type of this port is set to {{kind}}",
+      "savedAuto": "The device type will be detected automatically"
+    },
+    "kindSource": {
+      "lldp": "LLDP",
+      "cdp": "CDP",
+      "oui": "MAC vendor",
+      "manual": "manual"
     }
   },
   "health": {

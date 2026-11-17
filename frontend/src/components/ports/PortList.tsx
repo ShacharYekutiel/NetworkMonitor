@@ -7,6 +7,7 @@ import {
   COLUMN_HIDE_CLASS,
   connectedHostView,
   connectedView,
+  portDeviceKind,
   errorsDelta,
   filterPorts,
   loadColumns,
@@ -19,7 +20,7 @@ import {
 } from '../../lib/ports';
 import { AlertIcon, ColumnsIcon, SearchIcon } from '../icons';
 import { Button, Checkbox, cx, Empty, Input, TAG, TAG_TONE } from '../ui';
-import { TileGlyph } from './Faceplate';
+import { KIND_ICONS, TileGlyph } from './Faceplate';
 import { usePortText } from './text';
 import { lagMemberNames } from '../../lib/lag';
 
@@ -175,6 +176,33 @@ export function PortList({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [ports, query, physicalOnly, t]);
 
+  const connectedCell = (p: Port): ReactNode => {
+    const v = connectedView(p);
+    if (v.kind === 'neighbor')
+      return v.device_id ? (
+        <Link
+          to={`/devices/${v.device_id}`}
+          onClick={(e) => e.stopPropagation()}
+          className="text-accent-ink hover:underline"
+        >
+          <bdi dir="auto">{v.name}</bdi>
+        </Link>
+      ) : (
+        <bdi dir="auto">{v.name}</bdi>
+      );
+    if (v.kind === 'uplinkMacs')
+      return <span className="text-ink-muted">{t('ports.macCount', { count: v.count })}</span>;
+    if (v.kind === 'mac')
+      return (
+        <span className="inline-flex max-w-[16rem] items-center gap-1">
+          <bdi dir="ltr" className="truncate">
+            {v.text}
+          </bdi>
+          {v.more > 0 && <span className="text-xs text-ink-muted">+{v.more}</span>}
+        </span>
+      );
+    return <span className="text-ink-subtle">—</span>;
+  };
   const cell = (p: Port, c: PortColumn): ReactNode => {
     switch (c) {
       case 'status': {
@@ -196,31 +224,24 @@ export function PortList({
         );
       }
       case 'connected': {
-        const v = connectedView(p);
-        if (v.kind === 'neighbor')
-          return v.device_id ? (
-            <Link
-              to={`/devices/${v.device_id}`}
-              onClick={(e) => e.stopPropagation()}
-              className="text-accent-ink hover:underline"
-            >
-              <bdi dir="auto">{v.name}</bdi>
-            </Link>
-          ) : (
-            <bdi dir="auto">{v.name}</bdi>
-          );
-        if (v.kind === 'uplinkMacs')
-          return <span className="text-ink-muted">{t('ports.macCount', { count: v.count })}</span>;
-        if (v.kind === 'mac')
-          return (
-            <span className="inline-flex max-w-[16rem] items-center gap-1">
-              <bdi dir="ltr" className="truncate">
-                {v.text}
-              </bdi>
-              {v.more > 0 && <span className="text-xs text-ink-muted">+{v.more}</span>}
-            </span>
-          );
-        return <span className="text-ink-subtle">—</span>;
+        // [premium] the device type icon in front, "manual" after a user's choice
+        const k = p.state === 'up' ? portDeviceKind(p) : null;
+        const Icon = k ? KIND_ICONS[k] : null;
+        return (
+          <span className="inline-flex max-w-full items-center gap-1.5">
+            {Icon && (
+              <span title={t(`ports.connectedKind.${k}`)} className="inline-flex shrink-0">
+                <Icon size={15} className="text-ink-muted" />
+              </span>
+            )}
+            {connectedCell(p)}
+            {p.connected_kind_override && (
+              <small className="shrink-0 text-[11.5px] text-ink-subtle">
+                {t('ports.kindChooser.manual')}
+              </small>
+            )}
+          </span>
+        );
       }
       case 'connIp': {
         const v = connectedHostView(p);

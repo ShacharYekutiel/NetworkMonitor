@@ -1312,8 +1312,34 @@ export type PortKind = 'physical' | 'lag' | 'vlan' | 'mgmt' | 'other';
 export const PORT_KINDS: PortKind[] = ['physical', 'lag', 'vlan', 'mgmt', 'other'];
 export type PortState = 'up' | 'down' | 'admin_down' | 'absent';
 export const PORT_STATES: PortState[] = ['up', 'down', 'admin_down', 'absent'];
-export type ConnectedKind = 'none' | 'client' | 'ap' | 'switch';
-export const CONNECTED_KINDS: ConnectedKind[] = ['none', 'client', 'ap', 'switch'];
+/**
+ * [premium] The device type behind a port (docs/api.md "Premium UI additions"); null = no link
+ * or nothing learned. Servers before premium sent "none" | "client" | "ap" | "switch":
+ * lib/ports.ts portDeviceKind() maps those too.
+ */
+export type ConnectedKind =
+  | 'computer'
+  | 'phone'
+  | 'ap'
+  | 'printer'
+  | 'camera'
+  | 'server'
+  | 'switch'
+  | 'router'
+  | 'unknown';
+export const CONNECTED_KINDS: ConnectedKind[] = [
+  'computer',
+  'phone',
+  'ap',
+  'printer',
+  'camera',
+  'server',
+  'switch',
+  'router',
+  'unknown',
+];
+export type LegacyConnectedKind = 'none' | 'client';
+export type ConnectedKindSource = 'lldp' | 'cdp' | 'oui' | 'manual';
 export type IfStatus =
   'up' | 'down' | 'testing' | 'unknown' | 'dormant' | 'notPresent' | 'lowerLayerDown';
 export const IF_STATUSES: IfStatus[] = [
@@ -1412,7 +1438,11 @@ export type Port = {
   out_errors_delta: number | null;
   is_uplink: boolean;
   uplink_reason: 'neighbor' | 'mac_count' | null;
-  connected_kind: ConnectedKind;
+  connected_kind: ConnectedKind | LegacyConnectedKind | null;
+  /** [premium] what the kind was derived from (absent on older servers) */
+  connected_kind_source?: ConnectedKindSource | null;
+  /** [premium] the stored manual choice ("manual" marker, chooser preselection) */
+  connected_kind_override?: ConnectedKind | null;
   trunk: boolean;
   /** primary neighbour */
   neighbor: PortNeighbor | null;

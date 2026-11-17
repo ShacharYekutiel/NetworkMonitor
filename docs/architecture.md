@@ -859,16 +859,22 @@ per member: main blocks by module asc, then `other`, then uplink).
   below the bottom row (`text-[10px]`). Selected tile `ring-2 ring-sky-500`. Each tile is a `button` with an
   `aria-label` ("Port 7, up, client, VLAN 10").
 
-  | Condition (first match) | Tile | Tailwind (light / dark) |
-  |---|---|---|
-  | `state = admin_down` | gray, crossed-out icon | `bg-gray-200 text-gray-500` / `dark:bg-slate-700 dark:text-slate-400` |
-  | `state = up` and `alert` | orange, icon | `bg-orange-500 text-white` |
-  | `state = up` | green, icon of `connected_kind` (`client` monitor, `ap` wifi, `switch` switch); `trunk` adds a small stacked-lines badge at the top-end corner; a `mac_count` uplink shows the count (≤ 99, else `99+`) as a corner badge | `bg-green-500 text-white` |
-  | not up and `alert` | peach, no icon | `bg-orange-200 border border-orange-300` / `dark:bg-orange-900/40 dark:border-orange-700` |
-  | otherwise | white with gray border | `bg-white border border-gray-300` / `dark:bg-slate-900 dark:border-slate-600` |
+  [premium] The panel is the switch front panel of `docs/design-system/premium/BUILD.md` § 5: a dark chassis per
+  member (rack ears, name and model, vents, SYS/PWR), never mirrored, with fixed port colours (fill / frame / icon):
 
-  Speed, PoE and VLAN are **not** drawn on tiles. A legend row under the panel explains the five tiles and
-  the three icons (`ports.legend.*`). Member labels ("Member 2") above each member row.
+  | Condition (first match) | Port |
+  |---|---|
+  | `state = admin_down` | dark socket, crossed-circle icon |
+  | `state = up` and `alert` | red `#7a1c17` / `#ff5a50` / `#ffecea`, icon |
+  | `state = up` and its interface sensor in warning | amber `#7a4a08` / `#ffaa2b` / `#fff4e2`, icon |
+  | `state = up` | green `#1d6b30` / `#3fe066` / `#eafff0`, icon of `connected_kind` (computer, phone, ap, printer, camera, server, switch = uplink arrow, router, unknown = question mark; no icon when `connected_kind` is null); `trunk` adds a small stacked-lines badge at the top-end corner; a `mac_count` uplink shows the count (≤ 99, else `99+`) as a corner badge |
+  | not up and `alert` | empty socket with a red frame |
+  | otherwise | empty socket `#0b0b0d` / `#3d3e42`, the latch drawn, no icon |
+
+  Servers before [premium] send `connected_kind` "client" (drawn as computer) and "none" (null). Speed, PoE and
+  VLAN are **not** drawn on ports. A legend under the panel shows the device-type icons and the port states
+  (`ports.connectedKind.*`, `ports.legend.*`). Admins choose a device type per port in the port card
+  (Automatic or one of 8 kinds, `PUT …/connected-kind`); a manual choice shows "manual" in the port list.
 - **Port list:** columns Port (sticky, `sticky start-0`), Status (up / no link / disabled / not present + alert
   icon), Connected (primary neighbour name linked to its device, else `n MACs` for uplinks, else
   `first_mac` as hostname ‖ IP ‖ vendor ‖ MAC, `+k` when more), VLAN (PVID), Mode, Speed, PoE (W) (`power_w`,

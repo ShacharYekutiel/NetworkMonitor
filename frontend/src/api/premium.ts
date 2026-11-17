@@ -35,21 +35,9 @@ export type HomeMapSettings = {
   max_groups: number;
 };
 
-/** The device type behind a port (premium contract). */
-export type DeviceKind =
-  'computer' | 'phone' | 'ap' | 'printer' | 'camera' | 'server' | 'switch' | 'router' | 'unknown';
-export const DEVICE_KINDS: DeviceKind[] = [
-  'computer',
-  'phone',
-  'ap',
-  'printer',
-  'camera',
-  'server',
-  'switch',
-  'router',
-  'unknown',
-];
-export type ConnectedKindSource = 'lldp' | 'cdp' | 'oui' | 'manual';
+export type { ConnectedKind as DeviceKind, ConnectedKindSource } from './types';
+export { CONNECTED_KINDS as DEVICE_KINDS } from './types';
+import type { ConnectedKind as DeviceKind } from './types';
 
 async function orNull<T>(p: Promise<T>): Promise<T | null> {
   try {

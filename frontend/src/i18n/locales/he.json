@@ -1410,7 +1410,11 @@
       "ap": "נקודת גישה",
       "switch": "מתג / Uplink",
       "trunk": "Trunk",
-      "macCount": "כתובות MAC שנלמדו (Uplink)"
+      "macCount": "כתובות MAC שנלמדו (Uplink)",
+      "free": "פנוי",
+      "up": "פעיל",
+      "bad": "תקלה",
+      "warn": "אזהרה"
     },
     "legendHint": {
       "empty": "אין כבל, או שהמכשיר בצד השני כבוי.",
@@ -1438,10 +1442,16 @@
       "lowerLayerDown": "שכבה תחתונה למטה"
     },
     "connectedKind": {
-      "none": "כלום",
-      "client": "לקוח",
-      "ap": "נקודת גישה",
-      "switch": "מתג"
+      "none": "לא זוהה",
+      "ap": "נקודת WiFi",
+      "switch": "מתג (אפליינק)",
+      "computer": "מחשב",
+      "phone": "טלפון IP",
+      "printer": "מדפסת",
+      "camera": "מצלמה",
+      "server": "שרת",
+      "router": "נתב",
+      "unknown": "מכשיר לא מזוהה"
     },
     "mode": {
       "access": "Access",
@@ -1582,6 +1592,33 @@
       "moreTitle_one": "עוד התקן אחד בפורט זה",
       "moreTitle_two": "עוד 2 התקנים בפורט זה",
       "moreTitle_other": "עוד {{count}} התקנים בפורט זה"
+    },
+    "kindShort": {
+      "computer": "מחשב",
+      "phone": "טלפון",
+      "ap": "AP",
+      "printer": "מדפסת",
+      "camera": "מצלמה",
+      "server": "שרת",
+      "switch": "מתג",
+      "router": "נתב",
+      "unknown": "לא מזוהה"
+    },
+    "kindChooser": {
+      "title": "סוג המכשיר המחובר",
+      "auto": "אוטומטי",
+      "detected": "זוהה: {{kind}}",
+      "nothing": "לא זוהה דבר",
+      "hint": "משנה את האייקון בפורט ובטבלה. \"אוטומטי\" נקבע לפי LLDP/CDP וכתובת ה-MAC.",
+      "manual": "ידני",
+      "saved": "סוג המכשיר בפורט נקבע ל{{kind}}",
+      "savedAuto": "סוג המכשיר יזוהה אוטומטית"
+    },
+    "kindSource": {
+      "lldp": "LLDP",
+      "cdp": "CDP",
+      "oui": "יצרן MAC",
+      "manual": "ידני"
     }
   },
   "health": {

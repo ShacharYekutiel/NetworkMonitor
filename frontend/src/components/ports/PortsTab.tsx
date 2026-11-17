@@ -177,7 +177,7 @@ export function PortsTab({ device }: { device: Device }) {
       {data && <HealthStrip items={data.health} />}
       {data && !data.ports_effective && <NotEffective device={device} data={data} />}
       {data && (
-        <Card bodyClassName="space-y-3 p-3 sm:p-4">
+        <div className="space-y-3">
           <div className="flex flex-wrap items-center justify-between gap-2">
             <StatusLine data={data} />
             <div className="flex flex-wrap items-center gap-2">
@@ -228,14 +228,24 @@ export function PortsTab({ device }: { device: Device }) {
               {data.status.last_run_at ? t('ports.noPorts') : t('ports.noSnapshot')}
             </p>
           ) : view === 'faceplate' ? (
-            <>
-              <Faceplate ports={data.ports} selected={selected} onSelect={openPort} />
+            // the stage breaks out of the page column (BUILD.md § 5), within the main area
+            <div className="mx-[min(0px,calc(50%-50cqw+40px))] space-y-3">
+              <Faceplate
+                ports={data.ports}
+                selected={selected}
+                onSelect={openPort}
+                name={device.name}
+                model={device.identity?.model ?? device.identity?.vendor ?? device.description}
+                status={device.status}
+              />
               <FaceplateLegend />
-            </>
+            </div>
           ) : (
-            <PortList ports={data.ports} selected={selected} onSelect={openPort} />
+            <Card bodyClassName="p-4">
+              <PortList ports={data.ports} selected={selected} onSelect={openPort} />
+            </Card>
           )}
-        </Card>
+        </div>
       )}
       <PortModal
         deviceId={device.id}

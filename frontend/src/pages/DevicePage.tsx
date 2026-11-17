@@ -20,7 +20,17 @@ import { SensorRowActions } from '../components/SensorRowActions';
 import { SensorTable } from '../components/SensorTable';
 import { StatusBadge, StatusBar, StatusCountPills, StatusDot } from '../components/Status';
 import { useToast } from '../components/toast';
-import { Button, Card, ConfirmDialog, ErrorBox, Loading, Ltr, PageHeader } from '../components/ui';
+import {
+  Button,
+  Card,
+  ConfirmDialog,
+  ErrorBox,
+  Loading,
+  Ltr,
+  PageHeader,
+  SEG_TRACK,
+  tabClass,
+} from '../components/ui';
 import { useAuth } from '../hooks/auth';
 import { errorMessage } from '../lib/errors';
 import { EffectiveDependencyText, ParentDownBanner } from '../components/Dependency';
@@ -252,17 +262,25 @@ export function DevicePage() {
         breadcrumbs={<Breadcrumbs groupId={d.group_id} />}
         title={
           <>
-            <StatusDot status={d.status} className="h-3 w-3" /> {d.name}
+            <StatusDot status={d.status} className="h-3 w-3" />{' '}
+            <bdi dir="ltr" className="[font-family:var(--font-display)]">
+              {d.name}
+            </bdi>
             {d.in_maintenance && (
               <MaintenanceBadge endsAt={d.maintenance?.ends_at} name={d.maintenance?.name} />
             )}
           </>
         }
         subtitle={
-          <>
-            <Ltr>{d.host}</Ltr>
-            {d.description && <span className="ms-2">· {d.description}</span>}
-          </>
+          <span className="inline-flex flex-wrap items-center gap-x-2 gap-y-1">
+            {(identity?.vendor || identity?.model) && (
+              <bdi dir="ltr">{[identity?.vendor, identity?.model].filter(Boolean).join(' ')}</bdi>
+            )}
+            {(identity?.vendor || identity?.model) && <span aria-hidden="true">·</span>}
+            <Ltr className="num">{d.host}</Ltr>
+            {d.description && <span>· {d.description}</span>}
+            {d.status !== 'up' && <StatusBadge status={d.status} />}
+          </span>
         }
         actions={
           isAdmin && (
@@ -357,11 +375,7 @@ export function DevicePage() {
         </Card>
       )}
       {tabs.length > 1 && (
-        <div
-          role="tablist"
-          aria-label={t('ports.tabs')}
-          className="flex overflow-x-auto border-b border-line"
-        >
+        <div role="tablist" aria-label={t('ports.tabs')} className={cx(SEG_TRACK, 'flex')}>
           {tabs.map((k) => (
             <button
               key={k}
@@ -369,12 +383,7 @@ export function DevicePage() {
               role="tab"
               aria-selected={tab === k}
               onClick={() => setTab(k)}
-              className={cx(
-                '-mb-px inline-flex items-center gap-2 whitespace-nowrap border-b-2 px-3.5 py-2.5 text-sm leading-4',
-                tab === k
-                  ? 'border-accent-ink font-semibold text-ink'
-                  : 'border-transparent font-medium text-ink-muted hover:text-ink',
-              )}
+              className={tabClass(tab === k)}
             >
               {k === 'ports' && <PortIcon size={15} />}
               {k === 'logs' && <LogsIcon size={15} />}

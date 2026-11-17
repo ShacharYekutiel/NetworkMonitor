@@ -1,5 +1,5 @@
 // [2b-2] Pure helpers of the switch ports view (architecture.md § 11.5).
-import type { HealthItem, Port, PortKind, PortMac } from '../api/types';
+import type { ConnectedKind, HealthItem, Port, PortKind, PortMac } from '../api/types';
 import { formatValue } from './format';
 
 // ---------------------------------------------------------------------------
@@ -7,7 +7,15 @@ import { formatValue } from './format';
 
 export type TileKind = 'disabled' | 'alert' | 'up' | 'emptyAlert' | 'empty';
 export const TILE_KINDS: TileKind[] = ['empty', 'up', 'alert', 'emptyAlert', 'disabled'];
-export type TileIcon = 'client' | 'ap' | 'switch' | 'disabled' | null;
+export type TileIcon = ConnectedKind | 'disabled' | null;
+
+/** The device kind behind a port, also for the pre-premium values ("client" -> computer, "none" -> null). */
+export function portDeviceKind(p: Pick<Port, 'connected_kind'>): ConnectedKind | null {
+  const k = p.connected_kind;
+  if (k === null || k === undefined || k === 'none') return null;
+  if (k === 'client') return 'computer';
+  return k;
+}
 
 /** The legend row of a port (first match, § 11.5 table). */
 export function tileKind(p: Pick<Port, 'state' | 'alert'>): TileKind {
@@ -46,7 +54,8 @@ export function tileView(
   const connected = kind === 'up' || kind === 'alert';
   let icon: TileIcon = null;
   if (kind === 'disabled') icon = 'disabled';
-  else if (connected) icon = p.connected_kind === 'none' ? 'client' : p.connected_kind;
+  // premium: no icon when nothing is known behind a connected port (the socket stays lit)
+  else if (connected) icon = portDeviceKind(p);
   return {
     kind,
     className: TILE_CLASS[kind],

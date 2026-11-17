@@ -14,6 +14,7 @@ import { AlertIcon, PlayIcon } from '../icons';
 import { StatusDot } from '../Status';
 import { Button, cx, ErrorBox, Loading, Modal, Notice } from '../ui';
 import { TileGlyph } from './Faceplate';
+import { KindChooser } from './KindChooser';
 import { usePortText } from './text';
 import { NewdevPortToggle } from '../newdevices/NewdevPortToggle';
 
@@ -332,9 +333,16 @@ function Body({
   return (
     <div className="space-y-5">
       <div className="flex flex-wrap items-center gap-2 text-sm">
-        <TileGlyph kind={v.kind} icon={v.icon} trunk={v.trunk} badge={v.badge} />
+        <span className="rounded-[8px] bg-[#0c0c0e] p-1.5">
+          <TileGlyph kind={v.kind} icon={v.icon} trunk={v.trunk} badge={v.badge} />
+        </span>
         <span className="font-medium">{text.state(p)}</span>
         {p.state === 'up' && <span className="text-ink-muted">· {text.kindLabel(p)}</span>}
+        {p.connected_kind_override && (
+          <span className="rounded-full bg-chip px-2 py-0.5 text-[11px] font-semibold text-ink-muted">
+            {t('ports.kindChooser.manual')}
+          </span>
+        )}
         {p.is_uplink && (
           <span className="rounded bg-accent-soft px-1.5 py-0.5 text-[11px] font-medium text-accent-ink">
             {t(`ports.uplinkReason.${p.uplink_reason ?? 'neighbor'}`)}
@@ -587,6 +595,9 @@ export function PortModal({
             onOpenPort={onOpenPort}
           />
           <NewdevPortToggle deviceId={deviceId} ifIndex={p.if_index} />
+          <div className="mt-5">
+            <KindChooser deviceId={deviceId} port={p} />
+          </div>
         </>
       )}
     </Modal>
