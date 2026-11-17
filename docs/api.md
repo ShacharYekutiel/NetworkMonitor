@@ -11,7 +11,7 @@ Items marked **[1.3]** (release 1.3: sensor impact, important ports, interface s
 connected hosts / CSV on ports, LAG degraded, IRF) are specified in [§ Release 1.3](#13-release-13-contract).
 Items marked **[1.3.1]** (IRF ports important, named value maps) are specified in
 [§ Release 1.3.1](#131-release-131-contract).
-Items marked **[premium]** (connected device kind per port, home network map) are specified in
+Items marked **[premium]** (connected device kind per port, home network map, signed-in browsers) are specified in
 [§ Premium UI additions](#premium-premium-ui-additions).
 
 This file is the contract between the backend (`backend/netmon/schemas`) and the frontend
@@ -236,6 +236,8 @@ sets the session cookie. Response `201`: `{"user": User}`.
 | `POST /api/auth/login` | public | `{"username":"admin","password":"..."}` | `200 {"user": User}` + Set-Cookie. Errors: `401 invalid_credentials`, `429 rate_limited`. |
 | `POST /api/auth/logout` | viewer | — | `204`. Clears the cookie (Max-Age=0). |
 | `GET /api/auth/me` | viewer | — | `200 {"user": User}` |
+| `GET /api/auth/sessions` **[premium]** | viewer (browser session only) | — | `200 {"items": BrowserSession[]}`: the caller's signed-in browsers. See [§ Signed-in browsers](#premium-signed-in-browsers). |
+| `DELETE /api/auth/sessions/{id}` **[premium]** | viewer (browser session only) | — | `204`. Ends that session of the caller; `404 not_found` for an unknown or another user's id. |
 | `PATCH /api/auth/me` | viewer | `{"email": "...", "language": "he"}` (any subset) | `200 {"user": User}` |
 | `POST /api/auth/change-password` | viewer | `{"current_password":"...","new_password":"..."}` | `204`. Increments `token_version` and re-issues the cookie. Wrong current password: `401 invalid_credentials`. |
 
@@ -2796,7 +2798,8 @@ Additive only; secrets stay write-only exactly as before (data-model § [1.4.2] 
 
 ## [premium] Premium UI additions
 
-Two additions for the premium UI (design: `docs/design-system/premium/BUILD.md` §§ 4–5). Semantics and tables:
+Additions for the premium UI (design: `docs/design-system/premium/BUILD.md` §§ 4–5; the signed-in browsers list of
+the My account page). Semantics and tables:
 [data-model.md § Premium UI additions](data-model.md#premium-premium-ui-additions). No feature toggle. Neither reads
 from or writes to a device: everything is computed from data the server already has (no SNMP on any of these
 requests).
@@ -2845,6 +2848,42 @@ Example item of `GET /api/devices/{id}/ports` (trimmed):
                 "name": "SIP-T46U", "port": "WAN", "device_class": null, "status": null,
                 "mgmt_address": "10.0.20.31" } }
 ```
+
+### [premium] Signed-in browsers
+
+The "sessions" list of the My account page: every browser in which the current user is signed in, with a per-row
+sign-out. An addition to the account endpoints (no feature toggle).
+
+```ts
+type BrowserSession = {
+  id: string;                  // opaque public id: NOT the cookie, NOT its `sid` claim, not derivable from either
+  created_at: string;          // ISO-8601 UTC: when this session signed in (the cookie's `at`)
+  last_seen_at: string | null; // ISO-8601 UTC: last request, accurate to about a minute
+  ip: string | null;           // client address of that request (the audit-log rule: TCP peer, or the rightmost
+                               // X-Forwarded-For entry when NETMON_TRUST_PROXY=true)
+  user_agent: string | null;   // User-Agent header of that request, ≤ 256 characters
+  current: boolean;            // true for the browser that made this request
+};
+```
+
+| Method & path | Role | Request | Response |
+|---|---|---|---|
+| `GET /api/auth/sessions` | viewer | — | `200 {"items": BrowserSession[]}`, newest `last_seen_at` first |
+| `DELETE /api/auth/sessions/{id}` | viewer | — | `204`; `404 not_found` (unknown id, an ended session, or another user's session: the same answer) |
+
+- Only the caller's own sessions are listed, and only those that can still be used: same `token_version` (a
+  password change, logout everywhere, a role change … end the others), not revoked, within `session_max_age_h` of
+  signing in (AD / OIDC: 12 h) and used within the cookie lifetime (12 h). The current session is always listed.
+- `DELETE` revokes the session server-side exactly like `POST /api/auth/logout` does for the current one (stored in
+  `revoked_sessions`; its WebSockets close with `4401`; the cookie and every renewed copy answer `401`). The other
+  sessions stay signed in. Ending the **current** session is allowed and is a logout: the response also clears the
+  cookie (Max-Age=0).
+- Audit: `auth.logout`, entity = the user, `changes: {"session": [null, "<id>"]}` (`<id>` = the public id).
+- **Browser sessions only**, like logout / logout everywhere: a request with `Authorization: Bearer` (API token)
+  is answered `403 forbidden` (all of `/api/auth/` is barred for tokens). `DELETE` is a mutating request: a
+  cross-origin `Origin` is answered `403 forbidden` (the CSRF rule of every mutating endpoint).
+- Sessions signed in before this release are not affected (nobody is signed out by the upgrade): such a session
+  appears in the list from its next request on, with its original sign-in time.
 
 ### [premium] Home network map
 
