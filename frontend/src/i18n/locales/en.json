@@ -2497,7 +2497,13 @@
       "acknowledge": "acknowledged",
       "unacknowledge": "acknowledgement removed",
       "settings_update": "settings changed",
-      "unlink": "unlinked"
+      "unlink": "unlinked",
+      "rule_draft": "rule draft",
+      "template_draft": "template draft",
+      "template_walk": "SNMP walk for a template",
+      "question": "question",
+      "conversation_delete": "conversation deleted",
+      "digest": "digest"
     },
     "authVerb": {
       "login": "Signed in",

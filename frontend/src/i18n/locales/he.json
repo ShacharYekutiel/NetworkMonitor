@@ -2532,7 +2532,13 @@
       "acknowledge": "אושר",
       "unacknowledge": "האישור בוטל",
       "settings_update": "ההגדרות שונו",
-      "unlink": "הקישור נותק"
+      "unlink": "הקישור נותק",
+      "rule_draft": "טיוטת כלל",
+      "template_draft": "טיוטת תבנית",
+      "template_walk": "סריקת SNMP לתבנית",
+      "question": "שאלה",
+      "conversation_delete": "שיחה נמחקה",
+      "digest": "תקציר"
     },
     "authVerb": {
       "login": "התחברות",
