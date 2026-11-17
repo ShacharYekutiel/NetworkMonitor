@@ -9,7 +9,7 @@ export function CheckResultView({ result }: { result: CheckResult }) {
   const { t } = useTranslation();
   const localize = useLocalizeMessage();
   return (
-    <div className="space-y-2 rounded-md bg-surface-sunken p-3 text-sm ring-1 ring-line">
+    <div className="space-y-2 rounded-lg bg-chip px-4 py-3.5 text-sm">
       <div className="flex flex-wrap items-center gap-2">
         <StatusBadge status={result.status} />
         <span className="font-medium">{result.ok ? t('check.ok') : t('check.failed')}</span>

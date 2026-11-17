@@ -77,7 +77,7 @@ function Tx({ k }: { k: string }) {
 function TelegramHelp() {
   const { t } = useTranslation();
   return (
-    <details className="rounded-md bg-surface-sunken px-3 py-2 text-xs text-ink-muted ring-1 ring-inset ring-line">
+    <details className="rounded-lg bg-chip px-4 py-2.5 text-xs text-ink-muted">
       <summary className="cursor-pointer select-none font-medium text-ink">
         {t('telegram.helpTitle')}
       </summary>
@@ -655,7 +655,7 @@ function RuleModal({
             <p className="text-sm text-ink-muted">{t('rules.noChannels')}</p>
           )}
         </FieldGroup>
-        <section className="rounded-md border border-line">
+        <section className="rounded-lg border border-line">
           <button
             type="button"
             onClick={() => setEscOpen((o) => !o)}

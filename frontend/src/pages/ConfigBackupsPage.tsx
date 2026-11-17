@@ -105,7 +105,7 @@ function SearchCard() {
             <p className="text-xs text-status-warning">{t('configBackup.searchTruncated')}</p>
           )}
           {q.data.items.map((it) => (
-            <div key={`${it.device_id}-${it.version_id}`} className="rounded-md ring-1 ring-line">
+            <div key={`${it.device_id}-${it.version_id}`} className="rounded-lg ring-1 ring-line">
               <div className="flex flex-wrap items-baseline gap-2 border-b border-line px-3 py-1.5 text-sm">
                 <Link
                   to={`/devices/${it.device_id}?tab=config`}

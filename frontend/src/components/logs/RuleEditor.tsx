@@ -250,7 +250,7 @@ function TestResults({ r }: { r: RuleTestResult }) {
         })}
       </p>
       {r.items.length > 0 && (
-        <div className="max-h-64 overflow-auto rounded ring-1 ring-line">
+        <div className="max-h-64 overflow-auto rounded-lg ring-1 ring-line">
           <table className="w-full text-[13px]">
             <tbody>
               {r.items.map((it) => (
@@ -462,7 +462,7 @@ export function RuleEditorModal({
           )}
         </div>
 
-        <fieldset className="rounded-md border border-line p-3">
+        <fieldset className="rounded-lg border border-line px-4 py-3.5">
           <legend className="px-1 text-xs font-semibold text-ink-muted">
             {t('eventRules.match')}
           </legend>
@@ -525,7 +525,7 @@ export function RuleEditorModal({
         </div>
 
         {active && (
-          <fieldset className="space-y-3 rounded-md border border-line p-3">
+          <fieldset className="space-y-3 rounded-lg border border-line px-4 py-3.5">
             <legend className="px-1 text-xs font-semibold text-ink-muted">
               {t('eventRules.clearing')}
             </legend>
@@ -606,7 +606,7 @@ export function RuleEditorModal({
 export function BuiltinBadge() {
   const { t } = useTranslation();
   return (
-    <span className="rounded-sm bg-accent-soft px-1.5 py-0.5 text-[11px] font-semibold text-accent-ink">
+    <span className="rounded-full bg-chip px-2 py-0.5 text-[11px] font-semibold text-ink-muted">
       {t('eventRules.builtin')}
     </span>
   );

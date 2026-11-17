@@ -1,5 +1,5 @@
 import { useState, type FormEvent } from 'react';
-import { useMutation, useQuery } from '@tanstack/react-query';
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useTranslation } from 'react-i18next';
 import { endpoints, qk } from '../api/endpoints';
 import type { Language } from '../api/types';
@@ -9,6 +9,7 @@ import {
   Button,
   Card,
   ConfirmDialog,
+  cx,
   ErrorBox,
   Field,
   GroupList,
@@ -17,9 +18,15 @@ import {
   Notice,
   PageHeader,
   SegmentedControl,
+  TAG,
+  TAG_TONE,
 } from '../components/ui';
 import { ActionRow, Avatar } from '../components/kit';
-import { KeyIcon, LogoutIcon } from '../components/icons';
+import { DesktopIcon, KeyIcon, LogoutIcon, PhoneIcon } from '../components/icons';
+import { isApiError } from '../api/client';
+import { errorMessage } from '../lib/errors';
+import { formatDateTime, formatRelative } from '../lib/format';
+import { parseUserAgent, userAgentLabel } from '../lib/userAgent';
 import { useAuth } from '../hooks/auth';
 import { useTheme, type ThemeChoice } from '../hooks/theme';
 import { ChatAccountsCard } from '../components/chatack/ChatAccounts';
@@ -72,6 +79,109 @@ function Preferences() {
   );
 }
 
+/**
+ * [premium] The signed-in browsers (prototype "התחברויות"): browser · system from the User-Agent,
+ * IP and last activity, "this browser", and a per-row sign-out (this browser = the normal sign
+ * out). A server without the sessions API (404) keeps the text-only card.
+ */
+function SessionList({
+  onLogoutHere,
+  endingHere,
+}: {
+  onLogoutHere: () => void;
+  endingHere: boolean;
+}) {
+  const { t } = useTranslation();
+  const qc = useQueryClient();
+  const toast = useToast();
+  const [ending, setEnding] = useState<string | null>(null);
+  const q = useQuery({
+    queryKey: qk.sessions,
+    queryFn: endpoints.sessions,
+    retry: false,
+    refetchInterval: 60_000,
+  });
+  const end = useMutation({
+    mutationFn: (id: string) => endpoints.endSession(id),
+    onMutate: (id) => setEnding(id),
+    onSettled: () => setEnding(null),
+    onSuccess: () => {
+      toast.push('success', t('account.sessionEnded'));
+      void qc.invalidateQueries({ queryKey: qk.sessions });
+    },
+    onError: (e) => {
+      // already ended elsewhere: the list is just out of date
+      if (isApiError(e) && e.status === 404) void qc.invalidateQueries({ queryKey: qk.sessions });
+      else toast.push('error', errorMessage(t, e));
+    },
+  });
+  if (isApiError(q.error) && q.error.status === 404) return null;
+  if (q.error) return <ErrorBox error={q.error} className="mx-[22px]" />;
+  const items = q.data?.items;
+  if (!items?.length) return null;
+  return (
+    <ul
+      className="m-0 list-none p-0 [&>li+li]:border-t [&>li+li]:border-line"
+      data-testid="session-list"
+      aria-label={t('account.sessions')}
+    >
+      {items.map((s) => {
+        const ua = parseUserAgent(s.user_agent);
+        const label = userAgentLabel(s.user_agent) ?? t('account.unknownBrowser');
+        const seen = s.last_seen_at ?? s.created_at;
+        const Icon = ua?.mobile ? PhoneIcon : DesktopIcon;
+        return (
+          <li
+            key={s.id}
+            className="flex items-center gap-3.5 px-[22px] py-3"
+            data-testid="session-row"
+            data-current={s.current ? 'true' : undefined}
+          >
+            <span className="inline-flex h-[34px] w-[34px] shrink-0 items-center justify-center rounded-[10px] bg-chip text-ink">
+              <Icon size={17} />
+            </span>
+            <span className="grid min-w-0 flex-1">
+              <b className="flex min-w-0 items-center gap-2 text-[15.5px] font-medium">
+                <bdi dir="auto" className="truncate font-display" title={s.user_agent ?? undefined}>
+                  {label}
+                </bdi>
+                {s.current && (
+                  <span className={cx(TAG, TAG_TONE.up, 'shrink-0')} data-testid="session-current">
+                    {t('account.thisBrowser')}
+                  </span>
+                )}
+              </b>
+              <span className="truncate text-[13.5px] text-ink-muted">
+                {s.ip && (
+                  <>
+                    <bdi dir="ltr" className="font-display">
+                      {s.ip}
+                    </bdi>
+                    {' · '}
+                  </>
+                )}
+                <span title={formatDateTime(seen)}>
+                  {t('account.lastActive', { when: formatRelative(seen) })}
+                </span>
+              </span>
+            </span>
+            <Button
+              size="sm"
+              busy={s.current ? endingHere : ending === s.id}
+              disabled={ending !== null && ending !== s.id}
+              onClick={() => (s.current ? onLogoutHere() : end.mutate(s.id))}
+              data-testid="session-signout"
+              aria-label={t('account.signOutSession', { name: label })}
+            >
+              {t('account.signOut')}
+            </Button>
+          </li>
+        );
+      })}
+    </ul>
+  );
+}
+
 export function AccountPage() {
   const { t } = useTranslation();
   const toast = useToast();
@@ -84,6 +194,10 @@ export function AccountPage() {
   const [next, setNext] = useState('');
   const [confirm, setConfirm] = useState('');
   const tokens = useQuery({ queryKey: qk.tokens(false), queryFn: () => endpoints.tokens(false) });
+  const logoutHere = () => {
+    setEndingOne(true);
+    void logout(false);
+  };
 
   const profile = useMutation({
     mutationFn: () => endpoints.updateMe({ email: email.trim() || null }),
@@ -253,30 +367,28 @@ export function AccountPage() {
               </form>
             </Card>
           )}
-          <Card title={t('account.sessions')}>
+          <Card title={t('account.sessions')} bodyClassName="pb-5 pt-1">
             <div className="grid gap-4" data-testid="account-sessions">
-              <p className="m-0 text-[14.5px] text-ink-muted">{t('account.sessionsHint')}</p>
-              {user.source !== 'local' && (
-                <p className="m-0 text-xs text-ink-subtle">{t('account.sessionsDirectoryHint')}</p>
-              )}
-              <div className="flex flex-wrap gap-2.5">
-                <Button
-                  busy={endingOne}
-                  onClick={() => {
-                    setEndingOne(true);
-                    void logout(false);
-                  }}
-                  data-testid="logout-here"
-                >
-                  <LogoutIcon size={14} className="rtl:rotate-180" /> {t('account.logoutHere')}
-                </Button>
-                <Button
-                  variant="danger"
-                  onClick={() => setConfirmAll(true)}
-                  data-testid="logout-everywhere"
-                >
-                  {t('account.logoutEverywhere')}
-                </Button>
+              <SessionList onLogoutHere={logoutHere} endingHere={endingOne} />
+              <div className="grid gap-4 px-[22px]">
+                <p className="m-0 text-[14.5px] text-ink-muted">{t('account.sessionsHint')}</p>
+                {user.source !== 'local' && (
+                  <p className="m-0 text-xs text-ink-subtle">
+                    {t('account.sessionsDirectoryHint')}
+                  </p>
+                )}
+                <div className="flex flex-wrap gap-2.5">
+                  <Button busy={endingOne} onClick={logoutHere} data-testid="logout-here">
+                    <LogoutIcon size={14} className="rtl:rotate-180" /> {t('account.logoutHere')}
+                  </Button>
+                  <Button
+                    variant="danger"
+                    onClick={() => setConfirmAll(true)}
+                    data-testid="logout-everywhere"
+                  >
+                    {t('account.logoutEverywhere')}
+                  </Button>
+                </div>
               </div>
             </div>
           </Card>

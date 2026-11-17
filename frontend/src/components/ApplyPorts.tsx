@@ -152,7 +152,7 @@ export function ApplyPortsSection({
   };
 
   return (
-    <div className="space-y-2 rounded-md border border-line p-3" data-testid="apply-ports">
+    <div className="space-y-2 rounded-lg border border-line px-4 py-3.5" data-testid="apply-ports">
       <FieldGroup label={t('applyPorts.title')}>
         <div className="flex flex-wrap gap-x-4 gap-y-1.5">
           {CHOICES.map((c) => (
@@ -226,7 +226,7 @@ export function ApplyPortsSection({
             <p className="text-sm text-ink-muted">{t('applyPorts.noPorts')}</p>
           ) : (
             <ul
-              className="max-h-64 divide-y divide-line overflow-y-auto rounded-md border border-line bg-surface"
+              className="max-h-64 divide-y divide-line overflow-y-auto rounded-lg border border-line bg-surface"
               data-testid="apply-ports-list"
             >
               {shown.map((it) => (

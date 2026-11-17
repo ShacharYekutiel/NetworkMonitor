@@ -33,7 +33,7 @@ function CodeDialog({ code, onClose }: { code: ChatLinkCode | null; onClose: () 
         <div className="flex items-center gap-2">
           <code
             dir="ltr"
-            className="flex-1 rounded bg-surface-sunken px-3 py-2 text-center font-mono text-lg"
+            className="flex-1 rounded-[12px] bg-chip px-3 py-2.5 text-center font-mono text-lg"
           >
             {code.instructions}
           </code>

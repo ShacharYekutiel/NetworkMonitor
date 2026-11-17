@@ -13,7 +13,7 @@ import { ExplainButton } from './assistant/ExplainButton';
 export function EventKindLabel({ kind }: { kind: NmEvent['kind'] }) {
   const { t } = useTranslation();
   return (
-    <span className="inline-flex h-[22px] items-center whitespace-nowrap rounded-sm border border-line bg-surface-sunken px-2 text-xs font-medium text-ink-muted">
+    <span className="inline-flex h-[22px] items-center whitespace-nowrap rounded-full bg-chip px-2 text-xs font-medium text-ink-muted">
       {t(`eventKind.${kind}`, { defaultValue: kind })}
     </span>
   );

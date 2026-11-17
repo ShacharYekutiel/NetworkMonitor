@@ -14,6 +14,7 @@ import { formatDateTime, formatRelative } from '../../lib/format';
 import { ChevronIcon, EditIcon, PlusIcon, TrashIcon } from '../icons';
 import { useToast } from '../toast';
 import { Button, Card, ConfirmDialog, cx, Empty, ErrorBox, Loading, Select } from '../ui';
+import { CHECKBOX } from '../kit';
 import { BuiltinBadge, RuleEditorModal } from './RuleEditor';
 import { useEventRules } from './rules';
 
@@ -175,7 +176,7 @@ export function RulesView() {
               <label className="inline-flex items-center" title={t('common.enabled')}>
                 <input
                   type="checkbox"
-                  className="h-4 w-4 rounded border-line-strong text-accent-ink"
+                  className={CHECKBOX}
                   checked={r.enabled}
                   disabled={!isAdmin || patch.isPending}
                   onChange={(e) => patch.mutate([{ id: r.id, enabled: e.target.checked }])}

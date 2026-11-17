@@ -62,6 +62,17 @@ export type ApiErrorEnvelope = {
   error: { code: string; message: string; details: ApiErrorDetail[] | null };
 };
 
+/** [premium] A signed-in browser of the current user (GET /api/auth/sessions). */
+export type BrowserSession = {
+  /** opaque public id */
+  id: string;
+  created_at: string;
+  last_seen_at: string | null;
+  ip: string | null;
+  user_agent: string | null;
+  current: boolean;
+};
+
 export type User = {
   id: number;
   username: string;

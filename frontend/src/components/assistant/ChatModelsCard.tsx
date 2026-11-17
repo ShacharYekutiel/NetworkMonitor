@@ -162,7 +162,7 @@ export function ChatModelsCard({ s }: { s: AssistantSettings }) {
         )}
         <ErrorBox error={listModels.error} />
         {models && (
-          <div className="max-h-48 overflow-y-auto rounded-md border border-line bg-surface">
+          <div className="max-h-48 overflow-y-auto rounded-lg border border-line bg-surface">
             {models.length === 0 && (
               <p className="p-2 text-xs text-ink-muted">{t('assistant.settings.noModels')}</p>
             )}

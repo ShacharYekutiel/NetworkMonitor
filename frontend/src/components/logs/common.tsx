@@ -15,7 +15,7 @@ import {
 } from '../../lib/logs';
 import { allDevices, findGroup } from '../../lib/tree';
 import { formatDateTime, formatLogTime } from '../../lib/format';
-import { ShareBar } from '../kit';
+import { CHECKBOX, ShareBar } from '../kit';
 import { cx, Input, Select, TAG, TAG_TONE } from '../ui';
 
 export function SeverityBadge({ severity }: { severity: number }) {
@@ -179,7 +179,7 @@ export function FacilityPicker({
         <label key={f} className="inline-flex items-center gap-1.5 text-xs">
           <input
             type="checkbox"
-            className="h-3.5 w-3.5 rounded border-line-strong text-accent-ink"
+            className={CHECKBOX}
             checked={value.includes(f)}
             onChange={(e) =>
               onChange(e.target.checked ? [...value, f] : value.filter((x) => x !== f))

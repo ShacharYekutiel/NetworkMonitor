@@ -566,7 +566,13 @@
     "logoutHere": "Sign out",
     "logoutEverywhereConfirm": "Every session of yours ends, including this one. You will sign in again on each device. API tokens keep working.",
     "logoutEverywhereGo": "Sign out of everything",
-    "sessionsDirectoryHint": "Directory and Microsoft sign-ins end after 12 hours at the latest."
+    "sessionsDirectoryHint": "Directory and Microsoft sign-ins end after 12 hours at the latest.",
+    "sessionEnded": "That browser is signed out.",
+    "unknownBrowser": "Unknown browser",
+    "thisBrowser": "This browser",
+    "lastActive": "active {{when}}",
+    "signOut": "Sign out",
+    "signOutSession": "Sign out {{name}}"
   },
   "validation": {
     "required": "Required.",

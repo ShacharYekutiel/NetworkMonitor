@@ -351,7 +351,7 @@ function InterfacePicker({
         value={filter}
         onChange={(e) => setFilter(e.target.value)}
       />
-      <div className="max-h-80 overflow-y-auto rounded ring-1 ring-line">
+      <div className="max-h-80 overflow-y-auto rounded-lg ring-1 ring-line">
         <Table>
           <thead>
             <tr>
@@ -688,7 +688,7 @@ function StoragePicker({
     );
 
   return (
-    <div className="space-y-2 rounded-md p-3 ring-1 ring-line">
+    <div className="space-y-2 rounded-lg px-4 py-3.5 ring-1 ring-line">
       <div className="text-xs font-medium text-ink-muted">{t('storage.title')}</div>
       {q.isLoading && <Loading />}
       {q.error && (

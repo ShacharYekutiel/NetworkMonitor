@@ -339,7 +339,7 @@ export function IngestSettingsCard({ settings }: { settings: Settings }) {
             </Select>
           </Field>
         </div>
-        <fieldset className="space-y-3 rounded-md border border-line p-3">
+        <fieldset className="space-y-3 rounded-lg border border-line px-4 py-3.5">
           <legend className="px-1 text-xs font-semibold text-ink-muted">
             {t('ingestSettings.trapAuth')}
           </legend>

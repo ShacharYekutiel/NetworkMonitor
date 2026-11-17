@@ -579,7 +579,13 @@
     "logoutEverywhereConfirm": "כל ההתחברויות שלך יסתיימו, כולל זו. תצטרכו להתחבר מחדש בכל מכשיר. אסימוני API ימשיכו לעבוד.",
     "logoutEverywhereGo": "התנתקות מהכול",
     "sessionsDirectoryHint": "התחברויות AD, Kerberos ו-Microsoft מסתיימות לכל המאוחר אחרי 12 שעות.",
-    "activeTokens_two": "2 אסימונים פעילים"
+    "activeTokens_two": "2 אסימונים פעילים",
+    "sessionEnded": "הדפדפן הזה נותק.",
+    "unknownBrowser": "דפדפן לא מזוהה",
+    "thisBrowser": "הדפדפן הזה",
+    "lastActive": "פעיל {{when}}",
+    "signOut": "התנתקות",
+    "signOutSession": "התנתקות {{name}}"
   },
   "validation": {
     "required": "שדה חובה.",

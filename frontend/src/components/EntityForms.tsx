@@ -399,7 +399,7 @@ export function DeviceFormModal({
           onArpCollect={setArp}
         />
         {!device && (
-          <fieldset className="rounded-md border border-line p-3">
+          <fieldset className="rounded-lg border border-line px-4 py-3.5">
             <legend className="px-1 text-xs font-semibold text-ink-muted">
               {t('devices.autoSensors')}
             </legend>
@@ -464,7 +464,7 @@ function InventoryFields({
       : state;
   };
   return (
-    <fieldset className="rounded-md border border-line p-3">
+    <fieldset className="rounded-lg border border-line px-4 py-3.5">
       <legend className="px-1 text-xs font-semibold text-ink-muted">{t('device.inventory')}</legend>
       <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
         <Field

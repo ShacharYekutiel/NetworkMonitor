@@ -1,5 +1,6 @@
 import { api, buildUrl } from './client';
 import { setNamedValueMaps } from '../lib/valueMaps';
+import type { BrowserSession } from './types';
 import type { BackupMode, SshCredentialsInput } from './types3';
 import type {
   ApiToken,
@@ -86,6 +87,7 @@ export const qk = {
   setupStatus: ['setupStatus'] as const,
   publicSettings: ['publicSettings'] as const,
   me: ['me'] as const,
+  sessions: ['auth-sessions'] as const,
   tree: ['tree'] as const,
   dashboard: ['dashboard'] as const,
   sensorTypes: ['sensorTypes'] as const,
@@ -352,6 +354,10 @@ export const endpoints = {
     api.post<void>('/auth/logout', everywhere ? { everywhere: true } : undefined, {
       skipAuthRedirect: true,
     }),
+  /** [premium] the caller's signed-in browsers */
+  sessions: () => api.get<{ items: BrowserSession[] }>('/auth/sessions'),
+  /** [premium] ends one of them (the current one = a logout; the server clears the cookie) */
+  endSession: (id: string) => api.del(`/auth/sessions/${encodeURIComponent(id)}`),
   changePassword: (current_password: string, new_password: string) =>
     api.post<void>('/auth/change-password', { current_password, new_password }),
 

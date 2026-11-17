@@ -54,7 +54,7 @@ export function FeatureOffNotice({
     <div
       role="note"
       data-testid="feature-off"
-      className={`rounded-md bg-surface-sunken px-3 py-2 text-sm text-ink ring-1 ring-inset ring-line ${className ?? ''}`}
+      className={`rounded-lg bg-chip px-4 py-3 text-sm text-ink ${className ?? ''}`}
     >
       {t('features.offLine', { name: names })}{' '}
       {isAdmin ? (

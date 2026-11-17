@@ -49,7 +49,10 @@ export function ChatAckFields({
   });
   if (!features.chat_ack) return null;
   return (
-    <fieldset className="space-y-2 rounded-md border border-line p-3" data-testid="chat-ack-fields">
+    <fieldset
+      className="space-y-2 rounded-lg border border-line px-4 py-3.5"
+      data-testid="chat-ack-fields"
+    >
       <legend className="px-1 text-xs font-semibold text-ink-muted">
         {t('chatAck.channelTitle')}
       </legend>

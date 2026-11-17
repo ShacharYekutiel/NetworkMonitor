@@ -216,7 +216,7 @@ function CertificateCard({ s, locked }: { s: AssistantSettings; locked: boolean 
   });
   const fromFiles = s.certificate?.source === 'files' || !!s.certificate_host_files;
   return (
-    <div className="space-y-3 rounded-md border border-line p-3" data-testid="cert-card">
+    <div className="space-y-3 rounded-lg border border-line px-4 py-3.5" data-testid="cert-card">
       <h4 className="text-sm font-semibold">{t('assistant.cert.title')}</h4>
       {s.certificate ? (
         <CertDetails c={s.certificate} onDelete={locked ? undefined : () => setDeleting(true)} />
@@ -865,7 +865,7 @@ export function ConnectionSettings({ s, auditOn }: { s: AssistantSettings; audit
         )}
         <ErrorBox error={listModels.error} />
         {models && (
-          <div className="max-h-48 overflow-y-auto rounded-md border border-line bg-surface">
+          <div className="max-h-48 overflow-y-auto rounded-lg border border-line bg-surface">
             {models.length === 0 && (
               <p className="p-2 text-xs text-ink-muted">{t('assistant.settings.noModels')}</p>
             )}

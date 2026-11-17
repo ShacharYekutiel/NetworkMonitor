@@ -156,7 +156,7 @@ export function SshEditor({
     <details
       open={open}
       onToggle={(e) => setOpen((e.currentTarget as HTMLDetailsElement).open)}
-      className="rounded-md border border-line p-3"
+      className="rounded-lg border border-line px-4 py-3.5"
       data-testid="ssh-editor"
     >
       <summary className="cursor-pointer text-xs font-semibold text-ink-muted">

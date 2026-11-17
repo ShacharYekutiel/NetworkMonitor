@@ -19,7 +19,7 @@ export function HealthStrip({ items }: { items: HealthItem[] }) {
           key={h.category}
           to={`/sensors/${h.primary_sensor_id}`}
           title={t(`status.${h.status}`)}
-          className="inline-flex min-w-0 items-center gap-2 rounded-md bg-surface px-2.5 py-1.5 text-sm ring-1 ring-line hover:bg-surface-hover"
+          className="inline-flex min-w-0 items-center gap-2 rounded-full bg-surface px-3 py-1.5 text-sm shadow-[0_1px_2px_rgba(0,0,0,0.06),0_0_0_1px_var(--border)] hover:bg-surface-hover"
         >
           <span
             className={cx('h-2.5 w-2.5 shrink-0 rounded-full', statusClass(h.status, STATUS_DOT))}

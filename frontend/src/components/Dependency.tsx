@@ -116,7 +116,7 @@ export function DependencyEditor({
   const exclude = useMemo(() => (selfDeviceId ? [selfDeviceId] : []), [selfDeviceId]);
   const modes: DependencyInput['mode'][] = ['inherit', 'none', 'device'];
   return (
-    <fieldset className="min-w-0 rounded-md border border-line p-3">
+    <fieldset className="min-w-0 rounded-lg border border-line px-4 py-3.5">
       <legend className="px-1 text-xs font-semibold text-ink-muted">{t('dependency.title')}</legend>
       <p className="mb-2 text-xs text-ink-muted">
         {forGroup ? t('dependency.groupHint') : t('dependency.deviceHint')}

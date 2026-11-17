@@ -93,7 +93,7 @@ export function MaintenanceBadge({
   return (
     <span
       title={title}
-      className="inline-flex h-[22px] items-center gap-[5px] whitespace-nowrap rounded-sm bg-accent-soft px-2 text-xs font-medium text-accent-ink"
+      className="inline-flex h-[22px] items-center gap-[5px] whitespace-nowrap rounded-full bg-accent-soft px-2 text-xs font-semibold text-accent-ink"
     >
       <WrenchIcon size={12} />
       <span dir="auto">{text}</span>
@@ -152,10 +152,8 @@ export function WeekdayChips({
             aria-pressed={on}
             onClick={() => onChange(on ? value.filter((x) => x !== d) : [...value, d])}
             className={cx(
-              'min-w-[2.75rem] rounded-md border px-2 py-1 text-xs font-medium',
-              on
-                ? 'border-accent bg-accent text-accent-on'
-                : 'border-line-strong bg-surface text-ink hover:bg-surface-hover',
+              'h-8 min-w-[2.75rem] rounded-full px-3 text-[13px] font-medium transition-colors',
+              on ? 'bg-accent text-accent-on' : 'bg-chip text-ink-muted hover:text-ink',
             )}
           >
             {names[d]}
@@ -462,7 +460,7 @@ export function MaintenanceWindowModal({
             />
           </Field>
         </div>
-        <div className="rounded-lg border border-line bg-surface-sunken p-3">
+        <div className="rounded-lg bg-chip px-4 py-3.5">
           <div className="mb-1 text-xs font-semibold text-ink-muted">
             {t('maintenance.preview')}
           </div>

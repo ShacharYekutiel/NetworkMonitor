@@ -70,7 +70,7 @@ export function FingerprintView({ fp }: { fp: Fingerprint }) {
       {fp.http.map((h) => (
         <div
           key={`${h.scheme}${h.port}`}
-          className="min-w-0 rounded-md border border-line bg-surface-sunken p-2"
+          className="min-w-0 rounded-lg border border-line bg-surface-sunken p-2"
         >
           <div className="flex flex-wrap items-center gap-x-2 gap-y-0.5">
             <Ltr className="font-mono font-semibold">
@@ -114,10 +114,7 @@ export function FingerprintView({ fp }: { fp: Fingerprint }) {
                 <dt className="text-ink-muted">{t('fingerprint.markers')}</dt>
                 <dd className="flex flex-wrap gap-1">
                   {h.markers.map((m) => (
-                    <span
-                      key={m}
-                      className="rounded-sm border border-line bg-surface px-1 font-mono"
-                    >
+                    <span key={m} className="rounded-[6px] bg-surface px-1 font-mono">
                       <Ltr>{m}</Ltr>
                     </span>
                   ))}
@@ -167,7 +164,7 @@ export function IdentityView({
         <DeviceClassBadge cls={identity.device_class} />
         {identity.vendor && <VendorBadge vendor={identity.vendor} />}
         {identity.model && (
-          <span className="inline-flex h-[22px] items-center rounded-sm border border-line bg-surface-sunken px-2 font-mono text-xs">
+          <span className="inline-flex h-[22px] items-center rounded-full bg-chip px-2 font-mono text-xs">
             <Ltr>{identity.model}</Ltr>
           </span>
         )}

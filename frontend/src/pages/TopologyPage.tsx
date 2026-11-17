@@ -212,12 +212,12 @@ function LinkPanel({
         </button>
       </div>
       <div className="flex flex-wrap items-center gap-1.5 text-xs">
-        <span className="inline-flex h-[22px] items-center rounded-sm border border-line bg-surface-sunken px-2 font-medium text-ink-muted">
+        <span className="inline-flex h-[22px] items-center rounded-full bg-chip px-2 font-medium text-ink-muted">
           {t(`topology.source.${link.source}`)}
         </span>
         {st && <StatusBadge status={st} />}
         {link.stale && (
-          <span className="inline-flex h-[22px] items-center rounded-sm bg-status-warning-soft px-2 font-medium text-status-warning">
+          <span className="inline-flex h-[22px] items-center rounded-full bg-status-warning-soft px-2 font-semibold text-status-warning">
             {t('topology.stale', { count: link.missed_refreshes })}
           </span>
         )}
@@ -425,7 +425,7 @@ function AddLinkModal({
       }
     >
       <div className="space-y-4">
-        <fieldset className="min-w-0 space-y-2 rounded-md border border-line p-3">
+        <fieldset className="min-w-0 space-y-2 rounded-lg border border-line px-4 py-3.5">
           <legend className="px-1 text-xs font-semibold text-ink-muted">
             {t('topology.endA')}
           </legend>
@@ -450,7 +450,7 @@ function AddLinkModal({
             }}
           />
         </fieldset>
-        <fieldset className="min-w-0 space-y-2 rounded-md border border-line p-3">
+        <fieldset className="min-w-0 space-y-2 rounded-lg border border-line px-4 py-3.5">
           <legend className="px-1 text-xs font-semibold text-ink-muted">
             {t('topology.endB')}
           </legend>
