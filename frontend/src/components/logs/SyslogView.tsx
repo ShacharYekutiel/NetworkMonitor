@@ -294,7 +294,7 @@ export function SyslogView({ deviceId }: { deviceId?: number }) {
         </div>
       </Card>
       {/* top sources / programs under the lines (the prototype shows the lines first) */}
-      {stats.data && (
+      {stats.data && stats.data.total > 0 && (
         <Card bodyClassName="px-[22px] py-5">
           <div className="grid grid-cols-1 gap-x-10 gap-y-6 sm:grid-cols-2">
             {deviceId === undefined && (
