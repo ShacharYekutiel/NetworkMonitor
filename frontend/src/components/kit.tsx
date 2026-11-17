@@ -1,11 +1,12 @@
 // Premium v2 shared components (docs/design-system/premium/prototype.html <style> "v2"): built in slice 1
 // so that later slices only assemble pages. Tokens only; no inline style attributes.
-import { type ComponentType, type ReactNode } from 'react';
+import { type ComponentType, type ReactNode, useEffect, useId, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import {
   AlertIcon,
   ApIcon,
   CheckIcon,
+  ChevronIcon,
   DeviceIcon,
   NasIcon,
   PCIcon,
@@ -15,6 +16,7 @@ import {
   ShieldIcon,
   SparkIcon,
 } from './icons';
+import { Link } from 'react-router';
 import { cx } from './ui';
 
 type IconC = ComponentType<{ size?: number; strokeWidth?: number; className?: string }>;
@@ -486,14 +488,197 @@ export function DeviceTileIcon({
   return <Icon size={size} strokeWidth={1.8} />;
 }
 
-/** A share bar (prototype .share): 6px, ink on a chip track. */
-export function ShareBar({ pct }: { pct: number }) {
+/** A share bar (prototype .share): 6px (8px when `thick`), ink on a chip track. */
+export function ShareBar({ pct, thick }: { pct: number; thick?: boolean }) {
   return (
     <progress
       value={Math.max(0, Math.min(100, pct))}
       max={100}
       aria-hidden="true"
-      className="block h-1.5 w-full appearance-none overflow-hidden rounded-full bg-chip [&::-moz-progress-bar]:rounded-full [&::-moz-progress-bar]:bg-ink [&::-webkit-progress-bar]:bg-chip [&::-webkit-progress-value]:rounded-full [&::-webkit-progress-value]:bg-ink"
+      className={cx(
+        'block w-full appearance-none overflow-hidden rounded-full bg-chip [&::-moz-progress-bar]:rounded-full [&::-moz-progress-bar]:bg-ink [&::-webkit-progress-bar]:bg-chip [&::-webkit-progress-value]:rounded-full [&::-webkit-progress-value]:bg-ink',
+        thick ? 'h-2' : 'h-1.5',
+      )}
     />
+  );
+}
+
+/**
+ * A multi-choice chip (prototype .chips / .chip.on): a real checkbox inside a 32px pill, ink when
+ * checked, so forms keep their checkbox semantics and labels.
+ */
+export function ToggleChip({
+  label,
+  checked,
+  onChange,
+  disabled,
+}: {
+  label: ReactNode;
+  checked: boolean;
+  onChange: (v: boolean) => void;
+  disabled?: boolean;
+}) {
+  return (
+    <label
+      className={cx(
+        'relative inline-flex h-8 cursor-pointer select-none items-center gap-1.5 whitespace-nowrap rounded-full px-3.5 text-[13.5px] font-medium transition-colors has-[:focus-visible]:outline has-[:focus-visible]:outline-2 has-[:focus-visible]:outline-offset-2 has-[:focus-visible]:outline-[var(--focus)]',
+        checked ? 'bg-accent text-accent-on' : 'bg-chip text-ink-muted hover:text-ink',
+        disabled && 'cursor-not-allowed opacity-50',
+      )}
+    >
+      <input
+        type="checkbox"
+        // transparent and over the whole chip: the checkbox itself takes the click
+        className="absolute inset-0 m-0 h-full w-full cursor-pointer appearance-none rounded-full opacity-0 disabled:cursor-not-allowed"
+        checked={checked}
+        disabled={disabled}
+        onChange={(e) => onChange(e.target.checked)}
+      />
+      {label}
+    </label>
+  );
+}
+
+/**
+ * A small popover (prototype .pop): a button that opens a floating card under it; closes on
+ * Escape and on a click outside.
+ */
+export function Popover({
+  button,
+  label,
+  children,
+  className,
+  testId,
+}: {
+  button: ReactNode;
+  /** accessible name of the button */
+  label: string;
+  children: ReactNode;
+  className?: string;
+  testId?: string;
+}) {
+  const [open, setOpen] = useState(false);
+  const ref = useRef<HTMLDivElement>(null);
+  const id = useId();
+  useEffect(() => {
+    if (!open) return;
+    const onDown = (e: MouseEvent) => {
+      if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false);
+    };
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') setOpen(false);
+    };
+    document.addEventListener('mousedown', onDown);
+    document.addEventListener('keydown', onKey);
+    return () => {
+      document.removeEventListener('mousedown', onDown);
+      document.removeEventListener('keydown', onKey);
+    };
+  }, [open]);
+  return (
+    <div ref={ref} className="relative inline-block">
+      <button
+        type="button"
+        aria-label={label}
+        aria-expanded={open}
+        aria-controls={id}
+        onClick={() => setOpen((o) => !o)}
+        className={cx(
+          'inline-flex h-8 items-center gap-2 whitespace-nowrap rounded-full bg-chip px-3.5 text-[13px] font-medium text-ink-muted transition-colors hover:text-ink',
+          className,
+        )}
+      >
+        {button}
+      </button>
+      {open && (
+        <div
+          id={id}
+          data-testid={testId}
+          className="absolute end-0 top-full z-40 mt-2 w-[min(360px,90vw)] rounded-[20px] bg-surface p-4 text-sm text-ink shadow-[0_18px_60px_rgba(0,0,0,0.18),0_0_0_1px_var(--border)] motion-safe:animate-[nm-pop-in_.3s_cubic-bezier(.32,.72,0,1)]"
+        >
+          {children}
+        </div>
+      )}
+    </div>
+  );
+}
+
+/**
+ * A grouped-list row with its own controls (prototype .row with buttons at the end): the main part
+ * is a link (or a button) with a status dot or icon tile, a title and a grey line; `end` holds
+ * buttons, switches or tags that must not sit inside the link.
+ */
+export function ActionRow({
+  icon,
+  dot,
+  title,
+  subtitle,
+  to,
+  onClick,
+  end,
+  dim,
+  wrap,
+  testId,
+}: {
+  icon?: ReactNode;
+  /** the grey line may wrap (rows with several controls at the end) */
+  wrap?: boolean;
+  /** a status dot instead of an icon tile (Tailwind bg class) */
+  dot?: string;
+  title: ReactNode;
+  subtitle?: ReactNode;
+  to?: string;
+  onClick?: () => void;
+  end?: ReactNode;
+  /** a disabled item: muted */
+  dim?: boolean;
+  testId?: string;
+}) {
+  const body = (
+    <>
+      {dot ? (
+        <span aria-hidden="true" className={cx('h-2.5 w-2.5 shrink-0 rounded-full', dot)} />
+      ) : (
+        icon && (
+          <span className="inline-flex h-[34px] w-[34px] shrink-0 items-center justify-center rounded-[10px] bg-chip text-ink">
+            {icon}
+          </span>
+        )
+      )}
+      <span className="grid min-w-0 flex-1">
+        <b className="truncate text-[15.5px] font-medium">{title}</b>
+        {subtitle && (
+          <span className={cx('text-[13.5px] text-ink-muted', !wrap && 'truncate')}>
+            {subtitle}
+          </span>
+        )}
+      </span>
+    </>
+  );
+  const main =
+    'flex min-w-0 flex-1 items-center gap-3.5 py-4 ps-5 text-start text-ink no-underline';
+  return (
+    <li
+      data-testid={testId}
+      className={cx(
+        'flex items-center gap-2 pe-4 transition-colors',
+        (to || onClick) && 'hover:bg-surface-hover',
+        dim && 'opacity-60',
+      )}
+    >
+      {to ? (
+        <Link to={to} className={main}>
+          {body}
+          {!end && <ChevronIcon size={16} className="shrink-0 text-ink-subtle rtl:rotate-180" />}
+        </Link>
+      ) : onClick ? (
+        <button type="button" onClick={onClick} className={main}>
+          {body}
+        </button>
+      ) : (
+        <div className={main}>{body}</div>
+      )}
+      {end && <div className="flex shrink-0 flex-wrap items-center justify-end gap-1">{end}</div>}
+    </li>
   );
 }

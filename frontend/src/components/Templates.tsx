@@ -22,7 +22,7 @@ import {
 } from '../lib/templates';
 import { ApplyPortsSection } from './ApplyPorts';
 import { CheckIcon, TrashIcon } from './icons';
-import { Button, cx, ErrorBox, Field, Loading, Modal, Notice, Select } from './ui';
+import { Button, cx, ErrorBox, Field, Loading, Modal, Notice, Select, TAG, TAG_TONE } from './ui';
 
 export function useDeviceTemplates() {
   return useQuery({
@@ -54,10 +54,7 @@ export function ConfidenceChip({ confidence }: { confidence: Confidence }) {
   return (
     <span
       title={t('templates.confidenceTitle')}
-      className={cx(
-        'inline-flex shrink-0 items-center whitespace-nowrap rounded-sm px-1.5 py-px text-[11px] font-medium',
-        CONFIDENCE_TONE[confidence] ?? CONFIDENCE_TONE.low,
-      )}
+      className={cx(TAG, 'shrink-0', CONFIDENCE_TONE[confidence] ?? CONFIDENCE_TONE.low)}
     >
       {t(`confidence.${confidence}`)}
     </span>
@@ -71,12 +68,7 @@ export function VerifiedBadge({ tpl }: { tpl: DeviceTemplate }) {
   return (
     <span
       title={tpl.verified_note || (ok ? undefined : t('templates.unverifiedHint'))}
-      className={cx(
-        'inline-flex items-center gap-1 whitespace-nowrap rounded-sm px-1.5 py-0.5 text-[11px] font-medium',
-        ok
-          ? 'bg-status-up-soft text-status-up'
-          : 'border border-line bg-surface-sunken text-ink-muted',
-      )}
+      className={cx(TAG, ok ? TAG_TONE.up : TAG_TONE.neutral)}
     >
       {ok && <CheckIcon size={11} />}
       {ok ? t('templates.verified') : t('templates.unverified')}

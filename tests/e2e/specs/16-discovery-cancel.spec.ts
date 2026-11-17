@@ -68,7 +68,7 @@ test('second concurrent scan -> 409 scan_running (shown in the UI)', async ({ pa
     await expect(page.getByText(/already running/i).first()).toBeVisible();
     await expect(page).toHaveURL(/\/discovery$/);
     // The running scan is visible in the scans list.
-    await expect(page.getByRole('row').filter({ has: page.locator(`a[href="/discovery/scans/${running.id}"]`) })).toContainText('Running');
+    await expect(page.getByTestId('scan-row').filter({ has: page.locator(`a[href="/discovery/scans/${running.id}"]`) })).toContainText('Running');
   } finally {
     await raw(api, 'POST', `/api/discovery/scans/${running.id}/cancel`);
   }

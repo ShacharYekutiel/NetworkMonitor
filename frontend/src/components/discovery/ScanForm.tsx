@@ -11,6 +11,7 @@ import {
 import { formatNumber } from '../../lib/format';
 import { MAX_HOSTS, MAX_TARGETS, summarizeTargets, type TargetsSummary } from '../../lib/targets';
 import { PlusIcon, TrashIcon } from '../icons';
+import { ToggleChip } from '../kit';
 import { Button, Checkbox, cx, Field, FieldGroup, Input, Ltr, Select, Textarea } from '../ui';
 
 export function useTargetsSummary(text: string): TargetsSummary {
@@ -227,32 +228,18 @@ export function ScanOptionsEditor({
         label={t('discovery.probes')}
         hint={errors.probes ? <Err k={errors.probes} /> : undefined}
       >
-        <div className="flex flex-wrap gap-x-5 gap-y-2">
-          <Checkbox
-            label={t('discovery.optPing')}
-            checked={value.ping}
-            onChange={(v) => set('ping', v)}
-          />
-          <Checkbox
-            label={t('discovery.optSnmp')}
-            checked={value.snmp}
-            onChange={(v) => set('snmp', v)}
-          />
-          <Checkbox
-            label={t('discovery.optTcp')}
-            checked={value.tcp}
-            onChange={(v) => set('tcp', v)}
-          />
-          <Checkbox
-            label={t('discovery.optDns')}
-            checked={value.dns}
-            onChange={(v) => set('dns', v)}
-          />
-          <Checkbox
-            label={t('discovery.optFingerprint')}
-            checked={value.fingerprint}
-            onChange={(v) => set('fingerprint', v)}
-          />
+        <div className="flex flex-wrap gap-2">
+          {(
+            [
+              ['ping', 'discovery.optPing'],
+              ['snmp', 'discovery.optSnmp'],
+              ['dns', 'discovery.optDns'],
+              ['tcp', 'discovery.optTcp'],
+              ['fingerprint', 'discovery.optFingerprint'],
+            ] as const
+          ).map(([k, label]) => (
+            <ToggleChip key={k} label={t(label)} checked={value[k]} onChange={(v) => set(k, v)} />
+          ))}
         </div>
       </FieldGroup>
       {value.fingerprint && (
@@ -285,8 +272,8 @@ export function ScanOptionsEditor({
       )}
 
       {value.snmp && (
-        <fieldset className="min-w-0 rounded-md border border-line p-3">
-          <legend className="px-1 text-xs font-semibold text-ink-muted">
+        <fieldset className="min-w-0 rounded-[18px] bg-surface-sunken p-4">
+          <legend className="float-start mb-2 w-full p-0 text-[13.5px] font-semibold text-ink">
             {t('discovery.extraCreds')}
           </legend>
           <p className="mb-2 text-xs text-ink-muted">{t('discovery.extraCredsHint')}</p>

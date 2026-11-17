@@ -946,7 +946,9 @@
     "whenNotIn": "לא באחד מ-{{list}}",
     "whenAny": "עונה",
     "matchOidPrefixes": "sysObjectID {{list}}",
-    "matchDescr": "sysDescr תואם {{re}}"
+    "matchDescr": "sysDescr תואם {{re}}",
+    "details": "פרטים",
+    "shortInterfaces": "ממשקים"
   },
   "discovery": {
     "title": "גילוי",
@@ -1113,7 +1115,13 @@
     "openProfiles": "פרופילים שמורים",
     "optFingerprint": "טביעת אצבע (web/SSH/telnet)",
     "fingerprintHint": "קורא את כותרת דף האינטרנט, כותרת השרת ובאנר SSH/telnet של מארחים עם פורטים 80/443/8080/8443/22/23 פתוחים, כדי לזהות התקנים בלי SNMP. לא נשלחים פרטי התחברות.",
-    "fingerprintTimeout": "זמן קצוב לטביעת אצבע (ms)"
+    "fingerprintTimeout": "זמן קצוב לטביעת אצבע (ms)",
+    "foundN": "נמצאו {{n}}",
+    "newN": "{{n}} חדשים",
+    "notifyTo": "התראה ל-{{list}}",
+    "noNotify": "ללא התראה",
+    "scanning": "סורק…",
+    "startedAt": "התחילה {{time}}"
   },
   "ack": {
     "acknowledged": "אושר",
@@ -1217,7 +1225,16 @@
       "weekdays": "בחרו לפחות יום אחד.",
       "time": "בפורמט HH:MM (00:00–23:59).",
       "duration": "1 עד 10080 דקות (7 ימים)."
-    }
+    },
+    "pausedNote": "בזמן חלון פעיל ההתראות מושהות",
+    "week": {
+      "this": "השבוע",
+      "today": "לשבוע הנוכחי",
+      "prev": "השבוע הקודם",
+      "next": "השבוע הבא"
+    },
+    "emptyTitle": "אין חלונות תחזוקה",
+    "emptyText": "תכננו חלון כדי להשהות התראות להתקן, לקבוצה או לכל הרשת בזמן עבודה."
   },
   "escalation": {
     "title": "הסלמה ותזכורות",
@@ -2192,7 +2209,12 @@
     "countersSince": "מונים מאז {{time}}",
     "v3Failures": "כשלי אימות SNMPv3 אחרונים",
     "engineId": "Engine ID",
-    "reason": "סיבה"
+    "reason": "סיבה",
+    "chip": {
+      "ok": "המקלטים מאזינים",
+      "error": "שגיאה במקלט",
+      "off": "המקלטים כבויים"
+    }
   },
   "ingestSettings": {
     "title": "מלכודות ו-Syslog",
@@ -3136,6 +3158,18 @@
       "timeout": "חרג מהזמן",
       "unverified_numbers": "הושמט (המספרים לא תאמו לנתונים)",
       "disabled": "היכולת כבויה"
+    },
+    "subtitle": "זמינות, תקלות, פורטים ושינויי קונפיגורציה — בתזמון או לפי דרישה",
+    "delivery": {
+      "sent": "נשלח",
+      "partial": "נשלח ל-{{ok}} מתוך {{total}}"
+    },
+    "paperSub": "{{from}} – {{to}} · נוצר {{time}}",
+    "paperHeadline": "זמינות כוללת {{pct}}",
+    "fig": {
+      "devices": "התקנים",
+      "downtime": "שעות השבתה",
+      "outages": "תקלות"
     }
   },
   "reportSection": {
@@ -3985,7 +4019,8 @@
     "saved": "נשמר {{file}}",
     "cannotTitle": "העוזר לא הצליח להכין טיוטת תבנית מהסריקה הזו.",
     "cannotHint": "סרוק את תתי-העצים עם ערכי ההתקן עצמו (enterprise, ENTITY, HOST-RESOURCES) ותאר מה לנטר, למשל:",
-    "cannotExample": "לנטר מצב ספקי כוח ומאווררים וטמפרטורת מעבד"
+    "cannotExample": "לנטר מצב ספקי כוח ומאווררים וטמפרטורת מעבד",
+    "warnings": "אזהרות"
   },
   "usage": {
     "title": "שימוש בעוזר",

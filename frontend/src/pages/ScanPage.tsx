@@ -15,7 +15,6 @@ import {
   DeviceClassBadge,
   DeviceClassIcon,
   ReachabilityChips,
-  ScanStatusBadge,
   VendorBadge,
 } from '../components/discovery/Badges';
 import { GroupSelect } from '../components/EntityForms';
@@ -34,8 +33,10 @@ import {
   hasFingerprint,
 } from '../components/discovery/Fingerprint';
 import { SkippedList, TemplateSelect, useDeviceTemplates } from '../components/Templates';
+import { CHECKBOX, ShareBar } from '../components/kit';
 import { useToast } from '../components/toast';
 import {
+  BackLink,
   Button,
   CHIP,
   CHIP_TONE,
@@ -56,7 +57,6 @@ import {
   td,
   th,
   TruncLtr,
-  Value,
 } from '../components/ui';
 import { useLiveState } from '../hooks/live';
 import {
@@ -77,36 +77,38 @@ const POLL_MS = 2000;
 function Stat({ label, value, tone }: { label: string; value: number; tone?: string }) {
   return (
     <div className="min-w-0">
-      <div className="text-[13px] font-medium text-ink-muted">{label}</div>
       <div
         className={cx(
-          'mt-1 font-display text-[30px] font-semibold leading-8 tabular-nums',
+          'font-display text-[28px] font-semibold leading-8 tracking-[-0.02em] tabular-nums',
           tone ?? 'text-ink',
         )}
       >
         {formatNumber(value, 0)}
       </div>
+      <div className="mt-0.5 text-[13px] text-ink-muted">{label}</div>
     </div>
   );
 }
 
+/** Progress (prototype scan: "Scanning…", n / total, an 8px bar), then the counts. */
 function ProgressCard({ scan, polling }: { scan: DiscoveryScan; polling: boolean }) {
   const { t } = useTranslation();
   const pct = progressPct(scan);
   const running = scan.status === 'running';
   return (
     <Card>
-      <div className="space-y-3">
-        <div className="flex flex-wrap items-center justify-between gap-2 text-sm">
-          <span className="font-medium">
-            {t('discovery.scanned', {
-              scanned: formatNumber(scan.scanned_hosts, 0),
-              total: formatNumber(scan.total_hosts, 0),
-            })}
-          </span>
-          <span className="text-xs text-ink-muted">
-            {running && polling && <span className="me-2">{t('discovery.polling')}</span>}
-            <Value text={`${pct}%`} />
+      <div className="grid gap-3">
+        <div className="flex flex-wrap items-baseline justify-between gap-2">
+          <b
+            className={cx(
+              'text-[17px] font-semibold',
+              scan.status === 'failed' && 'text-status-down',
+            )}
+          >
+            {running ? t('discovery.scanning') : t(`discovery.status.${scan.status}`)}
+          </b>
+          <span className="num text-sm text-ink-muted" dir="ltr">
+            {formatNumber(scan.scanned_hosts, 0)} / {formatNumber(scan.total_hosts, 0)}
           </span>
         </div>
         <div
@@ -115,23 +117,13 @@ function ProgressCard({ scan, polling }: { scan: DiscoveryScan; polling: boolean
           aria-valuemax={100}
           aria-valuenow={pct}
           aria-label={t('discovery.progress')}
-          className="h-1.5 overflow-hidden rounded-sm bg-surface-sunken"
         >
-          <div
-            className={cx(
-              'h-full rounded-sm transition-[width] duration-500',
-              scan.status === 'failed'
-                ? 'bg-danger'
-                : scan.status === 'cancelled'
-                  ? 'bg-status-paused'
-                  : running
-                    ? 'bg-accent'
-                    : 'bg-status-up',
-            )}
-            style={{ width: `${scan.status === 'completed' ? 100 : pct}%` }}
-          />
+          <ShareBar pct={scan.status === 'completed' ? 100 : pct} thick />
         </div>
-        <div className="grid grid-cols-3 gap-3 sm:grid-cols-5">
+        {running && polling && (
+          <p className="m-0 text-xs text-ink-muted">{t('discovery.polling')}</p>
+        )}
+        <div className="mt-2 flex flex-wrap items-end gap-x-10 gap-y-3">
           <Stat label={t('discovery.found')} value={scan.found_hosts} />
           <Stat
             label={t('discovery.new')}
@@ -139,10 +131,7 @@ function ProgressCard({ scan, polling }: { scan: DiscoveryScan; polling: boolean
             tone={scan.new_hosts ? 'text-accent-ink' : undefined}
           />
           <Stat label={t('discovery.total')} value={scan.total_hosts} />
-          <div className="col-span-3 min-w-0 text-xs text-ink-muted sm:col-span-2">
-            <div title={formatDateTime(scan.started_at)}>
-              {t('discovery.started')}: {formatRelative(scan.started_at)}
-            </div>
+          <div className="ms-auto min-w-0 text-[13px] text-ink-muted">
             {scan.finished_at && (
               <div title={formatDateTime(scan.finished_at)}>
                 {t('discovery.finished')}: {formatRelative(scan.finished_at)}
@@ -212,22 +201,20 @@ function FilterBar({
                 aria-pressed={on}
                 onClick={() => toggleClass(c)}
                 className={cx(
-                  'inline-flex h-[26px] items-center gap-1.5 rounded-sm border px-2 text-xs font-medium',
-                  on
-                    ? 'border-accent-ink bg-accent-soft text-accent-ink'
-                    : 'border-line-strong bg-surface text-ink-muted hover:text-ink',
+                  'inline-flex h-8 items-center gap-1.5 whitespace-nowrap rounded-full px-3.5 text-[13.5px] font-medium transition-colors',
+                  on ? 'bg-accent text-accent-on' : 'bg-chip text-ink-muted hover:text-ink',
                 )}
               >
-                <DeviceClassIcon cls={c} size={12} />
+                <DeviceClassIcon cls={c} size={14} />
                 {t(`deviceClass.${c}`)}
-                <span className="font-mono text-[11px] tabular-nums">{counts[c]}</span>
+                <span className="num text-xs opacity-70">{counts[c]}</span>
               </button>
             );
           })}
           {f.classes.length > 0 && (
             <button
               type="button"
-              className="text-xs text-accent-ink hover:underline"
+              className="px-2 text-[13px] text-ink-muted hover:text-ink"
               onClick={() => onChange({ ...f, classes: [] })}
             >
               {t('common.clearFilters')}
@@ -297,7 +284,7 @@ function ResultRow({
         <td className={td}>
           <input
             type="checkbox"
-            className="h-4 w-4 disabled:opacity-40"
+            className={cx(CHECKBOX, 'disabled:cursor-not-allowed disabled:opacity-40')}
             aria-label={t('discovery.selectHost', { ip: r.ip })}
             checked={selected}
             disabled={existing || disabled}
@@ -420,7 +407,7 @@ function ResultCard({
       <div className="flex items-start gap-2">
         <input
           type="checkbox"
-          className="mt-1 h-4 w-4 shrink-0 disabled:opacity-40"
+          className={cx(CHECKBOX, 'mt-0.5 disabled:cursor-not-allowed disabled:opacity-40')}
           aria-label={t('discovery.selectHost', { ip: r.ip })}
           checked={selected}
           disabled={existing || disabled}
@@ -707,22 +694,15 @@ export function ScanPage() {
   return (
     <div className="space-y-4">
       <PageHeader
-        breadcrumbs={
-          <Link to="/discovery" className="hover:underline">
-            {t('discovery.title')}
-          </Link>
-        }
-        title={
+        breadcrumbs={<BackLink to="/discovery" label={t('discovery.title')} />}
+        title={t('discovery.scanTitle', { id: s.id })}
+        subtitle={[
+          t('discovery.targetsCount', { count: s.targets.length }),
+          t('discovery.hostsCount', { count: s.total_hosts }),
+          t('discovery.startedAt', { time: formatDateTime(s.started_at) }),
+        ].join(' · ')}
+        meta={
           <>
-            <span>{t('discovery.scanTitle', { id: s.id })}</span>
-            <ScanStatusBadge status={s.status} />
-          </>
-        }
-        subtitle={
-          <span className="flex flex-wrap gap-x-3">
-            <span className="font-mono text-xs">
-              <Ltr>{s.targets.join(', ')}</Ltr>
-            </span>
             <span>
               {s.profile_name ? <bdi dir="auto">{s.profile_name}</bdi> : t('discovery.manual')}
               {' · '}
@@ -734,11 +714,14 @@ export function ScanPage() {
                 </>
               )}
             </span>
-          </span>
+            <TruncLtr className="num max-w-[40rem] text-[13px]" title={s.targets.join(', ')}>
+              {s.targets.join(', ')}
+            </TruncLtr>
+          </>
         }
         actions={
           running ? (
-            <Button variant="danger" busy={cancel.isPending} onClick={() => setCancelAsk(true)}>
+            <Button busy={cancel.isPending} onClick={() => setCancelAsk(true)}>
               <StopIcon size={14} /> {t('discovery.cancel')}
             </Button>
           ) : (
@@ -757,7 +740,7 @@ export function ScanPage() {
       <ProgressCard scan={s} polling={ws !== 'open'} />
 
       <Card title={t('discovery.results', { count: all.length })} bodyClassName="p-0">
-        <div className="space-y-3 border-b border-line p-3">
+        <div className="space-y-3 border-b border-line px-5 pb-4 pt-1">
           <FilterBar f={filters} onChange={setFilters} counts={counts} />
         </div>
         {results.isLoading && <Loading />}
@@ -776,7 +759,7 @@ export function ScanPage() {
                     <th className={th}>
                       <input
                         type="checkbox"
-                        className="h-4 w-4 disabled:opacity-40"
+                        className={cx(CHECKBOX, 'disabled:cursor-not-allowed disabled:opacity-40')}
                         aria-label={t('common.selectAll')}
                         checked={allSelected}
                         disabled={!selectable.length || doImport.isPending}
@@ -835,7 +818,7 @@ export function ScanPage() {
           </>
         )}
         {all.length > 0 && (
-          <div className="sticky bottom-0 flex flex-wrap items-end gap-3 border-t border-line bg-surface p-3">
+          <div className="sticky bottom-0 flex flex-wrap items-end gap-3 border-t border-line bg-surface px-5 py-4">
             <Field label={t('discovery.importGroup')} className="w-full sm:w-64">
               <GroupSelect value={groupId} onChange={setGroupId} />
             </Field>

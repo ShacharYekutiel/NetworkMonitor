@@ -117,6 +117,16 @@ export function formatShortTime(iso: string | null | undefined, now: number = Da
   ).format(d);
 }
 
+/** "8 Nov" (browser time); with `endExclusive` the instant just before (a period's last day). */
+export function formatShortDate(iso: string | null | undefined, endExclusive = false): string {
+  if (!iso) return '—';
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return '—';
+  return new Intl.DateTimeFormat(locale(), { day: 'numeric', month: 'short' }).format(
+    endExclusive ? d.getTime() - 1000 : d,
+  );
+}
+
 /** A log line's time (prototype logs rows): "10:44:12" within a day, else "17 Nov 10:44:12". */
 export function formatLogTime(iso: string | null | undefined, now: number = Date.now()): string {
   if (!iso) return '—';

@@ -187,9 +187,9 @@ test('results table: class, vendor, template, Exists link, filters', async ({ pa
   await expect(row('127.0.0.24')).toHaveCount(1);
   await shot(page, 'discovery-results-en');
 
-  // The scan is listed on the Scans tab.
+  // The scan is listed under the recent scans.
   await page.goto('/discovery');
-  const scanRow = page.getByRole('row').filter({ has: page.locator(`a[href="/discovery/scans/${scanId}"]`) });
+  const scanRow = page.getByTestId('scan-row').filter({ has: page.locator(`a[href="/discovery/scans/${scanId}"]`) });
   await expect(scanRow).toContainText('Completed');
 });
 

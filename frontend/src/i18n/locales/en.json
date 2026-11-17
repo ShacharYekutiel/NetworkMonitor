@@ -932,7 +932,9 @@
     "whenNotIn": "not in {{list}}",
     "whenAny": "answers",
     "matchOidPrefixes": "sysObjectID {{list}}",
-    "matchDescr": "sysDescr matches {{re}}"
+    "matchDescr": "sysDescr matches {{re}}",
+    "details": "Details",
+    "shortInterfaces": "Interfaces"
   },
   "discovery": {
     "title": "Discovery",
@@ -1094,7 +1096,13 @@
     "openProfiles": "Saved profiles",
     "optFingerprint": "Fingerprint (web/SSH/telnet)",
     "fingerprintHint": "Reads the web page title, server header and SSH/telnet banner of hosts with ports 80/443/8080/8443/22/23 open, to recognise devices without SNMP. Sends no credentials.",
-    "fingerprintTimeout": "Fingerprint timeout (ms)"
+    "fingerprintTimeout": "Fingerprint timeout (ms)",
+    "foundN": "found {{n}}",
+    "newN": "{{n}} new",
+    "notifyTo": "alerts to {{list}}",
+    "noNotify": "no alerts",
+    "scanning": "Scanning…",
+    "startedAt": "started {{time}}"
   },
   "ack": {
     "acknowledged": "Acknowledged",
@@ -1197,7 +1205,16 @@
       "weekdays": "Choose at least one day.",
       "time": "Use HH:MM (00:00–23:59).",
       "duration": "1 to 10080 minutes (7 days)."
-    }
+    },
+    "pausedNote": "Alerts are paused while a window is active",
+    "week": {
+      "this": "This week",
+      "today": "This week",
+      "prev": "Previous week",
+      "next": "Next week"
+    },
+    "emptyTitle": "No maintenance windows",
+    "emptyText": "Plan a window to pause alerts for a device, a group or everything while you work."
   },
   "escalation": {
     "title": "Escalation and reminders",
@@ -2160,7 +2177,12 @@
     "countersSince": "Counters since {{time}}",
     "v3Failures": "Recent SNMPv3 authentication failures",
     "engineId": "Engine ID",
-    "reason": "Reason"
+    "reason": "Reason",
+    "chip": {
+      "ok": "Receivers listening",
+      "error": "Receiver error",
+      "off": "Receivers off"
+    }
   },
   "ingestSettings": {
     "title": "Traps & syslog",
@@ -3101,6 +3123,18 @@
       "timeout": "timed out",
       "unverified_numbers": "dropped (numbers did not match the data)",
       "disabled": "feature off"
+    },
+    "subtitle": "Availability, problems, ports and configuration changes — scheduled or on demand",
+    "delivery": {
+      "sent": "sent",
+      "partial": "sent {{ok}} of {{total}}"
+    },
+    "paperSub": "{{from}} – {{to}} · generated {{time}}",
+    "paperHeadline": "Overall availability {{pct}}",
+    "fig": {
+      "devices": "devices",
+      "downtime": "hours of downtime",
+      "outages": "outages"
     }
   },
   "reportSection": {
@@ -3938,7 +3972,8 @@
     "saved": "Saved {{file}}",
     "cannotTitle": "The assistant could not draft a template from this walk.",
     "cannotHint": "Walk the subtrees with the device's own values (enterprise, ENTITY, HOST-RESOURCES) and describe what to monitor, for example:",
-    "cannotExample": "monitor PSU and fan status and CPU temperature"
+    "cannotExample": "monitor PSU and fan status and CPU temperature",
+    "warnings": "Warnings"
   },
   "usage": {
     "title": "Assistant usage",

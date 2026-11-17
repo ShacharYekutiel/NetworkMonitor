@@ -33,7 +33,7 @@ export function LogsPage() {
   if (!loaded) return <Loading />;
   return (
     <div className="space-y-4">
-      <PageHeader title={t('logs.title')} subtitle={<IngestStatusLine />} />
+      <PageHeader title={t('logs.title')} actions={<IngestStatusLine />} />
       {!ingestOn(features) ? (
         <FeatureOffNotice feature={['traps', 'syslog']} />
       ) : (

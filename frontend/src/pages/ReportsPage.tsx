@@ -9,12 +9,19 @@ import type { Language } from '../api/types';
 import type { Report, ReportRun, ReportRunStatus, ReportSchedule } from '../api/types3';
 import { REPORT_SCHEDULES, REPORT_SECTIONS } from '../api/types3';
 import { DevicePicker, useDeviceNames } from '../components/Dependency';
-import { ChevronIcon, EditIcon, PlayIcon, PlusIcon, TrashIcon } from '../components/icons';
+import {
+  ChevronIcon,
+  EditIcon,
+  PlayIcon,
+  PlusIcon,
+  ReportIcon,
+  TrashIcon,
+} from '../components/icons';
+import { ActionRow, EmptyState } from '../components/kit';
 import { Pagination } from '../components/Pagination';
 import { useToast } from '../components/toast';
 import {
   Button,
-  Card,
   Checkbox,
   ConfirmDialog,
   cx,
@@ -22,21 +29,22 @@ import {
   ErrorBox,
   Field,
   FieldGroup,
+  GroupList,
+  GroupTitle,
   Input,
   Loading,
   Modal,
   PageHeader,
   Select,
-  Table,
+  TAG,
+  TAG_TONE,
   Textarea,
-  td,
-  th,
 } from '../components/ui';
 import { useAuth } from '../hooks/auth';
 import { FeatureOffNotice, useFeatures } from '../hooks/features';
 import { useLiveMessages } from '../hooks/live';
 import { useTree } from '../hooks/queries';
-import { formatDateTime } from '../lib/format';
+import { formatDateTime, formatShortDate } from '../lib/format';
 import {
   dateToIso,
   defaultPeriod,
@@ -56,11 +64,11 @@ export function RunStatusBadge({ status }: { status: ReportRunStatus }) {
   return (
     <span
       className={cx(
-        'rounded px-1.5 py-0.5 text-xs font-medium',
-        status === 'ok' && 'bg-status-up-soft text-status-up',
-        status === 'partial' && 'bg-status-warning-soft text-status-warning',
-        status === 'failed' && 'bg-status-down-soft text-status-down',
-        status === 'running' && 'bg-accent-soft text-accent-ink',
+        TAG,
+        status === 'ok' && TAG_TONE.up,
+        status === 'partial' && TAG_TONE.warning,
+        status === 'failed' && TAG_TONE.down,
+        status === 'running' && TAG_TONE.accent,
       )}
     >
       {t(`reports.status.${status}`)}
@@ -478,9 +486,9 @@ export function DeliveriesCell({ run }: { run: ReportRun }) {
   });
   const name = (id: number) => channels.data?.items.find((c) => c.id === id)?.name;
   if (!run.deliveries.length)
-    return <span className="text-xs text-ink-muted">{t('reports.notSent')}</span>;
+    return <span className="text-[13px] text-ink-muted">{t('reports.notSent')}</span>;
   return (
-    <ul className="space-y-0.5 text-xs">
+    <ul className="m-0 flex list-none flex-wrap gap-x-3 gap-y-0.5 p-0 text-[13px]">
       {run.deliveries.map((d, i) => (
         <li
           key={i}
@@ -495,11 +503,38 @@ export function DeliveriesCell({ run }: { run: ReportRun }) {
   );
 }
 
-function RunsCard() {
+const RUN_DOT: Record<ReportRunStatus, string> = {
+  ok: 'bg-status-up',
+  partial: 'bg-status-warning',
+  failed: 'bg-status-down',
+  running: 'bg-accent motion-safe:animate-pulse',
+};
+
+/** "2–8 Nov · sent" style line of a run: period, then what happened to its deliveries. */
+function useRunLine() {
+  const { t } = useTranslation();
+  return (r: ReportRun) => {
+    const sent = r.deliveries.filter((d) => d.ok).length;
+    const outcome =
+      r.status === 'running'
+        ? t('reports.status.running')
+        : r.status === 'failed'
+          ? t('reports.status.failed')
+          : !r.deliveries.length
+            ? t('reports.notSent')
+            : sent === r.deliveries.length
+              ? t('reports.delivery.sent')
+              : t('reports.delivery.partial', { ok: sent, total: r.deliveries.length });
+    return `${formatShortDate(r.period_start)} – ${formatShortDate(r.period_end, true)} · ${outcome}`;
+  };
+}
+
+function RunsList() {
   const { t } = useTranslation();
   const { isAdmin } = useAuth();
   const qc = useQueryClient();
   const toast = useToast();
+  const line = useRunLine();
   const [page, setPage] = useState(1);
   const q = useQuery({
     queryKey: qk3.reportRuns({ page }),
@@ -514,61 +549,47 @@ function RunsCard() {
     },
   });
   return (
-    <Card title={t('reports.runs')} bodyClassName="p-0">
+    <section aria-labelledby="report-runs">
+      <GroupTitle id="report-runs">{t('reports.runs')}</GroupTitle>
       {q.isLoading && <Loading />}
-      <ErrorBox error={q.error ?? resend.error} className="m-3" />
-      {q.data && !q.data.items.length && <Empty>{t('reports.noRuns')}</Empty>}
+      <ErrorBox error={q.error ?? resend.error} className="mb-3" />
+      {q.data && !q.data.items.length && (
+        <div className="rounded-xl bg-surface shadow-card">
+          <Empty>{t('reports.noRuns')}</Empty>
+        </div>
+      )}
       {q.data && q.data.items.length > 0 && (
         <>
-          <Table>
-            <thead>
-              <tr>
-                <th className={th}>{t('reports.report')}</th>
-                <th className={th}>{t('reports.period')}</th>
-                <th className={th}>{t('reports.trigger')}</th>
-                <th className={th}>{t('common.status')}</th>
-                <th className={th}>{t('reports.deliveries')}</th>
-                <th className={th} />
-              </tr>
-            </thead>
-            <tbody>
-              {q.data.items.map((r) => (
-                <tr key={r.id}>
-                  <td className={td}>
-                    <Link
-                      to={`/reports/runs/${r.id}`}
-                      className="font-medium text-accent-ink hover:underline"
-                    >
-                      {r.report_name}
-                    </Link>
-                    <div className="text-xs text-ink-muted">{formatDateTime(r.started_at)}</div>
-                  </td>
-                  <td className={`${td} text-[13px]`}>
-                    {formatDateTime(r.period_start)} – {formatDateTime(r.period_end)}
-                  </td>
-                  <td className={td}>
+          <GroupList label={t('reports.runs')}>
+            {q.data.items.map((r) => (
+              <ActionRow
+                key={r.id}
+                testId="report-run-row"
+                to={`/reports/runs/${r.id}`}
+                dot={RUN_DOT[r.status]}
+                title={<bdi dir="auto">{r.report_name}</bdi>}
+                subtitle={
+                  <span
+                    title={`${formatDateTime(r.period_start)} – ${formatDateTime(r.period_end)}`}
+                  >
+                    {line(r)}
+                    {' · '}
                     {t(`reports.triggers.${r.trigger}`)}
-                    {r.created_by && (
-                      <span className="ms-1 text-xs text-ink-muted">({r.created_by})</span>
-                    )}
-                  </td>
-                  <td className={td}>
-                    <RunStatusBadge status={r.status} />
-                  </td>
-                  <td className={td}>
-                    <DeliveriesCell run={r} />
-                  </td>
-                  <td className={`${td} text-end`}>
-                    {isAdmin && r.deliveries.some((d) => !d.ok) && r.status !== 'running' && (
-                      <Button size="sm" busy={resend.isPending} onClick={() => resend.mutate(r.id)}>
-                        {t('reports.resendFailed')}
-                      </Button>
-                    )}
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </Table>
+                    {r.created_by && <> ({r.created_by})</>}
+                  </span>
+                }
+                end={
+                  isAdmin &&
+                  r.deliveries.some((d) => !d.ok) &&
+                  r.status !== 'running' && (
+                    <Button size="sm" busy={resend.isPending} onClick={() => resend.mutate(r.id)}>
+                      {t('reports.resendFailed')}
+                    </Button>
+                  )
+                }
+              />
+            ))}
+          </GroupList>
           <Pagination
             page={page}
             pageSize={q.data.page_size}
@@ -577,7 +598,7 @@ function RunsCard() {
           />
         </>
       )}
-    </Card>
+    </section>
   );
 }
 
@@ -606,9 +627,10 @@ export function ReportsPage() {
     },
   });
   return (
-    <div className="space-y-4">
+    <div>
       <PageHeader
         title={t('reports.title')}
+        subtitle={t('reports.subtitle')}
         actions={
           on &&
           isAdmin && (
@@ -620,60 +642,56 @@ export function ReportsPage() {
       />
       {!on && <FeatureOffNotice feature="reports" />}
       {on && (
-        <>
-          <Card title={t('reports.definitions')} bodyClassName="p-0">
+        // prototype .two.even: definitions and runs side by side
+        <div className="grid grid-cols-1 items-start gap-6 lg:grid-cols-2">
+          <section aria-labelledby="report-defs">
+            <GroupTitle id="report-defs">{t('reports.definitions')}</GroupTitle>
             {q.isLoading && <Loading />}
-            <ErrorBox error={q.error} className="m-3" />
-            {q.data && !q.data.items.length && <Empty>{t('reports.empty')}</Empty>}
+            <ErrorBox error={q.error} className="mb-3" />
+            {q.data && !q.data.items.length && (
+              <div className="rounded-xl bg-surface shadow-card">
+                <EmptyState icon={ReportIcon} title={t('reports.empty')} />
+              </div>
+            )}
             {q.data && q.data.items.length > 0 && (
-              <Table>
-                <thead>
-                  <tr>
-                    <th className={th}>{t('common.name')}</th>
-                    <th className={th}>{t('reports.schedule')}</th>
-                    <th className={th}>{t('reports.nextRun')}</th>
-                    <th className={th}>{t('reports.lastRun')}</th>
-                    <th className={th}>{t('reports.recipients')}</th>
-                    {isAdmin && <th className={th} />}
-                  </tr>
-                </thead>
-                <tbody>
-                  {q.data.items.map((r) => (
-                    <tr key={r.id} className={r.enabled ? undefined : 'opacity-60'}>
-                      <td className={td}>
-                        <span className="font-medium">{r.name}</span>
-                        <div className="text-xs text-ink-muted">
-                          {r.sections.map((s) => t(`reportSection.${s}`)).join(' · ')}
-                        </div>
-                      </td>
-                      <td className={td}>{scheduleText(t, r)}</td>
-                      <td className={td}>
-                        {r.enabled ? formatDateTime(r.next_run_at) : t('reports.disabled')}
-                      </td>
-                      <td className={td}>
-                        {r.last_run ? (
-                          <Link
-                            to={`/reports/runs/${r.last_run.id}`}
-                            className="inline-flex items-center gap-1"
-                          >
-                            <RunStatusBadge status={r.last_run.status} />
-                            <span className="text-xs text-ink-muted">
-                              {formatDateTime(r.last_run.finished_at)}
-                            </span>
-                          </Link>
-                        ) : (
-                          '—'
-                        )}
-                      </td>
-                      <td className={`${td} text-[13px]`}>
+              <GroupList label={t('reports.definitions')}>
+                {q.data.items.map((r) => (
+                  <ActionRow
+                    key={r.id}
+                    testId="report-row"
+                    wrap
+                    dim={!r.enabled}
+                    icon={<ReportIcon size={18} />}
+                    onClick={isAdmin ? () => setEditing(r) : undefined}
+                    title={<bdi dir="auto">{r.name}</bdi>}
+                    subtitle={
+                      <>
+                        {r.enabled ? scheduleText(t, r) : t('reports.disabled')}
+                        {' · '}
                         {t('reports.recipientsCount', {
                           emails: r.email_to.length,
                           channels: r.channel_ids.length,
                         })}
-                      </td>
-                      {isAdmin && (
-                        <td className={`${td} text-end`}>
-                          <span className="inline-flex gap-1">
+                        {r.enabled && r.next_run_at && (
+                          <>
+                            {' · '}
+                            {t('reports.nextRun')}: {formatDateTime(r.next_run_at)}
+                          </>
+                        )}
+                      </>
+                    }
+                    end={
+                      <>
+                        {r.last_run && (
+                          <Link
+                            to={`/reports/runs/${r.last_run.id}`}
+                            title={`${t('reports.lastRun')}: ${formatDateTime(r.last_run.finished_at)}`}
+                          >
+                            <RunStatusBadge status={r.last_run.status} />
+                          </Link>
+                        )}
+                        {isAdmin && (
+                          <>
                             <Button size="sm" onClick={() => setRunning(r)}>
                               <PlayIcon size={12} className="rtl:rotate-180" />{' '}
                               {t('reports.runNow')}
@@ -694,17 +712,17 @@ export function ReportsPage() {
                             >
                               <TrashIcon size={14} />
                             </Button>
-                          </span>
-                        </td>
-                      )}
-                    </tr>
-                  ))}
-                </tbody>
-              </Table>
+                          </>
+                        )}
+                      </>
+                    }
+                  />
+                ))}
+              </GroupList>
             )}
-          </Card>
-          <RunsCard />
-        </>
+          </section>
+          <RunsList />
+        </div>
       )}
       <ReportModal
         open={editing !== undefined}

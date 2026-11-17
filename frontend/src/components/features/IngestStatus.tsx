@@ -6,6 +6,7 @@ import { DROP_REASONS } from '../../api/types';
 import { useFeatures } from '../../hooks/features';
 import { ingestOn } from '../../lib/features';
 import { formatDateTime, formatNumber, formatRelative } from '../../lib/format';
+import { Popover } from '../kit';
 import { Card, cx, ErrorBox, Loading, Table, td, th } from '../ui';
 
 export function useIngestStatus(refetch = 30_000) {
@@ -28,44 +29,96 @@ function proto(k: ReceiverStatus['kind']) {
   return k === 'syslog_tcp' ? 'TCP' : 'UDP';
 }
 
-/** One line for page headers: "Syslog UDP 514 listening · 12/min". */
+/**
+ * Receiver status for the Logs header: a quiet chip (dot + one word + the syslog rate) that opens
+ * a popover with each receiver, its port and state, the rates and the NAT hint.
+ */
 export function IngestStatusLine() {
   const { t } = useTranslation();
   const { features } = useFeatures();
   const q = useIngestStatus();
   if (!ingestOn(features) || !q.data) return null;
   const d = q.data;
+  const rx = d.receivers.filter((r) => (r.kind === 'trap' ? features.traps : features.syslog));
+  const err = rx.some((r) => r.state === 'error');
+  const on = rx.some((r) => r.state === 'listening');
+  const tone = err
+    ? 'bg-status-down'
+    : d.nat_suspected
+      ? 'bg-status-warning'
+      : on
+        ? 'bg-status-up'
+        : 'bg-status-paused';
+  const word = err
+    ? t('ingest.chip.error')
+    : d.nat_suspected
+      ? t('ingest.natShort')
+      : on
+        ? t('ingest.chip.ok')
+        : t('ingest.chip.off');
+  const rates = [
+    features.syslog &&
+      t('ingest.ratePerMin', {
+        kind: t('logs.tab.syslog'),
+        n: formatNumber(d.rate_per_min.syslog, 1),
+      }),
+    features.traps &&
+      t('ingest.ratePerMin', {
+        kind: t('logs.tab.traps'),
+        n: formatNumber(d.rate_per_min.trap, 1),
+      }),
+  ].filter(Boolean) as string[];
   return (
-    <span className="flex flex-wrap gap-x-3 gap-y-0.5 text-xs" data-testid="ingest-line">
-      {d.receivers
-        .filter((r) => (r.kind === 'trap' ? features.traps : features.syslog))
-        .map((r) => (
-          <span key={r.kind} className={STATE_CLS[r.state]} title={r.error ?? undefined}>
-            {t(`ingest.receiver.${r.kind}`)}{' '}
-            <bdi dir="ltr">
-              {proto(r.kind)} {r.port}
-            </bdi>
-            : {t(`ingest.state.${r.state}`)}
-          </span>
-        ))}
-      {features.syslog && (
-        <span>
-          {t('ingest.ratePerMin', {
-            kind: t('logs.tab.syslog'),
-            n: formatNumber(d.rate_per_min.syslog, 1),
-          })}
-        </span>
-      )}
-      {features.traps && (
-        <span>
-          {t('ingest.ratePerMin', {
-            kind: t('logs.tab.traps'),
-            n: formatNumber(d.rate_per_min.trap, 1),
-          })}
-        </span>
-      )}
-      {d.nat_suspected && <span className="text-status-warning">{t('ingest.natShort')}</span>}
-    </span>
+    <Popover
+      label={`${t('ingest.title')}: ${word}`}
+      testId="ingest-line"
+      button={
+        <>
+          <i aria-hidden="true" className={cx('h-2 w-2 rounded-full', tone)} />
+          {word}
+        </>
+      }
+    >
+      <div className="grid gap-3">
+        <b className="font-semibold">{t('ingest.title')}</b>
+        <ul className="m-0 grid list-none gap-2 p-0">
+          {rx.map((r) => (
+            <li key={r.kind} className="flex items-center gap-2.5" title={r.error ?? undefined}>
+              <i
+                aria-hidden="true"
+                className={cx(
+                  'h-2 w-2 shrink-0 rounded-full',
+                  r.state === 'listening'
+                    ? 'bg-status-up'
+                    : r.state === 'error'
+                      ? 'bg-status-down'
+                      : 'bg-status-paused',
+                )}
+              />
+              <span className="flex-1">
+                {t(`ingest.receiver.${r.kind}`)}{' '}
+                <bdi dir="ltr" className="num text-ink-muted">
+                  {proto(r.kind)} {r.port}
+                </bdi>
+              </span>
+              <span className={STATE_CLS[r.state]}>{t(`ingest.state.${r.state}`)}</span>
+            </li>
+          ))}
+        </ul>
+        {rates.length > 0 && (
+          <div className="flex flex-wrap gap-x-3 border-t border-line pt-2.5 text-[13px] text-ink-muted">
+            {rates.map((r) => (
+              <span key={r}>{r}</span>
+            ))}
+          </div>
+        )}
+        {d.nat_suspected && (
+          <p className="m-0 text-[13px] text-status-warning">
+            {t('ingest.nat', { addr: d.nat_address ?? '?' })}
+          </p>
+        )}
+      </div>
+    </Popover>
   );
 }
 
