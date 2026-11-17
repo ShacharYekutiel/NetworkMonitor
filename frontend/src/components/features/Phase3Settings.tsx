@@ -465,13 +465,13 @@ export function LearningBar({
   const p = learningProgress({ learning, learning_until: until }, days, Date.now());
   return (
     <div
-      className="h-2 w-full overflow-hidden rounded bg-surface-hover"
+      className="h-1.5 w-full overflow-hidden rounded-full bg-chip"
       role="progressbar"
       aria-valuemin={0}
       aria-valuemax={100}
       aria-valuenow={Math.round(p * 100)}
     >
-      <div className="h-full bg-accent" style={{ width: `${Math.round(p * 100)}%` }} />
+      <div className="h-full rounded-full bg-ink" style={{ width: `${Math.round(p * 100)}%` }} />
     </div>
   );
 }

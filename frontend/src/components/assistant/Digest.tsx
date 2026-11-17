@@ -339,7 +339,7 @@ export function DigestView({ d }: { d: Digest }) {
             {d.stats.by_hour.map(([h, n]) => (
               <div
                 key={h}
-                className="min-h-[3px] flex-1 rounded-t-[4px] rounded-b-[2px] bg-ink/20"
+                className="min-h-[3px] flex-1 rounded-t-[4px] rounded-b-[2px] bg-[color-mix(in_srgb,var(--ink)_22%,transparent)]"
                 style={{ height: `${(n / maxHour) * 100}%` }}
                 title={`${String(h).padStart(2, '0')}:00 — ${n}`}
               />

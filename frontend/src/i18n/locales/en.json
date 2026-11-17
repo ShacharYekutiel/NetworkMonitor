@@ -1648,7 +1648,13 @@
     "access": "access",
     "arpTitle": "ARP entries",
     "arpSource": "Learned from",
-    "help": "The MAC tables are read with the port inventory of each switch; IP addresses come from routers and firewalls with “Collect ARP”."
+    "help": "The MAC tables are read with the port inventory of each switch; IP addresses come from routers and firewalls with “Collect ARP”.",
+    "allResults": "All results",
+    "bestAccess": "Most likely: access port",
+    "bestUplink": "Most likely: uplink",
+    "now": "Now",
+    "name": "Name",
+    "locations": "Where it was seen"
   },
   "inventoryMode": {
     "auto": "Auto",
@@ -2757,7 +2763,13 @@
       "exporter_limit": "Exporter limit",
       "aggregation_overflow": "Aggregation overflow",
       "db_error": "Database errors"
-    }
+    },
+    "subline_one": "NetFlow · IPFIX · sFlow from 1 exporter",
+    "peakIn": "Peak inbound",
+    "volume": "Volume in the range",
+    "overTime": "Traffic over time",
+    "now": "now",
+    "subline_other": "NetFlow · IPFIX · sFlow from {{count}} exporters"
   },
   "exporter": {
     "address": "Address",
@@ -2849,7 +2861,13 @@
       "new": "New",
       "known": "Known",
       "allowed": "Allowed"
-    }
+    },
+    "device": "Device",
+    "modeLearning": "Learning",
+    "modeWatching": "Watching",
+    "watchingHint": "A device never seen before raises an alert",
+    "switchesLine": "{{done}} of {{total}} switches read",
+    "randomMac": "Random address"
   },
   "allowlist": {
     "intro": "Devices whose MAC address starts with an allowed prefix never alert (e.g. all printers of one vendor).",

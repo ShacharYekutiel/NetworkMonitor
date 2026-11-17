@@ -1680,7 +1680,13 @@
     "access": "גישה",
     "arpTitle": "רשומות ARP",
     "arpSource": "נלמד מ",
-    "help": "טבלאות ה-MAC נקראות עם מלאי הפורטים של כל מתג; כתובות IP מגיעות מנתבים וחומות אש עם „איסוף ARP”."
+    "help": "טבלאות ה-MAC נקראות עם מלאי הפורטים של כל מתג; כתובות IP מגיעות מנתבים וחומות אש עם „איסוף ARP”.",
+    "allResults": "כל התוצאות",
+    "bestAccess": "הכי סביר: פורט גישה",
+    "bestUplink": "הכי סביר: אפליינק",
+    "now": "עכשיו",
+    "name": "שם",
+    "locations": "איפה נראה"
   },
   "inventoryMode": {
     "auto": "אוטומטי",
@@ -2789,7 +2795,14 @@
       "exporter_limit": "מגבלת מקורות",
       "aggregation_overflow": "גלישה בצבירה",
       "db_error": "שגיאות מסד נתונים"
-    }
+    },
+    "subline_one": "NetFlow · IPFIX · sFlow מ-exporter אחד",
+    "peakIn": "שיא נכנס",
+    "volume": "נפח בטווח",
+    "overTime": "תעבורה לאורך זמן",
+    "now": "עכשיו",
+    "subline_other": "NetFlow · IPFIX · sFlow מ-{{count}} exporters",
+    "subline_two": "NetFlow · IPFIX · sFlow מ-2 exporters"
   },
   "exporter": {
     "address": "כתובת",
@@ -2882,7 +2895,13 @@
       "new": "חדש",
       "known": "מוכר",
       "allowed": "ברשימת היתר"
-    }
+    },
+    "device": "התקן",
+    "modeLearning": "בלמידה",
+    "modeWatching": "בהשגחה",
+    "watchingHint": "התקן שלא נראה מעולם יפעיל התראה",
+    "switchesLine": "נקראו {{done}} מתוך {{total}} מתגים",
+    "randomMac": "כתובת אקראית"
   },
   "allowlist": {
     "intro": "התקנים שכתובת ה-MAC שלהם מתחילה בקידומת מורשית לא מתריעים (למשל כל המדפסות של יצרן מסוים).",

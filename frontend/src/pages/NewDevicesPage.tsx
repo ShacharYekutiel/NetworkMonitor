@@ -24,27 +24,55 @@ import {
   PageHeader,
   Select,
   Table,
+  TAG,
+  TAG_TONE,
   Textarea,
   td,
   th,
+  TR_SELECTED,
 } from '../components/ui';
+import { CHECKBOX } from '../components/kit';
 import { useAuth } from '../hooks/auth';
 import { FeatureOffNotice, useFeatures } from '../hooks/features';
 import { useLiveMessages } from '../hooks/live';
 import { useTree } from '../hooks/queries';
-import { formatDateTime, formatRelative } from '../lib/format';
+import { formatDateTime, formatRelative, formatShortTime } from '../lib/format';
 import { MAX_ACK_BATCH, normalizeMacPrefix, ouiOf, toggleSelection } from '../lib/newDevices';
 import { flattenGroups } from '../lib/tree';
 
 const TABS = ['detected', 'known', 'allowlist'] as const;
 type NdTab = (typeof TABS)[number];
 
-function StatusCard() {
+/** A stat tile (prototype "התקנים חדשים": three cards, a grey label and a big value). */
+function StatTile({
+  label,
+  children,
+  sub,
+  testId,
+}: {
+  label: string;
+  children: React.ReactNode;
+  sub?: React.ReactNode;
+  testId?: string;
+}) {
+  return (
+    <div
+      className="grid content-start gap-1.5 rounded-xl bg-surface px-[22px] py-5 shadow-card"
+      data-testid={testId}
+    >
+      <span className="text-[13px] text-ink-muted">{label}</span>
+      {children}
+      {sub && <div className="text-[13px] text-ink-muted">{sub}</div>}
+    </div>
+  );
+}
+
+const BIG = 'num text-[44px] font-semibold leading-none tracking-[-0.03em]';
+
+/** Learning / watching, the counts and the scope (prototype: three tiles under the header). */
+function StatusTiles() {
   const { t } = useTranslation();
   const { isAdmin } = useAuth();
-  const qc = useQueryClient();
-  const toast = useToast();
-  const [confirm, setConfirm] = useState(false);
   const q = useQuery({ queryKey: qk3.newDeviceStatus, queryFn: endpoints3.newDeviceStatus });
   const settings = useQuery({
     queryKey: qk.settings,
@@ -57,6 +85,76 @@ function StatusCard() {
     for (const { group } of flattenGroups(tree.data?.groups ?? [])) m.set(group.id, group.name);
     return m;
   }, [tree.data]);
+  const s = q.data;
+  if (q.isLoading) return <Loading />;
+  if (q.error) return <ErrorBox error={q.error} />;
+  if (!s) return null;
+  return (
+    <div className="space-y-3">
+      <div className="grid grid-cols-1 gap-4 md:grid-cols-3">
+        <StatTile
+          label={t('newDevices.state')}
+          testId="newdev-mode"
+          sub={
+            s.learning ? (
+              <div className="grid gap-2">
+                <span>
+                  {t('newDevices.learningUntil', { date: formatDateTime(s.learning_until) })}
+                </span>
+                {settings.data?.newdev_learning_days ? (
+                  <LearningBar
+                    learning={s.learning}
+                    until={s.learning_until}
+                    days={settings.data.newdev_learning_days}
+                  />
+                ) : null}
+              </div>
+            ) : (
+              t('newDevices.watchingHint')
+            )
+          }
+        >
+          <b className="text-[30px] font-semibold leading-tight tracking-[-0.02em]">
+            {s.learning ? t('newDevices.modeLearning') : t('newDevices.modeWatching')}
+          </b>
+        </StatTile>
+        <StatTile label={t('newDevices.newCount')}>
+          <b className={cx(BIG, s.new_unacknowledged > 0 && 'text-status-warning')}>
+            {s.new_unacknowledged.toLocaleString()}
+          </b>
+        </StatTile>
+        <StatTile
+          label={t('newDevices.knownCount')}
+          sub={t('newDevices.switchesLine', {
+            done: s.switches_baselined,
+            total: s.switches_in_scope,
+          })}
+        >
+          <b className={BIG}>{s.known.toLocaleString()}</b>
+        </StatTile>
+      </div>
+      <p className="m-0 mx-1 text-[13px] text-ink-muted">
+        {s.learning ? `${t('newDevices.learningHint')} ` : ''}
+        {t('newDevices.scope')}:{' '}
+        {s.scope_group_ids.length
+          ? s.scope_group_ids.map((id) => names.get(id) ?? `#${id}`).join(', ')
+          : t('newDevices.scopeAll')}
+        {' · '}
+        {t('newDevices.lastDetection')}:{' '}
+        {s.last_detection_at ? formatRelative(s.last_detection_at) : '—'}
+        <br />
+        <span className="text-ink-subtle">{t('newDevices.excludeHint')}</span>
+      </p>
+    </div>
+  );
+}
+
+/** "Restart learning" (header action, admins) with its confirmation. */
+function RestartLearning() {
+  const { t } = useTranslation();
+  const qc = useQueryClient();
+  const toast = useToast();
+  const [confirm, setConfirm] = useState(false);
   const restart = useMutation({
     mutationFn: endpoints3.restartLearning,
     onSuccess: (s) => {
@@ -65,73 +163,9 @@ function StatusCard() {
       toast.push('success', t('newDevices.learningRestarted'));
     },
   });
-  const s = q.data;
   return (
-    <Card
-      title={t('newDevices.statusTitle')}
-      actions={
-        isAdmin && (
-          <Button size="sm" onClick={() => setConfirm(true)}>
-            {t('newDevices.restartLearning')}
-          </Button>
-        )
-      }
-    >
-      {q.isLoading && <Loading />}
-      <ErrorBox error={q.error} />
-      {s && (
-        <div className="space-y-3 text-sm">
-          {s.learning ? (
-            <div className="space-y-1">
-              <p>{t('newDevices.learningUntil', { date: formatDateTime(s.learning_until) })}</p>
-              {settings.data?.newdev_learning_days ? (
-                <LearningBar
-                  learning={s.learning}
-                  until={s.learning_until}
-                  days={settings.data.newdev_learning_days}
-                />
-              ) : null}
-              <p className="text-xs text-ink-muted">{t('newDevices.learningHint')}</p>
-            </div>
-          ) : (
-            <p className="text-status-up">{t('newDevices.watching')}</p>
-          )}
-          <dl className="grid grid-cols-2 gap-x-4 gap-y-1 sm:grid-cols-4">
-            <div>
-              <dt className="text-xs text-ink-muted">{t('newDevices.switches')}</dt>
-              <dd className="tabular-nums">
-                {s.switches_baselined} / {s.switches_in_scope}
-              </dd>
-            </div>
-            <div>
-              <dt className="text-xs text-ink-muted">{t('newDevices.knownCount')}</dt>
-              <dd className="tabular-nums">{s.known}</dd>
-            </div>
-            <div>
-              <dt className="text-xs text-ink-muted">{t('newDevices.newCount')}</dt>
-              <dd
-                className={cx(
-                  'tabular-nums',
-                  s.new_unacknowledged > 0 && 'font-semibold text-status-warning',
-                )}
-              >
-                {s.new_unacknowledged}
-              </dd>
-            </div>
-            <div>
-              <dt className="text-xs text-ink-muted">{t('newDevices.lastDetection')}</dt>
-              <dd>{s.last_detection_at ? formatRelative(s.last_detection_at) : '—'}</dd>
-            </div>
-          </dl>
-          <p className="text-xs text-ink-muted">
-            {t('newDevices.scope')}:{' '}
-            {s.scope_group_ids.length
-              ? s.scope_group_ids.map((id) => names.get(id) ?? `#${id}`).join(', ')
-              : t('newDevices.scopeAll')}
-          </p>
-          <p className="text-xs text-ink-muted">{t('newDevices.excludeHint')}</p>
-        </div>
-      )}
+    <>
+      <Button onClick={() => setConfirm(true)}>{t('newDevices.restartLearning')}</Button>
       <ConfirmDialog
         open={confirm}
         title={t('newDevices.restartLearning')}
@@ -142,9 +176,16 @@ function StatusCard() {
         busy={restart.isPending}
         error={restart.error}
       />
-    </Card>
+    </>
   );
 }
+
+const STATE_TONE: Record<KnownMacState, string> = {
+  new: TAG_TONE.warning,
+  known: TAG_TONE.up,
+  allowed: TAG_TONE.accent,
+  baseline: TAG_TONE.neutral,
+};
 
 function AckModal({ macs, onClose }: { macs: string[]; onClose: (done: boolean) => void }) {
   const { t } = useTranslation();
@@ -212,128 +253,143 @@ function MacTable({
 }) {
   const { t } = useTranslation();
   const all = items.length > 0 && items.every((m) => selected.includes(m.mac));
+  const sub = 'mt-0.5 block text-[13px] text-ink-muted';
   return (
     <Table>
       <thead>
         <tr>
           {selectable && (
-            <th className={th}>
+            <th className={cx(th, 'w-0')}>
               <input
                 type="checkbox"
                 aria-label={t('common.selectAll')}
                 checked={all}
                 onChange={(e) => items.forEach((m) => onSelect(m.mac, e.target.checked))}
-                className="h-4 w-4 rounded border-line-strong"
+                className={CHECKBOX}
               />
             </th>
           )}
-          <th className={th}>MAC</th>
-          <th className={th}>{t('newDevices.vendor')}</th>
-          <th className={th}>{t('newDevices.ipHost')}</th>
+          <th className={th}>{t('newDevices.device')}</th>
           <th className={th}>{t('newDevices.switchPort')}</th>
-          <th className={th}>VLAN</th>
           <th className={th}>{t('newDevices.firstSeen')}</th>
           <th className={th}>{t('newDevices.state')}</th>
           {actions && <th className={th} />}
         </tr>
       </thead>
       <tbody>
-        {items.map((m) => (
-          <tr key={m.mac} className="hover:bg-surface-hover">
-            {selectable && (
+        {items.map((m) => {
+          const ip = m.ip ?? m.first_ip;
+          const host = m.hostname ?? m.first_hostname;
+          return (
+            <tr key={m.mac} className={cx(selected.includes(m.mac) && TR_SELECTED)}>
+              {selectable && (
+                <td className={td}>
+                  <input
+                    type="checkbox"
+                    aria-label={m.mac}
+                    checked={selected.includes(m.mac)}
+                    onChange={(e) => onSelect(m.mac, e.target.checked)}
+                    className={CHECKBOX}
+                  />
+                </td>
+              )}
               <td className={td}>
-                <input
-                  type="checkbox"
-                  aria-label={m.mac}
-                  checked={selected.includes(m.mac)}
-                  onChange={(e) => onSelect(m.mac, e.target.checked)}
-                  className="h-4 w-4 rounded border-line-strong"
-                />
-              </td>
-            )}
-            <td className={td}>
-              <bdi dir="ltr" className="font-mono text-xs">
-                {m.mac}
-              </bdi>
-              {m.locally_administered && (
-                <span className="ms-1 text-xs text-ink-muted" title={t('newDevices.randomHint')}>
-                  ({t('newDevices.random')})
+                <b className="num text-[15px] font-medium">
+                  <bdi dir="ltr">{m.mac}</bdi>
+                </b>
+                <span className={sub}>
+                  {m.locally_administered ? (
+                    <span title={t('newDevices.randomHint')}>{t('newDevices.randomMac')}</span>
+                  ) : (
+                    <bdi dir="auto">{m.vendor ?? '—'}</bdi>
+                  )}
+                  {ip && (
+                    <>
+                      {' · '}
+                      <bdi dir="ltr" className="num">
+                        {ip}
+                      </bdi>
+                    </>
+                  )}
+                  {host && (
+                    <>
+                      {' · '}
+                      <bdi dir="ltr">{host}</bdi>
+                    </>
+                  )}
                 </span>
-              )}
-            </td>
-            <td className={td}>{m.vendor ?? '—'}</td>
-            <td className={td}>
-              {m.ip || m.first_ip ? (
-                <bdi dir="ltr" className="font-mono text-xs">
-                  {m.ip ?? m.first_ip}
-                </bdi>
-              ) : (
-                '—'
-              )}
-              {(m.hostname ?? m.first_hostname) && (
-                <div className="text-xs text-ink-muted">
-                  <bdi dir="ltr">{m.hostname ?? m.first_hostname}</bdi>
-                </div>
-              )}
-            </td>
-            <td className={td}>
-              {m.first_device_id ? (
-                <Link
-                  to={`/devices/${m.first_device_id}?tab=ports`}
-                  className="text-accent-ink hover:underline"
-                >
-                  {m.first_device_name ?? `#${m.first_device_id}`}
-                </Link>
-              ) : (
-                (m.first_device_name ?? '—')
-              )}
-              {m.first_port_name && (
-                <bdi dir="ltr" className="ms-1 text-xs">
-                  {m.first_port_name}
-                </bdi>
-              )}
-              {m.last_device_name && m.last_device_id !== m.first_device_id && (
-                <div className="text-xs text-ink-muted">
-                  {t('newDevices.nowAt', {
-                    place: `${m.last_device_name} ${m.last_port_name ?? ''}`.trim(),
-                  })}
-                </div>
-              )}
-            </td>
-            <td className={`${td} tabular-nums`}>{m.first_vlan ?? '—'}</td>
-            <td className={td}>
-              {formatDateTime(m.detected_at ?? m.first_seen)}
-              <div className="text-xs text-ink-muted">
-                {t('newDevices.lastSeen', { rel: formatRelative(m.last_seen) })}
-              </div>
-            </td>
-            <td className={td}>
-              <span
-                className={cx(
-                  'rounded px-1.5 py-0.5 text-xs font-medium',
-                  m.state === 'new' && 'bg-status-warning-soft text-status-warning',
-                  m.state === 'known' && 'bg-status-up-soft text-status-up',
-                  m.state === 'allowed' && 'bg-accent-soft text-accent-ink',
-                  m.state === 'baseline' && 'bg-surface-sunken text-ink',
+              </td>
+              <td className={td}>
+                {m.first_device_id ? (
+                  <Link
+                    to={`/devices/${m.first_device_id}?tab=ports`}
+                    className="font-display text-ink hover:underline"
+                  >
+                    {m.first_device_name ?? `#${m.first_device_id}`}
+                  </Link>
+                ) : (
+                  <span className="font-display">{m.first_device_name ?? '—'}</span>
                 )}
-              >
-                {t(`newDevices.states.${m.state}`)}
-              </span>
-              {m.ack_by && (
-                <div className="text-xs text-ink-muted" title={m.ack_comment}>
-                  {t('newDevices.ackBy', { user: m.ack_by })}
-                </div>
-              )}
-            </td>
-            {actions && <td className={`${td} text-end`}>{actions(m)}</td>}
-          </tr>
-        ))}
+                {m.first_port_name && (
+                  <>
+                    <span className="text-ink-muted"> · </span>
+                    <bdi dir="ltr" className="num text-ink-muted">
+                      {m.first_port_name}
+                    </bdi>
+                  </>
+                )}
+                <span className={sub}>
+                  {m.first_vlan != null && `VLAN ${m.first_vlan}`}
+                  {m.last_device_name && m.last_device_id !== m.first_device_id && (
+                    <>
+                      {m.first_vlan != null && ' · '}
+                      {t('newDevices.nowAt', {
+                        place: `${m.last_device_name} ${m.last_port_name ?? ''}`.trim(),
+                      })}
+                    </>
+                  )}
+                </span>
+              </td>
+              <td className={cx(td, 'whitespace-nowrap')}>
+                <span className="num" title={formatDateTime(m.detected_at ?? m.first_seen)}>
+                  {formatShortTime(m.detected_at ?? m.first_seen)}
+                </span>
+                <span className={sub}>
+                  {t('newDevices.lastSeen', { rel: formatRelative(m.last_seen) })}
+                </span>
+              </td>
+              <td className={td}>
+                <span className={cx(TAG, STATE_TONE[m.state])}>
+                  {t(`newDevices.states.${m.state}`)}
+                </span>
+                {m.ack_by && (
+                  <span className={sub} title={m.ack_comment}>
+                    {t('newDevices.ackBy', { user: m.ack_by })}
+                  </span>
+                )}
+              </td>
+              {actions && <td className={`${td} text-end`}>{actions(m)}</td>}
+            </tr>
+          );
+        })}
       </tbody>
     </Table>
   );
 }
 
-function MacList({ mode, deviceId }: { mode: 'detected' | 'known'; deviceId: number | null }) {
+function MacList({
+  mode,
+  deviceId,
+  selected,
+  setSelected,
+  onAck,
+}: {
+  mode: 'detected' | 'known';
+  deviceId: number | null;
+  selected: string[];
+  setSelected: (f: (s: string[]) => string[]) => void;
+  onAck: (macs: string[]) => void;
+}) {
   const { t } = useTranslation();
   const { isAdmin } = useAuth();
   const qc = useQueryClient();
@@ -341,8 +397,6 @@ function MacList({ mode, deviceId }: { mode: 'detected' | 'known'; deviceId: num
   const [page, setPage] = useState(1);
   const [text, setText] = useState('');
   const [state, setState] = useState<KnownMacState | ''>('');
-  const [selected, setSelected] = useState<string[]>([]);
-  const [ackMacs, setAckMacs] = useState<string[]>([]);
   const [forget, setForget] = useState<KnownMac | null>(null);
   const query: NewDevicesQuery = {
     state: mode === 'detected' ? ['new'] : state ? [state] : undefined,
@@ -374,7 +428,7 @@ function MacList({ mode, deviceId }: { mode: 'detected' | 'known'; deviceId: num
   const items = q.data?.items ?? [];
   return (
     <Card bodyClassName="p-0">
-      <div className="flex flex-wrap items-center gap-2 border-b border-line p-3">
+      <div className="flex flex-wrap items-center gap-2 border-b border-line px-5 py-3.5">
         <Input
           value={text}
           onChange={(e) => {
@@ -403,17 +457,6 @@ function MacList({ mode, deviceId }: { mode: 'detected' | 'known'; deviceId: num
             ))}
           </Select>
         )}
-        {mode === 'detected' && isAdmin && (
-          <Button
-            size="sm"
-            variant="primary"
-            className="ms-auto"
-            disabled={!selected.length}
-            onClick={() => setAckMacs(selected)}
-          >
-            {t('newDevices.ackSelected', { n: selected.length })}
-          </Button>
-        )}
       </div>
       {q.isLoading && <Loading />}
       <ErrorBox error={q.error ?? allow.error} className="m-3" />
@@ -432,7 +475,7 @@ function MacList({ mode, deviceId }: { mode: 'detected' | 'known'; deviceId: num
                 ? (m) => (
                     <span className="inline-flex flex-wrap justify-end gap-1">
                       {m.state === 'new' && (
-                        <Button size="sm" onClick={() => setAckMacs([m.mac])}>
+                        <Button size="sm" onClick={() => onAck([m.mac])}>
                           {t('newDevices.acknowledge')}
                         </Button>
                       )}
@@ -462,13 +505,6 @@ function MacList({ mode, deviceId }: { mode: 'detected' | 'known'; deviceId: num
           />
         </>
       )}
-      <AckModal
-        macs={ackMacs}
-        onClose={(done) => {
-          if (done) setSelected((s) => s.filter((x) => !ackMacs.includes(x)));
-          setAckMacs([]);
-        }}
-      />
       <ConfirmDialog
         open={!!forget}
         title={t('newDevices.forget')}
@@ -511,11 +547,14 @@ function AllowlistView() {
   };
   return (
     <Card bodyClassName="p-0">
-      <p className="border-b border-line px-4 py-2 text-xs text-ink-muted">
+      <p className="m-0 border-b border-line px-5 py-3 text-[13px] text-ink-muted">
         {t('allowlist.intro')}
       </p>
       {isAdmin && (
-        <form onSubmit={submit} className="flex flex-wrap items-end gap-3 border-b border-line p-3">
+        <form
+          onSubmit={submit}
+          className="flex flex-wrap items-end gap-3 border-b border-line px-5 py-4"
+        >
           <Field
             label={t('allowlist.prefix')}
             className="w-56"
@@ -610,13 +649,36 @@ export function NewDevicesPage() {
     void qc.invalidateQueries({ queryKey: qk3.newDeviceStatus });
   });
   const on = features.new_device_alerts;
+  const { isAdmin } = useAuth();
+  const [selected, setSelected] = useState<string[]>([]);
+  const [ackMacs, setAckMacs] = useState<string[]>([]);
   return (
-    <div className="space-y-4">
-      <PageHeader title={t('newDevices.title')} subtitle={t('newDevices.subtitle')} />
+    <div className="space-y-5">
+      <PageHeader
+        title={t('newDevices.title')}
+        subtitle={t('newDevices.subtitle')}
+        actions={
+          on &&
+          isAdmin && (
+            <>
+              {tab === 'detected' && (
+                <Button
+                  variant="primary"
+                  disabled={!selected.length}
+                  onClick={() => setAckMacs(selected)}
+                >
+                  {t('newDevices.ackSelected', { n: selected.length })}
+                </Button>
+              )}
+              <RestartLearning />
+            </>
+          )
+        }
+      />
       {!on && <FeatureOffNotice feature="new_device_alerts" />}
       {on && (
         <>
-          <StatusCard />
+          <StatusTiles />
           {deviceId !== null && (
             <p className="text-sm">
               {t('newDevices.filteredByDevice')}{' '}
@@ -641,9 +703,34 @@ export function NewDevicesPage() {
             }}
             render={(k) => t(`newDevices.tab.${k}`)}
           />
-          {tab === 'detected' && <MacList key="d" mode="detected" deviceId={deviceId} />}
-          {tab === 'known' && <MacList key="k" mode="known" deviceId={deviceId} />}
+          {tab === 'detected' && (
+            <MacList
+              key="d"
+              mode="detected"
+              deviceId={deviceId}
+              selected={selected}
+              setSelected={setSelected}
+              onAck={setAckMacs}
+            />
+          )}
+          {tab === 'known' && (
+            <MacList
+              key="k"
+              mode="known"
+              deviceId={deviceId}
+              selected={[]}
+              setSelected={() => undefined}
+              onAck={setAckMacs}
+            />
+          )}
           {tab === 'allowlist' && <AllowlistView />}
+          <AckModal
+            macs={ackMacs}
+            onClose={(done) => {
+              if (done) setSelected((s) => s.filter((x) => !ackMacs.includes(x)));
+              setAckMacs([]);
+            }}
+          />
         </>
       )}
     </div>

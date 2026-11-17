@@ -3,7 +3,7 @@ import { keepPreviousData, useMutation, useQuery, useQueryClient } from '@tansta
 import { Link, useSearchParams } from 'react-router';
 import { useTranslation } from 'react-i18next';
 import { endpoints3, qk3 } from '../api/endpoints3';
-import type { FlowExporter, FlowTop, FlowTopItem } from '../api/types3';
+import type { FlowExporter, FlowSeries, FlowTop, FlowTopItem } from '../api/types3';
 import { FLOW_DROP_REASONS } from '../api/types3';
 import { EChart } from '../components/flows/EChart';
 import { DevicePicker } from '../components/Dependency';
@@ -22,7 +22,10 @@ import {
   Loading,
   Modal,
   PageHeader,
+  SegmentedControl,
   Select,
+  TAG,
+  TAG_TONE,
   Table,
   td,
   th,
@@ -30,7 +33,8 @@ import {
 import { useAuth } from '../hooks/auth';
 import { FeatureOffNotice, useFeatures } from '../hooks/features';
 import { useLiveMessages } from '../hooks/live';
-import { formatDateTime, formatRelative } from '../lib/format';
+import { formatDateTime, formatRelative, formatShortTime } from '../lib/format';
+import { Banner, ShareBar } from '../components/kit';
 import {
   conversationsAllowed,
   effectiveSampling,
@@ -56,93 +60,155 @@ function useRange(preset: FlowPreset) {
   return useMemo(() => flowRange(preset, minute * 60_000), [preset, minute]);
 }
 
-function TopBars({ top, testId }: { top: FlowTop; testId: string }) {
-  const option = useMemo(() => {
-    const items = [...top.items].reverse();
-    return {
-      grid: { left: 8, right: 70, top: 8, bottom: 8, containLabel: true },
-      tooltip: {
-        trigger: 'axis',
-        axisPointer: { type: '' },
-        valueFormatter: (v: number) => formatBytes(v),
-      },
-      xAxis: { type: 'value', axisLabel: { formatter: (v: number) => formatBytes(v) } },
-      yAxis: {
-        type: 'category',
-        data: items.map((x) => x.label),
-        axisLabel: { width: 220, overflow: 'truncate' },
-      },
-      series: [
-        {
-          type: 'bar',
-          data: items.map((x) => x.bytes),
-          label: {
-            show: true,
-            position: 'right',
-            formatter: (p: { value: number }) => formatBytes(p.value),
-          },
-        },
-      ],
-    };
-  }, [top]);
+/** A big number with its unit small after it (prototype .big). */
+function BigStat({ label, text }: { label: string; text: string }) {
+  const m = /^([-+]?[\d.,]+)\s*(.*)$/.exec(text);
   return (
-    <EChart option={option} className={top.items.length > 6 ? 'h-80' : 'h-56'} testId={testId} />
+    <div className="grid gap-1">
+      <span className="text-[13px] text-ink-muted">{label}</span>
+      <bdi dir="ltr" className="num text-[44px] font-semibold leading-none tracking-[-0.03em]">
+        {m ? m[1] : text}
+        {m?.[2] && (
+          <small className="ms-1 text-[18px] font-medium tracking-normal text-ink-muted">
+            {m[2]}
+          </small>
+        )}
+      </bdi>
+    </div>
   );
 }
 
+/**
+ * Traffic over the range as flat bars (prototype "תעבורה": .bars, time left → right): the inbound
+ * rate per bucket summed over every series, with five time labels under it.
+ */
+function TrafficBars({ series }: { series: FlowSeries }) {
+  const { t } = useTranslation();
+  const sums = new Map<string, number>();
+  for (const x of series.series)
+    if (x.direction === 'in') for (const [tm, v] of x.points) sums.set(tm, (sums.get(tm) ?? 0) + v);
+  const pts = [...sums.entries()].sort(([a], [b]) => (a < b ? -1 : 1));
+  const max = Math.max(1, ...pts.map(([, v]) => v));
+  const since = Date.parse(series.since);
+  const until = Date.parse(series.until);
+  const ticks = [0, 1, 2, 3, 4].map((i) => since + ((until - since) * i) / 4);
+  return (
+    <div className="mt-5" data-testid="flows-bars">
+      <div
+        className="flex h-[120px] items-end gap-[3px]"
+        dir="ltr"
+        role="img"
+        aria-label={t('flows.overTime')}
+      >
+        {pts.map(([tm, v]) => (
+          <i
+            key={tm}
+            title={`${formatShortTime(tm)} — ${formatBits(v)}`}
+            className="min-h-[3px] flex-1 rounded-b-[2px] rounded-t-[4px] bg-[color-mix(in_srgb,var(--ink)_22%,transparent)]"
+            style={{ height: `${(v / max) * 100}%` }}
+          />
+        ))}
+      </div>
+      <div dir="ltr" className="num mt-2.5 flex justify-between text-xs text-ink-subtle">
+        {ticks.map((x, i) => (
+          <span key={i}>
+            {i === 4 ? t('flows.now') : formatShortTime(new Date(x).toISOString())}
+          </span>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+/**
+ * A top list (prototype "מי מדבר הכי הרבה" / "אפליקציות" / "שיחות"): the name and its volume, a
+ * share bar under the name. A table, so each value is a cell.
+ */
 function TopTable({ top, kind }: { top: FlowTop; kind: 'talkers' | 'apps' | 'conversations' }) {
   const { t } = useTranslation();
+  const max = Math.max(1, ...top.items.map((x) => x.bytes));
+  const cell = 'border-b border-line py-2.5 align-top';
   return (
-    <Table>
-      <thead>
+    <table className="w-full text-[14.5px] [&_tbody>tr:last-child>td]:border-b-0">
+      <thead className="sr-only">
         <tr>
-          <th className={th}>{t(`flows.col.${kind}`)}</th>
-          <th className={`${th} text-end`}>{t('flows.bytes')}</th>
-          <th className={`${th} text-end`}>{t('flows.packets')}</th>
-          <th className={`${th} text-end`}>{t('flows.share')}</th>
+          <th>{t(`flows.col.${kind}`)}</th>
+          <th>{t('flows.bytes')}</th>
         </tr>
       </thead>
       <tbody>
         {top.items.map((x: FlowTopItem) => (
-          <tr key={x.key}>
-            <td className={td}>
-              <bdi dir="ltr" className="font-mono text-xs">
-                {x.label}
-              </bdi>
-              {x.device_id ? (
-                <Link
-                  to={`/devices/${x.device_id}`}
-                  className="ms-2 text-xs text-accent-ink hover:underline"
-                >
-                  {t('flows.device')}
-                </Link>
-              ) : null}
+          <tr key={x.key} title={`${formatCount(x.packets)} ${t('flows.packets')}`}>
+            <td className={cx(cell, 'pe-3')}>
+              <div className="grid gap-1.5">
+                <span className="flex min-w-0 items-baseline gap-2">
+                  <bdi dir="ltr" className="num min-w-0 truncate">
+                    {x.label}
+                  </bdi>
+                  {x.device_id ? (
+                    <Link
+                      to={`/devices/${x.device_id}`}
+                      className="shrink-0 text-xs text-ink-muted hover:text-ink hover:underline"
+                    >
+                      {t('flows.device')}
+                    </Link>
+                  ) : null}
+                </span>
+                <ShareBar pct={(x.bytes / max) * 100} />
+              </div>
             </td>
-            <td className={`${td} text-end font-mono text-[13px] tabular-nums`}>
-              <bdi dir="ltr">{formatBytes(x.bytes)}</bdi>
-            </td>
-            <td className={`${td} text-end font-mono text-[13px] tabular-nums`}>
-              {formatCount(x.packets)}
-            </td>
-            <td className={`${td} text-end font-mono text-[13px] tabular-nums`}>
-              {formatShare(x.share)}
+            <td className={cx(cell, 'w-0 whitespace-nowrap text-end')}>
+              <b className="num block font-medium">
+                <bdi dir="ltr">{formatBytes(x.bytes)}</bdi>
+              </b>
+              <span className="num text-xs text-ink-subtle">{formatShare(x.share)}</span>
             </td>
           </tr>
         ))}
         {top.other_bytes > 0 && (
           <tr className="text-ink-muted">
-            <td className={td}>{t('flows.other')}</td>
-            <td className={`${td} text-end font-mono text-[13px] tabular-nums`}>
-              <bdi dir="ltr">{formatBytes(top.other_bytes)}</bdi>
-            </td>
-            <td className={td} />
-            <td className={`${td} text-end font-mono text-[13px] tabular-nums`}>
-              {top.total_bytes ? formatShare(top.other_bytes / top.total_bytes) : ''}
+            <td className={cell}>{t('flows.other')}</td>
+            <td className={cx(cell, 'whitespace-nowrap text-end')}>
+              <span className="num block">
+                <bdi dir="ltr">{formatBytes(top.other_bytes)}</bdi>
+              </span>
+              <span className="num text-xs text-ink-subtle">
+                {top.total_bytes ? formatShare(top.other_bytes / top.total_bytes) : ''}
+              </span>
             </td>
           </tr>
         )}
       </tbody>
-    </Table>
+    </table>
+  );
+}
+
+function TopCard({
+  title,
+  q,
+  kind,
+  actions,
+  children,
+  testId,
+}: {
+  title: string;
+  q: { isLoading: boolean; error: unknown; data?: FlowTop };
+  kind: 'talkers' | 'apps' | 'conversations';
+  actions?: React.ReactNode;
+  children?: React.ReactNode;
+  testId: string;
+}) {
+  const { t } = useTranslation();
+  return (
+    <Card title={title} actions={actions} bodyClassName="px-[22px] pb-3 pt-0">
+      <div data-testid={testId}>
+        {children}
+        {q.isLoading && <Loading />}
+        <ErrorBox error={q.error} />
+        {q.data && !q.data.items.length && <Empty>{t('flows.noData')}</Empty>}
+        {q.data && q.data.items.length > 0 && <TopTable top={q.data} kind={kind} />}
+      </div>
+    </Card>
   );
 }
 
@@ -177,20 +243,42 @@ function TopView({
     enabled: convOk,
     placeholderData: keepPreviousData,
   });
+  const sq = { ...range, exporter_id: exporterId ?? undefined, split: 'none' as const };
+  const series = useQuery({
+    queryKey: qk3.flowSeries(sq),
+    queryFn: () => endpoints3.flowSeries(sq),
+    placeholderData: keepPreviousData,
+  });
   return (
-    <div className="space-y-4">
+    <div className="space-y-6">
       {exporterId === null && multiExporter && (
-        <p className="text-xs text-status-warning">{t('flows.doubleCount')}</p>
+        <Banner tone="warn" title={t('flows.doubleCount')} />
       )}
-      <div className="grid grid-cols-1 gap-4 xl:grid-cols-2">
-        <Card
+      <section
+        className="rounded-xl bg-surface px-[22px] py-5 shadow-card"
+        aria-label={t('flows.overTime')}
+      >
+        <div className="flex flex-wrap gap-10">
+          <BigStat label={t('flows.peakIn')} text={formatBits(peakRate(series.data, 'in'))} />
+          <BigStat
+            label={t('flows.volume')}
+            text={formatBytes(apps.data?.total_bytes ?? talkers.data?.total_bytes ?? 0)}
+          />
+        </div>
+        <ErrorBox error={series.error} />
+        {series.data && <TrafficBars series={series.data} />}
+      </section>
+      <div className="grid grid-cols-1 items-start gap-4 xl:grid-cols-3">
+        <TopCard
           title={t('flows.topTalkers')}
-          bodyClassName="p-0"
+          q={talkers}
+          kind="talkers"
+          testId="chart-talkers"
           actions={
             <Select
               value={side}
               onChange={(e) => setSide(e.target.value as 'src' | 'dst' | 'both')}
-              className="w-auto py-0.5 text-xs"
+              className="w-auto text-[13px]"
               aria-label={t('flows.side')}
             >
               {(['both', 'src', 'dst'] as const).map((s) => (
@@ -200,42 +288,19 @@ function TopView({
               ))}
             </Select>
           }
+        />
+        <TopCard title={t('flows.topApps')} q={apps} kind="apps" testId="chart-apps" />
+        <TopCard
+          title={t('flows.topConversations')}
+          q={convOk ? conv : { isLoading: false, error: null }}
+          kind="conversations"
+          testId="top-conversations"
         >
-          {talkers.isLoading && <Loading />}
-          <ErrorBox error={talkers.error} className="m-3" />
-          {talkers.data && !talkers.data.items.length && <Empty>{t('flows.noData')}</Empty>}
-          {talkers.data && talkers.data.items.length > 0 && (
-            <>
-              <div className="p-2">
-                <TopBars top={talkers.data} testId="chart-talkers" />
-              </div>
-              <TopTable top={talkers.data} kind="talkers" />
-            </>
+          {!convOk && (
+            <p className="m-0 py-3 text-sm text-ink-muted">{t('flows.conversationsRange')}</p>
           )}
-        </Card>
-        <Card title={t('flows.topApps')} bodyClassName="p-0">
-          {apps.isLoading && <Loading />}
-          <ErrorBox error={apps.error} className="m-3" />
-          {apps.data && !apps.data.items.length && <Empty>{t('flows.noData')}</Empty>}
-          {apps.data && apps.data.items.length > 0 && (
-            <>
-              <div className="p-2">
-                <TopBars top={apps.data} testId="chart-apps" />
-              </div>
-              <TopTable top={apps.data} kind="apps" />
-            </>
-          )}
-        </Card>
+        </TopCard>
       </div>
-      <Card title={t('flows.topConversations')} bodyClassName="p-0">
-        {!convOk && <p className="p-3 text-sm text-ink-muted">{t('flows.conversationsRange')}</p>}
-        {convOk && conv.isLoading && <Loading />}
-        <ErrorBox error={conv.error} className="m-3" />
-        {convOk && conv.data && !conv.data.items.length && <Empty>{t('flows.noData')}</Empty>}
-        {convOk && conv.data && conv.data.items.length > 0 && (
-          <TopTable top={conv.data} kind="conversations" />
-        )}
-      </Card>
     </div>
   );
 }
@@ -712,6 +777,7 @@ export function FlowsPage() {
     <div className="space-y-4">
       <PageHeader
         title={t('flows.title')}
+        subtitle={on && t('flows.subline', { count: accepted.length })}
         actions={
           on &&
           (tab === 'top' || tab === 'interfaces') && (
@@ -729,18 +795,6 @@ export function FlowsPage() {
                   </option>
                 ))}
               </Select>
-              <Select
-                value={preset}
-                onChange={(e) => setPreset(e.target.value as FlowPreset)}
-                className="w-36"
-                aria-label={t('flows.range')}
-              >
-                {FLOW_PRESETS.map((x) => (
-                  <option key={x} value={x}>
-                    {t(`flows.preset.${x}`)}
-                  </option>
-                ))}
-              </Select>
             </>
           )
         }
@@ -748,22 +802,32 @@ export function FlowsPage() {
       {!on && <FeatureOffNotice feature="flows" />}
       {on && (
         <>
-          <TabBar
-            tabs={[...TABS]}
-            value={tab}
-            label={t('flows.title')}
-            onChange={(k) => setParams(k === 'top' ? {} : { tab: k }, { replace: true })}
-            render={(k) => (
-              <>
-                {t(`flows.tab.${k}`)}
-                {k === 'exporters' && pending > 0 && (
-                  <span className="rounded-full bg-status-warning px-1.5 text-xs text-on-status">
-                    {pending}
-                  </span>
-                )}
-              </>
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <TabBar
+              tabs={[...TABS]}
+              value={tab}
+              label={t('flows.title')}
+              onChange={(k) => setParams(k === 'top' ? {} : { tab: k }, { replace: true })}
+              render={(k) => (
+                <>
+                  {t(`flows.tab.${k}`)}
+                  {k === 'exporters' && pending > 0 && (
+                    <span className={cx(TAG, TAG_TONE.warning)}>{pending}</span>
+                  )}
+                </>
+              )}
+            />
+            {(tab === 'top' || tab === 'interfaces') && (
+              // the range (prototype: segmented שעה / 6 שעות / 24 שעות / 7 ימים)
+              <SegmentedControl
+                label={t('flows.range')}
+                size="sm"
+                value={preset}
+                onChange={setPreset}
+                options={FLOW_PRESETS.map((x) => ({ value: x, label: t(`flows.preset.${x}`) }))}
+              />
             )}
-          />
+          </div>
           {tab === 'top' && (
             <TopView
               range={range}

@@ -485,3 +485,15 @@ export function DeviceTileIcon({
   const Icon: IconC = fw ? ShieldIcon : (cls && CLASS_TILE[cls]) || DeviceIcon;
   return <Icon size={size} strokeWidth={1.8} />;
 }
+
+/** A share bar (prototype .share): 6px, ink on a chip track. */
+export function ShareBar({ pct }: { pct: number }) {
+  return (
+    <progress
+      value={Math.max(0, Math.min(100, pct))}
+      max={100}
+      aria-hidden="true"
+      className="block h-1.5 w-full appearance-none overflow-hidden rounded-full bg-chip [&::-moz-progress-bar]:rounded-full [&::-moz-progress-bar]:bg-ink [&::-webkit-progress-bar]:bg-chip [&::-webkit-progress-value]:rounded-full [&::-webkit-progress-value]:bg-ink"
+    />
+  );
+}
