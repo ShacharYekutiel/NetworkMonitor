@@ -1,74 +1,47 @@
-import { useMemo } from 'react';
+import { useMemo, type ReactNode } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useTranslation } from 'react-i18next';
 import { Link, useParams } from 'react-router';
 import { endpoints3b, qk3b } from '../api/endpoints3b';
 import type { IncidentMember, Status } from '../api/types';
-import { AiBadge, AiNotice, useAiFeature } from '../components/assistant/common';
+import { AiNotice, useAiFeature } from '../components/assistant/common';
 import { ExplainButton } from '../components/assistant/ExplainButton';
 import {
   IncidentCounts,
   IncidentStateBadge,
   useIncidentTitle,
 } from '../components/assistant/Incidents';
-import { StatusBadge } from '../components/Status';
+import { IncidentIcon, RefreshIcon } from '../components/icons';
+import { AiTag, Banner, EmptyState, MemberChip, Timeline, TimelineEntry } from '../components/kit';
 import {
+  BackLink,
   Button,
+  buttonClass,
   Card,
   cx,
   ErrorBox,
+  GroupList,
+  GroupTitle,
+  ListRow,
   Loading,
   PageHeader,
-  Table,
   TAG,
   TAG_TONE,
-  td,
-  th,
 } from '../components/ui';
 import { FeatureOffNotice } from '../hooks/features';
 import { useLiveMessages } from '../hooks/live';
-import { formatDateTime } from '../lib/format';
+import { errorMessage } from '../lib/errors';
+import { formatDateTime, formatShortTime } from '../lib/format';
+import { STATUS_DOT, statusClass } from '../lib/status';
 
 const STATUS_SET = new Set(['up', 'warning', 'down', 'paused', 'unknown', 'unreachable']);
 const asStatus = (s: string): Status => (STATUS_SET.has(s) ? (s as Status) : 'unknown');
 
-/** Timeline strip: one tick per member problem between opened_at and now/resolved. */
-function TimelineStrip({
-  members,
-  start,
-  end,
-}: {
-  members: IncidentMember[];
-  start: number;
-  end: number;
-}) {
-  const span = Math.max(1, end - start);
-  return (
-    <div className="relative h-6 rounded bg-surface-sunken" aria-hidden>
-      {members.map((m) => {
-        const pos = ((Date.parse(m.time) - start) / span) * 100;
-        const cls =
-          m.status === 'warning'
-            ? 'bg-status-warning'
-            : m.status === 'unreachable'
-              ? 'bg-status-down'
-              : 'bg-status-down';
-        return (
-          <span
-            key={m.event_id}
-            title={`${m.device_name ?? ''} ${m.sensor_name ?? ''} ${formatDateTime(m.time)}`}
-            className={`absolute top-1 h-4 w-1 rounded ${cls} ${m.recovered_at ? 'opacity-40' : ''}`}
-            style={{ insetInlineStart: `${Math.min(99, Math.max(0, pos))}%` }}
-          />
-        );
-      })}
-    </div>
-  );
-}
+type TlItem = { key: string; at: string; tone: string; title: ReactNode; sub: ReactNode };
 
 /** /incidents/:id — incident detail (feature `ai_correlation`). */
 export function IncidentPage() {
-  const { t } = useTranslation();
+  const { t, i18n } = useTranslation();
   const { id } = useParams();
   const iid = Number(id);
   const qc = useQueryClient();
@@ -87,155 +60,230 @@ export function IncidentPage() {
     mutationFn: () => endpoints3b.summarizeIncident(iid),
     onSuccess: () => void qc.invalidateQueries({ queryKey: qk3b.incident(iid) }),
   });
-  const groups = useMemo(() => {
-    const m = new Map<string, IncidentMember[]>();
-    for (const x of q.data?.members ?? []) {
-      const k = `${x.device_id ?? 0}|${x.device_name ?? ''}`;
-      m.set(k, [...(m.get(k) ?? []), x]);
+  const locale = i18n.language === 'he' ? 'he-IL' : 'en-GB';
+  // Problems and recoveries in time order (prototype incident timeline).
+  const items = useMemo(() => {
+    const out: TlItem[] = [];
+    const name = (m: IncidentMember) =>
+      [m.device_name, m.sensor_name].filter(Boolean).join(' · ') || '—';
+    for (const m of q.data?.members ?? []) {
+      out.push({
+        key: `p${m.event_id}`,
+        at: m.time,
+        tone: asStatus(m.status),
+        title: (
+          <bdi dir="auto" className="font-display">
+            {name(m)}
+          </bdi>
+        ),
+        sub: [t(`status.${asStatus(m.status)}`), m.is_root ? t('incident.root') : null]
+          .filter(Boolean)
+          .join(' · '),
+      });
+      if (m.recovered_at)
+        out.push({
+          key: `r${m.event_id}`,
+          at: m.recovered_at,
+          tone: 'up',
+          title: (
+            <bdi dir="auto" className="font-display">
+              {name(m)}
+            </bdi>
+          ),
+          sub: t('incident.recoveredAt'),
+        });
     }
-    return [...m.entries()];
-  }, [q.data]);
+    return out.sort((a, b) => Date.parse(a.at) - Date.parse(b.at));
+  }, [q.data, t]);
   if (!on) return <FeatureOffNotice feature="ai_correlation" />;
   if (q.isLoading) return <Loading />;
-  if (q.error || !q.data) return <ErrorBox error={q.error} />;
+  const back = <BackLink to="/events?tab=incidents" label={t('incident.all')} />;
+  if (q.error || !q.data)
+    return (
+      <div>
+        <PageHeader breadcrumbs={back} title={t('incident.title')} />
+        <Card>
+          <EmptyState
+            error
+            title={t('incident.pageError')}
+            actions={
+              <Link to="/events?tab=incidents" className={buttonClass('primary')}>
+                {t('incident.all')}
+              </Link>
+            }
+          >
+            {q.error ? errorMessage(t, q.error) : t('incident.pageErrorHint')}
+          </EmptyState>
+        </Card>
+      </div>
+    );
   const i = q.data;
   const root = i.members.find((m) => m.is_root && m.sensor_id !== null);
-  const start = Date.parse(i.opened_at);
-  const end = i.resolved_at
-    ? Date.parse(i.resolved_at)
-    : Math.max(Date.now(), Date.parse(i.last_change_at));
+  const guess = i.ai?.root_guess;
+  const guessName = guess
+    ? (i.root_candidates.find((c) => c.id === guess.device_id)?.name ??
+      i.members.find((m) => m.device_id === guess.device_id)?.device_name ??
+      `#${guess.device_id}`)
+    : null;
+  const timeFmt = new Intl.DateTimeFormat(locale, {
+    hour: '2-digit',
+    minute: '2-digit',
+    second: '2-digit',
+    hourCycle: 'h23',
+  });
+  const subtitle = [
+    t('incident.kindLine'),
+    i.state === 'resolved' && i.resolved_at
+      ? t('incident.resolvedAt', { time: formatShortTime(i.resolved_at) })
+      : t('incident.since', { time: formatShortTime(i.opened_at) }),
+    t('incident.grouped', { count: i.member_count }),
+    i.recovered ? t('incident.recoveredN', { count: i.recovered }) : null,
+  ]
+    .filter(Boolean)
+    .join(' · ');
   return (
-    <div className="space-y-4">
+    <div>
       <PageHeader
-        breadcrumbs={
-          <Link to="/events?tab=incidents" className="text-xs text-accent-ink hover:underline">
-            {t('incident.all')}
-          </Link>
-        }
-        title={
-          <span className="inline-flex flex-wrap items-center gap-2" dir="auto">
-            {title(i)} <IncidentStateBadge state={i.state} />
-          </span>
-        }
-        subtitle={`${formatDateTime(i.opened_at)}${i.resolved_at ? ` → ${formatDateTime(i.resolved_at)}` : ''}`}
+        breadcrumbs={back}
+        title={<span>{title(i)}</span>}
+        subtitle={<span title={formatDateTime(i.opened_at)}>{subtitle}</span>}
         actions={
           <>
+            <IncidentStateBadge state={i.state} />
             {root?.sensor_id != null && (
               <ExplainButton sensorId={root.sensor_id} eventId={root.event_id} size="md" />
             )}
             <Button onClick={() => summarize.mutate()} busy={summarize.isPending}>
-              {t('incident.summarize')}
+              <RefreshIcon size={14} /> {t('incident.summarize')}
             </Button>
           </>
         }
       />
-      <ErrorBox error={summarize.error} />
-      <Card title={t('incident.summary')}>
-        <div className="space-y-2">
-          <IncidentCounts i={i} />
-          {i.ai ? (
-            <div className="space-y-1" data-testid="incident-ai">
-              <p className="font-medium" dir="auto">
-                <AiBadge className="me-1" />
-                {i.ai.title}
-              </p>
-              <p className="text-sm" dir="auto">
-                {i.ai.summary}
-              </p>
-              {i.ai.root_guess && (
-                <p className="text-xs text-ink-muted">
-                  {t('incident.rootGuess', {
-                    name:
-                      i.root_candidates.find((c) => c.id === i.ai!.root_guess!.device_id)?.name ??
-                      i.members.find((m) => m.device_id === i.ai!.root_guess!.device_id)
-                        ?.device_name ??
-                      `#${i.ai.root_guess.device_id}`,
-                    confidence: t(`confidence3.${i.ai.root_guess.confidence}`),
-                  })}
-                </p>
+      <ErrorBox error={summarize.error} className="mb-4" />
+      <div className="grid items-start gap-6 xl:grid-cols-[minmax(0,1.4fr)_minmax(0,1fr)]">
+        <div className="grid min-w-0 gap-4">
+          <Card
+            title={
+              <span className="inline-flex items-center gap-2">
+                {t('incident.summary')}
+                {i.ai && <AiTag />}
+              </span>
+            }
+          >
+            <div className="grid gap-3">
+              <IncidentCounts i={i} />
+              {i.ai ? (
+                <div className="grid gap-3" data-testid="incident-ai">
+                  {guessName && (
+                    <Banner
+                      tone="down"
+                      icon={IncidentIcon}
+                      title={t('incident.rootGuess', {
+                        name: guessName,
+                        confidence: t(`confidence3.${guess!.confidence}`),
+                      })}
+                    />
+                  )}
+                  <b className="font-semibold" dir="auto">
+                    {i.ai.title}
+                  </b>
+                  <p className="m-0 leading-[1.65]" dir="auto">
+                    {i.ai.summary}
+                  </p>
+                  <AiNotice className="m-0" />
+                </div>
+              ) : (
+                <p className="m-0 text-ink-muted">{t('incident.noAi')}</p>
               )}
-              <AiNotice />
-            </div>
-          ) : (
-            <p className="text-sm text-ink-muted">{t('incident.noAi')}</p>
-          )}
-          {i.root_candidates.length > 0 && (
-            <p className="text-sm">
-              {t('incident.rootCandidates')}:{' '}
-              {i.root_candidates.map((c, n) => (
-                <span key={c.id}>
-                  {n > 0 && ', '}
-                  <Link to={`/devices/${c.id}`} className="text-accent-ink hover:underline">
-                    {c.name}
-                  </Link>
-                </span>
-              ))}
-            </p>
-          )}
-          <TimelineStrip members={i.members} start={start} end={end} />
-          <p className="text-xs text-ink-muted">{t('incident.noAckAll')}</p>
-        </div>
-      </Card>
-      <Card title={t('incident.members', { count: i.member_count })} bodyClassName="p-0">
-        <Table>
-          <thead>
-            <tr>
-              <th className={th}>{t('incident.device')}</th>
-              <th className={th}>{t('incident.sensor')}</th>
-              <th className={th}>{t('events.status')}</th>
-              <th className={th}>{t('events.time')}</th>
-              <th className={th}>{t('incident.recoveredAt')}</th>
-            </tr>
-          </thead>
-          <tbody>
-            {groups.map(([k, ms]) =>
-              ms.map((m, n) => (
-                <tr key={`${k}-${m.event_id}`} data-testid="incident-member">
-                  <td className={td}>
-                    {n === 0 &&
-                      (m.device_id ? (
-                        <Link
-                          to={`/devices/${m.device_id}`}
-                          className="font-medium hover:underline"
-                        >
-                          {m.device_name}
-                        </Link>
-                      ) : (
-                        m.device_name
-                      ))}
-                    {n === 0 && m.is_root && (
-                      <span className={cx(TAG, TAG_TONE.neutral, 'ms-1')}>
-                        {t('incident.root')}
-                      </span>
-                    )}
-                  </td>
-                  <td className={td}>
-                    {m.sensor_id ? (
-                      <Link
-                        to={`/sensors/${m.sensor_id}`}
-                        className="text-accent-ink hover:underline"
-                      >
-                        {m.sensor_name}
+              {i.root_candidates.length > 0 && (
+                <div className="grid gap-1.5">
+                  <span className="text-[13px] text-ink-muted">{t('incident.rootCandidates')}</span>
+                  <span className="flex flex-wrap gap-1.5">
+                    {i.root_candidates.map((c) => (
+                      <Link key={c.id} to={`/devices/${c.id}`} className="no-underline">
+                        <MemberChip tone="down">{c.name}</MemberChip>
                       </Link>
-                    ) : (
-                      m.sensor_name
-                    )}
-                  </td>
-                  <td className={td}>
-                    <StatusBadge status={asStatus(m.status)} />
-                  </td>
-                  <td className={`${td} whitespace-nowrap tabular-nums`}>
-                    {formatDateTime(m.time)}
-                  </td>
-                  <td className={`${td} whitespace-nowrap tabular-nums`}>
-                    {m.recovered_at ? formatDateTime(m.recovered_at) : '—'}
-                  </td>
-                </tr>
-              )),
-            )}
-          </tbody>
-        </Table>
-      </Card>
+                    ))}
+                  </span>
+                </div>
+              )}
+            </div>
+          </Card>
+          <Card bodyClassName="px-[22px] pb-1.5 pt-0 max-sm:px-3">
+            <Timeline label={t('incident.timeline')} testId="incident-timeline">
+              {items.map((x) => (
+                <TimelineEntry
+                  key={x.key}
+                  time={timeFmt.format(new Date(x.at))}
+                  timeTitle={formatDateTime(x.at)}
+                  tone={x.tone}
+                  title={x.title}
+                >
+                  {x.sub}
+                </TimelineEntry>
+              ))}
+            </Timeline>
+          </Card>
+        </div>
+        <section aria-labelledby="incident-members" className="min-w-0">
+          <GroupTitle id="incident-members">
+            {t('incident.members', { count: i.member_count })}
+          </GroupTitle>
+          <GroupList className="[&>li+li]:before:start-[46px]">
+            {i.members.map((m) => {
+              const recovered = !!m.recovered_at;
+              return (
+                <ListRow
+                  key={m.event_id}
+                  testId="incident-member"
+                  to={
+                    m.sensor_id
+                      ? `/sensors/${m.sensor_id}`
+                      : m.device_id
+                        ? `/devices/${m.device_id}`
+                        : undefined
+                  }
+                  dot={statusClass(recovered ? 'up' : asStatus(m.status), STATUS_DOT)}
+                  title={
+                    <bdi dir="ltr" className="font-display">
+                      {m.device_name ?? '—'}
+                    </bdi>
+                  }
+                  subtitle={
+                    <>
+                      {m.sensor_name && <bdi dir="auto">{m.sensor_name}</bdi>}
+                      {m.sensor_name && ' · '}
+                      {t(`status.${asStatus(m.status)}`)} ·{' '}
+                      <time dateTime={m.time} title={formatDateTime(m.time)}>
+                        {timeFmt.format(new Date(m.time))}
+                      </time>
+                      {recovered && (
+                        <>
+                          {' → '}
+                          <time dateTime={m.recovered_at!} title={formatDateTime(m.recovered_at)}>
+                            {timeFmt.format(new Date(m.recovered_at!))}
+                          </time>
+                        </>
+                      )}
+                    </>
+                  }
+                  end={
+                    <span className="flex shrink-0 gap-1.5">
+                      {m.is_root && (
+                        <span className={cx(TAG, TAG_TONE.down)}>{t('incident.root')}</span>
+                      )}
+                      {recovered && (
+                        <span className={cx(TAG, TAG_TONE.up)}>{t('incident.recoveredAt')}</span>
+                      )}
+                    </span>
+                  }
+                />
+              );
+            })}
+          </GroupList>
+          <p className="mx-1.5 mt-3 text-[13px] text-ink-muted">{t('incident.noAckAll')}</p>
+        </section>
+      </div>
     </div>
   );
 }

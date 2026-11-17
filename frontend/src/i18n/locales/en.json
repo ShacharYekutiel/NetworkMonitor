@@ -183,7 +183,17 @@
     "sensors": "Sensors",
     "sensorCount": "Sensors: {{count}}",
     "deleteTitle": "Delete group",
-    "deleteConfirm": "Delete group \"{{name}}\" together with all of its subgroups, devices and sensors? Sensors affected: {{count}}. This cannot be undone."
+    "deleteConfirm": "Delete group \"{{name}}\" together with all of its subgroups, devices and sensors? Sensors affected: {{count}}. This cannot be undone.",
+    "tag": {
+      "down_one": "{{count}} down",
+      "down_other": "{{count}} down",
+      "warning_one": "{{count}} warning",
+      "warning_other": "{{count}} warnings",
+      "unreachable_one": "{{count}} unreachable",
+      "unreachable_other": "{{count}} unreachable"
+    },
+    "dependsOn": "Depends on",
+    "maintenance": "Maintenance"
   },
   "devices": {
     "add": "Add device",
@@ -280,7 +290,11 @@
     "diskName": "Disk {{descr}}",
     "textOk": "Matches",
     "passiveNote": "Event sensor: driven by traps/syslog, not polled",
-    "passiveCreateHint": "Event sensors are not polled: their status comes from event rules (traps, syslog) or flapping detection. One per device and type."
+    "passiveCreateHint": "Event sensors are not polled: their status comes from event rules (traps, syslog) or flapping detection. One per device and type.",
+    "everyN_one": "every second",
+    "everyN_other": "every {{count}} seconds",
+    "range": "Time range",
+    "channels": "Channels"
   },
   "iface": {
     "name": "Interface",
@@ -334,7 +348,10 @@
     "filteredSensor": "Filtered by sensor #{{id}}.",
     "maintenance": "Maintenance",
     "inMaintenance": "During maintenance",
-    "notInMaintenance": "Outside maintenance"
+    "notInMaintenance": "Outside maintenance",
+    "transition": "{{from}} → {{to}}",
+    "subtitle": "Everything that happened, newest first",
+    "moreFilters": "More filters"
   },
   "eventKind": {
     "status_change": "Status change",
@@ -1255,7 +1272,9 @@
       "empty": "Add at least one value."
     },
     "mib": "MIB name",
-    "own": "own entry"
+    "own": "own entry",
+    "otherHint": "any value not in the list",
+    "editHint": "Change the values with Edit (sensor settings). Up to 32 values."
   },
   "topology": {
     "title": "Network map",
@@ -3220,7 +3239,8 @@
     "bulkTitle_other": "Set impact of {{count}} sensors",
     "apply": "Apply",
     "bulkDone_one": "Impact updated for {{count}} sensor.",
-    "bulkDone_other": "Impact updated for {{count}} sensors."
+    "bulkDone_other": "Impact updated for {{count}} sensors.",
+    "saved": "Impact saved."
   },
   "applyPorts": {
     "title": "Ports",
@@ -3710,7 +3730,23 @@
     "device": "Device",
     "sensor": "Sensor",
     "recoveredAt": "Recovered",
-    "root": "root"
+    "root": "root",
+    "subtitle": "Related problems (dependencies, topology, same device) grouped into one incident",
+    "since": "open since {{time}}",
+    "resolvedAt": "resolved {{time}}",
+    "grouped_one": "{{count}} problem grouped",
+    "grouped_other": "{{count}} problems grouped",
+    "rootShort": "root: {{name}}",
+    "rootConf": "root: {{name}} (confidence: {{confidence}})",
+    "noAiShort": "no AI summary",
+    "loadError": "Could not load the incidents",
+    "noneHint": "When several problems are related, they show here as one incident with the device suspected as the root.",
+    "pageError": "Could not load the incident",
+    "pageErrorHint": "The incident may have been deleted, or you may not have access to it.",
+    "kindLine": "Grouped incident",
+    "recoveredN_one": "{{count}} recovered",
+    "recoveredN_other": "{{count}} recovered",
+    "timeline": "Timeline"
   },
   "confidence3": {
     "low": "low",

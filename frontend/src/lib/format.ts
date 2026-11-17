@@ -103,6 +103,20 @@ export function formatDateTime(iso: string | null | undefined): string {
   return new Intl.DateTimeFormat(locale(), { dateStyle: 'short', timeStyle: 'medium' }).format(d);
 }
 
+/** "10:40" within the last/next 24 hours, else "11 Nov, 10:40" (browser time, as formatDateTime). */
+export function formatShortTime(iso: string | null | undefined, now: number = Date.now()): string {
+  if (!iso) return '—';
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return '—';
+  const soon = Math.abs(d.getTime() - now) < 86_400_000;
+  return new Intl.DateTimeFormat(
+    locale(),
+    soon
+      ? { hour: '2-digit', minute: '2-digit', hourCycle: 'h23' }
+      : { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit', hourCycle: 'h23' },
+  ).format(d);
+}
+
 export function formatRelative(iso: string | null | undefined, now: number = Date.now()): string {
   if (!iso) return '—';
   const t = new Date(iso).getTime();

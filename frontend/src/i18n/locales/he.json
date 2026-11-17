@@ -189,7 +189,20 @@
     "sensors": "חיישנים",
     "sensorCount": "חיישנים: {{count}}",
     "deleteTitle": "מחיקת קבוצה",
-    "deleteConfirm": "למחוק את הקבוצה \"{{name}}\" יחד עם כל תת-הקבוצות, ההתקנים והחיישנים שלה? חיישנים מושפעים: {{count}}. לא ניתן לבטל פעולה זו."
+    "deleteConfirm": "למחוק את הקבוצה \"{{name}}\" יחד עם כל תת-הקבוצות, ההתקנים והחיישנים שלה? חיישנים מושפעים: {{count}}. לא ניתן לבטל פעולה זו.",
+    "tag": {
+      "down_one": "תקלה אחת",
+      "down_two": "2 תקלות",
+      "down_other": "{{count}} תקלות",
+      "warning_one": "אזהרה אחת",
+      "warning_two": "2 אזהרות",
+      "warning_other": "{{count}} אזהרות",
+      "unreachable_one": "1 לא נגיש",
+      "unreachable_two": "2 לא נגישים",
+      "unreachable_other": "{{count}} לא נגישים"
+    },
+    "dependsOn": "תלוי ב",
+    "maintenance": "תחזוקה"
   },
   "devices": {
     "add": "הוספת התקן",
@@ -286,7 +299,12 @@
     "diskName": "דיסק {{descr}}",
     "textOk": "תואם",
     "passiveNote": "חיישן אירועים: מונע ממלכודות/Syslog, לא נדגם",
-    "passiveCreateHint": "חיישני אירועים אינם נדגמים: מצבם נקבע מכללי אירועים (מלכודות, Syslog) או מזיהוי ריצוד. אחד לכל התקן וסוג."
+    "passiveCreateHint": "חיישני אירועים אינם נדגמים: מצבם נקבע מכללי אירועים (מלכודות, Syslog) או מזיהוי ריצוד. אחד לכל התקן וסוג.",
+    "everyN_one": "כל שנייה",
+    "everyN_two": "כל 2 שניות",
+    "everyN_other": "כל {{count}} שניות",
+    "range": "טווח זמן",
+    "channels": "ערוצים"
   },
   "iface": {
     "name": "ממשק",
@@ -340,7 +358,10 @@
     "filteredSensor": "מסונן לפי חיישן #{{id}}.",
     "maintenance": "תחזוקה",
     "inMaintenance": "בזמן תחזוקה",
-    "notInMaintenance": "מחוץ לתחזוקה"
+    "notInMaintenance": "מחוץ לתחזוקה",
+    "transition": "{{from}} ← {{to}}",
+    "subtitle": "כל מה שקרה, מהחדש לישן",
+    "moreFilters": "עוד מסננים"
   },
   "eventKind": {
     "status_change": "שינוי סטטוס",
@@ -1272,7 +1293,9 @@
       "empty": "הוסיפו לפחות ערך אחד."
     },
     "mib": "שם ב-MIB",
-    "own": "ערך מותאם"
+    "own": "ערך מותאם",
+    "otherHint": "כל ערך שלא ברשימה",
+    "editHint": "שינוי הערכים דרך \"עריכה\" (הגדרות החיישן). עד 32 ערכים."
   },
   "topology": {
     "title": "מפת רשת",
@@ -3252,7 +3275,8 @@
     "apply": "החלה",
     "bulkDone_one": "ההשפעה עודכנה לחיישן אחד.",
     "bulkDone_two": "ההשפעה עודכנה ל-2 חיישנים.",
-    "bulkDone_other": "ההשפעה עודכנה ל-{{count}} חיישנים."
+    "bulkDone_other": "ההשפעה עודכנה ל-{{count}} חיישנים.",
+    "saved": "ההשפעה נשמרה."
   },
   "applyPorts": {
     "title": "פורטים",
@@ -3749,7 +3773,25 @@
     "device": "התקן",
     "sensor": "חיישן",
     "recoveredAt": "התאושש",
-    "root": "שורש"
+    "root": "שורש",
+    "subtitle": "תקלות קשורות (תלויות, טופולוגיה, אותו התקן) מקובצות לאירוע אחד",
+    "since": "פתוח מאז {{time}}",
+    "resolvedAt": "נפתר ב-{{time}}",
+    "grouped_one": "תקלה אחת קובצה",
+    "grouped_two": "2 תקלות קובצו",
+    "grouped_other": "{{count}} תקלות קובצו",
+    "rootShort": "שורש: {{name}}",
+    "rootConf": "שורש: {{name}} (ביטחון: {{confidence}})",
+    "noAiShort": "ללא סיכום AI",
+    "loadError": "לא ניתן לטעון אירועים מקובצים",
+    "noneHint": "כשכמה תקלות קשורות זו לזו, הן יופיעו כאן כאירוע אחד עם התקן חשוד כשורש.",
+    "pageError": "לא ניתן לטעון את האירוע",
+    "pageErrorHint": "ייתכן שהאירוע נמחק או שאין לך הרשאה לראות אותו.",
+    "kindLine": "אירוע מקובץ",
+    "recoveredN_one": "אחד התאושש",
+    "recoveredN_two": "2 התאוששו",
+    "recoveredN_other": "{{count}} התאוששו",
+    "timeline": "ציר זמן"
   },
   "confidence3": {
     "low": "נמוך",

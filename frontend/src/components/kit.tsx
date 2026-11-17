@@ -2,7 +2,19 @@
 // so that later slices only assemble pages. Tokens only; no inline style attributes.
 import { type ComponentType, type ReactNode } from 'react';
 import { useTranslation } from 'react-i18next';
-import { AlertIcon, CheckIcon, SparkIcon } from './icons';
+import {
+  AlertIcon,
+  ApIcon,
+  CheckIcon,
+  DeviceIcon,
+  NasIcon,
+  PCIcon,
+  PrinterIcon,
+  RouterIcon,
+  ServerStackIcon,
+  ShieldIcon,
+  SparkIcon,
+} from './icons';
 import { cx } from './ui';
 
 type IconC = ComponentType<{ size?: number; strokeWidth?: number; className?: string }>;
@@ -284,4 +296,192 @@ export function ProgressCard({
       )}
     </div>
   );
+}
+
+/**
+ * Single-choice filter chips (prototype .chips[data-single] / .chip): 32px pills, the chosen one in
+ * ink. Buttons with aria-pressed inside a labelled group.
+ */
+export function FilterChips<T extends string>({
+  label,
+  value,
+  onChange,
+  options,
+  className,
+  testId,
+}: {
+  label: string;
+  value: T;
+  onChange: (v: T) => void;
+  options: { value: T; label: ReactNode }[];
+  className?: string;
+  testId?: string;
+}) {
+  return (
+    <div
+      role="group"
+      aria-label={label}
+      data-testid={testId}
+      className={cx('flex flex-wrap gap-2', className)}
+    >
+      {options.map((o) => {
+        const on = o.value === value;
+        return (
+          <button
+            key={o.value}
+            type="button"
+            aria-pressed={on}
+            onClick={() => onChange(o.value)}
+            className={cx(
+              'inline-flex h-8 items-center gap-1.5 whitespace-nowrap rounded-full px-3.5 text-[13.5px] font-medium transition-colors',
+              on ? 'bg-accent text-accent-on' : 'bg-chip text-ink-muted hover:text-ink',
+            )}
+          >
+            {o.label}
+          </button>
+        );
+      })}
+    </div>
+  );
+}
+
+const TL_DOT: Record<string, string> = {
+  up: 'bg-status-up',
+  warning: 'bg-status-warning',
+  down: 'bg-status-down',
+  paused: 'bg-status-paused',
+  unknown: 'bg-status-unknown',
+  unreachable: 'bg-status-unreachable',
+  neutral: 'bg-ink-subtle',
+};
+
+/** Vertical timeline (prototype .tl): time, a line with a status dot, a bold line and a grey one. */
+export function Timeline({
+  children,
+  label,
+  testId,
+}: {
+  children: ReactNode;
+  label?: string;
+  testId?: string;
+}) {
+  return (
+    <ol
+      aria-label={label}
+      data-testid={testId}
+      className="m-0 grid list-none p-0 [&>li:last-child>div:last-child]:border-b-0"
+    >
+      {children}
+    </ol>
+  );
+}
+
+/** One timeline entry; `tone` is a status (or "neutral") and colours the dot. */
+export function TimelineEntry({
+  time,
+  timeTitle,
+  tone = 'neutral',
+  title,
+  children,
+  end,
+  testId,
+}: {
+  time: ReactNode;
+  timeTitle?: string;
+  tone?: string;
+  title: ReactNode;
+  children?: ReactNode;
+  end?: ReactNode;
+  testId?: string;
+}) {
+  return (
+    <li
+      data-testid={testId}
+      className="grid grid-cols-[76px_22px_minmax(0,1fr)] gap-3 max-sm:grid-cols-[58px_18px_minmax(0,1fr)] max-sm:gap-2"
+    >
+      <span
+        title={timeTitle}
+        className="num whitespace-nowrap pt-4 text-end text-sm font-medium text-ink-muted [unicode-bidi:isolate]"
+        dir="ltr"
+      >
+        {time}
+      </span>
+      <span
+        aria-hidden="true"
+        className="relative flex justify-center before:absolute before:inset-y-0 before:w-0.5 before:bg-line"
+      >
+        <span
+          className={cx(
+            'relative mt-[18px] h-3 w-3 rounded-full shadow-[0_0_0_4px_var(--surface)]',
+            TL_DOT[tone] ?? TL_DOT.neutral,
+          )}
+        />
+      </span>
+      <div className="flex min-w-0 items-start gap-3 border-b border-line pb-4 pt-3.5">
+        <div className="grid min-w-0 flex-1 gap-0.5">
+          <b className="min-w-0 break-words font-semibold">{title}</b>
+          {children && (
+            <span className="min-w-0 break-words text-sm text-ink-muted">{children}</span>
+          )}
+        </div>
+        {end && <div className="flex shrink-0 items-center gap-2">{end}</div>}
+      </div>
+    </li>
+  );
+}
+
+const MCHIP_DOT: Record<string, string> = TL_DOT;
+
+/** Member chip of an incident (prototype .mchip): Inter, LTR, a status dot when it has a state. */
+export function MemberChip({
+  tone,
+  children,
+  title,
+}: {
+  tone?: string;
+  children: ReactNode;
+  title?: string;
+}) {
+  return (
+    <span
+      title={title}
+      className="inline-flex font-display h-[26px] items-center gap-1.5 whitespace-nowrap rounded-full bg-chip px-2.5 text-[12.5px] font-medium text-ink"
+    >
+      {tone && (
+        <i
+          aria-hidden="true"
+          className={cx('h-[7px] w-[7px] rounded-full', MCHIP_DOT[tone] ?? MCHIP_DOT.neutral)}
+        />
+      )}
+      {children}
+    </span>
+  );
+}
+
+const CLASS_TILE: Record<string, IconC> = {
+  switch: DeviceIcon,
+  router: RouterIcon,
+  access_point: ApIcon,
+  printer: PrinterIcon,
+  nas: NasIcon,
+  server: ServerStackIcon,
+  workstation: PCIcon,
+};
+
+/**
+ * Icon of a device row's tile (BUILD.md § 6 "Group page": the normal icon tile, switch / shield for
+ * firewalls). By the device class; a firewall is recognised by its name, as the home map does.
+ */
+export function DeviceTileIcon({
+  cls,
+  name,
+  size = 18,
+}: {
+  cls?: string | null;
+  name?: string;
+  size?: number;
+}) {
+  const fw = /(^|[^a-z])(fw|firewall|fortigate|asa|pfsense|palo)([^a-z]|$)/i.test(name ?? '');
+  const Icon: IconC = fw ? ShieldIcon : (cls && CLASS_TILE[cls]) || DeviceIcon;
+  return <Icon size={size} strokeWidth={1.8} />;
 }

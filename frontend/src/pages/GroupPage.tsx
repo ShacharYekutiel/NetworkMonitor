@@ -3,29 +3,58 @@ import { Link, useNavigate, useParams } from 'react-router';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useTranslation } from 'react-i18next';
 import { endpoints, qk } from '../api/endpoints';
+import type { StatusCounts, TreeGroup } from '../api/types';
 import { Breadcrumbs } from '../components/Breadcrumbs';
 import { DeviceFormModal, GroupFormModal } from '../components/EntityForms';
-import { EditIcon, FolderIcon, PlusIcon, ServerIcon, TrashIcon } from '../components/icons';
-import { StatusBadge, StatusBar, StatusCountPills, StatusTiles } from '../components/Status';
-import { AddMaintenanceButton, MaintenanceBadge } from '../components/Maintenance';
+import { EditIcon, FolderIcon, PlusIcon, TrashIcon } from '../components/icons';
+import { DeviceTileIcon, EmptyState } from '../components/kit';
+import { StatusBadge, StatusDot } from '../components/Status';
+import { AddMaintenanceButton, MaintenanceBadge, useScheduleText } from '../components/Maintenance';
 import { useToast } from '../components/toast';
 import {
   Button,
   Card,
   ConfirmDialog,
-  Empty,
   ErrorBox,
+  GroupList,
+  GroupTitle,
+  KeyValue,
+  ListRow,
   Loading,
   Ltr,
   PageHeader,
-  Table,
+  TAG,
+  TAG_TONE,
   cx,
-  td,
-  th,
 } from '../components/ui';
 import { useAuth } from '../hooks/auth';
 import { useTree } from '../hooks/queries';
 import { findGroup } from '../lib/tree';
+
+/** Devices in a group and all of its subgroups. */
+function deviceCount(g: TreeGroup): number {
+  return g.devices.length + g.children.reduce((n, c) => n + deviceCount(c), 0);
+}
+
+const PROBLEM_TAGS = [
+  ['down', TAG_TONE.down],
+  ['warning', TAG_TONE.warning],
+  ['unreachable', TAG_TONE.neutral],
+] as const;
+
+/** "1 down", "2 warnings" tags of a row (prototype group rows); nothing when all is well. */
+function ProblemTags({ counts }: { counts: StatusCounts }) {
+  const { t } = useTranslation();
+  return (
+    <>
+      {PROBLEM_TAGS.filter(([k]) => counts[k] > 0).map(([k, tone]) => (
+        <span key={k} className={cx(TAG, tone)}>
+          {t(`groups.tag.${k}`, { count: counts[k] })}
+        </span>
+      ))}
+    </>
+  );
+}
 
 export function GroupPage() {
   const { id: idParam } = useParams();
@@ -35,10 +64,16 @@ export function GroupPage() {
   const navigate = useNavigate();
   const qc = useQueryClient();
   const toast = useToast();
+  const schedule = useScheduleText();
   const group = useQuery({ queryKey: qk.group(id), queryFn: () => endpoints.group(id) });
   const devices = useQuery({
     queryKey: qk.devices({ group_id: id }),
     queryFn: () => endpoints.devices({ group_id: id }),
+  });
+  const windowsQuery = { scope: 'group', group_id: id };
+  const windows = useQuery({
+    queryKey: qk.maintenanceWindows(windowsQuery),
+    queryFn: () => endpoints.maintenanceWindows(windowsQuery),
   });
   const tree = useTree();
   const node = tree.data ? findGroup(tree.data.groups, id) : null;
@@ -62,54 +97,42 @@ export function GroupPage() {
   if (group.isLoading) return <Loading />;
   if (group.error || !group.data) return <ErrorBox error={group.error} />;
   const g = group.data;
+  const dep = g.dependency;
+  const ownWindows = (windows.data?.items ?? []).filter((w) => w.enabled && w.group_id === g.id);
+
+  const dependsOn =
+    dep?.mode === 'device' && dep.device_id !== null ? (
+      <Link
+        className="font-display font-medium text-ink hover:underline"
+        to={`/devices/${dep.device_id}`}
+      >
+        <Ltr>{dep.device_name}</Ltr>
+      </Link>
+    ) : (
+      t(dep?.mode === 'none' ? 'dependency.modes.none' : 'dependency.modes.inheritParent')
+    );
 
   return (
-    <div className="space-y-5">
+    <div>
       <PageHeader
         breadcrumbs={<Breadcrumbs groupId={g.parent_id} />}
         title={
           <>
-            <FolderIcon size={22} className="shrink-0 text-ink-subtle" />
             <span className="truncate">{g.name}</span>
             <StatusBadge status={g.status} />
           </>
         }
         subtitle={
-          <>
-            {g.description && <span>{g.description} · </span>}
-            {t('groups.sensorCount', { count: g.status_counts.total })}
-          </>
-        }
-        meta={
-          <>
-            {g.dependency && (
+          <span className="inline-flex flex-wrap items-center gap-x-1.5">
+            {g.description && <span>{g.description} ·</span>}
+            {node && <span>{t('dashboard.deviceCount', { count: deviceCount(node) })} ·</span>}
+            <span>{t('dashboard.sensorCount', { count: g.status_counts.total })}</span>
+            {dep?.mode === 'device' && dep.device_name && (
               <span>
-                {t('dependency.title')}:{' '}
-                {g.dependency.mode === 'device' && g.dependency.device_id !== null ? (
-                  <Link
-                    className="font-medium text-ink hover:underline"
-                    to={`/devices/${g.dependency.device_id}`}
-                  >
-                    {g.dependency.device_name}
-                  </Link>
-                ) : (
-                  <b className="font-medium text-ink">
-                    {t(
-                      g.dependency.mode === 'none'
-                        ? 'dependency.modes.none'
-                        : 'dependency.modes.inheritParent',
-                    )}
-                  </b>
-                )}
+                · {t('groups.dependsOn')} <Ltr className="font-display">{dep.device_name}</Ltr>
               </span>
             )}
-            <span>
-              {t('snmp.label')}:{' '}
-              <b className="font-medium text-ink">
-                {g.snmp_credentials ? g.snmp_credentials.version : t('snmp.inherited')}
-              </b>
-            </span>
-          </>
+          </span>
         }
         actions={
           isAdmin && (
@@ -131,101 +154,132 @@ export function GroupPage() {
           )
         }
       />
-      <StatusTiles counts={g.status_counts} />
 
-      {node && node.children.length > 0 && (
-        <Card title={t('groups.subgroups')} bodyClassName="p-0">
-          <Table>
-            <thead>
-              <tr>
-                <th className={th}>{t('common.status')}</th>
-                <th className={th}>{t('common.name')}</th>
-                <th className={cx(th, 'w-[40%]')}>{t('groups.sensors')}</th>
-                <th className={th} />
-              </tr>
-            </thead>
-            <tbody>
-              {node.children.map((c) => (
-                <tr key={c.id} className="hover:bg-surface-hover">
-                  <td className={td}>
-                    <StatusBadge status={c.status} />
-                  </td>
-                  <td className={td}>
-                    <span className="flex items-center gap-2">
-                      <FolderIcon size={14} className="shrink-0 text-ink-subtle" />
-                      <Link
-                        to={`/groups/${c.id}`}
-                        className="font-semibold text-accent-ink hover:underline"
-                      >
-                        {c.name}
-                      </Link>
-                    </span>
-                  </td>
-                  <td className={td}>
-                    <StatusBar counts={c.status_counts} thin />
-                  </td>
-                  <td className={cx(td, 'w-[1%] whitespace-nowrap text-end [&>span]:flex-nowrap')}>
-                    <StatusCountPills counts={c.status_counts} />
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </Table>
-        </Card>
-      )}
-
-      <Card title={t('groups.devices')} bodyClassName="p-0">
-        {devices.isLoading && <Loading />}
-        <ErrorBox error={devices.error} />
-        {devices.data && !devices.data.items.length && <Empty>{t('devices.none')}</Empty>}
-        {devices.data && devices.data.items.length > 0 && (
-          <Table>
-            <thead>
-              <tr>
-                <th className={th}>{t('common.status')}</th>
-                <th className={th}>{t('common.name')}</th>
-                <th className={th}>{t('devices.host')}</th>
-                <th className={th}>{t('groups.sensors')}</th>
-              </tr>
-            </thead>
-            <tbody>
-              {devices.data.items.map((d) => (
-                <tr key={d.id} className="hover:bg-surface-hover">
-                  <td className={td}>
-                    <StatusBadge status={d.status} />
-                  </td>
-                  <td className={td}>
-                    <span className="inline-flex items-center gap-2">
-                      <ServerIcon size={14} className="shrink-0 text-ink-subtle" />
-                      <Link
-                        to={`/devices/${d.id}`}
-                        className="font-semibold text-accent-ink hover:underline"
-                      >
-                        {d.name}
-                      </Link>
-                    </span>
-                    {d.in_maintenance && (
-                      <span className="ms-1.5">
-                        <MaintenanceBadge
-                          compact
-                          endsAt={d.maintenance?.ends_at}
-                          name={d.maintenance?.name}
-                        />
+      {/* prototype .two: the lists at the start, the dependency card at the end */}
+      <div className="grid items-start gap-6 xl:grid-cols-[minmax(0,1.4fr)_minmax(0,1fr)]">
+        <div className="grid min-w-0 gap-[26px]">
+          {node && node.children.length > 0 && (
+            <section aria-labelledby="grp-sub">
+              <GroupTitle id="grp-sub">{t('groups.subgroups')}</GroupTitle>
+              <GroupList>
+                {node.children.map((c) => (
+                  <ListRow
+                    key={c.id}
+                    testId="subgroup-row"
+                    to={`/groups/${c.id}`}
+                    icon={<FolderIcon size={18} strokeWidth={1.8} />}
+                    title={c.name}
+                    subtitle={`${t('dashboard.deviceCount', { count: deviceCount(c) })} · ${t('dashboard.sensorCount', { count: c.status_counts.total })}`}
+                    end={
+                      <span className="flex shrink-0 flex-wrap items-center gap-1.5">
+                        <ProblemTags counts={c.status_counts} />
+                        <StatusDot status={c.status} className="ms-1 h-2.5 w-2.5" />
                       </span>
-                    )}
-                  </td>
-                  <td className={`${td} font-mono text-[13px] text-ink-muted`}>
-                    <Ltr>{d.host}</Ltr>
-                  </td>
-                  <td className={td}>
-                    <StatusCountPills counts={d.status_counts} />
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </Table>
-        )}
-      </Card>
+                    }
+                  />
+                ))}
+              </GroupList>
+            </section>
+          )}
+
+          <section aria-labelledby="grp-dev">
+            <GroupTitle id="grp-dev">{t('groups.devices')}</GroupTitle>
+            {devices.isLoading && <Loading />}
+            <ErrorBox error={devices.error} />
+            {devices.data && !devices.data.items.length && (
+              <Card>
+                <EmptyState
+                  icon={FolderIcon}
+                  title={t('devices.none')}
+                  actions={
+                    isAdmin && (
+                      <Button variant="primary" onClick={() => setAddDevice(true)}>
+                        <PlusIcon size={14} /> {t('devices.add')}
+                      </Button>
+                    )
+                  }
+                />
+              </Card>
+            )}
+            {devices.data && devices.data.items.length > 0 && (
+              <GroupList>
+                {devices.data.items.map((d) => {
+                  const model = [d.identity?.vendor, d.identity?.model].filter(Boolean).join(' ');
+                  return (
+                    <ListRow
+                      key={d.id}
+                      testId="device-row"
+                      to={`/devices/${d.id}`}
+                      icon={<DeviceTileIcon cls={d.effective_class} name={d.name} />}
+                      title={
+                        <bdi dir="ltr" className="font-display">
+                          {d.name}
+                        </bdi>
+                      }
+                      subtitle={
+                        <bdi dir="ltr" className="font-display">
+                          {model ? `${model} · ${d.host}` : d.host}
+                        </bdi>
+                      }
+                      end={
+                        <span className="flex shrink-0 flex-wrap items-center gap-1.5">
+                          {d.in_maintenance && (
+                            <MaintenanceBadge
+                              compact
+                              endsAt={d.maintenance?.ends_at}
+                              name={d.maintenance?.name}
+                            />
+                          )}
+                          <ProblemTags counts={d.status_counts} />
+                          <StatusDot status={d.status} className="ms-1 h-2.5 w-2.5" />
+                        </span>
+                      }
+                    />
+                  );
+                })}
+              </GroupList>
+            )}
+          </section>
+        </div>
+
+        <Card
+          title={t('dependency.title')}
+          className="xl:mt-[50px]"
+          actions={
+            isAdmin && (
+              <Button size="sm" onClick={() => setEditing(true)}>
+                <EditIcon size={13} /> {t('common.edit')}
+              </Button>
+            )
+          }
+        >
+          <p className="m-0 mb-4 text-[13.5px] text-ink-muted">{t('dependency.groupHint')}</p>
+          <KeyValue
+            items={[
+              { k: t('groups.dependsOn'), v: dependsOn, testId: 'group-dependency' },
+              ...(dep?.mode === 'device'
+                ? [{ k: t('dependency.sensor'), v: dep.sensor_name ?? t('dependency.sensorAuto') }]
+                : []),
+              {
+                k: t('groups.maintenance'),
+                v: ownWindows.length ? (
+                  <span className="grid gap-1">
+                    {ownWindows.map((w) => (
+                      <span key={w.id}>{schedule(w)}</span>
+                    ))}
+                  </span>
+                ) : (
+                  '—'
+                ),
+              },
+              {
+                k: t('snmp.label'),
+                v: g.snmp_credentials ? g.snmp_credentials.version : t('snmp.inherited'),
+              },
+            ]}
+          />
+        </Card>
+      </div>
 
       <GroupFormModal open={editing} onClose={() => setEditing(false)} group={g} />
       <GroupFormModal open={addSub} onClose={() => setAddSub(false)} parentId={g.id} />

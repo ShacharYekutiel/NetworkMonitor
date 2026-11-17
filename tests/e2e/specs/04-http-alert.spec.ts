@@ -162,8 +162,9 @@ test('target fails -> sensor goes down live, event + webhook; recovers -> up + w
   await expect(statusDot(treeSensor(page, sensorId), 'Down')).toBeVisible();
   await expect(statusDot(treeDevice(page, deviceId), 'Down')).toBeVisible(); // device.status rollup
   await expect(page.locator('main').getByText('Unexpected status code 503').first()).toBeVisible();
+  // premium sensor page: the events are a grouped list (one list item per event)
   const events = card(page, 'Events');
-  await expect(events.getByRole('row').filter({ hasText: 'Down' }).first()).toBeVisible();
+  await expect(events.getByRole('listitem').filter({ hasText: 'Down' }).first()).toBeVisible();
   await expectSameDocument(page);
 
   await expect

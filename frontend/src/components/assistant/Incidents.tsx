@@ -4,10 +4,12 @@ import { Link } from 'react-router';
 import { endpoints3b, qk3b, type IncidentQuery } from '../../api/endpoints3b';
 import type { Incident, IncidentState } from '../../api/types';
 import { useLiveMessages } from '../../hooks/live';
-import { formatDateTime, formatRelative } from '../../lib/format';
-import { IncidentIcon } from '../icons';
+import { errorMessage } from '../../lib/errors';
+import { formatDateTime, formatShortTime } from '../../lib/format';
+import { ChevronIcon, IncidentIcon, RefreshIcon } from '../icons';
+import { EmptyState, MemberChip } from '../kit';
 import { Pagination } from '../Pagination';
-import { Card, cx, Empty, ErrorBox, Loading, TAG, TAG_TONE } from '../ui';
+import { Button, Card, cx, GroupTitle, Loading, TAG, TAG_TONE } from '../ui';
 import { AiBadge, useAiFeature } from './common';
 
 /** Deterministic title from its fields ("core-sw down — 14 devices unreachable"), he/en. */
@@ -62,41 +64,117 @@ export function IncidentCounts({ i }: { i: Incident }) {
   );
 }
 
-/** One incident card (dashboard, Events → Incidents). */
-export function IncidentCard({ i }: { i: Incident }) {
+/** The counts as member chips (prototype .mchip), coloured by state. */
+export function IncidentCountChips({ i }: { i: Incident }) {
   const { t } = useTranslation();
-  const title = useIncidentTitle();
+  const parts: [string, number, string][] = [
+    ['down', i.down, 'down'],
+    ['unreachable', i.unreachable, 'unreachable'],
+    ['warning', i.warning, 'warning'],
+    ['recovered', i.recovered, 'up'],
+  ];
   return (
-    <li className="space-y-1 px-4 py-3" data-testid="incident-card" data-incident={i.id}>
-      <div className="flex flex-wrap items-center gap-2">
-        <IncidentIcon size={14} className="text-ink-muted" />
-        <Link
-          to={`/incidents/${i.id}`}
-          className="font-medium text-accent-ink hover:underline"
-          dir="auto"
+    <span className="mt-1 flex flex-wrap gap-1.5">
+      {parts
+        .filter(([, n]) => n > 0)
+        .map(([k, n, tone]) => (
+          <MemberChip key={k} tone={tone}>
+            {n} {t(k === 'recovered' ? 'incident.recovered' : `status.${k}`)}
+          </MemberChip>
+        ))}
+    </span>
+  );
+}
+
+/** The state colour of an incident: its worst member while open, green resolved, grey stale. */
+export function incidentTone(i: Incident): 'down' | 'unreachable' | 'warning' | 'up' | 'paused' {
+  if (i.state === 'resolved') return 'up';
+  if (i.state === 'stale') return 'paused';
+  if (i.down > 0) return 'down';
+  if (i.unreachable > 0) return 'unreachable';
+  if (i.warning > 0) return 'warning';
+  return 'down';
+}
+
+const TONE_TILE: Record<ReturnType<typeof incidentTone>, string> = {
+  down: 'bg-status-down-soft text-status-down',
+  unreachable: 'bg-status-unreachable-soft text-status-unreachable',
+  warning: 'bg-status-warning-soft text-status-warning',
+  up: 'bg-status-up-soft text-status-up',
+  paused: 'bg-chip text-ink-muted',
+};
+
+/** "Open since 10:40 · 12 problems grouped · root: rtr-hfa (confidence: high)". */
+export function useIncidentMeta() {
+  const { t } = useTranslation();
+  return (i: Incident): string => {
+    const parts = [
+      i.state === 'resolved' && i.resolved_at
+        ? t('incident.resolvedAt', { time: formatShortTime(i.resolved_at) })
+        : t('incident.since', { time: formatShortTime(i.opened_at) }),
+      t('incident.grouped', { count: i.member_count }),
+    ];
+    const guess = i.ai?.root_guess;
+    const rootName = guess
+      ? (i.root_candidates.find((c) => c.id === guess.device_id)?.name ??
+        (i.root_device?.id === guess.device_id ? i.root_device.name : null))
+      : (i.root_device?.name ?? null);
+    if (rootName)
+      parts.push(
+        guess
+          ? t('incident.rootConf', {
+              name: rootName,
+              confidence: t(`confidence3.${guess.confidence}`),
+            })
+          : t('incident.rootShort', { name: rootName }),
+      );
+    if (!i.ai) parts.push(t('incident.noAiShort'));
+    return parts.join(' · ');
+  };
+}
+
+/** One incident card (prototype .inc): status tile, title, meta line, member chips, chevron. */
+export function IncidentCard({ i }: { i: Incident }) {
+  const title = useIncidentTitle();
+  const meta = useIncidentMeta();
+  const tone = incidentTone(i);
+  return (
+    <li data-testid="incident-card" data-incident={i.id}>
+      <Link
+        to={`/incidents/${i.id}`}
+        className="grid w-full grid-cols-[auto_minmax(0,1fr)_auto] items-center gap-4 rounded-xl bg-surface px-5 py-[18px] text-start text-ink no-underline shadow-card transition-transform duration-200 hover:-translate-y-0.5"
+      >
+        <span
+          aria-hidden="true"
+          className={cx(
+            'grid h-[46px] w-[46px] place-items-center rounded-[14px]',
+            TONE_TILE[tone],
+          )}
         >
-          {title(i)}
-        </Link>
-        <IncidentStateBadge state={i.state} />
-        <span className="ms-auto text-xs text-ink-muted" title={formatDateTime(i.opened_at)}>
-          {formatRelative(i.opened_at)}
+          <IncidentIcon size={22} strokeWidth={1.8} />
         </span>
-      </div>
-      <IncidentCounts i={i} />
-      {i.ai && (
-        <p className="text-sm text-ink-muted" dir="auto" data-testid="incident-ai">
-          <AiBadge className="me-1" />
-          {i.ai.summary}
-        </p>
-      )}
-      {i.root_device && (
-        <p className="text-xs text-ink-muted">
-          {t('incident.rootCandidate')}:{' '}
-          <Link to={`/devices/${i.root_device.id}`} className="hover:underline">
-            {i.root_device.name}
-          </Link>
-        </p>
-      )}
+        <span className="grid min-w-0 gap-1">
+          <span className="flex flex-wrap items-center gap-2">
+            <b className="min-w-0 text-[17px] font-semibold">{title(i)}</b>
+            <IncidentStateBadge state={i.state} />
+          </span>
+          <span className="text-[13.5px] text-ink-muted" title={formatDateTime(i.opened_at)}>
+            {meta(i)}
+          </span>
+          {i.ai && (
+            <span
+              className="line-clamp-2 text-[13.5px] text-ink-muted"
+              dir="auto"
+              data-testid="incident-ai"
+            >
+              <AiBadge className="me-1.5" />
+              {i.ai.summary}
+            </span>
+          )}
+          <IncidentCountChips i={i} />
+        </span>
+        <ChevronIcon size={16} className="shrink-0 text-ink-subtle rtl:rotate-180" />
+      </Link>
     </li>
   );
 }
@@ -123,11 +201,33 @@ export function IncidentList({
     void qc.invalidateQueries({ queryKey: ['incidents'] });
   });
   if (q.isLoading) return <Loading />;
-  if (q.error) return <ErrorBox error={q.error} className="m-3" />;
-  if (!q.data?.items.length) return <Empty>{emptyText ?? t('incident.none')}</Empty>;
+  if (q.error)
+    return (
+      <Card>
+        <EmptyState
+          error
+          title={t('incident.loadError')}
+          actions={
+            <Button variant="primary" onClick={() => void q.refetch()} busy={q.isFetching}>
+              <RefreshIcon size={14} /> {t('common.retry')}
+            </Button>
+          }
+        >
+          {errorMessage(t, q.error)}
+        </EmptyState>
+      </Card>
+    );
+  if (!q.data?.items.length)
+    return (
+      <Card>
+        <EmptyState icon={IncidentIcon} title={emptyText ?? t('incident.none')}>
+          {t('incident.noneHint')}
+        </EmptyState>
+      </Card>
+    );
   return (
     <>
-      <ul className="divide-y divide-line" data-testid="incident-list">
+      <ul className="m-0 grid list-none gap-3 p-0" data-testid="incident-list">
         {q.data.items.map((i) => (
           <IncidentCard key={i.id} i={i} />
         ))}
@@ -144,7 +244,7 @@ export function IncidentList({
   );
 }
 
-/** Dashboard card: open incidents (only while `ai_correlation` is ON and there are some). */
+/** Home widget: open incidents (only while `ai_correlation` is ON and there are some). */
 export function DashboardIncidents() {
   const { t } = useTranslation();
   const on = useAiFeature('ai_correlation');
@@ -156,23 +256,21 @@ export function DashboardIncidents() {
   });
   if (!on || !q.data?.items.length) return null;
   return (
-    <Card
-      title={
-        <span className="inline-flex items-center gap-2">
-          <IncidentIcon size={14} /> {t('incident.openTitle')}
-          <span className="inline-flex h-[18px] min-w-[20px] items-center justify-center rounded-sm bg-status-down px-[5px] font-mono text-[11px] font-bold tabular-nums text-on-status">
-            {q.data.total}
-          </span>
+    <section aria-labelledby="home-incidents">
+      <GroupTitle
+        id="home-incidents"
+        action={
+          <Link to="/events?tab=incidents" className="text-ink-muted no-underline hover:text-ink">
+            {t('incident.all')}
+          </Link>
+        }
+      >
+        {t('incident.openTitle')}{' '}
+        <span className="num ms-1 inline-flex h-[22px] min-w-[22px] items-center justify-center rounded-full bg-status-down px-[7px] align-middle text-xs font-semibold text-on-status">
+          {q.data.total}
         </span>
-      }
-      actions={
-        <Link to="/events?tab=incidents" className="text-xs text-accent-ink hover:underline">
-          {t('incident.all')}
-        </Link>
-      }
-      bodyClassName="p-0"
-    >
+      </GroupTitle>
       <IncidentList query={{ state: ['open'], page_size: 10 }} />
-    </Card>
+    </section>
   );
 }

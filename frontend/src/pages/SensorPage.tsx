@@ -4,19 +4,18 @@ import { useNavigate, useParams } from 'react-router';
 import { keepPreviousData, useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useTranslation } from 'react-i18next';
 import { endpoints, qk } from '../api/endpoints';
-import type { CheckResult, HistoryRange } from '../api/types';
+import {
+  SENSOR_IMPACTS,
+  type CheckResult,
+  type HistoryRange,
+  type Sensor,
+  type SensorImpact,
+} from '../api/types';
 import { Breadcrumbs } from '../components/Breadcrumbs';
 import { CheckResultView } from '../components/CheckResultView';
-import { EventsTable } from '../components/EventList';
+import { EventRows } from '../components/EventList';
 import { HistoryChart } from '../components/HistoryChart';
-import {
-  EditIcon,
-  PauseIcon,
-  PlayIcon,
-  PulseIcon,
-  RefreshIcon,
-  TrashIcon,
-} from '../components/icons';
+import { EditIcon, PauseIcon, PlayIcon, RefreshIcon, TrashIcon } from '../components/icons';
 import { EditSensorModal, useSensorActions } from '../components/SensorForms';
 import { StatusBadge, StatusDot } from '../components/Status';
 import { ThresholdEditor } from '../components/ThresholdEditor';
@@ -27,12 +26,17 @@ import {
   ConfirmDialog,
   Empty,
   ErrorBox,
+  GroupTitle,
   Loading,
   Ltr,
   PageHeader,
   SEG_GROUP,
+  SegmentedControl,
+  TR_SELECTED,
   cx,
   segClass,
+  td,
+  th,
   Value,
 } from '../components/ui';
 import { useAuth } from '../hooks/auth';
@@ -118,8 +122,14 @@ export function SensorPage() {
   const unit = hc?.unit ?? s.channels.find((c) => c.key === activeChannel)?.unit ?? '';
   const passive = isEventSensor(s);
 
+  const enumSensor = s.type === 'snmp_custom' && s.config.value_type === 'enum';
+  const activeMeta = s.channels.find((c) => c.key === activeChannel);
+  // [2b-1] enum: the value shows the sensor status (the channel itself stays "up").
+  const chStatus = (key: string, st: string) => (enumSensor && key === 'value' ? s.status : st);
+  const channelName = (key: string) => t(`channel.${key}`, { defaultValue: key });
+
   return (
-    <div className="space-y-4">
+    <div>
       <PageHeader
         breadcrumbs={
           <Breadcrumbs
@@ -129,7 +139,6 @@ export function SensorPage() {
         }
         title={
           <>
-            <PulseIcon size={22} className="shrink-0 text-ink-subtle" />
             <span className="truncate">{s.name}</span>
             <StatusBadge status={s.status} labelled />
             {s.acknowledgement && <AckBadge ack={s.acknowledgement} />}
@@ -141,12 +150,20 @@ export function SensorPage() {
             )}
           </>
         }
-        subtitle={t(`sensorType.${s.type}`)}
+        subtitle={
+          <span className="inline-flex flex-wrap items-center gap-x-1.5 gap-y-1">
+            <bdi dir="ltr" className="font-display">
+              {s.device_name}
+            </bdi>
+            <span>· {t(`sensorType.${s.type}`)}</span>
+            {!passive && <span>· {t('sensors.everyN', { count: s.interval_s })}</span>}
+          </span>
+        }
         meta={
           <>
             <span>
               {t('sensors.since')}:{' '}
-              <b className="font-mono text-[12.5px] font-medium text-ink">
+              <b className="num font-medium text-ink">
                 <Ltr>{formatDateTime(s.last_status_change_at)}</Ltr>
               </b>
             </span>
@@ -156,14 +173,6 @@ export function SensorPage() {
                 {formatRelative(s.last_check_at)}
               </b>
             </span>
-            {!passive && (
-              <span>
-                {t('sensors.interval')}:{' '}
-                <b className="font-mono text-[12.5px] font-medium text-ink">
-                  <Ltr>{s.interval_s}</Ltr>
-                </b>
-              </span>
-            )}
             {s.status_message && (
               <span>
                 {t('sensors.message')}:{' '}
@@ -182,9 +191,6 @@ export function SensorPage() {
           isAdmin && (
             <>
               <AckAction sensor={s} size="md" />
-              {(s.status === 'down' || s.status === 'warning' || s.status === 'unreachable') && (
-                <ExplainButton sensorId={s.id} size="md" />
-              )}
               {!passive && (
                 <Button
                   variant="primary"
@@ -204,6 +210,9 @@ export function SensorPage() {
                 )}
                 {s.enabled ? t('sensors.pause') : t('sensors.resume')}
               </Button>
+              {(s.status === 'down' || s.status === 'warning' || s.status === 'unreachable') && (
+                <ExplainButton sensorId={s.id} size="md" />
+              )}
               <Button onClick={() => setEditing(true)}>
                 <EditIcon size={14} /> {t('common.edit')}
               </Button>
@@ -216,138 +225,179 @@ export function SensorPage() {
       />
 
       {(s.acknowledgement || lastRun) && (
-        <div className="space-y-3">
+        <div className="mb-4 space-y-3">
           {s.acknowledgement && <AckDetails ack={s.acknowledgement} />}
           {lastRun && <CheckResultView result={lastRun} />}
         </div>
       )}
 
-      {/* Channel tiles: one strip divided by hairlines; the selected channel drives the chart. */}
-      <div className="grid grid-cols-[repeat(auto-fit,minmax(150px,1fr))] gap-px overflow-hidden rounded-lg border border-line bg-line">
-        {s.channels.map((c) => {
-          // [2b-1] enum: the tile shows the sensor status (the channel itself stays "up").
-          const cs =
-            s.type === 'snmp_custom' && s.config.value_type === 'enum' && c.key === 'value'
-              ? s.status
-              : c.status;
-          const selected = c.key === activeChannel;
-          return (
-            <button
-              key={c.key}
-              type="button"
-              onClick={() => setChannel(c.key)}
-              aria-pressed={selected}
-              className={cx(
-                'min-w-0 px-4 pb-2.5 pt-3 text-start transition-colors',
-                selected
-                  ? 'bg-surface-raised shadow-[inset_0_-2px_0_var(--accent-ink)]'
-                  : 'bg-surface hover:bg-surface-hover',
-              )}
+      {/* prototype .two: the value and its chart at the start, channels and settings at the end */}
+      <div className="grid grid-cols-1 items-start gap-6 xl:grid-cols-[minmax(0,1.4fr)_minmax(0,1fr)]">
+        <div className="flex min-w-0 flex-col gap-4">
+          {/* a lookup sensor: its value map first (prototype "חיישן עם מיפוי ערכים") */}
+          {enumSensor && (
+            <Card title={t('sensorConfig.snmp_custom.value_map')}>
+              <ValueMapTable sensor={s} />
+            </Card>
+          )}
+          {passive && <EventConditionsCard sensor={s} />}
+          {!passive && (
+            <section
+              className="min-w-0 rounded-xl bg-surface px-[22px] pb-5 pt-5 shadow-card"
+              aria-labelledby="sensor-history"
             >
-              <div className="flex items-center gap-[7px] text-[13px] font-medium leading-4 text-ink-muted">
-                <StatusDot status={cs} />
-                <span className="truncate">{t(`channel.${c.key}`, { defaultValue: c.key })}</span>
+              <div className="flex flex-wrap items-end justify-between gap-4">
+                <div className="grid min-w-0 gap-1.5">
+                  <h2 id="sensor-history" className="m-0 text-[13px] font-normal text-ink-muted">
+                    {t('sensors.history')}: {channelName(activeChannel)}
+                  </h2>
+                  <BigValue
+                    text={
+                      activeMeta
+                        ? sensorValueText(s, activeMeta.key, activeMeta.last_value, activeMeta.unit)
+                        : '—'
+                    }
+                    status={activeMeta ? chStatus(activeMeta.key, activeMeta.status) : s.status}
+                  />
+                  {activeMeta && (
+                    <span>
+                      <StatusBadge status={chStatus(activeMeta.key, activeMeta.status)} />
+                    </span>
+                  )}
+                </div>
+                <div className={SEG_GROUP} role="group" aria-label={t('sensors.range')}>
+                  {RANGES.map((r) => (
+                    <button
+                      key={r}
+                      type="button"
+                      onClick={() => setRange(r)}
+                      aria-pressed={r === range}
+                      className={segClass(r === range)}
+                    >
+                      {t(`range.${r}`)}
+                    </button>
+                  ))}
+                </div>
               </div>
-              <div
-                className={cx(
-                  'mt-2 truncate font-display text-[30px] font-semibold leading-9 tabular-nums',
-                  cs === 'up' ? 'text-ink' : statusClass(cs, STATUS_TEXT),
+              <div className="mt-4">
+                <ErrorBox error={history.error} />
+                {history.isLoading && <Loading />}
+                {history.data && hc && hc.points.length > 0 && (
+                  <HistoryChart
+                    points={hc.points}
+                    bucketS={history.data.bucket_s}
+                    unit={unit}
+                    label={activeChannel}
+                    from={history.data.from}
+                    to={history.data.to}
+                    events={events.data?.items}
+                  />
                 )}
-              >
-                <Value text={sensorValueText(s, c.key, c.last_value, c.unit)} />
+                {history.data && (!hc || hc.points.length === 0) && (
+                  <Empty>{t('sensors.noData')}</Empty>
+                )}
               </div>
-            </button>
-          );
-        })}
-      </div>
+            </section>
+          )}
+        </div>
 
-      {passive && <EventConditionsCard sensor={s} />}
-      {!passive && (
-        <div className="grid grid-cols-1 items-start gap-4 xl:grid-cols-[minmax(0,1fr)_320px]">
-          <Card
-            title={`${t('sensors.history')}: ${t(`channel.${activeChannel}`, { defaultValue: activeChannel })}`}
-            actions={
-              <div className={SEG_GROUP} role="group">
-                {RANGES.map((r) => (
-                  <button
-                    key={r}
-                    type="button"
-                    onClick={() => setRange(r)}
-                    aria-pressed={r === range}
-                    className={segClass(r === range)}
-                  >
-                    {t(`range.${r}`)}
-                  </button>
-                ))}
-              </div>
-            }
-          >
-            <ErrorBox error={history.error} />
-            {history.isLoading && <Loading />}
-            {history.data && hc && hc.points.length > 0 && (
-              <HistoryChart
-                points={hc.points}
-                bucketS={history.data.bucket_s}
-                unit={unit}
-                label={activeChannel}
-                from={history.data.from}
-                to={history.data.to}
-                events={events.data?.items}
-              />
-            )}
-            {history.data && (!hc || hc.points.length === 0) && (
-              <Empty>{t('sensors.noData')}</Empty>
-            )}
-          </Card>
+        <div className="flex min-w-0 flex-col gap-4">
+          {/* Channels: one row per channel; the chosen one drives the chart. */}
+          {s.channels.length > 1 && (
+            <Card title={t('sensors.channels')} bodyClassName="px-2.5 pb-3 pt-0">
+              <ul className="m-0 grid list-none gap-0.5 p-0">
+                {s.channels.map((c) => {
+                  const cs = chStatus(c.key, c.status);
+                  const selected = c.key === activeChannel;
+                  return (
+                    <li key={c.key}>
+                      <button
+                        type="button"
+                        onClick={() => setChannel(c.key)}
+                        aria-pressed={selected}
+                        className={cx(
+                          'flex w-full items-center gap-2.5 rounded-[12px] px-3 py-2.5 text-start text-[14.5px] transition-colors',
+                          selected ? 'bg-chip' : 'hover:bg-surface-hover',
+                        )}
+                      >
+                        <StatusDot status={cs} />
+                        <span className="min-w-0 flex-1 truncate text-ink-muted">
+                          {channelName(c.key)}
+                        </span>
+                        <b
+                          className={cx(
+                            'num font-semibold',
+                            cs === 'up' || cs === 'unknown'
+                              ? 'text-ink'
+                              : statusClass(cs, STATUS_TEXT),
+                          )}
+                        >
+                          <Value text={sensorValueText(s, c.key, c.last_value, c.unit)} />
+                        </b>
+                      </button>
+                    </li>
+                  );
+                })}
+              </ul>
+            </Card>
+          )}
 
-          <div className="flex min-w-0 flex-col gap-4">
+          {!passive && (
             <Card title={t('thresholds.title')}>
               <ThresholdEditor sensor={s} readOnly={!isAdmin} />
             </Card>
+          )}
 
-            <Card title={t('sensors.settings')}>
-              <dl className="grid grid-cols-[max-content_minmax(0,1fr)] gap-x-[18px] gap-y-2 text-[13px]">
-                {Object.entries(s.config)
-                  .filter(
-                    ([k]) =>
-                      !(
-                        (k === 'value_map' || k === 'value_map_default' || k === 'value_map_ref') &&
-                        s.config.value_type === 'enum'
-                      ),
-                  )
-                  .map(([k, v]) => (
-                    <div key={k} className="contents">
-                      <dt className="text-ink-muted">
-                        {t(`sensorConfig.${s.type}.${k}`, { defaultValue: k })}:
-                      </dt>
-                      <dd className="min-w-0 break-all font-mono text-[12.5px]">
-                        <Ltr>
-                          {v === null || v === ''
-                            ? '—'
-                            : typeof v === 'object'
-                              ? JSON.stringify(v)
-                              : t(`sensorConfigOption.${s.type}.${k}.${String(v)}`, {
-                                  defaultValue: String(v),
-                                })}
-                        </Ltr>
-                      </dd>
-                    </div>
-                  ))}
-                {!Object.keys(s.config).length && (
-                  <div className="col-span-2 text-ink-muted">{t('sensors.noConfig')}</div>
-                )}
-              </dl>
-              {s.type === 'snmp_custom' && s.config.value_type === 'enum' && (
-                <ValueMapTable sensor={s} />
+          <ImpactCard sensor={s} readOnly={!isAdmin} />
+
+          <Card title={t('sensors.settings')}>
+            <dl className="m-0 grid grid-cols-[max-content_minmax(0,1fr)] gap-x-[18px] gap-y-2.5 text-[14px]">
+              {!passive && (
+                <div className="contents">
+                  <dt className="text-ink-muted">{t('sensors.interval')}</dt>
+                  <dd className="num m-0 min-w-0 text-end">
+                    <Ltr>{s.interval_s}</Ltr>
+                  </dd>
+                </div>
               )}
-            </Card>
-          </div>
+              {Object.entries(s.config)
+                .filter(
+                  ([k]) =>
+                    !(
+                      (k === 'value_map' || k === 'value_map_default' || k === 'value_map_ref') &&
+                      enumSensor
+                    ),
+                )
+                .map(([k, v]) => (
+                  <div key={k} className="contents">
+                    <dt className="text-ink-muted">
+                      {t(`sensorConfig.${s.type}.${k}`, { defaultValue: k })}
+                    </dt>
+                    <dd className="m-0 min-w-0 break-all text-end font-mono text-[12.5px]">
+                      <Ltr>
+                        {v === null || v === ''
+                          ? '—'
+                          : typeof v === 'object'
+                            ? JSON.stringify(v)
+                            : t(`sensorConfigOption.${s.type}.${k}.${String(v)}`, {
+                                defaultValue: String(v),
+                              })}
+                      </Ltr>
+                    </dd>
+                  </div>
+                ))}
+              {!Object.keys(s.config).length && passive && (
+                <div className="col-span-2 text-ink-muted">{t('sensors.noConfig')}</div>
+              )}
+            </dl>
+          </Card>
         </div>
-      )}
+      </div>
 
-      <Card title={t('sensors.events')} bodyClassName="p-0">
-        {events.data ? <EventsTable events={events.data.items} showSource={false} /> : <Loading />}
-      </Card>
+      <section aria-labelledby="sensor-events" className="mt-2">
+        <GroupTitle id="sensor-events">{t('sensors.events')}</GroupTitle>
+        {events.data ? <EventRows events={events.data.items} /> : <Loading />}
+      </section>
 
       {isAdmin && <EditSensorModal open={editing} onClose={() => setEditing(false)} sensor={s} />}
       <ConfirmDialog
@@ -363,8 +413,77 @@ export function SensorPage() {
   );
 }
 
-/** [2b-1] The enum value map of an snmp_custom sensor; the current raw value is highlighted. */
-function ValueMapTable({ sensor }: { sensor: import('../api/types').Sensor }) {
+/**
+ * The big value of the sensor card (prototype .big): the number in 44px Inter with the unit small
+ * after it; a text value (enum) in the same size. Coloured only when it is a problem.
+ */
+function BigValue({ text, status }: { text: string; status: string }) {
+  const m = /^([-+]?[\d.,]+)\s*(.*)$/.exec(text);
+  const tone =
+    status === 'up' || status === 'unknown' ? 'text-ink' : statusClass(status, STATUS_TEXT);
+  return (
+    <div
+      data-testid="sensor-big-value"
+      className={cx('num text-[44px] font-semibold leading-none tracking-[-0.03em]', tone)}
+    >
+      {m ? (
+        <bdi dir="ltr">
+          {m[1]}
+          {m[2] && (
+            <small className="ms-1 text-[18px] font-medium tracking-normal text-ink-muted">
+              {m[2]}
+            </small>
+          )}
+        </bdi>
+      ) : (
+        <Value text={text} />
+      )}
+    </div>
+  );
+}
+
+/** [1.3] Impact on the device status (prototype value-map sensor): segmented, saved at once. */
+function ImpactCard({ sensor, readOnly }: { sensor: Sensor; readOnly: boolean }) {
+  const { t } = useTranslation();
+  const qc = useQueryClient();
+  const toast = useToast();
+  const value: SensorImpact = sensor.impact ?? 'critical';
+  const m = useMutation({
+    mutationFn: (v: SensorImpact) => endpoints.bulkSensorImpact([sensor.id], v),
+    onSuccess: () => {
+      void qc.invalidateQueries({ queryKey: qk.sensor(sensor.id) });
+      void qc.invalidateQueries({ queryKey: ['sensors'] });
+      void qc.invalidateQueries({ queryKey: qk.tree });
+      void qc.invalidateQueries({ queryKey: qk.device(sensor.device_id) });
+      toast.push('success', t('impact.saved'));
+    },
+    onError: (e) => toast.push('error', errorMessage(t, e)),
+  });
+  return (
+    <Card title={t('impact.label')}>
+      <div className="grid gap-2.5" data-testid="sensor-impact">
+        {readOnly ? (
+          <b className="font-medium">{t(`impact.option.${value}`)}</b>
+        ) : (
+          <SegmentedControl
+            label={t('impact.label')}
+            size="sm"
+            value={value}
+            onChange={(v) => v !== value && m.mutate(v)}
+            options={SENSOR_IMPACTS.map((v) => ({ value: v, label: t(`impact.option.${v}`) }))}
+          />
+        )}
+        <span className="text-[13.5px] text-ink-muted">{t(`impact.hint.${value}`)}</span>
+      </div>
+    </Card>
+  );
+}
+
+/**
+ * [2b-1] The enum value map of an snmp_custom sensor (prototype "מיפוי ערכים": value / MIB name /
+ * status / text, a fixed "Other" row); the row of the current raw value is highlighted.
+ */
+function ValueMapTable({ sensor }: { sensor: Sensor }) {
   const { t, i18n } = useTranslation();
   useSensorTypes(); // [1.3.1] loads the named value maps
   const lang = i18n.language;
@@ -375,63 +494,68 @@ function ValueMapTable({ sensor }: { sensor: import('../api/types').Sensor }) {
   const rawKey = raw === null ? null : String(Math.round(raw));
   const unmapped = rawKey !== null && !rows.some((r) => r.value === rawKey);
   return (
-    <div className="mt-4">
-      <div className="mb-1 text-xs font-semibold text-ink-muted">
-        {t('sensorConfig.snmp_custom.value_map')}
+    <div className="grid gap-3">
+      <p className="m-0 text-[13.5px] text-ink-muted">
+        {t('valueMap.hint')}
         {named && (
-          <span className="ms-2 font-normal text-ink-muted" data-testid="named-value-map">
+          <span className="ms-2 font-medium text-ink" data-testid="named-value-map">
             {pickLang(named.title, lang)}
           </span>
         )}
-      </div>
-      <table className="text-sm">
-        <thead>
-          <tr className="text-xs text-ink-muted">
-            <th className="pe-4 text-start font-medium">{t('valueMap.value')}</th>
-            <th className="pe-4 text-start font-medium">{t('valueMap.status')}</th>
-            <th className="pe-4 text-start font-medium">{t('valueMap.text')}</th>
-            {named && <th className="text-start font-medium">{t('valueMap.mib')}</th>}
-          </tr>
-        </thead>
-        <tbody>
-          {rows.map((r) => (
-            <tr key={r.value} className={cx(r.value === rawKey && 'bg-accent-soft font-semibold')}>
-              <td className="pe-4 font-mono">
-                <Ltr>{r.value}</Ltr>
-              </td>
-              <td className="pe-4 py-0.5">
-                <StatusBadge status={r.status} />
-              </td>
-              <td className="pe-4" dir="auto">
-                {r.text}
-              </td>
-              {named && (
-                <td className="font-mono text-[13px] text-ink-muted">
-                  <Ltr>{r.mib ?? (r.own ? t('valueMap.own') : '')}</Ltr>
-                </td>
-              )}
+      </p>
+      <div className="overflow-x-auto rounded-lg border border-line">
+        <table className="w-full text-sm" data-testid="value-map-table">
+          <thead>
+            <tr>
+              <th className={cx(th, 'w-[72px]')}>{t('valueMap.value')}</th>
+              <th className={th}>{t('valueMap.mib')}</th>
+              <th className={th}>{t('valueMap.status')}</th>
+              <th className={th}>{t('valueMap.text')}</th>
             </tr>
-          ))}
-          <tr className={cx(unmapped && 'bg-accent-soft font-semibold')}>
-            <td className="pe-4 text-ink-muted">{t('valueMap.other')}</td>
-            <td className="pe-4 py-0.5">
-              <StatusBadge status={String(sensor.config.value_map_default ?? 'warning')} />
-            </td>
-            <td className="pe-4 text-ink-muted">
-              {named
-                ? pickLang(named.unknown, lang).replace('{code}', unmapped ? rawKey! : 'N')
-                : t('valueMap.unexpected')}
-            </td>
-            {named && <td />}
-          </tr>
-        </tbody>
-      </table>
+          </thead>
+          <tbody>
+            {rows.map((r) => (
+              <tr
+                key={r.value}
+                className={cx(r.value === rawKey && TR_SELECTED)}
+                aria-current={r.value === rawKey ? 'true' : undefined}
+              >
+                <td className={cx(td, 'num font-medium')}>
+                  <Ltr>{r.value}</Ltr>
+                </td>
+                <td className={cx(td, 'font-mono text-[13px] text-ink-muted')}>
+                  <Ltr>{r.mib ?? (r.own && named ? t('valueMap.own') : '—')}</Ltr>
+                </td>
+                <td className={td}>
+                  <StatusBadge status={r.status} />
+                </td>
+                <td className={td} dir="auto">
+                  {r.text || <span className="text-ink-subtle">—</span>}
+                </td>
+              </tr>
+            ))}
+            <tr className={cx(unmapped && TR_SELECTED)}>
+              <td className={cx(td, 'text-ink-muted')}>{t('valueMap.other')}</td>
+              <td className={cx(td, 'text-[13px] text-ink-muted')}>{t('valueMap.otherHint')}</td>
+              <td className={td}>
+                <StatusBadge status={String(sensor.config.value_map_default ?? 'warning')} />
+              </td>
+              <td className={cx(td, 'text-ink-muted')}>
+                {named
+                  ? pickLang(named.unknown, lang).replace('{code}', unmapped ? rawKey! : 'N')
+                  : t('valueMap.unexpected')}
+              </td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
       {current && raw !== null && (
-        <p className="mt-1 text-xs text-ink-muted">
-          {t('valueMap.current')}: <Ltr className="font-mono">{Math.round(raw)}</Ltr> →{' '}
+        <p className="m-0 text-[13px] text-ink-muted">
+          {t('valueMap.current')}: <Ltr className="num">{Math.round(raw)}</Ltr> →{' '}
           {current.text || t('valueMap.unexpected')} ({t(`status.${current.status}`)})
         </p>
       )}
+      <p className="m-0 text-[12.5px] text-ink-subtle">{t('valueMap.editHint')}</p>
     </div>
   );
 }
