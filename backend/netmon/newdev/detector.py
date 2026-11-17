@@ -143,7 +143,7 @@ def device_message(
     hostname: str | None,
 ) -> str:
     """`New device 00:11:22:33:44:55 (Hewlett Packard) on sw-floor2 port 1/0/17, VLAN 20,
-    10.0.20.57 pc-1234.mnidom.net`"""
+    10.0.20.57 pc-1234.example.net`"""
     msg = f"New device {mac}"
     if vendor:
         msg += f" ({vendor})"

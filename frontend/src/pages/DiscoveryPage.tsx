@@ -1,19 +1,19 @@
 import { useEffect, useState, type FormEvent } from 'react';
-import { Link, useNavigate, useSearchParams } from 'react-router-dom';
+import { Link, useNavigate } from 'react-router';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useTranslation } from 'react-i18next';
 import type { TFunction } from 'i18next';
 import { isApiError } from '../api/client';
 import { endpoints, qk, type DiscoveryProfileInput } from '../api/endpoints';
 import type { DiscoveryProfile, DiscoveryScan, NotificationChannel } from '../api/types';
-import { ScanStatusBadge } from '../components/discovery/Badges';
 import {
   ScanOptionsEditor,
   TargetsField,
   useTargetsSummary,
 } from '../components/discovery/ScanForm';
 import { GroupSelect } from '../components/EntityForms';
-import { EditIcon, PlayIcon, PlusIcon, TrashIcon } from '../components/icons';
+import { EditIcon, PlayIcon, PlusIcon, RadarIcon, TrashIcon } from '../components/icons';
+import { ActionRow } from '../components/kit';
 import { useToast } from '../components/toast';
 import {
   Button,
@@ -26,22 +26,17 @@ import {
   ErrorBox,
   Field,
   FieldGroup,
+  GroupList,
+  GroupTitle,
   Input,
   Loading,
-  Ltr,
   Modal,
   Notice,
   PageHeader,
   Select,
-  Table,
-  td,
-  th,
-  TruncLtr,
-  Value,
 } from '../components/ui';
 import { useTree } from '../hooks/queries';
 import {
-  progressPct,
   scanOptionsForm,
   scanOptionsToInput,
   scheduleChoice,
@@ -56,8 +51,6 @@ import { formatDateTime, formatNumber, formatRelative } from '../lib/format';
 import { splitTargets } from '../lib/targets';
 import { findGroup } from '../lib/tree';
 
-type Tab = 'scans' | 'profiles';
-
 /** Error box that also links to the running scan on 409 scan_running. */
 function ScanErrorBox({ error }: { error: unknown }) {
   const { t } = useTranslation();
@@ -70,7 +63,7 @@ function ScanErrorBox({ error }: { error: unknown }) {
       {runningId !== undefined && (
         <Link
           to={`/discovery/scans/${runningId}`}
-          className="text-sm text-sky-700 hover:underline dark:text-sky-400"
+          className="text-sm text-accent-ink hover:underline"
         >
           {t('discovery.openRunning', { id: runningId })}
         </Link>
@@ -105,13 +98,13 @@ function SavedProfileNotice({ profile, error }: { profile: DiscoveryProfile; err
         <Button size="sm" busy={run.isPending} onClick={() => run.mutate()}>
           <PlayIcon size={12} className="rtl:rotate-180" /> {t('discovery.runNow')}
         </Button>
-        <Link to="/discovery?tab=profiles" className={buttonClass('ghost', 'sm')}>
+        <Link to="/discovery#profiles" className={buttonClass('ghost', 'sm')}>
           {t('discovery.openProfiles')}
         </Link>
         {runningId !== undefined && (
           <Link
             to={`/discovery/scans/${runningId}`}
-            className="text-sm text-sky-700 hover:underline dark:text-sky-400"
+            className="text-sm text-accent-ink hover:underline"
           >
             {t('discovery.openRunning', { id: runningId })}
           </Link>
@@ -195,22 +188,18 @@ function NewScanCard() {
 
   return (
     <Card title={t('discovery.newScan')}>
-      <form onSubmit={submit} className="space-y-4" noValidate>
-        <div className="grid grid-cols-1 gap-4 md:grid-cols-3">
-          <div className="md:col-span-2">
-            <TargetsField
-              value={targets}
-              onChange={setTargets}
-              summary={summary}
-              showErrors={submitted}
-            />
-          </div>
-          <Field label={t('discovery.targetGroup')} hint={t('discovery.targetGroupHint')}>
-            <GroupSelect value={groupId} onChange={setGroupId} />
-          </Field>
-        </div>
+      <form onSubmit={submit} className="grid gap-5" noValidate>
+        <TargetsField
+          value={targets}
+          onChange={setTargets}
+          summary={summary}
+          showErrors={submitted}
+        />
         <ScanOptionsEditor value={opts} onChange={setOpts} errors={optErrors} />
-        <div className="flex flex-wrap items-end gap-3">
+        <Field label={t('discovery.targetGroup')} hint={t('discovery.targetGroupHint')}>
+          <GroupSelect value={groupId} onChange={setGroupId} />
+        </Field>
+        <div className="flex flex-wrap items-center gap-3">
           <Checkbox
             label={t('discovery.saveAsProfile')}
             checked={saveProfile}
@@ -234,37 +223,55 @@ function NewScanCard() {
         ) : (
           <ScanErrorBox error={start.error} />
         )}
-        <div className="flex flex-wrap items-center justify-end gap-3">
-          <p className="me-auto text-xs text-slate-500">{t('discovery.scopeNote')}</p>
-          <Button
-            type="submit"
-            variant="primary"
-            busy={start.isPending}
-            disabled={!summary.entries.length}
-          >
-            <PlayIcon size={14} className="rtl:rotate-180" /> {t('discovery.startScan')}
-          </Button>
+        <div className="grid gap-2.5">
+          <div>
+            <Button
+              type="submit"
+              variant="primary"
+              busy={start.isPending}
+              disabled={!summary.entries.length}
+            >
+              {t('discovery.startScan')}
+            </Button>
+          </div>
+          <p className="m-0 text-xs text-ink-subtle">{t('discovery.scopeNote')}</p>
         </div>
       </form>
     </Card>
   );
 }
 
-export function MiniProgress({ scan }: { scan: DiscoveryScan }) {
-  const pct = progressPct(scan);
-  return (
-    <div className="flex items-center gap-2">
-      <div className="h-1.5 w-20 overflow-hidden rounded bg-slate-200 dark:bg-slate-700">
-        <div className="h-full bg-sky-600" style={{ width: `${pct}%` }} />
-      </div>
-      <Value className="text-xs tabular-nums text-slate-500" text={`${pct}%`} />
-    </div>
-  );
+/** Dot of a scan row: running in ink, then the outcome in its status colour. */
+const SCAN_DOT: Record<DiscoveryScan['status'], string> = {
+  running: 'bg-accent motion-safe:animate-pulse',
+  completed: 'bg-status-up',
+  failed: 'bg-status-down',
+  cancelled: 'bg-status-paused',
+};
+
+/** "205 of 307 · found 37" while running, else "yesterday 03:00 · found 214 · 3 new". */
+function useScanLine() {
+  const { t } = useTranslation();
+  return (s: DiscoveryScan) => {
+    const parts =
+      s.status === 'running'
+        ? [
+            t('discovery.scanned', {
+              scanned: formatNumber(s.scanned_hosts, 0),
+              total: formatNumber(s.total_hosts, 0),
+            }),
+          ]
+        : [formatRelative(s.started_at)];
+    parts.push(t('discovery.foundN', { n: formatNumber(s.found_hosts, 0) }));
+    if (s.new_hosts > 0) parts.push(t('discovery.newN', { n: formatNumber(s.new_hosts, 0) }));
+    return parts.join(' · ');
+  };
 }
 
-function ScansCard() {
+function ScansList() {
   const { t } = useTranslation();
   const qc = useQueryClient();
+  const line = useScanLine();
   const scans = useQuery({
     queryKey: qk.discoveryScans({}),
     queryFn: () => endpoints.discoveryScans(),
@@ -283,99 +290,54 @@ function ScansCard() {
   });
 
   return (
-    <Card title={t('discovery.history')} bodyClassName="p-0">
+    <section aria-labelledby="discovery-history">
+      <GroupTitle id="discovery-history">{t('discovery.history')}</GroupTitle>
       {scans.isLoading && <Loading />}
-      <ErrorBox error={scans.error} className="m-3" />
-      {scans.data && !scans.data.items.length && <Empty>{t('discovery.noScans')}</Empty>}
+      <ErrorBox error={scans.error} className="mb-3" />
+      {scans.data && !scans.data.items.length && (
+        <div className="rounded-xl bg-surface shadow-card">
+          <Empty>{t('discovery.noScans')}</Empty>
+        </div>
+      )}
       {scans.data && scans.data.items.length > 0 && (
-        <Table>
-          <thead>
-            <tr>
-              <th className={th}>#</th>
-              <th className={th}>{t('common.status')}</th>
-              <th className={th}>{t('discovery.started')}</th>
-              <th className={th}>{t('discovery.source')}</th>
-              <th className={th}>{t('discovery.targets')}</th>
-              <th className={th}>{t('discovery.found')}</th>
-              <th className={th}>{t('discovery.new')}</th>
-              <th className={th} />
-            </tr>
-          </thead>
-          <tbody>
-            {scans.data.items.map((s) => (
-              <tr key={s.id} className="hover:bg-slate-50 dark:hover:bg-slate-800/40">
-                <td className={`${td} tabular-nums`}>
-                  <Link
-                    to={`/discovery/scans/${s.id}`}
-                    className="font-medium text-sky-700 hover:underline dark:text-sky-400"
-                  >
-                    <Ltr>#{s.id}</Ltr>
-                  </Link>
-                </td>
-                <td className={td}>
-                  <div className="flex flex-wrap items-center gap-2">
-                    <ScanStatusBadge status={s.status} />
-                    {s.status === 'running' && <MiniProgress scan={s} />}
-                  </div>
-                </td>
-                <td
-                  className={`${td} whitespace-nowrap text-slate-500`}
-                  title={formatDateTime(s.started_at)}
+        <GroupList label={t('discovery.history')}>
+          {scans.data.items.map((s) => (
+            <ActionRow
+              key={s.id}
+              testId="scan-row"
+              to={`/discovery/scans/${s.id}`}
+              dot={SCAN_DOT[s.status]}
+              title={
+                <>
+                  <bdi>{t('discovery.scanTitle', { id: s.id })}</bdi>
+                  {' · '}
+                  <span className={cx(s.status === 'failed' && 'text-status-down')}>
+                    {t(`discovery.status.${s.status}`)}
+                  </span>
+                </>
+              }
+              subtitle={
+                <>
+                  {s.profile_name ? <bdi dir="auto">{s.profile_name}</bdi> : t('discovery.manual')}
+                  {' · '}
+                  {line(s)}
+                </>
+              }
+              end={
+                <Button
+                  size="sm"
+                  variant="ghost"
+                  aria-label={t('common.delete')}
+                  title={s.status === 'running' ? t('discovery.deleteRunningHint') : undefined}
+                  disabled={s.status === 'running'}
+                  onClick={() => setDel(s)}
                 >
-                  {formatRelative(s.started_at)}
-                </td>
-                <td className={`${td} text-slate-600 dark:text-slate-300`}>
-                  <div>
-                    {s.profile_name ? (
-                      <bdi dir="auto">{s.profile_name}</bdi>
-                    ) : (
-                      t('discovery.manual')
-                    )}
-                  </div>
-                  <div className="text-xs text-slate-500">
-                    {t(`discovery.trigger.${s.trigger}`)}
-                    {s.created_by && (
-                      <>
-                        {' · '}
-                        <bdi dir="auto">{s.created_by}</bdi>
-                      </>
-                    )}
-                  </div>
-                </td>
-                <td className={`${td} max-w-[14rem]`}>
-                  <TruncLtr className="font-mono text-xs" title={s.targets.join(', ')}>
-                    {s.targets.join(', ')}
-                  </TruncLtr>
-                </td>
-                <td className={`${td} tabular-nums`}>{formatNumber(s.found_hosts, 0)}</td>
-                <td className={`${td} tabular-nums`}>
-                  {s.new_hosts > 0 ? (
-                    <span className="font-semibold text-green-700 dark:text-green-400">
-                      {formatNumber(s.new_hosts, 0)}
-                    </span>
-                  ) : (
-                    0
-                  )}
-                </td>
-                <td className={`${td} whitespace-nowrap text-end`}>
-                  <Link to={`/discovery/scans/${s.id}`} className={buttonClass('secondary', 'sm')}>
-                    {t('discovery.open')}
-                  </Link>
-                  <Button
-                    size="sm"
-                    variant="ghost"
-                    aria-label={t('common.delete')}
-                    title={s.status === 'running' ? t('discovery.deleteRunningHint') : undefined}
-                    disabled={s.status === 'running'}
-                    onClick={() => setDel(s)}
-                  >
-                    <TrashIcon size={14} />
-                  </Button>
-                </td>
-              </tr>
-            ))}
-          </tbody>
-        </Table>
+                  <TrashIcon size={14} />
+                </Button>
+              }
+            />
+          ))}
+        </GroupList>
       )}
       <ConfirmDialog
         open={!!del}
@@ -386,7 +348,7 @@ function ScansCard() {
         busy={remove.isPending}
         error={remove.error}
       />
-    </Card>
+    </section>
   );
 }
 
@@ -502,8 +464,8 @@ function ProfileModal({
           errors={optErrors}
           editingProfile={!!profile}
         />
-        <fieldset className="min-w-0 rounded-md border border-slate-200 p-3 dark:border-slate-700">
-          <legend className="px-1 text-xs font-semibold text-slate-600 dark:text-slate-400">
+        <fieldset className="min-w-0 rounded-[18px] bg-surface-sunken p-4">
+          <legend className="float-start mb-2 w-full p-0 text-[13.5px] font-semibold text-ink">
             {t('discovery.schedule')}
           </legend>
           <div className="space-y-3">
@@ -525,7 +487,7 @@ function ProfileModal({
                   label={t('discovery.everyHours')}
                   hint={
                     !sched ? (
-                      <span className="text-red-600">{t('discovery.err.hours')}</span>
+                      <span className="text-status-down">{t('discovery.err.hours')}</span>
                     ) : undefined
                   }
                 >
@@ -557,7 +519,7 @@ function ProfileModal({
                     ))}
                   </div>
                 ) : (
-                  <p className="text-sm text-slate-500">{t('rules.noChannels')}</p>
+                  <p className="text-sm text-ink-muted">{t('rules.noChannels')}</p>
                 )}
               </FieldGroup>
             )}
@@ -581,7 +543,7 @@ function scheduleText(p: DiscoveryProfile, t: TFunction): string {
   return t(`discovery.scheduleChoice.${c}`);
 }
 
-function ProfilesCard() {
+function ProfilesList() {
   const { t } = useTranslation();
   const qc = useQueryClient();
   const toast = useToast();
@@ -621,81 +583,75 @@ function ProfilesCard() {
   const chName = (id: number) => channels.data?.items.find((c) => c.id === id)?.name ?? `#${id}`;
 
   return (
-    <Card
-      title={t('discovery.profiles')}
-      bodyClassName="p-0"
-      actions={
-        <Button size="sm" variant="primary" onClick={() => setEdit('new')}>
-          <PlusIcon size={14} /> {t('discovery.addProfile')}
-        </Button>
-      }
-    >
+    <section aria-labelledby="discovery-profiles" id="profiles">
+      <GroupTitle
+        id="discovery-profiles"
+        action={
+          <Button size="sm" onClick={() => setEdit('new')}>
+            <PlusIcon size={14} /> {t('discovery.addProfile')}
+          </Button>
+        }
+      >
+        {t('discovery.profiles')}
+      </GroupTitle>
       {profiles.isLoading && <Loading />}
-      <ErrorBox error={profiles.error} className="m-3" />
+      <ErrorBox error={profiles.error} className="mb-3" />
       {runError ? (
-        <div className="m-3">
+        <div className="mb-3">
           <ScanErrorBox error={runError} />
         </div>
       ) : null}
-      {profiles.data && !profiles.data.items.length && <Empty>{t('discovery.noProfiles')}</Empty>}
+      {profiles.data && !profiles.data.items.length && (
+        <div className="rounded-xl bg-surface shadow-card">
+          <Empty>{t('discovery.noProfiles')}</Empty>
+        </div>
+      )}
       {profiles.data && profiles.data.items.length > 0 && (
-        <Table>
-          <thead>
-            <tr>
-              <th className={th}>{t('common.name')}</th>
-              <th className={th}>{t('discovery.targets')}</th>
-              <th className={th}>{t('discovery.targetGroup')}</th>
-              <th className={th}>{t('discovery.schedule')}</th>
-              <th className={th}>{t('discovery.lastRun')}</th>
-              <th className={th}>{t('discovery.notify')}</th>
-              <th className={th} />
-            </tr>
-          </thead>
-          <tbody>
-            {profiles.data.items.map((p) => (
-              <tr key={p.id}>
-                <td className={`${td} font-medium`}>
-                  <bdi dir="auto">{p.name}</bdi>
-                </td>
-                <td className={`${td} max-w-[14rem]`}>
-                  <TruncLtr className="font-mono text-xs" title={p.targets.join(', ')}>
-                    {p.targets.join(', ')}
-                  </TruncLtr>
-                </td>
-                <td className={td}>
-                  <bdi dir="auto">{groupName(p.group_id)}</bdi>
-                </td>
-                <td className={td}>
-                  <div className={cx(!p.schedule_enabled && 'text-slate-500')}>
+        <GroupList label={t('discovery.profiles')}>
+          {profiles.data.items.map((p) => (
+            <ActionRow
+              key={p.id}
+              testId="profile-row"
+              wrap
+              icon={<RadarIcon size={18} />}
+              title={<bdi dir="auto">{p.name}</bdi>}
+              subtitle={
+                <>
+                  <span className={cx(!p.schedule_enabled && 'text-ink-subtle')}>
                     {scheduleText(p, t)}
-                  </div>
+                  </span>
                   {p.next_run_at && (
-                    <div className="text-xs text-slate-500" title={formatDateTime(p.next_run_at)}>
+                    <span title={formatDateTime(p.next_run_at)}>
+                      {' · '}
                       {t('discovery.nextRun')}: {formatRelative(p.next_run_at)}
-                    </div>
+                    </span>
                   )}
-                </td>
-                <td className={`${td} whitespace-nowrap text-slate-500`}>
-                  {p.last_scan_id !== null ? (
-                    <Link
-                      to={`/discovery/scans/${p.last_scan_id}`}
-                      className="text-sky-700 hover:underline dark:text-sky-400"
-                      title={formatDateTime(p.last_run_at)}
-                    >
-                      {formatRelative(p.last_run_at)}
-                    </Link>
-                  ) : (
-                    formatRelative(p.last_run_at)
-                  )}
-                </td>
-                <td className={`${td} text-slate-600 dark:text-slate-300`}>
+                  {' · '}
                   {p.notify_new_hosts
                     ? p.notify_channel_ids.length
-                      ? p.notify_channel_ids.map(chName).join(', ')
+                      ? t('discovery.notifyTo', {
+                          list: p.notify_channel_ids.map(chName).join(', '),
+                        })
                       : t('discovery.eventOnly')
-                    : t('common.no')}
-                </td>
-                <td className={`${td} whitespace-nowrap text-end`}>
+                    : t('discovery.noNotify')}
+                  {' · '}
+                  <bdi dir="auto">{groupName(p.group_id)}</bdi>
+                  {p.last_scan_id !== null && (
+                    <>
+                      {' · '}
+                      <Link
+                        to={`/discovery/scans/${p.last_scan_id}`}
+                        className="text-ink-muted underline-offset-2 hover:text-ink hover:underline"
+                        title={formatDateTime(p.last_run_at)}
+                      >
+                        {t('discovery.lastRun')}: {formatRelative(p.last_run_at)}
+                      </Link>
+                    </>
+                  )}
+                </>
+              }
+              end={
+                <>
                   <Button
                     size="sm"
                     busy={run.isPending && run.variables?.id === p.id}
@@ -719,11 +675,11 @@ function ProfilesCard() {
                   >
                     <TrashIcon size={14} />
                   </Button>
-                </td>
-              </tr>
-            ))}
-          </tbody>
-        </Table>
+                </>
+              }
+            />
+          ))}
+        </GroupList>
       )}
       <ProfileModal
         open={edit !== null}
@@ -740,45 +696,23 @@ function ProfilesCard() {
         busy={remove.isPending}
         error={remove.error}
       />
-    </Card>
+    </section>
   );
 }
 
 export function DiscoveryPage() {
   const { t } = useTranslation();
-  const [params, setParams] = useSearchParams();
-  const tab: Tab = params.get('tab') === 'profiles' ? 'profiles' : 'scans';
-  const setTab = (x: Tab) => setParams(x === 'scans' ? {} : { tab: x }, { replace: true });
   return (
-    <div className="space-y-4">
+    <div>
       <PageHeader title={t('discovery.title')} subtitle={t('discovery.subtitle')} />
-      <div role="tablist" className="flex gap-1 border-b border-slate-200 dark:border-slate-800">
-        {(['scans', 'profiles'] as const).map((x) => (
-          <button
-            key={x}
-            type="button"
-            role="tab"
-            aria-selected={tab === x}
-            onClick={() => setTab(x)}
-            className={cx(
-              '-mb-px border-b-2 px-3 py-1.5 text-sm font-medium',
-              tab === x
-                ? 'border-sky-600 text-sky-700 dark:text-sky-400'
-                : 'border-transparent text-slate-600 hover:text-slate-900 dark:text-slate-400 dark:hover:text-slate-200',
-            )}
-          >
-            {t(`discovery.tab.${x}`)}
-          </button>
-        ))}
+      {/* prototype .two: the new-scan form, and the recent scans + saved profiles beside it */}
+      <div className="grid grid-cols-1 items-start gap-6 lg:grid-cols-[minmax(0,1.4fr)_minmax(0,1fr)]">
+        <NewScanCard />
+        <div className="grid gap-[26px]">
+          <ScansList />
+          <ProfilesList />
+        </div>
       </div>
-      {tab === 'scans' ? (
-        <>
-          <NewScanCard />
-          <ScansCard />
-        </>
-      ) : (
-        <ProfilesCard />
-      )}
     </div>
   );
 }

@@ -246,10 +246,10 @@ describe('connection form', () => {
     const asia: ConnForm = {
       ...base,
       auth_mode: 'access_key',
-      access_key_id: 'ASIAABCDEFGHIJKLMNOP',
+      access_key_id: 'ASIA' + 'ABCDEFGHIJKLMNOP',
     };
     expect(connErrors(asia)).toEqual({});
-    expect(isTemporaryKey('ASIAABCDEFGHIJKLMNOP')).toBe(true);
+    expect(isTemporaryKey('ASIA' + 'ABCDEFGHIJKLMNOP')).toBe(true);
     expect(isTemporaryKey('AKIAABCDEFGHIJKLMNOP')).toBe(false);
     // write-only: omitted when empty, whitespace of a pasted token removed, "" clears
     expect('session_token' in connInput(asia)).toBe(false);

@@ -50,16 +50,16 @@ export function ChatAckFields({
   if (!features.chat_ack) return null;
   return (
     <fieldset
-      className="space-y-2 rounded-md border border-slate-200 p-3 dark:border-slate-700"
+      className="space-y-2 rounded-lg border border-line px-4 py-3.5"
       data-testid="chat-ack-fields"
     >
-      <legend className="px-1 text-xs font-semibold text-slate-600 dark:text-slate-400">
+      <legend className="px-1 text-xs font-semibold text-ink-muted">
         {t('chatAck.channelTitle')}
       </legend>
       {type === 'telegram' && (
         <>
           <Checkbox label={t('chatAck.ackButtons')} checked={ackButtons} onChange={onAckButtons} />
-          <p className="text-xs text-slate-500">{t('chatAck.ackButtonsHint')}</p>
+          <p className="text-xs text-ink-muted">{t('chatAck.ackButtonsHint')}</p>
           <Checkbox
             label={t('chatAck.ackLinkTelegram')}
             checked={ackLink}
@@ -69,7 +69,7 @@ export function ChatAckFields({
           {isTelegram && poller && (
             <p
               className={
-                poller.state === 'error' ? 'text-xs text-red-600' : 'text-xs text-slate-500'
+                poller.state === 'error' ? 'text-xs text-status-down' : 'text-xs text-ink-muted'
               }
             >
               {t('chatAck.pollerLine', {
@@ -88,7 +88,7 @@ export function ChatAckFields({
               <Button size="sm" busy={take.isPending} onClick={() => take.mutate()}>
                 {t('chatAck.takeOver')}
               </Button>
-              <p className="text-xs text-slate-500">{t('chatAck.takeOverHint')}</p>
+              <p className="text-xs text-ink-muted">{t('chatAck.takeOverHint')}</p>
               <ErrorBox error={take.error} />
             </div>
           )}
@@ -97,14 +97,11 @@ export function ChatAckFields({
       {(type === 'teams' || type === 'email') && (
         <>
           <Checkbox label={t('chatAck.ackLink')} checked={ackLink} onChange={onAckLink} />
-          <p className="text-xs text-slate-500">
+          <p className="text-xs text-ink-muted">
             {type === 'teams' ? t('chatAck.teamsLimit') : t('chatAck.emailHint')}
           </p>
           {ackLink && noPublicUrl && (
-            <p
-              className="text-xs text-amber-700 dark:text-amber-300"
-              data-testid="ack-needs-public-url"
-            >
+            <p className="text-xs text-status-warning" data-testid="ack-needs-public-url">
               {t('chatAck.needsPublicUrl')}
             </p>
           )}

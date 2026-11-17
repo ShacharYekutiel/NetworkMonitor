@@ -9,7 +9,7 @@ import {
   useState,
   type ReactNode,
 } from 'react';
-import { useLocation, useNavigate } from 'react-router-dom';
+import { useLocation, useNavigate } from 'react-router';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useTranslation } from 'react-i18next';
 import { endpoints, qk } from '../../api/endpoints';
@@ -57,7 +57,7 @@ import { MaintenanceWindowModal } from '../Maintenance';
 import { AddSensorModal, EditSensorModal } from '../SensorForms';
 import { ApplyTemplateModal } from '../Templates';
 import { useToast } from '../toast';
-import { ConfirmDialog } from '../ui';
+import { ConfirmDialog, cx } from '../ui';
 import { ContextMenu, type CloseReason, type ContextMenuEntry } from './ContextMenu';
 
 type OpenFn = (target: TreeMenuTarget, anchor: Point, opener: HTMLElement | null) => void;
@@ -192,7 +192,7 @@ const ICONS: Partial<Record<TreeMenuAction, ReactNode>> = {
   tabPorts: <PortIcon size={14} />,
   tabTimeline: <ClockIcon size={14} />,
   tabConfig: <BackupIcon size={14} />,
-  explain: <SparkIcon size={14} className="text-violet-600" />,
+  explain: <SparkIcon size={14} className="text-accent-ink" />,
   copyIp: <CopyIcon size={14} />,
   copyName: <CopyIcon size={14} />,
   acknowledge: <CheckIcon size={14} />,
@@ -598,17 +598,21 @@ export function TreeMenuProvider({ children }: { children: ReactNode }) {
           role="status"
           aria-live="polite"
           data-testid="tree-bulk-progress"
-          className="fixed bottom-4 start-4 z-[60] w-72 rounded-md bg-white p-3 text-sm shadow-lg ring-1 ring-slate-200 dark:bg-slate-900 dark:ring-slate-700"
+          // premium progress toast (prototype .ptoast): card at the bottom end, n / total, bar
+          className="fixed bottom-6 end-6 z-[60] grid w-[340px] gap-2.5 rounded-[20px] bg-surface px-[18px] py-4 text-sm shadow-[0_18px_60px_rgba(0,0,0,0.2),0_0_0_1px_var(--border)]"
         >
-          <div className="mb-1.5 flex justify-between gap-2">
+          <div className="flex justify-between gap-2 font-medium">
             <span className="truncate">{bulk.label}</span>
-            <span className="shrink-0 tabular-nums text-slate-500">
+            <span dir="ltr" className="num shrink-0 text-[13px] text-ink-muted">
               {bulk.done}/{bulk.total}
             </span>
           </div>
-          <div className="h-1.5 overflow-hidden rounded bg-slate-200 dark:bg-slate-700">
+          <div className="h-1.5 overflow-hidden rounded-full bg-chip">
             <div
-              className="h-full bg-sky-600 transition-[width]"
+              className={cx(
+                'h-full rounded-full transition-[width]',
+                bulk.done >= bulk.total ? 'bg-status-up' : 'bg-ink',
+              )}
               style={{ width: `${(bulk.done / bulk.total) * 100}%` }}
             />
           </div>

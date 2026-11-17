@@ -1,5 +1,5 @@
 import { expect, test, type Page } from '@playwright/test';
-import { Api, apiAs, loginViaApi } from '../lib/helpers';
+import { Api, apiAs, loginViaApi, menuNav, closeMenu } from '../lib/helpers';
 import { horizontalOverflow } from '../lib/lab';
 import { T, box, ensurePortLab, openPorts, setLang, shot2b2, tile, type PortLab } from '../lib/lab2b2';
 
@@ -46,12 +46,14 @@ for (const lang of ['en', 'he'] as const) {
     expect(['auto', 'scroll']).toContain(m.ox);
     expect(m.sw, 'faceplate wider than its card').toBeGreaterThan(m.cw);
     await noOverflow(page, `ports 52 ${lang}`);
-    // tiles 22 px below 640 px
+    // premium switch panel: 28 px ports at every width (no phone layout for now)
     const b1 = await box(page, 1);
-    expect(Math.round(b1.width)).toBe(22);
-    // LTR: port 1 starts at the left edge of the scroller, even in Hebrew
+    expect(Math.round(b1.width)).toBe(28);
+    // LTR: port 1 sits right after the rack ear and the name plate, even in Hebrew
     const scBox = (await sc.boundingBox())!;
-    expect(b1.x - scBox.x).toBeLessThan(60);
+    expect(b1.x - scBox.x).toBeLessThan(260);
+    // the premium page header is taller: bring the panel up first (vertical only)
+    await sc.evaluate((e) => e.scrollIntoView({ block: 'center', inline: 'nearest' }));
     await sc.evaluate((e) => (e.scrollLeft = e.scrollWidth));
     await expect(tile(page, 52)).toBeInViewport();
     await noOverflow(page, `ports 52 scrolled ${lang}`);
@@ -111,7 +113,8 @@ for (const lang of ['en', 'he'] as const) {
     await shot2b2(page, `desktop-templates-${lang}`);
     if (lang === 'he') {
       // Hebrew device page tabs / nav
-      await expect(page.getByRole('navigation').first()).toContainText(T('nav.find', {}, 'he'));
+      await expect(await menuNav(page)).toContainText(T('nav.find', {}, 'he'));
+      await closeMenu(page);
     }
   });
 }

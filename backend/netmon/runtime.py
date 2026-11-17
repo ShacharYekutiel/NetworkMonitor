@@ -121,6 +121,10 @@ class Runtime:
 
         self.security = DEFAULT_POLICY
         self.revoked_sessions: set[str] = set()
+        # [premium] at most one `user_sessions` write per session and minute
+        from netmon.services.sessions import TouchThrottle
+
+        self.session_touch = TouchThrottle()
         self.started = False
         self.on_lock_lost: Any = self._on_lock_lost
 
@@ -157,6 +161,9 @@ class Runtime:
 
         await security_svc.load(self)  # [1.4.1] egress filter, session lifetime, login cap
         await security_svc.load_revoked(self)
+        from netmon.services import sessions as sessions_svc
+
+        await sessions_svc.prune_all(self)  # [premium] signed-in browsers registry
         async with self.sessionmaker() as session:
             retention_days = await settings_svc.get(session, "retention_days")
         ts = await timescale.bootstrap_status(
@@ -364,11 +371,11 @@ class Runtime:
         1.4.1 changed after a rollback. Idempotent and cheap (configuration rows only)."""
         from sqlalchemy import text
 
-        from netmon.db.migrate import db_revision
+        from netmon.db.migrate import db_revision, revision_reaches
         from netmon.services import secretbox
 
         assert self.engine is not None
-        if (await db_revision(self.engine)) != "0012":
+        if not revision_reaches(await db_revision(self.engine), "0012"):
             return  # not migrated (migrate=False) or migrated by a newer release
         async with self.engine.begin() as conn:
             removed = (

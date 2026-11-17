@@ -375,6 +375,7 @@ class TopologyRunner:
                     "sys_name": rem.sys_name[:255] or None,
                     "sys_descr": rem.sys_descr[:1000] or None,
                     "mgmt_address": rem.mgmt_addresses[0][:64] if rem.mgmt_addresses else None,
+                    "capabilities": rem.capabilities or None,  # [premium]
                 }
                 add_link(
                     "lldp", did, a_if, a_port, None, chassis, None, rem.port_id or rem.port_desc
@@ -400,6 +401,7 @@ class TopologyRunner:
                     "sys_name": c.device_id[:255] or None,
                     "sys_descr": c.platform[:1000] or None,
                     "mgmt_address": c.address,
+                    "capabilities": c.capabilities or None,  # [premium]
                 }
                 add_link("cdp", did, a_if, a_port, None, chassis, None, c.device_port)
 
@@ -420,9 +422,12 @@ class TopologyRunner:
                         text(
                             """
                             INSERT INTO topology_neighbors (chassis_id, sys_name, sys_descr,
-                                mgmt_address)
-                            VALUES (:chassis_id, :sys_name, :sys_descr, :mgmt_address)
+                                mgmt_address, capabilities)
+                            VALUES (:chassis_id, :sys_name, :sys_descr, :mgmt_address,
+                                CAST(:capabilities AS text[]))
                             ON CONFLICT (chassis_id) DO UPDATE SET
+                                capabilities = COALESCE(EXCLUDED.capabilities,
+                                                        topology_neighbors.capabilities),
                                 sys_name = COALESCE(EXCLUDED.sys_name, topology_neighbors.sys_name),
                                 sys_descr = COALESCE(EXCLUDED.sys_descr,
                                                      topology_neighbors.sys_descr),

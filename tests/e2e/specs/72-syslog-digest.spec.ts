@@ -37,7 +37,7 @@ test.beforeAll(async () => {
   await mock.clearModes();
   await configureSmtp(api);
   await setFeatures(api, { syslog: true, ai_syslog_digest: true });
-  await setScalars(api, { digest_email_to: ['noc@mnidom.test'], digest_language: 'en' });
+  await setScalars(api, { digest_email_to: ['noc@example.test'], digest_language: 'en' });
   const g = await ensureGroupNamed(api, 'QA Assistant 3b');
   await ensureDeviceAt(api, g.id, IP, 'qa3b-digest');
   const tz = (await api.get('/api/settings')).timezone ?? 'UTC';
@@ -95,10 +95,10 @@ test('Run now for yesterday: spike and new message type listed; AI bullets with 
   const sent = JSON.stringify(calls[0].body);
   expect((sent.match(/QA3B baseline job finished run/g) ?? []).length, 'no raw logs except <= 20 examples').toBeLessThanOrEqual(20);
   await expect.poll(async () => (await smtpMessages()).length, { timeout: 60_000 }).toBeGreaterThanOrEqual(1);
-  const m = (await smtpMessages()).find((x) => x.rcpt_tos.includes('noc@mnidom.test'))!;
+  const m = (await smtpMessages()).find((x) => x.rcpt_tos.includes('noc@example.test'))!;
   expect(m.html).toContain(PROG);
   expect(m.html).toMatch(/AI-generated|נוצר/);
-  expect(d.deliveries).toEqual(expect.arrayContaining([expect.objectContaining({ target: 'email:noc@mnidom.test', ok: true })]));
+  expect(d.deliveries).toEqual(expect.arrayContaining([expect.objectContaining({ target: 'email:noc@example.test', ok: true })]));
   expect((await audit(api, 'action=assistant.digest'))[0]).toBeTruthy();
   await loginViaApi(page, undefined, `/assistant/digests/${day}`);
   await expect(page.getByTestId('digest')).toContainText(PROG, { timeout: 20_000 });

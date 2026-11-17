@@ -13,6 +13,7 @@ import {
   treeSensor,
   uid,
   waitForSensor,
+  showTree,
 } from '../lib/helpers';
 
 // Scenario (b): group -> device 127.0.0.1 with a ping sensor -> data arrives -> "up" in tree and
@@ -40,6 +41,7 @@ test('create a group from the dashboard', async ({ page }) => {
   await dlg.getByRole('button', { name: 'Save' }).click();
   await expect(dlg).toBeHidden();
 
+  await showTree(page);
   const link = page.locator('aside a[href^="/groups/"]', { hasText: groupName });
   await expect(link).toBeVisible();
   groupId = Number((await link.getAttribute('href'))!.split('/').pop());
@@ -64,6 +66,7 @@ test('add device 127.0.0.1 with an auto ping sensor', async ({ page }) => {
   await expect(page).toHaveURL(/\/devices\/\d+$/);
   deviceId = Number(page.url().split('/').pop());
   await expect(page.getByRole('heading', { name: deviceName })).toBeVisible();
+  await showTree(page);
   await expect(treeDevice(page, deviceId)).toBeVisible();
 
   const sensors = await api.get(`/api/sensors?device_id=${deviceId}`);
@@ -96,9 +99,9 @@ test('ping sensor gets data and shows up in tree and dashboard (live)', async ({
   // The dashboard tiles count it as up.
   const d = await api.get('/api/dashboard');
   expect(d.sensor_counts.up).toBeGreaterThanOrEqual(1);
-  const sensorsSection = page.locator('section').filter({ has: page.getByRole('heading', { name: 'Sensors', exact: true }) });
-  // Tile = value + label; the "Up" tile must count at least this sensor.
-  const upTile = sensorsSection.locator('div.rounded-lg').filter({ hasText: /^\d+Up$/ });
+  // Premium home: the counters row (value + label); the "Up" counter must count at least this sensor.
+  const counters = page.getByRole('list', { name: 'Sensors by status' });
+  const upTile = counters.getByRole('listitem').filter({ hasText: /^\d+Up$/ });
   await expect(upTile).toHaveText(/^[1-9]\d*Up$/);
   // The recent events list shows the unknown -> up transition of this sensor.
   const recent = card(page, 'Recent events');
@@ -109,6 +112,7 @@ test('device and group roll up to up', async ({ page }) => {
   await loginViaApi(page, undefined, `/devices/${deviceId}`);
   await expect(page.getByRole('heading', { name: deviceName })).toBeVisible();
   await expect(page.locator('main').getByText('Up', { exact: true }).first()).toBeVisible();
+  await showTree(page);
   await expect(statusDot(treeDevice(page, deviceId), 'Up')).toBeVisible();
   const g = await api.get(`/api/groups/${groupId}`);
   expect(g.status).toBe('up');

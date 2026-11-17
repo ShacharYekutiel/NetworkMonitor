@@ -3,19 +3,10 @@ import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { useTranslation } from 'react-i18next';
 import { endpoints } from '../api/endpoints';
 import type { Role } from '../api/types';
-import { PlusIcon } from '../components/icons';
+import { CheckIcon, CopyIcon, KeyIcon, PlusIcon } from '../components/icons';
+import { Banner } from '../components/kit';
 import { TokensTable } from '../components/TokensTable';
-import {
-  Button,
-  Card,
-  ErrorBox,
-  Field,
-  Input,
-  Modal,
-  Notice,
-  PageHeader,
-  Select,
-} from '../components/ui';
+import { Button, ErrorBox, Field, Input, Modal, PageHeader, Select } from '../components/ui';
 import { useAuth } from '../hooks/auth';
 import { expiresDaysOk, tokenNameOk, tokenRoles } from '../lib/tokens';
 
@@ -74,30 +65,46 @@ function CreateTokenModal({ open, onClose }: { open: boolean; onClose: () => voi
       title={token ? t('tokens.createdTitle') : t('tokens.create')}
     >
       {token ? (
-        <div className="space-y-3" data-testid="token-once">
-          <Notice>{t('tokens.showOnce')}</Notice>
-          <div className="flex gap-2">
-            <Input
-              ref={setField}
-              readOnly
-              value={token}
-              dir="ltr"
-              className="font-mono text-xs"
-              onFocus={(e) => e.target.select()}
-            />
-            <Button variant="primary" onClick={async () => setCopied(await copyText(token, field))}>
-              {copied ? t('tokens.copied') : t('tokens.copy')}
-            </Button>
+        <div className="grid gap-4" data-testid="token-once">
+          <Banner tone="warn" icon={KeyIcon} title={t('tokens.showOnceTitle')}>
+            {t('tokens.showOnce')}
+          </Banner>
+          <div className="grid gap-1.5">
+            <span className="text-[13.5px] text-ink-muted">{t('tokens.yourToken')}</span>
+            <div className="flex gap-2">
+              <Input
+                ref={setField}
+                readOnly
+                value={token}
+                dir="ltr"
+                aria-label={t('tokens.yourToken')}
+                className="font-mono text-[13px]"
+                onFocus={(e) => e.target.select()}
+              />
+              <Button
+                variant="primary"
+                onClick={async () => setCopied(await copyText(token, field))}
+              >
+                {copied ? <CheckIcon size={14} /> : <CopyIcon size={14} />}
+                {copied ? t('tokens.copied') : t('tokens.copy')}
+              </Button>
+            </div>
           </div>
-          <p className="text-xs text-slate-500">{t('tokens.usage')}</p>
-          <pre
-            dir="ltr"
-            className="overflow-x-auto rounded bg-slate-100 p-2 text-left text-xs dark:bg-slate-800"
-          >
-            {'curl -H "Authorization: Bearer nmt_…" ' + window.location.origin + '/api/dashboard'}
-          </pre>
-          <div className="flex justify-end">
-            <Button onClick={close}>{t('common.close')}</Button>
+          <div className="grid gap-1.5">
+            <span className="text-[13.5px] text-ink-muted">{t('tokens.usage')}</span>
+            <pre
+              dir="ltr"
+              className="m-0 overflow-x-auto whitespace-pre rounded-[16px] bg-chip px-4 py-3.5 text-left font-mono text-[12.5px] leading-[1.65]"
+            >
+              {'curl -H "Authorization: Bearer nmt_…" \\\n     ' +
+                window.location.origin +
+                '/api/dashboard'}
+            </pre>
+          </div>
+          <div className="flex justify-start gap-2.5">
+            <Button variant="primary" onClick={close}>
+              {t('tokens.done')}
+            </Button>
           </div>
         </div>
       ) : (
@@ -124,7 +131,7 @@ function CreateTokenModal({ open, onClose }: { open: boolean; onClose: () => voi
               label={t('tokens.expiresDays')}
               hint={
                 expiresDaysOk(days) ? undefined : (
-                  <span className="text-red-600">{t('tokens.expiresErr')}</span>
+                  <span className="text-status-down">{t('tokens.expiresErr')}</span>
                 )
               }
             >
@@ -156,7 +163,7 @@ export function TokensPage() {
   const { t } = useTranslation();
   const [creating, setCreating] = useState(false);
   return (
-    <div className="space-y-4">
+    <div>
       <PageHeader
         title={t('tokens.title')}
         subtitle={t('tokens.intro')}
@@ -166,9 +173,9 @@ export function TokensPage() {
           </Button>
         }
       />
-      <Card bodyClassName="p-0">
+      <div className="min-w-0 overflow-hidden rounded-xl bg-surface shadow-card">
         <TokensTable />
-      </Card>
+      </div>
       <CreateTokenModal open={creating} onClose={() => setCreating(false)} />
     </div>
   );

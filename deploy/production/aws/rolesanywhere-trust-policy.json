@@ -18,7 +18,7 @@
         },
         "StringEquals": {
           "aws:PrincipalTag/x509Subject/CN": "<CERT_CN>",
-          "aws:PrincipalTag/x509Issuer/CN": "Mnidom-PKI-SERV-CA"
+          "aws:PrincipalTag/x509Issuer/CN": "Example-PKI-SERV-CA"
         }
       }
     }

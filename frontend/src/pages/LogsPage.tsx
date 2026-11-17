@@ -1,4 +1,4 @@
-import { useSearchParams } from 'react-router-dom';
+import { useSearchParams } from 'react-router';
 import { useTranslation } from 'react-i18next';
 import { FeatureOffNotice, useFeatures } from '../hooks/features';
 import { ingestOn } from '../lib/features';
@@ -10,7 +10,7 @@ import { IngestStatusLine } from '../components/features/IngestStatus';
 import { Loading, PageHeader } from '../components/ui';
 import { TabBar } from '../components/TabBar';
 import { useAiFeature } from '../components/assistant/common';
-import { DigestList } from '../components/assistant/Digest';
+import { DigestDay } from '../components/assistant/Digest';
 
 type LogsTab = 'syslog' | 'traps' | 'unknown' | 'rules' | 'digest';
 
@@ -33,7 +33,7 @@ export function LogsPage() {
   if (!loaded) return <Loading />;
   return (
     <div className="space-y-4">
-      <PageHeader title={t('logs.title')} subtitle={<IngestStatusLine />} />
+      <PageHeader title={t('logs.title')} actions={<IngestStatusLine />} />
       {!ingestOn(features) ? (
         <FeatureOffNotice feature={['traps', 'syslog']} />
       ) : (
@@ -49,7 +49,7 @@ export function LogsPage() {
           {tab === 'traps' && <TrapsView />}
           {tab === 'unknown' && <UnknownSourcesView />}
           {tab === 'rules' && <RulesView />}
-          {tab === 'digest' && <DigestList />}
+          {tab === 'digest' && <DigestDay />}
         </>
       )}
     </div>

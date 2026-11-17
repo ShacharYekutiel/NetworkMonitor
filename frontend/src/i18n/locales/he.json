@@ -78,7 +78,44 @@
     "newDevices": "התקנים חדשים",
     "backups": "גיבויי תצורה",
     "reports": "דוחות",
-    "assistant": "שאל את הרשת"
+    "assistant": "שאל את הרשת",
+    "inventory": "מלאי",
+    "health": "חיישנים לפי מצב",
+    "toggleInventory": "הצגה או הסתרה של המלאי",
+    "short": {
+      "dashboard": "סקירה",
+      "assistant": "שאלו",
+      "events": "אירועים",
+      "logs": "יומנים",
+      "map": "מפה",
+      "flows": "תעבורה",
+      "newDevices": "חדשים",
+      "backups": "גיבויים",
+      "discovery": "גילוי",
+      "templates": "תבניות",
+      "find": "חיפוש",
+      "maintenance": "תחזוקה",
+      "reports": "דוחות",
+      "notifications": "התראות",
+      "settings": "הגדרות",
+      "users": "משתמשים",
+      "audit": "ביקורת",
+      "inventory": "מלאי"
+    },
+    "allScreens": "כל המסכים",
+    "openMenu": "כל המסכים",
+    "closeMenu": "סגירת התפריט",
+    "pin": "נעיצת התפריט בצד",
+    "unpin": "ביטול נעיצת התפריט",
+    "menuView": "תצוגת התפריט",
+    "screens": "מסכים",
+    "search": "חיפוש",
+    "section": {
+      "monitor": "ניטור",
+      "equipment": "ציוד",
+      "operations": "תפעול",
+      "admin": "ניהול"
+    }
   },
   "tree": {
     "search": "חיפוש קבוצות, התקנים וחיישנים",
@@ -89,7 +126,7 @@
   },
   "login": {
     "title": "כניסה",
-    "subtitle": "התחברו כדי לנטר את הרשת שלכם.",
+    "subtitle": "התחברו כדי לראות מה קורה ברשת.",
     "username": "שם משתמש",
     "password": "סיסמה",
     "submit": "כניסה",
@@ -97,8 +134,7 @@
     "foreignDomain": "\"{{domain}}\" אינו התחום של הספרייה. השתמשו ב-{{netbios}}\\user או בשם המשתמש המקומי."
   },
   "setup": {
-    "title": "ברוכים הבאים ל-NetworkMonitor",
-    "subtitle": "ניצור עכשיו את חשבון מנהל המערכת.",
+    "subtitle": "שני צעדים ואתם בפנים.",
     "stepLanguage": "שפה",
     "stepAdmin": "מנהל מערכת",
     "language": "שפת הממשק וההתראות",
@@ -107,7 +143,11 @@
     "email": "דוא\"ל (רשות)",
     "password": "סיסמה",
     "confirmPassword": "אימות סיסמה",
-    "submit": "יצירת מנהל מערכת"
+    "submit": "יצירת מנהל מערכת",
+    "welcome": "ברוכים הבאים",
+    "titleAdmin": "יוצרים מנהל",
+    "steps": "שלבי ההתקנה",
+    "title": "ברוכים הבאים ל-NetworkMonitor"
   },
   "dashboard": {
     "title": "לוח בקרה",
@@ -115,7 +155,7 @@
     "sensors": "חיישנים",
     "devices": "התקנים",
     "total": "סה\"כ",
-    "problems": "חיישנים בתקלה ובאזהרה",
+    "problems": "דורשים טיפול",
     "allGood": "כל החיישנים תקינים.",
     "recentEvents": "אירועים אחרונים",
     "allEvents": "כל האירועים",
@@ -152,7 +192,21 @@
     "sensors": "חיישנים",
     "sensorCount": "חיישנים: {{count}}",
     "deleteTitle": "מחיקת קבוצה",
-    "deleteConfirm": "למחוק את הקבוצה \"{{name}}\" יחד עם כל תת-הקבוצות, ההתקנים והחיישנים שלה? חיישנים מושפעים: {{count}}. לא ניתן לבטל פעולה זו."
+    "deleteConfirm": "למחוק את הקבוצה \"{{name}}\" יחד עם כל תת-הקבוצות, ההתקנים והחיישנים שלה? חיישנים מושפעים: {{count}}. לא ניתן לבטל פעולה זו.",
+    "tag": {
+      "down_one": "תקלה אחת",
+      "down_two": "2 תקלות",
+      "down_other": "{{count}} תקלות",
+      "warning_one": "אזהרה אחת",
+      "warning_two": "2 אזהרות",
+      "warning_other": "{{count}} אזהרות",
+      "unreachable_one": "1 לא נגיש",
+      "unreachable_two": "2 לא נגישים",
+      "unreachable_other": "{{count}} לא נגישים"
+    },
+    "dependsOn": "תלוי ב",
+    "maintenance": "תחזוקה",
+    "editDependency": "עריכת תלות"
   },
   "devices": {
     "add": "הוספת התקן",
@@ -249,7 +303,12 @@
     "diskName": "דיסק {{descr}}",
     "textOk": "תואם",
     "passiveNote": "חיישן אירועים: מונע ממלכודות/Syslog, לא נדגם",
-    "passiveCreateHint": "חיישני אירועים אינם נדגמים: מצבם נקבע מכללי אירועים (מלכודות, Syslog) או מזיהוי ריצוד. אחד לכל התקן וסוג."
+    "passiveCreateHint": "חיישני אירועים אינם נדגמים: מצבם נקבע מכללי אירועים (מלכודות, Syslog) או מזיהוי ריצוד. אחד לכל התקן וסוג.",
+    "everyN_one": "כל שנייה",
+    "everyN_two": "כל 2 שניות",
+    "everyN_other": "כל {{count}} שניות",
+    "range": "טווח זמן",
+    "channels": "ערוצים"
   },
   "iface": {
     "name": "ממשק",
@@ -303,7 +362,10 @@
     "filteredSensor": "מסונן לפי חיישן #{{id}}.",
     "maintenance": "תחזוקה",
     "inMaintenance": "בזמן תחזוקה",
-    "notInMaintenance": "מחוץ לתחזוקה"
+    "notInMaintenance": "מחוץ לתחזוקה",
+    "transition": "{{from}} ← {{to}}",
+    "subtitle": "כל מה שקרה, מהחדש לישן",
+    "moreFilters": "עוד מסננים"
   },
   "eventKind": {
     "status_change": "שינוי סטטוס",
@@ -324,7 +386,22 @@
     "next": "העמוד הבא"
   },
   "notifications": {
-    "title": "התראות"
+    "title": "התראות",
+    "subtitle": "ערוצים מעבירים · כללים מחליטים מי מקבל מה ומתי",
+    "afterDelay": "אחרי {{d}}",
+    "now": "מיד",
+    "escalatesAfter": "אסקלציה אחרי {{d}}",
+    "remindsEvery": "תזכורת כל {{d}}",
+    "flowTitle": "אסקלציה · ״{{name}}״",
+    "tlStart": "התקלה מתחילה",
+    "tlNotify": "נשלחת התראה מיד",
+    "tlNotifyStill": "נשלחת התראה אם המצב נמשך",
+    "tlEscalate": "אין אישור → אסקלציה",
+    "tlEvery": "כל {{d}}",
+    "tlRemind": "תזכורת עד אישור",
+    "tlRecovery": "התאוששות",
+    "tlRecoveryHint": "הודעת ״תקין״ נשלחת לאותם ערוצים",
+    "noEscalation": "אין אסקלציה או תזכורת בכלל הזה."
   },
   "channels": {
     "title": "ערוצי התראה",
@@ -351,7 +428,10 @@
     "aiAsk": "אפשר ‎/ask",
     "aiAskHint": "מנהלים מקושרים יכולים לשאול את העוזר בצ׳אט פרטי עם הבוט הזה.",
     "aiNoteEmail": "שליחת הערות AI כתשובה",
-    "aiNoteEmailHint": "לכללי התראה עם הערת AI: תשובה בשרשור של הודעת ההתראה."
+    "aiNoteEmailHint": "לכללי התראה עם הערת AI: תשובה בשרשור של הודעת ההתראה.",
+    "addFirst": "הוספת ערוץ",
+    "noneHint": "ערוץ הוא היעד של ההתראות: מייל, טלגרם, Microsoft Teams או Webhook.",
+    "enabledLabel": "{{name}} פעיל"
   },
   "rules": {
     "title": "כללי התראה",
@@ -368,7 +448,10 @@
     "none": "אין עדיין כללי התראה.",
     "deleteTitle": "מחיקת כלל",
     "aiNote": "הערת AI",
-    "aiNoteHint": "אחרי הודעת התקלה הראשונה מתווספת הערת AI קצרה (עריכה בטלגרם, הודעת המשך ב-Teams, תשובה בדוא״ל). ההתראה לעולם אינה מתעכבת."
+    "aiNoteHint": "אחרי הודעת התקלה הראשונה מתווספת הערת AI קצרה (עריכה בטלגרם, הודעת המשך ב-Teams, תשובה בדוא״ל). ההתראה לעולם אינה מתעכבת.",
+    "addFirst": "הוספת כלל",
+    "noneHint": "כלל מחליט אילו תקלות נשלחות לאילו ערוצים, ומתי.",
+    "enabledLabel": "{{name}} פעיל"
   },
   "settings": {
     "title": "הגדרות",
@@ -464,7 +547,16 @@
     "you": "את/ה",
     "deleteTitle": "מחיקת משתמש",
     "source": "מקור",
-    "ldapManaged": "משתמש זה מנוהל ב-Active Directory: הסיסמה, התפקיד והדוא\"ל מגיעים מ-AD. אפשר לשנות שפה, להשבית או למחוק את המשתמש (משתמש שנמחק ייווצר מחדש בכניסה הבאה)."
+    "ldapManaged": "משתמש זה מנוהל ב-Active Directory: הסיסמה, התפקיד והדוא\"ל מגיעים מ-AD. אפשר לשנות שפה, להשבית או למחוק את המשתמש (משתמש שנמחק ייווצר מחדש בכניסה הבאה).",
+    "subtitle": "מנהלים מנהלים הכול · צופים רואים בלבד",
+    "countAdmins_one": "מנהל אחד",
+    "countAdmins_other": "{{count}} מנהלים",
+    "countViewers_one": "צופה אחד",
+    "countViewers_other": "{{count}} צופים",
+    "inactive": "לא פעיל",
+    "neverLoggedIn": "לא התחבר מעולם",
+    "countAdmins_two": "2 מנהלים",
+    "countViewers_two": "2 צופים"
   },
   "account": {
     "title": "החשבון שלי",
@@ -479,7 +571,25 @@
     "oidcManaged": "החשבון הזה נכנס עם Microsoft Entra ID, והסיסמה שלו מנוהלת שם.",
     "sessions": "התחברויות",
     "sessionsHint": "התנתקות מסיימת בשרת את ההתחברות של הדפדפן הזה. אם ייתכן שמישהו אחר משתמש בחשבון שלכם, התנתקו בבת אחת מכל הדפדפנים והמכשירים (אסימוני API אינם מושפעים).",
-    "logoutEverywhere": "התנתקות מכל המכשירים"
+    "logoutEverywhere": "התנתקות מכל המכשירים",
+    "activeTokens_one": "אסימון פעיל אחד",
+    "activeTokens_other": "{{count}} אסימונים פעילים",
+    "myTokens": "אסימוני ה-API שלי",
+    "logoutHere": "התנתקות",
+    "logoutEverywhereConfirm": "כל ההתחברויות שלך יסתיימו, כולל זו. תצטרכו להתחבר מחדש בכל מכשיר. אסימוני API ימשיכו לעבוד.",
+    "logoutEverywhereGo": "התנתקות מהכול",
+    "sessionsDirectoryHint": "התחברויות AD, Kerberos ו-Microsoft מסתיימות לכל המאוחר אחרי 12 שעות.",
+    "activeTokens_two": "2 אסימונים פעילים",
+    "sessionEnded": "הדפדפן הזה נותק.",
+    "unknownBrowser": "דפדפן לא מזוהה",
+    "thisBrowser": "הדפדפן הזה",
+    "lastActive": "פעיל {{when}}",
+    "signOut": "התנתקות",
+    "signOutSession": "התנתקות {{name}}",
+    "sessionsAll_one": "הצגת כולם ({{count}})",
+    "sessionsAll_other": "הצגת כולם ({{count}})",
+    "sessionsFewer": "הצגת פחות",
+    "sessionsAll_two": "הצגת שניהם"
   },
   "validation": {
     "required": "שדה חובה.",
@@ -503,7 +613,10 @@
     "durH_other": "{{count}} שע׳",
     "durM_one": "דקה",
     "durM_two": "2 דק׳",
-    "durM_other": "{{count}} דק׳"
+    "durM_other": "{{count}} דק׳",
+    "colD": "{{count}} י׳",
+    "colH": "{{count}} שע׳",
+    "colM": "{{count}} דק׳"
   },
   "errors": {
     "bad_request": "הבקשה אינה תקינה.",
@@ -887,7 +1000,9 @@
     "whenNotIn": "לא באחד מ-{{list}}",
     "whenAny": "עונה",
     "matchOidPrefixes": "sysObjectID {{list}}",
-    "matchDescr": "sysDescr תואם {{re}}"
+    "matchDescr": "sysDescr תואם {{re}}",
+    "details": "פרטים",
+    "shortInterfaces": "ממשקים"
   },
   "discovery": {
     "title": "גילוי",
@@ -1054,7 +1169,13 @@
     "openProfiles": "פרופילים שמורים",
     "optFingerprint": "טביעת אצבע (web/SSH/telnet)",
     "fingerprintHint": "קורא את כותרת דף האינטרנט, כותרת השרת ובאנר SSH/telnet של מארחים עם פורטים 80/443/8080/8443/22/23 פתוחים, כדי לזהות התקנים בלי SNMP. לא נשלחים פרטי התחברות.",
-    "fingerprintTimeout": "זמן קצוב לטביעת אצבע (ms)"
+    "fingerprintTimeout": "זמן קצוב לטביעת אצבע (ms)",
+    "foundN": "נמצאו {{n}}",
+    "newN": "{{n}} חדשים",
+    "notifyTo": "התראה ל-{{list}}",
+    "noNotify": "ללא התראה",
+    "scanning": "סורק…",
+    "startedAt": "התחילה {{time}}"
   },
   "ack": {
     "acknowledged": "אושר",
@@ -1158,7 +1279,16 @@
       "weekdays": "בחרו לפחות יום אחד.",
       "time": "בפורמט HH:MM (00:00–23:59).",
       "duration": "1 עד 10080 דקות (7 ימים)."
-    }
+    },
+    "pausedNote": "בזמן חלון פעיל ההתראות מושהות",
+    "week": {
+      "this": "השבוע",
+      "today": "לשבוע הנוכחי",
+      "prev": "השבוע הקודם",
+      "next": "השבוע הבא"
+    },
+    "emptyTitle": "אין חלונות תחזוקה",
+    "emptyText": "תכננו חלון כדי להשהות התראות להתקן, לקבוצה או לכל הרשת בזמן עבודה."
   },
   "escalation": {
     "title": "הסלמה ותזכורות",
@@ -1235,7 +1365,9 @@
       "empty": "הוסיפו לפחות ערך אחד."
     },
     "mib": "שם ב-MIB",
-    "own": "ערך מותאם"
+    "own": "ערך מותאם",
+    "otherHint": "כל ערך שלא ברשימה",
+    "editHint": "שינוי הערכים דרך \"עריכה\" (הגדרות החיישן). עד 32 ערכים."
   },
   "topology": {
     "title": "מפת רשת",
@@ -1373,7 +1505,11 @@
       "ap": "נקודת גישה",
       "switch": "מתג / Uplink",
       "trunk": "Trunk",
-      "macCount": "כתובות MAC שנלמדו (Uplink)"
+      "macCount": "כתובות MAC שנלמדו (Uplink)",
+      "free": "פנוי",
+      "up": "פעיל",
+      "bad": "תקלה",
+      "warn": "אזהרה"
     },
     "legendHint": {
       "empty": "אין כבל, או שהמכשיר בצד השני כבוי.",
@@ -1401,10 +1537,16 @@
       "lowerLayerDown": "שכבה תחתונה למטה"
     },
     "connectedKind": {
-      "none": "כלום",
-      "client": "לקוח",
-      "ap": "נקודת גישה",
-      "switch": "מתג"
+      "none": "לא זוהה",
+      "ap": "נקודת WiFi",
+      "switch": "מתג (אפליינק)",
+      "computer": "מחשב",
+      "phone": "טלפון IP",
+      "printer": "מדפסת",
+      "camera": "מצלמה",
+      "server": "שרת",
+      "router": "נתב",
+      "unknown": "מכשיר לא מזוהה"
     },
     "mode": {
       "access": "Access",
@@ -1545,6 +1687,44 @@
       "moreTitle_one": "עוד התקן אחד בפורט זה",
       "moreTitle_two": "עוד 2 התקנים בפורט זה",
       "moreTitle_other": "עוד {{count}} התקנים בפורט זה"
+    },
+    "kindShort": {
+      "computer": "מחשב",
+      "phone": "טלפון",
+      "ap": "AP",
+      "printer": "מדפסת",
+      "camera": "מצלמה",
+      "server": "שרת",
+      "switch": "מתג",
+      "router": "נתב",
+      "unknown": "לא מזוהה"
+    },
+    "kindChooser": {
+      "title": "סוג המכשיר המחובר",
+      "auto": "אוטומטי",
+      "detected": "זוהה: {{kind}}",
+      "nothing": "לא זוהה דבר",
+      "hint": "משנה את האייקון בפורט ובטבלה. \"אוטומטי\" נקבע לפי LLDP/CDP וכתובת ה-MAC.",
+      "manual": "ידני",
+      "saved": "סוג המכשיר בפורט נקבע ל{{kind}}",
+      "savedAuto": "סוג המכשיר יזוהה אוטומטית"
+    },
+    "kindSource": {
+      "lldp": "LLDP",
+      "cdp": "CDP",
+      "oui": "יצרן MAC",
+      "manual": "ידני"
+    },
+    "stateFilter": "מצב הפורט",
+    "stateChip": {
+      "all": "הכול",
+      "up": "מחוברים",
+      "problem": "בעיות",
+      "free": "פנויים"
+    },
+    "lagState": {
+      "down": "LAG למטה",
+      "degraded": "LAG פגוע"
     }
   },
   "health": {
@@ -1582,7 +1762,13 @@
     "access": "גישה",
     "arpTitle": "רשומות ARP",
     "arpSource": "נלמד מ",
-    "help": "טבלאות ה-MAC נקראות עם מלאי הפורטים של כל מתג; כתובות IP מגיעות מנתבים וחומות אש עם „איסוף ARP”."
+    "help": "טבלאות ה-MAC נקראות עם מלאי הפורטים של כל מתג; כתובות IP מגיעות מנתבים וחומות אש עם „איסוף ARP”.",
+    "allResults": "כל התוצאות",
+    "bestAccess": "הכי סביר: פורט גישה",
+    "bestUplink": "הכי סביר: אפליינק",
+    "now": "עכשיו",
+    "name": "שם",
+    "locations": "איפה נראה"
   },
   "inventoryMode": {
     "auto": "אוטומטי",
@@ -1788,10 +1974,10 @@
     "23": "מקומי 7"
   },
   "logs": {
-    "title": "מלכודות ו-Syslog",
+    "title": "לוגים ו-Traps",
     "tab": {
       "syslog": "Syslog",
-      "traps": "מלכודות",
+      "traps": "Traps",
       "unknown": "מקורות לא מוכרים",
       "rules": "כללים",
       "digest": "תקציר"
@@ -2088,7 +2274,12 @@
     "countersSince": "מונים מאז {{time}}",
     "v3Failures": "כשלי אימות SNMPv3 אחרונים",
     "engineId": "Engine ID",
-    "reason": "סיבה"
+    "reason": "סיבה",
+    "chip": {
+      "ok": "המקלטים מאזינים",
+      "error": "שגיאה במקלט",
+      "off": "המקלטים כבויים"
+    }
   },
   "ingestSettings": {
     "title": "מלכודות ו-Syslog",
@@ -2194,9 +2385,9 @@
     "title": "Active Directory",
     "intro": "משתמשי AD נכנסים עם DOMAIN\\user או user@domain. חשבונות מקומיים ממשיכים לעבוד תמיד, ותמיד חייב להיות מנהל מקומי. בדקו לפני הדלקת התכונה.",
     "domain": "תחום",
-    "domainHint": "לדוגמה mnidom.net",
+    "domainHint": "לדוגמה example.net",
     "netbios": "תחום NetBIOS",
-    "netbiosHint": "לדוגמה MNIDOM",
+    "netbiosHint": "לדוגמה EXAMPLE",
     "servers": "בקרי תחום",
     "serversHint": "host או host:port, אחד בכל שורה (עד 8); ריק = איתור ב-DNS. השתמשו בשמות שבתעודות הבקרים.",
     "security": "אבטחה",
@@ -2210,7 +2401,7 @@
     "baseDn": "Base DN",
     "baseDnDefault": "ברירת מחדל",
     "bindDn": "חשבון שירות",
-    "bindDnHint": "DN או UPN, לדוגמה svc-netmon@mnidom.net",
+    "bindDnHint": "DN או UPN, לדוגמה svc-netmon@example.net",
     "bindPassword": "סיסמת חשבון השירות",
     "bindPasswordHint": "נשמרת מוצפנת; לא תוצג שוב.",
     "passwordUnreadable": "לא ניתן לפענח את סיסמת חשבון השירות השמורה (מפתח השרת השתנה). הזינו אותה שוב — עד אז כניסות AD נכשלות.",
@@ -2349,6 +2540,52 @@
       "api_token": "אסימון API",
       "assistant_conversation": "שיחה עם העוזר",
       "assistant_message": "תשובת העוזר"
+    },
+    "subtitle": "כל שינוי וכל כניסה · נשמר {{days}} יום",
+    "noneHint": "אין רשומות שמתאימות לסינון. הרחיבו את טווח הזמן או נקו מסנן.",
+    "failed": "נכשל",
+    "removal": "מחיקה",
+    "verb": {
+      "create": "נוצר",
+      "update": "שונה",
+      "delete": "נמחק",
+      "revoke": "בוטל",
+      "enable": "הופעל",
+      "disable": "כובה",
+      "run": "הרצה",
+      "test": "בדיקה",
+      "export": "ייצוא",
+      "ack": "אושר",
+      "acknowledge": "אושר",
+      "unacknowledge": "האישור בוטל",
+      "settings_update": "ההגדרות שונו",
+      "unlink": "הקישור נותק",
+      "rule_draft": "טיוטת כלל",
+      "template_draft": "טיוטת תבנית",
+      "template_walk": "סריקת SNMP לתבנית",
+      "question": "שאלה",
+      "conversation_delete": "שיחה נמחקה",
+      "digest": "תקציר",
+      "answer": "תשובה",
+      "explain_alert": "הסבר התראה",
+      "alert_note": "הערה להתראה",
+      "cancel": "נעצר",
+      "cert_delete": "תעודה נמחקה",
+      "cert_upload": "תעודה הועלתה",
+      "csr_create": "נוצר CSR",
+      "csr_delete": "CSR נמחק",
+      "diff_explain": "הסבר שינוי תצורה",
+      "feedback": "משוב",
+      "incident_summary": "סיכום אירוע מקובץ",
+      "kb_test": "בדיקת מאגר ידע",
+      "report_summary": "סיכום דוח",
+      "tool_call": "שליפה"
+    },
+    "authVerb": {
+      "login": "התחברות",
+      "login_failed": "כניסה נכשלה",
+      "logout": "התנתקות",
+      "password_change": "הסיסמה שונתה"
     }
   },
   "timeline": {
@@ -2395,7 +2632,15 @@
     },
     "revoke": "ביטול",
     "revokeTitle": "ביטול אסימון",
-    "revokeConfirm": "לבטל את \"{{name}}\"? סקריפטים שמשתמשים בו יפסיקו לעבוד מיד."
+    "revokeConfirm": "לבטל את \"{{name}}\"? סקריפטים שמשתמשים בו יפסיקו לעבוד מיד.",
+    "daysLeft_one": "נשאר יום אחד",
+    "daysLeft_other": "נשארו {{count}} ימים",
+    "done": "סיום",
+    "noneHint": "צרו אסימון לסקריפט שקורא או משנה את NetworkMonitor.",
+    "noneAllHint": "אף משתמש עוד לא יצר אסימון API.",
+    "showOnceTitle": "מוצג פעם אחת בלבד",
+    "yourToken": "האסימון שלך",
+    "daysLeft_two": "נשארו יומיים"
   },
   "teams": {
     "help": "ב-Teams: ערוץ ← Workflows ← \"Post to a channel when a webhook request is received\", ואז הדביקו כאן את הכתובת.",
@@ -2530,7 +2775,15 @@
       "no_credentials": "אין פרטי SSH בהתקן או בקבוצות שלו.",
       "no_driver": "אין מנהל התקן שמתאים להתקן הזה; בחרו אחד בהגדרות ההתקן.",
       "host_key_changed": "מפתח ה-SSH של ההתקן השתנה; אשרו את המפתח החדש או אפסו אותו."
-    }
+    },
+    "diffMode": "תצוגת ההשוואה",
+    "changedAt": "השתנה {{when}}",
+    "noChange": "ללא שינוי",
+    "kept": "שמורות",
+    "versionsN_one": "גרסה אחת",
+    "versionsN_two": "2 גרסאות",
+    "versionsN_other": "{{count}} גרסאות",
+    "devices": "התקנים"
   },
   "driver": {
     "label": "מנהל התקן",
@@ -2691,7 +2944,14 @@
       "exporter_limit": "מגבלת מקורות",
       "aggregation_overflow": "גלישה בצבירה",
       "db_error": "שגיאות מסד נתונים"
-    }
+    },
+    "subline_one": "NetFlow · IPFIX · sFlow מ-exporter אחד",
+    "peakIn": "שיא נכנס",
+    "volume": "נפח בטווח",
+    "overTime": "תעבורה לאורך זמן",
+    "now": "עכשיו",
+    "subline_other": "NetFlow · IPFIX · sFlow מ-{{count}} exporters",
+    "subline_two": "NetFlow · IPFIX · sFlow מ-2 exporters"
   },
   "exporter": {
     "address": "כתובת",
@@ -2784,7 +3044,13 @@
       "new": "חדש",
       "known": "מוכר",
       "allowed": "ברשימת היתר"
-    }
+    },
+    "device": "התקן",
+    "modeLearning": "בלמידה",
+    "modeWatching": "בהשגחה",
+    "watchingHint": "התקן שלא נראה מעולם יפעיל התראה",
+    "switchesLine": "נקראו {{done}} מתוך {{total}} מתגים",
+    "randomMac": "כתובת אקראית"
   },
   "allowlist": {
     "intro": "התקנים שכתובת ה-MAC שלהם מתחילה בקידומת מורשית לא מתריעים (למשל כל המדפסות של יצרן מסוים).",
@@ -2821,7 +3087,7 @@
     "intro": "מחשבים שמצורפים לתחום נכנסים בלי סיסמה. המשתמשים והתפקידים נלקחים מ-Active Directory.",
     "unsupported": "Kerberos אינו זמין בפלטפורמה של השרת.",
     "realms": "תחומים מורשים (Realms)",
-    "realmsHint": "באותיות גדולות, מופרדים בפסיקים, לדוגמה MNIDOM.NET",
+    "realmsHint": "באותיות גדולות, מופרדים בפסיקים, לדוגמה EXAMPLE.NET",
     "realmsRequired": "הזינו לפחות תחום אחד.",
     "realmsTooMany": "עד 8 תחומים.",
     "realmsInvalid": "יש תחום עם תווים לא חוקיים.",
@@ -3011,6 +3277,18 @@
       "timeout": "חרג מהזמן",
       "unverified_numbers": "הושמט (המספרים לא תאמו לנתונים)",
       "disabled": "היכולת כבויה"
+    },
+    "subtitle": "זמינות, תקלות, פורטים ושינויי קונפיגורציה — בתזמון או לפי דרישה",
+    "delivery": {
+      "sent": "נשלח",
+      "partial": "נשלח ל-{{ok}} מתוך {{total}}"
+    },
+    "paperSub": "{{from}} – {{to}} · נוצר {{time}}",
+    "paperHeadline": "זמינות כוללת {{pct}}",
+    "fig": {
+      "devices": "התקנים",
+      "downtime": "שעות השבתה",
+      "outages": "תקלות"
     }
   },
   "reportSection": {
@@ -3132,7 +3410,8 @@
     "takenOver": "ה-webhook של הבוט נמחק.",
     "teamsLimit": "ב-Teams כפתור אישור הטיפול פותח את NetworkMonitor בדפדפן; הוא עובד מרשת המשרד או דרך VPN.",
     "emailHint": "מוסיף קישור לאישור טיפול שפותח את NetworkMonitor.",
-    "needsPublicUrl": "קישורים דורשים את הכתובת הציבורית (הגדרות ← כללי)."
+    "needsPublicUrl": "קישורים דורשים את הכתובת הציבורית (הגדרות ← כללי).",
+    "commentPlaceholder": "למשל: בטיפול, צפי 11:00"
   },
   "trapCollapse": {
     "title": "מלכודות חוזרות",
@@ -3178,7 +3457,10 @@
     "apply": "החלה",
     "bulkDone_one": "ההשפעה עודכנה לחיישן אחד.",
     "bulkDone_two": "ההשפעה עודכנה ל-2 חיישנים.",
-    "bulkDone_other": "ההשפעה עודכנה ל-{{count}} חיישנים."
+    "bulkDone_other": "ההשפעה עודכנה ל-{{count}} חיישנים.",
+    "saved": "ההשפעה נשמרה.",
+    "selectHint": "סמנו כמה חיישנים כדי לשנות את ההשפעה שלהם על מצב ההתקן בבת אחת.",
+    "bulkBar": "חיישנים שנבחרו"
   },
   "applyPorts": {
     "title": "פורטים",
@@ -3472,7 +3754,9 @@
         "range": "{{min}}–{{max}}",
         "time": "HH:MM",
         "money": "מספר ≥ 0"
-      }
+      },
+      "heroTitle": "העוזר",
+      "usagePage": "דף השימוש"
     },
     "cert": {
       "title": "תעודת Roles Anywhere",
@@ -3629,7 +3913,18 @@
         "duplicate": "המודל כבר ברשימה",
         "label": "השם לתצוגה ארוך מדי (עד 60 תווים)"
       }
-    }
+    },
+    "answerFailed": "התשובה נכשלה",
+    "toSettings": "להגדרות",
+    "aiShort": "נוצר ע״י AI — ייתכנו טעויות",
+    "day": {
+      "today": "היום",
+      "yesterday": "אתמול",
+      "week": "השבוע",
+      "earlier": "קודם לכן"
+    },
+    "capTitle": "הגעתם לתקרה של היום",
+    "capBody": "השאלות היומיות שלך ({{used}} מתוך {{limit}}). אפשר לשאול שוב מחר."
   },
   "explain": {
     "button": "הסבר",
@@ -3675,7 +3970,25 @@
     "device": "התקן",
     "sensor": "חיישן",
     "recoveredAt": "התאושש",
-    "root": "שורש"
+    "root": "שורש",
+    "subtitle": "תקלות קשורות (תלויות, טופולוגיה, אותו התקן) מקובצות לאירוע אחד",
+    "since": "פתוח מאז {{time}}",
+    "resolvedAt": "נפתר ב-{{time}}",
+    "grouped_one": "תקלה אחת קובצה",
+    "grouped_two": "2 תקלות קובצו",
+    "grouped_other": "{{count}} תקלות קובצו",
+    "rootShort": "שורש: {{name}}",
+    "rootConf": "שורש: {{name}} (ביטחון: {{confidence}})",
+    "noAiShort": "ללא סיכום AI",
+    "loadError": "לא ניתן לטעון אירועים מקובצים",
+    "noneHint": "כשכמה תקלות קשורות זו לזו, הן יופיעו כאן כאירוע אחד עם התקן חשוד כשורש.",
+    "pageError": "לא ניתן לטעון את האירוע",
+    "pageErrorHint": "ייתכן שהאירוע נמחק או שאין לך הרשאה לראות אותו.",
+    "kindLine": "אירוע מקובץ",
+    "recoveredN_one": "אחד התאושש",
+    "recoveredN_two": "2 התאוששו",
+    "recoveredN_other": "{{count}} התאוששו",
+    "timeline": "ציר זמן"
   },
   "confidence3": {
     "low": "נמוך",
@@ -3714,7 +4027,9 @@
     "interface_enabled": "ממשק הופעל",
     "vlan_removed": "הוסר VLAN",
     "vlan_removed_cmd": "הוסר VLAN",
-    "routing_changed": "שונה ניתוב"
+    "routing_changed": "שונה ניתוב",
+    "toLine": "לשורה",
+    "riskTag": "סיכון {{level}}"
   },
   "digest": {
     "title": "תקציר syslog",
@@ -3750,7 +4065,14 @@
     "byProgram": "לפי תוכנה",
     "byDevice": "לפי התקן",
     "byHour": "לפי שעה",
-    "deliveries": "שליחות"
+    "deliveries": "שליחות",
+    "baselineN": "קו בסיס {{n}}",
+    "devices": "התקנים",
+    "unusualTitle": "חריגים",
+    "noneHint": "התקציר הראשון ייווצר אחרי יום שלם של הודעות syslog.",
+    "prevDay": "היום הקודם",
+    "nextDay": "היום הבא",
+    "all": "כל התקצירים"
   },
   "draft": {
     "describe": "תאר את הכלל…",
@@ -3765,7 +4087,21 @@
     "cannotTitle": "העוזר לא הצליח להכין טיוטת כלל מהתיאור הזה.",
     "cannotHint": "תאר מה לנטר ומה צריך לקרות, למשל:",
     "cannotExampleAlert": "התרע לי בטלגרם כשמתג ליבה כלשהו מושבת במשך 2 דקות",
-    "cannotExampleEvent": "אזהרה כשמתג רושם כשל התחברות SSH (תוכנה SSHS או sshd)"
+    "cannotExampleEvent": "אזהרה כשמתג רושם כשל התחברות SSH (תוכנה SSHS או sshd)",
+    "examples": "דוגמאות",
+    "manual": "מילוי ידני",
+    "stepsLabel": "שלבי הטיוטה",
+    "step": {
+      "describe": "תיאור",
+      "draft": "טיוטה",
+      "review": "בדיקה ושמירה"
+    },
+    "exAlert1": "טלגרם כשמתג ליבה כלשהו מושבת במשך 2 דקות",
+    "exAlert2": "מייל למנהל IT כשסניף לא עונה 5 דקות",
+    "exAlert3": "התראה על כל אזהרה בקבוצת השרתים",
+    "exEvent1": "אזהרה כשמתג רושם הפרת port security",
+    "exEvent2": "תקלה כש-UPS עובר לסוללה (trap)",
+    "exEvent3": "אזהרה כשכניסת SSH נכשלת"
   },
   "tdraft": {
     "open": "טיוטת תבנית מהתקן",
@@ -3832,7 +4168,8 @@
     "saved": "נשמר {{file}}",
     "cannotTitle": "העוזר לא הצליח להכין טיוטת תבנית מהסריקה הזו.",
     "cannotHint": "סרוק את תתי-העצים עם ערכי ההתקן עצמו (enterprise, ENTITY, HOST-RESOURCES) ותאר מה לנטר, למשל:",
-    "cannotExample": "לנטר מצב ספקי כוח ומאווררים וטמפרטורת מעבד"
+    "cannotExample": "לנטר מצב ספקי כוח ומאווררים וטמפרטורת מעבד",
+    "warnings": "אזהרות"
   },
   "usage": {
     "title": "שימוש בעוזר",
@@ -3888,7 +4225,13 @@
     "outputTokens": "פלט",
     "unknownModel": "מודל לא ידוע",
     "cacheRead": "טוקני קלט שנקראו ממטמון ההנחיות",
-    "cached": "ממטמון"
+    "cached": "ממטמון",
+    "backgroundStoppedHint": "הסברים, תקציר syslog וסיכומי אירועים ימשיכו בחודש הבא או כשתעלו את התקרה. שאלות ישירות עדיין עובדות.",
+    "pctOfMonthlyCap": "{{pct}}% מהתקרה החודשית",
+    "ofMonthlyCap": "מהתקרה החודשית",
+    "inOut": "קלט + פלט",
+    "noneHint": "כשמנהלים ישאלו שאלות או כשיכולות הרקע ירוצו, השימוש יופיע כאן.",
+    "loadError": "לא ניתן לטעון את נתוני השימוש"
   },
   "treeMenu": {
     "label": {
@@ -3943,5 +4286,105 @@
     "clear": "ניקוי החיפוש",
     "none": "לא נמצאו הגדרות",
     "requires": "דורש את התכונה {{feature}} — הפעילו אותה בלשונית {{tab}}"
+  },
+  "auth": {
+    "oneLine": "כל הרשת. במבט אחד."
+  },
+  "island": {
+    "ok": "הכול תקין",
+    "down_one": "תקלה אחת",
+    "down_other": "{{count}} תקלות",
+    "attention_one": "אחד דורש טיפול",
+    "attention_other": "{{count}} דורשים טיפול",
+    "warnings_one": "אזהרה אחת",
+    "warnings_other": "{{count}} אזהרות",
+    "sensors_one": "חיישן אחד",
+    "sensors_other": "{{count}} חיישנים",
+    "down_two": "2 תקלות",
+    "attention_two": "2 דורשים טיפול",
+    "warnings_two": "2 אזהרות",
+    "sensors_two": "2 חיישנים"
+  },
+  "home": {
+    "needAttention_one": "דורש טיפול",
+    "needAttention_other": "דורשים טיפול",
+    "allGood": "הכול תקין",
+    "subline": "{{sensors}} ב-{{devices}}",
+    "restOk": "הכול אחר תקין",
+    "site": "אתר",
+    "allSites": "כל האתרים",
+    "network": "הרשת",
+    "all": "הכול",
+    "quick": "פעולות מהירות",
+    "counters": "חיישנים לפי מצב",
+    "qa": {
+      "problems": "תקלות",
+      "events": "אירועים",
+      "maintenance": "תחזוקה",
+      "find": "איתור",
+      "map": "מפה",
+      "devices": "התקנים"
+    },
+    "sub": {
+      "map": "קישורי LLDP/CDP בין התקנים",
+      "logs": "Syslog ו-Traps",
+      "flows": "NetFlow · IPFIX · sFlow",
+      "newDevices": "התקנים שהופיעו לראשונה",
+      "backups": "היסטוריית קונפיגורציה והשוואות",
+      "maintenance": "חלונות מתוכננים בלי התראות",
+      "reports": "דוחות זמינות מתוזמנים",
+      "templates": "ערכות חיישנים לפי סוג התקן",
+      "events": "כל מה שקרה, מהחדש לישן",
+      "all": "הגדרות, משתמשים, תבניות ועוד"
+    },
+    "days_one": "יום אחד",
+    "days_two": "יומיים",
+    "days_other": "{{count}} ימים",
+    "map": {
+      "label": "מפת הרשת",
+      "edit": "עריכת מפה",
+      "mode": "מצב",
+      "mode_auto": "אוטומטי",
+      "mode_backbone": "עמוד שדרה",
+      "modeHint_auto": "המפה נבנית מהטופולוגיה (LLDP/CDP) ומעץ הקבוצות.",
+      "modeHint_backbone": "אתם בוחרים את התקני עמוד השדרה לפי הסדר; הקבוצות הראשיות נתלות מתחת לאחרון.",
+      "showInternet": "הצגת \"אינטרנט\"",
+      "backbone": "התקני עמוד השדרה, מלמעלה למטה",
+      "noBackbone": "אין התקנים. הוסיפו לפחות אחד.",
+      "addDevice": "הוספת התקן…",
+      "maxGroups": "מספר קבוצות מרבי",
+      "up": "הזזה למעלה",
+      "down": "הזזה למטה",
+      "remove": "הסרה",
+      "saved": "המפה נשמרה",
+      "editSub": "המפה במסך הבית · למנהלים בלבד",
+      "showInternetHint": "צומת עליון שמייצג את ספקי האינטרנט",
+      "notSet": "המפה עוד לא הוגדרה",
+      "notSetText": "בינתיים מוצגות הקבוצות הראשיות. בחרו את התקני עמוד השדרה כדי לראות את הדרך מהאינטרנט ועד כל קבוצה.",
+      "setup": "הגדרת המפה"
+    },
+    "needAttention_two": "דורשים טיפול"
+  },
+  "kit": {
+    "aiFine": "נוצר ע״י AI — ייתכנו טעויות. כדאי לבדוק לפני שפועלים."
+  },
+  "aiStatus": {
+    "openIncidents_zero": "אין אירועים מקובצים פתוחים",
+    "openIncidents_one": "אירוע מקובץ פתוח אחד",
+    "openIncidents_two": "2 אירועים מקובצים פתוחים",
+    "openIncidents_other": "{{count}} אירועים מקובצים פתוחים",
+    "lastDigest": "התקציר האחרון, {{day}}: {{status}}",
+    "lastDigestReason": "התקציר האחרון, {{day}}: {{status}} ({{reason}})",
+    "digestStatus": {
+      "ok": "מוכן",
+      "failed": "נכשל",
+      "skipped": "דולג"
+    },
+    "noteSent": "ההערה האחרונה נשלחה",
+    "noteSkipped": "ההערה האחרונה דולגה: {{reason}}",
+    "reason": {
+      "empty": "תשובה ריקה",
+      "feature_off": "היכולת כבויה"
+    }
   }
 }

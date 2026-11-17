@@ -149,9 +149,9 @@ test('certificate upload: invalid ones refused (422), .pfx accepted, metadata on
     source: 'uploaded', key_type: 'rsa', key_bits: 2048, serial_decimal: '4660', key_unreadable: false,
     sha256: expect.stringMatching(new RegExp(`^${m.leaves['leaf-rsa'].sha256}$`, 'i')),
   });
-  expect(r.body.subject).toContain('netmonitor-bedrock.mnidom.net');
-  expect(r.body.issuer).toContain('QA Mnidom-PKI-SERV-CA');
-  expect(r.body.chain).toEqual([expect.objectContaining({ subject: expect.stringContaining('QA Mnidom-PKI-SERV-CA') })]);
+  expect(r.body.subject).toContain('netmonitor-bedrock.example.net');
+  expect(r.body.issuer).toContain('QA Example-PKI-SERV-CA');
+  expect(r.body.chain).toEqual([expect.objectContaining({ subject: expect.stringContaining('QA Example-PKI-SERV-CA') })]);
   expect(r.text).not.toMatch(/PRIVATE KEY|BEGIN/);
   const s = await assistantSettings(api);
   expect(s.certificate.serial_decimal).toBe('4660');
@@ -162,10 +162,10 @@ test('certificate upload: invalid ones refused (422), .pfx accepted, metadata on
 });
 
 test('CSR flow (owner decision): key generated on the server, CSR downloaded, issued certificate uploaded alone', async () => {
-  const r = await raw(api, 'POST', '/api/assistant/cert/csr', { common_name: 'netmonitor-bedrock.mnidom.net', key_type: 'rsa', key_size: 2048, organization: null, organizational_unit: null });
+  const r = await raw(api, 'POST', '/api/assistant/cert/csr', { common_name: 'netmonitor-bedrock.example.net', key_type: 'rsa', key_size: 2048, organization: null, organizational_unit: null });
   expect(r.status, r.text).toBe(200);
   expect(r.body.pem).toContain('BEGIN CERTIFICATE REQUEST');
-  expect(r.body.subject).toContain('netmonitor-bedrock.mnidom.net');
+  expect(r.body.subject).toContain('netmonitor-bedrock.example.net');
   expect(r.text).not.toMatch(/PRIVATE KEY/);
   const dl = await api.ctx.fetch('/api/assistant/cert/csr');
   expect(dl.status()).toBe(200);
@@ -176,7 +176,7 @@ test('CSR flow (owner decision): key generated on the server, CSR downloaded, is
   const signed = py([join(SIM_DIR, 'bedrock', 'pki.py'), 'sign-csr', BEDROCK_PKI, join(dir, 'req.csr'), join(dir, 'issued.pem')]);
   expect(signed.status, signed.stderr).toBe(0);
   const s0 = await assistantSettings(api);
-  expect(s0.csr).toMatchObject({ subject: expect.stringContaining('netmonitor-bedrock.mnidom.net') });
+  expect(s0.csr).toMatchObject({ subject: expect.stringContaining('netmonitor-bedrock.example.net') });
   expect(JSON.stringify(s0.csr)).not.toMatch(/PRIVATE KEY/);
   // a certificate for another key -> key_mismatch (the pending key stays)
   const wrong = await api.ctx.fetch('/api/assistant/cert', { method: 'POST', multipart: { file: { name: 'x.pem', mimeType: 'application/x-pem-file', buffer: readFileSync(pkiFile('leaf-ec.pem')) } } });
@@ -204,7 +204,7 @@ test('UI: Roles Anywhere Test passes -> switch unlocks -> ON; nav appears; editi
   await api.put('/api/assistant/settings', raSettings());
   await mock.clearRequests();
   await loginViaApi(page, undefined, '/settings?tab=assistant');
-  await expect(page.getByTestId('cert-info')).toContainText('netmonitor-bedrock.mnidom.net');
+  await expect(page.getByTestId('cert-info')).toContainText('netmonitor-bedrock.example.net');
   const sw = page.getByTestId('assistant-switch').getByRole('switch');
   await expect(sw).toBeDisabled();
   await page.getByTestId('test-connection').click();
@@ -344,7 +344,7 @@ test('viewer: no entry point, every /api/assistant/* and AI endpoint 403; API to
   }
   await page.request.post('/api/auth/login', { data: VIEWER });
   await page.goto('/');
-  await expect(page.getByRole('navigation').first()).toBeVisible();
+  await expect(page.getByTestId('menu-button')).toBeVisible();
   await expect(page.locator('a[href="/assistant"]')).toHaveCount(0);
   await page.goto('/assistant');
   await expect(page.getByTestId('question')).toHaveCount(0);

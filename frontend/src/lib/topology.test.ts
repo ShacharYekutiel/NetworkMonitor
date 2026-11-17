@@ -7,6 +7,7 @@ import type {
   TopologyNode,
 } from '../api/types';
 import { STATUS_HEX } from './status';
+import { DARK_TOKENS, LIGHT_TOKENS } from './chartTokens';
 import {
   buildGraph,
   defaultSelection,
@@ -135,8 +136,11 @@ describe('topology graph builder', () => {
     expect(core.symbol.startsWith('image://data:image/svg+xml')).toBe(true);
     expect(svg(core.symbol)).toContain(STATUS_HEX.down);
     expect(svg(child.symbol)).toContain(STATUS_HEX.unreachable);
-    expect(svg(child.symbol)).toContain('#0ea5e9');
-    expect(svg(core.symbol)).not.toContain('#0ea5e9');
+    // (the accent is the ink colour now, so the badge is found by its circle at the corner)
+    expect(svg(child.symbol)).toContain(
+      `<circle cx="13" cy="13" r="8" fill="${LIGHT_TOKENS.accent}"`,
+    );
+    expect(svg(core.symbol)).not.toContain('<circle cx="13" cy="13"');
     expect(svg(ghost.symbol)).toContain('stroke-dasharray');
     expect(b.needsLayout).toBe(true);
     // degree drives nothing but is exposed as value
@@ -156,7 +160,7 @@ describe('topology graph builder', () => {
     expect(l12.state).toBeNull();
     expect(l12.lineStyle).toEqual({
       color: NEUTRAL_EDGE.light,
-      width: 2.5,
+      width: 1.5,
       type: 'dashed',
       opacity: 0.4,
     });
@@ -201,7 +205,8 @@ describe('topology graph builder', () => {
       'paused',
     );
     expect(linkState(graph.links[2])).toBeNull();
-    expect(linkColor(graph.links[0], true)).toBe(STATUS_HEX.up);
+    expect(linkColor(graph.links[0], false)).toBe(STATUS_HEX.up);
+    expect(linkColor(graph.links[0], true)).toBe(DARK_TOKENS.status.up);
   });
 });
 

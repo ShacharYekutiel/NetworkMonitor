@@ -67,37 +67,37 @@ test('start: 302 to authorize with PKCE S256 + state + nonce; cookie netmon_oidc
 });
 
 test('Sign in with Microsoft -> admin via app role NetMon.Admin, lands on next', async ({ page }) => {
-  await signIn(page, 'dana.admin@mnidom.net', '/settings');
+  await signIn(page, 'dana.admin@example.net', '/settings');
   await expect(page).toHaveURL(/\/settings/, { timeout: 20_000 });
   const me = (await (await page.request.get('/api/auth/me')).json()).user;
-  expect(me).toMatchObject({ username: 'dana.admin@mnidom.net', role: 'admin', source: 'oidc' });
+  expect(me).toMatchObject({ username: 'dana.admin@example.net', role: 'admin', source: 'oidc' });
   await shot3(page, '57-oidc-admin');
   // the token request used the client secret and the PKCE verifier (redacted by the mock)
   const tok = (await oidcRequests()).filter((r) => r.path.endsWith('/token')).pop();
   expect(tok.form).toMatchObject({ grant_type: 'authorization_code', code_verifier: '***' });
   // OIDC users are LDAP-managed-like: password change refused
   const users = (await api.get('/api/users?page_size=200')).items;
-  const u = users.find((x: any) => x.username === 'dana.admin@mnidom.net');
+  const u = users.find((x: any) => x.username === 'dana.admin@example.net');
   expect(u.source).toBe('oidc');
 });
 
 test('viewer role, no role -> not_in_group message, group overage -> hint', async ({ page }) => {
-  await signIn(page, 'vic.viewer@mnidom.net');
-  await expect(page.getByRole('navigation').first()).toBeVisible({ timeout: 20_000 });
+  await signIn(page, 'vic.viewer@example.net');
+  await expect(page.getByTestId('menu-button')).toBeVisible({ timeout: 20_000 });
   expect((await (await page.request.get('/api/auth/me')).json()).user.role).toBe('viewer');
   await page.request.post('/api/auth/logout');
   await page.context().clearCookies();
-  await signIn(page, 'nora.norole@mnidom.net');
+  await signIn(page, 'nora.norole@example.net');
   await expect(page).toHaveURL(/\/login\?.*sso_error=not_in_group/, { timeout: 20_000 });
   await expect(page.getByTestId('sso-error')).toBeVisible();
   await shot3(page, '57-oidc-not-in-group');
   expect((await page.request.get('/api/auth/me')).status()).toBe(401);
   // group source + overage
   await api.put('/api/sso/oidc', { role_source: 'groups', admin_values: [(await oidcState()).group_admin], viewer_values: [] });
-  await signIn(page, 'olga.overage@mnidom.net');
+  await signIn(page, 'olga.overage@example.net');
   await expect(page).toHaveURL(/sso_error=oidc_group_overage/, { timeout: 20_000 });
-  await signIn(page, 'grace.groups@mnidom.net');
-  await expect(page.getByRole('navigation').first()).toBeVisible({ timeout: 20_000 });
+  await signIn(page, 'grace.groups@example.net');
+  await expect(page.getByTestId('menu-button')).toBeVisible({ timeout: 20_000 });
   expect((await (await page.request.get('/api/auth/me')).json()).user.role).toBe('admin');
   await page.request.post('/api/auth/logout');
   await api.put('/api/sso/oidc', { role_source: 'app_roles', admin_values: ['NetMon.Admin'], viewer_values: ['NetMon.Viewer'] });
@@ -108,24 +108,24 @@ test('id_token validation: wrong aud/iss/tid, expired, bad nonce, unknown kid, b
   for (const mode of ['wrong_aud', 'wrong_iss', 'wrong_tid', 'expired', 'bad_nonce', 'unknown_kid', 'bad_signature', 'token_error']) {
     await page.context().clearCookies();
     await oidcMode(mode, true);
-    await signIn(page, 'dana.admin@mnidom.net');
+    await signIn(page, 'dana.admin@example.net');
     await expect(page, `mode ${mode}`).toHaveURL(/sso_error=(sso_failed|oidc_error)/, { timeout: 20_000 });
     expect((await page.request.get('/api/auth/me')).status(), `mode ${mode}: no session`).toBe(401);
   }
   for (const mode of ['expired_leeway']) {
     await page.context().clearCookies();
     await oidcMode(mode, true);
-    await signIn(page, 'dana.admin@mnidom.net');
+    await signIn(page, 'dana.admin@example.net');
     // rotate: the JWKS refetch on an unknown kid is limited to once per 5 min (§13.5.2), and unknown_kid above
     // already used it -> a rotation within 5 min fails by design; checked softly
-    await expect(page.getByRole('navigation').first(), `mode ${mode} accepted`).toBeVisible({ timeout: 20_000 });
+    await expect(page.getByTestId('menu-button'), `mode ${mode} accepted`).toBeVisible({ timeout: 20_000 });
     await page.request.post('/api/auth/logout');
   }
   await oidcMode('ok');
   // Entra error parameters are mapped, never echoed raw
   await page.context().clearCookies();
   await oidcMode('error', true);
-  await signIn(page, 'dana.admin@mnidom.net');
+  await signIn(page, 'dana.admin@example.net');
   await expect(page).toHaveURL(/sso_error=/, { timeout: 20_000 });
   expect(page.url()).not.toContain('script');
   await expect(page.locator('body')).not.toContainText('<script>');
@@ -140,9 +140,9 @@ test('open redirect: next=//evil, /\\evil, https://evil are refused (start 4xx o
     const r = await api.ctx.fetch(`/api/auth/oidc/start?next=${encodeURIComponent(next)}`, { maxRedirects: 0 });
     if (r.status() === 302) {
       await page.context().clearCookies();
-      await oidcDefaultUser('dana.admin@mnidom.net');
+      await oidcDefaultUser('dana.admin@example.net');
       await page.goto(`/api/auth/oidc/start?next=${encodeURIComponent(next)}`);
-      await expect(page.getByRole('navigation').first()).toBeVisible({ timeout: 20_000 });
+      await expect(page.getByTestId('menu-button')).toBeVisible({ timeout: 20_000 });
       const u = new URL(page.url());
       expect(u.origin, `next=${next}`).toBe(new URL(page.url()).origin);
       expect(u.hostname).not.toContain('evil');
@@ -154,8 +154,8 @@ test('open redirect: next=//evil, /\\evil, https://evil are refused (start 4xx o
 });
 
 test('local login still works with SSO on; OIDC users refused while the feature is OFF', async ({ page }) => {
-  await signIn(page, 'vic.viewer@mnidom.net');
-  await expect(page.getByRole('navigation').first()).toBeVisible({ timeout: 20_000 });
+  await signIn(page, 'vic.viewer@example.net');
+  await expect(page.getByTestId('menu-button')).toBeVisible({ timeout: 20_000 });
   await setFeatures(api, { sso_oidc: false });
   await expect.poll(async () => (await page.request.get('/api/auth/me')).status(), { timeout: 15_000 }).toBe(401);
   const local = await (await apiAs()).get('/api/auth/me');
@@ -168,7 +168,7 @@ test('key rotation: a token signed with a newly published key is accepted (JWKS 
   // whether a rotation right after it must succeed is a contract ambiguity (reported); runs last in this file
   await page.context().clearCookies();
   await oidcMode('rotate', true);
-  await signIn(page, 'dana.admin@mnidom.net');
-  await expect(page.getByRole('navigation').first(), 'key rotation accepted').toBeVisible({ timeout: 20_000 });
+  await signIn(page, 'dana.admin@example.net');
+  await expect(page.getByTestId('menu-button'), 'key rotation accepted').toBeVisible({ timeout: 20_000 });
   await oidcMode('ok');
 });

@@ -178,5 +178,5 @@ test('SNMP values appear (system, CPU, memory, interface traffic)', async ({ pag
   await expect(page.getByRole('heading', { level: 1, name: /eth0/ })).toBeVisible();
   await expect(page.getByRole('button', { name: /Traffic in/ })).toContainText('Mbit/s');
   await expect(page.getByRole('button', { name: /Operational status/ })).toContainText('1');
-  await expect(page.getByText('if_index').or(page.getByText('Interface index:'))).toBeVisible();
+  await expect(page.getByText('if_index').or(page.getByText(/^Interface index:?$/))).toBeVisible();
 });

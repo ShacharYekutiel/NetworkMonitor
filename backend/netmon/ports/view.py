@@ -1,5 +1,5 @@
 """[2b-2] Ports read side (pure): neighbours of a port, uplink detection, tile state, alert
-reasons, connected kind, MAC -> IP, first MAC (docs/data-model.md "Uplinks, neighbours and tile
+reasons, MAC -> IP, first MAC (docs/data-model.md "Uplinks, neighbours and tile
 fields")."""
 
 from __future__ import annotations
@@ -124,17 +124,6 @@ def alert_reasons(
     if poe_detection in ("fault", "other_fault"):
         out.append("poe_fault")
     return out
-
-
-def connected_kind(state: str, primary: dict[str, Any] | None) -> str:
-    if state != "up":
-        return "none"
-    if primary is not None and primary["kind"] == "device":
-        if primary["device_class"] in ("switch", "router"):
-            return "switch"
-        if primary["device_class"] == "access_point":
-            return "ap"
-    return "client"
 
 
 def ip_key(ip: str) -> tuple[int, int]:

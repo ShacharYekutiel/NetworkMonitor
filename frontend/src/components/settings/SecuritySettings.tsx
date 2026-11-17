@@ -6,7 +6,8 @@ import type { Settings } from '../../api/types';
 import { cardAnchor } from '../../lib/settingsIndex';
 import { parseFrameAncestors, securitySettingsErrors } from '../../lib/security';
 import { useSaveSettings } from '../features/common';
-import { Button, Card, Checkbox, ErrorBox, Field, Input, Textarea } from '../ui';
+import { ShieldCheckIcon } from '../icons';
+import { Button, Card, ErrorBox, Field, Input, Switch, Textarea } from '../ui';
 
 export function SecurityCard({ settings }: { settings: Settings }) {
   const { t } = useTranslation();
@@ -33,11 +34,19 @@ export function SecurityCard({ settings }: { settings: Settings }) {
     });
   };
   const hint = (bad: boolean, ok: string, errKey: string) =>
-    bad ? <span className="text-red-600">{t(errKey)}</span> : ok;
+    bad ? <span className="text-status-down">{t(errKey)}</span> : ok;
   return (
-    <Card title={t('settings.security.title')} anchor={cardAnchor('security')}>
+    <Card
+      title={
+        <span className="flex items-center gap-2.5">
+          <ShieldCheckIcon size={18} className="text-ink-muted" />
+          {t('settings.security.title')}
+        </span>
+      }
+      anchor={cardAnchor('security')}
+    >
       <form onSubmit={submit} className="space-y-4" data-testid="security-settings">
-        <p className="text-xs text-slate-500">{t('settings.security.intro')}</p>
+        <p className="m-0 text-sm text-ink-muted">{t('settings.security.intro')}</p>
         <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
           <Field
             label={t('settings.security.sessionMaxAge')}
@@ -78,13 +87,19 @@ export function SecurityCard({ settings }: { settings: Settings }) {
             />
           </Field>
         </div>
-        <div data-anchor="security-allow-loopback">
-          <Checkbox
-            label={t('settings.security.allowLoopback')}
+        {/* prototype .swrow: the text and its hint, the switch at the end */}
+        <div className="flex items-start gap-3.5 rounded-lg" data-anchor="security-allow-loopback">
+          <span className="grid flex-1 gap-0.5">
+            <b className="font-medium">{t('settings.security.allowLoopback')}</b>
+            <span className="text-[13.5px] text-ink-muted">
+              {t('settings.security.allowLoopbackHint')}
+            </span>
+          </span>
+          <Switch
             checked={form.loopback}
             onChange={(v) => setForm((x) => ({ ...x, loopback: v }))}
+            label={t('settings.security.allowLoopback')}
           />
-          <p className="mt-1 text-xs text-slate-500">{t('settings.security.allowLoopbackHint')}</p>
         </div>
         <Field
           label={t('settings.security.frameAncestors')}
@@ -105,7 +120,7 @@ export function SecurityCard({ settings }: { settings: Settings }) {
           />
         </Field>
         <ErrorBox error={save.error} />
-        <div className="flex justify-end">
+        <div className="flex justify-start">
           <Button type="submit" variant="primary" busy={save.isPending} disabled={invalid}>
             {t('common.save')}
           </Button>

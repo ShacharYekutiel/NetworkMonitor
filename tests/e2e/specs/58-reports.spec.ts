@@ -64,7 +64,7 @@ test('weekly definition: validation, next_run_at, scope', async () => {
   const r = await api.post('/api/reports', {
     name: 'QA weekly 3', enabled: true, language: 'en', scope_group_ids: [prob.device.group_id], scope_device_ids: [],
     sections: ['availability', 'top_alerts', 'config_changes', 'new_devices', 'top_talkers', 'flapping_ports', 'port_errors'],
-    schedule: 'weekly', weekday: 1, month_day: null, send_time: '07:47', email_to: ['ops@mnidom.test'], channel_ids: [],
+    schedule: 'weekly', weekday: 1, month_day: null, send_time: '07:47', email_to: ['ops@example.test'], channel_ids: [],
   });
   reportId = r.id;
   expect(r.next_run_at).not.toBeNull();
@@ -84,7 +84,7 @@ test('Run now (send): availability equals the formula on the sensor events; emai
   let full: any = null;
   await expect.poll(async () => { full = await api.get(`/api/reports/runs/${runId}`); return full.status; }, { timeout: 60_000 }).toMatch(/^(ok|partial)$/);
   expect(full.status).toBe('ok');
-  expect(full.deliveries).toEqual([expect.objectContaining({ target: 'email:ops@mnidom.test', ok: true })]);
+  expect(full.deliveries).toEqual([expect.objectContaining({ target: 'email:ops@example.test', ok: true })]);
   const ev = await api.get(`/api/events?sensor_id=${prob.sensor.id}&page_size=200`);
   const want = availability(ev.items ?? ev, Date.parse(periodStart), Date.parse(periodEnd));
   const row = full.data.availability.devices.find((d: any) => d.device_id === prob.device.id);
@@ -107,7 +107,7 @@ test('Run now (send): availability equals the formula on the sensor events; emai
   // email
   await expect.poll(async () => (await smtpMessages()).length, { timeout: 30_000 }).toBe(1);
   const m = (await smtpMessages())[0];
-  expect(m.rcpt_tos).toEqual(['ops@mnidom.test']);
+  expect(m.rcpt_tos).toEqual(['ops@example.test']);
   expect(m.subject).toMatch(/^\[NetworkMonitor\] .*report: QA weekly 3 \(\d\d\.\d\d.\d\d\.\d\d\.\d{4}\)/);
   expect(m.html).toContain('<table');
   expect(m.html).toContain('qa3-report-web');
@@ -131,12 +131,12 @@ test('Run now (send): availability equals the formula on the sensor events; emai
 
 test('report page: print stylesheet (A4 media emulation), Print / Save as PDF button, no navigation in print', async ({ page }) => {
   await loginViaApi(page, undefined, `/reports/runs/${runId}`);
-  await expect(page.getByText('qa3-report-web').first()).toBeVisible({ timeout: 20_000 });
+  await expect(page.getByRole('main').getByText('qa3-report-web').first()).toBeVisible({ timeout: 20_000 });
   await expect(page.getByRole('button', { name: tx('reports.print', /print/i) })).toBeVisible();
   await shot3(page, '58-report-page');
   await page.emulateMedia({ media: 'print' });
   await expect(page.getByRole('main').getByText('qa3-report-web').first()).toBeVisible();
-  await expect(page.getByRole('navigation').first()).toBeHidden();
+  await expect(page.getByTestId('menu-button')).toBeHidden();
   await page.pdf?.({ path: `${process.env.QA3_SHOT_DIR ?? '/tmp'}/58-report.pdf`, format: 'A4' }).catch(() => undefined);
   await page.emulateMedia({ media: 'screen' });
 });

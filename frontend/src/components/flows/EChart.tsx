@@ -8,7 +8,9 @@ import {
   TooltipComponent,
 } from 'echarts/components';
 import { CanvasRenderer } from 'echarts/renderers';
+import { flatTooltip, initChart } from '../../lib/echarts';
 import type { EChartsCoreOption } from 'echarts/core';
+import { chartTokens } from '../../lib/chartTokens';
 import { useTheme } from '../../hooks/theme';
 
 echarts.use([
@@ -36,7 +38,7 @@ export function EChart({
   const { dark } = useTheme();
   useEffect(() => {
     if (!ref.current) return;
-    const c = echarts.init(ref.current, undefined, { renderer: 'canvas' });
+    const c = initChart(ref.current);
     chart.current = c;
     const ro = new ResizeObserver(() => c.resize());
     ro.observe(ref.current);
@@ -47,11 +49,38 @@ export function EChart({
     };
   }, []);
   useEffect(() => {
-    const text = dark ? '#cbd5e1' : '#334155';
-    chart.current?.setOption(
-      { textStyle: { color: text }, backgroundColor: 'transparent', ...option },
+    const c = chart.current;
+    if (!c) return;
+    // Design tokens for this theme (re-read when `dark` changes).
+    const tk = chartTokens(dark);
+    c.setOption(
+      {
+        color: [tk.chart1, tk.chart2, tk.chart3, tk.chart4],
+        textStyle: { color: tk.inkMuted, fontFamily: tk.fontSans },
+        backgroundColor: 'transparent',
+        ...option,
+      },
       true,
     );
+    // Axis and tooltip styling merged on top (single-axis charts).
+    const axis = {
+      axisLine: { lineStyle: { color: tk.border } },
+      axisLabel: { color: tk.inkSubtle },
+      splitLine: { lineStyle: { color: tk.chartGrid } },
+    };
+    const o = option as { xAxis?: unknown; yAxis?: unknown; tooltip?: unknown };
+    c.setOption({
+      ...(o.xAxis && !Array.isArray(o.xAxis) ? { xAxis: axis } : {}),
+      ...(o.yAxis && !Array.isArray(o.yAxis) ? { yAxis: axis } : {}),
+      ...(o.tooltip
+        ? {
+            tooltip: {
+              ...flatTooltip(tk),
+              textStyle: { color: tk.ink, fontSize: 12 },
+            },
+          }
+        : {}),
+    });
   }, [option, dark]);
   return <div ref={ref} dir="ltr" className={className} data-testid={testId} />;
 }

@@ -11,6 +11,7 @@ from sqlalchemy import select, text
 
 from netmon.models import Sensor
 from netmon.poller.sensor_types import SENSOR_TYPES
+from netmon.ports import kind as kind_rules
 from netmon.ports import oui, view
 from netmon.ports.collect import locally_administered
 from netmon.ports.eligibility import DeviceFlags, load_flags
@@ -35,6 +36,8 @@ class Context:
     trunk_min: int = 2  # [1.3] trunk_min_tagged_vlans
     links: dict[int, list[dict[str, Any]]] = field(default_factory=dict)  # by device id
     neighbors: dict[int, dict[str, Any]] = field(default_factory=dict)
+    # [premium] (device_id, if_index) -> the connected kind a user chose
+    kind_overrides: dict[tuple[int, int], str] = field(default_factory=dict)
     _device_info: dict[int, dict[str, Any]] | None = None
 
     def device_info(self) -> dict[int, dict[str, Any]]:
@@ -106,6 +109,14 @@ async def load_context(session: Any, inv: Inventory, device_ids: list[int]) -> C
         int(values.get("trunk_min_tagged_vlans") or 2),
     )
     if device_ids:
+        for r in await session.execute(  # [premium]
+            text(
+                "SELECT device_id, if_index, kind FROM port_kind_overrides "
+                "WHERE device_id = ANY(:ids)"
+            ),
+            {"ids": device_ids},
+        ):
+            ctx.kind_overrides[(r.device_id, r.if_index)] = r.kind
         rows = (
             await session.execute(
                 text(
@@ -130,8 +141,8 @@ async def load_context(session: Any, inv: Inventory, device_ids: list[int]) -> C
             for r in (
                 await session.execute(
                     text(
-                        "SELECT id, chassis_id, sys_name, mgmt_address FROM topology_neighbors "
-                        "WHERE id = ANY(:ids)"
+                        "SELECT id, chassis_id, sys_name, mgmt_address, sys_descr, "
+                        "capabilities FROM topology_neighbors WHERE id = ANY(:ids)"
                     ),
                     {"ids": sorted(nb_ids)},
                 )
@@ -287,6 +298,9 @@ def port_out(
         picked = view.first_mac([{**m, "last_seen": m["_last_seen"], "_m": m} for m in macs_sorted])
         first = picked["_m"] if picked else None
     has_poe = any(row[k] is not None for k in ("poe_admin_enabled", "poe_detection", "poe_class"))
+    kind, kind_source = connected_kind(
+        device_id, row, ctx, state, primary, mac_count, macs_sorted, lag, vlan_vals["mode"]
+    )
     reasons_imp = list(important_reasons or [])
     return {
         "if_index": row["if_index"],
@@ -322,7 +336,9 @@ def port_out(
         "out_errors_delta": row["out_errors_delta"],
         "is_uplink": is_up,
         "uplink_reason": reason,
-        "connected_kind": view.connected_kind(state, primary),
+        "connected_kind": kind,  # [premium] (replaces the 2b-2 none/client/ap/switch)
+        "connected_kind_source": kind_source,
+        "connected_kind_override": ctx.kind_overrides.get((device_id, idx)),
         "trunk": vlan_vals["mode"] == "trunk",
         "neighbor": primary,
         "mac_count": mac_count,
@@ -344,6 +360,39 @@ def port_out(
         "_neighbors": nbs,
         "_macs_all": macs_sorted,
     }
+
+
+def connected_kind(
+    device_id: int,
+    row: dict[str, Any],
+    ctx: Context,
+    state: str,
+    primary: dict[str, Any] | None,
+    mac_count: int,
+    macs: list[dict[str, Any]],
+    lag: LagCtx | None,
+    mode: str | None,
+) -> tuple[str | None, str | None]:
+    """[premium] Port.connected_kind / connected_kind_source (netmon.ports.kind)."""
+    idx = int(row["if_index"])
+    lag_or_trunk = (
+        row.get("kind") == "lag"
+        or mode == "trunk"
+        or (lag is not None and (idx in lag.lag_of or idx in lag.members))
+        or row.get("lag_if_index") is not None
+    )
+    nb_info = None
+    if primary is not None and primary.get("neighbor_id") is not None:
+        nb_info = ctx.neighbors.get(int(primary["neighbor_id"]))
+    return kind_rules.derive(
+        state=state,
+        override=ctx.kind_overrides.get((device_id, idx)),
+        primary=primary,
+        nb_info=nb_info,
+        lag_or_trunk=lag_or_trunk,
+        mac_count=mac_count,
+        macs=macs,
+    )
 
 
 def connected_out(

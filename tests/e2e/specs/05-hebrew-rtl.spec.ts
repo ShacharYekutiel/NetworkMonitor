@@ -1,5 +1,5 @@
 import { expect, test } from '@playwright/test';
-import { ADMIN, apiAs, loginViaApi, shot } from '../lib/helpers';
+import { ADMIN, apiAs, loginViaApi, shot, menuNav, showTree } from '../lib/helpers';
 
 // Scenario (e): language switch to Hebrew -> dir=rtl, texts in Hebrew; persists after reload and in
 // a fresh browser (user.language on the server).
@@ -26,7 +26,7 @@ test('switch to Hebrew in the top bar', async ({ page }) => {
   await expect(page.locator('html')).toHaveAttribute('dir', 'rtl');
   await expect(page.locator('html')).toHaveAttribute('lang', 'he');
   await expect(page.getByRole('heading', { level: 1, name: 'לוח בקרה' })).toBeVisible();
-  const nav = page.getByRole('complementary');
+  const nav = await menuNav(page);
   await expect(nav.getByRole('link', { name: 'אירועים' })).toBeVisible();
   await expect(nav.getByRole('link', { name: 'התראות' })).toBeVisible();
   await expect(page.getByRole('heading', { level: 2, name: 'אירועים אחרונים' })).toBeVisible();
@@ -36,10 +36,11 @@ test('switch to Hebrew in the top bar', async ({ page }) => {
   await expect(page.getByText('Recent events')).toHaveCount(0);
   await expect(page.getByText('Add device')).toHaveCount(0);
 
-  // The sidebar is on the right in RTL.
+  // The menu sheet opens on the side of the ☰ button (the end side): the left in RTL.
   const aside = await page.getByRole('complementary').boundingBox();
   const main = await page.locator('main').boundingBox();
-  expect(aside!.x).toBeGreaterThan(main!.x);
+  expect(aside!.x).toBeLessThanOrEqual(main!.x);
+  expect(aside!.x + aside!.width).toBeLessThan(main!.x + main!.width / 2);
 
   const me = await (await page.request.get('/api/auth/me')).json();
   expect(me.user.language).toBe('he');
@@ -65,6 +66,7 @@ test('Hebrew persists after reload and in a new browser session', async ({ page,
 
 test('Hebrew sensor/device pages keep numbers and hosts LTR', async ({ page }) => {
   await loginViaApi(page);
+  await showTree(page);
   await page.locator('aside a[href^="/groups/"]').first().waitFor();
   const firstDevice = page.locator('aside a[href^="/devices/"]').first();
   test.skip((await firstDevice.count()) === 0, 'no device yet (run the full suite)');

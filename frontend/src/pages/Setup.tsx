@@ -1,6 +1,6 @@
 import { useState, type FormEvent } from 'react';
 import { useTranslation } from 'react-i18next';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate } from 'react-router';
 import { endpoints } from '../api/endpoints';
 import { browserTimeZone } from '../lib/maintenance';
 import { isApiError } from '../api/client';
@@ -32,7 +32,7 @@ import type { Language } from '../api/types';
 import { useAuth } from '../hooks/auth';
 import { setLanguage } from '../i18n';
 import { Button, ErrorBox, Field, Input, Select, cx } from '../components/ui';
-import { AuthShell } from './AuthShell';
+import { AUTH_WIDE, AuthShell } from './AuthShell';
 
 const USERNAME_RE = /^[A-Za-z0-9._-]{3,64}$/;
 
@@ -81,22 +81,36 @@ export function SetupPage() {
   const steps = [t('setup.stepLanguage'), t('setup.stepAdmin')];
 
   return (
-    <AuthShell title={t('setup.title')} subtitle={t('setup.subtitle')}>
-      <ol className="mb-5 flex gap-2 text-xs">
-        {steps.map((s, i) => (
-          <li
-            key={s}
-            className={cx(
-              'flex-1 rounded border-t-4 pt-1',
-              i <= step
-                ? 'border-sky-600 text-sky-700 dark:text-sky-400'
-                : 'border-slate-200 text-slate-500 dark:border-slate-700',
-            )}
-          >
-            {i + 1}. {s}
-          </li>
-        ))}
-      </ol>
+    <AuthShell
+      title={step === 0 ? t('setup.title') : t('setup.titleAdmin')}
+      subtitle={step === 0 ? t('setup.subtitle') : undefined}
+      art={
+        <b className="text-[56px] font-semibold leading-none tracking-[-0.02em]">
+          {t('setup.welcome')}
+          <br />
+          <span dir="ltr" className="num">
+            Network Monitor
+          </span>
+        </b>
+      }
+      above={
+        // prototype: the two steps as chips above the title, the current one in ink
+        <ol className="m-0 mb-2 flex list-none flex-wrap gap-2 p-0" aria-label={t('setup.steps')}>
+          {steps.map((s, i) => (
+            <li
+              key={s}
+              aria-current={i === step ? 'step' : undefined}
+              className={cx(
+                'inline-flex h-8 items-center rounded-full px-3.5 text-[13.5px] font-medium',
+                i === step ? 'bg-accent text-accent-on' : 'bg-chip text-ink-muted',
+              )}
+            >
+              <span className="num">{i + 1}</span>&nbsp;·&nbsp;{s}
+            </li>
+          ))}
+        </ol>
+      }
+    >
       <form onSubmit={submit} className="space-y-4">
         {step === 0 && (
           <>
@@ -113,7 +127,7 @@ export function SetupPage() {
                 <option value="he">עברית</option>
               </Select>
             </Field>
-            <Button type="submit" variant="primary" className="w-full">
+            <Button type="submit" variant="primary" className={AUTH_WIDE}>
               {t('common.next')}
             </Button>
           </>
@@ -129,6 +143,7 @@ export function SetupPage() {
                 value={username}
                 onChange={(e) => setUsername(e.target.value)}
                 dir="ltr"
+                className="h-11"
                 autoFocus
                 required
               />
@@ -139,6 +154,7 @@ export function SetupPage() {
                 value={email}
                 onChange={(e) => setEmail(e.target.value)}
                 dir="ltr"
+                className="h-11"
               />
             </Field>
             <Field label={t('setup.password')} hint={t('validation.passwordLength')} required>
@@ -148,6 +164,7 @@ export function SetupPage() {
                 value={password}
                 onChange={(e) => setPassword(e.target.value)}
                 dir="ltr"
+                className="h-11"
                 required
                 minLength={8}
                 maxLength={128}
@@ -164,16 +181,19 @@ export function SetupPage() {
                 value={confirm}
                 onChange={(e) => setConfirm(e.target.value)}
                 dir="ltr"
+                className="h-11"
                 required
               />
             </Field>
             <ErrorBox error={error} />
-            <div className="flex gap-2">
-              <Button onClick={() => setStep(0)}>{t('common.back')}</Button>
+            <div className="flex gap-2.5">
+              <Button onClick={() => setStep(0)} className="!h-[50px] !rounded-[14px]">
+                {t('common.back')}
+              </Button>
               <Button
                 type="submit"
                 variant="primary"
-                className="flex-1"
+                className={cx(AUTH_WIDE, 'flex-1')}
                 busy={busy}
                 disabled={!usernameOk || !pwOk || !match}
               >

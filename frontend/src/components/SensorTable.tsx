@@ -1,4 +1,5 @@
-import { Link } from 'react-router-dom';
+import { CHECKBOX } from './kit';
+import { Link } from 'react-router';
 import { useTranslation } from 'react-i18next';
 import type { Sensor } from '../api/types';
 import { formatRelative, sensorValueText } from '../lib/format';
@@ -10,8 +11,7 @@ import { MaintenanceBadge } from './Maintenance';
 import { ImpactTag } from './SensorImpact';
 import { Empty, Table, td, th, Value } from './ui';
 
-const boxCls =
-  'h-4 w-4 rounded border-slate-300 text-sky-600 focus:ring-sky-500 dark:border-slate-600 dark:bg-slate-900';
+const boxCls = CHECKBOX;
 
 /** [1.3] Row selection (checkboxes + select all) for bulk actions. */
 export type SensorSelection = {
@@ -84,14 +84,7 @@ export function SensorTable({
         {sensors.map((s) => {
           const pc = primaryChannel(s);
           return (
-            <tr
-              key={s.id}
-              className={
-                sel?.has(s.id)
-                  ? 'bg-sky-50 dark:bg-sky-950/40'
-                  : 'hover:bg-slate-50 dark:hover:bg-slate-800/40'
-              }
-            >
+            <tr key={s.id} className={sel?.has(s.id) ? 'bg-accent-soft' : 'hover:bg-surface-hover'}>
               {selection && (
                 <td className={`${td} w-8`}>
                   <input
@@ -120,14 +113,14 @@ export function SensorTable({
               )}
               <td className={td}>
                 <Link
-                  className="font-medium text-sky-700 hover:underline dark:text-sky-400"
+                  className="font-medium text-accent-ink hover:underline"
                   to={`/sensors/${s.id}`}
                 >
                   {s.name}
                 </Link>
                 <ImpactTag impact={s.impact} />
               </td>
-              <td className={`${td} whitespace-nowrap text-slate-500`}>
+              <td className={`${td} whitespace-nowrap text-ink-muted`}>
                 {t(`sensorType.${s.type}`)}
               </td>
               <td className={`${td} whitespace-nowrap tabular-nums`}>
@@ -135,7 +128,7 @@ export function SensorTable({
               </td>
               <td
                 dir="auto"
-                className={`${td} max-w-xs truncate text-slate-500`}
+                className={`${td} max-w-xs truncate text-ink-muted`}
                 title={localize(s.status_message)}
               >
                 <StatusMessage
@@ -144,7 +137,7 @@ export function SensorTable({
                   deviceId={s.device_id}
                 />
               </td>
-              <td className={`${td} whitespace-nowrap text-slate-500`}>
+              <td className={`${td} whitespace-nowrap text-ink-muted`}>
                 {formatRelative(s.last_check_at)}
               </td>
               {actions && <td className={`${td} whitespace-nowrap text-end`}>{actions(s)}</td>}

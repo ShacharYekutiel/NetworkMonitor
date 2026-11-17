@@ -8,7 +8,7 @@ import { apiAs, loginViaApi, type Api } from '../lib/helpers';
 import { sendSyslog, setFeatures } from '../lib/lab3';
 import {
   PHASE3B, answerProblems, askOk, audit, corpus, ensureAssistant, expectNoQuestionText, expectSafeRendering, lastSeq,
-  mock, modelCalls, shot3b, changes , problem } from '../lib/lab3b';
+  mock, modelCalls, shot3b, changes , problem, waitAnswerDone, waitAssistantIdle } from '../lib/lab3b';
 
 // default mode (not serial): one worker runs the tests in order; a failure restarts the worker (beforeAll is
 // idempotent) instead of skipping the remaining tests, so every contract item gets a verdict
@@ -109,6 +109,10 @@ test('injection: obeying model -> update_device unknown_tool, no write, nothing 
   await page.getByTestId('question').press('Enter');
   const answer = page.getByTestId('answer').last();
   await expect(answer).toContainText('As instructed by the data', { timeout: 90_000 });
+  // the text is visible before the run ends (rest of the stream, audit title, storing): let it finish so the
+  // checks below see the whole call log and the next test is not refused with 409 assistant_busy
+  await waitAnswerDone(page);
+  await waitAssistantIdle(api);
   await shot3b(page, '67-injection');
   await expectSafeRendering(answer);
   await expect(answer.locator('a[href="/devices/999999"]')).toHaveCount(0);
@@ -160,7 +164,11 @@ test('audit: question / tool_call / answer rows exist for every question, withou
   expect(changes(an)).toMatchObject({ status: 'complete', model_calls: 2, tool_calls: 1 });
   // the audit page lists them (and the CSV export has no question text either)
   await loginViaApi(page, undefined, '/audit');
-  await expect(page.getByText('assistant.question').first()).toBeVisible({ timeout: 20_000 });
+  // rows read "AI assistant · question"; the action code is in the detail card of the selected row
+  const qRow = page.getByTestId('audit-row').filter({ hasText: /AI assistant · question/ }).first();
+  await expect(qRow).toBeVisible({ timeout: 20_000 });
+  await qRow.click();
+  await expect(page.locator('section').filter({ has: page.getByTestId('audit-detail') }).getByText('assistant.question', { exact: true })).toBeVisible();
   const csv = await (await api.ctx.fetch(`/api/audit/export.csv?action=assistant.`)).text();
   expect(csv).not.toContain('QA3B-AUDIT-PROBE-4412');
 });

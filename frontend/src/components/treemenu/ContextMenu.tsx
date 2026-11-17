@@ -135,17 +135,12 @@ export function ContextMenu({
         top: pos?.top ?? anchor.y,
         visibility: pos ? 'visible' : 'hidden',
       }}
-      className="z-[70] max-h-[calc(100vh-8px)] min-w-[12rem] max-w-[min(20rem,calc(100vw-8px))] overflow-y-auto rounded-md border border-slate-200 bg-white py-1 text-sm shadow-lg focus:outline-none dark:border-slate-700 dark:bg-slate-900"
+      // premium (prototype .ctx): translucent blurred card, 34px rows, ink highlight
+      className="z-[70] grid max-h-[calc(100vh-8px)] min-w-[240px] max-w-[min(20rem,calc(100vw-8px))] gap-px overflow-y-auto rounded-[14px] bg-[color-mix(in_srgb,var(--surface)_92%,transparent)] p-1.5 text-sm shadow-[0_18px_50px_rgba(0,0,0,0.22),0_0_0_1px_var(--border)] backdrop-blur-[24px] backdrop-saturate-[1.6] focus:outline-none motion-safe:animate-[nm-fade-in_.18s_ease-out]"
     >
       {entries.map((e) => {
         if (e.type === 'separator')
-          return (
-            <div
-              key={e.key}
-              role="separator"
-              className="my-1 border-t border-slate-200 dark:border-slate-700"
-            />
-          );
+          return <div key={e.key} role="separator" className="mx-2 my-1 border-t border-line" />;
         const i = ++index;
         return (
           <button
@@ -162,12 +157,12 @@ export function ContextMenu({
             onMouseMove={() => !e.disabled && i !== active && setActive(i)}
             onClick={() => !e.disabled && onSelect(e.key)}
             className={cx(
-              'flex w-full items-center gap-2 px-3 py-1.5 text-start focus:outline-none',
+              'flex h-[34px] w-full items-center gap-2.5 rounded-[8px] px-2.5 text-start text-sm focus:outline-none',
               e.disabled
-                ? 'cursor-default text-slate-400 dark:text-slate-500'
+                ? 'cursor-default text-ink-subtle'
                 : e.danger
-                  ? 'text-red-700 focus:bg-red-50 dark:text-red-400 dark:focus:bg-red-950/50'
-                  : 'text-slate-700 focus:bg-slate-100 dark:text-slate-200 dark:focus:bg-slate-800',
+                  ? 'text-status-down focus:bg-status-down focus:text-white'
+                  : 'text-ink focus:bg-accent focus:text-accent-on',
             )}
           >
             <span className="flex w-4 shrink-0 justify-center" aria-hidden="true">

@@ -41,9 +41,9 @@ import { cardAnchor } from '../../lib/settingsIndex';
 function Ok({ ok }: { ok: boolean }) {
   const { t } = useTranslation();
   return ok ? (
-    <CheckIcon size={14} className="text-green-600" aria-label={t('ldap.ok')} />
+    <CheckIcon size={14} className="text-status-up" aria-label={t('ldap.ok')} />
   ) : (
-    <XIcon size={14} className="text-red-600" aria-label={t('ldap.failed')} />
+    <XIcon size={14} className="text-status-down" aria-label={t('ldap.failed')} />
   );
 }
 
@@ -70,13 +70,13 @@ export function LdapTestView({ r }: { r: LdapTestResult }) {
             <tr key={s.server}>
               <td className={td}>
                 <bdi dir="ltr">{s.server}</bdi>
-                <span className="ms-1 text-xs text-slate-500">({s.security})</span>
+                <span className="ms-1 text-xs text-ink-muted">({s.security})</span>
               </td>
               <td className={td}>
                 <span className="inline-flex items-center gap-1">
                   <Ok ok={s.ok} />
                   {s.error && (
-                    <bdi dir="ltr" className="text-xs text-red-600">
+                    <bdi dir="ltr" className="text-xs text-status-down">
                       {s.error}
                     </bdi>
                   )}
@@ -85,18 +85,14 @@ export function LdapTestView({ r }: { r: LdapTestResult }) {
               <td className={`${td} tabular-nums`}>
                 {s.latency_ms === null ? '—' : `${s.latency_ms} ms`}
               </td>
-              <td className={`${td} text-xs`}>
+              <td className={`${td} text-[13px]`}>
                 {s.tls ? (
                   <div dir="ltr" className="text-left">
                     <div>{s.tls.subject}</div>
-                    <div className="text-slate-500">
+                    <div className="text-ink-muted">
                       {s.tls.issuer} · {formatDateTime(s.tls.not_after)}
                     </div>
-                    <div
-                      className={
-                        s.tls.verified ? 'text-green-700 dark:text-green-400' : 'text-red-600'
-                      }
-                    >
+                    <div className={s.tls.verified ? 'text-status-up' : 'text-status-down'}>
                       {s.tls.verified ? t('ldap.verified') : t('ldap.notVerified')}
                     </div>
                   </div>
@@ -113,7 +109,7 @@ export function LdapTestView({ r }: { r: LdapTestResult }) {
         <li className="flex items-center gap-2">
           <Ok ok={r.service_bind.ok} /> {t('ldap.serviceBind')}
           {r.service_bind.error && (
-            <bdi dir="ltr" className="text-xs text-red-600">
+            <bdi dir="ltr" className="text-xs text-status-down">
               {r.service_bind.error}
             </bdi>
           )}
@@ -121,7 +117,7 @@ export function LdapTestView({ r }: { r: LdapTestResult }) {
         <li className="flex items-center gap-2">
           <Ok ok={r.base_dn.ok} /> {t('ldap.baseDn')}
           {r.base_dn.error && (
-            <bdi dir="ltr" className="text-xs text-red-600">
+            <bdi dir="ltr" className="text-xs text-status-down">
               {r.base_dn.error}
             </bdi>
           )}
@@ -164,12 +160,12 @@ export function LdapUserTestView({ r }: { r: LdapUserTestResult }) {
             <Ok ok={s.ok} />
             <span className="font-medium">{t(`ldap.step.${s.step}`)}</span>
             {s.server && (
-              <bdi dir="ltr" className="text-xs text-slate-500">
+              <bdi dir="ltr" className="text-xs text-ink-muted">
                 {s.server}
               </bdi>
             )}
             {s.detail && (
-              <bdi dir="auto" className="text-xs text-slate-600 dark:text-slate-300">
+              <bdi dir="auto" className="text-xs text-ink-muted">
                 {s.detail}
               </bdi>
             )}
@@ -178,29 +174,29 @@ export function LdapUserTestView({ r }: { r: LdapUserTestResult }) {
       </ol>
       {r.user && (
         <dl className="grid grid-cols-[auto_1fr] gap-x-4 gap-y-1 text-sm">
-          <dt className="text-slate-500">{t('ldap.user.dn')}</dt>
+          <dt className="text-ink-muted">{t('ldap.user.dn')}</dt>
           <dd>
             <bdi dir="ltr" className="break-all text-xs">
               {r.user.dn}
             </bdi>
           </dd>
-          <dt className="text-slate-500">sAMAccountName</dt>
+          <dt className="text-ink-muted">sAMAccountName</dt>
           <dd>
             <bdi dir="ltr">{r.user.sam_account_name}</bdi>
           </dd>
-          <dt className="text-slate-500">UPN</dt>
+          <dt className="text-ink-muted">UPN</dt>
           <dd>
             <bdi dir="ltr">{r.user.user_principal_name ?? '—'}</bdi>
           </dd>
-          <dt className="text-slate-500">{t('ldap.user.displayName')}</dt>
+          <dt className="text-ink-muted">{t('ldap.user.displayName')}</dt>
           <dd>
             <bdi dir="auto">{r.user.display_name ?? '—'}</bdi>
           </dd>
-          <dt className="text-slate-500">{t('users.email')}</dt>
+          <dt className="text-ink-muted">{t('users.email')}</dt>
           <dd>
             <bdi dir="ltr">{r.user.mail ?? '—'}</bdi>
           </dd>
-          <dt className="text-slate-500">{t('ldap.user.state')}</dt>
+          <dt className="text-ink-muted">{t('ldap.user.state')}</dt>
           <dd>
             {r.user.disabled
               ? t('ldap.user.disabled')
@@ -265,7 +261,7 @@ export function LdapCard({ settings }: { settings: Settings }) {
     }
   };
   const hint = (k: keyof LdapForm, ok?: string) =>
-    errs[k] ? <span className="text-red-600">{t(errs[k] as string)}</span> : ok;
+    errs[k] ? <span className="text-status-down">{t(errs[k] as string)}</span> : ok;
   const domainHint = f.domain.trim()
     ? `${t('ldap.baseDnDefault')}: ${baseDnFromDomain(f.domain)}`
     : undefined;
@@ -273,9 +269,9 @@ export function LdapCard({ settings }: { settings: Settings }) {
     <div className="space-y-6">
       <Card title={t('ldap.title')} anchor={cardAnchor('ldap')}>
         <form onSubmit={submit} className="space-y-4" data-testid="ldap-settings">
-          <p className="text-xs text-slate-500">{t('ldap.intro')}</p>
+          <p className="text-xs text-ink-muted">{t('ldap.intro')}</p>
           {stored?.bind_password_unreadable && (
-            <div className="rounded-md bg-red-50 px-3 py-2 text-sm text-red-700 ring-1 ring-inset ring-red-200 dark:bg-red-950/40 dark:text-red-300 dark:ring-red-900">
+            <div className="rounded-md bg-status-down-soft px-3 py-2 text-sm text-status-down">
               {t('ldap.passwordUnreadable')}
             </div>
           )}
@@ -285,7 +281,7 @@ export function LdapCard({ settings }: { settings: Settings }) {
                 value={f.domain}
                 onChange={(e) => set({ domain: e.target.value })}
                 dir="ltr"
-                placeholder="mnidom.net"
+                placeholder="example.net"
               />
             </Field>
             <Field label={t('ldap.netbios')} hint={t('ldap.netbiosHint')}>
@@ -293,7 +289,7 @@ export function LdapCard({ settings }: { settings: Settings }) {
                 value={f.netbios_domain}
                 onChange={(e) => set({ netbios_domain: e.target.value })}
                 dir="ltr"
-                placeholder="MNIDOM"
+                placeholder="EXAMPLE"
               />
             </Field>
             <Field label={t('ldap.timeout')} hint={hint('timeout_s')}>
@@ -317,7 +313,7 @@ export function LdapCard({ settings }: { settings: Settings }) {
                 onChange={(e) => set({ servers: e.target.value })}
                 dir="ltr"
                 className="font-mono"
-                placeholder="dc1.mnidom.net&#10;dc2.mnidom.net:636"
+                placeholder="dc1.example.net&#10;dc2.example.net:636"
               />
             </Field>
             <div className="space-y-2">
@@ -345,7 +341,7 @@ export function LdapCard({ settings }: { settings: Settings }) {
                 value={f.base_dn}
                 onChange={(e) => set({ base_dn: e.target.value })}
                 dir="ltr"
-                placeholder="DC=mnidom,DC=net"
+                placeholder="DC=example,DC=net"
               />
             </Field>
             <Field label={t('ldap.bindDn')} hint={t('ldap.bindDnHint')} className="sm:col-span-2">
@@ -354,7 +350,7 @@ export function LdapCard({ settings }: { settings: Settings }) {
                 onChange={(e) => set({ bind_dn: e.target.value })}
                 dir="ltr"
                 autoComplete="off"
-                placeholder="svc-netmon@mnidom.net"
+                placeholder="svc-netmon@example.net"
               />
             </Field>
             <SecretField
@@ -375,7 +371,7 @@ export function LdapCard({ settings }: { settings: Settings }) {
                 value={f.admin_group_dn}
                 onChange={(e) => set({ admin_group_dn: e.target.value })}
                 dir="ltr"
-                placeholder="CN=NetMon-Admins,OU=Groups,DC=mnidom,DC=net"
+                placeholder="CN=NetMon-Admins,OU=Groups,DC=example,DC=net"
               />
             </Field>
             <Field
@@ -387,7 +383,7 @@ export function LdapCard({ settings }: { settings: Settings }) {
                 value={f.viewer_group_dn}
                 onChange={(e) => set({ viewer_group_dn: e.target.value })}
                 dir="ltr"
-                placeholder="CN=NetMon-Viewers,OU=Groups,DC=mnidom,DC=net"
+                placeholder="CN=NetMon-Viewers,OU=Groups,DC=example,DC=net"
               />
             </Field>
           </div>
@@ -415,7 +411,7 @@ export function LdapCard({ settings }: { settings: Settings }) {
               {t('common.save')}
             </Button>
           </div>
-          <p className="text-xs text-slate-500">{t('ldap.testHint')}</p>
+          <p className="text-xs text-ink-muted">{t('ldap.testHint')}</p>
           <ErrorBox error={test.error} />
           {test.data && <LdapTestView r={test.data} />}
         </form>
@@ -428,7 +424,7 @@ export function LdapCard({ settings }: { settings: Settings }) {
             if (testUser.trim() && testPw) testU.mutate();
           }}
         >
-          <p className="text-xs text-slate-500">{t('ldap.testUserHint')}</p>
+          <p className="text-xs text-ink-muted">{t('ldap.testUserHint')}</p>
           <div className="flex flex-wrap items-end gap-2">
             <Field label={t('login.username')} className="w-56">
               <Input
@@ -436,7 +432,7 @@ export function LdapCard({ settings }: { settings: Settings }) {
                 onChange={(e) => setTestUser(e.target.value)}
                 dir="ltr"
                 autoComplete="off"
-                placeholder="MNIDOM\jdoe"
+                placeholder="EXAMPLE\jdoe"
               />
             </Field>
             <Field label={t('login.password')} className="w-56">

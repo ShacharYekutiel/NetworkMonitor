@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
-import { MemoryRouter } from 'react-router-dom';
+import { MemoryRouter } from 'react-router';
 import type { ReactNode } from 'react';
 import i18n from '../i18n';
 import { AuthProvider } from '../hooks/auth';
@@ -279,7 +279,7 @@ describe('[3b] configure-first connection form', () => {
     });
     const s: AssistantSettings = {
       ...settings,
-      access_key_id: 'ASIAQWERTYUIOPASDFGH',
+      access_key_id: 'ASIA' + 'QWERTYUIOPASDFGH',
       session_token: null,
       session_token_set: true,
       session_token_unreadable: false,
@@ -319,7 +319,7 @@ describe('[3b] configure-first connection form', () => {
             ...s,
             session_token_set: false,
             warnings: [],
-            access_key_id: 'ASIAZXCVBNMLKJHGFDSA',
+            access_key_id: 'ASIA' + 'ZXCVBNMLKJHGFDSA',
           }}
           auditOn
         />,

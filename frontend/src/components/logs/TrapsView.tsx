@@ -11,6 +11,7 @@ import {
   emptyFilter,
   liveAllowed,
   matchesTrap,
+  SEVERITY_HEX,
   rangeOf,
   ticksToSeconds,
   trapQuery,
@@ -20,7 +21,7 @@ import {
 import { DetailRows, Drawer } from '../Drawer';
 import { RefreshIcon } from '../icons';
 import { Button, Card, cx, Empty, ErrorBox, Loading } from '../ui';
-import { SourceCell, TopList, topSourceItems, useGroupDevices } from './common';
+import { LogRow, LogTable, SourceCell, TopList, topSourceItems, useGroupDevices } from './common';
 import { LogFilterBar } from './FilterBar';
 import { Histogram } from './Histogram';
 import { RuleEditorModal } from './RuleEditor';
@@ -29,8 +30,8 @@ import { LiveToggle, NewRecordsBar } from './SyslogView';
 import { useLogFeed } from './useLogFeed';
 
 const th =
-  'sticky top-0 z-10 whitespace-nowrap border-b border-slate-200 bg-white px-2 py-1.5 text-start text-[11px] font-medium uppercase tracking-wide text-slate-500 dark:border-slate-800 dark:bg-slate-900';
-const td = 'border-b border-slate-100 px-2 py-1 align-top dark:border-slate-800/70';
+  'sticky top-0 z-10 whitespace-nowrap border-b border-line bg-surface px-2 py-1.5 text-start text-xs font-medium text-ink-muted';
+const td = 'border-b border-line px-2 py-1 align-top';
 
 export function TrapDetail({
   trap,
@@ -86,11 +87,9 @@ export function TrapDetail({
             ]}
           />
           <div>
-            <h4 className="mb-1 text-xs font-semibold uppercase tracking-wide text-slate-500">
-              {t('traps.varbinds')}
-            </h4>
+            <h4 className="mb-1 text-xs font-semibold text-ink-muted">{t('traps.varbinds')}</h4>
             <div className="overflow-x-auto">
-              <table className="w-full text-xs" data-testid="varbinds">
+              <table className="w-full text-[13px]" data-testid="varbinds">
                 <thead>
                   <tr>
                     <th className={th}>{t('traps.vb.name')}</th>
@@ -160,8 +159,8 @@ export function TrapsView({ deviceId }: { deviceId?: number }) {
   });
 
   return (
-    <div className="space-y-3" data-testid="traps-view">
-      <Card bodyClassName="p-3">
+    <div className="space-y-4" data-testid="traps-view">
+      <Card bodyClassName="px-5 py-4">
         <LogFilterBar
           kind="trap"
           filter={filter}
@@ -185,14 +184,16 @@ export function TrapsView({ deviceId }: { deviceId?: number }) {
         )}
       </Card>
       {stats.data && (
-        <Card bodyClassName="p-3">
-          <div className="text-xs text-slate-500">{t('logs.total', { n: stats.data.total })}</div>
+        <Card bodyClassName="px-5 py-4">
+          <div className="text-[13px] text-ink-muted">
+            {t('logs.total', { n: stats.data.total })}
+          </div>
           <Histogram
             times={stats.data.buckets.map((b) => b.t)}
             series={[
               {
                 name: t('traps.title'),
-                color: '#f97316',
+                color: SEVERITY_HEX.sky,
                 data: stats.data.buckets.map((b) => b.count),
               },
             ]}
@@ -200,22 +201,6 @@ export function TrapsView({ deviceId }: { deviceId?: number }) {
             from={stats.data.since}
             to={stats.data.until}
           />
-          <div className="mt-2 grid grid-cols-1 gap-4 sm:grid-cols-2">
-            {deviceId === undefined && (
-              <TopList
-                title={t('logs.topSources')}
-                items={topSourceItems(stats.data.top_sources)}
-              />
-            )}
-            <TopList
-              title={t('traps.topTraps')}
-              items={stats.data.top_traps.map((x) => ({
-                key: x.trap_oid,
-                label: <bdi dir="ltr">{x.trap_name ?? x.trap_oid}</bdi>,
-                count: x.count,
-              }))}
-            />
-          </div>
         </Card>
       )}
       <Card bodyClassName="p-0">
@@ -236,51 +221,32 @@ export function TrapsView({ deviceId }: { deviceId?: number }) {
           {!feed.isLoading && !feed.items.length ? (
             <Empty>{t('traps.empty')}</Empty>
           ) : (
-            <table className="w-full text-xs">
-              <thead>
-                <tr>
-                  <th className={th}>{t('logs.col.time')}</th>
-                  {deviceId === undefined && <th className={th}>{t('logs.col.source')}</th>}
-                  <th className={th}>{t('traps.version')}</th>
-                  <th className={th}>{t('traps.name')}</th>
-                  <th className={cx(th, 'w-full')}>{t('traps.summary')}</th>
-                </tr>
-              </thead>
-              <tbody>
-                {feed.items.map((x) => (
-                  <tr
-                    key={x.id}
-                    onClick={() => setSelected(x)}
-                    className="cursor-pointer hover:bg-slate-50 dark:hover:bg-slate-800/50"
-                  >
-                    <td className={cx(td, 'whitespace-nowrap text-slate-500')}>
-                      {formatDateTime(x.time)}
-                    </td>
-                    {deviceId === undefined && (
-                      <td className={cx(td, 'whitespace-nowrap')}>
-                        <SourceCell r={x} />
-                      </td>
-                    )}
-                    <td className={cx(td, 'whitespace-nowrap')}>
-                      {x.version}
-                      {x.pdu === 'inform' && (
-                        <span className="ms-1 text-slate-500">({t('traps.inform')})</span>
+            <LogTable head={[t('traps.name'), t('logs.col.time')]}>
+              {feed.items.map((x) => (
+                <LogRow
+                  key={x.id}
+                  onClick={() => setSelected(x)}
+                  title={<span title={x.trap_oid}>{x.trap_name ?? x.trap_oid}</span>}
+                  time={x.time}
+                  sub={
+                    <>
+                      {deviceId === undefined && (
+                        <>
+                          <SourceCell r={x} />
+                          {' · '}
+                        </>
                       )}
-                    </td>
-                    <td className={cx(td, 'whitespace-nowrap')}>
-                      <bdi dir="ltr" title={x.trap_oid}>
-                        {x.trap_name ?? x.trap_oid}
-                      </bdi>
-                    </td>
-                    <td className={td}>
-                      <div dir="ltr" className="line-clamp-2 break-all text-left font-mono">
+                      <bdi dir="ltr" className="font-mono text-[12.5px]">
                         {x.summary}
-                      </div>
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
+                      </bdi>
+                      {' · '}
+                      {x.version}
+                      {x.pdu === 'inform' && ` (${t('traps.inform')})`}
+                    </>
+                  }
+                />
+              ))}
+            </LogTable>
           )}
           {feed.hasMore && (
             <div className="flex justify-center p-2">
@@ -291,6 +257,27 @@ export function TrapsView({ deviceId }: { deviceId?: number }) {
           )}
         </div>
       </Card>
+      {/* top sources / programs under the lines (the prototype shows the lines first) */}
+      {stats.data && stats.data.total > 0 && (
+        <Card bodyClassName="px-[22px] py-5">
+          <div className="grid grid-cols-1 gap-x-10 gap-y-6 sm:grid-cols-2">
+            {deviceId === undefined && (
+              <TopList
+                title={t('logs.topSources')}
+                items={topSourceItems(stats.data.top_sources).slice(0, 5)}
+              />
+            )}
+            <TopList
+              title={t('traps.topTraps')}
+              items={stats.data.top_traps.slice(0, 5).map((x) => ({
+                key: x.trap_oid,
+                label: <bdi dir="ltr">{x.trap_name ?? x.trap_oid}</bdi>,
+                count: x.count,
+              }))}
+            />
+          </div>
+        </Card>
+      )}
       <TrapDetail
         trap={selected}
         onClose={() => setSelected(null)}

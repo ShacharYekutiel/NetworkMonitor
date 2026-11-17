@@ -7,6 +7,7 @@ import type {
   AuthMode,
   Features,
   StreamEvent,
+  UsageReport,
 } from '../api/types';
 import type { RawSseEvent } from './sse';
 
@@ -620,4 +621,47 @@ export function rememberChatModel(userId: number | null | undefined, id: string)
   } catch {
     /* storage unavailable (private mode, blocked): not remembered */
   }
+}
+
+// --- usage chart ---------------------------------------------------------------
+
+/** Every day of `month` ("YYYY-MM"), with the reported values (zero on days without usage). */
+export function monthDays(month: string, byDay: UsageReport['by_day']): UsageReport['by_day'] {
+  const [y, m] = month.split('-').map(Number);
+  const n = y && m ? new Date(Date.UTC(y, m, 0)).getUTCDate() : 0;
+  const have = new Map(byDay.map((d) => [d.day, d]));
+  const out: UsageReport['by_day'] = [];
+  for (let i = 1; i <= n; i++) {
+    const day = `${month}-${String(i).padStart(2, '0')}`;
+    out.push(have.get(day) ?? { day, questions: 0, tokens: 0, cost_estimate: null });
+  }
+  // A day outside the month (should not happen) is still shown rather than dropped.
+  for (const d of byDay) if (!d.day.startsWith(month)) out.push(d);
+  return out;
+}
+
+// --- [premium slice 6] capability status lines ----------------------------------------------
+
+/**
+ * The capability status lines of GET /api/assistant/status come from the server in English
+ * ("2 open incidents", "Last digest 2026-11-16: ok", "Last note skipped: no_channel"): the known
+ * shapes as an i18n key with its values, so the cards speak the user's language. Unknown lines →
+ * null (shown as sent).
+ */
+export type StatusLineParts =
+  | { kind: 'incidents'; count: number }
+  | { kind: 'digest'; day: string; status: string; reason: string | null }
+  | { kind: 'noteSent' }
+  | { kind: 'noteSkipped'; reason: string };
+
+export function parseStatusLine(line: string): StatusLineParts | null {
+  const s = line.trim();
+  let m = /^(\d+) open incidents?$/.exec(s);
+  if (m) return { kind: 'incidents', count: Number(m[1]) };
+  m = /^Last digest (\S+): ([a-z_]+)(?: \(([^)]*)\))?$/.exec(s);
+  if (m) return { kind: 'digest', day: m[1], status: m[2], reason: m[3] ?? null };
+  if (s === 'Last note sent') return { kind: 'noteSent' };
+  m = /^Last note skipped: (.+)$/.exec(s);
+  if (m) return { kind: 'noteSkipped', reason: m[1] };
+  return null;
 }

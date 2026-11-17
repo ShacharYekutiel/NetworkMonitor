@@ -16,31 +16,56 @@ import {
 } from '../lib/kiosk';
 import { formatDuration } from '../lib/format';
 import { cx } from '../components/ui';
+import { Mark } from '../components/Layout';
+import { StatusGlyph } from '../components/Status';
+import { DARK_TOKENS, statusColor } from '../lib/chartTokens';
+import { STATUS_DOT, STATUS_SOFT, statusClass } from '../lib/status';
 
-const STATUS_BG: Record<string, string> = {
-  up: 'bg-green-500',
-  warning: 'bg-amber-400',
-  down: 'bg-red-500',
-  unreachable: 'bg-red-800',
-  paused: 'bg-slate-500',
-  unknown: 'bg-slate-400',
-};
+/** Status word + glyph at wall-screen size (status is never colour alone). */
+function WallBadge({ status }: { status: string }) {
+  const { t } = useTranslation();
+  return (
+    <span
+      className={cx(
+        'inline-flex h-8 shrink-0 items-center gap-1.5 whitespace-nowrap rounded-full px-3 text-base font-semibold',
+        statusClass(status, STATUS_SOFT),
+      )}
+    >
+      <StatusGlyph status={status} size={15} />
+      {t(`status.${status}`)}
+    </span>
+  );
+}
+
+/** The glowing status dot of a wall row (prototype .wall .lst i). */
+function GlowDot({ status }: { status: string }) {
+  return (
+    <i
+      aria-hidden="true"
+      className={cx(
+        'h-3.5 w-3.5 shrink-0 rounded-full shadow-[0_0_14px_currentColor]',
+        STATUS_DOT[status as Status] ?? STATUS_DOT.unknown,
+        STATUS_TEXT[status],
+      )}
+    />
+  );
+}
+
+/** A wall row (prototype .wall .lst div): a 22px-radius card, dot, bold line, the duration at the end. */
+const WALL_ROW =
+  'grid grid-cols-[auto_minmax(0,1fr)_auto] items-center gap-4 rounded-[22px] bg-surface px-[22px] py-[18px] text-[20px]';
+
 const STATUS_TEXT: Record<string, string> = {
-  up: 'text-green-400',
-  warning: 'text-amber-300',
-  down: 'text-red-400',
-  unreachable: 'text-red-300',
-  paused: 'text-slate-400',
-  unknown: 'text-slate-400',
+  up: 'text-status-up',
+  warning: 'text-status-warning',
+  down: 'text-status-down',
+  unreachable: 'text-status-unreachable',
+  paused: 'text-status-paused',
+  unknown: 'text-status-unknown',
 };
-const STATUS_HEX: Record<string, string> = {
-  up: '#22c55e',
-  warning: '#fbbf24',
-  down: '#ef4444',
-  unreachable: '#991b1b',
-  paused: '#64748b',
-  unknown: '#94a3b8',
-};
+
+/** The wall screen is always dark: its literal colours come from the dark tokens. */
+const TK = DARK_TOKENS;
 
 /** Reads the token once: fragment → sessionStorage, then removes it from the address bar. */
 export function takeKioskToken(): string | null {
@@ -171,11 +196,33 @@ function since(iso: string | null, now: number): string {
   return Number.isFinite(s) && s >= 0 ? formatDuration(s) : '';
 }
 
-function Kpi({ label, value, tone }: { label: string; value: number; tone: string }) {
+function Kpi({
+  label,
+  value,
+  status,
+  hot,
+}: {
+  label: string;
+  value: number;
+  status: Status;
+  hot?: boolean;
+}) {
+  // prototype .wall .nums: a 26px-radius tile, a 72px Inter number in the status colour when it
+  // counts something wrong (or the healthy count), the word under it
   return (
-    <div className="rounded-xl bg-slate-900 px-5 py-4 ring-1 ring-slate-800">
-      <div className={cx('text-[64px] font-bold leading-none tabular-nums', tone)}>{value}</div>
-      <div className="mt-2 text-lg text-slate-400">{label}</div>
+    <div className="grid min-w-0 gap-1 rounded-[26px] bg-surface px-[26px] py-[22px]">
+      <div
+        className={cx(
+          'num text-[72px] font-medium leading-none tracking-[-0.04em] tabular-nums',
+          hot || (status === 'up' && value > 0) ? STATUS_TEXT[status] : 'text-ink',
+        )}
+      >
+        {value}
+      </div>
+      <div className="flex items-center gap-2 text-lg text-ink-muted">
+        <span className={cx('h-2.5 w-2.5 shrink-0 rounded-full', STATUS_DOT[status])} />
+        <span className="truncate">{label}</span>
+      </div>
     </div>
   );
 }
@@ -190,8 +237,8 @@ function Panel({
   className?: string;
 }) {
   return (
-    <section className={cx('min-w-0 rounded-xl bg-slate-900 p-4 ring-1 ring-slate-800', className)}>
-      <h2 className="mb-3 text-xl font-semibold text-slate-300">{title}</h2>
+    <section className={cx('min-w-0', className)}>
+      <h2 className="mx-1.5 mb-3 text-[22px] font-semibold text-ink-muted">{title}</h2>
       {children}
     </section>
   );
@@ -202,24 +249,22 @@ function Summary({ s }: { s: NonNullable<KioskView['summary']> }) {
   const c: StatusCounts = s.device_counts;
   return (
     <div className="grid grid-cols-2 gap-4 md:grid-cols-3 xl:grid-cols-6" data-testid="kiosk-kpis">
-      <Kpi label={t('noc.devicesUp')} value={c.up} tone="text-green-400" />
+      <Kpi label={t('noc.devicesUp')} value={c.up} status="up" />
       <Kpi
         label={t('noc.devicesDown')}
         value={c.down + c.unreachable}
-        tone={c.down + c.unreachable ? 'text-red-400' : 'text-slate-500'}
+        status="down"
+        hot={c.down + c.unreachable > 0}
       />
-      <Kpi
-        label={t('noc.devicesWarning')}
-        value={c.warning}
-        tone={c.warning ? 'text-amber-300' : 'text-slate-500'}
-      />
+      <Kpi label={t('noc.devicesWarning')} value={c.warning} status="warning" hot={c.warning > 0} />
       <Kpi
         label={t('noc.sensorsDown')}
         value={s.sensor_counts.down}
-        tone={s.sensor_counts.down ? 'text-red-400' : 'text-slate-500'}
+        status="down"
+        hot={s.sensor_counts.down > 0}
       />
-      <Kpi label={t('noc.acknowledged')} value={s.acknowledged} tone="text-sky-300" />
-      <Kpi label={t('noc.maintenance')} value={s.in_maintenance} tone="text-slate-300" />
+      <Kpi label={t('noc.acknowledged')} value={s.acknowledged} status="up" />
+      <Kpi label={t('noc.maintenance')} value={s.in_maintenance} status="paused" />
     </div>
   );
 }
@@ -245,9 +290,17 @@ function MapPanel({ map }: { map: NonNullable<KioskView['map']> }) {
             y1={a.y}
             x2={b.x}
             y2={b.y}
-            stroke={l.status === 'down' ? '#ef4444' : l.status === 'up' ? '#475569' : '#334155'}
+            stroke={
+              l.status === 'down'
+                ? TK.status.down
+                : l.status === 'up'
+                  ? TK.status.up
+                  : TK.borderStrong
+            }
             strokeWidth={l.status === 'down' ? 4 : 2}
-            strokeDasharray={l.status === 'unknown' ? '6 6' : undefined}
+            strokeDasharray={
+              l.status === 'down' ? '10 6' : l.status === 'unknown' ? '6 6' : undefined
+            }
           />
         );
       })}
@@ -255,15 +308,26 @@ function MapPanel({ map }: { map: NonNullable<KioskView['map']> }) {
         const p = at(n.id);
         return (
           <g key={n.id}>
-            <circle
-              cx={p.x}
-              cy={p.y}
-              r={11}
-              fill={STATUS_HEX[n.status] ?? '#94a3b8'}
-              stroke="#0f172a"
+            <rect
+              x={p.x - 13}
+              y={p.y - 13}
+              width={26}
+              height={26}
+              rx={3}
+              fill={TK.surface}
+              stroke={statusColor(TK, n.status)}
               strokeWidth={3}
             />
-            <text x={p.x} y={p.y + 30} textAnchor="middle" fontSize={16} fill="#cbd5e1">
+            <circle cx={p.x} cy={p.y} r={5} fill={statusColor(TK, n.status)} />
+            <text
+              x={p.x}
+              y={p.y + 34}
+              textAnchor="middle"
+              fontSize={16}
+              fontWeight={600}
+              fontFamily={TK.fontMono}
+              fill={TK.ink}
+            >
               {n.name}
             </text>
           </g>
@@ -282,28 +346,28 @@ function Widget({ w, v, now }: { w: KioskWidget; v: KioskView; now: number }) {
       return (
         <Panel title={t('noc.downDevices', { n: v.down_devices?.length ?? 0 })}>
           {!v.down_devices?.length ? (
-            <p className="text-2xl text-green-400">{t('noc.allUp')}</p>
+            <p className={cx(WALL_ROW, 'block text-status-up')}>{t('noc.allUp')}</p>
           ) : (
-            <ul className="space-y-2">
+            <ul className="m-0 grid list-none gap-3 p-0">
               {v.down_devices.map((d) => (
-                <li key={d.id} className="flex flex-wrap items-baseline gap-x-3">
-                  <span
-                    className={cx(
-                      'inline-block h-4 w-4 self-center rounded-full',
-                      STATUS_BG[d.status],
+                <li key={d.id} className={WALL_ROW}>
+                  <GlowDot status={d.status} />
+                  <span className="flex min-w-0 flex-wrap items-baseline gap-x-3">
+                    <b className="font-display font-semibold">{d.name}</b>
+                    {d.host && (
+                      <bdi dir="ltr" className="font-display text-lg text-ink-muted">
+                        {d.host}
+                      </bdi>
                     )}
-                  />
-                  <span className="text-2xl font-semibold">{d.name}</span>
-                  {d.host && (
-                    <bdi dir="ltr" className="text-slate-400">
-                      {d.host}
-                    </bdi>
-                  )}
-                  <span className="text-slate-400">{d.group}</span>
-                  <span className={cx('ms-auto tabular-nums', STATUS_TEXT[d.status])}>
-                    {since(d.since, now)}
+                    <span className="text-lg text-ink-muted">{d.group}</span>
+                    <span className="sr-only">{t(`status.${d.status}`)}</span>
                   </span>
-                  {d.acknowledged && <span className="text-sky-300">✓ {t('noc.ack')}</span>}
+                  <span className="flex items-center gap-3">
+                    {d.acknowledged && <span className="text-lg text-ack">✓ {t('noc.ack')}</span>}
+                    <span className="num text-lg font-medium tabular-nums text-ink-muted">
+                      {since(d.since, now)}
+                    </span>
+                  </span>
                 </li>
               ))}
             </ul>
@@ -314,29 +378,23 @@ function Widget({ w, v, now }: { w: KioskWidget; v: KioskView; now: number }) {
       return (
         <Panel title={t('noc.problems', { n: v.problems?.length ?? 0 })}>
           {!v.problems?.length ? (
-            <p className="text-2xl text-green-400">{t('noc.noProblems')}</p>
+            <p className={cx(WALL_ROW, 'block text-status-up')}>{t('noc.noProblems')}</p>
           ) : (
-            <ul className="space-y-1.5">
+            <ul className="m-0 grid list-none gap-3 p-0">
               {v.problems.map((p) => (
-                <li
-                  key={p.sensor_id}
-                  className={cx(
-                    'flex flex-wrap items-baseline gap-x-3',
-                    p.acknowledged && 'opacity-60',
-                  )}
-                >
-                  <span
-                    className={cx(
-                      'inline-block h-3 w-3 self-center rounded-full',
-                      STATUS_BG[p.status],
-                    )}
-                  />
-                  <span className="font-semibold">{p.device_name}</span>
-                  <span className="text-slate-300">{p.sensor_name}</span>
-                  <bdi dir="auto" className="min-w-0 truncate text-slate-400">
-                    {p.message}
-                  </bdi>
-                  <span className="ms-auto tabular-nums text-slate-400">{since(p.since, now)}</span>
+                <li key={p.sensor_id} className={cx(WALL_ROW, p.acknowledged && 'opacity-60')}>
+                  <GlowDot status={p.status} />
+                  <span className="flex min-w-0 items-baseline gap-x-3">
+                    <b className="shrink-0 font-display font-semibold">{p.device_name}</b>
+                    <span className="shrink-0 font-semibold">· {p.sensor_name}</span>
+                    <bdi dir="auto" className="min-w-0 truncate text-lg text-ink-muted">
+                      {p.message}
+                    </bdi>
+                    <span className="sr-only">{t(`status.${p.status}`)}</span>
+                  </span>
+                  <span className="num text-lg font-medium tabular-nums text-ink-muted">
+                    {since(p.since, now)}
+                  </span>
                 </li>
               ))}
             </ul>
@@ -346,22 +404,19 @@ function Widget({ w, v, now }: { w: KioskWidget; v: KioskView; now: number }) {
     case 'recent_alerts':
       return (
         <Panel title={t('noc.recentAlerts')}>
-          <ul className="space-y-1">
+          <ul className="m-0 grid list-none gap-0 overflow-hidden rounded-[22px] bg-surface p-0 [&>li+li]:border-t [&>li+li]:border-line">
             {(v.recent_alerts ?? []).map((a, i) => (
-              <li key={i} className="flex flex-wrap items-baseline gap-x-3">
-                <span className="tabular-nums text-slate-500">
+              <li key={i} className="flex flex-wrap items-center gap-x-3 px-[22px] py-3">
+                <span className="num tabular-nums text-ink-muted">
                   {new Intl.DateTimeFormat(undefined, {
                     timeStyle: 'short',
                     timeZone: v.timezone,
                   }).format(new Date(a.time))}
                 </span>
-                <span className="font-medium">{a.device_name}</span>
-                <span className="text-slate-400">{a.sensor_name}</span>
-                {a.new_status && (
-                  <span className={STATUS_TEXT[a.new_status as Status]}>
-                    {t(`status.${a.new_status}`)}
-                  </span>
-                )}
+                <span className="font-display font-medium">{a.device_name}</span>
+                <span className="text-ink-muted">{a.sensor_name}</span>
+                <span className="flex-1" />
+                {a.new_status && <WallBadge status={a.new_status} />}
               </li>
             ))}
           </ul>
@@ -371,15 +426,23 @@ function Widget({ w, v, now }: { w: KioskWidget; v: KioskView; now: number }) {
       return (
         <div className="grid grid-cols-2 gap-4 md:grid-cols-4 xl:grid-cols-6">
           {(v.group_tiles ?? []).map((g) => (
-            <div key={g.id} className="rounded-xl bg-slate-900 p-4 ring-1 ring-slate-800">
+            <div key={g.id} className="rounded-[22px] bg-surface p-5">
               <div className="flex items-center gap-2">
-                <span className={cx('h-4 w-4 rounded-full', STATUS_BG[g.status])} />
                 <span className="truncate text-xl font-semibold">{g.name}</span>
               </div>
-              <div className="mt-2 flex gap-3 text-lg tabular-nums">
-                <span className="text-green-400">{g.counts.up}</span>
-                <span className="text-amber-300">{g.counts.warning}</span>
-                <span className="text-red-400">{g.counts.down + g.counts.unreachable}</span>
+              <div className="mt-2">
+                <WallBadge status={g.status} />
+              </div>
+              <div className="num mt-3 flex gap-4 text-[28px] font-medium leading-none tabular-nums">
+                <span className="text-status-up" title={t('status.up')}>
+                  {g.counts.up}
+                </span>
+                <span className="text-status-warning" title={t('status.warning')}>
+                  {g.counts.warning}
+                </span>
+                <span className="text-status-down" title={t('status.down')}>
+                  {g.counts.down + g.counts.unreachable}
+                </span>
               </div>
             </div>
           ))}
@@ -388,7 +451,9 @@ function Widget({ w, v, now }: { w: KioskWidget; v: KioskView; now: number }) {
     case 'map':
       return v.map ? (
         <Panel title={t('noc.map')}>
-          <MapPanel map={v.map} />
+          <div className="rounded-[22px] bg-surface p-5">
+            <MapPanel map={v.map} />
+          </div>
         </Panel>
       ) : null;
   }
@@ -414,11 +479,22 @@ export function KioskPage() {
     else void document.documentElement.requestFullscreen?.();
   };
   const widgets = v ? visibleWidgets(v) : [];
-  const half = (w: KioskWidget) =>
-    w === 'problems' || w === 'recent_alerts' || w === 'down_devices';
+  // prototype: the incident list runs the full width; the device and alert lists share a row
+  const half = (w: KioskWidget) => w === 'recent_alerts' || w === 'down_devices';
+  // a half-width widget shares its row only with a neighbouring half-width one (the screen's own
+  // order decides the pairs); alone it takes the full width
+  const pairs = new Set<number>();
+  for (let i = 0; i < widgets.length - 1; i++)
+    if (!pairs.has(i) && half(widgets[i]) && half(widgets[i + 1])) {
+      pairs.add(i);
+      pairs.add(i + 1);
+    }
+  const paired = (i: number) => pairs.has(i);
   return (
     <div
-      className="dark min-h-screen bg-slate-950 p-6 text-[20px] text-slate-100"
+      // Always dark (wall screens): the dark tokens are scoped with data-theme.
+      data-theme="dark"
+      className="min-h-screen bg-black px-11 py-[34px] text-[20px] text-ink max-sm:p-5"
       data-testid="kiosk"
       onDoubleClick={toggleFs}
     >
@@ -428,16 +504,12 @@ export function KioskPage() {
         className="fixed end-0 top-0 h-8 w-8 opacity-0 focus:opacity-100"
         aria-label={t('noc.fullscreen')}
       />
-      <header className="mb-5 flex flex-wrap items-baseline gap-4">
-        <h1 className="text-3xl font-bold">{v?.screen.name ?? 'NetworkMonitor'}</h1>
-        <span className="ms-auto text-4xl font-semibold tabular-nums">
-          {new Intl.DateTimeFormat(undefined, {
-            timeStyle: 'medium',
-            timeZone: v?.timezone,
-          }).format(new Date(now))}
-        </span>
+      <header className="mb-[26px] flex flex-wrap items-center gap-4">
+        <Mark size={32} />
+        <h1 className="m-0 text-[34px] font-semibold">{v?.screen.name ?? 'NetworkMonitor'}</h1>
+        <span className="flex-1" />
         {st.lastOk && (
-          <span className="text-base text-slate-400">
+          <span className="text-base text-ink-subtle">
             {t('noc.updated', {
               time: new Intl.DateTimeFormat(undefined, {
                 timeStyle: 'medium',
@@ -446,31 +518,40 @@ export function KioskPage() {
             })}
           </span>
         )}
+        <span
+          dir="ltr"
+          className="num text-[64px] font-light leading-none tracking-[-0.03em] tabular-nums max-sm:text-[40px]"
+        >
+          {new Intl.DateTimeFormat(undefined, {
+            timeStyle: 'medium',
+            timeZone: v?.timezone,
+          }).format(new Date(now))}
+        </span>
       </header>
-      {!token && <p className="mt-24 text-center text-3xl text-slate-400">{t('noc.noToken')}</p>}
+      {!token && <p className="mt-24 text-center text-3xl text-ink-subtle">{t('noc.noToken')}</p>}
       {token && st.notFound && (
-        <p className="mt-24 text-center text-3xl text-slate-400" data-testid="kiosk-unavailable">
+        <p className="mt-24 text-center text-3xl text-ink-subtle" data-testid="kiosk-unavailable">
           {t('noc.unavailable')}
-          <span className="mt-4 block text-xl text-slate-500">{t('noc.unavailableHint')}</span>
+          <span className="mt-4 block text-xl text-ink-muted">{t('noc.unavailableHint')}</span>
         </p>
       )}
       {token && !v && st.failing && !st.notFound && (
-        <p className="mt-24 text-center text-3xl text-slate-400" data-testid="kiosk-error">
+        <p className="mt-24 text-center text-3xl text-ink-subtle" data-testid="kiosk-error">
           {st.errorStatus === 429 ? t('noc.rateLimited') : t('noc.loadError')}
         </p>
       )}
       {stale && !st.notFound && (
         <div
           role="alert"
-          className="mb-4 rounded-xl bg-amber-500/20 px-4 py-3 text-xl text-amber-200 ring-1 ring-amber-500/40"
+          className="mb-5 rounded-[22px] bg-status-warning-soft px-[22px] py-4 text-xl text-ink"
         >
           {t('noc.stale')}
         </div>
       )}
       {v && !st.notFound && (
-        <div className="grid grid-cols-1 gap-5 xl:grid-cols-2">
-          {widgets.map((w) => (
-            <div key={w} className={half(w) ? '' : 'xl:col-span-2'}>
+        <div className="grid grid-cols-1 gap-[26px] xl:grid-cols-2">
+          {widgets.map((w, i) => (
+            <div key={w} className={paired(i) ? '' : 'xl:col-span-2'}>
               <Widget w={w} v={v} now={now} />
             </div>
           ))}

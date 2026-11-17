@@ -101,7 +101,7 @@ describe('tile state mapping (one case per legend row)', () => {
       'ap',
     ],
     [
-      'up → green, client',
+      'up → green, computer (a pre-premium "client" maps to computer)',
       {
         state: 'up',
         alert: false,
@@ -111,7 +111,33 @@ describe('tile state mapping (one case per legend row)', () => {
         mac_count: 1,
       },
       'up',
-      'client',
+      'computer',
+    ],
+    [
+      'up → green, premium kind (phone)',
+      {
+        state: 'up',
+        alert: false,
+        connected_kind: 'phone',
+        trunk: false,
+        uplink_reason: null,
+        mac_count: 1,
+      },
+      'up',
+      'phone',
+    ],
+    [
+      'up, nothing learned (null) → lit socket, no icon',
+      {
+        state: 'up',
+        alert: false,
+        connected_kind: null,
+        trunk: false,
+        uplink_reason: null,
+        mac_count: 0,
+      },
+      'up',
+      null,
     ],
     [
       'up → green, switch',
@@ -189,16 +215,12 @@ describe('tile state mapping (one case per legend row)', () => {
 
   it('uses the contract classes', () => {
     expect(TILE_CLASS.disabled).toBe(
-      'bg-gray-200 text-gray-500 dark:bg-slate-700 dark:text-slate-400',
+      'bg-port-disabled text-ink-subtle ring-1 ring-inset ring-line',
     );
-    expect(TILE_CLASS.alert).toBe('bg-orange-500 text-white');
-    expect(TILE_CLASS.up).toBe('bg-green-500 text-white');
-    expect(TILE_CLASS.emptyAlert).toBe(
-      'bg-orange-200 border border-orange-300 dark:bg-orange-900/40 dark:border-orange-700',
-    );
-    expect(TILE_CLASS.empty).toBe(
-      'bg-white border border-gray-300 dark:bg-slate-900 dark:border-slate-600',
-    );
+    expect(TILE_CLASS.alert).toBe('bg-status-down text-on-status');
+    expect(TILE_CLASS.up).toBe('bg-status-up text-on-status');
+    expect(TILE_CLASS.emptyAlert).toBe('bg-port-empty ring-2 ring-inset ring-status-down');
+    expect(TILE_CLASS.empty).toBe('bg-port-empty');
   });
 
   it('trunk badge only on connected tiles; MAC count badge for mac_count uplinks', () => {

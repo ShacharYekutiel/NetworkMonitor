@@ -73,7 +73,63 @@ export async function loginViaApi(page: Page, user = ADMIN, path = '/'): Promise
   const r = await page.request.post('/api/auth/login', { data: user });
   expect(r.status(), await r.text()).toBe(200);
   await page.goto(path);
-  await expect(page.getByRole('navigation').first()).toBeVisible();
+  await expect(page.getByTestId('menu-button')).toBeVisible();
+}
+
+// ---------------------------------------------------------------- premium shell (☰ menu)
+/**
+ * The menu (sheet or pinned panel) on its Screens tab; returns its <nav>. `pin`: lock it as a side
+ * panel, so the nav stays visible through later page loads of this browser context.
+ */
+export async function menuNav(page: Page, { pin = false }: { pin?: boolean } = {}) {
+  const menu = page.locator('#nm-menu');
+  await expect(page.getByTestId('menu-button')).toBeVisible();
+  if (!(await menu.getAttribute('data-pinned')) && !(await menu.getAttribute('data-open'))) {
+    await page.getByTestId('menu-button').click();
+    await expect(menu).toHaveAttribute('data-open', 'true');
+  }
+  if (pin && !(await menu.getAttribute('data-pinned'))) {
+    await page.getByTestId('menu-pin').click();
+    await expect(page.locator('#nm-menu[data-pinned]')).toBeVisible();
+  }
+  const screens = menu.getByRole('tab').first();
+  if ((await screens.getAttribute('aria-selected')) !== 'true') await screens.click();
+  return menu.locator('nav');
+}
+
+/** Closes the menu sheet (Escape); a locked menu stays. */
+export async function closeMenu(page: Page) {
+  const menu = page.locator('#nm-menu');
+  if ((await menu.getAttribute('data-pinned')) || !(await menu.getAttribute('data-open'))) return;
+  await page.keyboard.press('Escape');
+  await expect(menu).not.toHaveAttribute('data-open', 'true');
+}
+
+/** Opens a screen through the menu (by the link's accessible name). */
+export async function menuGo(page: Page, name: string | RegExp) {
+  await (await menuNav(page)).getByRole('link', { name, exact: typeof name === 'string' }).click();
+}
+
+/** Back to the overview through the logo (client-side navigation). */
+export async function goHome(page: Page) {
+  await page.getByRole('link', { name: 'NetworkMonitor' }).click();
+}
+
+/**
+ * Shows the inventory tree for good: locks the menu as a side panel on its Inventory tab (the
+ * choice is remembered by the browser context, so the tree stays through page loads).
+ */
+export async function showTree(page: Page) {
+  const menu = page.locator('#nm-menu');
+  await expect(page.getByTestId('menu-button')).toBeVisible();
+  if (!(await menu.getAttribute('data-pinned'))) {
+    if (!(await menu.getAttribute('data-open'))) await page.getByTestId('menu-button').click();
+    await page.getByTestId('menu-pin').click();
+    await expect(page.locator('#nm-menu[data-pinned]')).toBeVisible();
+  }
+  const inv = page.locator('#nm-menu').getByRole('tab').nth(1);
+  if ((await inv.getAttribute('aria-selected')) !== 'true') await inv.click();
+  await expect(page.locator('#nm-menu').getByRole('searchbox').or(page.locator('#nm-menu input')).first()).toBeVisible();
 }
 
 export async function loginViaUi(page: Page, user = ADMIN): Promise<void> {
@@ -160,6 +216,7 @@ export async function defaultGroupId(api: Api): Promise<number> {
 
 /** Devices are collapsed in the tree by default; expand one so its sensor rows render. */
 export async function expandTreeDevice(page: Page, deviceId: number): Promise<void> {
+  await showTree(page);
   const row = page.locator(`aside a[href="/devices/${deviceId}"]`).locator('xpath=..');
   await expect(row).toBeVisible();
   const toggle = row.getByRole('button', { name: /^(Expand|Collapse|הרחב|כווץ)$/ }).first();

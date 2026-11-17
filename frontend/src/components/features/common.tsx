@@ -45,17 +45,17 @@ export function Toggle({
       disabled={disabled || busy}
       onClick={() => onChange(!checked)}
       className={cx(
-        'relative inline-flex h-5 w-9 shrink-0 items-center rounded-full transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-sky-500 disabled:cursor-not-allowed disabled:opacity-60',
-        checked ? 'bg-green-600' : 'bg-slate-300 dark:bg-slate-600',
-        busy && 'animate-pulse',
+        // premium switch (prototype .sw, as ui.tsx Switch): 51×31, green when on
+        'relative h-[31px] w-[51px] shrink-0 rounded-full transition-colors duration-300 focus:outline-none focus-visible:ring-2 focus-visible:ring-accent disabled:cursor-not-allowed disabled:opacity-60',
+        checked ? 'bg-status-up' : 'bg-chip',
+        busy && 'opacity-60',
       )}
     >
       <span
+        aria-hidden="true"
         className={cx(
-          'inline-block h-4 w-4 rounded-full bg-white shadow transition-transform',
-          checked
-            ? 'translate-x-[18px] rtl:-translate-x-[18px]'
-            : 'translate-x-0.5 rtl:-translate-x-0.5',
+          'absolute top-[2px] h-[27px] w-[27px] rounded-full bg-white shadow-[0_2px_6px_rgba(0,0,0,0.2)] transition-[inset-inline-start] duration-300 ease-premium',
+          checked ? 'start-[22px]' : 'start-[2px]',
         )}
       />
     </button>

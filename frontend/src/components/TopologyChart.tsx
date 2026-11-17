@@ -4,10 +4,13 @@ import * as echarts from 'echarts/core';
 import { GraphChart } from 'echarts/charts';
 import { TooltipComponent } from 'echarts/components';
 import { CanvasRenderer } from 'echarts/renderers';
+import { flatTooltip, initChart } from '../lib/echarts';
 import { useTranslation } from 'react-i18next';
 import { escapeHtml } from '../lib/html';
 import type { LayoutPosition, TopologyGraph } from '../api/types';
 import { buildGraph, forceRepulsion, isRealDrag, type GraphNodeDatum } from '../lib/topology';
+import { chartTokens } from '../lib/chartTokens';
+import { cx } from './ui';
 
 echarts.use([GraphChart, TooltipComponent, CanvasRenderer]);
 
@@ -43,6 +46,8 @@ export function TopologyChart({
   onLinkClick,
   onBackgroundClick,
   resetToken,
+  selected,
+  className,
 }: {
   graph: TopologyGraph;
   dark: boolean;
@@ -58,6 +63,10 @@ export function TopologyChart({
   onBackgroundClick: () => void;
   /** changes when the layout was reset: forces a fresh force layout */
   resetToken: number;
+  /** key of the selected node (inverted tile) */
+  selected?: string | null;
+  /** size of the canvas (default: 60% of the viewport height, at least 22rem) */
+  className?: string;
 }) {
   const ref = useRef<HTMLDivElement>(null);
   const chart = useRef<echarts.ECharts | null>(null);
@@ -90,7 +99,7 @@ export function TopologyChart({
 
   useEffect(() => {
     if (!ref.current) return;
-    const c = echarts.init(ref.current, undefined, { renderer: 'canvas' });
+    const c = initChart(ref.current);
     chart.current = c;
     const ro = new ResizeObserver(() => c.resize());
     ro.observe(ref.current);
@@ -150,10 +159,11 @@ export function TopologyChart({
   useEffect(() => {
     const c = chart.current;
     if (!c) return;
-    const built = buildGraph(graph, { dark, showTraffic, positions });
+    const built = buildGraph(graph, { dark, showTraffic, positions, selected });
     idsRef.current = built.nodes.map((n) => n.id);
     nodesRef.current = built.nodes;
-    const text = dark ? '#e2e8f0' : '#1e293b';
+    const tk = chartTokens(dark);
+    const text = tk.ink;
     const series = (layout: 'force' | 'none', nodes: GraphNodeDatum[]) => ({
       id: `topology-${resetToken}`,
       type: 'graph' as const,
@@ -164,30 +174,47 @@ export function TopologyChart({
       autoCurveness: true,
       symbolKeepAspect: true,
       edgeSymbol: ['none', 'none'],
+      // The name pill under the tile (prototype .topo .node .nm): Inter 12/500 on surface, a soft
+      // shadow; an opaque plate keeps names readable where links cross them.
       label: {
         show: true,
         position: 'bottom' as const,
-        fontSize: 11,
+        fontSize: 12,
+        fontWeight: 500,
+        fontFamily: tk.fontDisplay,
         color: text,
-        overflow: 'truncate' as const,
-        width: 120,
-        // An opaque plate keeps names readable where edges cross them.
-        backgroundColor: dark ? 'rgba(15,23,42,0.85)' : 'rgba(255,255,255,0.85)',
-        padding: [1, 4],
-        borderRadius: 3,
-        distance: 4,
+        backgroundColor: tk.surface,
+        borderRadius: 999,
+        padding: [5, 10],
+        shadowBlur: 10,
+        shadowOffsetY: 2,
+        shadowColor: dark ? 'rgba(0,0,0,0.5)' : 'rgba(0,0,0,0.10)',
+        distance: -6,
+        rich: {
+          n: {
+            fontSize: 12,
+            fontWeight: 500,
+            fontFamily: tk.fontDisplay,
+            color: text,
+            padding: [0, 6, 0, 0],
+          },
+        },
       },
       edgeLabel: {
         fontSize: 10,
+        fontWeight: 600,
         position: 'middle' as const,
-        backgroundColor: dark ? '#0f172a' : '#ffffff',
-        padding: [1, 3],
-        borderRadius: 3,
+        fontFamily: tk.fontMono,
+        color: tk.inkMuted,
+        backgroundColor: tk.surface,
+        padding: [2, 7],
+        borderRadius: 999,
       },
-      emphasis: { focus: 'adjacency' as const, lineStyle: { width: 4 } },
+      emphasis: { focus: 'adjacency' as const, lineStyle: { width: 3 } },
       force: {
-        repulsion: forceRepulsion(nodes.length),
-        edgeLength: [90, 170],
+        // the 56px tiles and their name pills need room: twice the base repulsion
+        repulsion: forceRepulsion(nodes.length) * 2.4,
+        edgeLength: [120, 210],
         gravity: 0.08,
         friction: 0.6,
         layoutAnimation: false,
@@ -201,9 +228,8 @@ export function TopologyChart({
       tooltip: {
         trigger: 'item' as const,
         confine: true,
-        backgroundColor: dark ? '#1e293b' : '#ffffff',
-        borderColor: dark ? '#334155' : '#e2e8f0',
-        textStyle: { color: dark ? '#e2e8f0' : '#1e293b', fontSize: 12 },
+        ...flatTooltip(tk),
+        textStyle: { color: tk.ink, fontSize: 12, fontFamily: tk.fontSans },
         formatter: (p: unknown) => {
           const params = p as { dataType?: string; data: Record<string, unknown> };
           if (params.dataType === 'edge') {
@@ -237,14 +263,14 @@ export function TopologyChart({
     } else {
       c.setOption({ ...base, series: [series('none', built.nodes)] }, { replaceMerge: ['series'] });
     }
-  }, [graph, dark, showTraffic, positions, resetToken, t]);
+  }, [graph, dark, showTraffic, positions, resetToken, selected, t]);
 
   // The canvas is never mirrored: coordinates are absolute (architecture.md § 10.3 RTL).
   return (
     <div
       dir="ltr"
       ref={ref}
-      className="h-[60vh] min-h-[22rem] w-full touch-none"
+      className={cx(className ?? 'h-[60vh] min-h-[22rem]', 'w-full touch-none')}
       role="img"
       aria-label={t('topology.title')}
     />

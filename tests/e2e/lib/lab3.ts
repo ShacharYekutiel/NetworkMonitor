@@ -166,7 +166,7 @@ export function kioskClient(args: string[], timeoutMs = 60_000): any[] {
 export const smtpMessages = (): Promise<any[]> => j(`${SMTP_SINK_URL}/messages`);
 export const clearSmtp = () => j(`${SMTP_SINK_URL}/messages`, 'DELETE');
 export async function configureSmtp(api: Api): Promise<void> {
-  await api.put('/api/settings', { smtp: { host: '127.0.0.1', port: SMTP_PORT, security: 'none', username: '', password: '', from_address: 'netmon@mnidom.test', from_name: 'NetworkMonitor QA' } });
+  await api.put('/api/settings', { smtp: { host: '127.0.0.1', port: SMTP_PORT, security: 'none', username: '', password: '', from_address: 'netmon@example.test', from_name: 'NetworkMonitor QA' } });
 }
 export const oidcState = () => j(`${OIDC_MOCK_URL}/_control/state`);
 export const oidcMode = (mode: string, once = false) => j(`${OIDC_MOCK_URL}/_control/mode`, 'POST', { mode, once });
@@ -190,13 +190,13 @@ export async function configureFakeAd(api: Api): Promise<void> {
       servers: [`localhost:${LDAPS_PORT}`],
       security: 'ldaps',
       tls_verify: true,
-      domain: 'mnidom.net',
-      netbios_domain: 'MNIDOM',
-      base_dn: 'DC=mnidom,DC=net',
-      bind_dn: 'svc-netmon@mnidom.net',
+      domain: 'example.net',
+      netbios_domain: 'EXAMPLE',
+      base_dn: 'DC=example,DC=net',
+      bind_dn: 'svc-netmon@example.net',
       bind_password: 'Passw0rd!',
-      admin_group_dn: 'CN=NetMon-Admins,OU=Groups,DC=mnidom,DC=net',
-      viewer_group_dn: 'CN=NetMon-Viewers,OU=Groups,DC=mnidom,DC=net',
+      admin_group_dn: 'CN=NetMon-Admins,OU=Groups,DC=example,DC=net',
+      viewer_group_dn: 'CN=NetMon-Viewers,OU=Groups,DC=example,DC=net',
       timeout_s: 5,
     },
   });

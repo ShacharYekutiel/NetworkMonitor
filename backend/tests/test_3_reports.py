@@ -95,7 +95,7 @@ BODY = {
     "schedule": "weekly",
     "weekday": 1,
     "send_time": "07:47",
-    "email_to": ["ops@mnidom.net"],
+    "email_to": ["ops@example.net"],
 }
 
 
@@ -265,8 +265,8 @@ async def test_deliveries_and_resend(
     run = (await admin.get(f"/api/reports/runs/{run_id}")).json()
     assert run["status"] == "partial"
     by = {d["target"]: d for d in run["deliveries"]}
-    assert by["email:ops@mnidom.net"]["ok"] is False
-    assert "SMTP down" in by["email:ops@mnidom.net"]["error"]
+    assert by["email:ops@example.net"]["ok"] is False
+    assert "SMTP down" in by["email:ops@example.net"]["error"]
     assert by[f"channel:{chans[0]}"]["ok"] and by[f"channel:{chans[1]}"]["ok"]
     hook = next(p for k, p in sent if k == "webhook")
     assert hook["event"] == "report" and hook["run"]["id"] == run_id
@@ -283,7 +283,7 @@ async def test_deliveries_and_resend(
     run = (await admin.get(f"/api/reports/runs/{run_id}")).json()
     assert run["status"] == "ok"
     to, subject, size = next(p for k, p in sent if k == "email")
-    assert to == ["ops@mnidom.net"]
+    assert to == ["ops@example.net"]
     assert subject == "[NetworkMonitor] Weekly report: Weekly ops (02.11–08.11.2026)" or (
         subject.startswith("[NetworkMonitor] Weekly report: Weekly ops (")
     )

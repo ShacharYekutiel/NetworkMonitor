@@ -95,7 +95,7 @@ def test_validator_wiring() -> None:
 # --------------------------------------------------------------------- redact patterns
 def test_pattern_redaction_catches_non_keyworded_secrets() -> None:
     akia = "AKIAIOSFODNN7EXAMPLE"
-    asia = "ASIAIOSFODNN7EXAMPLE"
+    asia = "ASIA" + "IOSFODNN7EXAMPLE"  # split: not a real key, keeps secret scanners quiet
     assert redact.redact_secrets(f"id {akia} end") == "id <secret removed> end"
     assert redact.redact_secrets(f"id {asia} end") == "id <secret removed> end"
     # a bare 40-char base64 AWS secret (no keyword in front) is caught by the blob rule

@@ -55,8 +55,8 @@ test.beforeAll(async () => {
 test('enabling needs a keytab; upload shows principals/etypes (no key material); RC4-only warning', async () => {
   const pre = await raw(api, 'PUT', '/api/settings', { feature_sso_kerberos_enabled: true });
   expect(pre.status, 'ON without keytab').toBe(422);
-  const put = await api.put('/api/sso/kerberos', { realms: ['MNIDOM.TEST'], auto_login: true });
-  expect(put.realms).toEqual(['MNIDOM.TEST']);
+  const put = await api.put('/api/sso/kerberos', { realms: ['EXAMPLE.TEST'], auto_login: true });
+  expect(put.realms).toEqual(['EXAMPLE.TEST']);
   const rc4 = await api.ctx.fetch('/api/sso/kerberos/keytab', { method: 'POST', multipart: { file: { name: 'rc4.keytab', mimeType: 'application/octet-stream', buffer: readFileSync(join(KDC_DIR, 'rc4.keytab')) } } });
   expect(rc4.status(), await rc4.text()).toBe(200);
   const w = await rc4.json();
@@ -69,8 +69,8 @@ test('enabling needs a keytab; upload shows principals/etypes (no key material);
   const k = await up.json();
   expect(k.keytab_set).toBe(true);
   expect(k.keytab_entries).toEqual(expect.arrayContaining([
-    expect.objectContaining({ principal: 'HTTP/localhost@MNIDOM.TEST', enctype: 18, enctype_name: 'aes256-cts-hmac-sha1-96' }),
-    expect.objectContaining({ principal: 'HTTP/127.0.0.1@MNIDOM.TEST', enctype: 17 }),
+    expect.objectContaining({ principal: 'HTTP/localhost@EXAMPLE.TEST', enctype: 18, enctype_name: 'aes256-cts-hmac-sha1-96' }),
+    expect.objectContaining({ principal: 'HTTP/127.0.0.1@EXAMPLE.TEST', enctype: 17 }),
   ]));
   expect(k.warnings).not.toContain('rc4_only');
   expect(JSON.stringify(k)).not.toMatch(/"key"|keytab_enc/);
@@ -108,12 +108,12 @@ test('API: challenge, valid ticket -> viewer jdoe / admin asmith, NTLM refused, 
   const big = await negotiate(`Negotiate ${fixture(['big', '--size', '49152'])}`);
   expect(big.status).toBe(401);
   expect(big.body?.error?.code).toBe('sso_failed');
-  // wrong realm: MNIDOM.TEST no longer accepted
-  await api.put('/api/sso/kerberos', { realms: ['MNIDOM.NET'], auto_login: true });
+  // wrong realm: EXAMPLE.TEST no longer accepted
+  await api.put('/api/sso/kerberos', { realms: ['EXAMPLE.NET'], auto_login: true });
   const wr = await negotiate(`Negotiate ${token('jdoe')}`);
   expect(wr.status).toBe(401);
   expect(wr.body.error.code).toBe('sso_failed');
-  await api.put('/api/sso/kerberos', { realms: ['MNIDOM.TEST'], auto_login: true });
+  await api.put('/api/sso/kerberos', { realms: ['EXAMPLE.TEST'], auto_login: true });
   // replay of an already accepted token -> refused by the MIT replay cache (KRB5RCACHEDIR on the data volume)
   const t = token('jdoe');
   expect((await negotiate(`Negotiate ${t}`)).status).toBe(200);
@@ -131,7 +131,7 @@ test('browser: auto sign-in as jdoe (viewer); logout does not re-login; ?sso=0 s
   try {
     const page = await (await b.newContext({ baseURL: SSO_BASE })).newPage();
     await page.goto('/login');
-    await expect(page.getByRole('navigation').first()).toBeVisible({ timeout: 20_000 });
+    await expect(page.getByTestId('menu-button')).toBeVisible({ timeout: 20_000 });
     const me = await page.request.get('/api/auth/me');
     expect((await me.json()).user).toMatchObject({ username: 'jdoe', role: 'viewer' });
     await shot3(page, '56-kerberos-signed-in');
@@ -145,7 +145,7 @@ test('browser: auto sign-in as jdoe (viewer); logout does not re-login; ?sso=0 s
     await expect(page.getByRole('button', { name: tx('sso.kerberosButton', /sign in with windows/i) })).toBeVisible();
     // the button signs in again
     await page.getByRole('button', { name: tx('sso.kerberosButton', /sign in with windows/i) }).click();
-    await expect(page.getByRole('navigation').first()).toBeVisible({ timeout: 20_000 });
+    await expect(page.getByTestId('menu-button')).toBeVisible({ timeout: 20_000 });
     await page.request.post('/api/auth/logout');
     // ?sso=0 in a fresh tab
     const p2 = await (await b.newContext({ baseURL: SSO_BASE })).newPage();

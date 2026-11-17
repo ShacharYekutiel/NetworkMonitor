@@ -1,5 +1,5 @@
 import { useMemo, useState } from 'react';
-import { NavLink } from 'react-router-dom';
+import { NavLink } from 'react-router';
 import { useTranslation } from 'react-i18next';
 import type { TreeDevice, TreeGroup, TreeSensor } from '../api/types';
 import { useTree } from '../hooks/queries';
@@ -14,8 +14,9 @@ import { useLocalizeMessage } from '../hooks/localize';
 type Expanded = Record<string, boolean>;
 
 const rowBase =
-  'group flex min-w-0 items-center gap-1.5 rounded px-1.5 py-1 text-sm hover:bg-slate-200/70 dark:hover:bg-slate-800';
-const activeRow = 'bg-sky-100 text-sky-900 dark:bg-sky-900/40 dark:text-sky-100';
+  'group flex h-8 min-w-0 items-center gap-2 whitespace-nowrap rounded-[10px] px-2 text-[14px] text-ink hover:bg-surface-hover';
+// The selected node (premium menu): the nav-active ground and semibold ink.
+const activeRow = 'bg-nav-active font-semibold';
 /** [3b] no iOS link callout on long press (it opens the tree context menu instead) */
 const noCallout = { WebkitTouchCallout: 'none' } as const;
 
@@ -36,7 +37,7 @@ function Toggle({
       aria-label={open ? t('tree.collapse') : t('tree.expand')}
       aria-expanded={open}
       className={cx(
-        'flex h-4 w-4 shrink-0 items-center justify-center rounded text-slate-500 hover:text-slate-900 dark:hover:text-white',
+        'flex h-4 w-4 shrink-0 items-center justify-center rounded-sm text-ink-subtle hover:text-ink',
         hidden && 'invisible',
       )}
     >
@@ -93,12 +94,12 @@ function SensorRow({ s, d, depth }: { s: TreeSensor; d: TreeDevice; depth: numbe
       {s.acknowledged && (
         <CheckIcon
           size={12}
-          className="shrink-0 text-emerald-600 dark:text-emerald-400"
+          className="shrink-0 text-ack"
           aria-label={t('ack.acknowledged')}
           aria-hidden={false}
         />
       )}
-      <span className="shrink-0 text-xs tabular-nums text-slate-500">
+      <span className="shrink-0 font-mono text-[11.5px] tabular-nums text-ink-subtle">
         <Value text={formatValue(s.primary_value, s.primary_unit)} />
       </span>
     </NavLink>
@@ -135,12 +136,12 @@ function DeviceRow({
           title={d.host}
         >
           <StatusDot status={d.status} />
-          <ServerIcon size={14} className="shrink-0 text-slate-500" />
+          <ServerIcon size={14} strokeWidth={1.75} className="shrink-0 text-ink-subtle" />
           <span className="min-w-0 flex-1 truncate">{d.name}</span>
           {d.in_maintenance && (
             <WrenchIcon
               size={12}
-              className="shrink-0 text-sky-600 dark:text-sky-400"
+              className="shrink-0 text-accent-ink"
               aria-label={t('maintenance.badge')}
               aria-hidden={false}
             />
@@ -182,9 +183,9 @@ function GroupRow({
           style={noCallout}
         >
           <StatusDot status={g.status} />
-          <FolderIcon size={14} className="shrink-0 text-slate-500" />
+          <FolderIcon size={14} strokeWidth={1.75} className="shrink-0 text-ink-subtle" />
           <span className="min-w-0 flex-1 truncate">{g.name}</span>
-          <span className="shrink-0 text-xs tabular-nums text-slate-400">
+          <span className="shrink-0 font-mono text-[11.5px] font-normal tabular-nums text-ink-subtle">
             {g.status_counts.total}
           </span>
         </NavLink>
@@ -242,28 +243,28 @@ function TreeNavInner() {
 
   return (
     <div className="flex min-h-0 flex-1 flex-col">
-      <div className="relative px-2 pb-2">
+      <div className="relative px-3 pb-2 pt-3">
         <SearchIcon
-          size={14}
-          className="pointer-events-none absolute start-4 top-2.5 text-slate-400"
+          size={15}
+          className="pointer-events-none absolute start-[24px] top-[24px] text-ink-subtle"
         />
         <Input
           value={q}
           onChange={(e) => setQ(e.target.value)}
           placeholder={t('tree.search')}
-          className="ps-7"
+          className="h-9 ps-9 text-sm"
           aria-label={t('tree.search')}
         />
       </div>
-      <div className="min-h-0 flex-1 overflow-y-auto px-1 pb-4">
+      <div className="min-h-0 flex-1 overflow-y-auto px-2 pb-3">
         {isLoading && (
-          <div className="flex justify-center p-4 text-slate-400">
+          <div className="flex justify-center p-4 text-ink-subtle">
             <Spinner />
           </div>
         )}
         {error && <ErrorBox error={error} className="m-2" />}
         {data && !groups.length && (
-          <div className="p-3 text-xs text-slate-500">
+          <div className="p-3 text-xs text-ink-muted">
             {query ? t('tree.noMatch') : t('tree.empty')}
           </div>
         )}

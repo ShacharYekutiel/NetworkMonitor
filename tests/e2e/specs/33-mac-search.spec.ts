@@ -1,5 +1,5 @@
 import { expect, test } from '@playwright/test';
-import { Api, apiAs, loginViaApi } from '../lib/helpers';
+import { Api, apiAs, loginViaApi, menuGo } from '../lib/helpers';
 import { T, ensurePortLab, search, shot2b2, type PortLab } from '../lib/lab2b2';
 
 // [2b-2] (f) Global MAC / IP search (api.md [2b-2] Search) and the Find page: best access port, uplink rows,
@@ -80,7 +80,7 @@ test('validation: q=zz, both q and ip, neither, short prefix, bad ip -> 422', as
 
 test('Find page: MAC search -> best row highlighted, port link opens the modal', async ({ page }) => {
   await loginViaApi(page);
-  await page.getByRole('navigation').first().getByRole('link', { name: T('nav.find') }).click();
+  await menuGo(page, T('nav.find'));
   await expect(page).toHaveURL(/\/find/);
   const input = page.locator('main').getByRole('textbox', { name: T('find.label') }); // the header has a quick-find box too
   await input.fill('02:00:00:00:09:01');

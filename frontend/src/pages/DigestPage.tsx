@@ -1,6 +1,6 @@
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { useTranslation } from 'react-i18next';
-import { Link, useParams } from 'react-router-dom';
+import { Link, useParams } from 'react-router';
 import { endpoints3b, qk3b } from '../api/endpoints3b';
 import { useAiFeature } from '../components/assistant/common';
 import { DigestList, DigestView } from '../components/assistant/Digest';
@@ -31,10 +31,7 @@ export function DigestPage() {
       <PageHeader
         breadcrumbs={
           day && (
-            <Link
-              to="/assistant/digests"
-              className="text-sky-700 hover:underline dark:text-sky-400"
-            >
+            <Link to="/assistant/digests" className="text-accent-ink hover:underline">
               {t('digest.title')}
             </Link>
           )

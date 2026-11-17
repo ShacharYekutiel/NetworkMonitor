@@ -8,10 +8,10 @@
 # msDS-User-Account-Control-Computed (0x10 LOCKOUT, 0x800000 PASSWORD_EXPIRED), `bind_error` = the AD
 # "data XXX" code returned to a simple bind with the right password (52e is always returned for a wrong one,
 # except that `bind_error_always: true` returns it for any password, like a locked account in AD).
-domain: mnidom.net
-netbios_domain: MNIDOM
-base_dn: DC=mnidom,DC=net
-users_ou: OU=Users,OU=Mnidom
+domain: example.net
+netbios_domain: EXAMPLE
+base_dn: DC=example,DC=net
+users_ou: OU=Users,OU=Example
 groups_ou: OU=Groups
 default_password: Passw0rd!
 
@@ -29,19 +29,19 @@ groups:
 users:
   - sam: svc-netmon
     cn: svc-netmon
-    ou: OU=Service Accounts,OU=Mnidom
+    ou: OU=Service Accounts,OU=Example
     display_name: NetworkMonitor service account
     groups: [Domain Users]
   - sam: jdoe
     cn: John Doe
-    upn: John.Doe@mnidom.net
+    upn: John.Doe@example.net
     display_name: John Doe
-    mail: john.doe@mnidom.net
+    mail: john.doe@example.net
     groups: [NetMon-Viewers, Domain Users]
   - sam: asmith
     cn: Alice Smith
     display_name: Alice Smith
-    mail: alice.smith@mnidom.net
+    mail: alice.smith@example.net
     groups: [IT-Team, Domain Users]
   - sam: bhelp
     cn: Bob Help

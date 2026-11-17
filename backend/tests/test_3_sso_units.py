@@ -79,13 +79,13 @@ def test_negotiate_header() -> None:
 
 # ---------------------------------------------------------------- principals
 def test_split_principal() -> None:
-    assert kp.split_principal("jdoe@MNIDOM.NET") == ("jdoe", "MNIDOM.NET")
-    assert kp.split_principal("JDoe@mnidom.net") == ("JDoe", "MNIDOM.NET")
-    assert kp.split_principal("HTTP/x@MNIDOM.NET") is None
+    assert kp.split_principal("jdoe@EXAMPLE.NET") == ("jdoe", "EXAMPLE.NET")
+    assert kp.split_principal("JDoe@example.net") == ("JDoe", "EXAMPLE.NET")
+    assert kp.split_principal("HTTP/x@EXAMPLE.NET") is None
     assert kp.split_principal("a@b@C") is None
     assert kp.split_principal("@R") is None
     assert kp.split_principal("jdoe") is None
-    assert kp.default_realms("mnidom.net") == ["MNIDOM.NET"]
+    assert kp.default_realms("example.net") == ["EXAMPLE.NET"]
     assert kp.default_realms("") == []
 
 
@@ -112,20 +112,20 @@ def make_keytab(*entries: bytes, version: int = 0x02) -> bytes:
 
 def test_keytab_parse() -> None:
     data = make_keytab(
-        keytab_entry("HTTP/netmonitor.mnidom.net@MNIDOM.NET", 3, 18),
+        keytab_entry("HTTP/netmonitor.example.net@EXAMPLE.NET", 3, 18),
         struct.pack(">i", -12) + b"\x00" * 12,  # deleted hole
-        keytab_entry("HTTP/netmonitor.mnidom.net@MNIDOM.NET", 3, 17, kvno32=300),
+        keytab_entry("HTTP/netmonitor.example.net@EXAMPLE.NET", 3, 17, kvno32=300),
     )
     entries = kp.parse_keytab(data)
     assert [e.out() for e in entries] == [
         {
-            "principal": "HTTP/netmonitor.mnidom.net@MNIDOM.NET",
+            "principal": "HTTP/netmonitor.example.net@EXAMPLE.NET",
             "kvno": 3,
             "enctype": 18,
             "enctype_name": "aes256-cts-hmac-sha1-96",
         },
         {
-            "principal": "HTTP/netmonitor.mnidom.net@MNIDOM.NET",
+            "principal": "HTTP/netmonitor.example.net@EXAMPLE.NET",
             "kvno": 300,
             "enctype": 17,
             "enctype_name": "aes128-cts-hmac-sha1-96",
@@ -159,8 +159,8 @@ def test_keytab_invalid(data: bytes) -> None:
 
 
 def test_krb5_conf() -> None:
-    conf = kp.krb5_conf("MNIDOM.NET")
-    assert "default_realm = MNIDOM.NET" in conf
+    conf = kp.krb5_conf("EXAMPLE.NET")
+    assert "default_realm = EXAMPLE.NET" in conf
     assert "ignore_acceptor_hostname = true" in conf
     assert "rdns = false" in conf and "dns_canonicalize_hostname = false" in conf
 
@@ -189,7 +189,7 @@ def claims(**kw: object) -> dict:
         "nonce": "n0nce",
         "roles": ["NetMon.Viewer"],
         "oid": "22222222-2222-2222-2222-222222222222",
-        "preferred_username": "JDoe@mnidom.net",
+        "preferred_username": "JDoe@example.net",
     }
     base.update(kw)
     return base

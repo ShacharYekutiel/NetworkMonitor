@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
-import { useSearchParams } from 'react-router-dom';
+import { useSearchParams } from 'react-router';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useTranslation } from 'react-i18next';
 import { endpoints, qk } from '../../api/endpoints';
@@ -8,9 +8,10 @@ import { useAuth } from '../../hooks/auth';
 import { errorMessage } from '../../lib/errors';
 import { formatRelative } from '../../lib/format';
 import { onPortsUpdated, refetchIfInvalidated } from '../../lib/liveCache';
-import { ListIcon, PanelIcon, RefreshIcon } from '../icons';
+import { portDeviceKind } from '../../lib/ports';
+import { AlertIcon, DownloadIcon, ListIcon, PanelIcon, RefreshIcon } from '../icons';
 import { useToast } from '../toast';
-import { Button, buttonClass, Card, cx, ErrorBox, Loading, Notice } from '../ui';
+import { Button, buttonClass, cx, ErrorBox, Loading, Notice } from '../ui';
 import { Faceplate, FaceplateLegend } from './Faceplate';
 import { HealthStrip } from './HealthStrip';
 import { PortList } from './PortList';
@@ -32,11 +33,11 @@ function StatusLine({ data }: { data: DevicePorts }) {
     });
   else line = t('ports.statusLineNoNext', { ago: formatRelative(s.last_ok_at ?? s.last_run_at) });
   return (
-    <div className="text-xs text-slate-500" data-testid="ports-status">
+    <div className="text-[13px] text-ink-muted" data-testid="ports-status">
       <span>{line}</span>
       {data.settings.interval_min === 0 && <span> · {t('ports.autoOff')}</span>}
       {s.error && (
-        <span className="text-red-600 dark:text-red-400">
+        <span className="text-status-down">
           {' '}
           · {t('ports.lastError')}: <bdi dir="ltr">{s.error}</bdi>
         </span>
@@ -54,12 +55,13 @@ function Hints({ data }: { data: DevicePorts }) {
   if (data.status.sources.poe === 'unmapped') hints.push(t('ports.hint.poeUnmapped'));
   if (!hints.length) return null;
   return (
-    <ul className="space-y-1" data-testid="ports-hints">
+    <ul className="m-0 grid list-none gap-2 p-0" data-testid="ports-hints">
       {hints.map((h) => (
         <li
           key={h}
-          className="rounded-md bg-amber-50 px-3 py-1.5 text-xs text-amber-900 ring-1 ring-inset ring-amber-200 dark:bg-amber-950/40 dark:text-amber-200 dark:ring-amber-900"
+          className="flex items-center gap-2.5 rounded-lg bg-status-warning-soft px-4 py-2.5 text-[13.5px] text-ink"
         >
+          <AlertIcon size={16} className="shrink-0 text-status-warning" />
           {h}
         </li>
       ))}
@@ -177,7 +179,7 @@ export function PortsTab({ device }: { device: Device }) {
       {data && <HealthStrip items={data.health} />}
       {data && !data.ports_effective && <NotEffective device={device} data={data} />}
       {data && (
-        <Card bodyClassName="space-y-3 p-3 sm:p-4">
+        <div className="space-y-3">
           <div className="flex flex-wrap items-center justify-between gap-2">
             <StatusLine data={data} />
             <div className="flex flex-wrap items-center gap-2">
@@ -188,6 +190,7 @@ export function PortsTab({ device }: { device: Device }) {
                   download
                   data-testid="ports-csv"
                 >
+                  <DownloadIcon size={15} />
                   {t('ports.exportCsv')}
                 </a>
               )}
@@ -197,7 +200,7 @@ export function PortsTab({ device }: { device: Device }) {
                 </Button>
               )}
               <div
-                className="inline-flex overflow-hidden rounded-md border border-slate-300 dark:border-slate-600"
+                className="inline-flex gap-0.5 rounded-[11px] bg-chip p-[3px]"
                 role="tablist"
                 aria-label={t('ports.viewToggle')}
               >
@@ -209,10 +212,10 @@ export function PortsTab({ device }: { device: Device }) {
                     aria-selected={view === v}
                     onClick={() => setParam('view', v === 'faceplate' ? null : v)}
                     className={cx(
-                      'inline-flex items-center gap-1.5 px-2.5 py-1 text-xs font-medium',
+                      'inline-flex h-7 items-center gap-1.5 rounded-[8px] px-3 text-[13px] font-medium',
                       view === v
-                        ? 'bg-sky-600 text-white'
-                        : 'bg-white text-slate-700 hover:bg-slate-50 dark:bg-slate-800 dark:text-slate-200 dark:hover:bg-slate-700',
+                        ? 'bg-surface text-ink shadow-[0_1px_3px_rgba(0,0,0,0.12)]'
+                        : 'text-ink-muted hover:text-ink',
                     )}
                   >
                     {v === 'faceplate' ? <PanelIcon size={14} /> : <ListIcon size={14} />}
@@ -224,18 +227,26 @@ export function PortsTab({ device }: { device: Device }) {
           </div>
           <Hints data={data} />
           {data.ports.length === 0 ? (
-            <p className="py-6 text-center text-sm text-slate-500">
+            <p className="py-6 text-center text-sm text-ink-muted">
               {data.status.last_run_at ? t('ports.noPorts') : t('ports.noSnapshot')}
             </p>
           ) : view === 'faceplate' ? (
-            <>
-              <Faceplate ports={data.ports} selected={selected} onSelect={openPort} />
-              <FaceplateLegend />
-            </>
+            // the stage breaks out of the page column (BUILD.md § 5), within the main area
+            <div className="mx-[min(0px,calc(50%-50cqw+40px))] space-y-3">
+              <Faceplate
+                ports={data.ports}
+                selected={selected}
+                onSelect={openPort}
+                name={device.name}
+                model={device.identity?.model ?? device.identity?.vendor ?? device.description}
+                status={device.status}
+              />
+              <FaceplateLegend kinds={data.ports.some((p) => portDeviceKind(p) !== null)} />
+            </div>
           ) : (
             <PortList ports={data.ports} selected={selected} onSelect={openPort} />
           )}
-        </Card>
+        </div>
       )}
       <PortModal
         deviceId={device.id}

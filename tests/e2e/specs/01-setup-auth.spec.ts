@@ -1,5 +1,5 @@
 import { expect, test } from '@playwright/test';
-import { ADMIN, loginViaUi } from '../lib/helpers';
+import { ADMIN, loginViaUi, showTree } from '../lib/helpers';
 
 // Scenario (a): setup wizard creates the admin and lands on the dashboard; logout/login; wrong password.
 test.describe.configure({ mode: 'serial' });
@@ -27,7 +27,8 @@ test('setup wizard creates the admin and lands on the dashboard', async ({ page,
 
   await expect(page).toHaveURL(/\/$/);
   await expect(page.getByRole('heading', { name: 'Dashboard' })).toBeVisible();
-  // The Default group is created by setup and shows in the tree.
+  // The Default group is created by setup and shows in the tree (menu, Inventory tab).
+  await showTree(page);
   await expect(page.locator('aside').getByText('Default', { exact: true })).toBeVisible();
   // Live connection indicator turns "Live" once the WebSocket is open.
   await expect(page.getByTestId('ws-indicator')).toContainText('Live');

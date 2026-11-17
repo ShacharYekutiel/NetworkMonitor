@@ -18,8 +18,8 @@ export function Pagination({
   const from = total ? (page - 1) * pageSize + 1 : 0;
   const to = Math.min(total, page * pageSize);
   return (
-    <div className="flex items-center justify-between gap-2 px-3 py-2 text-sm">
-      <span className="text-slate-500">{t('pagination.range', { from, to, total })}</span>
+    <div className="flex items-center justify-between gap-2 border-t border-line px-3.5 py-2 text-xs text-ink-muted">
+      <span>{t('pagination.range', { from, to, total })}</span>
       <div className="flex items-center gap-1">
         <Button
           size="sm"
@@ -29,7 +29,7 @@ export function Pagination({
         >
           <ChevronIcon size={14} className="rotate-180 rtl:rotate-0" />
         </Button>
-        <span className="px-2 tabular-nums">{t('pagination.page', { page, pages })}</span>
+        <span className="px-2 tabular-nums text-ink">{t('pagination.page', { page, pages })}</span>
         <Button
           size="sm"
           disabled={page >= pages}

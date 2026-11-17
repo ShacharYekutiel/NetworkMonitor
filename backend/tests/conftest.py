@@ -55,7 +55,8 @@ TABLES = (
     "assistant_conversations, assistant_messages, assistant_tool_calls, assistant_usage, "
     "assistant_artifacts, assistant_incidents, assistant_incident_members, "
     "assistant_note_targets, assistant_syslog_signatures, assistant_snmp_walks, "
-    "revoked_sessions"  # [1.4.1]
+    "revoked_sessions, "  # [1.4.1]
+    "user_sessions"  # [premium] signed-in browsers (migration 0014)
 )
 
 
@@ -193,6 +194,7 @@ async def clean(rt: Runtime, app: Any) -> AsyncIterator[None]:
 
     security_svc.apply(rt, {})
     rt.revoked_sessions.clear()
+    rt.session_touch.clear()  # [premium]
     # [2b-3] API tokens and Active Directory throttles / memory
     app.state.token_limiter.clear()
     app.state.token_stamper.clear()

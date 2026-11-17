@@ -37,6 +37,28 @@ def newer_database_revision(sync_conn, cfg: Config) -> str | None:  # type: igno
     return None if known is not None else current
 
 
+def migration_head() -> str:
+    """This version's head revision (from the migration scripts, never hard-coded)."""
+    head = ScriptDirectory.from_config(_alembic_config()).get_current_head()
+    assert head is not None
+    return head
+
+
+def revision_reaches(rev: str | None, base: str) -> bool:
+    """True when `rev` is a revision of this version at or after `base` (`base` is `rev` or
+    one of its ancestors). False for None and for a revision this version does not know (a
+    database migrated by a newer release)."""
+    if rev is None:
+        return False
+    script = ScriptDirectory.from_config(_alembic_config())
+    try:
+        if script.get_revision(rev) is None:
+            return False
+        return any(r.revision == base for r in script.iterate_revisions(rev, "base"))
+    except CommandError:
+        return False
+
+
 def current_revision(sync_conn) -> str | None:  # type: ignore[no-untyped-def]
     return MigrationContext.configure(sync_conn).get_current_revision()
 

@@ -19,6 +19,7 @@ from cryptography import x509
 from cryptography.hazmat.primitives import hashes, serialization
 
 from netmon.assistant.errors import AssistantError
+from netmon.db.migrate import migration_head
 from netmon.runtime import Runtime
 from netmon.services.features import FEATURES, PHASE3B_FEATURES
 from tests.conftest import TEST_DATABASE_URL, _plain, db_url_for, requires_db
@@ -447,14 +448,14 @@ async def test_csr_generate_and_upload(env: httpx.AsyncClient, mock: Any) -> Non
     await feats(c, audit=True)
     r = await c.post(
         "/api/assistant/cert/csr",
-        json={"common_name": "netmonitor-bedrock.mnidom.net", "key_type": "ec"},
+        json={"common_name": "netmonitor-bedrock.example.net", "key_type": "ec"},
     )
     assert r.status_code == 200, r.text
     assert "BEGIN CERTIFICATE REQUEST" in r.json()["pem"] and "PRIVATE" not in r.text
     d = await c.get("/api/assistant/cert/csr")
     assert d.status_code == 200 and "attachment" in d.headers["content-disposition"]
     s = (await c.get("/api/assistant/settings")).json()
-    assert s["csr"]["subject"] == "CN=netmonitor-bedrock.mnidom.net"
+    assert s["csr"]["subject"] == "CN=netmonitor-bedrock.example.net"
     # the internal CA (the mock's issuing CA) signs the CSR
     csr = x509.load_pem_x509_csr(d.content)
     ca = x509.load_pem_x509_certificate(pki_file(mock, "issuing.pem"))
@@ -814,7 +815,9 @@ async def test_migration_0008_up_down_up(mode: str, rt: Runtime) -> None:
             pytest.skip("TimescaleDB not available")
         conn = await asyncpg.connect(_plain(url))
         try:
-            assert await conn.fetchval("SELECT version_num FROM alembic_version") == "0012"
+            assert (
+                await conn.fetchval("SELECT version_num FROM alembic_version") == migration_head()
+            )
             assert tables <= await present(conn)
             uid = await conn.fetchval(
                 "INSERT INTO users (username, password_hash, role) VALUES ('user1', 'x', 'admin') "
@@ -883,7 +886,9 @@ async def test_migration_0008_up_down_up(mode: str, rt: Runtime) -> None:
         await run_migrations(engine)
         conn = await asyncpg.connect(_plain(url))
         try:
-            assert await conn.fetchval("SELECT version_num FROM alembic_version") == "0012"
+            assert (
+                await conn.fetchval("SELECT version_num FROM alembic_version") == migration_head()
+            )
             assert tables <= await present(conn)
         finally:
             await conn.close()

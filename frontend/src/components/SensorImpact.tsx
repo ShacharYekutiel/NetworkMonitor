@@ -4,13 +4,14 @@ import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { useTranslation } from 'react-i18next';
 import { endpoints, qk } from '../api/endpoints';
 import { SENSOR_IMPACTS, type SensorImpact } from '../api/types';
+import { OptionCard, RADIO } from './kit';
 import { useToast } from './toast';
-import { Button, cx, ErrorBox, FieldGroup, Modal } from './ui';
+import { Button, cx, ErrorBox, FieldGroup, Modal, TAG, TAG_TONE } from './ui';
 
 const DOT: Record<SensorImpact, string> = {
-  critical: 'bg-red-600',
-  warning: 'bg-amber-500',
-  none: 'bg-gray-400',
+  critical: 'bg-status-down',
+  warning: 'bg-status-warning',
+  none: 'bg-status-unknown',
 };
 
 /** Small tag next to a sensor name; critical is the default and stays unmarked. */
@@ -21,12 +22,7 @@ export function ImpactTag({ impact }: { impact: SensorImpact | undefined }) {
     <span
       data-testid="impact-tag"
       title={t('impact.tagTitle', { impact: t(`impact.option.${impact}`) })}
-      className={cx(
-        'ms-1.5 inline-flex items-center whitespace-nowrap rounded px-1 py-px align-middle text-[10px] font-semibold ring-1 ring-inset',
-        impact === 'warning'
-          ? 'bg-amber-50 text-amber-800 ring-amber-200 dark:bg-amber-950/50 dark:text-amber-300 dark:ring-amber-900'
-          : 'bg-gray-100 text-gray-600 ring-gray-200 dark:bg-slate-800 dark:text-slate-300 dark:ring-slate-700',
-      )}
+      className={cx(TAG, 'ms-1.5', impact === 'warning' ? TAG_TONE.warning : TAG_TONE.neutral)}
     >
       {t(`impact.tag.${impact}`)}
     </span>
@@ -55,7 +51,7 @@ export function ImpactField({
               value={v}
               checked={value === v}
               onChange={() => onChange(v)}
-              className="h-4 w-4 border-slate-300 text-sky-600 dark:border-slate-600 dark:bg-slate-900"
+              className={RADIO}
             />
             <span className={cx('h-2.5 w-2.5 rounded-full', DOT[v])} aria-hidden="true" />
             <span>{t(`impact.option.${v}`)}</span>
@@ -119,8 +115,20 @@ export function BulkImpactModal({
         </>
       }
     >
-      <div className="space-y-3">
-        <ImpactField value={impact} onChange={setImpact} name="bulk-impact" />
+      {/* prototype impact sheet: the three options as cards with their hints */}
+      <div className="grid gap-2.5" role="radiogroup" aria-label={t('impact.label')}>
+        <p className="m-0 text-[14.5px] text-ink-muted">{t('impact.label')}</p>
+        {SENSOR_IMPACTS.map((v) => (
+          <OptionCard
+            key={v}
+            name="bulk-impact"
+            value={v}
+            checked={impact === v}
+            onChange={(x) => setImpact(x as SensorImpact)}
+            title={t(`impact.option.${v}`)}
+            hint={t(`impact.hint.${v}`)}
+          />
+        ))}
         <ErrorBox error={m.error} />
       </div>
     </Modal>

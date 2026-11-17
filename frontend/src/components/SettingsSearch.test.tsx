@@ -1,6 +1,6 @@
 // [1.3.1] Settings search on the Settings page: search → result → tab switch → highlighted anchor.
 import { afterEach, beforeAll, describe, expect, it, vi } from 'vitest';
-import { fireEvent, render, screen, waitFor, within } from '@testing-library/react';
+import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import i18n from '../i18n';
 import { mockFetch, Wrap } from '../test/v13';
 import { SettingsPage } from '../pages/SettingsPage';
@@ -74,7 +74,9 @@ describe('[1.3.1] settings search', () => {
     const first = screen
       .getAllByTestId('settings-search-result')
       .find((r) => r.textContent?.startsWith('Include all trunk ports'))!;
-    expect(within(first).getByText('Include all trunk ports')).toBeTruthy();
+    expect(first.querySelector('span')?.textContent).toBe('Include all trunk ports');
+    // the matched text is marked
+    expect(first.querySelector('mark')?.textContent).toBe('trunk');
     expect(first.textContent).toContain('Traps & syslog›Traps & syslog');
     expect(first.textContent).not.toContain('Requires');
     fireEvent.click(first);

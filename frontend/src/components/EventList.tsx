@@ -1,4 +1,4 @@
-import { Link } from 'react-router-dom';
+import { Link } from 'react-router';
 import { useTranslation } from 'react-i18next';
 import type { NmEvent } from '../api/types';
 import { formatDateTime, formatRelative } from '../lib/format';
@@ -6,13 +6,16 @@ import { StatusBadge } from './Status';
 import { ChevronIcon, WrenchIcon } from './icons';
 import { StatusMessage } from './Dependency';
 import { useLocalizeMessage } from '../hooks/localize';
-import { Empty, Table, td, th } from './ui';
+import { cx, Empty, GroupList, Table, td, th } from './ui';
+import { STATUS_DOT, statusClass } from '../lib/status';
 import { ExplainButton } from './assistant/ExplainButton';
 
 export function EventKindLabel({ kind }: { kind: NmEvent['kind'] }) {
   const { t } = useTranslation();
   return (
-    <span className="text-xs text-slate-500">{t(`eventKind.${kind}`, { defaultValue: kind })}</span>
+    <span className="inline-flex h-[22px] items-center whitespace-nowrap rounded-full bg-chip px-2 text-xs font-medium text-ink-muted">
+      {t(`eventKind.${kind}`, { defaultValue: kind })}
+    </span>
   );
 }
 
@@ -22,7 +25,7 @@ export function StatusTransition({ ev }: { ev: NmEvent }) {
     <span className="inline-flex items-center gap-1">
       {ev.old_status && ev.old_status !== ev.new_status && <StatusBadge status={ev.old_status} />}
       {ev.old_status && ev.old_status !== ev.new_status && (
-        <ChevronIcon size={12} className="text-slate-400 rtl:rotate-180" />
+        <ChevronIcon size={12} className="text-ink-subtle rtl:rotate-180" />
       )}
       <StatusBadge status={ev.new_status} />
     </span>
@@ -54,8 +57,11 @@ export function EventsTable({
       </thead>
       <tbody>
         {events.map((ev) => (
-          <tr key={ev.id} className="hover:bg-slate-50 dark:hover:bg-slate-800/40">
-            <td className={`${td} whitespace-nowrap tabular-nums`} title={formatRelative(ev.time)}>
+          <tr key={ev.id} className="hover:bg-surface-hover">
+            <td
+              className={`${td} whitespace-nowrap font-mono text-[13px] tabular-nums text-ink-subtle`}
+              title={formatRelative(ev.time)}
+            >
               {formatDateTime(ev.time)}
             </td>
             {showKind && (
@@ -71,10 +77,10 @@ export function EventsTable({
             <td className={td}>
               <StatusTransition ev={ev} />
             </td>
-            <td dir="auto" className={`${td} min-w-48 text-slate-600 dark:text-slate-300`}>
+            <td dir="auto" className={`${td} min-w-48 text-ink-muted`}>
               {ev.in_maintenance && (
                 <span
-                  className="me-1 inline-flex align-[-2px] text-sky-600 dark:text-sky-400"
+                  className="me-1 inline-flex align-[-2px] text-accent-ink"
                   title={t('events.inMaintenance')}
                   aria-label={t('events.inMaintenance')}
                 >
@@ -107,14 +113,11 @@ export function EventsTable({
 export function EventSource({ ev }: { ev: NmEvent }) {
   const { t } = useTranslation();
   if (!ev.device_name && !ev.sensor_name)
-    return <span className="text-slate-400">{t('events.system')}</span>;
+    return <span className="text-ink-subtle">{t('events.system')}</span>;
   return (
     <span className="whitespace-nowrap">
       {ev.device_id && ev.device_name ? (
-        <Link
-          className="text-sky-700 hover:underline dark:text-sky-400"
-          to={`/devices/${ev.device_id}`}
-        >
+        <Link className="text-ink hover:underline" to={`/devices/${ev.device_id}`}>
           {ev.device_name}
         </Link>
       ) : (
@@ -122,12 +125,9 @@ export function EventSource({ ev }: { ev: NmEvent }) {
       )}
       {ev.sensor_name && (
         <>
-          <span className="mx-1 text-slate-400">/</span>
+          <span className="mx-1 text-ink-subtle">/</span>
           {ev.sensor_id ? (
-            <Link
-              className="text-sky-700 hover:underline dark:text-sky-400"
-              to={`/sensors/${ev.sensor_id}`}
-            >
+            <Link className="text-accent-ink hover:underline" to={`/sensors/${ev.sensor_id}`}>
               {ev.sensor_name}
             </Link>
           ) : (
@@ -136,5 +136,84 @@ export function EventSource({ ev }: { ev: NmEvent }) {
         </>
       )}
     </span>
+  );
+}
+
+/** "Up → Down" in words (he: "תקין ← תקלה"); the kind for events without a status change. */
+export function useEventTitle() {
+  const { t } = useTranslation();
+  return (ev: NmEvent): string => {
+    if (!ev.new_status) return t(`eventKind.${ev.kind}`, { defaultValue: ev.kind });
+    if (!ev.old_status || ev.old_status === ev.new_status) return t(`status.${ev.new_status}`);
+    return t('events.transition', {
+      from: t(`status.${ev.old_status}`),
+      to: t(`status.${ev.new_status}`),
+    });
+  };
+}
+
+/** Problem transitions that the AI can explain (as in the events table). */
+function explainable(ev: NmEvent): boolean {
+  return (
+    ev.kind === 'status_change' &&
+    ev.sensor_id !== null &&
+    (ev.new_status === 'down' || ev.new_status === 'warning' || ev.new_status === 'unreachable')
+  );
+}
+
+/**
+ * The events of one sensor as a grouped list (prototype sensor page "אירועים"): a status dot, the
+ * transition in words, the message and when.
+ */
+export function EventRows({ events, label }: { events: NmEvent[]; label?: string }) {
+  const { t } = useTranslation();
+  const localize = useLocalizeMessage();
+  const title = useEventTitle();
+  if (!events.length)
+    return (
+      <GroupList label={label}>
+        <li>
+          <Empty>{t('events.none')}</Empty>
+        </li>
+      </GroupList>
+    );
+  return (
+    <GroupList label={label} className="[&>li+li]:before:start-[46px]">
+      {events.map((ev) => (
+        <li key={ev.id} data-testid="event-row" className="flex items-start gap-3.5 px-5 py-3.5">
+          <span
+            aria-hidden="true"
+            className={cx(
+              'mt-[7px] h-2.5 w-2.5 shrink-0 rounded-full',
+              ev.new_status ? statusClass(ev.new_status, STATUS_DOT) : 'bg-ink-subtle',
+            )}
+          />
+          <div className="grid min-w-0 flex-1 gap-0.5">
+            <b className="font-medium">{title(ev)}</b>
+            <span dir="auto" className="min-w-0 break-words text-[13.5px] text-ink-muted">
+              {ev.in_maintenance && (
+                <span
+                  className="me-1 inline-flex align-[-2px] text-accent-ink"
+                  title={t('events.inMaintenance')}
+                  aria-label={t('events.inMaintenance')}
+                >
+                  <WrenchIcon size={13} />
+                </span>
+              )}
+              {ev.device_id !== null && ev.new_status === 'unreachable' ? (
+                <StatusMessage message={ev.message} status="unreachable" deviceId={ev.device_id} />
+              ) : (
+                localize(ev.message)
+              )}
+              {' · '}
+              <time dateTime={ev.time} title={formatDateTime(ev.time)}>
+                {formatRelative(ev.time)}
+              </time>
+            </span>
+          </div>
+          {explainable(ev) && <ExplainButton sensorId={ev.sensor_id!} eventId={ev.id} />}
+        </li>
+      ))}
+    </GroupList>
   );
 }

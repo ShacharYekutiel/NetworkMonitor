@@ -144,5 +144,7 @@ test('/templates lists the templates with localized names and entries', async ({
   for (const n of ['OPNsense / pfSense firewall', 'UniFi access point', 'Printer', 'Generic SNMP device', 'Web server', 'Ping only']) {
     await expect(page.getByText(n, { exact: true }).first()).toBeVisible();
   }
+  // the entries of each card open under "Details"
+  for (const d of await page.locator('main details > summary').all()) await d.click();
   await expect(page.getByText(/Interfaces that are up \(max 16\)/).first()).toBeVisible();
 });

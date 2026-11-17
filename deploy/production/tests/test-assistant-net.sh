@@ -64,7 +64,7 @@ cat >"$NETMON_ETC_DIR/app.env" <<'X'
 # Server-specific settings
 HTTPS_PROXY=http://user:pw@proxy.corp:8080
 HTTP_PROXY=http://user:pw@proxy.corp:8080
-NO_PROXY=localhost,127.0.0.1,::1,.mnidom.net,db,netmon,proxy
+NO_PROXY=localhost,127.0.0.1,::1,.example.net,db,netmon,proxy
 TZ=Asia/Jerusalem
 X
 chmod 0600 "$NETMON_ETC_DIR/app.env"
@@ -85,7 +85,7 @@ ok "check --no-connect, unresolvable host"
 
 # --- no-proxy: adds once, keeps other lines and mode 0600
 run no-proxy .vpce.amazonaws.com bedrock-runtime.il-central-1.amazonaws.com || fail "no-proxy add"
-grep -qx "NO_PROXY=localhost,127.0.0.1,::1,.mnidom.net,db,netmon,proxy,.vpce.amazonaws.com,bedrock-runtime.il-central-1.amazonaws.com" \
+grep -qx "NO_PROXY=localhost,127.0.0.1,::1,.example.net,db,netmon,proxy,.vpce.amazonaws.com,bedrock-runtime.il-central-1.amazonaws.com" \
   "$NETMON_ETC_DIR/app.env" || fail "NO_PROXY line: $(grep NO_PROXY "$NETMON_ETC_DIR/app.env")"
 grep -qx "TZ=Asia/Jerusalem" "$NETMON_ETC_DIR/app.env" || fail "other lines kept"
 grep -qx "# Server-specific settings" "$NETMON_ETC_DIR/app.env" || fail "comments kept"
@@ -149,7 +149,7 @@ python3 -I "$PROD/aws/render-policies.py" --account 111122223333 --region il-cen
   --trust-anchor-id 0f0e-1 --kb-id KB12345678 --out "$T/pol2" >"$T/out" 2>&1 || fail "render global"
 [[ "$(find "$T/pol2" -name '*.json' | wc -l)" == 5 ]] || fail "all 5 rendered"
 grep -q '"arn:aws:bedrock:\*::foundation-model/anthropic.claude-y-v1:0"' "$T/pol2/bedrock-invoke-policy.json" || fail "light model"
-grep -q '"aws:PrincipalTag/x509Subject/CN": "netmonitor.mnidom.net"' "$T/pol2/rolesanywhere-trust-policy.json" || fail "CN"
+grep -q '"aws:PrincipalTag/x509Subject/CN": "netmonitor.example.net"' "$T/pol2/rolesanywhere-trust-policy.json" || fail "CN"
 grep -q 'trust-anchor/0f0e-1"' "$T/pol2/rolesanywhere-trust-policy.json" || fail "trust anchor"
 ! grep -rq '<[A-Z_]*>' "$T/pol2" || fail "placeholder left"
 ok "render-policies.py: us. and global. profiles, light model, trust policy, KB"
@@ -173,7 +173,7 @@ render --ra-region eu-west-1 --trust-anchor-id "${ARN/111122223333/999988887777}
 grep -q 'ARN is in account 999988887777, but --account is 111122223333' "$T/out" || fail "account mismatch message"
 render --trust-anchor-id 'arn:aws:iam::111122223333:role/x' --out "$T/pol5" && fail "foreign ARN accepted"
 render --trust-anchor-id 'trust-anchor/abc' --out "$T/pol5" && fail "path accepted"
-for cn in 'CN=nm.example.org' 'nm.example.org, O=Mnidom' '*.example.org' ' nm.example.org' ''; do
+for cn in 'CN=nm.example.org' 'nm.example.org, O=Example' '*.example.org' ' nm.example.org' ''; do
   render --ra-region eu-west-1 --trust-anchor-id "$ARN" --cert-cn "$cn" --out "$T/pol5" && fail "bad CN accepted: '$cn'"
   grep -q -- '--cert-cn' "$T/out" || fail "bad CN message: '$cn'"
 done

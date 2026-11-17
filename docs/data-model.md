@@ -1629,7 +1629,7 @@ API shapes: [api.md § Phase 2b-2](api.md#2b-2-phase-2b-2-contract). Components 
 | **[2b-2]** `port_mode` | `access`, `trunk` |
 | **[2b-2]** `duplex` | `full`, `half`, `unknown` |
 | **[2b-2]** `poe_detection` | `disabled`, `searching`, `delivering`, `fault`, `test`, `other_fault` |
-| **[2b-2]** `connected_kind` | `none`, `client`, `ap`, `switch` (computed) |
+| **[2b-2]** `connected_kind` | `none`, `client`, `ap`, `switch` (computed) — **[premium]** replaced by `computer`, `phone`, `ap`, `printer`, `camera`, `server`, `switch`, `router`, `unknown` or NULL ([§ Premium](#premium-premium-ui-additions)) |
 | **[2b-2]** `uplink_reason` | `neighbor`, `mac_count` (computed) |
 | **[2b-2]** `health_category` | `cpu`, `memory`, `temperature`, `poe`, `psu`, `fan` (computed) |
 | **[2b-2]** `source_state` | `ok`, `empty`, `error`, `skipped`, `unmapped` |
@@ -1910,7 +1910,7 @@ linked interface sensor, `settings.uplink_mac_threshold`.
   `sensor` (the linked `snmp_interface` sensor is `down` or `warning`), `errors`
   (`in_errors_delta + out_errors_delta > 0`, NULLs as 0), `poe_fault` (`poe_detection` ∈ {`fault`,
   `other_fault`}).
-- **connected_kind**: state ≠ `up` → `none`; primary neighbour is a device of class `switch` or `router` →
+- **connected_kind** (2b-2; **replaced in [premium]**, see [§ Premium UI additions](#premium-premium-ui-additions)): state ≠ `up` → `none`; primary neighbour is a device of class `switch` or `router` →
   `switch`; class `access_point` → `ap`; otherwise → `client` (also for a MAC-count uplink and for unmanaged
   LLDP neighbours such as phones).
 - **trunk** = `mode = trunk`.
@@ -2597,7 +2597,7 @@ Input: raw bytes (one datagram or TCP frame), receive time, time zone. Pre-proce
 
 | # | Input | facility / severity | Expected fields |
 |---|---|---|---|
-| S1 | `<165>1 2026-11-08T10:00:00.003Z sw1.mnidom.net evntslog 1234 ID47 [exampleSDID@32473 iut="3"] \xEF\xBB\xBFAn application event` | 20 / 5 | rfc5424, device_time `2026-11-08T10:00:00.003Z`, hostname `sw1.mnidom.net`, program `evntslog`, pid `1234`, msgid `ID47`, sd `[exampleSDID@32473 iut="3"]`, message `An application event` |
+| S1 | `<165>1 2026-11-08T10:00:00.003Z sw1.example.net evntslog 1234 ID47 [exampleSDID@32473 iut="3"] \xEF\xBB\xBFAn application event` | 20 / 5 | rfc5424, device_time `2026-11-08T10:00:00.003Z`, hostname `sw1.example.net`, program `evntslog`, pid `1234`, msgid `ID47`, sd `[exampleSDID@32473 iut="3"]`, message `An application event` |
 | S2 | `<34>1 - - - - - - plain` | 4 / 2 | rfc5424, all empty, device_time null, sd null, message `plain` |
 | S3 | `<34>Oct 11 22:14:15 mymachine su: 'su root' failed for lonvick on /dev/pts/8` | 4 / 2 | rfc3164, hostname `mymachine`, program `su`, message `'su root' failed for lonvick on /dev/pts/8`, device_time 2026-10-11T19:14:15Z (Oct 11 2026 is before the receive date, so the current year; IDT +3) |
 | S4 | `<30>Nov  8 09:05:01 gw-hq sshd[2211]: Accepted password for admin` | 3 / 6 | hostname `gw-hq`, program `sshd`, pid `2211`, device_time `2026-11-08T07:05:01Z` (IST +2) |
@@ -2757,7 +2757,7 @@ transitions until 9, then none → **end** at 24; 0 d, 3 u, 6 d, 9 u, 12 d → n
 
 ## [2b-3] SIEM forwarding target (settings `siem_targets`, list ≤ 4)
 ```json
-{ "id": "a1b2c3", "name": "QRadar", "enabled": true, "host": "siem.mnidom.net", "port": 6514,
+{ "id": "a1b2c3", "name": "QRadar", "enabled": true, "host": "siem.example.net", "port": 6514,
   "protocol": "tls", "tls_verify": true,
   "kinds": ["syslog", "trap"], "min_severity": 7, "sources": [], "include_unknown": false }
 ```
@@ -2812,15 +2812,15 @@ users keep `^[A-Za-z0-9._-]{3,64}$`; LDAP users store lower(sAMAccountName) (1�
 
 ### LDAP settings (key `ldap`)
 ```json
-{ "servers": ["dc1.mnidom.net", "dc2.mnidom.net:636"],   // ≤ 8; host | host:port | [v6]:port; [] = DNS SRV
+{ "servers": ["dc1.example.net", "dc2.example.net:636"],   // ≤ 8; host | host:port | [v6]:port; [] = DNS SRV
   "security": "ldaps",                                    // "ldaps" (default port 636) | "starttls" (389)
   "tls_verify": true,
-  "domain": "mnidom.net", "netbios_domain": "MNIDOM",
-  "base_dn": "DC=mnidom,DC=net",                          // "" → derived from domain
-  "bind_dn": "svc-netmon@mnidom.net",                     // DN or UPN
+  "domain": "example.net", "netbios_domain": "EXAMPLE",
+  "base_dn": "DC=example,DC=net",                          // "" → derived from domain
+  "bind_dn": "svc-netmon@example.net",                     // DN or UPN
   "bind_password_enc": "v1:…",                            // stored only; API exposes bind_password (write-only)
-  "admin_group_dn": "CN=NetMon-Admins,OU=Groups,DC=mnidom,DC=net",
-  "viewer_group_dn": "CN=NetMon-Viewers,OU=Groups,DC=mnidom,DC=net",
+  "admin_group_dn": "CN=NetMon-Admins,OU=Groups,DC=example,DC=net",
+  "viewer_group_dn": "CN=NetMon-Viewers,OU=Groups,DC=example,DC=net",
   "timeout_s": 5 }                                        // 1–30
 ```
 Default: servers [], security ldaps, tls_verify true, other strings "", timeout 5, no password. Validation when
@@ -2834,8 +2834,8 @@ servers or domain, base DN (given or derivable), at least one group DN. Group DN
 true` in the API, one `system` event, LDAP logins → 503 `directory_unavailable`.
 
 **Pure helpers** (`netmon.auth.ldap_pure`) with vectors: `parse_login("jdoe")` → sam `jdoe`;
-`("MNIDOM\\jdoe")` → sam `jdoe`; `("mnidom\\jdoe")` → sam (case-insensitive); `("OTHER\\jdoe")` → not a
-directory name; `("John.Doe@MNIDOM.NET")` → upn `John.Doe@MNIDOM.NET`, fallback sam `John.Doe`;
+`("EXAMPLE\\jdoe")` → sam `jdoe`; `("example\\jdoe")` → sam (case-insensitive); `("OTHER\\jdoe")` → not a
+directory name; `("John.Doe@EXAMPLE.NET")` → upn `John.Doe@EXAMPLE.NET`, fallback sam `John.Doe`;
 `("x@other.com")` → upn only; `escape("a*)(uid=*")` → `a\2a\29\28uid=\2a`; `escape("CN=A\\,B")` →
 `CN=A\5c,B`; UAC 512 → ok, 514 → disabled, computed 0x10 → locked, 0x800000 → password_expired;
 `accountExpires` 0 and 9223372036854775807 → never; AD message `…data 775,…` → `account_locked`.
@@ -2865,7 +2865,9 @@ Trigger `audit_log_immutable` (plpgsql, migration `0006`): `BEFORE UPDATE` → r
 unless `current_setting('netmon.audit_purge', true) = 'on'`. Retention (hourly loop): `SET LOCAL
 netmon.audit_purge = 'on'; DELETE … WHERE time < now() − audit_retention_days` (batches of 50 000).
 
-Actions: `auth.login`, `auth.login_failed`, `auth.logout`, `<entity>.create|update|delete` for `device`,
+Actions: `auth.login`, `auth.login_failed`, `auth.logout` (**[1.4.1]** `changes.everywhere` for logout
+everywhere; **[premium]** `changes.session = [null, <public id>]` for a session ended from the signed-in browsers
+list), `<entity>.create|update|delete` for `device`,
 `group`, `sensor`, `alert_rule`, `notification_channel`, `maintenance_window`, `event_rule`, `topology_link`,
 `discovery_profile`, `user`, `api_token` (create/revoke = `api_token.create|revoke`), `device.apply_template`,
 `discovery.import`, `settings.update` (entity null, `changes` per key; the `ldap` object diffed per field),
@@ -3357,7 +3359,7 @@ widened to `varchar(64)` already). Sessions: JWT claim `am` (`password` | `kerbe
 
 ### Kerberos settings (key `kerberos`)
 ```json
-{ "realms": ["MNIDOM.NET"],            // accepted client realms (upper-case), 1–8
+{ "realms": ["EXAMPLE.NET"],            // accepted client realms (upper-case), 1–8
   "auto_login": true,
   "keytab_enc": "v1:…",                // stored only; AAD b"kerberos.keytab"; API: keytab_set, keytab_entries
   "keytab_uploaded_at": "2026-11-08T10:00:00Z" }
@@ -3371,8 +3373,8 @@ entries `int32 size` (negative = deleted, skipped), principal components with re
 `invalid_keytab`; truncated → 422; enctype 23 only → warning `rc4_only`; no `HTTP/` principal → warning
 `no_http_principal`.
 
-**Principal → account** (pure `kerberos_pure.split_principal`): `jdoe@MNIDOM.NET` → (`jdoe`, `MNIDOM.NET`);
-`JDoe@mnidom.net` → realm upper-cased; `HTTP/x@MNIDOM.NET` (service principal) → refused `sso_failed`;
+**Principal → account** (pure `kerberos_pure.split_principal`): `jdoe@EXAMPLE.NET` → (`jdoe`, `EXAMPLE.NET`);
+`JDoe@example.net` → realm upper-cased; `HTTP/x@EXAMPLE.NET` (service principal) → refused `sso_failed`;
 `a@b@C` → refused. sAMAccountName = the name part (AD Kerberos principal names equal sAMAccountName).
 
 **NTLM detection vectors** (`token_mech`): `NTLMSSP\0…` → `ntlm`; SPNEGO NegTokenInit (`0x60 … 1.3.6.1.5.5.2`) with
@@ -3449,7 +3451,7 @@ while `flapping` is ON. Index `(started_at DESC)`, `(device_id, started_at DESC)
 | language | text | NOT NULL |
 | data | jsonb | NOT NULL — `ReportData` (api.md) |
 | html | text | NULL — the rendered email/page HTML (≤ 2 MB) |
-| deliveries | jsonb | NOT NULL DEFAULT '[]' — `[{"target": "email:ops@mnidom.net" \| "channel:4", "ok": true, "error": null, "at": "…"}]` |
+| deliveries | jsonb | NOT NULL DEFAULT '[]' — `[{"target": "email:ops@example.net" \| "channel:4", "ok": true, "error": null, "at": "…"}]` |
 | created_by | varchar(64) | NULL |
 
 Index `(report_id, started_at DESC)`, `(started_at DESC)`. Retention `report_retention_days` (30–3650, 400).
@@ -4244,7 +4246,7 @@ they take effect right after `PUT /api/settings` without a restart):
 | `frame_ancestors` | text[] (≤ 20 origins) | `[]` | extra CSP `frame-ancestors` sources; validated again when read, so a hand-edited row can never inject a directive |
 
 ## [1.4.1] `revoked_sessions`
-Session ids ended by `POST /api/auth/logout`. Loaded into memory at start (the server is one process); a cookie
+Session ids ended by `POST /api/auth/logout` (**[premium]** or `DELETE /api/auth/sessions/{id}`). Loaded into memory at start (the server is one process); a cookie
 whose `sid` is listed is refused.
 
 | Column | Type | Notes |
@@ -4312,3 +4314,118 @@ stored value has to be encrypted or decrypted.
 - `downgrade()`: the exact 1.4.1 form — plaintext restored where only the encrypted copy exists (after
   `remove-plaintext`), every `*_enc` / `_sealed` removed, `secrets_plaintext_removed` deleted. A value that has no
   plaintext and cannot be decrypted with this `secret.key` stops the downgrade with an error; nothing is changed.
+
+# **[premium]** Premium UI additions
+
+API: [api.md § Premium UI additions](api.md#premium-premium-ui-additions). No feature toggle; nothing here is ever
+sent to a device.
+
+## [premium] Connected device kind (computed on read, pure `netmon.ports.kind.derive`)
+`Port.connected_kind` / `connected_kind_source` of a port, first rule that gives a kind wins:
+
+1. **Manual override**: a `port_kind_overrides` row of (device, ifIndex) → that kind, source `manual`. Returned
+   whatever the port state (a labelled port that is down keeps its label).
+2. Port state ≠ `up` → NULL / NULL.
+3. **Primary neighbour** (the 2b-2 rule, LAG members inherit their LAG's): source = the link source (`lldp`, `cdp`;
+   a manual topology link → `manual`).
+   - a monitored device → by its effective class: `switch` → `switch`, `router` → `router`, `access_point` → `ap`,
+     `printer` → `printer`, `server` / `nas` → `server`, `workstation` → `computer`. Class `unknown`: `switch` when
+     the port is a LAG, a LAG member or a trunk (an uplink to a managed device), else go on with rule 4.
+   - an unmanaged neighbour → its `topology_neighbors.capabilities`, by priority `telephone` → `phone`,
+     `wlan_ap` → `ap`, `bridge` → `switch`, `router` / `docsis` → `router`, `station` → `computer` (a phone also
+     announces `bridge`; an L3 switch `bridge` + `router`); else its `sys_descr` (LLDP system description / CDP
+     platform) by keywords (`IP Phone`, `SEP…`, `AIR-`, `access point`, `printer`, `camera`, `ESXi`, …); else rule 4.
+4. **MAC table** (source `oui`; the present `port_macs` of the port, the LAG's for a member): no MAC → NULL / NULL.
+   One MAC → its vendor kind (below), else `computer`. Several MACs (or an uplink by MAC count, whose MACs are not
+   loaded) → `phone` when one of them is a phone MAC (a PC behind a phone), else `server` when one is a
+   hypervisor MAC (virtual machines), else `unknown`.
+
+**Vendor kind** (heuristic, offline): the MAC's first three octets → `PREFIX_KINDS` (a few blocks registered under a
+mixed vendor name: Hyper-V `00:15:5D`, Aruba blocks now listed as Hewlett Packard Enterprise), else the IEEE MA-L
+organisation (`netmon.ports.oui`, the bundled listing) matched, case-insensitively at its start, against
+`VENDOR_KINDS` — about 50 vendors whose blocks are dominated by one product kind: printers (Brother, Canon, Epson,
+Lexmark, Xerox, Ricoh, Kyocera, Konica Minolta, Zebra, Toshiba TEC, FUJIFILM BI, Pantum), cameras (Axis,
+Hikvision, Dahua, Uniview, Hanwha Vision, Vivotek, Mobotix, Avigilon, Bosch Security, Reolink, Milesight), phones
+(Yealink, Polycom, Grandstream, snom, Avaya, Mitel, Fanvil, Gigaset, Spectralink), access points (Ubiquiti, Ruckus,
+Cambium, Cisco Meraki, Mist, EnGenius), servers / hypervisors (VMware, Supermicro, Nutanix, XenSource, Proxmox,
+Parallels, VirtualBox). Mixed vendors (Cisco, HP / HPE, Dell, Lenovo, Apple, …) are not listed, so their MACs read
+as `computer`; a locally administered (random) MAC has no vendor. A unit test checks every pattern against the
+bundled listing.
+
+## [premium] `port_kind_overrides`
+| Column | Type | Constraints |
+|---|---|---|
+| device_id | integer | NOT NULL FK `devices.id` ON DELETE CASCADE; PK (device_id, if_index) |
+| if_index | integer | NOT NULL — the port's ifIndex (the `port_key` of the API) |
+| kind | text | NOT NULL CHECK in (`computer`, `phone`, `ap`, `printer`, `camera`, `server`, `switch`, `router`, `unknown`) |
+| updated_at | timestamptz | NOT NULL DEFAULT now() |
+| updated_by | integer | NULL — user id (no FK, like `audit_log.actor_user_id`) |
+
+Written only by `PUT /api/devices/{id}/ports/{if_index}/connected-kind` (`kind: null` deletes the row). Not tied to
+`switch_ports` rows, so a port that is briefly missing from a snapshot keeps its label.
+
+## [premium] `topology_neighbors.capabilities`
+`text[] NULL` — the system capabilities of an unmanaged LLDP / CDP neighbour, normalised names: LLDP
+`lldpRemSysCapEnabled` (column 12 of `lldpRemTable`), or `lldpRemSysCapSupported` (11) when nothing is enabled, bits
+→ `other`, `repeater`, `bridge`, `wlan_ap`, `router`, `telephone`, `docsis`, `station`, `cvlan`, `svlan`, `tpmr`; CDP
+`cdpCacheCapabilities` (column 9) → `router` (0x01), `bridge` (0x02 / 0x04 / 0x08), `station` (0x10), `repeater`
+(0x40), `telephone` (0x80). Both come from the table walks the topology refresh already does (no new SNMP
+request). Updated on every refresh that sees the neighbour (an empty set keeps the stored value); NULL until the
+first refresh after the upgrade.
+
+## [premium] Home map setting
+Settings key `home_map` (table `settings`, default in `netmon.services.home_map.DEFAULT`; not part of
+`GET /api/settings`, served by `GET/PUT /api/settings/home-map`):
+
+| Field | Type | Default | Notes |
+|---|---|---|---|
+| `mode` | `auto` \| `backbone` | `auto` | |
+| `show_internet` | bool | `true` | internet tile above the backbone (backbone mode) |
+| `backbone_device_ids` | int[] (≤ 8, ordered) | `[]` | ids that no longer exist are skipped when read |
+| `max_groups` | int 1–50 | `12` | leaves under the last node |
+
+The map itself is computed on read (`netmon.services.home_map`), see api.md.
+
+## [premium] `user_sessions` (signed-in browsers)
+A registry of login sessions for `GET` / `DELETE /api/auth/sessions` (code: `netmon.services.sessions`). It is
+**not** the credential: a session is valid by the 1.4.1 rules (signed cookie, `token_version`, `sid` not in
+`revoked_sessions`, absolute lifetime) whether or not it has a row.
+
+| Column | Type | Notes |
+|---|---|---|
+| `id` | bigserial PK | internal |
+| `public_id` | varchar(32) NOT NULL UNIQUE | the API `id`: random (`secrets.token_urlsafe(12)`), unrelated to the cookie and its `sid` |
+| `sid` | varchar(64) NOT NULL UNIQUE | the session's `sid` claim (never returned by the API) |
+| `user_id` | integer NOT NULL → `users(id)` ON DELETE CASCADE, indexed | |
+| `token_version` | integer NOT NULL | the cookie's `tv`; a row whose value differs from the user's is dead |
+| `created_at` | timestamptz NOT NULL | sign-in time (the cookie's `at`, kept across renewals) |
+| `last_seen_at` | timestamptz NULL, indexed | last request (app clock) |
+| `ip` | varchar(64) NULL | client address of that request (`netmon.api.deps.client_ip`, the audit-log rule) |
+| `user_agent` | varchar(256) NULL | User-Agent of that request (non-printable characters removed, truncated) |
+
+- **Written** by the session authentication of every HTTP request (`current_user`), at most once per minute per
+  session: an in-memory throttle per `sid`, and the upsert itself only updates a row whose `last_seen_at` is a
+  minute old or more. The first write of a `sid` inserts the row (also for a session issued before migration 0014)
+  unless the `sid` is revoked. WebSocket and API token requests never write.
+- **Listed / deletable** while alive: `token_version` = the user's, `created_at` within `session_max_age_h`
+  (AD / OIDC: 12 h), `last_seen_at` within 12 h + 2 min (the cookie lifetime), `sid` not revoked; the current
+  session always.
+- **Removed**: the row of a session ended by logout or by `DELETE /api/auth/sessions/{id}`; all rows of the user on
+  logout everywhere; dead rows of a user when one of their sessions is first recorded; at start, rows idle longer
+  than 31 days and rows whose `token_version` is outdated.
+
+## [premium] Migration (`0014`)
+File `backend/netmon/migrations/versions/0014_sessions.py`, `revision = "0014"`, `down_revision = "0013"`. Plain DDL,
+identical in TimescaleDB and plain PostgreSQL mode, idempotent. `upgrade()`: `CREATE TABLE user_sessions` and its
+two indexes; no data is changed and no session is signed out. `downgrade()`: drops the table (every session keeps
+working; only the list is lost).
+
+## [premium] Migration (`0013`)
+File `backend/netmon/migrations/versions/0013_premium.py`, `revision = "0013"`, `down_revision = "0012"` (the
+number may change when another `0013` is merged first: the id is written only in that file; tests read the head
+from the migration scripts). Plain DDL, identical in TimescaleDB and plain PostgreSQL mode, idempotent.
+`upgrade()`: `CREATE TABLE port_kind_overrides`; `ALTER TABLE topology_neighbors ADD COLUMN capabilities text[]`.
+`downgrade()`: drops both (the overrides are lost; 1.4.2 does not use them).
+
+The 1.4.2 start-up check for the secrets-at-rest form and `netmon secrets remove-plaintext` accept any revision at
+or after `0012` (they compared with `0012` exactly).

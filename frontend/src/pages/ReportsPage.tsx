@@ -1,7 +1,7 @@
 import { useAiFeature } from '../components/assistant/common';
 import { useEffect, useMemo, useState, type FormEvent } from 'react';
 import { keepPreviousData, useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { Link, useNavigate } from 'react-router-dom';
+import { Link, useNavigate } from 'react-router';
 import { useTranslation } from 'react-i18next';
 import { endpoints, qk } from '../api/endpoints';
 import { endpoints3, qk3 } from '../api/endpoints3';
@@ -9,12 +9,19 @@ import type { Language } from '../api/types';
 import type { Report, ReportRun, ReportRunStatus, ReportSchedule } from '../api/types3';
 import { REPORT_SCHEDULES, REPORT_SECTIONS } from '../api/types3';
 import { DevicePicker, useDeviceNames } from '../components/Dependency';
-import { ChevronIcon, EditIcon, PlayIcon, PlusIcon, TrashIcon } from '../components/icons';
+import {
+  ChevronIcon,
+  EditIcon,
+  PlayIcon,
+  PlusIcon,
+  ReportIcon,
+  TrashIcon,
+} from '../components/icons';
+import { ActionRow, EmptyState } from '../components/kit';
 import { Pagination } from '../components/Pagination';
 import { useToast } from '../components/toast';
 import {
   Button,
-  Card,
   Checkbox,
   ConfirmDialog,
   cx,
@@ -22,21 +29,22 @@ import {
   ErrorBox,
   Field,
   FieldGroup,
+  GroupList,
+  GroupTitle,
   Input,
   Loading,
   Modal,
   PageHeader,
   Select,
-  Table,
+  TAG,
+  TAG_TONE,
   Textarea,
-  td,
-  th,
 } from '../components/ui';
 import { useAuth } from '../hooks/auth';
 import { FeatureOffNotice, useFeatures } from '../hooks/features';
 import { useLiveMessages } from '../hooks/live';
 import { useTree } from '../hooks/queries';
-import { formatDateTime } from '../lib/format';
+import { formatDateTime, formatShortDate } from '../lib/format';
 import {
   dateToIso,
   defaultPeriod,
@@ -56,12 +64,11 @@ export function RunStatusBadge({ status }: { status: ReportRunStatus }) {
   return (
     <span
       className={cx(
-        'rounded px-1.5 py-0.5 text-xs font-medium',
-        status === 'ok' && 'bg-green-100 text-green-800 dark:bg-green-900/40 dark:text-green-200',
-        status === 'partial' &&
-          'bg-amber-100 text-amber-800 dark:bg-amber-900/40 dark:text-amber-200',
-        status === 'failed' && 'bg-red-100 text-red-800 dark:bg-red-900/40 dark:text-red-200',
-        status === 'running' && 'bg-sky-100 text-sky-800 dark:bg-sky-900/40 dark:text-sky-200',
+        TAG,
+        status === 'ok' && TAG_TONE.up,
+        status === 'partial' && TAG_TONE.warning,
+        status === 'failed' && TAG_TONE.down,
+        status === 'running' && TAG_TONE.accent,
       )}
     >
       {t(`reports.status.${status}`)}
@@ -140,7 +147,7 @@ function ScopeEditor({ form, set }: { form: ReportForm; set: (p: Partial<ReportF
   return (
     <FieldGroup label={t('reports.scope')} hint={t('reports.scopeHint')}>
       <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-        <div className="max-h-40 space-y-1 overflow-y-auto rounded-md p-2 ring-1 ring-inset ring-slate-200 dark:ring-slate-700">
+        <div className="max-h-40 space-y-1 overflow-y-auto rounded-md p-2 ring-1 ring-inset ring-line">
           {groups.map(({ group, depth }) => (
             <div key={group.id} style={{ paddingInlineStart: depth * 12 }}>
               <Checkbox
@@ -181,13 +188,13 @@ function ScopeEditor({ form, set }: { form: ReportForm; set: (p: Partial<ReportF
             {form.scope_device_ids.map((id) => (
               <span
                 key={id}
-                className="inline-flex items-center gap-1 rounded bg-slate-100 px-1.5 py-0.5 text-xs dark:bg-slate-800"
+                className="inline-flex items-center gap-1 rounded bg-surface-sunken px-1.5 py-0.5 text-xs"
               >
                 {deviceName(id) ?? `#${id}`}
                 <button
                   type="button"
                   aria-label={t('common.delete')}
-                  className="text-slate-500 hover:text-red-600"
+                  className="text-ink-muted hover:text-status-down"
                   onClick={() =>
                     set({ scope_device_ids: form.scope_device_ids.filter((x) => x !== id) })
                   }
@@ -368,7 +375,7 @@ function ReportModal({
                 />
               ))}
               {channels.data && !channels.data.items.length && (
-                <p className="text-xs text-slate-500">{t('reports.noChannels')}</p>
+                <p className="text-xs text-ink-muted">{t('reports.noChannels')}</p>
               )}
             </div>
           </FieldGroup>
@@ -376,7 +383,7 @@ function ReportModal({
         {aiOn && (
           <div>
             <Checkbox label={t('reports.aiSummary')} checked={aiSummary} onChange={setAiSummary} />
-            <p className="ms-6 mt-0.5 text-xs text-slate-500">{t('reports.aiSummaryHint')}</p>
+            <p className="ms-6 mt-0.5 text-xs text-ink-muted">{t('reports.aiSummaryHint')}</p>
           </div>
         )}
         <Checkbox
@@ -385,7 +392,7 @@ function ReportModal({
           onChange={(v) => set({ enabled: v })}
         />
         {touched && errs.length > 0 && (
-          <ul className="text-xs text-red-600">
+          <ul className="text-xs text-status-down">
             {errs.map((e) => (
               <li key={e}>{t(e)}</li>
             ))}
@@ -462,7 +469,7 @@ function RunModal({ report, onClose }: { report: Report | null; onClose: () => v
             <Input type="date" value={end} onChange={(e) => setEnd(e.target.value)} dir="ltr" />
           </Field>
         </div>
-        {err && <p className="text-xs text-red-600">{t(err)}</p>}
+        {err && <p className="text-xs text-status-down">{t(err)}</p>}
         <Checkbox label={t('reports.sendToRecipients')} checked={send} onChange={setSend} />
         <ErrorBox error={m.error} />
       </div>
@@ -479,28 +486,55 @@ export function DeliveriesCell({ run }: { run: ReportRun }) {
   });
   const name = (id: number) => channels.data?.items.find((c) => c.id === id)?.name;
   if (!run.deliveries.length)
-    return <span className="text-xs text-slate-500">{t('reports.notSent')}</span>;
+    return <span className="text-[13px] text-ink-muted">{t('reports.notSent')}</span>;
   return (
-    <ul className="space-y-0.5 text-xs">
+    <ul className="m-0 flex list-none flex-wrap gap-x-3 gap-y-0.5 p-0 text-[13px]">
       {run.deliveries.map((d, i) => (
         <li
           key={i}
-          className={d.ok ? 'text-green-700 dark:text-green-400' : 'text-red-600'}
+          className={d.ok ? 'text-status-up' : 'text-status-down'}
           title={d.error ?? undefined}
         >
           {d.ok ? '✓' : '✗'} <bdi dir="ltr">{deliveryLabel(d.target, name)}</bdi>
-          {d.error && <span className="ms-1 text-slate-500">— {d.error}</span>}
+          {d.error && <span className="ms-1 text-ink-muted">— {d.error}</span>}
         </li>
       ))}
     </ul>
   );
 }
 
-function RunsCard() {
+const RUN_DOT: Record<ReportRunStatus, string> = {
+  ok: 'bg-status-up',
+  partial: 'bg-status-warning',
+  failed: 'bg-status-down',
+  running: 'bg-accent motion-safe:animate-pulse',
+};
+
+/** "2–8 Nov · sent" style line of a run: period, then what happened to its deliveries. */
+function useRunLine() {
+  const { t } = useTranslation();
+  return (r: ReportRun) => {
+    const sent = r.deliveries.filter((d) => d.ok).length;
+    const outcome =
+      r.status === 'running'
+        ? t('reports.status.running')
+        : r.status === 'failed'
+          ? t('reports.status.failed')
+          : !r.deliveries.length
+            ? t('reports.notSent')
+            : sent === r.deliveries.length
+              ? t('reports.delivery.sent')
+              : t('reports.delivery.partial', { ok: sent, total: r.deliveries.length });
+    return `${formatShortDate(r.period_start)} – ${formatShortDate(r.period_end, true)} · ${outcome}`;
+  };
+}
+
+function RunsList() {
   const { t } = useTranslation();
   const { isAdmin } = useAuth();
   const qc = useQueryClient();
   const toast = useToast();
+  const line = useRunLine();
   const [page, setPage] = useState(1);
   const q = useQuery({
     queryKey: qk3.reportRuns({ page }),
@@ -515,61 +549,47 @@ function RunsCard() {
     },
   });
   return (
-    <Card title={t('reports.runs')} bodyClassName="p-0">
+    <section aria-labelledby="report-runs">
+      <GroupTitle id="report-runs">{t('reports.runs')}</GroupTitle>
       {q.isLoading && <Loading />}
-      <ErrorBox error={q.error ?? resend.error} className="m-3" />
-      {q.data && !q.data.items.length && <Empty>{t('reports.noRuns')}</Empty>}
+      <ErrorBox error={q.error ?? resend.error} className="mb-3" />
+      {q.data && !q.data.items.length && (
+        <div className="rounded-xl bg-surface shadow-card">
+          <Empty>{t('reports.noRuns')}</Empty>
+        </div>
+      )}
       {q.data && q.data.items.length > 0 && (
         <>
-          <Table>
-            <thead>
-              <tr>
-                <th className={th}>{t('reports.report')}</th>
-                <th className={th}>{t('reports.period')}</th>
-                <th className={th}>{t('reports.trigger')}</th>
-                <th className={th}>{t('common.status')}</th>
-                <th className={th}>{t('reports.deliveries')}</th>
-                <th className={th} />
-              </tr>
-            </thead>
-            <tbody>
-              {q.data.items.map((r) => (
-                <tr key={r.id}>
-                  <td className={td}>
-                    <Link
-                      to={`/reports/runs/${r.id}`}
-                      className="font-medium text-sky-700 hover:underline dark:text-sky-400"
-                    >
-                      {r.report_name}
-                    </Link>
-                    <div className="text-xs text-slate-500">{formatDateTime(r.started_at)}</div>
-                  </td>
-                  <td className={`${td} text-xs`}>
-                    {formatDateTime(r.period_start)} – {formatDateTime(r.period_end)}
-                  </td>
-                  <td className={td}>
+          <GroupList label={t('reports.runs')}>
+            {q.data.items.map((r) => (
+              <ActionRow
+                key={r.id}
+                testId="report-run-row"
+                to={`/reports/runs/${r.id}`}
+                dot={RUN_DOT[r.status]}
+                title={<bdi dir="auto">{r.report_name}</bdi>}
+                subtitle={
+                  <span
+                    title={`${formatDateTime(r.period_start)} – ${formatDateTime(r.period_end)}`}
+                  >
+                    {line(r)}
+                    {' · '}
                     {t(`reports.triggers.${r.trigger}`)}
-                    {r.created_by && (
-                      <span className="ms-1 text-xs text-slate-500">({r.created_by})</span>
-                    )}
-                  </td>
-                  <td className={td}>
-                    <RunStatusBadge status={r.status} />
-                  </td>
-                  <td className={td}>
-                    <DeliveriesCell run={r} />
-                  </td>
-                  <td className={`${td} text-end`}>
-                    {isAdmin && r.deliveries.some((d) => !d.ok) && r.status !== 'running' && (
-                      <Button size="sm" busy={resend.isPending} onClick={() => resend.mutate(r.id)}>
-                        {t('reports.resendFailed')}
-                      </Button>
-                    )}
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </Table>
+                    {r.created_by && <> ({r.created_by})</>}
+                  </span>
+                }
+                end={
+                  isAdmin &&
+                  r.deliveries.some((d) => !d.ok) &&
+                  r.status !== 'running' && (
+                    <Button size="sm" busy={resend.isPending} onClick={() => resend.mutate(r.id)}>
+                      {t('reports.resendFailed')}
+                    </Button>
+                  )
+                }
+              />
+            ))}
+          </GroupList>
           <Pagination
             page={page}
             pageSize={q.data.page_size}
@@ -578,7 +598,7 @@ function RunsCard() {
           />
         </>
       )}
-    </Card>
+    </section>
   );
 }
 
@@ -607,9 +627,10 @@ export function ReportsPage() {
     },
   });
   return (
-    <div className="space-y-4">
+    <div>
       <PageHeader
         title={t('reports.title')}
+        subtitle={t('reports.subtitle')}
         actions={
           on &&
           isAdmin && (
@@ -621,60 +642,56 @@ export function ReportsPage() {
       />
       {!on && <FeatureOffNotice feature="reports" />}
       {on && (
-        <>
-          <Card title={t('reports.definitions')} bodyClassName="p-0">
+        // prototype .two.even: definitions and runs side by side
+        <div className="grid grid-cols-1 items-start gap-6 lg:grid-cols-2">
+          <section aria-labelledby="report-defs">
+            <GroupTitle id="report-defs">{t('reports.definitions')}</GroupTitle>
             {q.isLoading && <Loading />}
-            <ErrorBox error={q.error} className="m-3" />
-            {q.data && !q.data.items.length && <Empty>{t('reports.empty')}</Empty>}
+            <ErrorBox error={q.error} className="mb-3" />
+            {q.data && !q.data.items.length && (
+              <div className="rounded-xl bg-surface shadow-card">
+                <EmptyState icon={ReportIcon} title={t('reports.empty')} />
+              </div>
+            )}
             {q.data && q.data.items.length > 0 && (
-              <Table>
-                <thead>
-                  <tr>
-                    <th className={th}>{t('common.name')}</th>
-                    <th className={th}>{t('reports.schedule')}</th>
-                    <th className={th}>{t('reports.nextRun')}</th>
-                    <th className={th}>{t('reports.lastRun')}</th>
-                    <th className={th}>{t('reports.recipients')}</th>
-                    {isAdmin && <th className={th} />}
-                  </tr>
-                </thead>
-                <tbody>
-                  {q.data.items.map((r) => (
-                    <tr key={r.id} className={r.enabled ? undefined : 'opacity-60'}>
-                      <td className={td}>
-                        <span className="font-medium">{r.name}</span>
-                        <div className="text-xs text-slate-500">
-                          {r.sections.map((s) => t(`reportSection.${s}`)).join(' · ')}
-                        </div>
-                      </td>
-                      <td className={td}>{scheduleText(t, r)}</td>
-                      <td className={td}>
-                        {r.enabled ? formatDateTime(r.next_run_at) : t('reports.disabled')}
-                      </td>
-                      <td className={td}>
-                        {r.last_run ? (
-                          <Link
-                            to={`/reports/runs/${r.last_run.id}`}
-                            className="inline-flex items-center gap-1"
-                          >
-                            <RunStatusBadge status={r.last_run.status} />
-                            <span className="text-xs text-slate-500">
-                              {formatDateTime(r.last_run.finished_at)}
-                            </span>
-                          </Link>
-                        ) : (
-                          '—'
-                        )}
-                      </td>
-                      <td className={`${td} text-xs`}>
+              <GroupList label={t('reports.definitions')}>
+                {q.data.items.map((r) => (
+                  <ActionRow
+                    key={r.id}
+                    testId="report-row"
+                    wrap
+                    dim={!r.enabled}
+                    icon={<ReportIcon size={18} />}
+                    onClick={isAdmin ? () => setEditing(r) : undefined}
+                    title={<bdi dir="auto">{r.name}</bdi>}
+                    subtitle={
+                      <>
+                        {r.enabled ? scheduleText(t, r) : t('reports.disabled')}
+                        {' · '}
                         {t('reports.recipientsCount', {
                           emails: r.email_to.length,
                           channels: r.channel_ids.length,
                         })}
-                      </td>
-                      {isAdmin && (
-                        <td className={`${td} text-end`}>
-                          <span className="inline-flex gap-1">
+                        {r.enabled && r.next_run_at && (
+                          <>
+                            {' · '}
+                            {t('reports.nextRun')}: {formatDateTime(r.next_run_at)}
+                          </>
+                        )}
+                      </>
+                    }
+                    end={
+                      <>
+                        {r.last_run && (
+                          <Link
+                            to={`/reports/runs/${r.last_run.id}`}
+                            title={`${t('reports.lastRun')}: ${formatDateTime(r.last_run.finished_at)}`}
+                          >
+                            <RunStatusBadge status={r.last_run.status} />
+                          </Link>
+                        )}
+                        {isAdmin && (
+                          <>
                             <Button size="sm" onClick={() => setRunning(r)}>
                               <PlayIcon size={12} className="rtl:rotate-180" />{' '}
                               {t('reports.runNow')}
@@ -695,17 +712,17 @@ export function ReportsPage() {
                             >
                               <TrashIcon size={14} />
                             </Button>
-                          </span>
-                        </td>
-                      )}
-                    </tr>
-                  ))}
-                </tbody>
-              </Table>
+                          </>
+                        )}
+                      </>
+                    }
+                  />
+                ))}
+              </GroupList>
             )}
-          </Card>
-          <RunsCard />
-        </>
+          </section>
+          <RunsList />
+        </div>
       )}
       <ReportModal
         open={editing !== undefined}

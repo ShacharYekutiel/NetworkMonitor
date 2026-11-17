@@ -38,6 +38,33 @@ _MAC_TEXT = re.compile(
 )
 
 
+# [premium] system capabilities, normalised names (data-model "Connected device kind").
+# LLDP-MIB LldpSystemCapabilitiesMap (BITS, bit 0 = most significant bit of the first octet)
+LLDP_CAPS = (
+    "other",
+    "repeater",
+    "bridge",
+    "wlan_ap",
+    "router",
+    "telephone",
+    "docsis",
+    "station",
+    "cvlan",
+    "svlan",
+    "tpmr",
+)
+# CISCO-CDP-MIB cdpCacheCapabilities: 4 octets, big-endian bit mask
+CDP_CAPS = (
+    (0x01, "router"),
+    (0x02, "bridge"),  # transparent bridge
+    (0x04, "bridge"),  # source-route bridge
+    (0x08, "bridge"),  # switch
+    (0x10, "station"),  # host
+    (0x40, "repeater"),
+    (0x80, "telephone"),
+)
+
+
 # ------------------------------------------------------------------ pure helpers
 def _bytes(v: Any) -> bytes:
     if v is None:
@@ -101,6 +128,26 @@ def normalize_id(value: Any, subtype: int | None, kind: str = "chassis") -> str:
     return ("0x" + b.hex())[:255]
 
 
+def lldp_capabilities(value: Any) -> list[str]:
+    """lldpRemSysCapEnabled / Supported (BITS as octets) -> sorted capability names."""
+    b = _bytes(value) if isinstance(value, bytes) else b""
+    out = {
+        name
+        for i, name in enumerate(LLDP_CAPS)
+        if i // 8 < len(b) and b[i // 8] & (0x80 >> (i % 8))
+    }
+    return sorted(out)
+
+
+def cdp_capabilities(value: Any) -> list[str]:
+    """cdpCacheCapabilities (4 octets) -> sorted capability names."""
+    b = _bytes(value) if isinstance(value, bytes) else b""
+    if not b or len(b) > 4:
+        return []
+    mask = int.from_bytes(b, "big")
+    return sorted({name for bit, name in CDP_CAPS if mask & bit})
+
+
 def _int(v: Any) -> int | None:
     if isinstance(v, bool):
         return None
@@ -151,6 +198,7 @@ class Remote:
     sys_name: str
     sys_descr: str
     mgmt_addresses: list[str] = field(default_factory=list)
+    capabilities: list[str] = field(default_factory=list)  # [premium] lldp_capabilities()
 
 
 @dataclass
@@ -161,6 +209,7 @@ class CdpEntry:
     device_port: str
     platform: str
     address: str | None
+    capabilities: list[str] = field(default_factory=list)  # [premium] cdp_capabilities()
 
 
 @dataclass
@@ -252,6 +301,8 @@ def parse_remotes(rem_rows: dict[str, Any], man_rows: dict[str, Any]) -> list[Re
                 sys_name=_text(col(9)),
                 sys_descr=_text(col(10))[:1000],
                 mgmt_addresses=v4 + v6,
+                # [premium] enabled capabilities (column 12), else supported (11); same walk
+                capabilities=lldp_capabilities(col(12)) or lldp_capabilities(col(11)),
             )
         )
     return out
@@ -280,6 +331,7 @@ def parse_cdp(rows: dict[str, Any]) -> list[CdpEntry]:
                 device_port=_text(cols.get(7, {}).get(idx)),
                 platform=_text(cols.get(8, {}).get(idx)),
                 address=addr,
+                capabilities=cdp_capabilities(cols.get(9, {}).get(idx)),  # [premium]
             )
         )
     return out

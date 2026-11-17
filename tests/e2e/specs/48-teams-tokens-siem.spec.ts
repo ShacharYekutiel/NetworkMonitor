@@ -31,7 +31,7 @@ test.describe('Teams', () => {
     await teamsStatus(202);
     await clearTeams();
     expect((await raw(admin, 'POST', '/api/notification-channels', { name: 'x', type: 'teams', enabled: true, config: { url: 'http://localhost/x' } })).status).toBe(422);
-    const legacy = await admin.post('/api/notification-channels', { name: `qa48-legacy-${marker()}`, type: 'teams', enabled: false, config: { url: 'https://mnidom.webhook.office.com/webhookb2/abc' } });
+    const legacy = await admin.post('/api/notification-channels', { name: `qa48-legacy-${marker()}`, type: 'teams', enabled: false, config: { url: 'https://example.webhook.office.com/webhookb2/abc' } });
     expect(legacy.config).toMatchObject({ url: null, url_set: true, legacy: true });
     await admin.del(`/api/notification-channels/${legacy.id}`);
     ch = await admin.post('/api/notification-channels', { name: `qa48-teams-${marker()}`, type: 'teams', enabled: true, config: { url: TEAMS_URL } });
