@@ -49,7 +49,7 @@ export function SourceCell({
       <Link
         to={`/devices/${r.device_id}`}
         onClick={(e) => e.stopPropagation()}
-        className="text-accent-ink hover:underline"
+        className="font-display text-ink hover:underline"
         title={r.source_ip}
       >
         <bdi dir="auto">{r.device_name ?? `#${r.device_id}`}</bdi>

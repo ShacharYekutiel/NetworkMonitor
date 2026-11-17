@@ -138,7 +138,7 @@ test('the main pages run under the CSP without a single violation', async ({ bro
     ['/account', 'My account'],
     ['/discovery', 'Discovery'],
     ['/reports', 'Reports'],
-    ['/logs', /Traps|Syslog/],
+    ['/logs', /Logs|Traps|Syslog/],
     ['/flows', /flows/i],
     ['/config-backups', /backups/i],
     ['/new-devices', 'New devices'],
