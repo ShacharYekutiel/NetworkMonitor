@@ -336,12 +336,18 @@ def time_range(
     max_days: float,
     default: timedelta = timedelta(hours=24),
 ) -> tuple[datetime, datetime]:
-    u = parse_time(until, "until") or now
+    given = parse_time(until, "until")
+    u = given or now
     s = parse_time(since, "since") or (u - default)
     if s > u:
         raise ToolError("invalid_arguments", "since must be before until")
     if u - s > timedelta(days=max_days):
         raise ToolError("range_too_large", f"the range is longer than {max_days:g} days")
+    if given is not None and given.microsecond == 0:
+        # The prompt states "Now" to the second and the model passes it back as `until`; rows
+        # are stored with sub-second times, so an end given to the second covers that whole
+        # second (otherwise a message received in the same second as "Now" is cut off).
+        u = given + timedelta(microseconds=999_999)
     return s, u
 
 
