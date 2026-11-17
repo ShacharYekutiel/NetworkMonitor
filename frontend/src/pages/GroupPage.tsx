@@ -188,17 +188,7 @@ export function GroupPage() {
             <ErrorBox error={devices.error} />
             {devices.data && !devices.data.items.length && (
               <Card>
-                <EmptyState
-                  icon={FolderIcon}
-                  title={t('devices.none')}
-                  actions={
-                    isAdmin && (
-                      <Button variant="primary" onClick={() => setAddDevice(true)}>
-                        <PlusIcon size={14} /> {t('devices.add')}
-                      </Button>
-                    )
-                  }
-                />
+                <EmptyState icon={FolderIcon} title={t('devices.none')} />
               </Card>
             )}
             {devices.data && devices.data.items.length > 0 && (
@@ -248,7 +238,7 @@ export function GroupPage() {
           actions={
             isAdmin && (
               <Button size="sm" onClick={() => setEditing(true)}>
-                <EditIcon size={13} /> {t('common.edit')}
+                <EditIcon size={13} /> {t('groups.editDependency')}
               </Button>
             )
           }

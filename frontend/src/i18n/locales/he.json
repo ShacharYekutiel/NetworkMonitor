@@ -202,7 +202,8 @@
       "unreachable_other": "{{count}} לא נגישים"
     },
     "dependsOn": "תלוי ב",
-    "maintenance": "תחזוקה"
+    "maintenance": "תחזוקה",
+    "editDependency": "עריכת תלות"
   },
   "devices": {
     "add": "הוספת התקן",

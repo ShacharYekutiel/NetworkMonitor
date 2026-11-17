@@ -193,7 +193,8 @@
       "unreachable_other": "{{count}} unreachable"
     },
     "dependsOn": "Depends on",
-    "maintenance": "Maintenance"
+    "maintenance": "Maintenance",
+    "editDependency": "Edit dependency"
   },
   "devices": {
     "add": "Add device",
