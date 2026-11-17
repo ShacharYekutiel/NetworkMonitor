@@ -6,13 +6,14 @@ import { Card, cx } from '../ui';
 import { FeatureToggleList } from './FeatureToggle';
 import { cardAnchor } from '../../lib/settingsIndex';
 import { AI_FEATURES } from '../../api/types';
-import { useAssistantStatus } from '../assistant/common';
+import { useAssistantStatus, useStatusLineText } from '../assistant/common';
 
 /** [3b] state / idle reason / status line of an assistant feature (GET /api/assistant/status). */
 function AiStatusLine({ name }: { name: FeatureName }) {
   const { t } = useTranslation();
   const isAi = name === 'assistant' || (AI_FEATURES as readonly string[]).includes(name);
   const st = useAssistantStatus(isAi);
+  const statusText = useStatusLineText();
   if (!isAi || !st.data) return null;
   if (name === 'assistant')
     return <span className="text-xs text-ink-muted">{t(`assistant.state.${st.data.state}`)}</span>;
@@ -20,7 +21,9 @@ function AiStatusLine({ name }: { name: FeatureName }) {
   if (!f) return null;
   if (f.idle_reason)
     return <span className="text-xs text-status-warning">{t('assistant.idleShort')}</span>;
-  return f.status_line ? <span className="text-xs text-ink-muted">{f.status_line}</span> : null;
+  return f.status_line ? (
+    <span className="text-xs text-ink-muted">{statusText(f.status_line)}</span>
+  ) : null;
 }
 
 /** Read-only row of a feature switched in its own tab: name, on/off and a link to that tab. */

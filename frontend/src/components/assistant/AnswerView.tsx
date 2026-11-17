@@ -1,7 +1,7 @@
-import { useMemo, useState, type MouseEvent } from 'react';
+import { useMemo, useState, type MouseEvent, type ReactNode } from 'react';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { useTranslation } from 'react-i18next';
-import { useNavigate } from 'react-router';
+import { Link, useNavigate } from 'react-router';
 import { endpoints3b, qk3b } from '../../api/endpoints3b';
 import type { AssistantMessage, AssistantSource, AssistantStep } from '../../api/types';
 import {
@@ -9,16 +9,40 @@ import {
   compactTokens,
   copyableMarkdown,
   formatCost,
+  friendlyModelName,
   isRetryable,
   kbSourceUrl,
   nmRoute,
   type LiveAnswer,
 } from '../../lib/assistant';
 import { renderAnswer } from '../../lib/markdown';
-import { CheckIcon, ChevronIcon, StopIcon, ThumbIcon, XIcon } from '../icons';
+import {
+  AlertIcon,
+  BackupIcon,
+  CheckIcon,
+  ChevronIcon,
+  ClockIcon,
+  CopyIcon,
+  DeviceIcon,
+  FlowIcon,
+  FolderIcon,
+  IncidentIcon,
+  LayersIcon,
+  LogsIcon,
+  MapIcon,
+  PortIcon,
+  SensorIcon,
+  SparkIcon,
+  StopIcon,
+  ThumbIcon,
+  WrenchIcon,
+  XIcon,
+} from '../icons';
+import { useAuth } from '../../hooks/auth';
+import { AiTag, Banner } from '../kit';
 import { useToast } from '../toast';
-import { BANNER, BANNER_TONE, Button, cx, Spinner, Textarea } from '../ui';
-import { AiBadge, useAssistantErrorText } from './common';
+import { Button, buttonClass, cx, Spinner, Textarea } from '../ui';
+import { useAssistantErrorText } from './common';
 
 /** Safe Markdown of an AI text; internal links navigate inside the SPA. */
 export function Markdown({
@@ -62,24 +86,25 @@ function StepRow({ s }: { s: AssistantStep }) {
   const label = t(s.label_key, { defaultValue: t('assistant.tool.generic', { tool: s.tool }) });
   const hasArgs = Object.keys(s.args ?? {}).length > 0;
   return (
-    <li className="text-xs" data-testid="tool-step" data-tool={s.tool} data-state={s.state}>
+    <li className="text-[13px]" data-testid="tool-step" data-tool={s.tool} data-state={s.state}>
+      {/* prototype .tstep: ✓ (or a spinner), the step, rows · ms at the end */}
       <button
         type="button"
         onClick={() => setOpen((o) => !o)}
         disabled={!hasArgs}
         aria-expanded={hasArgs ? open : undefined}
-        className="flex w-full items-center gap-1.5 text-start text-ink-muted disabled:cursor-default"
+        className="flex w-full items-center gap-2 text-start text-ink-muted disabled:cursor-default"
       >
         {s.state === 'running' ? (
-          <Spinner className="h-3 w-3" />
+          <Spinner className="h-[15px] w-[15px] text-ink-subtle" />
         ) : s.ok ? (
-          <CheckIcon size={12} className="text-status-up" />
+          <CheckIcon size={15} className="shrink-0 text-status-up" />
         ) : (
-          <XIcon size={12} className="text-status-down" />
+          <XIcon size={15} className="shrink-0 text-status-down" />
         )}
-        <span>{label}</span>
+        <span className="min-w-0">{label}</span>
         {s.state === 'done' && (
-          <span className="text-ink-subtle">
+          <span className="num ms-auto text-xs text-ink-subtle [unicode-bidi:plaintext]">
             {s.ok
               ? t('assistant.stepDone', { rows: s.rows ?? 0, ms: s.ms ?? 0 })
               : t('assistant.stepFailed', { error: s.error ?? '' })}
@@ -88,15 +113,19 @@ function StepRow({ s }: { s: AssistantStep }) {
         )}
         {hasArgs && (
           <ChevronIcon
-            size={11}
-            className={cx('ms-auto transition-transform', open ? 'rotate-90' : 'rtl:rotate-180')}
+            size={12}
+            className={cx(
+              'shrink-0 text-ink-subtle transition-transform',
+              s.state !== 'done' && 'ms-auto',
+              open ? 'rotate-90' : 'rtl:rotate-180',
+            )}
           />
         )}
       </button>
       {open && hasArgs && (
         <code
           dir="ltr"
-          className="mt-0.5 block whitespace-pre-wrap break-all rounded-sm border border-line bg-surface-sunken px-2 py-1 font-mono text-[11px]"
+          className="mt-1 block whitespace-pre-wrap break-all rounded-[10px] bg-chip px-2.5 py-1.5 font-mono text-[11.5px]"
         >
           {argsSummary(s.args, 2000)}
         </code>
@@ -109,7 +138,7 @@ function StepRow({ s }: { s: AssistantStep }) {
 export function ToolSteps({ steps }: { steps: AssistantStep[] }) {
   if (!steps.length) return null;
   return (
-    <ul className="space-y-0.5 border-s-2 border-line ps-2">
+    <ul className="m-0 grid list-none gap-1 p-0">
       {steps.map((s) => (
         <StepRow key={s.call_id} s={s} />
       ))}
@@ -117,44 +146,76 @@ export function ToolSteps({ steps }: { steps: AssistantStep[] }) {
   );
 }
 
+const SOURCE_ICON: Record<string, IconC> = {
+  device: DeviceIcon,
+  sensor: SensorIcon,
+  group: FolderIcon,
+  port: PortIcon,
+  event: ClockIcon,
+  syslog: LogsIcon,
+  trap: LogsIcon,
+  maintenance: WrenchIcon,
+  config: BackupIcon,
+  'config-diff': BackupIcon,
+  topology: MapIcon,
+  incident: IncidentIcon,
+  flows: FlowIcon,
+  kb: LayersIcon,
+};
+type IconC = (p: { size?: number; className?: string }) => ReactNode;
+
+/** Source chips under an answer (prototype .srcs / .src): number, kind icon, label. */
 function Sources({ sources }: { sources: AssistantSource[] }) {
   const { t } = useTranslation();
   const navigate = useNavigate();
   if (!sources.length) return null;
+  const chip =
+    'inline-flex h-[30px] max-w-full items-center gap-[7px] rounded-full bg-surface pe-3 ps-2.5 text-[13px] font-medium text-ink no-underline shadow-[0_1px_2px_rgba(0,0,0,0.06),0_0_0_1px_var(--border)]';
   return (
-    <div className="text-xs" data-testid="answer-sources">
-      <span className="font-medium text-ink-muted">{t('assistant.sources')}:</span>{' '}
+    <div className="flex flex-wrap gap-2" data-testid="answer-sources">
+      <span className="sr-only">{t('assistant.sources')}:</span>
       {sources.map((s, i) => {
         const route = s.ref.startsWith('kb/') ? null : nmRoute(s.ref);
         const ext = s.ref.startsWith('kb/') ? kbSourceUrl(s.ref, sources) : null;
-        return (
-          <span key={s.ref}>
-            {i > 0 && ' · '}
-            {route ? (
-              <a
-                href={route}
-                onClick={(e) => {
-                  e.preventDefault();
-                  navigate(route);
-                }}
-                className="text-accent-ink hover:underline"
-              >
-                {s.label}
-              </a>
-            ) : ext ? (
-              <a
-                href={ext}
-                target="_blank"
-                rel="noopener noreferrer nofollow"
-                className="text-accent-ink hover:underline"
-              >
-                {s.label}
-              </a>
-            ) : (
-              <span dir="auto" className="text-ink-muted">
-                {s.label}
-                {s.url && <bdi dir="ltr"> ({s.url.split('/').pop()})</bdi>}
-              </span>
+        const Icon = SOURCE_ICON[s.ref.slice(0, s.ref.indexOf('/'))] ?? SparkIcon;
+        const inner = (
+          <>
+            <i className="num text-[11px] font-semibold not-italic text-ink-subtle">{i + 1}</i>
+            <Icon size={15} className="shrink-0 text-ink-muted" />
+            <bdi dir="auto" className="truncate">
+              {s.label}
+            </bdi>
+          </>
+        );
+        return route ? (
+          <a
+            key={s.ref}
+            href={route}
+            onClick={(e) => {
+              e.preventDefault();
+              navigate(route);
+            }}
+            className={cx(chip, 'hover:bg-surface-hover')}
+          >
+            {inner}
+          </a>
+        ) : ext ? (
+          <a
+            key={s.ref}
+            href={ext}
+            target="_blank"
+            rel="noopener noreferrer nofollow"
+            className={cx(chip, 'hover:bg-surface-hover')}
+          >
+            {inner}
+          </a>
+        ) : (
+          <span key={s.ref} className={cx(chip, 'text-ink-muted')}>
+            {inner}
+            {s.url && (
+              <bdi dir="ltr" className="text-ink-subtle">
+                ({s.url.split('/').pop()})
+              </bdi>
             )}
           </span>
         );
@@ -182,31 +243,29 @@ function Feedback({ m }: { m: AssistantMessage }) {
     setAsking(next === -1);
   };
   return (
-    <span className="inline-flex flex-wrap items-center gap-1">
-      <Button
-        size="sm"
-        variant="ghost"
+    <span className="inline-flex flex-wrap items-center gap-1.5">
+      <button
+        type="button"
         aria-pressed={m.feedback === 1}
         aria-label={t('assistant.thumbsUp')}
         title={t('assistant.thumbsUp')}
         onClick={() => rate(1)}
-        className={m.feedback === 1 ? 'text-status-up' : ''}
+        className={cx(ROUND, m.feedback === 1 && ROUND_ON)}
         disabled={mut.isPending}
       >
-        <ThumbIcon size={14} />
-      </Button>
-      <Button
-        size="sm"
-        variant="ghost"
+        <ThumbIcon size={16} />
+      </button>
+      <button
+        type="button"
         aria-pressed={m.feedback === -1}
         aria-label={t('assistant.thumbsDown')}
         title={t('assistant.thumbsDown')}
         onClick={() => rate(-1)}
-        className={m.feedback === -1 ? 'text-status-down' : ''}
+        className={cx(ROUND, m.feedback === -1 && ROUND_ON)}
         disabled={mut.isPending}
       >
-        <ThumbIcon size={14} className="rotate-180" />
-      </Button>
+        <ThumbIcon size={16} className="rotate-180" />
+      </button>
       {asking && (
         <span className="flex w-full items-end gap-1">
           <Textarea
@@ -230,14 +289,17 @@ function Feedback({ m }: { m: AssistantMessage }) {
   );
 }
 
-/** Footer: model, tokens, ≈ cost, duration. */
+/** Round 30px icon buttons of the answer footer (prototype .ameta .round, .thumbs .round.on). */
+const ROUND =
+  'inline-flex h-[30px] w-[30px] items-center justify-center rounded-full text-ink-muted transition-colors hover:bg-chip hover:text-ink disabled:opacity-50';
+const ROUND_ON = '!bg-accent !text-accent-on';
+
+/** Footer: tokens, ≈ cost, duration (the model is named on the answer's first line). */
 function MetaLine({ m }: { m: AssistantMessage }) {
   const { t } = useTranslation();
   const tokens = m.usage.input_tokens + m.usage.output_tokens;
   return (
-    <span className="text-[11px] text-ink-subtle" data-testid="answer-meta">
-      {m.model_id && <bdi dir="ltr">{m.model_id}</bdi>}
-      {' · '}
+    <span className="num text-[12.5px] text-ink-subtle" data-testid="answer-meta">
       {t('assistant.tokens', { n: compactTokens(tokens) })}
       {m.cost_estimate !== null && (
         <>
@@ -256,8 +318,9 @@ function MetaLine({ m }: { m: AssistantMessage }) {
 }
 
 /**
- * One assistant answer: dimmed notes of tool rounds, tool steps, the Markdown answer (live while
- * streaming), notices, error with Retry, sources, Copy, feedback, meta line.
+ * One assistant answer (prototype .msg.ai): "AI ✦ model" line, dimmed notes of tool rounds, tool
+ * steps, the Markdown answer (live while streaming), notices, error with Retry, source chips, and
+ * the footer (fine print, tokens, copy, feedback).
  */
 export function AnswerBlock({
   live,
@@ -266,6 +329,8 @@ export function AnswerBlock({
   onStop,
   onRetry,
   compact,
+  feedback,
+  modelName,
 }: {
   live?: LiveAnswer | null;
   message?: AssistantMessage | null;
@@ -273,9 +338,14 @@ export function AnswerBlock({
   onStop?: () => void;
   onRetry?: () => void;
   compact?: boolean;
+  /** compact, but with 👍/👎 (the Explain panel) */
+  feedback?: boolean;
+  /** the model's readable name while no stored message names it yet */
+  modelName?: string | null;
 }) {
   const { t } = useTranslation();
   const toast = useToast();
+  const { isAdmin } = useAuth();
   const errText = useAssistantErrorText();
   const final = message ?? live?.final ?? null;
   const notes = final?.notes ?? live?.notes ?? [];
@@ -287,6 +357,7 @@ export function AnswerBlock({
     ? final.notices.map((c) => ({ code: c, message: '' }))
     : (live?.notices ?? []);
   const isRunning = !!running && !final;
+  const model = final?.model_id ? friendlyModelName(final.model_id) : modelName;
   const copy = async () => {
     if (!final) return;
     try {
@@ -299,18 +370,45 @@ export function AnswerBlock({
     }
   };
   return (
-    <div className="space-y-2" data-testid="answer" data-status={final?.status ?? 'running'}>
+    <div
+      className={cx(
+        'grid gap-3',
+        compact ? 'text-[15px] leading-[1.6]' : 'text-[15.5px] leading-[1.7]',
+      )}
+      data-testid="answer"
+      data-status={final?.status ?? 'running'}
+    >
+      {!compact && (
+        <div className="flex items-center gap-2 text-[13px] text-ink-muted">
+          <AiTag />
+          {model && (
+            <bdi dir="ltr" title={final?.model_id ?? undefined}>
+              {model}
+            </bdi>
+          )}
+        </div>
+      )}
       {notes.map((n) => (
         <div key={n.round} className="opacity-60" data-testid="round-note">
-          <Markdown text={n.text} allowedRefs={allowed} sources={final?.sources} />
+          <Markdown
+            text={n.text}
+            allowedRefs={allowed}
+            sources={final?.sources}
+            className="!text-[14px]"
+          />
         </div>
       ))}
       <ToolSteps steps={steps} />
       {text ? (
-        <Markdown text={text} allowedRefs={allowed} sources={final?.sources} />
+        <Markdown
+          text={text}
+          allowedRefs={allowed}
+          sources={final?.sources}
+          className="!text-[length:inherit] !leading-[inherit]"
+        />
       ) : (
         isRunning && (
-          <p className="flex items-center gap-2 text-sm text-ink-muted">
+          <p className="m-0 flex items-center gap-2 text-sm text-ink-muted">
             <Spinner className="h-4 w-4" /> {t('assistant.thinking')}
           </p>
         )
@@ -318,49 +416,77 @@ export function AnswerBlock({
       {notices.map((n, i) => (
         <p
           key={i}
-          className={cx(BANNER, BANNER_TONE.warning, 'py-1.5 text-xs')}
+          className={cx(
+            'm-0 flex items-center gap-2.5 rounded-[14px] px-3.5 py-2.5 text-sm',
+            n.code === 'retrying' ? 'bg-chip text-ink-muted' : 'bg-status-warning-soft text-ink',
+          )}
           data-testid="answer-notice"
         >
+          {n.code === 'retrying' && isRunning ? (
+            <Spinner className="h-4 w-4 shrink-0" />
+          ) : (
+            <AlertIcon size={16} className="shrink-0 text-status-warning" />
+          )}
           {t(`assistant.notice.${n.code}`, { defaultValue: n.message || n.code })}
         </p>
       ))}
       {final?.status === 'cancelled' && (
-        <p className="text-xs text-ink-muted">{t('assistant.cancelled')}</p>
+        <p className="m-0 flex items-center gap-2.5 rounded-[14px] bg-chip px-3.5 py-2.5 text-sm text-ink-muted">
+          <StopIcon size={14} className="shrink-0" />
+          {t('assistant.cancelled')}
+        </p>
       )}
       {error && (
-        <div
-          role="alert"
-          className={cx(BANNER, BANNER_TONE.error, 'flex flex-wrap items-center gap-2')}
-          data-testid="answer-error"
-          data-code={error.code}
-        >
-          <span className="flex-1">{errText(error)}</span>
-          {onRetry && isRetryable(error.code) && !isRunning && (
-            <Button size="sm" onClick={onRetry}>
-              {t('common.retry')}
-            </Button>
-          )}
+        <div data-testid="answer-error" data-code={error.code}>
+          <Banner
+            tone="down"
+            title={t('assistant.answerFailed')}
+            actions={
+              <>
+                {onRetry && isRetryable(error.code) && !isRunning && (
+                  <Button size="sm" onClick={onRetry}>
+                    {t('common.retry')}
+                  </Button>
+                )}
+                {isAdmin && !isRetryable(error.code) && (
+                  <Link to="/settings?tab=assistant" className={buttonClass('secondary', 'sm')}>
+                    {t('assistant.toSettings')}
+                  </Link>
+                )}
+              </>
+            }
+          >
+            {errText(error)}
+          </Banner>
         </div>
       )}
       {final && <Sources sources={final.sources} />}
-      <div className="flex flex-wrap items-center gap-2">
+      <div className="flex flex-wrap items-center gap-1.5 text-[12.5px] text-ink-subtle">
         {isRunning && onStop && (
           <Button size="sm" onClick={onStop} data-testid="stop">
             <StopIcon size={12} /> {t('assistant.stop')}
           </Button>
         )}
-        {final && final.content && !compact && (
-          <Button size="sm" variant="ghost" onClick={() => void copy()}>
-            {t('assistant.copy')}
-          </Button>
-        )}
-        {final && !compact && <Feedback m={final} />}
         {final && (
-          <span className="ms-auto inline-flex items-center gap-1">
-            <AiBadge />
+          <>
+            {!compact && <span data-testid="ai-notice">{t('assistant.aiShort')}</span>}
+            {!compact && <span aria-hidden="true">·</span>}
             <MetaLine m={final} />
-          </span>
+          </>
         )}
+        <span className="flex-1" />
+        {final && final.content && !compact && (
+          <button
+            type="button"
+            className={ROUND}
+            onClick={() => void copy()}
+            aria-label={t('assistant.copy')}
+            title={t('assistant.copy')}
+          >
+            <CopyIcon size={16} />
+          </button>
+        )}
+        {final && (!compact || feedback) && <Feedback m={final} />}
       </div>
     </div>
   );
@@ -370,6 +496,7 @@ export function AnswerBlock({
 export function PreStreamErrorBox({
   error,
   onAttach,
+  onRetry,
 }: {
   error: {
     code: string;
@@ -378,6 +505,8 @@ export function PreStreamErrorBox({
     details: Record<string, unknown>[];
   } | null;
   onAttach?: (messageId: number) => void;
+  /** offered for the busy / throttled errors */
+  onRetry?: () => void;
 }) {
   const { t } = useTranslation();
   if (!error) return null;
@@ -391,24 +520,36 @@ export function PreStreamErrorBox({
     });
   const runningId =
     error.code === 'assistant_busy' && typeof d.message_id === 'number' ? d.message_id : null;
+  const busy = error.code === 'assistant_busy' || error.code === 'bedrock_throttled';
+  const cap = error.code === 'assistant_cap_reached';
   return (
-    <div className="space-y-1" data-testid="prestream-error" data-code={error.code}>
-      <div
-        role="alert"
-        className={cx(BANNER, BANNER_TONE.error, 'flex flex-wrap items-center gap-2')}
-      >
-        <span className="flex-1">
-          {error.code === 'assistant_busy' && error.status === 429
+    <div data-testid="prestream-error" data-code={error.code}>
+      <Banner
+        tone={busy || cap ? 'warn' : 'down'}
+        title={
+          error.code === 'assistant_busy' && error.status === 429
             ? t('errors.assistant_busy_global')
-            : t(`errors.${error.code}`, { defaultValue: error.message || error.code })}
-          {extra && ` ${extra}`}
-        </span>
-        {runningId !== null && onAttach && (
-          <Button size="sm" onClick={() => onAttach(runningId)}>
-            {t('assistant.showRunning')}
-          </Button>
-        )}
-      </div>
+            : t(`errors.${error.code}`, { defaultValue: error.message || error.code })
+        }
+        actions={
+          (runningId !== null && onAttach) || (busy && runningId === null && onRetry) ? (
+            <>
+              {runningId !== null && onAttach && (
+                <Button size="sm" onClick={() => onAttach(runningId)}>
+                  {t('assistant.showRunning')}
+                </Button>
+              )}
+              {busy && runningId === null && onRetry && (
+                <Button size="sm" onClick={onRetry}>
+                  {t('common.retry')}
+                </Button>
+              )}
+            </>
+          ) : undefined
+        }
+      >
+        {extra || undefined}
+      </Banner>
     </div>
   );
 }

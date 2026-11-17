@@ -27,15 +27,33 @@ function WallBadge({ status }: { status: string }) {
   return (
     <span
       className={cx(
-        'inline-flex h-8 shrink-0 items-center gap-1.5 whitespace-nowrap rounded-sm px-2.5 text-lg font-semibold',
+        'inline-flex h-8 shrink-0 items-center gap-1.5 whitespace-nowrap rounded-full px-3 text-base font-semibold',
         statusClass(status, STATUS_SOFT),
       )}
     >
-      <StatusGlyph status={status} size={16} />
+      <StatusGlyph status={status} size={15} />
       {t(`status.${status}`)}
     </span>
   );
 }
+
+/** The glowing status dot of a wall row (prototype .wall .lst i). */
+function GlowDot({ status }: { status: string }) {
+  return (
+    <i
+      aria-hidden="true"
+      className={cx(
+        'h-3.5 w-3.5 shrink-0 rounded-full shadow-[0_0_14px_currentColor]',
+        STATUS_DOT[status as Status] ?? STATUS_DOT.unknown,
+        STATUS_TEXT[status],
+      )}
+    />
+  );
+}
+
+/** A wall row (prototype .wall .lst div): a 22px-radius card, dot, bold line, the duration at the end. */
+const WALL_ROW =
+  'grid grid-cols-[auto_minmax(0,1fr)_auto] items-center gap-4 rounded-[22px] bg-surface px-[22px] py-[18px] text-[20px]';
 
 const STATUS_TEXT: Record<string, string> = {
   up: 'text-status-up',
@@ -189,32 +207,25 @@ function Kpi({
   status: Status;
   hot?: boolean;
 }) {
+  // prototype .wall .nums: a 26px-radius tile, a 72px Inter number in the status colour when it
+  // counts something wrong (or the healthy count), the word under it
   return (
-    <div className={cx('min-w-0 px-5 pb-4 pt-4', hot ? SOFT_BG[status] : 'bg-surface')}>
-      <div className="flex items-center gap-2.5 text-lg font-medium text-ink-muted">
-        <span className={cx('h-3 w-3 shrink-0 rounded-full', STATUS_DOT[status])} />
-        <span className="truncate">{label}</span>
-      </div>
+    <div className="grid min-w-0 gap-1 rounded-[26px] bg-surface px-[26px] py-[22px]">
       <div
         className={cx(
-          'mt-2 font-display text-[64px] font-semibold leading-none tabular-nums',
-          hot ? STATUS_TEXT[status] : value ? 'text-ink' : 'text-ink-subtle',
+          'num text-[72px] font-medium leading-none tracking-[-0.04em] tabular-nums',
+          hot || (status === 'up' && value > 0) ? STATUS_TEXT[status] : 'text-ink',
         )}
       >
         {value}
       </div>
+      <div className="flex items-center gap-2 text-lg text-ink-muted">
+        <span className={cx('h-2.5 w-2.5 shrink-0 rounded-full', STATUS_DOT[status])} />
+        <span className="truncate">{label}</span>
+      </div>
     </div>
   );
 }
-
-const SOFT_BG: Record<Status, string> = {
-  up: 'bg-status-up-soft',
-  warning: 'bg-status-warning-soft',
-  down: 'bg-status-down-soft',
-  unreachable: 'bg-status-unreachable-soft',
-  unknown: 'bg-status-unknown-soft',
-  paused: 'bg-status-paused-soft',
-};
 
 function Panel({
   title,
@@ -226,11 +237,9 @@ function Panel({
   className?: string;
 }) {
   return (
-    <section className={cx('min-w-0 rounded-xl bg-surface shadow-card', className)}>
-      <h2 className="flex min-h-[56px] items-center border-b border-line px-5 text-xl font-semibold">
-        {title}
-      </h2>
-      <div className="p-5">{children}</div>
+    <section className={cx('min-w-0', className)}>
+      <h2 className="mx-1.5 mb-3 text-[22px] font-semibold text-ink-muted">{title}</h2>
+      {children}
     </section>
   );
 }
@@ -239,10 +248,7 @@ function Summary({ s }: { s: NonNullable<KioskView['summary']> }) {
   const { t } = useTranslation();
   const c: StatusCounts = s.device_counts;
   return (
-    <div
-      className="grid grid-cols-2 gap-px overflow-hidden rounded-lg border border-line bg-line md:grid-cols-3 xl:grid-cols-6"
-      data-testid="kiosk-kpis"
-    >
+    <div className="grid grid-cols-2 gap-4 md:grid-cols-3 xl:grid-cols-6" data-testid="kiosk-kpis">
       <Kpi label={t('noc.devicesUp')} value={c.up} status="up" />
       <Kpi
         label={t('noc.devicesDown')}
@@ -340,23 +346,28 @@ function Widget({ w, v, now }: { w: KioskWidget; v: KioskView; now: number }) {
       return (
         <Panel title={t('noc.downDevices', { n: v.down_devices?.length ?? 0 })}>
           {!v.down_devices?.length ? (
-            <p className="text-2xl text-status-up">{t('noc.allUp')}</p>
+            <p className={cx(WALL_ROW, 'block text-status-up')}>{t('noc.allUp')}</p>
           ) : (
-            <ul className="space-y-2">
+            <ul className="m-0 grid list-none gap-3 p-0">
               {v.down_devices.map((d) => (
-                <li key={d.id} className="flex flex-wrap items-center gap-x-3">
-                  <WallBadge status={d.status} />
-                  <span className="text-2xl font-semibold">{d.name}</span>
-                  {d.host && (
-                    <bdi dir="ltr" className="font-mono text-lg text-ink-subtle">
-                      {d.host}
-                    </bdi>
-                  )}
-                  <span className="text-ink-subtle">{d.group}</span>
-                  <span className={cx('ms-auto font-mono tabular-nums', STATUS_TEXT[d.status])}>
-                    {since(d.since, now)}
+                <li key={d.id} className={WALL_ROW}>
+                  <GlowDot status={d.status} />
+                  <span className="flex min-w-0 flex-wrap items-baseline gap-x-3">
+                    <b className="font-display font-semibold">{d.name}</b>
+                    {d.host && (
+                      <bdi dir="ltr" className="font-display text-lg text-ink-muted">
+                        {d.host}
+                      </bdi>
+                    )}
+                    <span className="text-lg text-ink-muted">{d.group}</span>
+                    <span className="sr-only">{t(`status.${d.status}`)}</span>
                   </span>
-                  {d.acknowledged && <span className="text-ack">✓ {t('noc.ack')}</span>}
+                  <span className="flex items-center gap-3">
+                    {d.acknowledged && <span className="text-lg text-ack">✓ {t('noc.ack')}</span>}
+                    <span className="num text-lg font-medium tabular-nums text-ink-muted">
+                      {since(d.since, now)}
+                    </span>
+                  </span>
                 </li>
               ))}
             </ul>
@@ -367,24 +378,21 @@ function Widget({ w, v, now }: { w: KioskWidget; v: KioskView; now: number }) {
       return (
         <Panel title={t('noc.problems', { n: v.problems?.length ?? 0 })}>
           {!v.problems?.length ? (
-            <p className="text-2xl text-status-up">{t('noc.noProblems')}</p>
+            <p className={cx(WALL_ROW, 'block text-status-up')}>{t('noc.noProblems')}</p>
           ) : (
-            <ul className="space-y-1.5">
+            <ul className="m-0 grid list-none gap-3 p-0">
               {v.problems.map((p) => (
-                <li
-                  key={p.sensor_id}
-                  className={cx(
-                    'flex flex-wrap items-center gap-x-3',
-                    p.acknowledged && 'opacity-60',
-                  )}
-                >
-                  <WallBadge status={p.status} />
-                  <span className="font-semibold">{p.device_name}</span>
-                  <span className="text-ink-subtle">{p.sensor_name}</span>
-                  <bdi dir="auto" className="min-w-0 truncate text-ink-subtle">
-                    {p.message}
-                  </bdi>
-                  <span className="ms-auto font-mono tabular-nums text-ink-subtle">
+                <li key={p.sensor_id} className={cx(WALL_ROW, p.acknowledged && 'opacity-60')}>
+                  <GlowDot status={p.status} />
+                  <span className="flex min-w-0 items-baseline gap-x-3">
+                    <b className="shrink-0 font-display font-semibold">{p.device_name}</b>
+                    <span className="shrink-0 font-semibold">· {p.sensor_name}</span>
+                    <bdi dir="auto" className="min-w-0 truncate text-lg text-ink-muted">
+                      {p.message}
+                    </bdi>
+                    <span className="sr-only">{t(`status.${p.status}`)}</span>
+                  </span>
+                  <span className="num text-lg font-medium tabular-nums text-ink-muted">
                     {since(p.since, now)}
                   </span>
                 </li>
@@ -396,17 +404,18 @@ function Widget({ w, v, now }: { w: KioskWidget; v: KioskView; now: number }) {
     case 'recent_alerts':
       return (
         <Panel title={t('noc.recentAlerts')}>
-          <ul className="space-y-1">
+          <ul className="m-0 grid list-none gap-0 overflow-hidden rounded-[22px] bg-surface p-0 [&>li+li]:border-t [&>li+li]:border-line">
             {(v.recent_alerts ?? []).map((a, i) => (
-              <li key={i} className="flex flex-wrap items-baseline gap-x-3">
-                <span className="font-mono tabular-nums text-ink-subtle">
+              <li key={i} className="flex flex-wrap items-center gap-x-3 px-[22px] py-3">
+                <span className="num tabular-nums text-ink-muted">
                   {new Intl.DateTimeFormat(undefined, {
                     timeStyle: 'short',
                     timeZone: v.timezone,
                   }).format(new Date(a.time))}
                 </span>
-                <span className="font-medium">{a.device_name}</span>
-                <span className="text-ink-subtle">{a.sensor_name}</span>
+                <span className="font-display font-medium">{a.device_name}</span>
+                <span className="text-ink-muted">{a.sensor_name}</span>
+                <span className="flex-1" />
                 {a.new_status && <WallBadge status={a.new_status} />}
               </li>
             ))}
@@ -417,14 +426,14 @@ function Widget({ w, v, now }: { w: KioskWidget; v: KioskView; now: number }) {
       return (
         <div className="grid grid-cols-2 gap-4 md:grid-cols-4 xl:grid-cols-6">
           {(v.group_tiles ?? []).map((g) => (
-            <div key={g.id} className="rounded-xl bg-surface shadow-card p-4">
+            <div key={g.id} className="rounded-[22px] bg-surface p-5">
               <div className="flex items-center gap-2">
                 <span className="truncate text-xl font-semibold">{g.name}</span>
               </div>
               <div className="mt-2">
                 <WallBadge status={g.status} />
               </div>
-              <div className="mt-3 flex gap-4 font-display text-[28px] font-semibold leading-none tabular-nums">
+              <div className="num mt-3 flex gap-4 text-[28px] font-medium leading-none tabular-nums">
                 <span className="text-status-up" title={t('status.up')}>
                   {g.counts.up}
                 </span>
@@ -442,7 +451,9 @@ function Widget({ w, v, now }: { w: KioskWidget; v: KioskView; now: number }) {
     case 'map':
       return v.map ? (
         <Panel title={t('noc.map')}>
-          <MapPanel map={v.map} />
+          <div className="rounded-[22px] bg-surface p-5">
+            <MapPanel map={v.map} />
+          </div>
         </Panel>
       ) : null;
   }
@@ -468,13 +479,22 @@ export function KioskPage() {
     else void document.documentElement.requestFullscreen?.();
   };
   const widgets = v ? visibleWidgets(v) : [];
-  const half = (w: KioskWidget) =>
-    w === 'problems' || w === 'recent_alerts' || w === 'down_devices';
+  // prototype: the incident list runs the full width; the device and alert lists share a row
+  const half = (w: KioskWidget) => w === 'recent_alerts' || w === 'down_devices';
+  // a half-width widget shares its row only with a neighbouring half-width one (the screen's own
+  // order decides the pairs); alone it takes the full width
+  const pairs = new Set<number>();
+  for (let i = 0; i < widgets.length - 1; i++)
+    if (!pairs.has(i) && half(widgets[i]) && half(widgets[i + 1])) {
+      pairs.add(i);
+      pairs.add(i + 1);
+    }
+  const paired = (i: number) => pairs.has(i);
   return (
     <div
       // Always dark (wall screens): the dark tokens are scoped with data-theme.
       data-theme="dark"
-      className="min-h-screen bg-bg p-6 text-[20px] text-ink"
+      className="min-h-screen bg-black px-11 py-[34px] text-[20px] text-ink max-sm:p-5"
       data-testid="kiosk"
       onDoubleClick={toggleFs}
     >
@@ -484,17 +504,10 @@ export function KioskPage() {
         className="fixed end-0 top-0 h-8 w-8 opacity-0 focus:opacity-100"
         aria-label={t('noc.fullscreen')}
       />
-      <header className="mb-5 flex flex-wrap items-baseline gap-4">
-        <span className="self-center">
-          <Mark size={32} />
-        </span>
-        <h1 className="text-3xl font-semibold">{v?.screen.name ?? 'NetworkMonitor'}</h1>
-        <span className="ms-auto font-display text-5xl font-semibold tabular-nums">
-          {new Intl.DateTimeFormat(undefined, {
-            timeStyle: 'medium',
-            timeZone: v?.timezone,
-          }).format(new Date(now))}
-        </span>
+      <header className="mb-[26px] flex flex-wrap items-center gap-4">
+        <Mark size={32} />
+        <h1 className="m-0 text-[34px] font-semibold">{v?.screen.name ?? 'NetworkMonitor'}</h1>
+        <span className="flex-1" />
         {st.lastOk && (
           <span className="text-base text-ink-subtle">
             {t('noc.updated', {
@@ -505,6 +518,15 @@ export function KioskPage() {
             })}
           </span>
         )}
+        <span
+          dir="ltr"
+          className="num text-[64px] font-light leading-none tracking-[-0.03em] tabular-nums max-sm:text-[40px]"
+        >
+          {new Intl.DateTimeFormat(undefined, {
+            timeStyle: 'medium',
+            timeZone: v?.timezone,
+          }).format(new Date(now))}
+        </span>
       </header>
       {!token && <p className="mt-24 text-center text-3xl text-ink-subtle">{t('noc.noToken')}</p>}
       {token && st.notFound && (
@@ -521,15 +543,15 @@ export function KioskPage() {
       {stale && !st.notFound && (
         <div
           role="alert"
-          className="mb-4 rounded-lg border-s-4 border-status-warning bg-status-warning-soft px-4 py-3 text-xl text-ink"
+          className="mb-5 rounded-[22px] bg-status-warning-soft px-[22px] py-4 text-xl text-ink"
         >
           {t('noc.stale')}
         </div>
       )}
       {v && !st.notFound && (
-        <div className="grid grid-cols-1 gap-5 xl:grid-cols-2">
-          {widgets.map((w) => (
-            <div key={w} className={half(w) ? '' : 'xl:col-span-2'}>
+        <div className="grid grid-cols-1 gap-[26px] xl:grid-cols-2">
+          {widgets.map((w, i) => (
+            <div key={w} className={paired(i) ? '' : 'xl:col-span-2'}>
               <Widget w={w} v={v} now={now} />
             </div>
           ))}

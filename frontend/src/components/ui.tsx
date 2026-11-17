@@ -784,7 +784,12 @@ export function KeyValue({
       {items.map((it, i) => (
         <div key={i} className="contents" data-testid={it.testId}>
           <dt className="text-ink-muted">{it.k}</dt>
-          <dd className="m-0 min-w-0 break-words text-end [unicode-bidi:plaintext]">{it.v}</dd>
+          {/* the value keeps its own direction (bdi) but lines up with the page's end edge:
+              `unicode-bidi: plaintext` on the dd aligned LTR values (IPs, dates) to the other side
+              in Hebrew */}
+          <dd className="m-0 min-w-0 break-words text-end">
+            <bdi>{it.v}</bdi>
+          </dd>
         </div>
       ))}
     </dl>

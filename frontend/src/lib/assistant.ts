@@ -639,3 +639,29 @@ export function monthDays(month: string, byDay: UsageReport['by_day']): UsageRep
   for (const d of byDay) if (!d.day.startsWith(month)) out.push(d);
   return out;
 }
+
+// --- [premium slice 6] capability status lines ----------------------------------------------
+
+/**
+ * The capability status lines of GET /api/assistant/status come from the server in English
+ * ("2 open incidents", "Last digest 2026-11-16: ok", "Last note skipped: no_channel"): the known
+ * shapes as an i18n key with its values, so the cards speak the user's language. Unknown lines →
+ * null (shown as sent).
+ */
+export type StatusLineParts =
+  | { kind: 'incidents'; count: number }
+  | { kind: 'digest'; day: string; status: string; reason: string | null }
+  | { kind: 'noteSent' }
+  | { kind: 'noteSkipped'; reason: string };
+
+export function parseStatusLine(line: string): StatusLineParts | null {
+  const s = line.trim();
+  let m = /^(\d+) open incidents?$/.exec(s);
+  if (m) return { kind: 'incidents', count: Number(m[1]) };
+  m = /^Last digest (\S+): ([a-z_]+)(?: \(([^)]*)\))?$/.exec(s);
+  if (m) return { kind: 'digest', day: m[1], status: m[2], reason: m[3] ?? null };
+  if (s === 'Last note sent') return { kind: 'noteSent' };
+  m = /^Last note skipped: (.+)$/.exec(s);
+  if (m) return { kind: 'noteSkipped', reason: m[1] };
+  return null;
+}

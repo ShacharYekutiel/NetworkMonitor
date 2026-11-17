@@ -6,8 +6,9 @@ import { endpoints3 } from '../api/endpoints3';
 import { parseError } from '../api/client';
 import type { User } from '../api/types';
 import { useAuth } from '../hooks/auth';
-import { Button, buttonClass, cx, ErrorBox, Field, Input, Spinner } from '../components/ui';
-import { AuthShell } from './AuthShell';
+import { Button, ErrorBox, Field, Input, Spinner } from '../components/ui';
+import { DesktopIcon } from '../components/icons';
+import { AUTH_SSO, AUTH_WIDE, AuthOr, AuthShell } from './AuthShell';
 import { useFeatures } from '../hooks/features';
 import { parseLogin } from '../lib/ldap';
 import { readSkip, safeNext, shouldAutoKerberos, ssoErrorFromSearch, writeSkip } from '../lib/sso';
@@ -104,7 +105,7 @@ export function LoginPage() {
       {ssoError && (
         <div
           role="alert"
-          className="mb-4 rounded-lg border-s-2 border-status-down bg-status-down-soft px-3.5 py-2.5 text-sm text-ink"
+          className="mb-4 rounded-lg bg-status-down-soft px-4 py-3 text-sm text-ink"
           data-testid="sso-error"
         >
           {t(`sso.error.${ssoError}`)}
@@ -120,7 +121,7 @@ export function LoginPage() {
         </p>
       )}
       {krb === 'ntlm' && (
-        <div className="mb-4 rounded-lg border-s-2 border-status-warning bg-status-warning-soft px-3.5 py-2.5 text-sm text-ink">
+        <div className="mb-4 rounded-lg bg-status-warning-soft px-4 py-3 text-sm text-ink">
           <p>{t('sso.error.sso_ntlm')}</p>
           {krbMessage && (
             <p className="mt-1 text-xs" dir="auto">
@@ -133,23 +134,25 @@ export function LoginPage() {
         <p className="mb-4 text-sm text-status-down">{t('sso.kerberosFailed')}</p>
       )}
       {(sso.kerberos || sso.oidc) && (
-        <div className="mb-4 space-y-2">
+        <div className="mb-4 grid gap-3">
           {sso.kerberos && (
-            <Button
-              className="h-10 w-full"
-              busy={krb === 'trying'}
+            <button
+              type="button"
+              className={AUTH_SSO}
+              disabled={krb === 'trying'}
               onClick={() => void kerberos(true)}
               data-testid="kerberos-button"
             >
+              {krb === 'trying' ? (
+                <Spinner className="h-4 w-4" />
+              ) : (
+                <DesktopIcon size={18} strokeWidth={1.8} />
+              )}
               {t('sso.kerberosButton')}
-            </Button>
+            </button>
           )}
           {sso.oidc && (
-            <a
-              href={oidcHref}
-              className={cx(buttonClass(), 'h-10 w-full no-underline hover:no-underline')}
-              data-testid="oidc-button"
-            >
+            <a href={oidcHref} className={AUTH_SSO} data-testid="oidc-button">
               <svg width="14" height="14" viewBox="0 0 21 21" aria-hidden="true">
                 <rect x="1" y="1" width="9" height="9" fill="#f25022" />
                 <rect x="11" y="1" width="9" height="9" fill="#7fba00" />
@@ -159,11 +162,7 @@ export function LoginPage() {
               {sso.oidc.button_label || t('sso.oidcButton')}
             </a>
           )}
-          <div className="flex items-center gap-3 pt-2 text-xs text-ink-subtle">
-            <span className="h-px flex-1 bg-line" />
-            {t('sso.or')}
-            <span className="h-px flex-1 bg-line" />
-          </div>
+          <AuthOr>{t('sso.or')}</AuthOr>
         </div>
       )}
       <form onSubmit={submit} className="space-y-4">
@@ -176,6 +175,7 @@ export function LoginPage() {
             required
             maxLength={256}
             dir="ltr"
+            className="h-11"
           />
         </Field>
         {ad && (
@@ -197,10 +197,11 @@ export function LoginPage() {
             required
             maxLength={1024}
             dir="ltr"
+            className="h-11"
           />
         </Field>
         <ErrorBox error={error} />
-        <Button type="submit" variant="primary" className="h-10 w-full" busy={busy}>
+        <Button type="submit" variant="primary" className={AUTH_WIDE} busy={busy}>
           {t('login.submit')}
         </Button>
       </form>

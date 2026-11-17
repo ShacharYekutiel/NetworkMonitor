@@ -126,7 +126,7 @@
   },
   "login": {
     "title": "Sign in",
-    "subtitle": "Sign in to monitor your network.",
+    "subtitle": "Sign in to see what is happening on the network.",
     "username": "Username",
     "password": "Password",
     "submit": "Sign in",
@@ -134,8 +134,7 @@
     "foreignDomain": "\"{{domain}}\" is not this directory's domain. Use {{netbios}}\\user or your local user name."
   },
   "setup": {
-    "title": "Welcome to NetworkMonitor",
-    "subtitle": "Let's create the administrator account.",
+    "subtitle": "Two steps and you are in.",
     "stepLanguage": "Language",
     "stepAdmin": "Administrator",
     "language": "Interface and notification language",
@@ -144,7 +143,11 @@
     "email": "Email (optional)",
     "password": "Password",
     "confirmPassword": "Confirm password",
-    "submit": "Create administrator"
+    "submit": "Create administrator",
+    "welcome": "Welcome to",
+    "titleAdmin": "Create the administrator",
+    "steps": "Setup steps",
+    "title": "Welcome to NetworkMonitor"
   },
   "dashboard": {
     "title": "Dashboard",
@@ -584,7 +587,10 @@
     "durH_one": "{{count}}h",
     "durH_other": "{{count}}h",
     "durM_one": "{{count}}m",
-    "durM_other": "{{count}}m"
+    "durM_other": "{{count}}m",
+    "colD": "{{count}} d",
+    "colH": "{{count}} h",
+    "colM": "{{count}} min"
   },
   "errors": {
     "bad_request": "The request was invalid.",
@@ -1664,6 +1670,17 @@
       "cdp": "CDP",
       "oui": "MAC vendor",
       "manual": "manual"
+    },
+    "stateFilter": "Port state",
+    "stateChip": {
+      "all": "All",
+      "up": "Connected",
+      "problem": "Problems",
+      "free": "Free"
+    },
+    "lagState": {
+      "down": "LAG down",
+      "degraded": "LAG degraded"
     }
   },
   "health": {
@@ -2503,7 +2520,21 @@
       "template_walk": "SNMP walk for a template",
       "question": "question",
       "conversation_delete": "conversation deleted",
-      "digest": "digest"
+      "digest": "digest",
+      "answer": "answer",
+      "explain_alert": "explain alert",
+      "alert_note": "alert note",
+      "cancel": "stopped",
+      "cert_delete": "certificate deleted",
+      "cert_upload": "certificate uploaded",
+      "csr_create": "CSR created",
+      "csr_delete": "CSR deleted",
+      "diff_explain": "config change explained",
+      "feedback": "feedback",
+      "incident_summary": "incident summary",
+      "kb_test": "knowledge base test",
+      "report_summary": "report summary",
+      "tool_call": "lookup"
     },
     "authVerb": {
       "login": "Signed in",
@@ -3330,7 +3361,8 @@
     "takenOver": "The bot's webhook was deleted.",
     "teamsLimit": "In Teams the Acknowledge button opens NetworkMonitor in your browser; it works from the office network or VPN.",
     "emailHint": "Adds an Acknowledge link that opens NetworkMonitor.",
-    "needsPublicUrl": "Links need the public URL (Settings → General)."
+    "needsPublicUrl": "Links need the public URL (Settings → General).",
+    "commentPlaceholder": "e.g. On it, expected by 11:00"
   },
   "trapCollapse": {
     "title": "Repetitive traps",
@@ -3374,7 +3406,9 @@
     "apply": "Apply",
     "bulkDone_one": "Impact updated for {{count}} sensor.",
     "bulkDone_other": "Impact updated for {{count}} sensors.",
-    "saved": "Impact saved."
+    "saved": "Impact saved.",
+    "selectHint": "Select several sensors to change their impact on the device status at once.",
+    "bulkBar": "Selected sensors"
   },
   "applyPorts": {
     "title": "Ports",
@@ -3823,7 +3857,18 @@
         "duplicate": "This model is already in the list",
         "label": "The display name is too long (60 characters at most)"
       }
-    }
+    },
+    "answerFailed": "The answer failed",
+    "toSettings": "To settings",
+    "aiShort": "AI-generated — may be wrong",
+    "day": {
+      "today": "Today",
+      "yesterday": "Yesterday",
+      "week": "This week",
+      "earlier": "Earlier"
+    },
+    "capTitle": "You reached today’s limit",
+    "capBody": "Your daily questions ({{used}} of {{limit}}). You can ask again tomorrow."
   },
   "explain": {
     "button": "Explain",
@@ -4119,7 +4164,13 @@
     "outputTokens": "Output",
     "unknownModel": "Unknown model",
     "cacheRead": "Input tokens read from the prompt cache",
-    "cached": "cached"
+    "cached": "cached",
+    "backgroundStoppedHint": "Explanations, the syslog digest and incident summaries continue next month or when you raise the cap. Direct questions still work.",
+    "pctOfMonthlyCap": "{{pct}}% of the monthly cap",
+    "ofMonthlyCap": "of the monthly cap",
+    "inOut": "input + output",
+    "noneHint": "When admins ask questions or background features run, the usage shows here.",
+    "loadError": "Could not load the usage data"
   },
   "treeMenu": {
     "label": {
@@ -4176,8 +4227,7 @@
     "requires": "Requires the {{feature}} feature — turn it on in {{tab}}"
   },
   "auth": {
-    "tagline1": "Every port.",
-    "tagline2": "Every signal."
+    "oneLine": "Your whole network. At a glance."
   },
   "island": {
     "ok": "All OK",
@@ -4250,5 +4300,24 @@
   },
   "kit": {
     "aiFine": "Generated by AI — it can be wrong. Check before you act."
+  },
+  "aiStatus": {
+    "openIncidents_zero": "No open incidents",
+    "openIncidents_one": "{{count}} open incident",
+    "openIncidents_two": "{{count}} open incidents",
+    "openIncidents_other": "{{count}} open incidents",
+    "lastDigest": "Last digest {{day}}: {{status}}",
+    "lastDigestReason": "Last digest {{day}}: {{status}} ({{reason}})",
+    "digestStatus": {
+      "ok": "ready",
+      "failed": "failed",
+      "skipped": "skipped"
+    },
+    "noteSent": "Last note sent",
+    "noteSkipped": "Last note skipped: {{reason}}",
+    "reason": {
+      "empty": "empty answer",
+      "feature_off": "the feature is off"
+    }
   }
 }

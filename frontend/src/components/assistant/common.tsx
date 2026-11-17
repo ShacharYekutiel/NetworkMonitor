@@ -4,7 +4,10 @@ import { endpoints3b, qk3b } from '../../api/endpoints3b';
 import type { AiFeatureName, AssistantState } from '../../api/types';
 import { useAuth } from '../../hooks/auth';
 import { useFeatures } from '../../hooks/features';
-import { BANNER, BANNER_TONE, cx, TAG, TAG_TONE } from '../ui';
+import { parseStatusLine } from '../../lib/assistant';
+import { formatShortDate } from '../../lib/format';
+import { SparkIcon } from '../icons';
+import { BANNER, BANNER_TONE, cx } from '../ui';
 
 /** An AI feature's entry points are shown to admins while the feature AND the assistant are ON. */
 export function useAiFeature(name: AiFeatureName): boolean {
@@ -30,8 +33,16 @@ export function useAssistantStatus(enabled = true) {
 export function AiBadge({ className }: { className?: string }) {
   const { t } = useTranslation();
   return (
-    <span className={cx(TAG, TAG_TONE.accent, className)} title={t('assistant.aiGenerated')}>
+    // premium "AI ✦" (prototype .aitag): a quiet chip
+    <span
+      className={cx(
+        'num inline-flex h-[22px] items-center gap-[5px] whitespace-nowrap rounded-[7px] bg-chip px-2 align-middle text-[11.5px] font-semibold tracking-[0.02em] text-ink-muted',
+        className,
+      )}
+      title={t('assistant.aiGenerated')}
+    >
       {t('assistant.ai')}
+      <SparkIcon size={13} />
     </span>
   );
 }
@@ -123,4 +134,32 @@ export function CannotDraftNotice({
       </p>
     </div>
   );
+}
+
+/** A capability's status line in the user's language (see parseStatusLine). */
+export function useStatusLineText() {
+  const { t } = useTranslation();
+  const reason = (r: string) =>
+    t(`aiStatus.reason.${r}`, { defaultValue: t(`errors.${r}`, { defaultValue: r }) });
+  return (line: string): string => {
+    const p = parseStatusLine(line);
+    if (!p) return line;
+    switch (p.kind) {
+      case 'incidents':
+        return t('aiStatus.openIncidents', { count: p.count });
+      case 'digest': {
+        const day = /^\d{4}-\d{2}-\d{2}$/.test(p.day)
+          ? formatShortDate(`${p.day}T12:00:00`)
+          : p.day;
+        const status = t(`aiStatus.digestStatus.${p.status}`, { defaultValue: p.status });
+        return p.reason
+          ? t('aiStatus.lastDigestReason', { day, status, reason: reason(p.reason) })
+          : t('aiStatus.lastDigest', { day, status });
+      }
+      case 'noteSent':
+        return t('aiStatus.noteSent');
+      case 'noteSkipped':
+        return t('aiStatus.noteSkipped', { reason: reason(p.reason) });
+    }
+  };
 }

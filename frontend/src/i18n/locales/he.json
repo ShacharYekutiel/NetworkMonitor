@@ -126,7 +126,7 @@
   },
   "login": {
     "title": "כניסה",
-    "subtitle": "התחברו כדי לנטר את הרשת שלכם.",
+    "subtitle": "התחברו כדי לראות מה קורה ברשת.",
     "username": "שם משתמש",
     "password": "סיסמה",
     "submit": "כניסה",
@@ -134,8 +134,7 @@
     "foreignDomain": "\"{{domain}}\" אינו התחום של הספרייה. השתמשו ב-{{netbios}}\\user או בשם המשתמש המקומי."
   },
   "setup": {
-    "title": "ברוכים הבאים ל-NetworkMonitor",
-    "subtitle": "ניצור עכשיו את חשבון מנהל המערכת.",
+    "subtitle": "שני צעדים ואתם בפנים.",
     "stepLanguage": "שפה",
     "stepAdmin": "מנהל מערכת",
     "language": "שפת הממשק וההתראות",
@@ -144,7 +143,11 @@
     "email": "דוא\"ל (רשות)",
     "password": "סיסמה",
     "confirmPassword": "אימות סיסמה",
-    "submit": "יצירת מנהל מערכת"
+    "submit": "יצירת מנהל מערכת",
+    "welcome": "ברוכים הבאים",
+    "titleAdmin": "יוצרים מנהל",
+    "steps": "שלבי ההתקנה",
+    "title": "ברוכים הבאים ל-NetworkMonitor"
   },
   "dashboard": {
     "title": "לוח בקרה",
@@ -600,7 +603,10 @@
     "durH_other": "{{count}} שע׳",
     "durM_one": "דקה",
     "durM_two": "2 דק׳",
-    "durM_other": "{{count}} דק׳"
+    "durM_other": "{{count}} דק׳",
+    "colD": "{{count}} י׳",
+    "colH": "{{count}} שע׳",
+    "colM": "{{count}} דק׳"
   },
   "errors": {
     "bad_request": "הבקשה אינה תקינה.",
@@ -1698,6 +1704,17 @@
       "cdp": "CDP",
       "oui": "יצרן MAC",
       "manual": "ידני"
+    },
+    "stateFilter": "מצב הפורט",
+    "stateChip": {
+      "all": "הכול",
+      "up": "מחוברים",
+      "problem": "בעיות",
+      "free": "פנויים"
+    },
+    "lagState": {
+      "down": "LAG למטה",
+      "degraded": "LAG פגוע"
     }
   },
   "health": {
@@ -2538,7 +2555,21 @@
       "template_walk": "סריקת SNMP לתבנית",
       "question": "שאלה",
       "conversation_delete": "שיחה נמחקה",
-      "digest": "תקציר"
+      "digest": "תקציר",
+      "answer": "תשובה",
+      "explain_alert": "הסבר התראה",
+      "alert_note": "הערה להתראה",
+      "cancel": "נעצר",
+      "cert_delete": "תעודה נמחקה",
+      "cert_upload": "תעודה הועלתה",
+      "csr_create": "נוצר CSR",
+      "csr_delete": "CSR נמחק",
+      "diff_explain": "הסבר שינוי תצורה",
+      "feedback": "משוב",
+      "incident_summary": "סיכום אירוע מקובץ",
+      "kb_test": "בדיקת מאגר ידע",
+      "report_summary": "סיכום דוח",
+      "tool_call": "שליפה"
     },
     "authVerb": {
       "login": "התחברות",
@@ -3369,7 +3400,8 @@
     "takenOver": "ה-webhook של הבוט נמחק.",
     "teamsLimit": "ב-Teams כפתור אישור הטיפול פותח את NetworkMonitor בדפדפן; הוא עובד מרשת המשרד או דרך VPN.",
     "emailHint": "מוסיף קישור לאישור טיפול שפותח את NetworkMonitor.",
-    "needsPublicUrl": "קישורים דורשים את הכתובת הציבורית (הגדרות ← כללי)."
+    "needsPublicUrl": "קישורים דורשים את הכתובת הציבורית (הגדרות ← כללי).",
+    "commentPlaceholder": "למשל: בטיפול, צפי 11:00"
   },
   "trapCollapse": {
     "title": "מלכודות חוזרות",
@@ -3416,7 +3448,9 @@
     "bulkDone_one": "ההשפעה עודכנה לחיישן אחד.",
     "bulkDone_two": "ההשפעה עודכנה ל-2 חיישנים.",
     "bulkDone_other": "ההשפעה עודכנה ל-{{count}} חיישנים.",
-    "saved": "ההשפעה נשמרה."
+    "saved": "ההשפעה נשמרה.",
+    "selectHint": "סמנו כמה חיישנים כדי לשנות את ההשפעה שלהם על מצב ההתקן בבת אחת.",
+    "bulkBar": "חיישנים שנבחרו"
   },
   "applyPorts": {
     "title": "פורטים",
@@ -3869,7 +3903,18 @@
         "duplicate": "המודל כבר ברשימה",
         "label": "השם לתצוגה ארוך מדי (עד 60 תווים)"
       }
-    }
+    },
+    "answerFailed": "התשובה נכשלה",
+    "toSettings": "להגדרות",
+    "aiShort": "נוצר ע״י AI — ייתכנו טעויות",
+    "day": {
+      "today": "היום",
+      "yesterday": "אתמול",
+      "week": "השבוע",
+      "earlier": "קודם לכן"
+    },
+    "capTitle": "הגעתם לתקרה של היום",
+    "capBody": "השאלות היומיות שלך ({{used}} מתוך {{limit}}). אפשר לשאול שוב מחר."
   },
   "explain": {
     "button": "הסבר",
@@ -4170,7 +4215,13 @@
     "outputTokens": "פלט",
     "unknownModel": "מודל לא ידוע",
     "cacheRead": "טוקני קלט שנקראו ממטמון ההנחיות",
-    "cached": "ממטמון"
+    "cached": "ממטמון",
+    "backgroundStoppedHint": "הסברים, תקציר syslog וסיכומי אירועים ימשיכו בחודש הבא או כשתעלו את התקרה. שאלות ישירות עדיין עובדות.",
+    "pctOfMonthlyCap": "{{pct}}% מהתקרה החודשית",
+    "ofMonthlyCap": "מהתקרה החודשית",
+    "inOut": "קלט + פלט",
+    "noneHint": "כשמנהלים ישאלו שאלות או כשיכולות הרקע ירוצו, השימוש יופיע כאן.",
+    "loadError": "לא ניתן לטעון את נתוני השימוש"
   },
   "treeMenu": {
     "label": {
@@ -4227,8 +4278,7 @@
     "requires": "דורש את התכונה {{feature}} — הפעילו אותה בלשונית {{tab}}"
   },
   "auth": {
-    "tagline1": "כל פורט.",
-    "tagline2": "כל אות."
+    "oneLine": "כל הרשת. במבט אחד."
   },
   "island": {
     "ok": "הכול תקין",
@@ -4307,5 +4357,24 @@
   },
   "kit": {
     "aiFine": "נוצר ע״י AI — ייתכנו טעויות. כדאי לבדוק לפני שפועלים."
+  },
+  "aiStatus": {
+    "openIncidents_zero": "אין אירועים מקובצים פתוחים",
+    "openIncidents_one": "אירוע מקובץ פתוח אחד",
+    "openIncidents_two": "2 אירועים מקובצים פתוחים",
+    "openIncidents_other": "{{count}} אירועים מקובצים פתוחים",
+    "lastDigest": "התקציר האחרון, {{day}}: {{status}}",
+    "lastDigestReason": "התקציר האחרון, {{day}}: {{status}} ({{reason}})",
+    "digestStatus": {
+      "ok": "מוכן",
+      "failed": "נכשל",
+      "skipped": "דולג"
+    },
+    "noteSent": "ההערה האחרונה נשלחה",
+    "noteSkipped": "ההערה האחרונה דולגה: {{reason}}",
+    "reason": {
+      "empty": "תשובה ריקה",
+      "feature_off": "היכולת כבויה"
+    }
   }
 }

@@ -4,6 +4,7 @@ import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { useTranslation } from 'react-i18next';
 import { endpoints, qk } from '../api/endpoints';
 import { SENSOR_IMPACTS, type SensorImpact } from '../api/types';
+import { OptionCard, RADIO } from './kit';
 import { useToast } from './toast';
 import { Button, cx, ErrorBox, FieldGroup, Modal, TAG, TAG_TONE } from './ui';
 
@@ -50,7 +51,7 @@ export function ImpactField({
               value={v}
               checked={value === v}
               onChange={() => onChange(v)}
-              className="h-4 w-4 border-line-strong text-accent-ink"
+              className={RADIO}
             />
             <span className={cx('h-2.5 w-2.5 rounded-full', DOT[v])} aria-hidden="true" />
             <span>{t(`impact.option.${v}`)}</span>
@@ -114,8 +115,20 @@ export function BulkImpactModal({
         </>
       }
     >
-      <div className="space-y-3">
-        <ImpactField value={impact} onChange={setImpact} name="bulk-impact" />
+      {/* prototype impact sheet: the three options as cards with their hints */}
+      <div className="grid gap-2.5" role="radiogroup" aria-label={t('impact.label')}>
+        <p className="m-0 text-[14.5px] text-ink-muted">{t('impact.label')}</p>
+        {SENSOR_IMPACTS.map((v) => (
+          <OptionCard
+            key={v}
+            name="bulk-impact"
+            value={v}
+            checked={impact === v}
+            onChange={(x) => setImpact(x as SensorImpact)}
+            title={t(`impact.option.${v}`)}
+            hint={t(`impact.hint.${v}`)}
+          />
+        ))}
         <ErrorBox error={m.error} />
       </div>
     </Modal>

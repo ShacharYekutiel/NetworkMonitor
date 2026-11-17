@@ -30,7 +30,7 @@ import {
 import { ActionRow, EmptyState, Timeline, TimelineEntry } from '../components/kit';
 import type { TFunction } from 'i18next';
 import { escalationForm, escalationToInput, type EscalationForm } from '../lib/escalation';
-import { formatDuration } from '../lib/format';
+import { formatDuration, formatDurationCol } from '../lib/format';
 import { useToast } from '../components/toast';
 import {
   Button,
@@ -840,14 +840,14 @@ function RuleFlowCard({ rule, chName }: { rule: AlertRule; chName: (id: number) 
       <div data-testid="rule-flow">
         <Timeline label={t('notifications.flowTitle', { name: rule.name })}>
           <TimelineEntry
-            time={formatDuration(0)}
+            time={formatDurationCol(0)}
             tone={startTone}
             title={t('notifications.tlStart')}
           >
             {(bad.length ? bad : rule.on_statuses).map((s) => t(`status.${s}`)).join(' + ')}
           </TimelineEntry>
           <TimelineEntry
-            time={formatDuration(rule.delay_s)}
+            time={formatDurationCol(rule.delay_s)}
             tone="warning"
             title={rule.channel_ids.map(chName).join(', ')}
           >
@@ -855,7 +855,7 @@ function RuleFlowCard({ rule, chName }: { rule: AlertRule; chName: (id: number) 
           </TimelineEntry>
           {rule.escalation_after_s != null && (
             <TimelineEntry
-              time={formatDuration(rule.escalation_after_s)}
+              time={formatDurationCol(rule.escalation_after_s)}
               tone="warning"
               title={rule.escalation_channel_ids.map(chName).join(', ')}
             >
@@ -864,7 +864,7 @@ function RuleFlowCard({ rule, chName }: { rule: AlertRule; chName: (id: number) 
           )}
           {rule.repeat_every_s != null && (
             <TimelineEntry
-              time={t('notifications.tlEvery', { d: formatDuration(rule.repeat_every_s) })}
+              time={t('notifications.tlEvery', { d: formatDurationCol(rule.repeat_every_s) })}
               tone="paused"
               title={t('notifications.tlRemind')}
             >

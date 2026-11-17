@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
+import { useMemo, useState, type ReactNode } from 'react';
 import { Link } from 'react-router';
 import { useTranslation } from 'react-i18next';
 import type { Port } from '../../api/types';
@@ -10,26 +10,30 @@ import {
   portDeviceKind,
   errorsDelta,
   filterPorts,
+  formatSpeed,
   loadColumns,
   PHYSICAL_KINDS,
   PORT_COLUMNS,
   saveColumns,
-  tileView,
   toggleColumn,
   type PortColumn,
 } from '../../lib/ports';
-import { AlertIcon, ColumnsIcon, SearchIcon } from '../icons';
-import { Button, Checkbox, cx, Empty, Input, TAG, TAG_TONE } from '../ui';
-import { KIND_ICONS, TileGlyph } from './Faceplate';
+import { AlertIcon, ColumnsIcon, PortIcon, SearchIcon } from '../icons';
+import { EmptyState, FilterChips, Popover, SwitchRow } from '../kit';
+import { Checkbox, cx, Input, TAG, TAG_TONE } from '../ui';
+import { KIND_ICONS } from './Faceplate';
 import { usePortText } from './text';
-import { lagMemberNames } from '../../lib/lag';
+import { lagGroups, lagMemberNames, portName } from '../../lib/lag';
 
+/** Table cells (prototype .tbl): 12.5px grey headers, hairline rows, the outer cells on the card's padding. */
 const thBase =
-  'whitespace-nowrap border-b border-line bg-surface-sunken px-3 py-2 text-start text-xs font-medium text-ink-muted';
-const tdBase = 'whitespace-nowrap border-b border-line px-3 py-1.5 align-middle';
+  'whitespace-nowrap px-3.5 pb-2.5 pt-3 text-start text-[12.5px] font-medium text-ink-muted first:ps-5 last:pe-5';
+const tdBase =
+  'whitespace-nowrap border-t border-line px-3.5 py-3 align-middle first:ps-5 last:pe-5';
 /** The sticky Port column needs an opaque background (rows scroll under it). */
 const stickyCell = 'sticky start-0 z-10 bg-surface';
 
+/** "Columns" popover (prototype .popmenu): one switch per column; remembered per browser. */
 function ColumnChooser({
   columns,
   onChange,
@@ -38,48 +42,97 @@ function ColumnChooser({
   onChange: (c: PortColumn[]) => void;
 }) {
   const { t } = useTranslation();
-  const [open, setOpen] = useState(false);
-  const ref = useRef<HTMLDivElement>(null);
-  useEffect(() => {
-    if (!open) return;
-    const h = (e: MouseEvent) => {
-      if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false);
-    };
-    const k = (e: KeyboardEvent) => e.key === 'Escape' && setOpen(false);
-    document.addEventListener('mousedown', h);
-    document.addEventListener('keydown', k);
-    return () => {
-      document.removeEventListener('mousedown', h);
-      document.removeEventListener('keydown', k);
-    };
-  }, [open]);
   return (
-    <div className="relative" ref={ref}>
-      <Button
-        size="sm"
-        onClick={() => setOpen((o) => !o)}
-        aria-expanded={open}
-        aria-haspopup="true"
-      >
-        <ColumnsIcon size={14} /> {t('ports.columns')}
-      </Button>
-      {open && (
-        <div
-          className="absolute end-0 z-30 mt-1 w-56 rounded-md border border-line bg-surface-raised p-2 shadow-pop"
-          data-testid="column-chooser"
-        >
-          <div className="grid grid-cols-1 gap-1">
-            {PORT_COLUMNS.map((c) => (
-              <Checkbox
-                key={c}
-                label={t(`ports.col.${c}`)}
-                checked={columns.includes(c)}
-                onChange={(v) => onChange(toggleColumn(columns, c, v))}
-              />
-            ))}
-          </div>
+    <Popover
+      label={t('ports.columns')}
+      testId="column-chooser"
+      className="!h-[34px] !text-[13.5px] !text-ink"
+      button={
+        <>
+          <ColumnsIcon size={16} /> {t('ports.columns')}
+        </>
+      }
+    >
+      <div className="-m-2 grid max-h-[60vh] gap-0.5 overflow-y-auto">
+        <div className="px-2.5 pb-1 pt-1.5 text-xs font-semibold text-ink-subtle">
+          {t('ports.columns')}
         </div>
-      )}
+        {PORT_COLUMNS.map((c) => (
+          <SwitchRow
+            key={c}
+            label={t(`ports.col.${c}`)}
+            checked={columns.includes(c)}
+            onChange={(v) => onChange(toggleColumn(columns, c, v))}
+          />
+        ))}
+      </div>
+    </Popover>
+  );
+}
+
+type StateFilter = 'all' | 'up' | 'problem' | 'free';
+const STATE_FILTERS: StateFilter[] = ['all', 'up', 'problem', 'free'];
+function stateMatch(p: Port, f: StateFilter): boolean {
+  if (f === 'up') return p.state === 'up';
+  if (f === 'problem') return p.alert;
+  if (f === 'free') return p.state !== 'up' && !p.alert;
+  return true;
+}
+
+/** Status dot of a row (prototype ports table): connected green, problem red, free grey. */
+function stateDot(p: Port): string {
+  if (p.alert) return 'bg-status-down';
+  if (p.state === 'up') return 'bg-status-up';
+  return 'bg-status-paused';
+}
+
+/** LAG summary chips above the table (prototype .lagchip): members, speed, degraded in warning. */
+function LagChips({ ports }: { ports: Port[] }) {
+  const { t } = useTranslation();
+  const groups = lagGroups(ports);
+  if (!groups.length) return null;
+  const byIndex = new Map(ports.map((p) => [p.if_index, p]));
+  return (
+    <div className="flex flex-wrap gap-2" data-testid="lag-summary">
+      {groups.map((g) => {
+        const row = byIndex.get(g.if_index);
+        const up = g.members.filter((m) => m.state === 'up' && m.lag?.attached !== false);
+        const down = row ? row.state !== 'up' : up.length === 0;
+        const degraded = !down && up.length < g.members.length;
+        const bps =
+          row?.state === 'up' && row.speed_bps
+            ? row.speed_bps
+            : up.reduce((a, m) => a + (m.speed_bps ?? 0), 0);
+        const speed = formatSpeed(bps);
+        return (
+          <span
+            key={g.if_index}
+            data-testid="lag-summary-chip"
+            data-state={down ? 'down' : degraded ? 'degraded' : 'up'}
+            className="inline-flex h-8 max-w-full items-center gap-2 rounded-full bg-surface px-3 text-[13px] font-medium shadow-[0_1px_2px_rgba(0,0,0,0.06),0_0_0_1px_var(--border)]"
+          >
+            <i
+              aria-hidden="true"
+              className={cx(
+                'h-[7px] w-[7px] shrink-0 rounded-full',
+                down ? 'bg-status-down' : degraded ? 'bg-status-warning' : 'bg-status-up',
+              )}
+            />
+            <b className="font-display font-semibold">
+              <bdi dir="ltr">{g.name}</bdi>
+            </b>
+            <bdi dir="ltr" className="truncate font-display">
+              {g.members.map((m) => portName(m)).join(' + ')}
+              {speed && !down ? ` · ${speed}` : ''}
+            </bdi>
+            {(down || degraded) && (
+              <span className={down ? 'text-status-down' : 'text-status-warning'}>
+                · {down ? t('ports.lagState.down') : t('ports.lagState.degraded')}
+              </span>
+            )}
+          </span>
+        );
+      })}
     </div>
   );
 }
@@ -164,17 +217,27 @@ export function PortList({
   const text = usePortText();
   const [query, setQuery] = useState('');
   const [physicalOnly, setPhysicalOnly] = useState(true);
+  const [stateFilter, setStateFilter] = useState<StateFilter>('all');
   const [columns, setColumnsState] = useState<PortColumn[]>(() => loadColumns());
   const setColumns = (c: PortColumn[]) => {
     setColumnsState(c);
     saveColumns(c);
   };
 
-  const rows = useMemo(() => {
-    const base = physicalOnly ? ports.filter((p) => PHYSICAL_KINDS.includes(p.kind)) : ports;
-    return filterPorts(base, query, text.searchTexts);
+  const base = useMemo(
+    () => (physicalOnly ? ports.filter((p) => PHYSICAL_KINDS.includes(p.kind)) : ports),
+    [ports, physicalOnly],
+  );
+  const rows = useMemo(
+    () => filterPorts(base, query, text.searchTexts).filter((p) => stateMatch(p, stateFilter)),
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [ports, query, physicalOnly, t]);
+    [base, query, stateFilter, t],
+  );
+  const counts = useMemo(() => {
+    const c: Record<StateFilter, number> = { all: 0, up: 0, problem: 0, free: 0 };
+    for (const p of base) for (const f of STATE_FILTERS) if (stateMatch(p, f)) c[f] += 1;
+    return c;
+  }, [base]);
 
   const connectedCell = (p: Port): ReactNode => {
     const v = connectedView(p);
@@ -206,10 +269,9 @@ export function PortList({
   const cell = (p: Port, c: PortColumn): ReactNode => {
     switch (c) {
       case 'status': {
-        const v = tileView(p);
         return (
-          <span className="inline-flex items-center gap-1.5">
-            <TileGlyph kind={v.kind} icon={null} className="!h-3 !w-3 !rounded-sm" />
+          <span className="inline-flex items-center gap-[7px] whitespace-nowrap">
+            <span aria-hidden="true" className={cx('h-2 w-2 shrink-0 rounded-full', stateDot(p))} />
             {text.state(p)}
             {p.alert && (
               <span
@@ -313,12 +375,29 @@ export function PortList({
   };
 
   return (
-    <div className="space-y-2" data-testid="port-list">
+    <div className="grid gap-3" data-testid="port-list">
+      {/* prototype .ptools: LAG chips, the state chips, the filter, columns */}
+      <LagChips ports={ports} />
       <div className="flex flex-wrap items-center gap-2">
+        <FilterChips
+          label={t('ports.stateFilter')}
+          value={stateFilter}
+          onChange={setStateFilter}
+          testId="port-state-filter"
+          options={STATE_FILTERS.map((f) => ({
+            value: f,
+            label: (
+              <>
+                {t(`ports.stateChip.${f}`)}
+                <span className="num text-[12px] opacity-70">{counts[f]}</span>
+              </>
+            ),
+          }))}
+        />
         <div className="relative min-w-0 flex-1 basis-56">
           <SearchIcon
-            size={14}
-            className="pointer-events-none absolute start-2.5 top-1/2 -translate-y-1/2 text-ink-subtle"
+            size={15}
+            className="pointer-events-none absolute start-3 top-1/2 -translate-y-1/2 text-ink-subtle"
           />
           <Input
             type="search"
@@ -327,7 +406,7 @@ export function PortList({
             placeholder={t('ports.filterPlaceholder')}
             aria-label={t('ports.filter')}
             dir={query ? 'auto' : undefined}
-            className="ps-8"
+            className="h-[34px] !rounded-full !py-1.5 ps-9 text-[13.5px]"
           />
         </div>
         <Checkbox
@@ -337,99 +416,104 @@ export function PortList({
         />
         <ColumnChooser columns={columns} onChange={setColumns} />
       </div>
-      <div className="text-xs text-ink-muted">
+      <div className="mx-1 text-[12.5px] text-ink-subtle">
         {t('ports.shown', { shown: rows.length, total: ports.length })}
       </div>
-      {rows.length === 0 ? (
-        <Empty>{t('ports.noMatch')}</Empty>
-      ) : (
-        <div className="overflow-x-auto" data-testid="port-list-scroll">
-          <table className="w-full text-sm">
-            <thead>
-              <tr>
-                <th className={cx(thBase, 'sticky start-0 z-20')}>{t('ports.col.port')}</th>
-                {columns.map((c) => (
-                  <th key={c} className={cx(thBase, COLUMN_HIDE_CLASS[c])}>
-                    {t(`ports.col.${c}`)}
+      <div className="min-w-0 overflow-hidden rounded-xl bg-surface shadow-card">
+        {rows.length === 0 ? (
+          <EmptyState icon={PortIcon} title={t('ports.noMatch')} className="!py-10" />
+        ) : (
+          <div className="overflow-x-auto" data-testid="port-list-scroll">
+            <table className="w-full text-sm">
+              <thead>
+                <tr>
+                  <th className={cx(thBase, 'sticky start-0 z-20 bg-surface')}>
+                    {t('ports.col.port')}
                   </th>
-                ))}
-              </tr>
-            </thead>
-            <tbody>
-              {rows.map((p) => {
-                const sel = selected === p.if_index;
-                return (
-                  <tr
-                    key={p.if_index}
-                    onClick={() => onSelect(p)}
-                    className={cx(
-                      'group cursor-pointer',
-                      sel ? 'bg-accent-soft' : 'hover:bg-surface-hover',
-                    )}
-                  >
-                    <td
+                  {columns.map((c) => (
+                    <th key={c} className={cx(thBase, COLUMN_HIDE_CLASS[c])}>
+                      {t(`ports.col.${c}`)}
+                    </th>
+                  ))}
+                </tr>
+              </thead>
+              <tbody>
+                {rows.map((p) => {
+                  const sel = selected === p.if_index;
+                  return (
+                    <tr
+                      key={p.if_index}
+                      onClick={() => onSelect(p)}
                       className={cx(
-                        tdBase,
-                        stickyCell,
-                        'font-medium',
-                        sel ? '!bg-accent-soft' : 'group-hover:bg-surface-hover',
+                        'group cursor-pointer transition-colors',
+                        sel ? 'bg-chip' : 'hover:bg-surface-hover',
                       )}
                     >
-                      <button
-                        type="button"
-                        className="text-start text-accent-ink hover:underline focus:outline-none focus-visible:ring-2 focus-visible:ring-accent"
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          onSelect(p);
-                        }}
+                      <td
+                        className={cx(
+                          tdBase,
+                          stickyCell,
+                          sel ? '!bg-chip' : 'group-hover:bg-surface-hover',
+                        )}
                       >
-                        <bdi dir="ltr">{p.name || p.descr || p.if_index}</bdi>
-                      </button>
-                      {p.lag && (
-                        <span
-                          className={cx(
-                            TAG,
-                            'ms-1.5',
-                            p.lag.attached === false
-                              ? cx(TAG_TONE.neutral, 'line-through')
-                              : TAG_TONE.accent,
-                          )}
-                          title={
-                            p.lag.attached === false
-                              ? t('ports.lag.notActive', { name: p.lag.name })
-                              : t('ports.lag.memberOf', { name: p.lag.name })
-                          }
-                          data-testid="lag-chip"
+                        <button
+                          type="button"
+                          className="text-start font-display font-semibold text-ink hover:underline focus:outline-none focus-visible:ring-2 focus-visible:ring-focus"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            onSelect(p);
+                          }}
                         >
-                          <bdi dir="ltr">{p.lag.name}</bdi>
-                        </span>
-                      )}
-                      {p.kind === 'lag' && !!p.lag_members?.length && (
-                        <div
-                          className="text-xs font-normal text-ink-muted"
-                          data-testid="lag-members"
-                        >
-                          {t('ports.lag.members', { list: lagMemberNames(p, ports).join(', ') })}
-                        </div>
-                      )}
-                      {p.alias && !columns.includes('alias') && (
-                        <div className="max-w-[10rem] truncate text-xs font-normal text-ink-muted">
-                          <bdi dir="auto">{p.alias}</bdi>
-                        </div>
-                      )}
-                    </td>
-                    {columns.map((c) => (
-                      <td key={c} className={cx(tdBase, 'tabular-nums', COLUMN_HIDE_CLASS[c])}>
-                        {cell(p, c)}
+                          <bdi dir="ltr">{p.name || p.descr || p.if_index}</bdi>
+                        </button>
+                        {p.lag && (
+                          <span
+                            className={cx(
+                              TAG,
+                              'ms-1.5 h-5 text-[11px] font-medium',
+                              p.lag.attached === false
+                                ? cx(TAG_TONE.neutral, 'line-through')
+                                : TAG_TONE.neutral,
+                            )}
+                            title={
+                              p.lag.attached === false
+                                ? t('ports.lag.notActive', { name: p.lag.name })
+                                : t('ports.lag.memberOf', { name: p.lag.name })
+                            }
+                            data-testid="lag-chip"
+                          >
+                            <bdi dir="ltr">{p.lag.name}</bdi>
+                          </span>
+                        )}
+                        {p.kind === 'lag' && !!p.lag_members?.length && (
+                          <div
+                            className="text-xs font-normal text-ink-muted"
+                            data-testid="lag-members"
+                          >
+                            {t('ports.lag.members', {
+                              list: lagMemberNames(p, ports).join(', '),
+                            })}
+                          </div>
+                        )}
+                        {p.alias && !columns.includes('alias') && (
+                          <div className="max-w-[10rem] truncate text-xs font-normal text-ink-muted">
+                            <bdi dir="auto">{p.alias}</bdi>
+                          </div>
+                        )}
                       </td>
-                    ))}
-                  </tr>
-                );
-              })}
-            </tbody>
-          </table>
-        </div>
-      )}
+                      {columns.map((c) => (
+                        <td key={c} className={cx(tdBase, 'tabular-nums', COLUMN_HIDE_CLASS[c])}>
+                          {cell(p, c)}
+                        </td>
+                      ))}
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </div>
     </div>
   );
 }

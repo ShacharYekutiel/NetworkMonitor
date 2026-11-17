@@ -8,20 +8,29 @@ import { CanvasRenderer } from 'echarts/renderers';
 import { flatTooltip, initChart } from '../lib/echarts';
 import { endpoints3b, qk3b } from '../api/endpoints3b';
 import { usageTooltipHtml } from '../lib/html';
-import { chartTokens } from '../lib/chartTokens';
+import { canvasColor, chartTokens } from '../lib/chartTokens';
 import type { UsageReport } from '../api/types';
+import { Link } from 'react-router';
+import { ChevronIcon, GaugeIcon } from '../components/icons';
+import { Banner, EmptyState, ShareBar } from '../components/kit';
 import {
-  Button,
+  buttonClass,
   Card,
   cx,
   Empty,
-  ErrorBox,
+  GroupTitle,
   Loading,
   PageHeader,
   Table,
+  TAG,
+  TAG_TONE,
   td,
   th,
 } from '../components/ui';
+import { errorMessage } from '../lib/errors';
+
+/** A number cell (prototype .tbl td.n): end-aligned Inter. */
+const NUM = cx(td, 'num text-end tabular-nums');
 import { useAuth } from '../hooks/auth';
 import { useTheme } from '../hooks/theme';
 import {
@@ -56,33 +65,23 @@ function DailyBars({ r, month }: { r: UsageReport; month: string }) {
   useEffect(() => {
     const c = chart.current;
     if (!c) return;
-    // Same chart language as HistoryChart / logs Histogram: token colours, mono axis labels,
-    // a legend on top, the grid sized by its labels.
+    // premium flat bars (prototype usage .bars): grey bars, today in ink, no y axis and no grid;
+    // time runs left to right in both directions
     const tk = chartTokens(dark);
-    const text = tk.inkSubtle;
-    const grid = tk.chartGrid;
-    const mono = { fontFamily: tk.fontMono, fontSize: 10.5 };
     const days = monthDays(month, r.by_day);
-    const name = t('usage.tokens');
+    const today = new Date().toISOString().slice(0, 10);
+    const grey = canvasColor(tk.borderStrong);
+    const empty = canvasColor(tk.border);
     c.setOption(
       {
         animation: false,
-        textStyle: { color: text, fontFamily: tk.fontSans },
-        grid: { left: 8, right: 16, top: 32, bottom: 8, containLabel: true },
-        legend: {
-          top: 0,
-          left: 0,
-          icon: 'roundRect',
-          itemWidth: 12,
-          itemHeight: 8,
-          textStyle: { color: tk.inkMuted, fontSize: 12 },
-          data: [name],
-        },
+        textStyle: { color: tk.inkSubtle, fontFamily: tk.fontSans },
+        grid: { left: 4, right: 4, top: 8, bottom: 26 },
         tooltip: {
           trigger: 'axis',
           ...flatTooltip(tk),
           textStyle: { color: tk.ink, fontSize: 12 },
-          axisPointer: { type: 'shadow', shadowStyle: { color: tk.surfaceSunken, opacity: 0.6 } },
+          axisPointer: { type: 'none' },
           formatter: (params: unknown) => {
             const p = (params as { dataIndex: number }[])[0];
             const d = days[p?.dataIndex ?? 0];
@@ -100,73 +99,79 @@ function DailyBars({ r, month }: { r: UsageReport; month: string }) {
         xAxis: {
           type: 'category',
           data: days.map((d) => String(Number(d.day.slice(8)))),
-          axisLine: { lineStyle: { color: grid } },
+          axisLine: { show: false },
           axisTick: { show: false },
-          axisLabel: { color: text, ...mono, hideOverlap: true },
+          axisLabel: {
+            color: tk.inkSubtle,
+            fontFamily: tk.fontDisplay,
+            fontSize: 11.5,
+            fontWeight: 500,
+            interval: (i: number) => i % 7 === 0 || (i === days.length - 1 && i % 7 >= 3),
+          },
         },
-        yAxis: {
-          type: 'value',
-          minInterval: 1,
-          splitLine: { lineStyle: { color: grid } },
-          axisLabel: { color: text, ...mono, formatter: (v: number) => compactTokens(v) },
-        },
+        yAxis: { type: 'value', show: false, splitLine: { show: false } },
         series: [
           {
-            name,
+            name: t('usage.tokens'),
             type: 'bar',
-            barMaxWidth: 18,
-            data: days.map((d) => d.tokens),
-            itemStyle: { color: tk.chart1, borderRadius: [2, 2, 0, 0] },
-            emphasis: { itemStyle: { color: tk.accent } },
+            barCategoryGap: '12%',
+            barMinHeight: 3,
+            data: days.map((d) => ({
+              value: d.tokens,
+              itemStyle: {
+                color: d.day === today ? tk.ink : d.tokens ? grey : empty,
+                borderRadius: [4, 4, 2, 2],
+              },
+            })),
           },
         ],
       },
       true,
     );
   }, [r, month, dark, t]);
-  return <div ref={ref} className="h-64 w-full" dir="ltr" data-testid="usage-chart" />;
+  return <div ref={ref} className="h-[150px] w-full" dir="ltr" data-testid="usage-chart" />;
 }
 
+/** A usage tile (prototype .tile): grey label, 34px Inter number, a small grey line under it. */
 function Tile({
   label,
   value,
   sub,
   tone,
+  bar,
 }: {
   label: string;
   value: string;
   sub?: string;
   tone?: 'ok' | 'warn' | 'error';
+  /** a share bar under the number (% of the cap) */
+  bar?: number;
 }) {
   return (
-    <div
-      className={cx(
-        'min-w-0 rounded-lg border border-line px-4 pb-2.5 pt-3',
-        tone === 'warn'
-          ? 'bg-status-warning-soft'
-          : tone === 'error'
-            ? 'bg-status-down-soft'
-            : 'bg-surface',
-      )}
-    >
-      <div className="truncate text-[13px] font-medium text-ink-muted">{label}</div>
-      <div
+    <div className="grid min-w-0 content-start gap-1.5 rounded-[22px] bg-surface px-5 py-[18px] shadow-card">
+      <span className="truncate text-[13.5px] text-ink-muted">{label}</span>
+      <b
         className={cx(
-          'mt-2 font-display text-[28px] font-semibold leading-8 tracking-[-0.01em] tabular-nums',
+          'num text-[34px] font-semibold leading-[1.05] tracking-[-0.03em] tabular-nums',
           tone === 'warn' && 'text-status-warning',
           tone === 'error' && 'text-status-down',
         )}
       >
         {value}
-      </div>
-      {sub && <div className="mt-0.5 text-xs text-ink-muted">{sub}</div>}
+      </b>
+      {sub && <small className="text-[12.5px] text-ink-subtle">{sub}</small>}
+      {bar !== undefined && (
+        <div className="mt-1.5">
+          <ShareBar pct={bar} />
+        </div>
+      )}
     </div>
   );
 }
 
 /** /assistant/usage — tokens, cost estimate, caps (admins; readable while the assistant is OFF). */
 export function AssistantUsagePage() {
-  const { t } = useTranslation();
+  const { t, i18n } = useTranslation();
   const { isAdmin } = useAuth();
   const [month, setMonth] = useState(() => monthKey(new Date()));
   const q = useQuery({
@@ -179,271 +184,323 @@ export function AssistantUsagePage() {
   const current = monthKey(new Date());
   const questions = r?.by_day.reduce((a, d) => a + d.questions, 0) ?? 0;
   const fb = r ? r.feedback.up + r.feedback.down : 0;
+  const locale = i18n.language === 'he' ? 'he-IL' : 'en-GB';
+  const monthLabel = new Intl.DateTimeFormat(locale, { month: 'long', year: 'numeric' }).format(
+    new Date(`${month}-15T12:00:00`),
+  );
+  const purposeTotal = r?.by_purpose.reduce((a, p) => a + p.tokens, 0) ?? 0;
+  const tokenPct = r && r.token_cap ? (r.tokens / r.token_cap) * 100 : 0;
+  const round =
+    'inline-flex h-9 w-9 items-center justify-center rounded-full text-ink-muted transition-colors hover:bg-chip hover:text-ink disabled:opacity-40 disabled:hover:bg-transparent';
   return (
-    <div className="space-y-4">
-      <PageHeader
-        title={t('usage.title')}
-        subtitle={t('usage.estimateNote')}
-        actions={
-          <div className="flex items-center gap-1" dir="ltr">
-            <Button
-              size="sm"
-              onClick={() => setMonth((m) => shiftMonth(m, -1))}
-              aria-label={t('usage.prevMonth')}
-            >
-              ‹
-            </Button>
-            <span
-              className="min-w-20 text-center text-sm font-medium tabular-nums"
-              data-testid="usage-month"
-            >
-              {month}
-            </span>
-            <Button
-              size="sm"
-              onClick={() => setMonth((m) => shiftMonth(m, 1))}
-              disabled={month >= current}
-              aria-label={t('usage.nextMonth')}
-            >
-              ›
-            </Button>
-          </div>
-        }
-      />
+    <div>
+      <PageHeader title={t('usage.title')} subtitle={t('usage.estimateNote')} />
+      {/* prototype .monthnav: round chevrons around the month's name */}
+      <div className="-mt-2 mb-6 flex items-center gap-1">
+        <button
+          type="button"
+          className={round}
+          onClick={() => setMonth((m) => shiftMonth(m, -1))}
+          aria-label={t('usage.prevMonth')}
+        >
+          <ChevronIcon size={16} className="rotate-180 rtl:rotate-0" />
+        </button>
+        <b className="px-2 text-[15px] font-semibold" data-testid="usage-month" data-month={month}>
+          {monthLabel}
+        </b>
+        <button
+          type="button"
+          className={round}
+          onClick={() => setMonth((m) => shiftMonth(m, 1))}
+          disabled={month >= current}
+          aria-label={t('usage.nextMonth')}
+        >
+          <ChevronIcon size={16} className="rtl:rotate-180" />
+        </button>
+      </div>
       {q.isLoading && <Loading />}
-      <ErrorBox error={q.error} />
+      {q.error && (
+        <div className="rounded-xl bg-surface shadow-card">
+          <EmptyState error title={t('usage.loadError')}>
+            {errorMessage(t, q.error)}
+          </EmptyState>
+        </div>
+      )}
       {r && (
-        <>
-          <div className="grid grid-cols-2 gap-3 lg:grid-cols-5" data-testid="usage-tiles">
-            <Tile label={t('usage.questions')} value={String(questions)} />
+        <div className="grid gap-4">
+          {r.background_stopped && (
+            <Banner
+              tone="warn"
+              title={t('usage.backgroundStopped')}
+              actions={
+                <Link to="/settings?tab=assistant" className={buttonClass('secondary', 'sm')}>
+                  {t('nav.settings')}
+                </Link>
+              }
+            >
+              {t('usage.backgroundStoppedHint')}
+            </Banner>
+          )}
+          <div className="grid grid-cols-2 gap-4 lg:grid-cols-4" data-testid="usage-tiles">
+            <Tile
+              label={t('usage.questions')}
+              value={String(questions)}
+              sub={t('usage.thisMonth')}
+            />
             <Tile
               label={t('usage.tokens')}
               value={compactTokens(r.tokens)}
               sub={t('usage.ofCap', { cap: compactTokens(r.token_cap) })}
+              bar={tokenPct}
+              tone={pctTone(tokenPct) === 'ok' ? undefined : pctTone(tokenPct)}
             />
             <Tile
               label={t('usage.cost')}
-              value={
-                r.cost_estimate !== null ? `≈ ${formatCost(r.cost_estimate, r.currency)}` : '—'
-              }
-              sub={
+              value={r.cost_estimate !== null ? formatCost(r.cost_estimate, r.currency) : '—'}
+              sub={[
                 r.cost_cap !== null
                   ? t('usage.ofCap', { cap: formatCost(r.cost_cap, r.currency) })
                   : r.cost_estimate === null
                     ? t('usage.noPrices')
-                    : undefined
-              }
-            />
-            <Tile
-              label={t('usage.pctOfCap')}
-              value={`${Math.round(r.pct_of_cap)} %`}
-              tone={pctTone(r.pct_of_cap)}
-              sub={r.background_stopped ? t('usage.backgroundStopped') : undefined}
+                    : '',
+                t('usage.pctOfMonthlyCap', { pct: Math.round(r.pct_of_cap) }),
+              ]
+                .filter(Boolean)
+                .join(' · ')}
+              tone={pctTone(r.pct_of_cap) === 'ok' ? undefined : pctTone(r.pct_of_cap)}
             />
             <Tile
               label={t('usage.projectionTile')}
-              value={`${Math.round(r.projection_pct)} %`}
-              tone={pctTone(r.projection_pct)}
+              value={`${Math.round(r.projection_pct)}%`}
+              sub={t('usage.ofMonthlyCap')}
+              tone={r.projection_pct > 100 ? 'warn' : undefined}
             />
           </div>
-          <Card title={t('usage.perDay')}>
-            {r.by_day.length ? <DailyBars r={r} month={month} /> : <Empty>{t('usage.none')}</Empty>}
+          <Card
+            title={t('usage.perDay')}
+            actions={<span className={cx(TAG, TAG_TONE.neutral)}>{t('usage.inOut')}</span>}
+          >
+            {r.by_day.length ? (
+              <DailyBars r={r} month={month} />
+            ) : (
+              <EmptyState icon={GaugeIcon} title={t('usage.none')}>
+                {t('usage.noneHint')}
+              </EmptyState>
+            )}
           </Card>
           <div className="grid grid-cols-1 gap-4 xl:grid-cols-2">
-            <Card title={t('usage.perUser')} bodyClassName="p-0">
-              <Table>
-                <thead>
-                  <tr>
-                    <th className={th}>{t('usage.user')}</th>
-                    <th className={th}>{t('usage.questions')}</th>
-                    <th className={th}>{t('usage.tokens')}</th>
-                    <th className={th}>{t('usage.cost')}</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {r.by_user.map((u) => (
-                    <tr key={u.user_id}>
-                      <td className={td}>{u.user_id === 0 ? t('usage.system') : u.username}</td>
-                      <td className={`${td} tabular-nums`}>{u.questions}</td>
-                      <td className={`${td} tabular-nums`}>{compactTokens(u.tokens)}</td>
-                      <td className={`${td} tabular-nums`}>
-                        {formatCost(u.cost_estimate, r.currency)}
-                      </td>
+            <div className="min-w-0">
+              <GroupTitle>{t('usage.perUser')}</GroupTitle>
+              <Card bodyClassName="p-0">
+                <Table>
+                  <thead>
+                    <tr>
+                      <th className={th}>{t('usage.user')}</th>
+                      <th className={cx(th, 'text-end')}>{t('usage.questions')}</th>
+                      <th className={cx(th, 'text-end')}>{t('usage.tokens')}</th>
+                      <th className={cx(th, 'text-end')}>{t('usage.cost')}</th>
                     </tr>
-                  ))}
-                </tbody>
-              </Table>
-            </Card>
-            <Card title={t('usage.perPurpose')} bodyClassName="p-0">
-              <Table>
-                <thead>
-                  <tr>
-                    <th className={th}>{t('usage.purpose')}</th>
-                    <th className={th}>{t('usage.calls')}</th>
-                    <th className={th}>{t('usage.tokens')}</th>
-                    <th className={th}>{t('usage.cost')}</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {r.by_purpose.map((p) => (
-                    <tr key={p.purpose}>
-                      <td className={td}>
-                        {t(`usage.purposes.${p.purpose}`, { defaultValue: p.purpose })}
-                      </td>
-                      <td className={`${td} tabular-nums`}>{p.calls}</td>
-                      <td className={`${td} tabular-nums`}>{compactTokens(p.tokens)}</td>
-                      <td className={`${td} tabular-nums`}>
-                        {formatCost(p.cost_estimate, r.currency)}
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </Table>
-            </Card>
-            <Card title={t('usage.perModel')} bodyClassName="p-0">
-              <div data-testid="usage-by-model">
-                {r.by_model?.length ? (
-                  <Table>
-                    <thead>
-                      <tr>
-                        <th className={th}>{t('usage.model')}</th>
-                        <th className={th}>{t('usage.calls')}</th>
-                        <th className={th}>{t('usage.inputTokens')}</th>
-                        <th className={th}>{t('usage.outputTokens')}</th>
-                        <th className={th}>{t('usage.tokens')}</th>
-                        <th className={th}>{t('usage.cost')}</th>
+                  </thead>
+                  <tbody>
+                    {r.by_user.map((u) => (
+                      <tr key={u.user_id}>
+                        <td className={td}>
+                          {u.user_id === 0 ? (
+                            <b className="font-semibold">{t('usage.system')}</b>
+                          ) : (
+                            <b className="font-display font-semibold">{u.username}</b>
+                          )}
+                        </td>
+                        <td className={NUM}>{u.questions}</td>
+                        <td className={NUM}>{compactTokens(u.tokens)}</td>
+                        <td className={NUM}>{formatCost(u.cost_estimate, r.currency)}</td>
                       </tr>
-                    </thead>
-                    <tbody>
-                      {r.by_model.map((m) => (
-                        <tr key={m.model_id || '-'}>
-                          <td className={td}>
-                            {m.model_id ? (
-                              <span title={m.model_id}>
-                                {friendlyModelName(m.model_id)}
-                                <bdi
-                                  dir="ltr"
-                                  className="block font-mono text-[11px] text-ink-muted"
+                    ))}
+                  </tbody>
+                </Table>
+                {!r.by_user.length && <Empty>{t('usage.none')}</Empty>}
+              </Card>
+            </div>
+            <div className="min-w-0">
+              <GroupTitle>{t('usage.perPurpose')}</GroupTitle>
+              <Card>
+                <div className="grid gap-3.5" data-testid="usage-by-purpose">
+                  {r.by_purpose.map((p) => {
+                    const pct = purposeTotal ? (p.tokens / purposeTotal) * 100 : 0;
+                    return (
+                      <div key={p.purpose} className="grid gap-1.5">
+                        <div className="flex justify-between gap-3">
+                          <span>
+                            {t(`usage.purposes.${p.purpose}`, { defaultValue: p.purpose })}
+                          </span>
+                          <span
+                            className="num text-ink-muted"
+                            title={`${t('usage.calls')}: ${p.calls} · ${t('usage.tokens')}: ${compactTokens(p.tokens)} · ${formatCost(p.cost_estimate, r.currency)}`}
+                          >
+                            {Math.round(pct)}%
+                          </span>
+                        </div>
+                        <ShareBar pct={pct} />
+                      </div>
+                    );
+                  })}
+                  {!r.by_purpose.length && <p className="m-0 text-ink-muted">{t('usage.none')}</p>}
+                  <span className="text-[12.5px] text-ink-subtle">
+                    {t('usage.feedback', {
+                      up: r.feedback.up,
+                      down: r.feedback.down,
+                      pct: fb ? Math.round((r.feedback.up / fb) * 100) : 0,
+                    })}
+                  </span>
+                </div>
+              </Card>
+            </div>
+            <div className="min-w-0">
+              <GroupTitle>{t('usage.perModel')}</GroupTitle>
+              <Card bodyClassName="p-0">
+                <div data-testid="usage-by-model">
+                  {r.by_model?.length ? (
+                    <Table>
+                      <thead>
+                        <tr>
+                          <th className={th}>{t('usage.model')}</th>
+                          <th className={cx(th, 'text-end')}>{t('usage.calls')}</th>
+                          <th className={cx(th, 'text-end')}>{t('usage.inputTokens')}</th>
+                          <th className={cx(th, 'text-end')}>{t('usage.outputTokens')}</th>
+                          <th className={cx(th, 'text-end')}>{t('usage.tokens')}</th>
+                          <th className={cx(th, 'text-end')}>{t('usage.cost')}</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {r.by_model.map((m) => (
+                          <tr key={m.model_id || '-'}>
+                            <td className={td}>
+                              {m.model_id ? (
+                                <span title={m.model_id}>
+                                  {friendlyModelName(m.model_id)}
+                                  <bdi
+                                    dir="ltr"
+                                    className="block font-mono text-[11px] text-ink-muted"
+                                  >
+                                    {m.model_id}
+                                  </bdi>
+                                </span>
+                              ) : (
+                                t('usage.unknownModel')
+                              )}
+                            </td>
+                            <td className={NUM}>{m.calls}</td>
+                            <td className={NUM}>
+                              {compactTokens(m.input_tokens)}
+                              {m.cache_read_tokens > 0 && (
+                                <span
+                                  className="block text-[11px] text-ink-muted"
+                                  title={t('usage.cacheRead')}
                                 >
-                                  {m.model_id}
-                                </bdi>
-                              </span>
-                            ) : (
-                              t('usage.unknownModel')
-                            )}
+                                  +{compactTokens(m.cache_read_tokens)} {t('usage.cached')}
+                                </span>
+                              )}
+                            </td>
+                            <td className={NUM}>{compactTokens(m.output_tokens)}</td>
+                            <td className={NUM}>{compactTokens(m.tokens)}</td>
+                            <td className={NUM}>{formatCost(m.cost_estimate, r.currency)}</td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </Table>
+                  ) : (
+                    <Empty>{t('usage.none')}</Empty>
+                  )}
+                </div>
+              </Card>
+            </div>
+            <div className="min-w-0">
+              <GroupTitle>{t('usage.topTools')}</GroupTitle>
+              <Card bodyClassName="p-0">
+                <Table>
+                  <thead>
+                    <tr>
+                      <th className={th}>{t('usage.tool')}</th>
+                      <th className={cx(th, 'text-end')}>{t('usage.calls')}</th>
+                      <th className={cx(th, 'text-end')}>{t('usage.errors')}</th>
+                      <th className={cx(th, 'text-end')}>{t('usage.avgMs')}</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {r.top_tools.map((x) => (
+                      <tr key={x.tool}>
+                        <td className={td}>
+                          <bdi dir="ltr" className="font-mono text-xs">
+                            {x.tool}
+                          </bdi>
+                        </td>
+                        <td className={NUM}>{x.calls}</td>
+                        <td className={NUM}>{x.errors}</td>
+                        <td className={NUM}>{Math.round(x.avg_ms)}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </Table>
+                {!r.top_tools.length && <Empty>{t('usage.none')}</Empty>}
+              </Card>
+            </div>
+            <div className="min-w-0">
+              <GroupTitle>{t('usage.errorsTitle')}</GroupTitle>
+              <Card bodyClassName="p-0">
+                {r.errors.length ? (
+                  <Table>
+                    <tbody>
+                      {r.errors.map((e) => (
+                        <tr key={e.code}>
+                          <td className={td}>
+                            <bdi dir="ltr" className="font-mono text-xs">
+                              {e.code}
+                            </bdi>
                           </td>
-                          <td className={`${td} tabular-nums`}>{m.calls}</td>
-                          <td className={`${td} tabular-nums`}>
-                            {compactTokens(m.input_tokens)}
-                            {m.cache_read_tokens > 0 && (
-                              <span
-                                className="block text-[11px] text-ink-muted"
-                                title={t('usage.cacheRead')}
-                              >
-                                +{compactTokens(m.cache_read_tokens)} {t('usage.cached')}
-                              </span>
-                            )}
-                          </td>
-                          <td className={`${td} tabular-nums`}>{compactTokens(m.output_tokens)}</td>
-                          <td className={`${td} tabular-nums`}>{compactTokens(m.tokens)}</td>
-                          <td className={`${td} tabular-nums`}>
-                            {formatCost(m.cost_estimate, r.currency)}
-                          </td>
+                          <td className={NUM}>{e.count}</td>
                         </tr>
                       ))}
                     </tbody>
                   </Table>
                 ) : (
-                  <Empty>{t('usage.none')}</Empty>
+                  <Empty>{t('usage.noErrors')}</Empty>
                 )}
-              </div>
-            </Card>
-            <Card title={t('usage.topTools')} bodyClassName="p-0">
-              <Table>
-                <thead>
-                  <tr>
-                    <th className={th}>{t('usage.tool')}</th>
-                    <th className={th}>{t('usage.calls')}</th>
-                    <th className={th}>{t('usage.errors')}</th>
-                    <th className={th}>{t('usage.avgMs')}</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {r.top_tools.map((x) => (
-                    <tr key={x.tool}>
-                      <td className={td}>
-                        <bdi dir="ltr" className="font-mono text-xs">
-                          {x.tool}
-                        </bdi>
-                      </td>
-                      <td className={`${td} tabular-nums`}>{x.calls}</td>
-                      <td className={`${td} tabular-nums`}>{x.errors}</td>
-                      <td className={`${td} tabular-nums`}>{Math.round(x.avg_ms)}</td>
-                    </tr>
-                  ))}
-                </tbody>
-              </Table>
-            </Card>
-            <Card title={t('usage.errorsTitle')} bodyClassName="p-0">
-              {r.errors.length ? (
+              </Card>
+            </div>
+            <div className="min-w-0">
+              <GroupTitle>{t('usage.last12')}</GroupTitle>
+              <Card bodyClassName="p-0">
                 <Table>
+                  <thead>
+                    <tr>
+                      <th className={th}>{t('usage.month')}</th>
+                      <th className={cx(th, 'text-end')}>{t('usage.tokens')}</th>
+                      <th className={cx(th, 'text-end')}>{t('usage.cost')}</th>
+                    </tr>
+                  </thead>
                   <tbody>
-                    {r.errors.map((e) => (
-                      <tr key={e.code}>
-                        <td className={td}>
-                          <bdi dir="ltr" className="font-mono text-xs">
-                            {e.code}
-                          </bdi>
+                    {r.last_12_months.map((m) => (
+                      <tr key={m.month}>
+                        <td className={cx(td, 'num')}>
+                          <button
+                            type="button"
+                            className="text-ink hover:underline"
+                            onClick={() => setMonth(m.month)}
+                          >
+                            {m.month}
+                          </button>
                         </td>
-                        <td className={`${td} tabular-nums`}>{e.count}</td>
+                        <td className={NUM}>{compactTokens(m.tokens)}</td>
+                        <td className={NUM}>{formatCost(m.cost_estimate, r.currency)}</td>
                       </tr>
                     ))}
                   </tbody>
                 </Table>
-              ) : (
-                <Empty>{t('usage.noErrors')}</Empty>
-              )}
-              <p className="border-t border-line px-3 py-2 text-xs text-ink-muted">
-                {t('usage.feedback', {
-                  up: r.feedback.up,
-                  down: r.feedback.down,
-                  pct: fb ? Math.round((r.feedback.up / fb) * 100) : 0,
-                })}
-              </p>
-            </Card>
+              </Card>
+            </div>
           </div>
-          <Card title={t('usage.last12')} bodyClassName="p-0">
-            <Table>
-              <thead>
-                <tr>
-                  <th className={th}>{t('usage.month')}</th>
-                  <th className={th}>{t('usage.tokens')}</th>
-                  <th className={th}>{t('usage.cost')}</th>
-                </tr>
-              </thead>
-              <tbody>
-                {r.last_12_months.map((m) => (
-                  <tr key={m.month}>
-                    <td className={`${td} tabular-nums`}>
-                      <button
-                        type="button"
-                        className="hover:underline"
-                        onClick={() => setMonth(m.month)}
-                      >
-                        {m.month}
-                      </button>
-                    </td>
-                    <td className={`${td} tabular-nums`}>{compactTokens(m.tokens)}</td>
-                    <td className={`${td} tabular-nums`}>
-                      {formatCost(m.cost_estimate, r.currency)}
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </Table>
-          </Card>
-          <p className="text-xs text-ink-muted">{t('usage.kbNote')}</p>
-        </>
+          <p className="m-0 text-[12.5px] text-ink-subtle">{t('usage.kbNote')}</p>
+        </div>
       )}
     </div>
   );

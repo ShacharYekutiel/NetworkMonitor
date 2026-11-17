@@ -225,12 +225,13 @@ export function AuditPage() {
           <Card bodyClassName="px-5 py-4" className="mb-6">
             <form
               onSubmit={submit}
-              className="grid grid-cols-1 items-end gap-3 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-[minmax(230px,1.3fr)_minmax(230px,1.3fr)_repeat(4,minmax(0,1fr))_auto]"
+              className="grid grid-cols-1 items-start gap-3 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-[minmax(230px,1.3fr)_minmax(230px,1.3fr)_repeat(4,minmax(0,1fr))_auto]"
               data-testid="audit-filters"
             >
               <label className="grid min-w-0 gap-1.5 text-[13px] text-ink-muted">
                 {t('logs.from')}
                 <Input
+                  className="h-10"
                   type="datetime-local"
                   value={form.since}
                   onChange={(e) => set({ since: e.target.value })}
@@ -240,6 +241,7 @@ export function AuditPage() {
               <label className="grid min-w-0 gap-1.5 text-[13px] text-ink-muted">
                 {t('logs.to')}
                 <Input
+                  className="h-10"
                   type="datetime-local"
                   value={form.until}
                   onChange={(e) => set({ until: e.target.value })}
@@ -249,6 +251,7 @@ export function AuditPage() {
               <div className="grid min-w-0 gap-1.5 text-[13px] text-ink-muted">
                 <span aria-hidden="true">{t('audit.actor')}</span>
                 <Input
+                  className="h-10"
                   value={form.actor}
                   onChange={(e) => set({ actor: e.target.value })}
                   aria-label={t('audit.actor')}
@@ -258,6 +261,7 @@ export function AuditPage() {
               <div className="grid min-w-0 gap-1.5 text-[13px] text-ink-muted">
                 <span aria-hidden="true">{t('audit.action')}</span>
                 <Select
+                  className="h-10"
                   value={form.action}
                   onChange={(e) => set({ action: e.target.value })}
                   aria-label={t('audit.action')}
@@ -273,6 +277,7 @@ export function AuditPage() {
               <div className="grid min-w-0 gap-1.5 text-[13px] text-ink-muted">
                 <span aria-hidden="true">{t('audit.entity')}</span>
                 <Select
+                  className="h-10"
                   value={form.entity_type}
                   onChange={(e) => set({ entity_type: e.target.value })}
                   aria-label={t('audit.entity')}
@@ -291,11 +296,11 @@ export function AuditPage() {
                   value={form.ip}
                   onChange={(e) => set({ ip: e.target.value })}
                   aria-label={t('audit.ip')}
-                  className="font-mono"
+                  className="h-10 font-mono"
                   dir="ltr"
                 />
               </div>
-              <Button type="submit" variant="primary">
+              <Button type="submit" variant="primary" className="self-end">
                 {t('logs.apply')}
               </Button>
             </form>

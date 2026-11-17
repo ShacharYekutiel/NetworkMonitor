@@ -51,7 +51,7 @@ import {
   TAG_TONE,
   Textarea,
 } from '../ui';
-import { useAssistantErrorText, useAssistantStatus } from './common';
+import { useAssistantErrorText, useAssistantStatus, useStatusLineText } from './common';
 import { ChatModelsCard } from './ChatModelsCard';
 import { ConnectionSettings } from './ConnectionSettings';
 
@@ -744,6 +744,7 @@ function CapabilityRow({
   const f = featuresFromSettings(settings);
   const st = useAssistantStatus();
   const info = st.data?.features.find((x) => x.name === name);
+  const statusText = useStatusLineText();
   const on = f[name];
   const hints = featureHints(name, f, settings);
   const kb = name === 'ai_knowledge';
@@ -786,7 +787,7 @@ function CapabilityRow({
             </span>
           )}
           {on && info?.status_line && (
-            <span className="text-xs text-status-up">{info.status_line}</span>
+            <span className="text-xs text-status-up">{statusText(info.status_line)}</span>
           )}
           {hints.map((h) => (
             <span

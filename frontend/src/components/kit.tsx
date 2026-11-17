@@ -17,7 +17,7 @@ import {
   SparkIcon,
 } from './icons';
 import { Link } from 'react-router';
-import { cx } from './ui';
+import { cx, textDir } from './ui';
 
 type IconC = ComponentType<{ size?: number; strokeWidth?: number; className?: string }>;
 
@@ -167,7 +167,10 @@ export const CHECKBOX =
 export const RADIO =
   'h-5 w-5 shrink-0 cursor-pointer appearance-none rounded-full border-[1.6px] border-line-strong transition-[border] checked:border-[6px] checked:border-accent';
 
-/** Option card for radio choices with a hint (prototype .opt). */
+/**
+ * Option card for radio choices with a hint (prototype .opt). The title names the radio and the
+ * hint describes it, so the accessible name stays the option's word.
+ */
 export function OptionCard({
   name,
   value,
@@ -183,6 +186,7 @@ export function OptionCard({
   title: ReactNode;
   hint?: ReactNode;
 }) {
+  const id = useId();
   return (
     <label
       className={cx(
@@ -196,11 +200,19 @@ export function OptionCard({
         value={value}
         checked={checked}
         onChange={() => onChange(value)}
+        aria-labelledby={`${id}-t`}
+        aria-describedby={hint ? `${id}-h` : undefined}
         className={cx(RADIO, 'mt-0.5')}
       />
       <span className="grid gap-0.5">
-        <b className="font-semibold">{title}</b>
-        {hint && <span className="text-[13.5px] text-ink-muted">{hint}</span>}
+        <b id={`${id}-t`} className="font-semibold">
+          {title}
+        </b>
+        {hint && (
+          <span id={`${id}-h`} className="text-[13.5px] text-ink-muted">
+            {hint}
+          </span>
+        )}
       </span>
     </label>
   );
@@ -401,12 +413,13 @@ export function TimelineEntry({
       data-testid={testId}
       className="grid grid-cols-[76px_22px_minmax(0,1fr)] gap-3 max-sm:grid-cols-[58px_18px_minmax(0,1fr)] max-sm:gap-2"
     >
+      {/* aligned to the line in both directions; the text keeps its own direction ("10:44",
+          "30 דק׳") */}
       <span
         title={timeTitle}
-        className="num whitespace-nowrap pt-4 text-end text-sm font-medium text-ink-muted [unicode-bidi:isolate]"
-        dir="ltr"
+        className="num whitespace-nowrap pt-4 text-end text-sm font-medium text-ink-muted"
       >
-        {time}
+        <bdi dir={typeof time === 'string' ? textDir(time) : 'ltr'}>{time}</bdi>
       </span>
       <span
         aria-hidden="true"
@@ -714,5 +727,33 @@ export function Avatar({ name, size = 'md' }: { name: string; size?: keyof typeo
     >
       {initial}
     </span>
+  );
+}
+
+/**
+ * A labelled row with an Apple switch (prototype .popmenu rows with .sw): a native checkbox drawn
+ * as the switch, so lists of on/off choices keep checkbox semantics.
+ */
+export function SwitchRow({
+  label,
+  checked,
+  onChange,
+}: {
+  label: ReactNode;
+  checked: boolean;
+  onChange: (v: boolean) => void;
+}) {
+  return (
+    <label className="flex min-h-[38px] cursor-pointer items-center justify-between gap-3 rounded-[10px] px-2.5 text-sm hover:bg-chip">
+      <span className="min-w-0 truncate">{label}</span>
+      <input
+        type="checkbox"
+        checked={checked}
+        onChange={(e) => onChange(e.target.checked)}
+        className={cx(
+          "relative h-[22px] w-9 shrink-0 cursor-pointer appearance-none rounded-full bg-chip shadow-[inset_0_0_0_1px_var(--border)] transition-colors duration-300 before:absolute before:start-0.5 before:top-0.5 before:h-[18px] before:w-[18px] before:rounded-full before:bg-white before:shadow-[0_1px_3px_rgba(0,0,0,0.25)] before:transition-[inset-inline-start] before:duration-300 before:content-[''] checked:bg-status-up checked:shadow-none checked:before:start-4 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--focus)]",
+        )}
+      />
+    </label>
   );
 }

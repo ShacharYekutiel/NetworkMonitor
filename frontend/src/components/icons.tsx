@@ -467,3 +467,36 @@ export const UnlockIcon = (p: P) => (
     <path d="M8 11V8a4 4 0 017.6-1.7" />
   </Svg>
 );
+
+// [premium slice 6]
+/** Send (prototype "send"): an arrow up. */
+export const SendIcon = (p: P) => (
+  <Svg {...p}>
+    <path d="M12 19V5M6 11l6-6 6 6" />
+  </Svg>
+);
+/** A chat bubble (prototype "chat"). */
+export const ChatIcon = (p: P) => (
+  <Svg {...p}>
+    <path d="M4 5h16v11H9l-5 4z" />
+  </Svg>
+);
+/** A gauge (prototype "gauge"): the usage link. */
+export const GaugeIcon = (p: P) => (
+  <Svg {...p}>
+    <path d="M4 18a8 8 0 1116 0" />
+    <path d="M12 18l4-6" />
+  </Svg>
+);
+/** Chevron down (prototype "down"): pickers that open a list. */
+export const ChevronDownIcon = (p: P) => (
+  <Svg {...p}>
+    <path d="M6 9l6 6 6-6" />
+  </Svg>
+);
+/** Download (prototype "dl"). */
+export const DownloadIcon = (p: P) => (
+  <Svg {...p}>
+    <path d="M12 4v12M7 11l5 5 5-5M4 20h16" />
+  </Svg>
+);

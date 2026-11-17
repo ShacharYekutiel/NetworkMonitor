@@ -96,6 +96,28 @@ export function formatDuration(totalSeconds: number): string {
   return parts.join(' ');
 }
 
+/**
+ * A duration for a time column (timelines): always a number and a short unit, so a column reads
+ * evenly ("0 min", "1 min", "30 min", "1 h 30 min"; Hebrew "0 דק׳", "1 דק׳").
+ */
+export function formatDurationCol(totalSeconds: number): string {
+  const s = Math.max(0, Math.floor(totalSeconds));
+  const d = Math.floor(s / 86400);
+  const h = Math.floor((s % 86400) / 3600);
+  const m = Math.floor((s % 3600) / 60);
+  const parts: string[] = [];
+  if (d) {
+    parts.push(i18n.t('units.colD', { count: d }));
+    if (h) parts.push(i18n.t('units.colH', { count: h }));
+  } else if (h) {
+    parts.push(i18n.t('units.colH', { count: h }));
+    if (m) parts.push(i18n.t('units.colM', { count: m }));
+  } else {
+    parts.push(i18n.t('units.colM', { count: m }));
+  }
+  return parts.join(' ');
+}
+
 export function formatDateTime(iso: string | null | undefined): string {
   if (!iso) return '—';
   const d = new Date(iso);

@@ -113,33 +113,47 @@ export function DeviceSensorsCard({
   // Only ids still in the list count (sensors may be deleted while selected).
   const ids = (sensors ?? []).filter((s) => picked.has(s.id)).map((s) => s.id);
   return (
-    <Card
-      title={t('devices.sensors')}
-      bodyClassName="p-0"
-      actions={
-        isAdmin && ids.length > 0 ? (
-          <div className="flex flex-wrap items-center gap-2" data-testid="sensor-bulk-bar">
-            <span className="text-xs text-ink-muted">
-              {t('impact.selected', { count: ids.length })}
-            </span>
-            <Button size="sm" onClick={() => setBulk(true)}>
-              {t('impact.setImpact')}
-            </Button>
-            <Button size="sm" variant="ghost" onClick={() => setPicked(new Set())}>
-              {t('impact.clearSelection')}
-            </Button>
-          </div>
-        ) : undefined
-      }
-    >
-      {loading && <Loading />}
-      <ErrorBox error={error} />
-      {sensors && (
-        <SensorTable
-          sensors={sensors}
-          actions={isAdmin ? (s) => <SensorRowActions sensor={s} /> : undefined}
-          selection={isAdmin ? { selected: picked, onChange: setPicked } : undefined}
-        />
+    <div>
+      {isAdmin && sensors && sensors.length > 1 && (
+        <p className="mx-1 mb-2.5 mt-0 text-[13.5px] text-ink-muted">{t('impact.selectHint')}</p>
+      )}
+      <Card title={t('devices.sensors')} bodyClassName="p-0">
+        {loading && <Loading />}
+        <ErrorBox error={error} />
+        {sensors && (
+          <SensorTable
+            sensors={sensors}
+            actions={isAdmin ? (s) => <SensorRowActions sensor={s} /> : undefined}
+            selection={isAdmin ? { selected: picked, onChange: setPicked } : undefined}
+          />
+        )}
+      </Card>
+      {/* prototype .bulkbar: a floating ink pill while rows are selected */}
+      {isAdmin && ids.length > 0 && (
+        <div
+          className="sticky bottom-[18px] z-20 mt-3.5 flex flex-wrap items-center gap-2.5 rounded-full bg-accent py-2.5 pe-2.5 ps-[18px] text-accent-on shadow-[0_14px_40px_rgba(0,0,0,0.2)] motion-safe:animate-[nm-pop-in_.3s_cubic-bezier(.32,.72,0,1)]"
+          data-testid="sensor-bulk-bar"
+          role="region"
+          aria-label={t('impact.bulkBar')}
+        >
+          <span className="min-w-0 flex-1 font-medium" aria-live="polite">
+            {t('impact.selected', { count: ids.length })}
+          </span>
+          <button
+            type="button"
+            onClick={() => setBulk(true)}
+            className="h-[34px] rounded-full bg-accent-on px-3.5 text-[13.5px] font-medium text-accent"
+          >
+            {t('impact.setImpact')}
+          </button>
+          <button
+            type="button"
+            onClick={() => setPicked(new Set())}
+            className="h-[34px] rounded-full bg-[color-mix(in_srgb,var(--on-accent)_16%,transparent)] px-3.5 text-[13.5px] font-medium"
+          >
+            {t('impact.clearSelection')}
+          </button>
+        </div>
       )}
       {isAdmin && (
         <BulkImpactModal
@@ -150,7 +164,7 @@ export function DeviceSensorsCard({
           onDone={() => setPicked(new Set())}
         />
       )}
-    </Card>
+    </div>
   );
 }
 

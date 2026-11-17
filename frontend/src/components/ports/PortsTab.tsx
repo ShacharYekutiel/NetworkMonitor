@@ -9,9 +9,9 @@ import { errorMessage } from '../../lib/errors';
 import { formatRelative } from '../../lib/format';
 import { onPortsUpdated, refetchIfInvalidated } from '../../lib/liveCache';
 import { portDeviceKind } from '../../lib/ports';
-import { ListIcon, PanelIcon, RefreshIcon } from '../icons';
+import { AlertIcon, DownloadIcon, ListIcon, PanelIcon, RefreshIcon } from '../icons';
 import { useToast } from '../toast';
-import { Button, buttonClass, Card, cx, ErrorBox, Loading, Notice } from '../ui';
+import { Button, buttonClass, cx, ErrorBox, Loading, Notice } from '../ui';
 import { Faceplate, FaceplateLegend } from './Faceplate';
 import { HealthStrip } from './HealthStrip';
 import { PortList } from './PortList';
@@ -33,7 +33,7 @@ function StatusLine({ data }: { data: DevicePorts }) {
     });
   else line = t('ports.statusLineNoNext', { ago: formatRelative(s.last_ok_at ?? s.last_run_at) });
   return (
-    <div className="text-xs text-ink-muted" data-testid="ports-status">
+    <div className="text-[13px] text-ink-muted" data-testid="ports-status">
       <span>{line}</span>
       {data.settings.interval_min === 0 && <span> · {t('ports.autoOff')}</span>}
       {s.error && (
@@ -55,12 +55,13 @@ function Hints({ data }: { data: DevicePorts }) {
   if (data.status.sources.poe === 'unmapped') hints.push(t('ports.hint.poeUnmapped'));
   if (!hints.length) return null;
   return (
-    <ul className="space-y-1" data-testid="ports-hints">
+    <ul className="m-0 grid list-none gap-2 p-0" data-testid="ports-hints">
       {hints.map((h) => (
         <li
           key={h}
-          className="rounded-md bg-status-warning-soft px-3 py-1.5 text-xs text-status-warning"
+          className="flex items-center gap-2.5 rounded-lg bg-status-warning-soft px-4 py-2.5 text-[13.5px] text-ink"
         >
+          <AlertIcon size={16} className="shrink-0 text-status-warning" />
           {h}
         </li>
       ))}
@@ -189,6 +190,7 @@ export function PortsTab({ device }: { device: Device }) {
                   download
                   data-testid="ports-csv"
                 >
+                  <DownloadIcon size={15} />
                   {t('ports.exportCsv')}
                 </a>
               )}
@@ -210,7 +212,7 @@ export function PortsTab({ device }: { device: Device }) {
                     aria-selected={view === v}
                     onClick={() => setParam('view', v === 'faceplate' ? null : v)}
                     className={cx(
-                      'inline-flex h-6 items-center gap-1.5 rounded-sm px-2.5 text-xs font-medium',
+                      'inline-flex h-7 items-center gap-1.5 rounded-[8px] px-3 text-[13px] font-medium',
                       view === v
                         ? 'bg-surface text-ink shadow-[0_1px_3px_rgba(0,0,0,0.12)]'
                         : 'text-ink-muted hover:text-ink',
@@ -242,9 +244,7 @@ export function PortsTab({ device }: { device: Device }) {
               <FaceplateLegend kinds={data.ports.some((p) => portDeviceKind(p) !== null)} />
             </div>
           ) : (
-            <Card bodyClassName="p-4">
-              <PortList ports={data.ports} selected={selected} onSelect={openPort} />
-            </Card>
+            <PortList ports={data.ports} selected={selected} onSelect={openPort} />
           )}
         </div>
       )}
