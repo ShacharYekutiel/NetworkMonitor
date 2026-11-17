@@ -861,7 +861,8 @@ export function TopologyPage() {
           <section
             ref={canvas.ref}
             style={canvas.height ? { height: canvas.height } : undefined}
-            className="flex min-w-0 flex-col overflow-hidden rounded-lg border border-line bg-surface-sunken bg-[radial-gradient(var(--border)_1px,transparent_1px)] [background-size:16px_16px]"
+            // min height: the chart must never be created at 0 px (ECharts 6 view transform)
+            className="flex min-h-[22rem] min-w-0 flex-col overflow-hidden rounded-lg border border-line bg-surface-sunken bg-[radial-gradient(var(--border)_1px,transparent_1px)] [background-size:16px_16px]"
           >
             {data.nodes.length ? (
               <TopologyChart

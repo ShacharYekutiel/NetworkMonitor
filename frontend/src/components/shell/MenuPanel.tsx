@@ -211,6 +211,8 @@ export function MenuPanel({
                         to={it.to}
                         end={it.to === '/'}
                         aria-current={on ? 'page' : undefined}
+                        // the accessible name is the section name (as on the 1.4 nav rail)
+                        aria-label={t(it.label)}
                         onClick={() => !pinned && onClose()}
                         className={cx(
                           'flex items-center gap-3 text-[15px] no-underline transition-colors',

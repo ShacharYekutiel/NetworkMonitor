@@ -97,6 +97,14 @@ export async function menuNav(page: Page, { pin = false }: { pin?: boolean } = {
   return menu.locator('nav');
 }
 
+/** Closes the menu sheet (Escape); a locked menu stays. */
+export async function closeMenu(page: Page) {
+  const menu = page.locator('#nm-menu');
+  if ((await menu.getAttribute('data-pinned')) || !(await menu.getAttribute('data-open'))) return;
+  await page.keyboard.press('Escape');
+  await expect(menu).not.toHaveAttribute('data-open', 'true');
+}
+
 /** Opens a screen through the menu (by the link's accessible name). */
 export async function menuGo(page: Page, name: string | RegExp) {
   await (await menuNav(page)).getByRole('link', { name, exact: typeof name === 'string' }).click();

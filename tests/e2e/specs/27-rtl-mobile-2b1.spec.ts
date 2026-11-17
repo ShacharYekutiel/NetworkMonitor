@@ -1,5 +1,5 @@
 import { expect, test, type Page } from '@playwright/test';
-import { Api, apiAs, defaultGroupId, loginViaApi, uid, menuNav } from '../lib/helpers';
+import { Api, apiAs, defaultGroupId, loginViaApi, uid, menuNav, closeMenu } from '../lib/helpers';
 import { horizontalOverflow, raw } from '../lib/lab';
 import { httpDevice, shot2b, target, waitStatus } from '../lib/lab2b';
 
@@ -71,6 +71,7 @@ test('Hebrew: dir=rtl, translated texts, LTR IPs; screenshots', async ({ page })
   // nav.maintenance / nav.map exist in Hebrew (not the English fallback).
   await expect(nav.getByRole('link', { name: 'Maintenance' })).toHaveCount(0);
   await expect(nav.getByRole('link', { name: 'Map' })).toHaveCount(0);
+  await closeMenu(page);
   await expect(page.getByText('חלון תחזוקה QA').first()).toBeVisible();
   await expect(page.locator('main')).not.toContainText(/Active now|Upcoming|Recurring|Next occurrence/);
   await shot2b(page, 'maintenance-desktop-he');
