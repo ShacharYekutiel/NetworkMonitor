@@ -150,18 +150,18 @@ function TemplateCard({ tpl, vendor }: { tpl: DeviceTemplate; vendor: string }) 
       className="flex flex-col"
       bodyClassName="flex flex-1 flex-col gap-3 px-[22px] pb-5 pt-0"
       title={
-        <span className="grid gap-0.5">
-          <span className="text-[12.5px] font-medium text-ink-subtle">{vendor}</span>
+        <span className="grid w-full gap-0.5">
+          <span className="flex items-baseline justify-between gap-3 text-[12.5px] font-medium text-ink-subtle">
+            <span>{vendor}</span>
+            <code dir="ltr" className="num text-xs font-normal">
+              {tpl.id}
+            </code>
+          </span>
           <span className="flex flex-wrap items-center gap-2">
             <bdi dir="auto">{l10n(tpl.name, lang)}</bdi>
             {tpl.verified !== undefined && <VerifiedBadge tpl={tpl} />}
           </span>
         </span>
-      }
-      actions={
-        <code dir="ltr" className="num text-xs text-ink-subtle">
-          {tpl.id}
-        </code>
       }
     >
       {/* the description, or else the sensors in one grey line */}
@@ -294,7 +294,7 @@ export function TemplatesPage() {
       {lib && isAdmin && <ErrorsPanel errors={lib.errors} />}
       {q.data && !items.length && <Empty>{t('templates.none')}</Empty>}
       {/* prototype .three: one grid of cards, by vendor (the vendor above each name) */}
-      <div className="grid grid-cols-1 items-start gap-4 md:grid-cols-2 xl:grid-cols-3">
+      <div className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-3">
         {groups.flatMap((g) =>
           g.items.map((tpl) => (
             <TemplateCard

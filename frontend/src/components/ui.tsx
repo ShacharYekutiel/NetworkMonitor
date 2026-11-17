@@ -210,7 +210,7 @@ export function Card({
     >
       {(title || actions) && (
         <header className="flex min-h-[56px] flex-wrap items-center justify-between gap-2.5 px-[22px] pb-2 pt-4">
-          <h2 className="text-[17px] font-semibold leading-snug">{title}</h2>
+          <h2 className="min-w-0 flex-1 text-[17px] font-semibold leading-snug">{title}</h2>
           {actions && <div className="flex flex-wrap items-center gap-2">{actions}</div>}
         </header>
       )}
