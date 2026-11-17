@@ -1886,10 +1886,10 @@
     "23": "מקומי 7"
   },
   "logs": {
-    "title": "מלכודות ו-Syslog",
+    "title": "לוגים ו-Traps",
     "tab": {
       "syslog": "Syslog",
-      "traps": "מלכודות",
+      "traps": "Traps",
       "unknown": "מקורות לא מוכרים",
       "rules": "כללים",
       "digest": "תקציר"
@@ -3867,7 +3867,14 @@
     "byProgram": "לפי תוכנה",
     "byDevice": "לפי התקן",
     "byHour": "לפי שעה",
-    "deliveries": "שליחות"
+    "deliveries": "שליחות",
+    "baselineN": "קו בסיס {{n}}",
+    "devices": "התקנים",
+    "unusualTitle": "חריגים",
+    "noneHint": "התקציר הראשון ייווצר אחרי יום שלם של הודעות syslog.",
+    "prevDay": "היום הקודם",
+    "nextDay": "היום הבא",
+    "all": "כל התקצירים"
   },
   "draft": {
     "describe": "תאר את הכלל…",

@@ -10,7 +10,7 @@ import { IngestStatusLine } from '../components/features/IngestStatus';
 import { Loading, PageHeader } from '../components/ui';
 import { TabBar } from '../components/TabBar';
 import { useAiFeature } from '../components/assistant/common';
-import { DigestList } from '../components/assistant/Digest';
+import { DigestDay } from '../components/assistant/Digest';
 
 type LogsTab = 'syslog' | 'traps' | 'unknown' | 'rules' | 'digest';
 
@@ -49,7 +49,7 @@ export function LogsPage() {
           {tab === 'traps' && <TrapsView />}
           {tab === 'unknown' && <UnknownSourcesView />}
           {tab === 'rules' && <RulesView />}
-          {tab === 'digest' && <DigestList />}
+          {tab === 'digest' && <DigestDay />}
         </>
       )}
     </div>

@@ -1854,7 +1854,7 @@
     "23": "Local 7"
   },
   "logs": {
-    "title": "Traps & Syslog",
+    "title": "Logs and traps",
     "tab": {
       "syslog": "Syslog",
       "traps": "Traps",
@@ -3822,7 +3822,14 @@
     "byProgram": "By program",
     "byDevice": "By device",
     "byHour": "By hour",
-    "deliveries": "Deliveries"
+    "deliveries": "Deliveries",
+    "baselineN": "baseline {{n}}",
+    "devices": "Devices",
+    "unusualTitle": "Unusual",
+    "noneHint": "The first digest is made after a full day of syslog messages.",
+    "prevDay": "Previous day",
+    "nextDay": "Next day",
+    "all": "All digests"
   },
   "draft": {
     "describe": "Describe the rule…",

@@ -60,9 +60,17 @@ export function severityHex(tk: ChartTokens): Record<ReturnType<typeof severityT
     red: tk.status.down,
     orange: tk.status.warning,
     amber: tk.status.warning,
-    sky: tk.status.unknown,
-    slate: tk.status.paused,
+    // premium flat bars: normal traffic is the ink at 22 % (prototype .bars i.u), colour only
+    // where something is wrong
+    sky: inkAlpha(tk.ink, 0.22),
+    slate: inkAlpha(tk.ink, 0.14),
   };
+}
+/** "#rrggbb" + alpha → rgba() (canvas-safe; anything else is returned as it is). */
+export function inkAlpha(hex: string, a: number): string {
+  const m = /^#([0-9a-f]{2})([0-9a-f]{2})([0-9a-f]{2})$/i.exec(hex.trim());
+  if (!m) return hex;
+  return `rgba(${parseInt(m[1], 16)}, ${parseInt(m[2], 16)}, ${parseInt(m[3], 16)}, ${a})`;
 }
 /** Light-theme values (code without a theme). */
 export const SEVERITY_HEX = severityHex(LIGHT_TOKENS);

@@ -117,6 +117,19 @@ export function formatShortTime(iso: string | null | undefined, now: number = Da
   ).format(d);
 }
 
+/** A log line's time (prototype logs rows): "10:44:12" within a day, else "17 Nov 10:44:12". */
+export function formatLogTime(iso: string | null | undefined, now: number = Date.now()): string {
+  if (!iso) return '—';
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return '—';
+  const soon = Math.abs(d.getTime() - now) < 86_400_000;
+  const time = { hour: '2-digit', minute: '2-digit', second: '2-digit', hourCycle: 'h23' } as const;
+  return new Intl.DateTimeFormat(
+    locale(),
+    soon ? time : { day: 'numeric', month: 'short', ...time },
+  ).format(d);
+}
+
 export function formatRelative(iso: string | null | undefined, now: number = Date.now()): string {
   if (!iso) return '—';
   const t = new Date(iso).getTime();

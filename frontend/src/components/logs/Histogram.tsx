@@ -51,7 +51,6 @@ export function Histogram({
     if (!c) return;
     const tk = chartTokens(dark);
     const text = tk.inkSubtle;
-    const grid = tk.chartGrid;
     // Series colours are given as light-theme tokens (SEVERITY_HEX): map them to this theme.
     const live = severityHex(tk);
     const themed = (c: string) => {
@@ -66,7 +65,8 @@ export function Histogram({
       {
         animation: false,
         textStyle: { color: text, fontFamily: tk.fontSans },
-        grid: { left: 40, right: 12, top: 8, bottom: 24 },
+        // premium flat bars (prototype .bars): no y axis, no grid, rounded tops
+        grid: { left: 4, right: 4, top: 8, bottom: 24 },
         tooltip: {
           trigger: 'axis',
           ...flatTooltip(tk),
@@ -97,10 +97,11 @@ export function Histogram({
           // ECharts 5 spaced the ticks of a bar series on a time axis like splitNumber 5
           // (1 h -> 10 min); ECharts 6 treats it like a line series (1 h -> 5 min).
           splitNumber: 5,
-          axisLine: { lineStyle: { color: grid } },
+          axisLine: { show: false },
+          axisTick: { show: false },
           axisLabel: {
             color: text,
-            fontFamily: tk.fontMono,
+            fontFamily: tk.fontDisplay,
             fontSize: 10.5,
             hideOverlap: true,
             formatter: {
@@ -115,15 +116,16 @@ export function Histogram({
         yAxis: {
           type: 'value',
           minInterval: 1,
-          axisLabel: { color: text, fontFamily: tk.fontMono, fontSize: 10.5 },
-          splitLine: { lineStyle: { color: grid } },
+          show: false,
+          splitLine: { show: false },
         },
         series: series.map((s) => ({
           name: s.name,
           type: 'bar',
           stack: 'all',
-          barMaxWidth: 24,
-          itemStyle: { color: themed(s.color) },
+          barMaxWidth: 18,
+          barMinHeight: 0,
+          itemStyle: { color: themed(s.color), borderRadius: [3, 3, 2, 2] },
           data: s.data.map((v, i) => [ts[i], v]),
         })),
       },
@@ -131,7 +133,7 @@ export function Histogram({
     );
   }, [times, series, bucketS, from, to, dark, i18n.language]);
 
-  return <div ref={ref} className="h-32 w-full" data-testid="logs-histogram" />;
+  return <div ref={ref} className="h-[140px] w-full" data-testid="logs-histogram" />;
 }
 
 /** Syslog stats buckets → 8 stacked series (one per severity, worst first). */
