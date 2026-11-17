@@ -36,10 +36,11 @@ test('switch to Hebrew in the top bar', async ({ page }) => {
   await expect(page.getByText('Recent events')).toHaveCount(0);
   await expect(page.getByText('Add device')).toHaveCount(0);
 
-  // The menu opens from the start side: the right in RTL.
+  // The menu sheet opens on the side of the ☰ button (the end side): the left in RTL.
   const aside = await page.getByRole('complementary').boundingBox();
   const main = await page.locator('main').boundingBox();
-  expect(aside!.x).toBeGreaterThan(main!.x);
+  expect(aside!.x).toBeLessThanOrEqual(main!.x);
+  expect(aside!.x + aside!.width).toBeLessThan(main!.x + main!.width / 2);
 
   const me = await (await page.request.get('/api/auth/me')).json();
   expect(me.user.language).toBe('he');

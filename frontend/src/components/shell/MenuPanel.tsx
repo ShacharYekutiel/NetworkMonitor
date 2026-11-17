@@ -121,9 +121,10 @@ export function MenuPanel({
         pinned
           ? 'relative z-20 h-full border-e border-line pt-header'
           : cx(
-              // BUILD.md § 6b: the sheet slides in from the start side (right in Hebrew)
-              'fixed inset-y-0 start-0 z-[51] max-w-[92vw] shadow-[0_0_60px_rgba(0,0,0,0.25)] transition-transform duration-500 ease-premium',
-              open ? 'translate-x-0' : '-translate-x-[104%] rtl:translate-x-[104%]',
+              // The sheet opens on the side of the ☰ button (the end side: left in Hebrew); only
+              // the pinned menu docks on the start side (right in Hebrew). Owner's decision.
+              'fixed inset-y-0 end-0 z-[51] max-w-[92vw] shadow-[0_0_60px_rgba(0,0,0,0.25)] transition-transform duration-500 ease-premium',
+              open ? 'translate-x-0' : 'translate-x-[104%] rtl:-translate-x-[104%]',
             ),
       )}
     >
