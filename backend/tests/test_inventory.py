@@ -80,6 +80,9 @@ SENSOR_KEYS = {
     "acknowledgement",
     "in_maintenance",
     "impact",  # [1.3]
+    "severity",  # [severity] (null while the feature is off)
+    "severity_down",
+    "severity_warning",
 }
 
 

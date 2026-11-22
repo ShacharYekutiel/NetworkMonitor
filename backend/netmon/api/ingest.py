@@ -482,6 +482,7 @@ _RULE_SET = (
 
 def _rule_params(v: dict[str, Any]) -> dict[str, Any]:
     p = dict(v)
+    p.setdefault("severity", None)  # [severity] built-in values (reset) have none
     p["match"] = json.dumps(v["match"])
     p["clear_match"] = json.dumps(v["clear_match"]) if v["clear_match"] is not None else None
     return p

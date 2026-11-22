@@ -116,7 +116,7 @@ def pki_file(mock: Any, name: str) -> bytes:
 async def test_feature_registration_and_dependencies(rt: Runtime, env: httpx.AsyncClient) -> None:
     c = env
     assert (
-        len(FEATURES) == 28 and PHASE3B_FEATURES[0] == "assistant" and len(PHASE3B_FEATURES) == 11
+        len(FEATURES) == 29 and PHASE3B_FEATURES[0] == "assistant" and len(PHASE3B_FEATURES) == 11
     )
     pub = (await c.get("/api/settings/public")).json()["features"]
     assert set(PHASE3B_FEATURES) <= set(pub) and not any(pub[n] for n in PHASE3B_FEATURES)
