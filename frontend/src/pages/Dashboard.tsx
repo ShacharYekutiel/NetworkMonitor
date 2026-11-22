@@ -2,7 +2,7 @@ import { DashboardIncidents } from '../components/assistant/Incidents';
 import { ExplainButton } from '../components/assistant/ExplainButton';
 import { useEffect, useState, type ComponentType, type ReactNode } from 'react';
 import { Link, useNavigate, useSearchParams } from 'react-router';
-import { useQuery } from '@tanstack/react-query';
+import { keepPreviousData, useQuery } from '@tanstack/react-query';
 import { useTranslation } from 'react-i18next';
 import { endpoints, qk } from '../api/endpoints';
 import { premium, qkPremium } from '../api/premium';
@@ -38,6 +38,10 @@ import { ingestOn } from '../lib/features';
 import { elapsed } from '../lib/homeMap';
 import { STATUS_DOT, STATUS_TEXT, statusClass } from '../lib/status';
 import { flattenGroups } from '../lib/tree';
+import type { Severity } from '../api/severity';
+import { parseSeverities, severityCsv, toggleSeverity } from '../lib/severity';
+import { SeverityTag } from '../components/kit';
+import { SeverityCountChips, SeverityMappingInfo } from '../components/severity/Severity';
 import { Card, cx, ErrorBox, GroupList, GroupTitle, ListRow, Loading, Ltr } from '../components/ui';
 
 type IconC = ComponentType<{ size?: number; strokeWidth?: number; className?: string }>;
@@ -161,7 +165,7 @@ function Counters({ counts }: { counts: StatusCounts }) {
   );
 }
 
-function ProblemRow({ s, now }: { s: Sensor; now: number }) {
+function ProblemRow({ s, now, severity }: { s: Sensor; now: number; severity?: boolean }) {
   const { t } = useTranslation();
   const { isAdmin } = useAuth();
   const localize = useLocalizeMessage();
@@ -193,6 +197,7 @@ function ProblemRow({ s, now }: { s: Sensor; now: number }) {
           {localize(s.status_message) || t(`status.${s.status}`)}
         </span>
       </span>
+      {severity && <SeverityTag severity={s.severity} />}
       {e && (
         <span className="num shrink-0 text-[13px] font-medium text-ink-muted" dir="ltr">
           {'clock' in e ? e.clock : t('home.days', { count: e.days })}
@@ -241,6 +246,27 @@ export function DashboardPage() {
     queryKey: qkPremium.overviewMap(site),
     queryFn: () => premium.overviewMap(site),
     retry: false,
+  });
+  // [severity] counts per level above the Alerts list; a chip filters it (?severity=…)
+  const sevCounts = features.alert_severity ? data?.severity_counts_unacknowledged : null;
+  const sevFilter = sevCounts ? parseSeverities(params.get('severity')) : [];
+  const setSevFilter = (list: Severity[]) => {
+    const next = new URLSearchParams(params);
+    if (list.length) next.set('severity', severityCsv(list));
+    else next.delete('severity');
+    setParams(next, { replace: true });
+  };
+  const filtered = useQuery({
+    queryKey: qk.sensors({ problems: true, severity: severityCsv(sevFilter) }),
+    queryFn: () =>
+      endpoints.sensors({
+        status: 'down,warning',
+        acknowledged: false,
+        severity: severityCsv(sevFilter),
+        sort: 'severity',
+      }),
+    enabled: sevFilter.length > 0,
+    placeholderData: keepPreviousData,
   });
   if (isLoading) return <Loading />;
   if (error || !data) return <ErrorBox error={error} />;
@@ -382,10 +408,30 @@ export function DashboardPage() {
             >
               {t('dashboard.problems')}
             </GroupTitle>
-            {n > 0 ? (
+            {sevCounts && n > 0 && (
+              <SeverityCountChips
+                counts={sevCounts}
+                countsAll={data.severity_counts}
+                selected={sevFilter}
+                onToggle={(s) => setSevFilter(toggleSeverity(sevFilter, s))}
+                onClear={() => setSevFilter([])}
+                extra={<SeverityMappingInfo />}
+              />
+            )}
+            {n > 0 && sevFilter.length > 0 ? (
+              <GroupList>
+                {(filtered.data?.items ?? []).map((s) => (
+                  <ProblemRow key={s.id} s={s} now={now} severity />
+                ))}
+                {filtered.data && !filtered.data.items.length && (
+                  <ListRow title={t('severity.noMatch')} />
+                )}
+                {filtered.isLoading && <ListRow title={t('common.loading')} />}
+              </GroupList>
+            ) : n > 0 ? (
               <GroupList>
                 {data.problem_sensors.map((s) => (
-                  <ProblemRow key={s.id} s={s} now={now} />
+                  <ProblemRow key={s.id} s={s} now={now} severity={!!sevCounts} />
                 ))}
               </GroupList>
             ) : (
@@ -437,6 +483,7 @@ export function DashboardPage() {
                       </div>
                       {s.acknowledgement && <AckDetails ack={s.acknowledgement} />}
                     </div>
+                    {sevCounts && <SeverityTag severity={s.severity} className="mt-1" />}
                     {isAdmin && <AckAction sensor={s} />}
                   </li>
                 ))}

@@ -9,6 +9,8 @@ import { useLocalizeMessage } from '../hooks/localize';
 import { cx, Empty, GroupList, Table, td, th } from './ui';
 import { STATUS_DOT, statusClass } from '../lib/status';
 import { ExplainButton } from './assistant/ExplainButton';
+import { useFeature } from '../hooks/features';
+import { SeverityTag } from './kit';
 
 export function EventKindLabel({ kind }: { kind: NmEvent['kind'] }) {
   const { t } = useTranslation();
@@ -43,6 +45,7 @@ export function EventsTable({
 }) {
   const { t } = useTranslation();
   const localize = useLocalizeMessage();
+  const severityOn = useFeature('alert_severity'); // [severity]
   if (!events.length) return <Empty>{t('events.none')}</Empty>;
   return (
     <Table>
@@ -75,7 +78,10 @@ export function EventsTable({
               </td>
             )}
             <td className={td}>
-              <StatusTransition ev={ev} />
+              <span className="inline-flex flex-wrap items-center gap-1.5">
+                <StatusTransition ev={ev} />
+                {severityOn && <SeverityTag severity={ev.severity} />}
+              </span>
             </td>
             <td dir="auto" className={`${td} min-w-48 text-ink-muted`}>
               {ev.in_maintenance && (
