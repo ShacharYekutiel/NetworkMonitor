@@ -337,8 +337,12 @@ export function SeverityMappingEditor({ readOnly }: { readOnly?: boolean }) {
   const q = useSeverityMapping();
   const [draft, setDraft] = useState<SeverityMapping | null>(null);
   const [confirm, setConfirm] = useState(false);
+  const [inSubject, setInSubject] = useState(false);
   useEffect(() => {
-    if (q.data) setDraft(q.data.mapping);
+    if (q.data) {
+      setDraft(q.data.mapping);
+      setInSubject(!!q.data.severity_in_subject);
+    }
   }, [q.data]);
   const onSaved = (key: string) => (r: Awaited<ReturnType<typeof severityApi.mapping>>) => {
     qc.setQueryData(qkSeverity.mapping, r);
@@ -359,6 +363,8 @@ export function SeverityMappingEditor({ readOnly }: { readOnly?: boolean }) {
       qc.setQueryData(qkSeverity.mapping, r);
       toast.push('success', t('common.saved'));
     },
+    // the box follows the click at once; a failed save puts it back
+    onError: () => setInSubject(!!q.data?.severity_in_subject),
   });
   const reset = useMutation({
     mutationFn: severityApi.resetMapping,
@@ -389,9 +395,12 @@ export function SeverityMappingEditor({ readOnly }: { readOnly?: boolean }) {
       <div data-anchor="severity-subject" data-testid="severity-subject-option">
         <Checkbox
           label={t('severity.mapping.subject')}
-          checked={!!q.data.severity_in_subject}
+          checked={inSubject}
           disabled={readOnly || subject.isPending}
-          onChange={(v) => subject.mutate(v)}
+          onChange={(v) => {
+            setInSubject(v);
+            subject.mutate(v);
+          }}
         />
         <p className="m-0 ms-6 mt-0.5 text-xs text-ink-muted">
           {t('severity.mapping.subjectHint')}
