@@ -112,6 +112,7 @@ The API layer prevents cycles: if `parent_id` would make the group its own ances
 | state | jsonb | NOT NULL DEFAULT '{}'. Internal poller state (e.g. the last SNMP counters). **Never exposed by the API.** |
 | sort_order | integer | NOT NULL DEFAULT 0 |
 | impact | text | **[1.3]** NOT NULL DEFAULT `critical` CHECK in (`critical`,`warning`,`none`): contribution to the device status ([§ 1.3](#13-sensor-impact)) |
+| origin | text | **[template-switch]** NULL. `manual` (sensor form / `POST /api/sensors`), `auto` (default sensors of `POST /api/devices`, automatic event sensors), `template:<id>` (apply template, discovery import); NULL = created before migration `0016`. Not exposed by the sensor API; read by the apply dialog ([§ Sensors a template replaces](#template-switch-sensors-a-template-replaces)) |
 | created_at, updated_at | timestamptz | |
 
 Index: `(status)`.
@@ -2055,6 +2056,7 @@ Unknown keys anywhere → error. "default" = value used when the key is absent.
 | `priority` | int | **required** | 0–1000 |
 | `match` | rule[] | **required** | 1–20 rules |
 | `entries` | entry[] | **required** | 1–100 entries |
+| `replaces` | str[] | `[]` | **[template-switch]** generic sensor types this template measures another way: any of `snmp_cpu`, `snmp_memory`, `snmp_disk`, no duplicates, never a type the template has a `sensor` entry for. Applying it offers to delete the device's sensors of these types ([§ Sensors a template replaces](#template-switch-sensors-a-template-replaces)) |
 
 **Match rule** (all keys optional; absent = null = "any", except `requires_snmp` default false). A rule matches
 when every non-null field matches; a template matches when any rule matches.
@@ -4415,6 +4417,38 @@ A registry of login sessions for `GET` / `DELETE /api/auth/sessions` (code: `net
 - **Removed**: the row of a session ended by logout or by `DELETE /api/auth/sessions/{id}`; all rows of the user on
   logout everywhere; dead rows of a user when one of their sessions is first recorded; at start, rows idle longer
   than 31 days and rows whose `token_version` is outdated.
+
+## [template-switch] Sensors a template replaces
+Applying a template only adds sensors. When it supersedes what the device had (generic SNMP → vendor template,
+one vendor template → another), the apply dialog lists the device's sensors the new template replaces and the
+user ticks the ones to delete (pure `netmon.templates.replaces.candidates_for`, no SNMP).
+
+A sensor is a **candidate** when the new template does not produce it (a `sensor` entry with the same identity
+([§ Idempotency](#idempotency-apply-adds-only-what-is-missing)), or a row `walk_oid.<row>` of an `snmp_table`
+entry with the matching `percent_of_column`) and
+
+- **`replaced`**: its type is in the new template's `replaces` list, whatever created it except by hand; or
+- **`other_template`**: `origin` = `template:<other id>`; for `origin` NULL (before `0016`) when another library
+  template produces exactly this sensor (`from_template` = that template when exactly one does) — except the
+  default sensor types (`ping`, `snmp_system`, `snmp_cpu`, `snmp_memory`), which an unknown origin only makes a
+  candidate through `replaces`.
+
+Never candidates: `origin = manual`, `ping`, `snmp_system`, `snmp_interface` (the Ports section of the dialog
+handles interfaces), passive event sensors, sensors created by the same template id (an earlier version).
+
+**`failing`**: `status = down` and the message says the device lacks the data ("not found", "not supported",
+"not available", "noSuchObject" / "noSuchInstance", "endOfMibView", "unknown object"; case-insensitive). The
+dialog pre-ticks these; a sensor that is down for a real reason (a value over its limit) is not failing.
+
+Library templates with `replaces: [snmp_cpu, snmp_memory]` (own CPU and memory from the vendor MIB):
+`hpe_comware`, `hpe_arubaos_switch`, `cisco_ios`, `checkpoint_gaia`, `fortinet_fortigate`.
+
+## [template-switch] Migration (`0016`)
+File `backend/netmon/migrations/versions/0016_sensor_origin.py`, `revision = "0016"`, `down_revision = "0014"`
+(**merge note:** another branch adds `0015`; when both are merged `down_revision` here becomes `"0015"` — the id
+is written only in that file, tests read the head and the down revision from the scripts). Plain DDL, identical
+in TimescaleDB and plain PostgreSQL mode, idempotent. `upgrade()`: `ALTER TABLE sensors ADD COLUMN origin text
+NULL` (existing sensors keep NULL = origin unknown). `downgrade()`: drops the column.
 
 ## [premium] Migration (`0014`)
 File `backend/netmon/migrations/versions/0014_sessions.py`, `revision = "0014"`, `down_revision = "0013"`. Plain DDL,

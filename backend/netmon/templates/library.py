@@ -50,6 +50,7 @@ TEMPLATE_KEYS_2B2 = (
     "source",
     "overrides_builtin",
     "file",
+    "replaces",  # [template-switch]
 )
 ENTRY_KEYS_2B2 = ("confidence", "notes", "when")
 RULE_KEYS_2B2 = ("sys_object_id_prefixes", "sys_descr_regex")
@@ -516,7 +517,35 @@ TOP_KEYS = (
     "priority",
     "match",
     "entries",
+    "replaces",  # [template-switch]
 )
+
+# [template-switch] generic sensor types a template may declare it replaces (it measures the
+# same thing another way, e.g. a vendor CPU / memory MIB instead of HOST-RESOURCES-MIB)
+REPLACEABLE_TYPES = ("snmp_cpu", "snmp_memory", "snmp_disk")
+
+
+def _replaces(v: Any, entries: list[dict[str, Any]]) -> list[str]:
+    """`replaces: [snmp_cpu, snmp_memory]`: the apply dialog offers to delete the device's
+    sensors of these types. A type the template creates itself cannot be replaced by it."""
+    if v is None:
+        return []
+    if not isinstance(v, list) or len(v) > len(REPLACEABLE_TYPES):
+        raise TemplateError("replaces", "invalid value: must be a list of sensor types")
+    own = {e.get("type") for e in entries if e["kind"] == "sensor"}
+    out: list[str] = []
+    for i, x in enumerate(v):
+        path = _join("replaces", i)
+        if x not in REPLACEABLE_TYPES:
+            raise TemplateError(
+                path, f"invalid value: must be one of {', '.join(REPLACEABLE_TYPES)}"
+            )
+        if x in out:
+            raise TemplateError(path, f"duplicate type: {x}")
+        if x in own:
+            raise TemplateError(path, f"the template creates {x} sensors itself")
+        out.append(str(x))
+    return out
 
 
 def _list(v: Any, path: str, lo: int, hi: int) -> list[Any]:
@@ -560,6 +589,7 @@ def validate_template(data: Any, stem: str) -> dict[str, Any]:
         "verified_note": _str(data.get("verified_note", ""), "verified_note", 0, 200),
         "vendor": _opt_str(data.get("vendor"), "vendor", 64),
     }
+    out["replaces"] = _replaces(data.get("replaces"), out["entries"])
     return copy.deepcopy(out)
 
 

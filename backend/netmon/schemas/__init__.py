@@ -818,6 +818,9 @@ class ApplyTemplateRequest(_In):
     # [1.3] which interfaces get snmp_interface sensors: "important" | "none" | "all" | ifIndexes
     interfaces: Literal["important", "none", "all"] | list[int] = "important"
     remove_unselected_interfaces: bool = False
+    # [template-switch] sensors this template replaces to delete (ids from
+    # GET /api/devices/{id}/apply-template/replaces); nothing is deleted when empty
+    remove_sensor_ids: list[int] = Field(default_factory=list, max_length=1000)
 
     @field_validator("interfaces")
     @classmethod

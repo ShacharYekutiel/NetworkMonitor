@@ -3471,6 +3471,23 @@
     "removedTitle_one": "Removed {{count}} sensor",
     "removedTitle_other": "Removed {{count}} sensors"
   },
+  "applyReplaces": {
+    "title": "Sensors this template replaces",
+    "hint": "This template measures these in its own way, so they are no longer needed. A ticked sensor is deleted together with its history. Sensors that fail on this device are ticked; working ones are not — you choose.",
+    "selectAll": "Select all",
+    "rowLabel": "Delete {{name}}",
+    "failing": "Not supported by this device",
+    "reason": {
+      "replaced": "This template has its own sensor for this",
+      "other_template": "Created by the template “{{template}}”",
+      "other_template_unknown": "Created by another template"
+    },
+    "keepAll": "Nothing is ticked: these sensors are kept.",
+    "deleteCount_one": "{{count}} sensor will be deleted, with its history.",
+    "deleteCount_other": "{{count}} sensors will be deleted, with their history.",
+    "resultTitle_one": "Removed {{count}} sensor this template replaces",
+    "resultTitle_other": "Removed {{count}} sensors this template replaces"
+  },
   "assistant": {
     "title": "Ask the network",
     "open": "Open Ask the network",

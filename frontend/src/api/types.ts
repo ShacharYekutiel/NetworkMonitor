@@ -1007,6 +1007,8 @@ export type DeviceTemplate = {
   source?: TemplateSource;
   overrides_builtin?: boolean;
   file?: string;
+  /** [template-switch] generic sensor types this template replaces (snmp_cpu, snmp_memory, …) */
+  replaces?: SensorType[];
 };
 
 /** [2b-2] */
@@ -1052,6 +1054,8 @@ export type ApplyTemplateResult = {
   skipped: SkippedSensor[];
   /** [1.3] interface sensors removed (remove_unselected_interfaces) */
   removed?: { sensor_id: number; name: string }[];
+  /** [template-switch] sensors this template replaces, deleted (remove_sensor_ids) */
+  replaced?: { sensor_id: number; name: string; type: SensorType }[];
 };
 
 /** [1.3] which interfaces an `snmp_interfaces` entry creates sensors for */
@@ -1060,7 +1064,22 @@ export type ApplyTemplateRequest = {
   template_id: string;
   interfaces?: ApplyInterfacesMode | number[];
   remove_unselected_interfaces?: boolean;
+  /** [template-switch] ids from GET …/apply-template/replaces */
+  remove_sensor_ids?: number[];
 };
+/** [template-switch] GET /api/devices/{id}/apply-template/replaces */
+export type ReplaceReason = 'replaced' | 'other_template';
+export type ReplaceCandidate = {
+  sensor_id: number;
+  name: string;
+  type: SensorType;
+  status: Status;
+  status_message: string;
+  reason: ReplaceReason;
+  from_template: string | null;
+  failing: boolean;
+};
+export type ReplaceCandidatesResponse = { items: ReplaceCandidate[] };
 /** [1.3.1] irf: an IRF physical port of a Comware IRF stack */
 export type ApplyInterfaceReason = 'uplink' | 'lag' | 'trunk' | 'irf';
 export const APPLY_INTERFACE_REASONS: ApplyInterfaceReason[] = ['uplink', 'lag', 'trunk'];

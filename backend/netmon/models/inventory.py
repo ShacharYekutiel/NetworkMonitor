@@ -120,6 +120,8 @@ class Sensor(TimestampMixin, Base):
     severity: Mapped[str | None] = mapped_column(Text)
     severity_down: Mapped[str | None] = mapped_column(Text)
     severity_warning: Mapped[str | None] = mapped_column(Text)
+    # [template-switch] manual | auto | template:<id>; NULL = created before migration 0016
+    origin: Mapped[str | None] = mapped_column(Text, nullable=True)
 
     channels: Mapped[list[SensorChannel]] = relationship(
         back_populates="sensor",

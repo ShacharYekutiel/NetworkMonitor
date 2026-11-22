@@ -160,6 +160,7 @@ async def create_device(body: DeviceCreate, _: Admin, rt: RT, session: DB, ctx: 
             state={},
             sort_order=i,
             channels=build_channels(type_, {}),
+            origin="auto",  # [template-switch] the default sensors
         )
         session.add(s)
         created.append(s)

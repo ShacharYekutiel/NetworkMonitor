@@ -276,6 +276,7 @@ async def create_sensor(body: SensorCreate, _: Admin, rt: RT, session: DB, ctx: 
         state={},
         sort_order=body.sort_order,
         channels=build_channels(tdef.type, overrides, cfg),
+        origin="manual",  # [template-switch]
     )
     if passive:
         for ch in s.channels:

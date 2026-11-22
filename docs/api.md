@@ -298,6 +298,7 @@ The top-level `groups` holds the root groups (`parent_id = null`).
 | `GET /api/devices/{id}/snmp/interfaces` | admin | — | See below. A timeout or auth failure → `502 snmp_error`. |
 | **[1.3]** `GET /api/devices/{id}/ports.csv` | viewer | — | Ports × connected MACs as CSV ([§ 1.3](#13-release-13-contract)) |
 | **[1.3]** `GET /api/devices/{id}/apply-template/interfaces` | admin | Query `template_id` | Interface choices of the apply dialog ([§ 1.3](#13-release-13-contract)) |
+| **[template-switch]** `GET /api/devices/{id}/apply-template/replaces` | admin | Query `template_id` | Sensors the template replaces on this device ([§ below](#template-switch-apply-template-sensors-the-template-replaces)) |
 
 Create request:
 
@@ -2593,9 +2594,11 @@ type Port = Port & {                                // also PortDetail
 
 type ApplyTemplateRequest = { template_id: string;
   interfaces?: "important" | "none" | "all" | number[];   // default "important"; number[] = ifIndexes, ≤ 1000
-  remove_unselected_interfaces?: boolean };               // default false
+  remove_unselected_interfaces?: boolean;                 // default false
+  remove_sensor_ids?: number[] };                         // [template-switch] default []
 type ApplyTemplateResult = ApplyTemplateResult & {
-  removed: { sensor_id: number; name: string }[] };       // [] unless remove_unselected_interfaces
+  removed: { sensor_id: number; name: string }[];         // [] unless remove_unselected_interfaces
+  replaced: { sensor_id: number; name: string; type: SensorType }[] };  // [template-switch]
 ```
 
 `status_counts` (device / group / dashboard `sensor_counts`) keep counting raw **sensor** statuses; only the
@@ -2657,6 +2660,38 @@ No generic sensor bulk endpoint existed before 1.3; this is a new endpoint.
 - Rows are filtered by the template's `snmp_interfaces` type / name filters (all rows when it has none), sorted
   by ifIndex. `kind` is the 2b-2 `PortKind`. `sensor_id` = the existing `snmp_interface` sensor of that ifIndex
   (lowest id). Unknown `template_id` → `422`; unknown device → `404`.
+
+### [template-switch] Apply template: sensors the template replaces
+Rules: [data-model § Sensors a template replaces](data-model.md#template-switch-sensors-a-template-replaces).
+
+**`GET /api/devices/{id}/apply-template/replaces?template_id=`** (admin; database only, no SNMP):
+
+```json
+{ "items": [
+  { "sensor_id": 41, "name": "Memory", "type": "snmp_memory", "status": "down",
+    "status_message": "HOST-RESOURCES-MIB hrStorageRam not found", "reason": "replaced",
+    "from_template": null, "failing": true } ] }
+```
+
+- `reason`: `replaced` (type in the template's `replaces`) | `other_template` (created by another template;
+  `from_template` = its id, null when not known). Sorted by `sort_order`, id. Empty list = nothing to offer
+  (the dialog then looks as before). Unknown `template_id` → `422`; unknown device → `404`; viewer → `403`.
+
+**`POST /api/devices/{id}/apply-template`** takes `remove_sensor_ids: int[]` (default `[]`, at most 1000,
+duplicates ignored):
+
+- Every id must be a current candidate of this device for this template (computed again under the per-device
+  lock); otherwise `422 validation_error` (loc `["body","remove_sensor_ids"]`, the offending ids in the message)
+  and nothing is created or deleted.
+- The listed sensors are deleted in the **same transaction** as the new sensors (a switch applied in two steps:
+  with the first step, which creates the CPU / memory sensors), each exactly as `DELETE /api/sensors/{id}`: one
+  `sensor.delete` audit row per sensor, removal from the scheduler, measurements purged in the background, WS
+  `config.changed` (`sensor`, `deleted`). `device.apply_template` audit gains `changes.replaced` (names with ids)
+  when any were deleted.
+- `ApplyTemplateResult` gains `replaced: [{sensor_id, name, type}]` (always present; `[]` when none).
+- Empty list (the default) → nothing is deleted. NetworkMonitor never changes the device itself: only its own
+  sensors are removed.
+- Discovery import (new devices, no sensors yet) does not use this option; there is no multi-device apply.
 
 ### [1.3] Ports: CSV export
 **`GET /api/devices/{id}/ports.csv`** (viewer): `text/csv; charset=utf-8`, UTF-8 **with BOM** (Excel / Hebrew),
