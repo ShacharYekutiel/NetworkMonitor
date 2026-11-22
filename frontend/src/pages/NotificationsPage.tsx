@@ -4,6 +4,9 @@ import { Trans, useTranslation } from 'react-i18next';
 import { useAiFeature } from '../components/assistant/common';
 import { DraftBanner, RuleDraftBox } from '../components/assistant/RuleDraft';
 import { alertDraftToForm } from '../lib/drafts';
+import type { Severity } from '../api/severity';
+import { SeverityChips } from '../components/severity/Severity';
+import { useFeature } from '../hooks/features';
 import type { RuleDraft } from '../api/types';
 import { endpoints, qk, type AlertRuleInput, type ChannelInput } from '../api/endpoints';
 import type {
@@ -518,6 +521,9 @@ function RuleModal({
   // [3b] AI note opt-in and "describe the rule" drafts
   const aiNotes = useAiFeature('ai_alert_notes');
   const [aiNote, setAiNote] = useState(false);
+  // [severity] the severities the rule applies to ([] = all), only while the feature is on
+  const severityOn = useFeature('alert_severity');
+  const [severities, setSeverities] = useState<Severity[]>([]);
   const [draft, setDraft] = useState<RuleDraft | null>(null);
   const applyDraft = (d: RuleDraft) => {
     const f = alertDraftToForm(d.draft ?? {});
@@ -553,6 +559,7 @@ function RuleModal({
     setEnabled(rule?.enabled ?? true);
     setChannelIds(rule?.channel_ids ?? []);
     setAiNote(rule?.ai_note ?? false);
+    setSeverities(rule?.severities ?? []);
     setDraft(null);
   }, [open, rule]);
 
@@ -583,6 +590,7 @@ function RuleModal({
       channel_ids: channelIds,
       ...escResult.body,
       ...(aiNotes ? { ai_note: aiNote } : {}),
+      ...(severityOn ? { severities } : {}),
     });
   };
   const EscErr = ({ k }: { k?: string }) =>
@@ -627,6 +635,16 @@ function RuleModal({
             ))}
           </div>
         </FieldGroup>
+        {severityOn && (
+          <FieldGroup label={t('severity.rule.label')} hint={t('severity.rule.hint')}>
+            <SeverityChips
+              label={t('severity.rule.label')}
+              testId="rule-severities"
+              value={severities}
+              onChange={setSeverities}
+            />
+          </FieldGroup>
+        )}
         <Field label={t('rules.delay')} hint={t('rules.delayHint')}>
           <Input
             type="number"
@@ -811,8 +829,20 @@ const CHANNEL_ICON: Record<NotificationType, typeof BellIcon> = {
 };
 
 /** Rule row subline: "Down + Warning · after 1 min · escalates after 30 min · NOC, Telegram". */
-function ruleSummary(t: TFunction, r: AlertRule, chName: (id: number) => string): string {
+function ruleSummary(
+  t: TFunction,
+  r: AlertRule,
+  chName: (id: number) => string,
+  severityOn = false,
+): string {
   const parts = [r.on_statuses.map((s) => t(`status.${s}`)).join(' + ')];
+  // [severity] "Severities: Critical, Major" (nothing when the rule applies to every severity)
+  if (severityOn && r.severities?.length)
+    parts.push(
+      t('severity.rule.summary', {
+        list: r.severities.map((s) => t(`severity.level.${s}`)).join(', '),
+      }),
+    );
   parts.push(
     r.delay_s
       ? t('notifications.afterDelay', { d: formatDuration(r.delay_s) })
@@ -891,6 +921,7 @@ export function NotificationsPage() {
   const toast = useToast();
   const channels = useQuery({ queryKey: qk.channels, queryFn: endpoints.channels });
   const rules = useQuery({ queryKey: qk.alertRules({}), queryFn: () => endpoints.alertRules() });
+  const severityOn = useFeature('alert_severity'); // [severity]
   const [chEdit, setChEdit] = useState<NotificationChannel | 'new' | null>(null);
   const [ruleEdit, setRuleEdit] = useState<AlertRule | 'new' | null>(null);
   const [chDel, setChDel] = useState<NotificationChannel | null>(null);
@@ -1100,7 +1131,7 @@ export function NotificationsPage() {
                       </span>
                     </>
                   }
-                  subtitle={ruleSummary(t, r, chName)}
+                  subtitle={ruleSummary(t, r, chName, severityOn)}
                   end={
                     <>
                       <Button

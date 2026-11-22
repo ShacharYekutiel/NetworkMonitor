@@ -1,4 +1,5 @@
 import { useEffect, useState, type FormEvent } from 'react';
+import { SEVERITIES, type Severity } from '../../api/severity';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { useTranslation } from 'react-i18next';
 import { endpoints } from '../../api/endpoints';
@@ -312,8 +313,12 @@ export function RuleEditorModal({
   const [testResult, setTestResult] = useState<RuleTestResult | null>(null);
   // [3b] "describe the rule" draft (prefills only; saved through the normal API)
   const [draft, setDraft] = useState<RuleDraft | null>(null);
+  // [severity] optional severity of the alert a warning / down rule raises ('' = by the mapping)
+  const severityOn = features.alert_severity;
+  const [severity, setSeverity] = useState<Severity | ''>(rule?.severity ?? '');
   useEffect(() => {
     if (!open) return;
+    setSeverity(rule?.severity ?? '');
     setF(rule ? ruleToForm(rule) : (initial ?? ruleToForm(null)));
     setTouched(false);
     setTestResult(null);
@@ -324,9 +329,13 @@ export function RuleEditorModal({
   const invalid = Object.keys(errors).length > 0;
   const shown = touched ? errors : {};
 
+  const toInput = () => ({
+    ...formToInput(f),
+    ...(severityOn ? { severity: !isPassiveAction(f.action) && severity ? severity : null } : {}),
+  });
   const save = useMutation({
     mutationFn: () => {
-      const body = formToInput(f);
+      const body = toInput();
       if (rule) {
         // kind is immutable (PATCH with kind → 422)
         const patch = { ...body };
@@ -343,7 +352,7 @@ export function RuleEditorModal({
     },
   });
   const test = useMutation({
-    mutationFn: () => endpoints.testEventRule(formToInput(f), 24),
+    mutationFn: () => endpoints.testEventRule(toInput(), 24),
     onMutate: () => setTestResult(null),
     onSuccess: setTestResult,
   });
@@ -352,6 +361,7 @@ export function RuleEditorModal({
     onSuccess: (r) => {
       void qc.invalidateQueries({ queryKey: ['event-rules'] });
       setF(ruleToForm(r));
+      setSeverity(r.severity ?? '');
       toast.push('success', t('eventRules.resetDone'));
     },
   });
@@ -490,6 +500,22 @@ export function RuleEditorModal({
               ))}
             </Select>
           </Field>
+          {severityOn && active && (
+            <Field label={t('severity.eventRule.label')} hint={t('severity.eventRule.hint')}>
+              <Select
+                data-testid="event-rule-severity"
+                value={severity}
+                onChange={(e) => setSeverity(e.target.value as Severity | '')}
+              >
+                <option value="">{t('severity.eventRule.auto')}</option>
+                {SEVERITIES.map((s) => (
+                  <option key={s} value={s}>
+                    {t(`severity.level.${s}`)}
+                  </option>
+                ))}
+              </Select>
+            </Field>
+          )}
           {active && f.kind === 'trap' && (
             <Field
               label={t('eventRules.keyVarbind')}
