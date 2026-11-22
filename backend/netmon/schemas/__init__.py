@@ -330,7 +330,6 @@ class BulkImpactIn(_In):
     impact: Impact
 
 
-<<<<<<< HEAD
 class BulkSeverityIn(_In):
     """[severity] POST /api/sensors/bulk-severity: an omitted key keeps each sensor's value,
     null clears the override, a level sets it."""
@@ -339,12 +338,12 @@ class BulkSeverityIn(_In):
     sensor_ids: list[int] = Field(min_length=1, max_length=1000)
     severity_down: Severity | None = None
     severity_warning: Severity | None = None
-=======
+
+
 class BulkDeleteIn(_In):
     """POST /api/sensors/bulk-delete"""
 
     sensor_ids: list[int] = Field(min_length=1, max_length=1000)
->>>>>>> origin/premium-feedback
 
 
 class SensorTestIn(_In):

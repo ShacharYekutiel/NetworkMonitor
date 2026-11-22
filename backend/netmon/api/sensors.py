@@ -28,13 +28,9 @@ from netmon.poller.snmp_client import DEFAULT_SNMP
 from netmon.poller.types import SEVERITY, CheckContext, evaluate
 from netmon.schemas import (
     AcknowledgeIn,
-<<<<<<< HEAD
-    BulkImpactIn,
-    BulkSeverityIn,
-=======
     BulkDeleteIn,
     BulkImpactIn,
->>>>>>> origin/premium-feedback
+    BulkSeverityIn,
     SensorCreate,
     SensorPatch,
     SensorTestIn,
@@ -423,7 +419,6 @@ async def bulk_impact(body: BulkImpactIn, _: Admin, rt: RT, session: DB, ctx: Au
     return {"updated": updated}
 
 
-<<<<<<< HEAD
 def _reason(changes: dict[str, Any]) -> str:
     """[severity] audit `reason` of a re-resolution."""
     return "override" if {"severity_down", "severity_warning"} & set(changes) else "impact"
@@ -438,13 +433,6 @@ async def bulk_severity(body: BulkSeverityIn, _: Admin, rt: RT, session: DB, ctx
     keys = [k for k in ("severity_down", "severity_warning") if k in body.model_fields_set]
     if not keys:
         raise validation_error(["body"], "give severity_down and/or severity_warning")
-=======
-# ---------------------------------------------------------------- bulk delete
-@router.post("/api/sensors/bulk-delete")
-async def bulk_delete(body: BulkDeleteIn, _: Admin, rt: RT, session: DB, ctx: Audit) -> dict:
-    """Delete up to 1000 sensors with their history, in one transaction (one `sensor.delete`
-    audit row per sensor, as the single DELETE). Unknown ids -> 422 (nothing deleted)."""
->>>>>>> origin/premium-feedback
     ids = sorted(set(body.sensor_ids))
     rows = (
         (await session.execute(select(Sensor).where(Sensor.id.in_(ids)).with_for_update()))
@@ -454,7 +442,6 @@ async def bulk_delete(body: BulkDeleteIn, _: Admin, rt: RT, session: DB, ctx: Au
     missing = sorted(set(ids) - {s.id for s in rows})
     if missing:
         raise validation_error(["body", "sensor_ids"], f"unknown sensor ids: {missing[:20]}")
-<<<<<<< HEAD
     changed: list[int] = []
     devices: set[int] = set()
     for s in rows:
@@ -474,7 +461,22 @@ async def bulk_delete(body: BulkDeleteIn, _: Admin, rt: RT, session: DB, ctx: Au
     if changed:
         await severity_svc.reresolve_now(rt, ctx, sensor_ids=changed, reason="override")
     return {"updated": len(changed)}
-=======
+
+
+# ---------------------------------------------------------------- bulk delete
+@router.post("/api/sensors/bulk-delete")
+async def bulk_delete(body: BulkDeleteIn, _: Admin, rt: RT, session: DB, ctx: Audit) -> dict:
+    """Delete up to 1000 sensors with their history, in one transaction (one `sensor.delete`
+    audit row per sensor, as the single DELETE). Unknown ids -> 422 (nothing deleted)."""
+    ids = sorted(set(body.sensor_ids))
+    rows = (
+        (await session.execute(select(Sensor).where(Sensor.id.in_(ids)).with_for_update()))
+        .scalars()
+        .all()
+    )
+    missing = sorted(set(ids) - {s.id for s in rows})
+    if missing:
+        raise validation_error(["body", "sensor_ids"], f"unknown sensor ids: {missing[:20]}")
     for s in sorted(rows, key=lambda x: x.id):
         await audit.record(
             session, ctx, "sensor.delete", sensor_entity(s), audit.deleted(sensor_audit_values(s))
@@ -492,7 +494,6 @@ async def bulk_delete(body: BulkDeleteIn, _: Admin, rt: RT, session: DB, ctx: Au
     for sensor_id in ids:
         rt.config_changed("sensor", sensor_id, "deleted")
     return {"deleted": len(ids)}
->>>>>>> origin/premium-feedback
 
 
 # ---------------------------------------------------------------- [2b-1] acknowledge

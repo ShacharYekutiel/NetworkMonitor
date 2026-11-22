@@ -256,6 +256,33 @@ test('an alert rule limited to Critical does not notify for a Warning-level aler
   expect(await forB('sev-crit')).toEqual([]);
 });
 
+test('sensors table: Severity column; bulk "Set severity…" sets the overrides', async ({ page }) => {
+  await loginViaApi(page, undefined, `/devices/${deviceId}?tab=sensors`);
+  const table = page.getByTestId('sensor-table');
+  await expect(table.getByRole('columnheader', { name: new RegExp(T('severity.label')) })).toBeVisible();
+  const rowOf = (name: string) => table.getByRole('row').filter({ has: page.getByRole('link', { name, exact: true }) });
+  await expect(rowOf(A).getByTestId('severity-tag')).toHaveText(T('severity.level.major'));
+  await rowOf(A).getByTestId('sensor-select').check();
+  const bar = page.getByTestId('sensor-bulk-bar');
+  await bar.getByRole('button', { name: T('severity.bulk.action') }).click();
+  const sheet = page.getByTestId('bulk-severity');
+  await expect(sheet).toContainText(T('severity.bulk.title', { count: 1 }));
+  await expect(sheet.getByTestId('bulk-severity-down')).toHaveValue('keep');
+  await sheet.getByTestId('bulk-severity-down').selectOption('info');
+  await sheet.getByRole('button', { name: T('impact.apply') }).click();
+  await expect(page.getByText(T('severity.bulk.done', { count: 1 }))).toBeVisible();
+  await expect.poll(async () => (await admin.get(`/api/sensors/${aId}`)).severity, { timeout: 10_000 }).toBe('info');
+  expect((await admin.get(`/api/sensors/${aId}`)).severity_warning).toBeNull();
+  await expect(rowOf(A).getByTestId('severity-tag')).toHaveText(T('severity.level.info'));
+  // Automatic again clears the override
+  expect(await admin.post('/api/sensors/bulk-severity', { sensor_ids: [aId], severity_down: null })).toEqual({ updated: 1 });
+  await expect.poll(async () => (await admin.get(`/api/sensors/${aId}`)).severity, { timeout: 10_000 }).toBe('major');
+  // the row's right-click menu also opens on the severity tag
+  await rowOf(A).getByTestId('severity-tag').click({ button: 'right' });
+  await expect(page.getByRole('menu')).toBeVisible();
+  await page.keyboard.press('Escape');
+});
+
 test('Hebrew labels: tags, counts, Events filter, sensor form', async ({ page }) => {
   await loginViaApi(page, undefined, '/');
   await setLang(page, 'he');
@@ -323,6 +350,12 @@ test('screenshots (light-he, dark-he, light-en)', async ({ browser }) => {
       await expect(p.getByTestId('rule-severities')).toBeVisible();
       await p.getByTestId('rule-severities').locator('label').first().click();
       await p.getByTestId('rule-severities').scrollIntoViewIfNeeded();
+    }],
+    ['sensors-table', `/devices/${deviceId}?tab=sensors`, async (p) => {
+      await expect(p.getByTestId('sensor-table')).toBeVisible();
+      await p.getByTestId('sensor-select-all').check();
+      await p.getByTestId('sensor-bulk-severity').click();
+      await expect(p.getByTestId('bulk-severity')).toBeVisible();
     }],
     ['kiosk', (lang: string) => `/noc#${lang === 'he' ? kHe.token : k.token}`, async (p) => { await expect(p.getByTestId('kiosk-severity')).toBeVisible({ timeout: 30_000 }); }],
   ];
