@@ -7,6 +7,7 @@ import { SeverityTag } from '../kit';
 import { SeverityChips, SeverityMappingEditor, SeverityMappingTable } from './Severity';
 import { EditSensorModal } from '../SensorForms';
 import { EventsPage } from '../../pages/EventsPage';
+import { DeviceSensorsCard } from '../../pages/DevicePage';
 import { DashboardPage } from '../../pages/Dashboard';
 import { authRoutes, mkSensor, mockFetch, Wrap, type Route } from '../../test/v13';
 import type { SeverityMapping } from '../../api/severity';
@@ -421,5 +422,66 @@ describe('[severity] live cache', () => {
       'critical',
     );
     expect(qc.getQueryData<Dashboard>(qk.dashboard)!.problem_sensors[0].severity).toBe('critical');
+  });
+});
+
+describe('[severity] sensors table and bulk bar', () => {
+  const list = [
+    mkSensor(1, 'Ping', { status: 'down', severity: 'critical' }),
+    mkSensor(2, 'CPU', { status: 'up', severity: null }),
+  ];
+  it('ON: a Severity column through the shared table; "Set severity…" posts bulk-severity', async () => {
+    const calls = mockFetch(
+      routes(true, (method, url) =>
+        method === 'POST' && url === '/api/sensors/bulk-severity'
+          ? { status: 200, body: { updated: 2 } }
+          : undefined,
+      ),
+    );
+    render(
+      <Wrap auth>
+        <DeviceSensorsCard deviceId={7} sensors={list} loading={false} error={null} isAdmin />
+      </Wrap>,
+    );
+    await waitFor(() => expect(screen.getAllByTestId('sensor-severity-cell')).toHaveLength(2));
+    expect(screen.getByRole('columnheader', { name: /Severity/ })).toBeTruthy();
+    const cells = screen.getAllByTestId('sensor-severity-cell');
+    expect(cells[0].textContent).toBe('Critical');
+    expect(cells[1].textContent).toBe('');
+    fireEvent.click(screen.getByTestId('sensor-select-all'));
+    fireEvent.click(screen.getByTestId('sensor-bulk-severity'));
+    const dlg = screen.getByTestId('bulk-severity');
+    const apply = within(dlg).getByRole('button', { name: 'Apply' }) as HTMLButtonElement;
+    expect(apply.disabled).toBe(true);
+    expect((within(dlg).getByTestId('bulk-severity-down') as HTMLSelectElement).value).toBe('keep');
+    fireEvent.change(within(dlg).getByTestId('bulk-severity-down'), {
+      target: { value: 'major' },
+    });
+    fireEvent.change(within(dlg).getByTestId('bulk-severity-warning'), { target: { value: '' } });
+    fireEvent.click(apply);
+    await waitFor(() =>
+      expect(calls.some((c) => c.url === '/api/sensors/bulk-severity')).toBe(true),
+    );
+    expect(calls.find((c) => c.url === '/api/sensors/bulk-severity')!.body).toEqual({
+      sensor_ids: [1, 2],
+      severity_down: 'major',
+      severity_warning: null,
+    });
+  });
+
+  it('OFF: no column, no bulk action', async () => {
+    const calls = mockFetch(routes(false));
+    render(
+      <Wrap auth>
+        <DeviceSensorsCard deviceId={7} sensors={list} loading={false} error={null} isAdmin />
+      </Wrap>,
+    );
+    await waitFor(() =>
+      expect(calls.some((c) => c.url.startsWith('/api/settings/public'))).toBe(true),
+    );
+    expect(screen.queryByTestId('sensor-severity-cell')).toBeNull();
+    fireEvent.click(screen.getByTestId('sensor-select-all'));
+    expect(screen.getByTestId('sensor-bulk-bar')).toBeTruthy();
+    expect(screen.queryByTestId('sensor-bulk-severity')).toBeNull();
   });
 });

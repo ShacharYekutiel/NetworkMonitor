@@ -1,4 +1,5 @@
-import { CHECKBOX } from './kit';
+import { CHECKBOX, SeverityTag } from './kit';
+import { useFeature } from '../hooks/features';
 import { useMemo, type ReactNode } from 'react';
 import { Link } from 'react-router';
 import { useTranslation } from 'react-i18next';
@@ -57,6 +58,7 @@ export function useSensorColumns({
 }): ColumnLayout<SensorCol> {
   const { t } = useTranslation();
   const actionsW = withActions ? sensorActionsWidth(sensors) : 0;
+  const severityOn = useFeature('alert_severity');
   const specs = useMemo<SensorCol[]>(
     () =>
       (
@@ -69,6 +71,8 @@ export function useSensorColumns({
             label: t('tableCols.select'),
           },
           { id: 'status', width: 122, minWidth: 90, label: t('sensors.status') },
+          // [severity] the current alert's severity (only while the feature is on)
+          severityOn && { id: 'severity', width: 120, minWidth: 90, label: t('severity.label') },
           showDevice && { id: 'device', width: 170, label: t('sensors.device') },
           { id: 'name', width: 210, minWidth: 120, label: t('sensors.name') },
           { id: 'type', width: 124, label: t('sensors.type') },
@@ -84,7 +88,7 @@ export function useSensorColumns({
           },
         ] as (SensorCol | false | undefined)[]
       ).filter((c): c is SensorCol => !!c),
-    [t, selectable, showDevice, withActions, actionsW],
+    [t, selectable, showDevice, withActions, actionsW, severityOn],
   );
   return useColumnLayout('sensors', specs);
 }
@@ -178,6 +182,12 @@ export function SensorTable({
               {s.acknowledgement && <AckBadge ack={s.acknowledgement} compact />}
               {s.in_maintenance && <MaintenanceBadge compact />}
             </span>
+          </td>
+        );
+      case 'severity':
+        return (
+          <td key={c.id} className={cx(td, 'overflow-hidden')} data-testid="sensor-severity-cell">
+            <SeverityTag severity={s.severity} />
           </td>
         );
       case 'device':

@@ -42,13 +42,14 @@ import { FingerprintIcon } from '../components/icons';
 import type { DeviceIdentity, Sensor } from '../api/types';
 import { BulkImpactModal } from '../components/SensorImpact';
 import { BulkDeleteModal } from '../components/SensorBulkDelete';
+import { BulkSeverityModal } from '../components/severity/BulkSeverity';
 import { useEntityMenu } from '../components/treemenu/TreeContextMenu';
 import { l10n } from '../lib/templates';
 import { PortsTab } from '../components/ports/PortsTab';
 import { PortIcon } from '../components/icons';
 import { cx } from '../components/ui';
 import { useSensorTypes } from '../hooks/queries';
-import { useFeatures } from '../hooks/features';
+import { useFeature, useFeatures } from '../hooks/features';
 import { ClockIcon, LogsIcon } from '../components/icons';
 import { TimelineTab } from '../components/timeline/TimelineTab';
 import { SyslogView } from '../components/logs/SyslogView';
@@ -114,6 +115,8 @@ export function DeviceSensorsCard({
   const [picked, setPicked] = useState<Set<number>>(() => new Set());
   const [bulk, setBulk] = useState(false);
   const [bulkDelete, setBulkDelete] = useState(false);
+  const [bulkSeverity, setBulkSeverity] = useState(false);
+  const severityOn = useFeature('alert_severity'); // [severity]
   // Only sensors still in the list count (sensors may be deleted while selected).
   const pickedSensors = (sensors ?? []).filter((s) => picked.has(s.id));
   const columns = useSensorColumns({
@@ -166,6 +169,16 @@ export function DeviceSensorsCard({
           >
             {t('impact.setImpact')}
           </button>
+          {severityOn && (
+            <button
+              type="button"
+              onClick={() => setBulkSeverity(true)}
+              data-testid="sensor-bulk-severity"
+              className="h-[34px] rounded-full bg-accent-on px-3.5 text-[13.5px] font-medium text-accent"
+            >
+              {t('severity.bulk.action')}
+            </button>
+          )}
           <button
             type="button"
             onClick={() => setBulkDelete(true)}
@@ -188,6 +201,15 @@ export function DeviceSensorsCard({
         <BulkImpactModal
           open={bulk}
           onClose={() => setBulk(false)}
+          sensorIds={ids}
+          deviceId={deviceId}
+          onDone={() => setPicked(new Set())}
+        />
+      )}
+      {isAdmin && severityOn && (
+        <BulkSeverityModal
+          open={bulkSeverity}
+          onClose={() => setBulkSeverity(false)}
           sensorIds={ids}
           deviceId={deviceId}
           onDone={() => setPicked(new Set())}
