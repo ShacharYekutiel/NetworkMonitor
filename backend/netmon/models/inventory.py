@@ -116,6 +116,8 @@ class Sensor(TimestampMixin, Base):
     impact: Mapped[str] = mapped_column(
         Text, nullable=False, default="critical", server_default="critical"
     )
+    # [template-switch] manual | auto | template:<id>; NULL = created before migration 0016
+    origin: Mapped[str | None] = mapped_column(Text, nullable=True)
 
     channels: Mapped[list[SensorChannel]] = relationship(
         back_populates="sensor",

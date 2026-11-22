@@ -633,12 +633,16 @@ async def apply_template(
     interfaces: str | list[int] = "important",
     remove_unselected: bool = False,
     refresh_s: float = 0.0,
+    remove_sensor_ids: list[int] | None = None,
 ) -> dict[str, Any]:
     """Create the template's missing sensors on a device. Returns ApplyTemplateResult.
     [2b-3] `audit_ctx` (AuditCtx): records `device.apply_template` in the same transaction.
     [1.3] `interfaces` chooses the interface sensors (templates.selection);
     `remove_unselected` deletes the device's snmp_interface sensors whose ifIndex is not
     selected; `refresh_s` bounds a port inventory run when "important" finds no inventory.
+    [template-switch] `remove_sensor_ids`: sensors this template replaces
+    (templates.replaces) to delete in the same transaction as the new sensors; an id that is
+    not such a candidate for this device and template -> 422 before anything is changed.
 
     Applies to the same device are serialized (per-device lock), so concurrent apply-template /
     import calls cannot create duplicate sensors."""
@@ -646,6 +650,11 @@ async def apply_template(
     _device_locks[device_id] = (lock, users + 1)
     try:
         async with lock:
+            replace_ids: list[int] = []
+            if remove_sensor_ids:
+                replace_ids = await _validate_replace_ids(
+                    rt, device_id, template, remove_sensor_ids
+                )
             return await _apply_template(
                 rt,
                 device_id,
@@ -657,6 +666,7 @@ async def apply_template(
                 interfaces=interfaces,
                 remove_unselected=remove_unselected,
                 refresh_s=refresh_s,
+                replace_ids=replace_ids,
             )
     finally:
         lock, users = _device_locks[device_id]
@@ -664,6 +674,25 @@ async def apply_template(
             del _device_locks[device_id]
         else:
             _device_locks[device_id] = (lock, users - 1)
+
+
+async def _validate_replace_ids(
+    rt: Runtime, device_id: int, template: dict[str, Any], ids: list[int]
+) -> list[int]:
+    """[template-switch] Every id must be a current candidate (never an arbitrary sensor)."""
+    from netmon.api.errors import validation_error
+    from netmon.templates.replaces import replace_candidates
+
+    async with rt.sessionmaker() as session:
+        allowed = {c["sensor_id"] for c in await replace_candidates(session, device_id, template)}
+    wanted = sorted(set(ids))
+    bad = [i for i in wanted if i not in allowed]
+    if bad:
+        raise validation_error(
+            ["body", "remove_sensor_ids"],
+            f"not sensors this template replaces on this device: {bad[:20]}",
+        )
+    return wanted
 
 
 async def _apply_template(
@@ -678,6 +707,7 @@ async def _apply_template(
     interfaces: str | list[int] = "important",
     remove_unselected: bool = False,
     refresh_s: float = 0.0,
+    replace_ids: list[int] | None = None,
 ) -> dict[str, Any]:
     from netmon.templates.selection import load_selection
 
@@ -707,6 +737,7 @@ async def _apply_template(
             audit_ctx=audit_ctx,
             interfaces=interfaces,
             refresh_s=0.0,
+            replace_ids=replace_ids,  # with the CPU / memory sensors that replace them
         )
         second = await _apply_template(
             rt,
@@ -726,6 +757,7 @@ async def _apply_template(
             "created": first["created"] + second["created"],
             "skipped": first["skipped"] + second["skipped"],
             "removed": second["removed"],
+            "replaced": first["replaced"],
         }
     if remove_unselected:
         selection.selected = set(interfaces) if isinstance(interfaces, list) else set()
@@ -832,6 +864,7 @@ async def _apply_template(
                 state={},
                 sort_order=next_sort,
                 channels=build_channels(cand.type, cand.overrides, cand.config),
+                origin=f"template:{template['id']}",  # [template-switch]
             )
             next_sort += 1
             session.add(s)
@@ -871,6 +904,26 @@ async def _apply_template(
                         continue
                     removed.append({"sensor_id": row.id, "name": row.name})
                     await session.delete(row)
+        # [template-switch] the sensors this template replaces that the user ticked (validated
+        # in apply_template), deleted as DELETE /api/sensors/{id} does (audit row per sensor)
+        replaced: list[dict[str, Any]] = []
+        for sensor_id in replace_ids or []:
+            row = await session.get(Sensor, sensor_id, with_for_update=True)
+            if row is None or row.device_id != device_id:
+                continue  # deleted meanwhile
+            if audit_ctx is not None and audit_ctx.enabled:
+                from netmon.api.sensors import sensor_audit_values, sensor_entity
+                from netmon.services import audit
+
+                await audit.record(
+                    session,
+                    audit_ctx,
+                    "sensor.delete",
+                    sensor_entity(row),
+                    audit.deleted(sensor_audit_values(row)),
+                )
+            replaced.append({"sensor_id": row.id, "name": row.name, "type": row.type})
+            await session.delete(row)
         if audit_ctx is not None and audit_ctx.enabled:
             from netmon.services import audit
 
@@ -890,6 +943,16 @@ async def _apply_template(
                         if removed
                         else {}
                     ),
+                    **(
+                        {
+                            "replaced": [
+                                None,
+                                [f"{r['name']} (#{r['sensor_id']})" for r in replaced],
+                            ]
+                        }
+                        if replaced
+                        else {}
+                    ),
                 },
             )
         await session.commit()
@@ -900,13 +963,13 @@ async def _apply_template(
             await rt.scheduler.upsert(s.id)
         for sensor_id in renamed:
             await rt.scheduler.upsert(sensor_id)
-        for r in removed:
+        for r in removed + replaced:
             rt.scheduler.remove(r["sensor_id"])
-    if removed:
+    if removed or replaced:
         from netmon.services.retention import delete_sensor_measurements
 
-        rt.spawn(delete_sensor_measurements(rt, [r["sensor_id"] for r in removed]))
-        for r in removed:
+        rt.spawn(delete_sensor_measurements(rt, [r["sensor_id"] for r in removed + replaced]))
+        for r in removed + replaced:
             rt.config_changed("sensor", r["sensor_id"], "deleted")
     if broadcast:
         rt.config_changed("device", device_id, "updated")
@@ -916,4 +979,5 @@ async def _apply_template(
         "created": created,
         "skipped": skipped,
         "removed": removed,  # [1.3]
+        "replaced": replaced,  # [template-switch]
     }

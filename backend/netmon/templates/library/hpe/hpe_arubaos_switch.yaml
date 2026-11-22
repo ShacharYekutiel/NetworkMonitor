@@ -12,6 +12,9 @@ description:
   he: "פינג, מערכת, מעבד, זיכרון, תקינות חומרה, PoE ופורטים פעילים"
 requires_snmp: true
 priority: 50
+# [template-switch] its own CPU / memory entries (vendor MIB) supersede the generic
+# HOST-RESOURCES-MIB sensors: applying it offers to delete those (the user chooses)
+replaces: [snmp_cpu, snmp_memory]
 match:
   - {device_classes: [switch], requires_snmp: true, enterprises: [11]}
 entries:

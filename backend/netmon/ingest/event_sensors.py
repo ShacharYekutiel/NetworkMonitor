@@ -256,6 +256,7 @@ class EventSensors:
                     last_check_at=now,
                     last_status_change_at=now,
                     channels=[SensorChannel(key="active", unit="#", status="up", last_value=0)],
+                    origin="auto",  # [template-switch]
                 )
                 session.add(s)
                 await session.flush()
