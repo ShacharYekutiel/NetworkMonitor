@@ -7,7 +7,8 @@ import { useLiveMessages } from '../../hooks/live';
 import { errorMessage } from '../../lib/errors';
 import { formatDateTime, formatShortTime } from '../../lib/format';
 import { ChevronIcon, IncidentIcon, RefreshIcon } from '../icons';
-import { EmptyState, MemberChip } from '../kit';
+import { EmptyState, MemberChip, SeverityTag } from '../kit';
+import { useFeature } from '../../hooks/features';
 import { Pagination } from '../Pagination';
 import { Button, Card, cx, GroupTitle, Loading, TAG, TAG_TONE } from '../ui';
 import { AiBadge, useAiFeature } from './common';
@@ -141,6 +142,7 @@ export function IncidentCard({ i }: { i: Incident }) {
   const title = useIncidentTitle();
   const meta = useIncidentMeta();
   const tone = incidentTone(i);
+  const severityOn = useFeature('alert_severity'); // [severity]
   return (
     <li data-testid="incident-card" data-incident={i.id}>
       <Link
@@ -159,6 +161,7 @@ export function IncidentCard({ i }: { i: Incident }) {
         <span className="grid min-w-0 gap-1">
           <span className="flex flex-wrap items-center gap-2">
             <b className="min-w-0 text-[17px] font-semibold">{title(i)}</b>
+            {severityOn && <SeverityTag severity={i.severity} testId="incident-severity" />}
             <IncidentStateBadge state={i.state} />
           </span>
           <span className="text-[13.5px] text-ink-muted" title={formatDateTime(i.opened_at)}>

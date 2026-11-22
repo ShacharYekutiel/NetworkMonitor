@@ -12,7 +12,15 @@ import {
   useIncidentTitle,
 } from '../components/assistant/Incidents';
 import { IncidentIcon, RefreshIcon } from '../components/icons';
-import { AiTag, Banner, EmptyState, MemberChip, Timeline, TimelineEntry } from '../components/kit';
+import {
+  AiTag,
+  Banner,
+  EmptyState,
+  MemberChip,
+  SeverityTag,
+  Timeline,
+  TimelineEntry,
+} from '../components/kit';
 import {
   BackLink,
   Button,
@@ -28,7 +36,7 @@ import {
   TAG,
   TAG_TONE,
 } from '../components/ui';
-import { FeatureOffNotice } from '../hooks/features';
+import { FeatureOffNotice, useFeature } from '../hooks/features';
 import { useLiveMessages } from '../hooks/live';
 import { errorMessage } from '../lib/errors';
 import { formatDateTime, formatShortTime } from '../lib/format';
@@ -46,6 +54,7 @@ export function IncidentPage() {
   const iid = Number(id);
   const qc = useQueryClient();
   const on = useAiFeature('ai_correlation');
+  const severityOn = useFeature('alert_severity'); // [severity]
   const title = useIncidentTitle();
   const q = useQuery({
     queryKey: qk3b.incident(iid),
@@ -149,6 +158,9 @@ export function IncidentPage() {
         subtitle={<span title={formatDateTime(i.opened_at)}>{subtitle}</span>}
         actions={
           <>
+            {severityOn && (
+              <SeverityTag severity={i.severity} size="md" testId="incident-severity" />
+            )}
             <IncidentStateBadge state={i.state} />
             {root?.sensor_id != null && (
               <ExplainButton sensorId={root.sensor_id} eventId={root.event_id} size="md" />
@@ -269,6 +281,7 @@ export function IncidentPage() {
                   }
                   end={
                     <span className="flex shrink-0 gap-1.5">
+                      {severityOn && <SeverityTag severity={m.severity} />}
                       {m.is_root && (
                         <span className={cx(TAG, TAG_TONE.down)}>{t('incident.root')}</span>
                       )}
