@@ -17,7 +17,10 @@ import { useAiFeature } from '../components/assistant/common';
 import { IncidentList } from '../components/assistant/Incidents';
 import { StatusMessage } from '../components/Dependency';
 import { ChevronIcon, WrenchIcon } from '../components/icons';
-import { FilterChips, Timeline, TimelineEntry } from '../components/kit';
+import { FilterChips, SeverityTag, Timeline, TimelineEntry } from '../components/kit';
+import { SeverityChips, SeverityMappingInfo } from '../components/severity/Severity';
+import { useFeature } from '../hooks/features';
+import { parseSeverities, severityCsv } from '../lib/severity';
 import { TabBar } from '../components/TabBar';
 import {
   Button,
@@ -28,6 +31,7 @@ import {
   Input,
   Loading,
   PageHeader,
+  SegmentedControl,
   Select,
   cx,
 } from '../components/ui';
@@ -97,7 +101,17 @@ function localToIso(v: string): string | undefined {
 const MORE = ['status', 'group_id', 'since', 'until', 'in_maintenance'] as const;
 
 /** One event on the timeline: the source and what happened, the message under it. */
-function EventEntry({ ev, time, timeTitle }: { ev: NmEvent; time: string; timeTitle: string }) {
+function EventEntry({
+  ev,
+  time,
+  timeTitle,
+  severity,
+}: {
+  ev: NmEvent;
+  time: string;
+  timeTitle: string;
+  severity?: boolean;
+}) {
   const { t } = useTranslation();
   const localize = useLocalizeMessage();
   const title = useEventTitle();
@@ -115,6 +129,7 @@ function EventEntry({ ev, time, timeTitle }: { ev: NmEvent; time: string; timeTi
       title={
         <span className="inline-flex flex-wrap items-center gap-x-2 gap-y-1">
           {hasSource ? <EventSource ev={ev} /> : <span>{title(ev)}</span>}
+          {severity && <SeverityTag severity={ev.severity} />}
           {ev.new_status ? (
             <StatusTransition ev={ev} />
           ) : (
@@ -149,7 +164,16 @@ function EventEntry({ ev, time, timeTitle }: { ev: NmEvent; time: string; timeTi
 }
 
 /** The events as a timeline (prototype .tl), one heading per day. */
-function EventsTimeline({ events }: { events: NmEvent[] }) {
+function EventsTimeline({
+  events,
+  severity,
+  bySeverity,
+}: {
+  events: NmEvent[];
+  severity?: boolean;
+  /** [severity] sorted by severity: one list (no day headings), the date on every row */
+  bySeverity?: boolean;
+}) {
   const { t, i18n } = useTranslation();
   const locale = i18n.language === 'he' ? 'he-IL' : 'en-GB';
   if (!events.length) return <Empty>{t('events.none')}</Empty>;
@@ -164,6 +188,28 @@ function EventsTimeline({ events }: { events: NmEvent[] }) {
     month: 'long',
   });
   const full = new Intl.DateTimeFormat(locale, { dateStyle: 'short', timeStyle: 'medium' });
+  if (bySeverity) {
+    const dayTime = new Intl.DateTimeFormat(locale, {
+      day: 'numeric',
+      month: 'numeric',
+      hour: '2-digit',
+      minute: '2-digit',
+      hourCycle: 'h23',
+    });
+    return (
+      <Timeline label={t('severity.sort.severity')}>
+        {events.map((ev) => (
+          <EventEntry
+            key={ev.id}
+            ev={ev}
+            time={dayTime.format(new Date(ev.time))}
+            timeTitle={full.format(new Date(ev.time))}
+            severity={severity}
+          />
+        ))}
+      </Timeline>
+    );
+  }
   return (
     <div className="grid">
       {groupByDay(events).map((d) => (
@@ -178,6 +224,7 @@ function EventsTimeline({ events }: { events: NmEvent[] }) {
                 ev={ev}
                 time={timeFmt.format(new Date(ev.time))}
                 timeTitle={full.format(new Date(ev.time))}
+                severity={severity}
               />
             ))}
           </Timeline>
@@ -196,6 +243,10 @@ export function EventsPage() {
   const page = Math.max(1, Number(params.get('page') ?? 1) || 1);
   const incidentsOn = useAiFeature('ai_correlation');
   const [more, setMore] = useState(() => MORE.some((k) => !!params.get(k)));
+  // [severity] filter (?severity=critical,major) and order (?sort=severity), only while ON
+  const severityOn = useFeature('alert_severity');
+  const sevFilter = severityOn ? parseSeverities(params.get('severity')) : [];
+  const sort = severityOn && params.get('sort') === 'severity' ? 'severity' : 'time';
 
   const query: EventQuery = {
     kind: get('kind') || undefined,
@@ -206,6 +257,8 @@ export function EventsPage() {
     since: localToIso(get('since')),
     until: localToIso(get('until')),
     in_maintenance: get('in_maintenance') ? get('in_maintenance') === 'true' : undefined,
+    ...(sevFilter.length ? { severity: severityCsv(sevFilter) } : {}),
+    ...(sort === 'severity' ? { sort } : {}),
     page,
     page_size: PAGE_SIZE,
   };
@@ -270,6 +323,33 @@ export function EventsPage() {
             />
           </button>
         </div>
+        {severityOn && (
+          <div
+            className="flex flex-wrap items-center gap-x-3 gap-y-2"
+            data-testid="event-severity-bar"
+          >
+            <span className="text-[13.5px] font-medium text-ink-muted">{t('severity.filter')}</span>
+            <SeverityChips
+              label={t('severity.filter')}
+              testId="event-severity-filter"
+              value={sevFilter}
+              onChange={(v) => set('severity', severityCsv(v))}
+            />
+            <span className="ms-auto inline-flex flex-wrap items-center gap-2">
+              <SegmentedControl
+                size="sm"
+                label={t('severity.sort.label')}
+                value={sort}
+                onChange={(v) => set('sort', v === 'severity' ? v : '')}
+                options={[
+                  { value: 'time', label: t('severity.sort.time') },
+                  { value: 'severity', label: t('severity.sort.severity') },
+                ]}
+              />
+              <SeverityMappingInfo />
+            </span>
+          </div>
+        )}
         {more && (
           <div
             id="events-more"
@@ -346,7 +426,13 @@ export function EventsPage() {
       <Card bodyClassName="px-[22px] pb-1.5 pt-0 max-sm:px-3">
         {q.isLoading && <Loading />}
         <ErrorBox error={q.error} className="my-3" />
-        {q.data && <EventsTimeline events={q.data.items} />}
+        {q.data && (
+          <EventsTimeline
+            events={q.data.items}
+            severity={severityOn}
+            bySeverity={sort === 'severity'}
+          />
+        )}
       </Card>
       {q.data && (
         <Pagination
