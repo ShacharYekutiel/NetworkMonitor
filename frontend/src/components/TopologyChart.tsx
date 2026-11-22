@@ -69,7 +69,8 @@ export type TopologyProbe = {
   zoom: number;
   /** visible tile size in px at the current zoom */
   tile: number;
-  nodes: { key: string; x: number; y: number }[];
+  /** centre in canvas px (x, y) and the position in data units (pos) */
+  nodes: { key: string; x: number; y: number; pos: [number, number] }[];
 };
 declare global {
   interface Window {
@@ -227,7 +228,7 @@ export function TopologyChart({
         .filter((k) => pos[k])
         .map((key) => {
           const [x, y] = c.convertToPixel({ seriesIndex: 0 }, pos[key]) as number[];
-          return { key, x, y };
+          return { key, x, y, pos: pos[key] };
         });
       return { zoom, tile: 56 * zoom, nodes };
     };
