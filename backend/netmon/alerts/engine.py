@@ -36,6 +36,7 @@ LOOP_MAX_S = 30.0
 BATCH = 500
 SENDING_STALE_S = 600  # an in-flight marker older than this is ignored
 MAX_PARALLEL_SENDS = 16
+ABSENT: Any = object()  # build_payload: no `severity` key (feature OFF)
 STAGE_EVENTS = {
     "problem": "sensor.status_changed",
     "recovery": "sensor.status_changed",
@@ -65,7 +66,10 @@ def build_payload(
     after_maintenance: bool = False,
     problem_since: str | None = None,
     after_flapping: bool = False,
+    severity: Any = ABSENT,
 ) -> dict[str, Any]:
+    """[severity] `severity` is added (as the last key) only when given, i.e. while the
+    feature `alert_severity` is ON; without it the payload is byte-identical to before."""
     if event is None:
         return {
             "event": "test",
@@ -106,6 +110,7 @@ def build_payload(
         "rule": rule,
         "url": url,
         "ack_url": None,  # [3] chat_ack (decorate_payload)
+        **({} if severity is ABSENT else {"severity": severity}),
     }
 
 
@@ -611,6 +616,7 @@ class AlertEngine:
                                          WHERE rc.rule_id = r.id), '{}') AS rule_channels,
                                se.name AS sname, se.type AS stype, se.status AS sensor_status,
                                se.status_message, se.ack_at, se.device_id,
+                               se.severity AS sensor_severity,
                                d.name AS dname, d.host AS dhost, g.id AS gid, g.name AS gname
                         FROM alert_state s
                         JOIN alert_rules r ON r.id = s.rule_id
@@ -642,7 +648,7 @@ class AlertEngine:
                 for e in await session.execute(
                     text(
                         "SELECT id, time, sensor_id, device_id, group_id, sensor_name, "
-                        "device_name, old_status, new_status, message FROM events "
+                        "device_name, old_status, new_status, message, severity FROM events "
                         "WHERE id = ANY(:ids)"
                     ),
                     {"ids": event_ids},
@@ -658,8 +664,12 @@ class AlertEngine:
                         "old_status": e.old_status,
                         "new_status": e.new_status,
                         "message": e.message,
+                        "severity": e.severity,
                     }
             cfg = await settings_svc.get_all(session)
+            from netmon.services import severity as severity_svc
+
+            cfg = {**cfg, "_severity_on": severity_svc.enabled(self.rt)}
             flapping = getattr(self.rt, "flapping", None)
             flap_ids = set(flapping.suppressed_sensors) if flapping is not None else set()
             plans = [
@@ -728,6 +738,15 @@ class AlertEngine:
                 "message": r.status_message or "",
             }
 
+        sev: Any = ABSENT
+        if cfg.get("_severity_on"):
+            # [severity] the problem's current severity; a recovery names the severity of
+            # the problem that recovered (alert_state keeps it)
+            if r.status in PROBLEM:
+                sev = r.sensor_severity or r.severity or event.get("severity")
+            else:
+                sev = r.severity
+
         def payload(stage: str, after: bool = False, flap: bool = False) -> dict[str, Any]:
             from netmon.chatack.service import decorate_payload
 
@@ -744,6 +763,7 @@ class AlertEngine:
                     after_maintenance=after,
                     problem_since=iso(r.problem_since),
                     after_flapping=flap,
+                    severity=sev,
                 ),
                 cfg,
             )
@@ -920,6 +940,7 @@ async def _notification_sent_events(
                     device_name=r.dname,
                     old_status=payload.get("old_status"),
                     new_status=payload.get("new_status"),
+                    severity=payload.get("severity"),  # [severity] null while OFF
                 )
             )
     return out
@@ -1038,6 +1059,9 @@ async def apply_event(
     sid = event["sensor_id"]
     status = event["new_status"]
     eid = event.get("id")
+    # [severity] stored with the event while the feature is ON (NULL otherwise: then a rule's
+    # `severities` are not looked at, the matching is exactly as before)
+    severity = event.get("severity")
     rows = {
         r.rule_id: r
         for r in (
@@ -1060,9 +1084,10 @@ async def apply_event(
                 text(
                     "SELECT id, delay_s, escalation_after_s, escalation_channel_ids "
                     "FROM alert_rules WHERE enabled AND (sensor_id IS NULL OR sensor_id = :s) "
-                    "AND :st = ANY(on_statuses)"
+                    "AND :st = ANY(on_statuses) AND (CAST(:sev AS text) IS NULL "
+                    "OR cardinality(severities) = 0 OR CAST(:sev AS text) = ANY(severities))"
                 ),
-                {"s": sid, "st": status},
+                {"s": sid, "st": status, "sev": severity},
             )
         ).all()
         matching = set()
@@ -1080,10 +1105,11 @@ async def apply_event(
                     text(
                         """
                         INSERT INTO alert_state (rule_id, sensor_id, status, event_id,
-                            problem_since, due_at, escalation_due_at)
-                        VALUES (:r, :s, :st, :e, :t, :due, :esc)
+                            problem_since, due_at, escalation_due_at, severity)
+                        VALUES (:r, :s, :st, :e, :t, :due, :esc, :sev)
                         ON CONFLICT (rule_id, sensor_id) DO UPDATE SET
                             status = EXCLUDED.status, event_id = EXCLUDED.event_id,
+                            severity = EXCLUDED.severity,
                             problem_since = EXCLUDED.problem_since, due_at = EXCLUDED.due_at,
                             primary_sent_at = NULL,
                             escalation_due_at = EXCLUDED.escalation_due_at,
@@ -1099,6 +1125,7 @@ async def apply_event(
                         "t": t,
                         "due": due,
                         "esc": esc,
+                        "sev": severity,
                     },
                 )
             else:
@@ -1118,9 +1145,18 @@ async def apply_event(
                     text(
                         "UPDATE alert_state SET status = :st, event_id = :e, due_at = :due, "
                         "escalation_due_at = COALESCE(:esc, escalation_due_at), "
+                        "severity = :sev, "
                         "updated_at = now() WHERE rule_id = :r AND sensor_id = :s"
                     ),
-                    {"r": rule.id, "s": sid, "st": status, "e": eid, "due": due, "esc": esc},
+                    {
+                        "r": rule.id,
+                        "s": sid,
+                        "st": status,
+                        "e": eid,
+                        "due": due,
+                        "esc": esc,
+                        "sev": severity,
+                    },
                 )
         for rid in rows:
             if rid not in matching:

@@ -285,7 +285,8 @@ class EventSensors:
         conds = (
             await session.execute(
                 text(
-                    "SELECT c.status, c.message, c.source, r.name AS rule_name "
+                    "SELECT c.status, c.message, c.source, r.name AS rule_name, "
+                    "r.severity AS rule_severity "
                     "FROM event_conditions c LEFT JOIN event_rules r ON r.id = c.rule_id "
                     "WHERE c.sensor_id = :s "
                     "ORDER BY (c.status = 'down') DESC, c.last_at DESC, c.id DESC"
@@ -294,8 +295,10 @@ class EventSensors:
             )
         ).all()
         n = len(conds)
+        rule_severity = None
         if n:
             worst = conds[0]
+            rule_severity = worst.rule_severity  # [severity]
             status = worst.status
             msg = (
                 f"{worst.rule_name}: {worst.message}"
@@ -331,9 +334,13 @@ class EventSensors:
                 time=now,
                 in_maintenance=self.rt.maintenance is not None
                 and self.rt.maintenance.in_maintenance(device.id),
+                rule_severity=rule_severity,
             )
-        elif changed_msg:
-            sensor.status_message = msg
+        else:
+            if changed_msg:
+                sensor.status_message = msg
+            if status in ("down", "warning"):
+                await self._follow_severity(session, sensor, status, rule_severity)
         update = {
             "id": sensor.id,
             "device_id": sensor.device_id,
@@ -345,6 +352,28 @@ class EventSensors:
             "channels": [{"key": "active", "value": float(n), "status": status}],
         }
         return ev, update
+
+    async def _follow_severity(
+        self, session: AsyncSession, sensor: Sensor, status: str, rule_severity: str | None
+    ) -> None:
+        """[severity] Same status, another worst condition (e.g. a rule with a higher severity
+        matched): the current problem follows; the opening event keeps its value."""
+        from netmon.services import severity as severity_svc
+
+        if not severity_svc.enabled(self.rt):
+            return
+        new = await severity_svc.resolve_for_sensor(
+            session, sensor, status, rule_severity=rule_severity
+        )
+        if new != sensor.severity:
+            sensor.severity = new
+            await session.execute(
+                text(
+                    "UPDATE alert_state SET severity = :v WHERE sensor_id = :s "
+                    "AND status IN ('down','warning')"
+                ),
+                {"s": sensor.id, "v": new},
+            )
 
     async def _recompute_many(
         self, session: AsyncSession, sensor_ids: Iterable[int], idle_message: str | None = None

@@ -17,6 +17,7 @@ from netmon.services.features import FEATURES
 from netmon.services.home_map import DEFAULT as HOME_MAP_DEFAULT
 from netmon.services.security import DEFAULTS as SECURITY_DEFAULTS
 from netmon.services.settings_p3c import DEFAULTS as P3C_DEFAULTS
+from netmon.services.severity import DEFAULT_MAPPING as SEVERITY_DEFAULT_MAPPING
 
 DEFAULTS: dict[str, Any] = {
     "smtp": {
@@ -114,6 +115,8 @@ DEFAULTS: dict[str, Any] = {
     **SECURITY_DEFAULTS,
     # [premium] home network map (GET/PUT /api/settings/home-map, netmon.services.home_map)
     "home_map": copy.deepcopy(HOME_MAP_DEFAULT),
+    # [severity] GET/PUT /api/settings/severity-mapping (netmon.services.severity)
+    "severity_mapping": dict(SEVERITY_DEFAULT_MAPPING),
 }
 
 # [3] plain keys written by PUT /api/settings as they come (validated by the schema mixins)

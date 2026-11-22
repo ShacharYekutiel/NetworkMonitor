@@ -347,7 +347,7 @@ async def run_draft(rt: Any, user: Any, ctx: Any, kind: str, description: str) -
         purpose="rule_draft",
     )
     offered = [t.name for t in tools_mod.available(gate, READ_TOOLS)]
-    specs = [t.spec()["toolSpec"] for t in tools_mod.available(gate, READ_TOOLS)]
+    specs = [t.spec(gate)["toolSpec"] for t in tools_mod.available(gate, READ_TOOLS)]
     policy = common.redact_policy(a)
     question = redact.apply_text(description, policy)
     from netmon.assistant.lang import detect_language

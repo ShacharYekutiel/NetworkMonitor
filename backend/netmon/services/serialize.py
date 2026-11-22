@@ -262,6 +262,10 @@ def sensor_out(
         "impact": getattr(s, "impact", None) or "critical",  # [1.3]
         "acknowledgement": acknowledgement_out(s),
         "in_maintenance": bool(in_maintenance),
+        # [severity] current problem severity (null: no problem / feature off) and overrides
+        "severity": getattr(s, "severity", None),
+        "severity_down": getattr(s, "severity_down", None),
+        "severity_warning": getattr(s, "severity_warning", None),
         "created_at": iso(s.created_at),
         "updated_at": iso(s.updated_at),
     }
@@ -281,6 +285,7 @@ def event_out(e: Any) -> dict[str, Any]:
         "new_status": e.new_status,
         "message": e.message,
         "in_maintenance": bool(getattr(e, "in_maintenance", False)),
+        "severity": getattr(e, "severity", None),  # [severity]
     }
 
 

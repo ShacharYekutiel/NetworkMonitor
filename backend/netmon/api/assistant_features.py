@@ -138,9 +138,10 @@ async def get_incident(incident_id: int, _: AdminSession, rt: RT, session: DB) -
         await session.execute(
             text(
                 "SELECT m.event_id, m.sensor_id, m.device_id, m.status, m.time, m.recovered_at, "
-                "s.name AS sensor_name, d.name AS device_name FROM assistant_incident_members m "
+                "s.name AS sensor_name, d.name AS device_name, e.severity "
+                "FROM assistant_incident_members m "
                 "LEFT JOIN sensors s ON s.id = m.sensor_id LEFT JOIN devices d ON d.id = "
-                "m.device_id "
+                "m.device_id LEFT JOIN events e ON e.id = m.event_id "
                 "WHERE m.incident_id = :i ORDER BY m.time, m.event_id"
             ),
             {"i": incident_id},

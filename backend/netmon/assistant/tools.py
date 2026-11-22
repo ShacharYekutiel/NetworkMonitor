@@ -148,19 +148,30 @@ class ToolDef:
     gate: Gate = no_gate
     untrusted: tuple[str, ...] = ()
     source_key: str | None = None  # data-source key for the prompt's "Available data" line
+    # [severity] argument -> feature: offered to the model only while the feature is ON
+    feature_args: dict[str, str] = field(default_factory=dict)
     _schema: dict[str, Any] | None = None
 
-    def schema(self) -> dict[str, Any]:
+    def schema(self, gate: GateInfo | None = None) -> dict[str, Any]:
         if self._schema is None:
             self._schema = clean_schema(self.args.model_json_schema())
-        return self._schema
+        hidden = [a for a, f in self.feature_args.items() if gate is None or not gate.on(f)]
+        if not hidden:
+            return self._schema
+        out = dict(self._schema)
+        out["properties"] = {
+            k: v for k, v in (out.get("properties") or {}).items() if k not in hidden
+        }
+        if "required" in out:
+            out["required"] = [k for k in out["required"] if k not in hidden]
+        return out
 
-    def spec(self) -> dict[str, Any]:
+    def spec(self, gate: GateInfo | None = None) -> dict[str, Any]:
         return {
             "toolSpec": {
                 "name": self.name,
                 "description": self.description,
-                "inputSchema": {"json": self.schema()},
+                "inputSchema": {"json": self.schema(gate)},
             }
         }
 

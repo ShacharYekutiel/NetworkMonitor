@@ -150,6 +150,8 @@ class Runtime:
         secretbox.configure(self.secret_key)  # [1.4.2] secrets at rest
         self.engine = make_engine(s.async_database_url)
         self.sessionmaker = make_sessionmaker(self.engine)
+        # [severity] code that only has a session (EventWriter) reads the feature through it
+        self.sessionmaker.configure(info={"rt": self})
         await wait_for_db(self.engine)
         if take_lock:
             await self._acquire_lock()
@@ -263,6 +265,11 @@ class Runtime:
             await assistant_agent.mark_interrupted(self)
         except Exception:  # noqa: BLE001
             log.exception("Marking interrupted assistant answers failed")
+        from netmon.services import severity as severity_svc
+
+        self.features.add_listener(  # [severity] resolve / clear the active problems
+            lambda name, on: severity_svc.feature_changed(self, name, on)
+        )
         try:
             await self.features.start()
         except Exception:  # noqa: BLE001 - the server always starts

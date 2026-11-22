@@ -36,6 +36,7 @@ class Rule:
     clear_after_min: int | None = None
     enabled: bool = True
     builtin_key: str | None = None  # [1.3] (LAG degraded follows the built-in link-down rule)
+    severity: str | None = None  # [severity]
     _compiled: dict[str, SafeRegex | None] = field(default_factory=dict, repr=False)
 
     def regex(self, pattern: str | None) -> SafeRegex | None:
@@ -69,6 +70,7 @@ class Rule:
             clear_after_min=r.get("clear_after_min"),
             enabled=bool(r.get("enabled", True)),
             builtin_key=r.get("builtin_key"),
+            severity=r.get("severity"),
         )
 
 
@@ -484,6 +486,14 @@ def validate_rule(data: dict[str, Any]) -> dict[str, Any]:
     enabled = data.get("enabled", True)
     if not isinstance(enabled, bool):
         _err(errors, ["enabled"], "must be a boolean")
+    severity = data.get("severity")  # [severity] warning / down rules only
+    if severity is not None:
+        from netmon.services.severity import LEVELS
+
+        if severity not in LEVELS:
+            _err(errors, ["severity"], f"must be one of {', '.join(LEVELS)}")
+        elif action not in ("warning", "down"):
+            _err(errors, ["severity"], "only for warning / down rules")
     if errors:
         raise ApiError(422, "validation_error", "Invalid event rule", errors)
     return {
@@ -500,4 +510,5 @@ def validate_rule(data: dict[str, Any]) -> dict[str, Any]:
         "key_regex": key_regex if kind == "syslog" else None,
         "clear_match": clear_match,
         "clear_after_min": clear_after if action not in ("ignore", BACKUP_ACTION) else None,
+        "severity": severity,
     }

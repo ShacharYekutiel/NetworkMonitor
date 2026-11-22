@@ -33,6 +33,7 @@ TEXTS = {
         "stage": "Stage",
         "group": "Group",
         "hosts": "Hosts",
+        "severity": "Severity",
         "escalation": "ESCALATION",
         "reminder": "REMINDER",
         "recovered": "RECOVERED",
@@ -55,6 +56,7 @@ TEXTS = {
         "stage": "שלב",
         "group": "קבוצה",
         "hosts": "מארחים",
+        "severity": "חומרה",
         "escalation": "הסלמה",
         "reminder": "תזכורת",
         "recovered": "חזר לתקין",
@@ -164,6 +166,10 @@ def _facts(payload: dict[str, Any], lang: str) -> list[dict[str, str]]:
     if new:
         value = f"{_status(old, lang)} → {_status(new, lang)}" if old else _status(new, lang)
         facts.append({"title": t["status"], "value": value})
+    if payload.get("severity"):  # [severity] only while the feature is ON
+        facts.append(
+            {"title": t["severity"], "value": templates.severity_name(payload["severity"], lang)}
+        )
     dev = payload.get("device")
     if dev:
         host = dev.get("host")

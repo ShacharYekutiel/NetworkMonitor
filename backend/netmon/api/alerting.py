@@ -277,6 +277,7 @@ async def _rule_out(session: DB, r: AlertRule) -> dict:
         "escalation_channel_ids": sorted(r.escalation_channel_ids or []),
         "repeat_every_s": r.repeat_every_s,
         "ai_note": bool(getattr(r, "ai_note", False)),  # [3b]
+        "severities": _severities(getattr(r, "severities", None)),  # [severity]
         "created_at": iso(r.created_at),
         "updated_at": iso(r.updated_at),
     }
@@ -381,7 +382,16 @@ def _rule_values(r: AlertRule, channel_ids: list[int]) -> dict[str, Any]:
         "escalation_channel_ids": sorted(r.escalation_channel_ids or []),
         "repeat_every_s": r.repeat_every_s,
         "ai_note": bool(r.ai_note),  # [3b] audited by alert_rule.update
+        "severities": _severities(r.severities),  # [severity]
     }
+
+
+def _severities(values: Any) -> list[str]:
+    """[severity] stored set in level order (critical first)."""
+    from netmon.services.severity import LEVELS
+
+    got = set(values or [])
+    return [lvl for lvl in LEVELS if lvl in got]
 
 
 async def _rule_channel_ids(session: DB, rule_id: int) -> list[int]:
@@ -422,6 +432,7 @@ async def create_rule(body: AlertRuleCreate, _: Admin, rt: RT, session: DB, ctx:
         escalation_channel_ids=esc_ids,
         repeat_every_s=body.repeat_every_s,
         ai_note=body.ai_note,
+        severities=_severities(body.severities),
     )
     session.add(r)
     await session.flush()
@@ -484,6 +495,8 @@ async def patch_rule(
         r.repeat_every_s = body.repeat_every_s
     if body.ai_note is not None:  # [3b]
         r.ai_note = body.ai_note
+    if body.severities is not None:  # [severity] [] = every severity
+        r.severities = _severities(body.severities)
     await _check_escalation(
         session,
         list(r.on_statuses),

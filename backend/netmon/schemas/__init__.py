@@ -30,6 +30,7 @@ Language = Literal["en", "he"]
 StatusLit = Literal["up", "warning", "down", "paused", "unknown", "unreachable"]
 InventoryMode = Literal["auto", "on", "off"]  # [2b-2]
 Impact = Literal["critical", "warning", "none"]  # [1.3]
+Severity = Literal["critical", "major", "minor", "warning", "info"]  # [severity]
 
 
 class _In(BaseModel):
@@ -304,6 +305,9 @@ class SensorCreate(_In):
     channels: list[dict[str, Any]] | None = None
     # [1.3] null/absent: snmp_interface by port importance, every other type critical
     impact: Impact | None = None
+    # [severity] optional overrides (null = the mapping / event rule decides)
+    severity_down: Severity | None = None
+    severity_warning: Severity | None = None
 
 
 class SensorPatch(_In):
@@ -315,6 +319,8 @@ class SensorPatch(_In):
     sort_order: int | None = None
     channels: list[dict[str, Any]] | None = None
     impact: Impact | None = None  # [1.3]
+    severity_down: Severity | None = None  # [severity] null clears the override
+    severity_warning: Severity | None = None
 
 
 class BulkImpactIn(_In):
@@ -322,6 +328,16 @@ class BulkImpactIn(_In):
 
     sensor_ids: list[int] = Field(min_length=1, max_length=1000)
     impact: Impact
+
+
+class BulkSeverityIn(_In):
+    """[severity] POST /api/sensors/bulk-severity: an omitted key keeps each sensor's value,
+    null clears the override, a level sets it."""
+
+    model_config = ConfigDict(extra="forbid")
+    sensor_ids: list[int] = Field(min_length=1, max_length=1000)
+    severity_down: Severity | None = None
+    severity_warning: Severity | None = None
 
 
 class SensorTestIn(_In):
@@ -455,6 +471,7 @@ class AlertRuleCreate(_In):
     escalation_channel_ids: list[int] = Field(default_factory=list, max_length=100)
     repeat_every_s: int | None = Field(default=None, ge=300, le=604800)
     ai_note: bool = False  # [3b] AI note after the problem notification (§ 14.8.3)
+    severities: list[Severity] = Field(default_factory=list, max_length=5)  # [severity] [] = all
 
 
 class AlertRulePatch(_In):
@@ -468,6 +485,7 @@ class AlertRulePatch(_In):
     escalation_channel_ids: list[int] | None = Field(default=None, max_length=100)
     repeat_every_s: int | None = Field(default=None, ge=300, le=604800)
     ai_note: bool | None = None  # [3b]
+    severities: list[Severity] | None = Field(default=None, max_length=5)  # [severity]
 
 
 # ---------------------------------------------------------------- [2b-1] acknowledge
@@ -600,6 +618,7 @@ class SettingsPut(
     # [2b-3] Active Directory (merged field by field) and audit retention
     ldap: LdapSettingsIn | None = None
     audit_retention_days: int | None = Field(default=None, ge=30, le=3650)
+    feature_alert_severity_enabled: bool | None = None  # [severity]
 
     _tzv = field_validator("timezone")(lambda cls, v: _tz(v))
 

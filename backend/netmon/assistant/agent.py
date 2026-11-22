@@ -883,7 +883,7 @@ class _Loop:
         g = gate_info(self.rt, self.s, self.opts.purpose)
         offered = tools.available(g, self.opts.tools)
         offered_names = [t.name for t in offered]
-        specs = [t.spec() for t in offered]
+        specs = [t.spec(g) for t in offered]
         kb = self.s.get("kb") or {}
         pctx = prompt.PromptCtx(
             now=self.now(),

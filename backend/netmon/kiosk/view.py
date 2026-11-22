@@ -11,6 +11,7 @@ from typing import Any
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from netmon.services import severity as severity_svc
 from netmon.services.serialize import iso
 from netmon.services.status import empty_counts, load_inventory, severity_key
 
@@ -50,6 +51,7 @@ async def build_view(rt: Any, session: AsyncSession, screen: Any) -> dict[str, A
         "map": None,
     }
     sensors_in = {sid: s for sid, s in inv.sensors.items() if s["device_id"] in devices}
+    sev_on = severity_svc.enabled(rt)  # [severity]
     group_names = {gid: g["name"] for gid, g in inv.groups.items()}
     if "summary" in widgets:
         dc, sc = empty_counts(), empty_counts()
@@ -68,6 +70,10 @@ async def build_view(rt: Any, session: AsyncSession, screen: Any) -> dict[str, A
             "sensor_counts": sc,
             "acknowledged": acked,
             "in_maintenance": in_maint,
+            # [severity] per severity of the current problems (null while the feature is off)
+            "severity_counts": (
+                severity_svc.count_problems(sensors_in.values()) if sev_on else None
+            ),
         }
     since: dict[int, Any] = {}
     if "down_devices" in widgets or "problems" in widgets:
@@ -121,11 +127,13 @@ async def build_view(rt: Any, session: AsyncSession, screen: Any) -> dict[str, A
                     "message": msg[:300],
                     "since": iso(t),
                     "acknowledged": bool(s["acknowledged"]),
+                    "severity": s.get("severity"),  # [severity]
                 }
             )
         probs.sort(
             key=lambda p: (
                 p["acknowledged"],
+                -severity_svc.rank(p["severity"]) if sev_on else 0,
                 -severity_key(p["status"]),
                 p["since"] or "",
                 p["sensor_id"],
@@ -135,8 +143,8 @@ async def build_view(rt: Any, session: AsyncSession, screen: Any) -> dict[str, A
     if "recent_alerts" in widgets:
         rows = await session.execute(
             text(
-                "SELECT time, device_name, sensor_name, old_status, new_status, message "
-                "FROM events WHERE kind = 'status_change' AND device_id = ANY(:d) "
+                "SELECT time, device_name, sensor_name, old_status, new_status, message, "
+                "severity FROM events WHERE kind = 'status_change' AND device_id = ANY(:d) "
                 "ORDER BY time DESC, id DESC LIMIT :n"
             ),
             {"d": list(devices), "n": MAX_ALERTS},
@@ -149,6 +157,7 @@ async def build_view(rt: Any, session: AsyncSession, screen: Any) -> dict[str, A
                 "old_status": r.old_status,
                 "new_status": r.new_status,
                 "message": (r.message or "")[:300],
+                "severity": r.severity,  # [severity]
             }
             for r in rows
         ]

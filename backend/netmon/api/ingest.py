@@ -383,6 +383,7 @@ RULE_FIELDS = (
     "key_regex",
     "clear_match",
     "clear_after_min",
+    "severity",  # [severity]
 )
 
 
@@ -438,6 +439,7 @@ def rule_out(r: Any, lang: str | None = None) -> dict[str, Any]:
         "key_regex": r["key_regex"],
         "clear_match": r["clear_match"],
         "clear_after_min": r["clear_after_min"],
+        "severity": r.get("severity"),  # [severity]
         "active_conditions": int(r["active"] or 0),
         "last_matched_at": iso(r["last_matched_at"]),
         "created_at": iso(r["created_at"]),
@@ -473,7 +475,8 @@ _RULE_SET = (
     "name = :name, kind = :kind, enabled = :enabled, priority = :priority, scope = :scope, "
     "group_id = :group_id, device_id = :device_id, match = CAST(:match AS jsonb), "
     "action = :action, key_varbind_oid = :key_varbind_oid, key_regex = :key_regex, "
-    "clear_match = CAST(:clear_match AS jsonb), clear_after_min = :clear_after_min"
+    "clear_match = CAST(:clear_match AS jsonb), clear_after_min = :clear_after_min, "
+    "severity = :severity"
 )
 
 
@@ -515,9 +518,10 @@ async def create_rule(body: EventRuleIn, user: Admin, rt: RT, session: DB, ctx: 
             text(
                 "INSERT INTO event_rules (name, kind, enabled, priority, scope, group_id, "
                 "device_id, match, action, key_varbind_oid, key_regex, clear_match, "
-                "clear_after_min) VALUES (:name, :kind, :enabled, :priority, :scope, :group_id, "
-                ":device_id, CAST(:match AS jsonb), :action, :key_varbind_oid, :key_regex, "
-                "CAST(:clear_match AS jsonb), :clear_after_min) RETURNING id"
+                "clear_after_min, severity) VALUES (:name, :kind, :enabled, :priority, :scope, "
+                ":group_id, :device_id, CAST(:match AS jsonb), :action, :key_varbind_oid, "
+                ":key_regex, CAST(:clear_match AS jsonb), :clear_after_min, :severity) "
+                "RETURNING id"
             ),
             _rule_params(v),
         )
