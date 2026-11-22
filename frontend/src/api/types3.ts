@@ -1,6 +1,7 @@
 // [3] Hand-written mirror of docs/api.md "Phase 3". Field names are exact.
 import type { Acknowledgement, Language, Sensor, Status, StatusCounts } from './types';
 import type { ReceiverStatus } from './types';
+import type { Severity, SeverityCounts } from './severity';
 
 // ---------------------------------------------------------------------------
 // SSH credentials (groups/devices)
@@ -460,6 +461,8 @@ export type ReportData = {
     device_name: string;
     notifications: number;
     problem_s: number;
+    /** [severity] only while the feature is ON (key absent while OFF) */
+    severity?: Severity | null;
   }[];
   flapping_ports?: {
     device_id: number;
@@ -550,6 +553,8 @@ export type KioskView = {
     sensor_counts: StatusCounts;
     acknowledged: number;
     in_maintenance: number;
+    /** [severity] null while the feature is OFF */
+    severity_counts?: SeverityCounts | null;
   } | null;
   down_devices:
     | {
@@ -571,6 +576,8 @@ export type KioskView = {
         message: string;
         since: string | null;
         acknowledged: boolean;
+        /** [severity] */
+        severity?: Severity | null;
       }[]
     | null;
   recent_alerts:
@@ -581,6 +588,8 @@ export type KioskView = {
         old_status: Status | null;
         new_status: Status | null;
         message: string;
+        /** [severity] */
+        severity?: Severity | null;
       }[]
     | null;
   group_tiles: { id: number; name: string; status: Status; counts: StatusCounts }[] | null;

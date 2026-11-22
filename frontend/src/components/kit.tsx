@@ -18,6 +18,8 @@ import {
 } from './icons';
 import { Link } from 'react-router';
 import { cx, textDir } from './ui';
+import type { Severity } from '../api/severity';
+import { severityRank } from '../lib/severity';
 
 type IconC = ComponentType<{ size?: number; strokeWidth?: number; className?: string }>;
 
@@ -561,6 +563,7 @@ export function Popover({
   label,
   children,
   className,
+  panelClassName,
   testId,
 }: {
   button: ReactNode;
@@ -568,6 +571,8 @@ export function Popover({
   label: string;
   children: ReactNode;
   className?: string;
+  /** replaces the panel width (default min(360px, 90vw)) */
+  panelClassName?: string;
   testId?: string;
 }) {
   const [open, setOpen] = useState(false);
@@ -607,7 +612,10 @@ export function Popover({
         <div
           id={id}
           data-testid={testId}
-          className="absolute end-0 top-full z-40 mt-2 w-[min(360px,90vw)] rounded-[20px] bg-surface p-4 text-sm text-ink shadow-[0_18px_60px_rgba(0,0,0,0.18),0_0_0_1px_var(--border)] motion-safe:animate-[nm-pop-in_.3s_cubic-bezier(.32,.72,0,1)]"
+          className={cx(
+            'absolute end-0 top-full z-40 mt-2 rounded-[20px] bg-surface p-4 text-sm text-ink shadow-[0_18px_60px_rgba(0,0,0,0.18),0_0_0_1px_var(--border)] motion-safe:animate-[nm-pop-in_.3s_cubic-bezier(.32,.72,0,1)]',
+            panelClassName ?? 'w-[min(360px,90vw)]',
+          )}
         >
           {children}
         </div>
@@ -755,5 +763,83 @@ export function SwitchRow({
         )}
       />
     </label>
+  );
+}
+
+const SEVERITY_TONE: Record<Severity, string> = {
+  critical: 'bg-severity-critical text-severity-on-critical',
+  major: 'bg-severity-major text-severity-on-major',
+  minor: 'bg-severity-minor-soft text-severity-minor',
+  warning: 'bg-severity-warning-soft text-severity-warning',
+  info: 'bg-severity-info-soft text-severity-info',
+};
+
+/** Four rising bars, as many filled as the level is above "info" (order without colour). */
+export function SeverityBars({ severity, className }: { severity: Severity; className?: string }) {
+  const filled = severityRank(severity) - 1;
+  return (
+    <svg
+      aria-hidden="true"
+      viewBox="0 0 12 10"
+      width={12}
+      height={10}
+      className={cx('shrink-0', className)}
+    >
+      {[0, 1, 2, 3].map((i) => (
+        <rect
+          key={i}
+          x={i * 3}
+          y={7 - i * 2.33}
+          width={2}
+          height={3 + i * 2.33}
+          rx={0.6}
+          fill="currentColor"
+          opacity={i < filled ? 1 : 0.28}
+        />
+      ))}
+    </svg>
+  );
+}
+
+/**
+ * [severity] Alert severity tag: a pill in the level's colour that always carries its word (never
+ * colour alone) and rising bars for the order. Critical and Major are solid, the others soft, so
+ * they never read as a status tag. Hebrew UI shows the Hebrew word, the English one is in the
+ * tooltip.
+ */
+export function SeverityTag({
+  severity,
+  size = 'sm',
+  className,
+  testId = 'severity-tag',
+  lng,
+}: {
+  severity: Severity | null | undefined;
+  size?: 'sm' | 'md';
+  className?: string;
+  testId?: string;
+  /** a fixed language (e.g. a report's), else the UI language */
+  lng?: string;
+}) {
+  const { t } = useTranslation();
+  if (!severity || !(severity in SEVERITY_TONE)) return null;
+  const word = t(`severity.level.${severity}`, { lng });
+  const en = t(`severity.level.${severity}`, { lng: 'en' });
+  const title = t('severity.tagTitle', { level: word, lng }) + (word !== en ? ` (${en})` : '');
+  return (
+    <span
+      data-testid={testId}
+      data-severity={severity}
+      title={title}
+      className={cx(
+        'inline-flex shrink-0 items-center gap-1 whitespace-nowrap rounded-full align-middle font-semibold leading-none',
+        size === 'md' ? 'h-[26px] pe-2.5 ps-2 text-[13px]' : 'h-[22px] pe-2 ps-1.5 text-xs',
+        SEVERITY_TONE[severity],
+        className,
+      )}
+    >
+      <SeverityBars severity={severity} />
+      {word}
+    </span>
   );
 }

@@ -1792,7 +1792,8 @@
       "ai_knowledge": "Knowledge Base",
       "ai_chat_ask": "Ask from Telegram (/ask)",
       "ai_report_summary": "AI summary in reports",
-      "send_config_excerpts": "Send configuration excerpts"
+      "send_config_excerpts": "Send configuration excerpts",
+      "alert_severity": "Alert severity"
     },
     "desc": {
       "traps": "Receive SNMP traps (v1/v2c/v3) from devices, store and search them.",
@@ -1822,7 +1823,8 @@
       "ai_template_drafts": "Bounded read-only SNMP walk of a device and a device-template YAML draft for review.",
       "ai_knowledge": "Lets the assistant search your Amazon Bedrock Knowledge Base (runbooks, diagrams) and cite it.",
       "ai_chat_ask": "Linked administrators can send /ask <question> to the Telegram bot in a private chat.",
-      "ai_report_summary": "A short narrative paragraph at the top of reports that opt in."
+      "ai_report_summary": "A short narrative paragraph at the top of reports that opt in.",
+      "alert_severity": "Classify every alert as Critical, Major, Minor, Warning or Information, like a professional NMS: tags and counts on Home and Events, a severity filter, notification rules limited to some severities, and a Severity row in email, Telegram and Teams messages. Off: nothing changes."
     },
     "hint": {
       "needsIngest": "Needs SNMP traps or Syslog to be on to receive anything.",
@@ -1851,7 +1853,8 @@
       "alertNotes": "Opt in per alert rule; Telegram, Teams and email channels.",
       "ruleDraftsIngest": "Event-rule drafts need Traps or Syslog.",
       "kbAws": "Needs a Knowledge Base in your AWS account.",
-      "chatAskChannel": "Enable \"Allow /ask\" on a Telegram channel."
+      "chatAskChannel": "Enable \"Allow /ask\" on a Telegram channel.",
+      "severityMapping": "Once on, the classification is in Settings → General → Alert severity; sensors, notification rules and trap / syslog rules get their severity options."
     },
     "status": {
       "on": "Active",
@@ -3212,7 +3215,8 @@
       "lines": "Lines",
       "lastChange": "Last change",
       "detected": "Detected",
-      "acknowledged": "Acknowledged"
+      "acknowledged": "Acknowledged",
+      "severity": "Severity"
     },
     "err": {
       "name": "Enter a name (at most 128 characters).",
@@ -4326,6 +4330,75 @@
     "reason": {
       "empty": "empty answer",
       "feature_off": "the feature is off"
+    }
+  },
+  "severity": {
+    "label": "Severity",
+    "level": {
+      "critical": "Critical",
+      "major": "Major",
+      "minor": "Minor",
+      "warning": "Warning",
+      "info": "Information"
+    },
+    "tagTitle": "Severity: {{level}}",
+    "counts": "Alerts by severity",
+    "countTitle": "{{level}}: {{open}} not acknowledged, {{all}} in total",
+    "countAll": "{{all}} with acknowledged",
+    "filterLabel": "Filter alerts by severity",
+    "showAll": "All severities",
+    "noMatch": "No alerts with the selected severities.",
+    "filter": "Severity",
+    "sort": {
+      "label": "Order",
+      "time": "Newest first",
+      "severity": "Highest severity first"
+    },
+    "automatic": "Automatic (by the mapping)",
+    "automaticIs": "Automatic (by the mapping): {{level}}",
+    "automaticEvent": "Automatic (trap / syslog rule, else the mapping: {{level}})",
+    "whenDown": "Severity when down",
+    "whenWarning": "Severity when in warning",
+    "overrideHint": "For this sensor only; it wins over the mapping and the trap / syslog rules. Changing it re-classifies a current alert.",
+    "current": "Current alert severity",
+    "mapping": {
+      "title": "Alert severity",
+      "intro": "How an alert is classified by the sensor's status and its impact on the device status. A sensor's own severity and trap / syslog rule severities come first.",
+      "reclassify": "Saving re-classifies the alerts that are active now. History (events, reports) keeps the severity it was recorded with.",
+      "status": "Status",
+      "impact": "Impact",
+      "severity": "Severity",
+      "default": "Default",
+      "changed": "Changed from the default",
+      "info": "Informational",
+      "infoHint": "Recoveries, paused, unreachable, unknown",
+      "reset": "Reset to defaults",
+      "resetTitle": "Reset the classification",
+      "resetConfirm": "Put the default severity of every row back? The alerts that are active now are re-classified.",
+      "saved": "Classification saved.",
+      "resetDone": "Classification reset to the defaults.",
+      "readOnly": "Only administrators can change the classification.",
+      "view": "How severities are assigned",
+      "edit": "Edit in Settings"
+    },
+    "rule": {
+      "label": "Applies to severities",
+      "hint": "Nothing selected = every severity (as before). Used only while Alert severity is on.",
+      "summary": "Severities: {{list}}"
+    },
+    "eventRule": {
+      "label": "Alert severity",
+      "hint": "Optional. The severity of the alert this rule raises; empty = by the mapping.",
+      "auto": "By the mapping"
+    },
+    "bulk": {
+      "action": "Set severity…",
+      "title_one": "Set severity of {{count}} sensor",
+      "title_other": "Set severity of {{count}} sensors",
+      "leave": "Leave unchanged",
+      "done_one": "Severity updated for {{count}} sensor.",
+      "done_other": "Severity updated for {{count}} sensors.",
+      "pickOne": "Change at least one of the two."
     }
   }
 }

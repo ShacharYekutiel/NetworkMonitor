@@ -1,6 +1,7 @@
 import type { QueryClient, QueryKey } from '@tanstack/react-query';
 import { qk } from '../api/endpoints';
 import { qk3 } from '../api/endpoints3';
+import type { Severity } from '../api/severity';
 import type {
   Dashboard,
   Device,
@@ -66,6 +67,18 @@ function patchPages<T extends { id: number }>(
   });
 }
 
+/** [severity] Sets a sensor's current severity in the sensor, sensor lists and the dashboard. */
+export function applySeverityToCache(qc: QueryClient, id: number, severity: Severity | null) {
+  const patch = (s: Sensor): Sensor => (s.severity === severity ? s : { ...s, severity });
+  qc.setQueryData<Sensor>(qk.sensor(id), (old) => (old ? patch(old) : old));
+  patchPages<Sensor>(qc, 'sensors', id, patch);
+  qc.setQueryData<Dashboard>(qk.dashboard, (old) =>
+    old && old.problem_sensors.some((s) => s.id === id)
+      ? { ...old, problem_sensors: old.problem_sensors.map((s) => (s.id === id ? patch(s) : s)) }
+      : old,
+  );
+}
+
 /** Applies one WebSocket message to the TanStack Query cache. */
 export function applyLiveMessage(
   qc: QueryClient,
@@ -125,6 +138,13 @@ export function applyLiveMessage(
     }
     case 'event.created': {
       const ev = msg.data;
+      // [severity] a status change carries the sensor's new current severity (null otherwise)
+      if (ev.kind === 'status_change' && ev.sensor_id !== null && ev.severity !== undefined)
+        applySeverityToCache(
+          qc,
+          ev.sensor_id,
+          ev.new_status === 'down' || ev.new_status === 'warning' ? ev.severity : null,
+        );
       if (ev.kind === 'status_change') {
         qc.setQueryData<Dashboard>(qk.dashboard, (old) =>
           old && !old.recent_events.some((e) => e.id === ev.id)
@@ -178,6 +198,19 @@ export function applyLiveMessage(
       batch.add(['assistant-settings']); // [3b]
       batch.add(['assistant-status']);
       batch.add(['assistant-knowledge']);
+      // [severity] turning alert_severity on/off resolves / clears the current severities
+      batch.add(qk.dashboard);
+      batch.add(['sensors']);
+      batch.add(['sensor']);
+      batch.add(['incidents']);
+      break;
+    }
+    // [severity] an active alert re-classified: patch it in place, then refetch the ordered lists
+    case 'sensor.severity': {
+      applySeverityToCache(qc, msg.data.id, msg.data.severity);
+      batch.add(qk.dashboard);
+      batch.add(['sensors']);
+      batch.add(['incidents']);
       break;
     }
     case 'ingest.receiver':

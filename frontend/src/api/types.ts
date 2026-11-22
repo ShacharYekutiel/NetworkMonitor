@@ -1,4 +1,5 @@
 // Hand-written mirror of docs/api.md. Field names are exact.
+import type { Severity, SeverityCounts } from './severity';
 import type {
   BackupMode,
   BackupStatus,
@@ -270,6 +271,11 @@ export type Sensor = {
   in_maintenance: boolean;
   /** [1.3] how the sensor's status rolls up into the device status (absent on older servers = critical) */
   impact?: SensorImpact;
+  /** [severity] the current problem's severity (null: no problem, or the feature is OFF) */
+  severity?: Severity | null;
+  /** [severity] overrides (null: the event rule / mapping decides) */
+  severity_down?: Severity | null;
+  severity_warning?: Severity | null;
   created_at: string;
   updated_at: string;
 };
@@ -316,6 +322,8 @@ export type NmEvent = {
   message: string;
   /** [2b-1] */
   in_maintenance: boolean;
+  /** [severity] stored when written (null while the feature was OFF, and for most kinds) */
+  severity?: Severity | null;
 };
 
 export type CheckResult = {
@@ -482,6 +490,9 @@ export type Dashboard = {
   acknowledged_count: number;
   unreachable_devices: UnreachableDevice[];
   maintenance: { active_window_ids: number[]; device_count: number };
+  /** [severity] all current problems (acknowledged included); null while the feature is OFF */
+  severity_counts?: SeverityCounts | null;
+  severity_counts_unacknowledged?: SeverityCounts | null;
 };
 
 /** [2b-1] */
@@ -564,6 +575,8 @@ export type AlertRule = {
   repeat_every_s: number | null;
   /** [3b] AI note after the problem notification (feature ai_alert_notes) */
   ai_note?: boolean;
+  /** [severity] the severities the rule applies to, in level order; [] = all */
+  severities?: Severity[];
   created_at: string;
   updated_at: string;
 };
@@ -640,6 +653,12 @@ export type WsMessage =
       };
     }
   | { type: 'event.created'; ts: string; data: NmEvent }
+  /** [severity] an active problem re-classified (mapping / override / impact / feature ON) */
+  | {
+      type: 'sensor.severity';
+      ts: string;
+      data: { id: number; device_id: number; severity: Severity | null };
+    }
   | {
       type: 'device.status';
       ts: string;
@@ -1626,7 +1645,9 @@ export type FeatureName =
   | 'ai_template_drafts'
   | 'ai_knowledge'
   | 'ai_chat_ask'
-  | 'ai_report_summary';
+  | 'ai_report_summary'
+  // [severity]
+  | 'alert_severity';
 export const FEATURE_NAMES: FeatureName[] = [
   'traps',
   'syslog',
@@ -1657,6 +1678,8 @@ export const FEATURE_NAMES: FeatureName[] = [
   'ai_knowledge',
   'ai_chat_ask',
   'ai_report_summary',
+  // [severity]
+  'alert_severity',
 ];
 export type Features = Record<FeatureName, boolean>;
 
@@ -1860,6 +1883,8 @@ export type EventRule = {
   clear_after_min: number | null;
   active_conditions: number;
   last_matched_at: string | null;
+  /** [severity] only for action warning / down */
+  severity?: Severity | null;
   created_at: string;
   updated_at: string;
 };
@@ -1877,6 +1902,8 @@ export type EventRuleInput = {
   key_regex?: string | null;
   clear_match?: TrapMatch | SyslogMatch | null;
   clear_after_min?: number | null;
+  /** [severity] */
+  severity?: Severity | null;
 };
 export type RuleTestItem = {
   kind: EventRuleKind;

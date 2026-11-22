@@ -1,6 +1,7 @@
 import { api, buildUrl } from './client';
 import { setNamedValueMaps } from '../lib/valueMaps';
 import type { BrowserSession } from './types';
+import type { Severity } from './severity';
 import type { BackupMode, SshCredentialsInput } from './types3';
 import type {
   ApiToken,
@@ -186,6 +187,9 @@ export type SensorInput = {
   channels?: ChannelThresholdInput[];
   /** [1.3] */
   impact?: SensorImpact;
+  /** [severity] overrides (null clears) */
+  severity_down?: Severity | null;
+  severity_warning?: Severity | null;
 };
 
 export type EventQuery = {
@@ -198,6 +202,10 @@ export type EventQuery = {
   until?: string;
   /** [2b-1] */
   in_maintenance?: boolean;
+  /** [severity] csv of levels */
+  severity?: string;
+  /** [severity] time (default) | severity */
+  sort?: 'time' | 'severity';
   page?: number;
   page_size?: number;
 };
@@ -315,6 +323,7 @@ export type AlertRuleInput = Partial<
     | 'escalation_channel_ids'
     | 'repeat_every_s'
     | 'ai_note'
+    | 'severities'
   >
 >;
 
@@ -408,6 +417,9 @@ export const endpoints = {
     type?: string;
     q?: string;
     acknowledged?: boolean;
+    /** [severity] csv of levels (current problem severity) */
+    severity?: string;
+    sort?: 'default' | 'severity';
   }) => api.get<Page<Sensor>>('/sensors', { page_size: 1000, ...params }),
   sensor: (id: number) => api.get<Sensor>(`/sensors/${id}`),
   createSensor: (body: SensorInput) => api.post<Sensor>('/sensors', body),

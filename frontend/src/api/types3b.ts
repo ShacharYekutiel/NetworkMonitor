@@ -1,4 +1,5 @@
 // [3b] Hand-written mirror of docs/api.md "[3b] Phase 3b contract". Field names are exact.
+import type { Severity } from './severity';
 
 export const AI_FEATURES = [
   'ai_explain_alert',
@@ -359,6 +360,8 @@ export type Incident = {
   unreachable: number;
   warning: number;
   recovered: number;
+  /** [severity] the highest severity of its members' events */
+  severity?: Severity | null;
 };
 export type IncidentMember = {
   event_id: number;
@@ -370,6 +373,8 @@ export type IncidentMember = {
   time: string;
   recovered_at: string | null;
   is_root: boolean;
+  /** [severity] its event's */
+  severity?: Severity | null;
 };
 export type IncidentDetail = Incident & { members: IncidentMember[] };
 
