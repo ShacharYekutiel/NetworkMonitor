@@ -40,6 +40,7 @@ import { useDeviceTemplates } from '../components/Templates';
 import { FingerprintIcon } from '../components/icons';
 import type { DeviceIdentity, Sensor } from '../api/types';
 import { BulkImpactModal } from '../components/SensorImpact';
+import { BulkDeleteModal } from '../components/SensorBulkDelete';
 import { l10n } from '../lib/templates';
 import { PortsTab } from '../components/ports/PortsTab';
 import { PortIcon } from '../components/icons';
@@ -110,8 +111,10 @@ export function DeviceSensorsCard({
   const { t } = useTranslation();
   const [picked, setPicked] = useState<Set<number>>(() => new Set());
   const [bulk, setBulk] = useState(false);
-  // Only ids still in the list count (sensors may be deleted while selected).
-  const ids = (sensors ?? []).filter((s) => picked.has(s.id)).map((s) => s.id);
+  const [bulkDelete, setBulkDelete] = useState(false);
+  // Only sensors still in the list count (sensors may be deleted while selected).
+  const pickedSensors = (sensors ?? []).filter((s) => picked.has(s.id));
+  const ids = pickedSensors.map((s) => s.id);
   return (
     <div>
       {isAdmin && sensors && sensors.length > 1 && (
@@ -148,6 +151,15 @@ export function DeviceSensorsCard({
           </button>
           <button
             type="button"
+            onClick={() => setBulkDelete(true)}
+            data-testid="sensor-bulk-delete"
+            className="inline-flex h-[34px] items-center gap-1.5 rounded-full bg-status-down px-3.5 text-[13.5px] font-medium text-on-status"
+          >
+            <TrashIcon size={14} />
+            {t('sensorBulk.delete')}
+          </button>
+          <button
+            type="button"
             onClick={() => setPicked(new Set())}
             className="h-[34px] rounded-full bg-[color-mix(in_srgb,var(--on-accent)_16%,transparent)] px-3.5 text-[13.5px] font-medium"
           >
@@ -160,6 +172,15 @@ export function DeviceSensorsCard({
           open={bulk}
           onClose={() => setBulk(false)}
           sensorIds={ids}
+          deviceId={deviceId}
+          onDone={() => setPicked(new Set())}
+        />
+      )}
+      {isAdmin && (
+        <BulkDeleteModal
+          open={bulkDelete}
+          onClose={() => setBulkDelete(false)}
+          sensors={pickedSensors}
           deviceId={deviceId}
           onDone={() => setPicked(new Set())}
         />

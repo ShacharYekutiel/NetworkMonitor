@@ -173,6 +173,71 @@ async def test_bulk_impact(
     assert len(changes) == 3 and changes[0]["impact"] == ["critical", "warning"]
 
 
+async def test_bulk_delete(
+    rt: Runtime, admin: httpx.AsyncClient, viewer: httpx.AsyncClient
+) -> None:
+    await features(admin, audit=True)
+    d = await make_device(admin, name="bulkdel", host="10.13.1.2")
+    ids = [(await make_sensor(admin, d["id"], "ping"))["id"] for _ in range(3)]
+    keep = (await make_sensor(admin, d["id"], "ping"))["id"]
+    removed: list[int] = []
+
+    class _Sched:  # records removals like the real scheduler would see them
+        def remove(self, sensor_id: int) -> None:
+            removed.append(sensor_id)
+
+        async def upsert(self, sensor_id: int) -> None:
+            return None
+
+    prev_sched = rt.scheduler
+    async with rt.sessionmaker() as s:
+        await s.execute(
+            text(
+                "INSERT INTO measurements (sensor_id, time, channel, value) "
+                "VALUES (:i, now(), 'latency_ms', 1)"
+            ),
+            {"i": ids[0]},
+        )
+        await s.commit()
+    r = await viewer.post("/api/sensors/bulk-delete", json={"sensor_ids": ids})
+    assert r.status_code == 403
+    r = await admin.post("/api/sensors/bulk-delete", json={"sensor_ids": [*ids, 99999]})
+    assert r.status_code == 422 and "99999" in r.text
+    left = (await admin.get("/api/sensors", params={"device_id": d["id"]})).json()["items"]
+    assert len(left) == 4  # nothing deleted
+    for body in ({"sensor_ids": []}, {"sensor_ids": list(range(1, 1002))}, {}):
+        assert (await admin.post("/api/sensors/bulk-delete", json=body)).status_code == 422
+    rt.scheduler = _Sched()  # type: ignore[assignment]
+    try:
+        r = await admin.post("/api/sensors/bulk-delete", json={"sensor_ids": [*ids, ids[0]]})
+    finally:
+        rt.scheduler = prev_sched
+    assert r.status_code == 200 and r.json() == {"deleted": 3}
+    assert sorted(removed) == ids
+    left = (await admin.get("/api/sensors", params={"device_id": d["id"]})).json()["items"]
+    assert [x["id"] for x in left] == [keep]
+    for i in ids:
+        assert (await admin.get(f"/api/sensors/{i}")).status_code == 404
+    audit = (await admin.get("/api/audit", params={"action": "sensor.delete"})).json()["items"]
+    assert sorted(a["entity_id"] for a in audit if a["entity_id"] in ids) == ids
+
+    async def no_history() -> bool:
+        async with rt.sessionmaker() as s:
+            n = (
+                await s.execute(
+                    text("SELECT count(*) FROM measurements WHERE sensor_id = ANY(:ids)"),
+                    {"ids": ids},
+                )
+            ).scalar_one()
+        return n == 0
+
+    for _ in range(50):
+        if await no_history():
+            break
+        await asyncio.sleep(0.05)
+    assert await no_history()
+
+
 async def test_impact_backfill(rt: Runtime, admin: httpx.AsyncClient) -> None:
     from netmon.services import impact
     from netmon.services import settings as settings_svc

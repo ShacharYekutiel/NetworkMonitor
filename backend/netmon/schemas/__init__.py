@@ -324,6 +324,12 @@ class BulkImpactIn(_In):
     impact: Impact
 
 
+class BulkDeleteIn(_In):
+    """POST /api/sensors/bulk-delete"""
+
+    sensor_ids: list[int] = Field(min_length=1, max_length=1000)
+
+
 class SensorTestIn(_In):
     device_id: int | None = None
     host: str | None = None

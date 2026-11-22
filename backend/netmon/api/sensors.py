@@ -26,7 +26,14 @@ from netmon.poller.sensor_types import (
 )
 from netmon.poller.snmp_client import DEFAULT_SNMP
 from netmon.poller.types import SEVERITY, CheckContext, evaluate
-from netmon.schemas import AcknowledgeIn, BulkImpactIn, SensorCreate, SensorPatch, SensorTestIn
+from netmon.schemas import (
+    AcknowledgeIn,
+    BulkDeleteIn,
+    BulkImpactIn,
+    SensorCreate,
+    SensorPatch,
+    SensorTestIn,
+)
 from netmon.services import audit, secretbox
 from netmon.services import events as events_svc
 from netmon.services import history as history_svc
@@ -366,6 +373,39 @@ async def bulk_impact(body: BulkImpactIn, _: Admin, rt: RT, session: DB, ctx: Au
     for device_id in sorted(devices):  # one message per device, not per sensor
         rt.config_changed("device", device_id, "updated")
     return {"updated": updated}
+
+
+# ---------------------------------------------------------------- bulk delete
+@router.post("/api/sensors/bulk-delete")
+async def bulk_delete(body: BulkDeleteIn, _: Admin, rt: RT, session: DB, ctx: Audit) -> dict:
+    """Delete up to 1000 sensors with their history, in one transaction (one `sensor.delete`
+    audit row per sensor, as the single DELETE). Unknown ids -> 422 (nothing deleted)."""
+    ids = sorted(set(body.sensor_ids))
+    rows = (
+        (await session.execute(select(Sensor).where(Sensor.id.in_(ids)).with_for_update()))
+        .scalars()
+        .all()
+    )
+    missing = sorted(set(ids) - {s.id for s in rows})
+    if missing:
+        raise validation_error(["body", "sensor_ids"], f"unknown sensor ids: {missing[:20]}")
+    for s in sorted(rows, key=lambda x: x.id):
+        await audit.record(
+            session, ctx, "sensor.delete", sensor_entity(s), audit.deleted(sensor_audit_values(s))
+        )
+        if is_passive(s.type):  # [2b-3] a deleted event sensor is not re-created
+            dev = await session.get(Device, s.device_id)
+            if dev is not None and s.type not in (dev.event_sensor_optout or []):
+                dev.event_sensor_optout = [*(dev.event_sensor_optout or []), s.type]
+        await session.delete(s)
+    await session.commit()
+    if rt.scheduler:
+        for sensor_id in ids:
+            rt.scheduler.remove(sensor_id)
+    rt.spawn(delete_sensor_measurements(rt, ids))
+    for sensor_id in ids:
+        rt.config_changed("sensor", sensor_id, "deleted")
+    return {"deleted": len(ids)}
 
 
 # ---------------------------------------------------------------- [2b-1] acknowledge

@@ -362,6 +362,7 @@ Create request:
 | `GET /api/sensors/{id}` | viewer | — | `Sensor` |
 | `PATCH /api/sensors/{id}` | admin | Subset of `{name, config, interval_s, enabled, sort_order, channels}` (**[1.3]** + `impact`). `type` cannot change. `config` is merged over the stored config. | `Sensor` |
 | **[1.3]** `POST /api/sensors/bulk-impact` | admin | `{"sensor_ids": [7, 8], "impact": "warning"}` | `{"updated": n}` ([§ 1.3](#13-release-13-contract)) |
+| `POST /api/sensors/bulk-delete` | admin | `{"sensor_ids": [7, 8]}` | `{"deleted": n}` ([§ Sensor bulk delete](#sensor-bulk-delete)) |
 | `DELETE /api/sensors/{id}` | admin | — | `204` |
 | `POST /api/sensors/{id}/run` | admin | — (no body) | `200 CheckResult`. Runs the check now and persists it (measurements, status, events, WS) like a scheduled run. Does not move the schedule. A paused sensor (or disabled device) → `409 sensor_paused`. |
 | `POST /api/sensors/test` | admin | `{"device_id":3,"type":"http","config":{...}}`. You may send `"host"` instead of `device_id`; a test against an unsaved device then uses `"snmp_credentials"` from the body. | `200 CheckResult`. Persists **nothing**. |
@@ -2604,6 +2605,11 @@ type ApplyTemplateResult = ApplyTemplateResult & {
 | `POST /api/sensors/bulk-impact` | admin | `{"sensor_ids": int[] (1–1000), "impact": Impact}` | `200 {"updated": n}` — `n` = sensors whose impact actually changed. An unknown id → `422 validation_error` (nothing changed). One `sensor.update` audit row per changed sensor (`changes.impact = [old, new]`). WS: `config.changed` (`device`, `updated`) once per affected device, then `device.status` / `group.status` as usual. |
 
 No generic sensor bulk endpoint existed before 1.3; this is a new endpoint.
+
+### Sensor bulk delete
+| Method & path | Role | Request | Response |
+|---|---|---|---|
+| `POST /api/sensors/bulk-delete` | admin | `{"sensor_ids": int[] (1–1000)}` (duplicates are ignored) | `200 {"deleted": n}` — every listed sensor is deleted together with its history (measurements), in one transaction. As in `bulk-impact`, an unknown id → `422 validation_error` naming the unknown ids, and nothing is deleted. Each sensor is handled exactly as `DELETE /api/sensors/{id}`: one `sensor.delete` audit row per sensor (same `changes` as the single delete), a deleted event (passive) sensor type is added to its device's `event_sensor_optout`, the sensor is removed from the scheduler, its measurements are purged in the background, and WS `config.changed` (`sensor`, `deleted`) is sent per sensor. Viewer → `403`. |
 
 ### [1.3] Template apply: interface selection
 `POST /api/devices/{id}/apply-template` takes the new request fields above.
