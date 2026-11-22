@@ -74,6 +74,10 @@ export function featureHints(name: FeatureName, f: Features, s?: Settings): Feat
     case 'lag':
       out.push({ key: 'features.hint.lagPorts', tone: 'info' });
       break;
+    // [severity]
+    case 'alert_severity':
+      out.push({ key: 'features.hint.severityMapping', tone: 'info' });
+      break;
     // [3]
     case 'config_backup':
       out.push({ key: 'features.hint.sshCredentials', tone: 'info' });
@@ -144,7 +148,7 @@ export function featureHints(name: FeatureName, f: Features, s?: Settings): Feat
 
 /** [3] Headings of the Features page (architecture.md § 13.0): 17 features in 5 groups (Teams and API tokens are not toggles). */
 export const FEATURE_GROUPS: { key: string; names: FeatureName[] }[] = [
-  { key: 'monitoring', names: ['flapping', 'timeline', 'reports', 'noc'] },
+  { key: 'monitoring', names: ['flapping', 'timeline', 'reports', 'noc', 'alert_severity'] },
   { key: 'logs', names: ['traps', 'syslog', 'event_alerts', 'siem_forwarding', 'audit'] },
   { key: 'network', names: ['lag', 'config_backup', 'flows', 'new_device_alerts'] },
   { key: 'access', names: ['ldap', 'sso_kerberos', 'sso_oidc'] },

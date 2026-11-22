@@ -42,6 +42,7 @@ import { SsoTab } from '../components/features/SsoSettings';
 import { NocTab } from '../components/features/NocSettings';
 import { cardAnchor } from '../lib/settingsIndex';
 import { AssistantSettingsTab } from '../components/assistant/AssistantSettingsTab';
+import { SeverityMappingEditor } from '../components/severity/Severity';
 
 function SmtpCard({ settings }: { settings: Settings }) {
   const { t } = useTranslation();
@@ -485,6 +486,12 @@ export function SettingsPage() {
           <GeneralCard settings={q.data} />
           <PortsCard settings={q.data} />
           <SmtpCard settings={q.data} />
+          {/* [severity] only while the feature is on (its switch is in Features) */}
+          {featuresFromSettings(q.data).alert_severity && (
+            <Card title={t('severity.mapping.title')} anchor={cardAnchor('severity')}>
+              <SeverityMappingEditor />
+            </Card>
+          )}
           <SecurityCard settings={q.data} />
         </>
       )}
