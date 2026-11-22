@@ -62,9 +62,10 @@ function ReplaceRow({
           </span>
           <span className="text-xs text-ink-muted">{reason}</span>
           {c.status_message && (
-            <bdi dir="ltr" className="block truncate text-start text-xs text-ink-subtle">
-              {c.status_message}
-            </bdi>
+            // the reading side of the page, the (English) message itself left to right
+            <span className="block truncate text-xs text-ink-subtle">
+              <bdi dir="ltr">{c.status_message}</bdi>
+            </span>
           )}
         </span>
       </label>
