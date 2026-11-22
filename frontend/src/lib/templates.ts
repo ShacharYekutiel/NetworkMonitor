@@ -13,6 +13,7 @@ import type {
   ImportItem,
   ImportResponse,
   L10n,
+  ReplaceCandidate,
   SkippedSensor,
   TemplateEntry,
   TemplateMatchRule,
@@ -271,6 +272,11 @@ export function hasInterfacesEntry(tpl: Pick<DeviceTemplate, 'entries'> | undefi
 }
 
 /** Initial "Choose ports" selection: the important ports plus those already monitored. */
+/** [template-switch] the replaced sensors ticked by default: the failing ones only. */
+export function initialReplacePick(items: ReplaceCandidate[]): number[] {
+  return items.filter((c) => c.failing).map((c) => c.sensor_id);
+}
+
 export function initialPortPick(items: ApplyInterface[]): number[] {
   return items.filter((i) => i.important || i.has_sensor).map((i) => i.if_index);
 }

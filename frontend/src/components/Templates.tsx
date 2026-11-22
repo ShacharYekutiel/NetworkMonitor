@@ -21,6 +21,7 @@ import {
   type PortsChoice,
 } from '../lib/templates';
 import { ApplyPortsSection } from './ApplyPorts';
+import { ApplyReplacesSection } from './ApplyReplaces';
 import { CheckIcon, TrashIcon } from './icons';
 import { Button, cx, ErrorBox, Field, Loading, Modal, Notice, Select, TAG, TAG_TONE } from './ui';
 
@@ -183,6 +184,22 @@ export function ApplyResultView({ result }: { result: ApplyTemplateResult }) {
           </ul>
         </div>
       )}
+      {!!result.replaced?.length && (
+        <div data-testid="apply-replaced">
+          <div className="mb-1 font-medium text-status-down">
+            {t('applyReplaces.resultTitle', { count: result.replaced.length })}
+          </div>
+          <ul className="space-y-0.5">
+            {result.replaced.map((r) => (
+              <li key={r.sensor_id} className="flex items-center gap-1.5">
+                <TrashIcon size={13} className="shrink-0 text-status-down" />
+                <bdi dir="auto">{r.name}</bdi>
+                <span className="text-ink-muted">({t(`sensorType.${r.type}`)})</span>
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
       {!!result.removed?.length && (
         <div data-testid="apply-removed">
           <div className="mb-1 font-medium text-status-down">
@@ -231,10 +248,13 @@ export function ApplyTemplateModal({
   const [choice, setChoice] = useState<PortsChoice>('important');
   const [picked, setPicked] = useState<Set<number> | null>(null);
   const [removeUnselected, setRemoveUnselected] = useState(false);
+  // [template-switch] sensors this template replaces, ticked for deletion
+  const [replacePick, setReplacePick] = useState<Set<number> | null>(null);
   useEffect(() => {
     setChoice('important');
     setPicked(null);
     setRemoveUnselected(false);
+    setReplacePick(null);
   }, [id, open]);
 
   useEffect(() => {
@@ -249,20 +269,23 @@ export function ApplyTemplateModal({
   }, [templates.data, id]);
 
   const apply = useMutation({
-    mutationFn: () =>
-      withPorts
-        ? endpoints.applyTemplate(
-            device.id,
-            id,
-            applyOptions(choice, picked ?? new Set(), removeUnselected),
-          )
-        : endpoints.applyTemplate(device.id, id),
+    mutationFn: () => {
+      const replaceIds = [...(replacePick ?? [])].sort((a, b) => a - b);
+      const opts = {
+        ...(withPorts ? applyOptions(choice, picked ?? new Set(), removeUnselected) : {}),
+        ...(replaceIds.length ? { remove_sensor_ids: replaceIds } : {}),
+      };
+      return Object.keys(opts).length
+        ? endpoints.applyTemplate(device.id, id, opts)
+        : endpoints.applyTemplate(device.id, id);
+    },
     onSuccess: (r) => {
       setResult(r);
       void qc.invalidateQueries({ queryKey: ['sensors'] });
       void qc.invalidateQueries({ queryKey: qk.device(device.id) });
       void qc.invalidateQueries({ queryKey: qk.tree });
       void qc.invalidateQueries({ queryKey: ['apply-interfaces', device.id] });
+      void qc.invalidateQueries({ queryKey: ['apply-replaces', device.id] });
     },
   });
 
@@ -335,6 +358,15 @@ export function ApplyTemplateModal({
               onPicked={setPicked}
               remove={removeUnselected}
               onRemove={setRemoveUnselected}
+            />
+          )}
+          {tpl && (
+            <ApplyReplacesSection
+              deviceId={device.id}
+              templateId={tpl.id}
+              picked={replacePick}
+              onPicked={setReplacePick}
+              templates={templates.data}
             />
           )}
           <p className="text-xs text-ink-muted">{t('templates.applyHint')}</p>

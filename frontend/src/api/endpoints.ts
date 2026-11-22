@@ -42,6 +42,7 @@ import type {
   ApplyTemplateResult,
   ApplyTemplateRequest,
   ApplyInterfacesResponse,
+  ReplaceCandidatesResponse,
   SensorImpact,
   DeviceTemplate,
   DeviceTemplatesResponse,
@@ -125,6 +126,9 @@ export const qk = {
   /** [1.3] */
   applyInterfaces: (deviceId: number, templateId: string) =>
     ['apply-interfaces', deviceId, templateId] as const,
+  /** [template-switch] */
+  applyReplaces: (deviceId: number, templateId: string) =>
+    ['apply-replaces', deviceId, templateId] as const,
   portDetail: (deviceId: number, ifIndex: number, includeUplinkMacs = false) =>
     ['port-detail', deviceId, ifIndex, includeUplinkMacs] as const,
   macSearch: (q: MacSearchQuery) => ['mac-search', q] as const,
@@ -453,6 +457,11 @@ export const endpoints = {
   /** [1.3] interfaces an snmp_interfaces entry would cover, with importance */
   applyTemplateInterfaces: (deviceId: number, template_id: string) =>
     api.get<ApplyInterfacesResponse>(`/devices/${deviceId}/apply-template/interfaces`, {
+      template_id,
+    }),
+  /** [template-switch] the device's sensors this template replaces */
+  applyTemplateReplaces: (deviceId: number, template_id: string) =>
+    api.get<ReplaceCandidatesResponse>(`/devices/${deviceId}/apply-template/replaces`, {
       template_id,
     }),
   /** [1.3] */
