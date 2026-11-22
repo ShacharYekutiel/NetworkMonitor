@@ -38,7 +38,7 @@ test('UI: example chip -> streamed answer: tool step with label + rows, links to
   await page.getByTestId('examples').getByText(CHIP).click();
   const step = page.getByTestId('tool-step').first();
   await expect(step).toBeVisible({ timeout: 60_000 });
-  await expect(step).toContainText(/problems|assistant\.tool\.list_problems/i);
+  await expect(step).toContainText(/alerts|assistant\.tool\.list_problems/i);
   await expect(step).toContainText(/\d+/);
   const answer = page.getByTestId('answer').last();
   await expect(answer).toContainText('qa3b-ask-web', { timeout: 60_000 });

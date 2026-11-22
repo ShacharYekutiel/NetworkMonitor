@@ -28,7 +28,7 @@ test('switch to Hebrew in the top bar', async ({ page }) => {
   await expect(page.getByRole('heading', { level: 1, name: 'לוח בקרה' })).toBeVisible();
   const nav = await menuNav(page);
   await expect(nav.getByRole('link', { name: 'אירועים' })).toBeVisible();
-  await expect(nav.getByRole('link', { name: 'התראות' })).toBeVisible();
+  await expect(nav.getByRole('link', { name: 'ערוצי התראה' })).toBeVisible();
   await expect(page.getByRole('heading', { level: 2, name: 'אירועים אחרונים' })).toBeVisible();
   await expect(page.getByTestId('ws-indicator')).toContainText('מחובר');
   await expect(page.getByRole('button', { name: 'הוספת התקן' })).toBeVisible();

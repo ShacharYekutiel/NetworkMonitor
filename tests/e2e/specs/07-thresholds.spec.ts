@@ -80,7 +80,7 @@ test('warning_max 0.001 on latency -> warning (live)', async ({ page }) => {
 
   // Warning shows on the dashboard problem list.
   await goHome(page);
-  const problems = card(page, 'Down and warning sensors');
+  const problems = card(page, /^Alerts\b/);
   await expect(problems.getByTestId('problem-row').filter({ hasText: sensorName })).toContainText('Warning');
 });
 

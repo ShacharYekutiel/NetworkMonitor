@@ -85,7 +85,7 @@ test('Hebrew: dir=rtl, translated texts, LTR IPs; screenshots', async ({ page })
   await shot2b(page, 'device-desktop-he');
 
   await page.goto('/');
-  await expect(page.locator('main')).not.toContainText(/Acknowledged problems|Unreachable devices|Down and warning sensors/);
+  await expect(page.locator('main')).not.toContainText(/Acknowledged alerts|Unreachable devices|\bAlerts\b/);
   await expect(page.getByText('החלפת ספק כוח').first()).toBeAttached();
   await shot2b(page, 'dashboard-desktop-he');
 

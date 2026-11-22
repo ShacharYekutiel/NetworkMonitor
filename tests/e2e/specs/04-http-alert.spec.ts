@@ -192,12 +192,12 @@ test('target fails -> sensor goes down live, event + webhook; recovers -> up + w
 
   // Dashboard problem list (client-side navigation, the WS keeps it fresh).
   await goHome(page);
-  await expect(card(page, 'Down and warning sensors').getByRole('link', { name: sensorName })).toBeVisible();
+  await expect(card(page, /^Alerts\b/).getByRole('link', { name: sensorName })).toBeVisible();
   await expectSameDocument(page);
 
   // --- recovery
   await httpTarget('ok');
-  await expect(card(page, 'Down and warning sensors').getByRole('link', { name: sensorName })).toHaveCount(0, {
+  await expect(card(page, /^Alerts\b/).getByRole('link', { name: sensorName })).toHaveCount(0, {
     timeout: 40_000,
   });
   await expect(statusDot(treeSensor(page, sensorId), 'Up')).toBeVisible();
