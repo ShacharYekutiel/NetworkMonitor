@@ -391,6 +391,8 @@ def test_templates_data() -> None:
             "source",
             "overrides_builtin",
             "file",
+            # [template-switch]
+            "replaces",
         }
         assert set(t["name"]) == {"en", "he"} and set(t["description"]) == {"en", "he"}
         for rule in t["match"]:
