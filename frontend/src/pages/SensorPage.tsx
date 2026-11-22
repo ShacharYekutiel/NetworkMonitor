@@ -18,6 +18,8 @@ import { HistoryChart } from '../components/HistoryChart';
 import { EditIcon, PauseIcon, PlayIcon, RefreshIcon, TrashIcon } from '../components/icons';
 import { EditSensorModal, useSensorActions } from '../components/SensorForms';
 import { StatusBadge, StatusDot } from '../components/Status';
+import { SeverityTag } from '../components/kit';
+import { useFeature } from '../hooks/features';
 import { ThresholdEditor } from '../components/ThresholdEditor';
 import { useToast } from '../components/toast';
 import {
@@ -58,6 +60,7 @@ export function SensorPage() {
   const { id: idParam } = useParams();
   const id = Number(idParam);
   const { t } = useTranslation();
+  const severityOn = useFeature('alert_severity');
   const { isAdmin } = useAuth();
   const navigate = useNavigate();
   const qc = useQueryClient();
@@ -141,6 +144,10 @@ export function SensorPage() {
           <>
             <span className="truncate">{s.name}</span>
             <StatusBadge status={s.status} labelled />
+            {/* [severity] the current alert's severity while the sensor has one */}
+            {severityOn && (s.status === 'down' || s.status === 'warning') && (
+              <SeverityTag severity={s.severity} size="md" testId="sensor-severity" />
+            )}
             {s.acknowledgement && <AckBadge ack={s.acknowledgement} />}
             {s.in_maintenance && (
               <MaintenanceBadge

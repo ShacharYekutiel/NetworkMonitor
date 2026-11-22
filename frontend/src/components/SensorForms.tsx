@@ -27,6 +27,8 @@ import { errorMessage } from '../lib/errors';
 import { CheckResultView } from './CheckResultView';
 import { SensorConfigFields } from './SensorConfigFields';
 import { ImpactField } from './SensorImpact';
+import { useFeature } from '../hooks/features';
+import { SeverityOverrideFields, type SeverityChoice } from './severity/Severity';
 import { useToast } from './toast';
 import {
   Button,
@@ -452,6 +454,10 @@ export function EditSensorModal({
   const [interval, setInterval] = useState(String(sensor.interval_s));
   const [sortOrder, setSortOrder] = useState(String(sensor.sort_order));
   const [impact, setImpact] = useState<SensorImpact>(sensor.impact ?? 'critical');
+  // [severity] overrides ('' = Automatic), shown and sent only while the feature is on
+  const severityOn = useFeature('alert_severity');
+  const [sevDown, setSevDown] = useState<SeverityChoice>(sensor.severity_down ?? '');
+  const [sevWarn, setSevWarn] = useState<SeverityChoice>(sensor.severity_warning ?? '');
   const [raw, setRaw] = useState<RawConfig>({});
   const [errors, setErrors] = useState<ConfigErrors>({});
 
@@ -459,6 +465,8 @@ export function EditSensorModal({
     if (!open) return;
     setName(sensor.name);
     setImpact(sensor.impact ?? 'critical');
+    setSevDown(sensor.severity_down ?? '');
+    setSevWarn(sensor.severity_warning ?? '');
     setInterval(String(sensor.interval_s));
     setSortOrder(String(sensor.sort_order));
     if (def) setRaw(rawFromConfig(def.config_fields, sensor.config));
@@ -479,10 +487,16 @@ export function EditSensorModal({
   const intervalVal = parseInterval(interval);
 
   const passive = isEventSensor(sensor);
+  const severity: SensorInput = severityOn
+    ? {
+        severity_down: sevDown && sevDown !== 'keep' ? sevDown : null,
+        severity_warning: sevWarn && sevWarn !== 'keep' ? sevWarn : null,
+      }
+    : {};
   const submit = (e: FormEvent) => {
     e.preventDefault();
     if (passive) {
-      m.mutate({ name: name.trim(), sort_order: Number(sortOrder) || 0, impact });
+      m.mutate({ name: name.trim(), sort_order: Number(sortOrder) || 0, impact, ...severity });
       return;
     }
     if (!def || intervalVal === 'invalid' || intervalVal === undefined) return;
@@ -495,6 +509,7 @@ export function EditSensorModal({
       sort_order: Number(sortOrder) || 0,
       config,
       impact,
+      ...severity,
     });
   };
 
@@ -543,6 +558,16 @@ export function EditSensorModal({
             </Field>
           </div>
           <ImpactField value={impact} onChange={setImpact} />
+          {severityOn && (
+            <SeverityOverrideFields
+              impact={impact}
+              eventSensor={passive}
+              down={sevDown}
+              warning={sevWarn}
+              onDown={setSevDown}
+              onWarning={setSevWarn}
+            />
+          )}
           {sensor.type === 'snmp_disk' && (
             <StoragePicker
               deviceId={sensor.device_id}
