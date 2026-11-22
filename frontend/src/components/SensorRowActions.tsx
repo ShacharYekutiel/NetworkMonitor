@@ -7,7 +7,7 @@ import { canRun } from '../lib/status';
 import { PauseIcon, PlayIcon, RefreshIcon } from './icons';
 import { useSensorActions } from './SensorForms';
 import { useToast } from './toast';
-import { Button } from './ui';
+import { Button, ICON_BUTTON } from './ui';
 import { AckAction } from './Acknowledge';
 import { isEventSensor } from './EventConditions';
 import { useLocalizeMessage } from '../hooks/localize';
@@ -36,7 +36,7 @@ export function SensorRowActions({ sensor }: { sensor: Sensor }) {
   const run = useRunNow();
   const { toggle } = useSensorActions();
   return (
-    <span className="inline-flex gap-1">
+    <span className="inline-flex items-center justify-end gap-1">
       {(sensor.acknowledgement || sensor.status === 'down' || sensor.status === 'warning') && (
         <AckAction sensor={sensor} />
       )}
@@ -44,6 +44,7 @@ export function SensorRowActions({ sensor }: { sensor: Sensor }) {
         <Button
           size="sm"
           variant="ghost"
+          className={ICON_BUTTON.sm}
           title={canRun(sensor) ? t('sensors.runNow') : t('sensors.runPausedHint')}
           aria-label={t('sensors.runNow')}
           busy={run.isPending && run.variables?.id === sensor.id}
@@ -56,6 +57,7 @@ export function SensorRowActions({ sensor }: { sensor: Sensor }) {
       <Button
         size="sm"
         variant="ghost"
+        className={ICON_BUTTON.sm}
         title={sensor.enabled ? t('sensors.pause') : t('sensors.resume')}
         aria-label={sensor.enabled ? t('sensors.pause') : t('sensors.resume')}
         busy={toggle.isPending && toggle.variables?.id === sensor.id}

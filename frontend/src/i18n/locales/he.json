@@ -4372,6 +4372,33 @@
   "kit": {
     "aiFine": "נוצר ע״י AI — ייתכנו טעויות. כדאי לבדוק לפני שפועלים."
   },
+  "sensorBulk": {
+    "delete": "מחיקה…",
+    "deleteTitle_one": "מחיקת חיישן אחד",
+    "deleteTitle_two": "מחיקת 2 חיישנים",
+    "deleteTitle_other": "מחיקת {{count}} חיישנים",
+    "deleteConfirm_one": "למחוק את החיישן ואת ההיסטוריה שלו? לא ניתן לבטל פעולה זו.",
+    "deleteConfirm_two": "למחוק את 2 החיישנים ואת ההיסטוריה שלהם? לא ניתן לבטל פעולה זו.",
+    "deleteConfirm_other": "למחוק את {{count}} החיישנים ואת ההיסטוריה שלהם? לא ניתן לבטל פעולה זו.",
+    "deleteButton_one": "מחיקת החיישן",
+    "deleteButton_two": "מחיקת 2 החיישנים",
+    "deleteButton_other": "מחיקת {{count}} החיישנים",
+    "listLabel": "חיישנים למחיקה",
+    "deleted_one": "חיישן אחד נמחק.",
+    "deleted_two": "2 חיישנים נמחקו.",
+    "deleted_other": "{{count}} חיישנים נמחקו."
+  },
+  "tableCols": {
+    "columns": "עמודות",
+    "reset": "איפוס העמודות",
+    "moveUp": "הזזת {{name}} מוקדם יותר",
+    "moveDown": "הזזת {{name}} מאוחר יותר",
+    "resize": "שינוי רוחב העמודה {{name}}",
+    "resizeHint": "גררו לשינוי הרוחב · לחיצה כפולה לאיפוס · חיצים במקלדת כשהקצה בפוקוס",
+    "dragHint": "גררו כדי להזיז את העמודה",
+    "actions": "פעולות",
+    "select": "בחירה"
+  },
   "aiStatus": {
     "openIncidents_zero": "אין אירועים מקובצים פתוחים",
     "openIncidents_one": "אירוע מקובץ פתוח אחד",

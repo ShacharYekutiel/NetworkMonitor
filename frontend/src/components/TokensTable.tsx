@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, type ReactNode } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useTranslation } from 'react-i18next';
 import { endpoints, qk } from '../api/endpoints';
@@ -7,7 +7,8 @@ import { formatDateTime, formatRelative } from '../lib/format';
 import { daysLeft, sortTokens } from '../lib/tokens';
 import { KeyIcon } from './icons';
 import { EmptyState } from './kit';
-import { ConfirmDialog, cx, ErrorBox, Loading, Button, Table, TAG, TAG_TONE, td, th } from './ui';
+import { ConfirmDialog, cx, ErrorBox, Loading, Button, TAG, TAG_TONE } from './ui';
+import { ColumnsMenu, DataTable, labelOf, useDataTable, type DataColumn } from './kitTable';
 
 const STATE_TONE: Record<ApiToken['state'], keyof typeof TAG_TONE> = {
   active: 'up',
@@ -28,95 +29,132 @@ export function TokensTable({ all = false }: { all?: boolean }) {
       setRevoking(null);
     },
   });
-  if (q.isLoading) return <Loading />;
-  if (q.error) return <ErrorBox error={q.error} className="m-3" />;
+  const columns: DataColumn<ApiToken>[] = [
+    {
+      id: 'name',
+      label: t('common.name'),
+      minWidth: 120,
+      className: 'font-medium',
+      title: (x) => x.name,
+      cell: (x) => <bdi dir="auto">{x.name}</bdi>,
+    },
+    ...(all
+      ? [
+          {
+            id: 'user',
+            label: t('users.username'),
+            width: 150,
+            title: (x: ApiToken) => x.username,
+            cell: (x: ApiToken) => <bdi dir="ltr">{x.username}</bdi>,
+          },
+        ]
+      : []),
+    {
+      id: 'prefix',
+      label: t('tokens.prefix'),
+      width: 130,
+      className: 'font-mono text-[13px] text-ink-muted',
+      cell: (x) => <bdi dir="ltr">{x.prefix}…</bdi>,
+    },
+    { id: 'role', label: t('users.role'), width: 110, cell: (x) => t(`role.${x.role}`) },
+    {
+      id: 'state',
+      label: t('tokens.state'),
+      width: 190,
+      cell: (x) => (
+        <>
+          <span className={cx(TAG, TAG_TONE[STATE_TONE[x.state]])}>
+            {t(`tokens.states.${x.state}`)}
+          </span>
+          {x.state === 'active' && daysLeft(x.expires_at) < 14 && (
+            <span className={cx(TAG, TAG_TONE.warning, 'ms-1')}>
+              {t('tokens.daysLeft', { count: Math.max(0, daysLeft(x.expires_at)) })}
+            </span>
+          )}
+        </>
+      ),
+    },
+    {
+      id: 'expires',
+      label: t('tokens.expires'),
+      width: 140,
+      className: 'text-[13px]',
+      title: (x) => formatDateTime(x.expires_at),
+      cell: (x) => formatRelative(x.expires_at),
+    },
+    {
+      id: 'lastUsed',
+      label: t('tokens.lastUsed'),
+      minWidth: 140,
+      className: 'text-[13px] text-ink-muted',
+      title: (x) => (x.last_used_at ? formatDateTime(x.last_used_at) : undefined),
+      cell: (x) =>
+        x.last_used_at ? (
+          <>
+            {formatRelative(x.last_used_at)}
+            {x.last_used_ip && (
+              <bdi dir="ltr" className="ms-1">
+                ({x.last_used_ip})
+              </bdi>
+            )}
+          </>
+        ) : (
+          t('tokens.never')
+        ),
+    },
+    {
+      id: 'actions',
+      label: t('tableCols.actions'),
+      pin: 'end',
+      fixed: true,
+      width: 128,
+      cell: (x) =>
+        x.state === 'active' && (
+          <Button
+            size="sm"
+            variant="ghost"
+            className="text-status-down"
+            onClick={() => setRevoking(x)}
+          >
+            {t('tokens.revoke')}
+          </Button>
+        ),
+    },
+  ];
+  const layout = useDataTable(all ? 'tokens-all' : 'tokens', columns);
+  const card = (body: ReactNode) => (
+    <div className="min-w-0 overflow-hidden rounded-xl bg-surface shadow-card">{body}</div>
+  );
+  if (q.isLoading) return card(<Loading />);
+  if (q.error) return card(<ErrorBox error={q.error} className="m-3" />);
   const items = sortTokens(q.data?.items ?? []);
   if (!items.length)
-    return (
+    return card(
       <EmptyState icon={KeyIcon} title={t('tokens.none')}>
         {all ? t('tokens.noneAllHint') : t('tokens.noneHint')}
-      </EmptyState>
+      </EmptyState>,
     );
   return (
     <>
-      <Table>
-        <thead>
-          <tr>
-            <th className={th}>{t('common.name')}</th>
-            {all && <th className={th}>{t('users.username')}</th>}
-            <th className={th}>{t('tokens.prefix')}</th>
-            <th className={th}>{t('users.role')}</th>
-            <th className={th}>{t('tokens.state')}</th>
-            <th className={th}>{t('tokens.expires')}</th>
-            <th className={th}>{t('tokens.lastUsed')}</th>
-            <th className={th} />
-          </tr>
-        </thead>
-        <tbody>
-          {items.map((x) => (
-            <tr
-              key={x.id}
-              className={x.state === 'active' ? undefined : 'opacity-60'}
-              data-testid="token-row"
-            >
-              <td className={`${td} font-medium`}>
-                <bdi dir="auto">{x.name}</bdi>
-              </td>
-              {all && (
-                <td className={td}>
-                  <bdi dir="ltr">{x.username}</bdi>
-                </td>
-              )}
-              <td className={`${td} font-mono text-[13px] text-ink-muted`}>
-                <bdi dir="ltr">{x.prefix}…</bdi>
-              </td>
-              <td className={td}>{t(`role.${x.role}`)}</td>
-              <td className={td}>
-                <span className={cx(TAG, TAG_TONE[STATE_TONE[x.state]])}>
-                  {t(`tokens.states.${x.state}`)}
-                </span>
-                {x.state === 'active' && daysLeft(x.expires_at) < 14 && (
-                  <span className={cx(TAG, TAG_TONE.warning, 'ms-1')}>
-                    {t('tokens.daysLeft', { count: Math.max(0, daysLeft(x.expires_at)) })}
-                  </span>
-                )}
-              </td>
-              <td
-                className={`${td} whitespace-nowrap text-[13px]`}
-                title={formatDateTime(x.expires_at)}
-              >
-                {formatRelative(x.expires_at)}
-              </td>
-              <td className={`${td} whitespace-nowrap text-[13px] text-ink-muted`}>
-                {x.last_used_at ? (
-                  <span title={formatDateTime(x.last_used_at)}>
-                    {formatRelative(x.last_used_at)}
-                    {x.last_used_ip && (
-                      <bdi dir="ltr" className="ms-1">
-                        ({x.last_used_ip})
-                      </bdi>
-                    )}
-                  </span>
-                ) : (
-                  t('tokens.never')
-                )}
-              </td>
-              <td className={`${td} text-end`}>
-                {x.state === 'active' && (
-                  <Button
-                    size="sm"
-                    variant="ghost"
-                    className="text-status-down"
-                    onClick={() => setRevoking(x)}
-                  >
-                    {t('tokens.revoke')}
-                  </Button>
-                )}
-              </td>
-            </tr>
-          ))}
-        </tbody>
-      </Table>
+      <div className="mb-2.5 flex justify-end">
+        <ColumnsMenu
+          layout={layout}
+          labelOf={(id) => labelOf(columns, id)}
+          testId="token-columns"
+        />
+      </div>
+      {card(
+        <DataTable
+          layout={layout}
+          columns={layout.columns}
+          rows={items}
+          rowKey={(x) => x.id}
+          rowProps={(x) => ({
+            className: x.state === 'active' ? undefined : 'opacity-60',
+            'data-testid': 'token-row',
+          })}
+        />,
+      )}
       <ConfirmDialog
         open={!!revoking}
         title={t('tokens.revokeTitle')}

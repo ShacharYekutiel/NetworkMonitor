@@ -289,9 +289,7 @@ export function UsersPage() {
       )}
       <section aria-labelledby="all-tokens" className="mt-[26px]">
         <GroupTitle id="all-tokens">{t('tokens.allTitle')}</GroupTitle>
-        <div className="min-w-0 overflow-hidden rounded-xl bg-surface shadow-card">
-          <TokensTable all />
-        </div>
+        <TokensTable all />
       </section>
       <UserModal
         open={editing !== null}

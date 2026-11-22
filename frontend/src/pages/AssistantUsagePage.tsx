@@ -14,6 +14,13 @@ import { Link } from 'react-router';
 import { ChevronIcon, GaugeIcon } from '../components/icons';
 import { Banner, EmptyState, ShareBar } from '../components/kit';
 import {
+  ColumnsMenu,
+  DataTable,
+  labelOf,
+  useDataTable,
+  type DataColumn,
+} from '../components/kitTable';
+import {
   buttonClass,
   Card,
   cx,
@@ -170,6 +177,166 @@ function Tile({
 }
 
 /** /assistant/usage — tokens, cost estimate, caps (admins; readable while the assistant is OFF). */
+type ByUser = UsageReport['by_user'][number];
+type ByModel = NonNullable<UsageReport['by_model']>[number];
+
+/** Usage per user (a data table: columns move / resize, remembered). */
+function UsageByUser({ r }: { r: UsageReport }) {
+  const { t } = useTranslation();
+  const cols: DataColumn<ByUser>[] = [
+    {
+      id: 'user',
+      label: t('usage.user'),
+      minWidth: 120,
+      title: (u) => (u.user_id === 0 ? t('usage.system') : u.username),
+      cell: (u) =>
+        u.user_id === 0 ? (
+          <b className="font-semibold">{t('usage.system')}</b>
+        ) : (
+          <b className="font-display font-semibold">{u.username}</b>
+        ),
+    },
+    {
+      id: 'questions',
+      label: t('usage.questions'),
+      width: 110,
+      numeric: true,
+      cell: (u) => u.questions,
+    },
+    {
+      id: 'tokens',
+      label: t('usage.tokens'),
+      width: 110,
+      numeric: true,
+      cell: (u) => compactTokens(u.tokens),
+    },
+    {
+      id: 'cost',
+      label: t('usage.cost'),
+      width: 110,
+      numeric: true,
+      cell: (u) => formatCost(u.cost_estimate, r.currency),
+    },
+  ];
+  const layout = useDataTable('usage-users', cols);
+  return (
+    <div className="min-w-0">
+      <GroupTitle
+        action={
+          <ColumnsMenu
+            layout={layout}
+            labelOf={(id) => labelOf(cols, id)}
+            testId="usage-user-columns"
+          />
+        }
+      >
+        {t('usage.perUser')}
+      </GroupTitle>
+      <Card bodyClassName="p-0">
+        <DataTable
+          layout={layout}
+          columns={layout.columns}
+          rows={r.by_user}
+          rowKey={(u) => u.user_id}
+        />
+        {!r.by_user.length && <Empty>{t('usage.none')}</Empty>}
+      </Card>
+    </div>
+  );
+}
+
+/** Usage per model (a data table). */
+function UsageByModel({ r }: { r: UsageReport }) {
+  const { t } = useTranslation();
+  const cols: DataColumn<ByModel>[] = [
+    {
+      id: 'model',
+      label: t('usage.model'),
+      minWidth: 150,
+      title: (m) => m.model_id || undefined,
+      cell: (m) =>
+        m.model_id ? (
+          <span>
+            {friendlyModelName(m.model_id)}
+            <bdi dir="ltr" className="block truncate font-mono text-[11px] text-ink-muted">
+              {m.model_id}
+            </bdi>
+          </span>
+        ) : (
+          t('usage.unknownModel')
+        ),
+    },
+    { id: 'calls', label: t('usage.calls'), width: 80, numeric: true, cell: (m) => m.calls },
+    {
+      id: 'input',
+      label: t('usage.inputTokens'),
+      width: 120,
+      numeric: true,
+      cell: (m) => (
+        <>
+          {compactTokens(m.input_tokens)}
+          {m.cache_read_tokens > 0 && (
+            <span className="block text-[11px] text-ink-muted" title={t('usage.cacheRead')}>
+              +{compactTokens(m.cache_read_tokens)} {t('usage.cached')}
+            </span>
+          )}
+        </>
+      ),
+    },
+    {
+      id: 'output',
+      label: t('usage.outputTokens'),
+      width: 110,
+      numeric: true,
+      cell: (m) => compactTokens(m.output_tokens),
+    },
+    {
+      id: 'tokens',
+      label: t('usage.tokens'),
+      width: 100,
+      numeric: true,
+      cell: (m) => compactTokens(m.tokens),
+    },
+    {
+      id: 'cost',
+      label: t('usage.cost'),
+      width: 100,
+      numeric: true,
+      cell: (m) => formatCost(m.cost_estimate, r.currency),
+    },
+  ];
+  const layout = useDataTable('usage-models', cols);
+  return (
+    <div className="min-w-0">
+      <GroupTitle
+        action={
+          <ColumnsMenu
+            layout={layout}
+            labelOf={(id) => labelOf(cols, id)}
+            testId="usage-model-columns"
+          />
+        }
+      >
+        {t('usage.perModel')}
+      </GroupTitle>
+      <Card bodyClassName="p-0">
+        <div data-testid="usage-by-model">
+          {r.by_model?.length ? (
+            <DataTable
+              layout={layout}
+              columns={layout.columns}
+              rows={r.by_model}
+              rowKey={(m) => m.model_id || '-'}
+            />
+          ) : (
+            <Empty>{t('usage.none')}</Empty>
+          )}
+        </div>
+      </Card>
+    </div>
+  );
+}
+
 export function AssistantUsagePage() {
   const { t, i18n } = useTranslation();
   const { isAdmin } = useAuth();
@@ -289,38 +456,7 @@ export function AssistantUsagePage() {
             )}
           </Card>
           <div className="grid grid-cols-1 gap-4 xl:grid-cols-2">
-            <div className="min-w-0">
-              <GroupTitle>{t('usage.perUser')}</GroupTitle>
-              <Card bodyClassName="p-0">
-                <Table>
-                  <thead>
-                    <tr>
-                      <th className={th}>{t('usage.user')}</th>
-                      <th className={cx(th, 'text-end')}>{t('usage.questions')}</th>
-                      <th className={cx(th, 'text-end')}>{t('usage.tokens')}</th>
-                      <th className={cx(th, 'text-end')}>{t('usage.cost')}</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {r.by_user.map((u) => (
-                      <tr key={u.user_id}>
-                        <td className={td}>
-                          {u.user_id === 0 ? (
-                            <b className="font-semibold">{t('usage.system')}</b>
-                          ) : (
-                            <b className="font-display font-semibold">{u.username}</b>
-                          )}
-                        </td>
-                        <td className={NUM}>{u.questions}</td>
-                        <td className={NUM}>{compactTokens(u.tokens)}</td>
-                        <td className={NUM}>{formatCost(u.cost_estimate, r.currency)}</td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </Table>
-                {!r.by_user.length && <Empty>{t('usage.none')}</Empty>}
-              </Card>
-            </div>
+            <UsageByUser r={r} />
             <div className="min-w-0">
               <GroupTitle>{t('usage.perPurpose')}</GroupTitle>
               <Card>
@@ -355,65 +491,7 @@ export function AssistantUsagePage() {
                 </div>
               </Card>
             </div>
-            <div className="min-w-0">
-              <GroupTitle>{t('usage.perModel')}</GroupTitle>
-              <Card bodyClassName="p-0">
-                <div data-testid="usage-by-model">
-                  {r.by_model?.length ? (
-                    <Table>
-                      <thead>
-                        <tr>
-                          <th className={th}>{t('usage.model')}</th>
-                          <th className={cx(th, 'text-end')}>{t('usage.calls')}</th>
-                          <th className={cx(th, 'text-end')}>{t('usage.inputTokens')}</th>
-                          <th className={cx(th, 'text-end')}>{t('usage.outputTokens')}</th>
-                          <th className={cx(th, 'text-end')}>{t('usage.tokens')}</th>
-                          <th className={cx(th, 'text-end')}>{t('usage.cost')}</th>
-                        </tr>
-                      </thead>
-                      <tbody>
-                        {r.by_model.map((m) => (
-                          <tr key={m.model_id || '-'}>
-                            <td className={td}>
-                              {m.model_id ? (
-                                <span title={m.model_id}>
-                                  {friendlyModelName(m.model_id)}
-                                  <bdi
-                                    dir="ltr"
-                                    className="block font-mono text-[11px] text-ink-muted"
-                                  >
-                                    {m.model_id}
-                                  </bdi>
-                                </span>
-                              ) : (
-                                t('usage.unknownModel')
-                              )}
-                            </td>
-                            <td className={NUM}>{m.calls}</td>
-                            <td className={NUM}>
-                              {compactTokens(m.input_tokens)}
-                              {m.cache_read_tokens > 0 && (
-                                <span
-                                  className="block text-[11px] text-ink-muted"
-                                  title={t('usage.cacheRead')}
-                                >
-                                  +{compactTokens(m.cache_read_tokens)} {t('usage.cached')}
-                                </span>
-                              )}
-                            </td>
-                            <td className={NUM}>{compactTokens(m.output_tokens)}</td>
-                            <td className={NUM}>{compactTokens(m.tokens)}</td>
-                            <td className={NUM}>{formatCost(m.cost_estimate, r.currency)}</td>
-                          </tr>
-                        ))}
-                      </tbody>
-                    </Table>
-                  ) : (
-                    <Empty>{t('usage.none')}</Empty>
-                  )}
-                </div>
-              </Card>
-            </div>
+            <UsageByModel r={r} />
             <div className="min-w-0">
               <GroupTitle>{t('usage.topTools')}</GroupTitle>
               <Card bodyClassName="p-0">

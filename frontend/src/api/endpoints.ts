@@ -470,6 +470,8 @@ export const endpoints = {
   /** [1.3] */
   bulkSensorImpact: (sensor_ids: number[], impact: SensorImpact) =>
     api.post<{ updated: number }>('/sensors/bulk-impact', { sensor_ids, impact }),
+  bulkDeleteSensors: (sensor_ids: number[]) =>
+    api.post<{ deleted: number }>('/sensors/bulk-delete', { sensor_ids }),
 
   // [2a] discovery
   discoveryProfiles: () =>

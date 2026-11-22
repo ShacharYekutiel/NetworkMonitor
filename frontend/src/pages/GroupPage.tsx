@@ -30,6 +30,7 @@ import {
 import { useAuth } from '../hooks/auth';
 import { useTree } from '../hooks/queries';
 import { findGroup } from '../lib/tree';
+import { useEntityMenu } from '../components/treemenu/TreeContextMenu';
 
 /** Devices in a group and all of its subgroups. */
 function deviceCount(g: TreeGroup): number {
@@ -62,6 +63,7 @@ export function GroupPage() {
   const { t } = useTranslation();
   const { isAdmin } = useAuth();
   const navigate = useNavigate();
+  const menu = useEntityMenu();
   const qc = useQueryClient();
   const toast = useToast();
   const schedule = useScheduleText();
@@ -103,6 +105,7 @@ export function GroupPage() {
   const dependsOn =
     dep?.mode === 'device' && dep.device_id !== null ? (
       <Link
+        {...menu({ kind: 'device', id: dep.device_id })}
         className="font-display font-medium text-ink hover:underline"
         to={`/devices/${dep.device_id}`}
       >
@@ -118,7 +121,13 @@ export function GroupPage() {
         breadcrumbs={<Breadcrumbs groupId={g.parent_id} />}
         title={
           <>
-            <span className="truncate">{g.name}</span>
+            <span
+              {...menu({ kind: 'group', id: g.id })}
+              className="truncate"
+              data-testid="group-title"
+            >
+              {g.name}
+            </span>
             <StatusBadge status={g.status} />
           </>
         }
@@ -166,6 +175,7 @@ export function GroupPage() {
                   <ListRow
                     key={c.id}
                     testId="subgroup-row"
+                    rowProps={menu({ kind: 'group', id: c.id })}
                     to={`/groups/${c.id}`}
                     icon={<FolderIcon size={18} strokeWidth={1.8} />}
                     title={c.name}
@@ -199,6 +209,7 @@ export function GroupPage() {
                     <ListRow
                       key={d.id}
                       testId="device-row"
+                      rowProps={menu({ kind: 'device', id: d.id })}
                       to={`/devices/${d.id}`}
                       icon={<DeviceTileIcon cls={d.effective_class} name={d.name} />}
                       title={

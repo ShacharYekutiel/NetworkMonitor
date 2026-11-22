@@ -173,9 +173,7 @@ export function TokensPage() {
           </Button>
         }
       />
-      <div className="min-w-0 overflow-hidden rounded-xl bg-surface shadow-card">
-        <TokensTable />
-      </div>
+      <TokensTable />
       <CreateTokenModal open={creating} onClose={() => setCreating(false)} />
     </div>
   );

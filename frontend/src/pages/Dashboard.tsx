@@ -42,6 +42,7 @@ import type { Severity } from '../api/severity';
 import { parseSeverities, severityCsv, toggleSeverity } from '../lib/severity';
 import { SeverityTag } from '../components/kit';
 import { SeverityCountChips, SeverityMappingInfo } from '../components/severity/Severity';
+import { useEntityMenu } from '../components/treemenu/TreeContextMenu';
 import { Card, cx, ErrorBox, GroupList, GroupTitle, ListRow, Loading, Ltr } from '../components/ui';
 
 type IconC = ComponentType<{ size?: number; strokeWidth?: number; className?: string }>;
@@ -167,11 +168,16 @@ function Counters({ counts }: { counts: StatusCounts }) {
 
 function ProblemRow({ s, now, severity }: { s: Sensor; now: number; severity?: boolean }) {
   const { t } = useTranslation();
+  const menu = useEntityMenu();
   const { isAdmin } = useAuth();
   const localize = useLocalizeMessage();
   const e = elapsed(s.last_status_change_at, now);
   return (
-    <li className="flex items-center gap-3.5 px-5 py-3.5" data-testid="problem-row">
+    <li
+      {...menu({ kind: 'sensor', id: s.id })}
+      className="flex items-center gap-3.5 px-5 py-3.5"
+      data-testid="problem-row"
+    >
       <span
         aria-label={t(`status.${s.status}`)}
         title={t(`status.${s.status}`)}
@@ -182,6 +188,7 @@ function ProblemRow({ s, now, severity }: { s: Sensor; now: number; severity?: b
       <span className="grid min-w-0 flex-1">
         <span className="flex min-w-0 items-baseline gap-1.5 text-[15.5px]">
           <Link
+            {...menu({ kind: 'device', id: s.device_id })}
             to={`/devices/${s.device_id}`}
             dir="ltr"
             className="truncate font-medium text-ink no-underline hover:underline [font-family:var(--font-display)]"
@@ -227,6 +234,7 @@ function Section({ children, id }: { children: ReactNode; id?: string }) {
  */
 export function DashboardPage() {
   const { t } = useTranslation();
+  const menu = useEntityMenu();
   const { isAdmin } = useAuth();
   const { features } = useFeatures();
   const navigate = useNavigate();
@@ -456,6 +464,7 @@ export function DashboardPage() {
                 {data.acknowledged_sensors.map((s) => (
                   <li
                     key={s.id}
+                    {...menu({ kind: 'sensor', id: s.id })}
                     className="flex flex-wrap items-start gap-x-3.5 gap-y-1 px-5 py-3.5"
                   >
                     <span
@@ -468,6 +477,7 @@ export function DashboardPage() {
                     <div className="min-w-0 flex-1 text-[15px]">
                       <div>
                         <Link
+                          {...menu({ kind: 'device', id: s.device_id })}
                           className="text-ink no-underline hover:underline"
                           to={`/devices/${s.device_id}`}
                         >
@@ -504,6 +514,7 @@ export function DashboardPage() {
                 {data.unreachable_devices.map((d) => (
                   <li
                     key={d.id}
+                    {...menu({ kind: 'device', id: d.id })}
                     className="flex flex-wrap items-center gap-x-3.5 gap-y-1 px-5 py-3.5 text-[15px]"
                   >
                     <span
@@ -521,6 +532,7 @@ export function DashboardPage() {
                       <span className="ms-auto text-[13px] text-ink-muted">
                         {t('dashboard.parent')}{' '}
                         <Link
+                          {...menu({ kind: 'device', id: d.parent_device_id })}
                           className="font-medium text-status-unreachable no-underline hover:underline"
                           to={`/devices/${d.parent_device_id}`}
                         >

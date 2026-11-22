@@ -5,6 +5,7 @@ import type { Port } from '../../api/types';
 import { formatDateTime, formatRelative } from '../../lib/format';
 import {
   COLUMN_HIDE_CLASS,
+  DEFAULT_COLUMNS,
   connectedHostView,
   connectedView,
   portDeviceKind,
@@ -18,8 +19,16 @@ import {
   toggleColumn,
   type PortColumn,
 } from '../../lib/ports';
-import { AlertIcon, ColumnsIcon, PortIcon, SearchIcon } from '../icons';
-import { EmptyState, FilterChips, Popover, SwitchRow } from '../kit';
+import { AlertIcon, PortIcon, SearchIcon } from '../icons';
+import { EmptyState, FilterChips } from '../kit';
+import {
+  CELL_TRUNCATE,
+  ColumnHeader,
+  ColumnsMenu,
+  ColumnTable,
+  useColumnLayout,
+  type ColumnSpec,
+} from '../kitTable';
 import { Checkbox, cx, Input, TAG, TAG_TONE } from '../ui';
 import { KIND_ICONS } from './Faceplate';
 import { usePortText } from './text';
@@ -33,42 +42,35 @@ const tdBase =
 /** The sticky Port column needs an opaque background (rows scroll under it). */
 const stickyCell = 'sticky start-0 z-10 bg-surface';
 
-/** "Columns" popover (prototype .popmenu): one switch per column; remembered per browser. */
-function ColumnChooser({
-  columns,
-  onChange,
-}: {
-  columns: PortColumn[];
-  onChange: (c: PortColumn[]) => void;
-}) {
-  const { t } = useTranslation();
-  return (
-    <Popover
-      label={t('ports.columns')}
-      testId="column-chooser"
-      className="!h-[34px] !text-[13.5px] !text-ink"
-      button={
-        <>
-          <ColumnsIcon size={16} /> {t('ports.columns')}
-        </>
-      }
-    >
-      <div className="-m-2 grid max-h-[60vh] gap-0.5 overflow-y-auto">
-        <div className="px-2.5 pb-1 pt-1.5 text-xs font-semibold text-ink-subtle">
-          {t('ports.columns')}
-        </div>
-        {PORT_COLUMNS.map((c) => (
-          <SwitchRow
-            key={c}
-            label={t(`ports.col.${c}`)}
-            checked={columns.includes(c)}
-            onChange={(v) => onChange(toggleColumn(columns, c, v))}
-          />
-        ))}
-      </div>
-    </Popover>
-  );
-}
+/** Default widths of the port columns (px); the user's widths win. */
+const PORT_COL_WIDTH: Partial<Record<PortColumn, number>> = {
+  status: 130,
+  connected: 190,
+  connIp: 130,
+  connName: 190,
+  vlan: 80,
+  mode: 100,
+  speed: 100,
+  poe: 110,
+  rxtx: 150,
+  alias: 160,
+  duplex: 90,
+  mac: 160,
+  ip: 130,
+  hostname: 160,
+  vendor: 150,
+  errors: 80,
+  lastChange: 120,
+  ifIndex: 80,
+  kind: 110,
+};
+
+/** COLUMN_HIDE_CLASS for the <col> elements (a hidden cell's column must go too). */
+const COL_HIDE_CLASS: Partial<Record<PortColumn, string>> = {
+  connIp: 'hidden sm:table-column',
+  poe: 'hidden md:table-column',
+  rxtx: 'hidden md:table-column',
+};
 
 type StateFilter = 'all' | 'up' | 'problem' | 'free';
 const STATE_FILTERS: StateFilter[] = ['all', 'up', 'problem', 'free'];
@@ -223,6 +225,18 @@ export function PortList({
     setColumnsState(c);
     saveColumns(c);
   };
+  // Order and widths (netmon.table.ports); which columns show stays in netmon.ports.columns.
+  const specs = useMemo<ColumnSpec[]>(
+    () => [
+      { id: 'port', pin: 'start', width: 150, minWidth: 90 },
+      ...PORT_COLUMNS.map((c) => ({ id: c, width: PORT_COL_WIDTH[c], minWidth: 64 })),
+    ],
+    [],
+  );
+  const layout = useColumnLayout('ports', specs);
+  const shown = layout.columns.filter(
+    (c) => c.id === 'port' || columns.includes(c.id as PortColumn),
+  );
 
   const base = useMemo(
     () => (physicalOnly ? ports.filter((p) => PHYSICAL_KINDS.includes(p.kind)) : ports),
@@ -414,7 +428,15 @@ export function PortList({
           checked={physicalOnly}
           onChange={setPhysicalOnly}
         />
-        <ColumnChooser columns={columns} onChange={setColumns} />
+        <ColumnsMenu
+          layout={layout}
+          label={t('ports.columns')}
+          testId="column-chooser"
+          labelOf={(id) => t(`ports.col.${id}`)}
+          visible={(id) => columns.includes(id as PortColumn)}
+          onVisible={(id, on) => setColumns(toggleColumn(columns, id as PortColumn, on))}
+          onReset={() => setColumns(DEFAULT_COLUMNS)}
+        />
       </div>
       <div className="mx-1 text-[12.5px] text-ink-subtle">
         {t('ports.shown', { shown: rows.length, total: ports.length })}
@@ -423,95 +445,121 @@ export function PortList({
         {rows.length === 0 ? (
           <EmptyState icon={PortIcon} title={t('ports.noMatch')} className="!py-10" />
         ) : (
-          <div className="overflow-x-auto" data-testid="port-list-scroll">
-            <table className="w-full text-sm">
-              <thead>
-                <tr>
-                  <th className={cx(thBase, 'sticky start-0 z-20 bg-surface')}>
-                    {t('ports.col.port')}
-                  </th>
-                  {columns.map((c) => (
-                    <th key={c} className={cx(thBase, COLUMN_HIDE_CLASS[c])}>
-                      {t(`ports.col.${c}`)}
-                    </th>
-                  ))}
-                </tr>
-              </thead>
-              <tbody>
-                {rows.map((p) => {
-                  const sel = selected === p.if_index;
-                  return (
-                    <tr
-                      key={p.if_index}
-                      onClick={() => onSelect(p)}
+          <ColumnTable
+            layout={layout}
+            columns={shown}
+            scrollTestId="port-list-scroll"
+            colClass={(id) => COL_HIDE_CLASS[id as PortColumn]}
+          >
+            <thead>
+              <tr>
+                {shown.map((c) =>
+                  c.id === 'port' ? (
+                    <ColumnHeader
+                      key={c.id}
+                      layout={layout}
+                      col={c}
+                      label={t('ports.col.port')}
+                      className={cx(thBase, 'sticky start-0 z-20 bg-surface')}
+                    />
+                  ) : (
+                    <ColumnHeader
+                      key={c.id}
+                      layout={layout}
+                      col={c}
+                      label={t(`ports.col.${c.id}`)}
+                      className={cx(thBase, COLUMN_HIDE_CLASS[c.id as PortColumn])}
+                    />
+                  ),
+                )}
+              </tr>
+            </thead>
+            <tbody>
+              {rows.map((p) => {
+                const sel = selected === p.if_index;
+                return (
+                  <tr
+                    key={p.if_index}
+                    onClick={() => onSelect(p)}
+                    className={cx(
+                      'group cursor-pointer transition-colors',
+                      sel ? 'bg-chip' : 'hover:bg-surface-hover',
+                    )}
+                  >
+                    <td
                       className={cx(
-                        'group cursor-pointer transition-colors',
-                        sel ? 'bg-chip' : 'hover:bg-surface-hover',
+                        tdBase,
+                        stickyCell,
+                        sel ? '!bg-chip' : 'group-hover:bg-surface-hover',
                       )}
                     >
-                      <td
-                        className={cx(
-                          tdBase,
-                          stickyCell,
-                          sel ? '!bg-chip' : 'group-hover:bg-surface-hover',
-                        )}
+                      <button
+                        type="button"
+                        className="text-start font-display font-semibold text-ink hover:underline focus:outline-none focus-visible:ring-2 focus-visible:ring-focus"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          onSelect(p);
+                        }}
                       >
-                        <button
-                          type="button"
-                          className="text-start font-display font-semibold text-ink hover:underline focus:outline-none focus-visible:ring-2 focus-visible:ring-focus"
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            onSelect(p);
-                          }}
+                        <bdi dir="ltr">{p.name || p.descr || p.if_index}</bdi>
+                      </button>
+                      {p.lag && (
+                        <span
+                          className={cx(
+                            TAG,
+                            'ms-1.5 h-5 text-[11px] font-medium',
+                            p.lag.attached === false
+                              ? cx(TAG_TONE.neutral, 'line-through')
+                              : TAG_TONE.neutral,
+                          )}
+                          title={
+                            p.lag.attached === false
+                              ? t('ports.lag.notActive', { name: p.lag.name })
+                              : t('ports.lag.memberOf', { name: p.lag.name })
+                          }
+                          data-testid="lag-chip"
                         >
-                          <bdi dir="ltr">{p.name || p.descr || p.if_index}</bdi>
-                        </button>
-                        {p.lag && (
-                          <span
-                            className={cx(
-                              TAG,
-                              'ms-1.5 h-5 text-[11px] font-medium',
-                              p.lag.attached === false
-                                ? cx(TAG_TONE.neutral, 'line-through')
-                                : TAG_TONE.neutral,
-                            )}
-                            title={
-                              p.lag.attached === false
-                                ? t('ports.lag.notActive', { name: p.lag.name })
-                                : t('ports.lag.memberOf', { name: p.lag.name })
-                            }
-                            data-testid="lag-chip"
-                          >
-                            <bdi dir="ltr">{p.lag.name}</bdi>
-                          </span>
-                        )}
-                        {p.kind === 'lag' && !!p.lag_members?.length && (
-                          <div
-                            className="text-xs font-normal text-ink-muted"
-                            data-testid="lag-members"
-                          >
-                            {t('ports.lag.members', {
-                              list: lagMemberNames(p, ports).join(', '),
-                            })}
-                          </div>
-                        )}
-                        {p.alias && !columns.includes('alias') && (
-                          <div className="max-w-[10rem] truncate text-xs font-normal text-ink-muted">
-                            <bdi dir="auto">{p.alias}</bdi>
-                          </div>
-                        )}
-                      </td>
-                      {columns.map((c) => (
-                        <td key={c} className={cx(tdBase, 'tabular-nums', COLUMN_HIDE_CLASS[c])}>
+                          <bdi dir="ltr">{p.lag.name}</bdi>
+                        </span>
+                      )}
+                      {p.kind === 'lag' && !!p.lag_members?.length && (
+                        <div
+                          className="text-xs font-normal text-ink-muted"
+                          data-testid="lag-members"
+                        >
+                          {t('ports.lag.members', {
+                            list: lagMemberNames(p, ports).join(', '),
+                          })}
+                        </div>
+                      )}
+                      {p.alias && !columns.includes('alias') && (
+                        <div className="max-w-[10rem] truncate text-xs font-normal text-ink-muted">
+                          <bdi dir="auto">{p.alias}</bdi>
+                        </div>
+                      )}
+                    </td>
+                    {shown.map((col) => {
+                      if (col.id === 'port') return null;
+                      const c = col.id as PortColumn;
+                      return (
+                        <td
+                          key={c}
+                          className={cx(
+                            tdBase,
+                            CELL_TRUNCATE,
+                            'tabular-nums',
+                            COLUMN_HIDE_CLASS[c],
+                          )}
+                        >
                           {cell(p, c)}
                         </td>
-                      ))}
-                    </tr>
-                  );
-                })}
-              </tbody>
-            </table>
-          </div>
+                      );
+                    })}
+                  </tr>
+                );
+              })}
+            </tbody>
+          </ColumnTable>
         )}
       </div>
     </div>

@@ -168,3 +168,78 @@ test('Hebrew: translated and mirrored (opens to the left of the pointer)', async
   await page.keyboard.press('Escape');
   await page.request.patch('/api/auth/me', { data: { language: 'en' } });
 });
+
+// Premium screens (owner feedback "bring the right-click back"): the same menu on rows outside the tree.
+
+test('tree inside the ☰ sheet (not pinned): the menu opens and its dialogs work', async ({ page }) => {
+  await loginViaApi(page, undefined, '/');
+  await page.evaluate(() => localStorage.setItem('netmon.menu.pinned', '0'));
+  await page.reload();
+  await page.getByTestId('menu-button').click();
+  const inv = page.locator('#nm-menu').getByRole('tab').nth(1);
+  if ((await inv.getAttribute('aria-selected')) !== 'true') await inv.click();
+  await treeDevice(page, dev.id).click({ button: 'right' });
+  await expect(menu(page)).toHaveAttribute('aria-label', `Device ${dev.name}`);
+  await menu(page).getByRole('menuitem', { name: 'Edit…' }).click();
+  await expect(page.getByRole('dialog')).toBeVisible();
+  await page.getByRole('dialog').getByRole('button', { name: 'Cancel' }).click();
+  await expect(page.getByRole('dialog')).toHaveCount(0);
+});
+
+test('Group page: right click a device row opens the device menu; Pause works; left click still opens the device', async ({ page }) => {
+  const gid = await defaultGroupId(admin);
+  await loginViaApi(page, undefined, `/groups/${gid}`);
+  const row = page.getByTestId('device-row').filter({ hasText: dev.name });
+  await expect(row).toBeVisible();
+  await row.click({ button: 'right' });
+  await expect(menu(page)).toHaveAttribute('aria-label', `Device ${dev.name}`);
+  expect(await items(page)).toEqual(expect.arrayContaining(['Open', 'Open in new tab', 'Copy IP address', ...ADMIN_ONLY]));
+  await menu(page).getByRole('menuitem', { name: 'Pause', exact: true }).click();
+  await expect(page.getByText('Device paused')).toBeVisible();
+  await expect.poll(async () => (await admin.get(`/api/devices/${dev.id}`)).enabled).toBe(false);
+  await admin.patch(`/api/devices/${dev.id}`, { enabled: true });
+  // keyboard on the row's link: Shift+F10, Esc returns focus to the link
+  const link = row.getByRole('link');
+  await link.focus();
+  await page.keyboard.press('Shift+F10');
+  await expect(menu(page)).toBeVisible();
+  await page.keyboard.press('Escape');
+  await expect(link).toBeFocused();
+  await link.click();
+  await expect(page).toHaveURL(new RegExp(`/devices/${dev.id}$`));
+});
+
+test('Device page: right click a sensor row opens the sensor menu; Pause works; checkboxes keep the browser menu', async ({ page }) => {
+  const s = (await admin.get(`/api/sensors?device_id=${dev.id}`)).items[0];
+  await loginViaApi(page, undefined, `/devices/${dev.id}?tab=sensors`);
+  const row = page.getByTestId('sensor-table').getByRole('row').filter({ has: page.getByRole('link', { name: s.name }) });
+  await expect(row).toBeVisible();
+  await row.getByRole('cell').nth(3).click({ button: 'right' });
+  await expect(menu(page)).toHaveAttribute('aria-label', `Sensor ${s.name}`);
+  await menu(page).getByRole('menuitem', { name: 'Pause', exact: true }).click();
+  await expect.poll(async () => (await admin.get(`/api/sensors/${s.id}`)).enabled).toBe(false);
+  await admin.patch(`/api/sensors/${s.id}`, { enabled: true });
+  // the device header has the device menu
+  await page.getByTestId('device-title').click({ button: 'right' });
+  await expect(menu(page)).toHaveAttribute('aria-label', `Device ${dev.name}`);
+  await page.keyboard.press('Escape');
+  // inside a form control the browser's own menu stays
+  const prevented = await row.getByTestId('sensor-select').evaluate((el) => {
+    const ev = new MouseEvent('contextmenu', { bubbles: true, cancelable: true, clientX: 5, clientY: 5 });
+    el.dispatchEvent(ev);
+    return ev.defaultPrevented;
+  });
+  expect(prevented).toBe(false);
+  await expect(menu(page)).toHaveCount(0);
+});
+
+test('Home: right click a map node opens its menu', async ({ page }) => {
+  await loginViaApi(page, undefined, '/');
+  const node = page.locator('a[data-node]').first();
+  await expect(node).toBeVisible();
+  await node.click({ button: 'right' });
+  await expect(menu(page)).toBeVisible();
+  await expect(menu(page).getByRole('menuitem', { name: 'Open', exact: true })).toBeFocused();
+  await page.keyboard.press('Escape');
+  await expect(menu(page)).toHaveCount(0);
+});

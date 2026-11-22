@@ -21,6 +21,7 @@ import {
   Timeline,
   TimelineEntry,
 } from '../components/kit';
+import { useEntityMenu } from '../components/treemenu/TreeContextMenu';
 import {
   BackLink,
   Button,
@@ -53,6 +54,7 @@ export function IncidentPage() {
   const { id } = useParams();
   const iid = Number(id);
   const qc = useQueryClient();
+  const menu = useEntityMenu();
   const on = useAiFeature('ai_correlation');
   const severityOn = useFeature('alert_severity'); // [severity]
   const title = useIncidentTitle();
@@ -212,7 +214,12 @@ export function IncidentPage() {
                   <span className="text-[13px] text-ink-muted">{t('incident.rootCandidates')}</span>
                   <span className="flex flex-wrap gap-1.5">
                     {i.root_candidates.map((c) => (
-                      <Link key={c.id} to={`/devices/${c.id}`} className="no-underline">
+                      <Link
+                        key={c.id}
+                        {...menu({ kind: 'device', id: c.id })}
+                        to={`/devices/${c.id}`}
+                        className="no-underline"
+                      >
                         <MemberChip tone="down">{c.name}</MemberChip>
                       </Link>
                     ))}
@@ -248,6 +255,13 @@ export function IncidentPage() {
                 <ListRow
                   key={m.event_id}
                   testId="incident-member"
+                  rowProps={menu(
+                    m.sensor_id
+                      ? { kind: 'sensor', id: m.sensor_id }
+                      : m.device_id
+                        ? { kind: 'device', id: m.device_id }
+                        : null,
+                  )}
                   to={
                     m.sensor_id
                       ? `/sensors/${m.sensor_id}`
