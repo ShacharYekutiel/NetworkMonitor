@@ -4,6 +4,8 @@ import { isApiError } from '../api/client';
 import { endpoints3 } from '../api/endpoints3';
 import type { Status, StatusCounts } from '../api/types';
 import type { KioskView, KioskWidget } from '../api/types3';
+import { SEVERITIES, type SeverityCounts } from '../api/severity';
+import { SeverityTag } from '../components/kit';
 import { setLanguage } from '../i18n';
 import {
   isStale,
@@ -244,28 +246,67 @@ function Panel({
   );
 }
 
+/** [severity] Alerts per severity at wall size (only when the payload has the counts). */
+function SeverityKpis({ counts }: { counts: SeverityCounts }) {
+  const { t } = useTranslation();
+  return (
+    <ul
+      aria-label={t('severity.counts')}
+      data-testid="kiosk-severity"
+      className="m-0 mt-4 grid list-none grid-cols-2 gap-4 p-0 md:grid-cols-5"
+    >
+      {SEVERITIES.map((s) => (
+        <li
+          key={s}
+          data-severity={s}
+          className={cx(
+            'flex items-center justify-between gap-3 rounded-[22px] bg-surface px-[22px] py-4',
+            !counts[s] && 'opacity-50',
+          )}
+        >
+          <SeverityTag severity={s} size="md" className="!h-8 !text-base" />
+          <span className="num text-[44px] font-medium leading-none tracking-[-0.03em] tabular-nums">
+            {counts[s]}
+          </span>
+        </li>
+      ))}
+    </ul>
+  );
+}
+
 function Summary({ s }: { s: NonNullable<KioskView['summary']> }) {
   const { t } = useTranslation();
   const c: StatusCounts = s.device_counts;
   return (
-    <div className="grid grid-cols-2 gap-4 md:grid-cols-3 xl:grid-cols-6" data-testid="kiosk-kpis">
-      <Kpi label={t('noc.devicesUp')} value={c.up} status="up" />
-      <Kpi
-        label={t('noc.devicesDown')}
-        value={c.down + c.unreachable}
-        status="down"
-        hot={c.down + c.unreachable > 0}
-      />
-      <Kpi label={t('noc.devicesWarning')} value={c.warning} status="warning" hot={c.warning > 0} />
-      <Kpi
-        label={t('noc.sensorsDown')}
-        value={s.sensor_counts.down}
-        status="down"
-        hot={s.sensor_counts.down > 0}
-      />
-      <Kpi label={t('noc.acknowledged')} value={s.acknowledged} status="up" />
-      <Kpi label={t('noc.maintenance')} value={s.in_maintenance} status="paused" />
-    </div>
+    <>
+      <div
+        className="grid grid-cols-2 gap-4 md:grid-cols-3 xl:grid-cols-6"
+        data-testid="kiosk-kpis"
+      >
+        <Kpi label={t('noc.devicesUp')} value={c.up} status="up" />
+        <Kpi
+          label={t('noc.devicesDown')}
+          value={c.down + c.unreachable}
+          status="down"
+          hot={c.down + c.unreachable > 0}
+        />
+        <Kpi
+          label={t('noc.devicesWarning')}
+          value={c.warning}
+          status="warning"
+          hot={c.warning > 0}
+        />
+        <Kpi
+          label={t('noc.sensorsDown')}
+          value={s.sensor_counts.down}
+          status="down"
+          hot={s.sensor_counts.down > 0}
+        />
+        <Kpi label={t('noc.acknowledged')} value={s.acknowledged} status="up" />
+        <Kpi label={t('noc.maintenance')} value={s.in_maintenance} status="paused" />
+      </div>
+      {s.severity_counts && <SeverityKpis counts={s.severity_counts} />}
+    </>
   );
 }
 
@@ -339,6 +380,8 @@ function MapPanel({ map }: { map: NonNullable<KioskView['map']> }) {
 
 function Widget({ w, v, now }: { w: KioskWidget; v: KioskView; now: number }) {
   const { t } = useTranslation();
+  // [severity] the payload carries severities only while the feature is on
+  const sevOn = !!v.summary?.severity_counts || (v.problems ?? []).some((p) => !!p.severity);
   switch (w) {
     case 'summary':
       return v.summary ? <Summary s={v.summary} /> : null;
@@ -392,8 +435,13 @@ function Widget({ w, v, now }: { w: KioskWidget; v: KioskView; now: number }) {
                     </bdi>
                     <span className="sr-only">{t(`status.${p.status}`)}</span>
                   </span>
-                  <span className="num text-lg font-medium tabular-nums text-ink-muted">
-                    {since(p.since, now)}
+                  <span className="flex items-center gap-3">
+                    {sevOn && (
+                      <SeverityTag severity={p.severity} size="md" className="!h-8 !text-base" />
+                    )}
+                    <span className="num text-lg font-medium tabular-nums text-ink-muted">
+                      {since(p.since, now)}
+                    </span>
                   </span>
                 </li>
               ))}
@@ -416,6 +464,9 @@ function Widget({ w, v, now }: { w: KioskWidget; v: KioskView; now: number }) {
                 <span className="font-display font-medium">{a.device_name}</span>
                 <span className="text-ink-muted">{a.sensor_name}</span>
                 <span className="flex-1" />
+                {sevOn && (
+                  <SeverityTag severity={a.severity} size="md" className="!h-8 !text-base" />
+                )}
                 {a.new_status && <WallBadge status={a.new_status} />}
               </li>
             ))}

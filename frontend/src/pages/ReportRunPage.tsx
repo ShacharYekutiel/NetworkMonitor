@@ -1,4 +1,5 @@
 import { useMemo, type CSSProperties } from 'react';
+import { SeverityTag } from '../components/kit';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useParams } from 'react-router';
 import { useTranslation } from 'react-i18next';
@@ -141,11 +142,13 @@ function ReportSectionView({
   d,
   tr,
   fmt,
+  lang,
 }: {
   s: ReportSection;
   d: ReportData;
   tr: TFunction;
   fmt: (iso: string) => string;
+  lang?: string;
 }) {
   const title = tr(`reportSection.${s}`);
   const note = d.notes.find((n) => n.section === s);
@@ -234,6 +237,8 @@ function ReportSectionView({
     case 'top_alerts': {
       const rows = d.top_alerts ?? [];
       const max = Math.max(1, ...rows.map((r) => r.notifications));
+      // [severity] the backend adds the key only while the feature is on
+      const withSeverity = rows.some((r) => 'severity' in r);
       return (
         <Section title={title}>
           <table className="w-full text-sm">
@@ -242,6 +247,7 @@ function ReportSectionView({
                 <th className={pth}>{tr('reports.col.sensor')}</th>
                 <th className={pth}>{tr('reports.col.notifications')}</th>
                 <th className={pth}>{tr('reports.col.problemTime')}</th>
+                {withSeverity && <th className={pth}>{tr('reports.col.severity')}</th>}
               </tr>
             </thead>
             <tbody>
@@ -257,6 +263,11 @@ function ReportSectionView({
                     </div>
                   </td>
                   <td className={ptd}>{formatDuration(r.problem_s)}</td>
+                  {withSeverity && (
+                    <td className={ptd}>
+                      <SeverityTag severity={r.severity} lng={lang} />
+                    </td>
+                  )}
                 </tr>
               ))}
             </tbody>
@@ -559,7 +570,7 @@ export function ReportRunPage() {
             </section>
           )}
           {d.sections.map((s) => (
-            <ReportSectionView key={s} s={s} d={d} tr={tr} fmt={fmt} />
+            <ReportSectionView key={s} s={s} d={d} tr={tr} fmt={fmt} lang={lang} />
           ))}
           <footer className="border-t border-line pt-2 text-xs text-ink-muted">
             NetworkMonitor

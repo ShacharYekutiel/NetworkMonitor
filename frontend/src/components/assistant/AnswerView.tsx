@@ -39,7 +39,8 @@ import {
   XIcon,
 } from '../icons';
 import { useAuth } from '../../hooks/auth';
-import { AiTag, Banner } from '../kit';
+import { AiTag, Banner, SeverityTag } from '../kit';
+import { isSeverity } from '../../lib/severity';
 import { useToast } from '../toast';
 import { Button, buttonClass, cx, Spinner, Textarea } from '../ui';
 import { useAssistantErrorText } from './common';
@@ -85,6 +86,10 @@ function StepRow({ s }: { s: AssistantStep }) {
   const [open, setOpen] = useState(false);
   const label = t(s.label_key, { defaultValue: t('assistant.tool.generic', { tool: s.tool }) });
   const hasArgs = Object.keys(s.args ?? {}).length > 0;
+  // [severity] list_problems / list_events limited to severities (the tool results stay server-side)
+  const severities = Array.isArray(s.args?.severities)
+    ? (s.args.severities as unknown[]).filter(isSeverity)
+    : [];
   return (
     <li className="text-[13px]" data-testid="tool-step" data-tool={s.tool} data-state={s.state}>
       {/* prototype .tstep: ✓ (or a spinner), the step, rows · ms at the end */}
@@ -103,6 +108,13 @@ function StepRow({ s }: { s: AssistantStep }) {
           <XIcon size={15} className="shrink-0 text-status-down" />
         )}
         <span className="min-w-0">{label}</span>
+        {severities.length > 0 && (
+          <span className="inline-flex flex-wrap gap-1" data-testid="tool-step-severities">
+            {severities.map((x) => (
+              <SeverityTag key={x} severity={x} />
+            ))}
+          </span>
+        )}
         {s.state === 'done' && (
           <span className="num ms-auto text-xs text-ink-subtle [unicode-bidi:plaintext]">
             {s.ok
