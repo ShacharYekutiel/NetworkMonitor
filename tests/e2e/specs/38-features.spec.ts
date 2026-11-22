@@ -20,6 +20,9 @@ const PHASE3B_FEATURES = [
   'ai_rule_drafts', 'ai_template_drafts', 'ai_knowledge', 'ai_chat_ask', 'ai_report_summary',
 ];
 
+// [severity] alert severity (api.md "[severity] Alert severity"): switched on the Features tab
+const SEVERITY_FEATURES = ['alert_severity'];
+
 let admin: Api;
 let viewer: Api;
 
@@ -39,7 +42,8 @@ test('fresh install: every feature OFF in settings and /api/settings/public (als
   for (const f of FEATURES) expect.soft(s[`feature_${f}_enabled`], `settings feature_${f}_enabled`).toBe(false);
   const pub = await publicFeatures(admin);
   // [3] the 8 phase-3 toggles are listed too (api.md [3] Type changes); [3b] + the 11 assistant toggles
-  expect(Object.keys(pub).sort()).toEqual([...FEATURES, ...PHASE3_FEATURES, ...PHASE3B_FEATURES].sort());
+  expect(Object.keys(pub).sort()).toEqual([...FEATURES, ...PHASE3_FEATURES, ...PHASE3B_FEATURES, ...SEVERITY_FEATURES].sort());
+  for (const f of SEVERITY_FEATURES) expect.soft((pub as Record<string, boolean>)[f], `public features.${f}`).toBe(false);
   expect(FEATURES).toHaveLength(9);
   for (const gone of ['teams', 'api_tokens']) {
     expect.soft(pub, `public features has no ${gone}`).not.toHaveProperty(gone);
@@ -226,7 +230,7 @@ test('UI: each feature is switched in one place (own tab, else Features); overvi
   await page.goto('/settings');
   await page.getByRole('tab', { name: tOr('settings.tab.features', 'Features') }).click();
   // Features tab: only the features without a settings tab of their own have a switch here
-  const own = ['lag', 'timeline'];
+  const own = ['lag', 'timeline', ...SEVERITY_FEATURES];
   for (const gone of ['teams', 'api_tokens']) await expect(page.locator(`[data-feature="${gone}"]`)).toHaveCount(0);
   const toggles = page.getByRole('switch').or(page.getByRole('checkbox'));
   await expect(toggles).toHaveCount(own.length);
@@ -234,7 +238,7 @@ test('UI: each feature is switched in one place (own tab, else Features); overvi
   // ... plus a read-only overview of the others (7 of 2b-3 + all 8 of phase 3 + the 11 of 3b), each linking to its tab
   const overview = page.getByTestId('features-overview');
   await expect(overview.locator('[data-feature-overview]')).toHaveCount(
-    FEATURES.length + PHASE3_FEATURES.length + PHASE3B_FEATURES.length - own.length,
+    FEATURES.length + PHASE3_FEATURES.length + PHASE3B_FEATURES.length + SEVERITY_FEATURES.length - own.length,
   );
   await expect(overview.getByRole('switch')).toHaveCount(0);
   await shot2b3(page, '38-features-tab-off');

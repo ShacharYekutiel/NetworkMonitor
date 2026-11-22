@@ -4382,7 +4382,7 @@
       "edit": "Edit in Settings"
     },
     "rule": {
-      "label": "Applies to severities",
+      "label": "Only for severities",
       "hint": "Nothing selected = every severity (as before). Used only while Alert severity is on.",
       "summary": "Severities: {{list}}"
     },

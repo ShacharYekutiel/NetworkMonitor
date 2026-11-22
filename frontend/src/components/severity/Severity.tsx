@@ -301,7 +301,6 @@ export function SeverityMappingTable({
                           </option>
                         ))}
                       </Select>
-                      <SeverityBars severity={value[r.key]} className="text-ink-subtle" />
                     </span>
                   )}
                 </td>
