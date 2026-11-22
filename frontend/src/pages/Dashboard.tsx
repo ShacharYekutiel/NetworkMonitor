@@ -409,9 +409,12 @@ export function DashboardPage() {
           <Section id="nm-problems">
             <GroupTitle
               action={
-                <Link to="/events" className="text-ink-muted no-underline hover:text-ink">
-                  {t('home.all')}
-                </Link>
+                <span className="inline-flex items-center gap-3">
+                  {sevCounts && n > 0 && <SeverityMappingInfo />}
+                  <Link to="/events" className="text-ink-muted no-underline hover:text-ink">
+                    {t('home.all')}
+                  </Link>
+                </span>
               }
             >
               {t('dashboard.problems')}
@@ -423,7 +426,6 @@ export function DashboardPage() {
                 selected={sevFilter}
                 onToggle={(s) => setSevFilter(toggleSeverity(sevFilter, s))}
                 onClear={() => setSevFilter([])}
-                extra={<SeverityMappingInfo />}
               />
             )}
             {n > 0 && sevFilter.length > 0 ? (
