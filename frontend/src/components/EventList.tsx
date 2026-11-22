@@ -1,3 +1,4 @@
+import { useMemo } from 'react';
 import { Link } from 'react-router';
 import { useTranslation } from 'react-i18next';
 import type { NmEvent } from '../api/types';
@@ -6,7 +7,16 @@ import { StatusBadge } from './Status';
 import { ChevronIcon, WrenchIcon } from './icons';
 import { StatusMessage } from './Dependency';
 import { useLocalizeMessage } from '../hooks/localize';
-import { cx, Empty, GroupList, Table, td, th } from './ui';
+import { cx, Empty, GroupList, td, th } from './ui';
+import {
+  CELL_PINNED_END,
+  CELL_TRUNCATE,
+  ColumnHeader,
+  ColumnTable,
+  useColumnLayout,
+  type ColumnSpec,
+} from './kitTable';
+import { useAiFeature } from './assistant/common';
 import { STATUS_DOT, statusClass } from '../lib/status';
 import { ExplainButton } from './assistant/ExplainButton';
 import { useEntityMenu, type EntityRef } from './treemenu/TreeContextMenu';
@@ -33,6 +43,17 @@ export function StatusTransition({ ev }: { ev: NmEvent }) {
   );
 }
 
+type EventCol = ColumnSpec & { label: string };
+
+/** Problem transitions the AI can explain (the Explain button). */
+function explainableEvent(ev: NmEvent): boolean {
+  return (
+    ev.kind === 'status_change' &&
+    ev.sensor_id !== null &&
+    (ev.new_status === 'down' || ev.new_status === 'warning' || ev.new_status === 'unreachable')
+  );
+}
+
 export function EventsTable({
   events,
   showSource = true,
@@ -45,70 +66,122 @@ export function EventsTable({
   const { t } = useTranslation();
   const localize = useLocalizeMessage();
   const menu = useEntityMenu();
+  const aiOn = useAiFeature('ai_explain_alert');
+  const withActions = aiOn && events.some(explainableEvent);
+  const specs = useMemo<EventCol[]>(
+    () =>
+      (
+        [
+          { id: 'time', width: 172, label: t('events.time') },
+          showKind && { id: 'kind', width: 140, label: t('events.kind') },
+          showSource && { id: 'source', width: 230, label: t('events.source') },
+          { id: 'status', width: 200, label: t('events.status') },
+          { id: 'message', minWidth: 160, label: t('events.message') },
+          withActions && {
+            id: 'actions',
+            pin: 'end' as const,
+            fixed: true,
+            width: 132,
+            label: t('tableCols.actions'),
+          },
+        ] as (EventCol | false)[]
+      ).filter((c): c is EventCol => !!c),
+    [t, showKind, showSource, withActions],
+  );
+  const layout = useColumnLayout('events', specs);
   if (!events.length) return <Empty>{t('events.none')}</Empty>;
+  const cols = layout.columns;
+  const cell = (c: EventCol, ev: NmEvent) => {
+    switch (c.id) {
+      case 'time':
+        return (
+          <td
+            key={c.id}
+            className={cx(td, CELL_TRUNCATE, 'font-mono text-[13px] tabular-nums text-ink-subtle')}
+            title={formatRelative(ev.time)}
+          >
+            {formatDateTime(ev.time)}
+          </td>
+        );
+      case 'kind':
+        return (
+          <td key={c.id} className={cx(td, 'overflow-hidden')}>
+            <EventKindLabel kind={ev.kind} />
+          </td>
+        );
+      case 'source':
+        return (
+          <td
+            key={c.id}
+            className={cx(td, CELL_TRUNCATE)}
+            title={[ev.device_name, ev.sensor_name].filter(Boolean).join(' / ') || undefined}
+          >
+            <EventSource ev={ev} />
+          </td>
+        );
+      case 'status':
+        return (
+          <td key={c.id} className={cx(td, 'overflow-hidden')}>
+            <StatusTransition ev={ev} />
+          </td>
+        );
+      case 'message':
+        return (
+          <td
+            key={c.id}
+            dir="auto"
+            className={cx(td, CELL_TRUNCATE, 'text-ink-muted')}
+            title={localize(ev.message)}
+          >
+            {ev.in_maintenance && (
+              <span
+                className="me-1 inline-flex align-[-2px] text-accent-ink"
+                title={t('events.inMaintenance')}
+                aria-label={t('events.inMaintenance')}
+              >
+                <WrenchIcon size={13} />
+              </span>
+            )}
+            {ev.device_id !== null && ev.new_status === 'unreachable' ? (
+              <StatusMessage message={ev.message} status="unreachable" deviceId={ev.device_id} />
+            ) : (
+              localize(ev.message)
+            )}
+          </td>
+        );
+      case 'actions':
+        return (
+          <td key={c.id} className={cx(td, CELL_PINNED_END)}>
+            {/* [3b] Explain (AI) on problem transitions */}
+            {explainableEvent(ev) && <ExplainButton sensorId={ev.sensor_id!} eventId={ev.id} />}
+          </td>
+        );
+    }
+    return null;
+  };
   return (
-    <Table>
+    <ColumnTable layout={layout} columns={cols}>
       <thead>
         <tr>
-          <th className={th}>{t('events.time')}</th>
-          {showKind && <th className={th}>{t('events.kind')}</th>}
-          {showSource && <th className={th}>{t('events.source')}</th>}
-          <th className={th}>{t('events.status')}</th>
-          <th className={th}>{t('events.message')}</th>
+          {cols.map((c) =>
+            c.id === 'actions' ? (
+              <th key={c.id} data-col={c.id} className={cx(th, CELL_PINNED_END)}>
+                <span className="sr-only">{c.label}</span>
+              </th>
+            ) : (
+              <ColumnHeader key={c.id} layout={layout} col={c} label={c.label} className={th} />
+            ),
+          )}
         </tr>
       </thead>
       <tbody>
         {events.map((ev) => (
-          <tr key={ev.id} {...menu(eventEntity(ev))} className="hover:bg-surface-hover">
-            <td
-              className={`${td} whitespace-nowrap font-mono text-[13px] tabular-nums text-ink-subtle`}
-              title={formatRelative(ev.time)}
-            >
-              {formatDateTime(ev.time)}
-            </td>
-            {showKind && (
-              <td className={td}>
-                <EventKindLabel kind={ev.kind} />
-              </td>
-            )}
-            {showSource && (
-              <td className={td}>
-                <EventSource ev={ev} />
-              </td>
-            )}
-            <td className={td}>
-              <StatusTransition ev={ev} />
-            </td>
-            <td dir="auto" className={`${td} min-w-48 text-ink-muted`}>
-              {ev.in_maintenance && (
-                <span
-                  className="me-1 inline-flex align-[-2px] text-accent-ink"
-                  title={t('events.inMaintenance')}
-                  aria-label={t('events.inMaintenance')}
-                >
-                  <WrenchIcon size={13} />
-                </span>
-              )}
-              {ev.device_id !== null && ev.new_status === 'unreachable' ? (
-                <StatusMessage message={ev.message} status="unreachable" deviceId={ev.device_id} />
-              ) : (
-                localize(ev.message)
-              )}
-              {/* [3b] Explain (AI) on problem transitions */}
-              {ev.kind === 'status_change' &&
-                ev.sensor_id !== null &&
-                (ev.new_status === 'down' ||
-                  ev.new_status === 'warning' ||
-                  ev.new_status === 'unreachable') && (
-                  <span className="ms-2 inline-block align-middle">
-                    <ExplainButton sensorId={ev.sensor_id} eventId={ev.id} />
-                  </span>
-                )}
-            </td>
+          <tr key={ev.id} {...menu(eventEntity(ev))}>
+            {cols.map((c) => cell(c, ev))}
           </tr>
         ))}
       </tbody>
-    </Table>
+    </ColumnTable>
   );
 }
 
@@ -170,15 +243,6 @@ export function useEventTitle() {
   };
 }
 
-/** Problem transitions that the AI can explain (as in the events table). */
-function explainable(ev: NmEvent): boolean {
-  return (
-    ev.kind === 'status_change' &&
-    ev.sensor_id !== null &&
-    (ev.new_status === 'down' || ev.new_status === 'warning' || ev.new_status === 'unreachable')
-  );
-}
-
 /**
  * The events of one sensor as a grouped list (prototype sensor page "אירועים"): a status dot, the
  * transition in words, the message and when.
@@ -235,7 +299,7 @@ export function EventRows({ events, label }: { events: NmEvent[]; label?: string
               </time>
             </span>
           </div>
-          {explainable(ev) && <ExplainButton sensorId={ev.sensor_id!} eventId={ev.id} />}
+          {explainableEvent(ev) && <ExplainButton sensorId={ev.sensor_id!} eventId={ev.id} />}
         </li>
       ))}
     </GroupList>

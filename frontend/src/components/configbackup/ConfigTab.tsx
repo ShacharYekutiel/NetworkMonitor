@@ -22,6 +22,7 @@ import {
 import { DetailRows } from '../Drawer';
 import { DiffExplain } from '../assistant/DiffExplain';
 import { Pagination } from '../Pagination';
+import { ColumnsMenu, DataTable, labelOf, useDataTable, type DataColumn } from '../kitTable';
 import { useToast } from '../toast';
 import {
   Button,
@@ -35,11 +36,8 @@ import {
   Notice,
   SegmentedControl,
   Select,
-  Table,
   TAG,
   TAG_TONE,
-  td,
-  th,
 } from '../ui';
 
 export function ResultBadge({ s }: { s: Pick<BackupStatus, 'last_result' | 'running'> }) {
@@ -541,6 +539,86 @@ export function ConfigTab({ device }: { device: Device }) {
   const s = status.data;
   const items = versions.data?.items ?? [];
   const selected = items.find((v) => v.id === view) ?? null;
+  const verCols: DataColumn<ConfigVersion>[] = [
+    { id: 'no', label: '#', width: 64, className: 'tabular-nums', cell: (v) => v.version_no },
+    {
+      id: 'collected',
+      label: t('configBackup.collectedAt'),
+      minWidth: 160,
+      title: (v) => `${formatDateTime(v.collected_at)} (${formatRelative(v.collected_at)})`,
+      cell: (v) => (
+        <>
+          {formatDateTime(v.collected_at)}
+          <span className="ms-1 text-xs text-ink-muted">({formatRelative(v.collected_at)})</span>
+        </>
+      ),
+    },
+    {
+      id: 'trigger',
+      label: t('configBackup.triggerLabel'),
+      width: 150,
+      cell: (v) => t(`configBackup.trigger.${v.trigger}`),
+    },
+    {
+      id: 'changes',
+      label: t('configBackup.changes'),
+      width: 180,
+      className: 'tabular-nums',
+      cell: (v) => (
+        <>
+          {v.initial ? (
+            <span className="rounded bg-surface-sunken px-1.5 py-0.5 text-xs">
+              {t('configBackup.initial')}
+            </span>
+          ) : (
+            <bdi dir="ltr">
+              <span className="text-status-up">+{v.added}</span>{' '}
+              <span className="text-status-down">−{v.removed}</span>
+            </bdi>
+          )}
+          {v.is_latest && (
+            <span className="ms-1 rounded bg-accent-soft px-1.5 py-0.5 text-xs text-accent-ink">
+              {t('configBackup.latest')}
+            </span>
+          )}
+        </>
+      ),
+    },
+    {
+      id: 'lines',
+      label: t('configBackup.lines'),
+      width: 90,
+      className: 'tabular-nums',
+      cell: (v) => v.lines,
+    },
+    ...(isAdmin
+      ? [
+          {
+            id: 'actions',
+            label: t('tableCols.actions'),
+            pin: 'end' as const,
+            fixed: true,
+            width: 250,
+            cell: (v: ConfigVersion) => {
+              const i = items.indexOf(v);
+              return (
+                <span className="inline-flex gap-1">
+                  <Button size="sm" onClick={() => setView(v.id === view ? null : v.id)}>
+                    {t('configBackup.view')}
+                  </Button>
+                  {items[i + 1] && (
+                    <Button size="sm" onClick={() => setDiff({ from: items[i + 1].id, to: v.id })}>
+                      {t('configBackup.diffPrev')}
+                    </Button>
+                  )}
+                </span>
+              );
+            },
+          },
+        ]
+      : []),
+  ];
+  const verLayout = useDataTable('config-versions', verCols);
   return (
     <div className="space-y-4">
       {status.isLoading && <Loading />}
@@ -620,72 +698,35 @@ export function ConfigTab({ device }: { device: Device }) {
           </Card>
         </div>
       )}
-      <Card title={t('configBackup.versionList')} bodyClassName="p-0">
+      <Card
+        title={t('configBackup.versionList')}
+        bodyClassName="p-0"
+        actions={
+          items.length > 0 && (
+            <ColumnsMenu
+              layout={verLayout}
+              labelOf={(id) => labelOf(verCols, id)}
+              testId="config-version-columns"
+            />
+          )
+        }
+      >
         <ErrorBox error={versions.error} className="m-3" />
         {versions.data && !items.length && <Empty>{t('configBackup.noVersions')}</Empty>}
         {items.length > 0 && (
           <>
-            <Table>
-              <thead>
-                <tr>
-                  <th className={th}>#</th>
-                  <th className={th}>{t('configBackup.collectedAt')}</th>
-                  <th className={th}>{t('configBackup.triggerLabel')}</th>
-                  <th className={th}>{t('configBackup.changes')}</th>
-                  <th className={th}>{t('configBackup.lines')}</th>
-                  <th className={th} />
-                </tr>
-              </thead>
-              <tbody>
-                {items.map((v, i) => (
-                  <tr key={v.id} className={cx(view === v.id && 'bg-accent-soft')}>
-                    <td className={`${td} tabular-nums`}>{v.version_no}</td>
-                    <td className={td}>
-                      {formatDateTime(v.collected_at)}
-                      <span className="ms-1 text-xs text-ink-muted">
-                        ({formatRelative(v.collected_at)})
-                      </span>
-                    </td>
-                    <td className={td}>{t(`configBackup.trigger.${v.trigger}`)}</td>
-                    <td className={`${td} tabular-nums`}>
-                      {v.initial ? (
-                        <span className="rounded bg-surface-sunken px-1.5 py-0.5 text-xs">
-                          {t('configBackup.initial')}
-                        </span>
-                      ) : (
-                        <bdi dir="ltr">
-                          <span className="text-status-up">+{v.added}</span>{' '}
-                          <span className="text-status-down">−{v.removed}</span>
-                        </bdi>
-                      )}
-                      {v.is_latest && (
-                        <span className="ms-1 rounded bg-accent-soft px-1.5 py-0.5 text-xs text-accent-ink">
-                          {t('configBackup.latest')}
-                        </span>
-                      )}
-                    </td>
-                    <td className={`${td} tabular-nums`}>{v.lines}</td>
-                    <td className={`${td} text-end`}>
-                      {isAdmin && (
-                        <span className="inline-flex gap-1">
-                          <Button size="sm" onClick={() => setView(v.id === view ? null : v.id)}>
-                            {t('configBackup.view')}
-                          </Button>
-                          {items[i + 1] && (
-                            <Button
-                              size="sm"
-                              onClick={() => setDiff({ from: items[i + 1].id, to: v.id })}
-                            >
-                              {t('configBackup.diffPrev')}
-                            </Button>
-                          )}
-                        </span>
-                      )}
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </Table>
+            <DataTable
+              layout={verLayout}
+              columns={verLayout.columns}
+              rows={items}
+              rowKey={(v) => v.id}
+              rowProps={(v) => ({
+                className: cx(
+                  view === v.id && '[&>td]:bg-[color-mix(in_srgb,var(--accent)_8%,var(--surface))]',
+                ),
+              })}
+              testId="config-versions"
+            />
             <Pagination
               page={page}
               pageSize={versions.data?.page_size ?? 50}

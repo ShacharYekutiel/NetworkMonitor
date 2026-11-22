@@ -4322,6 +4322,17 @@
     "deleted_one": "{{count}} sensor deleted.",
     "deleted_other": "{{count}} sensors deleted."
   },
+  "tableCols": {
+    "columns": "Columns",
+    "reset": "Reset columns",
+    "moveUp": "Move {{name}} earlier",
+    "moveDown": "Move {{name}} later",
+    "resize": "Resize column {{name}}",
+    "resizeHint": "Drag to resize · double-click to reset · arrow keys with focus",
+    "dragHint": "Drag to move the column",
+    "actions": "Actions",
+    "select": "Selection"
+  },
   "aiStatus": {
     "openIncidents_zero": "No open incidents",
     "openIncidents_one": "{{count}} open incident",

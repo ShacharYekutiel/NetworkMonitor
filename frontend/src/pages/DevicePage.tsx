@@ -17,7 +17,8 @@ import {
 import { ApplyTemplateModal } from '../components/Templates';
 import { AddSensorModal } from '../components/SensorForms';
 import { SensorRowActions } from '../components/SensorRowActions';
-import { SensorTable } from '../components/SensorTable';
+import { SensorTable, useSensorColumns } from '../components/SensorTable';
+import { ColumnsMenu } from '../components/kitTable';
 import { StatusBadge, StatusBar, StatusCountPills, StatusDot } from '../components/Status';
 import { useToast } from '../components/toast';
 import {
@@ -115,11 +116,25 @@ export function DeviceSensorsCard({
   const [bulkDelete, setBulkDelete] = useState(false);
   // Only sensors still in the list count (sensors may be deleted while selected).
   const pickedSensors = (sensors ?? []).filter((s) => picked.has(s.id));
+  const columns = useSensorColumns({
+    sensors: sensors ?? [],
+    selectable: isAdmin,
+    withActions: isAdmin,
+  });
   const ids = pickedSensors.map((s) => s.id);
   return (
     <div>
-      {isAdmin && sensors && sensors.length > 1 && (
-        <p className="mx-1 mb-2.5 mt-0 text-[13.5px] text-ink-muted">{t('impact.selectHint')}</p>
+      {sensors && sensors.length > 0 && (
+        <div className="mx-1 mb-2.5 flex flex-wrap items-center justify-between gap-2">
+          <p className="m-0 min-w-0 flex-1 text-[13.5px] text-ink-muted">
+            {isAdmin && sensors.length > 1 ? t('impact.selectHint') : null}
+          </p>
+          <ColumnsMenu
+            layout={columns}
+            labelOf={(id) => columns.columns.find((c) => c.id === id)?.label ?? id}
+            testId="sensor-columns"
+          />
+        </div>
       )}
       <Card title={t('devices.sensors')} bodyClassName="p-0">
         {loading && <Loading />}
@@ -127,6 +142,7 @@ export function DeviceSensorsCard({
         {sensors && (
           <SensorTable
             sensors={sensors}
+            layout={columns}
             actions={isAdmin ? (s) => <SensorRowActions sensor={s} /> : undefined}
             selection={isAdmin ? { selected: picked, onChange: setPicked } : undefined}
           />

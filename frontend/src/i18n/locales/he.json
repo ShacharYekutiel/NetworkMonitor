@@ -4384,6 +4384,17 @@
     "deleted_two": "2 חיישנים נמחקו.",
     "deleted_other": "{{count}} חיישנים נמחקו."
   },
+  "tableCols": {
+    "columns": "עמודות",
+    "reset": "איפוס העמודות",
+    "moveUp": "הזזת {{name}} מוקדם יותר",
+    "moveDown": "הזזת {{name}} מאוחר יותר",
+    "resize": "שינוי רוחב העמודה {{name}}",
+    "resizeHint": "גררו לשינוי הרוחב · לחיצה כפולה לאיפוס · חיצים במקלדת כשהקצה בפוקוס",
+    "dragHint": "גררו כדי להזיז את העמודה",
+    "actions": "פעולות",
+    "select": "בחירה"
+  },
   "aiStatus": {
     "openIncidents_zero": "אין אירועים מקובצים פתוחים",
     "openIncidents_one": "אירוע מקובץ פתוח אחד",
