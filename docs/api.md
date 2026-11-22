@@ -3010,7 +3010,8 @@ type SeverityMappingKey = "down_critical" | "down_warning" | "down_none"
   | "warning_critical" | "warning_warning" | "warning_none" | "info";
 type SeverityMapping = Record<SeverityMappingKey, Severity>;
 type SeverityMappingSettings = { mapping: SeverityMapping; defaults: SeverityMapping;
-  levels: Severity[] };                                                // levels = ["critical", …, "info"]
+  levels: Severity[];                                                  // levels = ["critical", …, "info"]
+  severity_in_subject: boolean };                                      // admin option, default false
 ```
 
 Shipped defaults (`defaults`; every row is editable, `reset` puts these back):
@@ -3061,8 +3062,8 @@ the problem itself changed, not the classification).
 | Method & path | Role | Request | Response |
 |---|---|---|---|
 | `GET /api/settings/severity-mapping` | viewer | — | `200 SeverityMappingSettings` |
-| `PUT /api/settings/severity-mapping` | admin | subset of `SeverityMapping` (omitted keys keep their value; unknown key or level → `422`) | `200 SeverityMappingSettings`. Audited as `settings.update` (`changes["severity_mapping.<key>"] = [old, new]`). While ON the active problems are re-resolved (audit `sensor.severity`, reason `mapping`). |
-| `POST /api/settings/severity-mapping/reset` | admin | — (no body) | `200 SeverityMappingSettings` with `mapping` = `defaults`; audit / re-resolution as PUT |
+| `PUT /api/settings/severity-mapping` | admin | subset of `SeverityMapping`, plus optional `severity_in_subject: boolean` (omitted keys keep their value; unknown key or level, or a non-boolean option → `422`) | `200 SeverityMappingSettings`. Audited as `settings.update` (`changes["severity_mapping.<key>"] = [old, new]`, `changes["severity_in_subject"] = [old, new]`). While ON a mapping change re-resolves the active problems (audit `sensor.severity`, reason `mapping`). |
+| `POST /api/settings/severity-mapping/reset` | admin | — (no body) | `200 SeverityMappingSettings` with `mapping` = `defaults` (`severity_in_subject` is not a mapping row and keeps its value); audit / re-resolution as PUT |
 | `POST /api/sensors/bulk-severity` | admin | `{"sensor_ids": int[] (1–1000), "severity_down"?: Severity \| null, "severity_warning"?: Severity \| null}` — an omitted key keeps each sensor's value, `null` clears the override; at least one of the two keys | `200 {"updated": n}` — sensors whose overrides actually changed. Unknown id → `422` (nothing changed); neither key → `422` (`loc: ["body"]`); unknown key → `422`. One `sensor.update` audit row per changed sensor (`changes.severity_down = [old, new]` …); active problems re-resolved (reason `override`). WS `config.changed` (`device`, `updated`) once per affected device. Same shape as `bulk-impact` |
 | `POST /api/sensors` | admin | + optional `severity_down`, `severity_warning` (default `null`) | `Sensor` |
 | `PATCH /api/sensors/{id}` | admin | + `severity_down`, `severity_warning` (`null` clears; also allowed for event sensors) | `Sensor` (re-resolved). Audit `sensor.update` covers both keys; a change of `impact` / overrides re-resolves an active problem (`sensor.severity`, reason `override` or `impact`). `POST /api/sensors/bulk-impact` also re-resolves (reason `impact`) |
@@ -3116,7 +3117,12 @@ Dashboard fragment (ON):
   problem opens or changes status; a later re-resolution (mapping / override edit) changes the severity shown in
   the following escalation / reminder / recovery messages but does not open or close notifications of other rules.
   While OFF the set is ignored.
-- Every channel names the severity while ON (nothing changes while OFF; the subject line never changes):
+- **Email subject** (admin option `severity_in_subject`, Settings → General → Alert severity, **off by default**):
+  while the option AND the feature are ON and the notification has a severity, the subject names it after the
+  product tag: `[NetworkMonitor] [Critical] DOWN: core-sw / Ping`, Hebrew `[NetworkMonitor] [קריטית] תקלה: core-sw / Ping`
+  (level names as in the Severity row; also escalation / reminder / recovery, which carry the severity of the problem).
+  Option off, feature off, a test message or a `null` severity: the subject is byte-identical to before.
+- Every channel names the severity while ON (nothing changes while OFF; without the option above the subject line never changes):
   email text / HTML and Telegram: a row **Severity** / **חומרה** after *Status* (`Critical` / `קריטית`, `Major` /
   `חמורה`, `Minor` / `קלה`, `Warning` / `אזהרה`, `Info` / `מידע`); Teams: a fact *Severity* after *Status*.
 - **Webhook payload** (also the source of the other channels) gains **one key at the end**, every existing key is

@@ -117,6 +117,7 @@ DEFAULTS: dict[str, Any] = {
     "home_map": copy.deepcopy(HOME_MAP_DEFAULT),
     # [severity] GET/PUT /api/settings/severity-mapping (netmon.services.severity)
     "severity_mapping": dict(SEVERITY_DEFAULT_MAPPING),
+    "severity_in_subject": False,  # [severity] the email subject names the severity
 }
 
 # [3] plain keys written by PUT /api/settings as they come (validated by the schema mixins)

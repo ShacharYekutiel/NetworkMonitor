@@ -20,7 +20,7 @@ import { useFeature } from '../../hooks/features';
 import { automaticSeverity } from '../../lib/severity';
 import { Popover, SeverityBars, SeverityTag, ToggleChip } from '../kit';
 import { useToast } from '../toast';
-import { Button, ConfirmDialog, ErrorBox, Field, Loading, Select, cx } from '../ui';
+import { Button, Checkbox, ConfirmDialog, ErrorBox, Field, Loading, Select, cx } from '../ui';
 
 /** The feature switch (public settings; false while loading). */
 export function useSeverityOn(): boolean {
@@ -352,6 +352,14 @@ export function SeverityMappingEditor({ readOnly }: { readOnly?: boolean }) {
     mutationFn: (body: Partial<SeverityMapping>) => severityApi.updateMapping(body),
     onSuccess: onSaved('severity.mapping.saved'),
   });
+  // the subject option is saved at once (it is not a mapping row; Reset keeps it)
+  const subject = useMutation({
+    mutationFn: (on: boolean) => severityApi.updateMapping({ severity_in_subject: on }),
+    onSuccess: (r) => {
+      qc.setQueryData(qkSeverity.mapping, r);
+      toast.push('success', t('common.saved'));
+    },
+  });
   const reset = useMutation({
     mutationFn: severityApi.resetMapping,
     onSuccess: (r) => {
@@ -378,6 +386,18 @@ export function SeverityMappingEditor({ readOnly }: { readOnly?: boolean }) {
       <p className="m-0 text-xs text-ink-muted" data-testid="severity-reclassify-note">
         {t('severity.mapping.reclassify')}
       </p>
+      <div data-anchor="severity-subject" data-testid="severity-subject-option">
+        <Checkbox
+          label={t('severity.mapping.subject')}
+          checked={!!q.data.severity_in_subject}
+          disabled={readOnly || subject.isPending}
+          onChange={(v) => subject.mutate(v)}
+        />
+        <p className="m-0 ms-6 mt-0.5 text-xs text-ink-muted">
+          {t('severity.mapping.subjectHint')}
+        </p>
+        <ErrorBox error={subject.error} />
+      </div>
       {readOnly ? (
         <p className="m-0 text-xs text-ink-subtle">{t('severity.mapping.readOnly')}</p>
       ) : (

@@ -19,6 +19,7 @@ import {
 import { raw } from '../lib/lab';
 import { T, setLang } from '../lib/lab2b2';
 import { PHASE3B, ensureAssistant } from '../lib/lab3b';
+import { PHASE3, clearSmtp, configureSmtp, smtpMessages } from '../lib/lab3';
 
 // [severity] 86 — alert severity (api.md "[severity] Alert severity"; feature alert_severity, OFF by default).
 // OFF: no severity UI on Home / Events / the sensor form. ON (switched in Settings → Features): a down sensor
@@ -82,6 +83,7 @@ test.afterAll(async () => {
   for (const h of hooks) await raw(admin, 'DELETE', `/api/notification-channels/${h}`);
   if (deviceId) await raw(admin, 'DELETE', `/api/devices/${deviceId}`);
   await raw(admin, 'POST', '/api/settings/severity-mapping/reset');
+  await raw(admin, 'PUT', '/api/settings/severity-mapping', { severity_in_subject: false });
   await setSeverityFeature(false);
   await raw(admin, 'PATCH', '/api/auth/me', { language: 'en' });
 });
@@ -281,6 +283,35 @@ test('sensors table: Severity column; bulk "Set severity…" sets the overrides'
   await rowOf(A).getByTestId('severity-tag').click({ button: 'right' });
   await expect(page.getByRole('menu')).toBeVisible();
   await page.keyboard.press('Escape');
+});
+
+test('admin option: the severity in the email subject (off by default; Settings card)', async ({ page }) => {
+  expect((await admin.get('/api/settings/severity-mapping')).severity_in_subject).toBe(false);
+  // the default mapping (down + impact critical = Critical); the option survives a reset
+  await raw(admin, 'POST', '/api/settings/severity-mapping/reset');
+  await loginViaApi(page, undefined, '/settings?tab=general');
+  const opt = page.getByTestId('severity-subject-option').getByRole('checkbox', { name: T('severity.mapping.subject') });
+  await expect(opt).not.toBeChecked();
+  await opt.check();
+  await expect.poll(async () => (await admin.get('/api/settings/severity-mapping')).severity_in_subject, { timeout: 10_000 }).toBe(true);
+  if (PHASE3) {
+    // an email rule for a new Critical alert: the subject names the severity
+    await configureSmtp(admin);
+    await clearSmtp();
+    const to = `qa-sev-${Date.now()}@example.test`;
+    const ch = await admin.post('/api/notification-channels', { name: uid('qa-sev mail'), type: 'email', enabled: true, config: { to: [to] } });
+    hooks.push(ch.id);
+    const dName = uid('qa-sev D');
+    const d = await deadSensor(dName, { enabled: false });
+    const r = await admin.post('/api/alert-rules', { name: uid('qa-sev mail rule'), sensor_id: d.id, on_statuses: ['down'], delay_s: 0, enabled: true, channel_ids: [ch.id] });
+    rules.push(r.id);
+    await admin.patch(`/api/sensors/${d.id}`, { enabled: true });
+    await expect.poll(async () => (await smtpMessages()).filter((m) => JSON.stringify(m).includes(to)).length, { timeout: 60_000, message: 'alert email' }).toBeGreaterThan(0);
+    const mail = (await smtpMessages()).find((m) => JSON.stringify(m).includes(to));
+    expect(mail.subject).toBe(`[NetworkMonitor] [Critical] DOWN: ${deviceName} / ${dName}`);
+  }
+  await opt.uncheck();
+  await expect.poll(async () => (await admin.get('/api/settings/severity-mapping')).severity_in_subject, { timeout: 10_000 }).toBe(false);
 });
 
 test('Hebrew labels: tags, counts, Events filter, sensor form', async ({ page }) => {

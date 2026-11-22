@@ -195,3 +195,45 @@ def test_event_rule_severity_validation() -> None:
     assert exc.value.details[0]["loc"] == ["body", "severity"]
     with pytest.raises(ApiError):
         rules.validate_rule(_rule(action="ignore", clear_after_min=None, severity="major"))
+
+
+# ---------------------------------------------------------------- [severity] subject option
+def _subjects(on: bool, **extra: object) -> dict[str, dict[str, str]]:
+    token = templates.SUBJECT_SEVERITY.set(on)
+    try:
+        return {
+            name: {lang: templates.subject(p, lang) for lang in ("en", "he")}
+            for name, p in severity_golden.payloads(**extra).items()
+        }
+    finally:
+        templates.SUBJECT_SEVERITY.reset(token)
+
+
+def test_subject_option_off_is_byte_identical_even_with_a_severity() -> None:
+    expected = json.loads(GOLDEN.read_text(encoding="utf-8"))
+    for sev_value in (None, "critical"):
+        extra = {} if sev_value is None else {"severity": sev_value}
+        got = _subjects(False, **extra)
+        for name, langs in got.items():
+            for lang, subj in langs.items():
+                assert subj == expected[name][lang]["subject"], (name, lang)
+    # the option alone (feature OFF: no severity in the payload) changes nothing either
+    for name, langs in _subjects(True).items():
+        for lang, subj in langs.items():
+            assert subj == expected[name][lang]["subject"], (name, lang)
+
+
+def test_subject_option_on_names_the_severity() -> None:
+    got = _subjects(True, severity="critical")
+    assert got["problem"]["en"] == "[NetworkMonitor] [Critical] DOWN: core-sw / Ping"
+    assert got["problem"]["he"] == "[NetworkMonitor] [קריטית] תקלה: core-sw / Ping"
+    assert got["warning"]["en"] == "[NetworkMonitor] [Critical] WARNING: core-sw / Ping"
+    assert got["escalation"]["en"].startswith("[NetworkMonitor] [Critical] ")
+    assert got["recovery"]["en"] == "[NetworkMonitor] [Critical] UP: core-sw / Ping"
+    assert got["test"]["en"] == "[NetworkMonitor] Test notification"  # no severity on tests
+    minor = _subjects(True, severity="minor")["after_maintenance"]
+    assert minor["en"].startswith("[NetworkMonitor] [Minor] DOWN")
+    assert minor["he"].startswith("[NetworkMonitor] [קלה] ")
+    # a null severity (a problem from before the feature was on): no tag
+    null = _subjects(True, severity=None)["problem"]["en"]
+    assert null == "[NetworkMonitor] DOWN: core-sw / Ping"

@@ -37,6 +37,9 @@ log = logging.getLogger("netmon.severity")
 
 FEATURE = "alert_severity"
 KEY = "severity_mapping"
+# Admin option (default off): email subjects name the severity ("[Critical] DOWN: …"), only while
+# the feature is ON; off, the subject is byte-identical to before.
+SUBJECT_KEY = "severity_in_subject"
 LEVELS: tuple[str, ...] = ("critical", "major", "minor", "warning", "info")
 RANK: dict[str, int] = {lvl: len(LEVELS) - i for i, lvl in enumerate(LEVELS)}  # critical=5
 PROBLEM = ("down", "warning")

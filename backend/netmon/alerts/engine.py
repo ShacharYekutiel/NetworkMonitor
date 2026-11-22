@@ -852,6 +852,10 @@ class AlertEngine:
         if jobs:
             sem = asyncio.Semaphore(MAX_PARALLEL_SENDS)
             token = templates.DISPLAY_TZ.set(str(cfg.get("timezone") or "UTC"))
+            # [severity] the admin option, only while the feature is ON
+            sev_token = templates.SUBJECT_SEVERITY.set(
+                bool(cfg.get("severity_in_subject")) and bool(cfg.get("_severity_on"))
+            )
             try:
 
                 async def one(key: tuple[Any, ...], job: Any) -> None:
@@ -861,6 +865,7 @@ class AlertEngine:
 
                 await asyncio.gather(*(one(k, j) for k, j in jobs.items()))
             finally:
+                templates.SUBJECT_SEVERITY.reset(sev_token)
                 templates.DISPLAY_TZ.reset(token)
             for key, ok in results.items():
                 self._sent[key] = ok

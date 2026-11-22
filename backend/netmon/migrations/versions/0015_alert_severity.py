@@ -68,6 +68,7 @@ DOWNGRADE = [
     "ALTER TABLE sensors DROP COLUMN IF EXISTS severity_down",
     "ALTER TABLE sensors DROP COLUMN IF EXISTS severity",
     "DELETE FROM settings WHERE key = 'severity_mapping'",
+    "DELETE FROM settings WHERE key = 'severity_in_subject'",
     "DELETE FROM settings WHERE key = 'feature_alert_severity_enabled'",
 ]
 

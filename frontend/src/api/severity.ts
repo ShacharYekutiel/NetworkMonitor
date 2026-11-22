@@ -31,6 +31,8 @@ export type SeverityMappingSettings = {
   mapping: SeverityMapping;
   defaults: SeverityMapping;
   levels: Severity[];
+  /** admin option: email subjects name the severity ("[Critical] DOWN: …"), only while ON */
+  severity_in_subject?: boolean;
 };
 
 export type BulkSeverityInput = {
@@ -45,7 +47,7 @@ export const qkSeverity = {
 
 export const severityApi = {
   mapping: () => api.get<SeverityMappingSettings>('/settings/severity-mapping'),
-  updateMapping: (body: Partial<SeverityMapping>) =>
+  updateMapping: (body: Partial<SeverityMapping> & { severity_in_subject?: boolean }) =>
     api.put<SeverityMappingSettings>('/settings/severity-mapping', body),
   resetMapping: () => api.post<SeverityMappingSettings>('/settings/severity-mapping/reset'),
   bulkSeverity: (body: BulkSeverityInput) =>

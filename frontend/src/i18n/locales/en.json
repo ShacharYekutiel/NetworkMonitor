@@ -4402,7 +4402,9 @@
       "resetDone": "Classification reset to the defaults.",
       "readOnly": "Only administrators can change the classification.",
       "view": "How severities are assigned",
-      "edit": "Edit in Settings"
+      "edit": "Edit in Settings",
+      "subject": "Include the severity in the email subject",
+      "subjectHint": "e.g. \"[NetworkMonitor] [Critical] DOWN: core-sw / Ping\". Off: the subject stays exactly as before (mail filters keep working)."
     },
     "rule": {
       "label": "Only for severities",

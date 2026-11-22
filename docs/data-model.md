@@ -4492,6 +4492,11 @@ missing keys take the default.
 | `warning_none` | `warning` |
 | `info` | `info` |
 
+Settings key **`severity_in_subject`** (bool, default `false`; served and changed with the mapping through
+`GET/PUT /api/settings/severity-mapping`, not part of `GET /api/settings`; the mapping reset keeps it): while it and
+the feature are ON, email subjects of notifications with a severity read `[NetworkMonitor] [<Level>] <STATUS>: …`
+(`netmon.alerts.templates.SUBJECT_SEVERITY`, set by the alert engine around its sends). Off: subjects unchanged.
+
 ## [severity] Columns (migration `0015`)
 
 | Table.column | Type | Meaning |
@@ -4512,5 +4517,5 @@ AND S = ANY(on_statuses) AND (E.severity IS NULL OR cardinality(severities) = 0 
 File `backend/netmon/migrations/versions/0015_alert_severity.py`, `revision = "0015"`, `down_revision = "0014"`.
 Plain DDL (`events` is a plain table in both modes), identical in TimescaleDB and plain PostgreSQL mode, idempotent
 (`ADD COLUMN IF NOT EXISTS`, constraints dropped and re-added). `upgrade()`: the columns, checks and index above;
-existing rows NULL / `{}`. `downgrade()`: drops them and deletes the settings rows `severity_mapping` and
-`feature_alert_severity_enabled` (the stored severities, overrides, rule filters and mapping are lost).
+existing rows NULL / `{}`. `downgrade()`: drops them and deletes the settings rows `severity_mapping`, `severity_in_subject` and
+`feature_alert_severity_enabled` (the stored severities, overrides, rule filters, mapping and option are lost).

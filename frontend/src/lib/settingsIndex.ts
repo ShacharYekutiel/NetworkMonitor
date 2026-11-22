@@ -105,6 +105,12 @@ export const SETTINGS_CARDS: SettingsCardDef[] = [
       { labelKey: 'severity.mapping.severity', extraKeys: SEVERITY_LEVEL_KEYS },
       { labelKey: 'severity.mapping.reset' },
       { labelKey: 'severity.mapping.reclassify' },
+      {
+        labelKey: 'severity.mapping.subject',
+        hintKey: 'severity.mapping.subjectHint',
+        terms: ['email', 'subject', 'mail'],
+        anchor: 'severity-subject',
+      },
     ],
   },
   // [1.4.1] security hardening

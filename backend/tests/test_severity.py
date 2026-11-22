@@ -802,3 +802,56 @@ async def test_event_sensor_follows_a_new_worst_condition(
     assert {"id": sid, "device_id": msgs[-1]["data"]["device_id"], "severity": "critical"} in [
         m["data"] for m in msgs if m["type"] == "sensor.severity"
     ]
+
+
+# ---------------------------------------------------------------- [severity] subject option
+async def test_subject_option_api_audit_and_engine(
+    rt: Runtime, admin: httpx.AsyncClient, viewer: httpx.AsyncClient, clock: FakeClock
+) -> None:
+    from netmon.alerts import templates
+
+    r = await viewer.get("/api/settings/severity-mapping")
+    assert r.json()["severity_in_subject"] is False  # default off
+    await feature(admin, True, audit=True)
+    r = await admin.put("/api/settings/severity-mapping", json={"severity_in_subject": True})
+    assert r.status_code == 200, r.text
+    assert r.json()["severity_in_subject"] is True
+    assert r.json()["mapping"] == r.json()["defaults"]  # no mapping row changed
+    audit = await q(
+        rt, "SELECT changes FROM audit_log WHERE action = 'settings.update' ORDER BY id DESC"
+    )
+    assert audit[0]["changes"]["severity_in_subject"] == [False, True]
+    assert "severity_in_subject" not in (await admin.get("/api/settings")).json()
+    # reset puts the mapping back and keeps the option
+    r = await admin.post("/api/settings/severity-mapping/reset")
+    assert r.json()["severity_in_subject"] is True
+    assert (
+        await admin.put("/api/settings/severity-mapping", json={"severity_in_subject": "x"})
+    ).status_code == 422
+    assert (
+        await viewer.put("/api/settings/severity-mapping", json={"severity_in_subject": False})
+    ).status_code == 403
+
+    # the engine renders the subject with the option while sending
+    seen: list[str] = []
+
+    async def sender(channel, payload, smtp, lang):  # type: ignore[no-untyped-def]
+        seen.append(templates.subject(payload, "en"))
+
+    rt.alerts.sender = sender
+    chan = await channel(admin, "subj")
+    await rule(admin, "all", chan)
+    s = await ping(admin)
+    await run(rt, clock, s["id"], DOWN)
+    assert seen == [f"[NetworkMonitor] [Critical] DOWN: dev1 / {s['name']}"]
+    # option off -> the subject as before
+    seen.clear()
+    await admin.put("/api/settings/severity-mapping", json={"severity_in_subject": False})
+    await run(rt, clock, s["id"], UP)
+    assert seen == [f"[NetworkMonitor] UP: dev1 / {s['name']}"]
+    # option on but the feature off -> as before (no severity in the payload)
+    seen.clear()
+    await admin.put("/api/settings/severity-mapping", json={"severity_in_subject": True})
+    await feature(admin, False)
+    await run(rt, clock, s["id"], DOWN)
+    assert seen == [f"[NetworkMonitor] DOWN: dev1 / {s['name']}"]

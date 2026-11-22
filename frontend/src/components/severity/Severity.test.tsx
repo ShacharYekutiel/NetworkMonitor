@@ -153,6 +153,32 @@ describe('[severity] mapping card', () => {
     expect(calls.find((c) => c.method === 'PUT')!.body).toEqual({ down_warning: 'critical' });
   });
 
+  it('subject option: saved at once, only that key', async () => {
+    const calls = mockFetch(
+      routes(true, (method, url, body) =>
+        method === 'PUT' && url === '/api/settings/severity-mapping'
+          ? {
+              status: 200,
+              body: { mapping: DEFAULTS, defaults: DEFAULTS, levels: LEVELS, ...(body as object) },
+            }
+          : undefined,
+      ),
+    );
+    render(
+      <Wrap>
+        <SeverityMappingEditor />
+      </Wrap>,
+    );
+    const box = within(await screen.findByTestId('severity-subject-option')).getByRole('checkbox', {
+      name: 'Include the severity in the email subject',
+    }) as HTMLInputElement;
+    expect(box.checked).toBe(false);
+    fireEvent.click(box);
+    await waitFor(() => expect(calls.some((c) => c.method === 'PUT')).toBe(true));
+    expect(calls.find((c) => c.method === 'PUT')!.body).toEqual({ severity_in_subject: true });
+    await waitFor(() => expect(box.checked).toBe(true));
+  });
+
   it('reset asks first, then posts reset', async () => {
     const calls = mockFetch(
       routes(
