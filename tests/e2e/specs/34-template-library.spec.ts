@@ -19,7 +19,7 @@ const CONVERTED = ['opnsense', 'unifi_ap', 'printer', 'hpe_arubaos_switch', 'hpe
 const NEW = ORDER.filter((x) => !CONVERTED.includes(x));
 const FIXTURE_2B1 = join(__dirname, '..', '..', '..', 'backend', 'tests', 'fixtures', 'templates_2b1.json');
 // 2b-2-only keys (data-model § Schema: "the 2b-1 dict plus ...")
-const TOP_2B2 = ['version', 'verified', 'verified_note', 'vendor', 'source', 'overrides_builtin', 'file'];
+const TOP_2B2 = ['version', 'verified', 'verified_note', 'vendor', 'source', 'overrides_builtin', 'file', 'replaces']; // [template-switch] replaces: added after 2b-1 too
 const ENTRY_2B2 = ['confidence', 'notes', 'when'];
 const RULE_2B2 = ['sys_object_id_prefixes', 'sys_descr_regex'];
 
