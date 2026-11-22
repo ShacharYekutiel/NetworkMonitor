@@ -10,7 +10,8 @@ import {
   type IncidentState,
   type NmEvent,
 } from '../api/types';
-import { EventSource, StatusTransition, useEventTitle } from '../components/EventList';
+import { EventSource, eventEntity, StatusTransition, useEventTitle } from '../components/EventList';
+import { useEntityMenu } from '../components/treemenu/TreeContextMenu';
 import { Pagination } from '../components/Pagination';
 import { ExplainButton } from '../components/assistant/ExplainButton';
 import { useAiFeature } from '../components/assistant/common';
@@ -101,6 +102,7 @@ function EventEntry({ ev, time, timeTitle }: { ev: NmEvent; time: string; timeTi
   const { t } = useTranslation();
   const localize = useLocalizeMessage();
   const title = useEventTitle();
+  const menu = useEntityMenu();
   const hasSource = !!(ev.device_name || ev.sensor_name);
   const explain =
     ev.kind === 'status_change' &&
@@ -109,6 +111,7 @@ function EventEntry({ ev, time, timeTitle }: { ev: NmEvent; time: string; timeTi
   return (
     <TimelineEntry
       testId="event-entry"
+      rowProps={menu(eventEntity(ev))}
       time={time}
       timeTitle={timeTitle}
       tone={ev.new_status ?? 'neutral'}

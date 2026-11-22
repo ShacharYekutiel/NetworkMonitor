@@ -9,6 +9,7 @@ import { useLocalizeMessage } from '../hooks/localize';
 import { cx, Empty, GroupList, Table, td, th } from './ui';
 import { STATUS_DOT, statusClass } from '../lib/status';
 import { ExplainButton } from './assistant/ExplainButton';
+import { useEntityMenu, type EntityRef } from './treemenu/TreeContextMenu';
 
 export function EventKindLabel({ kind }: { kind: NmEvent['kind'] }) {
   const { t } = useTranslation();
@@ -43,6 +44,7 @@ export function EventsTable({
 }) {
   const { t } = useTranslation();
   const localize = useLocalizeMessage();
+  const menu = useEntityMenu();
   if (!events.length) return <Empty>{t('events.none')}</Empty>;
   return (
     <Table>
@@ -57,7 +59,7 @@ export function EventsTable({
       </thead>
       <tbody>
         {events.map((ev) => (
-          <tr key={ev.id} className="hover:bg-surface-hover">
+          <tr key={ev.id} {...menu(eventEntity(ev))} className="hover:bg-surface-hover">
             <td
               className={`${td} whitespace-nowrap font-mono text-[13px] tabular-nums text-ink-subtle`}
               title={formatRelative(ev.time)}
@@ -110,14 +112,26 @@ export function EventsTable({
   );
 }
 
+/** The sensor (else the device) an event is about, for the context menu of its row. */
+export function eventEntity(ev: NmEvent): EntityRef | null {
+  if (ev.sensor_id) return { kind: 'sensor', id: ev.sensor_id };
+  if (ev.device_id) return { kind: 'device', id: ev.device_id };
+  return null;
+}
+
 export function EventSource({ ev }: { ev: NmEvent }) {
   const { t } = useTranslation();
+  const menu = useEntityMenu();
   if (!ev.device_name && !ev.sensor_name)
     return <span className="text-ink-subtle">{t('events.system')}</span>;
   return (
     <span className="whitespace-nowrap">
       {ev.device_id && ev.device_name ? (
-        <Link className="text-ink hover:underline" to={`/devices/${ev.device_id}`}>
+        <Link
+          {...menu({ kind: 'device', id: ev.device_id })}
+          className="text-ink hover:underline"
+          to={`/devices/${ev.device_id}`}
+        >
           {ev.device_name}
         </Link>
       ) : (
@@ -127,7 +141,11 @@ export function EventSource({ ev }: { ev: NmEvent }) {
         <>
           <span className="mx-1 text-ink-subtle">/</span>
           {ev.sensor_id ? (
-            <Link className="text-accent-ink hover:underline" to={`/sensors/${ev.sensor_id}`}>
+            <Link
+              {...menu({ kind: 'sensor', id: ev.sensor_id })}
+              className="text-accent-ink hover:underline"
+              to={`/sensors/${ev.sensor_id}`}
+            >
               {ev.sensor_name}
             </Link>
           ) : (
@@ -167,6 +185,7 @@ function explainable(ev: NmEvent): boolean {
  */
 export function EventRows({ events, label }: { events: NmEvent[]; label?: string }) {
   const { t } = useTranslation();
+  const menu = useEntityMenu();
   const localize = useLocalizeMessage();
   const title = useEventTitle();
   if (!events.length)
@@ -180,7 +199,12 @@ export function EventRows({ events, label }: { events: NmEvent[]; label?: string
   return (
     <GroupList label={label} className="[&>li+li]:before:start-[46px]">
       {events.map((ev) => (
-        <li key={ev.id} data-testid="event-row" className="flex items-start gap-3.5 px-5 py-3.5">
+        <li
+          key={ev.id}
+          {...menu(eventEntity(ev))}
+          data-testid="event-row"
+          className="flex items-start gap-3.5 px-5 py-3.5"
+        >
           <span
             aria-hidden="true"
             className={cx(

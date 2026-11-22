@@ -7,6 +7,7 @@ import { GlobalMaintenanceBanner } from './Maintenance';
 import { MenuPanel } from './shell/MenuPanel';
 import { ShellContext } from './shell/shellContext';
 import { TopBar } from './shell/TopBar';
+import { TreeMenuProvider } from './treemenu/TreeContextMenu';
 import { cx } from './ui';
 
 export { Mark } from './shell/TopBar';
@@ -98,59 +99,62 @@ export function Layout() {
 
   return (
     <ShellContext.Provider value={shell}>
-      <div className="relative flex h-screen overflow-hidden print:block print:h-auto print:overflow-visible">
-        {pinned && (
-          <MenuPanel
-            id={MENU_ID}
-            pinned
-            open
-            tab={tab}
-            onTab={setTab}
-            onPin={setPinned}
-            onClose={close}
-          />
-        )}
-        <main
-          ref={mainRef}
-          className="relative min-w-0 flex-1 overflow-y-auto pt-header [container-type:inline-size] print:overflow-visible print:pt-0"
-        >
-          <div className="print:hidden">
-            <GlobalMaintenanceBanner />
-          </div>
-          <div
-            ref={pageRef}
-            className={cx(
-              'pb-16 pt-2 print:max-w-none print:p-0',
-              // pinned: the column fills the space next to the menu with 36px gutters (§ 6b)
-              pinned ? 'px-9' : 'mx-auto max-w-page px-6',
-            )}
-          >
-            <Outlet />
-          </div>
-        </main>
-        <TopBar menuId={MENU_ID} menuOpen={open || pinned} onMenu={onMenu} />
-        {!pinned && (
-          <>
-            <div
-              aria-hidden="true"
-              onClick={close}
-              className={cx(
-                'fixed inset-0 z-50 bg-overlay backdrop-blur-[4px] transition-opacity duration-300 print:hidden',
-                open ? 'opacity-100' : 'pointer-events-none opacity-0',
-              )}
-            />
+      {/* the group / device / sensor context menu on every screen (tree, rows, cards, nodes) */}
+      <TreeMenuProvider>
+        <div className="relative flex h-screen overflow-hidden print:block print:h-auto print:overflow-visible">
+          {pinned && (
             <MenuPanel
               id={MENU_ID}
-              pinned={false}
-              open={open}
+              pinned
+              open
               tab={tab}
               onTab={setTab}
               onPin={setPinned}
               onClose={close}
             />
-          </>
-        )}
-      </div>
+          )}
+          <main
+            ref={mainRef}
+            className="relative min-w-0 flex-1 overflow-y-auto pt-header [container-type:inline-size] print:overflow-visible print:pt-0"
+          >
+            <div className="print:hidden">
+              <GlobalMaintenanceBanner />
+            </div>
+            <div
+              ref={pageRef}
+              className={cx(
+                'pb-16 pt-2 print:max-w-none print:p-0',
+                // pinned: the column fills the space next to the menu with 36px gutters (§ 6b)
+                pinned ? 'px-9' : 'mx-auto max-w-page px-6',
+              )}
+            >
+              <Outlet />
+            </div>
+          </main>
+          <TopBar menuId={MENU_ID} menuOpen={open || pinned} onMenu={onMenu} />
+          {!pinned && (
+            <>
+              <div
+                aria-hidden="true"
+                onClick={close}
+                className={cx(
+                  'fixed inset-0 z-50 bg-overlay backdrop-blur-[4px] transition-opacity duration-300 print:hidden',
+                  open ? 'opacity-100' : 'pointer-events-none opacity-0',
+                )}
+              />
+              <MenuPanel
+                id={MENU_ID}
+                pinned={false}
+                open={open}
+                tab={tab}
+                onTab={setTab}
+                onPin={setPinned}
+                onClose={close}
+              />
+            </>
+          )}
+        </div>
+      </TreeMenuProvider>
     </ShellContext.Provider>
   );
 }

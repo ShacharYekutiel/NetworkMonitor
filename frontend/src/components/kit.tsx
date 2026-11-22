@@ -399,7 +399,10 @@ export function TimelineEntry({
   children,
   end,
   testId,
+  rowProps,
 }: {
+  /** extra attributes / handlers of the entry (e.g. the device / sensor context menu) */
+  rowProps?: React.HTMLAttributes<HTMLLIElement>;
   time: ReactNode;
   timeTitle?: string;
   tone?: string;
@@ -410,6 +413,7 @@ export function TimelineEntry({
 }) {
   return (
     <li
+      {...rowProps}
       data-testid={testId}
       className="grid grid-cols-[76px_22px_minmax(0,1fr)] gap-3 max-sm:grid-cols-[58px_18px_minmax(0,1fr)] max-sm:gap-2"
     >
@@ -634,7 +638,10 @@ export function ActionRow({
   wrap,
   selected,
   testId,
+  rowProps,
 }: {
+  /** extra attributes / handlers of the row (e.g. the group / device context menu) */
+  rowProps?: React.HTMLAttributes<HTMLLIElement>;
   icon?: ReactNode;
   /** shown as is in place of the icon tile (e.g. an Avatar) */
   lead?: ReactNode;
@@ -679,6 +686,7 @@ export function ActionRow({
     'flex min-w-0 flex-1 items-center gap-3.5 py-4 ps-5 text-start text-ink no-underline';
   return (
     <li
+      {...rowProps}
       data-testid={testId}
       className={cx(
         'flex items-center gap-2 pe-4 transition-colors',

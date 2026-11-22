@@ -857,7 +857,10 @@ export function ListRow({
   chevron,
   className,
   testId,
+  rowProps,
 }: {
+  /** extra attributes / handlers of the row (e.g. the group / device context menu) */
+  rowProps?: React.HTMLAttributes<HTMLLIElement>;
   icon?: ReactNode;
   /** a status dot instead of an icon tile (pass the Tailwind bg class) */
   dot?: string;
@@ -902,7 +905,7 @@ export function ListRow({
     (to || onClick) && 'hover:bg-surface-hover',
   );
   return (
-    <li className={className} data-testid={testId}>
+    <li {...rowProps} className={className} data-testid={testId}>
       {to ? (
         <Link to={to} className={cls}>
           {inner}

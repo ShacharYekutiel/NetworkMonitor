@@ -7,7 +7,7 @@ import { useLocalState } from '../hooks/useLocalState';
 import { formatValue } from '../lib/format';
 import { CheckIcon, ChevronIcon, FolderIcon, SearchIcon, ServerIcon, WrenchIcon } from './icons';
 import { StatusDot } from './Status';
-import { TreeMenuProvider, useTreeItemMenu } from './treemenu/TreeContextMenu';
+import { TreeMenuProvider, useTreeItemMenu, useTreeMenu } from './treemenu/TreeContextMenu';
 import { cx, ErrorBox, Input, Spinner, Value } from './ui';
 import { useLocalizeMessage } from '../hooks/localize';
 
@@ -219,6 +219,8 @@ function GroupRow({
 }
 
 export function TreeNav() {
+  // The shell provides the menu for every screen; a tree rendered on its own brings its own.
+  if (useTreeMenu()) return <TreeNavInner />;
   return (
     <TreeMenuProvider>
       <TreeNavInner />

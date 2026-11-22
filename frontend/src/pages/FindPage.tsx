@@ -1,4 +1,5 @@
 import { useEffect, useState, type FormEvent } from 'react';
+import { useEntityMenu } from '../components/treemenu/TreeContextMenu';
 import { Link, useNavigate, useSearchParams } from 'react-router';
 import { useQuery } from '@tanstack/react-query';
 import { useTranslation } from 'react-i18next';
@@ -31,8 +32,10 @@ const td = cx(baseTd, 'whitespace-nowrap');
 
 function Row({ x }: { x: MacLocation }) {
   const { t } = useTranslation();
+  const menu = useEntityMenu();
   return (
     <tr
+      {...menu({ kind: 'device', id: x.device_id })}
       className={cx('hover:bg-surface-hover', !x.present && 'text-ink-muted')}
       data-best={x.best || undefined}
     >
@@ -101,6 +104,7 @@ function Row({ x }: { x: MacLocation }) {
  * facts under it) and every location as a row next to it.
  */
 function BestCard({ best, others }: { best: MacLocation; others: MacLocation[] }) {
+  const menu = useEntityMenu();
   const { t } = useTranslation();
   const navigate = useNavigate();
   const ports = useQuery({
@@ -143,6 +147,7 @@ function BestCard({ best, others }: { best: MacLocation; others: MacLocation[] }
                 k: t('find.switch'),
                 v: (
                   <Link
+                    {...menu({ kind: 'device', id: best.device_id })}
                     to={`/devices/${best.device_id}`}
                     className="font-display text-ink hover:underline"
                   >
@@ -201,6 +206,7 @@ function BestCard({ best, others }: { best: MacLocation; others: MacLocation[] }
         {others.map((x) => (
           <ListRow
             key={`${x.mac}-${x.device_id}-${x.if_index}`}
+            rowProps={menu({ kind: 'device', id: x.device_id })}
             dot={x.present ? 'bg-status-up' : 'bg-status-paused'}
             to={portLink(x)}
             title={
@@ -217,6 +223,7 @@ function BestCard({ best, others }: { best: MacLocation; others: MacLocation[] }
 }
 
 export function FindPage() {
+  const menu = useEntityMenu();
   const { t } = useTranslation();
   const [params, setParams] = useSearchParams();
   const urlQuery: MacSearchQuery | null = params.get('ip')
@@ -340,6 +347,7 @@ export function FindPage() {
                     {q.data.arp.map((a) => (
                       <tr
                         key={`${a.ip}-${a.mac}-${a.source_device_id}`}
+                        {...menu({ kind: 'device', id: a.source_device_id })}
                         className={a.present ? undefined : 'text-ink-muted'}
                       >
                         <td className={td}>

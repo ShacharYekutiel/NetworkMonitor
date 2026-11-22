@@ -10,6 +10,7 @@ import { useLocalizeMessage } from '../hooks/localize';
 import { MaintenanceBadge } from './Maintenance';
 import { ImpactTag } from './SensorImpact';
 import { Empty, Table, td, th, Value } from './ui';
+import { useEntityMenu } from './treemenu/TreeContextMenu';
 
 const boxCls = CHECKBOX;
 
@@ -36,6 +37,7 @@ export function SensorTable({
 }) {
   const { t } = useTranslation();
   const localize = useLocalizeMessage();
+  const menu = useEntityMenu();
   if (!sensors.length) return <Empty>{t('sensors.none')}</Empty>;
   const sel = selection?.selected;
   const nSel = sel ? sensors.filter((s) => sel.has(s.id)).length : 0;
@@ -84,7 +86,11 @@ export function SensorTable({
         {sensors.map((s) => {
           const pc = primaryChannel(s);
           return (
-            <tr key={s.id} className={sel?.has(s.id) ? 'bg-accent-soft' : 'hover:bg-surface-hover'}>
+            <tr
+              key={s.id}
+              {...menu({ kind: 'sensor', id: s.id })}
+              className={sel?.has(s.id) ? 'bg-accent-soft' : 'hover:bg-surface-hover'}
+            >
               {selection && (
                 <td className={`${td} w-8`}>
                   <input
@@ -106,7 +112,11 @@ export function SensorTable({
               </td>
               {showDevice && (
                 <td className={`${td} whitespace-nowrap`}>
-                  <Link className="hover:underline" to={`/devices/${s.device_id}`}>
+                  <Link
+                    {...menu({ kind: 'device', id: s.device_id })}
+                    className="hover:underline"
+                    to={`/devices/${s.device_id}`}
+                  >
                     {s.device_name}
                   </Link>
                 </td>

@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useRef, useState, type ComponentType } from 'react';
 import { Link } from 'react-router';
+import { useEntityMenu } from '../treemenu/TreeContextMenu';
 import { useTranslation } from 'react-i18next';
 import type { MapStatus, OverviewMap, OverviewMapNode } from '../../api/premium';
 import { layoutMap, MAP_TILE, mapIcon, type MapIconKey } from '../../lib/homeMap';
@@ -65,6 +66,7 @@ function useWidth<T extends HTMLElement>() {
 
 function NodeTile({ n, x, y }: { n: OverviewMapNode; x: number; y: number }) {
   const { t } = useTranslation();
+  const menu = useEntityMenu();
   const Icon = ICON[mapIcon(n)];
   const bad = n.status !== 'up' && n.status !== 'unknown' && !!n.problem;
   // The virtual root of the whole network has no name: the client labels it.
@@ -111,6 +113,7 @@ function NodeTile({ n, x, y }: { n: OverviewMapNode; x: number; y: number }) {
   if (n.ref)
     return (
       <Link
+        {...menu({ kind: n.ref.type === 'device' ? 'device' : 'group', id: n.ref.id })}
         to={n.ref.type === 'device' ? `/devices/${n.ref.id}` : `/groups/${n.ref.id}`}
         className={cls}
         style={style}

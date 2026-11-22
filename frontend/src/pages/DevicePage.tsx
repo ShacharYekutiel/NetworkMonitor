@@ -41,6 +41,7 @@ import { FingerprintIcon } from '../components/icons';
 import type { DeviceIdentity, Sensor } from '../api/types';
 import { BulkImpactModal } from '../components/SensorImpact';
 import { BulkDeleteModal } from '../components/SensorBulkDelete';
+import { useEntityMenu } from '../components/treemenu/TreeContextMenu';
 import { l10n } from '../lib/templates';
 import { PortsTab } from '../components/ports/PortsTab';
 import { PortIcon } from '../components/icons';
@@ -197,6 +198,7 @@ export function DevicePage() {
   const navigate = useNavigate();
   const qc = useQueryClient();
   const toast = useToast();
+  const menu = useEntityMenu();
 
   const device = useQuery({ queryKey: qk.device(id), queryFn: () => endpoints.device(id) });
   const sensors = useQuery({
@@ -298,7 +300,12 @@ export function DevicePage() {
         title={
           <>
             <StatusDot status={d.status} className="h-3 w-3" />{' '}
-            <bdi dir="ltr" className="[font-family:var(--font-display)]">
+            <bdi
+              {...menu({ kind: 'device', id: d.id })}
+              dir="ltr"
+              className="[font-family:var(--font-display)]"
+              data-testid="device-title"
+            >
               {d.name}
             </bdi>
             {d.in_maintenance && (
