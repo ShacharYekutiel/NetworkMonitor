@@ -164,7 +164,7 @@ Frontend: React 18, TypeScript, Vite, Tailwind CSS, React Router, TanStack Query
 │       ├── i18n/                 # index.ts, locales/en.json, locales/he.json
 │       ├── components/           # StatusBadge, Tree, Charts, forms...
 │       ├── pages/                # Setup, Login, Dashboard, Group, Device, Sensor, Events,
-│       │                         # Alerts (rules+channels), Users, Settings
+│       │                         # Notifications (rules+channels), Users, Settings
 │       └── hooks/
 ├── deploy/
 │   ├── docker-compose.yml        # timescaledb + netmon
@@ -503,7 +503,7 @@ Backend, frontend and QA can implement in parallel against those two files.
      ids are negative, supergroups look like `-100…`.
    - *Channel:* add the bot as an **administrator** of the channel. For a public channel use `@channelname`;
      for a private one, post in the channel and read the `-100…` id from `getUpdates` (`channel_post.chat.id`).
-3. In NetworkMonitor: Alerts → Notification channels → Add → type **Telegram**, paste the token and the chat
+3. In NetworkMonitor: Notifications → Notification channels → Add → type **Telegram**, paste the token and the chat
    id, Save, then **Test**. Errors show Telegram's own text (e.g. "Bad Request: chat not found" = wrong id or
    the bot is not in that chat; "Unauthorized" = wrong token; "Forbidden: bot was blocked by the user" = press
    Start again).
@@ -584,7 +584,7 @@ refresh cancelled (ends `failed`, "Cancelled by shutdown"), then the loops.
   sends the browser time zone silently.
 - **Acknowledge:** on the sensor page and in problem lists (dashboard, sensors filtered by status) an admin
   "Acknowledge" button for down/warning → small dialog with optional comment; acknowledged sensors show a check
-  badge with tooltip "by admin at 09:12: comment" and an "Unacknowledge" action. Dashboard: *Problems* (not
+  badge with tooltip "by admin at 09:12: comment" and an "Unacknowledge" action. Dashboard: *Alerts* (not
   acknowledged), *Acknowledged* (separate card), *Unreachable devices* card (with parent), maintenance count.
   `sensor.ack` WS updates in place.
 - **Alert rule form:** collapsible "Escalation" section: "Escalate after [n] minutes if not acknowledged" +
@@ -3776,7 +3776,7 @@ rendered answer has no `<img>`, no external `href`, forged refs rendered as text
   bottom switch locked; Test with a bad secret → `aws_auth_failed` message; upload test `.pfx` → metadata shown;
   Roles Anywhere Test passes → switch unlocks → ON; editing the region locks it again; OFF always possible; enabling
   with `audit` OFF refused; viewer sees nothing and `/api/assistant/*` → 403; API token → 403.
-- `64-assistant-ask.spec.ts` — example chip → streamed answer with steps ("Listing problems… 2 sensors"), link to the
+- `64-assistant-ask.spec.ts` — example chip → streamed answer with steps ("Listing alerts… 2 sensors"), link to the
   device page works, *Copy*, thumbs up, conversation in history, follow-up question uses history, rename, delete.
 - `65-assistant-tools-features.spec.ts` — syslog OFF → not offered (mock log) and the answer says syslog is off; ON →
   offered; config sub-toggle OFF → no config tools; ON → `config_diff` result masked.

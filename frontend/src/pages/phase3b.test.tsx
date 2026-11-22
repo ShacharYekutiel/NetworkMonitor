@@ -110,7 +110,7 @@ describe('[3b] answer rendering', () => {
   it('renders steps, the nm link, no image and no external link', async () => {
     mockFetch(baseRoutes);
     const { container } = render(wrap(<AnswerBlock message={message} />));
-    expect(await screen.findByText('Listing problems…')).toBeTruthy();
+    expect(await screen.findByText('Listing alerts…')).toBeTruthy();
     expect(screen.getByText(/2 rows · 41 ms/)).toBeTruthy();
     const links = [...container.querySelectorAll('a')].map((a) => a.getAttribute('href'));
     expect(links).toContain('/sensors/7');
