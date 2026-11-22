@@ -72,7 +72,7 @@ export function EventsTable({
     () =>
       (
         [
-          { id: 'time', width: 172, label: t('events.time') },
+          { id: 'time', width: 206, label: t('events.time') },
           showKind && { id: 'kind', width: 140, label: t('events.kind') },
           showSource && { id: 'source', width: 230, label: t('events.source') },
           { id: 'status', width: 200, label: t('events.status') },
