@@ -286,11 +286,6 @@ export function isRealDrag(
   return true;
 }
 
-/** Force repulsion scaled by node count (denser graphs need more room). */
-export function forceRepulsion(nodeCount: number): number {
-  return Math.round(Math.min(1200, 180 + nodeCount * 18));
-}
-
 // ---------------------------------------------------------------------------
 // Dependency suggestions
 

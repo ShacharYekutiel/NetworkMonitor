@@ -40,12 +40,22 @@ import {
   td,
   th,
 } from '../components/ui';
+import { OptionCard } from '../components/kit';
 import { useAuth } from '../hooks/auth';
+import { useTree } from '../hooks/queries';
 import { useLocalState } from '../hooks/useLocalState';
 import { useTheme } from '../hooks/theme';
 import { errorMessage } from '../lib/errors';
 import { formatDateTime, formatRelative, formatValue } from '../lib/format';
 import { chartTokens } from '../lib/chartTokens';
+import { flattenGroups } from '../lib/tree';
+import {
+  arrangeAll,
+  canvasLabelMeasurer,
+  quantAspect,
+  type ArrangeStyle,
+  type GroupInfo,
+} from '../lib/topologyLayout';
 import {
   defaultSelection,
   linkState,
@@ -53,6 +63,25 @@ import {
   suggestionsToBulk,
   type GraphNodeDatum,
 } from '../lib/topology';
+
+/** "Fit to view": four corner marks. */
+function FitIcon() {
+  return (
+    <svg
+      width={14}
+      height={14}
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth={2}
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      aria-hidden="true"
+    >
+      <path d="M4 9V4h5M20 9V4h-5M4 15v5h5M20 15v5h-5" />
+    </svg>
+  );
+}
 
 type Selection = { kind: 'link'; id: number } | { kind: 'neighbor'; id: number } | null;
 
@@ -691,6 +720,10 @@ export function TopologyPage() {
   const [showNeighbors, setShowNeighbors] = useLocalState('netmon.topology.neighbors', true);
   const [positions, setPositions] = useState<Record<string, [number, number]>>({});
   const [resetToken, setResetToken] = useState(0);
+  // bumped to fit the whole picture into the canvas (first open, filter change, arrange, "Fit")
+  const [fitToken, setFitToken] = useState(0);
+  const [arranging, setArranging] = useState(false);
+  const [arrangeStyle, setArrangeStyle] = useState<ArrangeStyle>('tiered');
   const [sel, setSel] = useState<Selection>(null);
   const [addLink, setAddLink] = useState(false);
   const [suggest, setSuggest] = useState(false);
@@ -706,7 +739,19 @@ export function TopologyPage() {
     placeholderData: keepPreviousData,
   });
   // A different filter is a different node set: start from the stored layout again.
-  useEffect(() => setPositions({}), [groupId, includeStale, showNeighbors]);
+  useEffect(() => {
+    setPositions({});
+    setFitToken((x) => x + 1);
+  }, [groupId, includeStale, showNeighbors]);
+  // Group names and tree order: unlinked devices are arranged (and captioned) by group.
+  const tree = useTree();
+  const groups = useMemo(() => {
+    const m = new Map<number, GroupInfo>();
+    flattenGroups(tree.data?.groups ?? []).forEach(({ group }, i) =>
+      m.set(group.id, { name: group.name, order: i }),
+    );
+    return m;
+  }, [tree.data]);
 
   const save = useMutation({
     mutationFn: (p: LayoutPosition[]) => endpoints.saveLayout(p),
@@ -727,6 +772,7 @@ export function TopologyPage() {
     onSuccess: async () => {
       setPositions({});
       setResetToken((x) => x + 1);
+      setFitToken((x) => x + 1);
       setResetting(false);
       await qc.invalidateQueries({ queryKey: ['topology'] });
     },
@@ -766,6 +812,41 @@ export function TopologyPage() {
   const running = !!data && (data.refresh_running || data.last_refresh?.status === 'running');
   // The map canvas fills the viewport under the header (never shorter than 22rem).
   const canvas = useFillHeight<HTMLElement>(352, [!!data]);
+
+  // "Arrange automatically" (admin): the default arrangement for every node on the map, saved.
+  const arrange = useMutation({
+    mutationFn: async (style: ArrangeStyle) => {
+      if (!data) return;
+      const keys = new Set(data.nodes.map((n) => n.key));
+      const el = canvas.ref.current;
+      const pos = arrangeAll(
+        data.nodes.map((n) => ({
+          key: n.key,
+          name: n.name,
+          kind: n.kind,
+          groupId: n.kind === 'device' ? n.group_id : null,
+          deviceClass: n.kind === 'device' ? n.device_class : null,
+          pos: null,
+        })),
+        data.links
+          .filter((l) => keys.has(l.a.node) && keys.has(l.b.node))
+          .map((l) => ({ a: l.a.node, b: l.b.node })),
+        style,
+        {
+          groups,
+          measure: canvasLabelMeasurer(chartTokens(dark).fontDisplay),
+          aspect: quantAspect((el?.clientWidth ?? 0) - 48, (el?.clientHeight ?? 0) - 112),
+        },
+      );
+      await endpoints.saveLayout(Object.entries(pos).map(([node, [x, y]]) => ({ node, x, y })));
+      setPositions(pos);
+      setFitToken((x) => x + 1);
+    },
+    onSuccess: () => {
+      setArranging(false);
+      toast.push('success', t('topology.arranged'));
+    },
+  });
 
   const onNode = (n: GraphNodeDatum) => {
     if (n.kind === 'device') navigate(`/devices/${n.refId}`);
@@ -838,6 +919,16 @@ export function TopologyPage() {
               >
                 {t('topology.saveLayout')}
               </Button>
+              <Button
+                size="sm"
+                disabled={!data?.nodes.length}
+                onClick={() => {
+                  arrange.reset();
+                  setArranging(true);
+                }}
+              >
+                {t('topology.arrange')}
+              </Button>
               <Button size="sm" onClick={() => setResetting(true)}>
                 {t('topology.resetLayout')}
               </Button>
@@ -862,24 +953,44 @@ export function TopologyPage() {
             ref={canvas.ref}
             style={canvas.height ? { height: canvas.height } : undefined}
             // min height: the chart must never be created at 0 px (ECharts 6 view transform)
-            className="stage-bg flex min-h-[22rem] min-w-0 flex-col overflow-hidden rounded-[28px]"
+            className="stage-bg relative flex min-h-[22rem] min-w-0 flex-col overflow-hidden rounded-[28px]"
           >
             {data.nodes.length ? (
-              <TopologyChart
-                graph={data}
-                dark={dark}
-                showTraffic={showTraffic}
-                canSave={isAdmin}
-                positions={positions}
-                onPositions={setPositions}
-                onSave={(p) => save.mutate(p)}
-                onNodeClick={onNode}
-                onLinkClick={(id) => setSel({ kind: 'link', id })}
-                onBackgroundClick={() => setSel(null)}
-                resetToken={resetToken}
-                selected={selNeighbor?.key ?? null}
-                className="min-h-0 flex-1"
-              />
+              <>
+                <TopologyChart
+                  graph={data}
+                  dark={dark}
+                  showTraffic={showTraffic}
+                  canSave={isAdmin}
+                  positions={positions}
+                  onPositions={setPositions}
+                  onSave={(p) => save.mutate(p)}
+                  onNodeClick={onNode}
+                  onLinkClick={(id) => setSel({ kind: 'link', id })}
+                  onBackgroundClick={() => setSel(null)}
+                  resetToken={resetToken}
+                  fitToken={fitToken}
+                  groups={groups}
+                  selected={selNeighbor?.key ?? null}
+                  className="min-h-0 flex-1"
+                />
+                <div className="absolute end-3 top-3">
+                  <Button
+                    size="sm"
+                    className="bg-surface shadow-[0_1px_3px_rgba(0,0,0,0.08)]"
+                    title={t('topology.fit')}
+                    onClick={() => setFitToken((x) => x + 1)}
+                  >
+                    <FitIcon /> {t('topology.fit')}
+                  </Button>
+                </div>
+                <p
+                  data-testid="topology-drag-hint"
+                  className="pointer-events-none absolute inset-x-0 bottom-0 truncate px-5 pb-3 text-xs text-ink-muted"
+                >
+                  {t(isAdmin ? 'topology.dragHintAdmin' : 'topology.dragHintViewer')}
+                </p>
+              </>
             ) : (
               <Empty>{t('topology.empty')}</Empty>
             )}
@@ -949,6 +1060,43 @@ export function TopologyPage() {
         busy={removeStale.isPending}
         error={removeStale.error}
       />
+      {isAdmin && (
+        <Modal
+          open={arranging}
+          onClose={() => setArranging(false)}
+          title={t('topology.arrangeTitle')}
+          footer={
+            <>
+              <Button onClick={() => setArranging(false)}>{t('common.cancel')}</Button>
+              <Button
+                variant="primary"
+                busy={arrange.isPending}
+                onClick={() => arrange.mutate(arrangeStyle)}
+              >
+                {t('topology.arrangeApply')}
+              </Button>
+            </>
+          }
+        >
+          <div className="space-y-3">
+            <p className="text-sm text-ink-muted">{t('topology.arrangeConfirm')}</p>
+            <div role="radiogroup" aria-label={t('topology.arrange')} className="grid gap-2">
+              {(['tiered', 'groups'] as const).map((s) => (
+                <OptionCard
+                  key={s}
+                  name="arrange-style"
+                  value={s}
+                  checked={arrangeStyle === s}
+                  onChange={(v) => setArrangeStyle(v as ArrangeStyle)}
+                  title={t(`topology.arrangeStyle.${s}`)}
+                  hint={t(`topology.arrangeStyle.${s}Hint`)}
+                />
+              ))}
+            </div>
+            <ErrorBox error={arrange.error} />
+          </div>
+        </Modal>
+      )}
       <ConfirmDialog
         open={resetting}
         title={t('topology.resetLayout')}
