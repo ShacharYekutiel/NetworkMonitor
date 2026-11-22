@@ -7,6 +7,10 @@ apply. Where they disagree on look (colour, type, layout), **this document and `
 Direction in one line: **clean premium, Apple / Tesla-app feel** — calm surfaces, big type, few colours, status
 colour only where something is wrong, light and dark equally polished, Hebrew RTL first.
 
+> **Note:** `prototype.html` is no longer kept on this branch (it is a static mockup, never shipped, and code
+> scanning flagged its inline scripts). The design is implemented; the prototype itself stays on the design
+> branch `claude/epic-davinci-xuv2w1` for reference: `git show origin/claude/epic-davinci-xuv2w1:docs/design-system/premium/prototype.html`.
+
 ## 1. What is in this folder
 
 | File | What it is |

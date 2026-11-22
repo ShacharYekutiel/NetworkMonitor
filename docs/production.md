@@ -462,7 +462,7 @@ deploy step; migration `0015` only adds nullable columns. While off nothing chan
 fields). When on, every active problem and every new event gets one of five severities — critical > major >
 minor > warning > info:
 
-- **Default classification** (*Settings → Alert severity*, every row editable, "Reset to defaults"): down + impact
+- **Default classification** (*Settings → General → Alert severity*, every row editable, "Reset to defaults"): down + impact
   critical → critical, down + impact warning → major, down + impact none → minor, warning → warning, recoveries and
   other informational changes → info.
 - **Per sensor**: an optional severity for the down state and one for the warning state (sensor page or the
