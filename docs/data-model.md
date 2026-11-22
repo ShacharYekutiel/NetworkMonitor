@@ -19,6 +19,8 @@ Sections marked **[1.3]** (sensor impact, important ports, LAG degraded, templat
 [§ Release 1.3](#13-release-13-additions), migration `0008`.
 Sections marked **[1.3.1]** (IRF ports are important, named value maps, IRF role names) are in
 [§ Release 1.3.1](#131-release-131-additions), migration `0009`.
+Sections marked **[severity]** (alert severity: levels, mapping, overrides, rule severities) are in
+[§ Alert severity](#severity-alert-severity), migration `0015`.
 
 PostgreSQL ≥ 14 holds the data, and TimescaleDB is optional (see [architecture.md §6](architecture.md)). Alembic
 migrations own the schema.
@@ -4429,3 +4431,86 @@ from the migration scripts). Plain DDL, identical in TimescaleDB and plain Postg
 
 The 1.4.2 start-up check for the secrets-at-rest form and `netmon secrets remove-plaintext` accept any revision at
 or after `0012` (they compared with `0012` exactly).
+
+# **[severity]** Alert severity
+
+Active problems and events are classified by severity (API: [api.md § Alert severity](api.md#severity-alert-severity);
+code: `netmon.services.severity`). Feature toggle `feature_alert_severity_enabled` (bool, default `false`, also on
+upgraded installs): **OFF means exactly** nothing is resolved or written (`events.severity`, `sensors.severity`,
+`alert_state.severity` stay NULL for new rows; `sensors.severity` is cleared when the feature is turned off),
+`alert_rules.severities` is ignored by the rule matching, notification payloads have no `severity` key (messages
+byte-identical), lists keep their orders. Stored configuration (overrides, rule severities, mapping) is kept and
+editable while OFF.
+
+## [severity] Levels
+
+Enum `severity`, ordered highest first: `critical` (rank 5) > `major` (4) > `minor` (3) > `warning` (2) > `info` (1).
+Sorting by severity uses the rank, NULL = 0 (last). "Highest" of a set = the highest rank.
+
+## [severity] Resolution (when a status_change event is written, `EventWriter.add_status_change`)
+
+For the sensor's new status S (only while the feature is ON):
+
+1. S = `down` and `sensors.severity_down` is set → it; S = `warning` and `severity_warning` is set → it;
+2. S ∈ {down, warning}, sensor type `trap` / `syslog`, and the event rule of the worst active condition (order of
+   `EventSensors.recompute`: down before warning, newest `last_at`, highest id) has `severity` → it;
+3. S ∈ {down, warning} → `severity_mapping["<S>_<sensors.impact>"]`;
+4. any other S (`up`, `paused`, `unreachable`, `unknown`) → `severity_mapping["info"]`.
+
+The result is written to `events.severity`, and `sensors.severity` = the result when S ∈ {down, warning}, else
+NULL. `alert_state.severity` takes the event's severity when a rule row opens or changes within the problem and keeps
+it through the recovery (recovery payloads name the severity of the problem that recovered).
+`notification_sent` events copy the severity of the payload they record.
+
+**Re-resolution (active problems only).** A change of the mapping (PUT / reset), of a sensor's
+`severity_down` / `severity_warning` (PATCH, bulk) or of its `impact` (PATCH, bulk-impact) recomputes, for every
+affected sensor whose status is down / warning, the severity by the same rules and updates `sensors.severity`
+and `alert_state.severity` of its down / warning rows. `events` rows are never updated (history is stable). One
+audit row `sensor.severity` per sensor whose severity changed (`changes: {"severity": [old, new]}`, `reason`:
+`mapping` / `override` / `impact`), in its own transaction right after the change was committed. An event sensor
+whose worst condition changes without a status change follows the same way (no audit row). The notification
+rule match is not redone by a re-resolution (it is decided when the problem opens or changes status, like
+`on_statuses`).
+
+**Turning the feature ON** resolves every sensor that is down / warning now (sets `sensors.severity` and
+`alert_state.severity`); the events that opened those problems stay NULL (no backfill guessing). Turning it OFF
+sets `sensors.severity` = NULL everywhere.
+
+## [severity] Settings key `severity_mapping`
+
+Object, default below (not part of `GET /api/settings`; served by `GET/PUT /api/settings/severity-mapping`, reset by
+`POST /api/settings/severity-mapping/reset`). Read with `normalize()`: unknown keys and invalid levels are dropped,
+missing keys take the default.
+
+| Key | Default |
+|---|---|
+| `down_critical` | `critical` |
+| `down_warning` | `major` |
+| `down_none` | `minor` |
+| `warning_critical` | `warning` |
+| `warning_warning` | `warning` |
+| `warning_none` | `warning` |
+| `info` | `info` |
+
+## [severity] Columns (migration `0015`)
+
+| Table.column | Type | Meaning |
+|---|---|---|
+| `sensors.severity` | text NULL CHECK in severity | current problem's resolved severity; NULL = not down / warning, or the feature is OFF |
+| `sensors.severity_down` | text NULL CHECK in severity | override for the down state (NULL = rule / mapping) |
+| `sensors.severity_warning` | text NULL CHECK in severity | override for the warning state |
+| `events.severity` | text NULL CHECK in severity | resolved when written (status_change; notification_sent copies its payload's); never updated. Partial index `ix_events_severity_time (severity, time DESC) WHERE severity IS NOT NULL` |
+| `event_rules.severity` | text NULL CHECK in severity | optional; the API accepts it only for `action` warning / down |
+| `alert_rules.severities` | text[] NOT NULL DEFAULT `'{}'` CHECK `severities <@ ARRAY[levels]` | the rule applies to these severities; `{}` = all |
+| `alert_state.severity` | text NULL CHECK in severity | the notified problem's severity (escalation, reminder, recovery payloads) |
+
+Rule matching in `alert_engine.apply_event` (problem statuses): `enabled AND (sensor_id IS NULL OR sensor_id = X)
+AND S = ANY(on_statuses) AND (E.severity IS NULL OR cardinality(severities) = 0 OR E.severity = ANY(severities))`
+— `E.severity` is NULL exactly while the feature is OFF, so the OFF matching is the one before 0015.
+
+## [severity] Migration (`0015`)
+File `backend/netmon/migrations/versions/0015_alert_severity.py`, `revision = "0015"`, `down_revision = "0014"`.
+Plain DDL (`events` is a plain table in both modes), identical in TimescaleDB and plain PostgreSQL mode, idempotent
+(`ADD COLUMN IF NOT EXISTS`, constraints dropped and re-added). `upgrade()`: the columns, checks and index above;
+existing rows NULL / `{}`. `downgrade()`: drops them and deletes the settings rows `severity_mapping` and
+`feature_alert_severity_enabled` (the stored severities, overrides, rule filters and mapping are lost).

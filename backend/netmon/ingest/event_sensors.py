@@ -81,6 +81,7 @@ class EventSensors:
         self._wake = asyncio.Event()
         self._task: asyncio.Task[None] | None = None
         self.loaded = False
+        self._severity_changes: list[dict[str, Any]] = []  # [severity]
 
     # ---------------------------------------------------------------- caches
     async def reload(self) -> None:
@@ -367,6 +368,9 @@ class EventSensors:
         )
         if new != sensor.severity:
             sensor.severity = new
+            self._severity_changes.append(
+                {"id": sensor.id, "device_id": sensor.device_id, "new": new}
+            )
             await session.execute(
                 text(
                     "UPDATE alert_state SET severity = :v WHERE sensor_id = :s "
@@ -404,6 +408,11 @@ class EventSensors:
     ) -> None:
         for upd in updates:
             self.rt.hub.broadcast("sensor.update", upd)
+        if self._severity_changes:  # [severity] `sensor.severity` after the commit
+            from netmon.services import severity as severity_svc
+
+            changes, self._severity_changes = self._severity_changes, []
+            severity_svc.broadcast(self.rt, changes)
         if evs:
             events_svc.published(self.rt, evs)
         for sid in created or []:

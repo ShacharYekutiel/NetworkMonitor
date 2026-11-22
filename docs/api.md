@@ -13,6 +13,8 @@ Items marked **[1.3.1]** (IRF ports important, named value maps) are specified i
 [§ Release 1.3.1](#131-release-131-contract).
 Items marked **[premium]** (connected device kind per port, home network map, signed-in browsers) are specified in
 [§ Premium UI additions](#premium-premium-ui-additions).
+Items marked **[severity]** (alert severity: levels, mapping, overrides, filters, notification rule severities) are
+specified in [§ Alert severity](#severity-alert-severity).
 
 This file is the contract between the backend (`backend/netmon/schemas`) and the frontend
 (`frontend/src/api/types.ts`). **Field names are exact.** For the table semantics see
@@ -2967,3 +2969,186 @@ Example (`backbone`, `group_id` omitted):
              { "from": "d2", "to": "g4", "status": "down" } ],
   "configured": true }
 ```
+
+## [severity] Alert severity
+
+Active problems ("alerts") and events carry one of five ordered **severities**, like professional NMS tools.
+Table semantics and the resolution rules: [data-model.md § Alert severity](data-model.md#severity-alert-severity).
+Feature toggle **`alert_severity`** (Settings → Features, `feature_alert_severity_enabled`, **off by default**).
+No device is ever read from or written to by anything in this section.
+
+### [severity] Feature off
+
+While `alert_severity` is OFF **nothing changes**: no severity is resolved or stored, notification messages on
+every channel (email, Telegram, Teams, webhook body) are byte-identical to before, notification rules match
+exactly as before (their `severities` are not looked at), the order of every list is unchanged, and every existing
+response field is unchanged. The **new** fields below are present and `null` (counts objects `null`; `Sensor.severity`
+`null`). Exceptions, all additive: stored configuration is returned as stored (`Sensor.severity_down` /
+`severity_warning`, `AlertRule.severities`, `EventRule.severity`, the mapping) and can be edited while OFF so
+the admin can prepare before turning the feature on; `Event.severity` of events written while the feature was
+ON stays (history); the `severity` / `sort=severity` query parameters work on the stored values. The assistant
+tools do not offer or return severity while OFF.
+
+Turning it **ON** resolves the active problems once (`Sensor.severity` is set for every sensor that is down /
+warning now); the events that opened them stay `null` (no backfill). Turning it **OFF** clears `Sensor.severity`.
+
+### [severity] Types
+
+```ts
+type Severity = "critical" | "major" | "minor" | "warning" | "info";  // highest first
+type SeverityCounts = { critical: number; major: number; minor: number; warning: number; info: number;
+  total: number };                                                     // current problems only
+
+// Keys of the mapping: a problem by status and impact, everything else "info"
+type SeverityMappingKey = "down_critical" | "down_warning" | "down_none"
+  | "warning_critical" | "warning_warning" | "warning_none" | "info";
+type SeverityMapping = Record<SeverityMappingKey, Severity>;
+type SeverityMappingSettings = { mapping: SeverityMapping; defaults: SeverityMapping;
+  levels: Severity[] };                                                // levels = ["critical", …, "info"]
+```
+
+Shipped defaults (`defaults`; every row is editable, `reset` puts these back):
+
+| Key | Meaning | Default |
+|---|---|---|
+| `down_critical` | sensor **down**, impact `critical` | `critical` |
+| `down_warning` | sensor **down**, impact `warning` | `major` |
+| `down_none` | sensor **down**, impact `none` | `minor` |
+| `warning_critical` | sensor **warning**, impact `critical` | `warning` |
+| `warning_warning` | sensor **warning**, impact `warning` | `warning` |
+| `warning_none` | sensor **warning**, impact `none` | `warning` |
+| `info` | everything informational: recoveries (`up`), `paused`, `unreachable`, `unknown` | `info` |
+
+**Where a severity comes from** (first match wins; only for down / warning — the `info` row is used for every
+other status):
+1. the sensor's override `severity_down` (status down) / `severity_warning` (status warning);
+2. trap / syslog event sensors: the `severity` of the event rule whose condition sets the sensor's status (the worst
+   active condition — the same one whose text is the status message); a rule without a severity falls through;
+3. the mapping row `<status>_<sensor impact>`.
+
+**Stored, not recomputed.** The severity is resolved when the status change happens and stored with the event
+(`Event.severity`) and as the sensor's current problem severity (`Sensor.severity`). Editing the mapping, an override
+or the impact later **re-resolves the active problems only** (their `Sensor.severity`, the severity in their
+escalation / reminder / recovery notifications); history (`Event.severity`, report runs) never changes. Each
+re-resolved problem whose severity changed writes an audit row `sensor.severity` and a WS `sensor.severity`. An event
+sensor whose worst condition changes without a status change (another rule matched) also follows (no audit row:
+the problem itself changed, not the classification).
+
+### [severity] Type changes (additive)
+
+| Type | New fields |
+|---|---|
+| `Sensor` | `severity: Severity \| null` — the current problem's severity (`null` when the sensor is not down / warning, or the feature is OFF); `severity_down: Severity \| null`, `severity_warning: Severity \| null` — the overrides (`null` = the event rule / mapping decides) |
+| `Event` | `severity: Severity \| null` — stored when written. `status_change` events written while ON always have one (`info` for recoveries and non-problem changes); `notification_sent` events carry the severity of the notification they record; every other kind `null` |
+| `AlertRule` | `severities: Severity[]` — the severities the rule applies to, in level order; `[]` = all (the behaviour before) |
+| `EventRule` | `severity: Severity \| null` — only for `action` `warning` / `down` (otherwise `422`, `loc: ["body","severity"]`); not to be confused with the syslog severity in `match.severity_max` (0–7) |
+| `Incident` (`/api/incidents`, `/api/incidents/{id}`, WS `incident.*`) | `severity: Severity \| null` — the highest `Event.severity` of its members' events; members gain `severity` (their event's) |
+| `Dashboard` | `severity_counts: SeverityCounts \| null` (all current problems, acknowledged included), `severity_counts_unacknowledged: SeverityCounts \| null`; both `null` while OFF |
+| `KioskView` | `summary.severity_counts: SeverityCounts \| null`; `problems[].severity`, `recent_alerts[].severity`: `Severity \| null` |
+| `ReportData.top_alerts[]` | `severity: Severity \| null` — **only while ON** (key absent while OFF): the highest severity of the sensor's problems (status_change events down / warning) in the period. The HTML report shows a "Severity" column when the key is present |
+
+**Orders while ON** (unchanged while OFF): `Dashboard.problem_sensors` highest severity first, then the Phase 1 order;
+`KioskView.problems` not-acknowledged first, then highest severity, then the existing order.
+
+### [severity] Endpoints
+
+| Method & path | Role | Request | Response |
+|---|---|---|---|
+| `GET /api/settings/severity-mapping` | viewer | — | `200 SeverityMappingSettings` |
+| `PUT /api/settings/severity-mapping` | admin | subset of `SeverityMapping` (omitted keys keep their value; unknown key or level → `422`) | `200 SeverityMappingSettings`. Audited as `settings.update` (`changes["severity_mapping.<key>"] = [old, new]`). While ON the active problems are re-resolved (audit `sensor.severity`, reason `mapping`). |
+| `POST /api/settings/severity-mapping/reset` | admin | — (no body) | `200 SeverityMappingSettings` with `mapping` = `defaults`; audit / re-resolution as PUT |
+| `POST /api/sensors/bulk-severity` | admin | `{"sensor_ids": int[] (1–1000), "severity_down"?: Severity \| null, "severity_warning"?: Severity \| null}` — an omitted key keeps each sensor's value, `null` clears the override; at least one of the two keys | `200 {"updated": n}` — sensors whose overrides actually changed. Unknown id → `422` (nothing changed); neither key → `422` (`loc: ["body"]`); unknown key → `422`. One `sensor.update` audit row per changed sensor (`changes.severity_down = [old, new]` …); active problems re-resolved (reason `override`). WS `config.changed` (`device`, `updated`) once per affected device. Same shape as `bulk-impact` |
+| `POST /api/sensors` | admin | + optional `severity_down`, `severity_warning` (default `null`) | `Sensor` |
+| `PATCH /api/sensors/{id}` | admin | + `severity_down`, `severity_warning` (`null` clears; also allowed for event sensors) | `Sensor` (re-resolved). Audit `sensor.update` covers both keys; a change of `impact` / overrides re-resolves an active problem (`sensor.severity`, reason `override` or `impact`). `POST /api/sensors/bulk-impact` also re-resolves (reason `impact`) |
+| `POST /api/alert-rules`, `PATCH /api/alert-rules/{id}` | admin | + `severities: Severity[]` (≤ 5; create default `[]`; PATCH replaces the set, `[]` clears) | `AlertRule`; unknown level → `422`. Audited in `alert_rule.create/update` |
+| `POST /api/event-rules`, `PATCH /api/event-rules/{id}`, `POST /api/event-rules/test` | admin | + `severity: Severity \| null` | `EventRule`; audited in `event_rule.create/update` |
+
+Viewers read every severity field and the mapping; only admins change the mapping, overrides and rules (the
+permission model of sensor edits). The mapping, overrides and rule severities can be edited while the feature is OFF
+(no effect until it is ON).
+
+### [severity] Query parameters
+
+| Endpoint | Parameter | Meaning |
+|---|---|---|
+| `GET /api/events`, `GET /api/sensors/{id}/events` | `severity` | csv of `Severity` (multi-value, e.g. `severity=critical,major`), matches the stored `Event.severity`; an unknown level → `422` (`loc: ["query","severity"]`) |
+| same | `sort` | `time` (default: `time DESC, id DESC`) \| `severity` (highest first, `null` last, then `time DESC, id DESC`); other values → `422` |
+| `GET /api/sensors` (the problems list: `status=down,warning`) | `severity` | csv of `Severity`, matches `Sensor.severity` (current problems) |
+| same | `sort` | `default` (unchanged orders) \| `severity`: highest current severity first (`null` last), then the "worst first" order (status severity desc, `last_status_change_at` asc), device name, sensor name |
+
+Examples: `GET /api/events?kind=status_change&severity=critical,major&sort=severity`,
+`GET /api/sensors?status=down,warning&severity=critical&sort=severity&acknowledged=false`.
+
+```json
+{ "id": 4711, "time": "2026-11-22T08:15:00Z", "kind": "status_change", "sensor_id": 7, "device_id": 3, "group_id": 1,
+  "sensor_name": "Ping", "device_name": "core-sw", "old_status": "up", "new_status": "down",
+  "message": "Host unreachable", "in_maintenance": false, "severity": "critical" }
+```
+
+```json
+GET /api/settings/severity-mapping
+{ "mapping":  { "down_critical": "critical", "down_warning": "major", "down_none": "minor",
+                "warning_critical": "warning", "warning_warning": "warning", "warning_none": "warning", "info": "info" },
+  "defaults": { "down_critical": "critical", "down_warning": "major", "down_none": "minor",
+                "warning_critical": "warning", "warning_warning": "warning", "warning_none": "warning", "info": "info" },
+  "levels": ["critical", "major", "minor", "warning", "info"] }
+
+PUT /api/settings/severity-mapping   {"down_warning": "critical"}   → 200 SeverityMappingSettings
+```
+
+Dashboard fragment (ON):
+
+```json
+{ "severity_counts": { "critical": 1, "major": 0, "minor": 2, "warning": 3, "info": 0, "total": 6 },
+  "severity_counts_unacknowledged": { "critical": 0, "major": 0, "minor": 2, "warning": 3, "info": 0, "total": 5 } }
+```
+
+### [severity] Notification rules and messages
+
+- `AlertRule.severities` (empty = all): a problem opens / changes notification state only for rules whose set is
+  empty or contains the severity resolved for that status change. The match is made, like `on_statuses`, when the
+  problem opens or changes status; a later re-resolution (mapping / override edit) changes the severity shown in
+  the following escalation / reminder / recovery messages but does not open or close notifications of other rules.
+  While OFF the set is ignored.
+- Every channel names the severity while ON (nothing changes while OFF; the subject line never changes):
+  email text / HTML and Telegram: a row **Severity** / **חומרה** after *Status* (`Critical` / `קריטית`, `Major` /
+  `חמורה`, `Minor` / `קלה`, `Warning` / `אזהרה`, `Info` / `מידע`); Teams: a fact *Severity* after *Status*.
+- **Webhook payload** (also the source of the other channels) gains **one key at the end**, every existing key is
+  untouched: `"severity": Severity | null` — `problem` / `escalation` / `reminder`: the problem's current severity;
+  `recovery`: the severity of the problem that recovered (its `up` event itself is stored as `info`). `null` only
+  for a problem that opened before the feature was turned on and was never re-resolved. The key is **absent**
+  while OFF and in the test payload (`"event": "test"`).
+
+```json
+{ "event": "sensor.status_changed", "stage": "problem", "after_maintenance": false, "after_flapping": false,
+  "problem_since": "2026-11-22T08:15:00Z", "event_id": 4711, "time": "2026-11-22T08:15:00Z",
+  "old_status": "up", "new_status": "down", "message": "Host unreachable",
+  "sensor": { "id": 7, "name": "Ping", "type": "ping" }, "device": { "id": 3, "name": "core-sw", "host": "10.0.0.2" },
+  "group": { "id": 1, "name": "Default" }, "rule": { "id": 2, "name": "All down" },
+  "url": "http://netmon.local:8080/sensors/7", "ack_url": null, "severity": "critical" }
+```
+
+### [severity] Assistant tools
+
+While ON: `list_problems` and `list_events` offer an optional argument `severities: Severity[]` (filter on the
+current problem severity / the stored event severity; `list_problems` then lists the highest severity first) and
+return `severity` on every item. While OFF the argument is not offered to the model (ignored if sent) and no item has
+a `severity` key — the tool schemas and results are exactly as before.
+
+### [severity] Audit actions (feature `audit`)
+
+- `settings.update` with `severity_mapping.<key>` changes (PUT / reset of the mapping);
+- `sensor.update` covers `severity_down`, `severity_warning` (PATCH and bulk);
+- `alert_rule.create|update` cover `severities`; `event_rule.create|update` cover `severity`;
+- **new** `sensor.severity`: an active problem re-resolved, entity = the sensor (with `device_id`),
+  `changes: {"severity": [old, new]}`, `reason`: `mapping` | `override` | `impact`; actor = who made the change.
+  The one-time resolution when the feature is turned on writes no `sensor.severity` rows (the `feature.enable` row
+  covers it).
+
+### [severity] WebSocket additions
+
+| type | data | When / who |
+|---|---|---|
+| `sensor.severity` | `{"id": 7, "device_id": 3, "severity": "major"}` | an active problem's severity changed by re-resolution or the feature being turned on; all |
+| `event.created` | `Event` now with `severity` | as today. A `status_change` event to down / warning carries the sensor's new `Sensor.severity`; to any other status the sensor's `severity` becomes `null`. `sensor.update` is unchanged (no severity key) |
+| `features.changed` | gains `alert_severity` | as 2b-3 |
