@@ -4298,6 +4298,10 @@
       "copyName": "העתקת השם",
       "runNow": "הרצה עכשיו",
       "acknowledge": "אישור טיפול…",
+      "moveTo": "העברה אל…",
+      "moveSelected_one": "העברת הפריט שנבחר אל…",
+      "moveSelected_two": "העברת שני הפריטים שנבחרו אל…",
+      "moveSelected_other": "העברת {{count}} הפריטים שנבחרו אל…",
       "edit": "עריכה…",
       "delete": "מחיקה…"
     },
@@ -4316,6 +4320,45 @@
       "copied": "הועתק ללוח",
       "copyFailed": "לא ניתן להעתיק ללוח"
     }
+  },
+  "treeMove": {
+    "devices_one": "התקן אחד",
+    "devices_two": "שני התקנים",
+    "devices_other": "{{count}} התקנים",
+    "groups_one": "קבוצה אחת",
+    "groups_two": "שתי קבוצות",
+    "groups_other": "{{count}} קבוצות",
+    "and": "{{a}} ו{{b}}",
+    "andNum": "{{a}} ו-{{b}}",
+    "andMore_one": "ועוד אחד",
+    "andMore_two": "ועוד שניים",
+    "andMore_other": "ועוד {{count}}",
+    "topLevel": "הרמה העליונה",
+    "topLevelTarget": "הרמה העליונה",
+    "pickTitle": "העברת {{what}} אל…",
+    "confirmTitle": "להעביר {{what}} אל {{target}}?",
+    "inheritHint": "הגדרות שעוברות בירושה מהקבוצה (פרטי גישה ל-SNMP ול-SSH, תלות וחלונות תחזוקה) יילקחו מעכשיו מהקבוצה החדשה; הגדרות שנקבעו על הפריטים עצמם יישארו כמו שהן.",
+    "move": "העברה",
+    "next": "המשך",
+    "findGroup": "חיפוש קבוצה",
+    "targetGroup": "קבוצת יעד",
+    "note": {
+      "same": "המיקום הנוכחי",
+      "inside": "בתוך מה שמועבר"
+    },
+    "done": "ההעברה אל {{target}} הושלמה",
+    "errors": {
+      "nameTaken": "כבר יש שם קבוצה בשם {{name}}.",
+      "changed": "העץ השתנה בינתיים. רעננו ונסו שוב."
+    },
+    "selected_one": "פריט אחד נבחר",
+    "selected_two": "שני פריטים נבחרו",
+    "selected_other": "{{count}} פריטים נבחרו",
+    "selection": "פריטים שנבחרו",
+    "clearSelection": "ניקוי הבחירה",
+    "dropTopLevel": "שחררו כאן כדי להעביר לרמה העליונה",
+    "selectItem": "בחירת {{name}}",
+    "selectionHint": "לבחירת כמה פריטים לחצו עם Ctrl/⌘ או Shift; גררו אל קבוצה כדי להעביר."
   },
   "settingsSearch": {
     "label": "חיפוש בהגדרות",

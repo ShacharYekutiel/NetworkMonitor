@@ -19,6 +19,7 @@ import { useFeatures } from '../../hooks/features';
 import { useSensorTypes, useTree } from '../../hooks/queries';
 import { errorMessage } from '../../lib/errors';
 import { allDevices } from '../../lib/tree';
+import { refKey, selectedRefs } from '../../lib/treeMove';
 import {
   isMenuKey,
   keyboardAnchor,
@@ -52,6 +53,7 @@ import {
   WrenchIcon,
   BackupIcon,
   ChevronIcon,
+  MoveIcon,
 } from '../icons';
 import { MaintenanceWindowModal } from '../Maintenance';
 import { AddSensorModal, EditSensorModal } from '../SensorForms';
@@ -59,6 +61,7 @@ import { ApplyTemplateModal } from '../Templates';
 import { useToast } from '../toast';
 import { ConfirmDialog, cx } from '../ui';
 import { ContextMenu, type CloseReason, type ContextMenuEntry } from './ContextMenu';
+import { TreeMoveProvider, useTreeMove } from './TreeMove';
 
 type OpenFn = (target: TreeMenuTarget, anchor: Point, opener: HTMLElement | null) => void;
 /** A group / device / sensor named by id (rows outside the tree: the menu finds it in the tree). */
@@ -266,6 +269,8 @@ const ICONS: Partial<Record<TreeMenuAction, ReactNode>> = {
   copyIp: <CopyIcon size={14} />,
   copyName: <CopyIcon size={14} />,
   acknowledge: <CheckIcon size={14} />,
+  moveTo: <MoveIcon size={14} className="rtl:-scale-x-100" />,
+  moveSelected: <MoveIcon size={14} className="rtl:-scale-x-100" />,
   edit: <EditIcon size={14} />,
   delete: <TrashIcon size={14} />,
   open: <ChevronIcon size={14} className="rtl:rotate-180" />,
@@ -352,8 +357,18 @@ function lookup(ix: TreeIndex, ref: EntityRef): TreeMenuTarget | null {
 
 type MenuState = { target: TreeMenuTarget; anchor: Point; opener: HTMLElement | null; n: number };
 
+/** The tree context menu and [tree-move] moving (selection, drag and drop, "Move to…"). */
 export function TreeMenuProvider({ children }: { children: ReactNode }) {
+  return (
+    <TreeMoveProvider>
+      <TreeMenuProviderInner>{children}</TreeMenuProviderInner>
+    </TreeMoveProvider>
+  );
+}
+
+function TreeMenuProviderInner({ children }: { children: ReactNode }) {
   const { t } = useTranslation();
+  const mover = useTreeMove();
   const { isAdmin } = useAuth();
   const { features } = useFeatures();
   const sensorTypes = useSensorTypes();
@@ -407,9 +422,19 @@ export function TreeMenuProvider({ children }: { children: ReactNode }) {
     [sensorTypes.data],
   );
 
+  const selection = mover?.selection;
   const items = useMemo(() => {
     if (!menu) return [];
-    return treeMenuItems(menu.target, {
+    const tg = menu.target;
+    const key =
+      tg.kind === 'group'
+        ? refKey({ kind: 'group', id: tg.group.id })
+        : tg.kind === 'device'
+          ? refKey({ kind: 'device', id: tg.device.id })
+          : null;
+    return treeMenuItems(tg, {
+      canMove: !!mover?.canMove,
+      selectedCount: key && selection?.has(key) ? selection.size : 0,
       isAdmin,
       features,
       snmpTypes,
@@ -421,7 +446,7 @@ export function TreeMenuProvider({ children }: { children: ReactNode }) {
               .map((p) => ({ id: p.id, name: p.name }))
           : [],
     });
-  }, [menu, isAdmin, features, snmpTypes, profiles.data, groupId]);
+  }, [menu, isAdmin, features, snmpTypes, profiles.data, groupId, mover?.canMove, selection]);
 
   const entries: ContextMenuEntry[] = useMemo(
     () =>
@@ -543,6 +568,13 @@ export function TreeMenuProvider({ children }: { children: ReactNode }) {
   const run = (entry: TreeMenuItem, target: TreeMenuTarget) => {
     const a = entry.action;
     if (a === 'open') return navigate(targetPath(target));
+    if (a === 'moveSelected' && mover) return mover.openPicker(selectedRefs(mover.selection));
+    if (a === 'moveTo' && mover && target.kind !== 'sensor')
+      return mover.openPicker([
+        target.kind === 'group'
+          ? { kind: 'group', id: target.group.id }
+          : { kind: 'device', id: target.device.id },
+      ]);
     if (target.kind === 'group') {
       const g = target.group;
       switch (a) {

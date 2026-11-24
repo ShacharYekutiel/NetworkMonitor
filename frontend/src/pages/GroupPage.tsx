@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { Link, useNavigate, useParams } from 'react-router';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useTranslation } from 'react-i18next';
@@ -6,8 +6,8 @@ import { endpoints, qk } from '../api/endpoints';
 import type { StatusCounts, TreeGroup } from '../api/types';
 import { Breadcrumbs } from '../components/Breadcrumbs';
 import { DeviceFormModal, GroupFormModal } from '../components/EntityForms';
-import { EditIcon, FolderIcon, PlusIcon, TrashIcon } from '../components/icons';
-import { DeviceTileIcon, EmptyState } from '../components/kit';
+import { EditIcon, FolderIcon, MoveIcon, PlusIcon, TrashIcon, XIcon } from '../components/icons';
+import { CHECKBOX, DeviceTileIcon, EmptyState } from '../components/kit';
 import { StatusBadge, StatusDot } from '../components/Status';
 import { AddMaintenanceButton, MaintenanceBadge, useScheduleText } from '../components/Maintenance';
 import { useToast } from '../components/toast';
@@ -31,6 +31,8 @@ import { useAuth } from '../hooks/auth';
 import { useTree } from '../hooks/queries';
 import { findGroup } from '../lib/tree';
 import { useEntityMenu } from '../components/treemenu/TreeContextMenu';
+import { useTreeMove } from '../components/treemenu/TreeMove';
+import { refKey, selectedRefs, type MoveRef } from '../lib/treeMove';
 
 /** Devices in a group and all of its subgroups. */
 function deviceCount(g: TreeGroup): number {
@@ -84,6 +86,11 @@ export function GroupPage() {
   const [addSub, setAddSub] = useState(false);
   const [addDevice, setAddDevice] = useState(false);
   const [deleting, setDeleting] = useState(false);
+  // [tree-move] admins tick subgroups / devices here and move them with "Move to…"
+  const mover = useTreeMove();
+  const canMove = !!mover?.canMove;
+  const [picked, setPicked] = useState<ReadonlySet<string>>(() => new Set());
+  useEffect(() => setPicked(new Set()), [id]);
 
   const del = useMutation({
     mutationFn: () => endpoints.deleteGroup(id),
@@ -101,6 +108,30 @@ export function GroupPage() {
   const g = group.data;
   const dep = g.dependency;
   const ownWindows = (windows.data?.items ?? []).filter((w) => w.enabled && w.group_id === g.id);
+  // only rows still listed here count (moved ones leave the page)
+  const listed = new Set([
+    ...(node?.children ?? []).map((c) => refKey({ kind: 'group', id: c.id })),
+    ...(devices.data?.items ?? []).map((d) => refKey({ kind: 'device', id: d.id })),
+  ]);
+  const pickedNow = [...picked].filter((k) => listed.has(k));
+  const pick = (ref: MoveRef, name: string) =>
+    canMove ? (
+      <input
+        type="checkbox"
+        className={CHECKBOX}
+        checked={picked.has(refKey(ref))}
+        onChange={(e) =>
+          setPicked((prev) => {
+            const next = new Set(prev);
+            if (e.target.checked) next.add(refKey(ref));
+            else next.delete(refKey(ref));
+            return next;
+          })
+        }
+        aria-label={t('treeMove.selectItem', { name })}
+        data-testid="move-select"
+      />
+    ) : undefined;
 
   const dependsOn =
     dep?.mode === 'device' && dep.device_id !== null ? (
@@ -164,6 +195,29 @@ export function GroupPage() {
         }
       />
 
+      {canMove && pickedNow.length > 0 && (
+        <div
+          role="toolbar"
+          aria-label={t('treeMove.selection')}
+          data-testid="group-selection-bar"
+          className="mb-4 flex flex-wrap items-center gap-2 rounded-2xl bg-accent-soft px-4 py-2.5 text-sm"
+        >
+          <span className="min-w-0 flex-1 font-medium" aria-live="polite">
+            {t('treeMove.selected', { count: pickedNow.length })}
+          </span>
+          <Button
+            size="sm"
+            onClick={() => mover?.openPicker(selectedRefs(pickedNow))}
+            data-testid="group-selection-move"
+          >
+            <MoveIcon size={13} className="rtl:-scale-x-100" /> {t('treeMenu.action.moveTo')}
+          </Button>
+          <Button size="sm" onClick={() => setPicked(new Set())}>
+            <XIcon size={13} /> {t('treeMove.clearSelection')}
+          </Button>
+        </div>
+      )}
+
       {/* prototype .two: the lists at the start, the dependency card at the end */}
       <div className="grid items-start gap-6 xl:grid-cols-[minmax(0,1.4fr)_minmax(0,1fr)]">
         <div className="grid min-w-0 gap-[26px]">
@@ -175,6 +229,7 @@ export function GroupPage() {
                   <ListRow
                     key={c.id}
                     testId="subgroup-row"
+                    lead={pick({ kind: 'group', id: c.id }, c.name)}
                     rowProps={menu({ kind: 'group', id: c.id })}
                     to={`/groups/${c.id}`}
                     icon={<FolderIcon size={18} strokeWidth={1.8} />}
@@ -209,6 +264,7 @@ export function GroupPage() {
                     <ListRow
                       key={d.id}
                       testId="device-row"
+                      lead={pick({ kind: 'device', id: d.id }, d.name)}
                       rowProps={menu({ kind: 'device', id: d.id })}
                       to={`/devices/${d.id}`}
                       icon={<DeviceTileIcon cls={d.effective_class} name={d.name} />}

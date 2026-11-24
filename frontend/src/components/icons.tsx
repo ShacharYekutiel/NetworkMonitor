@@ -36,6 +36,13 @@ export const FolderIcon = (p: P) => (
     <path d="M3 7a2 2 0 012-2h4l2 2h8a2 2 0 012 2v8a2 2 0 01-2 2H5a2 2 0 01-2-2z" />
   </Svg>
 );
+/** [tree-move] a folder with an arrow into it ("Move to…"); mirrored in RTL by the caller */
+export const MoveIcon = (p: P) => (
+  <Svg {...p}>
+    <path d="M3 7a2 2 0 012-2h4l2 2h8a2 2 0 012 2v8a2 2 0 01-2 2H5a2 2 0 01-2-2z" />
+    <path d="M8 13h7M12.5 10.5L15 13l-2.5 2.5" />
+  </Svg>
+);
 export const ServerIcon = (p: P) => (
   <Svg {...p}>
     <rect x="3" y="4" width="18" height="7" rx="1.5" />

@@ -1,14 +1,36 @@
-import { useMemo, useState } from 'react';
+import { createContext, useContext, useEffect, useMemo, useRef, useState } from 'react';
 import { NavLink } from 'react-router';
 import { useTranslation } from 'react-i18next';
 import type { TreeDevice, TreeGroup, TreeSensor } from '../api/types';
 import { useTree } from '../hooks/queries';
 import { useLocalState } from '../hooks/useLocalState';
 import { formatValue } from '../lib/format';
-import { CheckIcon, ChevronIcon, FolderIcon, SearchIcon, ServerIcon, WrenchIcon } from './icons';
+import {
+  ancestors,
+  AUTO_EXPAND_MS,
+  dragItems,
+  indexForMove,
+  rangeKeys,
+  refKey,
+  selectedRefs,
+  toggleKey,
+  visibleOrder,
+  type MoveRef,
+} from '../lib/treeMove';
+import {
+  CheckIcon,
+  ChevronIcon,
+  FolderIcon,
+  MoveIcon,
+  SearchIcon,
+  ServerIcon,
+  WrenchIcon,
+  XIcon,
+} from './icons';
 import { StatusDot } from './Status';
 import { TreeMenuProvider, useTreeItemMenu, useTreeMenu } from './treemenu/TreeContextMenu';
-import { cx, ErrorBox, Input, Spinner, Value } from './ui';
+import { useTreeMove } from './treemenu/TreeMove';
+import { Button, cx, ErrorBox, Input, Spinner, Value } from './ui';
 import { useLocalizeMessage } from '../hooks/localize';
 
 type Expanded = Record<string, boolean>;
@@ -19,6 +41,142 @@ const rowBase =
 const activeRow = 'bg-nav-active font-semibold';
 /** [3b] no iOS link callout on long press (it opens the tree context menu instead) */
 const noCallout = { WebkitTouchCallout: 'none' } as const;
+
+// [tree-move] a selected row, a row being dragged, and a group row under the drag (a target that
+// accepts the drop is outlined; one that does not is dimmed and the pointer shows "no drop")
+const moveRow =
+  'data-[selected]:bg-accent-soft data-[selected]:shadow-[inset_0_0_0_1px_var(--accent-ink)] data-[dragging]:opacity-50';
+const dropRow =
+  'rounded-[10px] data-[drop=ok]:bg-accent-soft data-[drop=ok]:shadow-[inset_0_0_0_2px_var(--accent-ink)] data-[drop=no]:cursor-no-drop data-[drop=no]:opacity-50';
+
+/** What the rows need from the tree: the visible row order (Shift-click) and expanding a group. */
+type RowCtx = { order: string[]; expand: (key: string) => void };
+const TreeRows = createContext<RowCtx>({ order: [], expand: () => undefined });
+
+type Handlers = Record<string, unknown> & {
+  onClick?: (e: React.MouseEvent<HTMLElement>) => void;
+  onKeyDown?: (e: React.KeyboardEvent<HTMLElement>) => void;
+};
+
+/** The menu's handlers and the move handlers on one element (both run; the move's first). */
+function merge(menu: Handlers, move: Handlers): Handlers {
+  return {
+    ...menu,
+    ...move,
+    onClick: (e: React.MouseEvent<HTMLElement>) => {
+      move.onClick?.(e);
+      menu.onClick?.(e);
+    },
+    onKeyDown: (e: React.KeyboardEvent<HTMLElement>) => {
+      move.onKeyDown?.(e);
+      if (!e.defaultPrevented) menu.onKeyDown?.(e);
+    },
+  };
+}
+
+/**
+ * [tree-move] A group / device row as a drag source and a selectable item (admins only):
+ * Ctrl/Cmd-click toggles it, Shift-click selects the visible rows from the last clicked one,
+ * Ctrl/Cmd+Space toggles the focused row; a plain click clears the selection and opens the item.
+ */
+function useMoveSource(ref: MoveRef): Handlers {
+  const mover = useTreeMove();
+  const { order } = useContext(TreeRows);
+  if (!mover?.canMove) return {};
+  const key = refKey(ref);
+  const sel = mover.selection;
+  const dragging = !!mover.drag?.refs.some((r) => refKey(r) === key);
+  return {
+    draggable: true,
+    'data-selected': sel.has(key) || undefined,
+    'data-dragging': dragging || undefined,
+    'aria-keyshortcuts': 'Shift+F10 Control+Space',
+    onDragStart: (e: React.DragEvent<HTMLElement>) => mover.beginDrag(dragItems(sel, ref), e),
+    onDragEnd: () => mover.endDrag(),
+    onMouseDown: (e: React.MouseEvent<HTMLElement>) => {
+      if (e.shiftKey) e.preventDefault(); // no text selection on Shift-click
+    },
+    onClick: (e: React.MouseEvent<HTMLElement>) => {
+      if (e.button !== 0) return;
+      if (e.ctrlKey || e.metaKey) {
+        e.preventDefault();
+        mover.setSelection(toggleKey(sel, key), key);
+      } else if (e.shiftKey) {
+        e.preventDefault();
+        mover.setSelection(new Set(rangeKeys(order, mover.anchor, key)), mover.anchor ?? key);
+      } else if (sel.size || mover.anchor !== key) {
+        mover.setSelection(new Set(), key);
+      }
+    },
+    onKeyDown: (e: React.KeyboardEvent<HTMLElement>) => {
+      if (e.key === ' ' && (e.ctrlKey || e.metaKey)) {
+        e.preventDefault();
+        mover.setSelection(toggleKey(sel, key), key);
+      }
+    },
+  };
+}
+
+/**
+ * [tree-move] A group row (or the top-level zone: `groupId` null) as a drop target. Hovering a
+ * collapsed group for a moment during a drag opens it.
+ */
+function useDropTarget(key: string, groupId: number | null, collapsed: boolean): Handlers {
+  const mover = useTreeMove();
+  const { expand } = useContext(TreeRows);
+  const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const active = !!mover?.drag;
+  useEffect(() => {
+    if (!active && timer.current) {
+      clearTimeout(timer.current);
+      timer.current = null;
+    }
+  }, [active]);
+  useEffect(
+    () => () => {
+      if (timer.current) clearTimeout(timer.current);
+    },
+    [],
+  );
+  if (!mover?.canMove) return {};
+  const stop = () => {
+    if (timer.current) clearTimeout(timer.current);
+    timer.current = null;
+  };
+  const over = (e: React.DragEvent<HTMLElement>) => {
+    if (!mover.drag) return; // another kind of drag (a file, a link from elsewhere)
+    if (mover.dragOver(key, groupId) === 'ok') {
+      e.preventDefault();
+      e.dataTransfer.dropEffect = 'move';
+    } else {
+      e.dataTransfer.dropEffect = 'none';
+    }
+  };
+  return {
+    'data-drop-target': key,
+    'data-drop': mover.drag && mover.drag.over === key ? (mover.drag.ok ? 'ok' : 'no') : undefined,
+    onDragEnter: (e: React.DragEvent<HTMLElement>) => {
+      over(e);
+      if (mover.drag && collapsed && !timer.current)
+        timer.current = setTimeout(() => {
+          timer.current = null;
+          expand(key);
+        }, AUTO_EXPAND_MS);
+    },
+    onDragOver: over,
+    onDragLeave: (e: React.DragEvent<HTMLElement>) => {
+      if (e.relatedTarget instanceof Node && e.currentTarget.contains(e.relatedTarget)) return;
+      stop();
+      mover.dragLeave(key);
+    },
+    onDrop: (e: React.DragEvent<HTMLElement>) => {
+      if (!mover.drag) return;
+      e.preventDefault();
+      stop();
+      mover.drop(groupId);
+    },
+  };
+}
 
 function Toggle({
   open,
@@ -123,15 +281,16 @@ function DeviceRow({
   const key = `d${d.id}`;
   const open = forceOpen || !!expanded[key];
   const menu = useTreeItemMenu({ kind: 'device', device: d });
+  const move = useMoveSource({ kind: 'device', id: d.id });
   return (
     <div>
       <div className="flex items-center" style={{ paddingInlineStart: `${depth * 14}px` }}>
         <Toggle open={open} onClick={() => toggle(key)} hidden={!d.sensors.length} />
         <NavLink
-          {...menu}
+          {...merge(menu, move)}
           to={`/devices/${d.id}`}
           data-tree-item="device"
-          className={({ isActive }) => cx(rowBase, 'flex-1', isActive && activeRow)}
+          className={({ isActive }) => cx(rowBase, 'flex-1', isActive && activeRow, moveRow)}
           style={noCallout}
           title={d.host}
         >
@@ -171,15 +330,23 @@ function GroupRow({
   const open = forceOpen || expanded[key] !== false;
   const hasChildren = g.children.length > 0 || g.devices.length > 0;
   const menu = useTreeItemMenu({ kind: 'group', group: g });
+  const move = useMoveSource({ kind: 'group', id: g.id });
+  const drop = useDropTarget(key, g.id, hasChildren && !open);
   return (
     <div>
-      <div className="flex items-center" style={{ paddingInlineStart: `${depth * 14}px` }}>
+      <div
+        {...drop}
+        className={cx('flex items-center', dropRow)}
+        style={{ paddingInlineStart: `${depth * 14}px` }}
+      >
         <Toggle open={open} onClick={() => toggle(key)} hidden={!hasChildren} />
         <NavLink
-          {...menu}
+          {...merge(menu, move)}
           to={`/groups/${g.id}`}
           data-tree-item="group"
-          className={({ isActive }) => cx(rowBase, 'flex-1 font-medium', isActive && activeRow)}
+          className={({ isActive }) =>
+            cx(rowBase, 'flex-1 font-medium', isActive && activeRow, moveRow)
+          }
           style={noCallout}
         >
           <StatusDot status={g.status} />
@@ -243,6 +410,32 @@ function TreeNavInner() {
       return { ...prev, [k]: !open };
     });
 
+  // [tree-move] rows in display order (Shift-click ranges), auto-expand while dragging, and
+  // after a move the target group and its ancestors open so the moved items stay in view
+  const mover = useTreeMove();
+  const rows = useMemo<RowCtx>(
+    () => ({
+      order: visibleOrder(groups, (k) => !!query || expanded[k] !== false),
+      expand: (k) => setExpanded((prev) => (prev[k] === false ? { ...prev, [k]: true } : prev)),
+    }),
+    [groups, query, expanded, setExpanded],
+  );
+  const setRevealer = mover?.setRevealer;
+  useEffect(() => {
+    if (!setRevealer || !data) return;
+    const ix = indexForMove(data.groups);
+    setRevealer((ids) =>
+      setExpanded((prev) => {
+        const next = { ...prev };
+        for (const id of ids) for (const a of ancestors(ix, id)) delete next[`g${a}`];
+        return next;
+      }),
+    );
+    return () => setRevealer(null);
+  }, [setRevealer, data, setExpanded]);
+  const sel = mover?.canMove ? mover.selection : null;
+  const dragGroupsOnly = !!mover?.drag && mover.drag.refs.every((r) => r.kind === 'group');
+
   return (
     <div className="flex min-h-0 flex-1 flex-col">
       <div className="relative px-3 pb-2 pt-3">
@@ -258,6 +451,13 @@ function TreeNavInner() {
           aria-label={t('tree.search')}
         />
       </div>
+      {sel && sel.size > 0 && mover && (
+        <SelectionBar
+          count={sel.size}
+          onMove={() => mover.openPicker(selectedRefs(sel))}
+          onClear={mover.clearSelection}
+        />
+      )}
       <div className="min-h-0 flex-1 overflow-y-auto px-2 pb-3">
         {isLoading && (
           <div className="flex justify-center p-4 text-ink-subtle">
@@ -270,17 +470,79 @@ function TreeNavInner() {
             {query ? t('tree.noMatch') : t('tree.empty')}
           </div>
         )}
-        {groups.map((g) => (
-          <GroupRow
-            key={g.id}
-            g={g}
-            depth={0}
-            expanded={expanded}
-            toggle={toggle}
-            forceOpen={!!query}
-          />
-        ))}
+        <TreeRows.Provider value={rows}>
+          {groups.map((g) => (
+            <GroupRow
+              key={g.id}
+              g={g}
+              depth={0}
+              expanded={expanded}
+              toggle={toggle}
+              forceOpen={!!query}
+            />
+          ))}
+          {dragGroupsOnly && <TopLevelZone />}
+        </TreeRows.Provider>
       </div>
+    </div>
+  );
+}
+
+/** [tree-move] "N selected · Move to… · ×" above the tree while rows are selected. */
+function SelectionBar({
+  count,
+  onMove,
+  onClear,
+}: {
+  count: number;
+  onMove: () => void;
+  onClear: () => void;
+}) {
+  const { t } = useTranslation();
+  return (
+    <div
+      role="toolbar"
+      aria-label={t('treeMove.selection')}
+      data-testid="tree-selection-bar"
+      className="mx-3 mb-2 flex items-center gap-2 rounded-xl bg-accent-soft px-3 py-1.5 text-[13px]"
+    >
+      <span
+        className="min-w-0 flex-1 truncate font-medium"
+        aria-live="polite"
+        title={t('treeMove.selectionHint')}
+      >
+        {t('treeMove.selected', { count })}
+      </span>
+      <Button size="sm" onClick={onMove} data-testid="tree-selection-move">
+        <MoveIcon size={13} className="rtl:-scale-x-100" /> {t('treeMenu.action.moveTo')}
+      </Button>
+      <button
+        type="button"
+        onClick={onClear}
+        aria-label={t('treeMove.clearSelection')}
+        title={t('treeMove.clearSelection')}
+        className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full text-ink-muted hover:bg-chip hover:text-ink"
+      >
+        <XIcon size={14} />
+      </button>
+    </div>
+  );
+}
+
+/** [tree-move] The drop zone for the top level (shown while groups alone are dragged). */
+function TopLevelZone() {
+  const { t } = useTranslation();
+  const drop = useDropTarget('root', null, false);
+  return (
+    <div
+      {...drop}
+      data-testid="tree-drop-root"
+      className={cx(
+        'mt-2 flex h-10 items-center justify-center border border-dashed border-line px-2 text-center text-[12.5px] text-ink-muted',
+        dropRow,
+      )}
+    >
+      {t('treeMove.dropTopLevel')}
     </div>
   );
 }
