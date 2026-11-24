@@ -75,7 +75,7 @@ async def test_features_off_by_default(
     # role before feature state: a viewer gets 403, not 409 (E2E 49)
     r = await viewer.post("/api/ingest/forwarders/test", json={"target_id": "abcdef"})
     assert r.status_code == 403
-    h = (await admin.get("/api/health")).json()
+    h = (await admin.get("/api/health/details")).json()
     # [3] `ingest` also carries the flow receivers (netflow / ipfix / sflow)
     assert {k: h["ingest"][k] for k in ("trap", "syslog_udp", "syslog_tcp")} == {
         "trap": "disabled",

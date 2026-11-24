@@ -201,17 +201,33 @@ translates channel names with the i18n key `channel.<key>`.
 
 ### Health
 
-**`GET /api/health`** (public). Always 200 while the process is alive. `status` is `"degraded"` when the DB is
-unreachable.
+**`GET /api/health`** (public, also before setup) — liveness/readiness only. **[security] changed:** the
+answer has exactly one key, so an anonymous caller learns only whether the service is up:
+
+- `200 {"status": "ok"}` — the process answers and the database is reachable;
+- `503 {"status": "fail"}` — the database is unreachable (not ready). Being a non-2xx code, `curl -f`, the
+  Docker/compose healthchecks (`urlopen`), the installers and the production `wait_healthy` treat it as not
+  healthy (before this change it was `200` with `"status": "degraded"` and the full body).
+
+**`GET /api/health/details`** (any signed-in user or API token, any role; `401 unauthenticated` otherwise)
+— the runtime details that `/api/health` used to return publicly. Used by the Settings page subtitle
+(version · database · mode · poller · sensors scheduled), `ops/status.sh` (optional token file), CI and E2E.
+`status` here is still `"ok"` | `"degraded"`.
 
 ```json
 { "status": "ok", "version": "0.1.0", "database": "ok", "timescale": true, "poller": "running",
-  "sensors_scheduled": 42, "uptime_s": 3600 }
+  "sensors_scheduled": 42, "uptime_s": 3600, "test_mode": false, "trgm": true,
+  "ingest": {"trap": "disabled", "syslog_udp": "disabled", "syslog_tcp": "disabled",
+             "netflow": "disabled", "ipfix": "disabled", "sflow": "disabled"},
+  "flows_rollup": "cagg", "kerberos": "disabled", "assistant": "disabled" }
 ```
 
 - `database`: `"ok"` | `"error"`.
 - `poller`: `"running"` | `"stopped"`.
 - **[2b-1]** `test_mode`: `true` only when `NETMON_TEST_MODE=1` (the test clock is enabled), else `false`.
+- `trgm`, `ingest` ([2b-3]), `flows_rollup`, `kerberos` ([3]), `assistant` ([3b]): see the release sections
+  below (they were added to `/api/health` then and now live here).
+- The version is also sent to signed-in users in the WebSocket `hello`; it is never public.
 
 ### Setup
 
@@ -1224,7 +1240,7 @@ With env **`NETMON_TEST_MODE=1`** only (otherwise the routes answer `404 not_fou
 written by those two components) and wakes both loops. `offset_s` −31536000…31536000; `0` resets. The poller,
 JWT expiry and DB `now()` are not affected. Never enabled by installers or compose. When enabled, the server
 logs a `WARNING` at startup ("NETMON_TEST_MODE is enabled: PUT /api/test/clock is available — never use this
-in production"), writes the same text as a `system` event, and `GET /api/health` reports `"test_mode": true`.
+in production"), writes the same text as a `system` event, and `GET /api/health/details` reports `"test_mode": true`.
 
 ### [2b-1] WebSocket additions
 
@@ -1534,7 +1550,7 @@ type User = { /* Phase 1 fields */ source: "local" | "ldap"; display_name: strin
   SourceState` and the status gains `lag_mib: "ieee8023" | "if_stack" | "both" | null`; `MacLocation` gains
   `lag_members: string[]`.
 - `AlertPayload` (webhook/Telegram/email/Teams) gains `"after_flapping": boolean` (like `after_maintenance`).
-- `GET /api/health` gains `"trgm": bool` and `"ingest": {"trap": ReceiverState, "syslog_udp": ReceiverState,
+- `GET /api/health` (now `/api/health/details`) gains `"trgm": bool` and `"ingest": {"trap": ReceiverState, "syslog_udp": ReceiverState,
   "syslog_tcp": ReceiverState}` with `ReceiverState = "listening" | "disabled" | "error"`.
 
 ### [2b-3] Feature toggles and settings
@@ -1879,7 +1895,7 @@ type SshCredentials = { username: string; port: number;
   number[]`. Create/PATCH accept them (secret rules as `snmp_credentials`).
 - `GET /api/settings/public` `features` gains the 8 names; gains `sso: {"kerberos": {"auto_login": true} | null,
   "oidc": {"button_label": "Sign in with Microsoft"} | null}` (null while the feature is OFF).
-- `GET /api/health` gains `"flows_rollup": "cagg" | "table" | null` and `ingest` gains `"netflow"`, `"ipfix"`,
+- `GET /api/health` (now `/api/health/details`) gains `"flows_rollup": "cagg" | "table" | null` and `ingest` gains `"netflow"`, `"ipfix"`,
   `"sflow"` receiver states; `"kerberos": "ready" | "unavailable" | "disabled" | "error"`.
 - `Settings` gains every key of data-model § [3] Settings keys (secret rules: `kerberos.keytab` is uploaded through
   its own endpoint, never in `PUT /api/settings`; `oidc.client_secret` write-only with `client_secret_set`).
@@ -2227,7 +2243,7 @@ type TelegramChannelConfig = { /* … */ ai_ask: boolean };
 type EmailChannelConfig = { /* … */ ai_note_email: boolean };
 type AssistantState = "disabled" | "unconfigured" | "ready" | "degraded" | "error";
 ```
-- `GET /api/health` gains `"assistant": AssistantState`.
+- `GET /api/health` (now `/api/health/details`) gains `"assistant": AssistantState`.
 - `GET /api/settings/public` `features` gains the 11 names (viewers see them too; all 3b UI is admin-only anyway).
 - `GET /api/settings` gains the 3b scalar keys of data-model § [3b] Settings (except `assistant`, `assistant_kb`,
   which are only in `/api/assistant/settings` and `/api/assistant/knowledge`); `PUT /api/settings` accepts the

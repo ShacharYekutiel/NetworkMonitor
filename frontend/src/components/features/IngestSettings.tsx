@@ -25,6 +25,7 @@ import {
   Field,
   FieldGroup,
   Input,
+  Notice,
   Select,
   Textarea,
 } from '../ui';
@@ -262,6 +263,7 @@ export function IngestSettingsCard({ settings }: { settings: Settings }) {
     setV3(v3Rows(settings.trap_v3_users));
   }, [settings]);
   const save = useSaveSettings();
+  const savedCheck = settings.trap_community_check ?? 'any';
   const ign = parseSources(ignored);
   const comm = communities
     .split(/[\s,]+/)
@@ -343,6 +345,22 @@ export function IngestSettingsCard({ settings }: { settings: Settings }) {
           <legend className="px-1 text-xs font-semibold text-ink-muted">
             {t('ingestSettings.trapAuth')}
           </legend>
+          {/* [security] warnings about the SAVED mode (what the receiver applies now) */}
+          {savedCheck === 'any' && (
+            <div data-testid="trap-any-warning">
+              <Notice tone="warning" className="text-sm">
+                <p className="font-medium">{t('ingestSettings.anyWarning')}</p>
+                <p className="mt-1 text-ink-muted">{t('ingestSettings.anyHowTo')}</p>
+              </Notice>
+            </div>
+          )}
+          {savedCheck === 'known' && !settings.trap_communities_count && (
+            <div data-testid="trap-known-empty-warning">
+              <Notice tone="warning" className="text-sm">
+                {t('ingestSettings.knownEmptyWarning')}
+              </Notice>
+            </div>
+          )}
           <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
             <Field
               label={t('ingestSettings.communityCheck')}

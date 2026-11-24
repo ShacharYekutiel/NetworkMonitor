@@ -224,7 +224,7 @@ async def test_scheduler_runs_sensor(rt, admin: httpx.AsyncClient) -> None:  # t
                 break
             await asyncio.sleep(0.2)
         assert (await admin.get(f"/api/sensors/{s['id']}")).json()["status"] == "up"
-        health = (await admin.get("/api/health")).json()
+        health = (await admin.get("/api/health/details")).json()
         assert health["poller"] == "running" and health["sensors_scheduled"] == 1
         # pause via API removes it from the schedule, resume re-adds
         await admin.patch(f"/api/sensors/{s['id']}", json={"enabled": False})

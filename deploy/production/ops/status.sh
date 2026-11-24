@@ -44,19 +44,37 @@ for s in "${NETMON_SERVICES[@]}"; do printf '%s=%s ' "$s" "$(service_state "$s")
 echo
 
 h "Health (https://${NETMON_FQDN:-?}/api/health)"
-health="$("$CURL" -sSk --noproxy '*' --max-time 5 --resolve "${NETMON_FQDN:-netmonitor}:443:127.0.0.1" \
-  "https://${NETMON_FQDN:-netmonitor}/api/health" 2>&1)" || true
+# /api/health is public and says only {"status": "ok"} (200) or {"status": "fail"} (503).
+# The details (version, uptime, poller, receivers, Kerberos, assistant) are at
+# /api/health/details for a signed-in user or an API token: optional root-only file
+# $NETMON_ETC_DIR/status-token (0600) with a viewer API token. The token is passed on stdin
+# (curl -H @-), never on the command line.
+hcurl() {
+  "$CURL" -sSk --noproxy '*' --max-time 5 --resolve "${NETMON_FQDN:-netmonitor}:443:127.0.0.1" "$@"
+}
+health="$(hcurl "https://${NETMON_FQDN:-netmonitor}/api/health" 2>&1)" || true
 printf '%s\n' "$health"
+status_token_file="$NETMON_ETC_DIR/status-token"
+details=""
+if [[ -r $status_token_file ]]; then
+  details="$(printf 'Authorization: Bearer %s\n' "$(head -n1 "$status_token_file" | tr -d '[:space:]')" |
+    hcurl -H @- "https://${NETMON_FQDN:-netmonitor}/api/health/details" 2>&1)" || true
+  echo "details (/api/health/details):"
+  printf '%s\n' "$details"
+  [[ $details == *'"version"'* ]] || details=""
+else
+  echo "details: not shown - put a viewer API token (UI: API tokens page) in $status_token_file (root, 0600)"
+fi
 
 h "Traps / syslog (host 162/udp, 514/udp+tcp -> container 1162/1514)"
-# Receiver states are in /api/health ("ingest") above: "disabled" until the owner turns
+# Receiver states are in /api/health/details ("ingest") above: "disabled" until the owner turns
 # the Traps / Syslog features on in Settings -> Features.
 echo "host listeners (docker-proxy = published; anything else conflicts):"
 ss -H -lunp '( sport = :162 or sport = :514 )' 2>/dev/null | sed 's/^/  /' || true
 ss -H -ltnp '( sport = :514 )' 2>/dev/null | sed 's/^/  /' || true
 
 h "Flows (host 2055/udp NetFlow+IPFIX, 4739/udp IPFIX, 6343/udp sFlow -> same ports)"
-# Receiver states are in /api/health ("ingest": netflow/ipfix/sflow): "disabled" until the
+# Receiver states are in /api/health/details ("ingest": netflow/ipfix/sflow): "disabled" until the
 # owner turns the Flows feature on. Unknown exporters are listed in the UI (Flows ->
 # Exporters) and dropped until accepted.
 echo "host listeners (docker-proxy = published; anything else conflicts, e.g. nfcapd/pmacct):"
@@ -64,10 +82,10 @@ ss -H -lunp '( sport = :2055 or sport = :4739 or sport = :6343 )' 2>/dev/null | 
 "$SELF_DIR/ingest-firewall.sh" status 2>&1 | sed 's/^/sender filter (traps, syslog, flows): /' | head -n 16 || true
 
 h "Assistant (Amazon Bedrock) [3b]"
-# State in /api/health: disabled (feature OFF) / ready / degraded / error / unconfigured.
+# State in /api/health/details: disabled (feature OFF) / ready / degraded / error / unconfigured.
 # Details (last error code, certificate expiry, usage) in the UI: Settings -> Assistant.
-a_state="$(sed -n 's/.*"assistant"[[:space:]]*:[[:space:]]*"\([a-z_]*\)".*/\1/p' <<<"$health" | head -n1)"
-echo "state: ${a_state:-unknown (not in /api/health - older image or app not running)}"
+a_state="$(sed -n 's/.*"assistant"[[:space:]]*:[[:space:]]*"\([a-z_]*\)".*/\1/p' <<<"$details" | head -n1)"
+echo "state: ${a_state:-unknown (needs $status_token_file, see Health above; or app not running)}"
 app_env="$NETMON_ETC_DIR/app.env"
 a_proxy="" a_noproxy=""
 if [[ -r $app_env ]]; then

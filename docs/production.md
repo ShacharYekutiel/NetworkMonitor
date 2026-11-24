@@ -60,6 +60,23 @@ Changes to `compose.yaml`, `config/`, `caddy/` or `ops/` follow the same path (P
 deploy). `.github/workflows/production.yml` validates every PR touching `deploy/production/`
 (shellcheck, release.env, compose config, `caddy validate`, systemd units, sync logic tests).
 
+## Health endpoint
+
+`GET https://<fqdn>/api/health` is public and answers **only** `{"status": "ok"}` (200) or
+`{"status": "fail"}` (503, database unreachable). `sync.sh` (`wait_healthy`: 2xx **and** `"status": "ok"`), the
+`netmon` container healthcheck (`urlopen`, any non-2xx fails) and external uptime monitors only need that.
+Version, uptime, poller, receiver (`ingest`), Kerberos and assistant states and `test_mode` are at
+`GET /api/health/details`, which needs a signed-in user or an API token (any role).
+
+- **`ops/status.sh`** prints the public answer and, when the root-only file `/etc/netmon-gitops/status-token`
+  (0600) exists, the details too (and the *Assistant* state taken from them). Put a **viewer** API token in it
+  (UI: *API tokens*, role *Viewer*, choose an expiry): `sudo install -m 0600 /dev/stdin /etc/netmon-gitops/status-token`
+  and paste the token, then Ctrl-D. The token goes to curl on stdin, never on a command line. Without the file the
+  script says the details are not shown.
+- **External monitoring** that parsed the old body (version, `database`, `ingest`, …) must either check only
+  the HTTP code / `status`, or call `/api/health/details` with `Authorization: Bearer <viewer token>`.
+  A monitor that matched `"degraded"` must now treat HTTP 503 / `"fail"` as down.
+
 ## Traps, syslog and Active Directory (phase 2b-3)
 
 All 2b-3 features are **off** after the upgrade and are turned on in the UI (*Settings → Features*); none of
@@ -69,7 +86,7 @@ them needs a server change or a deploy. Operator details (Hebrew), device exampl
 - **Ports.** `compose.yaml` publishes `162:1162/udp` (traps), `514:1514/udp` and `514:1514/tcp` (syslog) on the
   `netmon` service and sets `NETMON_TRAP_PORT=1162`, `NETMON_SYSLOG_PORT=1514`, `NETMON_SYSLOG_TCP_PORT=1514`
   (the image defaults are the same; the app stays non-root, uid 10001). The receivers open their sockets only
-  while the feature is ON (`/api/health` → `ingest`, *Settings → Features* status line).
+  while the feature is ON (`/api/health/details` → `ingest`, *Settings → Features* status line).
 - **Sender IP.** Published ports use iptables DNAT, which keeps the source address of external senders, so
   messages are attributed by IP. Traffic from the Docker host itself goes through `docker-proxy` and arrives from
   the bridge gateway (`172.x.0.1`): test from another machine. Docker Desktop (Windows/macOS) never keeps the
@@ -93,7 +110,7 @@ them needs a server change or a deploy. Operator details (Hebrew), device exampl
   `NETMON_EXTRA_CA_DIR`). The corporate root CA installed by `bootstrap.sh` is enough; DC names in the settings
   must match their certificates. `ldap3` is a regular dependency of the image.
 - **pg_trgm** (log text search) ships with the TimescaleDB image; the app creates the extension at startup
-  (`/api/health` → `"trgm": true`).
+  (`/api/health/details` → `"trgm": true`).
 
 ## Phase 3: flows, config backup, SSO, reports, chat acknowledge
 
@@ -106,7 +123,7 @@ for the app (`/etc/netmon-gitops/app.env`, server only) and NTP. Operator guide 
 - `compose.yaml` publishes `2055:2055/udp` (NetFlow v5/v9 + IPFIX), `4739:4739/udp` (IPFIX) and `6343:6343/udp`
   (sFlow v5) and sets `NETMON_NETFLOW_PORT` / `NETMON_IPFIX_PORT` / `NETMON_SFLOW_PORT` to the same values (the image
   defaults). All are > 1024, so there is no remapping and the non-root app binds them directly. Nothing listens until
-  *Flows* is ON (`/api/health` → `ingest.netflow|ipfix|sflow`).
+  *Flows* is ON (`/api/health/details` → `ingest.netflow|ipfix|sflow`).
 - Source-IP preservation, the Docker-host test caveat (`172.x.0.1`) and the Docker Desktop caveat of the traps/syslog
   section apply unchanged. NetFlow/IPFIX exporters are identified by their UDP source address, sFlow by the agent
   address in the datagram; unknown exporters are listed in the UI and dropped until accepted.
@@ -196,7 +213,7 @@ container, image package, inbound port or volume. What the server side adds:
 | File | Purpose |
 |---|---|
 | `ops/assistant-net.sh` | `check`: DNS, address class (private/public), direct-vs-proxy decision (same NO_PROXY rules as the app) and reachability for the Bedrock / Roles Anywhere / KB / control-plane hosts and any VPC endpoint name. `no-proxy [--restart] ENTRY…`: adds entries to `NO_PROXY` in `app.env` once. |
-| `ops/status.sh` | New section *Assistant*: state from `/api/health`, proxy and whether `*.vpce.amazonaws.com` bypasses it, optional certificate host files (expiry, key mode). The *Time* section now also mentions AWS signing (5 min skew). |
+| `ops/status.sh` | New section *Assistant*: state from `/api/health/details` (needs the optional `status-token`, see *Health endpoint*), proxy and whether `*.vpce.amazonaws.com` bypasses it, optional certificate host files (expiry, key mode). The *Time* section now also mentions AWS signing (5 min skew). |
 | `aws/*.json` | IAM templates with placeholders: `bedrock-invoke-policy.json`, `bedrock-knowledge-base-policy.json` (only with a KB), `bedrock-list-models-policy.json` (optional *List models* button), `rolesanywhere-trust-policy.json`, `vpc-endpoint-policy.json`. |
 | `aws/render-policies.py` | Fills the templates (stdlib only, runs on a Windows admin PC too): `python3 render-policies.py --account 111122223333 --region us-east-1 --profile us.anthropic.<model> [--light-profile …] [--trust-anchor-id …] [--kb-id …]` → `./out/*.json`. |
 | `compose.yaml` | Read-only mount `/etc/netmon-gitops/aws` → `/etc/netmon/aws` (only used when the certificate is kept as host files). |

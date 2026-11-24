@@ -383,7 +383,8 @@ export const endpoints = {
   // tree / dashboard
   tree: () => api.get<Tree>('/tree'),
   dashboard: () => api.get<Dashboard>('/dashboard'),
-  health: () => api.get<import('./types').Health>('/health'),
+  /** [security] runtime details need a signed-in user; public `/health` is only `{status}`. */
+  health: () => api.get<import('./types').Health>('/health/details'),
 
   // groups
   groups: (params?: { parent_id?: number | 'root' }) =>

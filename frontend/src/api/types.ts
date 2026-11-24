@@ -335,6 +335,7 @@ export type CheckResult = {
   channels: { key: string; unit: string; value: number | null; status: ChannelStatus }[];
 };
 
+/** GET /api/health/details (signed-in users / API tokens only). */
 export type Health = {
   status: 'ok' | 'degraded';
   version: string;

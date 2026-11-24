@@ -59,7 +59,7 @@ test.afterAll(async () => {
 
 test('security headers on the SPA, the API and error answers', async () => {
   const anon = await pwRequest.newContext({ baseURL: BASE_URL });
-  for (const path of ['/', '/login', '/noc', '/ack', '/api/health', '/api/setup/status', '/api/devices', '/api/nope']) {
+  for (const path of ['/', '/login', '/noc', '/ack', '/api/health', '/api/health/details', '/api/setup/status', '/api/devices', '/api/nope']) {
     const r = await anon.get(path);
     const h = r.headers();
     const csp = h['content-security-policy'] ?? '';

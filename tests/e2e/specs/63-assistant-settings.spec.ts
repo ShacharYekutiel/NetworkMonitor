@@ -42,7 +42,7 @@ test.beforeAll(async () => {
 test('fresh install: assistant and the 10 AI features OFF, USD prices, health "disabled", 409 except prepare endpoints', async () => {
   const f = (await api.get('/api/settings/public')).features;
   for (const n of ['assistant', ...AI_FEATURES]) expect(f[n], `feature ${n}`).toBe(false);
-  expect((await api.get('/api/health')).assistant).toBe('disabled');
+  expect((await api.get('/api/health/details')).assistant).toBe('disabled');
   const s = await assistantSettings(api);
   expect(s).toMatchObject({ enabled: false, state: 'disabled', secret_access_key: null, certificate: null });
   expect(s.prices.currency, 'owner decision: USD').toBe('USD');
@@ -227,7 +227,7 @@ test('UI: Roles Anywhere Test passes -> switch unlocks -> ON; nav appears; editi
   await expect.poll(async () => (await assistantSettings(api)).enabled, { timeout: 15_000 }).toBe(true);
   await page.reload();
   await expect(page.locator('nav a[href="/assistant"]').first()).toBeVisible({ timeout: 15_000 });
-  expect((await api.get('/api/health')).assistant).toMatch(/^(ready|degraded)$/);
+  expect((await api.get('/api/health/details')).assistant).toMatch(/^(ready|degraded)$/);
   // editing a connection field locks the switch again (ON: a save needs a new test)
   await page.getByTestId('region').fill('us-west-2');
   await expect(page.getByText(/Run a successful Test|changeNeedsTest|test/i).first()).toBeVisible();
@@ -281,7 +281,7 @@ test('test_id rules: bound to the admin and the connection values; audit OFF -> 
 test('OFF is always possible; enabling with audit OFF refused; ON again (access key) for the next specs', async () => {
   const off = await raw(api, 'PUT', '/api/assistant/settings', { enabled: false });
   expect(off.status).toBe(200);
-  expect((await api.get('/api/health')).assistant).toBe('disabled');
+  expect((await api.get('/api/health/details')).assistant).toBe('disabled');
   expect((await raw(api, 'GET', '/api/assistant/conversations')).status).toBe(409);
   await setFeatures(api, { audit: false });
   const t = await testConnection(api, akSettings());

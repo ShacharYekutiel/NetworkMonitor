@@ -2335,6 +2335,9 @@
       "known": "מלכודות v1/v2c עם Community אחר נזרקות."
     },
     "knownNeedsList": "הוסיפו קודם לפחות Community אחד.",
+    "anyWarning": "מלכודות מתקבלות עם כל Community. כל מי שיכול להגיע לפורט המלכודות יכול לשלוח מלכודות שיישמרו.",
+    "anyHowTo": "כדי לקבל רק Communities מוכרים: סמנו „החלפת הרשימה השמורה”, הזינו את ה-Communities (אחד בכל שורה), בחרו „רק Communities מוכרים” בבדיקת Community ולחצו „שמירה” — שניהם נשמרים יחד. Communities מפרטי ה-SNMP של התקנים וקבוצות, וגם „public”, נחשבים תמיד מוכרים.",
+    "knownEmptyWarning": "„רק Communities מוכרים” מופעל, אבל אין Communities שמורים למלכודות: כל מלכודת v1/v2c נזרקת, אלא אם ה-Community שלה הוא „public” או אחד מפרטי ה-SNMP של התקן או קבוצה. הוסיפו Communities דרך „החלפת הרשימה השמורה”.",
     "communities": "Communities למלכודות",
     "communitiesStored": "Communities שמורים: {{n}} (לעולם לא מוצגים)",
     "replaceCommunities": "החלפת הרשימה השמורה",
