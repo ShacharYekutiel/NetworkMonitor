@@ -688,7 +688,7 @@ export function TrapCollapseCard({ settings }: { settings: Settings }) {
 /**
  * [syslog-protection] Deduplication and the per-source rate limit (both ON by default; an upgrade
  * turns them on, so their current values and a plain explanation are shown here). The filter
- * rules live on the Logs page (Syslog protection tab).
+ * rules live on the Logs page (Flood protection tab).
  */
 export function SyslogProtectionCard({ settings }: { settings: Settings }) {
   const { t } = useTranslation();

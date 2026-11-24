@@ -1962,7 +1962,7 @@
       "unknown": "Unknown sources",
       "rules": "Rules",
       "digest": "Digest",
-      "protection": "Syslog protection"
+      "protection": "Flood protection"
     },
     "range": "Time range",
     "preset": {
@@ -4484,7 +4484,7 @@
     "perMinHint": "10–100,000 · default 3,000",
     "perMinErr": "Enter 10–100,000.",
     "rulesHint": "To drop or thin out a specific noisy program or device, add a filter rule:",
-    "rulesLink": "Logs → Syslog protection"
+    "rulesLink": "Logs → Flood protection"
   },
   "syslogFilters": {
     "title": "Filter rules",

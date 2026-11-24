@@ -620,7 +620,7 @@ function TopTalkersCard({ onCreate }: { onCreate: (x: TopTalker) => void }) {
 }
 
 // ---------------------------------------------------------------- the view
-/** [syslog-protection] Logs → Syslog protection (admins): dedup / rate-limit state and counters,
+/** [syslog-protection] Logs → Flood protection (admins): dedup / rate-limit state and counters,
  * the ordered filter rules with their hit counters, top talkers and the cleanup offer. */
 export function SyslogProtectionView() {
   const { t } = useTranslation();

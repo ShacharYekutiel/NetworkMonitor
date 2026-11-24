@@ -106,11 +106,11 @@ protection*, each with its current value and an explanation; turning one off res
   reads `syslog_messages` directly must take `repeat_count` into account.
 - **Per-source rate limit** (`syslog_rate_limit_enabled`, `syslog_rate_limit_per_min` = 3000): above 3000 new rows
   per minute from one source the excess is not stored; it is counted (`dropped.source_rate_limit`, per source in
-  *Logs → Syslog protection*) and a system event says so at most once an hour per source. A healthy device never
+  *Logs → Flood protection*) and a system event says so at most once an hour per source. A healthy device never
   comes close (the noisiest device in the owner's network sends ~59 rows/min); it is a storm guard.
 
 **Filter rules** (drop, or keep only the newest N per source) are empty after the upgrade and change nothing until
-an operator adds one (*Logs → Syslog protection*, with the top talkers of the last 24 h and a one-click "Create
+an operator adds one (*Logs → Flood protection*, with the top talkers of the last 24 h and a one-click "Create
 rule"). Cleaning already-stored rows is only ever offered, with the exact count, and runs in batches. Event rules
 and SIEM forwarding still see every message. Migration `0018` adds three columns with constant defaults (no table
 rewrite) and one empty partial index; a rollback to the previous image keeps working on the migrated database
