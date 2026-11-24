@@ -88,12 +88,16 @@ async def apply_template_interfaces(
     rt: RT,
     session: DB,
     template_id: str = Query(..., max_length=64),
+    refresh: bool = True,
 ) -> dict:
-    """[1.3] The interfaces the apply dialog offers, with their importance."""
+    """[1.3] The interfaces the apply dialog offers, with their importance. [if-noise]
+    `refresh=false` (the dialog's preview count): never starts a port inventory run."""
     if await session.get(Device, device_id) is None:
         raise not_found("Device")
     template = get_template(template_id)
     if template is None:
         raise validation_error(["query", "template_id"], "unknown template")
     await session.close()
-    return await interface_choices(rt, device_id, template)
+    return await interface_choices(
+        rt, device_id, template, refresh_s=REFRESH_WAIT_S if refresh else 0.0
+    )

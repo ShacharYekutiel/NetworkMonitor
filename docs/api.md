@@ -3469,7 +3469,9 @@ comes from a live SNMP enumeration because the device has no port inventory):
 { mode: "access" | "trunk" | null; pvid: number | null; untagged_vlans: number[] | null;
   tagged_vlans: number[] | null; has_neighbor: boolean | null }   // an LLDP/CDP neighbour on the port
 ```
-`important` / `reasons` follow the criteria and overrides above. The dialog filters on these client-side (VLAN
+New query parameter `refresh` (bool, default `true`): `false` never starts the bounded port inventory run of a
+device without inventory (the dialog's preview count for "Important ports" / "All ports" uses it; "Choose ports"
+keeps the 1.3 behaviour). `important` / `reasons` follow the criteria and overrides above. The dialog filters on these client-side (VLAN
 include / exclude lists, description include / exclude regular expressions, port mode, has a neighbour) and sends
 the resulting ifIndex list as `interfaces` (unchanged request contract). The default choice stays
 `"important"`; "All ports" and a manual list remain available.

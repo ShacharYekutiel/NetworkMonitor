@@ -88,9 +88,9 @@ test('problem inside the window: no notification, event flagged in_maintenance',
   await waitStatus(api, dev.sensor.id, 'down', 45_000);
   await quiet(8_000);
   expect(await hooks(HOOK)).toEqual([]);
-  const ev = (await api.get(`/api/events?sensor_id=${dev.sensor.id}&kind=status_change&page_size=10`)).items;
+  const ev = (await api.get(`/api/events?sensor_id=${dev.sensor.id}&kind=status_change&page_size=10&noise=include` /* [if-noise] */)).items;
   expect(ev[0]).toMatchObject({ new_status: 'down', in_maintenance: true });
-  expect((await api.get('/api/events?in_maintenance=true&page_size=100')).items.map((e: any) => e.id)).toContain(ev[0].id);
+  expect((await api.get('/api/events?in_maintenance=true&page_size=100&noise=include')).items.map((e: any) => e.id)).toContain(ev[0].id);
   const dash = await api.get('/api/dashboard');
   expect(dash.maintenance.active_window_ids).toContain(windowId);
   expect(dash.maintenance.device_count).toBeGreaterThanOrEqual(1);

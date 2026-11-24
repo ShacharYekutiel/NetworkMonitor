@@ -160,6 +160,9 @@ describe('[1.3] B. apply template: ports', () => {
     expect((await screen.findByTestId('apply-ports-preview')).textContent).toBe(
       'Will get an interface sensor: 1 · Will not: 2',
     );
+    expect(calls.map((c) => c.url)).toContain(
+      '/api/devices/7/apply-template/interfaces?template_id=comware&refresh=false',
+    );
     await clickApply('comware');
     await waitFor(() => expect(post(calls)).toBeTruthy());
     expect(post(calls)!.body).toEqual({
@@ -181,8 +184,11 @@ describe('[1.3] B. apply template: ports', () => {
     const section = await screen.findByTestId('apply-ports');
     fireEvent.click(within(section).getByLabelText('Choose ports'));
     await screen.findByTestId('apply-ports-list');
-    const url = calls.find((c) => c.url.includes('/apply-template/interfaces'))!.url;
-    expect(url).toBe('/api/devices/7/apply-template/interfaces?template_id=comware');
+    const urls = calls
+      .filter((c) => c.url.includes('/apply-template/interfaces'))
+      .map((c) => c.url);
+    // [if-noise] the preview (no inventory run) first, then the full list for "Choose ports"
+    expect(urls).toContain('/api/devices/7/apply-template/interfaces?template_id=comware');
     expect(screen.getByTestId('apply-ports-missing')).toBeTruthy();
     // preselected: important + monitored
     expect(screen.getByTestId('apply-ports-count').textContent).toBe('2 of 3 selected');

@@ -85,7 +85,7 @@ test('Run now (send): availability equals the formula on the sensor events; emai
   await expect.poll(async () => { full = await api.get(`/api/reports/runs/${runId}`); return full.status; }, { timeout: 60_000 }).toMatch(/^(ok|partial)$/);
   expect(full.status).toBe('ok');
   expect(full.deliveries).toEqual([expect.objectContaining({ target: 'email:ops@example.test', ok: true })]);
-  const ev = await api.get(`/api/events?sensor_id=${prob.sensor.id}&page_size=200`);
+  const ev = await api.get(`/api/events?sensor_id=${prob.sensor.id}&page_size=200&noise=include` /* [if-noise] availability uses every change */);
   const want = availability(ev.items ?? ev, Date.parse(periodStart), Date.parse(periodEnd));
   const row = full.data.availability.devices.find((d: any) => d.device_id === prob.device.id);
   expect(row, 'device row').toBeTruthy();

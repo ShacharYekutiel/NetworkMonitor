@@ -189,7 +189,7 @@ test('target fails -> sensor goes down live, event + webhook; recovers -> up + w
   expect(downHook.body.message).toContain('503');
 
   // The status_change event exists in the API as well.
-  const ev = await api.get(`/api/events?sensor_id=${sensorId}&kind=status_change&status=down`);
+  const ev = await api.get(`/api/events?sensor_id=${sensorId}&kind=status_change&status=down&noise=include` /* [if-noise] the row may still wait for its confirming check */);
   expect(ev.items.length).toBeGreaterThanOrEqual(1);
   expect(ev.items[0]).toMatchObject({ old_status: 'up', new_status: 'down', sensor_name: sensorName });
 

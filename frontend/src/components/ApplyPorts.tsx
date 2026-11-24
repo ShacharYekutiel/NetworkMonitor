@@ -285,12 +285,20 @@ export function ApplyPortsSection({
   const [query, setQuery] = useState('');
   const need = choice === 'choose' || remove;
   // [if-noise] also loaded for "important" / "all": the preview counts what will be monitored
-  const q = useQuery({
+  // (without a port inventory run: the preview must not touch the device beyond a read)
+  const full = useQuery({
     queryKey: qk.applyInterfaces(deviceId, templateId),
     queryFn: () => endpoints.applyTemplateInterfaces(deviceId, templateId),
-    enabled: choice !== 'none' && !!templateId,
+    enabled: need && !!templateId,
     staleTime: 30_000,
   });
+  const light = useQuery({
+    queryKey: [...qk.applyInterfaces(deviceId, templateId), 'preview'],
+    queryFn: () => endpoints.applyTemplateInterfaces(deviceId, templateId, false),
+    enabled: !need && choice !== 'none' && !!templateId && !full.data,
+    staleTime: 30_000,
+  });
+  const q = need || full.data ? full : light;
   const items = useMemo(() => q.data?.items ?? [], [q.data]);
   useEffect(() => {
     if (q.data && picked === null) onPicked(new Set(initialPortPick(q.data.items)));

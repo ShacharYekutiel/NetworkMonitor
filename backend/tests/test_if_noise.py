@@ -537,6 +537,12 @@ async def test_apply_interfaces_carry_filter_data(rt: Runtime, admin: httpx.Asyn
     assert by[3]["mode"] == "trunk" and by[3]["tagged_vlans"] == [10, 20, 30]
     assert by[7]["has_neighbor"] is True and by[1]["has_neighbor"] is False
     assert by[1]["important"] is False and by[7]["important"] is True
+    # the dialog's preview asks without starting a port inventory run
+    r2 = await admin.get(
+        f"/api/devices/{a}/apply-template/interfaces",
+        params={"template_id": "hpe_comware", "refresh": "false"},
+    )
+    assert r2.status_code == 200 and r2.json()["items"] == r.json()["items"]
 
 
 # ------------------------------------------------------------------ migration 0019

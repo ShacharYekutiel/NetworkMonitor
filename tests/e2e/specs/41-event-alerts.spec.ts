@@ -13,7 +13,7 @@ import {
 // + owner decision (coordinator, not yet in docs): setting `event_linkdown_scope` "important" (default) | "all":
 //   important -> linkDown on a plain access port raises nothing, on a port with an interface sensor / uplink /
 //   LAG it does; all -> the access port alerts too; invalid value -> 422.
-// port-aos (127.0.0.81): ifIndex 1 has an snmp_interface sensor (important), 10 = uplink (manual link to
+// port-aos (127.0.0.81): ifIndex 1 has an snmp_interface sensor and is marked important ([if-noise]), 10 = uplink (manual link to
 // port-cw), 7 = plain access port (1 MAC, no sensor, not LAG/uplink).
 test.describe.configure({ mode: 'serial' });
 

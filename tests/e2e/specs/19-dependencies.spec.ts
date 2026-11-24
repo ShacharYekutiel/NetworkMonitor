@@ -158,7 +158,7 @@ test('parent outage: children unreachable (violet, live), only the parent alerts
   const recs = await hooks(HOOK);
   expect(recs.map((r) => `${r.body.sensor?.id}:${r.body.new_status}`)).toEqual([`${parent.sensor.id}:down`]);
   expect(await hooksForSensors([child1.sensor.id, child2.sensor.id])).toEqual([]);
-  const ev = (await api.get(`/api/events?sensor_id=${child1.sensor.id}&page_size=50`)).items;
+  const ev = (await api.get(`/api/events?sensor_id=${child1.sensor.id}&page_size=50&noise=include`)).items;
   expect(ev.some((e: any) => e.new_status === 'unreachable')).toBe(true);
 });
 
@@ -188,7 +188,7 @@ test('child still down after the parent recovered: unreachable -> down -> alerts
   labRevive('http-31'); // parent up, child 2 target still failing
   await waitStatus(api, parent.sensor.id, 'up', 30_000);
   await waitStatus(api, child2.sensor.id, 'down', 30_000);
-  const ev = (await api.get(`/api/events?sensor_id=${child2.sensor.id}&page_size=50`)).items;
+  const ev = (await api.get(`/api/events?sensor_id=${child2.sensor.id}&page_size=50&noise=include`)).items;
   expect(ev.some((e: any) => e.old_status === 'unreachable' && e.new_status === 'down')).toBe(true);
   // delay_s 20 on the child's rule.
   await expect

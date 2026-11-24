@@ -492,10 +492,11 @@ export const endpoints = {
   ) =>
     api.post<ApplyTemplateResult>(`/devices/${deviceId}/apply-template`, { template_id, ...opts }),
   /** [1.3] interfaces an snmp_interfaces entry would cover, with importance */
-  applyTemplateInterfaces: (deviceId: number, template_id: string) =>
-    api.get<ApplyInterfacesResponse>(`/devices/${deviceId}/apply-template/interfaces`, {
-      template_id,
-    }),
+  applyTemplateInterfaces: (deviceId: number, template_id: string, refresh = true) =>
+    api.get<ApplyInterfacesResponse>(
+      `/devices/${deviceId}/apply-template/interfaces`,
+      refresh ? { template_id } : { template_id, refresh: false },
+    ),
   /** [template-switch] the device's sensors this template replaces */
   applyTemplateReplaces: (deviceId: number, template_id: string) =>
     api.get<ReplaceCandidatesResponse>(`/devices/${deviceId}/apply-template/replaces`, {

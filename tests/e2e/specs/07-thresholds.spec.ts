@@ -75,7 +75,7 @@ test('warning_max 0.001 on latency -> warning (live)', async ({ page }) => {
   expect(w.channels.find((c: any) => c.key === 'latency_ms').status).toBe('warning');
   expect(w.channels.find((c: any) => c.key === 'packet_loss_pct').status).toBe('up');
 
-  const ev = await api.get(`/api/events?sensor_id=${sensorId}&status=warning`);
+  const ev = await api.get(`/api/events?sensor_id=${sensorId}&status=warning&noise=include` /* [if-noise] */);
   expect(ev.items[0]).toMatchObject({ kind: 'status_change', old_status: 'up', new_status: 'warning' });
 
   // Warning shows on the dashboard problem list.

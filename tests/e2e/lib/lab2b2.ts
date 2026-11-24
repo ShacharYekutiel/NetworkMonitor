@@ -176,6 +176,10 @@ export async function ensurePortLab(api: Api, opts: { force?: boolean } = {}): P
     if (!lldp) await refreshTopology(api);
     for (const d of [arp, legacy, aos, cw, cx, aos52]) await refreshPorts(api, d.id);
   }
+  // [if-noise] an interface sensor no longer makes a port important by itself: AOS port 1 (the "port with an
+  // interface sensor" of the link-down / flapping specs) is marked important explicitly (404 = older server)
+  const p1 = await raw(api, 'PUT', `/api/devices/${aos.id}/ports/1/importance`, { important: true });
+  expect([200, 404], p1.text).toContain(p1.status);
   return lab;
 }
 
