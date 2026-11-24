@@ -28,6 +28,11 @@ class ConnectedKindIn(BaseModel):  # [premium] PUT …/ports/{if_index}/connecte
     kind: ConnectedKind | None
 
 
+class PortImportanceIn(BaseModel):  # [if-noise] PUT …/ports/{if_index}/importance
+    model_config = ConfigDict(extra="forbid")
+    important: bool | None  # true = always important, false = never, null = the criteria
+
+
 class PortsRefreshResponse(_Out):
     device_id: int
     queued: bool
@@ -132,7 +137,9 @@ class Port(_Out):
     vlans_from_lag: bool
     # [1.3]
     important: bool
-    important_reasons: list[Literal["uplink", "lag", "trunk", "irf"]]  # [1.3.1] irf
+    # [1.3.1] irf; [if-noise] description, marked
+    important_reasons: list[Literal["uplink", "lag", "trunk", "irf", "description", "marked"]]
+    importance_override: bool | None = None  # [if-noise] the user's choice (null = criteria)
     irf_port: int | None  # [1.3.1] IRF port (1/2) of an IRF physical port, else null
     connected: PortConnected
     neighbor_name: str | None

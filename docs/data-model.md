@@ -21,6 +21,8 @@ Sections marked **[1.3.1]** (IRF ports are important, named value maps, IRF role
 [§ Release 1.3.1](#131-release-131-additions), migration `0009`.
 Sections marked **[severity]** (alert severity: levels, mapping, overrides, rule severities) are in
 [§ Alert severity](#severity-alert-severity), migration `0015`.
+Sections marked **[if-noise]** (sensor event debounce / flapping, important-port criteria and overrides) are in
+[§ Interface sensor event noise](#if-noise-interface-sensor-event-noise), migration `0019`.
 
 PostgreSQL ≥ 14 holds the data, and TimescaleDB is optional (see [architecture.md §6](architecture.md)). Alembic
 migrations own the schema.
@@ -4638,3 +4640,109 @@ repeat_count integer NOT NULL DEFAULT 1, last_seen timestamptz NULL, filter_rule
 defaults: catalog only, no rewrite of the existing rows); the partial index. `downgrade()`: drops the index, the
 three columns (repeat counts are lost, every row stays) and the table. An older release on the upgraded database
 keeps working: its INSERT leaves the new columns at their defaults.
+
+---
+
+# **[if-noise]** Interface sensor event noise
+
+Improvements of existing behaviour: plain settings keys, **ON by default (also after an upgrade)**, each with an
+off switch. API: [api.md § [if-noise]](api.md#if-noise-interface-sensor-event-noise). Finding behind it (an
+installation with 18,140 events): 90 % were interface sensors going up / down, 20 sensors (1.9 %) made 28 % —
+user ports following PCs; and "important ports only" treated every port with an interface sensor as important.
+
+## [if-noise] Columns (`events`)
+| Column | Type | Meaning |
+|---|---|---|
+| `noise` | text NULL CHECK IN (`pending`,`debounced`,`flapping`) | NULL = shown in the event log. `pending`: a change still in its debounce hold; `debounced`: it reverted within the hold (and so did the change back); `flapping`: collapsed into the sensor's `sensor_flapping` row |
+| `noise_until` | timestamptz NULL | `pending`: when the row is shown (index `ix_events_noise_pending` WHERE `noise = 'pending'`) |
+| `flap_count` | integer NULL | `sensor_flapping`: changes counted in the episode (the window count at the start, then +1 per change) |
+| `flap_last` | timestamptz NULL | `sensor_flapping`: the last change |
+| `flap_end` | timestamptz NULL | `sensor_flapping`: when the episode settled; NULL = still flapping (index `ix_events_flapping_open`) |
+
+`events.kind` gains **`sensor_flapping`**. Rows are never deleted by the protections (retention as before), so
+reports, availability, the AI correlation and anything else reading `events` directly still see every change; the
+event-log readers (`GET /api/events` default, dashboard recent events, device timeline `status`, NOC recent
+alerts) filter `noise IS NULL`.
+
+## [if-noise] Sensor event debounce (`netmon.services.event_noise`, called by `poller.processor.persist`)
+For a `status_change` written by the poller, in the same transaction (the sensor row is locked), when
+`sensor_event_debounce_enabled` and the old status is not NULL / `unknown` / `paused` (first check, resume,
+restart: never debounced) and the new one is not `unknown` / `paused`:
+
+1. `hold = max((sensor_event_debounce_polls + 0.5) × interval_s, sensor_event_debounce_min_s)` (pure
+   `hold_seconds`).
+2. The sensor's newest `pending` row P (`FOR UPDATE`): if the new status is P's `old_status` and the change is at
+   most `hold` after P → both rows `debounced` (a blip). Otherwise P is shown now (`noise` NULL) — the earlier
+   status held until something else happened.
+3. The new row becomes `pending`, `noise_until = time + hold + timeout + 5 s` (timeout = min(interval, 120), so a
+   check that started inside the hold and is still running can still cancel it).
+
+A sweeper (every 5 s, `rt.clock`) runs `UPDATE events SET noise = NULL … WHERE noise = 'pending' AND noise_until
+<= now RETURNING id` and broadcasts `event.created`. The state is in the database, so a restart shows the due rows
+on the first sweep. Event sensors (trap / syslog / flap / backup …) and the other writers (pause, cascade
+`unreachable`, stale marking) are not debounced. Examples at a 60 s interval and the defaults: down at t, up at
+t+60 → no rows shown; down at t, still down at t+60 → the down is shown at about t+155 with its real time t.
+
+## [if-noise] Flapping collapse
+One definition of flapping: the [2b-3] pure `FlapTracker` (`ingest/flapping.py`) and its keys `flap_threshold`
+(5 changes) / `flap_window_min` (10) / `flap_quiet_min` (15), keyed per polled sensor (`(sensor_id, 0)`) in a
+second instance (`rt.event_noise.tracker`) that runs whether or not the `flapping` feature is ON — the feature's
+port tracker, alert suppression and `port_flap` sensors are unchanged. Every change that passes the exemptions
+above (also debounced ones) is fed in, before the debounce.
+- From the change that reaches the threshold on (and while flapping): the row gets `noise = 'flapping'`; pending
+  rows of the sensor become `flapping`; the sensor's open `sensor_flapping` row is created (`flap_count` = the
+  window count) or updated (`flap_count` + 1, `flap_last`, `new_status` = the latest status, message).
+- Settled (no change for `flap_quiet_min`, sweeper `tracker.expire`): `flap_end` is set, `new_status` = the
+  sensor's status. If the newest **shown** `status_change` of the sensor does not end in its current status, the
+  newest hidden (`flapping` / `debounced`) change to that status is shown, so the log always ends in the real state.
+- Restart: open rows (`flap_end` NULL) are restored into the tracker (`mark_flapping` at `flap_last`).
+- `sensor_event_flap_enabled` OFF: open episodes are settled at once; nothing is collapsed afterwards.
+
+## [if-noise] Important-port criteria (`netmon.ports.importance`)
+`port_reasons` adds two reasons: **`description`** (`switch_ports.alias` matches
+`important_port_description_pattern`, RE2, case-insensitive, via `util.saferegex`) and **`marked`** (override
+`true`). `DeviceImportance.counted(idx)` keeps the reasons in `important_port_criteria` plus `description` /
+`marked`; a port with override `false` counts nothing. Used by the ports API, the apply selection, the default
+impact of new interface sensors and the ingest `PortInfo` (link-down / flapping scope `important`), where
+`critical_sensor` in the criteria adds the ports with a `critical` `snmp_interface` sensor (the pre-upgrade rule),
+`event_linkdown_include_trunks` still filters trunks, and override `false` ports are removed. A device with neither
+port inventory nor counted critical sensors keeps "every port important" (importance unknown).
+
+**Upgrade.** Before, the link-down scope always added ports with a critical interface sensor, so after a template
+created sensors on every port of a device without port inventory (impact `critical` there) every port became
+important. Migration `0019` writes `important_port_criteria = ["uplink","lag","trunk","irf","critical_sensor"]` on an
+**existing** install (any `settings` row present): nothing that alerted before stops alerting; the Settings card
+shows a notice to clear `critical_sensor`. A fresh install uses the code default without it.
+
+## [if-noise] Table `port_importance_overrides`
+| Column | Type | Notes |
+|---|---|---|
+| device_id | integer NOT NULL FK devices ON DELETE CASCADE | PK with if_index |
+| if_index | integer NOT NULL | |
+| important | boolean NOT NULL | true = always important, false = never |
+| updated_at | timestamptz NOT NULL DEFAULT now() | |
+| updated_by | integer NULL | user id (no FK, as `port_kind_overrides`) |
+
+## [if-noise] Settings keys
+| Key | Type | Default | Limits / meaning |
+|---|---|---|---|
+| `sensor_event_debounce_enabled` | bool | **true** | debounce of polled-sensor event rows |
+| `sensor_event_debounce_polls` | int | 1 | 1–10 |
+| `sensor_event_debounce_min_s` | int | 0 | 0–3600 |
+| `sensor_event_flap_enabled` | bool | **true** | flapping collapse of polled-sensor event rows |
+| `important_port_criteria` | list | `["uplink","lag","trunk","irf"]` | subset of `uplink`, `lag`, `trunk`, `irf`, `critical_sensor`; an upgraded install gets `critical_sensor` added by migration `0019` |
+| `important_port_description_pattern` | str | `""` | ≤ 200, RE2 |
+
+A change of the first four re-reads `rt.event_noise` (OFF shows the pending rows / settles the episodes); a change
+of the last two drops the ingest's cached important-port sets.
+
+## [if-noise] Migration (`0019`)
+File `backend/netmon/migrations/versions/0019_event_noise.py`, `revision = "0019"`, `down_revision = "0018"`. Plain
+DDL, identical in TimescaleDB and plain PostgreSQL mode (`events` is a plain table in both), idempotent.
+`upgrade()`: `events_kind_check` with `sensor_flapping`; `events.noise` (+ `events_noise_check`), `noise_until`,
+`flap_count`, `flap_last`, `flap_end` (NULL defaults: catalog only); the two partial indexes;
+`port_importance_overrides`; on an existing install the `important_port_criteria` row (see Upgrade).
+`downgrade()`: deletes the settings row and the `sensor_flapping` rows, drops the table, indexes, columns (hidden
+rows become ordinary shown rows for the older release) and restores the kind check. An older release on the upgraded
+database keeps working (its INSERT leaves the new columns NULL = shown).
+

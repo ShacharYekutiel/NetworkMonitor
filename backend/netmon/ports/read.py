@@ -253,6 +253,7 @@ def port_out(
     sensor: tuple[int, str] | None,
     lag: LagCtx | None = None,
     important_reasons: list[str] | None = None,
+    importance_override: bool | None = None,
 ) -> dict[str, Any]:
     """Port (api.md). `macs`: PortMac dicts (with `_last_seen`) of the present rows; `sensor`:
     the linked snmp_interface sensor (id, status); `lag`: the LAG structure while the `lag`
@@ -353,6 +354,7 @@ def port_out(
         # [1.3] importance, connected hosts, LLDP neighbour
         "important": bool(reasons_imp),
         "important_reasons": reasons_imp,
+        "importance_override": importance_override,  # [if-noise] the user's explicit choice
         "irf_port": row.get("irf_port"),  # [1.3.1]
         "connected": connected_out(is_up, mac_count, macs_sorted, first),
         "neighbor_name": primary["name"] if primary else None,

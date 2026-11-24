@@ -4149,3 +4149,53 @@ API off; HSTS `includeSubDomains` is an option (`NETMON_HSTS_INCLUDE_SUBDOMAINS`
 `site.env` for Caddy), default unchanged; the user template save resolves the final path and refuses anything outside
 the user template directory. Not done (documented in the PR): rate limit on the current-password check, admin API
 tokens able to change SSO/LDAP, `/api/docs` without login.
+
+## 17. Interface sensor event noise ([if-noise])
+
+Contract: [api.md § [if-noise]](api.md#if-noise-interface-sensor-event-noise); tables and algorithm:
+[data-model.md § [if-noise]](data-model.md#if-noise-interface-sensor-event-noise).
+
+### 17.1 Where it sits
+```
+check result ─► persist() (one transaction, sensor row FOR UPDATE)
+                 ├─ sensors.status / channels / measurements        ─► sensor.update  (real time, unchanged)
+                 ├─ events row (status_change)                       ─► alert engine, cascade, rollup, AI (at once)
+                 └─ rt.event_noise.on_change(): noise = pending | debounced | flapping | NULL
+                                                                     ─► event.created only when NULL
+rt.event_noise sweeper (5 s, rt.clock) ─► pending rows whose hold is over → NULL → event.created
+                                       └► FlapTracker.expire → sensor_flapping.flap_end, reconcile → event.updated
+```
+`EventNoise` (`netmon/services/event_noise.py`) is created and started in `Runtime.start()` right after the alert
+engine and before the poller; it is not a feature (core improvement, settings keys ON by default). The only
+in-memory state is the per-sensor `FlapTracker` (bounded to 10,000 keys, LRU) and the episode counts; the hold
+state lives in `events.noise_until`, so restarts lose nothing. All DB work is in the poller's existing transaction
+or in short sweeper transactions; nothing blocks the event loop.
+
+### 17.2 Alert timing (decision)
+The event row is written immediately and the alert engine is fed from it as before, so **no alert is delayed by
+the debounce or the flapping collapse**. Short blips are kept out of notifications by what already existed: the
+rule's `delay_s` and, for ports, the `flapping` feature's alert suppression. Delaying alerts by the debounce was
+rejected: a user whose rule has no delay expects the DOWN at once, and a second hidden delay would surprise them.
+The flapping collapse uses the same `FlapTracker` class and keys as port flapping (one definition), in its own
+instance keyed by sensor, because it must work while the `flapping` feature is OFF and covers every polled sensor
+type, not only ports.
+
+### 17.3 Readers
+The event log readers show `noise IS NULL` rows only (API default `noise=hide`; dashboard, device timeline, NOC).
+Reports, availability, the assistant / correlation and `GET /api/events?noise=include` see everything. The Events
+page offers "Show hidden changes" and the "Noisiest sensors" table (`GET /api/events/noisy-sensors`).
+
+### 17.4 Important ports
+`netmon.ports.importance` stays the one definition; the criteria (`important_port_criteria`), the description
+pattern and the per-port overrides (`port_importance_overrides`) are inputs of `device_importance()`, so the ports
+API, the template apply selection, the default interface impact and the ingest link-down scope all agree. The
+pre-upgrade rule (any port with a critical interface sensor counts) is the criterion `critical_sensor`, link-down
+scope only; migration `0019` keeps it on for upgraded installs.
+
+### 17.5 Apply template port filters
+The interfaces endpoint returns mode, VLANs and "has an LLDP/CDP neighbour" from the stored port inventory
+(`switch_ports` already holds `mode`, `pvid`, `untagged_vlans`, `tagged_vlans`, `alias`; neighbours from
+`topology_links`; Q-BRIDGE-MIB / LLDP / CDP collection existed, nothing new is polled, SNMP stays read-only). The
+filter runs in the dialog (`frontend/src/lib/noise.ts`) and produces the ifIndex list the apply already accepts, so
+the apply request is unchanged. Without port inventory only the description filter can work (the dialog says so).
+

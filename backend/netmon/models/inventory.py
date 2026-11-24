@@ -175,3 +175,9 @@ class Event(Base):
     message: Mapped[str] = mapped_column(Text, nullable=False, default="")
     in_maintenance: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
     severity: Mapped[str | None] = mapped_column(Text)  # [severity] resolved when written
+    # [if-noise] NULL = shown; pending / debounced / flapping = hidden by the event log default
+    noise: Mapped[str | None] = mapped_column(Text)
+    noise_until: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    flap_count: Mapped[int | None] = mapped_column(Integer)  # kind sensor_flapping
+    flap_last: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    flap_end: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))

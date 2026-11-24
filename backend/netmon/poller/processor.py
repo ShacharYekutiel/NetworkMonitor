@@ -74,6 +74,7 @@ async def persist(
 ) -> EvaluatedResult | None:
     """Evaluate against the stored thresholds and persist in one short transaction."""
     event: Event | None = None
+    noise_decision = None
     recheck_parent: list[int] = []
     recheck_self = False
     async with rt.sessionmaker() as session:
@@ -146,6 +147,9 @@ async def persist(
                 in_maintenance=rt.maintenance is not None
                 and rt.maintenance.in_maintenance(device.id),
             )
+            noise = getattr(rt, "event_noise", None)
+            if noise is not None:  # [if-noise] debounce / flapping of the event-log row
+                noise_decision = await noise.on_change(session, sensor, event, checked_at)
         await session.commit()
         update = {
             "id": sensor.id,
@@ -161,7 +165,11 @@ async def persist(
     if flap is not None and getattr(rt, "flapping", None) is not None:
         rt.flapping.transition(flap[0], flap[1], flap[2], flap[3])
     if event is not None:
-        events_svc.published(rt, [event])
+        # [if-noise] a hidden row still reaches alerts / cascade / rollup now (no delay)
+        visible = noise_decision is None or noise_decision.visible
+        events_svc.published(rt, [event], broadcast=visible)
+        if noise_decision is not None:
+            rt.event_noise.publish(event, noise_decision)
     if rt.scheduler is not None:
         if recheck_parent:
             rt.scheduler.run_soon(recheck_parent, jitter_s=0)

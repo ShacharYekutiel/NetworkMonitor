@@ -54,6 +54,9 @@ async def put_settings(body: SettingsPut, _: Admin, rt: RT, session: DB, ctx: Au
     await _put_3_plain(body, fields, current, session)
     await _put_3c(body, fields, current, rt, session)  # [3] SSO toggles, reports, chat ack
     await flow_settings.put(body, fields, session)  # [3] flows
+    for key in (*settings_svc.NOISE_KEYS, *settings_svc.IMPORTANT_PORT_KEYS):  # [if-noise]
+        if key in fields and getattr(body, key) is not None:
+            await settings_svc.put(session, key, getattr(body, key))
     for key in security_svc.KEYS:  # [1.4.1]
         if key in fields and getattr(body, key) is not None:
             await settings_svc.put(session, key, getattr(body, key))
@@ -106,6 +109,7 @@ async def put_settings(body: SettingsPut, _: Admin, rt: RT, session: DB, ctx: Au
     await _apply_3(rt, current, values)
     await flow_settings.after_put(rt, current, values)  # [3] flows
     security_svc.apply(rt, values)  # [1.4.1] cached policy + egress filter
+    await _apply_noise(rt, current, values)  # [if-noise]
     return settings_svc.settings_out(values, rt.secret_key)
 
 
@@ -283,6 +287,21 @@ async def _put_3_plain(body: SettingsPut, fields: set[str], current: dict, sessi
         )
     for key, value in new.items():
         await settings_svc.put(session, key, value)
+
+
+async def _apply_noise(rt: RT, before: dict, after: dict) -> None:
+    """[if-noise] after the commit: the event-noise protection re-reads its settings (turning
+    one OFF shows what it held back); the important-port sets of the ingest are dropped."""
+    from netmon.services.event_noise import KEYS
+
+    noise = getattr(rt, "event_noise", None)
+    if noise is not None and any(before.get(k) != after.get(k) for k in KEYS):
+        await noise.reload()
+    ingest = getattr(rt, "ingest", None)
+    if ingest is not None and any(
+        before.get(k) != after.get(k) for k in settings_svc.IMPORTANT_PORT_KEYS
+    ):
+        ingest.ports.clear()
 
 
 async def _apply_3(rt: RT, before: dict, after: dict) -> None:

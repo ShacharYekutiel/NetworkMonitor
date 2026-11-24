@@ -354,6 +354,14 @@ async def test_port_info_trunks_and_critical_sensors(rt: Runtime, admin: httpx.A
     assert info.important == {4, 5, 6, 7, 11}
     await make_sensor(admin, a, "snmp_interface", {"if_index": 8}, impact="critical")
     await make_sensor(admin, a, "snmp_interface", {"if_index": 1})  # warning: not important
+    # [if-noise] an interface sensor (even a critical one) no longer makes a port important ...
+    info = await load_port_info(rt, a, include_trunks=False)
+    assert info.important == {4, 5, 6, 7, 11}
+    # ... unless the pre-upgrade meaning is chosen (an upgraded install has it on)
+    await admin.put(
+        "/api/settings",
+        json={"important_port_criteria": ["uplink", "lag", "trunk", "irf", "critical_sensor"]},
+    )
     info = await load_port_info(rt, a, include_trunks=False)
     assert info.important == {4, 5, 6, 7, 8, 11}
     srv = await make_device(admin, name="srv", host="10.13.0.9")

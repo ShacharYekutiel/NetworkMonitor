@@ -67,13 +67,24 @@ async def test_processor_status_events_and_rollup(rt, admin: httpx.AsyncClient) 
     s2 = (await admin.get(f"/api/sensors/{sid}")).json()
     assert s2["status"] == "down" and s2["status_message"] == "Host unreachable"
     assert s2["channels"][0]["last_value"] is None
+    # [if-noise] the newest change is still in its debounce hold: written (alerts see it at
+    # once) but not yet in the event log; the earlier warning was followed by another change,
+    # so it held and is shown
     events = (await admin.get("/api/events", params={"sensor_id": sid})).json()["items"]
     assert [(e["old_status"], e["new_status"]) for e in events] == [
-        ("warning", "down"),
         ("up", "warning"),
         ("unknown", "up"),
     ]
+    events = (await admin.get("/api/events", params={"sensor_id": sid, "noise": "include"})).json()[
+        "items"
+    ]
+    assert [(e["old_status"], e["new_status"], e["noise"]) for e in events] == [
+        ("warning", "down", "pending"),
+        ("up", "warning", None),
+        ("unknown", "up", None),
+    ]
     assert events[1]["message"] == "latency_ms 150 > 100"
+    await rt.event_noise.show_all_pending()  # e.g. the hold is over
     async with rt.sessionmaker() as session:
         n = (
             await session.execute(

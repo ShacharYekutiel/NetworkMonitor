@@ -6,11 +6,21 @@ import { endpoints, qk } from '../api/endpoints';
 import type { ApplyInterface } from '../api/types';
 import { formatSpeed } from '../lib/ports';
 import {
+  coveredPorts,
   filterInterfaces,
   initialPortPick,
   sensorsToRemove,
   type PortsChoice,
 } from '../lib/templates';
+import {
+  EMPTY_FILTER,
+  filterActive,
+  filterErrors,
+  filteredPick,
+  hasPortData,
+  previewCounts,
+  type PortFilter,
+} from '../lib/noise';
 import { CheckIcon, SearchIcon } from './icons';
 import {
   BANNER,
@@ -21,7 +31,9 @@ import {
   ErrorBox,
   FieldGroup,
   Input,
+  Field,
   Loading,
+  Select,
   TAG,
   TAG_TONE,
 } from './ui';
@@ -39,7 +51,149 @@ const REASON_TONE: Record<string, string> = {
   lag: TAG_TONE.accent,
   trunk: TAG_TONE.accent,
   irf: TAG_TONE.warning,
+  description: TAG_TONE.accent,
+  marked: TAG_TONE.accent,
 };
+
+/** [if-noise] "Choose ports" filter: VLANs, description, port mode, network neighbour. */
+function PortFilterPanel({
+  items,
+  onPick,
+}: {
+  items: ApplyInterface[];
+  onPick: (ids: number[]) => void;
+}) {
+  const { t } = useTranslation();
+  const [f, setF] = useState<PortFilter>(EMPTY_FILTER);
+  const [open, setOpen] = useState(false);
+  const err = filterErrors(f);
+  const bad = Object.values(err).some(Boolean);
+  const data = hasPortData(items);
+  const set = (patch: Partial<PortFilter>) => setF((x) => ({ ...x, ...patch }));
+  const n = bad ? 0 : filteredPick(items, f).length;
+  const errText = (on: boolean, key: string) =>
+    on ? <span className="text-status-down">{t(key)}</span> : undefined;
+  return (
+    <div className="rounded-lg border border-line px-3 py-2" data-testid="apply-ports-filter">
+      <button
+        type="button"
+        aria-expanded={open}
+        onClick={() => setOpen((o) => !o)}
+        className="inline-flex items-center gap-1 text-sm font-medium text-accent-ink hover:underline"
+        data-testid="apply-ports-filter-toggle"
+      >
+        {t('applyFilter.title')}
+        {filterActive(f) && <span aria-hidden="true">•</span>}
+      </button>
+      {open && (
+        <div className="mt-2 space-y-2">
+          <p className="text-xs text-ink-muted">{t('applyFilter.intro')}</p>
+          {!data && (
+            <p className={cx(BANNER, BANNER_TONE.warning, 'py-1.5 text-xs')}>
+              {t('applyFilter.noData')}
+            </p>
+          )}
+          <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
+            <Field
+              label={t('applyFilter.includeVlans')}
+              hint={errText(err.includeVlans, 'applyFilter.vlanErr')}
+            >
+              <Input
+                value={f.includeVlans}
+                onChange={(e) => set({ includeVlans: e.target.value })}
+                placeholder="20, 100-110"
+                dir="ltr"
+                disabled={!data}
+                data-testid="filter-include-vlans"
+              />
+            </Field>
+            <Field
+              label={t('applyFilter.excludeVlans')}
+              hint={errText(err.excludeVlans, 'applyFilter.vlanErr')}
+            >
+              <Input
+                value={f.excludeVlans}
+                onChange={(e) => set({ excludeVlans: e.target.value })}
+                placeholder="10"
+                dir="ltr"
+                disabled={!data}
+                data-testid="filter-exclude-vlans"
+              />
+            </Field>
+            <Field
+              label={t('applyFilter.descrInclude')}
+              hint={errText(err.descrInclude, 'applyFilter.regexErr')}
+            >
+              <Input
+                value={f.descrInclude}
+                onChange={(e) => set({ descrInclude: e.target.value })}
+                placeholder="uplink|server"
+                dir="ltr"
+                className="font-mono"
+                data-testid="filter-descr-include"
+              />
+            </Field>
+            <Field
+              label={t('applyFilter.descrExclude')}
+              hint={errText(err.descrExclude, 'applyFilter.regexErr')}
+            >
+              <Input
+                value={f.descrExclude}
+                onChange={(e) => set({ descrExclude: e.target.value })}
+                placeholder="pc|printer"
+                dir="ltr"
+                className="font-mono"
+                data-testid="filter-descr-exclude"
+              />
+            </Field>
+            <Field label={t('applyFilter.mode')}>
+              <Select
+                value={f.mode}
+                disabled={!data}
+                onChange={(e) => set({ mode: e.target.value as PortFilter['mode'] })}
+                data-testid="filter-mode"
+              >
+                {(['any', 'access', 'trunk'] as const).map((m) => (
+                  <option key={m} value={m}>
+                    {t(`applyFilter.modes.${m}`)}
+                  </option>
+                ))}
+              </Select>
+            </Field>
+            <Field label={t('applyFilter.neighbor')}>
+              <Select
+                value={f.neighbor}
+                disabled={!data}
+                onChange={(e) => set({ neighbor: e.target.value as PortFilter['neighbor'] })}
+                data-testid="filter-neighbor"
+              >
+                {(['any', 'with', 'without'] as const).map((m) => (
+                  <option key={m} value={m}>
+                    {t(`applyFilter.neighbors.${m}`)}
+                  </option>
+                ))}
+              </Select>
+            </Field>
+          </div>
+          <div className="flex flex-wrap items-center gap-2">
+            <Button
+              size="sm"
+              variant="primary"
+              disabled={bad || !filterActive(f)}
+              onClick={() => onPick(filteredPick(items, f))}
+              data-testid="filter-apply"
+            >
+              {t('applyFilter.select', { count: n })}
+            </Button>
+            <Button size="sm" onClick={() => setF(EMPTY_FILTER)} disabled={!filterActive(f)}>
+              {t('applyFilter.reset')}
+            </Button>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
 
 function InterfaceRow({
   it,
@@ -130,10 +284,11 @@ export function ApplyPortsSection({
   const { t } = useTranslation();
   const [query, setQuery] = useState('');
   const need = choice === 'choose' || remove;
+  // [if-noise] also loaded for "important" / "all": the preview counts what will be monitored
   const q = useQuery({
     queryKey: qk.applyInterfaces(deviceId, templateId),
     queryFn: () => endpoints.applyTemplateInterfaces(deviceId, templateId),
-    enabled: need && !!templateId,
+    enabled: choice !== 'none' && !!templateId,
     staleTime: 30_000,
   });
   const items = useMemo(() => q.data?.items ?? [], [q.data]);
@@ -144,6 +299,7 @@ export function ApplyPortsSection({
   const sel = picked ?? new Set<number>();
   const shown = useMemo(() => filterInterfaces(items, query), [items, query]);
   const toRemove = q.data ? sensorsToRemove(items, choice, sel) : null;
+  const preview = q.data ? previewCounts(items, coveredPorts(items, choice, sel)) : null;
   const toggle = (i: number, on: boolean) => {
     const next = new Set(sel);
     if (on) next.add(i);
@@ -173,8 +329,13 @@ export function ApplyPortsSection({
       </FieldGroup>
 
       {need && q.isLoading && <Loading />}
-      <ErrorBox error={q.error} />
-      {q.data?.inventory === 'missing' && (
+      {need && <ErrorBox error={q.error} />}
+      {preview && choice !== 'none' && items.length > 0 && (
+        <p className="text-xs text-ink-muted" data-testid="apply-ports-preview">
+          {t('applyFilter.preview', { will: preview.will, wont: preview.wont })}
+        </p>
+      )}
+      {need && q.data?.inventory === 'missing' && (
         <p
           className={cx(BANNER, BANNER_TONE.warning, 'py-1.5 text-xs')}
           data-testid="apply-ports-missing"
@@ -216,6 +377,7 @@ export function ApplyPortsSection({
               {t('applyPorts.selectImportant')}
             </Button>
           </div>
+          <PortFilterPanel items={items} onPick={(ids) => onPicked(new Set(ids))} />
           <div className="text-xs text-ink-muted" data-testid="apply-ports-count">
             {t('applyPorts.selectedOf', {
               n: items.filter((i) => sel.has(i.if_index)).length,

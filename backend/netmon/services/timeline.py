@@ -79,7 +79,8 @@ async def _events(
     bound, p = _bound(RANK[kind], cursor, "e")
     params: dict[str, Any] = {"d": device_id, "since": since, "until": until, "n": limit, **p}
     if kind == "status":
-        where = "e.kind = 'status_change' AND e.device_id = :d"
+        # [if-noise] the event log's default: debounced / flapping changes are hidden
+        where = "e.kind = 'status_change' AND e.device_id = :d AND e.noise IS NULL"
     elif kind == "notification":
         where = "e.kind IN ('notification_sent', 'notification') AND e.device_id = :d"
     elif kind == "ack":

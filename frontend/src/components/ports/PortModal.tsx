@@ -14,6 +14,7 @@ import { AlertIcon, PlayIcon } from '../icons';
 import { StatusDot } from '../Status';
 import { Button, cx, ErrorBox, Loading, Modal, Notice } from '../ui';
 import { TileGlyph } from './Faceplate';
+import { ImportanceChooser } from './ImportanceChooser';
 import { KindChooser } from './KindChooser';
 import { usePortText } from './text';
 import { NewdevPortToggle } from '../newdevices/NewdevPortToggle';
@@ -597,6 +598,9 @@ export function PortModal({
           <NewdevPortToggle deviceId={deviceId} ifIndex={p.if_index} />
           <div className="mt-5">
             <KindChooser deviceId={deviceId} port={p} />
+          </div>
+          <div className="mt-5">
+            <ImportanceChooser deviceId={deviceId} port={p} />
           </div>
         </>
       )}

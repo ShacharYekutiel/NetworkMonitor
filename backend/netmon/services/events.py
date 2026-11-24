@@ -85,13 +85,17 @@ async def add_event(session: AsyncSession, kind: str, message: str, **fields: An
     return ev
 
 
-def published(rt: Runtime, events: list[Event]) -> None:
-    """Call after commit: broadcast events and hand status changes to the alert engine."""
+def published(rt: Runtime, events: list[Event], *, broadcast: bool = True) -> None:
+    """Call after commit: broadcast events and hand status changes to the alert engine.
+
+    [if-noise] `broadcast=False`: a status change whose event-log row is hidden for now
+    (debounce / flapping): no `event.created`, everything else as usual."""
     changes: list[Event] = []
     change_data: list[dict[str, Any]] = []
     for ev in events:
         data = event_out(ev)
-        rt.hub.broadcast("event.created", data)
+        if broadcast:
+            rt.hub.broadcast("event.created", data)
         if ev.kind == "status_change":
             changes.append(ev)
             change_data.append(data)

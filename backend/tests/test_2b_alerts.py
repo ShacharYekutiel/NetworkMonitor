@@ -361,7 +361,12 @@ async def test_maintenance_suppresses_then_one_alert_after(
     await tick(rt, clock, 60)
     await run(rt, clock, s2["id"], UP)  # problem started and ended inside the window
     assert outbox.items == []
-    sc = await admin.get("/api/events", params={"kind": "status_change", "in_maintenance": "true"})
+    # [if-noise] the rows are written (flagged in_maintenance) but still in their debounce hold /
+    # debounced (s2 recovered on the next poll): hidden from the default event log
+    sc = await admin.get(
+        "/api/events",
+        params={"kind": "status_change", "in_maintenance": "true", "noise": "include"},
+    )
     assert sc.json()["total"] >= 3
     [row] = await state(rt, s["id"])
     assert row["maintenance_suppressed"] is True and row["due_at"] is None

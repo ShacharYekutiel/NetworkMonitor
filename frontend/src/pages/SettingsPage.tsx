@@ -23,6 +23,7 @@ import { portSettingsErrors } from '../lib/ports';
 import { useSearchParams } from 'react-router';
 import { FeaturesTab } from '../components/features/FeaturesTab';
 import { AuditRetentionCard, IngestTab } from '../components/features/IngestSettings';
+import { ImportantPortsCard, SensorEventNoiseCard } from '../components/settings/NoiseSettings';
 import { LdapTab } from '../components/features/LdapSettings';
 import { SiemTab } from '../components/features/SiemSettings';
 import { FeatureSection } from '../components/features/common';
@@ -485,6 +486,8 @@ export function SettingsPage() {
         <>
           <GeneralCard settings={q.data} />
           <PortsCard settings={q.data} />
+          <SensorEventNoiseCard settings={q.data} />
+          <ImportantPortsCard settings={q.data} />
           <SmtpCard settings={q.data} />
           {/* [severity] only while the feature is on (its switch is in Features) */}
           {featuresFromSettings(q.data).alert_severity && (

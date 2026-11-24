@@ -45,7 +45,7 @@ class Selection:
     def is_important(self, item: dict[str, Any]) -> tuple[bool, list[str]]:
         idx = int(item["if_index"])
         if self.importance is not None:
-            rs = list(self.importance.reasons.get(idx, []))
+            rs = self.importance.counted(idx)
             return bool(rs), rs
         from netmon.ports.collect import port_kind
 
@@ -172,25 +172,35 @@ async def interface_choices(
         if sel.importance is not None:
             from sqlalchemy import text
 
-            rows = [
-                {
-                    "if_index": r.if_index,
-                    "name": r.name,
-                    "descr": r.descr,
-                    "alias": r.alias,
-                    "oper_status": r.oper_status,
-                    "speed_bps": r.speed_bps,
-                    "kind": r.kind,
-                    "type": r.if_type,
-                }
-                for r in await session.execute(
-                    text(
-                        "SELECT if_index, name, descr, alias, oper_status, speed_bps, kind, "
-                        "if_type FROM switch_ports WHERE device_id = :d ORDER BY if_index"
-                    ),
+            from netmon.ports import read
+            from netmon.services.status import load_inventory
+
+            # [if-noise] port mode, VLANs and "has a network neighbour" for the apply filters
+            ctx = await read.load_context(session, await load_inventory(session), [device_id])
+            for raw in (
+                await session.execute(
+                    text("SELECT * FROM switch_ports WHERE device_id = :d ORDER BY if_index"),
                     {"d": device_id},
                 )
-            ]
+            ).mappings():
+                r = dict(raw)
+                rows.append(
+                    {
+                        "if_index": r["if_index"],
+                        "name": r["name"],
+                        "descr": r["descr"],
+                        "alias": r["alias"],
+                        "oper_status": r["oper_status"],
+                        "speed_bps": r["speed_bps"],
+                        "kind": r["kind"],
+                        "type": r["if_type"],
+                        "mode": r.get("mode"),
+                        "pvid": r.get("pvid"),
+                        "untagged_vlans": list(r.get("untagged_vlans") or []),
+                        "tagged_vlans": list(r.get("tagged_vlans") or []),
+                        "has_neighbor": bool(read.neighbors_of(ctx, device_id, r)),
+                    }
+                )
         else:
             host, creds = device.host, await effective_credentials(session, device)
     if sel.importance is None:
@@ -234,6 +244,12 @@ async def interface_choices(
                 "reasons": reasons,
                 "has_sensor": sid is not None,
                 "sensor_id": sid,
+                # [if-noise] null when the device has no port inventory (SNMP enumeration)
+                "mode": r.get("mode"),
+                "pvid": r.get("pvid"),
+                "untagged_vlans": r.get("untagged_vlans"),
+                "tagged_vlans": r.get("tagged_vlans"),
+                "has_neighbor": r.get("has_neighbor"),
             }
         )
     return {"items": out, "inventory": sel.inventory}

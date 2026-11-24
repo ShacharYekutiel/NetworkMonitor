@@ -10,7 +10,14 @@ import {
   type IncidentState,
   type NmEvent,
 } from '../api/types';
-import { EventSource, eventEntity, StatusTransition, useEventTitle } from '../components/EventList';
+import {
+  EventSource,
+  eventEntity,
+  StatusTransition,
+  useEventMessage,
+  useEventTitle,
+} from '../components/EventList';
+import { NoisySensorsCard } from '../components/NoisySensors';
 import { useEntityMenu } from '../components/treemenu/TreeContextMenu';
 import { Pagination } from '../components/Pagination';
 import { ExplainButton } from '../components/assistant/ExplainButton';
@@ -26,6 +33,7 @@ import { TabBar } from '../components/TabBar';
 import {
   Button,
   Card,
+  Checkbox,
   Empty,
   ErrorBox,
   Field,
@@ -34,10 +42,11 @@ import {
   PageHeader,
   SegmentedControl,
   Select,
+  TAG,
+  TAG_TONE,
   cx,
 } from '../components/ui';
 import { useTree } from '../hooks/queries';
-import { useLocalizeMessage } from '../hooks/localize';
 import { groupByDay } from '../lib/timeline';
 import { flattenGroups } from '../lib/tree';
 import { STATUSES } from '../lib/status';
@@ -114,7 +123,7 @@ function EventEntry({
   severity?: boolean;
 }) {
   const { t } = useTranslation();
-  const localize = useLocalizeMessage();
+  const message = useEventMessage();
   const title = useEventTitle();
   const menu = useEntityMenu();
   const hasSource = !!(ev.device_name || ev.sensor_name);
@@ -133,6 +142,16 @@ function EventEntry({
         <span className="inline-flex flex-wrap items-center gap-x-2 gap-y-1">
           {hasSource ? <EventSource ev={ev} /> : <span>{title(ev)}</span>}
           {severity && <SeverityTag severity={ev.severity} />}
+          {ev.kind === 'sensor_flapping' && (
+            <span className={cx(TAG, TAG_TONE.warning)} data-testid="flap-tag">
+              {title(ev)}
+            </span>
+          )}
+          {ev.noise && (
+            <span className={cx(TAG, TAG_TONE.neutral)} data-testid="noise-tag">
+              {t(`noise.hidden.${ev.noise}`)}
+            </span>
+          )}
           {ev.new_status ? (
             <StatusTransition ev={ev} />
           ) : (
@@ -159,7 +178,7 @@ function EventEntry({
         {ev.device_id !== null && ev.new_status === 'unreachable' ? (
           <StatusMessage message={ev.message} status="unreachable" deviceId={ev.device_id} />
         ) : (
-          localize(ev.message)
+          message(ev)
         )}
       </span>
     </TimelineEntry>
@@ -262,6 +281,8 @@ export function EventsPage() {
     in_maintenance: get('in_maintenance') ? get('in_maintenance') === 'true' : undefined,
     ...(sevFilter.length ? { severity: severityCsv(sevFilter) } : {}),
     ...(sort === 'severity' ? { sort } : {}),
+    // [if-noise] debounced / flapping changes are hidden unless asked for
+    ...(get('noise') === 'include' ? { noise: 'include' as const } : {}),
     page,
     page_size: PAGE_SIZE,
   };
@@ -308,6 +329,18 @@ export function EventsPage() {
               ...EVENT_KINDS.map((k) => ({ value: k, label: t(`eventKind.${k}`) })),
             ]}
           />
+          <span className="ms-auto inline-flex flex-wrap items-center gap-x-4 gap-y-1">
+            <Checkbox
+              label={t('noise.showHidden')}
+              checked={get('noise') === 'include'}
+              onChange={(v) => set('noise', v ? 'include' : '')}
+            />
+            <Checkbox
+              label={t('noisy.show')}
+              checked={get('view') === 'noisy'}
+              onChange={(v) => set('view', v ? 'noisy' : '')}
+            />
+          </span>
           <button
             type="button"
             aria-expanded={more}
@@ -426,6 +459,11 @@ export function EventsPage() {
           </p>
         )}
       </div>
+      {get('view') === 'noisy' && (
+        <div className="mb-[18px]">
+          <NoisySensorsCard />
+        </div>
+      )}
       <Card bodyClassName="px-[22px] pb-1.5 pt-0 max-sm:px-3">
         {q.isLoading && <Loading />}
         <ErrorBox error={q.error} className="my-3" />

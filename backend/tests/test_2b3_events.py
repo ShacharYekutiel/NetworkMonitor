@@ -296,7 +296,12 @@ async def test_important_ports_and_linkdown_scope(rt: Runtime, admin: httpx.Asyn
             )
         await s.commit()
     # [1.3] a port with a *critical* interface sensor is important (a new interface sensor on
-    # an unimportant port defaults to impact warning)
+    # an unimportant port defaults to impact warning). [if-noise] only while the criterion
+    # `critical_sensor` (the pre-upgrade meaning, kept on upgraded installs) is chosen
+    await admin.put(
+        "/api/settings",
+        json={"important_port_criteria": ["uplink", "lag", "trunk", "irf", "critical_sensor"]},
+    )
     sens = await make_sensor(
         admin, d["id"], "snmp_interface", {"if_index": 5, "if_name": "Gi1/0/5"}
     )

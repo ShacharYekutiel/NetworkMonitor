@@ -17,6 +17,9 @@ Items marked **[severity]** (alert severity: levels, mapping, overrides, filters
 specified in [§ Alert severity](#severity-alert-severity).
 Items marked **[tree-move]** (moving devices and groups between groups, single and bulk) are specified in
 [§ Moving devices and groups](#tree-move-moving-devices-and-groups).
+Items marked **[if-noise]** (sensor event debounce and flapping collapse, noisiest sensors, important-port
+criteria and per-port importance, apply-template port filters) are specified in
+[§ Interface sensor event noise](#if-noise-interface-sensor-event-noise).
 
 This file is the contract between the backend (`backend/netmon/schemas`) and the frontend
 (`frontend/src/api/types.ts`). **Field names are exact.** For the table semantics see
@@ -3383,3 +3386,98 @@ top level) and `device.move` (entity = the device with `device_id`, `changes: {"
 
 **WebSocket**: `config.changed` `{entity: "group" | "device", id, action: "updated"}` for every moved item, as for
 the single edits.
+
+## [if-noise] Interface sensor event noise
+
+Improvements of existing behaviour (no feature toggle). Data model and algorithm:
+[data-model.md § [if-noise]](data-model.md#if-noise-interface-sensor-event-noise); upgrade:
+[production.md](production.md#interface-sensor-event-noise--behaviour-change-on-upgrade-migration-0019).
+
+**What is (and is not) affected.** Every status change of a polled sensor is still written to `events` at once, in
+the same transaction as the sensor, and handed to the alert engine, the dependency cascade, the rollup and the AI
+correlation at once. `sensor.update` (current status) is broadcast at once. What the two protections change is
+whether the row is **shown** in the event log (`GET /api/events`, a sensor's / device's events, the dashboard's
+recent events, the device timeline, the NOC screen) and when its `event.created` is sent. **Alert timing does not
+change**: a rule with `delay_s` 0 sends the DOWN as soon as the check fails, also for a change that is later hidden;
+a rule's own delay (and the port-flapping hold-down of 2b-3) is what keeps short blips from notifying, as before.
+
+### Settings keys (`GET/PUT /api/settings`, admin; ON by default — an upgrade changes behaviour)
+| Key | Type | Default | Meaning |
+|---|---|---|---|
+| `sensor_event_debounce_enabled` | bool | **true** | a status change is shown only after the new status held for the hold time; a change back within it hides both rows |
+| `sensor_event_debounce_polls` | int 1–10 | 1 | hold = (polls + ½) × the sensor's interval: with 1, one failed check that recovers on the next check leaves no row |
+| `sensor_event_debounce_min_s` | int 0–3600 | 0 | the hold is at least this many seconds (0 = only the polls count) |
+| `sensor_event_flap_enabled` | bool | **true** | a sensor with ≥ `flap_threshold` changes within `flap_window_min` is flapping: further changes are collapsed into one `sensor_flapping` event until it is quiet for `flap_quiet_min` |
+| `flap_threshold` / `flap_window_min` / `flap_quiet_min` | as [2b-3] | 5 / 10 / 15 | **one definition of flapping**, shared with port flapping; now also returned and writable outside the `flapping` feature |
+| `important_port_criteria` | `("uplink"\|"lag"\|"trunk"\|"irf"\|"critical_sensor")[]` | `["uplink","lag","trunk","irf"]` (an **upgraded** install: + `"critical_sensor"`) | which port properties make a port important; any subset (also `[]`); returned in canonical order without duplicates; other values → 422 |
+| `important_port_description_pattern` | string ≤ 200 | `""` | RE2 regular expression, case-insensitive, on the port description (`ifAlias`); a match makes the port important; `""` = off; backreferences / lookaround → 422 |
+
+Turning `sensor_event_debounce_enabled` OFF shows every row still in its hold at once (`event.created` each);
+turning `sensor_event_flap_enabled` OFF closes every open flapping episode (as when it settles). Both OFF: rows are
+written and shown exactly as before. Changes are audited as `settings.update`.
+
+### Events
+`Event` gains (`GET /api/events`, `GET /api/sensors/{id}/events`, WebSocket):
+```ts
+type Event = { /* as before */
+  kind: /* as before */ | "sensor_flapping";
+  noise: "pending" | "debounced" | "flapping" | null;   // null = shown in the event log
+  flap_count: number | null;     // sensor_flapping: changes in the episode
+  flap_last: string | null;      // sensor_flapping: the last change
+  flap_end: string | null };     // sensor_flapping: when it settled (null = still flapping)
+```
+- `status_change` rows: `noise` `pending` (in its hold, shown when the hold is over), `debounced` (reverted within
+  the hold, never shown by default), `flapping` (collapsed into the sensor's `sensor_flapping` row).
+- `sensor_flapping` rows (one per episode, `noise` null): `sensor_*` / `device_*` as the sensor, `old_status` null,
+  `new_status` = the sensor's latest status, `time` = the change that started the episode, message
+  `"<sensor> is flapping (<n> changes, threshold window <w> min), now <status>"`, when settled
+  `"<sensor> stopped flapping after <n> changes, now <status>"` (the UI shows its own text from the fields).
+
+Query parameter **`noise`** on `GET /api/events` and `GET /api/sensors/{id}/events`: `hide` (default — rows with
+a non-null `noise` are left out, also from `total`), `include` (every row), `only` (only those rows); any other
+value → 422.
+
+`GET /api/events/noisy-sensors` (viewer) — `hours` 1–720 (24), `limit` 1–100 (20):
+```json
+{"hours": 24, "total_changes": 18140, "items": [{"sensor_id": 7, "sensor_name": "GE1/0/12", "sensor_type":
+ "snmp_interface", "status": "up", "device_id": 3, "device_name": "sw-floor2", "changes": 412, "shown": 6,
+ "hidden": 406, "last_change": "2026-11-24T10:02:00Z", "flapping": true}]}
+```
+The sensors with the most `status_change` rows in the period (shown and hidden), noisiest first; `hidden` counts
+`debounced` + `flapping`; `flapping` = an open episode.
+
+### Important ports and per-port importance
+`Port` (`GET /api/devices/{id}/ports`, port detail) — `important_reasons` may also hold `"description"` (the
+description pattern matches) and `"marked"` (the user marked it important); it lists only the reasons that
+**count** under `important_port_criteria`, and `important` = any. New `importance_override: boolean | null`.
+
+`PUT /api/devices/{id}/ports/{if_index}/importance` (admin) — `{"important": true | false | null}`: `true` the port
+is always important, `false` never (also not for link-down / flapping alerts, whatever the criteria), `null` back
+to the criteria. Stored in `port_importance_overrides`, never sent to the device. Returns the `Port`; `404` unknown
+device or port (needs a port inventory row); `422` a missing or non-boolean value. Audit `switch_port.update`
+(`changes: {"importance_override": [old, new]}`); WebSocket `ports.updated`.
+
+Where importance is used: the link-down / flapping scope `important` (ingest `PortInfo`), the apply-template
+default selection (`interfaces: "important"`) and `/apply-template/interfaces`, and the default impact of a new
+interface sensor. `critical_sensor` (ports whose `snmp_interface` sensor has impact `critical`) applies to the
+link-down / flapping scope only — it was the pre-upgrade meaning that made every port with a sensor important.
+
+### Apply template: port filter data
+`GET /api/devices/{id}/apply-template/interfaces` items gain (from the stored port inventory; `null` when the list
+comes from a live SNMP enumeration because the device has no port inventory):
+```ts
+{ mode: "access" | "trunk" | null; pvid: number | null; untagged_vlans: number[] | null;
+  tagged_vlans: number[] | null; has_neighbor: boolean | null }   // an LLDP/CDP neighbour on the port
+```
+`important` / `reasons` follow the criteria and overrides above. The dialog filters on these client-side (VLAN
+include / exclude lists, description include / exclude regular expressions, port mode, has a neighbour) and sends
+the resulting ifIndex list as `interfaces` (unchanged request contract). The default choice stays
+`"important"`; "All ports" and a manual list remain available.
+
+### WebSocket
+| type | data | When / who |
+|---|---|---|
+| `event.created` | `Event` | a shown row: at once when no protection hides it, else when its hold is over (its `time` is the real change time), a `sensor_flapping` row when an episode starts, a hidden change shown when an episode settles in another status; all |
+| `event.updated` | `Event` | a `sensor_flapping` row's count / latest status / end changed; all |
+| `sensor.severity` | as [severity] | also sent for a change whose row is hidden (its `event.created` would have carried the severity); all |
+

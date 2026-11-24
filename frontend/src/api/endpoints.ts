@@ -75,8 +75,10 @@ import type {
   HistoryRange,
   Language,
   NmEvent,
+  NoisySensorsResponse,
   NotificationChannel,
   Page,
+  Port,
   Role,
   Sensor,
   SensorType,
@@ -220,6 +222,8 @@ export type EventQuery = {
   severity?: string;
   /** [severity] time (default) | severity */
   sort?: 'time' | 'severity';
+  /** [if-noise] hide (default) | include | only: debounced / flapping changes */
+  noise?: 'hide' | 'include' | 'only';
   page?: number;
   page_size?: number;
 };
@@ -452,6 +456,12 @@ export const endpoints = {
 
   // events
   events: (q: EventQuery) => api.get<Page<NmEvent>>('/events', q),
+  /** [if-noise] sensors with the most status changes */
+  noisySensors: (hours: number) =>
+    api.get<NoisySensorsResponse>('/events/noisy-sensors', { hours, limit: 20 }),
+  /** [if-noise] true / false = the user's choice, null = back to the criteria */
+  setPortImportance: (deviceId: number, ifIndex: number, important: boolean | null) =>
+    api.put<Port>(`/devices/${deviceId}/ports/${ifIndex}/importance`, { important }),
 
   // notifications
   channels: () => api.get<Page<NotificationChannel>>('/notification-channels', { page_size: 1000 }),

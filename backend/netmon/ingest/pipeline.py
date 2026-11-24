@@ -1124,14 +1124,19 @@ async def resolve_all(names: list[str]) -> dict[str, list[str]]:
 
 async def load_port_info(rt: Any, device_id: int, include_trunks: bool = True) -> PortInfo:
     """Port names and the important-port set for link-down / flapping alerts (data-model
-    "[1.3] Important ports"): the shared definition (uplink, LAG / member, trunk when
-    `include_trunks`) plus ports whose `snmp_interface` sensor has impact `critical`; a device
-    with neither port inventory rows nor critical interface sensors -> every port important."""
+    "[1.3] Important ports", "[if-noise] Important-port criteria"): the shared definition
+    (the chosen criteria, trunks only when `include_trunks`, description pattern, ports marked
+    important) plus, when `critical_sensor` is a chosen criterion, ports whose `snmp_interface`
+    sensor has impact `critical`; ports marked "not important" never count; a device with
+    neither port inventory rows nor (counted) critical interface sensors -> every port
+    important."""
     from netmon.ports import read
-    from netmon.ports.importance import device_importance
+    from netmon.ports.importance import device_importance, importance_settings, load_overrides
 
     async with rt.sessionmaker() as session:
         imp = await device_importance(session, device_id)
+        criteria, _ = await importance_settings(session)
+        overrides = imp.overrides if imp is not None else await load_overrides(session, device_id)
         critical: set[int] = set()
         for r in await session.execute(
             text(
@@ -1146,11 +1151,14 @@ async def load_port_info(rt: Any, device_id: int, include_trunks: bool = True) -
                 continue
         names = await read.port_names(session, [device_id])
         port_names = {idx: n for (d, idx), n in names.items() if d == device_id}
+    if "critical_sensor" not in criteria:  # [if-noise] the pre-upgrade meaning, a choice now
+        critical = set()
     if imp is None and not critical:
         return PortInfo(port_names, None, time.monotonic())
     important = set(critical)
     if imp is not None:
         important |= imp.important_set(include_trunks)
+    important -= {i for i, v in overrides.items() if v is False}  # the user's "not important"
     return PortInfo(port_names, important, time.monotonic())
 
 

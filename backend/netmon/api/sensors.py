@@ -752,6 +752,7 @@ async def sensor_events(
     until: str | None = None,
     severity: str | None = None,  # [severity]
     sort: str | None = Query(default=None, pattern="^(time|severity)$"),
+    noise: str | None = Query(default=None, pattern="^(hide|include|only)$"),  # [if-noise]
 ) -> dict:
     if await session.get(Sensor, sensor_id) is None:
         raise not_found("Sensor")
@@ -765,4 +766,5 @@ async def sensor_events(
         until=until,
         severity=severity,
         sort=sort,
+        noise=noise,
     )

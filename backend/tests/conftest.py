@@ -218,6 +218,8 @@ async def clean(rt: Runtime, app: Any) -> AsyncIterator[None]:
         rt.alerts.sender = __import__("netmon.alerts.engine", fromlist=["x"]).send_to_channel
         rt.alerts._sent.clear()  # noqa: SLF001
     rt.cascade.invalidate()
+    if getattr(rt, "event_noise", None) is not None:  # [if-noise] defaults (both ON)
+        rt.event_noise.reset()
     rt.clock.set_offset(0)
     if rt.maintenance is not None:
         rt.maintenance.reset_state()

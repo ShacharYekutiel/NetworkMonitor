@@ -286,6 +286,11 @@ def event_out(e: Any) -> dict[str, Any]:
         "message": e.message,
         "in_maintenance": bool(getattr(e, "in_maintenance", False)),
         "severity": getattr(e, "severity", None),  # [severity]
+        # [if-noise] null = shown in the event log; pending / debounced / flapping = hidden
+        "noise": getattr(e, "noise", None),
+        "flap_count": getattr(e, "flap_count", None),
+        "flap_last": iso(getattr(e, "flap_last", None)),
+        "flap_end": iso(getattr(e, "flap_end", None)),
     }
 
 

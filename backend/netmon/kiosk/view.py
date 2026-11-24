@@ -145,7 +145,7 @@ async def build_view(rt: Any, session: AsyncSession, screen: Any) -> dict[str, A
             text(
                 "SELECT time, device_name, sensor_name, old_status, new_status, message, "
                 "severity FROM events WHERE kind = 'status_change' AND device_id = ANY(:d) "
-                "ORDER BY time DESC, id DESC LIMIT :n"
+                "AND noise IS NULL ORDER BY time DESC, id DESC LIMIT :n"
             ),
             {"d": list(devices), "n": MAX_ALERTS},
         )

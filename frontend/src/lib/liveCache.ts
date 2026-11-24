@@ -156,6 +156,12 @@ export function applyLiveMessage(
       batch.add(['events']);
       break;
     }
+    case 'event.updated': {
+      // [if-noise] a flapping row's count / end changed: refetch the event lists
+      batch.add(['events']);
+      if (msg.data.kind === 'sensor_flapping') batch.add(['noisy-sensors']);
+      break;
+    }
     case 'device.status': {
       const { id, status, status_counts } = msg.data;
       qc.setQueryData<Tree>(qk.tree, (old) =>

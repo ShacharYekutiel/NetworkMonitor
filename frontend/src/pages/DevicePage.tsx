@@ -56,6 +56,7 @@ import { SyslogView } from '../components/logs/SyslogView';
 import { TrapsView } from '../components/logs/TrapsView';
 import { ConfigTab } from '../components/configbackup/ConfigTab';
 import { NewDevicesBadge } from '../components/newdevices/NewDevicesBadge';
+import { SnmpSourceLine } from '../components/SnmpSource';
 
 type DeviceTab = 'ports' | 'sensors' | 'logs' | 'timeline' | 'config';
 
@@ -407,10 +408,7 @@ export function DevicePage() {
           {!d.enabled && <span className="text-ink-muted">{t('devices.disabledNote')}</span>}
           <StatusCountPills counts={d.status_counts} />
           <NewDevicesBadge device={d} />
-          <span className="text-xs text-ink-muted">
-            {t('snmp.label')}: {t(`snmp.source.${d.effective_snmp_source}`)}
-            {d.snmp_credentials && ` (${d.snmp_credentials.version})`}
-          </span>
+          <SnmpSourceLine device={d} sensors={sensors.data?.items ?? []} />
         </div>
         <div className="mt-3">
           <StatusBar counts={d.status_counts} />

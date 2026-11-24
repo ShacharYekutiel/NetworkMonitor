@@ -127,6 +127,12 @@ async def test_apply_interface_selection(
         "reasons": ["trunk"],
         "has_sensor": False,
         "sensor_id": None,
+        # [if-noise] port filter data from the inventory
+        "mode": "trunk",
+        "pvid": 1,
+        "untagged_vlans": [1],
+        "tagged_vlans": [10, 20, 30],
+        "has_neighbor": False,
     }
     assert not by[1]["important"] and by[11]["reasons"] == ["lag", "trunk"]
     # default "important"

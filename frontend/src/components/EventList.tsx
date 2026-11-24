@@ -66,7 +66,7 @@ export function EventsTable({
   showKind?: boolean;
 }) {
   const { t } = useTranslation();
-  const localize = useLocalizeMessage();
+  const message = useEventMessage();
   const severityOn = useFeature('alert_severity'); // [severity]
   const menu = useEntityMenu();
   const aiOn = useAiFeature('ai_explain_alert');
@@ -141,7 +141,7 @@ export function EventsTable({
             key={c.id}
             dir="auto"
             className={cx(td, CELL_TRUNCATE, 'text-ink-muted')}
-            title={localize(ev.message)}
+            title={message(ev)}
           >
             {ev.in_maintenance && (
               <span
@@ -155,7 +155,7 @@ export function EventsTable({
             {ev.device_id !== null && ev.new_status === 'unreachable' ? (
               <StatusMessage message={ev.message} status="unreachable" deviceId={ev.device_id} />
             ) : (
-              localize(ev.message)
+              message(ev)
             )}
           </td>
         );
@@ -240,10 +240,25 @@ export function EventSource({ ev }: { ev: NmEvent }) {
   );
 }
 
+/** [if-noise] The message of an event; a flapping row is described in the UI language. */
+export function useEventMessage() {
+  const { t } = useTranslation();
+  const localize = useLocalizeMessage();
+  return (ev: NmEvent): string => {
+    if (ev.kind !== 'sensor_flapping') return localize(ev.message);
+    const status = ev.new_status ? t(`status.${ev.new_status}`) : '';
+    return t(ev.flap_end ? 'noise.flapEnded' : 'noise.flapOngoing', {
+      count: ev.flap_count ?? 0,
+      status,
+    });
+  };
+}
+
 /** "Up → Down" in words (he: "תקין ← תקלה"); the kind for events without a status change. */
 export function useEventTitle() {
   const { t } = useTranslation();
   return (ev: NmEvent): string => {
+    if (ev.kind === 'sensor_flapping') return t('noise.flapTitle', { count: ev.flap_count ?? 0 });
     if (!ev.new_status) return t(`eventKind.${ev.kind}`, { defaultValue: ev.kind });
     if (!ev.old_status || ev.old_status === ev.new_status) return t(`status.${ev.new_status}`);
     return t('events.transition', {
@@ -260,7 +275,7 @@ export function useEventTitle() {
 export function EventRows({ events, label }: { events: NmEvent[]; label?: string }) {
   const { t } = useTranslation();
   const menu = useEntityMenu();
-  const localize = useLocalizeMessage();
+  const message = useEventMessage();
   const title = useEventTitle();
   if (!events.length)
     return (
@@ -301,7 +316,7 @@ export function EventRows({ events, label }: { events: NmEvent[]; label?: string
               {ev.device_id !== null && ev.new_status === 'unreachable' ? (
                 <StatusMessage message={ev.message} status="unreachable" deviceId={ev.device_id} />
               ) : (
-                localize(ev.message)
+                message(ev)
               )}
               {' · '}
               <time dateTime={ev.time} title={formatDateTime(ev.time)}>

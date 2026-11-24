@@ -100,6 +100,7 @@ class Runtime:
         self.ai_features: Any = None  # [3b] netmon.assistant.features.component.AiFeatures
         self.event_sensors: Any = None  # netmon.ingest.event_sensors.EventSensors
         self.flapping: Any = None  # netmon.ingest.flapping.FlapManager
+        self.event_noise: Any = None  # [if-noise] netmon.services.event_noise.EventNoise
         self.trgm_enabled = False
         self.ingest_retention_policy_ok = False
         self.dependencies_enabled = True
@@ -226,6 +227,14 @@ class Runtime:
         self.maintenance = MaintenanceTracker(self)
         await self.maintenance.start()
         self.alerts.start()
+        # [if-noise] sensor event debounce / flapping (before the poller writes events)
+        from netmon.services.event_noise import EventNoise
+
+        self.event_noise = EventNoise(self)
+        try:
+            await self.event_noise.start()
+        except Exception:  # noqa: BLE001 - the server always starts
+            log.exception("Starting the sensor event noise protection failed")
         # [2b-3] features: forwarders -> pipeline -> rules + expiry -> flapping -> receivers
         from netmon.ingest.pipeline import Ingest
 
@@ -351,6 +360,8 @@ class Runtime:
             await self.scheduler.stop()
         if self.alerts:
             await self.alerts.stop()
+        if self.event_noise is not None:
+            await self.event_noise.stop()
         for t in self._tasks:
             t.cancel()
         for t in self._tasks:

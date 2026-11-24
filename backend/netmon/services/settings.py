@@ -88,6 +88,15 @@ DEFAULTS: dict[str, Any] = {
     # link-down / flapping scope "important"
     "trunk_min_tagged_vlans": 2,
     "event_linkdown_include_trunks": True,
+    # [if-noise] sensor event noise (ON by default; netmon.services.event_noise) and the
+    # important-port criteria (netmon.ports.importance; an upgraded install gets
+    # `critical_sensor` added by migration 0019, the pre-upgrade meaning)
+    "sensor_event_debounce_enabled": True,
+    "sensor_event_debounce_polls": 1,
+    "sensor_event_debounce_min_s": 0,
+    "sensor_event_flap_enabled": True,
+    "important_port_criteria": ["uplink", "lag", "trunk", "irf"],
+    "important_port_description_pattern": "",
     # internal: version of the one-time interface-sensor impact backfill that has run
     "impact_backfill_version": "",
     "siem_targets": [],
@@ -125,6 +134,15 @@ DEFAULTS: dict[str, Any] = {
     "severity_mapping": dict(SEVERITY_DEFAULT_MAPPING),
     "severity_in_subject": False,  # [severity] the email subject names the severity
 }
+
+# [if-noise] plain keys written by PUT /api/settings as they come (validated by the schema)
+NOISE_KEYS = (
+    "sensor_event_debounce_enabled",
+    "sensor_event_debounce_polls",
+    "sensor_event_debounce_min_s",
+    "sensor_event_flap_enabled",
+)
+IMPORTANT_PORT_KEYS = ("important_port_criteria", "important_port_description_pattern")
 
 # [3] plain keys written by PUT /api/settings as they come (validated by the schema mixins)
 CONFIG_BACKUP_KEYS = (
@@ -244,6 +262,7 @@ def settings_out(values: dict[str, Any], secret_key: str | None = None) -> dict[
         },
         **{k: values[k] for k in ASSISTANT_DEFAULTS},  # [3b]
         **{k: values[k] for k in SECURITY_DEFAULTS},  # [1.4.1]
+        **{k: values[k] for k in (*NOISE_KEYS, *IMPORTANT_PORT_KEYS)},  # [if-noise]
     }
 
 

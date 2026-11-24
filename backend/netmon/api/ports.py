@@ -21,6 +21,7 @@ from netmon.schemas.ports import (
     MacSearchResult,
     Port,
     PortDetail,
+    PortImportanceIn,
     PortsRefreshResponse,
 )
 from netmon.services import audit
@@ -76,7 +77,8 @@ async def _port_rows(
             macs.get(r["if_index"], []),
             sensors.get(r["if_index"]),
             lag,
-            imp.reasons.get(r["if_index"]) if imp else None,
+            imp.counted(r["if_index"]) if imp else None,
+            imp.overrides.get(r["if_index"]) if imp else None,
         )
         for r in rows
     ]
@@ -239,7 +241,8 @@ async def port_detail(
         macs.get(if_index, []),
         sensor,
         lag,
-        imp.reasons.get(if_index) if imp else None,
+        imp.counted(if_index) if imp else None,
+        imp.overrides.get(if_index) if imp else None,
     )
     hidden = port["is_uplink"] and not include_uplink_macs
     if port["is_uplink"] and include_uplink_macs:
@@ -389,3 +392,79 @@ async def mac_search(
     ip: str | None = Query(default=None, max_length=64),
 ) -> dict:
     return await search_mac(session, q, ip, lag_on=rt.features.enabled("lag"))
+
+
+@router.put("/api/devices/{device_id}/ports/{if_index}/importance", response_model=Port)
+async def put_port_importance(
+    device_id: int,
+    if_index: int,
+    body: PortImportanceIn,
+    user: Admin,
+    rt: RT,
+    session: DB,
+    ctx: Audit,
+) -> dict:
+    """[if-noise] The user's explicit importance of a port: `true` always important, `false`
+    never important (also not for link-down / flapping alerts), `null` back to the criteria
+    (settings `important_port_criteria`). Stored in `port_importance_overrides`; never sent to
+    the device. Returns the port as `GET /api/devices/{id}/ports` lists it."""
+    d = await session.get(Device, device_id)
+    if d is None:
+        raise not_found("Device")
+    port = (
+        await session.execute(
+            text("SELECT name FROM switch_ports WHERE device_id = :d AND if_index = :i"),
+            {"d": device_id, "i": if_index},
+        )
+    ).first()
+    if port is None:
+        raise not_found("Port")
+    old = (
+        await session.execute(
+            text(
+                "SELECT important FROM port_importance_overrides "
+                "WHERE device_id = :d AND if_index = :i"
+            ),
+            {"d": device_id, "i": if_index},
+        )
+    ).scalar()
+    if body.important is None:
+        await session.execute(
+            text("DELETE FROM port_importance_overrides WHERE device_id = :d AND if_index = :i"),
+            {"d": device_id, "i": if_index},
+        )
+    else:
+        await session.execute(
+            text(
+                "INSERT INTO port_importance_overrides (device_id, if_index, important, "
+                "updated_at, updated_by) VALUES (:d, :i, :v, now(), :u) "
+                "ON CONFLICT (device_id, if_index) DO UPDATE SET important = EXCLUDED.important, "
+                "updated_at = EXCLUDED.updated_at, updated_by = EXCLUDED.updated_by"
+            ),
+            {"d": device_id, "i": if_index, "v": body.important, "u": user.id},
+        )
+    if old != body.important:
+        await audit.record(
+            session,
+            ctx,
+            "switch_port.update",
+            audit.entity("switch_port", if_index, f"{d.name} {port.name}", device_id=device_id),
+            {"importance_override": [old, body.important]},
+        )
+    await session.commit()
+    ingest = getattr(rt, "ingest", None)
+    if ingest is not None:
+        ingest.ports.pop(device_id, None)  # the cached link-down port set
+    _, _, ports = await _port_rows(rt, session, device_id)
+    out = next(p for p in ports if p["if_index"] == if_index)
+    if old != body.important:
+        rt.hub.broadcast(
+            "ports.updated",
+            {
+                "device_id": device_id,
+                "ok": True,
+                "collected_at": out["collected_at"],
+                "arp_source": False,
+            },
+        )
+    return read.strip_private(out)

@@ -156,8 +156,10 @@ describe('[1.3] B. apply template: ports', () => {
     expect((within(section).getByLabelText('Important ports') as HTMLInputElement).checked).toBe(
       true,
     );
-    // the list is loaded only on demand
-    expect(calls.some((c) => c.url.includes('/apply-template/interfaces'))).toBe(false);
+    // [if-noise] the list is loaded for the preview: how many ports will / will not get sensors
+    expect((await screen.findByTestId('apply-ports-preview')).textContent).toBe(
+      'Will get an interface sensor: 1 · Will not: 2',
+    );
     await clickApply('comware');
     await waitFor(() => expect(post(calls)).toBeTruthy());
     expect(post(calls)!.body).toEqual({
@@ -214,6 +216,55 @@ describe('[1.3] B. apply template: ports', () => {
       template_id: 'comware',
       interfaces: [1, 3],
       remove_unselected_interfaces: true,
+    });
+  });
+
+  it('[if-noise] filter: leave out access ports, preview, send the filtered list', async () => {
+    const withData: ApplyInterface[] = [
+      { ...ifs[0], mode: 'trunk', tagged_vlans: [10, 20], pvid: 1, has_neighbor: true },
+      { ...ifs[1], mode: 'access', untagged_vlans: [10], pvid: 10, has_neighbor: false },
+      { ...ifs[2], mode: 'access', untagged_vlans: [30], pvid: 30, has_neighbor: false },
+    ];
+    const calls = mockFetch((method, url) => {
+      if (url.startsWith('/api/device-templates'))
+        return { status: 200, body: { items: [tpl('comware', true)] } };
+      if (method === 'GET' && url.startsWith('/api/devices/7/apply-template/interfaces'))
+        return { status: 200, body: { items: withData, inventory: 'ok' } };
+      if (method === 'POST' && url === '/api/devices/7/apply-template')
+        return {
+          status: 200,
+          body: { device_id: 7, template_id: 'comware', created: [], skipped: [], removed: [] },
+        };
+      return undefined;
+    });
+    render(
+      <Wrap>
+        <ApplyTemplateModal open onClose={() => undefined} device={device} />
+      </Wrap>,
+    );
+    const section = await screen.findByTestId('apply-ports');
+    fireEvent.click(within(section).getByLabelText('Choose ports'));
+    await screen.findByTestId('apply-ports-list');
+    fireEvent.click(screen.getByTestId('apply-ports-filter-toggle'));
+    fireEvent.change(screen.getByTestId('filter-mode'), { target: { value: 'trunk' } });
+    expect(screen.getByTestId('filter-apply').textContent).toBe('Select the matching port (1)');
+    fireEvent.change(screen.getByTestId('filter-mode'), { target: { value: 'any' } });
+    fireEvent.change(screen.getByTestId('filter-exclude-vlans'), { target: { value: '10' } });
+    fireEvent.click(screen.getByTestId('filter-apply'));
+    expect(screen.getByTestId('apply-ports-count').textContent).toBe('1 of 3 selected');
+    expect(screen.getByTestId('apply-ports-preview').textContent).toBe(
+      'Will get an interface sensor: 1 · Will not: 2',
+    );
+    // an invalid VLAN list cannot be applied
+    fireEvent.change(screen.getByTestId('filter-include-vlans'), { target: { value: '5000' } });
+    expect(screen.getByTestId('filter-apply')).toBeDisabled();
+    fireEvent.click(screen.getByTestId('apply-ports-filter-toggle')); // closed: one combobox
+    await clickApply('comware');
+    await waitFor(() => expect(post(calls)).toBeTruthy());
+    expect(post(calls)!.body).toEqual({
+      template_id: 'comware',
+      interfaces: [3],
+      remove_unselected_interfaces: false,
     });
   });
 

@@ -13,6 +13,7 @@ from netmon.auth.ldap_config import LdapSettingsIn
 from netmon.flows.settings import FlowSettingsMixin
 from netmon.schemas.assistant import Phase3bSettingsMixin
 from netmon.schemas.ingest import IngestSettingsMixin, source_addresses
+from netmon.schemas.noise import NoiseSettingsMixin
 from netmon.schemas.phase3 import (
     ConfigBackupSettingsMixin,
     NewdevSettingsMixin,
@@ -617,6 +618,7 @@ class SettingsPut(
     Phase3CSettingsMixin,  # [3] reports / chat ack
     Phase3bSettingsMixin,  # [3b] assistant toggles and scalar keys
     SecuritySettingsMixin,  # [1.4.1] egress filter, session lifetime, login cap, framing
+    NoiseSettingsMixin,  # [if-noise] sensor event debounce / flapping, important ports
 ):
     smtp: SmtpIn | None = None
     retention_days: int | None = Field(default=None, ge=1, le=3650)

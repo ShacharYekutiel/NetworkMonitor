@@ -249,7 +249,9 @@
       "group": "inherited from a group",
       "default": "built-in default (v2c, public)"
     },
-    "communityDefaultHint": "Empty = \"public\""
+    "communityDefaultHint": "Empty = \"public\"",
+    "inheritedFrom": "inherited from group",
+    "defaultWarning": "this device uses the built-in default (v2c, community “public”) and has SNMP sensors. Set SNMP credentials on the device or on its group."
   },
   "secret": {
     "stored": "•••••• (stored)",
@@ -367,7 +369,8 @@
     "notification_sent": "Notification sent",
     "port_change": "Port change",
     "config_change": "Configuration change",
-    "new_device": "New device"
+    "new_device": "New device",
+    "sensor_flapping": "Sensor flapping"
   },
   "pagination": {
     "range": "{{from}}–{{to}} of {{total}}",
@@ -3475,7 +3478,7 @@
     },
     "hint": {
       "none": "No interface sensors are created.",
-      "important": "Uplinks, LAGs, trunks and IRF ports only (recommended).",
+      "important": "The ports marked important in Settings → Important ports (recommended): by default uplinks, LAGs, trunks and IRF ports.",
       "all": "An interface sensor for every port the template matches.",
       "choose": "Pick the ports yourself."
     },
@@ -3483,7 +3486,9 @@
       "uplink": "Uplink",
       "lag": "LAG",
       "trunk": "Trunk",
-      "irf": "IRF port"
+      "irf": "IRF port",
+      "description": "Description",
+      "marked": "Marked"
     },
     "hasSensor": "monitored",
     "hasSensorTitle": "This port already has an interface sensor",
@@ -4663,5 +4668,113 @@
       "confirm": "Delete these rows",
       "done": "Cleanup finished. Rows deleted: {{n}}."
     }
+  },
+  "noise": {
+    "title": "Sensor event noise",
+    "intro": "Status changes of polled sensors (ping, interfaces, SNMP, HTTP…) can flood the event log when a port or host keeps going up and down. These protections only decide which rows the event log shows: the sensor's current status updates immediately, and alerts are sent exactly as their rules say (a rule's delay still applies).",
+    "debounce": "Record a change only after it holds",
+    "debounceHint": "A change that reverts before the next check leaves no row in the event log (for example, one failed ping that recovers on the next poll).",
+    "polls": "Checks to wait",
+    "pollsHint": "1–10. A change back within this many checks is not recorded.",
+    "pollsErr": "Enter 1–10",
+    "minS": "Minimum hold (seconds)",
+    "minSHint": "0–3600. 0 = only the number of checks counts.",
+    "minSErr": "Enter 0–3600",
+    "example": "With a 60-second check interval, a change appears in the log after about {{s}} seconds; a change that reverts sooner is not recorded.",
+    "flap": "Collapse flapping sensors into one event",
+    "flapHint": "A sensor that changes status {{n}} times within {{w}} minutes is flapping: its further changes are counted in one “flapping” event instead of a row each, until it stays quiet for {{q}} minutes.",
+    "sharedHint": "The same flapping definition is used for port flapping alerts.",
+    "alertsNote": "To see which sensors cause most of the changes:",
+    "noisyLink": "Noisiest sensors",
+    "showHidden": "Show hidden changes",
+    "hidden": {
+      "pending": "Waiting to hold",
+      "debounced": "Reverted quickly",
+      "flapping": "Part of flapping"
+    },
+    "flapTitle_one": "Flapping · {{count}} change",
+    "flapTitle_other": "Flapping · {{count}} changes",
+    "flapOngoing": "Keeps changing status ({{count}} changes so far), now {{status}}.",
+    "flapEnded": "Stopped flapping after {{count}} changes, now {{status}}."
+  },
+  "noisy": {
+    "title": "Noisiest sensors",
+    "show": "Noisiest sensors",
+    "intro": "The sensors with the most status changes, including changes hidden from the log. Access ports that go up and down with a PC usually top this list: leave them out when applying a template, or delete their sensors.",
+    "range": "Period",
+    "hours": {
+      "24": "24 hours",
+      "168": "7 days",
+      "720": "30 days"
+    },
+    "none": "No status changes in this period.",
+    "total_one": "{{count}} status change in total",
+    "total_other": "{{count}} status changes in total",
+    "sensor": "Sensor",
+    "changes": "Changes",
+    "hidden": "Hidden",
+    "share": "Share",
+    "status": "Status",
+    "flapping": "Flapping"
+  },
+  "importantPorts": {
+    "title": "Important ports",
+    "intro": "Important ports get link-down and flapping alerts when “Important ports only” is chosen, and are selected by default when a template creates interface sensors. Having an interface sensor no longer makes a port important by itself.",
+    "legacyNotice": "Ports with a critical interface sensor still count as important, as before the upgrade. After a template was applied to all ports, every port may count as important; clear this option to alert on uplinks, trunks and LAGs only.",
+    "criterion": {
+      "uplink": "Uplinks",
+      "lag": "LAGs and their member ports",
+      "trunk": "Trunk ports",
+      "irf": "IRF ports",
+      "critical_sensor": "Ports with a critical interface sensor (as before the upgrade)"
+    },
+    "hint": {
+      "uplink": "A switch, router or access point is connected (LLDP/CDP), or many MAC addresses are seen.",
+      "lag": "Link aggregation groups and the ports in them.",
+      "trunk": "Ports in trunk mode that carry several tagged VLANs.",
+      "irf": "The stacking ports of an HPE Comware IRF stack.",
+      "critical_sensor": "Link-down alerts only: any port whose interface sensor has impact “critical”."
+    },
+    "pattern": "Port description pattern",
+    "patternHint": "Ports whose description (ifAlias) matches this regular expression are important, e.g. uplink|server. Not case-sensitive; empty = off.",
+    "patternErr": "Not a supported regular expression (no backreferences or lookaround), at most 200 characters.",
+    "marksHint": "A single port can be marked important or not important in its port card (the device's Ports tab)."
+  },
+  "applyFilter": {
+    "title": "Filter ports",
+    "intro": "Choose the ports to monitor by VLAN, description, port mode or network neighbour, for example to leave out user (access) ports.",
+    "noData": "This device has no port inventory, so its VLANs, port modes and neighbours are unknown; only the description filter works.",
+    "includeVlans": "Only ports in VLANs",
+    "excludeVlans": "Leave out ports in VLANs",
+    "vlanErr": "VLAN numbers 1–4094 separated by commas; ranges like 100-110.",
+    "descrInclude": "Description matches",
+    "descrExclude": "Description does not match",
+    "regexErr": "Invalid regular expression",
+    "mode": "Port mode",
+    "modes": {
+      "any": "Any",
+      "access": "Access only",
+      "trunk": "Trunk only"
+    },
+    "neighbor": "Network neighbour (LLDP/CDP)",
+    "neighbors": {
+      "any": "Any",
+      "with": "With a neighbour",
+      "without": "Without a neighbour"
+    },
+    "select_one": "Select the matching port ({{count}})",
+    "select_other": "Select the {{count}} matching ports",
+    "reset": "Clear filter",
+    "preview": "Will get an interface sensor: {{will}} · Will not: {{wont}}"
+  },
+  "portImportance": {
+    "title": "Important port",
+    "auto": "Automatic",
+    "important": "Important",
+    "not": "Not important",
+    "autoImportant": "Important by the settings: {{reasons}}",
+    "autoNot": "Not important by the settings.",
+    "hint": "Important ports get link-down and flapping alerts under “Important ports only” and are selected by default when a template is applied. Nothing is changed on the device.",
+    "saved": "Port importance saved"
   }
 }

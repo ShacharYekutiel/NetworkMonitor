@@ -296,7 +296,8 @@ export type EventKind =
   | 'notification_sent' // [2b-3]
   | 'port_change' // [2b-3]
   | 'config_change' // [3]
-  | 'new_device';
+  | 'new_device'
+  | 'sensor_flapping'; // [if-noise] one row per flapping episode of a polled sensor
 export const EVENT_KINDS: EventKind[] = [
   'status_change',
   'notification',
@@ -308,7 +309,11 @@ export const EVENT_KINDS: EventKind[] = [
   'port_change',
   'config_change',
   'new_device',
+  'sensor_flapping',
 ];
+
+/** [if-noise] null = shown in the event log; the others are hidden by default */
+export type EventNoise = 'pending' | 'debounced' | 'flapping';
 
 export type NmEvent = {
   id: number;
@@ -326,7 +331,39 @@ export type NmEvent = {
   in_maintenance: boolean;
   /** [severity] stored when written (null while the feature was OFF, and for most kinds) */
   severity?: Severity | null;
+  /** [if-noise] why a status change is hidden from the log by default (null = shown) */
+  noise?: EventNoise | null;
+  /** [if-noise] sensor_flapping rows: changes in the episode, last change, when it settled */
+  flap_count?: number | null;
+  flap_last?: string | null;
+  flap_end?: string | null;
 };
+
+/** [if-noise] GET /api/events/noisy-sensors */
+export type NoisySensor = {
+  sensor_id: number;
+  sensor_name: string;
+  sensor_type: string;
+  status: Status;
+  device_id: number;
+  device_name: string;
+  changes: number;
+  shown: number;
+  hidden: number;
+  last_change: string | null;
+  flapping: boolean;
+};
+export type NoisySensorsResponse = { hours: number; total_changes: number; items: NoisySensor[] };
+
+/** [if-noise] which port properties make a port important (settings important_port_criteria) */
+export type ImportantCriterion = 'uplink' | 'lag' | 'trunk' | 'irf' | 'critical_sensor';
+export const IMPORTANT_CRITERIA: ImportantCriterion[] = [
+  'uplink',
+  'lag',
+  'trunk',
+  'irf',
+  'critical_sensor',
+];
 
 export type CheckResult = {
   ok: boolean;
@@ -654,6 +691,18 @@ export type Settings = {
   login_ip_max_failures?: number;
   /** [1.4.1] origins that may embed the app in a frame, besides the app itself */
   frame_ancestors?: string[];
+  /** [if-noise] sensor event debounce (ON by default) */
+  sensor_event_debounce_enabled?: boolean;
+  /** [if-noise] 1–10: a change back within (polls + ½) intervals leaves no event row */
+  sensor_event_debounce_polls?: number;
+  /** [if-noise] 0–3600 s: minimum hold time */
+  sensor_event_debounce_min_s?: number;
+  /** [if-noise] flapping sensors' changes collapse into one row (ON by default) */
+  sensor_event_flap_enabled?: boolean;
+  /** [if-noise] what makes a port important */
+  important_port_criteria?: ImportantCriterion[];
+  /** [if-noise] RE2 pattern on the port description (ifAlias); "" = off */
+  important_port_description_pattern?: string;
 } & Partial<Settings2b3> &
   Partial<Settings3> &
   Partial<Settings3b>;
@@ -688,6 +737,8 @@ export type WsMessage =
       };
     }
   | { type: 'event.created'; ts: string; data: NmEvent }
+  /** [if-noise] a sensor_flapping row's count / end changed */
+  | { type: 'event.updated'; ts: string; data: NmEvent }
   /** [severity] an active problem re-classified (mapping / override / impact / feature ON) */
   | {
       type: 'sensor.severity';
@@ -1121,7 +1172,7 @@ export type ReplaceCandidate = {
 };
 export type ReplaceCandidatesResponse = { items: ReplaceCandidate[] };
 /** [1.3.1] irf: an IRF physical port of a Comware IRF stack */
-export type ApplyInterfaceReason = 'uplink' | 'lag' | 'trunk' | 'irf';
+export type ApplyInterfaceReason = 'uplink' | 'lag' | 'trunk' | 'irf' | 'description' | 'marked';
 export const APPLY_INTERFACE_REASONS: ApplyInterfaceReason[] = ['uplink', 'lag', 'trunk'];
 export type ApplyInterface = {
   if_index: number;
@@ -1134,6 +1185,12 @@ export type ApplyInterface = {
   reasons: ApplyInterfaceReason[];
   has_sensor: boolean;
   sensor_id: number | null;
+  /** [if-noise] from the port inventory; null / absent without it */
+  mode?: 'access' | 'trunk' | null;
+  pvid?: number | null;
+  untagged_vlans?: number[] | null;
+  tagged_vlans?: number[] | null;
+  has_neighbor?: boolean | null;
 };
 export type ApplyInterfacesResponse = { items: ApplyInterface[]; inventory: 'ok' | 'missing' };
 
@@ -1546,6 +1603,11 @@ export type Port = {
   /** [1.3] LLDP/CDP neighbour name and management address (null = none) */
   neighbor_name?: string | null;
   neighbor_mgmt_address?: string | null;
+  /** [1.3] the port counts as important (link-down alerts, template defaults) and why */
+  important?: boolean;
+  important_reasons?: ApplyInterfaceReason[];
+  /** [if-noise] the user's explicit choice (null = the criteria; absent on older servers) */
+  importance_override?: boolean | null;
 };
 
 /** [1.3] */

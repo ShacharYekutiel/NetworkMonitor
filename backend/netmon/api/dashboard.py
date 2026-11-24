@@ -29,7 +29,7 @@ async def dashboard(user: Viewer, rt: RT, session: DB) -> dict:
     events = (
         await session.execute(
             select(Event)
-            .where(Event.kind == "status_change")
+            .where(Event.kind == "status_change", Event.noise.is_(None))  # [if-noise]
             .order_by(Event.time.desc(), Event.id.desc())
             .limit(20)
         )

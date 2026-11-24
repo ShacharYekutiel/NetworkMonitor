@@ -77,6 +77,37 @@ export const SETTINGS_CARDS: SettingsCardDef[] = [
       },
     ],
   },
+  // [if-noise] sensor event noise and the important-port criteria (core, always rendered)
+  {
+    id: 'sensorNoise',
+    tab: 'general',
+    titleKey: 'noise.title',
+    hintKey: 'noise.intro',
+    terms: ['flap', 'debounce', 'noise', 'event log', 'interface', 'hold'],
+    fields: [
+      { labelKey: 'noise.debounce', hintKey: 'noise.debounceHint', terms: ['debounce'] },
+      { labelKey: 'noise.polls', hintKey: 'noise.pollsHint' },
+      { labelKey: 'noise.minS', hintKey: 'noise.minSHint' },
+      { labelKey: 'noise.flap', terms: ['flap', 'flapping'] },
+      { labelKey: 'flapping.threshold' },
+      { labelKey: 'flapping.window' },
+      { labelKey: 'flapping.quiet' },
+    ],
+  },
+  {
+    id: 'importantPorts',
+    tab: 'general',
+    titleKey: 'importantPorts.title',
+    hintKey: 'importantPorts.intro',
+    terms: ['uplink', 'trunk', 'lag', 'irf', 'important', 'access port', 'ifalias'],
+    fields: [
+      {
+        labelKey: 'importantPorts.criterion.critical_sensor',
+        hintKey: 'importantPorts.hint.critical_sensor',
+      },
+      { labelKey: 'importantPorts.pattern', hintKey: 'importantPorts.patternHint' },
+    ],
+  },
   {
     id: 'smtp',
     tab: 'general',

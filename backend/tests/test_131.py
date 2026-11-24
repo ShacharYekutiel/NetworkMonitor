@@ -218,7 +218,8 @@ def _row(idx: int, **kw: Any) -> dict[str, Any]:
 def test_importance_irf_reason() -> None:
     from netmon.ports.importance import port_reasons
 
-    assert REASONS == ("uplink", "lag", "trunk", "irf")
+    # [if-noise] + description (ifAlias pattern) and marked (the user's override)
+    assert REASONS == ("uplink", "lag", "trunk", "irf", "description", "marked")
     rows = [
         _row(1),
         _row(61, irf_port=1),

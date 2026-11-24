@@ -133,6 +133,43 @@ and SIEM forwarding still see every message. Migration `0018` adds three columns
 rewrite) and one empty partial index; a rollback to the previous image keeps working on the migrated database
 (its INSERT leaves the new columns at their defaults); `netmon migrate --to 0016` removes them.
 
+### Interface sensor event noise — behaviour change on upgrade (migration `0019`)
+
+Two protections of the **event log** are **ON by default, also after an upgrade** (*Settings → General → Sensor
+event noise*; turning one off restores the old behaviour and shows what it held back):
+
+- **Record a change only after it holds** (`sensor_event_debounce_enabled`, `sensor_event_debounce_polls` = 1,
+  `sensor_event_debounce_min_s` = 0): a status change of a polled sensor (ping, interface, SNMP, HTTP, …) appears in
+  the event log only after the new status held for (polls + ½) check intervals — about 90 s at a 60 s interval, plus
+  the check timeout before it is shown, with its real time. A change back within that time (one failed poll that
+  recovers on the next poll) leaves no row in the log.
+- **Collapse flapping sensors** (`sensor_event_flap_enabled`; `flap_threshold` 5 changes within `flap_window_min`
+  10 min, settled after `flap_quiet_min` 15 min — the same definition as port flapping): further changes of a
+  flapping sensor are counted in one "flapping" event instead of a row each; when it settles the log ends in the
+  sensor's real status.
+
+**Not changed:** the sensor's current status (real time), and **alerts** — they are sent exactly as before (a rule's
+`delay_s` and the port-flapping hold-down are still what keep blips out of notifications). Every change is still
+stored: *Events → Show hidden changes* shows them, and *Events → Noisiest sensors* lists the sensors with the most
+changes (the access ports to leave out). Reports and availability use every change. Anything that reads the
+`events` table directly sees the new `noise` column (NULL = shown).
+
+**Important ports only.** Before, a port with a critical interface sensor always counted as important for
+link-down / flapping alerts, so after a template created sensors on all ports, every port could be important. The
+criteria are now a choice (*Settings → General → Important ports*: uplinks, LAGs, trunks, IRF ports, a description
+pattern, and per port "important / not important" in the port card). **An upgraded install keeps the old rule**
+(`important_port_criteria` includes `critical_sensor`, written by migration `0019`), so no alert silently stops; the
+card shows a notice — clear "Ports with a critical interface sensor" to alert on uplinks / trunks / LAGs only. A new
+install starts without it.
+
+**Apply template** has a port filter (VLAN include / exclude, description, port mode, LLDP/CDP neighbour) with a
+count of the ports that will / will not get sensors; the default choice is still "Important ports".
+
+Migration `0019` adds five NULL columns to `events` (no rewrite), two empty partial indexes, the table
+`port_importance_overrides` and, on an existing install, the settings row above. Rollback: the previous image works
+on the migrated database (hidden rows show as ordinary rows there); `netmon migrate --to 0018` removes everything
+(flapping rows deleted).
+
 ## Phase 3: flows, config backup, SSO, reports, chat acknowledge
 
 Everything new is **off** after the upgrade and is turned on in *Settings → Features*. The only server-side items are
