@@ -173,6 +173,16 @@ class DependencyBulkIn(BaseModel):
         return v
 
 
+class TreeMoveIn(BaseModel):
+    """[tree-move] `POST /api/tree/move`: devices and groups into one target group (or the top
+    level for groups: `target_group_id: null`)."""
+
+    model_config = ConfigDict(extra="forbid")
+    device_ids: list[int] = Field(default_factory=list, max_length=5000)
+    group_ids: list[int] = Field(default_factory=list, max_length=1000)
+    target_group_id: int | None = Field(...)
+
+
 # ---------------------------------------------------------------- groups / devices
 class GroupCreate(_In):
     name: str = Field(min_length=1, max_length=128)
