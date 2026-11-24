@@ -43,6 +43,8 @@ export type ApiErrorDetail = {
   max?: number;
   /** [2b-1] dependency_cycle: the cycle path, e.g. [3, 7, 3] */
   device_ids?: number[];
+  /** [tree-move] group_cycle / conflict of POST /api/tree/move: the group concerned */
+  group_id?: number;
   /** [2b-1] topology_refresh_running */
   refresh_id?: number;
   /** [2b-2] ports_disabled */
@@ -399,6 +401,18 @@ export type TreeGroup = {
   devices: TreeDevice[];
 };
 export type Tree = { groups: TreeGroup[] };
+/** [tree-move] POST /api/tree/move */
+export type TreeMoveInput = {
+  device_ids: number[];
+  group_ids: number[];
+  /** null = the top level (groups only) */
+  target_group_id: number | null;
+};
+export type TreeMoveResult = {
+  target_group_id: number | null;
+  moved: { device_ids: number[]; group_ids: number[] };
+  skipped: { device_ids: number[]; group_ids: number[] };
+};
 
 // Sensor type definitions
 export type ConfigFieldType =
