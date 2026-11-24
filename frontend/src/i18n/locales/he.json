@@ -4358,7 +4358,23 @@
     "clearSelection": "ניקוי הבחירה",
     "dropTopLevel": "שחררו כאן כדי להעביר לרמה העליונה",
     "selectItem": "בחירת {{name}}",
-    "selectionHint": "לבחירת כמה פריטים לחצו עם Ctrl/⌘ או Shift; גררו אל קבוצה כדי להעביר."
+    "selectionHint": "לבחירת כמה פריטים לחצו עם Ctrl/⌘ או Shift; גררו אל קבוצה כדי להעביר.",
+    "checking": "בודק מה משתנה…",
+    "effect": {
+      "snmpLose": "הגדרות ה-SNMP שעוברות בירושה מהקבוצה {{group}} לא יחולו עוד על {{what}}; במקומן תחול ברירת המחדל המובנית (v2c, public). ייתכן שחיישני ה-SNMP שלהם ייפלו.",
+      "snmp": "הגדרות ה-SNMP של {{what}} – עכשיו: {{from}}; אחרי ההעברה: {{to}}. ייתכן שחיישני ה-SNMP שלהם ייפלו.",
+      "ssh": "פרטי הגישה ל-SSH של {{what}} – עכשיו: {{from}}; אחרי ההעברה: {{to}}. ייתכן שגיבויי התצורה ייכשלו.",
+      "dependency": "התלות של {{what}} – עכשיו: {{from}}; אחרי ההעברה: {{to}}.",
+      "group": "בירושה מהקבוצה {{name}}",
+      "snmpDefault": "ברירת המחדל המובנית (v2c, public)",
+      "own": "הגדרות משלו",
+      "noneValue": "אין",
+      "dependsOn": "תלוי ב-{{name}}",
+      "none": "אף הגדרה שעוברת בירושה לא משתנה עבור ההתקנים שמועברים.",
+      "snmpSensors_one": "(חיישן SNMP אחד)",
+      "snmpSensors_two": "(שני חיישני SNMP)",
+      "snmpSensors_other": "({{count}} חיישני SNMP)"
+    }
   },
   "settingsSearch": {
     "label": "חיפוש בהגדרות",

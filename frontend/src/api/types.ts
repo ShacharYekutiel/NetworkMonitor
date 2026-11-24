@@ -408,6 +408,26 @@ export type TreeMoveInput = {
   /** null = the top level (groups only) */
   target_group_id: number | null;
 };
+/** [tree-move] POST /api/tree/move/preview: one side of an effect */
+export type TreeMoveSide = {
+  /** snmp: device | group | default; ssh: device | group | none; dependency: device | group | none */
+  source: string;
+  group_id: number | null;
+  group_name: string | null;
+  /** dependency only: the effective parent device */
+  device_id?: number | null;
+  device_name?: string | null;
+};
+export type TreeMoveEffect = {
+  setting: 'snmp' | 'ssh' | 'dependency';
+  before: TreeMoveSide;
+  after: TreeMoveSide;
+  devices: { id: number; name: string; snmp_sensors?: number }[];
+};
+export type TreeMovePreview = TreeMoveResult & {
+  devices_affected: number;
+  effects: TreeMoveEffect[];
+};
 export type TreeMoveResult = {
   target_group_id: number | null;
   moved: { device_ids: number[]; group_ids: number[] };

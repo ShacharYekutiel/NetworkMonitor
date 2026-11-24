@@ -51,6 +51,8 @@ const TREE = {
 
 let role: 'admin' | 'viewer' = 'admin';
 let moves: unknown[] = [];
+let previews: unknown[] = [];
+let effects: unknown[] = [];
 
 function mockFetch() {
   const fn = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
@@ -65,6 +67,17 @@ function mockFetch() {
       return json(200, { user: { id: 1, username: role, role, language: 'en', is_active: true } });
     if (url.startsWith('/api/settings/public'))
       return json(200, { default_language: 'en', features: {} });
+    if (url.startsWith('/api/tree/move/preview') && init?.method === 'POST') {
+      const body = JSON.parse(String(init.body));
+      previews.push(body);
+      return json(200, {
+        target_group_id: body.target_group_id,
+        moved: { device_ids: body.device_ids, group_ids: body.group_ids },
+        skipped: { device_ids: [], group_ids: [] },
+        devices_affected: body.device_ids.length,
+        effects,
+      });
+    }
     if (url.startsWith('/api/tree/move') && init?.method === 'POST') {
       const body = JSON.parse(String(init.body));
       moves.push(body);
@@ -118,6 +131,8 @@ function dataTransfer() {
 beforeEach(async () => {
   role = 'admin';
   moves = [];
+  previews = [];
+  effects = [];
   localStorage.clear();
   setLanguage('en', false);
   await i18n.changeLanguage('en');
@@ -142,9 +157,11 @@ describe('Tree move (drag and drop, selection, Move to…)', () => {
     fireEvent.drop(target, { dataTransfer: dt });
     const dlg = await screen.findByTestId('move-confirm');
     expect(within(dlg).getByRole('heading')).toHaveTextContent('Move 1 device to Branch?');
+    expect(await within(dlg).findByTestId('move-effects-none')).toBeInTheDocument();
     expect(within(dlg).getByTestId('move-confirm-items')).toHaveTextContent('core-sw');
     expect(within(dlg).getByTestId('move-confirm-hint')).toHaveTextContent(/inherited/);
     expect(moves).toEqual([]); // nothing before the confirmation
+    await waitFor(() => expect(within(dlg).getByTestId('move-confirm-ok')).toBeEnabled());
     fireEvent.click(within(dlg).getByTestId('move-confirm-ok'));
     await waitFor(() =>
       expect(moves).toEqual([{ device_ids: [3], group_ids: [], target_group_id: 2 }]),
@@ -167,6 +184,61 @@ describe('Tree move (drag and drop, selection, Move to…)', () => {
     await waitFor(() => expect(floor).toHaveAttribute('data-drop', 'ok'));
     expect(branch).not.toHaveAttribute('data-drop');
     fireEvent.dragEnd(src, { dataTransfer: dt });
+  });
+
+  it('the confirmation shows the server preview: an SNMP fallback is a warning with the names', async () => {
+    effects = [
+      {
+        setting: 'snmp',
+        before: { source: 'group', group_id: 1, group_name: 'Root' },
+        after: { source: 'default', group_id: null, group_name: null },
+        devices: [{ id: 3, name: 'core-sw', snmp_sensors: 4 }],
+      },
+      {
+        setting: 'dependency',
+        before: {
+          source: 'none',
+          group_id: null,
+          group_name: null,
+          device_id: null,
+          device_name: null,
+        },
+        after: {
+          source: 'group',
+          group_id: 2,
+          group_name: 'Branch',
+          device_id: 6,
+          device_name: 'br-sw',
+        },
+        devices: ['core-sw', 'a', 'b', 'c', 'd', 'e', 'f'].map((name, i) => ({ id: 10 + i, name })),
+      },
+    ];
+    render(wrap(<TreeNav />));
+    const src = await row('core-sw');
+    await waitFor(() => expect(src).toHaveAttribute('draggable', 'true'));
+    const dt = dataTransfer();
+    fireEvent.dragStart(src, { dataTransfer: dt });
+    const target = dropTarget(await row('Branch'));
+    fireEvent.dragOver(target, { dataTransfer: dt });
+    fireEvent.drop(target, { dataTransfer: dt });
+    const dlg = await screen.findByTestId('move-confirm');
+    const warn = await within(dlg).findByTestId('move-effect-snmp');
+    expect(previews).toEqual([{ device_ids: [3], group_ids: [], target_group_id: 2 }]);
+    expect(moves).toEqual([]);
+    expect(warn).toHaveAttribute('role', 'alert');
+    expect(warn).toHaveTextContent(
+      '1 device will lose the SNMP settings inherited from group Root and fall back to the built-in default (v2c, community public). Their SNMP sensors may go down. (4 SNMP sensors)',
+    );
+    expect(within(warn).getByTestId('move-effect-devices')).toHaveTextContent('core-sw');
+    const dep = within(dlg).getByTestId('move-effect-dependency');
+    expect(dep).toHaveTextContent(
+      'Dependency of 7 devices — now: none; after the move: depends on br-sw.',
+    );
+    expect(within(dep).getByText('and 2 more')).toBeInTheDocument(); // collapsed after 5 names
+    // a warning, not a block
+    await waitFor(() => expect(within(dlg).getByTestId('move-confirm-ok')).toBeEnabled());
+    fireEvent.click(within(dlg).getByTestId('move-confirm-ok'));
+    await waitFor(() => expect(moves).toHaveLength(1));
   });
 
   it('cancel moves nothing', async () => {
@@ -232,6 +304,7 @@ describe('Tree move (drag and drop, selection, Move to…)', () => {
     fireEvent.click(within(picker).getByTestId('move-picker-next'));
     const dlg = await screen.findByTestId('move-confirm');
     expect(within(dlg).getByRole('heading')).toHaveTextContent('Move 2 devices to Floor?');
+    await waitFor(() => expect(within(dlg).getByTestId('move-confirm-ok')).toBeEnabled());
     fireEvent.click(within(dlg).getByTestId('move-confirm-ok'));
     await waitFor(() =>
       expect(moves).toEqual([{ device_ids: [3, 4], group_ids: [], target_group_id: 5 }]),
@@ -271,6 +344,7 @@ describe('Tree move (drag and drop, selection, Move to…)', () => {
     fireEvent.click(within(picker).getByTestId('move-picker-next'));
     const dlg = await screen.findByTestId('move-confirm');
     expect(within(dlg).getByRole('heading')).toHaveTextContent('Move 1 group to the top level?');
+    await waitFor(() => expect(within(dlg).getByTestId('move-confirm-ok')).toBeEnabled());
     fireEvent.click(within(dlg).getByTestId('move-confirm-ok'));
     await waitFor(() =>
       expect(moves).toEqual([{ device_ids: [], group_ids: [2], target_group_id: null }]),

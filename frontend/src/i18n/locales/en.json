@@ -4299,7 +4299,22 @@
     "clearSelection": "Clear selection",
     "dropTopLevel": "Drop here to move to the top level",
     "selectItem": "Select {{name}}",
-    "selectionHint": "Ctrl/⌘-click or Shift-click to select several; drag onto a group to move."
+    "selectionHint": "Ctrl/⌘-click or Shift-click to select several; drag onto a group to move.",
+    "checking": "Checking what changes…",
+    "effect": {
+      "snmpLose": "{{what}} will lose the SNMP settings inherited from group {{group}} and fall back to the built-in default (v2c, community public). Their SNMP sensors may go down.",
+      "snmp": "SNMP settings of {{what}} — now: {{from}}; after the move: {{to}}. Their SNMP sensors may go down.",
+      "ssh": "SSH credentials of {{what}} — now: {{from}}; after the move: {{to}}. Configuration backups may fail.",
+      "dependency": "Dependency of {{what}} — now: {{from}}; after the move: {{to}}.",
+      "group": "inherited from group {{name}}",
+      "snmpDefault": "the built-in default (v2c, public)",
+      "own": "its own settings",
+      "noneValue": "none",
+      "dependsOn": "depends on {{name}}",
+      "none": "No inherited setting changes for the devices that move.",
+      "snmpSensors_one": "({{count}} SNMP sensor)",
+      "snmpSensors_other": "({{count}} SNMP sensors)"
+    }
   },
   "settingsSearch": {
     "label": "Search settings",

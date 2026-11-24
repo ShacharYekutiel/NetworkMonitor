@@ -54,7 +54,14 @@ test.beforeAll(async () => {
   await ensureViewer(admin);
   const tag = uid('0qa91');
   P = (await admin.post('/api/groups', { name: tag, parent_id: null, sort_order: -1000 })).id;
-  A = (await admin.post('/api/groups', { name: 'qa91 Alpha', parent_id: P })).id;
+  // Alpha has its own SNMP settings: what leaves it falls back to the defaults (the incident)
+  A = (
+    await admin.post('/api/groups', {
+      name: 'qa91 Alpha',
+      parent_id: P,
+      snmp_credentials: { version: 'v2c', community: 'qa91-community' },
+    })
+  ).id;
   A1 = (await admin.post('/api/groups', { name: 'qa91 Alpha child', parent_id: A })).id;
   B = (await admin.post('/api/groups', { name: 'qa91 Beta', parent_id: P })).id;
   for (const [k, g] of [
@@ -85,6 +92,12 @@ test('drag a device onto another group: target highlighted, confirmation, then i
   await expect(dlg.getByRole('heading')).toHaveText('Move 1 device to qa91 Beta?');
   await expect(dlg.getByTestId('move-confirm-items')).toContainText(dev.d1.name);
   await expect(dlg.getByTestId('move-confirm-hint')).toContainText('inherited from the group');
+  // the server preview: d1 loses Alpha's SNMP settings -> a warning naming it (not a block)
+  const warn = dlg.getByTestId('move-effect-snmp');
+  await expect(warn).toContainText(
+    "1 device will lose the SNMP settings inherited from group qa91 Alpha and fall back to the built-in default (v2c, community public)",
+  );
+  await expect(warn.getByTestId('move-effect-devices')).toHaveText(dev.d1.name);
   expect(await groupOf(dev.d1.id)).toBe(A); // nothing moved yet
   await shot(page, 'en-2-confirm');
   await dlg.getByRole('button', { name: 'Move', exact: true }).click();
@@ -157,6 +170,9 @@ test('a group moves with its content; it cannot go into its own child', async ({
   await expect(dropZone(page, B)).toHaveAttribute('data-drop', 'ok');
   await page.mouse.up();
   await expect(confirmDlg(page).getByRole('heading')).toHaveText('Move 1 group to qa91 Beta?');
+  // its devices keep inheriting from Alpha itself: no change, no warning
+  await expect(confirmDlg(page).getByTestId('move-effects-none')).toBeVisible();
+  await expect(confirmDlg(page).getByTestId('move-effect-snmp')).toHaveCount(0);
   await confirmDlg(page).getByRole('button', { name: 'Move', exact: true }).click();
   await expect.poll(() => parentOf(A)).toBe(B);
   expect(await parentOf(A1)).toBe(A);
@@ -207,6 +223,7 @@ test('keyboard only, in the ☰ sheet: Shift+F10 → Move to… → pick → con
   await page.keyboard.press('Tab');
   await page.keyboard.press('Enter'); // Enter on an enabled option picks it
   await expect(confirmDlg(page)).toBeVisible();
+  await expect(confirmDlg(page).getByRole('button', { name: 'Move', exact: true })).toBeEnabled();
   await confirmDlg(page).getByRole('button', { name: 'Move', exact: true }).focus();
   await page.keyboard.press('Enter');
   await expect.poll(() => groupOf(dev.d3.id)).toBe(A1);
@@ -245,6 +262,7 @@ test('group page: tick rows, "Move to…" the top level', async ({ page }) => {
   await picker.getByLabel('Top level').check();
   await picker.getByTestId('move-picker-next').click();
   await expect(confirmDlg(page).getByRole('heading')).toHaveText('Move 1 group to the top level?');
+  await expect(confirmDlg(page).getByTestId('move-effects-none')).toBeVisible();
   await confirmDlg(page).getByRole('button', { name: 'Move', exact: true }).click();
   await expect.poll(() => parentOf(A)).toBe(null);
   await expect(sub).toHaveCount(0);
@@ -267,6 +285,10 @@ test('Hebrew RTL (dark): drag works, the dialog reads in Hebrew', async ({ page 
     const dlg = confirmDlg(page);
     await expect(dlg.getByRole('heading')).toHaveText('להעביר התקן אחד אל qa91 Alpha?');
     await expect(dlg.getByTestId('move-confirm-hint')).toContainText('בירושה מהקבוצה');
+    // into Alpha: d1 starts using Alpha's SNMP settings (shown, in Hebrew)
+    await expect(dlg.getByTestId('move-effect-snmp')).toContainText(
+      'הגדרות ה-SNMP של התקן אחד – עכשיו: ברירת המחדל המובנית (v2c, public); אחרי ההעברה: בירושה מהקבוצה qa91 Alpha.',
+    );
     await shot(page, 'he-2-confirm');
     await dlg.getByRole('button', { name: 'העברה', exact: true }).click();
     await expect.poll(() => groupOf(dev.d1.id)).toBe(A);

@@ -3268,7 +3268,7 @@ result before anything moves (the user may still confirm: it is a warning, not a
 - `effects`: for each of those devices, the effective inherited value before and after the move, computed by the
   server with the same rules the poller uses (`Device.effective_snmp_source` / `effective_ssh_source` /
   `effective_dependency`). Only real changes are listed, grouped by `(setting, before, after)`, in the order
-  `snmp`, `ssh`, `dependency`. `snmp.source` is `device` | `group` | `default` (the server-wide defaults);
+  `snmp`, `ssh`, `dependency`. `snmp.source` is `device` | `group` | `default` (the built-in default: v2c, community `public`);
   `ssh.source` is `device` | `group` | `none`; `dependency.source` is `device` | `group` | `none`. A device with its
   own setting never appears for that setting. `snmp_sensors` counts the device's sensors that use SNMP (they may go
   down when the credentials change).

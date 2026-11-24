@@ -11,11 +11,11 @@ import {
   useState,
   type ReactNode,
 } from 'react';
-import { useMutation, useQueryClient } from '@tanstack/react-query';
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useTranslation } from 'react-i18next';
 import type { TFunction } from 'i18next';
 import { endpoints, qk } from '../../api/endpoints';
-import type { TreeGroup } from '../../api/types';
+import type { TreeGroup, TreeMoveEffect, TreeMoveSide } from '../../api/types';
 import { isApiError } from '../../api/client';
 import { useAuth } from '../../hooks/auth';
 import { useTree } from '../../hooks/queries';
@@ -33,10 +33,10 @@ import {
   type MoveIndex,
   type MoveRef,
 } from '../../lib/treeMove';
-import { FolderIcon, ServerIcon } from '../icons';
+import { AlertIcon, FolderIcon, ServerIcon } from '../icons';
 import { RADIO } from '../kit';
 import { useToast } from '../toast';
-import { Button, cx, Input, Modal } from '../ui';
+import { Button, cx, Input, Modal, Spinner } from '../ui';
 
 /** The drag in progress (dragged in this window; other drags are ignored). */
 export type TreeDrag = { refs: MoveRef[]; over: string | null; ok: boolean };
@@ -336,6 +336,16 @@ function MoveConfirm({
   const { t } = useTranslation();
   const items = normalizeMove(ix, refs);
   const listed = items.slice(0, MAX_LISTED);
+  // the server says what changes (it knows the inheritance rules); nothing moves until confirmed
+  const body = moveBody(ix, refs, target);
+  const preview = useQuery({
+    queryKey: ['treeMovePreview', body],
+    queryFn: () => endpoints.treeMovePreview(body),
+    retry: false,
+    staleTime: 0,
+    gcTime: 0,
+  });
+  const shownError = error ?? (preview.error ? moveError(t, preview.error, ix) : null);
   return (
     <Modal
       open
@@ -349,7 +359,13 @@ function MoveConfirm({
       footer={
         <>
           <Button onClick={onClose}>{t('common.cancel')}</Button>
-          <Button variant="primary" busy={busy} onClick={onConfirm} data-testid="move-confirm-ok">
+          <Button
+            variant="primary"
+            busy={busy}
+            disabled={!preview.data}
+            onClick={onConfirm}
+            data-testid="move-confirm-ok"
+          >
             {t('treeMove.move')}
           </Button>
         </>
@@ -375,15 +391,110 @@ function MoveConfirm({
       <p className="m-0 mt-3 text-[13.5px] text-ink-muted" data-testid="move-confirm-hint">
         {t('treeMove.inheritHint')}
       </p>
-      {error && (
+      {preview.isLoading && (
+        <p className="m-0 mt-3 flex items-center gap-2 text-[13.5px] text-ink-muted">
+          <Spinner className="h-3.5 w-3.5" /> {t('treeMove.checking')}
+        </p>
+      )}
+      {preview.data && <MoveEffects effects={preview.data.effects} />}
+      {shownError && (
         <div
           role="alert"
           className="mt-3 rounded-lg bg-status-down-soft px-4 py-3 text-[14.5px] text-ink"
         >
-          {error}
+          {shownError}
         </div>
       )}
     </Modal>
+  );
+}
+
+const MAX_NAMES = 5;
+
+/** Device names, the first few inline and the rest behind "and N more". */
+function DeviceNames({ devices }: { devices: TreeMoveEffect['devices'] }) {
+  const { t } = useTranslation();
+  const first = devices.slice(0, MAX_NAMES);
+  const rest = devices.slice(MAX_NAMES);
+  const names = (list: TreeMoveEffect['devices']) =>
+    list.map((d, i) => (
+      <span key={d.id}>
+        {i > 0 && ', '}
+        <bdi className="font-medium">{d.name}</bdi>
+      </span>
+    ));
+  return (
+    <div className="mt-1 text-[13px]" data-testid="move-effect-devices">
+      {names(first)}
+      {rest.length > 0 && (
+        <details className="mt-1">
+          <summary className="cursor-pointer text-ink-muted">
+            {t('treeMove.andMore', { count: rest.length })}
+          </summary>
+          {names(rest)}
+        </details>
+      )}
+    </div>
+  );
+}
+
+function sideLabel(t: TFunction, setting: TreeMoveEffect['setting'], s: TreeMoveSide): string {
+  if (setting === 'dependency')
+    return s.device_name
+      ? t('treeMove.effect.dependsOn', { name: s.device_name })
+      : t('treeMove.effect.noneValue');
+  if (s.source === 'group') return t('treeMove.effect.group', { name: s.group_name ?? '' });
+  if (s.source === 'default') return t('treeMove.effect.snmpDefault');
+  if (s.source === 'device') return t('treeMove.effect.own');
+  return t('treeMove.effect.noneValue');
+}
+
+/** [tree-move] What the move changes (server preview): SNMP as a warning, SSH and dependency. */
+function MoveEffects({ effects }: { effects: TreeMoveEffect[] }) {
+  const { t } = useTranslation();
+  if (!effects.length)
+    return (
+      <p className="m-0 mt-3 text-[13.5px] text-ink-muted" data-testid="move-effects-none">
+        {t('treeMove.effect.none')}
+      </p>
+    );
+  return (
+    <div className="mt-3 grid gap-2" data-testid="move-effects">
+      {effects.map((e, i) => {
+        const what = t('treeMove.devices', { count: e.devices.length });
+        const vars = {
+          what,
+          from: sideLabel(t, e.setting, e.before),
+          to: sideLabel(t, e.setting, e.after),
+        };
+        const sensors = e.devices.reduce((n, d) => n + (d.snmp_sensors ?? 0), 0);
+        const snmp = e.setting === 'snmp';
+        return (
+          <div
+            key={i}
+            role={snmp ? 'alert' : undefined}
+            data-testid={`move-effect-${e.setting}`}
+            className={cx(
+              'rounded-lg px-4 py-3 text-[13.5px] text-ink',
+              snmp ? 'bg-status-warning-soft' : 'bg-chip',
+            )}
+          >
+            <div className="flex gap-2">
+              {snmp && <AlertIcon size={15} className="mt-0.5 shrink-0 text-status-warning" />}
+              <span>
+                {snmp && e.before.source === 'group' && e.after.source === 'default'
+                  ? t('treeMove.effect.snmpLose', { what, group: e.before.group_name ?? '' })
+                  : t(`treeMove.effect.${e.setting}`, vars)}
+                {snmp && sensors > 0 && (
+                  <> {t('treeMove.effect.snmpSensors', { count: sensors })}</>
+                )}
+              </span>
+            </div>
+            <DeviceNames devices={e.devices} />
+          </div>
+        );
+      })}
+    </div>
   );
 }
 
