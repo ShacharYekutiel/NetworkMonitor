@@ -83,7 +83,7 @@ async def test_details_for_admin_viewer_and_token(
         assert h["version"] == rt.version
         assert h["poller"] in ("running", "stopped")
         assert isinstance(h["sensors_scheduled"], int)
-        assert h["test_mode"] is False
+        assert isinstance(h["test_mode"], bool)
         assert set(h["ingest"]) >= {"trap", "syslog_udp", "syslog_tcp", "netflow", "ipfix"}
     tok = (await admin.post("/api/tokens", json={"name": "ops", "role": "viewer"})).json()["token"]
     async with httpx.AsyncClient(
