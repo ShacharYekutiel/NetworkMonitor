@@ -140,9 +140,8 @@ event noise*; turning one off restores the old behaviour and shows what it held 
 
 - **Record a change only after it holds** (`sensor_event_debounce_enabled`, `sensor_event_debounce_polls` = 1,
   `sensor_event_debounce_min_s` = 0): a status change of a polled sensor (ping, interface, SNMP, HTTP, …) appears in
-  the event log only after the new status held for (polls + ½) check intervals — about 90 s at a 60 s interval, plus
-  the check timeout before it is shown, with its real time. A change back within that time (one failed poll that
-  recovers on the next poll) leaves no row in the log.
+  the event log once the next check confirmed it (one check interval later), with its real time. A change back
+  before that (one failed poll that recovers on the next poll) leaves no row in the log.
 - **Collapse flapping sensors** (`sensor_event_flap_enabled`; `flap_threshold` 5 changes within `flap_window_min`
   10 min, settled after `flap_quiet_min` 15 min — the same definition as port flapping): further changes of a
   flapping sensor are counted in one "flapping" event instead of a row each; when it settles the log ends in the

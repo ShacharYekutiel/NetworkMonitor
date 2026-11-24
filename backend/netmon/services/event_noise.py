@@ -7,11 +7,12 @@ and the rollup at once (alert timing does not change); the sensor's current stat
 and broadcast in real time. What changes is whether the row is *shown*:
 
 - **Debounce** (`sensor_event_debounce_enabled`, default ON): a change is written with
-  `noise = 'pending'` and shown (`noise` NULL, `event.created` broadcast) once it has held for
-  `hold_seconds()` = max((polls + 0.5) x interval, min_s) plus the check timeout and a grace of
-  5 s. A change back to the previous status within the hold hides both rows (`debounced`): one
-  failed poll that recovers on the next poll leaves no row in the log. Any other change shows
-  the pending row at once (the earlier status did hold).
+  `noise = 'pending'` and shown (`noise` NULL, `event.created` broadcast) once the next `polls`
+  checks confirmed the new status (and at least `min_s` passed), or - when no check confirms it
+  (paused, deleted, a stuck poller) - at `noise_until` = time + `hold_seconds()` (max((polls +
+  0.5) x interval, min_s)) + the check timeout + 5 s. A change back to the previous status within
+  the hold hides both rows (`debounced`): one failed poll that recovers on the next poll leaves
+  no row in the log. Any other change shows the pending row at once (the earlier status held).
 - **Flapping** (`sensor_event_flap_enabled`, default ON): the same definition as port flapping
   (`netmon.ingest.flapping.FlapTracker` with `flap_threshold` changes within `flap_window_min`,
   settled after `flap_quiet_min` without a change). From the change that crosses the threshold
@@ -61,6 +62,7 @@ DEFAULTS: dict[str, Any] = {
 EXEMPT_FROM = (None, "unknown", "paused")
 GRACE_S = 5.0
 SWEEP_S = 5.0
+RESYNC_SWEEPS = 60  # every ~5 min: drop in-memory pending markers without a pending row
 NOISE_VALUES = ("pending", "debounced", "flapping")
 
 
@@ -102,8 +104,10 @@ class EventNoise:
         self.flap = bool(DEFAULTS["sensor_event_flap_enabled"])
         self.tracker = FlapTracker()
         self._counts: dict[int, int] = {}  # changes of the open episode per sensor
+        self._pending: dict[int, int] = {}  # sensors with a pending row -> confirming checks
         self._task: asyncio.Task[None] | None = None
         self._wake = asyncio.Event()
+        self._sweeps = 0
 
     # ------------------------------------------------------------------ lifecycle
     def configure(self, cfg: dict[str, Any]) -> None:
@@ -147,6 +151,7 @@ class EventNoise:
 
         self.tracker.clear()
         self._counts.clear()
+        self._pending.clear()
         self.configure(settings_svc.defaults())
 
     async def reload(self) -> None:
@@ -160,8 +165,14 @@ class EventNoise:
         self._wake.set()
 
     async def _restore(self) -> None:
-        """Open episodes (rows without `flap_end`) keep suppressing after a restart."""
+        """Open episodes (rows without `flap_end`) keep suppressing after a restart; pending rows
+        are confirmed by the next checks again."""
         async with self.rt.sessionmaker() as session:
+            for r in await session.execute(
+                text("SELECT DISTINCT sensor_id FROM events WHERE noise = 'pending'")
+            ):
+                if r.sensor_id is not None:
+                    self._pending.setdefault(int(r.sensor_id), 0)
             rows = (
                 await session.execute(
                     text(
@@ -212,6 +223,7 @@ class EventNoise:
                     pending.noise_until = None
                     event.noise = "debounced"
                     d.visible = False
+                    self._pending.pop(sid, None)
                     return d
                 pending.noise = None  # a different change: the earlier status did hold
                 pending.noise_until = None
@@ -221,7 +233,41 @@ class EventNoise:
                 seconds=hold + check_timeout(sensor.interval_s) + GRACE_S
             )
             d.visible = False
+            self._pending[sid] = 0
         return d
+
+    async def on_same(self, session: Any, sensor: Any, t: datetime) -> list[Event]:
+        """A check that kept the sensor's status (same transaction as `persist`). With a pending
+        row: one more confirming check; after `polls` of them (and `min_s`), the row is shown.
+        Cheap for every other sensor (an in-memory lookup, no query)."""
+        sid = int(sensor.id)
+        if sid not in self._pending:
+            return []
+        if not self.debounce:
+            self._pending.pop(sid, None)
+            return []
+        conf = self._pending[sid] + 1
+        self._pending[sid] = conf
+        if conf < self.polls:
+            return []
+        row = (
+            await session.execute(
+                select(Event)
+                .where(Event.sensor_id == sid, Event.noise == "pending")
+                .order_by(Event.time.desc(), Event.id.desc())
+                .limit(1)
+                .with_for_update()
+            )
+        ).scalar_one_or_none()
+        if row is None:
+            self._pending.pop(sid, None)
+            return []
+        if (t - row.time).total_seconds() < self.min_s:
+            return []
+        row.noise = None
+        row.noise_until = None
+        self._pending.pop(sid, None)
+        return [row]
 
     async def _flapping(
         self, session: Any, sensor: Any, event: Event, t: datetime, change: Any, d: Decision
@@ -230,6 +276,7 @@ class EventNoise:
         event.noise = "flapping"
         event.noise_until = None
         d.visible = False
+        self._pending.pop(sid, None)
         # pending changes of the sensor join the episode
         await session.execute(
             text(
@@ -297,7 +344,9 @@ class EventNoise:
             hub.broadcast("event.created", event_out(d.flap_created))
         if d.flap_updated is not None:
             hub.broadcast("event.updated", event_out(d.flap_updated))
-        if not d.visible and event.sensor_id is not None:
+        from netmon.services import severity as severity_svc
+
+        if not d.visible and event.sensor_id is not None and severity_svc.enabled(self.rt):
             # [severity] the hidden row's event.created would have carried the sensor's current
             # severity: send it on its own so the UI stays real-time
             sev = event.severity if event.new_status in ("down", "warning") else None
@@ -331,6 +380,9 @@ class EventNoise:
         """Show the pending rows whose hold is over; close the episodes that settled."""
         now = now or self.rt.clock.now()
         await self._show_due(now)
+        self._sweeps += 1
+        if self._sweeps % RESYNC_SWEEPS == 0:
+            await self._resync_pending()
         for ch in self.tracker.expire(now.timestamp()):
             end = datetime.fromtimestamp(ch.at, tz=now.tzinfo)
             await self._end_episode(int(ch.port[0]), min(end, now))
@@ -343,7 +395,7 @@ class EventNoise:
                 for r in await session.execute(
                     text(
                         f"UPDATE events SET noise = NULL, noise_until = NULL WHERE {cond} "  # noqa: S608
-                        "RETURNING id"
+                        "RETURNING id, sensor_id"
                     ),
                     {"now": now} if now is not None else {},
                 )
@@ -361,8 +413,25 @@ class EventNoise:
             )
             await session.commit()
         for ev in rows:
+            if ev.sensor_id is not None:
+                self._pending.pop(int(ev.sensor_id), None)
             self.rt.hub.broadcast("event.created", event_out(ev))
         return rows
+
+    async def _resync_pending(self) -> None:
+        """Forget sensors whose pending row is gone (sensor deleted, row shown elsewhere)."""
+        async with self.rt.sessionmaker() as session:
+            have = {
+                int(r[0])
+                for r in await session.execute(
+                    text(
+                        "SELECT DISTINCT sensor_id FROM events WHERE noise = 'pending' "
+                        "AND sensor_id IS NOT NULL"
+                    )
+                )
+            }
+        for sid in [k for k in self._pending if k not in have]:
+            self._pending.pop(sid, None)
 
     async def show_all_pending(self) -> list[Event]:
         return await self._show_due(None)

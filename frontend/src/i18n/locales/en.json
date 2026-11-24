@@ -4680,7 +4680,7 @@
     "minS": "Minimum hold (seconds)",
     "minSHint": "0–3600. 0 = only the number of checks counts.",
     "minSErr": "Enter 0–3600",
-    "example": "With a 60-second check interval, a change appears in the log after about {{s}} seconds; a change that reverts sooner is not recorded.",
+    "example": "With a 60-second check interval, a change is recorded after about {{c}} seconds, once the next checks confirmed it; a change back within {{s}} seconds is not recorded.",
     "flap": "Collapse flapping sensors into one event",
     "flapHint": "A sensor that changes status {{n}} times within {{w}} minutes is flapping: its further changes are counted in one “flapping” event instead of a row each, until it stays quiet for {{q}} minutes.",
     "sharedHint": "The same flapping definition is used for port flapping alerts.",

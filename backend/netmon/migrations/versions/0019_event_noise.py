@@ -50,7 +50,7 @@ UPGRADE = [
     "ALTER TABLE events ADD COLUMN IF NOT EXISTS flap_count integer NULL",
     "ALTER TABLE events ADD COLUMN IF NOT EXISTS flap_last timestamptz NULL",
     "ALTER TABLE events ADD COLUMN IF NOT EXISTS flap_end timestamptz NULL",
-    "CREATE INDEX IF NOT EXISTS ix_events_noise_pending ON events (noise_until) "
+    "CREATE INDEX IF NOT EXISTS ix_events_noise_pending ON events (sensor_id, noise_until) "
     "WHERE noise = 'pending'",
     "CREATE INDEX IF NOT EXISTS ix_events_flapping_open ON events (sensor_id) "
     "WHERE kind = 'sensor_flapping' AND flap_end IS NULL",

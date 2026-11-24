@@ -3404,8 +3404,8 @@ a rule's own delay (and the port-flapping hold-down of 2b-3) is what keeps short
 ### Settings keys (`GET/PUT /api/settings`, admin; ON by default — an upgrade changes behaviour)
 | Key | Type | Default | Meaning |
 |---|---|---|---|
-| `sensor_event_debounce_enabled` | bool | **true** | a status change is shown only after the new status held for the hold time; a change back within it hides both rows |
-| `sensor_event_debounce_polls` | int 1–10 | 1 | hold = (polls + ½) × the sensor's interval: with 1, one failed check that recovers on the next check leaves no row |
+| `sensor_event_debounce_enabled` | bool | **true** | a status change is shown only after the next check(s) confirmed it; a change back before that hides both rows |
+| `sensor_event_debounce_polls` | int 1–10 | 1 | confirming checks needed; the hold = (polls + ½) × the sensor's interval (a change back within it is a blip; a change no check confirms is shown after the hold + check timeout + 5 s). With 1, one failed check that recovers on the next check leaves no row, and a real change is shown after the next check |
 | `sensor_event_debounce_min_s` | int 0–3600 | 0 | the hold is at least this many seconds (0 = only the polls count) |
 | `sensor_event_flap_enabled` | bool | **true** | a sensor with ≥ `flap_threshold` changes within `flap_window_min` is flapping: further changes are collapsed into one `sensor_flapping` event until it is quiet for `flap_quiet_min` |
 | `flap_threshold` / `flap_window_min` / `flap_quiet_min` | as [2b-3] | 5 / 10 / 15 | **one definition of flapping**, shared with port flapping; now also returned and writable outside the `flapping` feature |

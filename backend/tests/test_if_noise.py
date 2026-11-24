@@ -176,7 +176,6 @@ async def test_blip_leaves_no_event_row_but_alerts_are_not_delayed(
     assert "sensor.update" in types
     created = [m["data"]["kind"] for m in msgs if m["type"] == "event.created"]
     assert "status_change" not in created  # (the alert's notification_sent row is shown)
-    assert any(m["type"] == "sensor.severity" for m in msgs)
     assert await shown(admin, sid) == [("status_change", "unknown", "up")]
     # recovered on the next poll: both rows debounced, never shown
     await run(rt, sid, UP, t0 + timedelta(seconds=120))
@@ -205,9 +204,40 @@ async def test_blip_leaves_no_event_row_but_alerts_are_not_delayed(
     assert [e["new_status"] for e in dash["recent_events"]] == ["up"]
 
 
-async def test_change_that_holds_is_shown_after_the_hold(
+async def test_change_confirmed_by_the_next_check_is_shown(
     rt: Runtime, admin: httpx.AsyncClient, clock: FakeClock, ws: asyncio.Queue
 ) -> None:
+    sid = await ping(admin)
+    t0 = clock.now()
+    await run(rt, sid, UP, t0)
+    t1 = t0 + timedelta(seconds=60)
+    await run(rt, sid, DOWN, t1)
+    assert await shown(admin, sid) == [("status_change", "unknown", "up")]
+    drained(ws)
+    await run(rt, sid, DOWN, t1 + timedelta(seconds=60))  # still down: confirmed, no new row
+    assert await shown(admin, sid) == [
+        ("status_change", "unknown", "up"),
+        ("status_change", "up", "down"),
+    ]
+    created = [m["data"] for m in drained(ws) if m["type"] == "event.created"]
+    assert [(e["new_status"], e["noise"], e["time"]) for e in created] == [
+        ("down", None, t1.strftime("%Y-%m-%dT%H:%M:%SZ"))  # the real change time
+    ]
+    assert not rt.event_noise._pending  # noqa: SLF001
+    # two confirming checks with polls = 2; and min_s on top
+    await admin.put("/api/settings", json={"sensor_event_debounce_polls": 2})
+    t2 = t1 + timedelta(seconds=600)
+    await run(rt, sid, UP, t2)
+    await run(rt, sid, UP, t2 + timedelta(seconds=60))
+    assert (await rows(rt, sid))[-1][3] == "pending"
+    await run(rt, sid, UP, t2 + timedelta(seconds=120))
+    assert (await rows(rt, sid))[-1][3] is None
+
+
+async def test_change_no_check_confirms_is_shown_after_the_hold(
+    rt: Runtime, admin: httpx.AsyncClient, clock: FakeClock, ws: asyncio.Queue
+) -> None:
+    """E.g. the sensor was paused right after the change: the sweeper shows it after the hold."""
     sid = await ping(admin)
     t0 = clock.now()
     await run(rt, sid, UP, t0)
@@ -221,7 +251,6 @@ async def test_change_that_holds_is_shown_after_the_hold(
             )
         ).scalar_one()
     assert until == t1 + timedelta(seconds=90 + 60 + 5)
-    await run(rt, sid, DOWN, t1 + timedelta(seconds=60))  # still down: no new row
     drained(ws)
     await rt.event_noise.sweep(until - timedelta(seconds=1))
     assert await shown(admin, sid) == [("status_change", "unknown", "up")]
@@ -231,9 +260,8 @@ async def test_change_that_holds_is_shown_after_the_hold(
         ("status_change", "up", "down"),
     ]
     created = [m["data"] for m in drained(ws) if m["type"] == "event.created"]
-    assert [(e["new_status"], e["noise"], e["time"]) for e in created] == [
-        ("down", None, t1.strftime("%Y-%m-%dT%H:%M:%SZ"))  # the real change time
-    ]
+    assert [e["new_status"] for e in created] == ["down"]
+    assert not rt.event_noise._pending  # noqa: SLF001
     # a recovery after the hold is a normal change again
     await run(rt, sid, UP, t1 + timedelta(seconds=600))
     assert (await rows(rt, sid))[-1] == ("status_change", "down", "up", "pending")
@@ -609,3 +637,32 @@ async def test_migration_0019_up_down_up(mode: str, existing: bool, rt: Runtime)
         await engine.dispose()
         await admin.execute(f'DROP DATABASE IF EXISTS "{name}" WITH (FORCE)')
         await admin.close()
+
+
+async def test_hidden_change_still_sends_the_current_severity(
+    rt: Runtime, admin: httpx.AsyncClient, clock: FakeClock, ws: asyncio.Queue
+) -> None:
+    r = await admin.put("/api/settings", json={"feature_alert_severity_enabled": True})
+    assert r.status_code == 200, r.text
+    sid = await ping(admin)
+    t0 = clock.now()
+    await run(rt, sid, UP, t0)
+    drained(ws)
+    await run(rt, sid, DOWN, t0 + timedelta(seconds=60))
+    sev = [m["data"] for m in drained(ws) if m["type"] == "sensor.severity"]
+    assert sev and sev[-1]["id"] == sid and sev[-1]["severity"] is not None
+
+
+async def test_pending_markers_resync(
+    rt: Runtime, admin: httpx.AsyncClient, clock: FakeClock
+) -> None:
+    sid = await ping(admin)
+    t0 = clock.now()
+    await run(rt, sid, UP, t0)
+    await run(rt, sid, DOWN, t0 + timedelta(seconds=60))
+    assert sid in rt.event_noise._pending  # noqa: SLF001
+    async with rt.sessionmaker() as s:  # e.g. shown by another path
+        await s.execute(text("UPDATE events SET noise = NULL WHERE sensor_id = :s"), {"s": sid})
+        await s.commit()
+    await rt.event_noise._resync_pending()  # noqa: SLF001
+    assert sid not in rt.event_noise._pending  # noqa: SLF001

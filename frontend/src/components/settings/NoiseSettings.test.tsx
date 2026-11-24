@@ -37,13 +37,16 @@ describe('[if-noise] sensor event noise card', () => {
     const f = mount(<SensorEventNoiseCard settings={{} as Settings} />);
     const boxes = screen.getAllByRole('checkbox') as HTMLInputElement[];
     expect(boxes.map((b) => b.checked)).toEqual([true, true]);
-    expect(screen.getByTestId('debounce-example').textContent).toContain('90 seconds');
+    expect(screen.getByTestId('debounce-example').textContent).toBe(
+      'With a 60-second check interval, a change is recorded after about 60 seconds, once the next checks confirmed it; a change back within 90 seconds is not recorded.',
+    );
     const polls = screen.getByTestId('debounce-polls') as HTMLInputElement;
     const save = screen.getByRole('button', { name: 'Save' }) as HTMLButtonElement;
     fireEvent.change(polls, { target: { value: '11' } });
     expect(save.disabled).toBe(true);
     fireEvent.change(polls, { target: { value: '2' } });
-    expect(screen.getByTestId('debounce-example').textContent).toContain('150 seconds');
+    expect(screen.getByTestId('debounce-example').textContent).toContain('after about 120 seconds');
+    expect(screen.getByTestId('debounce-example').textContent).toContain('within 150 seconds');
     fireEvent.click(boxes[1]); // flapping off
     fireEvent.click(save);
     await waitFor(() => expect(f).toHaveBeenCalled());

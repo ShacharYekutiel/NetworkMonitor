@@ -4654,7 +4654,7 @@ user ports following PCs; and "important ports only" treated every port with an 
 | Column | Type | Meaning |
 |---|---|---|
 | `noise` | text NULL CHECK IN (`pending`,`debounced`,`flapping`) | NULL = shown in the event log. `pending`: a change still in its debounce hold; `debounced`: it reverted within the hold (and so did the change back); `flapping`: collapsed into the sensor's `sensor_flapping` row |
-| `noise_until` | timestamptz NULL | `pending`: when the row is shown (index `ix_events_noise_pending` WHERE `noise = 'pending'`) |
+| `noise_until` | timestamptz NULL | `pending`: when the row is shown at the latest, if no check confirms it first (index `ix_events_noise_pending (sensor_id, noise_until)` WHERE `noise = 'pending'`) |
 | `flap_count` | integer NULL | `sensor_flapping`: changes counted in the episode (the window count at the start, then +1 per change) |
 | `flap_last` | timestamptz NULL | `sensor_flapping`: the last change |
 | `flap_end` | timestamptz NULL | `sensor_flapping`: when the episode settled; NULL = still flapping (index `ix_events_flapping_open`) |
@@ -4676,12 +4676,17 @@ restart: never debounced) and the new one is not `unknown` / `paused`:
    status held until something else happened.
 3. The new row becomes `pending`, `noise_until = time + hold + timeout + 5 s` (timeout = min(interval, 120), so a
    check that started inside the hold and is still running can still cancel it).
+4. **Confirmation** (`EventNoise.on_same`, a check that keeps the status): after `sensor_event_debounce_polls`
+   confirming checks (and at least `sensor_event_debounce_min_s` after the change) the pending row is shown
+   (`noise` NULL, `event.created`). Which sensors have a pending row is kept in memory (rebuilt from the table at
+   start), so the other checks cost no query.
 
-A sweeper (every 5 s, `rt.clock`) runs `UPDATE events SET noise = NULL … WHERE noise = 'pending' AND noise_until
-<= now RETURNING id` and broadcasts `event.created`. The state is in the database, so a restart shows the due rows
-on the first sweep. Event sensors (trap / syslog / flap / backup …) and the other writers (pause, cascade
-`unreachable`, stale marking) are not debounced. Examples at a 60 s interval and the defaults: down at t, up at
-t+60 → no rows shown; down at t, still down at t+60 → the down is shown at about t+155 with its real time t.
+A sweeper (every 5 s, `rt.clock`) is the fallback for a change no check confirms (sensor paused / deleted, poller
+stopped): `UPDATE events SET noise = NULL … WHERE noise = 'pending' AND noise_until <= now RETURNING …`, then
+`event.created`. The state is in the database, so a restart shows the due rows on the first sweep. Event sensors
+(trap / syslog / flap / backup …) and the other writers (pause, cascade `unreachable`, stale marking) are not
+debounced. Examples at a 60 s interval and the defaults: down at t, up at t+60 → no rows shown; down at t, still
+down at t+60 → the down is shown at t+60 with its real time t.
 
 ## [if-noise] Flapping collapse
 One definition of flapping: the [2b-3] pure `FlapTracker` (`ingest/flapping.py`) and its keys `flap_threshold`

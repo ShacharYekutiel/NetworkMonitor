@@ -40,6 +40,7 @@ export function SensorEventNoiseCard({ settings }: { settings: Settings }) {
   const invalid = Object.values(e).some(Boolean);
   const set = (patch: Partial<NoiseForm>) => setF((x) => ({ ...x, ...patch }));
   const hold60 = Math.round(holdSeconds(60, Number(f.polls) || 1, Number(f.minS) || 0));
+  const confirm60 = Math.max((Number(f.polls) || 1) * 60, Number(f.minS) || 0);
   return (
     <Card title={t('noise.title')} anchor={cardAnchor('sensorNoise')}>
       <form
@@ -104,7 +105,7 @@ export function SensorEventNoiseCard({ settings }: { settings: Settings }) {
             </div>
             {f.debounce && !e.polls && !e.minS && (
               <p className="text-xs text-ink-muted" data-testid="debounce-example">
-                {t('noise.example', { s: hold60 })}
+                {t('noise.example', { s: hold60, c: confirm60 })}
               </p>
             )}
           </div>

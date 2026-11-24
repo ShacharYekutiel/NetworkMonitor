@@ -4162,7 +4162,8 @@ check result ─► persist() (one transaction, sensor row FOR UPDATE)
                  ├─ events row (status_change)                       ─► alert engine, cascade, rollup, AI (at once)
                  └─ rt.event_noise.on_change(): noise = pending | debounced | flapping | NULL
                                                                      ─► event.created only when NULL
-rt.event_noise sweeper (5 s, rt.clock) ─► pending rows whose hold is over → NULL → event.created
+                 └─ same status: rt.event_noise.on_same(): N confirming checks → pending → NULL → event.created
+rt.event_noise sweeper (5 s, rt.clock) ─► fallback: pending rows no check confirmed → NULL → event.created
                                        └► FlapTracker.expire → sensor_flapping.flap_end, reconcile → event.updated
 ```
 `EventNoise` (`netmon/services/event_noise.py`) is created and started in `Runtime.start()` right after the alert

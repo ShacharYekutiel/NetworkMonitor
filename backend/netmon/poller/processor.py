@@ -16,7 +16,7 @@ from netmon.poller.types import CheckContext, CheckResult, EvaluatedResult, eval
 from netmon.services import dependencies
 from netmon.services import events as events_svc
 from netmon.services.sensors import channel_thresholds, effective_paused
-from netmon.services.serialize import iso, now_utc
+from netmon.services.serialize import event_out, iso, now_utc
 
 if TYPE_CHECKING:
     from netmon.runtime import Runtime
@@ -75,6 +75,7 @@ async def persist(
     """Evaluate against the stored thresholds and persist in one short transaction."""
     event: Event | None = None
     noise_decision = None
+    confirmed: list[Event] = []
     recheck_parent: list[int] = []
     recheck_self = False
     async with rt.sessionmaker() as session:
@@ -150,6 +151,9 @@ async def persist(
             noise = getattr(rt, "event_noise", None)
             if noise is not None:  # [if-noise] debounce / flapping of the event-log row
                 noise_decision = await noise.on_change(session, sensor, event, checked_at)
+        elif getattr(rt, "event_noise", None) is not None:
+            # [if-noise] a check that confirms a pending change shows its row
+            confirmed = await rt.event_noise.on_same(session, sensor, checked_at)
         await session.commit()
         update = {
             "id": sensor.id,
@@ -164,6 +168,8 @@ async def persist(
     rt.hub.broadcast("sensor.update", update)
     if flap is not None and getattr(rt, "flapping", None) is not None:
         rt.flapping.transition(flap[0], flap[1], flap[2], flap[3])
+    for shown in confirmed:  # [if-noise] the row was hidden until now (alerts already had it)
+        rt.hub.broadcast("event.created", event_out(shown))
     if event is not None:
         # [if-noise] a hidden row still reaches alerts / cascade / rollup now (no delay)
         visible = noise_decision is None or noise_decision.visible
