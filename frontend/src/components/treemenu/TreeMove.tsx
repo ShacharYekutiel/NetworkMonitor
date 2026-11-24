@@ -49,6 +49,8 @@ export type TreeMoveApi = {
   setSelection: (sel: Set<string>, anchor: string | null) => void;
   clearSelection: () => void;
   drag: TreeDrag | null;
+  /** a drag of tree items is in progress (up to date even before the next render) */
+  dragging: () => boolean;
   beginDrag: (refs: MoveRef[], e: React.DragEvent<HTMLElement>) => void;
   endDrag: () => void;
   /** the drag is over `key` (a row or the top-level zone); returns whether a drop is allowed */
@@ -113,11 +115,16 @@ export function TreeMoveProvider({ children }: { children: ReactNode }) {
   const toast = useToast();
   const [selection, setSel] = useState<ReadonlySet<string>>(() => new Set());
   const [anchor, setAnchor] = useState<string | null>(null);
-  const [drag, setDrag] = useState<TreeDrag | null>(null);
+  const [drag, setDragState] = useState<TreeDrag | null>(null);
   const [step, setStep] = useState<Step | null>(null);
   const revealer = useRef<((groupIds: number[]) => void) | null>(null);
+  // The ref is the truth during a drag: a dragenter on the new row and the dragleave of the old
+  // one arrive in the same tick, before React renders, so they must see each other's update.
   const dragRef = useRef<TreeDrag | null>(null);
-  dragRef.current = drag;
+  const setDrag = useCallback((next: TreeDrag | null) => {
+    dragRef.current = next;
+    setDragState(next);
+  }, []);
   const canMove = isAdmin;
 
   const groups = tree.data?.groups;
@@ -178,28 +185,38 @@ export function TreeMoveProvider({ children }: { children: ReactNode }) {
       }
       setDrag({ refs: items, over: null, ok: false });
     },
-    [canMove, t],
+    [canMove, t, setDrag],
   );
-  const endDrag = useCallback(() => setDrag(null), []);
+  const endDrag = useCallback(() => setDrag(null), [setDrag]);
+  const dragging = useCallback(() => dragRef.current !== null, []);
 
-  const dragOver = useCallback((key: string, target: number | null): DropCheck => {
-    const d = dragRef.current;
-    if (!d) return 'empty';
-    const check = dropCheck(ixRef.current, d.refs, target);
-    const ok = check === 'ok';
-    if (d.over !== key || d.ok !== ok) setDrag({ ...d, over: key, ok });
-    return check;
-  }, []);
-  const dragLeave = useCallback((key: string) => {
-    const d = dragRef.current;
-    if (d && d.over === key) setDrag({ ...d, over: null, ok: false });
-  }, []);
-  const drop = useCallback((target: number | null) => {
-    const d = dragRef.current;
-    setDrag(null);
-    if (!d || dropCheck(ixRef.current, d.refs, target) !== 'ok') return;
-    setStep({ kind: 'confirm', refs: d.refs, target });
-  }, []);
+  const dragOver = useCallback(
+    (key: string, target: number | null): DropCheck => {
+      const d = dragRef.current;
+      if (!d) return 'empty';
+      const check = dropCheck(ixRef.current, d.refs, target);
+      const ok = check === 'ok';
+      if (d.over !== key || d.ok !== ok) setDrag({ ...d, over: key, ok });
+      return check;
+    },
+    [setDrag],
+  );
+  const dragLeave = useCallback(
+    (key: string) => {
+      const d = dragRef.current;
+      if (d && d.over === key) setDrag({ ...d, over: null, ok: false });
+    },
+    [setDrag],
+  );
+  const drop = useCallback(
+    (target: number | null) => {
+      const d = dragRef.current;
+      setDrag(null);
+      if (!d || dropCheck(ixRef.current, d.refs, target) !== 'ok') return;
+      setStep({ kind: 'confirm', refs: d.refs, target });
+    },
+    [setDrag],
+  );
 
   const openPicker = useCallback(
     (refs: MoveRef[]) => {
@@ -238,6 +255,7 @@ export function TreeMoveProvider({ children }: { children: ReactNode }) {
       setSelection,
       clearSelection,
       drag,
+      dragging,
       beginDrag,
       endDrag,
       dragOver,
@@ -253,6 +271,7 @@ export function TreeMoveProvider({ children }: { children: ReactNode }) {
       setSelection,
       clearSelection,
       drag,
+      dragging,
       beginDrag,
       endDrag,
       dragOver,

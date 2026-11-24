@@ -144,7 +144,7 @@ function useDropTarget(key: string, groupId: number | null, collapsed: boolean):
     timer.current = null;
   };
   const over = (e: React.DragEvent<HTMLElement>) => {
-    if (!mover.drag) return; // another kind of drag (a file, a link from elsewhere)
+    if (!mover.dragging()) return; // another kind of drag (a file, a link from elsewhere)
     if (mover.dragOver(key, groupId) === 'ok') {
       e.preventDefault();
       e.dataTransfer.dropEffect = 'move';
@@ -157,7 +157,7 @@ function useDropTarget(key: string, groupId: number | null, collapsed: boolean):
     'data-drop': mover.drag && mover.drag.over === key ? (mover.drag.ok ? 'ok' : 'no') : undefined,
     onDragEnter: (e: React.DragEvent<HTMLElement>) => {
       over(e);
-      if (mover.drag && collapsed && !timer.current)
+      if (mover.dragging() && collapsed && !timer.current)
         timer.current = setTimeout(() => {
           timer.current = null;
           expand(key);
@@ -175,7 +175,7 @@ function useDropTarget(key: string, groupId: number | null, collapsed: boolean):
       mover.dragLeave(key);
     },
     onDrop: (e: React.DragEvent<HTMLElement>) => {
-      if (!mover.drag) return;
+      if (!mover.dragging()) return;
       e.preventDefault();
       stop();
       mover.drop(groupId);

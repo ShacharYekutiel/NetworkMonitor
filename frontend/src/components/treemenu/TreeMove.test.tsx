@@ -152,6 +152,23 @@ describe('Tree move (drag and drop, selection, Move to…)', () => {
     await waitFor(() => expect(screen.queryByTestId('move-confirm')).toBeNull());
   });
 
+  it('entering the next row before leaving the last keeps the new highlight', async () => {
+    render(wrap(<TreeNav />));
+    const src = await row('core-sw');
+    await waitFor(() => expect(src).toHaveAttribute('draggable', 'true'));
+    const dt = dataTransfer();
+    fireEvent.dragStart(src, { dataTransfer: dt });
+    const branch = dropTarget(await row('Branch'));
+    const floor = dropTarget(await row('Floor'));
+    fireEvent.dragEnter(branch, { dataTransfer: dt });
+    // the browser order: dragenter on the new row, then dragleave on the old one, same tick
+    fireEvent.dragEnter(floor, { dataTransfer: dt });
+    fireEvent.dragLeave(branch, { dataTransfer: dt });
+    await waitFor(() => expect(floor).toHaveAttribute('data-drop', 'ok'));
+    expect(branch).not.toHaveAttribute('data-drop');
+    fireEvent.dragEnd(src, { dataTransfer: dt });
+  });
+
   it('cancel moves nothing', async () => {
     render(wrap(<TreeNav />));
     const src = await row('edge-sw');
