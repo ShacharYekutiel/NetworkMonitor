@@ -22,7 +22,8 @@ setup wizard creates the admin user.
 | Remove | `docker compose -f deploy/docker-compose.yml down` (add `-v` to delete data) | `sudo ./deploy/linux/uninstall.sh [--purge]` | `.\deploy\windows\uninstall.ps1 [-Purge]` |
 
 If TimescaleDB is not available, the app runs in plain PostgreSQL mode automatically. That mode is fully supported
-and is the normal case on Windows. `GET /api/health` reports `"timescale": true|false`.
+and is the normal case on Windows. `GET /api/health/details` (signed in) reports `"timescale": true|false`; the
+public `GET /api/health` answers only `{"status": "ok"}` (or `503 {"status": "fail"}` without a database).
 
 ### 1. Docker
 
@@ -314,7 +315,8 @@ retries with conservative settings. If it still fails:
 | הסרה | <span dir="ltr">`docker compose -f deploy/docker-compose.yml down`</span> (עם `-v` גם הנתונים נמחקים) | <span dir="ltr">`sudo ./deploy/linux/uninstall.sh [--purge]`</span> | <span dir="ltr">`.\deploy\windows\uninstall.ps1 [-Purge]`</span> |
 
 כש-TimescaleDB לא זמין, המערכת עוברת אוטומטית ל-PostgreSQL רגיל. מצב זה נתמך במלואו, והוא המצב הרגיל ב-Windows.
-השדה `timescale` בתשובה של `/api/health` מראה באיזה מצב המערכת פועלת.
+השדה `timescale` בתשובה של `/api/health/details` (למשתמש מחובר) מראה באיזה מצב המערכת פועלת. הכתובת הציבורית
+`/api/health` מחזירה רק `{"status": "ok"}` (או `503` עם `{"status": "fail"}` כשאין מסד נתונים).
 
 ### 1. Docker
 

@@ -2572,7 +2572,7 @@ column. `pg_trgm` is a contrib extension shipped with PostgreSQL packages (Docke
 images, Debian/Ubuntu, the EDB Windows installer) and is **trusted** since PG 13 (the DB owner may create it).
 Bootstrap (`netmon.db.extensions.ensure_trgm()` after migrations, in a savepoint): `CREATE EXTENSION IF NOT
 EXISTS pg_trgm`, then `CREATE INDEX IF NOT EXISTS` the two trigram indexes. On failure: WARNING, flag
-`rt.trgm_enabled = false` (reported by `/api/health`); text search still works (sequential scan bounded by the
+`rt.trgm_enabled = false` (reported by `/api/health/details`); text search still works (sequential scan bounded by the
 time range). Queries: `message ILIKE '%' || :q || '%'` with `\`, `%`, `_` escaped in `:q`.
 
 ## [2b-3] Syslog parsing (pure `netmon.ingest.syslog_parse.parse_syslog`)

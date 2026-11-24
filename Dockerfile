@@ -216,7 +216,7 @@ USER netmon:netmon
 # 4739/udp IPFIX, 6343/udp sFlow (receivers listen only while their features are ON).
 EXPOSE 8080 1162/udp 1514/udp 1514/tcp 2055/udp 4739/udp 6343/udp
 
-# /api/health returns 200 while the process is alive (status "degraded" if the DB is down).
+# /api/health: 200 {"status": "ok"}, or 503 {"status": "fail"} while the DB is unreachable (unhealthy).
 HEALTHCHECK --interval=30s --timeout=5s --start-period=90s --retries=3 \
   CMD ["python", "-c", "import os, urllib.request; urllib.request.urlopen('http://127.0.0.1:%s/api/health' % os.environ.get('NETMON_PORT', '8080'), timeout=4)"]
 

@@ -201,7 +201,7 @@ async def test_kerberos_sign_in_flow(
     # feature OFF: the keytab file is deleted on stop
     await krb.stop()
     assert not krb.keytab_path.exists()
-    h = (await admin.get("/api/health")).json()
+    h = (await admin.get("/api/health/details")).json()
     assert h["kerberos"] == "disabled"
 
 

@@ -205,6 +205,20 @@ sudo /opt/netmon/deploy/production/ops/status.sh
 `status.sh` מציג: הגרסה שרצה מול `origin/main` (ואם יש שינוי ממתין או שינוי שסומן "רע"),
 גרסת התמונה, מצב הקונטיינרים, `/api/health`, הגיבוי האחרון ותוקף התעודה.
 
+**בדיקת תקינות (שינוי אבטחה):** `/api/health` ציבורי ומחזיר **רק** `{"status": "ok"}` ‏(200) או
+`{"status": "fail"}` ‏(503, אין חיבור למסד הנתונים). הפרטים (גרסה, uptime, poller, מצב ה-receivers, ‏Kerberos,
+העוזר) נמצאים ב-`/api/health/details` ודורשים משתמש מחובר או API token. כדי ש-`status.sh` יציג גם אותם (וגם את
+מצב העוזר), יוצרים בממשק API token בתפקיד **Viewer** (עם תוקף) ושומרים אותו בשרת בקובץ של root בלבד:
+
+```bash
+sudo install -m 0600 /dev/stdin /etc/netmon-gitops/status-token   # מדביקים את ה-token ואז Ctrl-D
+```
+
+ה-token נשלח ל-curl דרך stdin ולא בשורת הפקודה. בלי הקובץ הסקריפט מציג רק את הסטטוס הציבורי.
+ניטור חיצוני שקרא שדות מהתשובה הישנה (`version`, `database`, `ingest`…) צריך לבדוק רק את קוד ה-HTTP / `status`,
+או לקרוא ל-`/api/health/details` עם `Authorization: Bearer <token>`. ניטור שחיפש `"degraded"` צריך כעת לזהות
+503 / `"fail"`.
+
 ---
 
 ## גיבויים
@@ -273,6 +287,7 @@ NOTIFY_ON_SUCCESS=0       # 1 = גם הודעה על deploy מוצלח
 | `/etc/netmon-gitops/ca/` | תעודות CA שהאפליקציה סומכת עליהן (מועתקות מ-`/usr/local/share/ca-certificates`) |
 | `/etc/netmon-gitops/aws/` | ‏(3b, אופציונלי) תעודה ומפתח ל-IAM Roles Anywhere אם בוחרים בקבצים בשרת במקום העלאה בממשק; מופיע בקונטיינר כ-`/etc/netmon/aws` |
 | `/etc/netmon-gitops/notify.env` | webhook להתראות (אופציונלי) |
+| `/etc/netmon-gitops/status-token` | API token בתפקיד Viewer עבור `status.sh` ‏(אופציונלי, root, 0600) |
 | `/etc/netmon-gitops/ingest-allow.conf` | הרשתות שרשאיות לשלוח traps/syslog/flows (אופציונלי, `ingest-firewall.sh`) |
 | `/var/lib/netmon-gitops/` | `deployed_rev`, ‏`bad_trees`, ‏`history.log` |
 | `/usr/local/lib/netmon-gitops/` | העותק המותקן של `ops/` (ה-timer מריץ אותו; מתעדכן אחרי deploy תקין) |
@@ -513,7 +528,7 @@ NO_PROXY=localhost,127.0.0.1,::1,db,netmon,proxy,.example.net,<internal webhook 
 | קובץ | תפקיד |
 |---|---|
 | `ops/assistant-net.sh` | ‏`check`: לכל כתובת של Bedrock / ‏Roles Anywhere / ‏KB ‏(ולכל שם של VPC endpoint) — ‏DNS, כתובת פרטית/ציבורית, האם האפליקציה תצא **ישירות** או **דרך ה-proxy** (אותם כללי `NO_PROXY` כמו באפליקציה), והאם יש מענה. ‏`no-proxy`: מוסיף ל-`NO_PROXY` ב-`app.env` ‏(פעם אחת). |
-| `ops/status.sh` | סעיף חדש *Assistant*: המצב מ-`/api/health`, ה-proxy והאם `*.vpce.amazonaws.com` עוקף אותו, קבצי תעודה בשרת (אם נבחרו). |
+| `ops/status.sh` | סעיף חדש *Assistant*: המצב מ-`/api/health/details` (דורש `status-token`), ה-proxy והאם `*.vpce.amazonaws.com` עוקף אותו, קבצי תעודה בשרת (אם נבחרו). |
 | `aws/*.json` | תבניות IAM עם placeholders: ‏policy ל-Bedrock, ‏policy ל-KB ‏(רק אם יש KB), ‏policy לכפתור *List models* ‏(אופציונלי), ‏trust policy ל-Roles Anywhere, ‏policy ל-VPC endpoint. |
 | `aws/render-policies.py` | ממלא את התבניות (Python בלבד, רץ גם במחשב Windows של מנהל ה-AWS). |
 

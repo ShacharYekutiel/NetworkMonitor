@@ -170,13 +170,8 @@ jobs:
           for _ in $(seq 1 90); do
             if curl -fsS http://localhost:8080/api/health -o health.json; then
               cat health.json; echo
-              python3 - <<'EOF'
-          import json
-          h = json.load(open("health.json"))
-          assert h["database"] == "ok", h
-          assert h["timescale"] is True, h
-          print("health ok:", h["status"], "version", h["version"])
-          EOF
+              # [security] the public answer is only {"status": "ok"} (503 + "fail" if not ready)
+              python3 -c 'import json; h = json.load(open("health.json")); assert h == {"status": "ok"}, h'
               exit 0
             fi
             sleep 2
@@ -199,6 +194,16 @@ jobs:
           # Unknown API paths return the JSON error envelope, never index.html.
           test "$(curl -s -o err.json -w '%{http_code}' -b cookies.txt http://localhost:8080/api/does-not-exist)" = 404
           grep -q '"code":"not_found"' err.json
+          # [security] runtime details need a signed-in user (401 without the cookie)
+          test "$(curl -s -o /dev/null -w '%{http_code}' http://localhost:8080/api/health/details)" = 401
+          curl -fsS -b cookies.txt http://localhost:8080/api/health/details -o health.json
+          python3 - <<'EOF'
+          import json
+          h = json.load(open("health.json"))
+          assert h["database"] == "ok", h
+          assert h["timescale"] is True, h
+          print("health ok:", h["status"], "version", h["version"])
+          EOF
           # ICMP works from the unprivileged container (ping_group_range sysctl).
           curl -fsS -b cookies.txt -X POST -H 'Content-Type: application/json' \
             -d '{"host":"127.0.0.1","type":"ping","config":{}}' \
@@ -231,7 +236,7 @@ jobs:
           set -eu
           # AD login dependency (ldap3) made it into the image.
           $COMPOSE exec -T netmon python -c 'import ldap3; print("ldap3", ldap3.__version__)'
-          curl -fsS http://localhost:8080/api/health -o health.json
+          curl -fsS -b cookies.txt http://localhost:8080/api/health/details -o health.json
           python3 - <<'EOF'
           import json
           h = json.load(open("health.json"))
@@ -253,7 +258,7 @@ jobs:
           set -eu
           $COMPOSE exec -T netmon sh -c 'pip check && python -c "import asyncssh, gssapi.raw; print(\"asyncssh\", asyncssh.__version__, \"/ gssapi ok\")"'
           for p in 2055 4739 6343; do $COMPOSE port --protocol udp netmon "$p"; done
-          curl -fsS http://localhost:8080/api/health -o health.json
+          curl -fsS -b cookies.txt http://localhost:8080/api/health/details -o health.json
           python3 - <<'EOF'
           import json
           h = json.load(open("health.json"))
@@ -281,7 +286,7 @@ jobs:
           bad = [m for m in ("botocore", "boto3", "aiobotocore") if u.find_spec(m)]
           print("httpx", httpx.__version__, "/ cryptography", cryptography.__version__, "/ AWS SDKs:", bad or "none")
           sys.exit(1 if bad else 0)'
-          curl -fsS http://localhost:8080/api/health -o health.json
+          curl -fsS -b cookies.txt http://localhost:8080/api/health/details -o health.json
           python3 - <<'EOF'
           import json
           h = json.load(open("health.json"))
@@ -331,7 +336,8 @@ jobs:
           $PCOMPOSE up -d --wait --wait-timeout 300
           B="https://$FQDN"
           curl -fsS --cacert ca.pem "$B/api/health" | tee health.json; echo
-          python3 -c 'import json; h = json.load(open("health.json")); assert h["database"] == "ok", h'
+          python3 -c 'import json; h = json.load(open("health.json")); assert h == {"status": "ok"}, h'
+          test "$(curl -s --cacert ca.pem -o /dev/null -w '%{http_code}' "$B/api/health/details")" = 401
           # security headers through Caddy, 80 -> 443, Caddy admin API off
           curl -fsS --cacert ca.pem -D headers.txt -o /dev/null "$B/"
           cat headers.txt
