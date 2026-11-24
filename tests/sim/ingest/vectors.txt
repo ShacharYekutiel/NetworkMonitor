@@ -1,6 +1,6 @@
 # Syslog test vectors, docs/data-model.md [2b-3] "Syslog parsing" (ID|message; \xHH escapes, {c*N} repeat).
 # Expected fields (facility/severity, format, hostname, program, pid, msgid, sd, message) are in the contract.
-S1|<165>1 2026-11-08T10:00:00.003Z sw1.mnidom.net evntslog 1234 ID47 [exampleSDID@32473 iut="3"] \xEF\xBB\xBFAn application event
+S1|<165>1 2026-11-08T10:00:00.003Z sw1.example.net evntslog 1234 ID47 [exampleSDID@32473 iut="3"] \xEF\xBB\xBFAn application event
 S2|<34>1 - - - - - - plain
 S3|<34>Oct 11 22:14:15 mymachine su: 'su root' failed for lonvick on /dev/pts/8
 S4|<30>Nov  8 09:05:01 gw-hq sshd[2211]: Accepted password for admin

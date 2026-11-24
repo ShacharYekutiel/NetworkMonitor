@@ -86,14 +86,14 @@ test('answer cites KB sources: kb/<n> refs -> https URL clickable (external, fro
     expect(it.text.length).toBeLessThanOrEqual(1500);
   }
   const sources = page.getByTestId('answer-sources').last();
-  await expect(sources.locator('a[href="https://wiki.mnidom.test/display/NET/Diagram"]')).toBeVisible();
+  await expect(sources.locator('a[href="https://wiki.example.test/display/NET/Diagram"]')).toBeVisible();
   await expect(sources).toContainText('core-switch.pdf');
   await expect(sources.locator('a[href^="s3://"]')).toHaveCount(0);
   await shot3b(page, '75-kb-answer');
   const conv = await api.get(`/api/assistant/conversations/${(await api.get('/api/assistant/conversations')).items[0].id}`);
   const msg = conv.messages.at(-1);
   expect(msg.sources.filter((s: any) => s.ref.startsWith('kb/')).every((s: any) => s.url !== undefined)).toBe(true);
-  expect(msg.sources.find((s: any) => s.url === 'https://wiki.mnidom.test/display/NET/Diagram')).toBeTruthy();
+  expect(msg.sources.find((s: any) => s.url === 'https://wiki.example.test/display/NET/Diagram')).toBeTruthy();
 });
 
 test('KB error -> tool returns kb_unavailable, notice, the answer continues', async () => {

@@ -385,11 +385,11 @@ addresses*) או משתמשים ב-"Assign to device" בלשונית *Unknown so
 
 ההתחברות עם משתמשי AD מאמתת את תעודת ה-DC מול אותן תעודות CA כמו HTTPS: מאגר המערכת של ה-image, ‏certifi,
 והתיקייה `/etc/netmon-gitops/ca/` ‏(מוצמדת לקונטיינר כ-`/etc/netmon/certs`, כבר קיימת מ-`bootstrap.sh`). כלומר
-תעודת ה-root של Mnidom-PKI-SERV-CA שכבר הותקנה מספיקה. ברשימת השרתים משתמשים בשם ה-DC שבתעודה
-(`dc1.mnidom.net`, לא IP). בדיקה מהשרת:
+תעודת ה-root של Example-PKI-SERV-CA שכבר הותקנה מספיקה. ברשימת השרתים משתמשים בשם ה-DC שבתעודה
+(`dc1.example.net`, לא IP). בדיקה מהשרת:
 
 ```bash
-openssl s_client -connect dc1.mnidom.net:636 -showcerts </dev/null | head -n 20
+openssl s_client -connect dc1.example.net:636 -showcerts </dev/null | head -n 20
 ```
 
 הכול מוגדר בממשק (*הגדרות ← Active Directory*); אין שום דבר להגדיר בשרת.
@@ -429,13 +429,13 @@ openssl s_client -connect dc1.mnidom.net:636 -showcerts </dev/null | head -n 20
 
 ### השם הקצר `https://netmonitor` מפנה ל-FQDN
 
-עד עכשיו `https://netmonitor` הציג את האפליקציה. מעכשיו הוא **מפנה** ל-`https://netmonitor.mnidom.net`: ל-Kerberos
+עד עכשיו `https://netmonitor` הציג את האפליקציה. מעכשיו הוא **מפנה** ל-`https://netmonitor.example.net`: ל-Kerberos
 יש SPN רק לשם המלא, וגם ה-cookie ובדיקת ה-Origin צריכים שם אחד. התעודה ממשיכה לכלול את שני השמות (אין שינוי
 ב-`make-csr.sh`), ולכן אין אזהרה. ב-Caddy אין שום הגדרה מיוחדת ל-SSO.
 
 ### Kerberos SSO — הוראות למנהל ה-AD ‏(פעם אחת)
 
-1. **DNS:** ‏`netmonitor.mnidom.net` חייב להיות **רשומת A** ‏(לא CNAME — אחרת Chrome/Edge מבקשים כרטיס לשם היעד).
+1. **DNS:** ‏`netmonitor.example.net` חייב להיות **רשומת A** ‏(לא CNAME — אחרת Chrome/Edge מבקשים כרטיס לשם היעד).
 2. **חשבון שירות**, למשל `svc-netmon-http`: הסיסמה לא פגה, מסומן *This account supports Kerberos AES 256 bit
    encryption*, בלי הרשאות נוספות.
 3. **SPN ו-keytab** — על DC, ב-cmd עם הרשאות מנהל:
@@ -443,28 +443,28 @@ openssl s_client -connect dc1.mnidom.net:636 -showcerts </dev/null | head -n 20
 <div dir="ltr">
 
 ```
-setspn -S HTTP/netmonitor.mnidom.net MNIDOM\svc-netmon-http
-ktpass /princ HTTP/netmonitor.mnidom.net@MNIDOM.NET /mapuser MNIDOM\svc-netmon-http /crypto AES256-SHA1 /ptype KRB5_NT_PRINCIPAL /pass <new password> /out netmon-http.keytab
-setspn -L MNIDOM\svc-netmon-http
+setspn -S HTTP/netmonitor.example.net EXAMPLE\svc-netmon-http
+ktpass /princ HTTP/netmonitor.example.net@EXAMPLE.NET /mapuser EXAMPLE\svc-netmon-http /crypto AES256-SHA1 /ptype KRB5_NT_PRINCIPAL /pass <new password> /out netmon-http.keytab
+setspn -L EXAMPLE\svc-netmon-http
 ```
 
 </div>
 
    ‏`ktpass` קובע את הסיסמה הזו לחשבון וממפה אליו את ה-principal, כך שה-salt של מפתח ה-AES ב-keytab תואם ל-AD.
-   ‏`setspn -L` צריך להציג `HTTP/netmonitor.mnidom.net` אחד בלבד (`setspn -X` מוצא כפילויות). רק ל-FQDN יש SPN.
+   ‏`setspn -L` צריך להציג `HTTP/netmonitor.example.net` אחד בלבד (`setspn -X` מוצא כפילויות). רק ל-FQDN יש SPN.
 4. **העלאה:** ‏*הגדרות ← Single sign-on ← Kerberos* ← מעלים את `netmon-http.keytab`. ה-principal צריך להופיע עם
    etype 18 ‏(aes256-cts). אחר כך **מוחקים את הקובץ** — הוא שקול לסיסמת החשבון.
    ה-keytab **לא נשמר בשרת**: הוא מוצפן במסד הנתונים (ונכלל בגיבוי היומי), ונכתב ל-`/data/run/http.keytab`
    ‏(0600, בתוך ה-volume) רק כל עוד התכונה פעילה. ‏`run/` לא נכלל בגיבוי ה-volume ונוצר מחדש בכל הפעלה. החלפה: מריצים
    `ktpass` שוב עם סיסמה חדשה ומעלים את ה-keytab החדש.
-5. **דפדפנים (GPO):** ‏`https://netmonitor.mnidom.net` באזור **Local intranet** ‏(*Site to Zone Assignment List*,
-   ערך `1`; משמש את Edge ו-Chrome ב-Windows), או מדיניות Chrome/Edge ‏`AuthServerAllowlist = netmonitor.mnidom.net`.
+5. **דפדפנים (GPO):** ‏`https://netmonitor.example.net` באזור **Local intranet** ‏(*Site to Zone Assignment List*,
+   ערך `1`; משמש את Edge ו-Chrome ב-Windows), או מדיניות Chrome/Edge ‏`AuthServerAllowlist = netmonitor.example.net`.
    Firefox: ‏`network.negotiate-auth.trusted-uris`.
 6. **שעון:** הפרש של יותר מ-5 דקות שובר את Kerberos. מסנכרנים את השרת ל-DC:
 
 ```bash
 sudo mkdir -p /etc/systemd/timesyncd.conf.d
-printf '[Time]\nNTP=dc1.mnidom.net dc2.mnidom.net\n' | sudo tee /etc/systemd/timesyncd.conf.d/netmon.conf
+printf '[Time]\nNTP=dc1.example.net dc2.example.net\n' | sudo tee /etc/systemd/timesyncd.conf.d/netmon.conf
 sudo systemctl restart systemd-timesyncd && timedatectl timesync-status
 ```
 
@@ -473,7 +473,7 @@ sudo systemctl restart systemd-timesyncd && timedatectl timesync-status
 ### Entra ID — רק אם רוצים "Sign in with Microsoft"
 
 App registration ‏(single tenant), פלטפורמה **Web**, ‏redirect URI
-`https://netmonitor.mnidom.net/api/auth/oidc/callback`; ‏client secret (מזינים בממשק את תאריך התפוגה שלו — מוצגת
+`https://netmonitor.example.net/api/auth/oidc/callback`; ‏client secret (מזינים בממשק את תאריך התפוגה שלו — מוצגת
 אזהרה 30 יום לפני); ‏app roles ‏`NetMon.Admin` / `NetMon.Viewer`, משויכים למשתמשים/קבוצות ב-*Enterprise
 applications*; ‏token configuration: ‏optional claims ‏`email`, ‏`preferred_username`. ה-proxy צריך לאפשר את
 `login.microsoftonline.com`.
@@ -482,14 +482,14 @@ applications*; ‏token configuration: ‏optional claims ‏`email`, ‏`prefer
 
 האפליקציה (httpx) משתמשת ב-`HTTPS_PROXY` / `NO_PROXY` מהקובץ `/etc/netmon-gitops/app.env` ‏(בשרת בלבד, לא ב-git).
 SSH, ‏SNMP, ‏flows ו-LDAP לא עוברים דרך proxy לעולם. ‏`bootstrap.sh` יוצר את הקובץ רק בפעם הראשונה (בשרת חדש
-`NO_PROXY` כולל גם את הדומיין, למשל `.mnidom.net`). בשרת הקיים עורכים ידנית:
+`NO_PROXY` כולל גם את הדומיין, למשל `.example.net`). בשרת הקיים עורכים ידנית:
 
 <div dir="ltr">
 
 ```
 HTTPS_PROXY=http://<proxy>:<port>
 HTTP_PROXY=http://<proxy>:<port>
-NO_PROXY=localhost,127.0.0.1,::1,db,netmon,proxy,.mnidom.net,<internal webhook targets>
+NO_PROXY=localhost,127.0.0.1,::1,db,netmon,proxy,.example.net,<internal webhook targets>
 ```
 
 </div>
@@ -523,7 +523,7 @@ NO_PROXY=localhost,127.0.0.1,::1,db,netmon,proxy,.mnidom.net,<internal webhook t
 cd deploy/production/aws
 python3 render-policies.py --account 111122223333 --region us-east-1 \
   --profile us.anthropic.<model> [--light-profile us.anthropic.<light-model>] \
-  [--ra-region <region>] [--trust-anchor-id <uuid | ARN>] [--kb-id <KB-ID>] [--cert-cn netmonitor.mnidom.net]
+  [--ra-region <region>] [--trust-anchor-id <uuid | ARN>] [--kb-id <KB-ID>] [--cert-cn netmonitor.example.net]
 # -> ./out/*.json  (תבנית שחסר לה ערך מדולגת עם הודעה)
 ```
 
@@ -641,9 +641,9 @@ sudo /opt/netmon/deploy/production/ops/assistant-net.sh check --region us-east-1
 אחד שבו IAM Roles Anywhere זמין (בדרך כלל אזור ה-Bedrock מסעיף 1; לבדוק שהשירות קיים שם) — זה *Roles Anywhere region*
 בטופס.
 
-1. **Trust anchor.** מנהל ה-PKI מייצא את תעודת ה-**CA המנפיק** ‏*Mnidom-PKI-SERV-CA* כ-Base-64 ‏(PEM) ‏(קונסולת ה-CA ←
+1. **Trust anchor.** מנהל ה-PKI מייצא את תעודת ה-**CA המנפיק** ‏*Example-PKI-SERV-CA* כ-Base-64 ‏(PEM) ‏(קונסולת ה-CA ←
    Properties ← *View certificate* ← *Copy to file* ← Base-64, או `certutil -ca.cert serv-ca.cer` ואז `certutil -encode`).
-   מנהל ה-AWS: ‏IAM Roles Anywhere ← *Create a trust anchor* ← שם `mnidom-pki-serv-ca` ← *External certificate bundle* ←
+   מנהל ה-AWS: ‏IAM Roles Anywhere ← *Create a trust anchor* ← שם `example-pki-serv-ca` ← *External certificate bundle* ←
    מדביקים את ה-PEM. (אם בוחרים ב-PKI-ROOT-CA כ-anchor, מעלים באפליקציה את ה-CA המנפיק כ-chain.) לפני חידוש תעודת
    ה-CA עצמה — מוסיפים את התעודה החדשה ל-bundle, כך ששתיהן מוכרות בזמן המעבר.
 2. **ביטול תעודות (CRL).** ‏Roles Anywhere **לא** מוריד CRL מה-CDP בעצמו. מייבאים את ה-CRL של ה-CA ומרעננים אותו לפי
@@ -652,9 +652,9 @@ sudo /opt/netmon/deploy/production/ops/assistant-net.sh check --region us-east-1
    <div dir="ltr">
 
    ```bash
-   aws rolesanywhere import-crl --region <ra-region> --name mnidom-pki-serv-ca --enabled \
-     --crl-data fileb://Mnidom-PKI-SERV-CA.crl --trust-anchor-arn <trust-anchor-arn>
-   aws rolesanywhere update-crl --region <ra-region> --crl-id <crl-id> --crl-data fileb://Mnidom-PKI-SERV-CA.crl
+   aws rolesanywhere import-crl --region <ra-region> --name example-pki-serv-ca --enabled \
+     --crl-data fileb://Example-PKI-SERV-CA.crl --trust-anchor-arn <trust-anchor-arn>
+   aws rolesanywhere update-crl --region <ra-region> --crl-id <crl-id> --crl-data fileb://Example-PKI-SERV-CA.crl
    ```
 
    </div>
@@ -662,7 +662,7 @@ sudo /opt/netmon/deploy/production/ops/assistant-net.sh check --region us-east-1
    בלי ייבוא CRL — מסתמכים על תוקף קצר של התעודה. עצירת חירום: *Disable* ל-profile או ל-trust anchor.
 3. **Role** בשם `netmon-bedrock`: ‏IAM ← Roles ← *Create role* ← *Custom trust policy* ← מדביקים את
    `aws/rolesanywhere-trust-policy.json` המלא. הוא סומך רק על `rolesanywhere.amazonaws.com`, רק דרך ה-trust anchor
-   הזה (`aws:SourceArn`), ורק על תעודה עם subject ‏`CN=netmonitor.mnidom.net` שהונפקה על ידי `CN=Mnidom-PKI-SERV-CA`
+   הזה (`aws:SourceArn`), ורק על תעודה עם subject ‏`CN=netmonitor.example.net` שהונפקה על ידי `CN=Example-PKI-SERV-CA`
    (`aws:PrincipalTag/x509Subject/CN`, ‏`…/x509Issuer/CN`; מוודאים את שני הערכים על התעודה שהונפקה:
    ‏`openssl x509 -in netmonitor.cer -noout -subject -issuer`). הרשאות: ‏inline policy מתוך
    `aws/bedrock-invoke-policy.json` המלא; ‏`aws/bedrock-knowledge-base-policy.json` **רק** אם משתמשים ב-KB;
@@ -676,7 +676,7 @@ sudo /opt/netmon/deploy/production/ops/assistant-net.sh check --region us-east-1
 4. **Profile:** ‏IAM Roles Anywhere ← *Create a profile* ← שם `netmonitor` ← role ‏`netmon-bedrock` ← משך session שעה
    (≥ ההגדרה בטופס). רושמים את שלושת ה-ARNs: ‏trust anchor, ‏profile, ‏role.
 5. **התעודה — CSR שנוצר באפליקציה.** *הגדרות ← עוזר* ← אימות *IAM Roles Anywhere* ← **יצירת CSR**: האפליקציה יוצרת
-   את המפתח הפרטי (הוא לא יוצא מהשרת; נשמר מוצפן ב-DB) ומורידה `netmonitor.csr` עם `CN=netmonitor.mnidom.net`.
+   את המפתח הפרטי (הוא לא יוצא מהשרת; נשמר מוצפן ב-DB) ומורידה `netmonitor.csr` עם `CN=netmonitor.example.net`.
    מנהל ה-PKI מנפיק מתבנית עם: ‏key usage *Digital Signature*; ‏EKU **Client Authentication**; ‏subject *Supply in the
    request*; ‏RSA 2048 ומעלה או ECDSA P-256/P-384; ‏SHA-256; תוקף שנה (עד שנתיים). למשל: שכפול התבנית *Computer* בשם
    `NetMonBedrockClient` ‏(Compatibility ‏2008 ומעלה; *Extensions ← Application Policies* = רק Client Authentication;
@@ -685,7 +685,7 @@ sudo /opt/netmon/deploy/production/ops/assistant-net.sh check --region us-east-1
    <div dir="ltr">
 
    ```
-   certreq -submit -config "<ca-host>\Mnidom-PKI-SERV-CA" -attrib "CertificateTemplate:NetMonBedrockClient" netmonitor.csr netmonitor.cer
+   certreq -submit -config "<ca-host>\Example-PKI-SERV-CA" -attrib "CertificateTemplate:NetMonBedrockClient" netmonitor.csr netmonitor.cer
    ```
 
    </div>

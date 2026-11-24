@@ -255,8 +255,8 @@ export const adStart = () => ctl(LDAP_CONTROL_URL, 'POST', '/start');
 
 export const AD = {
   password: 'Passw0rd!',
-  adminGroup: 'CN=NetMon-Admins,OU=Groups,DC=mnidom,DC=net',
-  viewerGroup: 'CN=NetMon-Viewers,OU=Groups,DC=mnidom,DC=net',
+  adminGroup: 'CN=NetMon-Admins,OU=Groups,DC=example,DC=net',
+  viewerGroup: 'CN=NetMon-Viewers,OU=Groups,DC=example,DC=net',
 };
 /** LDAP settings for the fake AD (data-model § LDAP settings). Server names must match the cert: localhost. */
 export function ldapConfig(over: Record<string, unknown> = {}): Record<string, unknown> {
@@ -264,10 +264,10 @@ export function ldapConfig(over: Record<string, unknown> = {}): Record<string, u
     servers: [`localhost:${LDAPS_PORT}`],
     security: 'ldaps',
     tls_verify: true,
-    domain: 'mnidom.net',
-    netbios_domain: 'MNIDOM',
-    base_dn: 'DC=mnidom,DC=net',
-    bind_dn: 'svc-netmon@mnidom.net',
+    domain: 'example.net',
+    netbios_domain: 'EXAMPLE',
+    base_dn: 'DC=example,DC=net',
+    bind_dn: 'svc-netmon@example.net',
     bind_password: AD.password,
     admin_group_dn: AD.adminGroup,
     viewer_group_dn: AD.viewerGroup,

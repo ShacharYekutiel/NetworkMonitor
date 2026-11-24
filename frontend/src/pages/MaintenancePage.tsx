@@ -1,6 +1,6 @@
 // [2b-1] Maintenance windows: Active now / Upcoming / Recurring / Past, editor, occurrences.
 import { useState } from 'react';
-import { Link } from 'react-router-dom';
+import { Link } from 'react-router';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useTranslation } from 'react-i18next';
 import { endpoints, qk } from '../api/endpoints';

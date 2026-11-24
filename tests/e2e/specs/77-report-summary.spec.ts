@@ -39,7 +39,7 @@ test.beforeAll(async () => {
     const name = `QA3B AI summary ${lang}`;
     const existing = (await api.get('/api/reports')).items?.find((r: any) => r.name === name);
     const body = { name, enabled: true, language: lang, scope_group_ids: [g.id], scope_device_ids: [], sections: ['availability', 'top_alerts', 'config_changes'],
-      schedule: 'weekly', weekday: 1, month_day: null, send_time: '07:47', email_to: ['ops@mnidom.test'], channel_ids: [], ai_summary: true };
+      schedule: 'weekly', weekday: 1, month_day: null, send_time: '07:47', email_to: ['ops@example.test'], channel_ids: [], ai_summary: true };
     ids[lang] = existing ? (await api.patch(`/api/reports/${existing.id}`, body)).id : (await api.post('/api/reports', body)).id;
   }
 });

@@ -26,8 +26,8 @@ sys.path.insert(0, str(SIM / "ingest"))
 from fake_ad import FakeAD, FakeADThread, load_directory  # noqa: E402
 from make_certs import make_certs  # noqa: E402
 
-ADMINS = "CN=NetMon-Admins,OU=Groups,DC=mnidom,DC=net"
-VIEWERS = "CN=NetMon-Viewers,OU=Groups,DC=mnidom,DC=net"
+ADMINS = "CN=NetMon-Admins,OU=Groups,DC=example,DC=net"
+VIEWERS = "CN=NetMon-Viewers,OU=Groups,DC=example,DC=net"
 ATTRS = [
     "sAMAccountName",
     "userPrincipalName",
@@ -48,7 +48,7 @@ def certs(tmp_path_factory):
 
 @pytest.fixture(scope="module")
 def ad(certs):
-    with FakeADThread(FakeAD(load_directory(SIM / "ldap" / "mnidom.yaml"), certs)) as server:
+    with FakeADThread(FakeAD(load_directory(SIM / "ldap" / "example.yaml"), certs)) as server:
         yield server
 
 
@@ -103,11 +103,11 @@ def _role(svc, dn):
 def test_fake_ad_login_sequence(ad, certs, sam, role, bind_data):
     from ldap3.utils.conv import escape_filter_chars
 
-    svc = _conn(ad, certs, "svc-netmon@mnidom.net", "Passw0rd!")
+    svc = _conn(ad, certs, "svc-netmon@example.net", "Passw0rd!")
     assert svc.bound
     assert "1.2.840.113556.1.4.800" in [x[0] for x in svc.server.info.supported_features]
     svc.search(
-        "DC=mnidom,DC=net",
+        "DC=example,DC=net",
         f"(&(objectCategory=person)(objectClass=user)(sAMAccountName={escape_filter_chars(sam)}))",
         ldap3.SUBTREE,
         attributes=ATTRS,
@@ -124,21 +124,21 @@ def test_fake_ad_login_sequence(ad, certs, sam, role, bind_data):
 
 
 def test_fake_ad_name_forms_injection_and_size_limit(ad, certs):
-    assert _conn(ad, certs, "MNIDOM\\jdoe", "Passw0rd!").bound
-    assert _conn(ad, certs, "John.Doe@MNIDOM.NET", "Passw0rd!").bound
-    bad = _conn(ad, certs, "jdoe@mnidom.net", "nope")
+    assert _conn(ad, certs, "EXAMPLE\\jdoe", "Passw0rd!").bound
+    assert _conn(ad, certs, "John.Doe@EXAMPLE.NET", "Passw0rd!").bound
+    bad = _conn(ad, certs, "jdoe@example.net", "nope")
     assert not bad.bound and "data 52e," in bad.result["message"]
-    svc = _conn(ad, certs, "svc-netmon@mnidom.net", "Passw0rd!", starttls=True)
+    svc = _conn(ad, certs, "svc-netmon@example.net", "Passw0rd!", starttls=True)
     assert svc.bound
     svc.search(
-        "DC=mnidom,DC=net",
+        "DC=example,DC=net",
         "(sAMAccountName=\\2a\\29\\28uid=\\2a)",
         ldap3.SUBTREE,
         attributes=["1.1"],
     )
     assert svc.entries == []
     svc.search(
-        "DC=mnidom,DC=net",
+        "DC=example,DC=net",
         "(&(objectClass=user)(!(sAMAccountName=jdoe)))",
         ldap3.SUBTREE,
         attributes=["1.1"],
@@ -160,13 +160,13 @@ def test_fake_ad_records_binds_and_rejects_unbound_search(ad, certs):
         raise_exceptions=False,
     )
     assert anon.bind()
-    anon.search("DC=mnidom,DC=net", "(objectClass=*)", ldap3.SUBTREE)
+    anon.search("DC=example,DC=net", "(objectClass=*)", ldap3.SUBTREE)
     assert anon.result["description"] == "operationsError"
     assert ad.binds and ad.binds[-1]["password_empty"] is True
 
 
 def test_fake_ad_wrong_cert_and_hang(certs):
-    d = load_directory(SIM / "ldap" / "mnidom.yaml")
+    d = load_directory(SIM / "ldap" / "example.yaml")
     with FakeADThread(FakeAD(d, certs, wrong_cert=True)) as wrong:
         s = ldap3.Server(
             "localhost",
@@ -176,7 +176,7 @@ def test_fake_ad_wrong_cert_and_hang(certs):
             tls=ldap3.Tls(ca_certs_file=str(certs.ca), validate=ssl.CERT_REQUIRED),
         )
         with pytest.raises(ldap3.core.exceptions.LDAPSocketOpenError):
-            ldap3.Connection(s, "svc-netmon@mnidom.net", "Passw0rd!").bind()
+            ldap3.Connection(s, "svc-netmon@example.net", "Passw0rd!").bind()
     with FakeADThread(FakeAD(d, certs, hang=True)) as hung:
         s = ldap3.Server(
             "localhost",
@@ -187,7 +187,7 @@ def test_fake_ad_wrong_cert_and_hang(certs):
         )
         t0 = time.monotonic()
         with pytest.raises(ldap3.core.exceptions.LDAPSocketReceiveError):
-            ldap3.Connection(s, "svc-netmon@mnidom.net", "Passw0rd!", receive_timeout=1).bind()
+            ldap3.Connection(s, "svc-netmon@example.net", "Passw0rd!", receive_timeout=1).bind()
         assert time.monotonic() - t0 < 4
 
 

@@ -163,13 +163,13 @@ DEFAULT_PASSAGES = [
      "location": {"type": "S3", "s3Location": {"uri": "s3://netmon-kb-docs/runbooks/core-switch.pdf"}},
      "score": 0.82, "metadata": {"x-amz-bedrock-kb-source-uri": "s3://netmon-kb-docs/runbooks/core-switch.pdf"}},
     {"text": "Network diagram: the branch routers connect over MPLS to the HQ firewall cluster gw-hq.",
-     "location": {"type": "CONFLUENCE", "confluenceLocation": {"url": "https://wiki.mnidom.test/display/NET/Diagram"}},
-     "score": 0.74, "metadata": {"title": "Network diagram", "x-amz-bedrock-kb-source-uri": "https://wiki.mnidom.test/display/NET/Diagram"}},
+     "location": {"type": "CONFLUENCE", "confluenceLocation": {"url": "https://wiki.example.test/display/NET/Diagram"}},
+     "score": 0.74, "metadata": {"title": "Network diagram", "x-amz-bedrock-kb-source-uri": "https://wiki.example.test/display/NET/Diagram"}},
     {"text": "On-call procedure for printers: call the vendor after two failed toner alerts.",
-     "location": {"type": "SHAREPOINT", "sharePointLocation": {"url": "https://mnidom.sharepoint.test/sites/it/Printers.docx"}},
-     "score": 0.41, "metadata": {"x-amz-bedrock-kb-source-uri": "https://mnidom.sharepoint.test/sites/it/Printers.docx"}},
+     "location": {"type": "SHAREPOINT", "sharePointLocation": {"url": "https://example.sharepoint.test/sites/it/Printers.docx"}},
+     "score": 0.41, "metadata": {"x-amz-bedrock-kb-source-uri": "https://example.sharepoint.test/sites/it/Printers.docx"}},
     {"text": "VLAN plan: VLAN 20 servers 10.20.0.0/24, VLAN 30 printers 10.30.0.0/24.",
-     "location": {"type": "WEB", "webLocation": {"url": "https://intranet.mnidom.test/vlans.html"}},
+     "location": {"type": "WEB", "webLocation": {"url": "https://intranet.example.test/vlans.html"}},
      "score": 0.33, "metadata": {"title": "VLAN plan"}},
 ]
 

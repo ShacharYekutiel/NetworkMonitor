@@ -2,7 +2,7 @@
 
 - `token_mech(token)`: which mechanism a browser's `Authorization: Negotiate` token carries
   (`kerberos` | `ntlm` | `invalid`) — NTLM is refused before GSSAPI ever sees the token.
-- `split_principal("jdoe@MNIDOM.NET")` → ("jdoe", "MNIDOM.NET"), service principals refused.
+- `split_principal("jdoe@EXAMPLE.NET")` → ("jdoe", "EXAMPLE.NET"), service principals refused.
 - `parse_keytab(bytes)`: MIT keytab file format 0x0502 → principals, kvno, enctypes (key
   material is read past, never returned).
 - `krb5_conf(realm)`: the generated krb5.conf of the acceptor.
@@ -169,7 +169,7 @@ def token_mech(token: bytes) -> str:
 
 # ---------------------------------------------------------------- principals
 def split_principal(principal: str) -> tuple[str, str] | None:
-    """`jdoe@MNIDOM.NET` → ("jdoe", "MNIDOM.NET"); realm upper-cased; service principals
+    """`jdoe@EXAMPLE.NET` → ("jdoe", "EXAMPLE.NET"); realm upper-cased; service principals
     (`HTTP/x@R`), several `@`, empty parts → None."""
     if not isinstance(principal, str) or principal.count("@") != 1:
         return None

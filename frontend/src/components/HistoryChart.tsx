@@ -9,6 +9,7 @@ import {
   TooltipComponent,
 } from 'echarts/components';
 import { CanvasRenderer } from 'echarts/renderers';
+import { initChart } from '../lib/echarts';
 import { useTranslation } from 'react-i18next';
 import { escapeHtml, historyTooltipHtml } from '../lib/html';
 import type { HistoryPoint, NmEvent, Status } from '../api/types';
@@ -55,7 +56,7 @@ export function HistoryChart({
 
   useEffect(() => {
     if (!ref.current) return;
-    const c = echarts.init(ref.current, undefined, { renderer: 'canvas' });
+    const c = initChart(ref.current);
     chart.current = c;
     const ro = new ResizeObserver(() => c.resize());
     ro.observe(ref.current);

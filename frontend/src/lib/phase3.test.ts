@@ -349,7 +349,10 @@ describe('[3] single sign-on', () => {
     expect(readSkip(null)).toBe(false);
   });
   it('validates Kerberos realms and OIDC settings', () => {
-    expect(parseRealms('mnidom.net, MNIDOM.NET ;lab.local')).toEqual(['MNIDOM.NET', 'LAB.LOCAL']);
+    expect(parseRealms('example.net, EXAMPLE.NET ;lab.local')).toEqual([
+      'EXAMPLE.NET',
+      'LAB.LOCAL',
+    ]);
     expect(realmsError([])).toBe('kerberos.realmsRequired');
     expect(realmsError(['A B'])).toBe('kerberos.realmsInvalid');
     expect(realmsError(Array.from({ length: 9 }, (_, i) => `R${i}`))).toBe(
@@ -449,7 +452,7 @@ describe('[3] reports', () => {
     expect(formatAvailability(null)).toBeNull();
     expect(barPct(50, 200)).toBe(25);
     expect(barPct(5, 0)).toBe(0);
-    expect(deliveryLabel('email:ops@mnidom.net', () => undefined)).toBe('ops@mnidom.net');
+    expect(deliveryLabel('email:ops@example.net', () => undefined)).toBe('ops@example.net');
     expect(deliveryLabel('channel:4', (id) => (id === 4 ? 'NOC Teams' : undefined))).toBe(
       'NOC Teams',
     );
@@ -532,7 +535,7 @@ describe('[3] QR code (byte mode, level M)', () => {
     expect(qrInternals.versionBits(7)).toBe(0x07c94);
   });
   it('lays out a kiosk URL with finder, timing, dark module and both format copies', () => {
-    const url = `https://netmonitor.mnidom.net/noc#nmk_${'x'.repeat(43)}`;
+    const url = `https://netmonitor.example.net/noc#nmk_${'x'.repeat(43)}`;
     expect(qrVersionFor(url.length)).toBe(5);
     expect(qrVersionFor(500)).toBeNull();
     for (let mask = 0; mask < 8; mask++) {

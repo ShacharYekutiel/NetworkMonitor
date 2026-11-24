@@ -7,7 +7,7 @@
   ECDSA P-256 / P-384, SHA-256 or stronger.
 - `generate_csr` (owner decision 3b, like the HTTPS make-csr flow): key generated and kept on
   the server; the CSR (CN, Digital Signature, Client Authentication) is downloaded for the
-  internal CA (Mnidom-PKI-SERV-CA); the issued certificate is then uploaded *without* a key.
+  internal CA (Example-PKI-SERV-CA); the issued certificate is then uploaded *without* a key.
 """
 
 from __future__ import annotations
