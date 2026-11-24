@@ -73,6 +73,12 @@ DEFAULTS: dict[str, Any] = {
         "1.3.6.1.2.1.192.0.1",
     ],
     "trap_collapse_keep": 10,
+    # [syslog-protection] ON by default (an upgrade changes behaviour: docs/production.md);
+    # the filter rules live in the `syslog_filters` table (empty by default)
+    "syslog_dedup_enabled": True,
+    "syslog_dedup_window_s": 60,
+    "syslog_rate_limit_enabled": True,
+    "syslog_rate_limit_per_min": 3000,
     "trap_names_version": "",  # internal: OID name table version of the stored trap names
     "flap_threshold": 5,
     "flap_window_min": 10,
@@ -272,6 +278,10 @@ def ingest_settings_out(values: dict[str, Any]) -> dict[str, Any]:
             "trap_collapse_enabled": bool(values.get("trap_collapse_enabled", False)),
             "trap_collapse_oids": list(values.get("trap_collapse_oids") or []),
             "trap_collapse_keep": int(values.get("trap_collapse_keep") or 10),
+            "syslog_dedup_enabled": bool(values.get("syslog_dedup_enabled", True)),
+            "syslog_dedup_window_s": int(values.get("syslog_dedup_window_s") or 60),
+            "syslog_rate_limit_enabled": bool(values.get("syslog_rate_limit_enabled", True)),
+            "syslog_rate_limit_per_min": int(values.get("syslog_rate_limit_per_min") or 3000),
             "flap_threshold": values["flap_threshold"],
             "flap_window_min": values["flap_window_min"],
             "flap_quiet_min": values["flap_quiet_min"],
