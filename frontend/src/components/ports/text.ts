@@ -1,6 +1,6 @@
 import { useTranslation } from 'react-i18next';
 import type { IfStatus, Port } from '../../api/types';
-import { connectedView, formatSpeed, poeView } from '../../lib/ports';
+import { connectedView, formatSpeed, poeView, portDeviceKind } from '../../lib/ports';
 import { formatNumber, formatValue } from '../../lib/format';
 
 /** Translated texts of a port shared by the tiles, the list (and its filter) and the modal. */
@@ -35,7 +35,7 @@ export function usePortText() {
       : `${formatValue(p.in_bps, 'bit/s')} / ${formatValue(p.out_bps, 'bit/s')}`;
   const mode = (p: Pick<Port, 'mode'>) => (p.mode ? t(`ports.mode.${p.mode}`) : '—');
   const kindLabel = (p: Pick<Port, 'connected_kind' | 'state'>) =>
-    t(`ports.connectedKind.${p.connected_kind}`);
+    t(`ports.connectedKind.${portDeviceKind(p) ?? 'none'}`);
   /** "Port 7, up, client, VLAN 10" */
   const ariaLabel = (p: Port) => {
     const parts = [t('ports.portN', { name: p.name || p.descr || p.if_index }), state(p)];

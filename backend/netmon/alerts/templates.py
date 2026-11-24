@@ -10,6 +10,11 @@ from zoneinfo import ZoneInfo
 
 # [2b-1] the zone used to render "Problem since" (settings.timezone), set by the alert engine
 DISPLAY_TZ: contextvars.ContextVar[str] = contextvars.ContextVar("netmon_display_tz", default="UTC")
+# [severity] settings key `severity_in_subject` while the feature is ON (set by the alert engine
+# around its sends, like DISPLAY_TZ); False keeps the subject byte-identical to before
+SUBJECT_SEVERITY: contextvars.ContextVar[bool] = contextvars.ContextVar(
+    "netmon_subject_severity", default=False
+)
 
 STATUS_NAMES = {
     "en": {
@@ -30,6 +35,24 @@ STATUS_NAMES = {
     },
 }
 
+# [severity] level names in messages (the payload / API carry the enum value)
+SEVERITY_NAMES = {
+    "en": {
+        "critical": "Critical",
+        "major": "Major",
+        "minor": "Minor",
+        "warning": "Warning",
+        "info": "Info",
+    },
+    "he": {
+        "critical": "קריטית",
+        "major": "חמורה",
+        "minor": "קלה",
+        "warning": "אזהרה",
+        "info": "מידע",
+    },
+}
+
 LABELS = {
     "en": {
         "sensor": "Sensor",
@@ -40,6 +63,7 @@ LABELS = {
         "message": "Message",
         "time": "Time",
         "rule": "Rule",
+        "severity": "Severity",
         "problem_since": "Problem since",
         "escalation": "ESCALATION",
         "reminder": "REMINDER",
@@ -59,6 +83,7 @@ LABELS = {
         "message": "הודעה",
         "time": "זמן",
         "rule": "כלל",
+        "severity": "חומרה",
         "problem_since": "בעיה מאז",
         "escalation": "הסלמה",
         "reminder": "תזכורת",
@@ -125,7 +150,10 @@ def subject(payload: dict[str, Any], lang: str) -> str:
     if stage in ("escalation", "reminder"):
         status = f"{lb[stage]} {STATUS_NAMES['en'].get(payload.get('new_status') or '', status)}"
     suffix = lb["after_maintenance"] if payload.get("after_maintenance") else ""
-    return f"[NetworkMonitor] {status}{suffix}: {device} / {sensor}"
+    # [severity] "[NetworkMonitor] [Critical] DOWN: …" / "[NetworkMonitor] [קריטית] תקלה: …"
+    sev = payload.get("severity") if SUBJECT_SEVERITY.get() else None
+    level = f"[{severity_name(sev, lang)}] " if sev else ""
+    return f"[NetworkMonitor] {level}{status}{suffix}: {device} / {sensor}"
 
 
 def format_local(value: str | None, tz_name: str | None = None) -> str:
@@ -152,6 +180,8 @@ def _rows(payload: dict[str, Any], lang: str) -> list[tuple[str, str]]:
         rows.append((lb["group"], payload["group"]["name"]))
     if payload.get("new_status"):
         rows.append((lb["status"], st.get(payload["new_status"], payload["new_status"])))
+    if payload.get("severity"):  # [severity] only while the feature is ON
+        rows.append((lb["severity"], severity_name(payload["severity"], lang)))
     if payload.get("old_status"):
         rows.append((lb["previous"], st.get(payload["old_status"], payload["old_status"])))
     if payload.get("message"):
@@ -162,6 +192,10 @@ def _rows(payload: dict[str, Any], lang: str) -> list[tuple[str, str]]:
     if payload.get("rule"):
         rows.append((lb["rule"], payload["rule"]["name"]))
     return rows
+
+
+def severity_name(value: str, lang: str) -> str:
+    return SEVERITY_NAMES.get(_lang(lang), SEVERITY_NAMES["en"]).get(value, value)
 
 
 def new_hosts_count(payload: dict[str, Any]) -> int:

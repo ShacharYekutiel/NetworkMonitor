@@ -455,6 +455,26 @@ ARN to the VPC endpoint policy if one is used.
 | `bedrock_access_denied` | Policy ARNs (region, account, profile ID, foundation-model ID); VPC endpoint policy; SCPs for cross-region inference. |
 | `stream_buffered` warning | The proxy buffers responses — use a VPC endpoint with *Proxy: direct*, or a proxy exception. |
 
+## Alert severity (feature `alert_severity`)
+
+**Off** after the upgrade; turned on in *Settings → Features* ("Alert severity"). No server change, no port, no
+deploy step; migration `0015` only adds nullable columns. While off nothing changes (messages, rule matching, API
+fields). When on, every active problem and every new event gets one of five severities — critical > major >
+minor > warning > info:
+
+- **Default classification** (*Settings → General → Alert severity*, every row editable, "Reset to defaults"): down + impact
+  critical → critical, down + impact warning → major, down + impact none → minor, warning → warning, recoveries and
+  other informational changes → info.
+- **Per sensor**: an optional severity for the down state and one for the warning state (sensor page or the
+  multi-select bar, like *impact*). **Trap / syslog rules**: an optional severity per rule.
+- **Notification rules** can be limited to some severities (empty = all, the behaviour before). Email, Telegram and
+  Teams messages show a *Severity* row; webhook payloads get a `severity` key (existing keys unchanged).
+- A severity is stored when the problem starts; editing the classification later re-classifies **active** problems
+  only (audit log `sensor.severity`), history keeps its values. Problems that started before the feature was turned
+  on are classified when it is turned on; their history stays without a severity.
+
+Contract: [api.md § Alert severity](api.md#severity-alert-severity).
+
 ## [1.4.2] Upgrade and rollback (read before deploying)
 
 **What changes on upgrade.** Nothing to do. At the first start 1.4.2 runs migration 0012: every stored SNMP

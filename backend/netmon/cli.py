@@ -181,7 +181,7 @@ async def _secrets(action: str, old_key_file: str | None = None) -> int:
     from sqlalchemy import text
 
     from netmon.db.engine import make_engine, wait_for_db
-    from netmon.db.migrate import db_revision
+    from netmon.db.migrate import db_revision, revision_reaches
     from netmon.services import rekey, secretbox
 
     settings = load_settings()
@@ -193,9 +193,9 @@ async def _secrets(action: str, old_key_file: str | None = None) -> int:
     try:
         await wait_for_db(engine, timeout_s=10)
         rev = await db_revision(engine)
-        if rev != "0012":
+        if not revision_reaches(rev, "0012"):
             print(
-                f"error: the database is at migration {rev}, this command needs 0012",
+                f"error: the database is at migration {rev}, this command needs 0012 or later",
                 file=sys.stderr,
             )
             return 1

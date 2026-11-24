@@ -19,6 +19,8 @@ Sections marked **[1.3]** (sensor impact, important ports, LAG degraded, templat
 [§ Release 1.3](#13-release-13-additions), migration `0008`.
 Sections marked **[1.3.1]** (IRF ports are important, named value maps, IRF role names) are in
 [§ Release 1.3.1](#131-release-131-additions), migration `0009`.
+Sections marked **[severity]** (alert severity: levels, mapping, overrides, rule severities) are in
+[§ Alert severity](#severity-alert-severity), migration `0015`.
 
 PostgreSQL ≥ 14 holds the data, and TimescaleDB is optional (see [architecture.md §6](architecture.md)). Alembic
 migrations own the schema.
@@ -110,6 +112,7 @@ The API layer prevents cycles: if `parent_id` would make the group its own ances
 | state | jsonb | NOT NULL DEFAULT '{}'. Internal poller state (e.g. the last SNMP counters). **Never exposed by the API.** |
 | sort_order | integer | NOT NULL DEFAULT 0 |
 | impact | text | **[1.3]** NOT NULL DEFAULT `critical` CHECK in (`critical`,`warning`,`none`): contribution to the device status ([§ 1.3](#13-sensor-impact)) |
+| origin | text | **[template-switch]** NULL. `manual` (sensor form / `POST /api/sensors`), `auto` (default sensors of `POST /api/devices`, automatic event sensors), `template:<id>` (apply template, discovery import); NULL = created before migration `0016`. Not exposed by the sensor API; read by the apply dialog ([§ Sensors a template replaces](#template-switch-sensors-a-template-replaces)) |
 | created_at, updated_at | timestamptz | |
 
 Index: `(status)`.
@@ -1629,7 +1632,7 @@ API shapes: [api.md § Phase 2b-2](api.md#2b-2-phase-2b-2-contract). Components 
 | **[2b-2]** `port_mode` | `access`, `trunk` |
 | **[2b-2]** `duplex` | `full`, `half`, `unknown` |
 | **[2b-2]** `poe_detection` | `disabled`, `searching`, `delivering`, `fault`, `test`, `other_fault` |
-| **[2b-2]** `connected_kind` | `none`, `client`, `ap`, `switch` (computed) |
+| **[2b-2]** `connected_kind` | `none`, `client`, `ap`, `switch` (computed) — **[premium]** replaced by `computer`, `phone`, `ap`, `printer`, `camera`, `server`, `switch`, `router`, `unknown` or NULL ([§ Premium](#premium-premium-ui-additions)) |
 | **[2b-2]** `uplink_reason` | `neighbor`, `mac_count` (computed) |
 | **[2b-2]** `health_category` | `cpu`, `memory`, `temperature`, `poe`, `psu`, `fan` (computed) |
 | **[2b-2]** `source_state` | `ok`, `empty`, `error`, `skipped`, `unmapped` |
@@ -1910,7 +1913,7 @@ linked interface sensor, `settings.uplink_mac_threshold`.
   `sensor` (the linked `snmp_interface` sensor is `down` or `warning`), `errors`
   (`in_errors_delta + out_errors_delta > 0`, NULLs as 0), `poe_fault` (`poe_detection` ∈ {`fault`,
   `other_fault`}).
-- **connected_kind**: state ≠ `up` → `none`; primary neighbour is a device of class `switch` or `router` →
+- **connected_kind** (2b-2; **replaced in [premium]**, see [§ Premium UI additions](#premium-premium-ui-additions)): state ≠ `up` → `none`; primary neighbour is a device of class `switch` or `router` →
   `switch`; class `access_point` → `ap`; otherwise → `client` (also for a MAC-count uplink and for unmanaged
   LLDP neighbours such as phones).
 - **trunk** = `mode = trunk`.
@@ -2053,6 +2056,7 @@ Unknown keys anywhere → error. "default" = value used when the key is absent.
 | `priority` | int | **required** | 0–1000 |
 | `match` | rule[] | **required** | 1–20 rules |
 | `entries` | entry[] | **required** | 1–100 entries |
+| `replaces` | str[] | `[]` | **[template-switch]** generic sensor types this template measures another way: any of `snmp_cpu`, `snmp_memory`, `snmp_disk`, no duplicates, never a type the template has a `sensor` entry for. Applying it offers to delete the device's sensors of these types ([§ Sensors a template replaces](#template-switch-sensors-a-template-replaces)) |
 
 **Match rule** (all keys optional; absent = null = "any", except `requires_snmp` default false). A rule matches
 when every non-null field matches; a template matches when any rule matches.
@@ -2865,7 +2869,9 @@ Trigger `audit_log_immutable` (plpgsql, migration `0006`): `BEFORE UPDATE` → r
 unless `current_setting('netmon.audit_purge', true) = 'on'`. Retention (hourly loop): `SET LOCAL
 netmon.audit_purge = 'on'; DELETE … WHERE time < now() − audit_retention_days` (batches of 50 000).
 
-Actions: `auth.login`, `auth.login_failed`, `auth.logout`, `<entity>.create|update|delete` for `device`,
+Actions: `auth.login`, `auth.login_failed`, `auth.logout` (**[1.4.1]** `changes.everywhere` for logout
+everywhere; **[premium]** `changes.session = [null, <public id>]` for a session ended from the signed-in browsers
+list), `<entity>.create|update|delete` for `device`,
 `group`, `sensor`, `alert_rule`, `notification_channel`, `maintenance_window`, `event_rule`, `topology_link`,
 `discovery_profile`, `user`, `api_token` (create/revoke = `api_token.create|revoke`), `device.apply_template`,
 `discovery.import`, `settings.update` (entity null, `changes` per key; the `ldap` object diffed per field),
@@ -4244,7 +4250,7 @@ they take effect right after `PUT /api/settings` without a restart):
 | `frame_ancestors` | text[] (≤ 20 origins) | `[]` | extra CSP `frame-ancestors` sources; validated again when read, so a hand-edited row can never inject a directive |
 
 ## [1.4.1] `revoked_sessions`
-Session ids ended by `POST /api/auth/logout`. Loaded into memory at start (the server is one process); a cookie
+Session ids ended by `POST /api/auth/logout` (**[premium]** or `DELETE /api/auth/sessions/{id}`). Loaded into memory at start (the server is one process); a cookie
 whose `sid` is listed is refused.
 
 | Column | Type | Notes |
@@ -4312,3 +4318,238 @@ stored value has to be encrypted or decrypted.
 - `downgrade()`: the exact 1.4.1 form — plaintext restored where only the encrypted copy exists (after
   `remove-plaintext`), every `*_enc` / `_sealed` removed, `secrets_plaintext_removed` deleted. A value that has no
   plaintext and cannot be decrypted with this `secret.key` stops the downgrade with an error; nothing is changed.
+
+# **[premium]** Premium UI additions
+
+API: [api.md § Premium UI additions](api.md#premium-premium-ui-additions). No feature toggle; nothing here is ever
+sent to a device.
+
+## [premium] Connected device kind (computed on read, pure `netmon.ports.kind.derive`)
+`Port.connected_kind` / `connected_kind_source` of a port, first rule that gives a kind wins:
+
+1. **Manual override**: a `port_kind_overrides` row of (device, ifIndex) → that kind, source `manual`. Returned
+   whatever the port state (a labelled port that is down keeps its label).
+2. Port state ≠ `up` → NULL / NULL.
+3. **Primary neighbour** (the 2b-2 rule, LAG members inherit their LAG's): source = the link source (`lldp`, `cdp`;
+   a manual topology link → `manual`).
+   - a monitored device → by its effective class: `switch` → `switch`, `router` → `router`, `access_point` → `ap`,
+     `printer` → `printer`, `server` / `nas` → `server`, `workstation` → `computer`. Class `unknown`: `switch` when
+     the port is a LAG, a LAG member or a trunk (an uplink to a managed device), else go on with rule 4.
+   - an unmanaged neighbour → its `topology_neighbors.capabilities`, by priority `telephone` → `phone`,
+     `wlan_ap` → `ap`, `bridge` → `switch`, `router` / `docsis` → `router`, `station` → `computer` (a phone also
+     announces `bridge`; an L3 switch `bridge` + `router`); else its `sys_descr` (LLDP system description / CDP
+     platform) by keywords (`IP Phone`, `SEP…`, `AIR-`, `access point`, `printer`, `camera`, `ESXi`, …); else rule 4.
+4. **MAC table** (source `oui`; the present `port_macs` of the port, the LAG's for a member): no MAC → NULL / NULL.
+   One MAC → its vendor kind (below), else `computer`. Several MACs (or an uplink by MAC count, whose MACs are not
+   loaded) → `phone` when one of them is a phone MAC (a PC behind a phone), else `server` when one is a
+   hypervisor MAC (virtual machines), else `unknown`.
+
+**Vendor kind** (heuristic, offline): the MAC's first three octets → `PREFIX_KINDS` (a few blocks registered under a
+mixed vendor name: Hyper-V `00:15:5D`, Aruba blocks now listed as Hewlett Packard Enterprise), else the IEEE MA-L
+organisation (`netmon.ports.oui`, the bundled listing) matched, case-insensitively at its start, against
+`VENDOR_KINDS` — about 50 vendors whose blocks are dominated by one product kind: printers (Brother, Canon, Epson,
+Lexmark, Xerox, Ricoh, Kyocera, Konica Minolta, Zebra, Toshiba TEC, FUJIFILM BI, Pantum), cameras (Axis,
+Hikvision, Dahua, Uniview, Hanwha Vision, Vivotek, Mobotix, Avigilon, Bosch Security, Reolink, Milesight), phones
+(Yealink, Polycom, Grandstream, snom, Avaya, Mitel, Fanvil, Gigaset, Spectralink), access points (Ubiquiti, Ruckus,
+Cambium, Cisco Meraki, Mist, EnGenius), servers / hypervisors (VMware, Supermicro, Nutanix, XenSource, Proxmox,
+Parallels, VirtualBox). Mixed vendors (Cisco, HP / HPE, Dell, Lenovo, Apple, …) are not listed, so their MACs read
+as `computer`; a locally administered (random) MAC has no vendor. A unit test checks every pattern against the
+bundled listing.
+
+## [premium] `port_kind_overrides`
+| Column | Type | Constraints |
+|---|---|---|
+| device_id | integer | NOT NULL FK `devices.id` ON DELETE CASCADE; PK (device_id, if_index) |
+| if_index | integer | NOT NULL — the port's ifIndex (the `port_key` of the API) |
+| kind | text | NOT NULL CHECK in (`computer`, `phone`, `ap`, `printer`, `camera`, `server`, `switch`, `router`, `unknown`) |
+| updated_at | timestamptz | NOT NULL DEFAULT now() |
+| updated_by | integer | NULL — user id (no FK, like `audit_log.actor_user_id`) |
+
+Written only by `PUT /api/devices/{id}/ports/{if_index}/connected-kind` (`kind: null` deletes the row). Not tied to
+`switch_ports` rows, so a port that is briefly missing from a snapshot keeps its label.
+
+## [premium] `topology_neighbors.capabilities`
+`text[] NULL` — the system capabilities of an unmanaged LLDP / CDP neighbour, normalised names: LLDP
+`lldpRemSysCapEnabled` (column 12 of `lldpRemTable`), or `lldpRemSysCapSupported` (11) when nothing is enabled, bits
+→ `other`, `repeater`, `bridge`, `wlan_ap`, `router`, `telephone`, `docsis`, `station`, `cvlan`, `svlan`, `tpmr`; CDP
+`cdpCacheCapabilities` (column 9) → `router` (0x01), `bridge` (0x02 / 0x04 / 0x08), `station` (0x10), `repeater`
+(0x40), `telephone` (0x80). Both come from the table walks the topology refresh already does (no new SNMP
+request). Updated on every refresh that sees the neighbour (an empty set keeps the stored value); NULL until the
+first refresh after the upgrade.
+
+## [premium] Home map setting
+Settings key `home_map` (table `settings`, default in `netmon.services.home_map.DEFAULT`; not part of
+`GET /api/settings`, served by `GET/PUT /api/settings/home-map`):
+
+| Field | Type | Default | Notes |
+|---|---|---|---|
+| `mode` | `auto` \| `backbone` | `auto` | |
+| `show_internet` | bool | `true` | internet tile above the backbone (backbone mode) |
+| `backbone_device_ids` | int[] (≤ 8, ordered) | `[]` | ids that no longer exist are skipped when read |
+| `max_groups` | int 1–50 | `12` | leaves under the last node |
+
+The map itself is computed on read (`netmon.services.home_map`), see api.md.
+
+## [premium] `user_sessions` (signed-in browsers)
+A registry of login sessions for `GET` / `DELETE /api/auth/sessions` (code: `netmon.services.sessions`). It is
+**not** the credential: a session is valid by the 1.4.1 rules (signed cookie, `token_version`, `sid` not in
+`revoked_sessions`, absolute lifetime) whether or not it has a row.
+
+| Column | Type | Notes |
+|---|---|---|
+| `id` | bigserial PK | internal |
+| `public_id` | varchar(32) NOT NULL UNIQUE | the API `id`: random (`secrets.token_urlsafe(12)`), unrelated to the cookie and its `sid` |
+| `sid` | varchar(64) NOT NULL UNIQUE | the session's `sid` claim (never returned by the API) |
+| `user_id` | integer NOT NULL → `users(id)` ON DELETE CASCADE, indexed | |
+| `token_version` | integer NOT NULL | the cookie's `tv`; a row whose value differs from the user's is dead |
+| `created_at` | timestamptz NOT NULL | sign-in time (the cookie's `at`, kept across renewals) |
+| `last_seen_at` | timestamptz NULL, indexed | last request (app clock) |
+| `ip` | varchar(64) NULL | client address of that request (`netmon.api.deps.client_ip`, the audit-log rule) |
+| `user_agent` | varchar(256) NULL | User-Agent of that request (non-printable characters removed, truncated) |
+
+- **Written** by the session authentication of every HTTP request (`current_user`), at most once per minute per
+  session: an in-memory throttle per `sid`, and the upsert itself only updates a row whose `last_seen_at` is a
+  minute old or more. The first write of a `sid` inserts the row (also for a session issued before migration 0014)
+  unless the `sid` is revoked. WebSocket and API token requests never write.
+- **Listed / deletable** while alive: `token_version` = the user's, `created_at` within `session_max_age_h`
+  (AD / OIDC: 12 h), `last_seen_at` within 12 h + 2 min (the cookie lifetime), `sid` not revoked; the current
+  session always.
+- **Removed**: the row of a session ended by logout or by `DELETE /api/auth/sessions/{id}`; all rows of the user on
+  logout everywhere; dead rows of a user when one of their sessions is first recorded; at start, rows idle longer
+  than 31 days and rows whose `token_version` is outdated.
+
+## [template-switch] Sensors a template replaces
+Applying a template only adds sensors. When it supersedes what the device had (generic SNMP → vendor template,
+one vendor template → another), the apply dialog lists the device's sensors the new template replaces and the
+user ticks the ones to delete (pure `netmon.templates.replaces.candidates_for`, no SNMP).
+
+A sensor is a **candidate** when the new template does not produce it (a `sensor` entry with the same identity
+([§ Idempotency](#idempotency-apply-adds-only-what-is-missing)), or a row `walk_oid.<row>` of an `snmp_table`
+entry with the matching `percent_of_column`) and
+
+- **`replaced`**: its type is in the new template's `replaces` list, whatever created it except by hand; or
+- **`other_template`**: `origin` = `template:<other id>`; for `origin` NULL (before `0016`) when another library
+  template produces exactly this sensor (`from_template` = that template when exactly one does) — except the
+  default sensor types (`ping`, `snmp_system`, `snmp_cpu`, `snmp_memory`), which an unknown origin only makes a
+  candidate through `replaces`.
+
+Never candidates: `origin = manual`, `ping`, `snmp_system`, `snmp_interface` (the Ports section of the dialog
+handles interfaces), passive event sensors, sensors created by the same template id (an earlier version).
+
+**`failing`**: `status = down` and the message says the device lacks the data ("not found", "not supported",
+"not available", "noSuchObject" / "noSuchInstance", "endOfMibView", "unknown object"; case-insensitive). The
+dialog pre-ticks these; a sensor that is down for a real reason (a value over its limit) is not failing.
+
+Library templates with `replaces: [snmp_cpu, snmp_memory]` (own CPU and memory from the vendor MIB):
+`hpe_comware`, `hpe_arubaos_switch`, `cisco_ios`, `checkpoint_gaia`, `fortinet_fortigate`.
+
+## [template-switch] Migration (`0016`)
+File `backend/netmon/migrations/versions/0016_sensor_origin.py`, `revision = "0016"`, `down_revision = "0014"`
+(**merge note:** another branch adds `0015`; when both are merged `down_revision` here becomes `"0015"` — the id
+is written only in that file, tests read the head and the down revision from the scripts). Plain DDL, identical
+in TimescaleDB and plain PostgreSQL mode, idempotent. `upgrade()`: `ALTER TABLE sensors ADD COLUMN origin text
+NULL` (existing sensors keep NULL = origin unknown). `downgrade()`: drops the column.
+
+## [premium] Migration (`0014`)
+File `backend/netmon/migrations/versions/0014_sessions.py`, `revision = "0014"`, `down_revision = "0013"`. Plain DDL,
+identical in TimescaleDB and plain PostgreSQL mode, idempotent. `upgrade()`: `CREATE TABLE user_sessions` and its
+two indexes; no data is changed and no session is signed out. `downgrade()`: drops the table (every session keeps
+working; only the list is lost).
+
+## [premium] Migration (`0013`)
+File `backend/netmon/migrations/versions/0013_premium.py`, `revision = "0013"`, `down_revision = "0012"` (the
+number may change when another `0013` is merged first: the id is written only in that file; tests read the head
+from the migration scripts). Plain DDL, identical in TimescaleDB and plain PostgreSQL mode, idempotent.
+`upgrade()`: `CREATE TABLE port_kind_overrides`; `ALTER TABLE topology_neighbors ADD COLUMN capabilities text[]`.
+`downgrade()`: drops both (the overrides are lost; 1.4.2 does not use them).
+
+The 1.4.2 start-up check for the secrets-at-rest form and `netmon secrets remove-plaintext` accept any revision at
+or after `0012` (they compared with `0012` exactly).
+
+# **[severity]** Alert severity
+
+Active problems and events are classified by severity (API: [api.md § Alert severity](api.md#severity-alert-severity);
+code: `netmon.services.severity`). Feature toggle `feature_alert_severity_enabled` (bool, default `false`, also on
+upgraded installs): **OFF means exactly** nothing is resolved or written (`events.severity`, `sensors.severity`,
+`alert_state.severity` stay NULL for new rows; `sensors.severity` is cleared when the feature is turned off),
+`alert_rules.severities` is ignored by the rule matching, notification payloads have no `severity` key (messages
+byte-identical), lists keep their orders. Stored configuration (overrides, rule severities, mapping) is kept and
+editable while OFF.
+
+## [severity] Levels
+
+Enum `severity`, ordered highest first: `critical` (rank 5) > `major` (4) > `minor` (3) > `warning` (2) > `info` (1).
+Sorting by severity uses the rank, NULL = 0 (last). "Highest" of a set = the highest rank.
+
+## [severity] Resolution (when a status_change event is written, `EventWriter.add_status_change`)
+
+For the sensor's new status S (only while the feature is ON):
+
+1. S = `down` and `sensors.severity_down` is set → it; S = `warning` and `severity_warning` is set → it;
+2. S ∈ {down, warning}, sensor type `trap` / `syslog`, and the event rule of the worst active condition (order of
+   `EventSensors.recompute`: down before warning, newest `last_at`, highest id) has `severity` → it;
+3. S ∈ {down, warning} → `severity_mapping["<S>_<sensors.impact>"]`;
+4. any other S (`up`, `paused`, `unreachable`, `unknown`) → `severity_mapping["info"]`.
+
+The result is written to `events.severity`, and `sensors.severity` = the result when S ∈ {down, warning}, else
+NULL. `alert_state.severity` takes the event's severity when a rule row opens or changes within the problem and keeps
+it through the recovery (recovery payloads name the severity of the problem that recovered).
+`notification_sent` events copy the severity of the payload they record.
+
+**Re-resolution (active problems only).** A change of the mapping (PUT / reset), of a sensor's
+`severity_down` / `severity_warning` (PATCH, bulk) or of its `impact` (PATCH, bulk-impact) recomputes, for every
+affected sensor whose status is down / warning, the severity by the same rules and updates `sensors.severity`
+and `alert_state.severity` of its down / warning rows. `events` rows are never updated (history is stable). One
+audit row `sensor.severity` per sensor whose severity changed (`changes: {"severity": [old, new]}`, `reason`:
+`mapping` / `override` / `impact`), in its own transaction right after the change was committed. An event sensor
+whose worst condition changes without a status change follows the same way (no audit row). The notification
+rule match is not redone by a re-resolution (it is decided when the problem opens or changes status, like
+`on_statuses`).
+
+**Turning the feature ON** resolves every sensor that is down / warning now (sets `sensors.severity` and
+`alert_state.severity`); the events that opened those problems stay NULL (no backfill guessing). Turning it OFF
+sets `sensors.severity` = NULL everywhere.
+
+## [severity] Settings key `severity_mapping`
+
+Object, default below (not part of `GET /api/settings`; served by `GET/PUT /api/settings/severity-mapping`, reset by
+`POST /api/settings/severity-mapping/reset`). Read with `normalize()`: unknown keys and invalid levels are dropped,
+missing keys take the default.
+
+| Key | Default |
+|---|---|
+| `down_critical` | `critical` |
+| `down_warning` | `major` |
+| `down_none` | `minor` |
+| `warning_critical` | `warning` |
+| `warning_warning` | `warning` |
+| `warning_none` | `warning` |
+| `info` | `info` |
+
+Settings key **`severity_in_subject`** (bool, default `false`; served and changed with the mapping through
+`GET/PUT /api/settings/severity-mapping`, not part of `GET /api/settings`; the mapping reset keeps it): while it and
+the feature are ON, email subjects of notifications with a severity read `[NetworkMonitor] [<Level>] <STATUS>: …`
+(`netmon.alerts.templates.SUBJECT_SEVERITY`, set by the alert engine around its sends). Off: subjects unchanged.
+
+## [severity] Columns (migration `0015`)
+
+| Table.column | Type | Meaning |
+|---|---|---|
+| `sensors.severity` | text NULL CHECK in severity | current problem's resolved severity; NULL = not down / warning, or the feature is OFF |
+| `sensors.severity_down` | text NULL CHECK in severity | override for the down state (NULL = rule / mapping) |
+| `sensors.severity_warning` | text NULL CHECK in severity | override for the warning state |
+| `events.severity` | text NULL CHECK in severity | resolved when written (status_change; notification_sent copies its payload's); never updated. Partial index `ix_events_severity_time (severity, time DESC) WHERE severity IS NOT NULL` |
+| `event_rules.severity` | text NULL CHECK in severity | optional; the API accepts it only for `action` warning / down |
+| `alert_rules.severities` | text[] NOT NULL DEFAULT `'{}'` CHECK `severities <@ ARRAY[levels]` | the rule applies to these severities; `{}` = all |
+| `alert_state.severity` | text NULL CHECK in severity | the notified problem's severity (escalation, reminder, recovery payloads) |
+
+Rule matching in `alert_engine.apply_event` (problem statuses): `enabled AND (sensor_id IS NULL OR sensor_id = X)
+AND S = ANY(on_statuses) AND (E.severity IS NULL OR cardinality(severities) = 0 OR E.severity = ANY(severities))`
+— `E.severity` is NULL exactly while the feature is OFF, so the OFF matching is the one before 0015.
+
+## [severity] Migration (`0015`)
+File `backend/netmon/migrations/versions/0015_alert_severity.py`, `revision = "0015"`, `down_revision = "0014"`.
+Plain DDL (`events` is a plain table in both modes), identical in TimescaleDB and plain PostgreSQL mode, idempotent
+(`ADD COLUMN IF NOT EXISTS`, constraints dropped and re-added). `upgrade()`: the columns, checks and index above;
+existing rows NULL / `{}`. `downgrade()`: drops them and deletes the settings rows `severity_mapping`, `severity_in_subject` and
+`feature_alert_severity_enabled` (the stored severities, overrides, rule filters, mapping and option are lost).

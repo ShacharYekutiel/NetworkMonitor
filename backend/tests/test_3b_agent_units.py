@@ -354,6 +354,25 @@ def test_time_range_limits() -> None:
     assert e.value.code == "invalid_arguments"
 
 
+def test_time_range_until_to_the_second_covers_that_second() -> None:
+    # "Now" in the prompt is to the second; a row received later in that same second must be inside
+    now = datetime(2026, 11, 9, 6, 27, 56, 975000, tzinfo=UTC)
+    s, u = tools.time_range("2026-11-08T06:27:56Z", "2026-11-09T06:27:56Z", now, max_days=1)
+    assert s == datetime(2026, 11, 8, 6, 27, 56, tzinfo=UTC)
+    assert (
+        datetime(2026, 11, 9, 6, 27, 56, 400000, tzinfo=UTC)
+        <= u
+        < datetime(2026, 11, 9, 6, 27, 57, tzinfo=UTC)
+    )
+    assert tools.iso(u) == "2026-11-09T06:27:56.999999Z"
+    # a full max_days window given to the second is still allowed
+    tools.time_range("2026-11-02T06:27:56Z", "2026-11-09T06:27:56Z", now, max_days=7)
+    # sub-second ends and the default end (now) are kept as given
+    _, u2 = tools.time_range(None, "2026-11-09T06:27:56.250Z", now, max_days=7)
+    assert u2 == datetime(2026, 11, 9, 6, 27, 56, 250000, tzinfo=UTC)
+    assert tools.time_range(None, None, now, max_days=7)[1] == now
+
+
 def test_summarize_args_redacts() -> None:
     assert tools.summarize_args({"text": "password=abc"}) == {"text": "password=<secret removed>"}
     big = tools.summarize_args({"text": "x" * 5000})

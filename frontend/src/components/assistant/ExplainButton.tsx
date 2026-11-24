@@ -1,9 +1,13 @@
 import { useEffect, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Link } from 'react-router';
+import { useQuery } from '@tanstack/react-query';
+import { endpoints, qk } from '../../api/endpoints';
+import { useLocalizeMessage } from '../../hooks/localize';
 import { Drawer } from '../Drawer';
-import { SparkIcon } from '../icons';
-import { Button, buttonClass } from '../ui';
+import { ChatIcon, RefreshIcon, SparkIcon } from '../icons';
+import { AiTag } from '../kit';
+import { Button, buttonClass, cx } from '../ui';
 import { useAnswerStream } from '../../hooks/useAnswerStream';
 import { formatDateTime } from '../../lib/format';
 import { AnswerBlock, PreStreamErrorBox } from './AnswerView';
@@ -41,7 +45,7 @@ export function ExplainButton({
         title={t('explain.title')}
         data-testid="explain-button"
       >
-        <SparkIcon size={size === 'sm' ? 12 : 14} className="text-violet-600" />
+        <SparkIcon size={size === 'sm' ? 12 : 14} className="text-accent-ink" />
         {label ?? t('explain.button')}
       </Button>
       <ExplainDrawerView
@@ -49,8 +53,37 @@ export function ExplainButton({
         onClose={() => setOpen(false)}
         stream={stream}
         onRefresh={() => start(true)}
+        sensorId={sensorId}
       />
     </>
+  );
+}
+
+/** What is explained (prototype .subj): the AI tag, the sensor and its device, the status line. */
+function Subject({ sensorId }: { sensorId: number }) {
+  const { t } = useTranslation();
+  const localize = useLocalizeMessage();
+  const q = useQuery({ queryKey: qk.sensor(sensorId), queryFn: () => endpoints.sensor(sensorId) });
+  const s = q.data;
+  if (!s) return null;
+  return (
+    <div className="mb-3.5 flex items-center gap-2.5 rounded-[14px] bg-chip px-3 py-2.5">
+      <AiTag />
+      <span className="grid min-w-0">
+        <b dir="auto" className="truncate font-display text-[14.5px] font-semibold">
+          {s.device_name ? `${s.device_name} · ${s.name}` : s.name}
+        </b>
+        <span className="truncate text-[13px] text-ink-muted">
+          {t(`status.${s.status}`)}
+          {s.status_message && (
+            <>
+              {' · '}
+              <bdi dir="auto">{localize(s.status_message)}</bdi>
+            </>
+          )}
+        </span>
+      </span>
+    </div>
   );
 }
 
@@ -59,11 +92,13 @@ function ExplainDrawerView({
   onClose,
   stream,
   onRefresh,
+  sensorId,
 }: {
   open: boolean;
   onClose: () => void;
   stream: ReturnType<typeof useAnswerStream>;
   onRefresh: () => void;
+  sensorId: number;
 }) {
   const { t } = useTranslation();
   const final = stream.live.final;
@@ -74,29 +109,38 @@ function ExplainDrawerView({
       onClose={onClose}
       title={t('explain.title')}
       testId="explain-drawer"
+      narrow
       footer={
-        <>
-          {final && (
-            <span className="me-auto self-center text-xs text-slate-500">
-              {t('explain.explainedAt', { time: formatDateTime(final.created_at) })}
-            </span>
-          )}
-          {final && (
-            <Button size="sm" onClick={onRefresh}>
-              {t('explain.refresh')}
-            </Button>
-          )}
+        <div className="grid w-full gap-2.5">
+          <AiNotice />
+          <div className="flex flex-wrap items-center gap-2">
+            {final && (
+              <span className="text-[12.5px] text-ink-subtle">
+                {t('explain.explainedAt', { time: formatDateTime(final.created_at) })}
+              </span>
+            )}
+            {final && (
+              <Button size="sm" onClick={onRefresh}>
+                <RefreshIcon size={13} />
+                {t('explain.refresh')}
+              </Button>
+            )}
+          </div>
           {cid !== null && (
-            <Link to={`/assistant/c/${cid}`} className={buttonClass('secondary', 'sm')}>
+            <Link
+              to={`/assistant/c/${cid}`}
+              className={cx(buttonClass('secondary', 'sm'), 'justify-self-start')}
+            >
+              <ChatIcon size={14} />
               {t('assistant.continueInAsk')}
             </Link>
           )}
-        </>
+        </div>
       }
     >
-      <div className="space-y-3">
-        <AiNotice />
-        <PreStreamErrorBox error={stream.preError} />
+      <Subject sensorId={sensorId} />
+      <div className="grid gap-3">
+        <PreStreamErrorBox error={stream.preError} onRetry={onRefresh} />
         {(stream.running || stream.live.messageId !== null || stream.live.error) && (
           <AnswerBlock
             live={stream.live}
@@ -104,6 +148,7 @@ function ExplainDrawerView({
             onStop={() => void stream.stop()}
             onRetry={onRefresh}
             compact
+            feedback
           />
         )}
       </div>
@@ -127,6 +172,7 @@ export function ExplainDrawer({ sensorId, onClose }: { sensorId: number; onClose
       onClose={onClose}
       stream={stream}
       onRefresh={() => void explain(sensorId, null, true)}
+      sensorId={sensorId}
     />
   );
 }

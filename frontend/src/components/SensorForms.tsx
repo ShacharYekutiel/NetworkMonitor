@@ -27,6 +27,8 @@ import { errorMessage } from '../lib/errors';
 import { CheckResultView } from './CheckResultView';
 import { SensorConfigFields } from './SensorConfigFields';
 import { ImpactField } from './SensorImpact';
+import { useFeature } from '../hooks/features';
+import { SeverityOverrideFields, type SeverityChoice } from './severity/Severity';
 import { useToast } from './toast';
 import {
   Button,
@@ -199,9 +201,9 @@ export function AddSensorModal({
               </Field>
             )}
           </div>
-          {passive && <p className="text-xs text-slate-500">{t('sensors.passiveCreateHint')}</p>}
+          {passive && <p className="text-xs text-ink-muted">{t('sensors.passiveCreateHint')}</p>}
           {def.requires_snmp && (
-            <p className="text-xs text-slate-500">
+            <p className="text-xs text-ink-muted">
               {t('sensors.requiresSnmp', {
                 source: t(`snmp.source.${device.effective_snmp_source}`),
               })}
@@ -351,7 +353,7 @@ function InterfacePicker({
         value={filter}
         onChange={(e) => setFilter(e.target.value)}
       />
-      <div className="max-h-80 overflow-y-auto rounded ring-1 ring-slate-200 dark:ring-slate-700">
+      <div className="max-h-80 overflow-y-auto rounded-lg ring-1 ring-line">
         <Table>
           <thead>
             <tr>
@@ -395,7 +397,7 @@ function InterfacePicker({
                     <div className="font-medium">
                       <Ltr>{i.name}</Ltr>
                     </div>
-                    <div className="text-xs text-slate-500">
+                    <div className="text-xs text-ink-muted">
                       <Ltr>{i.descr}</Ltr>
                     </div>
                   </td>
@@ -403,11 +405,11 @@ function InterfacePicker({
                   <td className={`${td} whitespace-nowrap`}>
                     <Value text={formatValue(i.speed_bps, 'bit/s')} />
                   </td>
-                  <td className={`${td} whitespace-nowrap text-xs`}>
-                    <span className={i.oper_status === 'up' ? 'text-green-600' : 'text-slate-500'}>
+                  <td className={`${td} whitespace-nowrap text-[13px]`}>
+                    <span className={i.oper_status === 'up' ? 'text-status-up' : 'text-ink-muted'}>
                       {i.admin_status}/{i.oper_status}
                     </span>
-                    {exists && <span className="ms-2 text-slate-500">({t('iface.exists')})</span>}
+                    {exists && <span className="ms-2 text-ink-muted">({t('iface.exists')})</span>}
                   </td>
                 </tr>
               );
@@ -417,7 +419,7 @@ function InterfacePicker({
       </div>
       <ErrorBox error={add.error} />
       <div className="flex items-center justify-end gap-2">
-        <span className="text-sm text-slate-500">
+        <span className="text-sm text-ink-muted">
           {t('iface.selected', { count: selected.length })}
         </span>
         <Button onClick={onDone}>{t('common.cancel')}</Button>
@@ -452,6 +454,10 @@ export function EditSensorModal({
   const [interval, setInterval] = useState(String(sensor.interval_s));
   const [sortOrder, setSortOrder] = useState(String(sensor.sort_order));
   const [impact, setImpact] = useState<SensorImpact>(sensor.impact ?? 'critical');
+  // [severity] overrides ('' = Automatic), shown and sent only while the feature is on
+  const severityOn = useFeature('alert_severity');
+  const [sevDown, setSevDown] = useState<SeverityChoice>(sensor.severity_down ?? '');
+  const [sevWarn, setSevWarn] = useState<SeverityChoice>(sensor.severity_warning ?? '');
   const [raw, setRaw] = useState<RawConfig>({});
   const [errors, setErrors] = useState<ConfigErrors>({});
 
@@ -459,6 +465,8 @@ export function EditSensorModal({
     if (!open) return;
     setName(sensor.name);
     setImpact(sensor.impact ?? 'critical');
+    setSevDown(sensor.severity_down ?? '');
+    setSevWarn(sensor.severity_warning ?? '');
     setInterval(String(sensor.interval_s));
     setSortOrder(String(sensor.sort_order));
     if (def) setRaw(rawFromConfig(def.config_fields, sensor.config));
@@ -479,10 +487,16 @@ export function EditSensorModal({
   const intervalVal = parseInterval(interval);
 
   const passive = isEventSensor(sensor);
+  const severity: SensorInput = severityOn
+    ? {
+        severity_down: sevDown && sevDown !== 'keep' ? sevDown : null,
+        severity_warning: sevWarn && sevWarn !== 'keep' ? sevWarn : null,
+      }
+    : {};
   const submit = (e: FormEvent) => {
     e.preventDefault();
     if (passive) {
-      m.mutate({ name: name.trim(), sort_order: Number(sortOrder) || 0, impact });
+      m.mutate({ name: name.trim(), sort_order: Number(sortOrder) || 0, impact, ...severity });
       return;
     }
     if (!def || intervalVal === 'invalid' || intervalVal === undefined) return;
@@ -495,6 +509,7 @@ export function EditSensorModal({
       sort_order: Number(sortOrder) || 0,
       config,
       impact,
+      ...severity,
     });
   };
 
@@ -543,6 +558,16 @@ export function EditSensorModal({
             </Field>
           </div>
           <ImpactField value={impact} onChange={setImpact} />
+          {severityOn && (
+            <SeverityOverrideFields
+              impact={impact}
+              eventSensor={passive}
+              down={sevDown}
+              warning={sevWarn}
+              onDown={setSevDown}
+              onWarning={setSevWarn}
+            />
+          )}
           {sensor.type === 'snmp_disk' && (
             <StoragePicker
               deviceId={sensor.device_id}
@@ -688,10 +713,8 @@ function StoragePicker({
     );
 
   return (
-    <div className="space-y-2 rounded-md p-3 ring-1 ring-slate-200 dark:ring-slate-700">
-      <div className="text-xs font-medium text-slate-600 dark:text-slate-400">
-        {t('storage.title')}
-      </div>
+    <div className="space-y-2 rounded-lg px-4 py-3.5 ring-1 ring-line">
+      <div className="text-xs font-medium text-ink-muted">{t('storage.title')}</div>
       {q.isLoading && <Loading />}
       {q.error && (
         <div className="space-y-2">
@@ -741,10 +764,10 @@ function StoragePicker({
                     <td className={`${td} max-w-[16rem] break-all`}>
                       <Ltr>{r.descr}</Ltr>
                       {exists && (
-                        <span className="ms-2 text-xs text-slate-500">({t('iface.exists')})</span>
+                        <span className="ms-2 text-xs text-ink-muted">({t('iface.exists')})</span>
                       )}
                     </td>
-                    <td className={`${td} whitespace-nowrap text-xs text-slate-500`}>
+                    <td className={`${td} whitespace-nowrap text-[13px] text-ink-muted`}>
                       {t(`storage.types.${r.type}`)}
                     </td>
                     <td className={`${td} whitespace-nowrap tabular-nums`}>
@@ -777,7 +800,7 @@ function StoragePicker({
         <>
           <ErrorBox error={add.error} />
           <div className="flex flex-wrap items-center justify-end gap-2">
-            <span className="me-auto text-xs text-slate-500">{t('storage.manualHint')}</span>
+            <span className="me-auto text-xs text-ink-muted">{t('storage.manualHint')}</span>
             <Button
               variant="primary"
               disabled={!sel.length || interval === 'invalid'}
@@ -790,7 +813,7 @@ function StoragePicker({
         </>
       )}
       {mode === 'multi' && (q.error || (q.data && !rows.length)) && (
-        <p className="text-xs text-slate-500">{t('storage.manualHint')}</p>
+        <p className="text-xs text-ink-muted">{t('storage.manualHint')}</p>
       )}
       {mode === 'single' && (
         <div className="flex justify-end">

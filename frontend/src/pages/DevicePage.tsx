@@ -17,10 +17,21 @@ import {
 import { ApplyTemplateModal } from '../components/Templates';
 import { AddSensorModal } from '../components/SensorForms';
 import { SensorRowActions } from '../components/SensorRowActions';
-import { SensorTable } from '../components/SensorTable';
+import { SensorTable, useSensorColumns } from '../components/SensorTable';
+import { ColumnsMenu } from '../components/kitTable';
 import { StatusBadge, StatusBar, StatusCountPills, StatusDot } from '../components/Status';
 import { useToast } from '../components/toast';
-import { Button, Card, ConfirmDialog, ErrorBox, Loading, Ltr, PageHeader } from '../components/ui';
+import {
+  Button,
+  Card,
+  ConfirmDialog,
+  ErrorBox,
+  Loading,
+  Ltr,
+  PageHeader,
+  SEG_TRACK,
+  tabClass,
+} from '../components/ui';
 import { useAuth } from '../hooks/auth';
 import { errorMessage } from '../lib/errors';
 import { EffectiveDependencyText, ParentDownBanner } from '../components/Dependency';
@@ -30,12 +41,15 @@ import { useDeviceTemplates } from '../components/Templates';
 import { FingerprintIcon } from '../components/icons';
 import type { DeviceIdentity, Sensor } from '../api/types';
 import { BulkImpactModal } from '../components/SensorImpact';
+import { BulkDeleteModal } from '../components/SensorBulkDelete';
+import { BulkSeverityModal } from '../components/severity/BulkSeverity';
+import { useEntityMenu } from '../components/treemenu/TreeContextMenu';
 import { l10n } from '../lib/templates';
 import { PortsTab } from '../components/ports/PortsTab';
 import { PortIcon } from '../components/icons';
 import { cx } from '../components/ui';
 import { useSensorTypes } from '../hooks/queries';
-import { useFeatures } from '../hooks/features';
+import { useFeature, useFeatures } from '../hooks/features';
 import { ClockIcon, LogsIcon } from '../components/icons';
 import { TimelineTab } from '../components/timeline/TimelineTab';
 import { SyslogView } from '../components/logs/SyslogView';
@@ -59,10 +73,7 @@ function DeviceLogs({ deviceId }: { deviceId: number }) {
   return (
     <div className="space-y-3">
       {features.syslog && features.traps && (
-        <div
-          className="inline-flex rounded-md ring-1 ring-slate-300 dark:ring-slate-600"
-          role="group"
-        >
+        <div className="inline-flex gap-0.5 rounded-[11px] bg-chip p-[3px]" role="group">
           {(['syslog', 'traps'] as const).map((x) => (
             <button
               key={x}
@@ -70,8 +81,10 @@ function DeviceLogs({ deviceId }: { deviceId: number }) {
               aria-pressed={k === x}
               onClick={() => setKind(x)}
               className={cx(
-                'px-3 py-1 text-xs first:rounded-s-md last:rounded-e-md',
-                k === x ? 'bg-sky-600 text-white' : 'hover:bg-slate-100 dark:hover:bg-slate-800',
+                'h-7 rounded-[8px] px-3 text-[13px] font-medium transition-colors',
+                k === x
+                  ? 'bg-surface text-ink shadow-[0_1px_3px_rgba(0,0,0,0.12)]'
+                  : 'text-ink-muted hover:text-ink',
               )}
             >
               {t(`logs.tab.${x}`)}
@@ -101,36 +114,88 @@ export function DeviceSensorsCard({
   const { t } = useTranslation();
   const [picked, setPicked] = useState<Set<number>>(() => new Set());
   const [bulk, setBulk] = useState(false);
-  // Only ids still in the list count (sensors may be deleted while selected).
-  const ids = (sensors ?? []).filter((s) => picked.has(s.id)).map((s) => s.id);
+  const [bulkDelete, setBulkDelete] = useState(false);
+  const [bulkSeverity, setBulkSeverity] = useState(false);
+  const severityOn = useFeature('alert_severity'); // [severity]
+  // Only sensors still in the list count (sensors may be deleted while selected).
+  const pickedSensors = (sensors ?? []).filter((s) => picked.has(s.id));
+  const columns = useSensorColumns({
+    sensors: sensors ?? [],
+    selectable: isAdmin,
+    withActions: isAdmin,
+  });
+  const ids = pickedSensors.map((s) => s.id);
   return (
-    <Card
-      title={t('devices.sensors')}
-      bodyClassName="p-0"
-      actions={
-        isAdmin && ids.length > 0 ? (
-          <div className="flex flex-wrap items-center gap-2" data-testid="sensor-bulk-bar">
-            <span className="text-xs text-slate-500">
-              {t('impact.selected', { count: ids.length })}
-            </span>
-            <Button size="sm" onClick={() => setBulk(true)}>
-              {t('impact.setImpact')}
-            </Button>
-            <Button size="sm" variant="ghost" onClick={() => setPicked(new Set())}>
-              {t('impact.clearSelection')}
-            </Button>
-          </div>
-        ) : undefined
-      }
-    >
-      {loading && <Loading />}
-      <ErrorBox error={error} />
-      {sensors && (
-        <SensorTable
-          sensors={sensors}
-          actions={isAdmin ? (s) => <SensorRowActions sensor={s} /> : undefined}
-          selection={isAdmin ? { selected: picked, onChange: setPicked } : undefined}
-        />
+    <div>
+      {sensors && sensors.length > 0 && (
+        <div className="mx-1 mb-2.5 flex flex-wrap items-center justify-between gap-2">
+          <p className="m-0 min-w-0 flex-1 text-[13.5px] text-ink-muted">
+            {isAdmin && sensors.length > 1 ? t('impact.selectHint') : null}
+          </p>
+          <ColumnsMenu
+            layout={columns}
+            labelOf={(id) => columns.columns.find((c) => c.id === id)?.label ?? id}
+            testId="sensor-columns"
+          />
+        </div>
+      )}
+      <Card title={t('devices.sensors')} bodyClassName="p-0">
+        {loading && <Loading />}
+        <ErrorBox error={error} />
+        {sensors && (
+          <SensorTable
+            sensors={sensors}
+            layout={columns}
+            actions={isAdmin ? (s) => <SensorRowActions sensor={s} /> : undefined}
+            selection={isAdmin ? { selected: picked, onChange: setPicked } : undefined}
+          />
+        )}
+      </Card>
+      {/* prototype .bulkbar: a floating ink pill while rows are selected */}
+      {isAdmin && ids.length > 0 && (
+        <div
+          className="sticky bottom-[18px] z-20 mt-3.5 flex flex-wrap items-center gap-2.5 rounded-full bg-accent py-2.5 pe-2.5 ps-[18px] text-accent-on shadow-[0_14px_40px_rgba(0,0,0,0.2)] motion-safe:animate-[nm-pop-in_.3s_cubic-bezier(.32,.72,0,1)]"
+          data-testid="sensor-bulk-bar"
+          role="region"
+          aria-label={t('impact.bulkBar')}
+        >
+          <span className="min-w-0 flex-1 font-medium" aria-live="polite">
+            {t('impact.selected', { count: ids.length })}
+          </span>
+          <button
+            type="button"
+            onClick={() => setBulk(true)}
+            className="h-[34px] rounded-full bg-accent-on px-3.5 text-[13.5px] font-medium text-accent"
+          >
+            {t('impact.setImpact')}
+          </button>
+          {severityOn && (
+            <button
+              type="button"
+              onClick={() => setBulkSeverity(true)}
+              data-testid="sensor-bulk-severity"
+              className="h-[34px] rounded-full bg-accent-on px-3.5 text-[13.5px] font-medium text-accent"
+            >
+              {t('severity.bulk.action')}
+            </button>
+          )}
+          <button
+            type="button"
+            onClick={() => setBulkDelete(true)}
+            data-testid="sensor-bulk-delete"
+            className="inline-flex h-[34px] items-center gap-1.5 rounded-full bg-status-down px-3.5 text-[13.5px] font-medium text-on-status"
+          >
+            <TrashIcon size={14} />
+            {t('sensorBulk.delete')}
+          </button>
+          <button
+            type="button"
+            onClick={() => setPicked(new Set())}
+            className="h-[34px] rounded-full bg-[color-mix(in_srgb,var(--on-accent)_16%,transparent)] px-3.5 text-[13.5px] font-medium"
+          >
+            {t('impact.clearSelection')}
+          </button>
+        </div>
       )}
       {isAdmin && (
         <BulkImpactModal
@@ -141,7 +206,25 @@ export function DeviceSensorsCard({
           onDone={() => setPicked(new Set())}
         />
       )}
-    </Card>
+      {isAdmin && severityOn && (
+        <BulkSeverityModal
+          open={bulkSeverity}
+          onClose={() => setBulkSeverity(false)}
+          sensorIds={ids}
+          deviceId={deviceId}
+          onDone={() => setPicked(new Set())}
+        />
+      )}
+      {isAdmin && (
+        <BulkDeleteModal
+          open={bulkDelete}
+          onClose={() => setBulkDelete(false)}
+          sensors={pickedSensors}
+          deviceId={deviceId}
+          onDone={() => setPicked(new Set())}
+        />
+      )}
+    </div>
   );
 }
 
@@ -153,6 +236,7 @@ export function DevicePage() {
   const navigate = useNavigate();
   const qc = useQueryClient();
   const toast = useToast();
+  const menu = useEntityMenu();
 
   const device = useQuery({ queryKey: qk.device(id), queryFn: () => endpoints.device(id) });
   const sensors = useQuery({
@@ -253,17 +337,30 @@ export function DevicePage() {
         breadcrumbs={<Breadcrumbs groupId={d.group_id} />}
         title={
           <>
-            <StatusDot status={d.status} className="h-3 w-3" /> {d.name}
+            <StatusDot status={d.status} className="h-3 w-3" />{' '}
+            <bdi
+              {...menu({ kind: 'device', id: d.id })}
+              dir="ltr"
+              className="[font-family:var(--font-display)]"
+              data-testid="device-title"
+            >
+              {d.name}
+            </bdi>
             {d.in_maintenance && (
               <MaintenanceBadge endsAt={d.maintenance?.ends_at} name={d.maintenance?.name} />
             )}
           </>
         }
         subtitle={
-          <>
-            <Ltr>{d.host}</Ltr>
-            {d.description && <span className="ms-2">· {d.description}</span>}
-          </>
+          <span className="inline-flex flex-wrap items-center gap-x-2 gap-y-1">
+            {(identity?.vendor || identity?.model) && (
+              <bdi dir="ltr">{[identity?.vendor, identity?.model].filter(Boolean).join(' ')}</bdi>
+            )}
+            {(identity?.vendor || identity?.model) && <span aria-hidden="true">·</span>}
+            <Ltr className="num">{d.host}</Ltr>
+            {d.description && <span>· {d.description}</span>}
+            {d.status !== 'up' && <StatusBadge status={d.status} />}
+          </span>
         }
         actions={
           isAdmin && (
@@ -307,10 +404,10 @@ export function DevicePage() {
       <Card>
         <div className="flex flex-wrap items-center gap-4 text-sm">
           <StatusBadge status={d.status} />
-          {!d.enabled && <span className="text-slate-500">{t('devices.disabledNote')}</span>}
+          {!d.enabled && <span className="text-ink-muted">{t('devices.disabledNote')}</span>}
           <StatusCountPills counts={d.status_counts} />
           <NewDevicesBadge device={d} />
-          <span className="text-xs text-slate-500">
+          <span className="text-xs text-ink-muted">
             {t('snmp.label')}: {t(`snmp.source.${d.effective_snmp_source}`)}
             {d.snmp_credentials && ` (${d.snmp_credentials.version})`}
           </span>
@@ -318,8 +415,8 @@ export function DevicePage() {
         <div className="mt-3">
           <StatusBar counts={d.status_counts} />
         </div>
-        <p className="mt-3 text-xs text-slate-600 dark:text-slate-300">
-          <span className="font-medium text-slate-500">{t('dependency.parent')}:</span>{' '}
+        <p className="mt-3 text-xs text-ink-muted">
+          <span className="font-medium text-ink-muted">{t('dependency.parent')}:</span>{' '}
           <EffectiveDependencyText effective={d.effective_dependency ?? null} bare />
         </p>
       </Card>
@@ -343,8 +440,8 @@ export function DevicePage() {
           }
         >
           {identify.isPending ? (
-            <p className="flex items-center gap-2 text-sm text-slate-500">
-              <span className="inline-block h-4 w-4 animate-spin rounded-full border-2 border-sky-600 border-t-transparent" />
+            <p className="flex items-center gap-2 text-sm text-ink-muted">
+              <span className="inline-block h-4 w-4 animate-spin rounded-full border-2 border-accent border-t-transparent" />
               {t('identify.running')}
             </p>
           ) : (
@@ -358,11 +455,7 @@ export function DevicePage() {
         </Card>
       )}
       {tabs.length > 1 && (
-        <div
-          role="tablist"
-          aria-label={t('ports.tabs')}
-          className="flex gap-1 border-b border-slate-200 dark:border-slate-800"
-        >
+        <div role="tablist" aria-label={t('ports.tabs')} className={cx(SEG_TRACK, 'flex')}>
           {tabs.map((k) => (
             <button
               key={k}
@@ -370,12 +463,7 @@ export function DevicePage() {
               role="tab"
               aria-selected={tab === k}
               onClick={() => setTab(k)}
-              className={cx(
-                '-mb-px inline-flex items-center gap-1.5 border-b-2 px-3 py-2 text-sm font-medium',
-                tab === k
-                  ? 'border-sky-600 text-sky-700 dark:border-sky-400 dark:text-sky-300'
-                  : 'border-transparent text-slate-600 hover:text-slate-900 dark:text-slate-400 dark:hover:text-slate-200',
-              )}
+              className={tabClass(tab === k)}
             >
               {k === 'ports' && <PortIcon size={15} />}
               {k === 'logs' && <LogsIcon size={15} />}

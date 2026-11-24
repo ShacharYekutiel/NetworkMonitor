@@ -1,5 +1,5 @@
 import { expect, test } from '@playwright/test';
-import { Api, VIEWER, apiAs, defaultGroupId, loginViaApi } from '../lib/helpers';
+import { Api, VIEWER, apiAs, defaultGroupId, loginViaApi, menuNav } from '../lib/helpers';
 import { LAB_SCAN_OPTIONS, collectWsFrames, ensureViewer, raw, startScan, waitForScan } from '../lib/lab';
 
 // Phase 2a (h): viewers see no Discovery nav, get 403 on every discovery endpoint, receive no discovery.*
@@ -20,7 +20,7 @@ test.beforeAll(async () => {
 
 test('viewer: no Discovery nav, Templates visible; /discovery is forbidden', async ({ page }) => {
   await loginViaApi(page, VIEWER, '/');
-  const nav = page.getByRole('complementary');
+  const nav = await menuNav(page);
   await expect(nav.getByRole('link', { name: 'Templates' })).toBeVisible();
   await expect(nav.getByRole('link', { name: 'Discovery' })).toHaveCount(0);
   await page.goto('/discovery');

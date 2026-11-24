@@ -8,7 +8,7 @@ import { configFromRaw, rawFromConfig } from './sensorConfig';
 import { snmpFormFrom, snmpFormToInput } from './snmp';
 import { groupPath } from './tree';
 import { diffThresholds } from '../components/ThresholdEditor';
-import { formatDuration, formatValue } from './format';
+import { formatDuration, formatDurationCol, formatValue } from './format';
 import i18n from '../i18n';
 import { textDir } from '../components/ui';
 import { canRun } from './status';
@@ -289,6 +289,21 @@ describe('durations', () => {
     expect(formatDuration(2 * 86400 + 3600)).toBe('יומיים שעה');
     expect(textDir(formatDuration(86400))).toBe('rtl');
     expect(textDir(formatValue(1.8, 'ms'))).toBe('ltr');
+    await i18n.changeLanguage('en');
+  });
+
+  it('time column durations: always a number and a short unit', async () => {
+    await i18n.changeLanguage('en');
+    expect([0, 60, 1800].map(formatDurationCol)).toEqual(['0 min', '1 min', '30 min']);
+    expect(formatDurationCol(5400)).toBe('1 h 30 min');
+    await i18n.changeLanguage('he');
+    expect([0, 60, 120, 1800].map(formatDurationCol)).toEqual([
+      '0 דק׳',
+      '1 דק׳',
+      '2 דק׳',
+      '30 דק׳',
+    ]);
+    expect(formatDurationCol(3600)).toBe('1 שע׳');
     await i18n.changeLanguage('en');
   });
 });

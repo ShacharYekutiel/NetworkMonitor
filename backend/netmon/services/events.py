@@ -28,9 +28,23 @@ async def add_status_change(
     message: str = "",
     time: datetime | None = None,
     in_maintenance: bool = False,
+    rule_severity: str | None = None,
 ) -> Event:
     """Write a status_change event. [2b-1] Any status change clears the sensor's
-    acknowledgement (the publisher then broadcasts `sensor.ack` with null)."""
+    acknowledgement (the publisher then broadcasts `sensor.ack` with null).
+
+    [severity] While `alert_severity` is ON the severity is resolved now and stored with the
+    event (`events.severity`) and as the sensor's current problem severity
+    (`sensors.severity`, NULL outside down / warning). `rule_severity`: the event rule behind
+    an event sensor's status (netmon.services.severity)."""
+    from netmon.services import severity as severity_svc
+
+    severity = None
+    if severity_svc.session_enabled(session):
+        severity = await severity_svc.resolve_for_sensor(
+            session, sensor, new_status, rule_severity=rule_severity
+        )
+        sensor.severity = severity if new_status in severity_svc.PROBLEM else None
     ack_cleared = False
     if getattr(sensor, "ack_at", None) is not None and old_status != new_status:
         clear_ack(sensor)
@@ -47,6 +61,7 @@ async def add_status_change(
         new_status=new_status,
         message=message or "",
         in_maintenance=bool(in_maintenance),
+        severity=severity,
     )
     session.add(ev)
     await session.flush()

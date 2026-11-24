@@ -131,7 +131,7 @@ test('browser: auto sign-in as jdoe (viewer); logout does not re-login; ?sso=0 s
   try {
     const page = await (await b.newContext({ baseURL: SSO_BASE })).newPage();
     await page.goto('/login');
-    await expect(page.getByRole('navigation').first()).toBeVisible({ timeout: 20_000 });
+    await expect(page.getByTestId('menu-button')).toBeVisible({ timeout: 20_000 });
     const me = await page.request.get('/api/auth/me');
     expect((await me.json()).user).toMatchObject({ username: 'jdoe', role: 'viewer' });
     await shot3(page, '56-kerberos-signed-in');
@@ -145,7 +145,7 @@ test('browser: auto sign-in as jdoe (viewer); logout does not re-login; ?sso=0 s
     await expect(page.getByRole('button', { name: tx('sso.kerberosButton', /sign in with windows/i) })).toBeVisible();
     // the button signs in again
     await page.getByRole('button', { name: tx('sso.kerberosButton', /sign in with windows/i) }).click();
-    await expect(page.getByRole('navigation').first()).toBeVisible({ timeout: 20_000 });
+    await expect(page.getByTestId('menu-button')).toBeVisible({ timeout: 20_000 });
     await page.request.post('/api/auth/logout');
     // ?sso=0 in a fresh tab
     const p2 = await (await b.newContext({ baseURL: SSO_BASE })).newPage();

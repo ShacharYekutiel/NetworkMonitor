@@ -59,7 +59,7 @@ test('create a Telegram channel in the UI and send a test message', async ({ pag
   await dlg.getByRole('button', { name: 'Save' }).click();
   await expect(dlg).toBeHidden();
 
-  const row = card(page, 'Notification channels').getByRole('row').filter({ hasText: chName });
+  const row = card(page, 'Notification channels').getByTestId('channel-row').filter({ hasText: chName });
   await expect(row).toContainText('Telegram');
   await row.getByRole('button', { name: 'Send test' }).click();
   await expect(page.getByText(`${chName}: test sent`)).toBeVisible();
@@ -80,7 +80,7 @@ test('create a Telegram channel in the UI and send a test message', async ({ pag
 test('editing keeps the stored token (write-only field)', async ({ page }) => {
   recordApiResponses(page);
   await loginViaApi(page, undefined, '/notifications');
-  const row = card(page, 'Notification channels').getByRole('row').filter({ hasText: chName });
+  const row = card(page, 'Notification channels').getByTestId('channel-row').filter({ hasText: chName });
   await row.getByRole('button', { name: 'Edit' }).click();
   const dlg = page.getByRole('dialog');
   const token = dlg.getByLabel(/^Bot token/);
@@ -112,7 +112,7 @@ test('wrong token -> test shows the Telegram error (502 telegram_error)', async 
   await dlg.getByLabel(/^Chat ID/i).fill(TG_CHAT_OK);
   await dlg.getByRole('button', { name: 'Save' }).click();
   await expect(dlg).toBeHidden();
-  const row = card(page, 'Notification channels').getByRole('row').filter({ hasText: badName });
+  const row = card(page, 'Notification channels').getByTestId('channel-row').filter({ hasText: badName });
   const resp = page.waitForResponse((r) => r.url().includes('/test') && r.request().method() === 'POST');
   await row.getByRole('button', { name: 'Send test' }).click();
   const r = await resp;

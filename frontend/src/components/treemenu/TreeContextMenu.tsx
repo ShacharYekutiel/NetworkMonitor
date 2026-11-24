@@ -13,10 +13,10 @@ import { useLocation, useNavigate } from 'react-router';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useTranslation } from 'react-i18next';
 import { endpoints, qk } from '../../api/endpoints';
-import type { Device, Group, Sensor } from '../../api/types';
+import type { Device, Group, Sensor, TreeDevice, TreeGroup, TreeSensor } from '../../api/types';
 import { useAuth } from '../../hooks/auth';
 import { useFeatures } from '../../hooks/features';
-import { useSensorTypes } from '../../hooks/queries';
+import { useSensorTypes, useTree } from '../../hooks/queries';
 import { errorMessage } from '../../lib/errors';
 import { allDevices } from '../../lib/tree';
 import {
@@ -57,11 +57,18 @@ import { MaintenanceWindowModal } from '../Maintenance';
 import { AddSensorModal, EditSensorModal } from '../SensorForms';
 import { ApplyTemplateModal } from '../Templates';
 import { useToast } from '../toast';
-import { ConfirmDialog } from '../ui';
+import { ConfirmDialog, cx } from '../ui';
 import { ContextMenu, type CloseReason, type ContextMenuEntry } from './ContextMenu';
 
 type OpenFn = (target: TreeMenuTarget, anchor: Point, opener: HTMLElement | null) => void;
-type TreeMenuApi = { open: OpenFn; isOpen: () => boolean };
+/** A group / device / sensor named by id (rows outside the tree: the menu finds it in the tree). */
+export type EntityRef = { kind: 'group' | 'device' | 'sensor'; id: number };
+type TreeMenuApi = {
+  open: OpenFn;
+  isOpen: () => boolean;
+  /** the tree node of an entity shown elsewhere (null while the tree is loading / unknown id) */
+  resolve: (ref: EntityRef) => TreeMenuTarget | null;
+};
 const Ctx = createContext<TreeMenuApi | null>(null);
 
 /** Opens the tree context menu (null outside the provider: the tree then has no menu). */
@@ -77,19 +84,49 @@ function documentRtl(): boolean {
 }
 
 /**
- * Event handlers that open the context menu of a tree item: right click (the browser menu is
- * prevented on tree items only), a ~500 ms long press on touch screens, and the ContextMenu key /
- * Shift+F10 while the item has focus (the menu then opens under the item).
+ * Where the browser's own menu must stay: inside form fields and editable text, and on a text
+ * selection the pointer is on (copy / search).
  */
-export function useTreeItemMenu(target: TreeMenuTarget) {
+export function keepsNativeMenu(target: EventTarget | null, x?: number, y?: number): boolean {
+  const el = target instanceof Element ? target : null;
+  if (el?.closest('input, textarea, select, [contenteditable=""], [contenteditable="true"]'))
+    return true;
+  const sel = typeof window !== 'undefined' ? window.getSelection?.() : null;
+  if (!sel || sel.isCollapsed || !sel.rangeCount || !el) return false;
+  const range = sel.getRangeAt(0);
+  if (!range.intersectsNode(el)) return false;
+  if (x === undefined || y === undefined || typeof range.getClientRects !== 'function') return true;
+  return Array.from(range.getClientRects()).some(
+    (r) => x >= r.left && x <= r.right && y >= r.top && y <= r.bottom,
+  );
+}
+
+type MenuProps = {
+  'aria-keyshortcuts'?: string;
+  onContextMenu?: (e: React.MouseEvent<HTMLElement>) => void;
+  onKeyDown?: (e: React.KeyboardEvent<HTMLElement>) => void;
+  onTouchStart?: (e: React.TouchEvent<HTMLElement>) => void;
+  onTouchMove?: (e: React.TouchEvent<HTMLElement>) => void;
+  onTouchEnd?: (e: React.TouchEvent<HTMLElement>) => void;
+  onTouchCancel?: () => void;
+  onClick?: (e: React.MouseEvent<HTMLElement>) => void;
+};
+
+/**
+ * Handlers that open the context menu: right click (the browser menu is prevented on menu items
+ * only), a ~500 ms long press on touch screens, and the ContextMenu key / Shift+F10 while the item
+ * (or a link / button inside a row) has focus (the menu then opens under the item). One factory
+ * serves any number of rows (one touch at a time).
+ */
+function useMenuFactory(): ((get: () => TreeMenuTarget | null) => MenuProps) | null {
   const api = useTreeMenu();
   const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const touchStart = useRef<Point | null>(null);
   const longPressed = useRef(false);
   const openedAt = useRef(0);
-  if (!api) return {};
+  if (!api) return null;
   /** `viaOther`: opened by the keyboard / a long press, for which browsers also fire contextmenu */
-  const fire = (anchor: Point, el: HTMLElement, viaOther = false) => {
+  const fire = (target: TreeMenuTarget, anchor: Point, el: HTMLElement, viaOther = false) => {
     openedAt.current = viaOther ? Date.now() : 0;
     api.open(target, anchor, el);
   };
@@ -97,42 +134,58 @@ export function useTreeItemMenu(target: TreeMenuTarget) {
     if (timer.current) clearTimeout(timer.current);
     timer.current = null;
   };
-  return {
+  return (get) => ({
     'aria-keyshortcuts': 'Shift+F10',
-    onContextMenu: (e: React.MouseEvent<HTMLElement>) => {
-      e.preventDefault();
-      // the browser's own contextmenu that follows a keyboard / long-press opening: keep that menu
-      if (api.isOpen() && Date.now() - openedAt.current < 800) return;
-      const el = e.currentTarget;
+    onContextMenu: (e) => {
       const pointer = e.clientX !== 0 || e.clientY !== 0;
+      if (keepsNativeMenu(e.target, pointer ? e.clientX : undefined, e.clientY)) return;
+      // the browser's own contextmenu that follows a keyboard / long-press opening: keep that menu
+      if (api.isOpen() && Date.now() - openedAt.current < 800) {
+        e.preventDefault();
+        e.stopPropagation();
+        return;
+      }
+      const target = get();
+      if (!target) return; // not known yet: the browser menu stays
+      e.preventDefault();
+      e.stopPropagation(); // an inner item (a device link in a sensor row) wins over the row
+      const el = e.currentTarget;
+      const focused = e.target instanceof HTMLElement ? e.target : el;
       fire(
+        target,
         pointer
           ? { x: e.clientX, y: e.clientY }
           : keyboardAnchor(el.getBoundingClientRect(), documentRtl()),
-        el,
+        focused.closest<HTMLElement>('a, button, [tabindex]') ?? el,
       );
     },
-    onKeyDown: (e: React.KeyboardEvent<HTMLElement>) => {
-      if (!isMenuKey(e)) return;
+    onKeyDown: (e) => {
+      if (!isMenuKey(e) || keepsNativeMenu(e.target)) return;
+      const target = get();
+      if (!target) return;
       e.preventDefault();
       e.stopPropagation();
       const el = e.currentTarget;
-      fire(keyboardAnchor(el.getBoundingClientRect(), documentRtl()), el, true);
+      const focused = e.target instanceof HTMLElement ? e.target : el;
+      fire(target, keyboardAnchor(el.getBoundingClientRect(), documentRtl()), focused, true);
     },
-    onTouchStart: (e: React.TouchEvent<HTMLElement>) => {
+    onTouchStart: (e) => {
       cancel();
       longPressed.current = false;
-      if (e.touches.length !== 1) return;
+      if (e.touches.length !== 1 || keepsNativeMenu(e.target)) return;
       const p = { x: e.touches[0].clientX, y: e.touches[0].clientY };
       const el = e.currentTarget;
+      e.stopPropagation();
       touchStart.current = p;
       timer.current = setTimeout(() => {
         timer.current = null;
+        const target = get();
+        if (!target) return;
         longPressed.current = true;
-        fire(p, el, true);
+        fire(target, p, el, true);
       }, LONG_PRESS_MS);
     },
-    onTouchMove: (e: React.TouchEvent<HTMLElement>) => {
+    onTouchMove: (e) => {
       const p = touchStart.current;
       const tch = e.touches[0];
       if (
@@ -143,19 +196,36 @@ export function useTreeItemMenu(target: TreeMenuTarget) {
       )
         cancel();
     },
-    onTouchEnd: (e: React.TouchEvent<HTMLElement>) => {
+    onTouchEnd: (e) => {
       cancel();
       // no click / compatibility mouse events after a long press (they would navigate or close)
       if (longPressed.current && e.cancelable) e.preventDefault();
     },
     onTouchCancel: cancel,
-    onClick: (e: React.MouseEvent<HTMLElement>) => {
+    onClick: (e) => {
       if (longPressed.current) {
         longPressed.current = false;
         e.preventDefault();
       }
     },
-  };
+  });
+}
+
+/** The context-menu handlers of a tree item (spread on the item). */
+export function useTreeItemMenu(target: TreeMenuTarget): MenuProps {
+  const factory = useMenuFactory();
+  return factory ? factory(() => target) : {};
+}
+
+/**
+ * The same context menu for groups / devices / sensors shown as rows, cards or nodes anywhere
+ * (home, group, device, events, find): `menu({ kind: 'device', id })` gives the handlers to spread
+ * on the row. Usable inside loops; without the provider (kiosk) it gives nothing.
+ */
+export function useEntityMenu(): (ref: EntityRef | null | undefined) => MenuProps {
+  const factory = useMenuFactory();
+  const api = useTreeMenu();
+  return (ref) => (factory && api && ref ? factory(() => api.resolve(ref)) : {});
 }
 
 type Dialog =
@@ -192,7 +262,7 @@ const ICONS: Partial<Record<TreeMenuAction, ReactNode>> = {
   tabPorts: <PortIcon size={14} />,
   tabTimeline: <ClockIcon size={14} />,
   tabConfig: <BackupIcon size={14} />,
-  explain: <SparkIcon size={14} className="text-violet-600" />,
+  explain: <SparkIcon size={14} className="text-accent-ink" />,
   copyIp: <CopyIcon size={14} />,
   copyName: <CopyIcon size={14} />,
   acknowledge: <CheckIcon size={14} />,
@@ -247,6 +317,39 @@ function WithSensor({ id, children }: { id: number; children: (s: Sensor) => Rea
 
 const isPassive = (type: string) => isEventSensor({ type: type as Sensor['type'] });
 
+type TreeIndex = {
+  groups: Map<number, TreeGroup>;
+  devices: Map<number, TreeDevice>;
+  sensors: Map<number, { sensor: TreeSensor; device: TreeDevice }>;
+};
+
+function indexTree(groups: TreeGroup[]): TreeIndex {
+  const ix: TreeIndex = { groups: new Map(), devices: new Map(), sensors: new Map() };
+  const walk = (g: TreeGroup) => {
+    ix.groups.set(g.id, g);
+    for (const d of g.devices) {
+      ix.devices.set(d.id, d);
+      for (const s of d.sensors) ix.sensors.set(s.id, { sensor: s, device: d });
+    }
+    g.children.forEach(walk);
+  };
+  groups.forEach(walk);
+  return ix;
+}
+
+function lookup(ix: TreeIndex, ref: EntityRef): TreeMenuTarget | null {
+  if (ref.kind === 'group') {
+    const group = ix.groups.get(ref.id);
+    return group ? { kind: 'group', group } : null;
+  }
+  if (ref.kind === 'device') {
+    const device = ix.devices.get(ref.id);
+    return device ? { kind: 'device', device } : null;
+  }
+  const hit = ix.sensors.get(ref.id);
+  return hit ? { kind: 'sensor', sensor: hit.sensor, device: hit.device } : null;
+}
+
 type MenuState = { target: TreeMenuTarget; anchor: Point; opener: HTMLElement | null; n: number };
 
 export function TreeMenuProvider({ children }: { children: ReactNode }) {
@@ -269,7 +372,26 @@ export function TreeMenuProvider({ children }: { children: ReactNode }) {
     counter.current += 1;
     setMenu({ target, anchor, opener, n: counter.current });
   }, []);
-  const ctxValue = useMemo<TreeMenuApi>(() => ({ open, isOpen: () => menuOpen.current }), [open]);
+  // Rows outside the tree name an entity by id; the menu acts on its tree node (same actions).
+  const tree = useTree();
+  const index = useRef<TreeIndex | null>(null);
+  const indexed = useRef<unknown>(null);
+  const resolve = useCallback(
+    (ref: EntityRef): TreeMenuTarget | null => {
+      const data = qc.getQueryData<{ groups: TreeGroup[] }>(qk.tree) ?? tree.data;
+      if (!data) return null;
+      if (indexed.current !== data) {
+        index.current = indexTree(data.groups);
+        indexed.current = data;
+      }
+      return lookup(index.current!, ref);
+    },
+    [qc, tree.data],
+  );
+  const ctxValue = useMemo<TreeMenuApi>(
+    () => ({ open, isOpen: () => menuOpen.current, resolve }),
+    [open, resolve],
+  );
 
   // Discovery profiles of the group (admins; only fetched while a group menu is open).
   const groupId = menu?.target.kind === 'group' ? menu.target.group.id : null;
@@ -598,17 +720,21 @@ export function TreeMenuProvider({ children }: { children: ReactNode }) {
           role="status"
           aria-live="polite"
           data-testid="tree-bulk-progress"
-          className="fixed bottom-4 start-4 z-[60] w-72 rounded-md bg-white p-3 text-sm shadow-lg ring-1 ring-slate-200 dark:bg-slate-900 dark:ring-slate-700"
+          // premium progress toast (prototype .ptoast): card at the bottom end, n / total, bar
+          className="fixed bottom-6 end-6 z-[60] grid w-[340px] gap-2.5 rounded-[20px] bg-surface px-[18px] py-4 text-sm shadow-[0_18px_60px_rgba(0,0,0,0.2),0_0_0_1px_var(--border)]"
         >
-          <div className="mb-1.5 flex justify-between gap-2">
+          <div className="flex justify-between gap-2 font-medium">
             <span className="truncate">{bulk.label}</span>
-            <span className="shrink-0 tabular-nums text-slate-500">
+            <span dir="ltr" className="num shrink-0 text-[13px] text-ink-muted">
               {bulk.done}/{bulk.total}
             </span>
           </div>
-          <div className="h-1.5 overflow-hidden rounded bg-slate-200 dark:bg-slate-700">
+          <div className="h-1.5 overflow-hidden rounded-full bg-chip">
             <div
-              className="h-full bg-sky-600 transition-[width]"
+              className={cx(
+                'h-full rounded-full transition-[width]',
+                bulk.done >= bulk.total ? 'bg-status-up' : 'bg-ink',
+              )}
               style={{ width: `${(bulk.done / bulk.total) * 100}%` }}
             />
           </div>

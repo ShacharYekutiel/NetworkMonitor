@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+from typing import Any
 
 from fastapi import APIRouter, Request, Response
 from fastapi.responses import JSONResponse
@@ -16,6 +17,7 @@ from netmon.api.deps import (
     Admin,
     Audit,
     Page,
+    SessionUser,
     Viewer,
     client_ip,
     feature_on,
@@ -34,6 +36,7 @@ from netmon.schemas import (
 )
 from netmon.services import audit
 from netmon.services import security as security_svc
+from netmon.services import sessions as sessions_svc
 from netmon.services import settings as settings_svc
 from netmon.services.audit import AuditCtx
 from netmon.services.auth import (
@@ -46,7 +49,7 @@ from netmon.services.auth import (
     set_session_cookie,
     verify_password,
 )
-from netmon.services.serialize import now_utc, page, user_out
+from netmon.services.serialize import iso, now_utc, page, user_out
 
 router = APIRouter()
 
@@ -401,8 +404,10 @@ async def logout(
     everywhere = bool(body and body.everywhere)
     if everywhere:
         user.token_version += 1
+        await sessions_svc.forget_user(rt, session, user.id)
     elif sid:
         await security_svc.revoke_session(rt, session, sid, user.id)
+        await sessions_svc.forget(rt, session, sid)
     await audit.record(
         session,
         ctx,
@@ -418,6 +423,59 @@ async def logout(
         await rt.hub.close_session(sid, 4401)
     resp = Response(status_code=204)
     clear_session_cookie(resp, _secure(request, rt))
+    return resp
+
+
+# ---------------------------------------------------------------- [premium] sessions
+def _session_out(row: Any, current_sid: str | None) -> dict:
+    return {
+        "id": row.public_id,
+        "created_at": iso(row.created_at),
+        "last_seen_at": iso(row.last_seen_at),
+        "ip": row.ip,
+        "user_agent": row.user_agent,
+        "current": current_sid is not None and row.sid == current_sid,
+    }
+
+
+@router.get("/api/auth/sessions")
+async def list_sessions(request: Request, rt: RT, user: SessionUser, session: DB) -> dict:
+    """The caller's signed-in browsers, newest activity first (`current` = this browser).
+    Browser sessions only: API tokens are refused (like logout)."""
+    sid = getattr(getattr(request.state, "auth", None), "sid", None)
+    rows = await sessions_svc.list_alive(rt, session, user.id, user.source, sid)
+    return {"items": [_session_out(r, sid) for r in rows]}
+
+
+@router.delete("/api/auth/sessions/{session_id}", status_code=204)
+async def end_session(
+    session_id: str, request: Request, rt: RT, user: SessionUser, session: DB, ctx: Audit
+) -> Response:
+    """Ends one of the caller's sessions server-side (revoked like a logout). Another user's or
+    an unknown id: `404`. The current session: the same as `POST /api/auth/logout`."""
+    current = getattr(getattr(request.state, "auth", None), "sid", None)
+    row = None
+    if 0 < len(session_id) <= 64:
+        row = await sessions_svc.find_alive(rt, session, user.id, user.source, session_id, current)
+    if row is None:
+        raise not_found("Session")
+    is_current = row.sid == current
+    await security_svc.revoke_session(rt, session, row.sid, user.id)
+    await sessions_svc.forget(rt, session, row.sid)
+    await audit.record(
+        session,
+        ctx,
+        "auth.logout",
+        _user_entity(user),
+        {"session": [None, row.public_id]},
+        source=user.source,
+    )
+    await session.commit()
+    await rt.hub.close_session(row.sid, 4401)
+    resp = Response(status_code=204)
+    if is_current:
+        request.state.renew_token = None
+        clear_session_cookie(resp, _secure(request, rt))
     return resp
 
 

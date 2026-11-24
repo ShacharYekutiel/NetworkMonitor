@@ -3,11 +3,12 @@ import * as echarts from 'echarts/core';
 import { BarChart } from 'echarts/charts';
 import { GridComponent, TooltipComponent } from 'echarts/components';
 import { CanvasRenderer } from 'echarts/renderers';
-import { initChart } from '../../lib/echarts';
+import { flatTooltip, initChart } from '../../lib/echarts';
 import { useTranslation } from 'react-i18next';
 import { useTheme } from '../../hooks/theme';
 import { histogramTooltipHtml } from '../../lib/html';
-import { SEVERITY_HEX, severityTone } from '../../lib/logs';
+import { SEVERITY_HEX, severityHex, severityTone } from '../../lib/logs';
+import { chartTokens } from '../../lib/chartTokens';
 
 echarts.use([BarChart, GridComponent, TooltipComponent, CanvasRenderer]);
 
@@ -48,18 +49,29 @@ export function Histogram({
   useEffect(() => {
     const c = chart.current;
     if (!c) return;
-    const text = dark ? '#cbd5e1' : '#475569';
-    const grid = dark ? '#1e293b' : '#e2e8f0';
+    const tk = chartTokens(dark);
+    const text = tk.inkSubtle;
+    // Series colours are given as light-theme tokens (SEVERITY_HEX): map them to this theme.
+    const live = severityHex(tk);
+    const themed = (c: string) => {
+      const k = (Object.keys(SEVERITY_HEX) as (keyof typeof SEVERITY_HEX)[]).find(
+        (x) => SEVERITY_HEX[x] === c,
+      );
+      return k ? live[k] : c;
+    };
     const locale = i18n.language === 'he' ? 'he-IL' : 'en-GB';
     const ts = times.map((x) => Date.parse(x) + (bucketS * 1000) / 2);
     c.setOption(
       {
         animation: false,
-        textStyle: { color: text },
-        grid: { left: 40, right: 12, top: 8, bottom: 24 },
+        textStyle: { color: text, fontFamily: tk.fontSans },
+        // premium flat bars (prototype .bars): no y axis, no grid, rounded tops
+        grid: { left: 4, right: 4, top: 8, bottom: 24 },
         tooltip: {
           trigger: 'axis',
-          axisPointer: { type: 'shadow' },
+          ...flatTooltip(tk),
+          textStyle: { color: tk.ink, fontSize: 12 },
+          axisPointer: { type: '' },
           formatter: (params: unknown) => {
             const ps = params as {
               dataIndex: number;
@@ -85,9 +97,12 @@ export function Histogram({
           // ECharts 5 spaced the ticks of a bar series on a time axis like splitNumber 5
           // (1 h -> 10 min); ECharts 6 treats it like a line series (1 h -> 5 min).
           splitNumber: 5,
-          axisLine: { lineStyle: { color: grid } },
+          axisLine: { show: false },
+          axisTick: { show: false },
           axisLabel: {
             color: text,
+            fontFamily: tk.fontDisplay,
+            fontSize: 10.5,
             hideOverlap: true,
             formatter: {
               day: '{d}/{M}',
@@ -101,15 +116,16 @@ export function Histogram({
         yAxis: {
           type: 'value',
           minInterval: 1,
-          axisLabel: { color: text },
-          splitLine: { lineStyle: { color: grid } },
+          show: false,
+          splitLine: { show: false },
         },
         series: series.map((s) => ({
           name: s.name,
           type: 'bar',
           stack: 'all',
-          barMaxWidth: 24,
-          itemStyle: { color: s.color },
+          barMaxWidth: 18,
+          barMinHeight: 0,
+          itemStyle: { color: themed(s.color), borderRadius: [3, 3, 2, 2] },
           data: s.data.map((v, i) => [ts[i], v]),
         })),
       },
@@ -117,7 +133,7 @@ export function Histogram({
     );
   }, [times, series, bucketS, from, to, dark, i18n.language]);
 
-  return <div ref={ref} className="h-32 w-full" data-testid="logs-histogram" />;
+  return <div ref={ref} className="h-[140px] w-full" data-testid="logs-histogram" />;
 }
 
 /** Syslog stats buckets → 8 stacked series (one per severity, worst first). */

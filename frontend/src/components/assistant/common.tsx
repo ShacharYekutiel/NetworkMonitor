@@ -4,7 +4,10 @@ import { endpoints3b, qk3b } from '../../api/endpoints3b';
 import type { AiFeatureName, AssistantState } from '../../api/types';
 import { useAuth } from '../../hooks/auth';
 import { useFeatures } from '../../hooks/features';
-import { cx } from '../ui';
+import { parseStatusLine } from '../../lib/assistant';
+import { formatShortDate } from '../../lib/format';
+import { SparkIcon } from '../icons';
+import { BANNER, BANNER_TONE, cx } from '../ui';
 
 /** An AI feature's entry points are shown to admins while the feature AND the assistant are ON. */
 export function useAiFeature(name: AiFeatureName): boolean {
@@ -30,14 +33,16 @@ export function useAssistantStatus(enabled = true) {
 export function AiBadge({ className }: { className?: string }) {
   const { t } = useTranslation();
   return (
+    // premium "AI ✦" (prototype .aitag): a quiet chip
     <span
       className={cx(
-        'inline-flex items-center rounded bg-violet-100 px-1 text-[10px] font-semibold uppercase tracking-wide text-violet-800 dark:bg-violet-900/60 dark:text-violet-200',
+        'num inline-flex h-[22px] items-center gap-[5px] whitespace-nowrap rounded-[7px] bg-chip px-2 align-middle text-[11.5px] font-semibold tracking-[0.02em] text-ink-muted',
         className,
       )}
       title={t('assistant.aiGenerated')}
     >
       {t('assistant.ai')}
+      <SparkIcon size={13} />
     </span>
   );
 }
@@ -46,7 +51,7 @@ export function AiBadge({ className }: { className?: string }) {
 export function AiNotice({ className }: { className?: string }) {
   const { t } = useTranslation();
   return (
-    <p className={cx('text-xs text-slate-500', className)} data-testid="ai-notice">
+    <p className={cx('text-xs text-ink-muted', className)} data-testid="ai-notice">
       <AiBadge className="me-1" />
       {t('assistant.mayBeWrong')}
     </p>
@@ -54,11 +59,11 @@ export function AiNotice({ className }: { className?: string }) {
 }
 
 const STATE_TONE: Record<AssistantState, string> = {
-  disabled: 'bg-slate-400',
-  unconfigured: 'bg-slate-500',
-  ready: 'bg-green-600',
-  degraded: 'bg-amber-500',
-  error: 'bg-red-600',
+  disabled: 'bg-status-paused',
+  unconfigured: 'bg-status-paused',
+  ready: 'bg-status-up',
+  degraded: 'bg-status-warning',
+  error: 'bg-status-down',
 };
 
 export function AssistantStateBadge({ state }: { state: AssistantState }) {
@@ -110,7 +115,7 @@ export function CannotDraftNotice({
 }) {
   return (
     <div
-      className="space-y-1 rounded-md bg-amber-50 px-3 py-2 text-sm text-amber-900 ring-1 ring-inset ring-amber-200 dark:bg-amber-950/40 dark:text-amber-200 dark:ring-amber-900"
+      className={cx(BANNER, BANNER_TONE.warning, 'space-y-1')}
       role="status"
       data-testid={testId}
     >
@@ -129,4 +134,32 @@ export function CannotDraftNotice({
       </p>
     </div>
   );
+}
+
+/** A capability's status line in the user's language (see parseStatusLine). */
+export function useStatusLineText() {
+  const { t } = useTranslation();
+  const reason = (r: string) =>
+    t(`aiStatus.reason.${r}`, { defaultValue: t(`errors.${r}`, { defaultValue: r }) });
+  return (line: string): string => {
+    const p = parseStatusLine(line);
+    if (!p) return line;
+    switch (p.kind) {
+      case 'incidents':
+        return t('aiStatus.openIncidents', { count: p.count });
+      case 'digest': {
+        const day = /^\d{4}-\d{2}-\d{2}$/.test(p.day)
+          ? formatShortDate(`${p.day}T12:00:00`)
+          : p.day;
+        const status = t(`aiStatus.digestStatus.${p.status}`, { defaultValue: p.status });
+        return p.reason
+          ? t('aiStatus.lastDigestReason', { day, status, reason: reason(p.reason) })
+          : t('aiStatus.lastDigest', { day, status });
+      }
+      case 'noteSent':
+        return t('aiStatus.noteSent');
+      case 'noteSkipped':
+        return t('aiStatus.noteSkipped', { reason: reason(p.reason) });
+    }
+  };
 }

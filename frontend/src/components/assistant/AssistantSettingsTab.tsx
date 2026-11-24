@@ -20,10 +20,24 @@ import { formatDateTime } from '../../lib/format';
 import { cardAnchor } from '../../lib/settingsIndex';
 import { Toggle, useSaveSettings } from '../features/common';
 import { useFeatureToggle } from '../features/FeatureToggle';
-import { CheckIcon, XIcon } from '../icons';
+import {
+  BackupIcon,
+  BellIcon,
+  CheckIcon,
+  EditIcon,
+  IncidentIcon,
+  LayersIcon,
+  LogsIcon,
+  PhoneIcon,
+  ReportIcon,
+  SearchIcon,
+  SparkIcon,
+  XIcon,
+} from '../icons';
 import { useToast } from '../toast';
 import {
   Button,
+  buttonClass,
   Card,
   Checkbox,
   cx,
@@ -33,9 +47,11 @@ import {
   Input,
   Loading,
   Select,
+  TAG,
+  TAG_TONE,
   Textarea,
 } from '../ui';
-import { useAssistantErrorText, useAssistantStatus } from './common';
+import { useAssistantErrorText, useAssistantStatus, useStatusLineText } from './common';
 import { ChatModelsCard } from './ChatModelsCard';
 import { ConnectionSettings } from './ConnectionSettings';
 
@@ -120,7 +136,7 @@ function ScalarForm({
                 label={t(`assistant.key.${f.key}`)}
                 hint={
                   err ? (
-                    <span className="text-red-600">
+                    <span className="text-status-down">
                       {f.kind === 'int'
                         ? t('assistant.settings.err.range', { min: f.min, max: f.max })
                         : f.kind === 'time'
@@ -156,7 +172,7 @@ function ScalarForm({
               checked={!!v[f.key]}
               onChange={(c) => setV((x) => ({ ...x, [f.key]: c }))}
             />
-            {f.hint && <p className="ms-6 text-xs text-slate-500">{f.hint}</p>}
+            {f.hint && <p className="ms-6 text-xs text-ink-muted">{f.hint}</p>}
           </div>
         ))}
       {extra}
@@ -220,11 +236,9 @@ function DataSharingCard({ s, settings }: { s: AssistantSettings; settings: Sett
             checked={excerpts}
             onChange={setExcerpts}
           />
-          <p className="ms-6 text-xs text-slate-500">{t('assistant.settings.sendConfigHint')}</p>
+          <p className="ms-6 text-xs text-ink-muted">{t('assistant.settings.sendConfigHint')}</p>
           {excerpts && maskOff && (
-            <p className="ms-6 text-xs text-amber-700 dark:text-amber-300">
-              {t('assistant.settings.maskOff')}
-            </p>
+            <p className="ms-6 text-xs text-status-warning">{t('assistant.settings.maskOff')}</p>
           )}
         </div>
         <div>
@@ -233,7 +247,7 @@ function DataSharingCard({ s, settings }: { s: AssistantSettings; settings: Sett
             checked={redact}
             onChange={setRedact}
           />
-          <p className="ms-6 text-xs text-slate-500">{t('assistant.settings.redactTradeoff')}</p>
+          <p className="ms-6 text-xs text-ink-muted">{t('assistant.settings.redactTradeoff')}</p>
         </div>
         {redact && (
           <Field
@@ -241,11 +255,11 @@ function DataSharingCard({ s, settings }: { s: AssistantSettings; settings: Sett
             className="ms-6"
             hint={
               parsed.bad.length ? (
-                <span className="text-red-600">
+                <span className="text-status-down">
                   {t('assistant.settings.badCidrs', { list: parsed.bad.join(', ') })}
                 </span>
               ) : tooMany ? (
-                <span className="text-red-600">{t('assistant.settings.tooManyCidrs')}</span>
+                <span className="text-status-down">{t('assistant.settings.tooManyCidrs')}</span>
               ) : (
                 t('assistant.settings.internalCidrsHint')
               )
@@ -266,7 +280,7 @@ function DataSharingCard({ s, settings }: { s: AssistantSettings; settings: Sett
             checked={chatRedact}
             onChange={setChatRedact}
           />
-          <p className="ms-6 text-xs text-slate-500">{t('assistant.settings.chatRedactHint')}</p>
+          <p className="ms-6 text-xs text-ink-muted">{t('assistant.settings.chatRedactHint')}</p>
         </div>
         <ErrorBox error={save.error} />
         <div className="flex justify-end">
@@ -275,14 +289,14 @@ function DataSharingCard({ s, settings }: { s: AssistantSettings; settings: Sett
           </Button>
         </div>
         <div
-          className="space-y-1 rounded-md bg-slate-50 p-3 text-xs text-slate-600 dark:bg-slate-800/60 dark:text-slate-300"
+          className="space-y-1 rounded-md bg-surface-sunken p-3 text-xs text-ink-muted"
           data-testid="data-handling"
         >
           <p className="font-semibold">{t('assistant.settings.dataHandling')}</p>
           <p>{t('assistant.settings.dataHandlingText')}</p>
           <p className="flex flex-wrap gap-x-3">
             <a
-              className="text-sky-700 underline dark:text-sky-400"
+              className="text-accent-ink underline"
               target="_blank"
               rel="noopener noreferrer"
               href="https://docs.aws.amazon.com/bedrock/latest/userguide/data-protection.html"
@@ -290,7 +304,7 @@ function DataSharingCard({ s, settings }: { s: AssistantSettings; settings: Sett
               {t('assistant.settings.linkDataProtection')}
             </a>
             <a
-              className="text-sky-700 underline dark:text-sky-400"
+              className="text-accent-ink underline"
               target="_blank"
               rel="noopener noreferrer"
               href="https://docs.aws.amazon.com/bedrock/latest/userguide/model-invocation-logging.html"
@@ -298,7 +312,7 @@ function DataSharingCard({ s, settings }: { s: AssistantSettings; settings: Sett
               {t('assistant.settings.linkInvocationLogging')}
             </a>
             <a
-              className="text-sky-700 underline dark:text-sky-400"
+              className="text-accent-ink underline"
               target="_blank"
               rel="noopener noreferrer"
               href="https://docs.aws.amazon.com/bedrock/latest/userguide/cross-region-inference.html"
@@ -306,7 +320,7 @@ function DataSharingCard({ s, settings }: { s: AssistantSettings; settings: Sett
               {t('assistant.settings.linkCrossRegion')}
             </a>
           </p>
-          <p className="text-slate-500">{t('assistant.settings.auditTitlesOnly')}</p>
+          <p className="text-ink-muted">{t('assistant.settings.auditTitlesOnly')}</p>
         </div>
       </form>
     </Card>
@@ -364,7 +378,7 @@ function PricesForm({ s }: { s: AssistantSettings }) {
       label={t(`assistant.prices.${k}`, { currency: v.currency })}
       hint={
         bad(v[k]) ? (
-          <span className="text-red-600">{t('assistant.settings.err.money')}</span>
+          <span className="text-status-down">{t('assistant.settings.err.money')}</span>
         ) : undefined
       }
     >
@@ -381,7 +395,7 @@ function PricesForm({ s }: { s: AssistantSettings }) {
   );
   return (
     <form
-      className="space-y-3 border-t border-slate-200 pt-3 dark:border-slate-800"
+      className="space-y-3 border-t border-line pt-3"
       onSubmit={(e) => {
         e.preventDefault();
         if (!invalid) save.mutate();
@@ -389,7 +403,7 @@ function PricesForm({ s }: { s: AssistantSettings }) {
       data-testid="assistant-prices"
     >
       <p className="text-sm font-medium">{t('assistant.prices.title')}</p>
-      <p className="text-xs text-slate-500">{t('assistant.prices.hint')}</p>
+      <p className="text-xs text-ink-muted">{t('assistant.prices.hint')}</p>
       <div className="grid grid-cols-2 gap-3 lg:grid-cols-5">
         <Field label={t('assistant.prices.currency')}>
           <Input
@@ -422,13 +436,16 @@ function UsageStrip() {
   const tone = pctTone(m.pct_of_cap);
   return (
     <div
-      className="flex flex-wrap items-center gap-x-4 gap-y-1 rounded-md bg-slate-50 px-3 py-2 text-xs dark:bg-slate-800/60"
+      className="flex flex-wrap items-center gap-x-4 gap-y-1 rounded-lg bg-chip px-4 py-2.5 text-xs"
       data-testid="usage-strip"
     >
       <span>
         {t('usage.thisMonth')}: {compactTokens(m.tokens)} / {compactTokens(m.token_cap)}{' '}
         <span
-          className={cx(tone === 'error' && 'text-red-600', tone === 'warn' && 'text-amber-700')}
+          className={cx(
+            tone === 'error' && 'text-status-down',
+            tone === 'warn' && 'text-status-warning',
+          )}
         >
           ({Math.round(m.pct_of_cap)} %)
         </span>
@@ -441,12 +458,9 @@ function UsageStrip() {
       )}
       <span>{t('usage.projection', { pct: Math.round(m.projection_pct) })}</span>
       {m.background_stopped && (
-        <span className="text-amber-700">{t('usage.backgroundStopped')}</span>
+        <span className="text-status-warning">{t('usage.backgroundStopped')}</span>
       )}
-      <Link
-        to="/assistant/usage"
-        className="ms-auto text-sky-700 hover:underline dark:text-sky-400"
-      >
+      <Link to="/assistant/usage" className="ms-auto text-accent-ink hover:underline">
         {t('usage.open')}
       </Link>
     </div>
@@ -488,9 +502,7 @@ function LimitsCard({ s, settings }: { s: AssistantSettings; settings: Settings 
           ]}
         />
         {!s.prices.input_per_mtok && (
-          <p className="text-xs text-amber-700 dark:text-amber-300">
-            {t('assistant.hint.noPrices')}
-          </p>
+          <p className="text-xs text-status-warning">{t('assistant.hint.noPrices')}</p>
         )}
         <PricesForm s={s} />
       </div>
@@ -512,7 +524,7 @@ function ConversationsCard({ settings }: { settings: Settings }) {
           { key: 'assistant_retention_days', kind: 'int', min: 1, max: 730 },
           { key: 'assistant_artifact_retention_days', kind: 'int', min: 7, max: 730 },
         ]}
-        extra={<p className="text-xs text-slate-500">{t('assistant.settings.auditTitlesOnly')}</p>}
+        extra={<p className="text-xs text-ink-muted">{t('assistant.settings.auditTitlesOnly')}</p>}
       />
     </Card>
   );
@@ -561,7 +573,7 @@ function DigestForm({ settings }: { settings: Settings }) {
             label={t('assistant.key.digest_email_to')}
             hint={
               bad.length ? (
-                <span className="text-red-600">
+                <span className="text-status-down">
                   {t('assistant.settings.badEmails', { list: bad.join(', ') })}
                 </span>
               ) : (
@@ -591,7 +603,7 @@ function DigestForm({ settings }: { settings: Settings }) {
                   />
                 ))}
               {channels.data && !channels.data.items.length && (
-                <span className="text-xs text-slate-500">{t('rules.noChannels')}</span>
+                <span className="text-xs text-ink-muted">{t('rules.noChannels')}</span>
               )}
             </div>
           </FieldGroup>
@@ -604,19 +616,16 @@ function DigestForm({ settings }: { settings: Settings }) {
 function ChatAskExtra() {
   const { t } = useTranslation();
   return (
-    <div
-      className="space-y-1 text-xs text-slate-600 dark:text-slate-400"
-      data-testid="chat-ask-info"
-    >
+    <div className="space-y-1 text-xs text-ink-muted" data-testid="chat-ask-info">
       <p>{t('assistant.chatAsk.howTo')}</p>
       <p>{t('assistant.chatAsk.linking')}</p>
-      <p className="text-slate-500">{t('assistant.chatAsk.teams')}</p>
+      <p className="text-ink-muted">{t('assistant.chatAsk.teams')}</p>
       <p>
-        <Link to="/account" className="text-sky-700 hover:underline dark:text-sky-400">
+        <Link to="/account" className="text-accent-ink hover:underline">
           {t('assistant.chatAsk.accountLink')}
         </Link>
         {' · '}
-        <Link to="/notifications" className="text-sky-700 hover:underline dark:text-sky-400">
+        <Link to="/notifications" className="text-accent-ink hover:underline">
           {t('assistant.chatAsk.channelsLink')}
         </Link>
       </p>
@@ -656,7 +665,7 @@ function FeatureSettings({ name, settings }: { name: AiFeatureName; settings: Se
             { key: 'alert_note_timeout_s', kind: 'int', min: 10, max: 120 },
             { key: 'alert_notes_daily_cap', kind: 'int', min: 0, max: 5000 },
           ]}
-          extra={<p className="text-xs text-slate-500">{t('assistant.hint.notesWhere')}</p>}
+          extra={<p className="text-xs text-ink-muted">{t('assistant.hint.notesWhere')}</p>}
         />
       );
     case 'ai_config_diff':
@@ -673,10 +682,7 @@ function FeatureSettings({ name, settings }: { name: AiFeatureName; settings: Se
       return (
         <div className="space-y-2">
           <DigestForm settings={settings} />
-          <Link
-            to="/assistant/digests"
-            className="text-xs text-sky-700 hover:underline dark:text-sky-400"
-          >
+          <Link to="/assistant/digests" className="text-xs text-accent-ink hover:underline">
             {t('digest.open')}
           </Link>
         </div>
@@ -690,18 +696,41 @@ function FeatureSettings({ name, settings }: { name: AiFeatureName; settings: Se
         />
       );
     case 'ai_report_summary':
-      return <p className="text-xs text-slate-500">{t('assistant.hint.reportOptIn')}</p>;
+      return <p className="text-xs text-ink-muted">{t('assistant.hint.reportOptIn')}</p>;
     case 'ai_rule_drafts':
-      return <p className="text-xs text-slate-500">{t('assistant.hint.ruleDraftsWhere')}</p>;
+      return <p className="text-xs text-ink-muted">{t('assistant.hint.ruleDraftsWhere')}</p>;
     case 'ai_template_drafts':
-      return <p className="text-xs text-slate-500">{t('assistant.hint.templateDraftsWhere')}</p>;
+      return <p className="text-xs text-ink-muted">{t('assistant.hint.templateDraftsWhere')}</p>;
     case 'ai_explain_alert':
-      return <p className="text-xs text-slate-500">{t('assistant.hint.explainWhere')}</p>;
+      return <p className="text-xs text-ink-muted">{t('assistant.hint.explainWhere')}</p>;
     default:
       return null;
   }
 }
 
+/** Capabilities with a settings form (shown under the cards while ON). */
+const FORM_FEATURES = new Set<AiFeatureName>([
+  'ai_correlation',
+  'ai_alert_notes',
+  'ai_config_diff',
+  'ai_syslog_digest',
+  'ai_chat_ask',
+]);
+
+const CAP_ICON: Record<AiFeatureName, typeof SparkIcon> = {
+  ai_explain_alert: SparkIcon,
+  ai_correlation: IncidentIcon,
+  ai_alert_notes: BellIcon,
+  ai_config_diff: BackupIcon,
+  ai_syslog_digest: LogsIcon,
+  ai_rule_drafts: EditIcon,
+  ai_template_drafts: LayersIcon,
+  ai_knowledge: SearchIcon,
+  ai_chat_ask: PhoneIcon,
+  ai_report_summary: ReportIcon,
+};
+
+/** One capability (prototype .cap): icon tile, name + what it does + "waiting — needs …", switch. */
 function CapabilityRow({
   name,
   settings,
@@ -715,45 +744,36 @@ function CapabilityRow({
   const f = featuresFromSettings(settings);
   const st = useAssistantStatus();
   const info = st.data?.features.find((x) => x.name === name);
+  const statusText = useStatusLineText();
   const on = f[name];
   const hints = featureHints(name, f, settings);
   const kb = name === 'ai_knowledge';
+  const Icon = CAP_ICON[name] ?? SparkIcon;
+  // short hints stay in the card; the forms are listed under the cards (CapabilitiesCard)
+  const hintInCard = on && !kb && !FORM_FEATURES.has(name);
   return (
-    <li className="space-y-2 px-4 py-3" data-feature={name}>
-      <div className="flex items-start gap-3">
-        <div className="pt-0.5">
-          {kb ? (
-            <span
-              className={cx(
-                'inline-block h-2 w-2 rounded-full',
-                on ? 'bg-green-600' : 'bg-slate-400',
-              )}
-              aria-hidden
-            />
-          ) : (
-            <Toggle
-              checked={on}
-              onChange={(v) => ft.toggle(name, v)}
-              label={t(`features.name.${name}`)}
-              busy={ft.pending === name}
-            />
-          )}
-        </div>
-        <div className="min-w-0 flex-1 space-y-0.5">
-          <div className="flex flex-wrap items-baseline gap-2">
-            <span className="font-medium">{t(`features.name.${name}`)}</span>
-            <span
-              className={cx(
-                'text-xs',
-                on ? 'text-green-700 dark:text-green-400' : 'text-slate-500',
-              )}
-            >
-              {on ? t('features.on') : t('features.off')}
-            </span>
-          </div>
-          <p className="text-sm text-slate-600 dark:text-slate-300">{t(`features.desc.${name}`)}</p>
+    <li
+      className="grid min-w-0 content-start gap-3 self-stretch rounded-xl bg-surface px-[18px] py-4 shadow-card"
+      data-feature={name}
+    >
+      <div className="grid grid-cols-[auto_minmax(0,1fr)_auto] items-start gap-3">
+        <span className="grid h-9 w-9 place-items-center rounded-[11px] bg-chip text-ink">
+          <Icon size={18} />
+        </span>
+        <div className="grid min-w-0 gap-[3px]">
+          <b className="font-semibold">{t(`features.name.${name}`)}</b>
+          <span className="text-[13px] leading-[1.45] text-ink-muted">
+            {t(`features.desc.${name}`)}
+          </span>
           {on && info?.idle_reason && (
-            <p className="text-xs text-amber-700 dark:text-amber-300" data-testid="idle-reason">
+            <span
+              className={cx(
+                TAG,
+                TAG_TONE.warning,
+                'mt-1 h-auto justify-self-start py-1 leading-snug',
+              )}
+              data-testid="idle-reason"
+            >
               {t('assistant.idle', {
                 reason: info.idle_reason
                   .split(',')
@@ -764,35 +784,44 @@ function CapabilityRow({
                   )
                   .join(', '),
               })}
-            </p>
+            </span>
           )}
           {on && info?.status_line && (
-            <p className="text-xs text-green-700 dark:text-green-400">{info.status_line}</p>
+            <span className="text-xs text-status-up">{statusText(info.status_line)}</span>
           )}
           {hints.map((h) => (
-            <p
+            <span
               key={h.key}
               className={cx(
                 'text-xs',
-                h.tone === 'warn' ? 'text-amber-700 dark:text-amber-300' : 'text-slate-500',
+                h.tone === 'warn' ? 'text-status-warning' : 'text-ink-muted',
               )}
             >
               {t(h.key)}
-            </p>
+            </span>
           ))}
           {kb && (
-            <a
-              href="#assistant-kb"
-              className="text-xs text-sky-700 hover:underline dark:text-sky-400"
-            >
+            <a href="#assistant-kb" className="text-xs text-accent-ink hover:underline">
               {t('assistant.kb.configureBelow')}
             </a>
           )}
           {!!ft.errors[name] && <ErrorBox error={ft.errors[name]} className="mt-1" />}
         </div>
+        {kb ? (
+          <span className={cx(TAG, on ? TAG_TONE.up : TAG_TONE.neutral, 'mt-1')}>
+            {on ? t('features.on') : t('features.off')}
+          </span>
+        ) : (
+          <Toggle
+            checked={on}
+            onChange={(v) => ft.toggle(name, v)}
+            label={t(`features.name.${name}`)}
+            busy={ft.pending === name}
+          />
+        )}
       </div>
-      {on && !kb && (
-        <div className="ms-12" data-anchor={FEATURE_SETTINGS_ANCHOR[name]}>
+      {hintInCard && (
+        <div className="sm:ms-12" data-anchor={FEATURE_SETTINGS_ANCHOR[name]}>
           <FeatureSettings name={name} settings={settings} />
         </div>
       )}
@@ -803,22 +832,82 @@ function CapabilityRow({
 function CapabilitiesCard({ settings }: { settings: Settings }) {
   const { t } = useTranslation();
   const ft = useFeatureToggle();
+  const f = featuresFromSettings(settings);
+  // prototype .sec "יכולות": a title, one line, then the capability cards two per row
   return (
-    <Card
-      title={t('assistant.settings.capabilities')}
-      bodyClassName="p-0"
-      anchor={cardAnchor('assistantCapabilities')}
-    >
-      <p className="border-b border-slate-200 px-4 py-2 text-xs text-slate-500 dark:border-slate-800">
-        {t('assistant.settings.capabilitiesIntro')}
-      </p>
-      <ul className="divide-y divide-slate-100 dark:divide-slate-800" data-testid="capabilities">
+    <section data-anchor={cardAnchor('assistantCapabilities')} className="grid gap-3.5">
+      <h2 className="m-0 mx-1 text-[20px] font-semibold tracking-[-0.01em]">
+        {t('assistant.settings.capabilities')}
+      </h2>
+      <p className="m-0 mx-1 text-sm text-ink-muted">{t('assistant.settings.capabilitiesIntro')}</p>
+      <ul
+        className="m-0 grid list-none grid-cols-1 gap-3 p-0 lg:grid-cols-2"
+        data-testid="capabilities"
+      >
         {AI_FEATURES.map((n) => (
           <CapabilityRow key={n} name={n} settings={settings} ft={ft} />
         ))}
       </ul>
+      {AI_FEATURES.filter((n) => FORM_FEATURES.has(n) && f[n]).map((n) => (
+        <Card key={n} title={t(`features.name.${n}`)}>
+          <div data-anchor={FEATURE_SETTINGS_ANCHOR[n]} data-feature-settings={n}>
+            <FeatureSettings name={n} settings={settings} />
+          </div>
+        </Card>
+      ))}
       {ft.dialogs}
-    </Card>
+    </section>
+  );
+}
+
+const STATE_TAG: Record<AssistantSettings['state'], keyof typeof TAG_TONE> = {
+  ready: 'up',
+  degraded: 'warning',
+  error: 'down',
+  disabled: 'neutral',
+  unconfigured: 'neutral',
+};
+
+/** Status at the top of the tab (prototype #c-status): ink tile, state tag, where it runs, links. */
+function StatusHero({ s, on }: { s: AssistantSettings; on: boolean }) {
+  const { t } = useTranslation();
+  const err = useAssistantErrorText();
+  return (
+    <div
+      className="grid grid-cols-[auto_minmax(0,1fr)] items-center gap-x-4 gap-y-3 rounded-xl bg-surface px-[22px] py-5 shadow-card sm:grid-cols-[auto_minmax(0,1fr)_auto]"
+      data-testid="assistant-hero"
+    >
+      <span className="grid h-12 w-12 place-items-center rounded-[15px] bg-accent text-accent-on">
+        <SparkIcon size={22} />
+      </span>
+      <span className="grid min-w-0 gap-0.5">
+        <b className="flex flex-wrap items-center gap-2 text-[18px] font-semibold">
+          {t('assistant.settings.heroTitle')}
+          <span className={cx(TAG, TAG_TONE[STATE_TAG[s.state]])}>
+            {t(`assistant.state.${s.state}`)}
+          </span>
+        </b>
+        <span className="text-sm text-ink-muted">
+          Amazon Bedrock · <bdi dir="ltr">{s.region}</bdi> ·{' '}
+          <bdi dir="ltr" className="font-display">
+            {s.model_id}
+          </bdi>
+          {' · '}
+          {t(`assistant.settings.auth.${s.auth_mode}`, { defaultValue: s.auth_mode })}
+        </span>
+        {s.state_error && <span className="text-sm text-status-down">{err(s.state_error)}</span>}
+      </span>
+      <span className="col-span-2 flex flex-wrap gap-2.5 sm:col-span-1">
+        {on && (
+          <Link to="/assistant" className={buttonClass('primary')}>
+            {t('assistant.open')}
+          </Link>
+        )}
+        <Link to="/assistant/usage" className={buttonClass()}>
+          {t('assistant.settings.usagePage')}
+        </Link>
+      </span>
+    </div>
   );
 }
 
@@ -922,11 +1011,11 @@ function KnowledgeCard({ assistantKey }: { assistantKey: string }) {
   const enabled = !!q.data?.enabled;
   const set = (k: keyof typeof f, v: string) => setF((x) => ({ ...x, [k]: v }));
   const err = (bad: boolean, hint?: string) =>
-    bad ? <span className="text-red-600">{t('assistant.kb.invalid')}</span> : hint;
+    bad ? <span className="text-status-down">{t('assistant.kb.invalid')}</span> : hint;
   return (
     <Card title={t('assistant.kb.title')} anchor={cardAnchor('assistantKb')}>
       <div id="assistant-kb" className="space-y-3" data-testid="assistant-kb">
-        <p className="text-xs text-slate-500">{t('assistant.kb.intro')}</p>
+        <p className="text-xs text-ink-muted">{t('assistant.kb.intro')}</p>
         {q.isLoading && <Loading />}
         <ErrorBox error={q.error} />
         <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
@@ -998,7 +1087,7 @@ function KnowledgeCard({ assistantKey }: { assistantKey: string }) {
             {t('common.save')}
           </Button>
         </div>
-        <div className="space-y-2 border-t border-slate-200 pt-3 dark:border-slate-800">
+        <div className="space-y-2 border-t border-line pt-3">
           <Button
             onClick={() => test.mutate()}
             busy={test.isPending}
@@ -1011,18 +1100,18 @@ function KnowledgeCard({ assistantKey }: { assistantKey: string }) {
           {result && (
             <div className="text-xs" data-testid="kb-test-result" data-ok={result.ok}>
               {result.ok ? (
-                <p className="flex items-center gap-1 text-green-700 dark:text-green-400">
+                <p className="flex items-center gap-1 text-status-up">
                   <CheckIcon size={13} />
                   {t('assistant.kb.testOk', { n: result.results, ms: result.ms })}
                   {result.first_source && (
-                    <bdi dir="auto" className="text-slate-600 dark:text-slate-300">
+                    <bdi dir="auto" className="text-ink-muted">
                       {' '}
                       · {result.first_source.title}
                     </bdi>
                   )}
                 </p>
               ) : (
-                <p className="flex items-center gap-1 text-red-600">
+                <p className="flex items-center gap-1 text-status-down">
                   <XIcon size={13} />
                   {errText(result.error ?? { code: 'kb_unavailable', message: '' })}
                 </p>
@@ -1030,7 +1119,7 @@ function KnowledgeCard({ assistantKey }: { assistantKey: string }) {
             </div>
           )}
           {q.data?.last_test && (
-            <p className="text-xs text-slate-500">
+            <p className="text-xs text-ink-muted">
               {t('assistant.settings.lastTest', {
                 result: q.data.last_test.ok
                   ? t('assistant.test.okShort')
@@ -1049,17 +1138,12 @@ function KnowledgeCard({ assistantKey }: { assistantKey: string }) {
               disabled={!enabled && (!testId || invalid)}
             />
             <span className="text-sm font-medium">{t('features.name.ai_knowledge')}</span>
-            <span
-              className={cx(
-                'text-xs',
-                enabled ? 'text-green-700 dark:text-green-400' : 'text-slate-500',
-              )}
-            >
+            <span className={cx('text-xs', enabled ? 'text-status-up' : 'text-ink-muted')}>
               {enabled ? t('features.on') : t('features.off')}
             </span>
           </div>
           {!enabled && !testId && (
-            <p className="text-xs text-amber-700 dark:text-amber-300" data-testid="kb-enable-hint">
+            <p className="text-xs text-status-warning" data-testid="kb-enable-hint">
               {t('assistant.settings.enableNeedsTest')}
             </p>
           )}
@@ -1091,23 +1175,17 @@ export function AssistantSettingsTab({ settings }: { settings: Settings }) {
   ] as const;
   return (
     <div className="space-y-6" data-testid="assistant-settings">
-      <nav
-        className="flex flex-wrap gap-x-4 gap-y-1 text-xs"
-        aria-label={t('settings.tab.assistant')}
-      >
+      <StatusHero s={s} on={f.assistant} />
+      <nav className="flex flex-wrap gap-2" aria-label={t('settings.tab.assistant')}>
         {sections.map((k) => (
-          <a key={k} href={`#as-${k}`} className="text-sky-700 hover:underline dark:text-sky-400">
+          <a
+            key={k}
+            href={`#as-${k}`}
+            className="inline-flex h-8 items-center rounded-full bg-chip px-3.5 text-[13px] font-medium text-ink-muted no-underline transition-colors hover:text-ink"
+          >
             {t(`assistant.settings.section.${k}`)}
           </a>
         ))}
-        {f.assistant && (
-          <Link
-            to="/assistant"
-            className="ms-auto font-medium text-sky-700 hover:underline dark:text-sky-400"
-          >
-            {t('assistant.open')}
-          </Link>
-        )}
       </nav>
       <div id="as-connection">
         <ConnectionSettings s={s} auditOn={f.audit} />

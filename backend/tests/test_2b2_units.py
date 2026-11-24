@@ -14,6 +14,7 @@ from netmon.poller.checks.snmp_walk_count import count_rows
 from netmon.poller.sensor_types import validate_config
 from netmon.ports import collect as c
 from netmon.ports import health, oui, view
+from netmon.ports import kind as kind_rules
 from netmon.ports.eligibility import arp_effective, effective_class, ports_effective
 from netmon.ports.search import normalize_query
 from netmon.ports.snapshot import build_snapshot, error_delta, last_change, rate, speed
@@ -377,14 +378,14 @@ def test_neighbors_uplink_and_tiles() -> None:
     pc = view.port_neighbors(1, {"if_index": 11, "name": "11", "descr": ""}, links, devices, nbs)
     assert view.uplink(pc, 5, 5) == (False, None)
     assert view.uplink(pc, 6, 5) == (True, "mac_count")
-    assert view.connected_kind("up", out[0]) == "switch"
+    # [premium] connected kind (netmon.ports.kind; more cases in test_premium_kind.py)
+    assert kind_rules.neighbor_kind(out[0], None, False) == "switch"
     ap = [{"kind": "device", "device_class": "access_point"}]
     assert view.uplink(ap, 0, 5) == (True, "neighbor")
-    assert view.connected_kind("up", ap[0]) == "ap"
-    assert view.connected_kind("up", pc[0]) == "client"
-    assert view.connected_kind("up", out[2]) == "client"
-    assert view.connected_kind("up", None) == "client"
-    assert view.connected_kind("down", out[0]) == "none"
+    assert kind_rules.neighbor_kind(ap[0], None, False) == "ap"
+    assert kind_rules.neighbor_kind(pc[0], None, False) == "computer"
+    assert kind_rules.neighbor_kind(out[2], None, False) is None  # no capabilities known
+    assert kind_rules.neighbor_kind(None, None, False) is None
 
 
 def test_state_and_alerts() -> None:

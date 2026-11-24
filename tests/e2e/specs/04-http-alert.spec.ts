@@ -20,6 +20,7 @@ import {
   uid,
   waitForSensor,
   webhookRecords,
+  goHome,
 } from '../lib/helpers';
 
 // Scenario (d): HTTP sensor on the toggle server; webhook channel + alert rule; failure -> sensor
@@ -86,7 +87,7 @@ test('create a webhook channel and send a test notification', async ({ page }) =
   await dlg.getByRole('button', { name: 'Save' }).click();
   await expect(dlg).toBeHidden();
 
-  const row = card(page, 'Notification channels').getByRole('row').filter({ hasText: channelName });
+  const row = card(page, 'Notification channels').getByTestId('channel-row').filter({ hasText: channelName });
   await expect(row).toBeVisible();
   await row.getByRole('button', { name: 'Send test' }).click();
   await expect(page.getByText(`${channelName}: test sent`)).toBeVisible();
@@ -142,7 +143,7 @@ test('create an alert rule for the HTTP sensor (down + up)', async ({ page }) =>
   });
   expect([...rules.items[0].on_statuses].sort()).toEqual(['down', 'up']);
   expect(rules.items[0].channel_ids).toHaveLength(1);
-  await expect(card(page, 'Alert rules').getByRole('row').filter({ hasText: ruleName })).toBeVisible();
+  await expect(card(page, 'Alert rules').getByTestId('rule-row').filter({ hasText: ruleName })).toBeVisible();
 });
 
 test('target fails -> sensor goes down live, event + webhook; recovers -> up + webhook', async ({ page }) => {
@@ -161,8 +162,9 @@ test('target fails -> sensor goes down live, event + webhook; recovers -> up + w
   await expect(statusDot(treeSensor(page, sensorId), 'Down')).toBeVisible();
   await expect(statusDot(treeDevice(page, deviceId), 'Down')).toBeVisible(); // device.status rollup
   await expect(page.locator('main').getByText('Unexpected status code 503').first()).toBeVisible();
+  // premium sensor page: the events are a grouped list (one list item per event)
   const events = card(page, 'Events');
-  await expect(events.getByRole('row').filter({ hasText: 'Down' }).first()).toBeVisible();
+  await expect(events.getByRole('listitem').filter({ hasText: 'Down' }).first()).toBeVisible();
   await expectSameDocument(page);
 
   await expect
@@ -189,13 +191,13 @@ test('target fails -> sensor goes down live, event + webhook; recovers -> up + w
   expect(ev.items[0]).toMatchObject({ old_status: 'up', new_status: 'down', sensor_name: sensorName });
 
   // Dashboard problem list (client-side navigation, the WS keeps it fresh).
-  await page.getByRole('complementary').getByRole('link', { name: 'Dashboard' }).click();
-  await expect(card(page, 'Down and warning sensors').getByRole('link', { name: sensorName })).toBeVisible();
+  await goHome(page);
+  await expect(card(page, /^Alerts\b/).getByRole('link', { name: sensorName })).toBeVisible();
   await expectSameDocument(page);
 
   // --- recovery
   await httpTarget('ok');
-  await expect(card(page, 'Down and warning sensors').getByRole('link', { name: sensorName })).toHaveCount(0, {
+  await expect(card(page, /^Alerts\b/).getByRole('link', { name: sensorName })).toHaveCount(0, {
     timeout: 40_000,
   });
   await expect(statusDot(treeSensor(page, sensorId), 'Up')).toBeVisible();

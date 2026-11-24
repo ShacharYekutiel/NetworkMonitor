@@ -5,6 +5,7 @@ from sqlalchemy import case, select
 
 from netmon.api.deps import DB, RT, Viewer
 from netmon.models import Device, Event, Sensor
+from netmon.services import severity as severity_svc
 from netmon.services.dependencies import effective_parent
 from netmon.services.serialize import event_out, sensor_out
 from netmon.services.status import empty_counts, load_inventory
@@ -34,12 +35,16 @@ async def dashboard(user: Viewer, rt: RT, session: DB) -> dict:
         )
     ).scalars()
     sev = case({"down": 0, "warning": 1}, value=Sensor.status, else_=2)
+    sev_on = severity_svc.enabled(rt)
+    order = [sev, Sensor.last_status_change_at.asc().nulls_first(), Sensor.id]
+    if sev_on:  # [severity] highest severity first, then the Phase 1 order
+        order.insert(0, case(severity_svc.RANK, value=Sensor.severity, else_=0).desc())
     problems = (
         await session.execute(
             select(Sensor, Device)
             .join(Device, Device.id == Sensor.device_id)
             .where(Sensor.status.in_(["down", "warning"]), Sensor.ack_at.is_(None))
-            .order_by(sev, Sensor.last_status_change_at.asc().nulls_first(), Sensor.id)
+            .order_by(*order)
             .limit(20)
         )
     ).all()
@@ -89,4 +94,11 @@ async def dashboard(user: Viewer, rt: RT, session: DB) -> dict:
             "active_window_ids": maint.active_window_ids() if maint is not None else [],
             "device_count": len(maint.covered_device_ids()) if maint is not None else 0,
         },
+        # [severity] counts of the current problems per severity (null while the feature is off)
+        "severity_counts": severity_svc.count_problems(inv.sensors.values()) if sev_on else None,
+        "severity_counts_unacknowledged": (
+            severity_svc.count_problems(inv.sensors.values(), unacknowledged=True)
+            if sev_on
+            else None
+        ),
     }

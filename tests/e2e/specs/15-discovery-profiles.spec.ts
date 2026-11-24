@@ -51,7 +51,6 @@ test.afterAll(async () => {
 
 test('create a scheduled profile in the UI (Daily, notify on new hosts)', async ({ page }) => {
   await loginViaApi(page, undefined, '/discovery');
-  await page.getByRole('tab', { name: 'Saved profiles' }).click();
   await page.getByRole('button', { name: 'Add profile' }).click();
   const dlg = page.getByRole('dialog');
   await dlg.getByLabel(/^Name/).fill(profileName);
@@ -66,7 +65,7 @@ test('create a scheduled profile in the UI (Daily, notify on new hosts)', async 
   await dlg.getByRole('checkbox', { name: new RegExp((await api.get(`/api/notification-channels/${tgId}`)).name) }).check();
   await dlg.getByRole('button', { name: 'Save' }).click();
   await expect(dlg).toBeHidden();
-  await expect(page.getByRole('row').filter({ hasText: profileName })).toBeVisible();
+  await expect(page.getByTestId('profile-row').filter({ hasText: profileName })).toBeVisible();
 
   const p = (await api.get('/api/discovery/profiles')).items.find((x: any) => x.name === profileName);
   profileId = p.id;
@@ -90,8 +89,7 @@ test('"Run now" -> manual scan finds 127.0.0.40, no notification', async ({ page
   await clearWebhookRecords();
   await clearTelegram();
   await loginViaApi(page, undefined, '/discovery');
-  await page.getByRole('tab', { name: 'Saved profiles' }).click();
-  await page.getByRole('row').filter({ hasText: profileName }).getByRole('button', { name: 'Run now' }).click();
+  await page.getByTestId('profile-row').filter({ hasText: profileName }).getByRole('button', { name: 'Run now' }).click();
   await expect(page).toHaveURL(/\/discovery\/scans\/\d+$/);
   const scanId = Number(page.url().split('/').pop());
   const scan = await waitForScan(api, scanId);

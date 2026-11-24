@@ -27,18 +27,14 @@ export function AckBadge({ ack, compact }: { ack: Acknowledgement; compact?: boo
   const title = ackTooltip(t, ack);
   if (compact)
     return (
-      <span
-        title={title}
-        aria-label={title}
-        className="inline-flex shrink-0 text-emerald-600 dark:text-emerald-400"
-      >
+      <span title={title} aria-label={title} className="inline-flex shrink-0 text-ack">
         <CheckIcon size={13} />
       </span>
     );
   return (
     <span
       title={title}
-      className="inline-flex items-center gap-1 whitespace-nowrap rounded bg-emerald-50 px-1.5 py-0.5 text-xs font-medium text-emerald-800 ring-1 ring-inset ring-emerald-200 dark:bg-emerald-950 dark:text-emerald-200 dark:ring-emerald-800"
+      className="inline-flex items-center gap-1 whitespace-nowrap rounded bg-ack-soft px-1.5 py-0.5 text-xs font-medium text-ack"
     >
       <CheckIcon size={12} />
       {t('ack.acknowledged')}
@@ -50,7 +46,7 @@ export function AckBadge({ ack, compact }: { ack: Acknowledgement; compact?: boo
 export function AckDetails({ ack }: { ack: Acknowledgement }) {
   const { t } = useTranslation();
   return (
-    <span className="text-xs text-slate-600 dark:text-slate-300">
+    <span className="text-xs text-ink-muted">
       {t('ack.by', { by: ack.by ?? t('ack.unknownUser'), at: formatDateTime(ack.at) })}
       {ack.comment && (
         <>
@@ -164,7 +160,7 @@ export function AckDialog({
         </>
       }
     >
-      <p className="mb-3 text-sm text-slate-600 dark:text-slate-300">{t('ack.explain')}</p>
+      <p className="mb-3 text-sm text-ink-muted">{t('ack.explain')}</p>
       <Field label={t('ack.comment')} hint={t('ack.commentHint')}>
         <Textarea
           rows={3}

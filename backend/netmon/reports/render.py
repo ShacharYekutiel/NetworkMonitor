@@ -13,6 +13,7 @@ from datetime import datetime
 from typing import Any
 from zoneinfo import ZoneInfo
 
+from netmon.alerts.templates import severity_name
 from netmon.reports import compute
 
 MAX_HTML_BYTES = 1_000_000
@@ -41,7 +42,8 @@ T: dict[str, dict[str, str]] = {
         "top_alerts": "Top alerts",
         "sensor": "Sensor",
         "notifications": "Notifications",
-        "problem_time": "Problem time",
+        "problem_time": "Time in alert",
+        "severity": "Severity",
         "flapping_ports": "Flapping ports",
         "port": "Port",
         "episodes": "Episodes",
@@ -71,7 +73,7 @@ T: dict[str, dict[str, str]] = {
         "no_data": "No data in this period.",
         "open": "Open the full report",
         "na": "n/a",
-        "alerts": "Problem notifications",
+        "alerts": "Alert notifications",
         "config_changed": "Configuration changes",
         "new_devs": "New devices",
         "worst5": "Worst devices",
@@ -98,7 +100,8 @@ T: dict[str, dict[str, str]] = {
         "top_alerts": "התראות מובילות",
         "sensor": "חיישן",
         "notifications": "התראות",
-        "problem_time": "זמן תקלה",
+        "problem_time": "זמן בהתראה",
+        "severity": "חומרה",
         "flapping_ports": "פורטים מרפרפים",
         "port": "פורט",
         "episodes": "אירועים",
@@ -128,7 +131,7 @@ T: dict[str, dict[str, str]] = {
         "no_data": "אין נתונים בתקופה זו.",
         "open": "פתיחת הדוח המלא",
         "na": "לא זמין",
-        "alerts": "התראות תקלה",
+        "alerts": "הודעות התראה",
         "config_changed": "שינויי תצורה",
         "new_devs": "התקנים חדשים",
         "worst5": "ההתקנים הגרועים ביותר",
@@ -272,6 +275,21 @@ def _section_html(sec: str, data: dict[str, Any], lang: str, limit: int) -> str:
             )
         return "".join(out)
     if sec == "top_alerts":
+        if v and "severity" in v[0]:  # [severity] the column exists while the feature is ON
+            return _table(
+                [t["sensor"], t["device"], t["severity"], t["notifications"], t["problem_time"]],
+                [
+                    [
+                        _e(r["sensor_name"]),
+                        _e(r["device_name"]),
+                        _e(severity_name(r["severity"], lang) if r["severity"] else "—"),
+                        _e(r["notifications"]),
+                        _e(compute.fmt_duration(r["problem_s"])),
+                    ]
+                    for r in v
+                ],
+                {3, 4},
+            )
         return _table(
             [t["sensor"], t["device"], t["notifications"], t["problem_time"]],
             [

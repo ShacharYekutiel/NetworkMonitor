@@ -1,4 +1,4 @@
-import { useMemo } from 'react';
+import { useMemo, type ReactNode } from 'react';
 import { Link } from 'react-router';
 import { useTranslation } from 'react-i18next';
 import type { TopSource } from '../../api/types';
@@ -14,14 +14,16 @@ import {
   type TimePreset,
 } from '../../lib/logs';
 import { allDevices, findGroup } from '../../lib/tree';
-import { cx, Input, Select } from '../ui';
+import { formatDateTime, formatLogTime } from '../../lib/format';
+import { CHECKBOX, ShareBar } from '../kit';
+import { cx, Input, Select, TAG, TAG_TONE } from '../ui';
 
 export function SeverityBadge({ severity }: { severity: number }) {
   const { t } = useTranslation();
   return (
     <span
       className={cx(
-        'inline-block min-w-[3.5rem] rounded px-1.5 py-0.5 text-center text-[11px] font-semibold',
+        "inline-flex items-center gap-1.5 whitespace-nowrap text-xs font-medium leading-none text-ink before:h-3.5 before:w-[3px] before:rounded-xs before:content-['']",
         SEVERITY_BADGE[severityTone(severity)],
       )}
       title={`${severity}`}
@@ -47,7 +49,7 @@ export function SourceCell({
       <Link
         to={`/devices/${r.device_id}`}
         onClick={(e) => e.stopPropagation()}
-        className="text-sky-700 hover:underline dark:text-sky-400"
+        className="font-display text-ink hover:underline"
         title={r.source_ip}
       >
         <bdi dir="auto">{r.device_name ?? `#${r.device_id}`}</bdi>
@@ -55,12 +57,10 @@ export function SourceCell({
     );
   return (
     <span className="inline-flex items-center gap-1">
-      <bdi dir="ltr" className="font-mono text-xs">
+      <bdi dir="ltr" className="num">
         {r.source_ip}
       </bdi>
-      <span className="rounded bg-slate-100 px-1 text-[10px] text-slate-500 dark:bg-slate-800">
-        {t('logs.unknownShort')}
-      </span>
+      <span className={cx(TAG, TAG_TONE.neutral)}>{t('logs.unknownShort')}</span>
     </span>
   );
 }
@@ -86,7 +86,7 @@ export function TimeRangeSelect({
   return (
     <div className="flex flex-wrap items-center gap-1.5">
       <div
-        className="inline-flex rounded-md ring-1 ring-slate-300 dark:ring-slate-600"
+        className="inline-flex gap-0.5 self-start rounded-[11px] bg-chip p-[3px]"
         role="group"
         aria-label={t('logs.range')}
       >
@@ -97,10 +97,10 @@ export function TimeRangeSelect({
             aria-pressed={filter.preset === p}
             onClick={() => onChange({ preset: p })}
             className={cx(
-              'px-2 py-1 text-xs first:rounded-s-md last:rounded-e-md',
+              'h-7 whitespace-nowrap rounded-[8px] px-3 text-[13px] font-medium transition-colors',
               filter.preset === p
-                ? 'bg-sky-600 text-white'
-                : 'hover:bg-slate-100 dark:hover:bg-slate-800',
+                ? 'bg-surface text-ink shadow-[0_1px_3px_rgba(0,0,0,0.12)]'
+                : 'text-ink-muted hover:text-ink',
             )}
           >
             {t(`logs.preset.${p}`)}
@@ -117,7 +117,7 @@ export function TimeRangeSelect({
             className="w-auto"
             dir="ltr"
           />
-          <span className="text-slate-400">–</span>
+          <span className="text-ink-subtle">–</span>
           <Input
             type="datetime-local"
             value={filter.to}
@@ -179,7 +179,7 @@ export function FacilityPicker({
         <label key={f} className="inline-flex items-center gap-1.5 text-xs">
           <input
             type="checkbox"
-            className="h-3.5 w-3.5 rounded border-slate-300 text-sky-600 dark:border-slate-600 dark:bg-slate-900"
+            className={CHECKBOX}
             checked={value.includes(f)}
             onChange={(e) =>
               onChange(e.target.checked ? [...value, f] : value.filter((x) => x !== f))
@@ -205,22 +205,19 @@ export function TopList({
   const max = Math.max(1, ...items.map((x) => x.count));
   return (
     <div className="min-w-0">
-      <div className="mb-1 text-xs font-medium text-slate-500">{title}</div>
+      <h3 className="m-0 mb-2.5 text-[15px] font-semibold">{title}</h3>
       {items.length === 0 ? (
-        <div className="text-xs text-slate-400">{t('common.none')}</div>
+        <div className="text-[13px] text-ink-subtle">{t('common.none')}</div>
       ) : (
-        <ul className="space-y-0.5">
+        // prototype .share: name and count, then a 6px ink bar on a chip track
+        <ul className="m-0 grid list-none gap-2.5 p-0">
           {items.map((x) => (
-            <li key={x.key} className="relative flex items-center justify-between gap-2 text-xs">
-              <span
-                className="absolute inset-y-0 start-0 rounded bg-sky-100 dark:bg-sky-950/60"
-                style={{ width: `${(x.count / max) * 100}%` }}
-                aria-hidden="true"
-              />
-              <span className="relative min-w-0 truncate ps-1">{x.label}</span>
-              <span className="relative pe-1 tabular-nums text-slate-600 dark:text-slate-300">
-                {x.count}
-              </span>
+            <li key={x.key} className="grid gap-1.5">
+              <div className="flex items-baseline justify-between gap-2 text-[14px]">
+                <span className="min-w-0 truncate font-display">{x.label}</span>
+                <b className="num font-medium">{x.count.toLocaleString()}</b>
+              </div>
+              <ShareBar pct={(x.count / max) * 100} />
             </li>
           ))}
         </ul>
@@ -239,4 +236,79 @@ export function topSourceItems(list: TopSource[]) {
     ),
     count: s.count,
   }));
+}
+
+/** Dot of a syslog line (prototype logs rows): errors red, warnings amber, info green, debug grey. */
+export function severityDot(sev: number): string {
+  if (sev <= 3) return 'bg-status-down';
+  if (sev === 4) return 'bg-status-warning';
+  if (sev <= 6) return 'bg-status-up';
+  return 'bg-status-paused';
+}
+
+/** The table of a log feed drawn as the prototype's grouped rows; header for screen readers only. */
+export function LogTable({ head, children }: { head: string[]; children: ReactNode }) {
+  return (
+    <table className="w-full text-[14px] [&_tbody>tr:last-child>td]:border-b-0">
+      <thead className="sr-only">
+        <tr>
+          {head.map((h, i) => (
+            <th key={i}>{h}</th>
+          ))}
+        </tr>
+      </thead>
+      <tbody>{children}</tbody>
+    </table>
+  );
+}
+
+/**
+ * One log line (prototype .rowx): an optional status dot, the message in mono (LTR), a grey
+ * subline, the time at the end. The whole row opens the detail.
+ */
+export function LogRow({
+  dot,
+  title,
+  sub,
+  time,
+  onClick,
+}: {
+  dot?: string;
+  title: ReactNode;
+  sub: ReactNode;
+  time: string;
+  onClick: () => void;
+}) {
+  const cell = 'border-b border-line align-top transition-colors';
+  return (
+    <tr onClick={onClick} className="cursor-pointer hover:[&>td]:bg-surface-hover">
+      {dot !== undefined && (
+        <td className={cx(cell, 'w-0 py-0 pe-0 ps-5')}>
+          <span
+            aria-hidden="true"
+            className={cx('mt-[19px] block h-2.5 w-2.5 rounded-full', dot)}
+          />
+        </td>
+      )}
+      <td className={cx(cell, 'px-3.5 py-3', dot === undefined && 'ps-5')}>
+        <div className="grid min-w-0 gap-0.5">
+          <div
+            dir="ltr"
+            className="line-clamp-2 break-all text-left font-display text-[14.5px] font-medium text-ink rtl:text-right"
+          >
+            {title}
+          </div>
+          <div className="min-w-0 break-words text-[13px] text-ink-muted">{sub}</div>
+        </div>
+      </td>
+      <td
+        className={cx(cell, 'w-0 whitespace-nowrap py-3 pe-5 ps-3 text-end')}
+        title={formatDateTime(time)}
+      >
+        <span dir="ltr" className="num text-[13px] text-ink-muted">
+          {formatLogTime(time)}
+        </span>
+      </td>
+    </tr>
+  );
 }

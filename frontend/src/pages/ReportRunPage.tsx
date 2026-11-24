@@ -1,11 +1,23 @@
-import { useMemo } from 'react';
-import { useQuery, useQueryClient } from '@tanstack/react-query';
-import { Link, useParams } from 'react-router';
+import { useMemo, type CSSProperties } from 'react';
+import { SeverityTag } from '../components/kit';
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { useParams } from 'react-router';
 import { useTranslation } from 'react-i18next';
 import type { TFunction } from 'i18next';
 import { endpoints3, qk3 } from '../api/endpoints3';
 import type { FlowTopItem, ReportData, ReportSection } from '../api/types3';
-import { buttonClass, Button, ErrorBox, Loading, Notice } from '../components/ui';
+import {
+  BackLink,
+  buttonClass,
+  Button,
+  ErrorBox,
+  Loading,
+  Notice,
+  PageHeader,
+} from '../components/ui';
+import { useAuth } from '../hooks/auth';
+import { TOKEN_VALUES } from '../styles/tokens.gen';
+import { useToast } from '../components/toast';
 import { useFeatures, FeatureOffNotice } from '../hooks/features';
 import { useLiveMessages } from '../hooks/live';
 import { formatDuration } from '../lib/format';
@@ -13,19 +25,22 @@ import { formatBytes, formatShare } from '../lib/flows';
 import { availabilityTone, barPct, formatAvailability } from '../lib/reports';
 import { DeliveriesCell, RunStatusBadge } from './ReportsPage';
 
+// prototype .paper table: 14px, hairline rows, grey 12.5px headers, numbers at the end in Inter
 const pth =
-  'border-b border-slate-300 px-2 py-1 text-start text-xs font-semibold text-slate-600 print:border-slate-400';
-const ptd = 'border-b border-slate-100 px-2 py-1 align-middle print:border-slate-300';
+  'border-b border-line px-1 pb-2 pt-1 text-start text-[12.5px] font-medium text-ink-muted';
+const ptd = 'border-b border-line px-1 py-2.5 align-middle';
+const pthN = `${pth} !text-end`;
+const ptdN = `${ptd} num text-end`;
 
 function Bar({ pct, tone = 'sky' }: { pct: number; tone?: 'sky' | 'green' | 'amber' | 'red' }) {
   const color = {
-    sky: 'bg-sky-500',
-    green: 'bg-green-500',
-    amber: 'bg-amber-500',
-    red: 'bg-red-500',
+    sky: 'bg-accent',
+    green: 'bg-status-up',
+    amber: 'bg-status-warning',
+    red: 'bg-status-down',
   }[tone];
   return (
-    <div className="h-2 w-28 overflow-hidden rounded bg-slate-200 print:border print:border-slate-300">
+    <div className="h-1.5 w-24 overflow-hidden rounded-full bg-chip print:border print:border-line-strong">
       <div
         className={`h-full ${color}`}
         style={{ width: `${pct}%`, printColorAdjust: 'exact', WebkitPrintColorAdjust: 'exact' }}
@@ -41,12 +56,12 @@ function Avail({ v, tr }: { v: number | null; tr: TFunction }) {
     <span
       className={
         tone === 'ok'
-          ? 'text-green-700'
+          ? 'text-status-up'
           : tone === 'warn'
-            ? 'text-amber-700'
+            ? 'text-status-warning'
             : tone === 'bad'
-              ? 'font-semibold text-red-700'
-              : 'text-slate-500'
+              ? 'font-semibold text-status-down'
+              : 'text-ink-muted'
       }
     >
       <bdi dir="ltr">{s ?? tr('reports.na')}</bdi>
@@ -54,12 +69,34 @@ function Avail({ v, tr }: { v: number | null; tr: TFunction }) {
   );
 }
 
+/** Every token with its light value: the report paper is a white sheet in both themes. */
+const PAPER_VARS = {
+  colorScheme: 'light',
+  ...Object.fromEntries(Object.entries(TOKEN_VALUES.light).map(([k, v]) => [`--${k}`, v])),
+} as CSSProperties;
+
+/** Hours of downtime as "3:38". */
+function formatHM(s: number): string {
+  const m = Math.round(s / 60);
+  return `${Math.floor(m / 60)}:${String(m % 60).padStart(2, '0')}`;
+}
+
+/** A big figure of the paper head (prototype: 32px Inter over a grey label). */
+function Figure({ n, label }: { n: string; label: string }) {
+  return (
+    <div>
+      <div className="num text-[32px] font-semibold leading-tight" dir="ltr">
+        {n}
+      </div>
+      <span className="text-ink-muted">{label}</span>
+    </div>
+  );
+}
+
 function Section({ title, children }: { title: string; children: React.ReactNode }) {
   return (
-    <section className="break-inside-avoid-page space-y-2">
-      <h2 className="border-b-2 border-slate-800 pb-1 text-lg font-semibold dark:border-slate-300 print:border-slate-800">
-        {title}
-      </h2>
+    <section className="break-inside-avoid-page space-y-3">
+      <h3 className="m-0 text-[19px] font-semibold tracking-[-0.01em]">{title}</h3>
       {children}
     </section>
   );
@@ -92,7 +129,7 @@ function TopItems({ items, tr }: { items: FlowTopItem[]; tr: TFunction }) {
                 </bdi>
               </div>
             </td>
-            <td className={`${ptd} tabular-nums`}>{formatShare(x.share)}</td>
+            <td className={ptdN}>{formatShare(x.share)}</td>
           </tr>
         ))}
       </tbody>
@@ -105,18 +142,20 @@ function ReportSectionView({
   d,
   tr,
   fmt,
+  lang,
 }: {
   s: ReportSection;
   d: ReportData;
   tr: TFunction;
   fmt: (iso: string) => string;
+  lang?: string;
 }) {
   const title = tr(`reportSection.${s}`);
   const note = d.notes.find((n) => n.section === s);
   if (note)
     return (
       <Section title={title}>
-        <p className="text-sm text-slate-500">{tr(`reports.note.${note.note}`)}</p>
+        <p className="text-sm text-ink-muted">{tr(`reports.note.${note.note}`)}</p>
       </Section>
     );
   switch (s) {
@@ -125,28 +164,22 @@ function ReportSectionView({
       if (!a) return null;
       return (
         <Section title={title}>
-          <p className="text-sm">
-            {tr('reports.overall')}:{' '}
-            <span className="text-2xl font-bold">
-              <Avail v={a.overall} tr={tr} />
-            </span>
-          </p>
           {a.groups.length > 0 && (
             <table className="w-full text-sm">
               <thead>
                 <tr>
                   <th className={pth}>{tr('reports.col.group')}</th>
-                  <th className={pth}>{tr('reports.col.devices')}</th>
-                  <th className={pth}>{tr('reports.col.availability')}</th>
+                  <th className={pthN}>{tr('reports.col.devices')}</th>
+                  <th className={pthN}>{tr('reports.col.availability')}</th>
                 </tr>
               </thead>
               <tbody>
                 {a.groups.map((g) => (
                   <tr key={g.group_id}>
                     <td className={ptd}>{g.group_name}</td>
-                    <td className={`${ptd} tabular-nums`}>{g.devices}</td>
-                    <td className={ptd}>
-                      <div className="flex items-center gap-2">
+                    <td className={ptdN}>{g.devices}</td>
+                    <td className={ptdN}>
+                      <div className="inline-flex items-center gap-2">
                         <Bar
                           pct={g.availability ?? 0}
                           tone={
@@ -170,10 +203,10 @@ function ReportSectionView({
               <tr>
                 <th className={pth}>{tr('reports.col.device')}</th>
                 <th className={pth}>{tr('reports.col.group')}</th>
-                <th className={pth}>{tr('reports.col.availability')}</th>
-                <th className={pth}>{tr('reports.col.downtime')}</th>
-                <th className={pth}>{tr('reports.col.outages')}</th>
-                <th className={pth}>{tr('reports.col.longest')}</th>
+                <th className={pthN}>{tr('reports.col.availability')}</th>
+                <th className={pthN}>{tr('reports.col.downtime')}</th>
+                <th className={pthN}>{tr('reports.col.outages')}</th>
+                <th className={pthN}>{tr('reports.col.longest')}</th>
               </tr>
             </thead>
             <tbody>
@@ -181,12 +214,12 @@ function ReportSectionView({
                 <tr key={r.device_id}>
                   <td className={ptd}>{r.device_name}</td>
                   <td className={ptd}>{r.group_name}</td>
-                  <td className={ptd}>
+                  <td className={ptdN}>
                     <Avail v={r.availability} tr={tr} />
                   </td>
-                  <td className={ptd}>{r.downtime_s ? formatDuration(r.downtime_s) : '—'}</td>
-                  <td className={`${ptd} tabular-nums`}>{r.outages}</td>
-                  <td className={ptd}>
+                  <td className={ptdN}>{r.downtime_s ? formatDuration(r.downtime_s) : '—'}</td>
+                  <td className={ptdN}>{r.outages}</td>
+                  <td className={ptdN}>
                     {r.longest_outage_s ? formatDuration(r.longest_outage_s) : '—'}
                   </td>
                 </tr>
@@ -194,7 +227,7 @@ function ReportSectionView({
             </tbody>
           </table>
           {a.not_measured.length > 0 && (
-            <p className="text-xs text-slate-500">
+            <p className="text-xs text-ink-muted">
               {tr('reports.notMeasured')}: {a.not_measured.map((x) => x.device_name).join(', ')}
             </p>
           )}
@@ -204,6 +237,8 @@ function ReportSectionView({
     case 'top_alerts': {
       const rows = d.top_alerts ?? [];
       const max = Math.max(1, ...rows.map((r) => r.notifications));
+      // [severity] the backend adds the key only while the feature is on
+      const withSeverity = rows.some((r) => 'severity' in r);
       return (
         <Section title={title}>
           <table className="w-full text-sm">
@@ -212,6 +247,7 @@ function ReportSectionView({
                 <th className={pth}>{tr('reports.col.sensor')}</th>
                 <th className={pth}>{tr('reports.col.notifications')}</th>
                 <th className={pth}>{tr('reports.col.problemTime')}</th>
+                {withSeverity && <th className={pth}>{tr('reports.col.severity')}</th>}
               </tr>
             </thead>
             <tbody>
@@ -227,6 +263,11 @@ function ReportSectionView({
                     </div>
                   </td>
                   <td className={ptd}>{formatDuration(r.problem_s)}</td>
+                  {withSeverity && (
+                    <td className={ptd}>
+                      <SeverityTag severity={r.severity} lng={lang} />
+                    </td>
+                  )}
                 </tr>
               ))}
             </tbody>
@@ -253,8 +294,8 @@ function ReportSectionView({
                   <td className={ptd}>
                     <bdi dir="ltr">{r.port_name}</bdi>
                   </td>
-                  <td className={`${ptd} tabular-nums`}>{r.episodes}</td>
-                  <td className={`${ptd} tabular-nums`}>{r.transitions}</td>
+                  <td className={ptdN}>{r.episodes}</td>
+                  <td className={ptdN}>{r.transitions}</td>
                 </tr>
               ))}
             </tbody>
@@ -279,7 +320,7 @@ function ReportSectionView({
                   <td className={ptd}>
                     <bdi dir="ltr">{r.port_name}</bdi>
                   </td>
-                  <td className={`${ptd} tabular-nums`}>{r.errors}</td>
+                  <td className={ptdN}>{r.errors}</td>
                 </tr>
               ))}
             </tbody>
@@ -302,8 +343,8 @@ function ReportSectionView({
               {(d.config_changes ?? []).map((r) => (
                 <tr key={r.device_id}>
                   <td className={ptd}>{r.device_name}</td>
-                  <td className={`${ptd} tabular-nums`}>{r.changes}</td>
-                  <td className={`${ptd} tabular-nums`}>
+                  <td className={ptdN}>{r.changes}</td>
+                  <td className={ptdN}>
                     <bdi dir="ltr">
                       +{r.added} −{r.removed}
                     </bdi>
@@ -379,7 +420,17 @@ export function ReportRunPage() {
   const runId = Number(id);
   const { t, i18n } = useTranslation();
   const { features } = useFeatures();
+  const { isAdmin } = useAuth();
+  const toast = useToast();
   const qc = useQueryClient();
+  const resend = useMutation({
+    mutationFn: () => endpoints3.resendReport(runId),
+    onSuccess: () => {
+      toast.push('success', t('reports.resent'));
+      void qc.invalidateQueries({ queryKey: qk3.reportRun(runId) });
+      void qc.invalidateQueries({ queryKey: ['report-runs'] });
+    },
+  });
   const q = useQuery({
     queryKey: qk3.reportRun(runId),
     queryFn: () => endpoints3.reportRun(runId),
@@ -406,80 +457,122 @@ export function ReportRunPage() {
     };
   }, [lang, d?.timezone]);
   if (!features.reports) return <FeatureOffNotice feature="reports" />;
+  const a = d?.availability;
+  const downtime = a ? a.devices.reduce((n, r) => n + r.downtime_s, 0) : 0;
+  const outages = a ? a.devices.reduce((n, r) => n + r.outages, 0) : 0;
+  const failedDelivery = !!run && run.status !== 'running' && run.deliveries.some((x) => !x.ok);
   return (
-    <div className="mx-auto max-w-5xl space-y-4" data-testid="report-page">
-      <div className="flex flex-wrap items-center gap-2 print:hidden">
-        <Link to="/reports" className="text-sm text-sky-700 hover:underline dark:text-sky-400">
-          ← {t('reports.title')}
-        </Link>
-        <span className="flex-1" />
-        {run && run.status !== 'running' && (
-          <>
-            <a className={buttonClass()} href={endpoints3.reportHtmlUrl(run.id)} download>
-              {t('reports.downloadHtml')}
-            </a>
-            <Button variant="primary" onClick={() => window.print()}>
-              {t('reports.print')}
-            </Button>
-          </>
-        )}
+    <div data-testid="report-page">
+      <div className="print:hidden">
+        <PageHeader
+          breadcrumbs={<BackLink to="/reports" label={t('reports.title')} />}
+          title={run?.report_name ?? t('reports.report')}
+          subtitle={
+            d &&
+            t('reports.paperSub', {
+              from: fmt(d.period_start),
+              to: fmt(d.period_end),
+              time: fmt(d.generated_at),
+            })
+          }
+          meta={
+            run && (
+              <>
+                <RunStatusBadge status={run.status} />
+                <DeliveriesCell run={run} />
+                {/* [3b] AI summary status (run details only) */}
+                {run.ai_summary_status && run.ai_summary_status !== 'ok' && (
+                  <span data-testid="ai-summary-status">
+                    {t('reports.aiSummaryStatus', {
+                      status: t(`reports.aiStatus.${run.ai_summary_status}`),
+                    })}
+                  </span>
+                )}
+              </>
+            )
+          }
+          actions={
+            run &&
+            run.status !== 'running' && (
+              <>
+                <a className={buttonClass()} href={endpoints3.reportHtmlUrl(run.id)} download>
+                  {t('reports.downloadHtml')}
+                </a>
+                {isAdmin && failedDelivery && (
+                  <Button busy={resend.isPending} onClick={() => resend.mutate()}>
+                    {t('reports.resendFailed')}
+                  </Button>
+                )}
+                <Button variant="primary" onClick={() => window.print()}>
+                  {t('reports.print')}
+                </Button>
+              </>
+            )
+          }
+        />
       </div>
       {q.isLoading && <Loading />}
-      <ErrorBox error={q.error} />
-      {run && (
-        <div className="print:hidden">
-          <div className="flex flex-wrap items-center gap-2 text-sm">
-            <RunStatusBadge status={run.status} />
-            <DeliveriesCell run={run} />
-            {/* [3b] AI summary status (run details only) */}
-            {run.ai_summary_status && run.ai_summary_status !== 'ok' && (
-              <span className="text-xs text-slate-500" data-testid="ai-summary-status">
-                {t('reports.aiSummaryStatus', {
-                  status: t(`reports.aiStatus.${run.ai_summary_status}`),
-                })}
-              </span>
-            )}
-          </div>
-        </div>
-      )}
+      <ErrorBox error={q.error ?? resend.error} />
       {run?.status === 'running' && <Notice>{t('reports.runningNote')}</Notice>}
       {run && d && (
+        // prototype .paper: a white sheet in both themes (light tokens inside), 820px, centred
         <article
           dir={lang === 'he' ? 'rtl' : 'ltr'}
           lang={lang}
-          className="report-print space-y-6 rounded-lg bg-white p-6 text-slate-900 shadow-sm ring-1 ring-slate-200 print:p-0 print:shadow-none print:ring-0"
+          style={PAPER_VARS}
+          className="report-print mx-auto grid max-w-[820px] gap-[26px] rounded-[6px] bg-surface px-[52px] py-[46px] text-ink shadow-[0_30px_80px_rgba(0,0,0,0.18)] max-sm:px-5 max-sm:py-7 print:max-w-none print:p-0 print:shadow-none"
         >
-          <header className="space-y-1">
-            <h1 className="text-2xl font-bold">{run.report_name}</h1>
-            <p className="text-sm text-slate-600">
+          <header className="grid gap-2">
+            <span className="text-ink-muted">
+              Network Monitor · <bdi dir="auto">{d.scope_label}</bdi>
+            </span>
+            <h1 className="m-0 text-[30px] font-semibold leading-tight tracking-[-0.02em]">
+              {a && a.overall !== null ? (
+                tr('reports.paperHeadline', { pct: formatAvailability(a.overall) })
+              ) : (
+                <bdi dir="auto">{run.report_name}</bdi>
+              )}
+            </h1>
+            <p className="m-0 text-sm text-ink-muted">
+              {a && a.overall !== null && (
+                <>
+                  <bdi dir="auto">{run.report_name}</bdi>
+                  {' · '}
+                </>
+              )}
               {tr('reports.periodLine', {
                 from: fmt(d.period_start),
                 to: fmt(d.period_end),
                 tz: d.timezone,
               })}
-            </p>
-            <p className="text-sm text-slate-600">
-              {tr('reports.scopeLine', { scope: d.scope_label })} ·{' '}
+              {' · '}
               {tr('reports.generated', { time: fmt(d.generated_at) })}
             </p>
           </header>
+          {a && (
+            <div className="flex flex-wrap gap-10" data-testid="report-figures">
+              <Figure n={String(a.devices.length)} label={tr('reports.fig.devices')} />
+              <Figure n={formatHM(downtime)} label={tr('reports.fig.downtime')} />
+              <Figure n={String(outages)} label={tr('reports.fig.outages')} />
+            </div>
+          )}
           {d.ai_summary && (
             <section
-              className="rounded-md bg-violet-50 p-3 ring-1 ring-inset ring-violet-200 print:bg-transparent"
+              className="rounded-[14px] bg-surface-sunken px-4 py-3.5 print:bg-transparent print:px-0"
               data-testid="report-ai-summary"
             >
-              <h2 className="mb-1 text-xs font-semibold uppercase tracking-wide text-violet-800">
+              <h2 className="mb-1 text-xs font-semibold text-ink-muted">
                 {tr('reports.aiSummaryLabel')}
               </h2>
-              <p className="whitespace-pre-line text-sm" dir="auto">
+              <p className="m-0 whitespace-pre-line text-sm" dir="auto">
                 {d.ai_summary}
               </p>
             </section>
           )}
           {d.sections.map((s) => (
-            <ReportSectionView key={s} s={s} d={d} tr={tr} fmt={fmt} />
+            <ReportSectionView key={s} s={s} d={d} tr={tr} fmt={fmt} lang={lang} />
           ))}
-          <footer className="border-t border-slate-200 pt-2 text-xs text-slate-500">
+          <footer className="border-t border-line pt-2 text-xs text-ink-muted">
             NetworkMonitor
           </footer>
         </article>

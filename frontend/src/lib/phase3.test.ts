@@ -574,7 +574,7 @@ describe('[3] Features page', () => {
     expect(featuresOfTab('reports')).toEqual(['reports']);
     expect(featuresOfTab('noc')).toEqual(['noc']);
     expect(featuresOfTab('chatAck')).toEqual(['chat_ack']);
-    expect(featuresOfTab('features')).toEqual(['lag', 'timeline']);
+    expect(featuresOfTab('features')).toEqual(['lag', 'timeline', 'alert_severity']);
     expect(movedFeatures()).toHaveLength(26); // [3b] +11 in the Assistant tab
     const all = SETTINGS_TABS.flatMap((t) => featuresOfTab(t));
     expect([...all].sort()).toEqual([...FEATURE_NAMES].sort());
@@ -584,7 +584,7 @@ describe('[3] Features page', () => {
     const all = FEATURE_GROUPS.flatMap((g) => g.names);
     expect(FEATURE_GROUPS).toHaveLength(6); // [3b] + Assistant (AI)
     expect([...all].sort()).toEqual([...FEATURE_NAMES].sort());
-    expect(new Set(all).size).toBe(28);
+    expect(new Set(all).size).toBe(29); // + [severity] alert_severity
   });
   it('dependency hints', () => {
     expect(featureHints('sso_kerberos', ALL_OFF).map((h) => h.key)).toEqual([

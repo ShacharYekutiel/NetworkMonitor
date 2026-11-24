@@ -161,6 +161,8 @@ class EventRuleIn(_In):
     key_regex: str | None = Field(default=None, max_length=200)
     clear_match: dict[str, Any] | None = None
     clear_after_min: int | None = None
+    # [severity] optional; only for warning / down rules (null: the mapping decides)
+    severity: Literal["critical", "major", "minor", "warning", "info"] | None = None
 
 
 class EventRuleTestIn(_In):

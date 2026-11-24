@@ -18,6 +18,7 @@ import { DeviceFormModal, GroupSelect } from '../components/EntityForms';
 import { LinkIcon, PlusIcon, RefreshIcon, TrashIcon, WrenchIcon, XIcon } from '../components/icons';
 import { StatusBadge, StatusDot } from '../components/Status';
 import { TopologyChart } from '../components/TopologyChart';
+import { useFillHeight } from '../hooks/fillHeight';
 import { useToast } from '../components/toast';
 import {
   Button,
@@ -39,20 +40,48 @@ import {
   td,
   th,
 } from '../components/ui';
+import { OptionCard } from '../components/kit';
 import { useAuth } from '../hooks/auth';
+import { useTree } from '../hooks/queries';
 import { useLocalState } from '../hooks/useLocalState';
 import { useTheme } from '../hooks/theme';
 import { errorMessage } from '../lib/errors';
 import { formatDateTime, formatRelative, formatValue } from '../lib/format';
-import { STATUS_HEX } from '../lib/status';
+import { chartTokens } from '../lib/chartTokens';
+import { flattenGroups } from '../lib/tree';
+import {
+  arrangeAll,
+  canvasLabelMeasurer,
+  quantAspect,
+  type ArrangeStyle,
+  type GroupInfo,
+} from '../lib/topologyLayout';
 import {
   defaultSelection,
   linkState,
-  NEUTRAL_EDGE,
   suggestionRows,
   suggestionsToBulk,
   type GraphNodeDatum,
 } from '../lib/topology';
+
+/** "Fit to view": four corner marks. */
+function FitIcon() {
+  return (
+    <svg
+      width={14}
+      height={14}
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth={2}
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      aria-hidden="true"
+    >
+      <path d="M4 9V4h5M20 9V4h-5M4 15v5h5M20 15v5h-5" />
+    </svg>
+  );
+}
 
 type Selection = { kind: 'link'; id: number } | { kind: 'neighbor'; id: number } | null;
 
@@ -61,7 +90,7 @@ function RefreshLine({ g }: { g: TopologyGraph }) {
   const r = g.last_refresh;
   if (g.refresh_running || r?.status === 'running')
     return (
-      <span className="inline-flex items-center gap-2 text-sky-700 dark:text-sky-300">
+      <span className="inline-flex items-center gap-2 text-accent-ink">
         <span className="inline-block h-3 w-3 animate-spin rounded-full border-2 border-current border-t-transparent" />
         {t('topology.refreshRunning')}
         {r && r.devices_total > 0 && (
@@ -82,12 +111,12 @@ function RefreshLine({ g }: { g: TopologyGraph }) {
         links: r.links_found,
       })}
       {r.devices_failed > 0 && (
-        <span className="text-red-600 dark:text-red-400">
+        <span className="text-status-down">
           {' '}
           · {t('topology.refreshFailed', { count: r.devices_failed })}
         </span>
       )}
-      {r.error && <span className="text-red-600 dark:text-red-400"> · {r.error}</span>}
+      {r.error && <span className="text-status-down"> · {r.error}</span>}
     </span>
   );
 }
@@ -95,6 +124,7 @@ function RefreshLine({ g }: { g: TopologyGraph }) {
 function Legend() {
   const { t } = useTranslation();
   const { dark } = useTheme();
+  const tk = chartTokens(dark);
   const item = (color: string, label: string, dashed?: boolean) => (
     <span className="inline-flex items-center gap-1.5">
       <span
@@ -102,34 +132,33 @@ function Legend() {
         style={{
           borderColor: color,
           borderStyle: dashed ? 'dashed' : 'solid',
-          opacity: dashed ? 0.5 : 1,
         }}
       />
       {label}
     </span>
   );
   return (
-    <div className="space-y-2 text-xs text-slate-600 dark:text-slate-300">
-      <p className="text-slate-500">{t('topology.hint')}</p>
-      <div className="flex flex-wrap gap-x-3 gap-y-1">
+    <div className="space-y-3 text-xs text-ink-muted">
+      <p className="text-[13px] text-ink-muted">{t('topology.hint')}</p>
+      <div className="flex flex-wrap gap-x-[18px] gap-y-1.5">
         {(['up', 'warning', 'down', 'unreachable', 'unknown', 'paused'] as const).map((s) => (
           <span key={s} className="inline-flex items-center gap-1">
             <StatusDot status={s} /> {t(`status.${s}`)}
           </span>
         ))}
         <span className="inline-flex items-center gap-1">
-          <span className="inline-block h-2.5 w-2.5 rounded-full border border-dashed border-slate-400" />
+          <span className="inline-block h-2.5 w-2.5 rounded-xs border border-dashed border-line-strong" />
           {t('topology.unmanaged')}
         </span>
-        <span className="inline-flex items-center gap-1 text-sky-600 dark:text-sky-400">
+        <span className="inline-flex items-center gap-1 text-accent-ink">
           <WrenchIcon size={12} /> {t('maintenance.badge')}
         </span>
       </div>
-      <div className="flex flex-wrap gap-x-3 gap-y-1">
-        {item(STATUS_HEX.up, t('topology.linkUp'))}
-        {item(STATUS_HEX.down, t('topology.linkDown'))}
-        {item(dark ? NEUTRAL_EDGE.dark : NEUTRAL_EDGE.light, t('topology.linkNoSensor'))}
-        {item(dark ? NEUTRAL_EDGE.dark : NEUTRAL_EDGE.light, t('topology.linkStale'), true)}
+      <div className="flex flex-wrap gap-x-[18px] gap-y-1.5">
+        {item(tk.status.up, t('topology.linkUp'))}
+        {item(tk.status.down, t('topology.linkDown'), true)}
+        {item(tk.borderStrong, t('topology.linkNoSensor'))}
+        {item(tk.borderStrong, t('topology.linkStale'), true)}
       </div>
     </div>
   );
@@ -142,21 +171,18 @@ function EndView({ end, graph }: { end: LinkEnd; graph: TopologyGraph }) {
     <div className="min-w-0 space-y-0.5">
       <div className="truncate font-medium">
         {end.device_id !== null ? (
-          <Link
-            className="text-sky-700 hover:underline dark:text-sky-400"
-            to={`/devices/${end.device_id}`}
-          >
+          <Link className="text-accent-ink hover:underline" to={`/devices/${end.device_id}`}>
             {node?.name ?? `#${end.device_id}`}
           </Link>
         ) : (
-          <span className="text-slate-500">{node?.name ?? end.node}</span>
+          <span className="text-ink-muted">{node?.name ?? end.node}</span>
         )}
       </div>
       <div className="text-xs">
-        <span className="text-slate-500">{t('topology.port')}: </span>
+        <span className="text-ink-muted">{t('topology.port')}: </span>
         <Ltr className="font-mono">{end.port || '—'}</Ltr>
         {end.if_index !== null && (
-          <span className="text-slate-500">
+          <span className="text-ink-muted">
             {' '}
             <Ltr>(ifIndex {end.if_index})</Ltr>
           </span>
@@ -164,22 +190,19 @@ function EndView({ end, graph }: { end: LinkEnd; graph: TopologyGraph }) {
       </div>
       {end.sensor_id !== null && (
         <div className="flex flex-wrap items-center gap-1 text-xs">
-          <Link
-            className="text-sky-700 hover:underline dark:text-sky-400"
-            to={`/sensors/${end.sensor_id}`}
-          >
+          <Link className="text-accent-ink hover:underline" to={`/sensors/${end.sensor_id}`}>
             {t('topology.interfaceSensor')}
           </Link>
           {end.sensor_status && <StatusBadge status={end.sensor_status} />}
           {end.oper_status !== null && (
-            <span className="text-slate-500">
+            <span className="text-ink-muted">
               <Ltr>oper {end.oper_status === 1 ? 'up' : `${end.oper_status}`}</Ltr>
             </span>
           )}
         </div>
       )}
       {(end.in_bps !== null || end.out_bps !== null) && (
-        <div className="text-xs tabular-nums text-slate-600 dark:text-slate-300">
+        <div className="text-xs tabular-nums text-ink-muted">
           <Ltr>
             ↓ {formatValue(end.in_bps, 'bit/s')} ↑ {formatValue(end.out_bps, 'bit/s')}
           </Ltr>
@@ -211,32 +234,32 @@ function LinkPanel({
         <button
           type="button"
           onClick={onClose}
-          className="rounded p-1 text-slate-500 hover:bg-slate-100 dark:hover:bg-slate-800"
+          className="rounded p-1 text-ink-muted hover:bg-surface-hover"
           aria-label={t('common.close')}
         >
           <XIcon size={14} />
         </button>
       </div>
       <div className="flex flex-wrap items-center gap-1.5 text-xs">
-        <span className="rounded bg-slate-100 px-1.5 py-0.5 font-medium uppercase dark:bg-slate-800">
+        <span className="inline-flex h-[22px] items-center rounded-full bg-chip px-2 font-medium text-ink-muted">
           {t(`topology.source.${link.source}`)}
         </span>
         {st && <StatusBadge status={st} />}
         {link.stale && (
-          <span className="rounded bg-amber-100 px-1.5 py-0.5 font-medium text-amber-900 dark:bg-amber-900/50 dark:text-amber-100">
+          <span className="inline-flex h-[22px] items-center rounded-full bg-status-warning-soft px-2 font-semibold text-status-warning">
             {t('topology.stale', { count: link.missed_refreshes })}
           </span>
         )}
       </div>
-      <div className="grid grid-cols-1 gap-3 rounded-md bg-slate-50 p-2.5 ring-1 ring-inset ring-slate-200 dark:bg-slate-800/60 dark:ring-slate-700">
+      <div className="grid grid-cols-1 gap-3 rounded-md bg-surface-sunken p-2.5 ring-1 ring-inset ring-line">
         <EndView end={link.a} graph={graph} />
-        <div className="border-t border-slate-200 dark:border-slate-700" />
+        <div className="border-t border-line" />
         <EndView end={link.b} graph={graph} />
       </div>
       <dl className="grid grid-cols-[auto_minmax(0,1fr)] gap-x-2 gap-y-0.5 text-xs">
-        <dt className="text-slate-500">{t('topology.firstSeen')}</dt>
+        <dt className="text-ink-muted">{t('topology.firstSeen')}</dt>
         <dd>{formatDateTime(link.first_seen)}</dd>
-        <dt className="text-slate-500">{t('topology.lastSeen')}</dt>
+        <dt className="text-ink-muted">{t('topology.lastSeen')}</dt>
         <dd>{formatDateTime(link.last_seen)}</dd>
       </dl>
       {onDelete && (
@@ -245,7 +268,7 @@ function LinkPanel({
         </Button>
       )}
       {onDelete && link.source !== 'manual' && (
-        <p className="text-xs text-slate-500">{t('topology.deleteDiscoveredHint')}</p>
+        <p className="text-xs text-ink-muted">{t('topology.deleteDiscoveredHint')}</p>
       )}
     </div>
   );
@@ -270,25 +293,25 @@ function NeighborPanel({
         <button
           type="button"
           onClick={onClose}
-          className="rounded p-1 text-slate-500 hover:bg-slate-100 dark:hover:bg-slate-800"
+          className="rounded p-1 text-ink-muted hover:bg-surface-hover"
           aria-label={t('common.close')}
         >
           <XIcon size={14} />
         </button>
       </div>
-      <p className="text-xs text-slate-500">{t('topology.unmanagedHint')}</p>
+      <p className="text-xs text-ink-muted">{t('topology.unmanagedHint')}</p>
       <dl className="grid grid-cols-[auto_minmax(0,1fr)] gap-x-2 gap-y-1 text-xs">
-        <dt className="text-slate-500">{t('topology.chassisId')}</dt>
+        <dt className="text-ink-muted">{t('topology.chassisId')}</dt>
         <dd className="min-w-0 break-all font-mono">
           <Ltr>{n.chassis_id}</Ltr>
         </dd>
-        <dt className="text-slate-500">{t('topology.mgmtAddress')}</dt>
+        <dt className="text-ink-muted">{t('topology.mgmtAddress')}</dt>
         <dd className="font-mono">
           <Ltr>{n.mgmt_address ?? '—'}</Ltr>
         </dd>
         {n.sys_descr && (
           <>
-            <dt className="text-slate-500">sysDescr</dt>
+            <dt className="text-ink-muted">sysDescr</dt>
             <dd className="min-w-0 break-words">
               <Ltr>{n.sys_descr}</Ltr>
             </dd>
@@ -431,8 +454,8 @@ function AddLinkModal({
       }
     >
       <div className="space-y-4">
-        <fieldset className="min-w-0 space-y-2 rounded-md border border-slate-200 p-3 dark:border-slate-700">
-          <legend className="px-1 text-xs font-semibold text-slate-600 dark:text-slate-400">
+        <fieldset className="min-w-0 space-y-2 rounded-lg border border-line px-4 py-3.5">
+          <legend className="px-1 text-xs font-semibold text-ink-muted">
             {t('topology.endA')}
           </legend>
           <Field label={t('topology.device')} required>
@@ -456,8 +479,8 @@ function AddLinkModal({
             }}
           />
         </fieldset>
-        <fieldset className="min-w-0 space-y-2 rounded-md border border-slate-200 p-3 dark:border-slate-700">
-          <legend className="px-1 text-xs font-semibold text-slate-600 dark:text-slate-400">
+        <fieldset className="min-w-0 space-y-2 rounded-lg border border-line px-4 py-3.5">
+          <legend className="px-1 text-xs font-semibold text-ink-muted">
             {t('topology.endB')}
           </legend>
           <FieldGroup label={t('topology.endBKind')}>
@@ -595,12 +618,12 @@ function SuggestModal({ open, onClose }: { open: boolean; onClose: () => void })
         </>
       }
     >
-      <p className="mb-3 text-sm text-slate-600 dark:text-slate-300">{t('topology.suggestHint')}</p>
+      <p className="mb-3 text-sm text-ink-muted">{t('topology.suggestHint')}</p>
       <Field label={t('topology.root')} hint={t('topology.rootHint')} className="mb-3">
         <DevicePicker label={t('topology.root')} value={root} onChange={setRoot} allowNone />
       </Field>
       {q.data?.root_device_id != null && (
-        <p className="mb-2 text-xs text-slate-500">
+        <p className="mb-2 text-xs text-ink-muted">
           {t('topology.rootUsed', {
             name: deviceName(q.data.root_device_id) ?? `#${q.data.root_device_id}`,
           })}
@@ -636,7 +659,7 @@ function SuggestModal({ open, onClose }: { open: boolean; onClose: () => void })
           </thead>
           <tbody>
             {rows.map((r) => (
-              <tr key={r.device_id} className={cx(!r.changes && 'text-slate-500')}>
+              <tr key={r.device_id} className={cx(!r.changes && 'text-ink-muted')}>
                 <td className={td}>
                   <input
                     type="checkbox"
@@ -667,7 +690,7 @@ function SuggestModal({ open, onClose }: { open: boolean; onClose: () => void })
                 <td className={td}>
                   {r.suggested_parent_name ?? '—'}
                   {r.alreadyEffective && (
-                    <span className="ms-1 text-xs text-slate-500">
+                    <span className="ms-1 text-xs text-ink-muted">
                       ({t('topology.alreadyEffective')})
                     </span>
                   )}
@@ -697,6 +720,10 @@ export function TopologyPage() {
   const [showNeighbors, setShowNeighbors] = useLocalState('netmon.topology.neighbors', true);
   const [positions, setPositions] = useState<Record<string, [number, number]>>({});
   const [resetToken, setResetToken] = useState(0);
+  // bumped to fit the whole picture into the canvas (first open, filter change, arrange, "Fit")
+  const [fitToken, setFitToken] = useState(0);
+  const [arranging, setArranging] = useState(false);
+  const [arrangeStyle, setArrangeStyle] = useState<ArrangeStyle>('tiered');
   const [sel, setSel] = useState<Selection>(null);
   const [addLink, setAddLink] = useState(false);
   const [suggest, setSuggest] = useState(false);
@@ -712,7 +739,19 @@ export function TopologyPage() {
     placeholderData: keepPreviousData,
   });
   // A different filter is a different node set: start from the stored layout again.
-  useEffect(() => setPositions({}), [groupId, includeStale, showNeighbors]);
+  useEffect(() => {
+    setPositions({});
+    setFitToken((x) => x + 1);
+  }, [groupId, includeStale, showNeighbors]);
+  // Group names and tree order: unlinked devices are arranged (and captioned) by group.
+  const tree = useTree();
+  const groups = useMemo(() => {
+    const m = new Map<number, GroupInfo>();
+    flattenGroups(tree.data?.groups ?? []).forEach(({ group }, i) =>
+      m.set(group.id, { name: group.name, order: i }),
+    );
+    return m;
+  }, [tree.data]);
 
   const save = useMutation({
     mutationFn: (p: LayoutPosition[]) => endpoints.saveLayout(p),
@@ -733,6 +772,7 @@ export function TopologyPage() {
     onSuccess: async () => {
       setPositions({});
       setResetToken((x) => x + 1);
+      setFitToken((x) => x + 1);
       setResetting(false);
       await qc.invalidateQueries({ queryKey: ['topology'] });
     },
@@ -770,6 +810,43 @@ export function TopologyPage() {
         )
       : undefined;
   const running = !!data && (data.refresh_running || data.last_refresh?.status === 'running');
+  // The map canvas fills the viewport under the header (never shorter than 22rem).
+  const canvas = useFillHeight<HTMLElement>(352, [!!data]);
+
+  // "Arrange automatically" (admin): the default arrangement for every node on the map, saved.
+  const arrange = useMutation({
+    mutationFn: async (style: ArrangeStyle) => {
+      if (!data) return;
+      const keys = new Set(data.nodes.map((n) => n.key));
+      const el = canvas.ref.current;
+      const pos = arrangeAll(
+        data.nodes.map((n) => ({
+          key: n.key,
+          name: n.name,
+          kind: n.kind,
+          groupId: n.kind === 'device' ? n.group_id : null,
+          deviceClass: n.kind === 'device' ? n.device_class : null,
+          pos: null,
+        })),
+        data.links
+          .filter((l) => keys.has(l.a.node) && keys.has(l.b.node))
+          .map((l) => ({ a: l.a.node, b: l.b.node })),
+        style,
+        {
+          groups,
+          measure: canvasLabelMeasurer(chartTokens(dark).fontDisplay),
+          aspect: quantAspect((el?.clientWidth ?? 0) - 48, (el?.clientHeight ?? 0) - 112),
+        },
+      );
+      await endpoints.saveLayout(Object.entries(pos).map(([node, [x, y]]) => ({ node, x, y })));
+      setPositions(pos);
+      setFitToken((x) => x + 1);
+    },
+    onSuccess: () => {
+      setArranging(false);
+      toast.push('success', t('topology.arranged'));
+    },
+  });
 
   const onNode = (n: GraphNodeDatum) => {
     if (n.kind === 'device') navigate(`/devices/${n.refId}`);
@@ -800,8 +877,8 @@ export function TopologyPage() {
           )
         }
       />
-      <Card bodyClassName="p-3">
-        <div className="flex flex-wrap items-end gap-3">
+      <div>
+        <div className="flex flex-wrap items-end gap-x-4 gap-y-3">
           <Field label={t('topology.group')} className="w-full sm:w-64">
             <GroupSelect
               value={groupId}
@@ -828,7 +905,7 @@ export function TopologyPage() {
             />
           </div>
           {isAdmin && (
-            <div className="flex flex-wrap gap-2 sm:ms-auto">
+            <div className="flex flex-wrap gap-2 pb-px sm:ms-auto">
               <Button
                 size="sm"
                 disabled={!data?.nodes.length}
@@ -841,6 +918,16 @@ export function TopologyPage() {
                 }
               >
                 {t('topology.saveLayout')}
+              </Button>
+              <Button
+                size="sm"
+                disabled={!data?.nodes.length}
+                onClick={() => {
+                  arrange.reset();
+                  setArranging(true);
+                }}
+              >
+                {t('topology.arrange')}
               </Button>
               <Button size="sm" onClick={() => setResetting(true)}>
                 {t('topology.resetLayout')}
@@ -856,31 +943,59 @@ export function TopologyPage() {
             </div>
           )}
         </div>
-      </Card>
+      </div>
       {g.isLoading && <Loading />}
       <ErrorBox error={g.error} />
       {data && (
-        <div className="grid grid-cols-1 gap-4 lg:grid-cols-[minmax(0,1fr)_18rem]">
-          <Card bodyClassName="p-0" className="overflow-hidden">
+        <div className="grid grid-cols-1 items-start gap-4 lg:grid-cols-[minmax(0,1fr)_320px]">
+          {/* The map canvas: the stage of the home map (prototype .topo: radius 28, no grid). */}
+          <section
+            ref={canvas.ref}
+            style={canvas.height ? { height: canvas.height } : undefined}
+            // min height: the chart must never be created at 0 px (ECharts 6 view transform)
+            className="stage-bg relative flex min-h-[22rem] min-w-0 flex-col overflow-hidden rounded-[28px]"
+          >
             {data.nodes.length ? (
-              <TopologyChart
-                graph={data}
-                dark={dark}
-                showTraffic={showTraffic}
-                canSave={isAdmin}
-                positions={positions}
-                onPositions={setPositions}
-                onSave={(p) => save.mutate(p)}
-                onNodeClick={onNode}
-                onLinkClick={(id) => setSel({ kind: 'link', id })}
-                onBackgroundClick={() => setSel(null)}
-                resetToken={resetToken}
-              />
+              <>
+                <TopologyChart
+                  graph={data}
+                  dark={dark}
+                  showTraffic={showTraffic}
+                  canSave={isAdmin}
+                  positions={positions}
+                  onPositions={setPositions}
+                  onSave={(p) => save.mutate(p)}
+                  onNodeClick={onNode}
+                  onLinkClick={(id) => setSel({ kind: 'link', id })}
+                  onBackgroundClick={() => setSel(null)}
+                  resetToken={resetToken}
+                  fitToken={fitToken}
+                  groups={groups}
+                  selected={selNeighbor?.key ?? null}
+                  className="min-h-0 flex-1"
+                />
+                <div className="absolute end-3 top-3">
+                  <Button
+                    size="sm"
+                    className="bg-surface shadow-[0_1px_3px_rgba(0,0,0,0.08)]"
+                    title={t('topology.fit')}
+                    onClick={() => setFitToken((x) => x + 1)}
+                  >
+                    <FitIcon /> {t('topology.fit')}
+                  </Button>
+                </div>
+                <p
+                  data-testid="topology-drag-hint"
+                  className="pointer-events-none absolute inset-x-0 bottom-0 truncate px-5 pb-3 text-xs text-ink-muted"
+                >
+                  {t(isAdmin ? 'topology.dragHintAdmin' : 'topology.dragHintViewer')}
+                </p>
+              </>
             ) : (
               <Empty>{t('topology.empty')}</Empty>
             )}
-          </Card>
-          <Card bodyClassName="p-3">
+          </section>
+          <Card bodyClassName="p-4">
             {selLink ? (
               <LinkPanel
                 link={selLink}
@@ -945,6 +1060,43 @@ export function TopologyPage() {
         busy={removeStale.isPending}
         error={removeStale.error}
       />
+      {isAdmin && (
+        <Modal
+          open={arranging}
+          onClose={() => setArranging(false)}
+          title={t('topology.arrangeTitle')}
+          footer={
+            <>
+              <Button onClick={() => setArranging(false)}>{t('common.cancel')}</Button>
+              <Button
+                variant="primary"
+                busy={arrange.isPending}
+                onClick={() => arrange.mutate(arrangeStyle)}
+              >
+                {t('topology.arrangeApply')}
+              </Button>
+            </>
+          }
+        >
+          <div className="space-y-3">
+            <p className="text-sm text-ink-muted">{t('topology.arrangeConfirm')}</p>
+            <div role="radiogroup" aria-label={t('topology.arrange')} className="grid gap-2">
+              {(['tiered', 'groups'] as const).map((s) => (
+                <OptionCard
+                  key={s}
+                  name="arrange-style"
+                  value={s}
+                  checked={arrangeStyle === s}
+                  onChange={(v) => setArrangeStyle(v as ArrangeStyle)}
+                  title={t(`topology.arrangeStyle.${s}`)}
+                  hint={t(`topology.arrangeStyle.${s}Hint`)}
+                />
+              ))}
+            </div>
+            <ErrorBox error={arrange.error} />
+          </div>
+        </Modal>
+      )}
       <ConfirmDialog
         open={resetting}
         title={t('topology.resetLayout')}

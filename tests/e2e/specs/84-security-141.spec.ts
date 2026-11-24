@@ -138,7 +138,7 @@ test('the main pages run under the CSP without a single violation', async ({ bro
     ['/account', 'My account'],
     ['/discovery', 'Discovery'],
     ['/reports', 'Reports'],
-    ['/logs', /Traps|Syslog/],
+    ['/logs', /Logs|Traps|Syslog/],
     ['/flows', /flows/i],
     ['/config-backups', /backups/i],
     ['/new-devices', 'New devices'],
@@ -199,7 +199,7 @@ test('Settings → Security: the card saves; frame ancestors reach the header', 
   await expect(card).toBeVisible();
   await expect(card.getByLabel('Maximum session age (hours)')).toHaveValue('168');
   await expect(card.getByLabel('Failed logins per address (5 minutes)')).toHaveValue('20');
-  await expect(card.getByRole('checkbox', { name: /Allow monitoring and notification targets on this server/ })).not.toBeChecked();
+  await expect(card.getByRole('switch', { name: /Allow monitoring and notification targets on this server/ })).not.toBeChecked();
   const ancestors = card.getByLabel('Sites that may embed NetworkMonitor in a frame');
   await ancestors.fill('not an origin');
   await expect(card.getByRole('button', { name: 'Save' })).toBeDisabled();
@@ -262,6 +262,8 @@ test('account page: "Sign out everywhere" also ends the session in the other bro
   await loginViaApi(pa, user, '/account');
   await loginViaApi(pb, user);
   await pa.getByTestId('logout-everywhere').click();
+  // the sheet asks first (premium account page)
+  await pa.getByRole('dialog').getByTestId('logout-everywhere-confirm').click();
   await expect(pa).toHaveURL(/\/login$/, { timeout: 15_000 });
   expect((await pb.request.get('/api/auth/me')).status(), 'the other browser').toBe(401);
   expect((await pa.request.get('/api/auth/me')).status()).toBe(401);

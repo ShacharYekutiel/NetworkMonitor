@@ -36,7 +36,8 @@ test('Explain on the dashboard problem row -> drawer with the five sections, lin
   test.setTimeout(120_000);
   const since = await lastSeq();
   await loginViaApi(page, undefined, '/');
-  const row = page.locator('main').getByText('qa3b-explain-web').first().locator('xpath=ancestor::*[self::tr or self::li][1]');
+  // the home's "needs attention" list (the map hero above may name the device in a problem caption)
+  const row = page.locator('#nm-problems').getByText('qa3b-explain-web').first().locator('xpath=ancestor::*[self::tr or self::li][1]');
   await row.getByTestId('explain-button').click();
   const drawer = page.getByRole('dialog').last();
   await expect(drawer).toBeVisible();

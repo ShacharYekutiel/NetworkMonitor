@@ -2,7 +2,7 @@
 // Fresh install: the 8 phase-3 toggles are OFF, their nav entries hidden, their endpoints 409 (kiosk 404),
 // /noc and /ack show "not available"; each one can be turned ON and OFF at runtime without a restart.
 import { expect, test } from '@playwright/test';
-import { apiAs, loginViaApi, markDocument, expectSameDocument } from '../lib/helpers';
+import { apiAs, loginViaApi, markDocument, expectSameDocument, menuNav } from '../lib/helpers';
 import { raw } from '../lib/lab';
 import { GATED, P3_FEATURES, features, setFeatures, shot3, tx } from '../lib/lab3';
 
@@ -74,6 +74,7 @@ test('each phase-3 toggle goes ON and OFF at runtime (no restart), nav follows l
   test.setTimeout(240_000);
   const api = await apiAs();
   await loginViaApi(page);
+  await menuNav(page, { pin: true });
   await markDocument(page);
   for (const n of P3_FEATURES) {
     const g = GATED[n];

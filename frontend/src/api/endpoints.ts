@@ -1,5 +1,7 @@
 import { api, buildUrl } from './client';
 import { setNamedValueMaps } from '../lib/valueMaps';
+import type { BrowserSession } from './types';
+import type { Severity } from './severity';
 import type { BackupMode, SshCredentialsInput } from './types3';
 import type {
   ApiToken,
@@ -41,6 +43,7 @@ import type {
   ApplyTemplateResult,
   ApplyTemplateRequest,
   ApplyInterfacesResponse,
+  ReplaceCandidatesResponse,
   SensorImpact,
   DeviceTemplate,
   DeviceTemplatesResponse,
@@ -86,6 +89,7 @@ export const qk = {
   setupStatus: ['setupStatus'] as const,
   publicSettings: ['publicSettings'] as const,
   me: ['me'] as const,
+  sessions: ['auth-sessions'] as const,
   tree: ['tree'] as const,
   dashboard: ['dashboard'] as const,
   sensorTypes: ['sensorTypes'] as const,
@@ -123,6 +127,9 @@ export const qk = {
   /** [1.3] */
   applyInterfaces: (deviceId: number, templateId: string) =>
     ['apply-interfaces', deviceId, templateId] as const,
+  /** [template-switch] */
+  applyReplaces: (deviceId: number, templateId: string) =>
+    ['apply-replaces', deviceId, templateId] as const,
   portDetail: (deviceId: number, ifIndex: number, includeUplinkMacs = false) =>
     ['port-detail', deviceId, ifIndex, includeUplinkMacs] as const,
   macSearch: (q: MacSearchQuery) => ['mac-search', q] as const,
@@ -184,6 +191,9 @@ export type SensorInput = {
   channels?: ChannelThresholdInput[];
   /** [1.3] */
   impact?: SensorImpact;
+  /** [severity] overrides (null clears) */
+  severity_down?: Severity | null;
+  severity_warning?: Severity | null;
 };
 
 export type EventQuery = {
@@ -196,6 +206,10 @@ export type EventQuery = {
   until?: string;
   /** [2b-1] */
   in_maintenance?: boolean;
+  /** [severity] csv of levels */
+  severity?: string;
+  /** [severity] time (default) | severity */
+  sort?: 'time' | 'severity';
   page?: number;
   page_size?: number;
 };
@@ -313,6 +327,7 @@ export type AlertRuleInput = Partial<
     | 'escalation_channel_ids'
     | 'repeat_every_s'
     | 'ai_note'
+    | 'severities'
   >
 >;
 
@@ -352,6 +367,10 @@ export const endpoints = {
     api.post<void>('/auth/logout', everywhere ? { everywhere: true } : undefined, {
       skipAuthRedirect: true,
     }),
+  /** [premium] the caller's signed-in browsers */
+  sessions: () => api.get<{ items: BrowserSession[] }>('/auth/sessions'),
+  /** [premium] ends one of them (the current one = a logout; the server clears the cookie) */
+  endSession: (id: string) => api.del(`/auth/sessions/${encodeURIComponent(id)}`),
   changePassword: (current_password: string, new_password: string) =>
     api.post<void>('/auth/change-password', { current_password, new_password }),
 
@@ -402,6 +421,9 @@ export const endpoints = {
     type?: string;
     q?: string;
     acknowledged?: boolean;
+    /** [severity] csv of levels (current problem severity) */
+    severity?: string;
+    sort?: 'default' | 'severity';
   }) => api.get<Page<Sensor>>('/sensors', { page_size: 1000, ...params }),
   sensor: (id: number) => api.get<Sensor>(`/sensors/${id}`),
   createSensor: (body: SensorInput) => api.post<Sensor>('/sensors', body),
@@ -449,9 +471,16 @@ export const endpoints = {
     api.get<ApplyInterfacesResponse>(`/devices/${deviceId}/apply-template/interfaces`, {
       template_id,
     }),
+  /** [template-switch] the device's sensors this template replaces */
+  applyTemplateReplaces: (deviceId: number, template_id: string) =>
+    api.get<ReplaceCandidatesResponse>(`/devices/${deviceId}/apply-template/replaces`, {
+      template_id,
+    }),
   /** [1.3] */
   bulkSensorImpact: (sensor_ids: number[], impact: SensorImpact) =>
     api.post<{ updated: number }>('/sensors/bulk-impact', { sensor_ids, impact }),
+  bulkDeleteSensors: (sensor_ids: number[]) =>
+    api.post<{ deleted: number }>('/sensors/bulk-delete', { sensor_ids }),
 
   // [2a] discovery
   discoveryProfiles: () =>

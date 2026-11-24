@@ -72,11 +72,11 @@ test('problem -> acknowledge with a comment in the UI -> Acknowledged card, sens
   expect(dash.acknowledged_sensors.map((x: any) => x.id)).toContain(dev.sensor.id);
   expect(dash.acknowledged_count).toBeGreaterThanOrEqual(1);
   await page.goto('/');
-  await expect(card(page, /^Acknowledged problems/)).toContainText(dev.sensor.name);
-  await expect(card(page, 'Down and warning sensors')).not.toContainText(dev.device.name);
+  await expect(card(page, /^Acknowledged alerts/)).toContainText(dev.sensor.name);
+  await expect(card(page, /^Alerts\b/)).not.toContainText(dev.device.name);
   await shot2b(page, 'ack-dashboard-en');
   // "Acknowledged by admin at <time>: comment" (inline details on the dashboard).
-  await expect(card(page, /^Acknowledged problems/)).toContainText(new RegExp(`Acknowledged by admin at .+: ${COMMENT}`));
+  await expect(card(page, /^Acknowledged alerts/)).toContainText(new RegExp(`Acknowledged by admin at .+: ${COMMENT}`));
   // Sensor page: check badge with the tooltip "Acknowledged by admin at …: comment".
   await page.goto(`/sensors/${dev.sensor.id}`);
   await expect(page.locator(`main [title*="${COMMENT}"]`).first()).toBeAttached();

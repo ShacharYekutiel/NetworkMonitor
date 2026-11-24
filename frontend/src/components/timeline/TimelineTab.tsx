@@ -26,9 +26,9 @@ function ItemText({ it }: { it: TimelineItem }) {
         <span className="inline-flex flex-wrap items-center gap-1.5">
           {it.sensor_name && <span className="font-medium">{it.sensor_name}</span>}
           {it.old_status && <StatusBadge status={it.old_status} />}
-          {it.old_status && <span className="text-slate-400 rtl:rotate-180">→</span>}
+          {it.old_status && <span className="text-ink-subtle rtl:rotate-180">→</span>}
           {it.status && <StatusBadge status={it.status} />}
-          <bdi dir="auto" className="text-slate-600 dark:text-slate-300">
+          <bdi dir="auto" className="text-ink-muted">
             {localize(it.message)}
           </bdi>
         </span>
@@ -55,7 +55,7 @@ function ItemText({ it }: { it: TimelineItem }) {
             {it.message}
           </bdi>
           {it.actor && (
-            <span className="ms-2 text-xs text-slate-500">
+            <span className="ms-2 text-xs text-ink-muted">
               {t('timeline.by', { actor: it.actor })}
             </span>
           )}
@@ -67,7 +67,7 @@ function ItemText({ it }: { it: TimelineItem }) {
           {it.sensor_name && <span className="me-1 font-medium">{it.sensor_name}:</span>}
           <bdi dir="auto">{localize(it.message)}</bdi>
           {it.actor && (
-            <span className="ms-2 text-xs text-slate-500">
+            <span className="ms-2 text-xs text-ink-muted">
               {t('timeline.by', { actor: it.actor })}
             </span>
           )}
@@ -141,8 +141,8 @@ export function TimelineTab({ deviceId }: { deviceId: number }) {
               className={cx(
                 'inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-xs ring-1 ring-inset',
                 !off.includes(k)
-                  ? 'bg-slate-800 text-white ring-slate-800 dark:bg-slate-200 dark:text-slate-900'
-                  : 'text-slate-600 ring-slate-300 dark:text-slate-300 dark:ring-slate-600',
+                  ? 'bg-ink text-surface ring-ink'
+                  : 'text-ink-muted ring-line-strong',
               )}
             >
               <span className={cx('h-2 w-2 rounded-full', TIMELINE_TONE[k])} />
@@ -158,7 +158,7 @@ export function TimelineTab({ deviceId }: { deviceId: number }) {
         {!q.isLoading && !items.length && <Empty>{t('timeline.empty')}</Empty>}
         {groupByDay(items).map((g) => (
           <div key={g.day}>
-            <div className="sticky top-0 bg-slate-50 px-3 py-1 text-xs font-semibold text-slate-500 dark:bg-slate-800/60">
+            <div className="sticky top-0 bg-surface-sunken px-3 py-1 text-xs font-semibold text-ink-muted">
               <bdi dir="ltr">{g.day}</bdi>
             </div>
             <ol className="relative">
@@ -175,17 +175,17 @@ export function TimelineTab({ deviceId }: { deviceId: number }) {
                     <span
                       className={cx(
                         'mt-1.5 h-2.5 w-2.5 shrink-0 rounded-full',
-                        TIMELINE_TONE[it.kind] ?? 'bg-slate-500',
+                        TIMELINE_TONE[it.kind] ?? 'bg-status-paused',
                       )}
                       aria-hidden="true"
                     />
                     <span
-                      className="w-20 shrink-0 text-xs tabular-nums text-slate-500"
+                      className="w-20 shrink-0 text-xs tabular-nums text-ink-muted"
                       title={formatDateTime(it.time)}
                     >
                       {new Date(it.time).toLocaleTimeString()}
                     </span>
-                    <span className="w-24 shrink-0 text-xs text-slate-500">
+                    <span className="w-24 shrink-0 text-xs text-ink-muted">
                       {t(`timeline.kind.${it.kind}`, { defaultValue: it.kind })}
                     </span>
                     <span className="min-w-0 flex-1 text-sm">
@@ -193,25 +193,18 @@ export function TimelineTab({ deviceId }: { deviceId: number }) {
                     </span>
                   </>
                 );
-                const cls =
-                  'flex items-start gap-3 border-b border-slate-100 px-3 py-1.5 dark:border-slate-800/70';
+                const cls = 'flex items-start gap-3 border-b border-line px-3 py-1.5';
                 return (
                   <li key={`${it.kind}-${it.id}`}>
                     {href && (isAdmin || (it.kind !== 'audit' && it.kind !== 'config')) ? (
-                      <Link
-                        to={href}
-                        className={cx(cls, 'hover:bg-slate-50 dark:hover:bg-slate-800/50')}
-                      >
+                      <Link to={href} className={cx(cls, 'hover:bg-surface-hover')}>
                         {body}
                       </Link>
                     ) : onClick ? (
                       <button
                         type="button"
                         onClick={onClick}
-                        className={cx(
-                          cls,
-                          'w-full text-start hover:bg-slate-50 dark:hover:bg-slate-800/50',
-                        )}
+                        className={cx(cls, 'w-full text-start hover:bg-surface-hover')}
                       >
                         {body}
                       </button>

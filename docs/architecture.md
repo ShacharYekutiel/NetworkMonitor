@@ -164,7 +164,7 @@ Frontend: React 18, TypeScript, Vite, Tailwind CSS, React Router, TanStack Query
 │       ├── i18n/                 # index.ts, locales/en.json, locales/he.json
 │       ├── components/           # StatusBadge, Tree, Charts, forms...
 │       ├── pages/                # Setup, Login, Dashboard, Group, Device, Sensor, Events,
-│       │                         # Alerts (rules+channels), Users, Settings
+│       │                         # Notifications (rules+channels), Users, Settings
 │       └── hooks/
 ├── deploy/
 │   ├── docker-compose.yml        # timescaledb + netmon
@@ -503,7 +503,7 @@ Backend, frontend and QA can implement in parallel against those two files.
      ids are negative, supergroups look like `-100…`.
    - *Channel:* add the bot as an **administrator** of the channel. For a public channel use `@channelname`;
      for a private one, post in the channel and read the `-100…` id from `getUpdates` (`channel_post.chat.id`).
-3. In NetworkMonitor: Alerts → Notification channels → Add → type **Telegram**, paste the token and the chat
+3. In NetworkMonitor: Notifications → Notification channels → Add → type **Telegram**, paste the token and the chat
    id, Save, then **Test**. Errors show Telegram's own text (e.g. "Bad Request: chat not found" = wrong id or
    the bot is not in that chat; "Unauthorized" = wrong token; "Forbidden: bot was blocked by the user" = press
    Start again).
@@ -584,7 +584,7 @@ refresh cancelled (ends `failed`, "Cancelled by shutdown"), then the loops.
   sends the browser time zone silently.
 - **Acknowledge:** on the sensor page and in problem lists (dashboard, sensors filtered by status) an admin
   "Acknowledge" button for down/warning → small dialog with optional comment; acknowledged sensors show a check
-  badge with tooltip "by admin at 09:12: comment" and an "Unacknowledge" action. Dashboard: *Problems* (not
+  badge with tooltip "by admin at 09:12: comment" and an "Unacknowledge" action. Dashboard: *Alerts* (not
   acknowledged), *Acknowledged* (separate card), *Unreachable devices* card (with parent), maintenance count.
   `sensor.ack` WS updates in place.
 - **Alert rule form:** collapsible "Escalation" section: "Escalate after [n] minutes if not acknowledged" +
@@ -859,16 +859,22 @@ per member: main blocks by module asc, then `other`, then uplink).
   below the bottom row (`text-[10px]`). Selected tile `ring-2 ring-sky-500`. Each tile is a `button` with an
   `aria-label` ("Port 7, up, client, VLAN 10").
 
-  | Condition (first match) | Tile | Tailwind (light / dark) |
-  |---|---|---|
-  | `state = admin_down` | gray, crossed-out icon | `bg-gray-200 text-gray-500` / `dark:bg-slate-700 dark:text-slate-400` |
-  | `state = up` and `alert` | orange, icon | `bg-orange-500 text-white` |
-  | `state = up` | green, icon of `connected_kind` (`client` monitor, `ap` wifi, `switch` switch); `trunk` adds a small stacked-lines badge at the top-end corner; a `mac_count` uplink shows the count (≤ 99, else `99+`) as a corner badge | `bg-green-500 text-white` |
-  | not up and `alert` | peach, no icon | `bg-orange-200 border border-orange-300` / `dark:bg-orange-900/40 dark:border-orange-700` |
-  | otherwise | white with gray border | `bg-white border border-gray-300` / `dark:bg-slate-900 dark:border-slate-600` |
+  [premium] The panel is the switch front panel of `docs/design-system/premium/BUILD.md` § 5: a dark chassis per
+  member (rack ears, name and model, vents, SYS/PWR), never mirrored, with fixed port colours (fill / frame / icon):
 
-  Speed, PoE and VLAN are **not** drawn on tiles. A legend row under the panel explains the five tiles and
-  the three icons (`ports.legend.*`). Member labels ("Member 2") above each member row.
+  | Condition (first match) | Port |
+  |---|---|
+  | `state = admin_down` | dark socket, crossed-circle icon |
+  | `state = up` and `alert` | red `#7a1c17` / `#ff5a50` / `#ffecea`, icon |
+  | `state = up` and its interface sensor in warning | amber `#7a4a08` / `#ffaa2b` / `#fff4e2`, icon |
+  | `state = up` | green `#1d6b30` / `#3fe066` / `#eafff0`, icon of `connected_kind` (computer, phone, ap, printer, camera, server, switch = uplink arrow, router, unknown = question mark; no icon when `connected_kind` is null); `trunk` adds a small stacked-lines badge at the top-end corner; a `mac_count` uplink shows the count (≤ 99, else `99+`) as a corner badge |
+  | not up and `alert` | empty socket with a red frame |
+  | otherwise | empty socket `#0b0b0d` / `#3d3e42`, the latch drawn, no icon |
+
+  Servers before [premium] send `connected_kind` "client" (drawn as computer) and "none" (null). Speed, PoE and
+  VLAN are **not** drawn on ports. A legend under the panel shows the device-type icons and the port states
+  (`ports.connectedKind.*`, `ports.legend.*`). Admins choose a device type per port in the port card
+  (Automatic or one of 8 kinds, `PUT …/connected-kind`); a manual choice shows "manual" in the port list.
 - **Port list:** columns Port (sticky, `sticky start-0`), Status (up / no link / disabled / not present + alert
   icon), Connected (primary neighbour name linked to its device, else `n MACs` for uplinks, else
   `first_mac` as hostname ‖ IP ‖ vendor ‖ MAC, `+k` when more), VLAN (PVID), Mode, Speed, PoE (W) (`power_w`,
@@ -3770,7 +3776,7 @@ rendered answer has no `<img>`, no external `href`, forged refs rendered as text
   bottom switch locked; Test with a bad secret → `aws_auth_failed` message; upload test `.pfx` → metadata shown;
   Roles Anywhere Test passes → switch unlocks → ON; editing the region locks it again; OFF always possible; enabling
   with `audit` OFF refused; viewer sees nothing and `/api/assistant/*` → 403; API token → 403.
-- `64-assistant-ask.spec.ts` — example chip → streamed answer with steps ("Listing problems… 2 sensors"), link to the
+- `64-assistant-ask.spec.ts` — example chip → streamed answer with steps ("Listing alerts… 2 sensors"), link to the
   device page works, *Copy*, thumbs up, conversation in history, follow-up question uses history, rename, delete.
 - `65-assistant-tools-features.spec.ts` — syslog OFF → not offered (mock log) and the answer says syslog is off; ON →
   offered; config sub-toggle OFF → no config tools; ON → `config_diff` result masked.

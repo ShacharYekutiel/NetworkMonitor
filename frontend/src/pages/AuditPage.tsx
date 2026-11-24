@@ -1,28 +1,31 @@
-import { Fragment, useState, type FormEvent } from 'react';
+import { useState, type FormEvent } from 'react';
+import type { TFunction } from 'i18next';
 import { keepPreviousData, useQuery } from '@tanstack/react-query';
 import { useSearchParams } from 'react-router';
 import { useTranslation } from 'react-i18next';
 import { endpoints, qk, type AuditQuery } from '../api/endpoints';
 import type { AuditEntry } from '../api/types';
-import { ChevronIcon } from '../components/icons';
+import { AuditIcon, CogIcon, KeyIcon } from '../components/icons';
+import { ActionRow, Avatar, EmptyState } from '../components/kit';
 import { Pagination } from '../components/Pagination';
 import {
   buttonClass,
   Button,
   Card,
   cx,
-  Empty,
   ErrorBox,
+  GroupList,
   Input,
+  KeyValue,
   Loading,
   PageHeader,
   Select,
-  td,
-  th,
+  TAG,
+  TAG_TONE,
 } from '../components/ui';
 import { FeatureOffNotice, useFeatures } from '../hooks/features';
 import { AUDIT_ACTION_PREFIXES, AUDIT_ENTITY_TYPES, auditTone, changeRows } from '../lib/audit';
-import { formatDateTime } from '../lib/format';
+import { formatDateTime, formatShortTime } from '../lib/format';
 import { isoToLocal, localToIso } from '../lib/logs';
 
 const PAGE_SIZE = 50;
@@ -39,36 +42,114 @@ type Form = {
 function Changes({ e }: { e: AuditEntry }) {
   const { t } = useTranslation();
   const rows = changeRows(e.changes);
-  if (!rows.length) return <p className="text-xs text-slate-500">{t('audit.noChanges')}</p>;
+  if (!rows.length) return <p className="m-0 text-sm text-ink-muted">{t('audit.noChanges')}</p>;
   return (
-    <table className="w-full text-xs" data-testid="audit-diff">
-      <thead>
-        <tr>
-          <th className="px-2 py-1 text-start font-medium text-slate-500">{t('audit.field')}</th>
-          <th className="px-2 py-1 text-start font-medium text-slate-500">{t('audit.old')}</th>
-          <th className="px-2 py-1 text-start font-medium text-slate-500">{t('audit.new')}</th>
-        </tr>
-      </thead>
-      <tbody>
-        {rows.map((r) => (
-          <tr key={r.field} className="border-t border-slate-100 dark:border-slate-800">
-            <td className="px-2 py-1 font-mono">
-              <bdi dir="ltr">{r.field}</bdi>
-            </td>
-            <td className="px-2 py-1 font-mono text-red-700 dark:text-red-300">
-              <bdi dir="ltr" className="break-all">
-                {r.secret ? t('audit.secret') : r.old}
-              </bdi>
-            </td>
-            <td className="px-2 py-1 font-mono text-green-700 dark:text-green-300">
-              <bdi dir="ltr" className="break-all">
-                {r.secret ? t('audit.secret') : r.new}
-              </bdi>
-            </td>
-          </tr>
-        ))}
-      </tbody>
-    </table>
+    <dl className="m-0 grid gap-0 text-[14px]" data-testid="audit-diff">
+      {rows.map((r) => (
+        <div
+          key={r.field}
+          className="grid gap-1 border-b border-line py-2.5 last:border-b-0 sm:grid-cols-[minmax(0,140px)_minmax(0,1fr)] sm:gap-4"
+        >
+          <dt className="min-w-0 break-words font-mono text-[12.5px] text-ink-muted">
+            <bdi dir="ltr">{r.field}</bdi>
+          </dt>
+          <dd className="m-0 flex min-w-0 flex-wrap items-baseline gap-x-2 gap-y-1 font-mono text-[12.5px]">
+            <bdi
+              dir="ltr"
+              className="break-all rounded-md bg-status-down-soft px-1.5 text-status-down"
+            >
+              {r.secret ? t('audit.secret') : r.old}
+            </bdi>
+            <span aria-hidden="true" className="text-ink-subtle rtl:rotate-180">
+              →
+            </span>
+            <span className="sr-only">{t('audit.new')}</span>
+            <bdi dir="ltr" className="break-all rounded-md bg-status-up-soft px-1.5 text-status-up">
+              {r.secret ? t('audit.secret') : r.new}
+            </bdi>
+          </dd>
+        </div>
+      ))}
+    </dl>
+  );
+}
+
+/** "Alert rules · updated" from "alert_rule.update" (unknown verbs as words). */
+function actionTitle(t: TFunction, action: string): string {
+  const dot = action.indexOf('.');
+  const group = dot > 0 ? action.slice(0, dot) : action;
+  const verb = dot > 0 ? action.slice(dot + 1) : '';
+  // sign-ins read as one word ("Signed in"), the rest as "Alert rules · changed"
+  if (group === 'auth' && verb) return t(`audit.authVerb.${verb}`, { defaultValue: action });
+  const g = t(`audit.actionGroup.${group}`, { defaultValue: group });
+  if (!verb) return g;
+  return `${g} · ${t(`audit.verb.${verb}`, { defaultValue: verb.replace(/_/g, ' ') })}`;
+}
+
+function AuditDetail({ e }: { e: AuditEntry }) {
+  const { t } = useTranslation();
+  const tone = auditTone(e.action);
+  return (
+    <Card
+      title={
+        <span className="grid gap-1">
+          <span>
+            {actionTitle(t, e.action)}
+            {e.entity_name && e.entity_name !== e.actor_name && (
+              <>
+                {' · '}
+                <bdi dir="auto">{e.entity_name}</bdi>
+              </>
+            )}
+          </span>
+          <bdi dir="ltr" className="font-mono text-[12.5px] font-normal text-ink-muted">
+            {e.action}
+          </bdi>
+        </span>
+      }
+      actions={
+        tone === 'bad' ? (
+          <span className={cx(TAG, TAG_TONE.down)}>{t('audit.failed')}</span>
+        ) : tone === 'warn' ? (
+          <span className={cx(TAG, TAG_TONE.warning)}>{t('audit.removal')}</span>
+        ) : undefined
+      }
+    >
+      <div className="grid gap-4" data-testid="audit-detail">
+        {e.reason && (
+          <p className="m-0 text-sm">{t(`ldap.reason.${e.reason}`, { defaultValue: e.reason })}</p>
+        )}
+        <Changes e={e} />
+        <KeyValue
+          className="border-t border-line pt-3.5"
+          items={[
+            {
+              k: t('audit.actor'),
+              v: (
+                <>
+                  <bdi dir="auto">{e.actor_name || '—'}</bdi>
+                  <span className="text-ink-muted">
+                    {' '}
+                    ({t(`audit.actorType.${e.actor_type}`)}
+                    {e.source && ` · ${t(`audit.source.${e.source}`)}`})
+                  </span>
+                </>
+              ),
+            },
+            ...(e.entity_type
+              ? [
+                  {
+                    k: t('audit.entity'),
+                    v: t(`audit.entityType.${e.entity_type}`, { defaultValue: e.entity_type }),
+                  },
+                ]
+              : []),
+            { k: t('logs.col.time'), v: formatDateTime(e.time) },
+            { k: t('audit.ip'), v: <bdi dir="ltr">{e.ip ?? '—'}</bdi> },
+          ]}
+        />
+      </div>
+    </Card>
   );
 }
 
@@ -112,12 +193,18 @@ export function AuditPage() {
     setPage(1);
   };
   const set = (p: Partial<Form>) => setForm((f) => ({ ...f, ...p }));
+  const settings = useQuery({ queryKey: qk.settings, queryFn: endpoints.settings });
+  const shown = q.data?.items.find((e) => e.id === open) ?? q.data?.items[0];
   if (!loaded) return <Loading />;
   return (
-    <div className="space-y-4">
+    <div>
       <PageHeader
         title={t('audit.title')}
-        subtitle={deviceId !== undefined ? t('audit.filteredDevice', { id: deviceId }) : undefined}
+        subtitle={
+          deviceId !== undefined
+            ? t('audit.filteredDevice', { id: deviceId })
+            : settings.data && t('audit.subtitle', { days: settings.data.audit_retention_days })
+        }
         actions={
           features.audit && (
             <a
@@ -135,191 +222,186 @@ export function AuditPage() {
         <FeatureOffNotice feature="audit" />
       ) : (
         <>
-          <Card bodyClassName="p-3">
+          <Card bodyClassName="px-5 py-4" className="mb-6">
             <form
               onSubmit={submit}
-              className="flex flex-wrap items-end gap-2"
+              className="grid grid-cols-1 items-start gap-3 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-[repeat(2,minmax(0,1.5fr))_repeat(4,minmax(0,1fr))_auto]"
               data-testid="audit-filters"
             >
-              <label className="text-xs text-slate-500">
+              <label className="grid min-w-0 gap-1.5 text-[13px] text-ink-muted">
                 {t('logs.from')}
                 <Input
+                  className="h-10 min-w-0"
                   type="datetime-local"
                   value={form.since}
                   onChange={(e) => set({ since: e.target.value })}
                   dir="ltr"
-                  className="w-auto"
                 />
               </label>
-              <label className="text-xs text-slate-500">
+              <label className="grid min-w-0 gap-1.5 text-[13px] text-ink-muted">
                 {t('logs.to')}
                 <Input
+                  className="h-10 min-w-0"
                   type="datetime-local"
                   value={form.until}
                   onChange={(e) => set({ until: e.target.value })}
                   dir="ltr"
-                  className="w-auto"
                 />
               </label>
-              <Input
-                value={form.actor}
-                onChange={(e) => set({ actor: e.target.value })}
-                placeholder={t('audit.actor')}
-                aria-label={t('audit.actor')}
-                className="w-40"
-                dir="auto"
-              />
-              <Select
-                value={form.action}
-                onChange={(e) => set({ action: e.target.value })}
-                aria-label={t('audit.action')}
-                className="w-48"
-              >
-                <option value="">{t('audit.anyAction')}</option>
-                {AUDIT_ACTION_PREFIXES.map((a) => (
-                  <option key={a} value={a}>
-                    {t(`audit.actionGroup.${a.slice(0, -1)}`)}
-                  </option>
-                ))}
-              </Select>
-              <Select
-                value={form.entity_type}
-                onChange={(e) => set({ entity_type: e.target.value })}
-                aria-label={t('audit.entity')}
-                className="w-44"
-              >
-                <option value="">{t('audit.anyEntity')}</option>
-                {AUDIT_ENTITY_TYPES.map((x) => (
-                  <option key={x} value={x}>
-                    {t(`audit.entityType.${x}`)}
-                  </option>
-                ))}
-              </Select>
-              <Input
-                value={form.ip}
-                onChange={(e) => set({ ip: e.target.value })}
-                placeholder={t('audit.ip')}
-                aria-label={t('audit.ip')}
-                className="w-36 font-mono"
-                dir="ltr"
-              />
-              <Button type="submit" variant="primary" size="sm">
+              <div className="grid min-w-0 gap-1.5 text-[13px] text-ink-muted">
+                <span aria-hidden="true">{t('audit.actor')}</span>
+                <Input
+                  className="h-10"
+                  value={form.actor}
+                  onChange={(e) => set({ actor: e.target.value })}
+                  aria-label={t('audit.actor')}
+                  dir="auto"
+                />
+              </div>
+              <div className="grid min-w-0 gap-1.5 text-[13px] text-ink-muted">
+                <span aria-hidden="true">{t('audit.action')}</span>
+                <Select
+                  className="h-10"
+                  value={form.action}
+                  onChange={(e) => set({ action: e.target.value })}
+                  aria-label={t('audit.action')}
+                >
+                  <option value="">{t('audit.anyAction')}</option>
+                  {AUDIT_ACTION_PREFIXES.map((a) => (
+                    <option key={a} value={a}>
+                      {t(`audit.actionGroup.${a.slice(0, -1)}`)}
+                    </option>
+                  ))}
+                </Select>
+              </div>
+              <div className="grid min-w-0 gap-1.5 text-[13px] text-ink-muted">
+                <span aria-hidden="true">{t('audit.entity')}</span>
+                <Select
+                  className="h-10"
+                  value={form.entity_type}
+                  onChange={(e) => set({ entity_type: e.target.value })}
+                  aria-label={t('audit.entity')}
+                >
+                  <option value="">{t('audit.anyEntity')}</option>
+                  {AUDIT_ENTITY_TYPES.map((x) => (
+                    <option key={x} value={x}>
+                      {t(`audit.entityType.${x}`)}
+                    </option>
+                  ))}
+                </Select>
+              </div>
+              <div className="grid min-w-0 gap-1.5 text-[13px] text-ink-muted">
+                <span aria-hidden="true">{t('audit.ip')}</span>
+                <Input
+                  value={form.ip}
+                  onChange={(e) => set({ ip: e.target.value })}
+                  aria-label={t('audit.ip')}
+                  className="h-10 font-mono"
+                  dir="ltr"
+                />
+              </div>
+              <Button type="submit" variant="primary" className="self-end">
                 {t('logs.apply')}
               </Button>
             </form>
           </Card>
-          <Card bodyClassName="p-0">
-            {q.isLoading && <Loading />}
-            <ErrorBox error={q.error} className="m-3" />
-            {q.data && !q.data.items.length && <Empty>{t('audit.none')}</Empty>}
-            {q.data && q.data.items.length > 0 && (
-              <>
-                <div className="overflow-x-auto">
-                  <table className="w-full text-sm">
-                    <thead>
-                      <tr>
-                        <th className={th} />
-                        <th className={th}>{t('logs.col.time')}</th>
-                        <th className={th}>{t('audit.actor')}</th>
-                        <th className={th}>{t('audit.action')}</th>
-                        <th className={th}>{t('audit.entity')}</th>
-                        <th className={th}>{t('audit.ip')}</th>
-                        <th className={th}>{t('audit.details')}</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {q.data.items.map((e) => {
-                        const tone = auditTone(e.action);
-                        const expanded = open === e.id;
-                        return (
-                          <Fragment key={e.id}>
-                            <tr
-                              className="cursor-pointer hover:bg-slate-50 dark:hover:bg-slate-800/50"
-                              onClick={() => setOpen(expanded ? null : e.id)}
-                              aria-expanded={expanded}
-                            >
-                              <td className={td}>
-                                <ChevronIcon
-                                  size={12}
-                                  className={cx(
-                                    'transition-transform',
-                                    expanded ? 'rotate-90' : 'rtl:rotate-180',
-                                  )}
-                                />
-                              </td>
-                              <td className={cx(td, 'whitespace-nowrap text-xs text-slate-500')}>
-                                {formatDateTime(e.time)}
-                              </td>
-                              <td className={cx(td, 'whitespace-nowrap')}>
-                                <bdi dir="auto">{e.actor_name || '—'}</bdi>
-                                <span className="ms-1 text-xs text-slate-500">
-                                  ({t(`audit.actorType.${e.actor_type}`)}
-                                  {e.source && ` · ${t(`audit.source.${e.source}`)}`})
-                                </span>
-                              </td>
-                              <td
-                                className={cx(
-                                  td,
-                                  'whitespace-nowrap font-mono text-xs',
-                                  tone === 'bad' && 'text-red-600 dark:text-red-400',
-                                  tone === 'warn' && 'text-amber-700 dark:text-amber-300',
-                                )}
-                              >
-                                <bdi dir="ltr">{e.action}</bdi>
-                              </td>
-                              <td className={td}>
-                                {e.entity_type ? (
-                                  <span>
-                                    {t(`audit.entityType.${e.entity_type}`, {
-                                      defaultValue: e.entity_type,
-                                    })}
-                                    {e.entity_name && (
-                                      <>
-                                        : <bdi dir="auto">{e.entity_name}</bdi>
-                                      </>
-                                    )}
-                                  </span>
-                                ) : (
-                                  '—'
-                                )}
-                              </td>
-                              <td className={cx(td, 'font-mono text-xs')}>
-                                <bdi dir="ltr">{e.ip ?? '—'}</bdi>
-                              </td>
-                              <td className={cx(td, 'text-xs text-slate-500')}>
-                                {e.reason
-                                  ? t(`ldap.reason.${e.reason}`, { defaultValue: e.reason })
-                                  : t('audit.changesCount', {
-                                      n: Object.keys(e.changes ?? {}).length,
-                                    })}
-                              </td>
-                            </tr>
-                            {expanded && (
-                              <tr>
-                                <td />
-                                <td
-                                  colSpan={6}
-                                  className="bg-slate-50 px-3 py-2 dark:bg-slate-800/40"
-                                >
-                                  <Changes e={e} />
-                                </td>
-                              </tr>
+          {q.isLoading && <Loading />}
+          <ErrorBox error={q.error} className="mb-3" />
+          {q.data && !q.data.items.length && (
+            <div className="rounded-xl bg-surface shadow-card">
+              <EmptyState icon={AuditIcon} title={t('audit.none')}>
+                {t('audit.noneHint')}
+              </EmptyState>
+            </div>
+          )}
+          {q.data && q.data.items.length > 0 && (
+            // prototype .two: the entries and the selected entry's changes
+            <div className="grid grid-cols-1 items-start gap-6 lg:grid-cols-[minmax(0,1.4fr)_minmax(0,1fr)]">
+              <div className="min-w-0">
+                <GroupList label={t('audit.title')}>
+                  {q.data.items.map((e) => {
+                    const tone = auditTone(e.action);
+                    return (
+                      <ActionRow
+                        key={e.id}
+                        testId="audit-row"
+                        wrap
+                        selected={shown?.id === e.id}
+                        lead={
+                          e.actor_type === 'user' ? (
+                            <Avatar name={e.actor_name || '?'} size="sm" />
+                          ) : (
+                            <span className="inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-chip text-ink-muted">
+                              {e.actor_type === 'token' ? (
+                                <KeyIcon size={16} />
+                              ) : (
+                                <CogIcon size={16} />
+                              )}
+                            </span>
+                          )
+                        }
+                        onClick={() => setOpen(e.id)}
+                        title={
+                          <span
+                            className={cx(
+                              tone === 'bad' && 'text-status-down',
+                              tone === 'warn' && 'text-status-warning',
                             )}
-                          </Fragment>
-                        );
-                      })}
-                    </tbody>
-                  </table>
-                </div>
+                          >
+                            {actionTitle(t, e.action)}
+                            {e.entity_name && e.entity_name !== e.actor_name && (
+                              <>
+                                {' · '}
+                                <bdi dir="auto">{e.entity_name}</bdi>
+                              </>
+                            )}
+                          </span>
+                        }
+                        subtitle={
+                          <>
+                            <bdi dir="auto" className="font-display">
+                              {e.actor_name || '—'}
+                            </bdi>
+                            {e.actor_type !== 'user' &&
+                              ` · ${t(`audit.actorType.${e.actor_type}`)}`}
+                            {e.ip && (
+                              <>
+                                {' · '}
+                                <bdi dir="ltr" className="font-mono text-[12.5px]">
+                                  {e.ip}
+                                </bdi>
+                              </>
+                            )}
+                            {e.reason
+                              ? ` · ${t(`ldap.reason.${e.reason}`, { defaultValue: e.reason })}`
+                              : Object.keys(e.changes ?? {}).length > 0 &&
+                                ` · ${t('audit.changesCount', { n: Object.keys(e.changes ?? {}).length })}`}
+                          </>
+                        }
+                        end={
+                          <span
+                            className="num whitespace-nowrap text-sm font-medium text-ink-muted"
+                            title={formatDateTime(e.time)}
+                          >
+                            {formatShortTime(e.time)}
+                          </span>
+                        }
+                      />
+                    );
+                  })}
+                </GroupList>
                 <Pagination
                   page={page}
                   pageSize={PAGE_SIZE}
                   total={q.data.total}
                   onPage={setPage}
                 />
-              </>
-            )}
-          </Card>
+              </div>
+              <div className="min-w-0 lg:sticky lg:top-[84px]">
+                {shown && <AuditDetail e={shown} />}
+              </div>
+            </div>
+          )}
         </>
       )}
     </div>

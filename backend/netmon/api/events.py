@@ -2,13 +2,14 @@ from __future__ import annotations
 
 from datetime import UTC, datetime
 
-from fastapi import APIRouter
-from sqlalchemy import func, select
+from fastapi import APIRouter, Query
+from sqlalchemy import case, func, select
 
 from netmon.api.common import csv_list
 from netmon.api.deps import DB, Page, Paging, Viewer
 from netmon.api.errors import validation_error
 from netmon.models import Event
+from netmon.services import severity as severity_svc
 from netmon.services.serialize import event_out, page
 from netmon.services.status import load_inventory
 
@@ -35,8 +36,13 @@ async def list_events_impl(
     since: str | None = None,
     until: str | None = None,
     in_maintenance: bool | None = None,
+    severity: str | None = None,
+    sort: str | None = None,
 ) -> dict:
     stmt = select(Event)
+    levels = severity_svc.parse_levels(csv_list(severity), ["query", "severity"])
+    if levels:  # [severity] the stored severity (events written while the feature was ON)
+        stmt = stmt.where(Event.severity.in_(levels))
     if in_maintenance is not None:
         stmt = stmt.where(Event.in_maintenance.is_(in_maintenance))
     if sensor_id is not None:
@@ -58,10 +64,11 @@ async def list_events_impl(
     if until:
         stmt = stmt.where(Event.time <= _dt(until, "until"))
     total = (await session.execute(select(func.count()).select_from(stmt.subquery()))).scalar_one()
+    order = [Event.time.desc(), Event.id.desc()]
+    if sort == "severity":  # [severity] highest first (null last), then newest first
+        order.insert(0, case(severity_svc.RANK, value=Event.severity, else_=0).desc())
     rows = (
-        await session.execute(
-            stmt.order_by(Event.time.desc(), Event.id.desc()).offset(pg.offset).limit(pg.page_size)
-        )
+        await session.execute(stmt.order_by(*order).offset(pg.offset).limit(pg.page_size))
     ).scalars()
     return page([event_out(e) for e in rows], total, pg.page, pg.page_size)
 
@@ -79,6 +86,8 @@ async def list_events(
     since: str | None = None,
     until: str | None = None,
     in_maintenance: bool | None = None,
+    severity: str | None = None,
+    sort: str | None = Query(default=None, pattern="^(time|severity)$"),
 ) -> dict:
     return await list_events_impl(
         session,
@@ -91,4 +100,6 @@ async def list_events(
         since=since,
         until=until,
         in_maintenance=in_maintenance,
+        severity=severity,
+        sort=sort,
     )

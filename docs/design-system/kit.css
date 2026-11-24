@@ -65,8 +65,8 @@ a:hover { text-decoration: underline; text-underline-offset: 3px; }
 
 .nm-body { display: flex; flex: 1; min-height: 0; }
 .nm-rail { width: var(--rail-width); flex: none; background: var(--chrome); border-inline-end: 1px solid var(--chrome-border); display: flex; flex-direction: column; align-items: center; padding: 8px 0; gap: 1px; overflow-y: auto; scrollbar-width: none; }
-.nm-rail a { width: 64px; padding: 6px 0 5px; display: flex; flex-direction: column; align-items: center; gap: 5px; color: var(--chrome-muted); border-radius: var(--radius-md); text-decoration: none; position: relative; font: 500 10.5px/1.1 var(--font-sans); text-align: center; flex: none; }
-[lang="he"] .nm-rail a { font: 500 11px/1.1 "Heebo", sans-serif; }
+.nm-rail a { width: 72px; padding: 6px 0 5px; display: flex; flex-direction: column; align-items: center; gap: 5px; color: var(--chrome-muted); border-radius: var(--radius-md); text-decoration: none; position: relative; font: 500 12px/1.15 var(--font-sans); text-align: center; flex: none; }
+[lang="he"] .nm-rail a { font: 500 12px/1.15 "Heebo", sans-serif; }
 .nm-rail a .nm-ico { width: 18px; height: 18px; }
 .nm-rail a:hover { color: var(--chrome-ink); background: var(--chrome-field); }
 .nm-rail a.on { background: var(--nav-active); color: var(--nav-active-ink); font-weight: 600; }

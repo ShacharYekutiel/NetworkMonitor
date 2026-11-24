@@ -29,6 +29,10 @@ export type SettingsCardDef = {
   fields: SettingsFieldDef[];
 };
 
+const SEVERITY_LEVEL_KEYS = ['critical', 'major', 'minor', 'warning', 'info'].map(
+  (s) => `severity.level.${s}`,
+);
+
 export function cardAnchor(id: string): string {
   return `settings-${id}`;
 }
@@ -87,6 +91,26 @@ export const SETTINGS_CARDS: SettingsCardDef[] = [
       { labelKey: 'settings.fromAddress' },
       { labelKey: 'settings.fromName' },
       { labelKey: 'settings.smtpTest', hintKey: 'settings.smtpTestHint' },
+    ],
+  },
+  // [severity] the severity mapping (rendered while alert_severity is on)
+  {
+    id: 'severity',
+    tab: 'general',
+    titleKey: 'severity.mapping.title',
+    hintKey: 'severity.mapping.intro',
+    feature: ['alert_severity'],
+    terms: ['severity', 'critical', 'major', 'minor', 'classification', 'mapping', 'nms'],
+    fields: [
+      { labelKey: 'severity.mapping.severity', extraKeys: SEVERITY_LEVEL_KEYS },
+      { labelKey: 'severity.mapping.reset' },
+      { labelKey: 'severity.mapping.reclassify' },
+      {
+        labelKey: 'severity.mapping.subject',
+        hintKey: 'severity.mapping.subjectHint',
+        terms: ['email', 'subject', 'mail'],
+        anchor: 'severity-subject',
+      },
     ],
   },
   // [1.4.1] security hardening

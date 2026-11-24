@@ -96,11 +96,70 @@ export function formatDuration(totalSeconds: number): string {
   return parts.join(' ');
 }
 
+/**
+ * A duration for a time column (timelines): always a number and a short unit, so a column reads
+ * evenly ("0 min", "1 min", "30 min", "1 h 30 min"; Hebrew "0 דק׳", "1 דק׳").
+ */
+export function formatDurationCol(totalSeconds: number): string {
+  const s = Math.max(0, Math.floor(totalSeconds));
+  const d = Math.floor(s / 86400);
+  const h = Math.floor((s % 86400) / 3600);
+  const m = Math.floor((s % 3600) / 60);
+  const parts: string[] = [];
+  if (d) {
+    parts.push(i18n.t('units.colD', { count: d }));
+    if (h) parts.push(i18n.t('units.colH', { count: h }));
+  } else if (h) {
+    parts.push(i18n.t('units.colH', { count: h }));
+    if (m) parts.push(i18n.t('units.colM', { count: m }));
+  } else {
+    parts.push(i18n.t('units.colM', { count: m }));
+  }
+  return parts.join(' ');
+}
+
 export function formatDateTime(iso: string | null | undefined): string {
   if (!iso) return '—';
   const d = new Date(iso);
   if (Number.isNaN(d.getTime())) return '—';
   return new Intl.DateTimeFormat(locale(), { dateStyle: 'short', timeStyle: 'medium' }).format(d);
+}
+
+/** "10:40" within the last/next 24 hours, else "11 Nov, 10:40" (browser time, as formatDateTime). */
+export function formatShortTime(iso: string | null | undefined, now: number = Date.now()): string {
+  if (!iso) return '—';
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return '—';
+  const soon = Math.abs(d.getTime() - now) < 86_400_000;
+  return new Intl.DateTimeFormat(
+    locale(),
+    soon
+      ? { hour: '2-digit', minute: '2-digit', hourCycle: 'h23' }
+      : { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit', hourCycle: 'h23' },
+  ).format(d);
+}
+
+/** "8 Nov" (browser time); with `endExclusive` the instant just before (a period's last day). */
+export function formatShortDate(iso: string | null | undefined, endExclusive = false): string {
+  if (!iso) return '—';
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return '—';
+  return new Intl.DateTimeFormat(locale(), { day: 'numeric', month: 'short' }).format(
+    endExclusive ? d.getTime() - 1000 : d,
+  );
+}
+
+/** A log line's time (prototype logs rows): "10:44:12" within a day, else "17 Nov 10:44:12". */
+export function formatLogTime(iso: string | null | undefined, now: number = Date.now()): string {
+  if (!iso) return '—';
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return '—';
+  const soon = Math.abs(d.getTime() - now) < 86_400_000;
+  const time = { hour: '2-digit', minute: '2-digit', second: '2-digit', hourCycle: 'h23' } as const;
+  return new Intl.DateTimeFormat(
+    locale(),
+    soon ? time : { day: 'numeric', month: 'short', ...time },
+  ).format(d);
 }
 
 export function formatRelative(iso: string | null | undefined, now: number = Date.now()): string {

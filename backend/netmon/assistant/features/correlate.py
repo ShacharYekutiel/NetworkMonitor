@@ -120,6 +120,8 @@ def incident_out(
         "unreachable": counts.get("unreachable", 0),
         "warning": counts.get("warning", 0),
         "recovered": counts.get("recovered", 0),
+        # [severity] the highest stored severity of the members' events (null: none / OFF)
+        "severity": counts.get("severity"),
     }
 
 
@@ -134,13 +136,25 @@ def member_out(m: Any, root: int | None) -> dict[str, Any]:
         "time": _iso(m.time),
         "recovered_at": _iso(m.recovered_at),
         "is_root": m.device_id is not None and m.device_id == root,
+        "severity": getattr(m, "severity", None),  # [severity] of the member's event
     }
 
 
-async def incident_counts(session: Any, ids: list[int]) -> dict[int, dict[str, int]]:
-    out: dict[int, dict[str, int]] = {i: {} for i in ids}
+async def incident_counts(session: Any, ids: list[int]) -> dict[int, dict[str, Any]]:
+    out: dict[int, dict[str, Any]] = {i: {} for i in ids}
     if not ids:
         return out
+    from netmon.services import severity as severity_svc
+
+    for r in await session.execute(  # [severity] highest member severity
+        text(
+            "SELECT m.incident_id, array_agg(DISTINCT e.severity) AS sev "
+            "FROM assistant_incident_members m JOIN events e ON e.id = m.event_id "
+            "WHERE m.incident_id = ANY(:ids) AND e.severity IS NOT NULL GROUP BY m.incident_id"
+        ),
+        {"ids": ids},
+    ):
+        out.setdefault(r.incident_id, {})["severity"] = severity_svc.highest(r.sev or [])
     for r in await session.execute(
         text(
             "SELECT incident_id, status, (recovered_at IS NOT NULL) AS rec, count(*) AS n "

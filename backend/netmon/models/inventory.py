@@ -116,6 +116,12 @@ class Sensor(TimestampMixin, Base):
     impact: Mapped[str] = mapped_column(
         Text, nullable=False, default="critical", server_default="critical"
     )
+    # [severity] current problem severity (NULL = no problem / feature OFF) and the overrides
+    severity: Mapped[str | None] = mapped_column(Text)
+    severity_down: Mapped[str | None] = mapped_column(Text)
+    severity_warning: Mapped[str | None] = mapped_column(Text)
+    # [template-switch] manual | auto | template:<id>; NULL = created before migration 0016
+    origin: Mapped[str | None] = mapped_column(Text, nullable=True)
 
     channels: Mapped[list[SensorChannel]] = relationship(
         back_populates="sensor",
@@ -168,3 +174,4 @@ class Event(Base):
     new_status: Mapped[str | None] = mapped_column(Text)
     message: Mapped[str] = mapped_column(Text, nullable=False, default="")
     in_maintenance: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    severity: Mapped[str | None] = mapped_column(Text)  # [severity] resolved when written

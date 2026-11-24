@@ -21,7 +21,10 @@ import { RefreshIcon } from '../icons';
 import { Button, Card, cx, Empty, ErrorBox, Loading } from '../ui';
 import {
   facilityLabel,
+  LogRow,
+  LogTable,
   SeverityBadge,
+  severityDot,
   SourceCell,
   TopList,
   topSourceItems,
@@ -32,10 +35,6 @@ import { Histogram, severitySeries } from './Histogram';
 import { RuleEditorModal } from './RuleEditor';
 import { useRuleName } from './rules';
 import { useLogFeed } from './useLogFeed';
-
-const th =
-  'sticky top-0 z-10 whitespace-nowrap border-b border-slate-200 bg-white px-2 py-1.5 text-start text-[11px] font-medium uppercase tracking-wide text-slate-500 dark:border-slate-800 dark:bg-slate-900';
-const td = 'border-b border-slate-100 px-2 py-1 align-top dark:border-slate-800/70';
 
 export function LiveToggle({
   live,
@@ -57,9 +56,7 @@ export function LiveToggle({
       title={allowed ? t('logs.liveHint') : t('logs.liveNeedsOpenRange')}
       onClick={() => onChange(!live)}
     >
-      <span
-        className={cx('h-2 w-2 rounded-full', on ? 'animate-pulse bg-white' : 'bg-slate-400')}
-      />
+      <span className={cx('h-2 w-2 rounded-full', on ? 'bg-accent-on' : 'bg-status-paused')} />
       {t('logs.live')}
     </Button>
   );
@@ -107,13 +104,11 @@ export function SyslogDetail({
         <div className="space-y-4">
           <pre
             dir="ltr"
-            className="whitespace-pre-wrap break-words rounded bg-slate-100 p-2 text-left font-mono text-xs dark:bg-slate-800"
+            className="whitespace-pre-wrap break-words rounded bg-surface-sunken p-2 text-left font-mono text-xs"
           >
             {m.message}
           </pre>
-          {m.truncated && (
-            <p className="text-xs text-amber-700 dark:text-amber-300">{t('logs.truncated')}</p>
-          )}
+          {m.truncated && <p className="text-xs text-status-warning">{t('logs.truncated')}</p>}
           <DetailRows
             rows={[
               [t('logs.col.time'), formatDateTime(m.time)],
@@ -195,8 +190,8 @@ export function SyslogView({ deviceId }: { deviceId?: number }) {
   );
 
   return (
-    <div className="space-y-3" data-testid="syslog-view">
-      <Card bodyClassName="p-3">
+    <div className="space-y-4" data-testid="syslog-view">
+      <Card bodyClassName="px-5 py-4">
         <LogFilterBar
           kind="syslog"
           filter={filter}
@@ -220,8 +215,8 @@ export function SyslogView({ deviceId }: { deviceId?: number }) {
         )}
       </Card>
       {stats.data && (
-        <Card bodyClassName="p-3">
-          <div className="flex flex-wrap items-baseline justify-between gap-2 text-xs text-slate-500">
+        <Card bodyClassName="px-5 py-4">
+          <div className="flex flex-wrap items-baseline justify-between gap-2 text-[13px] text-ink-muted">
             <span>{t('logs.total', { n: stats.data.total })}</span>
           </div>
           <Histogram
@@ -231,22 +226,6 @@ export function SyslogView({ deviceId }: { deviceId?: number }) {
             from={stats.data.since}
             to={stats.data.until}
           />
-          <div className="mt-2 grid grid-cols-1 gap-4 sm:grid-cols-2">
-            {deviceId === undefined && (
-              <TopList
-                title={t('logs.topSources')}
-                items={topSourceItems(stats.data.top_sources)}
-              />
-            )}
-            <TopList
-              title={t('logs.topPrograms')}
-              items={stats.data.top_programs.map((p) => ({
-                key: p.program,
-                label: <bdi dir="ltr">{p.program || '—'}</bdi>,
-                count: p.count,
-              }))}
-            />
-          </div>
         </Card>
       )}
       <Card bodyClassName="p-0">
@@ -268,54 +247,42 @@ export function SyslogView({ deviceId }: { deviceId?: number }) {
           {!feed.isLoading && !feed.items.length ? (
             <Empty>{t('logs.empty')}</Empty>
           ) : (
-            <table className="w-full text-xs">
-              <thead>
-                <tr>
-                  <th className={th}>{t('logs.col.time')}</th>
-                  {deviceId === undefined && <th className={th}>{t('logs.col.source')}</th>}
-                  <th className={th}>{t('logs.col.severity')}</th>
-                  <th className={th}>{t('logs.col.facility')}</th>
-                  <th className={th}>{t('logs.col.host')}</th>
-                  <th className={th}>{t('logs.col.program')}</th>
-                  <th className={cx(th, 'w-full')}>{t('logs.col.message')}</th>
-                </tr>
-              </thead>
-              <tbody>
-                {feed.items.map((m) => (
-                  <tr
-                    key={m.id}
-                    onClick={() => setSelected(m)}
-                    className="cursor-pointer hover:bg-slate-50 dark:hover:bg-slate-800/50"
-                  >
-                    <td className={cx(td, 'whitespace-nowrap text-slate-500')}>
-                      {formatDateTime(m.time)}
-                    </td>
-                    {deviceId === undefined && (
-                      <td className={cx(td, 'whitespace-nowrap')}>
-                        <SourceCell r={m} />
-                      </td>
-                    )}
-                    <td className={td}>
-                      <SeverityBadge severity={m.severity} />
-                    </td>
-                    <td className={cx(td, 'whitespace-nowrap')} dir="ltr">
-                      {facilityLabel(m.facility)}
-                    </td>
-                    <td className={cx(td, 'whitespace-nowrap')}>
-                      <bdi dir="ltr">{m.hostname}</bdi>
-                    </td>
-                    <td className={cx(td, 'whitespace-nowrap')}>
-                      <bdi dir="ltr">{m.program}</bdi>
-                    </td>
-                    <td className={td}>
-                      <div dir="ltr" className="line-clamp-2 break-all text-left font-mono">
-                        {m.message}
-                      </div>
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
+            <LogTable head={[t('logs.col.severity'), t('logs.col.message'), t('logs.col.time')]}>
+              {feed.items.map((m) => (
+                <LogRow
+                  key={m.id}
+                  dot={severityDot(m.severity)}
+                  onClick={() => setSelected(m)}
+                  title={m.message}
+                  time={m.time}
+                  sub={
+                    <>
+                      {deviceId === undefined && (
+                        <>
+                          <SourceCell r={m} />
+                          {' · '}
+                        </>
+                      )}
+                      {t(`syslogSeverity.${m.severity}`)}
+                      {m.program && (
+                        <>
+                          {' · '}
+                          <bdi dir="ltr">{m.program}</bdi>
+                        </>
+                      )}
+                      {' · '}
+                      <bdi dir="ltr">{facilityLabel(m.facility)}</bdi>
+                      {m.hostname && m.hostname !== m.device_name && (
+                        <>
+                          {' · '}
+                          <bdi dir="ltr">{m.hostname}</bdi>
+                        </>
+                      )}
+                    </>
+                  }
+                />
+              ))}
+            </LogTable>
           )}
           {feed.hasMore && (
             <div className="flex justify-center p-2">
@@ -326,6 +293,27 @@ export function SyslogView({ deviceId }: { deviceId?: number }) {
           )}
         </div>
       </Card>
+      {/* top sources / programs under the lines (the prototype shows the lines first) */}
+      {stats.data && stats.data.total > 0 && (
+        <Card bodyClassName="px-[22px] py-5">
+          <div className="grid grid-cols-1 gap-x-10 gap-y-6 sm:grid-cols-2">
+            {deviceId === undefined && (
+              <TopList
+                title={t('logs.topSources')}
+                items={topSourceItems(stats.data.top_sources).slice(0, 5)}
+              />
+            )}
+            <TopList
+              title={t('logs.topPrograms')}
+              items={stats.data.top_programs.slice(0, 5).map((p) => ({
+                key: p.program,
+                label: <bdi dir="ltr">{p.program || '—'}</bdi>,
+                count: p.count,
+              }))}
+            />
+          </div>
+        </Card>
+      )}
       <SyslogDetail
         m={selected}
         onClose={() => setSelected(null)}

@@ -228,7 +228,7 @@ async def load_inventory(session: AsyncSession) -> Inventory:
     for row in await session.execute(
         text(
             "SELECT id, device_id, name, type, enabled, sort_order, status, impact, "
-            "ack_at IS NOT NULL AS acked FROM sensors"
+            "ack_at IS NOT NULL AS acked, severity FROM sensors"
         )
     ):
         inv.sensors[row.id] = {
@@ -240,6 +240,7 @@ async def load_inventory(session: AsyncSession) -> Inventory:
             "sort_order": row.sort_order,
             "acknowledged": row.acked,
             "impact": row.impact,  # [1.3]
+            "severity": row.severity,  # [severity] current problem severity
         }
     for row in await session.execute(  # [2b-2]
         text("SELECT device_id, detected_class FROM port_inventory_status")

@@ -1,5 +1,5 @@
 import { expect, test } from '@playwright/test';
-import { Api, VIEWER, apiAs, loginViaApi, statusDot, treeDevice } from '../lib/helpers';
+import { Api, VIEWER, apiAs, loginViaApi, statusDot, treeDevice, showTree } from '../lib/helpers';
 import { ensureViewer, raw } from '../lib/lab';
 import { IP, T } from '../lib/lab2b2';
 import { freshSwitch, shot13, waitDeviceStatus } from '../lib/lab13';
@@ -46,6 +46,7 @@ test('down interface sensor on a non-important port: impact warning by default -
   const sensorRow = page.getByRole('row').filter({ has: page.getByRole('link', { name: 'qa13 port 6' }) });
   await expect(sensorRow.getByTestId('impact-tag')).toHaveText(T('impact.tag.warning'));
   await expect(sensorRow.getByRole('cell', { name: 'Down', exact: true })).toBeVisible(); // the sensor itself stays down
+  await showTree(page);
   await expect(statusDot(treeDevice(page, dev.id), 'Warning')).toBeVisible();
   await shot13(page, '64-impact-warning-device-amber');
 });

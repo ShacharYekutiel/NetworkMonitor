@@ -121,6 +121,10 @@ class Runtime:
 
         self.security = DEFAULT_POLICY
         self.revoked_sessions: set[str] = set()
+        # [premium] at most one `user_sessions` write per session and minute
+        from netmon.services.sessions import TouchThrottle
+
+        self.session_touch = TouchThrottle()
         self.started = False
         self.on_lock_lost: Any = self._on_lock_lost
 
@@ -146,6 +150,8 @@ class Runtime:
         secretbox.configure(self.secret_key)  # [1.4.2] secrets at rest
         self.engine = make_engine(s.async_database_url)
         self.sessionmaker = make_sessionmaker(self.engine)
+        # [severity] code that only has a session (EventWriter) reads the feature through it
+        self.sessionmaker.configure(info={"rt": self})
         await wait_for_db(self.engine)
         if take_lock:
             await self._acquire_lock()
@@ -157,6 +163,9 @@ class Runtime:
 
         await security_svc.load(self)  # [1.4.1] egress filter, session lifetime, login cap
         await security_svc.load_revoked(self)
+        from netmon.services import sessions as sessions_svc
+
+        await sessions_svc.prune_all(self)  # [premium] signed-in browsers registry
         async with self.sessionmaker() as session:
             retention_days = await settings_svc.get(session, "retention_days")
         ts = await timescale.bootstrap_status(
@@ -256,6 +265,11 @@ class Runtime:
             await assistant_agent.mark_interrupted(self)
         except Exception:  # noqa: BLE001
             log.exception("Marking interrupted assistant answers failed")
+        from netmon.services import severity as severity_svc
+
+        self.features.add_listener(  # [severity] resolve / clear the active problems
+            lambda name, on: severity_svc.feature_changed(self, name, on)
+        )
         try:
             await self.features.start()
         except Exception:  # noqa: BLE001 - the server always starts
@@ -364,11 +378,11 @@ class Runtime:
         1.4.1 changed after a rollback. Idempotent and cheap (configuration rows only)."""
         from sqlalchemy import text
 
-        from netmon.db.migrate import db_revision
+        from netmon.db.migrate import db_revision, revision_reaches
         from netmon.services import secretbox
 
         assert self.engine is not None
-        if (await db_revision(self.engine)) != "0012":
+        if not revision_reaches(await db_revision(self.engine), "0012"):
             return  # not migrated (migrate=False) or migrated by a newer release
         async with self.engine.begin() as conn:
             removed = (

@@ -37,9 +37,11 @@ from netmon.api import (  # [3]
     ldap,
     maintenance,
     newdev,
+    overview,  # [premium]
     ports,
     reports,
     sensors,
+    severity,  # [severity]
     sso,
     templates,
     testclock,
@@ -241,6 +243,8 @@ def create_app(
         maintenance.router,
         topology.router,
         ports.router,
+        overview.router,  # [premium] home map
+        severity.router,  # [severity] mapping
         ingest.router,  # [2b-3]
         flows.router,  # [3]
         configbackup.router,  # [3]

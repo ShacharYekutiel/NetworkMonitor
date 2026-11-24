@@ -15,7 +15,6 @@ import {
   DeviceClassBadge,
   DeviceClassIcon,
   ReachabilityChips,
-  ScanStatusBadge,
   VendorBadge,
 } from '../components/discovery/Badges';
 import { GroupSelect } from '../components/EntityForms';
@@ -34,9 +33,13 @@ import {
   hasFingerprint,
 } from '../components/discovery/Fingerprint';
 import { SkippedList, TemplateSelect, useDeviceTemplates } from '../components/Templates';
+import { CHECKBOX, ShareBar } from '../components/kit';
 import { useToast } from '../components/toast';
 import {
+  BackLink,
   Button,
+  CHIP,
+  CHIP_TONE,
   buttonClass,
   Card,
   Checkbox,
@@ -54,7 +57,6 @@ import {
   td,
   th,
   TruncLtr,
-  Value,
 } from '../components/ui';
 import { useLiveState } from '../hooks/live';
 import {
@@ -75,29 +77,38 @@ const POLL_MS = 2000;
 function Stat({ label, value, tone }: { label: string; value: number; tone?: string }) {
   return (
     <div className="min-w-0">
-      <div className="text-xs text-slate-500">{label}</div>
-      <div className={cx('text-lg font-semibold tabular-nums', tone)}>{formatNumber(value, 0)}</div>
+      <div
+        className={cx(
+          'font-display text-[28px] font-semibold leading-8 tracking-[-0.02em] tabular-nums',
+          tone ?? 'text-ink',
+        )}
+      >
+        {formatNumber(value, 0)}
+      </div>
+      <div className="mt-0.5 text-[13px] text-ink-muted">{label}</div>
     </div>
   );
 }
 
+/** Progress (prototype scan: "Scanning…", n / total, an 8px bar), then the counts. */
 function ProgressCard({ scan, polling }: { scan: DiscoveryScan; polling: boolean }) {
   const { t } = useTranslation();
   const pct = progressPct(scan);
   const running = scan.status === 'running';
   return (
     <Card>
-      <div className="space-y-3">
-        <div className="flex flex-wrap items-center justify-between gap-2 text-sm">
-          <span className="font-medium">
-            {t('discovery.scanned', {
-              scanned: formatNumber(scan.scanned_hosts, 0),
-              total: formatNumber(scan.total_hosts, 0),
-            })}
-          </span>
-          <span className="text-xs text-slate-500">
-            {running && polling && <span className="me-2">{t('discovery.polling')}</span>}
-            <Value text={`${pct}%`} />
+      <div className="grid gap-3">
+        <div className="flex flex-wrap items-baseline justify-between gap-2">
+          <b
+            className={cx(
+              'text-[17px] font-semibold',
+              scan.status === 'failed' && 'text-status-down',
+            )}
+          >
+            {running ? t('discovery.scanning') : t(`discovery.status.${scan.status}`)}
+          </b>
+          <span className="num text-sm text-ink-muted" dir="ltr">
+            {formatNumber(scan.scanned_hosts, 0)} / {formatNumber(scan.total_hosts, 0)}
           </span>
         </div>
         <div
@@ -106,34 +117,21 @@ function ProgressCard({ scan, polling }: { scan: DiscoveryScan; polling: boolean
           aria-valuemax={100}
           aria-valuenow={pct}
           aria-label={t('discovery.progress')}
-          className="h-2.5 overflow-hidden rounded-full bg-slate-200 dark:bg-slate-800"
         >
-          <div
-            className={cx(
-              'h-full rounded-full transition-[width] duration-500',
-              scan.status === 'failed'
-                ? 'bg-red-600'
-                : scan.status === 'cancelled'
-                  ? 'bg-gray-400'
-                  : running
-                    ? 'bg-sky-600'
-                    : 'bg-green-600',
-            )}
-            style={{ width: `${scan.status === 'completed' ? 100 : pct}%` }}
-          />
+          <ShareBar pct={scan.status === 'completed' ? 100 : pct} thick />
         </div>
-        <div className="grid grid-cols-3 gap-3 sm:grid-cols-5">
+        {running && polling && (
+          <p className="m-0 text-xs text-ink-muted">{t('discovery.polling')}</p>
+        )}
+        <div className="mt-2 flex flex-wrap items-end gap-x-10 gap-y-3">
           <Stat label={t('discovery.found')} value={scan.found_hosts} />
           <Stat
             label={t('discovery.new')}
             value={scan.new_hosts}
-            tone={scan.new_hosts ? 'text-green-700 dark:text-green-400' : undefined}
+            tone={scan.new_hosts ? 'text-accent-ink' : undefined}
           />
           <Stat label={t('discovery.total')} value={scan.total_hosts} />
-          <div className="col-span-3 min-w-0 text-xs text-slate-500 sm:col-span-2">
-            <div title={formatDateTime(scan.started_at)}>
-              {t('discovery.started')}: {formatRelative(scan.started_at)}
-            </div>
+          <div className="ms-auto min-w-0 text-[13px] text-ink-muted">
             {scan.finished_at && (
               <div title={formatDateTime(scan.finished_at)}>
                 {t('discovery.finished')}: {formatRelative(scan.finished_at)}
@@ -171,7 +169,7 @@ function FilterBar({
         <div className="relative w-full sm:w-64">
           <SearchIcon
             size={14}
-            className="pointer-events-none absolute start-2.5 top-1/2 -translate-y-1/2 text-slate-400"
+            className="pointer-events-none absolute start-2.5 top-1/2 -translate-y-1/2 text-ink-subtle"
           />
           <Input
             className="ps-8"
@@ -203,22 +201,20 @@ function FilterBar({
                 aria-pressed={on}
                 onClick={() => toggleClass(c)}
                 className={cx(
-                  'inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-xs ring-1 ring-inset',
-                  on
-                    ? 'bg-sky-600 text-white ring-sky-600'
-                    : 'bg-white text-slate-700 ring-slate-300 hover:bg-slate-50 dark:bg-slate-900 dark:text-slate-200 dark:ring-slate-600 dark:hover:bg-slate-800',
+                  'inline-flex h-8 items-center gap-1.5 whitespace-nowrap rounded-full px-3.5 text-[13.5px] font-medium transition-colors',
+                  on ? 'bg-accent text-accent-on' : 'bg-chip text-ink-muted hover:text-ink',
                 )}
               >
-                <DeviceClassIcon cls={c} size={12} />
+                <DeviceClassIcon cls={c} size={14} />
                 {t(`deviceClass.${c}`)}
-                <span className="tabular-nums opacity-75">{counts[c]}</span>
+                <span className="num text-xs opacity-70">{counts[c]}</span>
               </button>
             );
           })}
           {f.classes.length > 0 && (
             <button
               type="button"
-              className="text-xs text-sky-700 hover:underline dark:text-sky-400"
+              className="px-2 text-[13px] text-ink-muted hover:text-ink"
               onClick={() => onChange({ ...f, classes: [] })}
             >
               {t('common.clearFilters')}
@@ -239,19 +235,17 @@ function StateCell({ r }: { r: DiscoveryResult }) {
     return (
       <Link
         to={`/devices/${deviceId}`}
-        className="inline-flex items-center gap-1 whitespace-nowrap rounded bg-slate-100 px-1.5 py-0.5 text-xs font-medium text-slate-700 hover:underline dark:bg-slate-800 dark:text-slate-200"
+        className={cx(CHIP, CHIP_TONE.neutral, 'text-ink hover:underline')}
       >
         {r.imported_device_id !== null ? t('discovery.imported') : t('discovery.exists')}
       </Link>
     );
   if (r.is_new)
     return (
-      <span className="whitespace-nowrap rounded bg-green-600 px-1.5 py-0.5 text-xs font-medium text-white">
-        {t('discovery.newBadge')}
-      </span>
+      <span className={cx(CHIP, CHIP_TONE.accent, 'font-semibold')}>{t('discovery.newBadge')}</span>
     );
   return (
-    <span className="whitespace-nowrap text-xs text-slate-500">{t('discovery.seenBefore')}</span>
+    <span className="whitespace-nowrap text-xs text-ink-muted">{t('discovery.seenBefore')}</span>
   );
 }
 
@@ -281,26 +275,26 @@ function ResultRow({
     <>
       <tr
         className={cx(
-          'hover:bg-slate-50 dark:hover:bg-slate-800/40',
-          selected && 'bg-sky-50/70 dark:bg-sky-950/40',
-          existing && 'text-slate-500',
+          'hover:bg-surface-hover',
+          selected && 'bg-accent-soft',
+          existing && 'text-ink-muted',
           fpOpen && '[&>td]:border-b-0',
         )}
       >
         <td className={td}>
           <input
             type="checkbox"
-            className="h-4 w-4 disabled:opacity-40"
+            className={cx(CHECKBOX, 'disabled:cursor-not-allowed disabled:opacity-40')}
             aria-label={t('discovery.selectHost', { ip: r.ip })}
             checked={selected}
             disabled={existing || disabled}
             onChange={(e) => onSelect(e.target.checked)}
           />
         </td>
-        <td className={`${td} whitespace-nowrap font-mono text-xs`}>
+        <td className={`${td} whitespace-nowrap font-mono text-[13px]`}>
           <Ltr>{r.ip}</Ltr>
           {r.mac && (
-            <div className="text-[11px] text-slate-500">
+            <div className="text-[11px] text-ink-muted">
               <Ltr>{r.mac}</Ltr>
             </div>
           )}
@@ -309,7 +303,7 @@ function ResultRow({
               type="button"
               onClick={() => setFpOpen((o) => !o)}
               aria-expanded={fpOpen}
-              className="mt-0.5 inline-flex items-center gap-0.5 font-sans text-[11px] text-sky-700 hover:underline dark:text-sky-400"
+              className="mt-0.5 inline-flex items-center gap-0.5 font-sans text-[11px] text-accent-ink hover:underline"
             >
               <ChevronIcon size={10} className={fpOpen ? 'rotate-90' : 'rtl:rotate-180'} />
               {t('fingerprint.heading')}
@@ -334,7 +328,7 @@ function ResultRow({
           )}
           {r.sys_descr ? (
             <TruncLtr
-              className="mt-0.5 max-w-[15rem] text-[11px] text-slate-500"
+              className="mt-0.5 max-w-[15rem] text-[11px] text-ink-muted"
               title={r.sys_descr}
             >
               {r.sys_descr}
@@ -343,7 +337,7 @@ function ResultRow({
             summary && (
               <div
                 dir="auto"
-                className="mt-0.5 max-w-[15rem] truncate text-[11px] text-slate-500"
+                className="mt-0.5 max-w-[15rem] truncate text-[11px] text-ink-muted"
                 title={summary}
               >
                 {summary}
@@ -356,7 +350,7 @@ function ResultRow({
             <DeviceClassBadge cls={r.device_class} />
             {r.vendor && <VendorBadge vendor={r.vendor} />}
             {r.model && (
-              <span className="font-mono text-[11px] text-slate-600 dark:text-slate-300">
+              <span className="font-mono text-[11px] text-ink-muted">
                 <Ltr>{r.model}</Ltr>
               </span>
             )}
@@ -385,7 +379,7 @@ function ResultRow({
         </td>
       </tr>
       {fp && fpOpen && (
-        <tr className={cx(selected && 'bg-sky-50/70 dark:bg-sky-950/40')}>
+        <tr className={cx(selected && 'bg-accent-soft')}>
           <td className={td} />
           <td className={td} colSpan={6}>
             <FingerprintView fp={fp} />
@@ -409,11 +403,11 @@ function ResultCard({
   const { t } = useTranslation();
   const existing = isExisting(r);
   return (
-    <li className={cx('space-y-2 px-3 py-2.5', selected && 'bg-sky-50/70 dark:bg-sky-950/40')}>
+    <li className={cx('space-y-2 px-3 py-2.5', selected && 'bg-accent-soft')}>
       <div className="flex items-start gap-2">
         <input
           type="checkbox"
-          className="mt-1 h-4 w-4 shrink-0 disabled:opacity-40"
+          className={cx(CHECKBOX, 'mt-0.5 disabled:cursor-not-allowed disabled:opacity-40')}
           aria-label={t('discovery.selectHost', { ip: r.ip })}
           checked={selected}
           disabled={existing || disabled}
@@ -433,7 +427,7 @@ function ResultCard({
             <DeviceClassBadge cls={r.device_class} />
             {r.vendor && <VendorBadge vendor={r.vendor} />}
             {r.model && (
-              <span className="font-mono text-[11px] text-slate-600 dark:text-slate-300">
+              <span className="font-mono text-[11px] text-ink-muted">
                 <Ltr>{r.model}</Ltr>
               </span>
             )}
@@ -442,10 +436,10 @@ function ResultCard({
           </div>
           {hasFingerprint(r.fingerprint) && (
             <details className="mt-1.5 min-w-0">
-              <summary className="cursor-pointer text-xs text-sky-700 dark:text-sky-400">
+              <summary className="cursor-pointer text-xs text-accent-ink">
                 {t('fingerprint.heading')}
                 {fingerprintSummary(r.fingerprint) && (
-                  <span dir="auto" className="ms-1 text-slate-500">
+                  <span dir="auto" className="ms-1 text-ink-muted">
                     · {fingerprintSummary(r.fingerprint)}
                   </span>
                 )}
@@ -497,51 +491,51 @@ function ImportSummary({
         {t('discovery.importSummary', { created, failed: rows.length - created })}
       </Notice>
       {retryIds(rows).length > 0 && (
-        <p className="text-sm text-amber-700 dark:text-amber-400">{t('discovery.retrySelected')}</p>
+        <p className="text-sm text-status-warning">{t('discovery.retrySelected')}</p>
       )}
-      <ul className="divide-y divide-slate-100 dark:divide-slate-800">
+      <ul className="divide-y divide-line">
         {rows.map((row) => (
           <li key={row.result_id} className="flex gap-2 py-2">
             {row.kind === 'created' ? (
-              <CheckIcon size={16} className="mt-0.5 shrink-0 text-green-600" />
+              <CheckIcon size={16} className="mt-0.5 shrink-0 text-status-up" />
             ) : (
-              <XIcon size={16} className="mt-0.5 shrink-0 text-red-600" />
+              <XIcon size={16} className="mt-0.5 shrink-0 text-status-down" />
             )}
             <div className="min-w-0 flex-1 space-y-1">
               <div className="flex flex-wrap items-baseline gap-x-2">
-                <span className="font-mono text-xs text-slate-500">
+                <span className="font-mono text-xs text-ink-muted">
                   <Ltr>{row.ip}</Ltr>
                 </span>
                 {row.kind === 'created' && (
                   <>
                     <Link
                       to={`/devices/${row.device_id}`}
-                      className="font-medium text-sky-700 hover:underline dark:text-sky-400"
+                      className="font-medium text-accent-ink hover:underline"
                     >
                       <bdi dir="auto">{row.device_name}</bdi>
                     </Link>
-                    <span className="text-xs text-slate-500">
+                    <span className="text-xs text-ink-muted">
                       {templateName(templates, row.template_id, i18n.language)} ·{' '}
                       {t('discovery.sensorsCreated', { count: row.sensors_created })}
                     </span>
                   </>
                 )}
                 {row.kind === 'error' && row.retry && (
-                  <span className="text-amber-700 dark:text-amber-400">
+                  <span className="text-status-warning">
                     {t('discovery.notImportedRetry')}
                     {' — '}
                     {row.timedOut ? t('discovery.importBudget') : t('errors.internal_error')}
                   </span>
                 )}
                 {row.kind === 'error' && !row.retry && (
-                  <span className="text-red-700 dark:text-red-400">
+                  <span className="text-status-down">
                     {t(`errors.${row.code}`, { defaultValue: row.message || row.code })}
                     {row.device_id !== null && (
                       <>
                         {' '}
                         <Link
                           to={`/devices/${row.device_id}`}
-                          className="text-sky-700 hover:underline dark:text-sky-400"
+                          className="text-accent-ink hover:underline"
                         >
                           {t('discovery.openDevice')}
                         </Link>
@@ -550,9 +544,7 @@ function ImportSummary({
                   </span>
                 )}
                 {row.kind === 'missing' && (
-                  <span className="text-amber-700 dark:text-amber-400">
-                    {t('discovery.notImportedRetry')}
-                  </span>
+                  <span className="text-status-warning">{t('discovery.notImportedRetry')}</span>
                 )}
               </div>
               {row.kind === 'created' && row.sensors_skipped.length > 0 && (
@@ -702,22 +694,15 @@ export function ScanPage() {
   return (
     <div className="space-y-4">
       <PageHeader
-        breadcrumbs={
-          <Link to="/discovery" className="hover:underline">
-            {t('discovery.title')}
-          </Link>
-        }
-        title={
+        breadcrumbs={<BackLink to="/discovery" label={t('discovery.title')} />}
+        title={t('discovery.scanTitle', { id: s.id })}
+        subtitle={[
+          t('discovery.targetsCount', { count: s.targets.length }),
+          t('discovery.hostsCount', { count: s.total_hosts }),
+          t('discovery.startedAt', { time: formatDateTime(s.started_at) }),
+        ].join(' · ')}
+        meta={
           <>
-            <span>{t('discovery.scanTitle', { id: s.id })}</span>
-            <ScanStatusBadge status={s.status} />
-          </>
-        }
-        subtitle={
-          <span className="flex flex-wrap gap-x-3">
-            <span className="font-mono text-xs">
-              <Ltr>{s.targets.join(', ')}</Ltr>
-            </span>
             <span>
               {s.profile_name ? <bdi dir="auto">{s.profile_name}</bdi> : t('discovery.manual')}
               {' · '}
@@ -729,11 +714,14 @@ export function ScanPage() {
                 </>
               )}
             </span>
-          </span>
+            <TruncLtr className="num max-w-[40rem] text-[13px]" title={s.targets.join(', ')}>
+              {s.targets.join(', ')}
+            </TruncLtr>
+          </>
         }
         actions={
           running ? (
-            <Button variant="danger" busy={cancel.isPending} onClick={() => setCancelAsk(true)}>
+            <Button busy={cancel.isPending} onClick={() => setCancelAsk(true)}>
               <StopIcon size={14} /> {t('discovery.cancel')}
             </Button>
           ) : (
@@ -752,7 +740,7 @@ export function ScanPage() {
       <ProgressCard scan={s} polling={ws !== 'open'} />
 
       <Card title={t('discovery.results', { count: all.length })} bodyClassName="p-0">
-        <div className="space-y-3 border-b border-slate-200 p-3 dark:border-slate-800">
+        <div className="space-y-3 border-b border-line px-5 pb-4 pt-1">
           <FilterBar f={filters} onChange={setFilters} counts={counts} />
         </div>
         {results.isLoading && <Loading />}
@@ -771,7 +759,7 @@ export function ScanPage() {
                     <th className={th}>
                       <input
                         type="checkbox"
-                        className="h-4 w-4 disabled:opacity-40"
+                        className={cx(CHECKBOX, 'disabled:cursor-not-allowed disabled:opacity-40')}
                         aria-label={t('common.selectAll')}
                         checked={allSelected}
                         disabled={!selectable.length || doImport.isPending}
@@ -804,7 +792,7 @@ export function ScanPage() {
             </div>
             {/* Phone: cards */}
             <div className="md:hidden">
-              <div className="border-b border-slate-200 px-3 py-2 dark:border-slate-800">
+              <div className="border-b border-line px-3 py-2">
                 <Checkbox
                   label={t('common.selectAll')}
                   checked={allSelected}
@@ -821,7 +809,7 @@ export function ScanPage() {
                   }
                 />
               </div>
-              <ul className="divide-y divide-slate-100 dark:divide-slate-800">
+              <ul className="divide-y divide-line">
                 {visible.map((r) => (
                   <ResultCard key={r.id} {...rowProps(r)} />
                 ))}
@@ -830,13 +818,13 @@ export function ScanPage() {
           </>
         )}
         {all.length > 0 && (
-          <div className="sticky bottom-0 flex flex-wrap items-end gap-3 border-t border-slate-200 bg-white p-3 dark:border-slate-800 dark:bg-slate-900">
+          <div className="sticky bottom-0 flex flex-wrap items-end gap-3 border-t border-line bg-surface px-5 py-4">
             <Field label={t('discovery.importGroup')} className="w-full sm:w-64">
               <GroupSelect value={groupId} onChange={setGroupId} />
             </Field>
             <div className="flex flex-1 flex-wrap items-center justify-end gap-2">
               {running && (
-                <span className="text-xs text-slate-500">{t('discovery.importAfterScan')}</span>
+                <span className="text-xs text-ink-muted">{t('discovery.importAfterScan')}</span>
               )}
               <Button
                 variant="primary"
@@ -850,9 +838,7 @@ export function ScanPage() {
             {importFailed ? (
               <div className="w-full space-y-1" role="alert">
                 <ErrorBox error={importFailed} />
-                <p className="text-sm text-amber-700 dark:text-amber-400">
-                  {t('discovery.importMaybePartial')}
-                </p>
+                <p className="text-sm text-status-warning">{t('discovery.importMaybePartial')}</p>
               </div>
             ) : null}
           </div>

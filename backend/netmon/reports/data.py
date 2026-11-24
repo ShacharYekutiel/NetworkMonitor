@@ -278,7 +278,11 @@ async def _maintenance_by_device(
 
 
 async def _top_alerts(
-    session: AsyncSession, device_ids: list[int], start: datetime, end: datetime
+    session: AsyncSession,
+    device_ids: list[int],
+    start: datetime,
+    end: datetime,
+    with_severity: bool = False,
 ) -> list[dict[str, Any]]:
     rows = (
         await session.execute(
@@ -300,7 +304,7 @@ async def _top_alerts(
         return []
     sids = [r.sensor_id for r in rows]
     problem = await _problem_seconds(session, sids, start, end)
-    return [
+    out = [
         {
             "sensor_id": r.sensor_id,
             "sensor_name": r.sensor_name or "",
@@ -310,6 +314,24 @@ async def _top_alerts(
         }
         for r in rows
     ]
+    if with_severity:  # [severity] the highest stored severity of the period's problems
+        from netmon.services import severity as severity_svc
+
+        sev = {
+            r.sensor_id: severity_svc.highest(r.sev or [])
+            for r in await session.execute(
+                text(
+                    "SELECT sensor_id, array_agg(DISTINCT severity) AS sev FROM events "
+                    "WHERE kind = 'status_change' AND sensor_id = ANY(:s) AND time >= :start "
+                    "AND time < :end AND new_status IN ('down','warning') "
+                    "AND severity IS NOT NULL GROUP BY sensor_id"
+                ),
+                {"s": sids, "start": start, "end": end},
+            )
+        }
+        for item in out:
+            item["severity"] = sev.get(item["sensor_id"])
+    return out
 
 
 async def _problem_seconds(
@@ -554,7 +576,13 @@ async def gather(
             if sec == "availability":
                 value = await _availability(session, devices, start, end)
             elif sec == "top_alerts":
-                value = await _top_alerts(session, device_ids, start, end)
+                value = await _top_alerts(
+                    session,
+                    device_ids,
+                    start,
+                    end,
+                    with_severity=bool(features.get("alert_severity", False)),
+                )
             elif sec == "flapping_ports":
                 value = await _flapping(session, device_ids, start, end)
             elif sec == "port_errors":

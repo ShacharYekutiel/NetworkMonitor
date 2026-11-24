@@ -1,4 +1,5 @@
 import { useEffect, useState, type FormEvent } from 'react';
+import { SEVERITIES, type Severity } from '../../api/severity';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { useTranslation } from 'react-i18next';
 import { endpoints } from '../../api/endpoints';
@@ -56,7 +57,7 @@ const KNOWN_TRAPS: [string, string][] = [
 
 function Err({ e, field: k }: { e: RuleErrors; field: string }) {
   const { t } = useTranslation();
-  return e[k] ? <span className="text-xs text-red-600">{t(e[k] as string)}</span> : null;
+  return e[k] ? <span className="text-xs text-status-down">{t(e[k] as string)}</span> : null;
 }
 
 function MatchEditor({
@@ -250,26 +251,23 @@ function TestResults({ r }: { r: RuleTestResult }) {
         })}
       </p>
       {r.items.length > 0 && (
-        <div className="max-h-64 overflow-auto rounded ring-1 ring-slate-200 dark:ring-slate-800">
-          <table className="w-full text-xs">
+        <div className="max-h-64 overflow-auto rounded-lg ring-1 ring-line">
+          <table className="w-full text-[13px]">
             <tbody>
               {r.items.map((it) => (
-                <tr
-                  key={`${it.kind}-${it.id}`}
-                  className="border-b border-slate-100 dark:border-slate-800"
-                >
-                  <td className="whitespace-nowrap px-2 py-1 text-slate-500">
+                <tr key={`${it.kind}-${it.id}`} className="border-b border-line">
+                  <td className="whitespace-nowrap px-2 py-1 text-ink-muted">
                     {formatDateTime(it.time)}
                   </td>
                   <td className="px-2 py-1">
                     <span
                       className={cx(
-                        'rounded px-1 text-[10px] font-semibold uppercase',
+                        'rounded px-1 text-[10px] font-semibold',
                         it.result === 'raise'
-                          ? 'bg-amber-100 text-amber-800 dark:bg-amber-900/50 dark:text-amber-200'
+                          ? 'bg-status-warning-soft text-status-warning'
                           : it.result === 'clear'
-                            ? 'bg-green-100 text-green-800 dark:bg-green-900/50 dark:text-green-200'
-                            : 'bg-slate-100 text-slate-600 dark:bg-slate-800 dark:text-slate-300',
+                            ? 'bg-status-up-soft text-status-up'
+                            : 'bg-surface-sunken text-ink-muted',
                       )}
                     >
                       {t(`eventRules.result.${it.result}`)}
@@ -279,7 +277,7 @@ function TestResults({ r }: { r: RuleTestResult }) {
                     <bdi dir="auto">{it.device_name ?? '—'}</bdi>
                   </td>
                   <td className="px-2 py-1 font-mono">
-                    {it.key && <span className="me-1 text-slate-500">[{it.key}]</span>}
+                    {it.key && <span className="me-1 text-ink-muted">[{it.key}]</span>}
                     <bdi dir="ltr">{it.text}</bdi>
                   </td>
                 </tr>
@@ -315,8 +313,12 @@ export function RuleEditorModal({
   const [testResult, setTestResult] = useState<RuleTestResult | null>(null);
   // [3b] "describe the rule" draft (prefills only; saved through the normal API)
   const [draft, setDraft] = useState<RuleDraft | null>(null);
+  // [severity] optional severity of the alert a warning / down rule raises ('' = by the mapping)
+  const severityOn = features.alert_severity;
+  const [severity, setSeverity] = useState<Severity | ''>(rule?.severity ?? '');
   useEffect(() => {
     if (!open) return;
+    setSeverity(rule?.severity ?? '');
     setF(rule ? ruleToForm(rule) : (initial ?? ruleToForm(null)));
     setTouched(false);
     setTestResult(null);
@@ -327,9 +329,13 @@ export function RuleEditorModal({
   const invalid = Object.keys(errors).length > 0;
   const shown = touched ? errors : {};
 
+  const toInput = () => ({
+    ...formToInput(f),
+    ...(severityOn ? { severity: !isPassiveAction(f.action) && severity ? severity : null } : {}),
+  });
   const save = useMutation({
     mutationFn: () => {
-      const body = formToInput(f);
+      const body = toInput();
       if (rule) {
         // kind is immutable (PATCH with kind → 422)
         const patch = { ...body };
@@ -346,7 +352,7 @@ export function RuleEditorModal({
     },
   });
   const test = useMutation({
-    mutationFn: () => endpoints.testEventRule(formToInput(f), 24),
+    mutationFn: () => endpoints.testEventRule(toInput(), 24),
     onMutate: () => setTestResult(null),
     onSuccess: setTestResult,
   });
@@ -355,6 +361,7 @@ export function RuleEditorModal({
     onSuccess: (r) => {
       void qc.invalidateQueries({ queryKey: ['event-rules'] });
       setF(ruleToForm(r));
+      setSeverity(r.severity ?? '');
       toast.push('success', t('eventRules.resetDone'));
     },
   });
@@ -391,7 +398,7 @@ export function RuleEditorModal({
           />
         )}
         {draft && <DraftBanner draft={draft} onDismiss={() => setDraft(null)} />}
-        {rule && <p className="text-xs text-slate-500">{t('eventRules.editClearsConditions')}</p>}
+        {rule && <p className="text-xs text-ink-muted">{t('eventRules.editClearsConditions')}</p>}
         <div className="grid grid-cols-1 gap-3 sm:grid-cols-4">
           <Field
             label={t('common.name')}
@@ -465,8 +472,8 @@ export function RuleEditorModal({
           )}
         </div>
 
-        <fieldset className="rounded-md border border-slate-200 p-3 dark:border-slate-700">
-          <legend className="px-1 text-xs font-semibold text-slate-600 dark:text-slate-400">
+        <fieldset className="rounded-lg border border-line px-4 py-3.5">
+          <legend className="px-1 text-xs font-semibold text-ink-muted">
             {t('eventRules.match')}
           </legend>
           <MatchEditor
@@ -493,6 +500,22 @@ export function RuleEditorModal({
               ))}
             </Select>
           </Field>
+          {severityOn && active && (
+            <Field label={t('severity.eventRule.label')} hint={t('severity.eventRule.hint')}>
+              <Select
+                data-testid="event-rule-severity"
+                value={severity}
+                onChange={(e) => setSeverity(e.target.value as Severity | '')}
+              >
+                <option value="">{t('severity.eventRule.auto')}</option>
+                {SEVERITIES.map((s) => (
+                  <option key={s} value={s}>
+                    {t(`severity.level.${s}`)}
+                  </option>
+                ))}
+              </Select>
+            </Field>
+          )}
           {active && f.kind === 'trap' && (
             <Field
               label={t('eventRules.keyVarbind')}
@@ -528,11 +551,11 @@ export function RuleEditorModal({
         </div>
 
         {active && (
-          <fieldset className="space-y-3 rounded-md border border-slate-200 p-3 dark:border-slate-700">
-            <legend className="px-1 text-xs font-semibold text-slate-600 dark:text-slate-400">
+          <fieldset className="space-y-3 rounded-lg border border-line px-4 py-3.5">
+            <legend className="px-1 text-xs font-semibold text-ink-muted">
               {t('eventRules.clearing')}
             </legend>
-            <p className="text-xs text-slate-500">{t('eventRules.clearingHint')}</p>
+            <p className="text-xs text-ink-muted">{t('eventRules.clearingHint')}</p>
             <Checkbox
               label={t('eventRules.clearOnMatch')}
               checked={f.hasClearMatch}
@@ -583,7 +606,7 @@ export function RuleEditorModal({
         {touched && invalid && <Notice>{t('eventRules.fixErrors')}</Notice>}
         <div className="flex flex-wrap justify-end gap-2">
           <Button
-            className={cx('me-auto', draft && 'ring-2 ring-amber-400')}
+            className={cx('me-auto', draft && 'ring-2 ring-status-warning')}
             busy={test.isPending}
             disabled={invalid}
             onClick={() => test.mutate()}
@@ -609,7 +632,7 @@ export function RuleEditorModal({
 export function BuiltinBadge() {
   const { t } = useTranslation();
   return (
-    <span className="rounded bg-violet-100 px-1.5 py-0.5 text-[10px] font-semibold uppercase text-violet-800 dark:bg-violet-900/50 dark:text-violet-200">
+    <span className="rounded-full bg-chip px-2 py-0.5 text-[11px] font-semibold text-ink-muted">
       {t('eventRules.builtin')}
     </span>
   );

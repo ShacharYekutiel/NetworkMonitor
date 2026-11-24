@@ -2,7 +2,7 @@
 // device, viewer sees only safe actions, Copy IP, Pause / Resume through the menu, Shift+F10 opens it on the
 // focused tree item, Esc closes it and focus returns to the item.
 import { expect, test, type Page } from '@playwright/test';
-import { BASE_URL, VIEWER, apiAs, defaultGroupId, loginViaApi, treeDevice, uid, type Api } from '../lib/helpers';
+import { BASE_URL, VIEWER, apiAs, defaultGroupId, loginViaApi, treeDevice, uid, type Api, showTree } from '../lib/helpers';
 import { ensureViewer } from '../lib/lab';
 
 test.describe.configure({ mode: 'serial' });
@@ -41,6 +41,7 @@ const items = async (page: Page) =>
 
 test('admin: right click a device opens the menu at the pointer with the admin actions', async ({ page }) => {
   await loginViaApi(page, undefined, '/');
+  await showTree(page);
   const row = treeDevice(page, dev.id);
   await expect(row).toBeVisible();
   const box = (await row.boundingBox())!;
@@ -73,6 +74,7 @@ test('admin: right click a device opens the menu at the pointer with the admin a
 test('Copy IP puts the host on the clipboard', async ({ page, context }) => {
   await context.grantPermissions(['clipboard-read', 'clipboard-write'], { origin: BASE_URL });
   await loginViaApi(page, undefined, '/');
+  await showTree(page);
   await treeDevice(page, dev.id).click({ button: 'right' });
   await menu(page).getByRole('menuitem', { name: 'Copy IP address' }).click();
   await expect(menu(page)).toHaveCount(0);
@@ -82,6 +84,7 @@ test('Copy IP puts the host on the clipboard', async ({ page, context }) => {
 
 test('Pause / Resume through the menu (tree and API follow)', async ({ page }) => {
   await loginViaApi(page, undefined, '/');
+  await showTree(page);
   const row = treeDevice(page, dev.id);
   await row.click({ button: 'right' });
   await menu(page).getByRole('menuitem', { name: 'Pause', exact: true }).click();
@@ -105,6 +108,7 @@ test('Pause / Resume through the menu (tree and API follow)', async ({ page }) =
 
 test('keyboard: Shift+F10 opens it on the focused item, arrows move, Esc closes and focus returns', async ({ page }) => {
   await loginViaApi(page, undefined, '/');
+  await showTree(page);
   const row = treeDevice(page, dev.id);
   await row.focus();
   await page.keyboard.press('Shift+F10');
@@ -130,6 +134,7 @@ test('keyboard: Shift+F10 opens it on the focused item, arrows move, Esc closes 
 
 test('viewer: only the safe actions', async ({ page }) => {
   await loginViaApi(page, VIEWER, '/');
+  await showTree(page);
   await treeDevice(page, dev.id).click({ button: 'right' });
   await expect(menu(page)).toBeVisible();
   const labels = await items(page);
@@ -143,6 +148,7 @@ test('viewer: only the safe actions', async ({ page }) => {
 
 test('Hebrew: translated and mirrored (opens to the left of the pointer)', async ({ page }) => {
   await loginViaApi(page, undefined, '/');
+  await showTree(page);
   await page.request.patch('/api/auth/me', { data: { language: 'he' } });
   await page.reload();
   await expect(page.locator('html')).toHaveAttribute('dir', 'rtl');
@@ -161,4 +167,79 @@ test('Hebrew: translated and mirrored (opens to the left of the pointer)', async
   expect(m.x + m.width).toBeLessThanOrEqual(vw);
   await page.keyboard.press('Escape');
   await page.request.patch('/api/auth/me', { data: { language: 'en' } });
+});
+
+// Premium screens (owner feedback "bring the right-click back"): the same menu on rows outside the tree.
+
+test('tree inside the ☰ sheet (not pinned): the menu opens and its dialogs work', async ({ page }) => {
+  await loginViaApi(page, undefined, '/');
+  await page.evaluate(() => localStorage.setItem('netmon.menu.pinned', '0'));
+  await page.reload();
+  await page.getByTestId('menu-button').click();
+  const inv = page.locator('#nm-menu').getByRole('tab').nth(1);
+  if ((await inv.getAttribute('aria-selected')) !== 'true') await inv.click();
+  await treeDevice(page, dev.id).click({ button: 'right' });
+  await expect(menu(page)).toHaveAttribute('aria-label', `Device ${dev.name}`);
+  await menu(page).getByRole('menuitem', { name: 'Edit…' }).click();
+  await expect(page.getByRole('dialog')).toBeVisible();
+  await page.getByRole('dialog').getByRole('button', { name: 'Cancel' }).click();
+  await expect(page.getByRole('dialog')).toHaveCount(0);
+});
+
+test('Group page: right click a device row opens the device menu; Pause works; left click still opens the device', async ({ page }) => {
+  const gid = await defaultGroupId(admin);
+  await loginViaApi(page, undefined, `/groups/${gid}`);
+  const row = page.getByTestId('device-row').filter({ hasText: dev.name });
+  await expect(row).toBeVisible();
+  await row.click({ button: 'right' });
+  await expect(menu(page)).toHaveAttribute('aria-label', `Device ${dev.name}`);
+  expect(await items(page)).toEqual(expect.arrayContaining(['Open', 'Open in new tab', 'Copy IP address', ...ADMIN_ONLY]));
+  await menu(page).getByRole('menuitem', { name: 'Pause', exact: true }).click();
+  await expect(page.getByText('Device paused')).toBeVisible();
+  await expect.poll(async () => (await admin.get(`/api/devices/${dev.id}`)).enabled).toBe(false);
+  await admin.patch(`/api/devices/${dev.id}`, { enabled: true });
+  // keyboard on the row's link: Shift+F10, Esc returns focus to the link
+  const link = row.getByRole('link');
+  await link.focus();
+  await page.keyboard.press('Shift+F10');
+  await expect(menu(page)).toBeVisible();
+  await page.keyboard.press('Escape');
+  await expect(link).toBeFocused();
+  await link.click();
+  await expect(page).toHaveURL(new RegExp(`/devices/${dev.id}$`));
+});
+
+test('Device page: right click a sensor row opens the sensor menu; Pause works; checkboxes keep the browser menu', async ({ page }) => {
+  const s = (await admin.get(`/api/sensors?device_id=${dev.id}`)).items[0];
+  await loginViaApi(page, undefined, `/devices/${dev.id}?tab=sensors`);
+  const row = page.getByTestId('sensor-table').getByRole('row').filter({ has: page.getByRole('link', { name: s.name }) });
+  await expect(row).toBeVisible();
+  await row.getByRole('cell').nth(3).click({ button: 'right' });
+  await expect(menu(page)).toHaveAttribute('aria-label', `Sensor ${s.name}`);
+  await menu(page).getByRole('menuitem', { name: 'Pause', exact: true }).click();
+  await expect.poll(async () => (await admin.get(`/api/sensors/${s.id}`)).enabled).toBe(false);
+  await admin.patch(`/api/sensors/${s.id}`, { enabled: true });
+  // the device header has the device menu
+  await page.getByTestId('device-title').click({ button: 'right' });
+  await expect(menu(page)).toHaveAttribute('aria-label', `Device ${dev.name}`);
+  await page.keyboard.press('Escape');
+  // inside a form control the browser's own menu stays
+  const prevented = await row.getByTestId('sensor-select').evaluate((el) => {
+    const ev = new MouseEvent('contextmenu', { bubbles: true, cancelable: true, clientX: 5, clientY: 5 });
+    el.dispatchEvent(ev);
+    return ev.defaultPrevented;
+  });
+  expect(prevented).toBe(false);
+  await expect(menu(page)).toHaveCount(0);
+});
+
+test('Home: right click a map node opens its menu', async ({ page }) => {
+  await loginViaApi(page, undefined, '/');
+  const node = page.locator('a[data-node]').first();
+  await expect(node).toBeVisible();
+  await node.click({ button: 'right' });
+  await expect(menu(page)).toBeVisible();
+  await expect(menu(page).getByRole('menuitem', { name: 'Open', exact: true })).toBeFocused();
+  await page.keyboard.press('Escape');
+  await expect(menu(page)).toHaveCount(0);
 });

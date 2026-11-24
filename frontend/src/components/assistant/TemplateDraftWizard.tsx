@@ -14,18 +14,21 @@ import {
 } from '../../api/types';
 import { useLiveMessages } from '../../hooks/live';
 import { DevicePicker } from '../Dependency';
-import { SparkIcon } from '../icons';
+import { AuditIcon, CheckIcon, SparkIcon } from '../icons';
+import { Banner, ToggleChip, WizardSteps } from '../kit';
 import { useToast } from '../toast';
 import {
   Button,
   Checkbox,
+  cx,
   ErrorBox,
   Field,
   FieldGroup,
   Input,
   Modal,
-  Notice,
   Spinner,
+  TAG,
+  TAG_TONE,
   Textarea,
 } from '../ui';
 import { AiNotice, CannotDraftNotice, useAiFeature } from './common';
@@ -53,7 +56,7 @@ export function TemplateDraftButton() {
   return (
     <>
       <Button onClick={() => setOpen(true)} data-testid="template-draft-open">
-        <SparkIcon size={14} className="text-violet-600" /> {t('tdraft.open')}
+        <SparkIcon size={14} className="text-accent-ink" /> {t('tdraft.open')}
       </Button>
       {open && <TemplateDraftWizard onClose={() => setOpen(false)} />}
     </>
@@ -140,30 +143,27 @@ function TemplateDraftWizard({ onClose }: { onClose: () => void }) {
       ? ((save.error.details ?? []) as { path?: string; error?: string }[])
       : [];
 
+  const STEPS: Step[] = ['setup', 'walk', 'draft'];
   return (
     <Modal open onClose={onClose} wide title={t('tdraft.title')} testId="template-draft">
-      <div className="space-y-4">
-        <ol className="flex flex-wrap gap-3 text-xs text-slate-500">
-          {(['setup', 'walk', 'draft'] as Step[]).map((s, i) => (
-            <li
-              key={s}
-              className={s === step ? 'font-semibold text-sky-700 dark:text-sky-300' : ''}
-            >
-              {i + 1}. {t(`tdraft.step.${s}`)}
-            </li>
-          ))}
-        </ol>
+      <div className="grid gap-4">
+        <WizardSteps
+          label={t('tdraft.title')}
+          steps={STEPS.map((s) => t(`tdraft.step.${s}`))}
+          current={STEPS.indexOf(step)}
+          onGo={w?.status === 'running' ? undefined : (i) => setStep(STEPS[i])}
+        />
 
         {step === 'setup' && (
-          <div className="space-y-3">
-            <p className="text-sm text-slate-600 dark:text-slate-300">{t('tdraft.intro')}</p>
+          <div className="grid gap-4">
+            <p className="m-0 text-ink-muted">{t('tdraft.intro')}</p>
             <Field label={t('tdraft.device')} required>
               <DevicePicker value={deviceId} onChange={setDeviceId} label={t('tdraft.device')} />
             </Field>
             <FieldGroup label={t('tdraft.subtrees')} hint={t('tdraft.subtreesHint')}>
-              <div className="grid grid-cols-1 gap-1 sm:grid-cols-2">
+              <div className="flex flex-wrap gap-2">
                 {WALK_PRESETS.map((p) => (
-                  <Checkbox
+                  <ToggleChip
                     key={p}
                     label={t(`tdraft.preset.${p}`)}
                     checked={presets.includes(p)}
@@ -176,11 +176,11 @@ function TemplateDraftWizard({ onClose }: { onClose: () => void }) {
               label={t('tdraft.customOids')}
               hint={
                 bad.length ? (
-                  <span className="text-red-600">
+                  <span className="text-status-down">
                     {t('tdraft.badOids', { oids: bad.join(', ') })}
                   </span>
                 ) : tooMany ? (
-                  <span className="text-red-600">{t('tdraft.tooMany')}</span>
+                  <span className="text-status-down">{t('tdraft.tooMany')}</span>
                 ) : (
                   t('tdraft.customOidsHint')
                 )
@@ -194,10 +194,9 @@ function TemplateDraftWizard({ onClose }: { onClose: () => void }) {
                 placeholder="1.3.6.1.4.1.25506.2.6"
               />
             </Field>
-            <p className="text-xs text-slate-500">{t('tdraft.neverWalked')}</p>
+            <Banner icon={AuditIcon} title={t('tdraft.neverWalked')} />
             <ErrorBox error={start.error} />
-            <div className="flex justify-end gap-2">
-              <Button onClick={onClose}>{t('common.cancel')}</Button>
+            <div className="flex flex-wrap gap-2.5">
               <Button
                 variant="primary"
                 onClick={() => start.mutate()}
@@ -209,12 +208,13 @@ function TemplateDraftWizard({ onClose }: { onClose: () => void }) {
               >
                 {t('tdraft.startWalk')}
               </Button>
+              <Button onClick={onClose}>{t('common.cancel')}</Button>
             </div>
           </div>
         )}
 
         {step === 'walk' && (
-          <div className="space-y-3">
+          <div className="grid gap-4">
             {w ? <WalkResult walk={w} /> : <Spinner />}
             <ErrorBox error={walk.error ?? cancel.error} />
             {finished && w.total > 0 && (
@@ -243,17 +243,12 @@ function TemplateDraftWizard({ onClose }: { onClose: () => void }) {
             )}
             <ErrorBox error={makeDraft.error} />
             {makeDraft.isPending && (
-              <p className="text-xs text-slate-500">{t('tdraft.drafting')}</p>
+              <p className="m-0 flex items-center gap-2 text-sm text-ink-muted">
+                <Spinner className="h-4 w-4" />
+                {t('tdraft.drafting')}
+              </p>
             )}
-            <div className="flex justify-end gap-2">
-              {w?.status === 'running' && (
-                <Button onClick={() => cancel.mutate()} busy={cancel.isPending}>
-                  {t('tdraft.cancelWalk')}
-                </Button>
-              )}
-              <Button onClick={() => setStep('setup')} disabled={w?.status === 'running'}>
-                {t('tdraft.back')}
-              </Button>
+            <div className="flex flex-wrap gap-2.5">
               <Button
                 variant="primary"
                 onClick={() => makeDraft.mutate()}
@@ -263,57 +258,72 @@ function TemplateDraftWizard({ onClose }: { onClose: () => void }) {
               >
                 <SparkIcon size={14} /> {t('tdraft.makeDraft')}
               </Button>
+              {w?.status === 'running' && (
+                <Button onClick={() => cancel.mutate()} busy={cancel.isPending}>
+                  {t('tdraft.cancelWalk')}
+                </Button>
+              )}
+              <Button onClick={() => setStep('setup')} disabled={w?.status === 'running'}>
+                {t('tdraft.back')}
+              </Button>
             </div>
           </div>
         )}
 
         {step === 'draft' && draft && (
-          <div className="space-y-3">
-            <Notice>{t('tdraft.reviewBanner')}</Notice>
+          <div className="grid gap-4">
+            <Banner tone="info" icon={SparkIcon} title={t('tdraft.reviewBanner')} />
             {draft.valid ? (
-              <p className="text-sm text-green-700 dark:text-green-400" data-testid="draft-valid">
+              <div
+                className="flex items-center gap-2.5 rounded-[14px] bg-status-up-soft px-3.5 py-3 text-sm"
+                data-testid="draft-valid"
+              >
+                <CheckIcon size={18} className="shrink-0 text-status-up" />
                 {t('tdraft.valid')}
-              </p>
-            ) : (
-              <div className="text-sm text-red-700 dark:text-red-300" data-testid="draft-invalid">
-                {t('tdraft.invalid')}
-                <ul className="list-disc ps-5 text-xs">
-                  {draft.errors.map((e, i) => (
-                    <li key={i}>
-                      <bdi dir="ltr">{e.path}</bdi>: {e.error}
-                    </li>
-                  ))}
-                </ul>
               </div>
+            ) : (
+              <Banner tone="down" title={t('tdraft.invalid')}>
+                <span data-testid="draft-invalid">
+                  <ul className="m-0 list-disc ps-5">
+                    {draft.errors.map((e, i) => (
+                      <li key={i}>
+                        <bdi dir="ltr">{e.path}</bdi>: {e.error}
+                      </li>
+                    ))}
+                  </ul>
+                </span>
+              </Banner>
             )}
             {draft.warnings.length > 0 && (
-              <ul className="list-disc ps-5 text-xs text-amber-700 dark:text-amber-300">
-                {draft.warnings.map((x, i) => (
-                  <li key={i}>{x}</li>
-                ))}
-              </ul>
+              <Banner tone="warn" title={t('tdraft.warnings')}>
+                <ul className="m-0 list-disc ps-5">
+                  {draft.warnings.map((x, i) => (
+                    <li key={i}>{x}</li>
+                  ))}
+                </ul>
+              </Banner>
             )}
             {draft.notes && (
-              <p
-                className="whitespace-pre-wrap text-xs text-slate-600 dark:text-slate-400"
-                dir="auto"
-              >
+              <p className="m-0 whitespace-pre-wrap text-sm text-ink-muted" dir="auto">
                 {draft.notes}
               </p>
             )}
-            <Textarea
-              value={yaml}
-              onChange={(e) => setYaml(e.target.value)}
-              rows={18}
-              dir="ltr"
-              spellCheck={false}
-              className="font-mono text-xs"
-              aria-label={t('tdraft.yaml')}
-              data-testid="draft-yaml"
-            />
+            <div className="grid gap-1.5">
+              <span className="text-[13px] text-ink-muted">{t('tdraft.yaml')}</span>
+              <Textarea
+                value={yaml}
+                onChange={(e) => setYaml(e.target.value)}
+                rows={18}
+                dir="ltr"
+                spellCheck={false}
+                className="font-mono text-xs"
+                aria-label={t('tdraft.yaml')}
+                data-testid="draft-yaml"
+              />
+            </div>
             <AiNotice />
             {saveDetails.length > 0 && (
-              <ul className="list-disc ps-5 text-xs text-red-700 dark:text-red-300">
+              <ul className="m-0 list-disc ps-5 text-xs text-status-down">
                 {saveDetails.map((e, i) => (
                   <li key={i}>
                     <bdi dir="ltr">{e.path}</bdi>: {e.error}
@@ -325,8 +335,7 @@ function TemplateDraftWizard({ onClose }: { onClose: () => void }) {
             {isApiError(save.error) && save.error.code === 'template_exists' && (
               <Checkbox label={t('tdraft.overwrite')} checked={overwrite} onChange={setOverwrite} />
             )}
-            <div className="flex justify-end gap-2">
-              <Button onClick={() => setStep('walk')}>{t('tdraft.back')}</Button>
+            <div className="flex flex-wrap gap-2.5">
               <Button
                 variant="primary"
                 onClick={() => save.mutate()}
@@ -336,6 +345,7 @@ function TemplateDraftWizard({ onClose }: { onClose: () => void }) {
               >
                 {t('tdraft.save')}
               </Button>
+              <Button onClick={() => setStep('walk')}>{t('tdraft.back')}</Button>
             </div>
           </div>
         )}
@@ -344,43 +354,78 @@ function TemplateDraftWizard({ onClose }: { onClose: () => void }) {
   );
 }
 
+const OUTCOME_TAG: Record<string, string> = {
+  ok: TAG_TONE.up,
+  truncated: TAG_TONE.warning,
+  timeout: TAG_TONE.warning,
+  error: TAG_TONE.down,
+  skipped: TAG_TONE.neutral,
+};
+
 /** [maint-1.4] Walk status, the per-subtree outcome (each subtree has its own time budget) and the
- * cause when the walk did not finish (rejected credentials / no answer / too slow / SNMP error). */
+ * cause when the walk did not finish (rejected credentials / no answer / too slow / SNMP error).
+ * Premium: a status line, the subtrees as rows with a tag, the cause as an error box. */
 export function WalkResult({ walk: w }: { walk: SnmpWalk }) {
   const { t } = useTranslation();
   const outcomes = w.outcomes ?? [];
+  const failed = w.status === 'failed';
   return (
-    <div className="space-y-1 text-sm" data-testid="walk-status" data-status={w.status}>
-      <p className="flex items-center gap-2">
+    <div className="grid gap-3" data-testid="walk-status" data-status={w.status}>
+      <p
+        className={cx(
+          'm-0 flex items-center gap-2 text-[17px] font-semibold',
+          failed && 'text-status-down',
+        )}
+      >
         {w.status === 'running' && <Spinner className="h-4 w-4" />}
-        {t(`tdraft.walkStatus.${w.status}`)} · {t('tdraft.varbinds', { n: w.total })}
+        {t(`tdraft.walkStatus.${w.status}`)}
+        <span className="text-sm font-normal text-ink-muted">
+          · {t('tdraft.varbinds', { n: w.total })}
+        </span>
       </p>
-      <ul className="text-xs text-slate-500" data-testid="walk-subtrees">
+      <ul
+        className="m-0 list-none overflow-hidden rounded-[18px] bg-chip p-0 text-sm [&>li+li]:border-t [&>li+li]:border-line"
+        data-testid="walk-subtrees"
+      >
         {outcomes.length > 0
           ? outcomes.map((o) => (
-              <li key={o.subtree} data-outcome={o.status}>
-                <bdi dir="ltr">{o.subtree}</bdi>: {o.count} ·{' '}
-                <span className={o.status === 'ok' ? '' : 'text-amber-700 dark:text-amber-400'}>
+              <li
+                key={o.subtree}
+                data-outcome={o.status}
+                className="flex flex-wrap items-center gap-x-3 gap-y-1 px-4 py-2.5"
+              >
+                <bdi dir="ltr" className="num min-w-0 flex-1 truncate">
+                  {o.subtree}
+                </bdi>
+                <span className="num text-[13px] text-ink-muted">
+                  {t('tdraft.varbinds', { n: o.count })}
+                </span>
+                <span className={cx(TAG, OUTCOME_TAG[o.status] ?? TAG_TONE.neutral)}>
                   {t(`tdraft.outcome.${o.status}`)}
                 </span>
               </li>
             ))
           : Object.entries(w.counts).map(([oid, n]) => (
-              <li key={oid}>
+              <li key={oid} className="px-4 py-2.5">
                 <bdi dir="ltr">{oid}</bdi>: {n}
               </li>
             ))}
       </ul>
       {w.status !== 'running' && (w.error_code || w.error) && (
         <div
-          className="text-xs text-red-600"
+          className="grid gap-1 rounded-[14px] bg-status-down-soft px-4 py-3 text-sm"
           data-testid="walk-error"
           data-code={w.error_code ?? ''}
         >
-          {w.error_code && <p>{t(`tdraft.walkError.${w.error_code}`)}</p>}
+          {w.error_code && (
+            <p className="m-0 font-medium">{t(`tdraft.walkError.${w.error_code}`)}</p>
+          )}
           {w.error && (
-            <p className="text-slate-500">
-              {t('tdraft.walkErrorDetail')} <bdi dir="ltr">{w.error}</bdi>
+            <p className="m-0 text-[13px] text-ink-muted">
+              {t('tdraft.walkErrorDetail')}{' '}
+              <code dir="ltr" className="font-mono">
+                {w.error}
+              </code>
             </p>
           )}
         </div>

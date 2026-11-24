@@ -1,4 +1,5 @@
 // Hand-written mirror of docs/api.md. Field names are exact.
+import type { Severity, SeverityCounts } from './severity';
 import type {
   BackupMode,
   BackupStatus,
@@ -60,6 +61,17 @@ export type ApiErrorDetail = {
 };
 export type ApiErrorEnvelope = {
   error: { code: string; message: string; details: ApiErrorDetail[] | null };
+};
+
+/** [premium] A signed-in browser of the current user (GET /api/auth/sessions). */
+export type BrowserSession = {
+  /** opaque public id */
+  id: string;
+  created_at: string;
+  last_seen_at: string | null;
+  ip: string | null;
+  user_agent: string | null;
+  current: boolean;
 };
 
 export type User = {
@@ -259,6 +271,11 @@ export type Sensor = {
   in_maintenance: boolean;
   /** [1.3] how the sensor's status rolls up into the device status (absent on older servers = critical) */
   impact?: SensorImpact;
+  /** [severity] the current problem's severity (null: no problem, or the feature is OFF) */
+  severity?: Severity | null;
+  /** [severity] overrides (null: the event rule / mapping decides) */
+  severity_down?: Severity | null;
+  severity_warning?: Severity | null;
   created_at: string;
   updated_at: string;
 };
@@ -305,6 +322,8 @@ export type NmEvent = {
   message: string;
   /** [2b-1] */
   in_maintenance: boolean;
+  /** [severity] stored when written (null while the feature was OFF, and for most kinds) */
+  severity?: Severity | null;
 };
 
 export type CheckResult = {
@@ -471,6 +490,9 @@ export type Dashboard = {
   acknowledged_count: number;
   unreachable_devices: UnreachableDevice[];
   maintenance: { active_window_ids: number[]; device_count: number };
+  /** [severity] all current problems (acknowledged included); null while the feature is OFF */
+  severity_counts?: SeverityCounts | null;
+  severity_counts_unacknowledged?: SeverityCounts | null;
 };
 
 /** [2b-1] */
@@ -553,6 +575,8 @@ export type AlertRule = {
   repeat_every_s: number | null;
   /** [3b] AI note after the problem notification (feature ai_alert_notes) */
   ai_note?: boolean;
+  /** [severity] the severities the rule applies to, in level order; [] = all */
+  severities?: Severity[];
   created_at: string;
   updated_at: string;
 };
@@ -629,6 +653,12 @@ export type WsMessage =
       };
     }
   | { type: 'event.created'; ts: string; data: NmEvent }
+  /** [severity] an active problem re-classified (mapping / override / impact / feature ON) */
+  | {
+      type: 'sensor.severity';
+      ts: string;
+      data: { id: number; device_id: number; severity: Severity | null };
+    }
   | {
       type: 'device.status';
       ts: string;
@@ -977,6 +1007,8 @@ export type DeviceTemplate = {
   source?: TemplateSource;
   overrides_builtin?: boolean;
   file?: string;
+  /** [template-switch] generic sensor types this template replaces (snmp_cpu, snmp_memory, …) */
+  replaces?: SensorType[];
 };
 
 /** [2b-2] */
@@ -1022,6 +1054,8 @@ export type ApplyTemplateResult = {
   skipped: SkippedSensor[];
   /** [1.3] interface sensors removed (remove_unselected_interfaces) */
   removed?: { sensor_id: number; name: string }[];
+  /** [template-switch] sensors this template replaces, deleted (remove_sensor_ids) */
+  replaced?: { sensor_id: number; name: string; type: SensorType }[];
 };
 
 /** [1.3] which interfaces an `snmp_interfaces` entry creates sensors for */
@@ -1030,7 +1064,22 @@ export type ApplyTemplateRequest = {
   template_id: string;
   interfaces?: ApplyInterfacesMode | number[];
   remove_unselected_interfaces?: boolean;
+  /** [template-switch] ids from GET …/apply-template/replaces */
+  remove_sensor_ids?: number[];
 };
+/** [template-switch] GET /api/devices/{id}/apply-template/replaces */
+export type ReplaceReason = 'replaced' | 'other_template';
+export type ReplaceCandidate = {
+  sensor_id: number;
+  name: string;
+  type: SensorType;
+  status: Status;
+  status_message: string;
+  reason: ReplaceReason;
+  from_template: string | null;
+  failing: boolean;
+};
+export type ReplaceCandidatesResponse = { items: ReplaceCandidate[] };
 /** [1.3.1] irf: an IRF physical port of a Comware IRF stack */
 export type ApplyInterfaceReason = 'uplink' | 'lag' | 'trunk' | 'irf';
 export const APPLY_INTERFACE_REASONS: ApplyInterfaceReason[] = ['uplink', 'lag', 'trunk'];
@@ -1312,8 +1361,26 @@ export type PortKind = 'physical' | 'lag' | 'vlan' | 'mgmt' | 'other';
 export const PORT_KINDS: PortKind[] = ['physical', 'lag', 'vlan', 'mgmt', 'other'];
 export type PortState = 'up' | 'down' | 'admin_down' | 'absent';
 export const PORT_STATES: PortState[] = ['up', 'down', 'admin_down', 'absent'];
-export type ConnectedKind = 'none' | 'client' | 'ap' | 'switch';
-export const CONNECTED_KINDS: ConnectedKind[] = ['none', 'client', 'ap', 'switch'];
+/**
+ * [premium] The device type behind a port (docs/api.md "Premium UI additions"); null = no link
+ * or nothing learned. Servers before premium sent "none" | "client" | "ap" | "switch":
+ * lib/ports.ts portDeviceKind() maps those too.
+ */
+export type ConnectedKind =
+  'computer' | 'phone' | 'ap' | 'printer' | 'camera' | 'server' | 'switch' | 'router' | 'unknown';
+export const CONNECTED_KINDS: ConnectedKind[] = [
+  'computer',
+  'phone',
+  'ap',
+  'printer',
+  'camera',
+  'server',
+  'switch',
+  'router',
+  'unknown',
+];
+export type LegacyConnectedKind = 'none' | 'client';
+export type ConnectedKindSource = 'lldp' | 'cdp' | 'oui' | 'manual';
 export type IfStatus =
   'up' | 'down' | 'testing' | 'unknown' | 'dormant' | 'notPresent' | 'lowerLayerDown';
 export const IF_STATUSES: IfStatus[] = [
@@ -1412,7 +1479,11 @@ export type Port = {
   out_errors_delta: number | null;
   is_uplink: boolean;
   uplink_reason: 'neighbor' | 'mac_count' | null;
-  connected_kind: ConnectedKind;
+  connected_kind: ConnectedKind | LegacyConnectedKind | null;
+  /** [premium] what the kind was derived from (absent on older servers) */
+  connected_kind_source?: ConnectedKindSource | null;
+  /** [premium] the stored manual choice ("manual" marker, chooser preselection) */
+  connected_kind_override?: ConnectedKind | null;
   trunk: boolean;
   /** primary neighbour */
   neighbor: PortNeighbor | null;
@@ -1593,7 +1664,9 @@ export type FeatureName =
   | 'ai_template_drafts'
   | 'ai_knowledge'
   | 'ai_chat_ask'
-  | 'ai_report_summary';
+  | 'ai_report_summary'
+  // [severity]
+  | 'alert_severity';
 export const FEATURE_NAMES: FeatureName[] = [
   'traps',
   'syslog',
@@ -1624,6 +1697,8 @@ export const FEATURE_NAMES: FeatureName[] = [
   'ai_knowledge',
   'ai_chat_ask',
   'ai_report_summary',
+  // [severity]
+  'alert_severity',
 ];
 export type Features = Record<FeatureName, boolean>;
 
@@ -1827,6 +1902,8 @@ export type EventRule = {
   clear_after_min: number | null;
   active_conditions: number;
   last_matched_at: string | null;
+  /** [severity] only for action warning / down */
+  severity?: Severity | null;
   created_at: string;
   updated_at: string;
 };
@@ -1844,6 +1921,8 @@ export type EventRuleInput = {
   key_regex?: string | null;
   clear_match?: TrapMatch | SyslogMatch | null;
   clear_after_min?: number | null;
+  /** [severity] */
+  severity?: Severity | null;
 };
 export type RuleTestItem = {
   kind: EventRuleKind;

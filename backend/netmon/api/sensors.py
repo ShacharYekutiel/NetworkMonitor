@@ -26,11 +26,20 @@ from netmon.poller.sensor_types import (
 )
 from netmon.poller.snmp_client import DEFAULT_SNMP
 from netmon.poller.types import SEVERITY, CheckContext, evaluate
-from netmon.schemas import AcknowledgeIn, BulkImpactIn, SensorCreate, SensorPatch, SensorTestIn
+from netmon.schemas import (
+    AcknowledgeIn,
+    BulkDeleteIn,
+    BulkImpactIn,
+    BulkSeverityIn,
+    SensorCreate,
+    SensorPatch,
+    SensorTestIn,
+)
 from netmon.services import audit, secretbox
 from netmon.services import events as events_svc
 from netmon.services import history as history_svc
 from netmon.services import settings as settings_svc
+from netmon.services import severity as severity_svc
 from netmon.services.retention import delete_sensor_measurements
 from netmon.services.sensors import (
     apply_channel_overrides,
@@ -88,6 +97,8 @@ async def list_sensors(
     type: str | None = None,  # noqa: A002
     q: str | None = Query(default=None, max_length=255),
     acknowledged: bool | None = None,
+    severity: str | None = None,  # [severity] csv of levels (current problem severity)
+    sort: str | None = Query(default=None, pattern="^(default|severity)$"),
 ) -> dict:
     return await sensors_page(
         session,
@@ -101,6 +112,8 @@ async def list_sensors(
         reveal=user.role == "admin",
         acknowledged=acknowledged,
         maint=rt.maintenance,
+        severities=severity_svc.parse_levels(csv_list(severity), ["query", "severity"]),
+        sort=sort,
     )
 
 
@@ -117,8 +130,12 @@ async def sensors_page(
     reveal: bool = True,
     acknowledged: bool | None = None,
     maint: Any = None,
+    severities: list[str] | None = None,
+    sort: str | None = None,
 ) -> dict:
     stmt = select(Sensor, Device).join(Device, Device.id == Sensor.device_id)
+    if severities:
+        stmt = stmt.where(Sensor.severity.in_(severities))
     if acknowledged is not None:
         stmt = stmt.where(Sensor.ack_at.isnot(None) if acknowledged else Sensor.ack_at.is_(None))
     if device_id is not None:
@@ -135,7 +152,20 @@ async def sensors_page(
     if q:
         stmt = stmt.where(Sensor.name.ilike(f"%{q}%"))
     total = (await session.execute(select(func.count()).select_from(stmt.subquery()))).scalar_one()
-    if status:
+    if sort == "severity":  # [severity] highest first, then the "worst first" order
+        from sqlalchemy import case
+
+        rank = case(severity_svc.RANK, value=Sensor.severity, else_=0)
+        sev = case(SEVERITY, value=Sensor.status, else_=0)
+        stmt = stmt.order_by(
+            rank.desc(),
+            sev.desc(),
+            Sensor.last_status_change_at.asc().nulls_first(),
+            Device.name,
+            Sensor.name,
+            Sensor.id,
+        )
+    elif status:
         from sqlalchemy import case
 
         sev = case(SEVERITY, value=Sensor.status, else_=0)
@@ -157,6 +187,8 @@ SENSOR_AUDIT_FIELDS = (
     "enabled",
     "sort_order",
     "impact",  # [1.3]
+    "severity_down",  # [severity]
+    "severity_warning",
 )
 
 
@@ -230,6 +262,8 @@ async def create_sensor(body: SensorCreate, _: Admin, rt: RT, session: DB, ctx: 
     s = Sensor(
         device_id=device.id,
         impact=impact,
+        severity_down=body.severity_down,  # [severity]
+        severity_warning=body.severity_warning,
         name=(body.name or "").strip() or default_sensor_name(tdef.type, cfg),
         type=tdef.type,
         config=cfg,
@@ -242,6 +276,7 @@ async def create_sensor(body: SensorCreate, _: Admin, rt: RT, session: DB, ctx: 
         state={},
         sort_order=body.sort_order,
         channels=build_channels(tdef.type, overrides, cfg),
+        origin="manual",  # [template-switch]
     )
     if passive:
         for ch in s.channels:
@@ -273,7 +308,14 @@ async def patch_sensor(
     before = sensor_audit_values(s)
     fields = body.model_fields_set
     if is_passive(s.type):  # [2b-3] event sensors: name, enabled, sort_order ([1.3] impact)
-        fields = fields & {"name", "enabled", "sort_order", "impact"}
+        fields = fields & {
+            "name",
+            "enabled",
+            "sort_order",
+            "impact",
+            "severity_down",  # [severity]
+            "severity_warning",
+        }
     if "type" in fields and body.type is not None and body.type != s.type:
         raise ApiError(400, "invalid_sensor_type", "The sensor type cannot be changed")
     if "config" in fields and body.config is not None:
@@ -302,6 +344,9 @@ async def patch_sensor(
         s.sort_order = body.sort_order
     if "impact" in fields and body.impact is not None:
         s.impact = body.impact  # [1.3]
+    for key in ("severity_down", "severity_warning"):  # [severity] null clears
+        if key in fields:
+            setattr(s, key, getattr(body, key))
     evs = []
     if "enabled" in fields and body.enabled is not None and body.enabled != s.enabled:
         s.enabled = body.enabled
@@ -326,6 +371,9 @@ async def patch_sensor(
         await audit.record(session, ctx, "sensor.update", sensor_entity(s), changes)
     await session.commit()
     events_svc.published(rt, evs)
+    if {"impact", "severity_down", "severity_warning"} & set(changes):
+        await severity_svc.reresolve_now(rt, ctx, sensor_ids=[s.id], reason=_reason(changes))
+        await session.refresh(s)
     s, d = await _sensor_full(session, sensor_id)
     if rt.scheduler:
         await rt.scheduler.upsert(s.id)
@@ -349,10 +397,12 @@ async def bulk_impact(body: BulkImpactIn, _: Admin, rt: RT, session: DB, ctx: Au
         raise validation_error(["body", "sensor_ids"], f"unknown sensor ids: {missing[:20]}")
     updated = 0
     devices: set[int] = set()
+    changed_ids: list[int] = []
     for s in rows:
         if s.impact == body.impact:
             continue
         devices.add(s.device_id)
+        changed_ids.append(s.id)
         await audit.record(
             session,
             ctx,
@@ -365,7 +415,86 @@ async def bulk_impact(body: BulkImpactIn, _: Admin, rt: RT, session: DB, ctx: Au
     await session.commit()
     for device_id in sorted(devices):  # one message per device, not per sensor
         rt.config_changed("device", device_id, "updated")
+    if changed_ids:  # [severity] the impact is an input of the mapping
+        await severity_svc.reresolve_now(rt, ctx, sensor_ids=changed_ids, reason="impact")
     return {"updated": updated}
+
+
+def _reason(changes: dict[str, Any]) -> str:
+    """[severity] audit `reason` of a re-resolution."""
+    return "override" if {"severity_down", "severity_warning"} & set(changes) else "impact"
+
+
+# ---------------------------------------------------------------- [severity] bulk override
+@router.post("/api/sensors/bulk-severity")
+async def bulk_severity(body: BulkSeverityIn, _: Admin, rt: RT, session: DB, ctx: Audit) -> dict:
+    """Set / clear the severity overrides of up to 1000 sensors (one `sensor.update` audit row
+    per changed sensor; active problems re-resolved). Unknown ids -> 422 (nothing changed).
+    Omitted keys keep each sensor's value; at least one of them is required."""
+    keys = [k for k in ("severity_down", "severity_warning") if k in body.model_fields_set]
+    if not keys:
+        raise validation_error(["body"], "give severity_down and/or severity_warning")
+    ids = sorted(set(body.sensor_ids))
+    rows = (
+        (await session.execute(select(Sensor).where(Sensor.id.in_(ids)).with_for_update()))
+        .scalars()
+        .all()
+    )
+    missing = sorted(set(ids) - {s.id for s in rows})
+    if missing:
+        raise validation_error(["body", "sensor_ids"], f"unknown sensor ids: {missing[:20]}")
+    changed: list[int] = []
+    devices: set[int] = set()
+    for s in rows:
+        diff = {
+            k: [getattr(s, k), getattr(body, k)] for k in keys if getattr(s, k) != getattr(body, k)
+        }
+        if not diff:
+            continue
+        await audit.record(session, ctx, "sensor.update", sensor_entity(s), diff)
+        for k, (_old, new) in diff.items():
+            setattr(s, k, new)
+        changed.append(s.id)
+        devices.add(s.device_id)
+    await session.commit()
+    for device_id in sorted(devices):
+        rt.config_changed("device", device_id, "updated")
+    if changed:
+        await severity_svc.reresolve_now(rt, ctx, sensor_ids=changed, reason="override")
+    return {"updated": len(changed)}
+
+
+# ---------------------------------------------------------------- bulk delete
+@router.post("/api/sensors/bulk-delete")
+async def bulk_delete(body: BulkDeleteIn, _: Admin, rt: RT, session: DB, ctx: Audit) -> dict:
+    """Delete up to 1000 sensors with their history, in one transaction (one `sensor.delete`
+    audit row per sensor, as the single DELETE). Unknown ids -> 422 (nothing deleted)."""
+    ids = sorted(set(body.sensor_ids))
+    rows = (
+        (await session.execute(select(Sensor).where(Sensor.id.in_(ids)).with_for_update()))
+        .scalars()
+        .all()
+    )
+    missing = sorted(set(ids) - {s.id for s in rows})
+    if missing:
+        raise validation_error(["body", "sensor_ids"], f"unknown sensor ids: {missing[:20]}")
+    for s in sorted(rows, key=lambda x: x.id):
+        await audit.record(
+            session, ctx, "sensor.delete", sensor_entity(s), audit.deleted(sensor_audit_values(s))
+        )
+        if is_passive(s.type):  # [2b-3] a deleted event sensor is not re-created
+            dev = await session.get(Device, s.device_id)
+            if dev is not None and s.type not in (dev.event_sensor_optout or []):
+                dev.event_sensor_optout = [*(dev.event_sensor_optout or []), s.type]
+        await session.delete(s)
+    await session.commit()
+    if rt.scheduler:
+        for sensor_id in ids:
+            rt.scheduler.remove(sensor_id)
+    rt.spawn(delete_sensor_measurements(rt, ids))
+    for sensor_id in ids:
+        rt.config_changed("sensor", sensor_id, "deleted")
+    return {"deleted": len(ids)}
 
 
 # ---------------------------------------------------------------- [2b-1] acknowledge
@@ -621,9 +750,19 @@ async def sensor_events(
     status: str | None = None,
     since: str | None = None,
     until: str | None = None,
+    severity: str | None = None,  # [severity]
+    sort: str | None = Query(default=None, pattern="^(time|severity)$"),
 ) -> dict:
     if await session.get(Sensor, sensor_id) is None:
         raise not_found("Sensor")
     return await list_events_impl(
-        session, pg, sensor_id=sensor_id, kind=kind, status=status, since=since, until=until
+        session,
+        pg,
+        sensor_id=sensor_id,
+        kind=kind,
+        status=status,
+        since=since,
+        until=until,
+        severity=severity,
+        sort=sort,
     )

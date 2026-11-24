@@ -7,7 +7,8 @@ import { parseError } from '../api/client';
 import type { User } from '../api/types';
 import { useAuth } from '../hooks/auth';
 import { Button, ErrorBox, Field, Input, Spinner } from '../components/ui';
-import { AuthShell } from './AuthShell';
+import { DesktopIcon } from '../components/icons';
+import { AUTH_SSO, AUTH_WIDE, AuthOr, AuthShell } from './AuthShell';
 import { useFeatures } from '../hooks/features';
 import { parseLogin } from '../lib/ldap';
 import { readSkip, safeNext, shouldAutoKerberos, ssoErrorFromSearch, writeSkip } from '../lib/sso';
@@ -104,7 +105,7 @@ export function LoginPage() {
       {ssoError && (
         <div
           role="alert"
-          className="mb-4 rounded-md bg-red-50 px-3 py-2 text-sm text-red-700 ring-1 ring-inset ring-red-200 dark:bg-red-950/40 dark:text-red-300 dark:ring-red-900"
+          className="mb-4 rounded-lg bg-status-down-soft px-4 py-3 text-sm text-ink"
           data-testid="sso-error"
         >
           {t(`sso.error.${ssoError}`)}
@@ -112,7 +113,7 @@ export function LoginPage() {
       )}
       {krb === 'trying' && (
         <p
-          className="mb-4 flex items-center gap-2 text-sm text-slate-600 dark:text-slate-300"
+          className="mb-4 flex items-center gap-2 text-sm text-ink-muted"
           role="status"
           data-testid="kerberos-trying"
         >
@@ -120,7 +121,7 @@ export function LoginPage() {
         </p>
       )}
       {krb === 'ntlm' && (
-        <div className="mb-4 rounded-md bg-amber-50 px-3 py-2 text-sm text-amber-900 ring-1 ring-inset ring-amber-200 dark:bg-amber-950/40 dark:text-amber-200 dark:ring-amber-900">
+        <div className="mb-4 rounded-lg bg-status-warning-soft px-4 py-3 text-sm text-ink">
           <p>{t('sso.error.sso_ntlm')}</p>
           {krbMessage && (
             <p className="mt-1 text-xs" dir="auto">
@@ -130,26 +131,28 @@ export function LoginPage() {
         </div>
       )}
       {krb === 'failed' && !error && (
-        <p className="mb-4 text-sm text-red-600">{t('sso.kerberosFailed')}</p>
+        <p className="mb-4 text-sm text-status-down">{t('sso.kerberosFailed')}</p>
       )}
       {(sso.kerberos || sso.oidc) && (
-        <div className="mb-4 space-y-2">
+        <div className="mb-4 grid gap-3">
           {sso.kerberos && (
-            <Button
-              className="w-full"
-              busy={krb === 'trying'}
+            <button
+              type="button"
+              className={AUTH_SSO}
+              disabled={krb === 'trying'}
               onClick={() => void kerberos(true)}
               data-testid="kerberos-button"
             >
+              {krb === 'trying' ? (
+                <Spinner className="h-4 w-4" />
+              ) : (
+                <DesktopIcon size={18} strokeWidth={1.8} />
+              )}
               {t('sso.kerberosButton')}
-            </Button>
+            </button>
           )}
           {sso.oidc && (
-            <a
-              href={oidcHref}
-              className="inline-flex w-full items-center justify-center gap-2 rounded-md bg-white px-3 py-1.5 text-sm font-medium text-slate-700 ring-1 ring-inset ring-slate-300 hover:bg-slate-50 dark:bg-slate-800 dark:text-slate-200 dark:ring-slate-600 dark:hover:bg-slate-700"
-              data-testid="oidc-button"
-            >
+            <a href={oidcHref} className={AUTH_SSO} data-testid="oidc-button">
               <svg width="14" height="14" viewBox="0 0 21 21" aria-hidden="true">
                 <rect x="1" y="1" width="9" height="9" fill="#f25022" />
                 <rect x="11" y="1" width="9" height="9" fill="#7fba00" />
@@ -159,11 +162,7 @@ export function LoginPage() {
               {sso.oidc.button_label || t('sso.oidcButton')}
             </a>
           )}
-          <div className="flex items-center gap-2 pt-1 text-xs text-slate-400">
-            <span className="h-px flex-1 bg-slate-200 dark:bg-slate-700" />
-            {t('sso.or')}
-            <span className="h-px flex-1 bg-slate-200 dark:bg-slate-700" />
-          </div>
+          <AuthOr>{t('sso.or')}</AuthOr>
         </div>
       )}
       <form onSubmit={submit} className="space-y-4">
@@ -176,15 +175,16 @@ export function LoginPage() {
             required
             maxLength={256}
             dir="ltr"
+            className="h-11"
           />
         </Field>
         {ad && (
-          <p className="-mt-2 text-xs text-slate-500" data-testid="ldap-hint">
+          <p className="-mt-2 text-xs text-ink-muted" data-testid="ldap-hint">
             {t('login.adHint', { netbios: ad.netbios_domain, domain: ad.domain })}
           </p>
         )}
         {parsed?.kind === 'foreign' && (
-          <p className="-mt-2 text-xs text-amber-700 dark:text-amber-300">
+          <p className="-mt-2 text-xs text-status-warning">
             {t('login.foreignDomain', { domain: parsed.domain, netbios: ad?.netbios_domain ?? '' })}
           </p>
         )}
@@ -197,10 +197,11 @@ export function LoginPage() {
             required
             maxLength={1024}
             dir="ltr"
+            className="h-11"
           />
         </Field>
         <ErrorBox error={error} />
-        <Button type="submit" variant="primary" className="w-full" busy={busy}>
+        <Button type="submit" variant="primary" className={AUTH_WIDE} busy={busy}>
           {t('login.submit')}
         </Button>
       </form>

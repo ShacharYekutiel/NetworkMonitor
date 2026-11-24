@@ -13,6 +13,7 @@ import {
   treeSensor,
   uid,
   waitForSensor,
+  goHome,
 } from '../lib/helpers';
 
 // Scenario (g): a warning threshold on ping latency set very low (warning_max 0.001 ms) turns the
@@ -78,9 +79,9 @@ test('warning_max 0.001 on latency -> warning (live)', async ({ page }) => {
   expect(ev.items[0]).toMatchObject({ kind: 'status_change', old_status: 'up', new_status: 'warning' });
 
   // Warning shows on the dashboard problem list.
-  await page.getByRole('complementary').getByRole('link', { name: 'Dashboard' }).click();
-  const problems = card(page, 'Down and warning sensors');
-  await expect(problems.getByRole('row').filter({ hasText: sensorName })).toContainText('Warning');
+  await goHome(page);
+  const problems = card(page, /^Alerts\b/);
+  await expect(problems.getByTestId('problem-row').filter({ hasText: sensorName })).toContainText('Warning');
 });
 
 test('restoring the default threshold -> up again', async ({ page }) => {

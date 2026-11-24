@@ -82,7 +82,7 @@ test('Test (ssh/test): connect, host key, auth, prompt, setup, command; masked p
 test('"Back up all" in the UI: every device stores an initial version equal to the normalised fixture', async ({ page }) => {
   test.setTimeout(180_000);
   await loginViaApi(page, undefined, '/config-backups');
-  for (const d of DEVS) await expect(page.getByText(`qa3-${d.name}`).first()).toBeVisible({ timeout: 20_000 });
+  for (const d of DEVS) await expect(page.getByRole('main').getByText(`qa3-${d.name}`).first()).toBeVisible({ timeout: 20_000 });
   await page.getByRole('button', { name: tx('configBackup.backupAll', /back up all/i) }).click();
   const dlg = page.getByRole('dialog');
   if (await dlg.isVisible().catch(() => false)) await dlg.getByRole('button', { name: /back up|confirm|ok|yes/i }).last().click();
@@ -103,7 +103,7 @@ test('"Back up all" in the UI: every device stores an initial version equal to t
     expect(full.lines).toBe(want.split('\n').length - 1);
   }
   await page.reload();
-  await expect(page.getByText(`qa3-${SSH.cp.name}`).first()).toBeVisible();
+  await expect(page.getByRole('main').getByText(`qa3-${SSH.cp.name}`).first()).toBeVisible();
   await shot3(page, '52-config-backups');
 });
 

@@ -86,18 +86,14 @@ export function MaintenanceBadge({
   const title = name ? `${text} — ${name}` : text;
   if (compact)
     return (
-      <span
-        title={title}
-        aria-label={title}
-        className="inline-flex shrink-0 text-sky-600 dark:text-sky-400"
-      >
+      <span title={title} aria-label={title} className="inline-flex shrink-0 text-accent-ink">
         <WrenchIcon size={13} />
       </span>
     );
   return (
     <span
       title={title}
-      className="inline-flex items-center gap-1 whitespace-nowrap rounded bg-sky-100 px-1.5 py-0.5 text-xs font-medium text-sky-800 ring-1 ring-inset ring-sky-200 dark:bg-sky-950 dark:text-sky-200 dark:ring-sky-800"
+      className="inline-flex h-[22px] items-center gap-[5px] whitespace-nowrap rounded-full bg-accent-soft px-2 text-xs font-semibold text-accent-ink"
     >
       <WrenchIcon size={12} />
       <span dir="auto">{text}</span>
@@ -121,13 +117,13 @@ export function GlobalMaintenanceBanner() {
   return (
     <div
       role="status"
-      className="flex flex-wrap items-center gap-x-2 gap-y-1 border-b border-sky-200 bg-sky-50 px-4 py-1.5 text-sm text-sky-900 dark:border-sky-900 dark:bg-sky-950 dark:text-sky-100"
+      className="mx-auto mt-2 flex max-w-page flex-wrap items-center gap-x-3 gap-y-1 rounded-full bg-accent-soft px-5 py-2.5 text-sm text-ink"
     >
-      <WrenchIcon size={14} />
+      <WrenchIcon size={16} strokeWidth={1.75} className="shrink-0 text-accent-ink" />
       <span dir="auto">
         {t('maintenance.globalBanner', { name: w.name, time: short(w.occurrence_end) })}
       </span>
-      <Link to="/maintenance" className="text-xs underline">
+      <Link to="/maintenance" className="text-xs text-accent-ink underline underline-offset-[3px]">
         {t('maintenance.view')}
       </Link>
     </div>
@@ -156,10 +152,8 @@ export function WeekdayChips({
             aria-pressed={on}
             onClick={() => onChange(on ? value.filter((x) => x !== d) : [...value, d])}
             className={cx(
-              'min-w-[2.75rem] rounded-md px-2 py-1 text-xs font-medium ring-1 ring-inset',
-              on
-                ? 'bg-sky-600 text-white ring-sky-600'
-                : 'bg-white text-slate-700 ring-slate-300 hover:bg-slate-50 dark:bg-slate-900 dark:text-slate-200 dark:ring-slate-600 dark:hover:bg-slate-800',
+              'h-8 min-w-[2.75rem] rounded-full px-3 text-[13px] font-medium transition-colors',
+              on ? 'bg-accent text-accent-on' : 'bg-chip text-ink-muted hover:text-ink',
             )}
           >
             {names[d]}
@@ -198,7 +192,7 @@ export function useScheduleText() {
 
 function Err({ k }: { k?: string }) {
   const { t } = useTranslation();
-  return k ? <span className="text-red-600">{t(k)}</span> : null;
+  return k ? <span className="text-status-down">{t(k)}</span> : null;
 }
 
 export function OccurrenceList({ items }: { items: { start: string; end: string }[] }) {
@@ -206,9 +200,9 @@ export function OccurrenceList({ items }: { items: { start: string; end: string 
   const tz = useServerTimeZone();
   const locale = useLocale();
   if (!items.length)
-    return <p className="text-xs text-slate-500">{t('maintenance.noOccurrences')}</p>;
+    return <p className="text-xs text-ink-subtle">{t('maintenance.noOccurrences')}</p>;
   return (
-    <ul className="space-y-0.5 text-xs tabular-nums text-slate-600 dark:text-slate-300">
+    <ul className="space-y-0.5 font-mono text-xs tabular-nums text-ink-muted">
       {items.map((o) => (
         <li key={o.start} className="flex flex-wrap gap-x-1">
           <bdi>
@@ -221,7 +215,7 @@ export function OccurrenceList({ items }: { items: { start: string; end: string 
               hourCycle: 'h23',
             })}
           </bdi>
-          <span className="text-slate-400">–</span>
+          <span className="text-ink-subtle">–</span>
           <bdi>
             {formatInTz(o.end, tz, locale, {
               weekday: 'short',
@@ -371,10 +365,7 @@ export function MaintenanceWindowModal({
             </Field>
           )}
           <FieldGroup label={t('maintenance.kind')} className="sm:col-span-2">
-            <div
-              className="inline-flex rounded-md ring-1 ring-slate-300 dark:ring-slate-600"
-              role="group"
-            >
+            <div className="inline-flex gap-0.5 rounded-[11px] bg-chip p-[3px]" role="group">
               {(['once', 'weekly'] as const).map((k) => (
                 <button
                   key={k}
@@ -382,10 +373,10 @@ export function MaintenanceWindowModal({
                   aria-pressed={f.kind === k}
                   onClick={() => set('kind', k)}
                   className={cx(
-                    'px-3 py-1 text-sm first:rounded-s-md last:rounded-e-md',
+                    'h-7 rounded-[8px] px-3 text-[13px] font-medium transition-colors',
                     f.kind === k
-                      ? 'bg-sky-600 text-white'
-                      : 'hover:bg-slate-100 dark:hover:bg-slate-800',
+                      ? 'bg-surface-raised text-ink shadow-[0_0_0_1px_var(--border-strong)]'
+                      : 'text-ink-muted hover:text-ink',
                   )}
                 >
                   {t(`maintenance.kinds.${k}`)}
@@ -456,7 +447,7 @@ export function MaintenanceWindowModal({
               </Field>
             </>
           )}
-          <p className="text-xs text-slate-500 sm:col-span-2">
+          <p className="text-xs text-ink-subtle sm:col-span-2">
             {t('maintenance.tzNote')} <Ltr className="font-medium">{tz}</Ltr>
           </p>
           <Field label={t('maintenance.comment')} className="sm:col-span-2">
@@ -469,8 +460,8 @@ export function MaintenanceWindowModal({
             />
           </Field>
         </div>
-        <div className="rounded-md bg-slate-50 p-3 ring-1 ring-inset ring-slate-200 dark:bg-slate-800/60 dark:ring-slate-700">
-          <div className="mb-1 text-xs font-semibold text-slate-600 dark:text-slate-300">
+        <div className="rounded-lg bg-chip px-4 py-3.5">
+          <div className="mb-1 text-xs font-semibold text-ink-muted">
             {t('maintenance.preview')}
           </div>
           <OccurrenceList items={preview} />

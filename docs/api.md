@@ -11,6 +11,10 @@ Items marked **[1.3]** (release 1.3: sensor impact, important ports, interface s
 connected hosts / CSV on ports, LAG degraded, IRF) are specified in [§ Release 1.3](#13-release-13-contract).
 Items marked **[1.3.1]** (IRF ports important, named value maps) are specified in
 [§ Release 1.3.1](#131-release-131-contract).
+Items marked **[premium]** (connected device kind per port, home network map, signed-in browsers) are specified in
+[§ Premium UI additions](#premium-premium-ui-additions).
+Items marked **[severity]** (alert severity: levels, mapping, overrides, filters, notification rule severities) are
+specified in [§ Alert severity](#severity-alert-severity).
 
 This file is the contract between the backend (`backend/netmon/schemas`) and the frontend
 (`frontend/src/api/types.ts`). **Field names are exact.** For the table semantics see
@@ -234,6 +238,8 @@ sets the session cookie. Response `201`: `{"user": User}`.
 | `POST /api/auth/login` | public | `{"username":"admin","password":"..."}` | `200 {"user": User}` + Set-Cookie. Errors: `401 invalid_credentials`, `429 rate_limited`. |
 | `POST /api/auth/logout` | viewer | — | `204`. Clears the cookie (Max-Age=0). |
 | `GET /api/auth/me` | viewer | — | `200 {"user": User}` |
+| `GET /api/auth/sessions` **[premium]** | viewer (browser session only) | — | `200 {"items": BrowserSession[]}`: the caller's signed-in browsers. See [§ Signed-in browsers](#premium-signed-in-browsers). |
+| `DELETE /api/auth/sessions/{id}` **[premium]** | viewer (browser session only) | — | `204`. Ends that session of the caller; `404 not_found` for an unknown or another user's id. |
 | `PATCH /api/auth/me` | viewer | `{"email": "...", "language": "he"}` (any subset) | `200 {"user": User}` |
 | `POST /api/auth/change-password` | viewer | `{"current_password":"...","new_password":"..."}` | `204`. Increments `token_version` and re-issues the cookie. Wrong current password: `401 invalid_credentials`. |
 
@@ -292,6 +298,7 @@ The top-level `groups` holds the root groups (`parent_id = null`).
 | `GET /api/devices/{id}/snmp/interfaces` | admin | — | See below. A timeout or auth failure → `502 snmp_error`. |
 | **[1.3]** `GET /api/devices/{id}/ports.csv` | viewer | — | Ports × connected MACs as CSV ([§ 1.3](#13-release-13-contract)) |
 | **[1.3]** `GET /api/devices/{id}/apply-template/interfaces` | admin | Query `template_id` | Interface choices of the apply dialog ([§ 1.3](#13-release-13-contract)) |
+| **[template-switch]** `GET /api/devices/{id}/apply-template/replaces` | admin | Query `template_id` | Sensors the template replaces on this device ([§ below](#template-switch-apply-template-sensors-the-template-replaces)) |
 
 Create request:
 
@@ -358,6 +365,7 @@ Create request:
 | `GET /api/sensors/{id}` | viewer | — | `Sensor` |
 | `PATCH /api/sensors/{id}` | admin | Subset of `{name, config, interval_s, enabled, sort_order, channels}` (**[1.3]** + `impact`). `type` cannot change. `config` is merged over the stored config. | `Sensor` |
 | **[1.3]** `POST /api/sensors/bulk-impact` | admin | `{"sensor_ids": [7, 8], "impact": "warning"}` | `{"updated": n}` ([§ 1.3](#13-release-13-contract)) |
+| `POST /api/sensors/bulk-delete` | admin | `{"sensor_ids": [7, 8]}` | `{"deleted": n}` ([§ Sensor bulk delete](#sensor-bulk-delete)) |
 | `DELETE /api/sensors/{id}` | admin | — | `204` |
 | `POST /api/sensors/{id}/run` | admin | — (no body) | `200 CheckResult`. Runs the check now and persists it (measurements, status, events, WS) like a scheduled run. Does not move the schedule. A paused sensor (or disabled device) → `409 sensor_paused`. |
 | `POST /api/sensors/test` | admin | `{"device_id":3,"type":"http","config":{...}}`. You may send `"host"` instead of `device_id`; a test against an unsaved device then uses `"snmp_credentials"` from the body. | `200 CheckResult`. Persists **nothing**. |
@@ -1273,7 +1281,7 @@ type TemplateSkipReason = "exists" | "probe_failed" | "snmp_error" | "max_reache
 ```ts
 type PortKind = "physical" | "lag" | "vlan" | "mgmt" | "other";
 type PortState = "up" | "down" | "admin_down" | "absent";
-type ConnectedKind = "none" | "client" | "ap" | "switch";
+type ConnectedKind = "none" | "client" | "ap" | "switch";   // **changed [premium]**: see § Premium UI additions
 type IfStatus = "up" | "down" | "testing" | "unknown" | "dormant" | "notPresent" | "lowerLayerDown";
 type SourceState = "ok" | "empty" | "error" | "skipped" | "unmapped";
 
@@ -1307,7 +1315,7 @@ type Port = { if_index: number; name: string; descr: string; alias: string; kind
   in_bps: number | null; out_bps: number | null;
   in_errors_delta: number | null; out_errors_delta: number | null;
   is_uplink: boolean; uplink_reason: "neighbor" | "mac_count" | null;
-  connected_kind: ConnectedKind; trunk: boolean;
+  connected_kind: ConnectedKind; trunk: boolean;   // [premium] value set changed, + connected_kind_source / _override
   neighbor: PortNeighbor | null;       // primary neighbour
   mac_count: number;
   first_mac: PortMac | null;           // null for uplinks
@@ -2586,9 +2594,11 @@ type Port = Port & {                                // also PortDetail
 
 type ApplyTemplateRequest = { template_id: string;
   interfaces?: "important" | "none" | "all" | number[];   // default "important"; number[] = ifIndexes, ≤ 1000
-  remove_unselected_interfaces?: boolean };               // default false
+  remove_unselected_interfaces?: boolean;                 // default false
+  remove_sensor_ids?: number[] };                         // [template-switch] default []
 type ApplyTemplateResult = ApplyTemplateResult & {
-  removed: { sensor_id: number; name: string }[] };       // [] unless remove_unselected_interfaces
+  removed: { sensor_id: number; name: string }[];         // [] unless remove_unselected_interfaces
+  replaced: { sensor_id: number; name: string; type: SensorType }[] };  // [template-switch]
 ```
 
 `status_counts` (device / group / dashboard `sensor_counts`) keep counting raw **sensor** statuses; only the
@@ -2600,6 +2610,11 @@ type ApplyTemplateResult = ApplyTemplateResult & {
 | `POST /api/sensors/bulk-impact` | admin | `{"sensor_ids": int[] (1–1000), "impact": Impact}` | `200 {"updated": n}` — `n` = sensors whose impact actually changed. An unknown id → `422 validation_error` (nothing changed). One `sensor.update` audit row per changed sensor (`changes.impact = [old, new]`). WS: `config.changed` (`device`, `updated`) once per affected device, then `device.status` / `group.status` as usual. |
 
 No generic sensor bulk endpoint existed before 1.3; this is a new endpoint.
+
+### Sensor bulk delete
+| Method & path | Role | Request | Response |
+|---|---|---|---|
+| `POST /api/sensors/bulk-delete` | admin | `{"sensor_ids": int[] (1–1000)}` (duplicates are ignored) | `200 {"deleted": n}` — every listed sensor is deleted together with its history (measurements), in one transaction. As in `bulk-impact`, an unknown id → `422 validation_error` naming the unknown ids, and nothing is deleted. Each sensor is handled exactly as `DELETE /api/sensors/{id}`: one `sensor.delete` audit row per sensor (same `changes` as the single delete), a deleted event (passive) sensor type is added to its device's `event_sensor_optout`, the sensor is removed from the scheduler, its measurements are purged in the background, and WS `config.changed` (`sensor`, `deleted`) is sent per sensor. Viewer → `403`. |
 
 ### [1.3] Template apply: interface selection
 `POST /api/devices/{id}/apply-template` takes the new request fields above.
@@ -2645,6 +2660,38 @@ No generic sensor bulk endpoint existed before 1.3; this is a new endpoint.
 - Rows are filtered by the template's `snmp_interfaces` type / name filters (all rows when it has none), sorted
   by ifIndex. `kind` is the 2b-2 `PortKind`. `sensor_id` = the existing `snmp_interface` sensor of that ifIndex
   (lowest id). Unknown `template_id` → `422`; unknown device → `404`.
+
+### [template-switch] Apply template: sensors the template replaces
+Rules: [data-model § Sensors a template replaces](data-model.md#template-switch-sensors-a-template-replaces).
+
+**`GET /api/devices/{id}/apply-template/replaces?template_id=`** (admin; database only, no SNMP):
+
+```json
+{ "items": [
+  { "sensor_id": 41, "name": "Memory", "type": "snmp_memory", "status": "down",
+    "status_message": "HOST-RESOURCES-MIB hrStorageRam not found", "reason": "replaced",
+    "from_template": null, "failing": true } ] }
+```
+
+- `reason`: `replaced` (type in the template's `replaces`) | `other_template` (created by another template;
+  `from_template` = its id, null when not known). Sorted by `sort_order`, id. Empty list = nothing to offer
+  (the dialog then looks as before). Unknown `template_id` → `422`; unknown device → `404`; viewer → `403`.
+
+**`POST /api/devices/{id}/apply-template`** takes `remove_sensor_ids: int[]` (default `[]`, at most 1000,
+duplicates ignored):
+
+- Every id must be a current candidate of this device for this template (computed again under the per-device
+  lock); otherwise `422 validation_error` (loc `["body","remove_sensor_ids"]`, the offending ids in the message)
+  and nothing is created or deleted.
+- The listed sensors are deleted in the **same transaction** as the new sensors (a switch applied in two steps:
+  with the first step, which creates the CPU / memory sensors), each exactly as `DELETE /api/sensors/{id}`: one
+  `sensor.delete` audit row per sensor, removal from the scheduler, measurements purged in the background, WS
+  `config.changed` (`sensor`, `deleted`). `device.apply_template` audit gains `changes.replaced` (names with ids)
+  when any were deleted.
+- `ApplyTemplateResult` gains `replaced: [{sensor_id, name, type}]` (always present; `[]` when none).
+- Empty list (the default) → nothing is deleted. NetworkMonitor never changes the device itself: only its own
+  sensors are removed.
+- Discovery import (new devices, no sensors yet) does not use this option; there is no multi-device apply.
 
 ### [1.3] Ports: CSV export
 **`GET /api/devices/{id}/ports.csv`** (viewer): `text/csv; charset=utf-8`, UTF-8 **with BOM** (Excel / Hebrew),
@@ -2789,3 +2836,366 @@ Additive only; secrets stay write-only exactly as before (data-model § [1.4.2] 
 - **Response header:** `Strict-Transport-Security` is `max-age=31536000` by default, `max-age=31536000;
   includeSubDomains` with `NETMON_HSTS_INCLUDE_SUBDOMAINS=true` (environment; production: `app.env`).
 - **New-devices search** (`GET /api/new-devices?q=`): `%` and `_` match literally.
+
+---
+
+## [premium] Premium UI additions
+
+Additions for the premium UI (design: `docs/design-system/premium/BUILD.md` §§ 4–5; the signed-in browsers list of
+the My account page). Semantics and tables:
+[data-model.md § Premium UI additions](data-model.md#premium-premium-ui-additions). No feature toggle. Neither reads
+from or writes to a device: everything is computed from data the server already has (no SNMP on any of these
+requests).
+
+### [premium] Connected device kind per switch port
+
+**Changed:** `Port.connected_kind` (`GET /api/devices/{id}/ports`, `GET /api/devices/{id}/ports/{if_index}`) gets a
+new value set, and `null` replaces `"none"`. Two keys are added.
+
+```ts
+type ConnectedKind = "computer" | "phone" | "ap" | "printer" | "camera" | "server" | "switch" | "router" | "unknown";
+type ConnectedKindSource = "lldp" | "cdp" | "oui" | "manual";
+
+type Port = Port & {
+  connected_kind: ConnectedKind | null;              // null: no link, or nothing learned behind the port
+  connected_kind_source: ConnectedKindSource | null; // what the kind was derived from; null with a null kind
+  connected_kind_override: ConnectedKind | null;     // the stored manual choice (also when the link is down)
+};
+```
+
+| Source | Meaning |
+|---|---|
+| `manual` | A user's choice for this port (`connected_kind_override` is set), or a manual topology link to a monitored device (`connected_kind_override` is null) |
+| `lldp` / `cdp` | The port's primary neighbour learned by LLDP / CDP: a monitored device (by its class) or an unmanaged neighbour (by its LLDP / CDP system capabilities, then its CDP platform / LLDP system description) |
+| `oui` | The MAC table: the vendor of the single learned MAC (a small built-in, heuristic table), `computer` when it matches nothing; several MACs and no neighbour → `unknown` (or `phone` / `server` when one of them is a phone / hypervisor MAC) |
+
+Old → new values (for clients still on the 2b-2 names): `"none"` → `null`; `"switch"` → `"switch"` or `"router"`;
+`"ap"` → `"ap"`; `"client"` → any other kind. The rules, in priority order, are in the data model.
+
+| Method & path | Role | Request | Response |
+|---|---|---|---|
+| `PUT /api/devices/{id}/ports/{if_index}/connected-kind` | admin | `{"kind": ConnectedKind \| null}` (`null` clears the choice) | `200 Port` (the port as the list shows it, with the new kind); `404 not_found` (device, or a port not in the snapshot); `422 validation_error` (`kind` missing or not a `ConnectedKind`) |
+
+- Stored in `port_kind_overrides` (survives every refresh; deleted with the device). Never sent to the device.
+- Audited (`switch_port.update`, entity `switch_port` / id = `if_index` / name `"<device> <port>"`, `device_id`
+  set, `changes: {"connected_kind": [old, new]}`) when the value changes.
+- A change broadcasts `ports.updated` (`{"device_id": 3, "ok": true, "collected_at": <the port's>,
+  "arp_source": false}`), so open ports views and port modals refetch.
+
+Example item of `GET /api/devices/{id}/ports` (trimmed):
+
+```json
+{ "if_index": 4, "name": "GigabitEthernet1/0/4", "state": "up", "is_uplink": false,
+  "connected_kind": "phone", "connected_kind_source": "lldp", "connected_kind_override": null,
+  "neighbor": { "link_id": 12, "source": "lldp", "kind": "neighbor", "device_id": null, "neighbor_id": 3,
+                "name": "SIP-T46U", "port": "WAN", "device_class": null, "status": null,
+                "mgmt_address": "10.0.20.31" } }
+```
+
+### [premium] Signed-in browsers
+
+The "sessions" list of the My account page: every browser in which the current user is signed in, with a per-row
+sign-out. An addition to the account endpoints (no feature toggle).
+
+```ts
+type BrowserSession = {
+  id: string;                  // opaque public id: NOT the cookie, NOT its `sid` claim, not derivable from either
+  created_at: string;          // ISO-8601 UTC: when this session signed in (the cookie's `at`)
+  last_seen_at: string | null; // ISO-8601 UTC: last request, accurate to about a minute
+  ip: string | null;           // client address of that request (the audit-log rule: TCP peer, or the rightmost
+                               // X-Forwarded-For entry when NETMON_TRUST_PROXY=true)
+  user_agent: string | null;   // User-Agent header of that request, ≤ 256 characters
+  current: boolean;            // true for the browser that made this request
+};
+```
+
+| Method & path | Role | Request | Response |
+|---|---|---|---|
+| `GET /api/auth/sessions` | viewer | — | `200 {"items": BrowserSession[]}`, newest `last_seen_at` first |
+| `DELETE /api/auth/sessions/{id}` | viewer | — | `204`; `404 not_found` (unknown id, an ended session, or another user's session: the same answer) |
+
+- Only the caller's own sessions are listed, and only those that can still be used: same `token_version` (a
+  password change, logout everywhere, a role change … end the others), not revoked, within `session_max_age_h` of
+  signing in (AD / OIDC: 12 h) and used within the cookie lifetime (12 h). The current session is always listed.
+- `DELETE` revokes the session server-side exactly like `POST /api/auth/logout` does for the current one (stored in
+  `revoked_sessions`; its WebSockets close with `4401`; the cookie and every renewed copy answer `401`). The other
+  sessions stay signed in. Ending the **current** session is allowed and is a logout: the response also clears the
+  cookie (Max-Age=0).
+- Audit: `auth.logout`, entity = the user, `changes: {"session": [null, "<id>"]}` (`<id>` = the public id).
+- **Browser sessions only**, like logout / logout everywhere: a request with `Authorization: Bearer` (API token)
+  is answered `403 forbidden` (all of `/api/auth/` is barred for tokens). `DELETE` is a mutating request: a
+  cross-origin `Origin` is answered `403 forbidden` (the CSRF rule of every mutating endpoint).
+- Sessions signed in before this release are not affected (nobody is signed out by the upgrade): such a session
+  appears in the list from its next request on, with its original sign-in time.
+
+### [premium] Home network map
+
+```ts
+type HomeMapSettings = {
+  mode: "auto" | "backbone";          // default "auto"
+  show_internet: boolean;             // default true (backbone mode only)
+  backbone_device_ids: number[];      // ordered, ≤ 8, existing devices, no duplicates; default []
+  max_groups: number;                 // 1–50, default 12: leaves shown under the last node
+};
+type MapNodeStatus = "up" | "warning" | "down" | "unreachable" | "paused" | "unknown";
+type MapNode = {
+  id: string;                         // "internet" | "root" | "d<device id>" | "g<group id>" | "more"
+  kind: "internet" | "device" | "group";
+  role: "internet" | "firewall" | "core" | "group" | null;
+  name: string;
+  subtitle: string;                   // device: model, else vendor, else host; group: "14 devices" (user's language)
+  status: MapNodeStatus;              // worst status inside (the /api/tree rollup)
+  problem: string | null;             // the most severe open problem inside, short (≤ 80 chars), else null
+  counts: { devices: number; sensors: number; down: number; warning: number; unreachable: number };
+  ref: { type: "device" | "group"; id: number } | null;
+  parent_id: string | null };
+type MapLink = { from: string; to: string; status: "up" | "down" | "warning" | "unknown" };
+type HomeMap = { scope: { group_id: number | null; name: string };
+  nodes: MapNode[];                   // parents before children
+  links: MapLink[];                   // one per node with a parent: parent → node
+  configured: boolean };
+```
+
+| Method & path | Role | Request | Response |
+|---|---|---|---|
+| `GET /api/overview/map` | viewer (any signed-in user; same visibility as `/api/tree`) | Query `group_id` (optional) | `200 HomeMap`; `404 not_found` (unknown group) |
+| `GET /api/settings/home-map` | viewer | — | `200 HomeMapSettings` |
+| `PUT /api/settings/home-map` | admin | subset of `HomeMapSettings` (omitted keys keep their value; unknown keys → 422) | `200 HomeMapSettings`; `422 validation_error` (bad mode, `max_groups` out of range, more than 8 / duplicate / unknown device ids — `loc: ["body", "backbone_device_ids", <position>]`). Audited as `settings.update` (key `home_map`). |
+
+Tree (the user chooses; nothing is guessed):
+- **`backbone`** with at least one listed device inside the scope: `[internet]` (when `show_internet`; `kind`/`role`
+  `internet`, `status: "unknown"`, `ref: null`) → the listed devices in the listed order (only those inside the
+  scope; deleted ones are skipped) → the scope's child groups (top-level groups without `group_id`), then the
+  scope group's own devices that are not on the backbone, as leaves under the last backbone device. The first
+  backbone device has `role: "firewall"` when its name / vendor / model / suggested template / sysDescr looks like
+  a firewall (FortiGate, Palo Alto, OPNsense, pfSense, Check Point, Sophos, WatchGuard, SonicWall, SRX, ASA,
+  "firewall"), else `"core"`; the others `"core"`.
+- **`auto`** (default), or `backbone` with no listed device in the scope: a virtual root (`id: "root"`, `kind:
+  "group"`, `role: null`, name = the scope's name — `""` for the whole network, the client shows its own label —
+  `ref` = the scope group or null) → the same leaves. `configured` is `false` when the topology links show one
+  device linked into most of the scope's child groups (≥ 2 and ≥ half of them): a backbone exists that the user has
+  not chosen; the client offers "choose backbone devices". Otherwise `true`. Backbone mode is always `true`.
+- More leaves than `max_groups`: problem leaves (down / warning / unreachable) are kept first, in tree order, up to
+  `max_groups − 1`; the rest are summed into one `"more"` node (`name: "+N"`, `kind: "group"`, `role: "group"`,
+  `ref: null`).
+- Leaf groups: `role: "group"`, `ref: {"type": "group", ...}`; leaf devices: `role: null`.
+- `counts`: monitored devices in the node, their sensors, and the devices whose rolled-up status is down / warning /
+  unreachable.
+- `problem`: among the sensors inside that are `down`, `warning` or `unreachable`, the worst (severity, then
+  not acknowledged first, then the oldest status change): `"<device> · <sensor>"` for groups and the root,
+  `"<sensor>: <status message>"` for a device.
+- Link status (parent → child): `down` when the child is down or unreachable, `warning` when warning, `unknown`
+  when unknown, else `up`.
+- Cost: the inventory rollup plus two small queries (problem sensors; topology links in auto mode only). No SNMP;
+  meant to be polled every ~10 s. No WebSocket message of its own.
+
+Example (`backbone`, `group_id` omitted):
+
+```json
+{ "scope": { "group_id": null, "name": "" },
+  "nodes": [
+    { "id": "internet", "kind": "internet", "role": "internet", "name": "Internet", "subtitle": "", "status": "unknown",
+      "problem": null, "counts": { "devices": 0, "sensors": 0, "down": 0, "warning": 0, "unreachable": 0 },
+      "ref": null, "parent_id": null },
+    { "id": "d1", "kind": "device", "role": "firewall", "name": "fw-1", "subtitle": "FortiGate 60F", "status": "up",
+      "problem": null, "counts": { "devices": 1, "sensors": 4, "down": 0, "warning": 0, "unreachable": 0 },
+      "ref": { "type": "device", "id": 1 }, "parent_id": "internet" },
+    { "id": "d2", "kind": "device", "role": "core", "name": "core-1", "subtitle": "5130 EI", "status": "up",
+      "problem": null, "counts": { "devices": 1, "sensors": 9, "down": 0, "warning": 0, "unreachable": 0 },
+      "ref": { "type": "device", "id": 2 }, "parent_id": "d1" },
+    { "id": "g4", "kind": "group", "role": "group", "name": "Access", "subtitle": "14 devices", "status": "down",
+      "problem": "access-3.example.net · Uplink", "counts": { "devices": 14, "sensors": 61, "down": 1, "warning": 0,
+      "unreachable": 2 }, "ref": { "type": "group", "id": 4 }, "parent_id": "d2" } ],
+  "links": [ { "from": "internet", "to": "d1", "status": "up" }, { "from": "d1", "to": "d2", "status": "up" },
+             { "from": "d2", "to": "g4", "status": "down" } ],
+  "configured": true }
+```
+
+## [severity] Alert severity
+
+Active problems ("alerts") and events carry one of five ordered **severities**, like professional NMS tools.
+Table semantics and the resolution rules: [data-model.md § Alert severity](data-model.md#severity-alert-severity).
+Feature toggle **`alert_severity`** (Settings → Features, `feature_alert_severity_enabled`, **off by default**).
+No device is ever read from or written to by anything in this section.
+
+### [severity] Feature off
+
+While `alert_severity` is OFF **nothing changes**: no severity is resolved or stored, notification messages on
+every channel (email, Telegram, Teams, webhook body) are byte-identical to before, notification rules match
+exactly as before (their `severities` are not looked at), the order of every list is unchanged, and every existing
+response field is unchanged. The **new** fields below are present and `null` (counts objects `null`; `Sensor.severity`
+`null`). Exceptions, all additive: stored configuration is returned as stored (`Sensor.severity_down` /
+`severity_warning`, `AlertRule.severities`, `EventRule.severity`, the mapping) and can be edited while OFF so
+the admin can prepare before turning the feature on; `Event.severity` of events written while the feature was
+ON stays (history); the `severity` / `sort=severity` query parameters work on the stored values. The assistant
+tools do not offer or return severity while OFF.
+
+Turning it **ON** resolves the active problems once (`Sensor.severity` is set for every sensor that is down /
+warning now); the events that opened them stay `null` (no backfill). Turning it **OFF** clears `Sensor.severity`.
+
+### [severity] Types
+
+```ts
+type Severity = "critical" | "major" | "minor" | "warning" | "info";  // highest first
+type SeverityCounts = { critical: number; major: number; minor: number; warning: number; info: number;
+  total: number };                                                     // current problems only
+
+// Keys of the mapping: a problem by status and impact, everything else "info"
+type SeverityMappingKey = "down_critical" | "down_warning" | "down_none"
+  | "warning_critical" | "warning_warning" | "warning_none" | "info";
+type SeverityMapping = Record<SeverityMappingKey, Severity>;
+type SeverityMappingSettings = { mapping: SeverityMapping; defaults: SeverityMapping;
+  levels: Severity[];                                                  // levels = ["critical", …, "info"]
+  severity_in_subject: boolean };                                      // admin option, default false
+```
+
+Shipped defaults (`defaults`; every row is editable, `reset` puts these back):
+
+| Key | Meaning | Default |
+|---|---|---|
+| `down_critical` | sensor **down**, impact `critical` | `critical` |
+| `down_warning` | sensor **down**, impact `warning` | `major` |
+| `down_none` | sensor **down**, impact `none` | `minor` |
+| `warning_critical` | sensor **warning**, impact `critical` | `warning` |
+| `warning_warning` | sensor **warning**, impact `warning` | `warning` |
+| `warning_none` | sensor **warning**, impact `none` | `warning` |
+| `info` | everything informational: recoveries (`up`), `paused`, `unreachable`, `unknown` | `info` |
+
+**Where a severity comes from** (first match wins; only for down / warning — the `info` row is used for every
+other status):
+1. the sensor's override `severity_down` (status down) / `severity_warning` (status warning);
+2. trap / syslog event sensors: the `severity` of the event rule whose condition sets the sensor's status (the worst
+   active condition — the same one whose text is the status message); a rule without a severity falls through;
+3. the mapping row `<status>_<sensor impact>`.
+
+**Stored, not recomputed.** The severity is resolved when the status change happens and stored with the event
+(`Event.severity`) and as the sensor's current problem severity (`Sensor.severity`). Editing the mapping, an override
+or the impact later **re-resolves the active problems only** (their `Sensor.severity`, the severity in their
+escalation / reminder / recovery notifications); history (`Event.severity`, report runs) never changes. Each
+re-resolved problem whose severity changed writes an audit row `sensor.severity` and a WS `sensor.severity`. An event
+sensor whose worst condition changes without a status change (another rule matched) also follows (no audit row:
+the problem itself changed, not the classification).
+
+### [severity] Type changes (additive)
+
+| Type | New fields |
+|---|---|
+| `Sensor` | `severity: Severity \| null` — the current problem's severity (`null` when the sensor is not down / warning, or the feature is OFF); `severity_down: Severity \| null`, `severity_warning: Severity \| null` — the overrides (`null` = the event rule / mapping decides) |
+| `Event` | `severity: Severity \| null` — stored when written. `status_change` events written while ON always have one (`info` for recoveries and non-problem changes); `notification_sent` events carry the severity of the notification they record; every other kind `null` |
+| `AlertRule` | `severities: Severity[]` — the severities the rule applies to, in level order; `[]` = all (the behaviour before) |
+| `EventRule` | `severity: Severity \| null` — only for `action` `warning` / `down` (otherwise `422`, `loc: ["body","severity"]`); not to be confused with the syslog severity in `match.severity_max` (0–7) |
+| `Incident` (`/api/incidents`, `/api/incidents/{id}`, WS `incident.*`) | `severity: Severity \| null` — the highest `Event.severity` of its members' events; members gain `severity` (their event's) |
+| `Dashboard` | `severity_counts: SeverityCounts \| null` (all current problems, acknowledged included), `severity_counts_unacknowledged: SeverityCounts \| null`; both `null` while OFF |
+| `KioskView` | `summary.severity_counts: SeverityCounts \| null`; `problems[].severity`, `recent_alerts[].severity`: `Severity \| null` |
+| `ReportData.top_alerts[]` | `severity: Severity \| null` — **only while ON** (key absent while OFF): the highest severity of the sensor's problems (status_change events down / warning) in the period. The HTML report shows a "Severity" column when the key is present |
+
+**Orders while ON** (unchanged while OFF): `Dashboard.problem_sensors` highest severity first, then the Phase 1 order;
+`KioskView.problems` not-acknowledged first, then highest severity, then the existing order.
+
+### [severity] Endpoints
+
+| Method & path | Role | Request | Response |
+|---|---|---|---|
+| `GET /api/settings/severity-mapping` | viewer | — | `200 SeverityMappingSettings` |
+| `PUT /api/settings/severity-mapping` | admin | subset of `SeverityMapping`, plus optional `severity_in_subject: boolean` (omitted keys keep their value; unknown key or level, or a non-boolean option → `422`) | `200 SeverityMappingSettings`. Audited as `settings.update` (`changes["severity_mapping.<key>"] = [old, new]`, `changes["severity_in_subject"] = [old, new]`). While ON a mapping change re-resolves the active problems (audit `sensor.severity`, reason `mapping`). |
+| `POST /api/settings/severity-mapping/reset` | admin | — (no body) | `200 SeverityMappingSettings` with `mapping` = `defaults` (`severity_in_subject` is not a mapping row and keeps its value); audit / re-resolution as PUT |
+| `POST /api/sensors/bulk-severity` | admin | `{"sensor_ids": int[] (1–1000), "severity_down"?: Severity \| null, "severity_warning"?: Severity \| null}` — an omitted key keeps each sensor's value, `null` clears the override; at least one of the two keys | `200 {"updated": n}` — sensors whose overrides actually changed. Unknown id → `422` (nothing changed); neither key → `422` (`loc: ["body"]`); unknown key → `422`. One `sensor.update` audit row per changed sensor (`changes.severity_down = [old, new]` …); active problems re-resolved (reason `override`). WS `config.changed` (`device`, `updated`) once per affected device. Same shape as `bulk-impact` |
+| `POST /api/sensors` | admin | + optional `severity_down`, `severity_warning` (default `null`) | `Sensor` |
+| `PATCH /api/sensors/{id}` | admin | + `severity_down`, `severity_warning` (`null` clears; also allowed for event sensors) | `Sensor` (re-resolved). Audit `sensor.update` covers both keys; a change of `impact` / overrides re-resolves an active problem (`sensor.severity`, reason `override` or `impact`). `POST /api/sensors/bulk-impact` also re-resolves (reason `impact`) |
+| `POST /api/alert-rules`, `PATCH /api/alert-rules/{id}` | admin | + `severities: Severity[]` (≤ 5; create default `[]`; PATCH replaces the set, `[]` clears) | `AlertRule`; unknown level → `422`. Audited in `alert_rule.create/update` |
+| `POST /api/event-rules`, `PATCH /api/event-rules/{id}`, `POST /api/event-rules/test` | admin | + `severity: Severity \| null` | `EventRule`; audited in `event_rule.create/update` |
+
+Viewers read every severity field and the mapping; only admins change the mapping, overrides and rules (the
+permission model of sensor edits). The mapping, overrides and rule severities can be edited while the feature is OFF
+(no effect until it is ON).
+
+### [severity] Query parameters
+
+| Endpoint | Parameter | Meaning |
+|---|---|---|
+| `GET /api/events`, `GET /api/sensors/{id}/events` | `severity` | csv of `Severity` (multi-value, e.g. `severity=critical,major`), matches the stored `Event.severity`; an unknown level → `422` (`loc: ["query","severity"]`) |
+| same | `sort` | `time` (default: `time DESC, id DESC`) \| `severity` (highest first, `null` last, then `time DESC, id DESC`); other values → `422` |
+| `GET /api/sensors` (the problems list: `status=down,warning`) | `severity` | csv of `Severity`, matches `Sensor.severity` (current problems) |
+| same | `sort` | `default` (unchanged orders) \| `severity`: highest current severity first (`null` last), then the "worst first" order (status severity desc, `last_status_change_at` asc), device name, sensor name |
+
+Examples: `GET /api/events?kind=status_change&severity=critical,major&sort=severity`,
+`GET /api/sensors?status=down,warning&severity=critical&sort=severity&acknowledged=false`.
+
+```json
+{ "id": 4711, "time": "2026-11-22T08:15:00Z", "kind": "status_change", "sensor_id": 7, "device_id": 3, "group_id": 1,
+  "sensor_name": "Ping", "device_name": "core-sw", "old_status": "up", "new_status": "down",
+  "message": "Host unreachable", "in_maintenance": false, "severity": "critical" }
+```
+
+```json
+GET /api/settings/severity-mapping
+{ "mapping":  { "down_critical": "critical", "down_warning": "major", "down_none": "minor",
+                "warning_critical": "warning", "warning_warning": "warning", "warning_none": "warning", "info": "info" },
+  "defaults": { "down_critical": "critical", "down_warning": "major", "down_none": "minor",
+                "warning_critical": "warning", "warning_warning": "warning", "warning_none": "warning", "info": "info" },
+  "levels": ["critical", "major", "minor", "warning", "info"] }
+
+PUT /api/settings/severity-mapping   {"down_warning": "critical"}   → 200 SeverityMappingSettings
+```
+
+Dashboard fragment (ON):
+
+```json
+{ "severity_counts": { "critical": 1, "major": 0, "minor": 2, "warning": 3, "info": 0, "total": 6 },
+  "severity_counts_unacknowledged": { "critical": 0, "major": 0, "minor": 2, "warning": 3, "info": 0, "total": 5 } }
+```
+
+### [severity] Notification rules and messages
+
+- `AlertRule.severities` (empty = all): a problem opens / changes notification state only for rules whose set is
+  empty or contains the severity resolved for that status change. The match is made, like `on_statuses`, when the
+  problem opens or changes status; a later re-resolution (mapping / override edit) changes the severity shown in
+  the following escalation / reminder / recovery messages but does not open or close notifications of other rules.
+  While OFF the set is ignored.
+- **Email subject** (admin option `severity_in_subject`, Settings → General → Alert severity, **off by default**):
+  while the option AND the feature are ON and the notification has a severity, the subject names it after the
+  product tag: `[NetworkMonitor] [Critical] DOWN: core-sw / Ping`, Hebrew `[NetworkMonitor] [קריטית] תקלה: core-sw / Ping`
+  (level names as in the Severity row; also escalation / reminder / recovery, which carry the severity of the problem).
+  Option off, feature off, a test message or a `null` severity: the subject is byte-identical to before.
+- Every channel names the severity while ON (nothing changes while OFF; without the option above the subject line never changes):
+  email text / HTML and Telegram: a row **Severity** / **חומרה** after *Status* (`Critical` / `קריטית`, `Major` /
+  `חמורה`, `Minor` / `קלה`, `Warning` / `אזהרה`, `Info` / `מידע`); Teams: a fact *Severity* after *Status*.
+- **Webhook payload** (also the source of the other channels) gains **one key at the end**, every existing key is
+  untouched: `"severity": Severity | null` — `problem` / `escalation` / `reminder`: the problem's current severity;
+  `recovery`: the severity of the problem that recovered (its `up` event itself is stored as `info`). `null` only
+  for a problem that opened before the feature was turned on and was never re-resolved. The key is **absent**
+  while OFF and in the test payload (`"event": "test"`).
+
+```json
+{ "event": "sensor.status_changed", "stage": "problem", "after_maintenance": false, "after_flapping": false,
+  "problem_since": "2026-11-22T08:15:00Z", "event_id": 4711, "time": "2026-11-22T08:15:00Z",
+  "old_status": "up", "new_status": "down", "message": "Host unreachable",
+  "sensor": { "id": 7, "name": "Ping", "type": "ping" }, "device": { "id": 3, "name": "core-sw", "host": "10.0.0.2" },
+  "group": { "id": 1, "name": "Default" }, "rule": { "id": 2, "name": "All down" },
+  "url": "http://netmon.local:8080/sensors/7", "ack_url": null, "severity": "critical" }
+```
+
+### [severity] Assistant tools
+
+While ON: `list_problems` and `list_events` offer an optional argument `severities: Severity[]` (filter on the
+current problem severity / the stored event severity; `list_problems` then lists the highest severity first) and
+return `severity` on every item. While OFF the argument is not offered to the model (ignored if sent) and no item has
+a `severity` key — the tool schemas and results are exactly as before.
+
+### [severity] Audit actions (feature `audit`)
+
+- `settings.update` with `severity_mapping.<key>` changes (PUT / reset of the mapping);
+- `sensor.update` covers `severity_down`, `severity_warning` (PATCH and bulk);
+- `alert_rule.create|update` cover `severities`; `event_rule.create|update` cover `severity`;
+- **new** `sensor.severity`: an active problem re-resolved, entity = the sensor (with `device_id`),
+  `changes: {"severity": [old, new]}`, `reason`: `mapping` | `override` | `impact`; actor = who made the change.
+  The one-time resolution when the feature is turned on writes no `sensor.severity` rows (the `feature.enable` row
+  covers it).
+
+### [severity] WebSocket additions
+
+| type | data | When / who |
+|---|---|---|
+| `sensor.severity` | `{"id": 7, "device_id": 3, "severity": "major"}` | an active problem's severity changed by re-resolution or the feature being turned on; all |
+| `event.created` | `Event` now with `severity` | as today. A `status_change` event to down / warning carries the sensor's new `Sensor.severity`; to any other status the sensor's `severity` becomes `null`. `sensor.update` is unchanged (no severity key) |
+| `features.changed` | gains `alert_severity` | as 2b-3 |

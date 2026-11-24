@@ -13,6 +13,7 @@ import httpx
 import pytest
 from sqlalchemy import text
 
+from netmon.db.migrate import migration_head
 from netmon.poller.snmp_client import DEFAULT_SNMP, resolve_credentials
 from netmon.services import crypto, rekey, secretbox
 from netmon.services import settings as settings_svc
@@ -451,7 +452,7 @@ async def test_migration_0012_up_down_up(mode: str, rt: Any, tmp_path: Any) -> N
                 await c.close()
 
         await run_migrations(engine, secret_key=key)  # up
-        assert await db_revision(engine) == "0012"
+        assert await db_revision(engine) == migration_head()
         s = await snapshot()
         assert s["dev"]["community"] == COMMUNITY  # 1.4.1 keeps reading after a rollback
         assert (
@@ -494,7 +495,7 @@ async def test_migration_0012_up_down_up(mode: str, rt: Any, tmp_path: Any) -> N
             await conn.run_sync(lambda sc: secretbox.transform_all(sc, key, False))
         with pytest.raises(Exception, match="cannot be decrypted"):
             await run_migrations(engine, secret_key=secrets.token_urlsafe(64), target="0011")
-        assert await db_revision(engine) == "0012"
+        assert await db_revision(engine) == migration_head()
     finally:
         await engine.dispose()
         await admin.execute(f'DROP DATABASE IF EXISTS "{name}" WITH (FORCE)')

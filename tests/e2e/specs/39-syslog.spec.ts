@@ -198,7 +198,9 @@ test('UI: Logs page (global) and device Logs tab: table, filter, histogram, draw
 test('UI: live tail prepends new messages without reload', async ({ page }) => {
   await loginViaApi(page, undefined, '/logs');
   await page.evaluate(() => ((window as any).__e2eNoReload = true));
-  const live = page.getByRole('switch', { name: tOr('logs.live', 'Live') }).or(page.getByRole('button', { name: tOr('logs.live', 'Live') })).or(page.getByRole('checkbox', { name: tOr('logs.live', 'Live') }));
+  // inside main: while the WebSocket connects, the top bar's island is named "Live updates …" too
+  const main = page.getByRole('main');
+  const live = main.getByRole('switch', { name: tOr('logs.live', 'Live') }).or(main.getByRole('button', { name: tOr('logs.live', 'Live') })).or(main.getByRole('checkbox', { name: tOr('logs.live', 'Live') }));
   await live.first().click();
   await sleep(1500); // subscribe round trip
   const m = marker('qa39live');

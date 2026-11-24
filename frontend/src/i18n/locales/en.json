@@ -78,7 +78,44 @@
     "newDevices": "New devices",
     "backups": "Backups",
     "reports": "Reports",
-    "assistant": "Ask the network"
+    "assistant": "Ask the network",
+    "inventory": "Inventory",
+    "health": "Sensors by status",
+    "toggleInventory": "Show or hide the inventory",
+    "short": {
+      "dashboard": "Overview",
+      "assistant": "Ask",
+      "events": "Events",
+      "logs": "Logs",
+      "map": "Map",
+      "flows": "Flows",
+      "newDevices": "New",
+      "backups": "Backups",
+      "discovery": "Discover",
+      "templates": "Templates",
+      "find": "Find",
+      "maintenance": "Maintenance",
+      "reports": "Reports",
+      "notifications": "Notifications",
+      "settings": "Settings",
+      "users": "Users",
+      "audit": "Audit",
+      "inventory": "Inventory"
+    },
+    "allScreens": "All screens",
+    "openMenu": "All screens",
+    "closeMenu": "Close the menu",
+    "pin": "Keep the menu open",
+    "unpin": "Stop keeping the menu open",
+    "menuView": "Menu view",
+    "screens": "Screens",
+    "search": "Search",
+    "section": {
+      "monitor": "Monitoring",
+      "equipment": "Equipment",
+      "operations": "Operations",
+      "admin": "Administration"
+    }
   },
   "tree": {
     "search": "Search groups, devices, sensors",
@@ -89,7 +126,7 @@
   },
   "login": {
     "title": "Sign in",
-    "subtitle": "Sign in to monitor your network.",
+    "subtitle": "Sign in to see what is happening on the network.",
     "username": "Username",
     "password": "Password",
     "submit": "Sign in",
@@ -97,8 +134,7 @@
     "foreignDomain": "\"{{domain}}\" is not this directory's domain. Use {{netbios}}\\user or your local user name."
   },
   "setup": {
-    "title": "Welcome to NetworkMonitor",
-    "subtitle": "Let's create the administrator account.",
+    "subtitle": "Two steps and you are in.",
     "stepLanguage": "Language",
     "stepAdmin": "Administrator",
     "language": "Interface and notification language",
@@ -107,7 +143,11 @@
     "email": "Email (optional)",
     "password": "Password",
     "confirmPassword": "Confirm password",
-    "submit": "Create administrator"
+    "submit": "Create administrator",
+    "welcome": "Welcome to",
+    "titleAdmin": "Create the administrator",
+    "steps": "Setup steps",
+    "title": "Welcome to NetworkMonitor"
   },
   "dashboard": {
     "title": "Dashboard",
@@ -115,7 +155,7 @@
     "sensors": "Sensors",
     "devices": "Devices",
     "total": "Total",
-    "problems": "Down and warning sensors",
+    "problems": "Alerts",
     "allGood": "All sensors are OK.",
     "recentEvents": "Recent events",
     "allEvents": "All events",
@@ -125,7 +165,7 @@
     "deviceCount_other": "{{count}} devices",
     "sensorCount_one": "{{count}} sensor",
     "sensorCount_other": "{{count}} sensors",
-    "acknowledged": "Acknowledged problems",
+    "acknowledged": "Acknowledged alerts",
     "andMore_one": "and {{count}} more",
     "andMore_other": "and {{count}} more",
     "maintenanceActive_one": "{{count}} maintenance window active",
@@ -146,7 +186,18 @@
     "sensors": "Sensors",
     "sensorCount": "Sensors: {{count}}",
     "deleteTitle": "Delete group",
-    "deleteConfirm": "Delete group \"{{name}}\" together with all of its subgroups, devices and sensors? Sensors affected: {{count}}. This cannot be undone."
+    "deleteConfirm": "Delete group \"{{name}}\" together with all of its subgroups, devices and sensors? Sensors affected: {{count}}. This cannot be undone.",
+    "tag": {
+      "down_one": "{{count}} down",
+      "down_other": "{{count}} down",
+      "warning_one": "{{count}} warning",
+      "warning_other": "{{count}} warnings",
+      "unreachable_one": "{{count}} unreachable",
+      "unreachable_other": "{{count}} unreachable"
+    },
+    "dependsOn": "Depends on",
+    "maintenance": "Maintenance",
+    "editDependency": "Edit dependency"
   },
   "devices": {
     "add": "Add device",
@@ -243,7 +294,11 @@
     "diskName": "Disk {{descr}}",
     "textOk": "Matches",
     "passiveNote": "Event sensor: driven by traps/syslog, not polled",
-    "passiveCreateHint": "Event sensors are not polled: their status comes from event rules (traps, syslog) or flapping detection. One per device and type."
+    "passiveCreateHint": "Event sensors are not polled: their status comes from event rules (traps, syslog) or flapping detection. One per device and type.",
+    "everyN_one": "every second",
+    "everyN_other": "every {{count}} seconds",
+    "range": "Time range",
+    "channels": "Channels"
   },
   "iface": {
     "name": "Interface",
@@ -297,7 +352,10 @@
     "filteredSensor": "Filtered by sensor #{{id}}.",
     "maintenance": "Maintenance",
     "inMaintenance": "During maintenance",
-    "notInMaintenance": "Outside maintenance"
+    "notInMaintenance": "Outside maintenance",
+    "transition": "{{from}} → {{to}}",
+    "subtitle": "Everything that happened, newest first",
+    "moreFilters": "More filters"
   },
   "eventKind": {
     "status_change": "Status change",
@@ -318,7 +376,22 @@
     "next": "Next page"
   },
   "notifications": {
-    "title": "Notifications"
+    "title": "Notifications",
+    "subtitle": "Channels deliver · rules decide who gets what and when",
+    "afterDelay": "after {{d}}",
+    "now": "at once",
+    "escalatesAfter": "escalation after {{d}}",
+    "remindsEvery": "reminder every {{d}}",
+    "flowTitle": "Escalation · “{{name}}”",
+    "tlStart": "The alert starts",
+    "tlNotify": "Notified at once",
+    "tlNotifyStill": "Notified if the status still holds",
+    "tlEscalate": "Not acknowledged → escalation",
+    "tlEvery": "every {{d}}",
+    "tlRemind": "Reminder until acknowledged",
+    "tlRecovery": "Recovery",
+    "tlRecoveryHint": "“Up” is sent to the same channels",
+    "noEscalation": "No escalation or reminder in this rule."
   },
   "channels": {
     "title": "Notification channels",
@@ -345,7 +418,10 @@
     "aiAsk": "Allow /ask",
     "aiAskHint": "Linked administrators can ask the assistant in a private chat with this bot.",
     "aiNoteEmail": "Send AI notes as a reply",
-    "aiNoteEmailHint": "For alert rules with an AI note: a threaded reply to the alert email."
+    "aiNoteEmailHint": "For alert rules with an AI note: a threaded reply to the alert email.",
+    "addFirst": "Add a channel",
+    "noneHint": "A channel is where alerts go: email, Telegram, Microsoft Teams or a webhook.",
+    "enabledLabel": "{{name}} enabled"
   },
   "rules": {
     "title": "Alert rules",
@@ -362,7 +438,10 @@
     "none": "No alert rules yet.",
     "deleteTitle": "Delete rule",
     "aiNote": "AI note",
-    "aiNoteHint": "After the first problem notification, a short AI note is added (Telegram edit, Teams follow-up, email reply). The alert is never delayed."
+    "aiNoteHint": "After the first alert notification, a short AI note is added (Telegram edit, Teams follow-up, email reply). The notification is never delayed.",
+    "addFirst": "Add a rule",
+    "noneHint": "A rule decides which alerts are sent to which channels, and when.",
+    "enabledLabel": "{{name}} enabled"
   },
   "settings": {
     "title": "Settings",
@@ -458,7 +537,14 @@
     "you": "you",
     "deleteTitle": "Delete user",
     "source": "Source",
-    "ldapManaged": "This user is managed in Active Directory: password, role and email come from AD. You can change the language, deactivate or delete the user (deleted users are re-created at their next login)."
+    "ldapManaged": "This user is managed in Active Directory: password, role and email come from AD. You can change the language, deactivate or delete the user (deleted users are re-created at their next login).",
+    "subtitle": "Admins manage everything · viewers only see",
+    "countAdmins_one": "{{count}} admin",
+    "countAdmins_other": "{{count}} admins",
+    "countViewers_one": "{{count}} viewer",
+    "countViewers_other": "{{count}} viewers",
+    "inactive": "inactive",
+    "neverLoggedIn": "never signed in"
   },
   "account": {
     "title": "My account",
@@ -473,7 +559,23 @@
     "oidcManaged": "This account signs in with Microsoft Entra ID; its password is managed there.",
     "sessions": "Sessions",
     "sessionsHint": "Sign out ends this browser's session on the server. If you think someone else may be using your account, sign out of every browser and device at once (API tokens are not affected).",
-    "logoutEverywhere": "Sign out everywhere"
+    "logoutEverywhere": "Sign out everywhere",
+    "activeTokens_one": "{{count}} active token",
+    "activeTokens_other": "{{count}} active tokens",
+    "myTokens": "My API tokens",
+    "logoutHere": "Sign out",
+    "logoutEverywhereConfirm": "Every session of yours ends, including this one. You will sign in again on each device. API tokens keep working.",
+    "logoutEverywhereGo": "Sign out of everything",
+    "sessionsDirectoryHint": "Directory and Microsoft sign-ins end after 12 hours at the latest.",
+    "sessionEnded": "That browser is signed out.",
+    "unknownBrowser": "Unknown browser",
+    "thisBrowser": "This browser",
+    "lastActive": "active {{when}}",
+    "signOut": "Sign out",
+    "signOutSession": "Sign out {{name}}",
+    "sessionsAll_one": "Show all {{count}}",
+    "sessionsAll_other": "Show all {{count}}",
+    "sessionsFewer": "Show fewer"
   },
   "validation": {
     "required": "Required.",
@@ -494,7 +596,10 @@
     "durH_one": "{{count}}h",
     "durH_other": "{{count}}h",
     "durM_one": "{{count}}m",
-    "durM_other": "{{count}}m"
+    "durM_other": "{{count}}m",
+    "colD": "{{count}} d",
+    "colH": "{{count}} h",
+    "colM": "{{count}} min"
   },
   "errors": {
     "bad_request": "The request was invalid.",
@@ -554,7 +659,7 @@
     "report_running": "This report is already running.",
     "ack_expired": "This link has expired.",
     "ack_invalid": "This link is not valid.",
-    "ack_stale": "This problem is no longer active.",
+    "ack_stale": "This alert is no longer active.",
     "not_in_group": "Your account is not in any NetworkMonitor role.",
     "oidc_group_overage": "Your account is in too many groups for Entra ID to list them; use app roles instead.",
     "inactive": "This account is disabled.",
@@ -877,7 +982,9 @@
     "whenNotIn": "not in {{list}}",
     "whenAny": "answers",
     "matchOidPrefixes": "sysObjectID {{list}}",
-    "matchDescr": "sysDescr matches {{re}}"
+    "matchDescr": "sysDescr matches {{re}}",
+    "details": "Details",
+    "shortInterfaces": "Interfaces"
   },
   "discovery": {
     "title": "Discovery",
@@ -1039,7 +1146,13 @@
     "openProfiles": "Saved profiles",
     "optFingerprint": "Fingerprint (web/SSH/telnet)",
     "fingerprintHint": "Reads the web page title, server header and SSH/telnet banner of hosts with ports 80/443/8080/8443/22/23 open, to recognise devices without SNMP. Sends no credentials.",
-    "fingerprintTimeout": "Fingerprint timeout (ms)"
+    "fingerprintTimeout": "Fingerprint timeout (ms)",
+    "foundN": "found {{n}}",
+    "newN": "{{n}} new",
+    "notifyTo": "alerts to {{list}}",
+    "noNotify": "no alerts",
+    "scanning": "Scanning…",
+    "startedAt": "started {{time}}"
   },
   "ack": {
     "acknowledged": "Acknowledged",
@@ -1047,8 +1160,8 @@
     "by": "Acknowledged by {{by}} at {{at}}",
     "comment": "Comment",
     "commentHint": "Optional, e.g. \"Replacing PSU, ETA 14:00\". Shown to everyone.",
-    "done": "Problem acknowledged.",
-    "explain": "Acknowledging silences further problem, escalation and reminder notifications for this problem. The status is unchanged, and the acknowledgement clears automatically on the next status change. Recovery is still notified.",
+    "done": "Alert acknowledged.",
+    "explain": "Acknowledging silences further alert, escalation and reminder notifications for this alert. The status is unchanged, and the acknowledgement clears automatically on the next status change. Recovery is still notified.",
     "title": "Acknowledge {{name}}",
     "tooltip": "Acknowledged by {{by}} at {{at}}",
     "unack": "Unacknowledge",
@@ -1142,15 +1255,24 @@
       "weekdays": "Choose at least one day.",
       "time": "Use HH:MM (00:00–23:59).",
       "duration": "1 to 10080 minutes (7 days)."
-    }
+    },
+    "pausedNote": "Notifications are paused while a window is active",
+    "week": {
+      "this": "This week",
+      "today": "This week",
+      "prev": "Previous week",
+      "next": "Next week"
+    },
+    "emptyTitle": "No maintenance windows",
+    "emptyText": "Plan a window to pause notifications for a device, a group or everything while you work."
   },
   "escalation": {
     "title": "Escalation and reminders",
     "on": "On",
-    "help": "Escalation sends the problem to more channels when it is neither acknowledged nor recovered after the given time (measured from when the problem began). Reminders repeat the notification to the rule channels. Both stop when the problem is acknowledged, recovers, or the device is in maintenance.",
+    "help": "Escalation sends the alert to more channels when it is neither acknowledged nor recovered after the given time (measured from when the alert began). Reminders repeat the notification to the rule channels. Both stop when the alert is acknowledged, recovers, or the device is in maintenance.",
     "enable": "Escalate if not acknowledged",
     "after": "Escalate after",
-    "afterHint": "From the start of the problem; at least the delay above (1 minute to 7 days).",
+    "afterHint": "From the start of the alert; at least the delay above (1 minute to 7 days).",
     "minutes": "minutes",
     "channels": "Escalation channels",
     "channelsHint": "Who gets the escalation (e.g. the on-call manager). The recovery is sent to them too.",
@@ -1218,7 +1340,9 @@
       "empty": "Add at least one value."
     },
     "mib": "MIB name",
-    "own": "own entry"
+    "own": "own entry",
+    "otherHint": "any value not in the list",
+    "editHint": "Change the values with Edit (sensor settings). Up to 32 values."
   },
   "topology": {
     "title": "Network map",
@@ -1243,6 +1367,20 @@
     "layoutSaved": "Layout saved.",
     "resetLayout": "Reset layout",
     "resetConfirm": "Forget all node positions and arrange the map automatically again?",
+    "dragHintAdmin": "Drag a device to move it; the arrangement is saved for everyone.",
+    "dragHintViewer": "Drag a device to move it in your view; only administrators can save the arrangement.",
+    "fit": "Fit to view",
+    "arrange": "Arrange automatically",
+    "arrangeTitle": "Arrange the map automatically",
+    "arrangeConfirm": "Every device on this map gets a new position. This replaces the saved arrangement for everyone.",
+    "arrangeApply": "Arrange",
+    "arranged": "Map arranged.",
+    "arrangeStyle": {
+      "tiered": "Tiers",
+      "tieredHint": "The most connected devices on top, their neighbours below; unlinked devices in a grid per group.",
+      "groups": "By group",
+      "groupsHint": "Each group in its own block, with its links as tiers inside."
+    },
     "deleteStale_one": "Delete {{count}} stale link",
     "deleteStale_other": "Delete {{count}} stale links",
     "deleteStaleConfirm_one": "Delete {{count}} stale link? Links reported again are re-created by the next refresh.",
@@ -1349,7 +1487,11 @@
       "ap": "Access point",
       "switch": "Switch / uplink",
       "trunk": "Trunk",
-      "macCount": "MACs learned (uplink)"
+      "macCount": "MACs learned (uplink)",
+      "free": "Free",
+      "up": "Up",
+      "bad": "Down / alert",
+      "warn": "Warning"
     },
     "legendHint": {
       "empty": "No cable, or the device on the other side is off.",
@@ -1377,10 +1519,16 @@
       "lowerLayerDown": "lower layer down"
     },
     "connectedKind": {
-      "none": "nothing",
-      "client": "client",
-      "ap": "access point",
-      "switch": "switch"
+      "none": "nothing detected",
+      "ap": "Wi-Fi access point",
+      "switch": "switch (uplink)",
+      "computer": "computer",
+      "phone": "IP phone",
+      "printer": "printer",
+      "camera": "camera",
+      "server": "server",
+      "router": "router",
+      "unknown": "unknown device"
     },
     "mode": {
       "access": "Access",
@@ -1518,6 +1666,44 @@
       "neighborTitle": "LLDP/CDP neighbor",
       "moreTitle_one": "{{count}} more device on this port",
       "moreTitle_other": "{{count}} more devices on this port"
+    },
+    "kindShort": {
+      "computer": "Computer",
+      "phone": "Phone",
+      "ap": "AP",
+      "printer": "Printer",
+      "camera": "Camera",
+      "server": "Server",
+      "switch": "Switch",
+      "router": "Router",
+      "unknown": "Unknown"
+    },
+    "kindChooser": {
+      "title": "Connected device type",
+      "auto": "Automatic",
+      "detected": "detected: {{kind}}",
+      "nothing": "nothing detected",
+      "hint": "Changes the icon on the port and in the table. \"Automatic\" comes from LLDP/CDP and the MAC address.",
+      "manual": "manual",
+      "saved": "The device type of this port is set to {{kind}}",
+      "savedAuto": "The device type will be detected automatically"
+    },
+    "kindSource": {
+      "lldp": "LLDP",
+      "cdp": "CDP",
+      "oui": "MAC vendor",
+      "manual": "manual"
+    },
+    "stateFilter": "Port state",
+    "stateChip": {
+      "all": "All",
+      "up": "Connected",
+      "problem": "Problems",
+      "free": "Free"
+    },
+    "lagState": {
+      "down": "LAG down",
+      "degraded": "LAG degraded"
     }
   },
   "health": {
@@ -1554,7 +1740,13 @@
     "access": "access",
     "arpTitle": "ARP entries",
     "arpSource": "Learned from",
-    "help": "The MAC tables are read with the port inventory of each switch; IP addresses come from routers and firewalls with “Collect ARP”."
+    "help": "The MAC tables are read with the port inventory of each switch; IP addresses come from routers and firewalls with “Collect ARP”.",
+    "allResults": "All results",
+    "bestAccess": "Most likely: access port",
+    "bestUplink": "Most likely: uplink",
+    "now": "Now",
+    "name": "Name",
+    "locations": "Where it was seen"
   },
   "inventoryMode": {
     "auto": "Auto",
@@ -1614,7 +1806,8 @@
       "ai_knowledge": "Knowledge Base",
       "ai_chat_ask": "Ask from Telegram (/ask)",
       "ai_report_summary": "AI summary in reports",
-      "send_config_excerpts": "Send configuration excerpts"
+      "send_config_excerpts": "Send configuration excerpts",
+      "alert_severity": "Alert severity"
     },
     "desc": {
       "traps": "Receive SNMP traps (v1/v2c/v3) from devices, store and search them.",
@@ -1635,16 +1828,17 @@
       "noc": "Full-screen status pages for wall screens, opened with a secret link from allowed addresses only.",
       "chat_ack": "An \"Acknowledge\" button in Telegram, and a link in Teams and email messages.",
       "assistant": "Connection to Amazon Bedrock and the \"Ask the network\" page for administrators. Master switch of every AI feature.",
-      "ai_explain_alert": "An \"Explain\" button on problems, events and sensors: what happened, what preceded it, likely cause and next checks.",
-      "ai_correlation": "Groups related problems (dependencies, topology, same device) into incidents with a short AI summary.",
-      "ai_alert_notes": "Adds a 1–2 line AI note after the first problem notification of rules that opt in. Never delays the alert.",
+      "ai_explain_alert": "An \"Explain\" button on alerts, events and sensors: what happened, what preceded it, likely cause and next checks.",
+      "ai_correlation": "Groups related alerts (dependencies, topology, same device) into incidents with a short AI summary.",
+      "ai_alert_notes": "Adds a 1–2 line AI note after the first alert notification of rules that opt in. Never delays the notification.",
       "ai_config_diff": "Risk flags and a plain-language explanation on configuration diffs.",
       "ai_syslog_digest": "Every morning: what was unusual in yesterday's syslog compared to the previous week.",
       "ai_rule_drafts": "\"Describe the rule…\" in the alert-rule and event-rule forms fills the form with a draft for review.",
       "ai_template_drafts": "Bounded read-only SNMP walk of a device and a device-template YAML draft for review.",
       "ai_knowledge": "Lets the assistant search your Amazon Bedrock Knowledge Base (runbooks, diagrams) and cite it.",
       "ai_chat_ask": "Linked administrators can send /ask <question> to the Telegram bot in a private chat.",
-      "ai_report_summary": "A short narrative paragraph at the top of reports that opt in."
+      "ai_report_summary": "A short narrative paragraph at the top of reports that opt in.",
+      "alert_severity": "Classify every alert as Critical, Major, Minor, Warning or Information, like a professional NMS: tags and counts on Home and Events, a severity filter, notification rules limited to some severities, and a Severity row in email, Telegram and Teams messages. Off: nothing changes."
     },
     "hint": {
       "needsIngest": "Needs SNMP traps or Syslog to be on to receive anything.",
@@ -1673,7 +1867,8 @@
       "alertNotes": "Opt in per alert rule; Telegram, Teams and email channels.",
       "ruleDraftsIngest": "Event-rule drafts need Traps or Syslog.",
       "kbAws": "Needs a Knowledge Base in your AWS account.",
-      "chatAskChannel": "Enable \"Allow /ask\" on a Telegram channel."
+      "chatAskChannel": "Enable \"Allow /ask\" on a Telegram channel.",
+      "severityMapping": "Once on, the classification is in Settings → General → Alert severity; sensors, notification rules and trap / syslog rules get their severity options."
     },
     "status": {
       "on": "Active",
@@ -1760,7 +1955,7 @@
     "23": "Local 7"
   },
   "logs": {
-    "title": "Traps & Syslog",
+    "title": "Logs and traps",
     "tab": {
       "syslog": "Syslog",
       "traps": "Traps",
@@ -2060,7 +2255,12 @@
     "countersSince": "Counters since {{time}}",
     "v3Failures": "Recent SNMPv3 authentication failures",
     "engineId": "Engine ID",
-    "reason": "Reason"
+    "reason": "Reason",
+    "chip": {
+      "ok": "Receivers listening",
+      "error": "Receiver error",
+      "off": "Receivers off"
+    }
   },
   "ingestSettings": {
     "title": "Traps & syslog",
@@ -2321,6 +2521,52 @@
       "api_token": "API token",
       "assistant_conversation": "Assistant conversation",
       "assistant_message": "Assistant answer"
+    },
+    "subtitle": "Every change and every sign-in · kept {{days}} days",
+    "noneHint": "Nothing matches these filters. Widen the time range or clear a filter.",
+    "failed": "failed",
+    "removal": "removal",
+    "verb": {
+      "create": "created",
+      "update": "changed",
+      "delete": "deleted",
+      "revoke": "revoked",
+      "enable": "turned on",
+      "disable": "turned off",
+      "run": "run",
+      "test": "tested",
+      "export": "exported",
+      "ack": "acknowledged",
+      "acknowledge": "acknowledged",
+      "unacknowledge": "acknowledgement removed",
+      "settings_update": "settings changed",
+      "unlink": "unlinked",
+      "rule_draft": "rule draft",
+      "template_draft": "template draft",
+      "template_walk": "SNMP walk for a template",
+      "question": "question",
+      "conversation_delete": "conversation deleted",
+      "digest": "digest",
+      "answer": "answer",
+      "explain_alert": "explain alert",
+      "alert_note": "alert note",
+      "cancel": "stopped",
+      "cert_delete": "certificate deleted",
+      "cert_upload": "certificate uploaded",
+      "csr_create": "CSR created",
+      "csr_delete": "CSR deleted",
+      "diff_explain": "config change explained",
+      "feedback": "feedback",
+      "incident_summary": "incident summary",
+      "kb_test": "knowledge base test",
+      "report_summary": "report summary",
+      "tool_call": "lookup"
+    },
+    "authVerb": {
+      "login": "Signed in",
+      "login_failed": "Sign-in failed",
+      "logout": "Signed out",
+      "password_change": "Password changed"
     }
   },
   "timeline": {
@@ -2367,7 +2613,14 @@
     },
     "revoke": "Revoke",
     "revokeTitle": "Revoke token",
-    "revokeConfirm": "Revoke \"{{name}}\"? Scripts using it stop working at once."
+    "revokeConfirm": "Revoke \"{{name}}\"? Scripts using it stop working at once.",
+    "daysLeft_one": "{{count}} day left",
+    "daysLeft_other": "{{count}} days left",
+    "done": "Done",
+    "noneHint": "Create a token for a script that reads or changes NetworkMonitor.",
+    "noneAllHint": "No user has created an API token yet.",
+    "showOnceTitle": "Shown only once",
+    "yourToken": "Your token"
   },
   "teams": {
     "help": "In Teams: channel → Workflows → \"Post to a channel when a webhook request is received\", then paste the URL here.",
@@ -2502,7 +2755,14 @@
       "no_credentials": "No SSH credentials on the device or its groups.",
       "no_driver": "No driver matches this device; choose one in the device settings.",
       "host_key_changed": "The SSH host key changed; accept the new key or reset it."
-    }
+    },
+    "diffMode": "Diff view",
+    "changedAt": "Changed {{when}}",
+    "noChange": "No change",
+    "kept": "Kept",
+    "versionsN_one": "1 version",
+    "versionsN_other": "{{count}} versions",
+    "devices": "Devices"
   },
   "driver": {
     "label": "Driver",
@@ -2663,7 +2923,13 @@
       "exporter_limit": "Exporter limit",
       "aggregation_overflow": "Aggregation overflow",
       "db_error": "Database errors"
-    }
+    },
+    "subline_one": "NetFlow · IPFIX · sFlow from 1 exporter",
+    "peakIn": "Peak inbound",
+    "volume": "Volume in the range",
+    "overTime": "Traffic over time",
+    "now": "now",
+    "subline_other": "NetFlow · IPFIX · sFlow from {{count}} exporters"
   },
   "exporter": {
     "address": "Address",
@@ -2755,7 +3021,13 @@
       "new": "New",
       "known": "Known",
       "allowed": "Allowed"
-    }
+    },
+    "device": "Device",
+    "modeLearning": "Learning",
+    "modeWatching": "Watching",
+    "watchingHint": "A device never seen before raises an alert",
+    "switchesLine": "{{done}} of {{total}} switches read",
+    "randomMac": "Random address"
   },
   "allowlist": {
     "intro": "Devices whose MAC address starts with an allowed prefix never alert (e.g. all printers of one vendor).",
@@ -2948,7 +3220,7 @@
       "longest": "Longest outage",
       "sensor": "Sensor",
       "notifications": "Notifications",
-      "problemTime": "Time in problem",
+      "problemTime": "Time in alert",
       "port": "Port",
       "episodes": "Episodes",
       "transitions": "Transitions",
@@ -2957,7 +3229,8 @@
       "lines": "Lines",
       "lastChange": "Last change",
       "detected": "Detected",
-      "acknowledged": "Acknowledged"
+      "acknowledged": "Acknowledged",
+      "severity": "Severity"
     },
     "err": {
       "name": "Enter a name (at most 128 characters).",
@@ -2982,6 +3255,18 @@
       "timeout": "timed out",
       "unverified_numbers": "dropped (numbers did not match the data)",
       "disabled": "feature off"
+    },
+    "subtitle": "Availability, alerts, ports and configuration changes — scheduled or on demand",
+    "delivery": {
+      "sent": "sent",
+      "partial": "sent {{ok}} of {{total}}"
+    },
+    "paperSub": "{{from}} – {{to}} · generated {{time}}",
+    "paperHeadline": "Overall availability {{pct}}",
+    "fig": {
+      "devices": "devices",
+      "downtime": "hours of downtime",
+      "outages": "outages"
     }
   },
   "reportSection": {
@@ -3024,8 +3309,8 @@
     "widget": {
       "summary": "Summary numbers",
       "down_devices": "Down devices",
-      "problems": "Problems",
-      "recent_alerts": "Recent alerts",
+      "problems": "Alerts",
+      "recent_alerts": "Recent status changes",
       "map": "Map",
       "group_tiles": "Group tiles"
     },
@@ -3046,9 +3331,9 @@
     "maintenance": "In maintenance",
     "downDevices": "Down devices ({{n}})",
     "allUp": "All devices are up",
-    "problems": "Problems ({{n}})",
-    "noProblems": "No problems",
-    "recentAlerts": "Recent alerts",
+    "problems": "Alerts ({{n}})",
+    "noProblems": "No alerts",
+    "recentAlerts": "Recent status changes",
     "map": "Map",
     "ack": "acknowledged",
     "updated": "updated {{time}}",
@@ -3061,11 +3346,11 @@
     "loadError": "Cannot reach the server. Retrying…"
   },
   "chatAck": {
-    "pageTitle": "Acknowledge problem",
+    "pageTitle": "Acknowledge alert",
     "expired": "This link has expired.",
     "off": "Acknowledging from chat is turned off.",
     "since": "Since {{time}} ({{rel}})",
-    "notActive": "This problem is no longer active.",
+    "notActive": "This alert is no longer active.",
     "already": "Already acknowledged",
     "done": "Acknowledged.",
     "comment": "Comment (optional)",
@@ -3073,7 +3358,7 @@
     "adminOnly": "Only administrators can acknowledge.",
     "openApp": "Open NetworkMonitor",
     "accounts": "Chat accounts",
-    "accountsIntro": "Link your Telegram account to acknowledge problems with the button in Telegram messages.",
+    "accountsIntro": "Link your Telegram account to acknowledge alerts with the button in Telegram messages.",
     "linkTelegram": "Link Telegram",
     "noLinks": "No linked accounts.",
     "linkedAt": "linked {{date}}",
@@ -3103,7 +3388,8 @@
     "takenOver": "The bot's webhook was deleted.",
     "teamsLimit": "In Teams the Acknowledge button opens NetworkMonitor in your browser; it works from the office network or VPN.",
     "emailHint": "Adds an Acknowledge link that opens NetworkMonitor.",
-    "needsPublicUrl": "Links need the public URL (Settings → General)."
+    "needsPublicUrl": "Links need the public URL (Settings → General).",
+    "commentPlaceholder": "e.g. On it, expected by 11:00"
   },
   "trapCollapse": {
     "title": "Repetitive traps",
@@ -3146,7 +3432,10 @@
     "bulkTitle_other": "Set impact of {{count}} sensors",
     "apply": "Apply",
     "bulkDone_one": "Impact updated for {{count}} sensor.",
-    "bulkDone_other": "Impact updated for {{count}} sensors."
+    "bulkDone_other": "Impact updated for {{count}} sensors.",
+    "saved": "Impact saved.",
+    "selectHint": "Select several sensors to change their impact on the device status at once.",
+    "bulkBar": "Selected sensors"
   },
   "applyPorts": {
     "title": "Ports",
@@ -3181,6 +3470,23 @@
     "removeCount_other": "{{count}} existing interface sensors will be deleted, with their history.",
     "removedTitle_one": "Removed {{count}} sensor",
     "removedTitle_other": "Removed {{count}} sensors"
+  },
+  "applyReplaces": {
+    "title": "Sensors this template replaces",
+    "hint": "This template measures these in its own way, so they are no longer needed. A ticked sensor is deleted together with its history. Sensors that fail on this device are ticked; working ones are not — you choose.",
+    "selectAll": "Select all",
+    "rowLabel": "Delete {{name}}",
+    "failing": "Not supported by this device",
+    "reason": {
+      "replaced": "This template has its own sensor for this",
+      "other_template": "Created by the template “{{template}}”",
+      "other_template_unknown": "Created by another template"
+    },
+    "keepAll": "Nothing is ticked: these sensors are kept.",
+    "deleteCount_one": "{{count}} sensor will be deleted, with its history.",
+    "deleteCount_other": "{{count}} sensors will be deleted, with their history.",
+    "resultTitle_one": "Removed {{count}} sensor this template replaces",
+    "resultTitle_other": "Removed {{count}} sensors this template replaces"
   },
   "assistant": {
     "title": "Ask the network",
@@ -3277,7 +3583,7 @@
       "generic": "Running {{tool}}…",
       "search_devices": "Searching devices…",
       "get_device": "Reading the device…",
-      "list_problems": "Listing problems…",
+      "list_problems": "Listing alerts…",
       "search_sensors": "Searching sensors…",
       "get_sensor_history": "Reading sensor history…",
       "list_events": "Reading events…",
@@ -3437,7 +3743,9 @@
         "range": "{{min}}–{{max}}",
         "time": "HH:MM",
         "money": "A number ≥ 0"
-      }
+      },
+      "heroTitle": "Assistant",
+      "usagePage": "Usage page"
     },
     "cert": {
       "title": "Roles Anywhere certificate",
@@ -3523,7 +3831,7 @@
       "assistant_retention_days": "Keep conversations (days)",
       "assistant_artifact_retention_days": "Keep AI results (days)",
       "correlation_window_min": "Correlation window (min)",
-      "correlation_min_alerts": "Minimum problems per incident",
+      "correlation_min_alerts": "Minimum alerts per incident",
       "correlation_daily_summaries": "AI summaries per day",
       "correlation_attach_to_alert": "Send the incident summary as the root alert's AI note",
       "alert_note_timeout_s": "Note deadline after the alert (s)",
@@ -3547,7 +3855,7 @@
       "reportOptIn": "Turn on \"AI summary\" in each report that should get one.",
       "ruleDraftsWhere": "Use \"Describe the rule…\" in new alert rules (Notifications) and event rules (Traps & Syslog → Rules).",
       "templateDraftsWhere": "Use \"Draft a template from a device\" on the Templates page.",
-      "explainWhere": "\"Explain\" appears on dashboard problems, sensor pages, events and incidents."
+      "explainWhere": "\"Explain\" appears on dashboard alerts, sensor pages, events and incidents."
     },
     "chatAsk": {
       "howTo": "In a private chat with the bot, send /ask followed by a question (up to 1000 characters).",
@@ -3593,7 +3901,18 @@
         "duplicate": "This model is already in the list",
         "label": "The display name is too long (60 characters at most)"
       }
-    }
+    },
+    "answerFailed": "The answer failed",
+    "toSettings": "To settings",
+    "aiShort": "AI-generated — may be wrong",
+    "day": {
+      "today": "Today",
+      "yesterday": "Yesterday",
+      "week": "This week",
+      "earlier": "Earlier"
+    },
+    "capTitle": "You reached today’s limit",
+    "capBody": "Your daily questions ({{used}} of {{limit}}). You can ask again tomorrow."
   },
   "explain": {
     "button": "Explain",
@@ -3636,7 +3955,23 @@
     "device": "Device",
     "sensor": "Sensor",
     "recoveredAt": "Recovered",
-    "root": "root"
+    "root": "root",
+    "subtitle": "Related alerts (dependencies, topology, same device) grouped into one incident",
+    "since": "open since {{time}}",
+    "resolvedAt": "resolved {{time}}",
+    "grouped_one": "{{count}} alert grouped",
+    "grouped_other": "{{count}} alerts grouped",
+    "rootShort": "root: {{name}}",
+    "rootConf": "root: {{name}} (confidence: {{confidence}})",
+    "noAiShort": "no AI summary",
+    "loadError": "Could not load the incidents",
+    "noneHint": "When several alerts are related, they show here as one incident with the device suspected as the root.",
+    "pageError": "Could not load the incident",
+    "pageErrorHint": "The incident may have been deleted, or you may not have access to it.",
+    "kindLine": "Grouped incident",
+    "recoveredN_one": "{{count}} recovered",
+    "recoveredN_other": "{{count}} recovered",
+    "timeline": "Timeline"
   },
   "confidence3": {
     "low": "low",
@@ -3675,7 +4010,9 @@
     "interface_enabled": "Interface enabled (undo shutdown)",
     "vlan_removed": "VLAN removed",
     "vlan_removed_cmd": "VLAN removed",
-    "routing_changed": "Routing changed"
+    "routing_changed": "Routing changed",
+    "toLine": "To the line",
+    "riskTag": "{{level}} risk"
   },
   "digest": {
     "title": "Syslog digest",
@@ -3711,7 +4048,14 @@
     "byProgram": "By program",
     "byDevice": "By device",
     "byHour": "By hour",
-    "deliveries": "Deliveries"
+    "deliveries": "Deliveries",
+    "baselineN": "baseline {{n}}",
+    "devices": "Devices",
+    "unusualTitle": "Unusual",
+    "noneHint": "The first digest is made after a full day of syslog messages.",
+    "prevDay": "Previous day",
+    "nextDay": "Next day",
+    "all": "All digests"
   },
   "draft": {
     "describe": "Describe the rule…",
@@ -3726,7 +4070,21 @@
     "cannotTitle": "The assistant could not draft a rule from this description.",
     "cannotHint": "Describe what to watch for and what should happen, for example:",
     "cannotExampleAlert": "Alert me on Telegram when any core switch is down for 2 minutes",
-    "cannotExampleEvent": "Warning when a switch logs an SSH login failure (program SSHS or sshd)"
+    "cannotExampleEvent": "Warning when a switch logs an SSH login failure (program SSHS or sshd)",
+    "examples": "Examples",
+    "manual": "Fill in by hand",
+    "stepsLabel": "Draft steps",
+    "step": {
+      "describe": "Describe",
+      "draft": "Draft",
+      "review": "Review and save"
+    },
+    "exAlert1": "Telegram when any core switch is down for 2 minutes",
+    "exAlert2": "Email the IT manager when a branch does not answer for 5 minutes",
+    "exAlert3": "Alert on every warning of the servers group",
+    "exEvent1": "Warning when a switch logs a port security violation",
+    "exEvent2": "Alert when a UPS goes on battery (trap)",
+    "exEvent3": "Warning when an SSH sign-in fails"
   },
   "tdraft": {
     "open": "Draft a template from a device",
@@ -3793,7 +4151,8 @@
     "saved": "Saved {{file}}",
     "cannotTitle": "The assistant could not draft a template from this walk.",
     "cannotHint": "Walk the subtrees with the device's own values (enterprise, ENTITY, HOST-RESOURCES) and describe what to monitor, for example:",
-    "cannotExample": "monitor PSU and fan status and CPU temperature"
+    "cannotExample": "monitor PSU and fan status and CPU temperature",
+    "warnings": "Warnings"
   },
   "usage": {
     "title": "Assistant usage",
@@ -3849,7 +4208,13 @@
     "outputTokens": "Output",
     "unknownModel": "Unknown model",
     "cacheRead": "Input tokens read from the prompt cache",
-    "cached": "cached"
+    "cached": "cached",
+    "backgroundStoppedHint": "Explanations, the syslog digest and incident summaries continue next month or when you raise the cap. Direct questions still work.",
+    "pctOfMonthlyCap": "{{pct}}% of the monthly cap",
+    "ofMonthlyCap": "of the monthly cap",
+    "inOut": "input + output",
+    "noneHint": "When admins ask questions or background features run, the usage shows here.",
+    "loadError": "Could not load the usage data"
   },
   "treeMenu": {
     "label": {
@@ -3904,5 +4269,192 @@
     "clear": "Clear search",
     "none": "No settings found",
     "requires": "Requires the {{feature}} feature — turn it on in {{tab}}"
+  },
+  "auth": {
+    "oneLine": "Your whole network. At a glance."
+  },
+  "island": {
+    "ok": "All OK",
+    "down_one": "{{count}} down",
+    "down_other": "{{count}} down",
+    "attention_one": "{{count}} needs attention",
+    "attention_other": "{{count}} need attention",
+    "warnings_one": "{{count}} warning",
+    "warnings_other": "{{count}} warnings",
+    "sensors_one": "{{count}} sensor",
+    "sensors_other": "{{count}} sensors"
+  },
+  "home": {
+    "needAttention_one": "needs attention",
+    "needAttention_other": "need attention",
+    "allGood": "All good",
+    "subline": "{{sensors}} on {{devices}}",
+    "restOk": "everything else is up",
+    "site": "Site",
+    "allSites": "All sites",
+    "network": "Network",
+    "all": "All",
+    "quick": "Quick actions",
+    "counters": "Sensors by status",
+    "qa": {
+      "problems": "Alerts",
+      "events": "Events",
+      "maintenance": "Maintenance",
+      "find": "Find",
+      "map": "Map",
+      "devices": "Devices"
+    },
+    "sub": {
+      "map": "LLDP/CDP links between devices",
+      "logs": "Syslog and SNMP traps",
+      "flows": "NetFlow · IPFIX · sFlow",
+      "newDevices": "Devices seen for the first time",
+      "backups": "Configuration history and diffs",
+      "maintenance": "Planned windows without notifications",
+      "reports": "Scheduled availability reports",
+      "templates": "Sensor sets per device type",
+      "events": "Everything that happened, newest first",
+      "all": "Settings, users, templates and more"
+    },
+    "days_one": "{{count}} day",
+    "days_other": "{{count}} days",
+    "map": {
+      "label": "Network map",
+      "edit": "Edit map",
+      "mode": "Mode",
+      "mode_auto": "Automatic",
+      "mode_backbone": "Backbone",
+      "modeHint_auto": "The map is built from the topology (LLDP/CDP) and the group tree.",
+      "modeHint_backbone": "You choose the backbone devices in order; the main groups hang under the last one.",
+      "showInternet": "Show \"Internet\"",
+      "backbone": "Backbone devices, top to bottom",
+      "noBackbone": "No devices. Add at least one.",
+      "addDevice": "Add a device…",
+      "maxGroups": "Groups at most",
+      "up": "Move up",
+      "down": "Move down",
+      "remove": "Remove",
+      "saved": "Map saved",
+      "editSub": "The map on the home screen · admins only",
+      "showInternetHint": "A top node that stands for the internet providers",
+      "notSet": "The map is not set up yet",
+      "notSetText": "The main groups are shown for now. Choose the backbone devices to see the path from the internet to every group.",
+      "setup": "Set up the map"
+    }
+  },
+  "kit": {
+    "aiFine": "Generated by AI — it can be wrong. Check before you act."
+  },
+  "sensorBulk": {
+    "delete": "Delete…",
+    "deleteTitle_one": "Delete {{count}} sensor",
+    "deleteTitle_other": "Delete {{count}} sensors",
+    "deleteConfirm_one": "Delete this sensor and its history? This cannot be undone.",
+    "deleteConfirm_other": "Delete these {{count}} sensors and their history? This cannot be undone.",
+    "deleteButton_one": "Delete sensor",
+    "deleteButton_other": "Delete {{count}} sensors",
+    "listLabel": "Sensors to delete",
+    "deleted_one": "{{count}} sensor deleted.",
+    "deleted_other": "{{count}} sensors deleted."
+  },
+  "tableCols": {
+    "columns": "Columns",
+    "reset": "Reset columns",
+    "moveUp": "Move {{name}} earlier",
+    "moveDown": "Move {{name}} later",
+    "resize": "Resize column {{name}}",
+    "resizeHint": "Drag to resize · double-click to reset · arrow keys with focus",
+    "dragHint": "Drag to move the column",
+    "actions": "Actions",
+    "select": "Selection"
+  },
+  "aiStatus": {
+    "openIncidents_zero": "No open incidents",
+    "openIncidents_one": "{{count}} open incident",
+    "openIncidents_other": "{{count}} open incidents",
+    "lastDigest": "Last digest {{day}}: {{status}}",
+    "lastDigestReason": "Last digest {{day}}: {{status}} ({{reason}})",
+    "digestStatus": {
+      "ok": "ready",
+      "failed": "failed",
+      "skipped": "skipped"
+    },
+    "noteSent": "Last note sent",
+    "noteSkipped": "Last note skipped: {{reason}}",
+    "reason": {
+      "empty": "empty answer",
+      "feature_off": "the feature is off"
+    }
+  },
+  "severity": {
+    "label": "Severity",
+    "level": {
+      "critical": "Critical",
+      "major": "Major",
+      "minor": "Minor",
+      "warning": "Warning",
+      "info": "Information"
+    },
+    "tagTitle": "Severity: {{level}}",
+    "counts": "Alerts by severity",
+    "countTitle": "{{level}}: {{open}} not acknowledged, {{all}} in total",
+    "countAll": "{{all}} with acknowledged",
+    "filterLabel": "Filter alerts by severity",
+    "showAll": "All severities",
+    "noMatch": "No alerts with the selected severities.",
+    "filter": "Severity",
+    "sort": {
+      "label": "Order",
+      "time": "Newest first",
+      "severity": "Highest severity first"
+    },
+    "automatic": "Automatic (by the mapping)",
+    "automaticIs": "Automatic (by the mapping): {{level}}",
+    "automaticEvent": "Automatic (trap / syslog rule, else the mapping: {{level}})",
+    "whenDown": "Severity when down",
+    "whenWarning": "Severity when in warning",
+    "overrideHint": "For this sensor only; it wins over the mapping and the trap / syslog rules. Changing it re-classifies a current alert.",
+    "current": "Current alert severity",
+    "mapping": {
+      "title": "Alert severity",
+      "intro": "How an alert is classified by the sensor's status and its impact on the device status. A sensor's own severity and trap / syslog rule severities come first.",
+      "reclassify": "Saving re-classifies the alerts that are active now. History (events, reports) keeps the severity it was recorded with.",
+      "status": "Status",
+      "impact": "Impact",
+      "severity": "Severity",
+      "default": "Default",
+      "changed": "Changed from the default",
+      "info": "Informational",
+      "infoHint": "Recoveries, paused, unreachable, unknown",
+      "reset": "Reset to defaults",
+      "resetTitle": "Reset the classification",
+      "resetConfirm": "Put the default severity of every row back? The alerts that are active now are re-classified.",
+      "saved": "Classification saved.",
+      "resetDone": "Classification reset to the defaults.",
+      "readOnly": "Only administrators can change the classification.",
+      "view": "How severities are assigned",
+      "edit": "Edit in Settings",
+      "subject": "Include the severity in the email subject",
+      "subjectHint": "e.g. \"[NetworkMonitor] [Critical] DOWN: core-sw / Ping\". Off: the subject stays exactly as before (mail filters keep working)."
+    },
+    "rule": {
+      "label": "Only for severities",
+      "hint": "Nothing selected = every severity (as before). Used only while Alert severity is on.",
+      "summary": "Severities: {{list}}"
+    },
+    "eventRule": {
+      "label": "Alert severity",
+      "hint": "Optional. The severity of the alert this rule raises; empty = by the mapping.",
+      "auto": "By the mapping"
+    },
+    "bulk": {
+      "action": "Set severity…",
+      "title_one": "Set severity of {{count}} sensor",
+      "title_other": "Set severity of {{count}} sensors",
+      "leave": "Leave unchanged",
+      "done_one": "Severity updated for {{count}} sensor.",
+      "done_other": "Severity updated for {{count}} sensors.",
+      "pickOne": "Change at least one of the two."
+    }
   }
 }

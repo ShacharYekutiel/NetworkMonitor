@@ -563,3 +563,18 @@ echarts.registerTheme(NETMON_CHART_THEME, {
 export function initChart(el: HTMLElement): echarts.ECharts {
   return echarts.init(el, NETMON_CHART_THEME, { renderer: 'canvas' });
 }
+
+/**
+ * Premium flat chart style (docs/design-system/premium/BUILD.md § 3.3): the tooltip as a rounded
+ * floating card without a border. Spread into a chart's `tooltip` (its formatter stays the
+ * chart's own, escaped as in 1.4.1).
+ */
+export function flatTooltip(tk: { surfaceRaised: string; ink: string }) {
+  return {
+    backgroundColor: tk.surfaceRaised,
+    borderWidth: 0,
+    padding: [8, 12],
+    textStyle: { color: tk.ink, fontSize: 12.5 },
+    extraCssText: 'border-radius:12px;box-shadow:0 10px 30px rgba(0,0,0,.14);',
+  };
+}

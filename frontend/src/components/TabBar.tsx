@@ -1,25 +1,38 @@
-import type { ReactNode } from 'react';
-import { cx } from './ui';
+import { useEffect, useRef, type ReactNode } from 'react';
+import { cx, SEG_TRACK, tabClass, wrapTabClass } from './ui';
 
-/** A row of tabs (role=tablist) under a page header. */
+/**
+ * A row of tabs (role=tablist) under a page header, drawn as the premium segmented control.
+ * `wrap`: a long set (Settings) wraps onto further rows as chips, the selected one in ink.
+ */
 export function TabBar<T extends string>({
   tabs,
   value,
   onChange,
   label,
   render,
+  wrap,
 }: {
   tabs: T[];
   value: T;
   onChange: (t: T) => void;
   label: string;
   render: (t: T) => ReactNode;
+  wrap?: boolean;
 }) {
+  const ref = useRef<HTMLDivElement>(null);
+  // A row that scrolls sideways keeps the selected tab visible.
+  useEffect(() => {
+    if (wrap) return;
+    const el = ref.current?.querySelector<HTMLElement>('[aria-selected="true"]');
+    el?.scrollIntoView?.({ block: 'nearest', inline: 'nearest' });
+  }, [value, wrap]);
   return (
     <div
+      ref={ref}
       role="tablist"
       aria-label={label}
-      className="flex flex-wrap gap-1 border-b border-slate-200 dark:border-slate-800"
+      className={wrap ? 'flex flex-wrap gap-1.5' : cx(SEG_TRACK, 'flex')}
     >
       {tabs.map((k) => (
         <button
@@ -28,12 +41,7 @@ export function TabBar<T extends string>({
           role="tab"
           aria-selected={value === k}
           onClick={() => onChange(k)}
-          className={cx(
-            '-mb-px inline-flex items-center gap-1.5 border-b-2 px-3 py-2 text-sm font-medium',
-            value === k
-              ? 'border-sky-600 text-sky-700 dark:border-sky-400 dark:text-sky-300'
-              : 'border-transparent text-slate-600 hover:text-slate-900 dark:text-slate-400 dark:hover:text-slate-200',
-          )}
+          className={wrap ? wrapTabClass(value === k) : tabClass(value === k)}
         >
           {render(k)}
         </button>

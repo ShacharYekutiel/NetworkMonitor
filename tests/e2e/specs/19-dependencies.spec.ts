@@ -1,5 +1,5 @@
 import { expect, test } from '@playwright/test';
-import { Api, apiAs, clearWebhookRecords, defaultGroupId, loginViaApi, expectSameDocument, markDocument, statusDot, treeDevice, uid } from '../lib/helpers';
+import { Api, apiAs, clearWebhookRecords, defaultGroupId, loginViaApi, expectSameDocument, markDocument, statusDot, treeDevice, uid, showTree } from '../lib/helpers';
 import { raw } from '../lib/lab';
 import {
   createWebhook,
@@ -130,12 +130,13 @@ test('parent outage: children unreachable (violet, live), only the parent alerts
     let e: Element | null = el;
     while (e) {
       const cs = getComputedStyle(e);
-      for (const v of [cs.backgroundColor, cs.color]) if (/139,\s*92,\s*246|#8b5cf6|oklch\(0\.606 0\.25 292/.test(v)) return v;
+      for (const v of [cs.backgroundColor, cs.color]) if (/142,\s*92,\s*217|191,\s*90,\s*242/.test(v)) return v;
       e = e.parentElement;
     }
     return getComputedStyle(el).color + ' / ' + getComputedStyle(el).backgroundColor;
   });
-  expect(color, 'violet-500 (#8b5cf6)').toMatch(/139,\s*92,\s*246|8b5cf6|292/);
+  expect(color, 'status-unreachable token').toMatch(/142,\s*92,\s*217|191,\s*90,\s*242/);
+  await showTree(page);
   await expect(statusDot(treeDevice(page, child1.device.id).locator('xpath=..'), 'Unreachable').first()).toBeVisible();
   await shot2b(page, 'dependency-child-unreachable-en');
 

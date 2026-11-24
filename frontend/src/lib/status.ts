@@ -1,4 +1,5 @@
 import type { Status, StatusCounts } from '../api/types';
+import { LIGHT_TOKENS } from './chartTokens';
 
 /** Every status, worst first (data-model.md § 2b-1 status severity). */
 export const STATUSES: Status[] = ['down', 'warning', 'unreachable', 'unknown', 'up', 'paused'];
@@ -42,42 +43,50 @@ export function canAcknowledge(s: { status: Status }): boolean {
 /** Display order of status counters/tiles/bars (problems first, up and paused last). */
 export const COUNT_ORDER: Status[] = ['down', 'warning', 'unreachable', 'unknown', 'paused', 'up'];
 
-/** Tailwind classes per status (conventions.md). */
+/** Tailwind classes per status: the `status-*` design tokens (tailwind.config.ts). */
 export const STATUS_DOT: Record<Status, string> = {
-  up: 'bg-green-600',
-  warning: 'bg-amber-500',
-  down: 'bg-red-600',
-  paused: 'bg-gray-400',
-  unknown: 'bg-slate-500',
-  unreachable: 'bg-violet-500',
+  up: 'bg-status-up',
+  warning: 'bg-status-warning',
+  down: 'bg-status-down',
+  paused: 'bg-status-paused',
+  unknown: 'bg-status-unknown',
+  unreachable: 'bg-status-unreachable',
 };
 
 export const STATUS_TEXT: Record<Status, string> = {
-  up: 'text-green-600 dark:text-green-500',
-  warning: 'text-amber-500',
-  down: 'text-red-600 dark:text-red-500',
-  paused: 'text-gray-400',
-  unknown: 'text-slate-500 dark:text-slate-400',
-  unreachable: 'text-violet-500',
+  up: 'text-status-up',
+  warning: 'text-status-warning',
+  down: 'text-status-down',
+  paused: 'text-status-paused',
+  unknown: 'text-status-unknown',
+  unreachable: 'text-status-unreachable',
 };
 
+/** Solid ground (count pills): the status colour with `on-status` text. */
 export const STATUS_BADGE: Record<Status, string> = {
-  up: 'bg-green-600 text-white',
-  warning: 'bg-amber-500 text-white',
-  down: 'bg-red-600 text-white',
-  paused: 'bg-gray-400 text-white',
-  unknown: 'bg-slate-500 text-white',
-  unreachable: 'bg-violet-500 text-white',
+  up: 'bg-status-up text-on-status',
+  warning: 'bg-status-warning text-on-status',
+  down: 'bg-status-down text-on-status',
+  paused: 'bg-status-paused text-on-status',
+  unknown: 'bg-status-unknown text-on-status',
+  unreachable: 'bg-status-unreachable text-on-status',
 };
 
-export const STATUS_HEX: Record<Status, string> = {
-  up: '#16a34a',
-  warning: '#f59e0b',
-  down: '#dc2626',
-  paused: '#9ca3af',
-  unknown: '#64748b',
-  unreachable: '#8b5cf6',
+/** Soft ground (status badges, problem tiles): the `-soft` token with the status colour as text. */
+export const STATUS_SOFT: Record<Status, string> = {
+  up: 'bg-status-up-soft text-status-up',
+  warning: 'bg-status-warning-soft text-status-warning',
+  down: 'bg-status-down-soft text-status-down',
+  paused: 'bg-status-paused-soft text-status-paused',
+  unknown: 'bg-status-unknown-soft text-status-unknown',
+  unreachable: 'bg-status-unreachable-soft text-status-unreachable',
 };
+
+/**
+ * Literal status colours of the light theme (for code that cannot read CSS variables and has
+ * no theme; charts use lib/chartTokens.ts, which follows the theme).
+ */
+export const STATUS_HEX: Record<Status, string> = LIGHT_TOKENS.status;
 
 export function statusClass(s: string, map: Record<Status, string>): string {
   return (map as Record<string, string>)[s] ?? map.unknown;

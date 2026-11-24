@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
-import { MemoryRouter } from 'react-router';
+import { Link, MemoryRouter } from 'react-router';
 import type { ReactNode } from 'react';
 import i18n, { setLanguage } from '../../i18n';
 import { AuthProvider } from '../../hooks/auth';
@@ -9,6 +9,7 @@ import { ThemeProvider } from '../../hooks/theme';
 import { ToastProvider } from '../toast';
 import { TreeNav } from '../Tree';
 import { ContextMenu } from './ContextMenu';
+import { TreeMenuProvider, useEntityMenu } from './TreeContextMenu';
 
 const counts = { up: 1, warning: 0, down: 0, paused: 0, unknown: 0, unreachable: 0, total: 1 };
 const TREE = {
@@ -336,5 +337,117 @@ describe('Tree context menu', () => {
     // jsdom has no layout (menu size 0): RTL places the menu's right edge at the item's right edge
     expect(menu.style.left).toBe('220px');
     expect(menu.style.top).toBe('30px');
+  });
+});
+
+describe('Context menu on rows outside the tree (useEntityMenu)', () => {
+  function Rows() {
+    const menu = useEntityMenu();
+    return (
+      <ul>
+        <li {...menu({ kind: 'device', id: 3 })} data-testid="dev-row">
+          <Link to="/devices/3">core-sw row</Link>
+          <input aria-label="note" />
+        </li>
+        <li {...menu({ kind: 'sensor', id: 7 })} data-testid="sensor-row">
+          <Link {...menu({ kind: 'device', id: 3 })} to="/devices/3">
+            device link
+          </Link>
+          <Link to="/sensors/7">Ping row</Link>
+        </li>
+        <li {...menu({ kind: 'device', id: 999 })} data-testid="unknown-row">
+          gone
+        </li>
+      </ul>
+    );
+  }
+  const view = () =>
+    render(
+      wrap(
+        <TreeMenuProvider>
+          <Rows />
+        </TreeMenuProvider>,
+      ),
+    );
+  const fire = (el: Element) => {
+    const ev = new MouseEvent('contextmenu', {
+      bubbles: true,
+      cancelable: true,
+      clientX: 20,
+      clientY: 20,
+    });
+    act(() => {
+      el.dispatchEvent(ev);
+    });
+    return ev;
+  };
+
+  it('a device row opens the same device menu as the tree (found by id)', async () => {
+    view();
+    const row = await screen.findByText('core-sw row');
+    await waitFor(() => expect(fire(row).defaultPrevented).toBe(true));
+    expect(screen.getByRole('menu', { name: 'Device core-sw' })).toBeInTheDocument();
+    expect(menuItems()).toContain('Copy IP address');
+    expect(menuItems()).toContain('Delete…');
+  });
+
+  it('a sensor row opens the sensor menu; the device link inside it opens the device menu', async () => {
+    view();
+    const sensorLink = await screen.findByText('Ping row');
+    await waitFor(() => expect(fire(sensorLink).defaultPrevented).toBe(true));
+    expect(screen.getByRole('menu', { name: 'Sensor Ping' })).toBeInTheDocument();
+    fireEvent.keyDown(screen.getByRole('menu'), { key: 'Escape' });
+    fire(screen.getByText('device link'));
+    expect(screen.getByRole('menu', { name: 'Device core-sw' })).toBeInTheDocument();
+  });
+
+  it('inputs and unknown entities keep the browser menu', async () => {
+    view();
+    await screen.findByText('core-sw row');
+    await waitFor(() => expect(fire(screen.getByText('core-sw row')).defaultPrevented).toBe(true));
+    fireEvent.keyDown(screen.getByRole('menu'), { key: 'Escape' });
+    expect(fire(screen.getByLabelText('note')).defaultPrevented).toBe(false);
+    expect(fire(screen.getByText('gone')).defaultPrevented).toBe(false);
+    expect(screen.queryByRole('menu')).toBeNull();
+  });
+
+  it('Shift+F10 on a link in a row opens the menu; Esc returns focus to that link', async () => {
+    view();
+    const link = (await screen.findByText('Ping row')).closest('a')!;
+    await waitFor(() => expect(screen.getByTestId('sensor-row')).toBeInTheDocument());
+    // wait for the tree so the sensor is known
+    await waitFor(() => {
+      link.focus();
+      fireEvent.keyDown(link, { key: 'F10', shiftKey: true });
+      expect(screen.getByRole('menu', { name: 'Sensor Ping' })).toBeInTheDocument();
+    });
+    fireEvent.keyDown(screen.getByRole('menu'), { key: 'Escape' });
+    expect(screen.queryByRole('menu')).toBeNull();
+    expect(document.activeElement).toBe(link);
+  });
+
+  it('an action works from a row: Pause on the device row PATCHes the device', async () => {
+    view();
+    const row = await screen.findByText('core-sw row');
+    await waitFor(() => expect(fire(row).defaultPrevented).toBe(true));
+    fireEvent.click(screen.getByRole('menuitem', { name: 'Pause' }));
+    await waitFor(() => expect(patches).toHaveLength(1));
+    expect(patches[0]).toEqual({ url: '/api/devices/3', body: { enabled: false } });
+  });
+});
+
+describe('Tree inside the shell provider (the ☰ menu)', () => {
+  it('uses the shell provider: exactly one menu opens', async () => {
+    const { unmount } = render(
+      wrap(
+        <TreeMenuProvider>
+          <TreeNav />
+        </TreeMenuProvider>,
+      ),
+    );
+    const link = await deviceLink();
+    fireEvent.contextMenu(link, { clientX: 5, clientY: 5 });
+    expect(screen.getAllByRole('menu')).toHaveLength(1);
+    unmount();
   });
 });

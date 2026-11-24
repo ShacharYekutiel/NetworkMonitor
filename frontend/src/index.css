@@ -1,3 +1,7 @@
+/* Design tokens first: every colour, font, radius and layout size is a CSS variable. */
+@import './styles/tokens.css';
+@import './styles/fonts.css';
+
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
@@ -6,14 +10,41 @@
   html {
     -webkit-font-smoothing: antialiased;
   }
-  html[dir='rtl'] body {
-    font-family: 'Segoe UI', Arial, 'Noto Sans Hebrew', system-ui, sans-serif;
+  body {
+    /* Premium page: a faint light from the top in light mode, true black in dark. */
+    background: linear-gradient(180deg, var(--bg-top), var(--bg) 420px) var(--bg);
+    color: var(--ink);
+    font: 400 15px/1.45 var(--font-sans);
   }
-  :root {
-    color-scheme: light;
+  /* Hebrew text is set in Heebo first (Inter has no Hebrew glyphs). */
+  html[lang='he'] body {
+    font-family: var(--font-hebrew);
   }
-  :root.dark {
-    color-scheme: dark;
+  :focus-visible {
+    outline: 2px solid var(--focus);
+    outline-offset: 3px;
+  }
+  ::selection {
+    background: var(--accent-soft);
+  }
+  ::placeholder {
+    color: var(--ink-subtle);
+  }
+  /* Native checkboxes / radios take the accent; file pickers get a secondary button. */
+  input[type='checkbox'],
+  input[type='radio'] {
+    accent-color: var(--accent);
+  }
+  input[type='file']::file-selector-button {
+    margin-inline-end: 0.75rem;
+    height: 32px;
+    padding: 0 14px;
+    border: 0;
+    border-radius: var(--radius-full);
+    background: var(--chip);
+    color: var(--ink);
+    font: 500 13.5px var(--font-sans);
+    cursor: pointer;
   }
   /*
    * Native <select> popups (notably Chrome/Edge on Windows) draw <option>s with their own
@@ -21,13 +52,100 @@
    */
   select option,
   select optgroup {
-    background-color: #ffffff;
-    color: #0f172a;
+    background-color: var(--surface-raised);
+    color: var(--ink);
   }
-  :root.dark select option,
-  :root.dark select optgroup {
-    background-color: #0f172a;
-    color: #f1f5f9;
+}
+
+/* Premium motion: one easing; everything off for prefers-reduced-motion. */
+@keyframes nm-page-in {
+  from {
+    opacity: 0;
+    transform: translateX(var(--nm-page-dx, 30px));
+  }
+}
+@keyframes nm-flow {
+  to {
+    stroke-dashoffset: -32;
+  }
+}
+@keyframes nm-beat {
+  50% {
+    transform: scale(1.5);
+    opacity: 0.6;
+  }
+}
+@keyframes nm-sheet-in {
+  from {
+    transform: translateX(var(--nm-sheet-from, 100%));
+  }
+}
+[dir='rtl'] {
+  --nm-sheet-from: -100%;
+}
+@keyframes nm-toast-in {
+  from {
+    opacity: 0;
+    transform: translateY(30px);
+  }
+}
+@keyframes nm-pop-in {
+  from {
+    opacity: 0;
+    transform: translateY(4%) scale(0.97);
+  }
+}
+@keyframes nm-panel-in {
+  from {
+    transform: translateX(calc(var(--nm-sheet-from, 100%) * 1.08));
+  }
+}
+/* Settings search: the found field's card flashes a warn ring (prototype .flash). */
+@keyframes nm-flash {
+  0%,
+  40% {
+    box-shadow:
+      var(--shadow-card),
+      0 0 0 3px var(--status-warning);
+  }
+}
+.nm-flash {
+  animation: nm-flash 1.6s cubic-bezier(0.32, 0.72, 0, 1);
+  border-radius: 14px;
+}
+@keyframes nm-fade-in {
+  from {
+    opacity: 0;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
+}
+
+/* The tick of the premium checkbox (components/kit.tsx CHECKBOX): on-accent colour per theme. */
+:root {
+  --nm-check: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='white' stroke-width='3.2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M5 12.5l4.5 4.5L19 7'/%3E%3C/svg%3E");
+}
+:root.dark {
+  --nm-check: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='3.2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M5 12.5l4.5 4.5L19 7'/%3E%3C/svg%3E");
+}
+
+/* Numbers, names, IPs: Inter with tabular figures, isolated so they never flip in RTL. */
+@layer utilities {
+  .num {
+    font-family: var(--font-display);
+    font-variant-numeric: tabular-nums;
+  }
+  .stage-bg {
+    background:
+      radial-gradient(46% 62% at 50% 0%, var(--stage-glow) 0%, transparent 100%),
+      linear-gradient(180deg, var(--stage-top) 0%, var(--stage-mid) 58%, var(--stage-bottom) 100%);
   }
 }
 
@@ -59,7 +177,7 @@
   }
 }
 
-/* [3b] AI answers (markdown-it output, HTML disabled) */
+/* [3b] AI answers (markdown-it output, HTML disabled), in design tokens */
 .nm-md > * + * {
   margin-top: 0.5rem;
 }
@@ -81,32 +199,25 @@
   font-weight: 600;
 }
 .nm-md a {
-  color: rgb(3 105 161);
+  color: var(--accent-ink);
   text-decoration: underline;
   text-underline-offset: 2px;
 }
-.dark .nm-md a {
-  color: rgb(56 189 248);
-}
 .nm-md code {
-  border-radius: 0.25rem;
-  background: rgb(241 245 249);
+  border-radius: var(--radius-sm);
+  background: var(--surface-sunken);
   padding: 0 0.25rem;
+  font-family: var(--font-mono);
   font-size: 0.8em;
-}
-.dark .nm-md code {
-  background: rgb(30 41 59);
 }
 .nm-md pre {
   overflow-x: auto;
-  border-radius: 0.375rem;
-  background: rgb(241 245 249);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  background: var(--surface-sunken);
   padding: 0.5rem;
   font-size: 0.75rem;
   text-align: left;
-}
-.dark .nm-md pre {
-  background: rgb(30 41 59);
 }
 .nm-md pre code {
   background: transparent;
@@ -121,16 +232,17 @@
 }
 .nm-md th,
 .nm-md td {
-  border: 1px solid rgb(226 232 240);
+  border: 1px solid var(--border);
   padding: 0.25rem 0.5rem;
   text-align: start;
 }
-.dark .nm-md th,
-.dark .nm-md td {
-  border-color: rgb(51 65 85);
+.nm-md th {
+  background: var(--surface-sunken);
+  color: var(--ink-muted);
+  font-weight: 500;
 }
 .nm-md blockquote {
-  border-inline-start: 3px solid rgb(203 213 225);
+  border-inline-start: 3px solid var(--border-strong);
   padding-inline-start: 0.5rem;
-  color: rgb(100 116 139);
+  color: var(--ink-muted);
 }

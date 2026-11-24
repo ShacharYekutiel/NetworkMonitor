@@ -148,19 +148,30 @@ class ToolDef:
     gate: Gate = no_gate
     untrusted: tuple[str, ...] = ()
     source_key: str | None = None  # data-source key for the prompt's "Available data" line
+    # [severity] argument -> feature: offered to the model only while the feature is ON
+    feature_args: dict[str, str] = field(default_factory=dict)
     _schema: dict[str, Any] | None = None
 
-    def schema(self) -> dict[str, Any]:
+    def schema(self, gate: GateInfo | None = None) -> dict[str, Any]:
         if self._schema is None:
             self._schema = clean_schema(self.args.model_json_schema())
-        return self._schema
+        hidden = [a for a, f in self.feature_args.items() if gate is None or not gate.on(f)]
+        if not hidden:
+            return self._schema
+        out = dict(self._schema)
+        out["properties"] = {
+            k: v for k, v in (out.get("properties") or {}).items() if k not in hidden
+        }
+        if "required" in out:
+            out["required"] = [k for k in out["required"] if k not in hidden]
+        return out
 
-    def spec(self) -> dict[str, Any]:
+    def spec(self, gate: GateInfo | None = None) -> dict[str, Any]:
         return {
             "toolSpec": {
                 "name": self.name,
                 "description": self.description,
-                "inputSchema": {"json": self.schema()},
+                "inputSchema": {"json": self.schema(gate)},
             }
         }
 
@@ -336,12 +347,18 @@ def time_range(
     max_days: float,
     default: timedelta = timedelta(hours=24),
 ) -> tuple[datetime, datetime]:
-    u = parse_time(until, "until") or now
+    given = parse_time(until, "until")
+    u = given or now
     s = parse_time(since, "since") or (u - default)
     if s > u:
         raise ToolError("invalid_arguments", "since must be before until")
     if u - s > timedelta(days=max_days):
         raise ToolError("range_too_large", f"the range is longer than {max_days:g} days")
+    if given is not None and given.microsecond == 0:
+        # The prompt states "Now" to the second and the model passes it back as `until`; rows
+        # are stored with sub-second times, so an end given to the second covers that whole
+        # second (otherwise a message received in the same second as "Now" is cut off).
+        u = given + timedelta(microseconds=999_999)
     return s, u
 
 

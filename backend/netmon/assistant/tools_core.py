@@ -268,13 +268,28 @@ class ListProblemsArgs(Args):
     group_id: int | None = None
     include_acknowledged: bool = True
     statuses: list[Literal["down", "warning", "unreachable"]] | None = None
+    # [severity] offered only while `alert_severity` is ON (ToolDef.feature_args)
+    severities: list[Literal["critical", "major", "minor", "warning", "info"]] | None = None
     limit: int = Field(20, ge=1, le=100)
+
+
+def _severity_on(ctx: ToolCtx) -> bool:
+    return ctx.gate.on("alert_severity")
 
 
 async def list_problems(ctx: ToolCtx, a: ListProblemsArgs) -> ToolOutput:
     statuses = list(a.statuses or PROBLEM)
     conds = ["s.status = ANY(:st)", "s.enabled", "d.enabled"]
     p: dict[str, Any] = {"st": statuses}
+    sev_on = _severity_on(ctx)
+    order = ""
+    if sev_on:  # [severity] filter and highest first
+        if a.severities:
+            conds.append("s.severity = ANY(:sev)")
+            p["sev"] = list(a.severities)
+        from netmon.services.severity import rank_sql
+
+        order = f"{rank_sql('s.severity')} DESC, "
     if a.group_id is not None:
         conds.append("d.id = ANY(:scope)")
         p["scope"] = await group_scope(ctx.session, a.group_id)
@@ -285,10 +300,10 @@ async def list_problems(ctx: ToolCtx, a: ListProblemsArgs) -> ToolOutput:
             await ctx.session.execute(
                 text(
                     "SELECT s.id, s.name, s.status, s.status_message, s.last_status_change_at, "  # noqa: S608
-                    "s.ack_at, s.ack_comment, d.id AS device_id, d.name AS device_name "
-                    "FROM sensors s JOIN devices d ON d.id = s.device_id "
+                    "s.ack_at, s.ack_comment, d.id AS device_id, d.name AS device_name, "
+                    "s.severity FROM sensors s JOIN devices d ON d.id = s.device_id "
                     f"WHERE {' AND '.join(conds)} "
-                    "ORDER BY CASE s.status WHEN 'down' THEN 0 WHEN 'unreachable' THEN 1 "
+                    f"ORDER BY {order}CASE s.status WHEN 'down' THEN 0 WHEN 'unreachable' THEN 1 "
                     "ELSE 2 END, "
                     "s.last_status_change_at DESC NULLS LAST, s.id LIMIT :lim"
                 ),
@@ -311,6 +326,7 @@ async def list_problems(ctx: ToolCtx, a: ListProblemsArgs) -> ToolOutput:
             "since": iso(r["last_status_change_at"]),
             "acknowledged": r["ack_at"] is not None,
             "ack_comment": cap(r["ack_comment"] or "", 200) or None,
+            **({"severity": r["severity"]} if sev_on else {}),
         }
         for r in rows[: a.limit]
     ]
@@ -479,6 +495,8 @@ class ListEventsArgs(Args):
     group_id: int | None = None
     kinds: list[str] | None = Field(None, max_length=20)
     status: str | None = Field(None, max_length=20, description="new status")
+    # [severity] offered only while `alert_severity` is ON (ToolDef.feature_args)
+    severities: list[Literal["critical", "major", "minor", "warning", "info"]] | None = None
     since: str | None = None
     until: str | None = None
     limit: int = Field(20, ge=1, le=200)
@@ -503,12 +521,17 @@ async def list_events(ctx: ToolCtx, a: ListEventsArgs) -> ToolOutput:
     if a.status:
         conds.append("e.new_status = :st")
         p["st"] = a.status
+    sev_on = _severity_on(ctx)
+    if sev_on and a.severities:  # [severity] the stored event severity
+        conds.append("e.severity = ANY(:sev)")
+        p["sev"] = list(a.severities)
     rows = (
         (
             await ctx.session.execute(
                 text(
                     "SELECT e.id, e.time, e.kind, e.device_id, e.sensor_id, e.device_name, "  # noqa: S608
-                    "e.sensor_name, e.old_status, e.new_status, e.message FROM events e "
+                    "e.sensor_name, e.old_status, e.new_status, e.message, e.severity "
+                    "FROM events e "
                     f"WHERE {' AND '.join(conds)} ORDER BY e.time DESC, e.id DESC LIMIT :lim"
                 ),
                 {**p, "lim": a.limit + 1},
@@ -530,6 +553,7 @@ async def list_events(ctx: ToolCtx, a: ListEventsArgs) -> ToolOutput:
             "old_status": r["old_status"],
             "new_status": r["new_status"],
             "message": cap(r["message"], MESSAGE_CAP),
+            **({"severity": r["severity"]} if sev_on else {}),
         }
         for r in rows[: a.limit]
     ]
@@ -1015,6 +1039,7 @@ register(
         ListProblemsArgs,
         list_problems,
         untrusted=("message", "ack_comment"),
+        feature_args={"severities": "alert_severity"},
     )
 )
 register(
@@ -1043,6 +1068,7 @@ register(
         ListEventsArgs,
         list_events,
         untrusted=("message",),
+        feature_args={"severities": "alert_severity"},
     )
 )
 register(

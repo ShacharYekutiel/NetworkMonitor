@@ -7,7 +7,7 @@ from __future__ import annotations
 from fastapi import APIRouter, Query, Response
 from sqlalchemy import text
 
-from netmon.api.deps import DB, RT, Admin, Viewer
+from netmon.api.deps import DB, RT, Admin, Audit, Viewer
 from netmon.api.errors import ApiError, not_found
 from netmon.models import Device, Sensor
 from netmon.ports import read
@@ -15,7 +15,15 @@ from netmon.ports.eligibility import load_flags
 from netmon.ports.importance import device_importance
 from netmon.ports.scheduler import RefreshRunningError
 from netmon.ports.search import search_mac
-from netmon.schemas.ports import DevicePorts, MacSearchResult, PortDetail, PortsRefreshResponse
+from netmon.schemas.ports import (
+    ConnectedKindIn,
+    DevicePorts,
+    MacSearchResult,
+    Port,
+    PortDetail,
+    PortsRefreshResponse,
+)
+from netmon.services import audit
 from netmon.services import settings as settings_svc
 from netmon.services.serialize import sensor_out
 from netmon.services.status import load_inventory
@@ -299,6 +307,77 @@ async def refresh_ports(device_id: int, _: Admin, rt: RT, session: DB) -> dict:
             [{"device_id": device_id}],
         ) from None
     return {"device_id": device_id, "queued": True}
+
+
+@router.put("/api/devices/{device_id}/ports/{if_index}/connected-kind", response_model=Port)
+async def put_connected_kind(
+    device_id: int,
+    if_index: int,
+    body: ConnectedKindIn,
+    user: Admin,
+    rt: RT,
+    session: DB,
+    ctx: Audit,
+) -> dict:
+    """[premium] The user's choice of what is connected to a port (`kind: null` clears it and
+    the derived kind applies again). Stored in `port_kind_overrides`; never sent to the
+    device. Returns the port as `GET /api/devices/{id}/ports` lists it."""
+    d = await session.get(Device, device_id)
+    if d is None:
+        raise not_found("Device")
+    port = (
+        await session.execute(
+            text(
+                "SELECT name, collected_at FROM switch_ports WHERE device_id = :d AND if_index = :i"
+            ),
+            {"d": device_id, "i": if_index},
+        )
+    ).first()
+    if port is None:
+        raise not_found("Port")
+    old = (
+        await session.execute(
+            text("SELECT kind FROM port_kind_overrides WHERE device_id = :d AND if_index = :i"),
+            {"d": device_id, "i": if_index},
+        )
+    ).scalar()
+    if body.kind is None:
+        await session.execute(
+            text("DELETE FROM port_kind_overrides WHERE device_id = :d AND if_index = :i"),
+            {"d": device_id, "i": if_index},
+        )
+    else:
+        await session.execute(
+            text(
+                "INSERT INTO port_kind_overrides (device_id, if_index, kind, updated_at, "
+                "updated_by) VALUES (:d, :i, :k, now(), :u) ON CONFLICT (device_id, if_index) "
+                "DO UPDATE SET kind = EXCLUDED.kind, updated_at = EXCLUDED.updated_at, "
+                "updated_by = EXCLUDED.updated_by"
+            ),
+            {"d": device_id, "i": if_index, "k": body.kind, "u": user.id},
+        )
+    if old != body.kind:
+        await audit.record(
+            session,
+            ctx,
+            "switch_port.update",
+            audit.entity("switch_port", if_index, f"{d.name} {port.name}", device_id=device_id),
+            {"connected_kind": [old, body.kind]},
+        )
+    await session.commit()
+    _, _, ports = await _port_rows(rt, session, device_id)
+    out = next(p for p in ports if p["if_index"] == if_index)
+    if old != body.kind:  # open ports views / port modals refetch
+        rt.hub.broadcast(
+            "ports.updated",
+            {
+                "device_id": device_id,
+                "ok": True,
+                "collected_at": out["collected_at"],
+                "arp_source": False,
+            },
+        )
+    return read.strip_private(out)
 
 
 @router.get("/api/search/mac", response_model=MacSearchResult)

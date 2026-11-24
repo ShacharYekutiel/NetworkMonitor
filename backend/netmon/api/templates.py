@@ -11,6 +11,7 @@ from netmon.schemas import ApplyTemplateRequest
 from netmon.templates import registry
 from netmon.templates.apply import apply_template
 from netmon.templates.builtin import get_template, list_templates
+from netmon.templates.replaces import replace_candidates
 from netmon.templates.selection import REFRESH_WAIT_S, interface_choices
 
 router = APIRouter()
@@ -59,7 +60,25 @@ async def apply_device_template(
         interfaces=body.interfaces,
         remove_unselected=body.remove_unselected_interfaces,
         refresh_s=REFRESH_WAIT_S,
+        remove_sensor_ids=body.remove_sensor_ids,
     )
+
+
+@router.get("/api/devices/{device_id}/apply-template/replaces")
+async def apply_template_replaces(
+    device_id: int,
+    _: Admin,
+    session: DB,
+    template_id: str = Query(..., max_length=64),
+) -> dict:
+    """[template-switch] The device's sensors this template supersedes (the apply dialog
+    offers to delete them; `failing` ones are pre-ticked). No SNMP: database only."""
+    if await session.get(Device, device_id) is None:
+        raise not_found("Device")
+    template = get_template(template_id)
+    if template is None:
+        raise validation_error(["query", "template_id"], "unknown template")
+    return {"items": await replace_candidates(session, device_id, template)}
 
 
 @router.get("/api/devices/{device_id}/apply-template/interfaces")

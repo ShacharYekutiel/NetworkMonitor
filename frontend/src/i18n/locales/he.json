@@ -57,7 +57,7 @@
   "nav": {
     "dashboard": "לוח בקרה",
     "events": "אירועים",
-    "notifications": "התראות",
+    "notifications": "ערוצי התראה",
     "settings": "הגדרות",
     "users": "משתמשים",
     "account": "החשבון שלי",
@@ -78,7 +78,44 @@
     "newDevices": "התקנים חדשים",
     "backups": "גיבויי תצורה",
     "reports": "דוחות",
-    "assistant": "שאל את הרשת"
+    "assistant": "שאל את הרשת",
+    "inventory": "מלאי",
+    "health": "חיישנים לפי מצב",
+    "toggleInventory": "הצגה או הסתרה של המלאי",
+    "short": {
+      "dashboard": "סקירה",
+      "assistant": "שאלו",
+      "events": "אירועים",
+      "logs": "יומנים",
+      "map": "מפה",
+      "flows": "תעבורה",
+      "newDevices": "חדשים",
+      "backups": "גיבויים",
+      "discovery": "גילוי",
+      "templates": "תבניות",
+      "find": "חיפוש",
+      "maintenance": "תחזוקה",
+      "reports": "דוחות",
+      "notifications": "ערוצי התראה",
+      "settings": "הגדרות",
+      "users": "משתמשים",
+      "audit": "ביקורת",
+      "inventory": "מלאי"
+    },
+    "allScreens": "כל המסכים",
+    "openMenu": "כל המסכים",
+    "closeMenu": "סגירת התפריט",
+    "pin": "נעיצת התפריט בצד",
+    "unpin": "ביטול נעיצת התפריט",
+    "menuView": "תצוגת התפריט",
+    "screens": "מסכים",
+    "search": "חיפוש",
+    "section": {
+      "monitor": "ניטור",
+      "equipment": "ציוד",
+      "operations": "תפעול",
+      "admin": "ניהול"
+    }
   },
   "tree": {
     "search": "חיפוש קבוצות, התקנים וחיישנים",
@@ -89,7 +126,7 @@
   },
   "login": {
     "title": "כניסה",
-    "subtitle": "התחברו כדי לנטר את הרשת שלכם.",
+    "subtitle": "התחברו כדי לראות מה קורה ברשת.",
     "username": "שם משתמש",
     "password": "סיסמה",
     "submit": "כניסה",
@@ -97,8 +134,7 @@
     "foreignDomain": "\"{{domain}}\" אינו התחום של הספרייה. השתמשו ב-{{netbios}}\\user או בשם המשתמש המקומי."
   },
   "setup": {
-    "title": "ברוכים הבאים ל-NetworkMonitor",
-    "subtitle": "ניצור עכשיו את חשבון מנהל המערכת.",
+    "subtitle": "שני צעדים ואתם בפנים.",
     "stepLanguage": "שפה",
     "stepAdmin": "מנהל מערכת",
     "language": "שפת הממשק וההתראות",
@@ -107,7 +143,11 @@
     "email": "דוא\"ל (רשות)",
     "password": "סיסמה",
     "confirmPassword": "אימות סיסמה",
-    "submit": "יצירת מנהל מערכת"
+    "submit": "יצירת מנהל מערכת",
+    "welcome": "ברוכים הבאים",
+    "titleAdmin": "יוצרים מנהל",
+    "steps": "שלבי ההתקנה",
+    "title": "ברוכים הבאים ל-NetworkMonitor"
   },
   "dashboard": {
     "title": "לוח בקרה",
@@ -115,7 +155,7 @@
     "sensors": "חיישנים",
     "devices": "התקנים",
     "total": "סה\"כ",
-    "problems": "חיישנים בתקלה ובאזהרה",
+    "problems": "התראות",
     "allGood": "כל החיישנים תקינים.",
     "recentEvents": "אירועים אחרונים",
     "allEvents": "כל האירועים",
@@ -128,7 +168,7 @@
     "sensorCount_one": "חיישן אחד",
     "sensorCount_two": "2 חיישנים",
     "sensorCount_other": "{{count}} חיישנים",
-    "acknowledged": "תקלות שאושרו",
+    "acknowledged": "התראות שאושרו",
     "andMore_one": "ועוד אחת",
     "andMore_two": "ועוד 2",
     "andMore_other": "ועוד {{count}}",
@@ -152,7 +192,21 @@
     "sensors": "חיישנים",
     "sensorCount": "חיישנים: {{count}}",
     "deleteTitle": "מחיקת קבוצה",
-    "deleteConfirm": "למחוק את הקבוצה \"{{name}}\" יחד עם כל תת-הקבוצות, ההתקנים והחיישנים שלה? חיישנים מושפעים: {{count}}. לא ניתן לבטל פעולה זו."
+    "deleteConfirm": "למחוק את הקבוצה \"{{name}}\" יחד עם כל תת-הקבוצות, ההתקנים והחיישנים שלה? חיישנים מושפעים: {{count}}. לא ניתן לבטל פעולה זו.",
+    "tag": {
+      "down_one": "תקלה אחת",
+      "down_two": "2 תקלות",
+      "down_other": "{{count}} תקלות",
+      "warning_one": "אזהרה אחת",
+      "warning_two": "2 אזהרות",
+      "warning_other": "{{count}} אזהרות",
+      "unreachable_one": "1 לא נגיש",
+      "unreachable_two": "2 לא נגישים",
+      "unreachable_other": "{{count}} לא נגישים"
+    },
+    "dependsOn": "תלוי ב",
+    "maintenance": "תחזוקה",
+    "editDependency": "עריכת תלות"
   },
   "devices": {
     "add": "הוספת התקן",
@@ -249,7 +303,12 @@
     "diskName": "דיסק {{descr}}",
     "textOk": "תואם",
     "passiveNote": "חיישן אירועים: מונע ממלכודות/Syslog, לא נדגם",
-    "passiveCreateHint": "חיישני אירועים אינם נדגמים: מצבם נקבע מכללי אירועים (מלכודות, Syslog) או מזיהוי ריצוד. אחד לכל התקן וסוג."
+    "passiveCreateHint": "חיישני אירועים אינם נדגמים: מצבם נקבע מכללי אירועים (מלכודות, Syslog) או מזיהוי ריצוד. אחד לכל התקן וסוג.",
+    "everyN_one": "כל שנייה",
+    "everyN_two": "כל 2 שניות",
+    "everyN_other": "כל {{count}} שניות",
+    "range": "טווח זמן",
+    "channels": "ערוצים"
   },
   "iface": {
     "name": "ממשק",
@@ -303,16 +362,19 @@
     "filteredSensor": "מסונן לפי חיישן #{{id}}.",
     "maintenance": "תחזוקה",
     "inMaintenance": "בזמן תחזוקה",
-    "notInMaintenance": "מחוץ לתחזוקה"
+    "notInMaintenance": "מחוץ לתחזוקה",
+    "transition": "{{from}} ← {{to}}",
+    "subtitle": "כל מה שקרה, מהחדש לישן",
+    "moreFilters": "עוד מסננים"
   },
   "eventKind": {
     "status_change": "שינוי סטטוס",
-    "notification": "התראה",
+    "notification": "הודעה",
     "system": "מערכת",
     "discovery": "גילוי",
     "acknowledge": "אישור",
     "maintenance": "תחזוקה",
-    "notification_sent": "התראה נשלחה",
+    "notification_sent": "הודעה נשלחה",
     "port_change": "שינוי פורט",
     "config_change": "שינוי תצורה",
     "new_device": "התקן חדש"
@@ -324,10 +386,25 @@
     "next": "העמוד הבא"
   },
   "notifications": {
-    "title": "התראות"
+    "title": "ערוצי התראה",
+    "subtitle": "ערוצים מעבירים · כללים מחליטים מי מקבל מה ומתי",
+    "afterDelay": "אחרי {{d}}",
+    "now": "מיד",
+    "escalatesAfter": "אסקלציה אחרי {{d}}",
+    "remindsEvery": "תזכורת כל {{d}}",
+    "flowTitle": "אסקלציה · ״{{name}}״",
+    "tlStart": "ההתראה מתחילה",
+    "tlNotify": "נשלחת הודעה מיד",
+    "tlNotifyStill": "נשלחת הודעה אם המצב נמשך",
+    "tlEscalate": "אין אישור → אסקלציה",
+    "tlEvery": "כל {{d}}",
+    "tlRemind": "תזכורת עד אישור",
+    "tlRecovery": "התאוששות",
+    "tlRecoveryHint": "הודעת ״תקין״ נשלחת לאותם ערוצים",
+    "noEscalation": "אין אסקלציה או תזכורת בכלל הזה."
   },
   "channels": {
-    "title": "ערוצי התראה",
+    "title": "ערוצים",
     "add": "הוספת ערוץ",
     "edit": "עריכת ערוץ",
     "type": "סוג",
@@ -351,7 +428,10 @@
     "aiAsk": "אפשר ‎/ask",
     "aiAskHint": "מנהלים מקושרים יכולים לשאול את העוזר בצ׳אט פרטי עם הבוט הזה.",
     "aiNoteEmail": "שליחת הערות AI כתשובה",
-    "aiNoteEmailHint": "לכללי התראה עם הערת AI: תשובה בשרשור של הודעת ההתראה."
+    "aiNoteEmailHint": "לכללי התראה עם הערת AI: תשובה בשרשור של הודעת ההתראה.",
+    "addFirst": "הוספת ערוץ",
+    "noneHint": "ערוץ הוא היעד של ההתראות: מייל, טלגרם, Microsoft Teams או Webhook.",
+    "enabledLabel": "{{name}} פעיל"
   },
   "rules": {
     "title": "כללי התראה",
@@ -368,7 +448,10 @@
     "none": "אין עדיין כללי התראה.",
     "deleteTitle": "מחיקת כלל",
     "aiNote": "הערת AI",
-    "aiNoteHint": "אחרי הודעת התקלה הראשונה מתווספת הערת AI קצרה (עריכה בטלגרם, הודעת המשך ב-Teams, תשובה בדוא״ל). ההתראה לעולם אינה מתעכבת."
+    "aiNoteHint": "אחרי הודעת ההתראה הראשונה מתווספת הערת AI קצרה (עריכה בטלגרם, הודעת המשך ב-Teams, תשובה בדוא״ל). ההודעה לעולם אינה מתעכבת.",
+    "addFirst": "הוספת כלל",
+    "noneHint": "כלל מחליט אילו התראות נשלחות לאילו ערוצים, ומתי.",
+    "enabledLabel": "{{name}} פעיל"
   },
   "settings": {
     "title": "הגדרות",
@@ -464,7 +547,16 @@
     "you": "את/ה",
     "deleteTitle": "מחיקת משתמש",
     "source": "מקור",
-    "ldapManaged": "משתמש זה מנוהל ב-Active Directory: הסיסמה, התפקיד והדוא\"ל מגיעים מ-AD. אפשר לשנות שפה, להשבית או למחוק את המשתמש (משתמש שנמחק ייווצר מחדש בכניסה הבאה)."
+    "ldapManaged": "משתמש זה מנוהל ב-Active Directory: הסיסמה, התפקיד והדוא\"ל מגיעים מ-AD. אפשר לשנות שפה, להשבית או למחוק את המשתמש (משתמש שנמחק ייווצר מחדש בכניסה הבאה).",
+    "subtitle": "מנהלים מנהלים הכול · צופים רואים בלבד",
+    "countAdmins_one": "מנהל אחד",
+    "countAdmins_other": "{{count}} מנהלים",
+    "countViewers_one": "צופה אחד",
+    "countViewers_other": "{{count}} צופים",
+    "inactive": "לא פעיל",
+    "neverLoggedIn": "לא התחבר מעולם",
+    "countAdmins_two": "2 מנהלים",
+    "countViewers_two": "2 צופים"
   },
   "account": {
     "title": "החשבון שלי",
@@ -479,7 +571,25 @@
     "oidcManaged": "החשבון הזה נכנס עם Microsoft Entra ID, והסיסמה שלו מנוהלת שם.",
     "sessions": "התחברויות",
     "sessionsHint": "התנתקות מסיימת בשרת את ההתחברות של הדפדפן הזה. אם ייתכן שמישהו אחר משתמש בחשבון שלכם, התנתקו בבת אחת מכל הדפדפנים והמכשירים (אסימוני API אינם מושפעים).",
-    "logoutEverywhere": "התנתקות מכל המכשירים"
+    "logoutEverywhere": "התנתקות מכל המכשירים",
+    "activeTokens_one": "אסימון פעיל אחד",
+    "activeTokens_other": "{{count}} אסימונים פעילים",
+    "myTokens": "אסימוני ה-API שלי",
+    "logoutHere": "התנתקות",
+    "logoutEverywhereConfirm": "כל ההתחברויות שלך יסתיימו, כולל זו. תצטרכו להתחבר מחדש בכל מכשיר. אסימוני API ימשיכו לעבוד.",
+    "logoutEverywhereGo": "התנתקות מהכול",
+    "sessionsDirectoryHint": "התחברויות AD, Kerberos ו-Microsoft מסתיימות לכל המאוחר אחרי 12 שעות.",
+    "activeTokens_two": "2 אסימונים פעילים",
+    "sessionEnded": "הדפדפן הזה נותק.",
+    "unknownBrowser": "דפדפן לא מזוהה",
+    "thisBrowser": "הדפדפן הזה",
+    "lastActive": "פעיל {{when}}",
+    "signOut": "התנתקות",
+    "signOutSession": "התנתקות {{name}}",
+    "sessionsAll_one": "הצגת כולם ({{count}})",
+    "sessionsAll_other": "הצגת כולם ({{count}})",
+    "sessionsFewer": "הצגת פחות",
+    "sessionsAll_two": "הצגת שניהם"
   },
   "validation": {
     "required": "שדה חובה.",
@@ -503,7 +613,10 @@
     "durH_other": "{{count}} שע׳",
     "durM_one": "דקה",
     "durM_two": "2 דק׳",
-    "durM_other": "{{count}} דק׳"
+    "durM_other": "{{count}} דק׳",
+    "colD": "{{count}} י׳",
+    "colH": "{{count}} שע׳",
+    "colM": "{{count}} דק׳"
   },
   "errors": {
     "bad_request": "הבקשה אינה תקינה.",
@@ -563,7 +676,7 @@
     "report_running": "הדוח הזה כבר רץ.",
     "ack_expired": "פג תוקף הקישור.",
     "ack_invalid": "הקישור אינו תקין.",
-    "ack_stale": "התקלה הזו כבר אינה פעילה.",
+    "ack_stale": "ההתראה הזו כבר אינה פעילה.",
     "not_in_group": "לחשבון שלך אין תפקיד ב-NetworkMonitor.",
     "oidc_group_overage": "החשבון שלך חבר ביותר מדי קבוצות ו-Entra ID לא שולח אותן; השתמשו בתפקידי אפליקציה.",
     "inactive": "החשבון הזה מושבת.",
@@ -887,7 +1000,9 @@
     "whenNotIn": "לא באחד מ-{{list}}",
     "whenAny": "עונה",
     "matchOidPrefixes": "sysObjectID {{list}}",
-    "matchDescr": "sysDescr תואם {{re}}"
+    "matchDescr": "sysDescr תואם {{re}}",
+    "details": "פרטים",
+    "shortInterfaces": "ממשקים"
   },
   "discovery": {
     "title": "גילוי",
@@ -1054,16 +1169,22 @@
     "openProfiles": "פרופילים שמורים",
     "optFingerprint": "טביעת אצבע (web/SSH/telnet)",
     "fingerprintHint": "קורא את כותרת דף האינטרנט, כותרת השרת ובאנר SSH/telnet של מארחים עם פורטים 80/443/8080/8443/22/23 פתוחים, כדי לזהות התקנים בלי SNMP. לא נשלחים פרטי התחברות.",
-    "fingerprintTimeout": "זמן קצוב לטביעת אצבע (ms)"
+    "fingerprintTimeout": "זמן קצוב לטביעת אצבע (ms)",
+    "foundN": "נמצאו {{n}}",
+    "newN": "{{n}} חדשים",
+    "notifyTo": "התראה ל-{{list}}",
+    "noNotify": "ללא התראה",
+    "scanning": "סורק…",
+    "startedAt": "התחילה {{time}}"
   },
   "ack": {
     "acknowledged": "אושר",
-    "action": "אישור תקלה",
+    "action": "אישור טיפול",
     "by": "אושר על ידי {{by}} ב-{{at}}",
     "comment": "הערה",
     "commentHint": "רשות, למשל \"מחליפים ספק כוח, צפי 14:00\". גלוי לכולם.",
-    "done": "התקלה אושרה.",
-    "explain": "אישור משתיק את ההתראות הנוספות על התקלה הזו (תקלה, הסלמה ותזכורות). המצב לא משתנה, והאישור מתבטל אוטומטית בשינוי המצב הבא. התראת החזרה לתקינות עדיין נשלחת.",
+    "done": "ההתראה אושרה.",
+    "explain": "אישור משתיק את ההודעות הנוספות על ההתראה הזו (הודעת התקלה, הסלמה ותזכורות). המצב לא משתנה, והאישור מתבטל אוטומטית בשינוי המצב הבא. הודעת החזרה לתקינות עדיין נשלחת.",
     "title": "אישור {{name}}",
     "tooltip": "אושר על ידי {{by}} ב-{{at}}",
     "unack": "ביטול אישור",
@@ -1102,7 +1223,7 @@
     "deleteTitle": "מחיקת חלון תחזוקה",
     "badge": "בתחזוקה",
     "badgeUntil": "בתחזוקה עד {{time}}",
-    "globalBanner": "התחזוקה \"{{name}}\" פעילה לכל ההתקנים עד {{time}}. ההתראות מושהות.",
+    "globalBanner": "התחזוקה \"{{name}}\" פעילה לכל ההתקנים עד {{time}}. הודעות ההתראה מושהות.",
     "view": "הצגה",
     "scope": "חל על",
     "scopes": {
@@ -1158,15 +1279,24 @@
       "weekdays": "בחרו לפחות יום אחד.",
       "time": "בפורמט HH:MM (00:00–23:59).",
       "duration": "1 עד 10080 דקות (7 ימים)."
-    }
+    },
+    "pausedNote": "בזמן חלון פעיל הודעות ההתראה מושהות",
+    "week": {
+      "this": "השבוע",
+      "today": "לשבוע הנוכחי",
+      "prev": "השבוע הקודם",
+      "next": "השבוע הבא"
+    },
+    "emptyTitle": "אין חלונות תחזוקה",
+    "emptyText": "תכננו חלון כדי להשהות הודעות התראה להתקן, לקבוצה או לכל הרשת בזמן עבודה."
   },
   "escalation": {
     "title": "הסלמה ותזכורות",
     "on": "פעיל",
-    "help": "הסלמה שולחת את התקלה לערוצים נוספים אם לא אושרה ולא חזרה לתקינות אחרי הזמן שנקבע (מתחילת התקלה). תזכורות חוזרות על ההתראה לערוצי הכלל. שתיהן נעצרות כשהתקלה מאושרת, חוזרת לתקינות, או כשההתקן בתחזוקה.",
+    "help": "הסלמה שולחת את ההתראה לערוצים נוספים אם לא אושרה ולא חזרה לתקינות אחרי הזמן שנקבע (מתחילת ההתראה). תזכורות חוזרות על ההודעה לערוצי הכלל. שתיהן נעצרות כשההתראה מאושרת, חוזרת לתקינות, או כשההתקן בתחזוקה.",
     "enable": "הסלמה אם לא אושרה",
     "after": "הסלמה אחרי",
-    "afterHint": "מתחילת התקלה; לפחות ההשהיה שלמעלה (דקה עד 7 ימים).",
+    "afterHint": "מתחילת ההתראה; לפחות ההשהיה שלמעלה (דקה עד 7 ימים).",
     "minutes": "דקות",
     "channels": "ערוצי הסלמה",
     "channelsHint": "מי מקבל את ההסלמה (למשל אחראי התורנות). גם החזרה לתקינות נשלחת אליהם.",
@@ -1235,7 +1365,9 @@
       "empty": "הוסיפו לפחות ערך אחד."
     },
     "mib": "שם ב-MIB",
-    "own": "ערך מותאם"
+    "own": "ערך מותאם",
+    "otherHint": "כל ערך שלא ברשימה",
+    "editHint": "שינוי הערכים דרך \"עריכה\" (הגדרות החיישן). עד 32 ערכים."
   },
   "topology": {
     "title": "מפת רשת",
@@ -1261,6 +1393,20 @@
     "layoutSaved": "הפריסה נשמרה.",
     "resetLayout": "איפוס פריסה",
     "resetConfirm": "לשכוח את כל מיקומי הצמתים ולסדר את המפה מחדש אוטומטית?",
+    "dragHintAdmin": "גררו התקן כדי להזיז אותו; הסידור נשמר לכל המשתמשים.",
+    "dragHintViewer": "גררו התקן כדי להזיז אותו בתצוגה שלכם; רק מנהלים יכולים לשמור את הסידור.",
+    "fit": "התאמה לתצוגה",
+    "arrange": "סידור אוטומטי",
+    "arrangeTitle": "סידור אוטומטי של המפה",
+    "arrangeConfirm": "כל התקן במפה הזו יקבל מיקום חדש. הסידור השמור יוחלף לכל המשתמשים.",
+    "arrangeApply": "סידור",
+    "arranged": "המפה סודרה.",
+    "arrangeStyle": {
+      "tiered": "שכבות",
+      "tieredHint": "ההתקנים המקושרים ביותר למעלה והשכנים שלהם מתחת; התקנים ללא קישור בשורות מסודרות לפי קבוצה.",
+      "groups": "לפי קבוצה",
+      "groupsHint": "כל קבוצה בגוש משלה, והקישורים שלה בשכבות בתוכו."
+    },
     "deleteStale_one": "מחיקת קישור ישן אחד",
     "deleteStale_two": "מחיקת 2 קישורים ישנים",
     "deleteStale_other": "מחיקת {{count}} קישורים ישנים",
@@ -1373,7 +1519,11 @@
       "ap": "נקודת גישה",
       "switch": "מתג / Uplink",
       "trunk": "Trunk",
-      "macCount": "כתובות MAC שנלמדו (Uplink)"
+      "macCount": "כתובות MAC שנלמדו (Uplink)",
+      "free": "פנוי",
+      "up": "פעיל",
+      "bad": "תקלה",
+      "warn": "אזהרה"
     },
     "legendHint": {
       "empty": "אין כבל, או שהמכשיר בצד השני כבוי.",
@@ -1401,10 +1551,16 @@
       "lowerLayerDown": "שכבה תחתונה למטה"
     },
     "connectedKind": {
-      "none": "כלום",
-      "client": "לקוח",
-      "ap": "נקודת גישה",
-      "switch": "מתג"
+      "none": "לא זוהה",
+      "ap": "נקודת WiFi",
+      "switch": "מתג (אפליינק)",
+      "computer": "מחשב",
+      "phone": "טלפון IP",
+      "printer": "מדפסת",
+      "camera": "מצלמה",
+      "server": "שרת",
+      "router": "נתב",
+      "unknown": "מכשיר לא מזוהה"
     },
     "mode": {
       "access": "Access",
@@ -1545,6 +1701,44 @@
       "moreTitle_one": "עוד התקן אחד בפורט זה",
       "moreTitle_two": "עוד 2 התקנים בפורט זה",
       "moreTitle_other": "עוד {{count}} התקנים בפורט זה"
+    },
+    "kindShort": {
+      "computer": "מחשב",
+      "phone": "טלפון",
+      "ap": "AP",
+      "printer": "מדפסת",
+      "camera": "מצלמה",
+      "server": "שרת",
+      "switch": "מתג",
+      "router": "נתב",
+      "unknown": "לא מזוהה"
+    },
+    "kindChooser": {
+      "title": "סוג המכשיר המחובר",
+      "auto": "אוטומטי",
+      "detected": "זוהה: {{kind}}",
+      "nothing": "לא זוהה דבר",
+      "hint": "משנה את האייקון בפורט ובטבלה. \"אוטומטי\" נקבע לפי LLDP/CDP וכתובת ה-MAC.",
+      "manual": "ידני",
+      "saved": "סוג המכשיר בפורט נקבע ל{{kind}}",
+      "savedAuto": "סוג המכשיר יזוהה אוטומטית"
+    },
+    "kindSource": {
+      "lldp": "LLDP",
+      "cdp": "CDP",
+      "oui": "יצרן MAC",
+      "manual": "ידני"
+    },
+    "stateFilter": "מצב הפורט",
+    "stateChip": {
+      "all": "הכול",
+      "up": "מחוברים",
+      "problem": "בעיות",
+      "free": "פנויים"
+    },
+    "lagState": {
+      "down": "LAG למטה",
+      "degraded": "LAG פגוע"
     }
   },
   "health": {
@@ -1582,7 +1776,13 @@
     "access": "גישה",
     "arpTitle": "רשומות ARP",
     "arpSource": "נלמד מ",
-    "help": "טבלאות ה-MAC נקראות עם מלאי הפורטים של כל מתג; כתובות IP מגיעות מנתבים וחומות אש עם „איסוף ARP”."
+    "help": "טבלאות ה-MAC נקראות עם מלאי הפורטים של כל מתג; כתובות IP מגיעות מנתבים וחומות אש עם „איסוף ARP”.",
+    "allResults": "כל התוצאות",
+    "bestAccess": "הכי סביר: פורט גישה",
+    "bestUplink": "הכי סביר: אפליינק",
+    "now": "עכשיו",
+    "name": "שם",
+    "locations": "איפה נראה"
   },
   "inventoryMode": {
     "auto": "אוטומטי",
@@ -1633,7 +1833,7 @@
       "chat_ack": "אישור טיפול מ-Telegram/Teams",
       "assistant": "עוזר (Amazon Bedrock)",
       "ai_explain_alert": "הסבר התראות",
-      "ai_correlation": "קיבוץ תקלות לאירועים",
+      "ai_correlation": "קיבוץ התראות לאירועים",
       "ai_alert_notes": "הערות AI בהתראות",
       "ai_config_diff": "הסבר שינויי תצורה",
       "ai_syslog_digest": "תקציר syslog יומי",
@@ -1642,7 +1842,8 @@
       "ai_knowledge": "מאגר ידע",
       "ai_chat_ask": "שאלות מטלגרם (/ask)",
       "ai_report_summary": "סיכום AI בדוחות",
-      "send_config_excerpts": "שליחת קטעי תצורה"
+      "send_config_excerpts": "שליחת קטעי תצורה",
+      "alert_severity": "חומרת התראות"
     },
     "desc": {
       "traps": "קבלת מלכודות SNMP ‏(v1/v2c/v3) מהתקנים, שמירה וחיפוש.",
@@ -1663,16 +1864,17 @@
       "noc": "דפי מצב במסך מלא למסכי קיר, נפתחים בקישור סודי ורק מכתובות מורשות.",
       "chat_ack": "כפתור \"אישור טיפול\" ב-Telegram, וקישור בהודעות Teams ודוא\"ל.",
       "assistant": "חיבור ל-Amazon Bedrock ודף \"שאל את הרשת\" למנהלים. המתג הראשי של כל יכולות ה-AI.",
-      "ai_explain_alert": "כפתור \"הסבר\" בתקלות, באירועים ובחיישנים: מה קרה, מה קדם לכך, סיבה סבירה ובדיקות הבאות.",
-      "ai_correlation": "מקבץ תקלות קשורות (תלויות, טופולוגיה, אותו התקן) לאירוע אחד עם סיכום AI קצר.",
-      "ai_alert_notes": "מוסיף הערת AI של שורה–שתיים אחרי הודעת התקלה הראשונה, בכללים שבחרו בכך. ההתראה אף פעם לא מתעכבת.",
+      "ai_explain_alert": "כפתור \"הסבר\" בהתראות, באירועים ובחיישנים: מה קרה, מה קדם לכך, סיבה סבירה ובדיקות הבאות.",
+      "ai_correlation": "מקבץ התראות קשורות (תלויות, טופולוגיה, אותו התקן) לאירוע אחד עם סיכום AI קצר.",
+      "ai_alert_notes": "מוסיף הערת AI של שורה–שתיים אחרי הודעת ההתראה הראשונה, בכללים שבחרו בכך. ההודעה אף פעם לא מתעכבת.",
       "ai_config_diff": "סימוני סיכון והסבר בשפה פשוטה בהשוואת תצורות.",
       "ai_syslog_digest": "בכל בוקר: מה היה חריג ב-syslog של אתמול לעומת השבוע הקודם.",
       "ai_rule_drafts": "\"תאר את הכלל…\" בטופסי כללי ההתראה וכללי האירועים ממלא את הטופס בטיוטה לבדיקה.",
       "ai_template_drafts": "סריקת SNMP מוגבלת לקריאה בלבד של התקן וטיוטת YAML של תבנית התקן לבדיקה.",
       "ai_knowledge": "מאפשר לעוזר לחפש במאגר הידע שלך ב-Amazon Bedrock (נהלים, תרשימים) ולצטט ממנו.",
       "ai_chat_ask": "מנהלים מקושרים יכולים לשלוח ‎/ask <שאלה> לבוט הטלגרם בצ׳אט פרטי.",
-      "ai_report_summary": "פסקת סיכום קצרה בראש דוחות שבחרו בכך."
+      "ai_report_summary": "פסקת סיכום קצרה בראש דוחות שבחרו בכך.",
+      "alert_severity": "סיווג כל התראה כקריטית, חמורה, קלה, אזהרה או מידע, כמו במערכות NMS מקצועיות: תגיות וספירות בדף הבית ובאירועים, סינון לפי חומרה, כללי התראה לחומרות מסוימות בלבד ושורת חומרה בהודעות דוא״ל, Telegram ו-Teams. כבוי: שום דבר לא משתנה."
     },
     "hint": {
       "needsIngest": "נדרשות מלכודות SNMP או Syslog פעילות כדי לקבל משהו.",
@@ -1701,7 +1903,8 @@
       "alertNotes": "בחירה לכל כלל התראה בנפרד; ערוצי טלגרם, Teams ודוא״ל.",
       "ruleDraftsIngest": "טיוטות של כללי אירועים דורשות Traps או Syslog.",
       "kbAws": "דורש מאגר ידע בחשבון ה-AWS שלך.",
-      "chatAskChannel": "הפעל \"אפשר ‎/ask\" בערוץ טלגרם."
+      "chatAskChannel": "הפעל \"אפשר ‎/ask\" בערוץ טלגרם.",
+      "severityMapping": "אחרי ההפעלה, הסיווג נמצא בהגדרות ← כללי ← חומרת התראות; לחיישנים, לכללי ההתראה ולכללי המלכודות וה-Syslog נוספות אפשרויות חומרה."
     },
     "status": {
       "on": "פעילה",
@@ -1736,7 +1939,7 @@
       "logs": "יומנים ואירועים",
       "network": "רשת",
       "access": "גישה",
-      "notifications": "התראות",
+      "notifications": "ערוצי התראה",
       "assistant": "עוזר (AI)"
     },
     "backupBuiltinTitle": "להפעיל את הכללים המובנים לזיהוי שינוי תצורה?",
@@ -1788,10 +1991,10 @@
     "23": "מקומי 7"
   },
   "logs": {
-    "title": "מלכודות ו-Syslog",
+    "title": "לוגים ו-Traps",
     "tab": {
       "syslog": "Syslog",
-      "traps": "מלכודות",
+      "traps": "Traps",
       "unknown": "מקורות לא מוכרים",
       "rules": "כללים",
       "digest": "תקציר"
@@ -2088,7 +2291,12 @@
     "countersSince": "מונים מאז {{time}}",
     "v3Failures": "כשלי אימות SNMPv3 אחרונים",
     "engineId": "Engine ID",
-    "reason": "סיבה"
+    "reason": "סיבה",
+    "chip": {
+      "ok": "המקלטים מאזינים",
+      "error": "שגיאה במקלט",
+      "off": "המקלטים כבויים"
+    }
   },
   "ingestSettings": {
     "title": "מלכודות ו-Syslog",
@@ -2349,6 +2557,52 @@
       "api_token": "אסימון API",
       "assistant_conversation": "שיחה עם העוזר",
       "assistant_message": "תשובת העוזר"
+    },
+    "subtitle": "כל שינוי וכל כניסה · נשמר {{days}} יום",
+    "noneHint": "אין רשומות שמתאימות לסינון. הרחיבו את טווח הזמן או נקו מסנן.",
+    "failed": "נכשל",
+    "removal": "מחיקה",
+    "verb": {
+      "create": "נוצר",
+      "update": "שונה",
+      "delete": "נמחק",
+      "revoke": "בוטל",
+      "enable": "הופעל",
+      "disable": "כובה",
+      "run": "הרצה",
+      "test": "בדיקה",
+      "export": "ייצוא",
+      "ack": "אושר",
+      "acknowledge": "אושר",
+      "unacknowledge": "האישור בוטל",
+      "settings_update": "ההגדרות שונו",
+      "unlink": "הקישור נותק",
+      "rule_draft": "טיוטת כלל",
+      "template_draft": "טיוטת תבנית",
+      "template_walk": "סריקת SNMP לתבנית",
+      "question": "שאלה",
+      "conversation_delete": "שיחה נמחקה",
+      "digest": "תקציר",
+      "answer": "תשובה",
+      "explain_alert": "הסבר התראה",
+      "alert_note": "הערה להתראה",
+      "cancel": "נעצר",
+      "cert_delete": "תעודה נמחקה",
+      "cert_upload": "תעודה הועלתה",
+      "csr_create": "נוצר CSR",
+      "csr_delete": "CSR נמחק",
+      "diff_explain": "הסבר שינוי תצורה",
+      "feedback": "משוב",
+      "incident_summary": "סיכום אירוע מקובץ",
+      "kb_test": "בדיקת מאגר ידע",
+      "report_summary": "סיכום דוח",
+      "tool_call": "שליפה"
+    },
+    "authVerb": {
+      "login": "התחברות",
+      "login_failed": "כניסה נכשלה",
+      "logout": "התנתקות",
+      "password_change": "הסיסמה שונתה"
     }
   },
   "timeline": {
@@ -2357,7 +2611,7 @@
     "by": "על ידי {{actor}}",
     "kind": {
       "status": "מצב",
-      "notification": "התראה",
+      "notification": "הודעה",
       "ack": "אישור",
       "maintenance": "תחזוקה",
       "trap": "מלכודת",
@@ -2395,7 +2649,15 @@
     },
     "revoke": "ביטול",
     "revokeTitle": "ביטול אסימון",
-    "revokeConfirm": "לבטל את \"{{name}}\"? סקריפטים שמשתמשים בו יפסיקו לעבוד מיד."
+    "revokeConfirm": "לבטל את \"{{name}}\"? סקריפטים שמשתמשים בו יפסיקו לעבוד מיד.",
+    "daysLeft_one": "נשאר יום אחד",
+    "daysLeft_other": "נשארו {{count}} ימים",
+    "done": "סיום",
+    "noneHint": "צרו אסימון לסקריפט שקורא או משנה את NetworkMonitor.",
+    "noneAllHint": "אף משתמש עוד לא יצר אסימון API.",
+    "showOnceTitle": "מוצג פעם אחת בלבד",
+    "yourToken": "האסימון שלך",
+    "daysLeft_two": "נשארו יומיים"
   },
   "teams": {
     "help": "ב-Teams: ערוץ ← Workflows ← \"Post to a channel when a webhook request is received\", ואז הדביקו כאן את הכתובת.",
@@ -2530,7 +2792,15 @@
       "no_credentials": "אין פרטי SSH בהתקן או בקבוצות שלו.",
       "no_driver": "אין מנהל התקן שמתאים להתקן הזה; בחרו אחד בהגדרות ההתקן.",
       "host_key_changed": "מפתח ה-SSH של ההתקן השתנה; אשרו את המפתח החדש או אפסו אותו."
-    }
+    },
+    "diffMode": "תצוגת ההשוואה",
+    "changedAt": "השתנה {{when}}",
+    "noChange": "ללא שינוי",
+    "kept": "שמורות",
+    "versionsN_one": "גרסה אחת",
+    "versionsN_two": "2 גרסאות",
+    "versionsN_other": "{{count}} גרסאות",
+    "devices": "התקנים"
   },
   "driver": {
     "label": "מנהל התקן",
@@ -2691,7 +2961,14 @@
       "exporter_limit": "מגבלת מקורות",
       "aggregation_overflow": "גלישה בצבירה",
       "db_error": "שגיאות מסד נתונים"
-    }
+    },
+    "subline_one": "NetFlow · IPFIX · sFlow מ-exporter אחד",
+    "peakIn": "שיא נכנס",
+    "volume": "נפח בטווח",
+    "overTime": "תעבורה לאורך זמן",
+    "now": "עכשיו",
+    "subline_other": "NetFlow · IPFIX · sFlow מ-{{count}} exporters",
+    "subline_two": "NetFlow · IPFIX · sFlow מ-2 exporters"
   },
   "exporter": {
     "address": "כתובת",
@@ -2784,7 +3061,13 @@
       "new": "חדש",
       "known": "מוכר",
       "allowed": "ברשימת היתר"
-    }
+    },
+    "device": "התקן",
+    "modeLearning": "בלמידה",
+    "modeWatching": "בהשגחה",
+    "watchingHint": "התקן שלא נראה מעולם יפעיל התראה",
+    "switchesLine": "נקראו {{done}} מתוך {{total}} מתגים",
+    "randomMac": "כתובת אקראית"
   },
   "allowlist": {
     "intro": "התקנים שכתובת ה-MAC שלהם מתחילה בקידומת מורשית לא מתריעים (למשל כל המדפסות של יצרן מסוים).",
@@ -2977,7 +3260,7 @@
       "longest": "ההשבתה הארוכה ביותר",
       "sensor": "חיישן",
       "notifications": "התראות",
-      "problemTime": "זמן בתקלה",
+      "problemTime": "זמן בהתראה",
       "port": "פורט",
       "episodes": "אירועים",
       "transitions": "מעברים",
@@ -2986,7 +3269,8 @@
       "lines": "שורות",
       "lastChange": "שינוי אחרון",
       "detected": "זוהה",
-      "acknowledged": "אושר"
+      "acknowledged": "אושר",
+      "severity": "חומרה"
     },
     "err": {
       "name": "הזינו שם (עד 128 תווים).",
@@ -3011,6 +3295,18 @@
       "timeout": "חרג מהזמן",
       "unverified_numbers": "הושמט (המספרים לא תאמו לנתונים)",
       "disabled": "היכולת כבויה"
+    },
+    "subtitle": "זמינות, התראות, פורטים ושינויי קונפיגורציה — בתזמון או לפי דרישה",
+    "delivery": {
+      "sent": "נשלח",
+      "partial": "נשלח ל-{{ok}} מתוך {{total}}"
+    },
+    "paperSub": "{{from}} – {{to}} · נוצר {{time}}",
+    "paperHeadline": "זמינות כוללת {{pct}}",
+    "fig": {
+      "devices": "התקנים",
+      "downtime": "שעות השבתה",
+      "outages": "תקלות"
     }
   },
   "reportSection": {
@@ -3053,8 +3349,8 @@
     "widget": {
       "summary": "מספרי סיכום",
       "down_devices": "התקנים שנפלו",
-      "problems": "תקלות",
-      "recent_alerts": "התראות אחרונות",
+      "problems": "התראות",
+      "recent_alerts": "שינויי מצב אחרונים",
       "map": "מפה",
       "group_tiles": "אריחי קבוצות"
     },
@@ -3075,9 +3371,9 @@
     "maintenance": "בתחזוקה",
     "downDevices": "התקנים שנפלו ({{n}})",
     "allUp": "כל ההתקנים תקינים",
-    "problems": "תקלות ({{n}})",
-    "noProblems": "אין תקלות",
-    "recentAlerts": "התראות אחרונות",
+    "problems": "התראות ({{n}})",
+    "noProblems": "אין התראות",
+    "recentAlerts": "שינויי מצב אחרונים",
     "map": "מפה",
     "ack": "בטיפול",
     "updated": "עודכן {{time}}",
@@ -3090,11 +3386,11 @@
     "loadError": "אין חיבור לשרת. מנסה שוב…"
   },
   "chatAck": {
-    "pageTitle": "אישור טיפול בתקלה",
+    "pageTitle": "אישור טיפול בהתראה",
     "expired": "פג תוקף הקישור.",
     "off": "אישור טיפול מהצ'אט כבוי.",
     "since": "מאז {{time}} ‏({{rel}})",
-    "notActive": "התקלה הזו כבר אינה פעילה.",
+    "notActive": "ההתראה הזו כבר אינה פעילה.",
     "already": "כבר אושר טיפול",
     "done": "הטיפול אושר.",
     "comment": "הערה (רשות)",
@@ -3102,7 +3398,7 @@
     "adminOnly": "רק מנהלים יכולים לאשר טיפול.",
     "openApp": "פתיחת NetworkMonitor",
     "accounts": "חשבונות צ'אט",
-    "accountsIntro": "קשרו את חשבון ה-Telegram שלכם כדי לאשר טיפול בתקלות בכפתור שבהודעות Telegram.",
+    "accountsIntro": "קשרו את חשבון ה-Telegram שלכם כדי לאשר טיפול בהתראות בכפתור שבהודעות Telegram.",
     "linkTelegram": "קישור Telegram",
     "noLinks": "אין חשבונות מקושרים.",
     "linkedAt": "קושר ב-{{date}}",
@@ -3132,7 +3428,8 @@
     "takenOver": "ה-webhook של הבוט נמחק.",
     "teamsLimit": "ב-Teams כפתור אישור הטיפול פותח את NetworkMonitor בדפדפן; הוא עובד מרשת המשרד או דרך VPN.",
     "emailHint": "מוסיף קישור לאישור טיפול שפותח את NetworkMonitor.",
-    "needsPublicUrl": "קישורים דורשים את הכתובת הציבורית (הגדרות ← כללי)."
+    "needsPublicUrl": "קישורים דורשים את הכתובת הציבורית (הגדרות ← כללי).",
+    "commentPlaceholder": "למשל: בטיפול, צפי 11:00"
   },
   "trapCollapse": {
     "title": "מלכודות חוזרות",
@@ -3178,7 +3475,10 @@
     "apply": "החלה",
     "bulkDone_one": "ההשפעה עודכנה לחיישן אחד.",
     "bulkDone_two": "ההשפעה עודכנה ל-2 חיישנים.",
-    "bulkDone_other": "ההשפעה עודכנה ל-{{count}} חיישנים."
+    "bulkDone_other": "ההשפעה עודכנה ל-{{count}} חיישנים.",
+    "saved": "ההשפעה נשמרה.",
+    "selectHint": "סמנו כמה חיישנים כדי לשנות את ההשפעה שלהם על מצב ההתקן בבת אחת.",
+    "bulkBar": "חיישנים שנבחרו"
   },
   "applyPorts": {
     "title": "פורטים",
@@ -3215,6 +3515,25 @@
     "removedTitle_one": "נמחק חיישן אחד",
     "removedTitle_two": "נמחקו 2 חיישנים",
     "removedTitle_other": "נמחקו {{count}} חיישנים"
+  },
+  "applyReplaces": {
+    "title": "חיישנים שהתבנית מחליפה",
+    "hint": "התבנית מודדת אותם בדרך משלה, ולכן אין בהם עוד צורך. חיישן מסומן יימחק יחד עם ההיסטוריה שלו. חיישנים שנכשלים בהתקן הזה מסומנים; חיישנים תקינים לא – הבחירה שלך.",
+    "selectAll": "בחירת הכול",
+    "rowLabel": "מחיקת {{name}}",
+    "failing": "לא נתמך בהתקן הזה",
+    "reason": {
+      "replaced": "לתבנית יש חיישן משלה למדידה הזו",
+      "other_template": "נוצר על ידי התבנית „{{template}}”",
+      "other_template_unknown": "נוצר על ידי תבנית אחרת"
+    },
+    "keepAll": "לא סומן דבר: החיישנים האלה יישמרו.",
+    "deleteCount_one": "חיישן אחד יימחק, עם ההיסטוריה שלו.",
+    "deleteCount_two": "2 חיישנים יימחקו, עם ההיסטוריה שלהם.",
+    "deleteCount_other": "{{count}} חיישנים יימחקו, עם ההיסטוריה שלהם.",
+    "resultTitle_one": "נמחק חיישן אחד שהתבנית מחליפה",
+    "resultTitle_two": "נמחקו 2 חיישנים שהתבנית מחליפה",
+    "resultTitle_other": "נמחקו {{count}} חיישנים שהתבנית מחליפה"
   },
   "assistant": {
     "title": "שאל את הרשת",
@@ -3312,7 +3631,7 @@
       "generic": "מריץ {{tool}}…",
       "search_devices": "מחפש התקנים…",
       "get_device": "קורא את פרטי ההתקן…",
-      "list_problems": "מאתר תקלות…",
+      "list_problems": "מאתר התראות…",
       "search_sensors": "מחפש חיישנים…",
       "get_sensor_history": "קורא היסטוריית חיישן…",
       "list_events": "קורא אירועים…",
@@ -3472,7 +3791,9 @@
         "range": "{{min}}–{{max}}",
         "time": "HH:MM",
         "money": "מספר ≥ 0"
-      }
+      },
+      "heroTitle": "העוזר",
+      "usagePage": "דף השימוש"
     },
     "cert": {
       "title": "תעודת Roles Anywhere",
@@ -3559,7 +3880,7 @@
       "assistant_retention_days": "שמירת שיחות (ימים)",
       "assistant_artifact_retention_days": "שמירת תוצרי AI (ימים)",
       "correlation_window_min": "חלון קיבוץ (דקות)",
-      "correlation_min_alerts": "מינימום תקלות לאירוע",
+      "correlation_min_alerts": "מינימום התראות לאירוע",
       "correlation_daily_summaries": "סיכומי AI ביום",
       "correlation_attach_to_alert": "שליחת סיכום האירוע כהערת ה-AI של התראת השורש",
       "alert_note_timeout_s": "זמן מרבי להערה אחרי ההתראה (שניות)",
@@ -3581,9 +3902,9 @@
       "notesWhere": "הפעל \"הערת AI\" בכל כלל התראה שצריך לקבל אחת.",
       "diffAuto": "אחרת ההסבר רץ כשלוחצים על \"הסבר את השינויים\".",
       "reportOptIn": "הפעל \"סיכום AI\" בכל דוח שצריך לקבל אחד.",
-      "ruleDraftsWhere": "השתמש ב\"תאר את הכלל…\" בכללי התראה חדשים (התראות) ובכללי אירועים (Traps ו-Syslog ← כללים).",
+      "ruleDraftsWhere": "השתמש ב\"תאר את הכלל…\" בכללי התראה חדשים (ערוצי התראה) ובכללי אירועים (Traps ו-Syslog ← כללים).",
       "templateDraftsWhere": "השתמש ב\"טיוטת תבנית מהתקן\" בדף התבניות.",
-      "explainWhere": "\"הסבר\" מופיע בתקלות בלוח הבקרה, בדפי חיישנים, באירועים ובאירועים מקובצים."
+      "explainWhere": "\"הסבר\" מופיע בהתראות בלוח הבקרה, בדפי חיישנים, באירועים ובאירועים מקובצים."
     },
     "chatAsk": {
       "howTo": "בצ׳אט פרטי עם הבוט, שלח ‎/ask ואחריו שאלה (עד 1000 תווים).",
@@ -3629,7 +3950,18 @@
         "duplicate": "המודל כבר ברשימה",
         "label": "השם לתצוגה ארוך מדי (עד 60 תווים)"
       }
-    }
+    },
+    "answerFailed": "התשובה נכשלה",
+    "toSettings": "להגדרות",
+    "aiShort": "נוצר ע״י AI — ייתכנו טעויות",
+    "day": {
+      "today": "היום",
+      "yesterday": "אתמול",
+      "week": "השבוע",
+      "earlier": "קודם לכן"
+    },
+    "capTitle": "הגעתם לתקרה של היום",
+    "capBody": "השאלות היומיות שלך ({{used}} מתוך {{limit}}). אפשר לשאול שוב מחר."
   },
   "explain": {
     "button": "הסבר",
@@ -3675,7 +4007,25 @@
     "device": "התקן",
     "sensor": "חיישן",
     "recoveredAt": "התאושש",
-    "root": "שורש"
+    "root": "שורש",
+    "subtitle": "התראות קשורות (תלויות, טופולוגיה, אותו התקן) מקובצות לאירוע אחד",
+    "since": "פתוח מאז {{time}}",
+    "resolvedAt": "נפתר ב-{{time}}",
+    "grouped_one": "התראה אחת קובצה",
+    "grouped_two": "2 התראות קובצו",
+    "grouped_other": "{{count}} התראות קובצו",
+    "rootShort": "שורש: {{name}}",
+    "rootConf": "שורש: {{name}} (ביטחון: {{confidence}})",
+    "noAiShort": "ללא סיכום AI",
+    "loadError": "לא ניתן לטעון אירועים מקובצים",
+    "noneHint": "כשכמה התראות קשורות זו לזו, הן יופיעו כאן כאירוע אחד עם התקן חשוד כשורש.",
+    "pageError": "לא ניתן לטעון את האירוע",
+    "pageErrorHint": "ייתכן שהאירוע נמחק או שאין לך הרשאה לראות אותו.",
+    "kindLine": "אירוע מקובץ",
+    "recoveredN_one": "אחד התאושש",
+    "recoveredN_two": "2 התאוששו",
+    "recoveredN_other": "{{count}} התאוששו",
+    "timeline": "ציר זמן"
   },
   "confidence3": {
     "low": "נמוך",
@@ -3714,7 +4064,9 @@
     "interface_enabled": "ממשק הופעל",
     "vlan_removed": "הוסר VLAN",
     "vlan_removed_cmd": "הוסר VLAN",
-    "routing_changed": "שונה ניתוב"
+    "routing_changed": "שונה ניתוב",
+    "toLine": "לשורה",
+    "riskTag": "סיכון {{level}}"
   },
   "digest": {
     "title": "תקציר syslog",
@@ -3750,7 +4102,14 @@
     "byProgram": "לפי תוכנה",
     "byDevice": "לפי התקן",
     "byHour": "לפי שעה",
-    "deliveries": "שליחות"
+    "deliveries": "שליחות",
+    "baselineN": "קו בסיס {{n}}",
+    "devices": "התקנים",
+    "unusualTitle": "חריגים",
+    "noneHint": "התקציר הראשון ייווצר אחרי יום שלם של הודעות syslog.",
+    "prevDay": "היום הקודם",
+    "nextDay": "היום הבא",
+    "all": "כל התקצירים"
   },
   "draft": {
     "describe": "תאר את הכלל…",
@@ -3765,7 +4124,21 @@
     "cannotTitle": "העוזר לא הצליח להכין טיוטת כלל מהתיאור הזה.",
     "cannotHint": "תאר מה לנטר ומה צריך לקרות, למשל:",
     "cannotExampleAlert": "התרע לי בטלגרם כשמתג ליבה כלשהו מושבת במשך 2 דקות",
-    "cannotExampleEvent": "אזהרה כשמתג רושם כשל התחברות SSH (תוכנה SSHS או sshd)"
+    "cannotExampleEvent": "אזהרה כשמתג רושם כשל התחברות SSH (תוכנה SSHS או sshd)",
+    "examples": "דוגמאות",
+    "manual": "מילוי ידני",
+    "stepsLabel": "שלבי הטיוטה",
+    "step": {
+      "describe": "תיאור",
+      "draft": "טיוטה",
+      "review": "בדיקה ושמירה"
+    },
+    "exAlert1": "טלגרם כשמתג ליבה כלשהו מושבת במשך 2 דקות",
+    "exAlert2": "מייל למנהל IT כשסניף לא עונה 5 דקות",
+    "exAlert3": "התראה על כל אזהרה בקבוצת השרתים",
+    "exEvent1": "אזהרה כשמתג רושם הפרת port security",
+    "exEvent2": "התראה כש-UPS עובר לסוללה (trap)",
+    "exEvent3": "אזהרה כשכניסת SSH נכשלת"
   },
   "tdraft": {
     "open": "טיוטת תבנית מהתקן",
@@ -3832,7 +4205,8 @@
     "saved": "נשמר {{file}}",
     "cannotTitle": "העוזר לא הצליח להכין טיוטת תבנית מהסריקה הזו.",
     "cannotHint": "סרוק את תתי-העצים עם ערכי ההתקן עצמו (enterprise, ENTITY, HOST-RESOURCES) ותאר מה לנטר, למשל:",
-    "cannotExample": "לנטר מצב ספקי כוח ומאווררים וטמפרטורת מעבד"
+    "cannotExample": "לנטר מצב ספקי כוח ומאווררים וטמפרטורת מעבד",
+    "warnings": "אזהרות"
   },
   "usage": {
     "title": "שימוש בעוזר",
@@ -3888,7 +4262,13 @@
     "outputTokens": "פלט",
     "unknownModel": "מודל לא ידוע",
     "cacheRead": "טוקני קלט שנקראו ממטמון ההנחיות",
-    "cached": "ממטמון"
+    "cached": "ממטמון",
+    "backgroundStoppedHint": "הסברים, תקציר syslog וסיכומי אירועים ימשיכו בחודש הבא או כשתעלו את התקרה. שאלות ישירות עדיין עובדות.",
+    "pctOfMonthlyCap": "{{pct}}% מהתקרה החודשית",
+    "ofMonthlyCap": "מהתקרה החודשית",
+    "inOut": "קלט + פלט",
+    "noneHint": "כשמנהלים ישאלו שאלות או כשיכולות הרקע ירוצו, השימוש יופיע כאן.",
+    "loadError": "לא ניתן לטעון את נתוני השימוש"
   },
   "treeMenu": {
     "label": {
@@ -3917,7 +4297,7 @@
       "copyIp": "העתקת כתובת IP",
       "copyName": "העתקת השם",
       "runNow": "הרצה עכשיו",
-      "acknowledge": "אישור תקלה…",
+      "acknowledge": "אישור טיפול…",
       "edit": "עריכה…",
       "delete": "מחיקה…"
     },
@@ -3943,5 +4323,205 @@
     "clear": "ניקוי החיפוש",
     "none": "לא נמצאו הגדרות",
     "requires": "דורש את התכונה {{feature}} — הפעילו אותה בלשונית {{tab}}"
+  },
+  "auth": {
+    "oneLine": "כל הרשת. במבט אחד."
+  },
+  "island": {
+    "ok": "הכול תקין",
+    "down_one": "תקלה אחת",
+    "down_other": "{{count}} תקלות",
+    "attention_one": "אחד דורש טיפול",
+    "attention_other": "{{count}} דורשים טיפול",
+    "warnings_one": "אזהרה אחת",
+    "warnings_other": "{{count}} אזהרות",
+    "sensors_one": "חיישן אחד",
+    "sensors_other": "{{count}} חיישנים",
+    "down_two": "2 תקלות",
+    "attention_two": "2 דורשים טיפול",
+    "warnings_two": "2 אזהרות",
+    "sensors_two": "2 חיישנים"
+  },
+  "home": {
+    "needAttention_one": "דורש טיפול",
+    "needAttention_other": "דורשים טיפול",
+    "allGood": "הכול תקין",
+    "subline": "{{sensors}} ב-{{devices}}",
+    "restOk": "הכול אחר תקין",
+    "site": "אתר",
+    "allSites": "כל האתרים",
+    "network": "הרשת",
+    "all": "הכול",
+    "quick": "פעולות מהירות",
+    "counters": "חיישנים לפי מצב",
+    "qa": {
+      "problems": "התראות",
+      "events": "אירועים",
+      "maintenance": "תחזוקה",
+      "find": "איתור",
+      "map": "מפה",
+      "devices": "התקנים"
+    },
+    "sub": {
+      "map": "קישורי LLDP/CDP בין התקנים",
+      "logs": "Syslog ו-Traps",
+      "flows": "NetFlow · IPFIX · sFlow",
+      "newDevices": "התקנים שהופיעו לראשונה",
+      "backups": "היסטוריית קונפיגורציה והשוואות",
+      "maintenance": "חלונות מתוכננים בלי הודעות התראה",
+      "reports": "דוחות זמינות מתוזמנים",
+      "templates": "ערכות חיישנים לפי סוג התקן",
+      "events": "כל מה שקרה, מהחדש לישן",
+      "all": "הגדרות, משתמשים, תבניות ועוד"
+    },
+    "days_one": "יום אחד",
+    "days_two": "יומיים",
+    "days_other": "{{count}} ימים",
+    "map": {
+      "label": "מפת הרשת",
+      "edit": "עריכת מפה",
+      "mode": "מצב",
+      "mode_auto": "אוטומטי",
+      "mode_backbone": "עמוד שדרה",
+      "modeHint_auto": "המפה נבנית מהטופולוגיה (LLDP/CDP) ומעץ הקבוצות.",
+      "modeHint_backbone": "אתם בוחרים את התקני עמוד השדרה לפי הסדר; הקבוצות הראשיות נתלות מתחת לאחרון.",
+      "showInternet": "הצגת \"אינטרנט\"",
+      "backbone": "התקני עמוד השדרה, מלמעלה למטה",
+      "noBackbone": "אין התקנים. הוסיפו לפחות אחד.",
+      "addDevice": "הוספת התקן…",
+      "maxGroups": "מספר קבוצות מרבי",
+      "up": "הזזה למעלה",
+      "down": "הזזה למטה",
+      "remove": "הסרה",
+      "saved": "המפה נשמרה",
+      "editSub": "המפה במסך הבית · למנהלים בלבד",
+      "showInternetHint": "צומת עליון שמייצג את ספקי האינטרנט",
+      "notSet": "המפה עוד לא הוגדרה",
+      "notSetText": "בינתיים מוצגות הקבוצות הראשיות. בחרו את התקני עמוד השדרה כדי לראות את הדרך מהאינטרנט ועד כל קבוצה.",
+      "setup": "הגדרת המפה"
+    },
+    "needAttention_two": "דורשים טיפול"
+  },
+  "kit": {
+    "aiFine": "נוצר ע״י AI — ייתכנו טעויות. כדאי לבדוק לפני שפועלים."
+  },
+  "sensorBulk": {
+    "delete": "מחיקה…",
+    "deleteTitle_one": "מחיקת חיישן אחד",
+    "deleteTitle_two": "מחיקת 2 חיישנים",
+    "deleteTitle_other": "מחיקת {{count}} חיישנים",
+    "deleteConfirm_one": "למחוק את החיישן ואת ההיסטוריה שלו? לא ניתן לבטל פעולה זו.",
+    "deleteConfirm_two": "למחוק את 2 החיישנים ואת ההיסטוריה שלהם? לא ניתן לבטל פעולה זו.",
+    "deleteConfirm_other": "למחוק את {{count}} החיישנים ואת ההיסטוריה שלהם? לא ניתן לבטל פעולה זו.",
+    "deleteButton_one": "מחיקת החיישן",
+    "deleteButton_two": "מחיקת 2 החיישנים",
+    "deleteButton_other": "מחיקת {{count}} החיישנים",
+    "listLabel": "חיישנים למחיקה",
+    "deleted_one": "חיישן אחד נמחק.",
+    "deleted_two": "2 חיישנים נמחקו.",
+    "deleted_other": "{{count}} חיישנים נמחקו."
+  },
+  "tableCols": {
+    "columns": "עמודות",
+    "reset": "איפוס העמודות",
+    "moveUp": "הזזת {{name}} מוקדם יותר",
+    "moveDown": "הזזת {{name}} מאוחר יותר",
+    "resize": "שינוי רוחב העמודה {{name}}",
+    "resizeHint": "גררו לשינוי הרוחב · לחיצה כפולה לאיפוס · חיצים במקלדת כשהקצה בפוקוס",
+    "dragHint": "גררו כדי להזיז את העמודה",
+    "actions": "פעולות",
+    "select": "בחירה"
+  },
+  "aiStatus": {
+    "openIncidents_zero": "אין אירועים מקובצים פתוחים",
+    "openIncidents_one": "אירוע מקובץ פתוח אחד",
+    "openIncidents_two": "2 אירועים מקובצים פתוחים",
+    "openIncidents_other": "{{count}} אירועים מקובצים פתוחים",
+    "lastDigest": "התקציר האחרון, {{day}}: {{status}}",
+    "lastDigestReason": "התקציר האחרון, {{day}}: {{status}} ({{reason}})",
+    "digestStatus": {
+      "ok": "מוכן",
+      "failed": "נכשל",
+      "skipped": "דולג"
+    },
+    "noteSent": "ההערה האחרונה נשלחה",
+    "noteSkipped": "ההערה האחרונה דולגה: {{reason}}",
+    "reason": {
+      "empty": "תשובה ריקה",
+      "feature_off": "היכולת כבויה"
+    }
+  },
+  "severity": {
+    "label": "חומרה",
+    "level": {
+      "critical": "קריטית",
+      "major": "חמורה",
+      "minor": "קלה",
+      "warning": "אזהרה",
+      "info": "מידע"
+    },
+    "tagTitle": "חומרה: {{level}}",
+    "counts": "התראות לפי חומרה",
+    "countTitle": "{{level}}: {{open}} שלא אושרו, {{all}} בסך הכול",
+    "countAll": "{{all}} כולל מאושרות",
+    "filterLabel": "סינון ההתראות לפי חומרה",
+    "showAll": "כל החומרות",
+    "noMatch": "אין התראות בחומרות שנבחרו.",
+    "filter": "חומרה",
+    "sort": {
+      "label": "סדר",
+      "time": "החדשות קודם",
+      "severity": "החמורות קודם"
+    },
+    "automatic": "אוטומטי (לפי המיפוי)",
+    "automaticIs": "אוטומטי (לפי המיפוי): {{level}}",
+    "automaticEvent": "אוטומטי (כלל המלכודת / Syslog, אחרת המיפוי: {{level}})",
+    "whenDown": "חומרה כשהחיישן בתקלה",
+    "whenWarning": "חומרה כשהחיישן באזהרה",
+    "overrideHint": "לחיישן זה בלבד; גוברת על המיפוי ועל כללי המלכודות וה-Syslog. שינוי מסווג מחדש התראה פעילה.",
+    "current": "חומרת ההתראה הנוכחית",
+    "mapping": {
+      "title": "חומרת התראות",
+      "intro": "כך מסווגת התראה לפי מצב החיישן וההשפעה שלו על מצב ההתקן. חומרה שהוגדרה לחיישן עצמו וחומרה של כלל מלכודת / Syslog קודמות למיפוי.",
+      "reclassify": "השמירה מסווגת מחדש את ההתראות הפעילות עכשיו. ההיסטוריה (אירועים, דוחות) שומרת את החומרה שנרשמה בה.",
+      "status": "מצב",
+      "impact": "השפעה",
+      "severity": "חומרה",
+      "default": "ברירת מחדל",
+      "changed": "שונה מברירת המחדל",
+      "info": "מידע",
+      "infoHint": "חזרה לתקין, מושהה, לא נגיש, לא ידוע",
+      "reset": "איפוס לברירות המחדל",
+      "resetTitle": "איפוס הסיווג",
+      "resetConfirm": "להחזיר לכל שורה את חומרת ברירת המחדל? ההתראות הפעילות עכשיו יסווגו מחדש.",
+      "saved": "הסיווג נשמר.",
+      "resetDone": "הסיווג אופס לברירות המחדל.",
+      "readOnly": "רק מנהלים יכולים לשנות את הסיווג.",
+      "view": "איך נקבעת החומרה",
+      "edit": "עריכה בהגדרות",
+      "subject": "הוספת החומרה לנושא הדוא״ל",
+      "subjectHint": "לדוגמה \"[NetworkMonitor] [קריטית] תקלה: core-sw / Ping\". כבוי: הנושא נשאר בדיוק כמו קודם (מסנני הדואר ממשיכים לעבוד)."
+    },
+    "rule": {
+      "label": "רק לחומרות",
+      "hint": "בלי בחירה = כל החומרות (כמו קודם). בשימוש רק כשחומרת התראות פעילה.",
+      "summary": "חומרות: {{list}}"
+    },
+    "eventRule": {
+      "label": "חומרת ההתראה",
+      "hint": "לא חובה. החומרה של ההתראה שהכלל מעלה; ריק = לפי המיפוי.",
+      "auto": "לפי המיפוי"
+    },
+    "bulk": {
+      "action": "הגדרת חומרה…",
+      "title_one": "הגדרת חומרה לחיישן אחד",
+      "title_two": "הגדרת חומרה ל-2 חיישנים",
+      "title_other": "הגדרת חומרה ל-{{count}} חיישנים",
+      "leave": "ללא שינוי",
+      "done_one": "החומרה עודכנה לחיישן אחד.",
+      "done_two": "החומרה עודכנה ל-2 חיישנים.",
+      "done_other": "החומרה עודכנה ל-{{count}} חיישנים.",
+      "pickOne": "יש לשנות לפחות אחת משתי ההגדרות."
+    }
   }
 }

@@ -14,8 +14,28 @@ import {
 import { SearchIcon, XIcon } from './icons';
 import { cx, Input } from './ui';
 
-const HIGHLIGHT = ['outline', 'outline-2', 'outline-offset-2', 'outline-amber-400'];
+const HIGHLIGHT = ['nm-flash'];
 const HIGHLIGHT_MS = 2500;
+
+/** The label with every literal occurrence of the query marked (prototype .sres mark). */
+function Marked({ text, query }: { text: string; query: string }) {
+  const q = query.trim();
+  if (!q) return <>{text}</>;
+  const re = new RegExp(`(${q.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')})`, 'ig');
+  return (
+    <>
+      {text.split(re).map((part, i) =>
+        i % 2 ? (
+          <mark key={i} className="rounded-[4px] bg-status-warning-soft px-0.5 text-ink">
+            {part}
+          </mark>
+        ) : (
+          part
+        ),
+      )}
+    </>
+  );
+}
 
 type Target = { selectors: string[]; n: number };
 
@@ -123,14 +143,14 @@ export function SettingsSearch({
   return (
     <div
       ref={box}
-      className="relative w-full max-w-xl"
+      className="relative w-full"
       onBlur={(e) => {
         if (!box.current?.contains(e.relatedTarget as Node | null)) setOpen(false);
       }}
     >
       <SearchIcon
-        size={14}
-        className="pointer-events-none absolute start-2.5 top-1/2 -translate-y-1/2 text-slate-400"
+        size={20}
+        className="pointer-events-none absolute start-5 top-1/2 -translate-y-1/2 text-ink-muted"
       />
       <Input
         type="search"
@@ -146,7 +166,7 @@ export function SettingsSearch({
         }}
         onFocus={() => setOpen(true)}
         onKeyDown={onKey}
-        className="ps-8 pe-8"
+        className="!h-[52px] !rounded-[20px] !border-0 !bg-surface !pe-12 !ps-[52px] !text-[16px] shadow-card [&::-webkit-search-cancel-button]:appearance-none"
         data-testid="settings-search"
       />
       {query && (
@@ -157,9 +177,9 @@ export function SettingsSearch({
             setQuery('');
             setOpen(false);
           }}
-          className="absolute end-2 top-1/2 -translate-y-1/2 rounded p-0.5 text-slate-400 hover:text-slate-700 dark:hover:text-slate-200"
+          className="absolute end-3 top-1/2 inline-flex h-8 w-8 -translate-y-1/2 items-center justify-center rounded-full text-ink-subtle hover:bg-chip hover:text-ink-muted"
         >
-          <XIcon size={14} />
+          <XIcon size={16} />
         </button>
       )}
       {show && (
@@ -167,11 +187,11 @@ export function SettingsSearch({
           id="settings-search-results"
           role="listbox"
           aria-label={t('settingsSearch.label')}
-          className="absolute inset-x-0 top-full z-30 mt-1 max-h-96 overflow-auto rounded-md bg-white py-1 shadow-lg ring-1 ring-slate-200 dark:bg-slate-900 dark:ring-slate-700"
+          className="absolute inset-x-0 top-full z-30 mt-2 grid max-h-[380px] overflow-y-auto rounded-[20px] bg-surface p-1.5 shadow-[0_18px_60px_rgba(0,0,0,0.18),0_0_0_1px_var(--border)] motion-safe:animate-[nm-pop-in_.3s_cubic-bezier(.32,.72,0,1)]"
           data-testid="settings-search-results"
         >
           {results.length === 0 && (
-            <p className="px-3 py-2 text-sm text-slate-500">{t('settingsSearch.none')}</p>
+            <p className="m-0 p-[18px] text-center text-ink-muted">{t('settingsSearch.none')}</p>
           )}
           {results.map((d, i) => {
             const ok = entryAvailable(d.entry, features);
@@ -187,21 +207,16 @@ export function SettingsSearch({
                 onMouseEnter={() => setActive(i)}
                 onClick={() => go(d)}
                 className={cx(
-                  'block w-full px-3 py-1.5 text-start',
-                  i === active && 'bg-sky-50 dark:bg-slate-800',
+                  'grid w-full gap-0.5 rounded-[12px] px-3.5 py-2.5 text-start',
+                  i === active && 'bg-chip',
                 )}
                 data-testid="settings-search-result"
                 data-entry={d.entry.id}
               >
-                <span
-                  className={cx(
-                    'block text-sm font-medium',
-                    !ok && 'text-slate-500 dark:text-slate-400',
-                  )}
-                >
-                  {d.label}
+                <span className={cx('block text-[15px] font-medium', !ok && 'text-ink-muted')}>
+                  <Marked text={d.label} query={query} />
                 </span>
-                <span className="block text-xs text-slate-500">
+                <span className="block text-[12.5px] text-ink-muted">
                   {d.tab}
                   {!isCard && (
                     <>
@@ -213,9 +228,7 @@ export function SettingsSearch({
                   )}
                 </span>
                 {!ok && (
-                  <span className="mt-0.5 block text-xs text-amber-700 dark:text-amber-400">
-                    {requires(d)}
-                  </span>
+                  <span className="block text-[12.5px] text-status-warning">{requires(d)}</span>
                 )}
               </button>
             );

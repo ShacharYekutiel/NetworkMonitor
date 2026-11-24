@@ -99,7 +99,7 @@ test('viewer: 403; UI: Audit page filters, row expand, Export CSV download', asy
   const v = await apiAs({ username: 'viewer1', password: 'Viewer-pass-1' }).catch(() => null);
   if (v) expect((await raw(v, 'GET', '/api/audit')).status).toBe(403);
   await loginViaApi(page, undefined, '/audit');
-  const row = page.getByRole('row').filter({ hasText: NAME }).first();
+  const row = page.getByTestId('audit-row').filter({ hasText: NAME }).first();
   await expect(row).toBeVisible();
   await row.click();
   await expect(page.getByText('qa46 changed').first()).toBeVisible();

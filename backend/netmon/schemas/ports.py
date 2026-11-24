@@ -14,10 +14,18 @@ DeviceClass = Literal[
 Status = Literal["up", "warning", "down", "paused", "unknown", "unreachable"]
 IfStatus = Literal["up", "down", "testing", "unknown", "dormant", "notPresent", "lowerLayerDown"]
 SourceState = Literal["ok", "empty", "error", "skipped", "unmapped"]
+ConnectedKind = Literal[  # [premium] netmon.ports.kind.KINDS
+    "computer", "phone", "ap", "printer", "camera", "server", "switch", "router", "unknown"
+]
 
 
 class _Out(BaseModel):
     model_config = ConfigDict(extra="forbid")
+
+
+class ConnectedKindIn(BaseModel):  # [premium] PUT …/ports/{if_index}/connected-kind
+    model_config = ConfigDict(extra="forbid")
+    kind: ConnectedKind | None
 
 
 class PortsRefreshResponse(_Out):
@@ -107,7 +115,10 @@ class Port(_Out):
     out_errors_delta: int | None
     is_uplink: bool
     uplink_reason: Literal["neighbor", "mac_count"] | None
-    connected_kind: Literal["none", "client", "ap", "switch"]
+    # [premium] (replaces the 2b-2 "none" | "client" | "ap" | "switch")
+    connected_kind: ConnectedKind | None
+    connected_kind_source: Literal["lldp", "cdp", "oui", "manual"] | None
+    connected_kind_override: ConnectedKind | None
     trunk: bool
     neighbor: PortNeighbor | None
     mac_count: int

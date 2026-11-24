@@ -236,13 +236,13 @@ test('UI: login hint, AD login, Settings -> Active Directory test table, profile
   await expect(page.getByText(/EXAMPLE\\user or user@example\.net/)).toBeVisible();
   await shot2b3(page, '45-login-hint');
   await loginViaUi(page, { username: 'EXAMPLE\\jdoe', password: AD.password });
-  await expect(page.getByRole('navigation').first()).toBeVisible();
+  await expect(page.getByTestId('menu-button')).toBeVisible();
   await expect(page).not.toHaveURL(/\/login/);
   await page.goto('/account');
   await expect(page.getByLabel(tOr('account.newPassword', 'New password'))).toHaveCount(0);
   await page.context().clearCookies();
   await loginViaUi(page);
-  await expect(page.getByRole('navigation').first()).toBeVisible();
+  await expect(page.getByTestId('menu-button')).toBeVisible();
   await page.goto('/settings');
   await page.getByRole('tab', { name: tOr('settings.tab.ldap', 'Active Directory') }).click();
   // the AD switch lives at the bottom of its form, next to Test connection (and is on here)
@@ -252,5 +252,5 @@ test('UI: login hint, AD login, Settings -> Active Directory test table, profile
   await expect(page.getByRole('table').filter({ hasText: `localhost:${LDAPS_PORT}` })).toBeVisible({ timeout: 15_000 });
   await shot2b3(page, '45-ad-settings-test');
   await page.goto('/users');
-  await expect(page.getByRole('row').filter({ hasText: 'asmith' })).toContainText(tOr('user.source.ldap', 'AD'));
+  await expect(page.getByTestId('user-row').filter({ hasText: 'asmith' })).toContainText(tOr('user.source.ldap', 'AD'));
 });
