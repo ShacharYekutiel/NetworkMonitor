@@ -1052,11 +1052,28 @@ export function NotificationsPage() {
             <div className="min-w-0 flex-1">
               <p className="m-0 font-semibold">{t('rules.defaultRule.bannerTitle')}</p>
               <p className="m-0 mt-0.5 text-[13px] text-ink-muted">
-                {enabledChannels.length
-                  ? t('rules.defaultRule.bannerHint', {
-                      channels: enabledChannels.map((c) => c.name).join(', '),
-                    })
-                  : t('rules.defaultRule.bannerNoChannel')}
+                {ruleItems.some((r) => r.enabled) && (
+                  <>{t('rules.defaultRule.bannerChannelsOff')} </>
+                )}
+                {enabledChannels.length ? (
+                  <Trans
+                    i18nKey="rules.defaultRule.bannerHint"
+                    components={{
+                      list: (
+                        <span>
+                          {enabledChannels.map((c, i) => (
+                            <span key={c.id}>
+                              {i > 0 && ', '}
+                              <bdi>{c.name}</bdi>
+                            </span>
+                          ))}
+                        </span>
+                      ),
+                    }}
+                  />
+                ) : (
+                  t('rules.defaultRule.bannerNoChannel')
+                )}
               </p>
             </div>
             {enabledChannels.length > 0 && (

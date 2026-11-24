@@ -509,9 +509,10 @@ Backend, frontend and QA can implement in parallel against those two files.
    Start again).
 4. Add the channel to an alert rule (and/or to a discovery profile's new-host notifications).
    NetworkMonitor never creates an alert rule by itself. While no alert rule exists, the Add channel dialog
-   offers *Create a default alert rule* (checked): every sensor, Down only, every severity, no delay, to the new
-   channel. When channels exist but no rule is enabled, the Notifications page warns "No alert will be sent"
-   and creates the same rule for every enabled channel in one click. Either way it is an ordinary rule.
+   offers *Create a default alert rule* (checked): every sensor, Down and its recovery (Up), every severity, no
+   delay, to the new channel. When channels exist but no enabled rule sends to an enabled channel, the
+   Notifications page warns "No alert will be sent" and creates the same rule for every enabled channel in one
+   click. Either way it is an ordinary rule.
 The server needs outbound HTTPS to `api.telegram.org` (Docker Desktop has it by default).
 
 #### Enabling SNMP on the owner's devices (for discovery)

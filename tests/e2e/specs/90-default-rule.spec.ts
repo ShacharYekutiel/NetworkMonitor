@@ -6,10 +6,11 @@ import { T } from '../lib/lab2b2';
 
 // [default-rule] 90 — the system never creates an alert rule by itself, so the notifications page offers one:
 // (1) the create-channel dialog, while no alert rule exists at all, shows "Create a default alert rule" (checked):
-//     saved → a rule for every sensor, down only, every severity, no delay, enabled, sending to the new channel,
+//     saved → a rule for every sensor, down + recovery (up), every severity, no delay, enabled, sending to the new channel,
 //     named in the UI language; unticked → no rule;
-// (2) channels but no enabled rule → a warning banner ("No alert will be sent…") whose button creates the same
-//     rule for every enabled channel (named in the banner); the banner then disappears.
+// (2) channels but no enabled rule, or the enabled rules send only to turned-off channels → a warning banner
+//     ("No alert will be sent…") whose button creates the same rule for every enabled channel (named in the
+//     banner, each name in <bdi>); the banner then disappears.
 // The spec empties the alert-rule table for its cases and recreates the earlier specs' rules in afterAll.
 // Screenshots (1440×900 @2x, en + he) to $RULE_SHOT_DIR.
 test.describe.configure({ mode: 'serial' });
@@ -91,7 +92,7 @@ function expectDefaultRule(rule: any, channelIds: number[], lang: 'en' | 'he' = 
   expect(rule).toMatchObject({
     name: T('rules.defaultRule.name', {}, lang),
     sensor_id: null,
-    on_statuses: ['down'],
+    on_statuses: ['down', 'up'],
     severities: [],
     delay_s: 0,
     enabled: true,
@@ -167,6 +168,11 @@ test('no rule: unticked → the channel is created without a rule, and the banne
   await page.context().close();
 });
 
+/** The banner hint as rendered: the channel names (each in <bdi>) in place of <list/>. */
+function bannerHint(names: string[], lang: 'en' | 'he' = 'en') {
+  return T('rules.defaultRule.bannerHint', {}, lang).replace('<list/>', names.join(', '));
+}
+
 test('channels but no enabled rule: the banner names the enabled channels and creates the rule in one click', async ({ browser }) => {
   await deleteAllRules();
   const off = uid('qa-default-rule off');
@@ -181,23 +187,36 @@ test('channels but no enabled rule: the banner names the enabled channels and cr
     enabled: false,
     channel_ids: [enabled[0].id],
   });
-  const page = await notificationsPage(browser, 'en');
-  const banner = page.getByTestId('no-active-rule');
-  await expect(banner).toContainText(T('rules.defaultRule.bannerTitle'));
-  await expect(banner).toContainText(
-    T('rules.defaultRule.bannerHint', { channels: enabled.map((c: any) => c.name).join(', ') }),
-  );
-  await expect(banner).not.toContainText(off);
+  let page = await notificationsPage(browser, 'en');
+  const banner = () => page.getByTestId('no-active-rule');
+  await expect(banner()).toContainText(T('rules.defaultRule.bannerTitle'));
+  await expect(banner()).toContainText(bannerHint(enabled.map((c: any) => c.name)));
+  await expect(banner()).not.toContainText(T('rules.defaultRule.bannerChannelsOff'));
+  await expect(banner()).not.toContainText(off);
+  await expect(banner().locator('bdi')).toHaveCount(enabled.length);
+  await page.context().close();
+  // an enabled rule that sends only to a turned-off channel sends nothing either
+  const toOff = await api.post('/api/alert-rules', {
+    name: uid('qa-default-rule to-off'),
+    sensor_id: null,
+    on_statuses: ['down'],
+    enabled: true,
+    channel_ids: [offId],
+  });
+  page = await notificationsPage(browser, 'en');
+  await expect(banner()).toContainText(T('rules.defaultRule.bannerTitle'));
+  await expect(banner()).toContainText(T('rules.defaultRule.bannerChannelsOff'));
+  await expect(banner()).toContainText(bannerHint(enabled.map((c: any) => c.name)));
   // a rule exists (disabled): the dialog does not offer one
   await fillChannel(page, uid('qa-default-rule unused'));
   await expect(page.getByRole('dialog').getByTestId('default-rule-option')).toHaveCount(0);
   await page.getByRole('dialog').getByRole('button', { name: T('common.cancel') }).click();
   await shot(page, 'banner-no-active-rule--en');
 
-  await banner.getByRole('button', { name: T('rules.defaultRule.bannerButton') }).click();
+  await banner().getByRole('button', { name: T('rules.defaultRule.bannerButton') }).click();
   await expect(page.getByText(T('rules.defaultRule.created'))).toBeVisible();
-  await expect(banner).toHaveCount(0);
-  const made = (await allRules()).filter((r: any) => r.id !== disabled.id);
+  await expect(banner()).toHaveCount(0);
+  const made = (await allRules()).filter((r: any) => r.id !== disabled.id && r.id !== toOff.id);
   expect(made).toHaveLength(1);
   expectDefaultRule(
     made[0],
@@ -212,6 +231,10 @@ test('Hebrew: the banner, the dialog option and the rule name are in Hebrew (RTL
   const page = await notificationsPage(browser, 'he');
   const banner = page.getByTestId('no-active-rule');
   await expect(banner).toContainText('שום התראה לא תישלח: אין כלל התראה פעיל');
+  const on = (await enabledChannels()).map((c: any) => c.name);
+  await expect(banner).toContainText(bannerHint(on, 'he'));
+  await expect(banner).toContainText('כשחיישן עובר לתקלה וכשהוא חוזר לתקין');
+  await expect(banner.locator('bdi')).toHaveCount(on.length);
   await expect(banner.getByRole('button', { name: T('rules.defaultRule.bannerButton', {}, 'he') })).toBeVisible();
   await shot(page, 'banner-no-active-rule--he');
 
