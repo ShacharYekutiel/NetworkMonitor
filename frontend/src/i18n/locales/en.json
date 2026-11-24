@@ -441,7 +441,18 @@
     "aiNoteHint": "After the first alert notification, a short AI note is added (Telegram edit, Teams follow-up, email reply). The notification is never delayed.",
     "addFirst": "Add a rule",
     "noneHint": "A rule decides which alerts are sent to which channels, and when.",
-    "enabledLabel": "{{name}} enabled"
+    "enabledLabel": "{{name}} enabled",
+    "defaultRule": {
+      "name": "Default: every sensor that goes down",
+      "create": "Create a default alert rule",
+      "createHint": "Alerts this channel whenever any sensor goes down. The rule can be edited or deleted later.",
+      "created": "Default alert rule created",
+      "createFailed": "The channel was saved, but the default rule was not created: {{error}}",
+      "bannerTitle": "No alert will be sent: there is no active alert rule",
+      "bannerHint": "The default rule alerts on every sensor that goes down and sends to: {{channels}}.",
+      "bannerNoChannel": "Turn on a notification channel first, then create a rule.",
+      "bannerButton": "Create default rule"
+    }
   },
   "settings": {
     "title": "Settings",
