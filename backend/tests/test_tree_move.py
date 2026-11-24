@@ -262,3 +262,102 @@ async def test_dependency_cycle_through_inheritance_refused(
     assert r.status_code == 400, r.text
     assert r.json()["error"]["code"] == "dependency_cycle"
     assert await _parents(admin) == before  # d2 did not move either
+
+
+# ------------------------------------------------------------------ preview (dry run)
+
+
+async def _preview(c: httpx.AsyncClient, **body: Any) -> httpx.Response:
+    return await c.post("/api/tree/move/preview", json=body)
+
+
+async def test_preview_snmp_fallback_listed_own_settings_not(
+    admin: httpx.AsyncClient, layout: dict[str, int], feats: Any, rt: Any
+) -> None:
+    """The incident: devices inheriting SNMP from their group fall back to the defaults in a
+    group without SNMP details. A device with its own SNMP settings is not affected."""
+    feats(audit=True)
+    r = await admin.patch(
+        f"/api/groups/{layout['a']}",
+        json={"snmp_credentials": {"version": "v2c", "community": "x"}},
+    )
+    assert r.status_code == 200, r.text
+    own = (
+        await make_device(
+            admin, name="own", group_id=layout["a1"], snmp_credentials={"community": "mine"}
+        )
+    )["id"]
+    sensor = await admin.post(
+        "/api/sensors",
+        json={"device_id": layout["a1d"], "type": "snmp_system", "config": {}},
+    )
+    assert sensor.status_code == 201, sensor.text
+    before = await _parents(admin)
+    r = await _preview(admin, group_ids=[layout["a1"]], target_group_id=layout["b"])
+    assert r.status_code == 200, r.text
+    body = r.json()
+    assert body["moved"] == {"device_ids": [], "group_ids": [layout["a1"]]}
+    assert body["devices_affected"] == 2  # a1d and own (inside the moved group)
+    assert body["effects"] == [
+        {
+            "setting": "snmp",
+            "before": {"source": "group", "group_id": layout["a"], "group_name": "A"},
+            "after": {"source": "default", "group_id": None, "group_name": None},
+            "devices": [{"id": layout["a1d"], "name": "a1d", "snmp_sensors": 1}],
+        }
+    ]
+    assert own not in [d["id"] for e in body["effects"] for d in e["devices"]]
+    # a dry run: nothing moved, nothing audited
+    assert await _parents(admin) == before
+    assert await _audit(rt, "group.move") == []
+
+
+async def test_preview_no_change_and_other_settings(
+    admin: httpx.AsyncClient, layout: dict[str, int]
+) -> None:
+    r = await admin.patch(
+        f"/api/groups/{layout['a']}",
+        json={"snmp_credentials": {"version": "v2c", "community": "x"}},
+    )
+    assert r.status_code == 200
+    # d1 (root, no SNMP) into A: it gains A's settings; a1d (in A1) into A: no change
+    r = await _preview(admin, device_ids=[layout["d1"]], target_group_id=layout["a"])
+    assert r.status_code == 200
+    first = r.json()
+    assert first["effects"][0]["setting"] == "snmp"  # default -> group A (gains settings)
+    assert first["effects"][0]["before"]["source"] == "default"
+    r = await _preview(admin, device_ids=[layout["a1d"]], target_group_id=layout["a"])
+    assert r.json()["effects"] == []
+    # SSH and the dependency are compared too
+    gw = (await make_device(admin, name="gw", group_id=layout["root"]))["id"]
+    r = await admin.patch(
+        f"/api/groups/{layout['b']}",
+        json={
+            "ssh_credentials": {"username": "u", "password": "p"},
+            "dependency": {"mode": "device", "device_id": gw},
+        },
+    )
+    assert r.status_code == 200, r.text
+    r = await _preview(admin, device_ids=[layout["d2"]], target_group_id=layout["b"])
+    effects = {e["setting"]: e for e in r.json()["effects"]}
+    assert set(effects) == {"ssh", "dependency"}
+    assert effects["ssh"]["before"]["source"] == "none"
+    assert effects["ssh"]["after"] == {
+        "source": "group",
+        "group_id": layout["b"],
+        "group_name": "B",
+    }
+    assert effects["dependency"]["after"]["device_id"] == gw
+    assert effects["dependency"]["after"]["device_name"] == "gw"
+    assert effects["dependency"]["before"]["source"] == "none"
+
+
+async def test_preview_same_errors_and_viewer(
+    admin: httpx.AsyncClient, viewer: httpx.AsyncClient, layout: dict[str, int]
+) -> None:
+    r = await _preview(admin, group_ids=[layout["a"]], target_group_id=layout["a1"])
+    assert r.status_code == 400 and r.json()["error"]["code"] == "group_cycle"
+    r = await _preview(admin, device_ids=[999999], target_group_id=layout["b"])
+    assert r.status_code == 422
+    r = await _preview(viewer, device_ids=[layout["d1"]], target_group_id=layout["b"])
+    assert r.status_code == 403

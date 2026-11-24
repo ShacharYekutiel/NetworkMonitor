@@ -3240,6 +3240,39 @@ Response `200`:
   "skipped": { "device_ids": [], "group_ids": [] } }
 ```
 
+**`POST /api/tree/move/preview`** (admin): a dry run with the same body. It runs the same checks and returns the
+same errors, changes nothing and writes no audit row. The UI calls it when the confirmation opens and shows the
+result before anything moves (the user may still confirm: it is a warning, not a block).
+
+```json
+{ "target_group_id": 2,
+  "moved":   { "device_ids": [], "group_ids": [7] },
+  "skipped": { "device_ids": [], "group_ids": [] },
+  "devices_affected": 14,
+  "effects": [
+    { "setting": "snmp",
+      "before": { "source": "group", "group_id": 5, "group_name": "Core" },
+      "after":  { "source": "default", "group_id": null, "group_name": null },
+      "devices": [ { "id": 31, "name": "sw-31", "snmp_sensors": 6 } ] },
+    { "setting": "ssh",
+      "before": { "source": "group", "group_id": 5, "group_name": "Core" },
+      "after":  { "source": "none", "group_id": null, "group_name": null },
+      "devices": [ { "id": 31, "name": "sw-31" } ] },
+    { "setting": "dependency",
+      "before": { "source": "group", "group_id": 5, "group_name": "Core", "device_id": 3, "device_name": "core-sw" },
+      "after":  { "source": "none", "group_id": null, "group_name": null, "device_id": null, "device_name": null },
+      "devices": [ { "id": 31, "name": "sw-31" } ] } ] }
+```
+
+- `devices_affected`: the moved devices plus every device inside a moved group (their group chain changes).
+- `effects`: for each of those devices, the effective inherited value before and after the move, computed by the
+  server with the same rules the poller uses (`Device.effective_snmp_source` / `effective_ssh_source` /
+  `effective_dependency`). Only real changes are listed, grouped by `(setting, before, after)`, in the order
+  `snmp`, `ssh`, `dependency`. `snmp.source` is `device` | `group` | `default` (the server-wide defaults);
+  `ssh.source` is `device` | `group` | `none`; `dependency.source` is `device` | `group` | `none`. A device with its
+  own setting never appears for that setting. `snmp_sensors` counts the device's sensors that use SNMP (they may go
+  down when the credentials change).
+
 **What a move changes.** Nothing is copied onto the moved items, and settings set on an item itself stay as they
 are. Everything a device inherits from its groups is always resolved from its current ancestors, so it follows the
 new place at once: SNMP and SSH credentials left on "inherit", a dependency on "inherit" (checked for loops), group

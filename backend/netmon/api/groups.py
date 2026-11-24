@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from typing import Any
+
 from fastapi import APIRouter, Query, Response
 from sqlalchemy import func, select, text
 
@@ -17,7 +19,7 @@ from netmon.services import dependencies as deps
 from netmon.services.retention import delete_sensor_measurements
 from netmon.services.serialize import group_out, iso, page
 from netmon.services.status import load_inventory
-from netmon.services.tree_move import plan_move
+from netmon.services.tree_move import plan_move, preview_effects
 
 router = APIRouter()
 
@@ -274,6 +276,26 @@ async def tree(_: Viewer, rt: RT, session: DB) -> dict:
     return {"groups": [group_node(r) for r in roots]}
 
 
+def _plan_out(plan: Any) -> dict:
+    return {
+        "target_group_id": plan.target_group_id,
+        "moved": {
+            "device_ids": [d for d, _ in plan.devices],
+            "group_ids": [g for g, _ in plan.groups],
+        },
+        "skipped": {"device_ids": plan.skipped_devices, "group_ids": plan.skipped_groups},
+    }
+
+
+@router.post("/api/tree/move/preview")
+async def tree_move_preview(body: TreeMoveIn, _: Admin, session: DB) -> dict:
+    """[tree-move] Dry run of POST /api/tree/move: the same checks and errors, nothing is
+    changed; plus what the move changes for the devices it touches (services.tree_move)."""
+    inv = await load_inventory(session)
+    plan = plan_move(inv, body.device_ids, body.group_ids, body.target_group_id)
+    return {**_plan_out(plan), **preview_effects(inv, plan)}
+
+
 @router.post("/api/tree/move")
 async def tree_move(body: TreeMoveIn, _: Admin, rt: RT, session: DB, ctx: Audit) -> dict:
     """[tree-move] Move devices and groups into one group (groups also to the top level), all
@@ -326,11 +348,4 @@ async def tree_move(body: TreeMoveIn, _: Admin, rt: RT, session: DB, ctx: Audit)
         rt.config_changed("group", gid, "updated")
     for did, _old in plan.devices:
         rt.config_changed("device", did, "updated")
-    return {
-        "target_group_id": target,
-        "moved": {
-            "device_ids": [d for d, _ in plan.devices],
-            "group_ids": [g for g, _ in plan.groups],
-        },
-        "skipped": {"device_ids": plan.skipped_devices, "group_ids": plan.skipped_groups},
-    }
+    return _plan_out(plan)

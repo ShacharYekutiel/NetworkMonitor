@@ -11,7 +11,7 @@ follows the new location; settings set on the item itself stay as they are.
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from typing import Any
 
 from netmon.api.errors import ApiError
@@ -120,3 +120,104 @@ def plan_move(
             clashes,
         )
     return plan
+
+
+# ---------------------------------------------------------------------------------------------
+# Preview: what the move changes for the devices it touches (POST /api/tree/move/preview)
+
+
+def _moved_view(inv: Inventory, plan: MovePlan) -> Inventory:
+    """A copy of the inventory with the plan applied (groups / devices dicts only)."""
+    groups = dict(inv.groups)
+    devices = dict(inv.devices)
+    for gid, _old in plan.groups:
+        groups[gid] = {**groups[gid], "parent_id": plan.target_group_id}
+    for did, _old in plan.devices:
+        devices[did] = {**devices[did], "group_id": plan.target_group_id}
+    return replace(inv, groups=groups, devices=devices)
+
+
+def affected_devices(inv: Inventory, plan: MovePlan) -> list[int]:
+    """The moved devices and every device inside a moved group (their group chain changes)."""
+    out = [d for d, _ in plan.devices]
+    for gid, _old in plan.groups:
+        for g in inv.descendants(gid):
+            out.extend(sorted(inv.group_devices.get(g, [])))
+    return list(dict.fromkeys(out))
+
+
+def _cred_side(inv: Inventory, source: str, gid: int | None) -> dict[str, Any]:
+    return {
+        "source": source,
+        "group_id": gid,
+        "group_name": str(inv.groups[gid]["name"]) if gid is not None else None,
+    }
+
+
+def _dep_side(inv: Inventory, did: int) -> dict[str, Any]:
+    from netmon.services.dependencies import effective_parent
+
+    eff = effective_parent(inv, did)
+    if eff is None:
+        none = dict.fromkeys(("group_id", "group_name", "device_id", "device_name"))
+        return {"source": "none", **none}
+    return {
+        "source": eff.source,
+        "group_id": eff.group_id,
+        "group_name": str(inv.groups[eff.group_id]["name"]) if eff.group_id is not None else None,
+        "device_id": eff.device_id,
+        "device_name": str(inv.devices[eff.device_id]["name"]),
+    }
+
+
+def _snmp_sensor_count(inv: Inventory, did: int) -> int:
+    from netmon.poller.sensor_types import SENSOR_TYPES
+
+    n = 0
+    for sid in inv.device_sensors.get(did, []):
+        tdef = SENSOR_TYPES.get(str(inv.sensors[sid].get("type")))
+        if tdef is not None and tdef.requires_snmp:
+            n += 1
+    return n
+
+
+def preview_effects(inv: Inventory, plan: MovePlan) -> dict[str, Any]:
+    """For every device whose group chain changes, the effective inherited settings before and
+    after: SNMP credentials source (device / group / default), SSH credentials source (device /
+    group / none) and the effective dependency. Only real changes are listed, grouped by
+    (setting, before, after); a device with its own setting never changes for that setting."""
+    after_inv = _moved_view(inv, plan)
+    devices = affected_devices(inv, plan)
+    effects: dict[tuple[Any, ...], dict[str, Any]] = {}
+
+    def add(setting: str, before: dict[str, Any], after: dict[str, Any], did: int) -> None:
+        if before == after:
+            return
+        key = (setting, tuple(sorted(before.items())), tuple(sorted(after.items())))
+        eff = effects.setdefault(
+            key, {"setting": setting, "before": before, "after": after, "devices": []}
+        )
+        item: dict[str, Any] = {"id": did, "name": str(inv.devices[did]["name"])}
+        if setting == "snmp":
+            item["snmp_sensors"] = _snmp_sensor_count(inv, did)
+        eff["devices"].append(item)
+
+    for did in devices:
+        add(
+            "snmp",
+            _cred_side(inv, *inv.effective_snmp(did)),
+            _cred_side(after_inv, *after_inv.effective_snmp(did)),
+            did,
+        )
+        add(
+            "ssh",
+            _cred_side(inv, *inv.effective_ssh(did)),
+            _cred_side(after_inv, *after_inv.effective_ssh(did)),
+            did,
+        )
+        add("dependency", _dep_side(inv, did), _dep_side(after_inv, did), did)
+    order = {"snmp": 0, "ssh": 1, "dependency": 2}
+    return {
+        "devices_affected": len(devices),
+        "effects": sorted(effects.values(), key=lambda e: order[e["setting"]]),
+    }
