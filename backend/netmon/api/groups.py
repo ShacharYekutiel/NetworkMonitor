@@ -2,21 +2,24 @@
 
 from __future__ import annotations
 
+from typing import Any
+
 from fastapi import APIRouter, Query, Response
-from sqlalchemy import func, select
+from sqlalchemy import func, select, text
 
 from netmon.api.common import commit_or_conflict, flush_or_conflict, merge_snmp
 from netmon.api.deps import DB, RT, Admin, Audit, Page, Viewer
 from netmon.api.errors import ApiError, conflict, not_found, validation_error
 from netmon.configbackup.credentials import merge as ssh_merge
-from netmon.models import Group, Sensor
+from netmon.models import Device, Group, Sensor
 from netmon.poller.sensor_types import SENSOR_TYPES
-from netmon.schemas import GroupCreate, GroupPatch
+from netmon.schemas import GroupCreate, GroupPatch, TreeMoveIn
 from netmon.services import audit, secretbox
 from netmon.services import dependencies as deps
 from netmon.services.retention import delete_sensor_measurements
 from netmon.services.serialize import group_out, iso, page
 from netmon.services.status import load_inventory
+from netmon.services.tree_move import plan_move, preview_effects
 
 router = APIRouter()
 
@@ -205,7 +208,6 @@ async def delete_group(group_id: int, _: Admin, rt: RT, session: DB, ctx: Audit)
 async def tree(_: Viewer, rt: RT, session: DB) -> dict:
     inv = await load_inventory(session)
     maint = rt.maintenance
-    from netmon.models import Device
 
     devices = {d.id: d for d in (await session.execute(select(Device))).scalars()}
     sensors = (await session.execute(select(Sensor))).scalars().all()
@@ -272,3 +274,78 @@ async def tree(_: Viewer, rt: RT, session: DB) -> dict:
         key=lambda c: (inv.groups[c]["sort_order"], inv.groups[c]["name"].lower()),
     )
     return {"groups": [group_node(r) for r in roots]}
+
+
+def _plan_out(plan: Any) -> dict:
+    return {
+        "target_group_id": plan.target_group_id,
+        "moved": {
+            "device_ids": [d for d, _ in plan.devices],
+            "group_ids": [g for g, _ in plan.groups],
+        },
+        "skipped": {"device_ids": plan.skipped_devices, "group_ids": plan.skipped_groups},
+    }
+
+
+@router.post("/api/tree/move/preview")
+async def tree_move_preview(body: TreeMoveIn, _: Admin, session: DB) -> dict:
+    """[tree-move] Dry run of POST /api/tree/move: the same checks and errors, nothing is
+    changed; plus what the move changes for the devices it touches (services.tree_move)."""
+    inv = await load_inventory(session)
+    plan = plan_move(inv, body.device_ids, body.group_ids, body.target_group_id)
+    return {**_plan_out(plan), **preview_effects(inv, plan)}
+
+
+@router.post("/api/tree/move")
+async def tree_move(body: TreeMoveIn, _: Admin, rt: RT, session: DB, ctx: Audit) -> dict:
+    """[tree-move] Move devices and groups into one group (groups also to the top level), all
+    or nothing. Same effect as the single edits (device `group_id`, group `parent_id`): one
+    audit row per moved item, inherited settings follow the new place (services.tree_move)."""
+    # one move at a time: a concurrent move cannot slip a cycle past the checks below
+    await session.execute(text("SELECT pg_advisory_xact_lock(727004)"))
+    inv = await load_inventory(session)
+    plan = plan_move(inv, body.device_ids, body.group_ids, body.target_group_id)
+    target = plan.target_group_id
+
+    def gname(gid: int | None) -> str | None:
+        return None if gid is None else str(inv.groups[gid]["name"])
+
+    for gid, old_parent in plan.groups:
+        g = await session.get(Group, gid)
+        assert g is not None  # checked by plan_move under the lock
+        g.parent_id = target
+        await audit.record(
+            session,
+            ctx,
+            "group.move",
+            _entity(g),
+            {"parent_id": [old_parent, target], "parent": [gname(old_parent), gname(target)]},
+        )
+    for did, old_group in plan.devices:
+        d = await session.get(Device, did)
+        assert d is not None
+        assert target is not None  # plan_move: devices always need a group
+        d.group_id = target
+        await audit.record(
+            session,
+            ctx,
+            "device.move",
+            audit.entity("device", d.id, d.name, device_id=d.id),
+            {"group_id": [old_group, target], "group": [gname(old_group), gname(target)]},
+        )
+    await session.flush()
+    after = await load_inventory(session)
+    for gid, _old in plan.groups:  # belt and braces: the stored tree has no loop
+        if gid in after.ancestors(after.groups[gid]["parent_id"] or 0):
+            raise ApiError(400, "group_cycle", "A group cannot be moved below itself")
+    # a device that inherits its dependency now inherits from the new groups
+    await deps.check_no_cycle(session)
+    await commit_or_conflict(session)
+    if rt.scheduler:
+        for did, _old in plan.devices:
+            await rt.scheduler.reload_device(did)
+    for gid, _old in plan.groups:
+        rt.config_changed("group", gid, "updated")
+    for did, _old in plan.devices:
+        rt.config_changed("device", did, "updated")
+    return _plan_out(plan)

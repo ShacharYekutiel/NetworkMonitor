@@ -15,6 +15,8 @@ Items marked **[premium]** (connected device kind per port, home network map, si
 [§ Premium UI additions](#premium-premium-ui-additions).
 Items marked **[severity]** (alert severity: levels, mapping, overrides, filters, notification rule severities) are
 specified in [§ Alert severity](#severity-alert-severity).
+Items marked **[tree-move]** (moving devices and groups between groups, single and bulk) are specified in
+[§ Moving devices and groups](#tree-move-moving-devices-and-groups).
 
 This file is the contract between the backend (`backend/netmon/schemas`) and the frontend
 (`frontend/src/api/types.ts`). **Field names are exact.** For the table semantics see
@@ -291,6 +293,9 @@ sets the session cookie. Response `201`: `{"user": User}`.
 ```
 
 The top-level `groups` holds the root groups (`parent_id = null`).
+
+**[tree-move]** `POST /api/tree/move` (admin) moves devices and groups into another group in one all-or-nothing
+call; see [§ Moving devices and groups](#tree-move-moving-devices-and-groups).
 
 ### Groups
 
@@ -3295,3 +3300,86 @@ The cleanup is **offered** by the UI after a rule is created or its conditions c
 | type | data | When / who |
 |---|---|---|
 | `syslog.repeats` | `{"items": [{"id": 812, "repeat_count": 37, "last_seen": "…"}]}` | the repeat counts written in the last flush (every 2 s); sockets subscribed to topic `syslog` |
+
+## [tree-move] Moving devices and groups
+
+Drag and drop in the device tree, multi-select and "Move to…" all use one endpoint. It does exactly what the single
+edits do (`PATCH /api/devices/{id}` with `group_id`, `PATCH /api/groups/{id}` with `parent_id`), for many items at
+once and atomically. Always available (no feature toggle).
+
+**`POST /api/tree/move`** (admin; a viewer, or a token whose effective role is viewer, gets `403 forbidden`)
+
+```json
+{ "device_ids": [3, 4], "group_ids": [7], "target_group_id": 2 }
+```
+
+- `device_ids` (≤ 5000) and `group_ids` (≤ 1000) default to `[]`; at least one id is required. Duplicates are ignored.
+- `target_group_id` is **required**; `null` = the top level. Only groups can go to the top level: devices always
+  belong to a group (`devices.group_id` is NOT NULL), so `null` with any device id → `422`.
+- A moved group takes its whole subtree (subgroups, devices, sensors) with it. Items that are inside a group that
+  is moved in the same request, and items that are already in the target, are not changed and are listed under
+  `skipped`.
+- **All or nothing** — nothing is changed and no audit row is written when any check fails:
+
+| HTTP | code | When |
+|---|---|---|
+| 422 | `validation_error` | nothing to move; an unknown device / group id (`details`: one `{loc: ["body", "device_ids", i], msg}` per unknown id); unknown `target_group_id`; devices to the top level |
+| 400 | `group_cycle` | a group would go into itself or one of its own descendants (`details`: `[{"group_id": 7}]`) |
+| 409 | `conflict` | the target already has a subgroup with the same name (case-insensitive), or two moved groups share a name (`details`: `[{"field": "name", "group_id": 7}]`) |
+| 400 | `dependency_cycle` | a moved device inherits a dependency that would close a dependency loop (as for the single edits) |
+
+Response `200`:
+
+```json
+{ "target_group_id": 2,
+  "moved":   { "device_ids": [3, 4], "group_ids": [7] },
+  "skipped": { "device_ids": [], "group_ids": [] } }
+```
+
+**`POST /api/tree/move/preview`** (admin): a dry run with the same body. It runs the same checks and returns the
+same errors, changes nothing and writes no audit row. The UI calls it when the confirmation opens and shows the
+result before anything moves (the user may still confirm: it is a warning, not a block).
+
+```json
+{ "target_group_id": 2,
+  "moved":   { "device_ids": [], "group_ids": [7] },
+  "skipped": { "device_ids": [], "group_ids": [] },
+  "devices_affected": 14,
+  "effects": [
+    { "setting": "snmp",
+      "before": { "source": "group", "group_id": 5, "group_name": "Core" },
+      "after":  { "source": "default", "group_id": null, "group_name": null },
+      "devices": [ { "id": 31, "name": "sw-31", "snmp_sensors": 6 } ] },
+    { "setting": "ssh",
+      "before": { "source": "group", "group_id": 5, "group_name": "Core" },
+      "after":  { "source": "none", "group_id": null, "group_name": null },
+      "devices": [ { "id": 31, "name": "sw-31" } ] },
+    { "setting": "dependency",
+      "before": { "source": "group", "group_id": 5, "group_name": "Core", "device_id": 3, "device_name": "core-sw" },
+      "after":  { "source": "none", "group_id": null, "group_name": null, "device_id": null, "device_name": null },
+      "devices": [ { "id": 31, "name": "sw-31" } ] } ] }
+```
+
+- `devices_affected`: the moved devices plus every device inside a moved group (their group chain changes).
+- `effects`: for each of those devices, the effective inherited value before and after the move, computed by the
+  server with the same rules the poller uses (`Device.effective_snmp_source` / `effective_ssh_source` /
+  `effective_dependency`). Only real changes are listed, grouped by `(setting, before, after)`, in the order
+  `snmp`, `ssh`, `dependency`. `snmp.source` is `device` | `group` | `default` (the built-in default: v2c, community `public`);
+  `ssh.source` is `device` | `group` | `none`; `dependency.source` is `device` | `group` | `none`. A device with its
+  own setting never appears for that setting. `snmp_sensors` counts the device's sensors that use SNMP (they may go
+  down when the credentials change).
+
+**What a move changes.** Nothing is copied onto the moved items, and settings set on an item itself stay as they
+are. Everything a device inherits from its groups is always resolved from its current ancestors, so it follows the
+new place at once: SNMP and SSH credentials left on "inherit", a dependency on "inherit" (checked for loops), group
+maintenance windows, and the home map's group scope. Sensor intervals, alert rules and topology map positions do not
+depend on the group and are unchanged. Permissions are role based (admin / viewer) and do not depend on the group,
+so a move changes no one's access.
+
+**Audit** (feature `audit`): one row per moved item, in the same transaction —
+`group.move` (entity = the group, `changes: {"parent_id": [old, new], "parent": [old name, new name]}`, `null` =
+top level) and `device.move` (entity = the device with `device_id`, `changes: {"group_id": [old, new], "group":
+[old name, new name]}`). Items under a moved group are not listed separately (as for `group.update`).
+
+**WebSocket**: `config.changed` `{entity: "group" | "device", id, action: "updated"}` for every moved item, as for
+the single edits.

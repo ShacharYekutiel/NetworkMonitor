@@ -80,7 +80,7 @@ migrations own the schema.
 | created_at, updated_at | timestamptz | |
 
 The API layer prevents cycles: if `parent_id` would make the group its own ancestor, the API returns
-`400 group_cycle`.
+`400 group_cycle` (also for the bulk `POST /api/tree/move`, [tree-move] in api.md).
 
 ### `devices`
 | Column | Type | Constraints |

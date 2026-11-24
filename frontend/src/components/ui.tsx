@@ -314,6 +314,7 @@ export function Modal({
   closeOnBackdrop,
   testId,
   sheet,
+  aboveMenu,
 }: {
   open: boolean;
   title: ReactNode;
@@ -327,6 +328,8 @@ export function Modal({
   /** premium side panel (prototype .spanel): a 440px card floating at the end edge, instead of the
    * centred sheet; for explanations and detail cards */
   sheet?: boolean;
+  /** [tree-move] above the menu sheet (z 51): dialogs opened from the unpinned menu's tree */
+  aboveMenu?: boolean;
 }) {
   const { t } = useTranslation();
   const titleId = useId();
@@ -378,7 +381,8 @@ export function Modal({
   return createPortal(
     <div
       className={cx(
-        'fixed inset-0 z-50 m-0 flex bg-overlay backdrop-blur-[6px] motion-safe:animate-[nm-fade-in_.25s_ease-out]',
+        'fixed inset-0 m-0 flex bg-overlay backdrop-blur-[6px] motion-safe:animate-[nm-fade-in_.25s_ease-out]',
+        aboveMenu ? 'z-[55]' : 'z-50',
         sheet
           ? 'justify-end pb-3 pe-3 pt-[76px]'
           : 'items-start justify-center overflow-y-auto p-6 pt-[8vh]',
@@ -858,9 +862,12 @@ export function ListRow({
   className,
   testId,
   rowProps,
+  lead,
 }: {
   /** extra attributes / handlers of the row (e.g. the group / device context menu) */
   rowProps?: React.HTMLAttributes<HTMLLIElement>;
+  /** [tree-move] a control before the row's link (a selection checkbox), outside the link */
+  lead?: ReactNode;
   icon?: ReactNode;
   /** a status dot instead of an icon tile (pass the Tailwind bg class) */
   dot?: string;
@@ -903,9 +910,11 @@ export function ListRow({
   const cls = cx(
     'flex w-full items-center gap-3.5 px-5 py-4 text-start text-ink no-underline transition-colors',
     (to || onClick) && 'hover:bg-surface-hover',
+    !!lead && 'min-w-0 flex-1 ps-3.5',
   );
   return (
-    <li {...rowProps} className={className} data-testid={testId}>
+    <li {...rowProps} className={cx(!!lead && 'flex items-center', className)} data-testid={testId}>
+      {!!lead && <span className="flex shrink-0 items-center ps-5">{lead}</span>}
       {to ? (
         <Link to={to} className={cls}>
           {inner}

@@ -4272,6 +4272,9 @@
       "copyName": "Copy name",
       "runNow": "Run now",
       "acknowledge": "Acknowledge…",
+      "moveTo": "Move to…",
+      "moveSelected_one": "Move the selected item to…",
+      "moveSelected_other": "Move {{count}} selected items to…",
       "edit": "Edit…",
       "delete": "Delete…"
     },
@@ -4289,6 +4292,56 @@
       "discovery": "Discovery started",
       "copied": "Copied to clipboard",
       "copyFailed": "Could not copy to the clipboard"
+    }
+  },
+  "treeMove": {
+    "devices_one": "{{count}} device",
+    "devices_other": "{{count}} devices",
+    "groups_one": "{{count}} group",
+    "groups_other": "{{count}} groups",
+    "and": "{{a}} and {{b}}",
+    "andNum": "{{a}} and {{b}}",
+    "andMore_one": "and {{count}} more",
+    "andMore_other": "and {{count}} more",
+    "topLevel": "Top level",
+    "topLevelTarget": "the top level",
+    "pickTitle": "Move {{what}} to…",
+    "confirmTitle": "Move {{what}} to {{target}}?",
+    "inheritHint": "Settings inherited from the group (SNMP and SSH credentials, dependency, maintenance windows) will come from the new group; settings set on the items themselves stay as they are.",
+    "move": "Move",
+    "next": "Next",
+    "findGroup": "Find a group",
+    "targetGroup": "Target group",
+    "note": {
+      "same": "current location",
+      "inside": "inside what you move"
+    },
+    "done": "Moved to {{target}}",
+    "errors": {
+      "nameTaken": "There is already a group named {{name}} there.",
+      "changed": "The tree changed in the meantime; refresh and try again."
+    },
+    "selected_one": "{{count}} selected",
+    "selected_other": "{{count}} selected",
+    "selection": "Selected items",
+    "clearSelection": "Clear selection",
+    "dropTopLevel": "Drop here to move to the top level",
+    "selectItem": "Select {{name}}",
+    "selectionHint": "Ctrl/⌘-click or Shift-click to select several; drag onto a group to move.",
+    "checking": "Checking what changes…",
+    "effect": {
+      "snmpLose": "{{what}} will lose the SNMP settings inherited from group {{group}} and fall back to the built-in default (v2c, community public). Their SNMP sensors may go down.",
+      "snmp": "SNMP settings of {{what}} — now: {{from}}; after the move: {{to}}. Their SNMP sensors may go down.",
+      "ssh": "SSH credentials of {{what}} — now: {{from}}; after the move: {{to}}. Configuration backups may fail.",
+      "dependency": "Dependency of {{what}} — now: {{from}}; after the move: {{to}}.",
+      "group": "inherited from group {{name}}",
+      "snmpDefault": "the built-in default (v2c, public)",
+      "own": "its own settings",
+      "noneValue": "none",
+      "dependsOn": "depends on {{name}}",
+      "none": "No inherited setting changes for the devices that move.",
+      "snmpSensors_one": "({{count}} SNMP sensor)",
+      "snmpSensors_other": "({{count}} SNMP sensors)"
     }
   },
   "settingsSearch": {

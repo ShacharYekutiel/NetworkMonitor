@@ -87,6 +87,9 @@ import type {
   SnmpInterface,
   TestResult,
   Tree,
+  TreeMoveInput,
+  TreeMovePreview,
+  TreeMoveResult,
   User,
 } from './types';
 
@@ -400,6 +403,10 @@ export const endpoints = {
   createGroup: (body: GroupInput) => api.post<Group>('/groups', body),
   updateGroup: (id: number, body: GroupInput) => api.patch<Group>(`/groups/${id}`, body),
   deleteGroup: (id: number) => api.del(`/groups/${id}`),
+  /** [tree-move] all-or-nothing move of devices and groups (docs/api.md § Moving devices and groups) */
+  treeMove: (body: TreeMoveInput) => api.post<TreeMoveResult>('/tree/move', body),
+  /** [tree-move] dry run: same checks, plus what changes for the devices it touches */
+  treeMovePreview: (body: TreeMoveInput) => api.post<TreeMovePreview>('/tree/move/preview', body),
 
   // devices
   devices: (params?: { group_id?: number; status?: string; q?: string }) =>
