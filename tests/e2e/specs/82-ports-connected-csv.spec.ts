@@ -31,7 +31,8 @@ test.afterEach(async ({ page }) => {
 test('API: important / reasons, connected {count, first}, neighbour name + mgmt address', async () => {
   const aos = await devicePorts(admin, lab.aos.id);
   const p1 = portOf(aos, 1);
-  expect(p1).toMatchObject({ important: false, important_reasons: [] });
+  // [if-noise] an access port; the shared port lab marks it important explicitly (lib/lab2b2 ensurePortLab)
+  expect(p1).toMatchObject({ important: true, important_reasons: ['marked'], importance_override: true });
   expect(p1.connected).toMatchObject({ count: 1, first: { mac: '00:50:56:01:00:01', ip: '10.0.0.11', hostname: 'pc-reception.lan' } });
   const p2 = portOf(aos, 2);
   expect(p2.connected.count).toBe(2);
