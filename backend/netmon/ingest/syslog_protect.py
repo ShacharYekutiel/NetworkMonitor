@@ -185,6 +185,10 @@ class SyslogProtection:
         self.rules = [FilterRule.from_row(r) for r in rows if r["enabled"]]
 
     def reset(self) -> None:
+        """Tests: state and configuration back to the defaults (reload_config re-reads them)."""
+        self.rules = []
+        self.dedup_on, self.window_s = True, float(DEFAULT_DEDUP_WINDOW_S)
+        self.rate_on, self.per_min = True, DEFAULT_RATE_PER_MIN
         self._dups.clear()
         self._final.clear()
         self._rate.clear()
