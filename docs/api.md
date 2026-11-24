@@ -3199,3 +3199,83 @@ a `severity` key — the tool schemas and results are exactly as before.
 | `sensor.severity` | `{"id": 7, "device_id": 3, "severity": "major"}` | an active problem's severity changed by re-resolution or the feature being turned on; all |
 | `event.created` | `Event` now with `severity` | as today. A `status_change` event to down / warning carries the sensor's new `Sensor.severity`; to any other status the sensor's `severity` becomes `null`. `sensor.update` is unchanged (no severity key) |
 | `features.changed` | gains `alert_severity` | as 2b-3 |
+
+## [syslog-protection] Syslog flood protection
+
+Traps have "Repetitive traps"; syslog gets the same kind of protection. Order for every parsed, attributed
+syslog message: ignore list / unknown-source policy → **event rules and config-backup triggers → SIEM
+forwarding** → filter rules → deduplication → per-source rate limit → write. Event rules and SIEM forwarding
+therefore still see every message (the trap-collapse principle); the protections only decide what is **stored**.
+A message that is not stored but matched an event rule still raises / clears its event condition (the condition's
+`last_ref_id` is the row it was folded into, or null).
+
+### Settings keys (`GET/PUT /api/settings`, admin; ON by default — an upgrade changes behaviour)
+| Key | Type | Default | Meaning |
+|---|---|---|---|
+| `syslog_dedup_enabled` | bool | **true** | identical messages (same source IP, program, MSGID, severity and message text) within the window are stored as **one row** (`time` = first seen) with `repeat_count` / `last_seen` |
+| `syslog_dedup_window_s` | int 5–3600 | 60 | measured from the first message of the row; the next identical message after it starts a new row |
+| `syslog_rate_limit_enabled` | bool | **true** | per-source storage guard |
+| `syslog_rate_limit_per_min` | int 10–100 000 | 3000 | new rows per source IP and calendar minute; the excess is dropped (`source_rate_limit`), and a system event "Syslog from X exceeds N rows per minute …" is written at most once an hour per source |
+
+These sit next to the trap keys (`trap_collapse_*`), not in the features list (the trap protection is not a
+feature either). Changes are audited as `settings.update`.
+
+### Types
+```ts
+type SyslogMessage = { /* as [2b-3] */ repeat_count: number;      // 1 = not deduplicated
+  last_seen: string | null };                                      // the newest folded message
+type SyslogStats = { /* as [2b-3] */ total: number;               // MESSAGES: sum(repeat_count)
+  rows: number };                                                  // stored rows (<= total)
+// top_sources / top_programs / buckets / by_severity also count messages
+type IngestCounters = { /* as [2b-3] */ deduplicated: number;      // folded into an earlier row
+  pruned: number;                                                  // removed by "keep newest N"
+  dropped: { /* as [2b-3] */ filter_rule: number; source_rate_limit: number } };
+type IngestStatus = { /* as [2b-3] */ syslog_protection: {
+  dedup_enabled: boolean; dedup_window_s: number; rate_limit_enabled: boolean; rate_limit_per_min: number;
+  filter_rules: number;                                            // enabled rules
+  rule_hits: Record<string, number>;                               // rule id -> hits since boot
+  top_sources: { source_ip: string; filter_rule: number; deduplicated: number; source_rate_limit: number;
+    pruned: number; total: number }[];                             // <= 20, since counters_since
+  dedup_entries: number; rate_sources: number } };                 // bounded in-memory state
+type SyslogFilter = { id: number; name: string; enabled: boolean; position: number;   // 1 = checked first
+  sources: string[];                       // CIDRs ("10.0.0.9/32")
+  device_ids: number[]; devices: { id: number; name: string }[];
+  program: string; program_match: "exact" | "prefix";               // case-insensitive
+  msgid: string;                                                   // exact, case-insensitive
+  severity_min: number | null;             // this severity and less important (severity >= n)
+  message_contains: string;                // substring, case-insensitive
+  action: "drop" | "keep"; keep_n: number; // keep: the newest keep_n rows per source IP
+  hits: number; last_hit_at: string | null; hits_since: string;   // reset when the conditions change
+  created_at: string; updated_at: string };
+type SyslogCleanupJob = { rule_id: number; rule_name: string; action: "drop" | "keep"; keep_n: number;
+  state: "running" | "done" | "failed"; expected: number; deleted: number; until: string;
+  started_at: string; finished_at: string | null; error: string | null };
+type TopTalker = { source_ip: string; device_id: number | null; device_name: string | null; program: string;
+  severity: number; rows: number; messages: number; last_seen: string | null };
+```
+A message matches a rule when it meets **every** condition that is set; the source condition is met by the IP
+being in `sources` **or** the attributed device being in `device_ids`. A rule needs at least one condition.
+Rules are checked in `position` order; the first **enabled** match decides (`drop`: not stored, counted;
+`keep`: stored tagged with the rule, then the rows of that rule and source beyond the newest `keep_n` are deleted
+after each write — like `trap_collapse`). At most 200 rules.
+
+### Endpoints (feature `syslog`; 409 `feature_disabled` while off; admin only, a viewer gets 403)
+| Method & path | Request | Response |
+|---|---|---|
+| `GET /api/syslog-filters` | — | `{"items": SyslogFilter[], "cleanup": SyslogCleanupJob \| null}` (the running or last cleanup since start) |
+| `POST /api/syslog-filters` | `name` (required) + any of the fields above | `201 SyslogFilter` (appended last); `422` no condition / bad CIDR / unknown device. Audit `syslog_filter.create` |
+| `PATCH /api/syslog-filters/{id}` | any fields (`severity_min: null` clears) | `SyslogFilter`; a change of the conditions or the action resets `hits` and un-tags the rows kept under the old definition. Audit `syslog_filter.update` |
+| `DELETE /api/syslog-filters/{id}` | — | `204`. Audit `syslog_filter.delete` |
+| `PUT /api/syslog-filters/order` | `{"ids": [3, 1, 2]}` (every rule once) | `{"items": SyslogFilter[]}`. Audit `syslog_filter.reorder` |
+| `POST /api/syslog-filters/{id}/cleanup-preview` | — | `{"rule_id", "action", "keep_n", "count", "until", "running"}`: the stored rows the rule matches (`drop`) or the rows beyond the newest `keep_n` per source (`keep`), stored up to `until` (now) |
+| `POST /api/syslog-filters/{id}/cleanup` | `{"until": "<preview until>", "expected": <preview count>}` | `202 SyslogCleanupJob` (runs in the background); `409 cleanup_running`; `422` `until` in the future. Deletes only rows stored up to `until`, in time slices of one hour and batches of 5000 rows per transaction (no long lock, either DB mode); a `keep` cleanup then tags the rows that stay. Audit `syslog_filter.cleanup` (`rows`, `until`) |
+| `GET /api/syslog-filters/cleanup` | — | `{"cleanup": SyslogCleanupJob \| null}` |
+| `GET /api/syslog/top-talkers` (**viewer**) | `hours` 1–168 (24), `limit` 1–100 (20) | `{"since", "hours", "total_rows", "total_messages", "items": TopTalker[]}` — the busiest (source, device, program, severity) by stored rows |
+
+The cleanup is **offered** by the UI after a rule is created or its conditions change (and from the rule's
+"Clean up stored" action); it is never automatic.
+
+### WebSocket
+| type | data | When / who |
+|---|---|---|
+| `syslog.repeats` | `{"items": [{"id": 812, "repeat_count": 37, "last_seen": "…"}]}` | the repeat counts written in the last flush (every 2 s); sockets subscribed to topic `syslog` |
