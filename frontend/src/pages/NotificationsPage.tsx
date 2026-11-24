@@ -61,6 +61,7 @@ import { isTelegramChatId, isTelegramToken } from '../lib/telegram';
 import { ChatAckFields } from '../components/chatack/ChannelAckFields';
 import type { TeamsChannelConfig, TeamsChannelConfigInput } from '../api/types';
 import { isLegacyTeamsHost, teamsUrlError, urlHost } from '../lib/teams';
+import { defaultRuleInput, noActiveRule, offerDefaultRuleWithChannel } from '../lib/defaultRule';
 
 function channelTarget(c: NotificationChannel): string {
   if (c.type === 'email') return (c.config as EmailChannelConfig).to?.join(', ') ?? '';
@@ -110,10 +111,13 @@ function ChannelModal({
   open,
   onClose,
   channel,
+  offerDefaultRule = false,
 }: {
   open: boolean;
   onClose: () => void;
   channel?: NotificationChannel;
+  /** no alert rule exists yet: offer to create the default rule with this (new) channel */
+  offerDefaultRule?: boolean;
 }) {
   const { t } = useTranslation();
   const qc = useQueryClient();
@@ -141,6 +145,8 @@ function ChannelModal({
   const notesOn = useAiFeature('ai_alert_notes');
   const [aiAsk, setAiAsk] = useState(false);
   const [aiNoteEmail, setAiNoteEmail] = useState(true);
+  const [withDefaultRule, setWithDefaultRule] = useState(true);
+  const showDefaultRule = !channel && offerDefaultRule;
 
   useEffect(() => {
     if (!open) return;
@@ -167,6 +173,7 @@ function ChannelModal({
     const c3b = (channel?.config ?? {}) as { ai_ask?: boolean; ai_note_email?: boolean };
     setAiAsk(c3b.ai_ask ?? false);
     setAiNoteEmail(c3b.ai_note_email ?? true);
+    setWithDefaultRule(true);
     setTouched(false);
     setTestResult(null);
     test.reset();
@@ -206,11 +213,31 @@ function ChannelModal({
   });
 
   const m = useMutation({
-    mutationFn: (body: ChannelInput) =>
-      channel ? endpoints.updateChannel(channel.id, body) : endpoints.createChannel(body),
-    onSuccess: () => {
+    mutationFn: async (body: ChannelInput): Promise<{ ruleMade: boolean; ruleError: unknown }> => {
+      if (channel) {
+        await endpoints.updateChannel(channel.id, body);
+        return { ruleMade: false, ruleError: null };
+      }
+      const created = await endpoints.createChannel(body);
+      if (!(showDefaultRule && withDefaultRule)) return { ruleMade: false, ruleError: null };
+      // the channel is saved either way; a failed rule is reported, not rolled back
+      try {
+        await endpoints.createAlertRule(defaultRuleInput(t, [created.id]));
+        return { ruleMade: true, ruleError: null };
+      } catch (e) {
+        return { ruleMade: false, ruleError: e };
+      }
+    },
+    onSuccess: ({ ruleMade, ruleError }) => {
       void qc.invalidateQueries({ queryKey: qk.channels });
+      if (ruleMade || ruleError) void qc.invalidateQueries({ queryKey: ['alertRules'] });
       toast.push('success', t('common.saved'));
+      if (ruleMade) toast.push('success', t('rules.defaultRule.created'));
+      if (ruleError)
+        toast.push(
+          'error',
+          t('rules.defaultRule.createFailed', { error: errorMessage(t, ruleError) }),
+        );
       onClose();
     },
   });
@@ -461,6 +488,18 @@ function ChannelModal({
           </div>
         )}
         <Checkbox label={t('common.enabled')} checked={enabled} onChange={setEnabled} />
+        {showDefaultRule && (
+          <div data-testid="default-rule-option">
+            <Checkbox
+              label={t('rules.defaultRule.create')}
+              checked={withDefaultRule}
+              onChange={setWithDefaultRule}
+            />
+            <p className="ms-6 mt-0.5 text-xs text-ink-muted">
+              {t('rules.defaultRule.createHint')}
+            </p>
+          </div>
+        )}
         <ErrorBox error={m.error} />
         <ErrorBox error={test.error} />
         {testResult && (
@@ -962,6 +1001,22 @@ export function NotificationsPage() {
     onSuccess: () => void qc.invalidateQueries({ queryKey: qk.channels }),
     onError: (e) => toast.push('error', errorMessage(t, e)),
   });
+  // channels but no enabled rule: one click creates the default rule for every enabled channel
+  const enabledChannels = channels.data?.items.filter((c) => c.enabled) ?? [];
+  const makeDefaultRule = useMutation({
+    mutationFn: () =>
+      endpoints.createAlertRule(
+        defaultRuleInput(
+          t,
+          enabledChannels.map((c) => c.id),
+        ),
+      ),
+    onSuccess: () => {
+      void qc.invalidateQueries({ queryKey: ['alertRules'] });
+      toast.push('success', t('rules.defaultRule.created'));
+    },
+    onError: (e) => toast.push('error', errorMessage(t, e)),
+  });
 
   const chName = (id: number) => channels.data?.items.find((c) => c.id === id)?.name ?? `#${id}`;
   const ruleItems = rules.data?.items ?? [];
@@ -987,6 +1042,52 @@ export function NotificationsPage() {
           </>
         }
       />
+      {noActiveRule(channels.data?.items, rules.data?.items) && (
+        <Notice tone="warning" className="mb-6">
+          <div
+            role="status"
+            data-testid="no-active-rule"
+            className="flex flex-wrap items-center gap-3"
+          >
+            <div className="min-w-0 flex-1">
+              <p className="m-0 font-semibold">{t('rules.defaultRule.bannerTitle')}</p>
+              <p className="m-0 mt-0.5 text-[13px] text-ink-muted">
+                {ruleItems.some((r) => r.enabled) && (
+                  <>{t('rules.defaultRule.bannerChannelsOff')} </>
+                )}
+                {enabledChannels.length ? (
+                  <Trans
+                    i18nKey="rules.defaultRule.bannerHint"
+                    components={{
+                      list: (
+                        <span>
+                          {enabledChannels.map((c, i) => (
+                            <span key={c.id}>
+                              {i > 0 && ', '}
+                              <bdi>{c.name}</bdi>
+                            </span>
+                          ))}
+                        </span>
+                      ),
+                    }}
+                  />
+                ) : (
+                  t('rules.defaultRule.bannerNoChannel')
+                )}
+              </p>
+            </div>
+            {enabledChannels.length > 0 && (
+              <Button
+                variant="primary"
+                busy={makeDefaultRule.isPending}
+                onClick={() => makeDefaultRule.mutate()}
+              >
+                <PlusIcon size={14} /> {t('rules.defaultRule.bannerButton')}
+              </Button>
+            )}
+          </div>
+        </Notice>
+      )}
       {/* prototype .two.even: channels | rules + the flow of one rule */}
       <div className="grid grid-cols-1 items-start gap-6 lg:grid-cols-2">
         <section aria-labelledby="nt-channels" data-testid="channels">
@@ -1171,6 +1272,7 @@ export function NotificationsPage() {
         open={chEdit !== null}
         onClose={() => setChEdit(null)}
         channel={chEdit && chEdit !== 'new' ? chEdit : undefined}
+        offerDefaultRule={offerDefaultRuleWithChannel(rules.data?.items)}
       />
       <RuleModal
         open={ruleEdit !== null}
