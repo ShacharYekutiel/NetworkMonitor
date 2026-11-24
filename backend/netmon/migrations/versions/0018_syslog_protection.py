@@ -17,10 +17,8 @@ Idempotent. `downgrade()` drops the table, the index and the three columns (the 
 counts are lost; every row stays). An older release on the upgraded database keeps working:
 its INSERT leaves the new columns at their defaults.
 
-Revision ID: 0018 (data-model "[syslog-protection] Migration"). MERGE NOTE: written on a
-branch whose head is 0016 while another branch may add 0017; when both are merged,
-`down_revision` here must be re-pointed at 0017 (the id lives only in this file; tests read
-the head from the scripts).
+Revision ID: 0018 (data-model "[syslog-protection] Migration"). No 0017 exists: the
+branch expected to add it needed no migration, so this follows 0016 directly.
 Revises: 0016
 Create Date: 2026-11-24
 """
