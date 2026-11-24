@@ -4454,9 +4454,9 @@
   "severity": {
     "label": "חומרה",
     "level": {
-      "critical": "קריטי",
-      "major": "חמור",
-      "minor": "קל",
+      "critical": "קריטית",
+      "major": "חמורה",
+      "minor": "קלה",
       "warning": "אזהרה",
       "info": "מידע"
     },
@@ -4470,8 +4470,8 @@
     "filter": "חומרה",
     "sort": {
       "label": "סדר",
-      "time": "החדשים קודם",
-      "severity": "החמורים קודם"
+      "time": "החדשות קודם",
+      "severity": "החמורות קודם"
     },
     "automatic": "אוטומטי (לפי המיפוי)",
     "automaticIs": "אוטומטי (לפי המיפוי): {{level}}",

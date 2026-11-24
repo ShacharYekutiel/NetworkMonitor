@@ -97,8 +97,8 @@ describe('[severity] SeverityTag', () => {
       </>,
     );
     const tag = screen.getByTestId('severity-tag');
-    expect(tag.textContent).toBe('חמור');
-    expect(tag.getAttribute('title')).toBe('חומרה: חמור (Major)');
+    expect(tag.textContent).toBe('חמורה');
+    expect(tag.getAttribute('title')).toBe('חומרה: חמורה (Major)');
     expect(screen.getByTestId('t2').textContent).toBe('Information');
   });
 });
