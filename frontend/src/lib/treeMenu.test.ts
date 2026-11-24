@@ -402,3 +402,37 @@ describe('placeMenu (RTL-aware, inside the viewport)', () => {
     expect(keyboardAnchor(r, true)).toEqual({ x: 210, y: 40 });
   });
 });
+
+describe('tree menu items: [tree-move] Move to…', () => {
+  const d = device(1, []);
+  const g = group(2, [d]);
+  it('admins who may move get "Move to…" before Edit / Delete (groups and devices)', () => {
+    for (const target of [
+      { kind: 'group', group: g },
+      { kind: 'device', device: d },
+    ] as TreeMenuTarget[]) {
+      const items = shape(treeMenuItems(target, ctx({ canMove: true })));
+      expect(items.slice(-3)).toEqual(['moveTo', 'edit', 'delete']);
+    }
+  });
+
+  it('a row in a multi-selection offers the whole selection', () => {
+    const items = treeMenuItems(
+      { kind: 'device', device: d },
+      ctx({ canMove: true, selectedCount: 3 }),
+    );
+    expect(find(items, 'moveSelected')?.vars).toEqual({ count: 3 });
+    expect(actions(items)).not.toContain('moveTo');
+  });
+
+  it('no move for viewers, sensors, or without the permission', () => {
+    expect(
+      actions(treeMenuItems({ kind: 'device', device: d }, ctx({ isAdmin: false }))),
+    ).not.toContain('moveTo');
+    expect(actions(treeMenuItems({ kind: 'device', device: d }, ctx()))).not.toContain('moveTo');
+    const s = sensor(9);
+    expect(
+      actions(treeMenuItems({ kind: 'sensor', sensor: s, device: d }, ctx({ canMove: true }))),
+    ).not.toContain('moveTo');
+  });
+});

@@ -165,7 +165,12 @@ function useDropTarget(key: string, groupId: number | null, collapsed: boolean):
     },
     onDragOver: over,
     onDragLeave: (e: React.DragEvent<HTMLElement>) => {
-      if (e.relatedTarget instanceof Node && e.currentTarget.contains(e.relatedTarget)) return;
+      // moving between the row's own children is no leave (Chromium may give no relatedTarget)
+      const to =
+        e.relatedTarget instanceof Node
+          ? e.relatedTarget
+          : document.elementFromPoint?.(e.clientX, e.clientY);
+      if (to && e.currentTarget.contains(to)) return;
       stop();
       mover.dragLeave(key);
     },

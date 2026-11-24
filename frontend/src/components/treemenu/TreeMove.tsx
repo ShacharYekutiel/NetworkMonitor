@@ -446,6 +446,7 @@ function MovePicker({
                 type="radio"
                 className={cx(RADIO, 'disabled:cursor-not-allowed disabled:opacity-40')}
                 name="move-target"
+                aria-label={label}
                 checked={picked === o.id}
                 disabled={!ok}
                 onChange={() => setPicked(o.id)}
