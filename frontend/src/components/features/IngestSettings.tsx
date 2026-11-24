@@ -1,4 +1,5 @@
 import { useEffect, useState, type FormEvent } from 'react';
+import { Link } from 'react-router';
 import { useTranslation } from 'react-i18next';
 import type {
   Settings,
@@ -684,6 +685,118 @@ export function TrapCollapseCard({ settings }: { settings: Settings }) {
   );
 }
 
+/**
+ * [syslog-protection] Deduplication and the per-source rate limit (both ON by default; an upgrade
+ * turns them on, so their current values and a plain explanation are shown here). The filter
+ * rules live on the Logs page (Syslog protection tab).
+ */
+export function SyslogProtectionCard({ settings }: { settings: Settings }) {
+  const { t } = useTranslation();
+  const [dedup, setDedup] = useState(true);
+  const [windowS, setWindowS] = useState('60');
+  const [rate, setRate] = useState(true);
+  const [perMin, setPerMin] = useState('3000');
+  useEffect(() => {
+    setDedup(settings.syslog_dedup_enabled ?? true);
+    setWindowS(String(settings.syslog_dedup_window_s ?? 60));
+    setRate(settings.syslog_rate_limit_enabled ?? true);
+    setPerMin(String(settings.syslog_rate_limit_per_min ?? 3000));
+  }, [settings]);
+  const save = useSaveSettings();
+  const e = { window: !intInRange(windowS, 5, 3600), rate: !intInRange(perMin, 10, 100000) };
+  const invalid = e.window || e.rate;
+  return (
+    <Card title={t('syslogProtection.title')} anchor={cardAnchor('syslogProtection')}>
+      <form
+        className="space-y-4"
+        data-testid="syslog-protection-settings"
+        onSubmit={(ev) => {
+          ev.preventDefault();
+          if (!invalid)
+            save.mutate({
+              syslog_dedup_enabled: dedup,
+              syslog_dedup_window_s: Number(windowS),
+              syslog_rate_limit_enabled: rate,
+              syslog_rate_limit_per_min: Number(perMin),
+            });
+        }}
+      >
+        <p className="text-xs text-ink-muted">{t('syslogProtection.intro')}</p>
+        <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+          <div className="space-y-2 rounded-lg border border-line px-4 py-3.5">
+            <Checkbox label={t('syslogProtection.dedup')} checked={dedup} onChange={setDedup} />
+            <p className="text-xs text-ink-muted">
+              {t('syslogProtection.dedupHint', { n: windowS || '?' })}
+            </p>
+            <Field
+              label={t('syslogProtection.window')}
+              hint={
+                e.window ? (
+                  <span className="text-status-down">{t('syslogProtection.windowErr')}</span>
+                ) : (
+                  t('syslogProtection.windowHint')
+                )
+              }
+            >
+              <Input
+                type="number"
+                min={5}
+                max={3600}
+                value={windowS}
+                disabled={!dedup}
+                onChange={(x) => setWindowS(x.target.value)}
+                dir="ltr"
+                className="max-w-[8rem]"
+                data-testid="dedup-window"
+              />
+            </Field>
+          </div>
+          <div className="space-y-2 rounded-lg border border-line px-4 py-3.5">
+            <Checkbox label={t('syslogProtection.rate')} checked={rate} onChange={setRate} />
+            <p className="text-xs text-ink-muted">
+              {t('syslogProtection.rateHint', { n: perMin || '?' })}
+            </p>
+            <Field
+              label={t('syslogProtection.perMin')}
+              hint={
+                e.rate ? (
+                  <span className="text-status-down">{t('syslogProtection.perMinErr')}</span>
+                ) : (
+                  t('syslogProtection.perMinHint')
+                )
+              }
+            >
+              <Input
+                type="number"
+                min={10}
+                max={100000}
+                value={perMin}
+                disabled={!rate}
+                onChange={(x) => setPerMin(x.target.value)}
+                dir="ltr"
+                className="max-w-[8rem]"
+                data-testid="rate-per-min"
+              />
+            </Field>
+          </div>
+        </div>
+        <p className="text-xs text-ink-muted">
+          {t('syslogProtection.rulesHint')}{' '}
+          <Link to="/logs?tab=protection" className="font-medium text-accent-ink hover:underline">
+            {t('syslogProtection.rulesLink')}
+          </Link>
+        </p>
+        <div className="flex justify-end">
+          <Button type="submit" variant="primary" busy={save.isPending} disabled={invalid}>
+            {t('common.save')}
+          </Button>
+        </div>
+        <ErrorBox error={save.error} />
+      </form>
+    </Card>
+  );
+}
+
 /** Settings tab "Traps & syslog": switches at the top; settings, status and flapping while on. */
 export function IngestTab({ settings }: { settings: Settings }) {
   const f = featuresFromSettings(settings);
@@ -695,6 +808,9 @@ export function IngestTab({ settings }: { settings: Settings }) {
       </FeatureSection>
       <FeatureSection feature="traps" settings={settings}>
         <TrapCollapseCard settings={settings} />
+      </FeatureSection>
+      <FeatureSection feature="syslog" settings={settings}>
+        <SyslogProtectionCard settings={settings} />
       </FeatureSection>
       {ingestOn(f) && <IngestStatusCard />}
       <FeatureSection feature="flapping" settings={settings}>

@@ -223,6 +223,20 @@ export const SETTINGS_CARDS: SettingsCardDef[] = [
     ],
   },
   {
+    id: 'syslogProtection',
+    tab: 'ingest',
+    titleKey: 'syslogProtection.title',
+    hintKey: 'syslogProtection.intro',
+    feature: ['syslog'],
+    terms: ['syslog', 'flood', 'dedup', 'duplicate', 'rate limit', 'noisy'],
+    fields: [
+      { labelKey: 'syslogProtection.dedup', terms: ['dedup', 'duplicate'] },
+      { labelKey: 'syslogProtection.window' },
+      { labelKey: 'syslogProtection.rate', terms: ['rate limit', 'storm'] },
+      { labelKey: 'syslogProtection.perMin' },
+    ],
+  },
+  {
     id: 'flapping',
     tab: 'ingest',
     titleKey: 'flapping.title',

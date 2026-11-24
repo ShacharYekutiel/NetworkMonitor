@@ -736,6 +736,11 @@ export type WsMessage =
   // [2b-3]
   | { type: 'subscribed'; ts: string; data: { topics: string[] } }
   | { type: 'syslog.batch'; ts: string; data: { items: SyslogMessage[]; skipped: number } }
+  | {
+      type: 'syslog.repeats';
+      ts: string;
+      data: { items: { id: number; repeat_count: number; last_seen: string }[] };
+    }
   | { type: 'trap.batch'; ts: string; data: { items: Trap[]; skipped: number } }
   | { type: 'features.changed'; ts: string; data: { features: Features } }
   | { type: 'ingest.receiver'; ts: string; data: { receiver: ReceiverStatus } }
@@ -1780,6 +1785,9 @@ export type SyslogMessage = {
   message: string;
   truncated: boolean;
   matched_rule_ids: number[];
+  /** [syslog-protection] identical messages folded into this row (`time` = first seen) */
+  repeat_count: number;
+  last_seen: string | null;
 };
 export type SyslogStats = {
   since: string;
@@ -1787,7 +1795,10 @@ export type SyslogStats = {
   bucket_s: number;
   /** counts: 8 entries, index = severity */
   buckets: { t: string; counts: number[] }[];
+  /** messages (a deduplicated row counts its repeats) */
   total: number;
+  /** [syslog-protection] stored rows */
+  rows: number;
   by_severity: number[];
   top_sources: TopSource[];
   top_programs: { program: string; count: number }[];
@@ -1813,13 +1824,115 @@ export const DROP_REASONS = [
   'v3_auth',
   'unsupported',
   'db_error',
+  // [syslog-protection] not stored on purpose
+  'filter_rule',
+  'source_rate_limit',
 ] as const;
 export type DropReason = (typeof DROP_REASONS)[number];
 export type IngestCounters = {
   received: number;
   stored: number;
   forwarded: number;
+  /** [syslog-protection] folded into an earlier identical row / removed by "keep newest N" */
+  deduplicated: number;
+  pruned: number;
   dropped: Record<DropReason, number>;
+};
+/** [syslog-protection] per-source suppression counters (since counters_since) */
+export type ProtectionSource = {
+  source_ip: string;
+  filter_rule: number;
+  deduplicated: number;
+  source_rate_limit: number;
+  pruned: number;
+  total: number;
+};
+export type SyslogProtectionStatus = {
+  dedup_enabled: boolean;
+  dedup_window_s: number;
+  rate_limit_enabled: boolean;
+  rate_limit_per_min: number;
+  filter_rules: number;
+  rule_hits: Record<string, number>;
+  top_sources: ProtectionSource[];
+  dedup_entries: number;
+  rate_sources: number;
+};
+export type SyslogFilterAction = 'drop' | 'keep';
+export type SyslogFilter = {
+  id: number;
+  name: string;
+  enabled: boolean;
+  position: number;
+  sources: string[];
+  device_ids: number[];
+  devices: { id: number; name: string }[];
+  program: string;
+  program_match: 'exact' | 'prefix';
+  msgid: string;
+  severity_min: number | null;
+  message_contains: string;
+  action: SyslogFilterAction;
+  keep_n: number;
+  hits: number;
+  last_hit_at: string | null;
+  hits_since: string;
+  created_at: string;
+  updated_at: string;
+};
+export type SyslogFilterInput = Partial<
+  Pick<
+    SyslogFilter,
+    | 'name'
+    | 'enabled'
+    | 'sources'
+    | 'device_ids'
+    | 'program'
+    | 'program_match'
+    | 'msgid'
+    | 'severity_min'
+    | 'message_contains'
+    | 'action'
+    | 'keep_n'
+  >
+>;
+export type SyslogCleanupJob = {
+  rule_id: number;
+  rule_name: string;
+  action: SyslogFilterAction;
+  keep_n: number;
+  state: 'running' | 'done' | 'failed';
+  expected: number;
+  deleted: number;
+  until: string;
+  started_at: string;
+  finished_at: string | null;
+  error: string | null;
+};
+export type SyslogCleanupPreview = {
+  rule_id: number;
+  action: SyslogFilterAction;
+  keep_n: number;
+  count: number;
+  until: string;
+  running: boolean;
+};
+export type TopTalker = {
+  source_ip: string;
+  device_id: number | null;
+  device_name: string | null;
+  program: string;
+  severity: number;
+  rows: number;
+  messages: number;
+  last_seen: string | null;
+};
+export type TopTalkers = {
+  since: string;
+  hours: number;
+  total_rows: number;
+  total_messages: number;
+  items: TopTalker[];
 };
 export type ForwarderState = 'connected' | 'connecting' | 'idle' | 'error' | 'disabled';
 export type ForwarderStatus = {
@@ -1851,6 +1964,7 @@ export type IngestStatus = {
   forwarders: ForwarderStatus[];
   trgm: boolean;
   timescale: boolean;
+  syslog_protection: SyslogProtectionStatus;
 };
 export type UnknownSource = {
   source_ip: string;
@@ -2042,6 +2156,11 @@ export type Settings2b3 = {
   trap_collapse_enabled: boolean;
   trap_collapse_oids: string[];
   trap_collapse_keep: number;
+  /** [syslog-protection] ON by default */
+  syslog_dedup_enabled: boolean;
+  syslog_dedup_window_s: number;
+  syslog_rate_limit_enabled: boolean;
+  syslog_rate_limit_per_min: number;
   flap_threshold: number;
   flap_window_min: number;
   flap_quiet_min: number;

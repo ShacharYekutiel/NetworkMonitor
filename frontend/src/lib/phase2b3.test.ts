@@ -82,6 +82,8 @@ function syslog(p: Partial<SyslogMessage> = {}): SyslogMessage {
     message: 'Physical state on the interface Ten-GigabitEthernet1/0/49 changed to down.',
     truncated: false,
     matched_rule_ids: [4],
+    repeat_count: 1,
+    last_seen: null,
     ...p,
   };
 }

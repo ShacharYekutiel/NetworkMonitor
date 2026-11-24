@@ -1,9 +1,10 @@
-import { useMemo, useRef, useState } from 'react';
+import { useCallback, useMemo, useRef, useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { useTranslation } from 'react-i18next';
 import { endpoints } from '../../api/endpoints';
 import type { SyslogMessage } from '../../api/types';
 import { useAuth } from '../../hooks/auth';
+import { useLiveMessages } from '../../hooks/live';
 import { useLocalState } from '../../hooks/useLocalState';
 import { ruleFromSyslog, type RuleForm } from '../../lib/eventRules';
 import { formatDateTime } from '../../lib/format';
@@ -18,7 +19,7 @@ import {
 } from '../../lib/logs';
 import { DetailRows, Drawer } from '../Drawer';
 import { RefreshIcon } from '../icons';
-import { Button, Card, cx, Empty, ErrorBox, Loading } from '../ui';
+import { Button, Card, cx, Empty, ErrorBox, Loading, TAG, TAG_TONE } from '../ui';
 import {
   facilityLabel,
   LogRow,
@@ -74,6 +75,43 @@ export function NewRecordsBar({ count, onShow }: { count: number; onShow: () => 
   );
 }
 
+/** [syslog-protection] "×37": identical messages folded into this row. */
+export function RepeatBadge({ n, lastSeen }: { n: number; lastSeen?: string | null }) {
+  const { t } = useTranslation();
+  if (n <= 1) return null;
+  return (
+    <span
+      className={cx(TAG, TAG_TONE.accent, 'num')}
+      title={t('logs.repeatTitle', {
+        n,
+        time: lastSeen ? formatDateTime(lastSeen) : '—',
+      })}
+      data-testid="repeat-count"
+    >
+      <bdi dir="ltr">×{n}</bdi>
+    </span>
+  );
+}
+
+type Repeats = Record<number, { repeat_count: number; last_seen: string }>;
+
+/** Live repeat counts (`syslog.repeats`) over the rows already on screen. */
+function useRepeats(live: boolean): Repeats {
+  const [rep, setRep] = useState<Repeats>({});
+  const onMsg = useCallback((m: { type: string; data: unknown }) => {
+    if (m.type !== 'syslog.repeats') return;
+    const items = (m.data as { items: { id: number; repeat_count: number; last_seen: string }[] })
+      .items;
+    setRep((prev) => {
+      const next = { ...prev };
+      for (const x of items) next[x.id] = { repeat_count: x.repeat_count, last_seen: x.last_seen };
+      return next;
+    });
+  }, []);
+  useLiveMessages(['syslog.repeats'], onMsg, live ? 'syslog' : null);
+  return rep;
+}
+
 export function SyslogDetail({
   m,
   onClose,
@@ -112,6 +150,20 @@ export function SyslogDetail({
           <DetailRows
             rows={[
               [t('logs.col.time'), formatDateTime(m.time)],
+              ...(m.repeat_count > 1
+                ? ([
+                    [
+                      t('logs.repeats'),
+                      <span data-testid="detail-repeats">
+                        {t('logs.repeatsValue', {
+                          n: m.repeat_count,
+                          first: formatDateTime(m.time),
+                          last: m.last_seen ? formatDateTime(m.last_seen) : '—',
+                        })}
+                      </span>,
+                    ],
+                  ] as [string, React.ReactNode][])
+                : []),
               [t('logs.deviceTime'), m.device_time ? formatDateTime(m.device_time) : '—'],
               [t('logs.col.source'), <SourceCell r={m} />],
               [t('logs.sourceIp'), <bdi dir="ltr">{m.source_ip}</bdi>],
@@ -184,6 +236,9 @@ export function SyslogView({ deviceId }: { deviceId?: number }) {
     enabled: !!query,
     refetchInterval: live && canLive ? 60_000 : false,
   });
+  const repeats = useRepeats(live && canLive);
+  const withRepeats = (m: SyslogMessage): SyslogMessage =>
+    repeats[m.id] ? { ...m, ...repeats[m.id] } : m;
   const series = useMemo(
     () => (stats.data ? severitySeries(stats.data.buckets, (s) => t(`syslogSeverity.${s}`)) : []),
     [stats.data, t],
@@ -217,7 +272,12 @@ export function SyslogView({ deviceId }: { deviceId?: number }) {
       {stats.data && (
         <Card bodyClassName="px-5 py-4">
           <div className="flex flex-wrap items-baseline justify-between gap-2 text-[13px] text-ink-muted">
-            <span>{t('logs.total', { n: stats.data.total })}</span>
+            <span>
+              {t('logs.total', { n: stats.data.total })}
+              {stats.data.rows < stats.data.total && (
+                <> · {t('logs.rowsStored', { n: stats.data.rows })}</>
+              )}
+            </span>
           </div>
           <Histogram
             times={stats.data.buckets.map((b) => b.t)}
@@ -248,7 +308,7 @@ export function SyslogView({ deviceId }: { deviceId?: number }) {
             <Empty>{t('logs.empty')}</Empty>
           ) : (
             <LogTable head={[t('logs.col.severity'), t('logs.col.message'), t('logs.col.time')]}>
-              {feed.items.map((m) => (
+              {feed.items.map(withRepeats).map((m) => (
                 <LogRow
                   key={m.id}
                   dot={severityDot(m.severity)}
@@ -257,6 +317,11 @@ export function SyslogView({ deviceId }: { deviceId?: number }) {
                   time={m.time}
                   sub={
                     <>
+                      {m.repeat_count > 1 && (
+                        <>
+                          <RepeatBadge n={m.repeat_count} lastSeen={m.last_seen} />{' '}
+                        </>
+                      )}
                       {deviceId === undefined && (
                         <>
                           <SourceCell r={m} />
@@ -315,7 +380,7 @@ export function SyslogView({ deviceId }: { deviceId?: number }) {
         </Card>
       )}
       <SyslogDetail
-        m={selected}
+        m={selected && withRepeats(selected)}
         onClose={() => setSelected(null)}
         onCreateRule={
           isAdmin
