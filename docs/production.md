@@ -112,6 +112,27 @@ them needs a server change or a deploy. Operator details (Hebrew), device exampl
 - **pg_trgm** (log text search) ships with the TimescaleDB image; the app creates the extension at startup
   (`/api/health/details` → `"trgm": true`).
 
+### Syslog flood protection — behaviour change on upgrade (migration `0018`)
+
+Two protections are **ON by default, also after an upgrade** (*Settings → Traps & syslog → Syslog flood
+protection*, each with its current value and an explanation; turning one off restores the old behaviour):
+
+- **Deduplication** (`syslog_dedup_enabled`, window `syslog_dedup_window_s` = 60 s): identical messages (same
+  source, program, MSGID, severity and text) within 60 s of the first one are stored as **one row** with
+  `repeat_count` / `last_seen`; the Logs page shows `×37`. Histograms and totals count messages. Anything that
+  reads `syslog_messages` directly must take `repeat_count` into account.
+- **Per-source rate limit** (`syslog_rate_limit_enabled`, `syslog_rate_limit_per_min` = 3000): above 3000 new rows
+  per minute from one source the excess is not stored; it is counted (`dropped.source_rate_limit`, per source in
+  *Logs → Flood protection*) and a system event says so at most once an hour per source. A healthy device never
+  comes close (the noisiest device in the owner's network sends ~59 rows/min); it is a storm guard.
+
+**Filter rules** (drop, or keep only the newest N per source) are empty after the upgrade and change nothing until
+an operator adds one (*Logs → Flood protection*, with the top talkers of the last 24 h and a one-click "Create
+rule"). Cleaning already-stored rows is only ever offered, with the exact count, and runs in batches. Event rules
+and SIEM forwarding still see every message. Migration `0018` adds three columns with constant defaults (no table
+rewrite) and one empty partial index; a rollback to the previous image keeps working on the migrated database
+(its INSERT leaves the new columns at their defaults); `netmon migrate --to 0016` removes them.
+
 ## Phase 3: flows, config backup, SSO, reports, chat acknowledge
 
 Everything new is **off** after the upgrade and is turned on in *Settings → Features*. The only server-side items are

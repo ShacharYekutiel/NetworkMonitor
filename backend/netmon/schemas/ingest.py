@@ -81,6 +81,11 @@ class IngestSettingsMixin(BaseModel):
     trap_collapse_enabled: bool | None = None
     trap_collapse_oids: list[str] | None = Field(default=None, max_length=64)
     trap_collapse_keep: int | None = Field(default=None, ge=1, le=1000)
+    # [syslog-protection]
+    syslog_dedup_enabled: bool | None = None
+    syslog_dedup_window_s: int | None = Field(default=None, ge=5, le=3600)
+    syslog_rate_limit_enabled: bool | None = None
+    syslog_rate_limit_per_min: int | None = Field(default=None, ge=10, le=100000)
     flap_threshold: int | None = Field(default=None, ge=3, le=50)
     flap_window_min: int | None = Field(default=None, ge=1, le=120)
     flap_quiet_min: int | None = Field(default=None, ge=1, le=1440)
@@ -207,3 +212,48 @@ def source_addresses(v: list[str] | None) -> list[str] | None:
             addr = addr.ipv4_mapped
         out.append(str(addr))
     return list(dict.fromkeys(out))
+
+
+# ------------------------------------------------------------------ [syslog-protection]
+class SyslogFilterIn(_In):
+    """Create (all fields; defaults) or PATCH (only the fields sent) a syslog filter rule."""
+
+    name: str | None = Field(default=None, min_length=1, max_length=100)
+    enabled: bool | None = None
+    sources: list[str] | None = Field(default=None, max_length=64)
+    device_ids: list[int] | None = Field(default=None, max_length=64)
+    program: str | None = Field(default=None, max_length=128)
+    program_match: Literal["exact", "prefix"] | None = None
+    msgid: str | None = Field(default=None, max_length=64)
+    severity_min: int | None = Field(default=None, ge=0, le=7)
+    message_contains: str | None = Field(default=None, max_length=200)
+    action: Literal["drop", "keep"] | None = None
+    keep_n: int | None = Field(default=None, ge=1, le=100000)
+
+    @field_validator("sources")
+    @classmethod
+    def _sources(cls, v: list[str] | None) -> list[str] | None:
+        if v is None:
+            return v
+        return list(dict.fromkeys(ip_or_cidr(x) for x in v))
+
+    @field_validator("device_ids")
+    @classmethod
+    def _devices(cls, v: list[int] | None) -> list[int] | None:
+        return None if v is None else list(dict.fromkeys(int(x) for x in v))
+
+    @field_validator("name", "program", "msgid", "message_contains")
+    @classmethod
+    def _strip(cls, v: str | None) -> str | None:
+        return None if v is None else v.strip()
+
+
+class SyslogFilterOrderIn(_In):
+    ids: list[int] = Field(min_length=1, max_length=500)
+
+
+class SyslogCleanupIn(_In):
+    """Run the cleanup a preview offered: rows stored up to `until` (the preview's time)."""
+
+    until: str = Field(min_length=10, max_length=40)
+    expected: int = Field(ge=0)

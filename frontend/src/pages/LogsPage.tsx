@@ -3,6 +3,8 @@ import { useTranslation } from 'react-i18next';
 import { FeatureOffNotice, useFeatures } from '../hooks/features';
 import { ingestOn } from '../lib/features';
 import { RulesView } from '../components/logs/RulesView';
+import { SyslogProtectionView } from '../components/logs/SyslogProtectionView';
+import { useAuth } from '../hooks/auth';
 import { SyslogView } from '../components/logs/SyslogView';
 import { TrapsView } from '../components/logs/TrapsView';
 import { UnknownSourcesView } from '../components/logs/UnknownSourcesView';
@@ -12,7 +14,7 @@ import { TabBar } from '../components/TabBar';
 import { useAiFeature } from '../components/assistant/common';
 import { DigestDay } from '../components/assistant/Digest';
 
-type LogsTab = 'syslog' | 'traps' | 'unknown' | 'rules' | 'digest';
+type LogsTab = 'syslog' | 'traps' | 'unknown' | 'rules' | 'protection' | 'digest';
 
 /** [2b-3] Traps & Syslog (/logs): Syslog | Traps | Unknown sources | Rules. */
 export function LogsPage() {
@@ -20,11 +22,14 @@ export function LogsPage() {
   const { features, loaded } = useFeatures();
   const [params, setParams] = useSearchParams();
   const digestOn = useAiFeature('ai_syslog_digest');
+  const { isAdmin } = useAuth();
   const tabs: LogsTab[] = [
     ...(features.syslog ? (['syslog'] as const) : []),
     ...(features.traps ? (['traps'] as const) : []),
     'unknown',
     'rules',
+    // [syslog-protection] filter rules, counters, top talkers (admins)
+    ...(features.syslog && isAdmin ? (['protection'] as const) : []),
     // [3b] daily syslog digest (admins, feature ai_syslog_digest)
     ...(digestOn ? (['digest'] as const) : []),
   ];
@@ -49,6 +54,7 @@ export function LogsPage() {
           {tab === 'traps' && <TrapsView />}
           {tab === 'unknown' && <UnknownSourcesView />}
           {tab === 'rules' && <RulesView />}
+          {tab === 'protection' && <SyslogProtectionView />}
           {tab === 'digest' && <DigestDay />}
         </>
       )}

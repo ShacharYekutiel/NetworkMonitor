@@ -129,9 +129,12 @@ test('filters: device, group, unknown, source_ip, severity_max, facility, progra
 test('stats: buckets per severity, totals, top sources/programs', async () => {
   const m = marker('qa39st');
   sendSyslog({ from: SRC.aos, messages: [`<187>Nov  8 12:00:00 sw statprog: ${m}`, `<187>Nov  8 12:00:00 sw statprog: ${m}`] });
-  await waitItems(admin, 'syslog', { q: m }, (it) => it.length === 2);
+  // [syslog-protection] dedup (ON by default) stores the two identical lines as one row with repeat_count 2;
+  // the stats count messages, so every number below is still 2
+  await waitItems(admin, 'syslog', { q: m }, (it) => it.length === 1 && it[0].repeat_count === 2);
   const st = await admin.get(`/api/syslog/stats?q=${m}`);
   expect(st.total).toBe(2);
+  expect(st.rows).toBe(1);
   expect(st.by_severity).toHaveLength(8);
   expect(st.by_severity[3]).toBe(2);
   expect([60, 300, 900, 3600, 21600, 86400]).toContain(st.bucket_s);

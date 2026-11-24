@@ -18,8 +18,13 @@ import type {
   PublicSettings,
   RuleTestResult,
   SiemTarget,
+  SyslogCleanupJob,
+  SyslogCleanupPreview,
+  SyslogFilter,
+  SyslogFilterInput,
   SyslogMessage,
   SyslogStats,
+  TopTalkers,
   TimelineItem,
   TimelineKind,
   Trap,
@@ -137,6 +142,8 @@ export const qk = {
   ingestStatus: ['ingest-status'] as const,
   unknownSources: (days: number) => ['unknown-sources', days] as const,
   eventRules: (kind?: EventRuleKind) => ['event-rules', kind ?? 'all'] as const,
+  syslogFilters: ['syslog-filters'] as const, // [syslog-protection]
+  topTalkers: (hours: number) => ['syslog-top-talkers', hours] as const,
   conditions: (sensorId: number) => ['conditions', sensorId] as const,
   tokens: (all: boolean) => ['tokens', all] as const,
   audit: (q: object) => ['audit', q] as const,
@@ -580,6 +587,23 @@ export const endpoints = {
     ),
   testForwarder: (body: { target_id: string } | { target: SiemTarget }) =>
     api.post<{ ok: boolean; message: string }>('/ingest/forwarders/test', body),
+
+  // [syslog-protection] filter rules, cleanup of stored rows, top talkers
+  syslogFilters: () =>
+    api.get<{ items: SyslogFilter[]; cleanup: SyslogCleanupJob | null }>('/syslog-filters'),
+  createSyslogFilter: (body: SyslogFilterInput) => api.post<SyslogFilter>('/syslog-filters', body),
+  updateSyslogFilter: (id: number, body: SyslogFilterInput) =>
+    api.patch<SyslogFilter>(`/syslog-filters/${id}`, body),
+  deleteSyslogFilter: (id: number) => api.del(`/syslog-filters/${id}`),
+  orderSyslogFilters: (ids: number[]) =>
+    api.put<{ items: SyslogFilter[] }>('/syslog-filters/order', { ids }),
+  syslogCleanupPreview: (id: number) =>
+    api.post<SyslogCleanupPreview>(`/syslog-filters/${id}/cleanup-preview`),
+  syslogCleanup: (id: number, until: string, expected: number) =>
+    api.post<SyslogCleanupJob>(`/syslog-filters/${id}/cleanup`, { until, expected }),
+  syslogCleanupStatus: () =>
+    api.get<{ cleanup: SyslogCleanupJob | null }>('/syslog-filters/cleanup'),
+  topTalkers: (hours = 24) => api.get<TopTalkers>('/syslog/top-talkers', { hours }),
 
   // [2b-3] event rules and event sensors
   eventRules: (kind?: EventRuleKind) =>

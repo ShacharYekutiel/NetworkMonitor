@@ -43,6 +43,7 @@ from netmon.api import (  # [3]
     sensors,
     severity,  # [severity]
     sso,
+    syslog_filters,  # [syslog-protection]
     templates,
     testclock,
     timeline,
@@ -245,6 +246,7 @@ def create_app(
         ports.router,
         overview.router,  # [premium] home map
         severity.router,  # [severity] mapping
+        syslog_filters.router,  # [syslog-protection] before ingest: /api/syslog/top-talkers
         ingest.router,  # [2b-3]
         flows.router,  # [3]
         configbackup.router,  # [3]

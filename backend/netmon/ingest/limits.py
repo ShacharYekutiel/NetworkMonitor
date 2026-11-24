@@ -43,6 +43,9 @@ DROP_REASONS = (
     "v3_auth",
     "unsupported",
     "db_error",
+    # [syslog-protection] not stored on purpose (netmon.ingest.syslog_protect)
+    "filter_rule",
+    "source_rate_limit",
 )
 
 

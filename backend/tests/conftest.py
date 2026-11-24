@@ -42,7 +42,7 @@ TABLES = (
     # [2b-3] (TRUNCATE does not fire the audit_log row trigger)
     "audit_log, api_tokens, "
     # [2b-3] ingestion (event_rules is re-seeded with the built-in rules in `clean`)
-    "traps, syslog_messages, event_conditions, event_rules, "
+    "traps, syslog_messages, syslog_filters, event_conditions, event_rules, "
     # [3] flow collector (hourly fallback tables / continuous aggregates are not truncated
     # here: flow tests clean them themselves)
     "flow_exporters, flow_if_1m, flow_app_1m, flow_host_1m, flow_conv_1m, "
