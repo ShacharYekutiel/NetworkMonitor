@@ -2287,6 +2287,9 @@
       "known": "v1/v2c traps with another community are dropped."
     },
     "knownNeedsList": "Add at least one community first.",
+    "anyWarning": "Traps are accepted with any community. Anyone who can reach the trap port can send traps that will be stored.",
+    "anyHowTo": "To accept known communities only: tick “Replace the stored list”, enter your communities (one per line), choose “Only known communities” under Community check, then Save — both are saved together. Communities from device and group SNMP credentials, and “public”, always count as known.",
+    "knownEmptyWarning": "“Only known communities” is on, but no trap communities are stored: every v1/v2c trap is dropped unless its community is “public” or one from a device or group SNMP credential. Add your communities with “Replace the stored list”.",
     "communities": "Trap communities",
     "communitiesStored": "Stored communities: {{n}} (never shown)",
     "replaceCommunities": "Replace the stored list",
