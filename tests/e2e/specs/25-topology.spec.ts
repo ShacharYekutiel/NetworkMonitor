@@ -1,6 +1,6 @@
 import { expect, test } from '@playwright/test';
 import { Api, apiAs, loginViaApi, uid } from '../lib/helpers';
-import { collectWsFrames, ensureGroup, raw, snmpCreds } from '../lib/lab';
+import { collectWsFrames, ensureGroup, raw, snmpCreds, wsRegistered } from '../lib/lab';
 import { findDevice, labSwap, refreshTopology, shot2b, waitTopologyRefresh } from '../lib/lab2b';
 
 // [2b-1] (g) Topology (data-model.md § Topology, api.md [2b-1] Topology, architecture.md §10.4 LLDP tree):
@@ -246,6 +246,7 @@ test('suggest dependencies (root = core) -> apply selected in the UI -> dependen
 test('layout: PUT/DELETE positions, group filter (in_filter), topology.updated WS', async ({ page }) => {
   const ws = collectWsFrames(page);
   await loginViaApi(page, undefined, '/topology');
+  await wsRegistered(ws); // the topology.updated broadcast of the PUT below must reach this page
   await api.put('/api/topology/layout', { positions: [{ node: `d:${dev.core.id}`, x: 10.5, y: -20 }, { node: 'd:99999999', x: 1, y: 1 }] });
   const g = await api.get('/api/topology');
   expect(g.nodes.find((n: any) => n.key === `d:${dev.core.id}`)).toMatchObject({ x: 10.5, y: -20 });
