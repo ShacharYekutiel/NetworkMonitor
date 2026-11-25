@@ -56,7 +56,9 @@ TABLES = (
     "assistant_artifacts, assistant_incidents, assistant_incident_members, "
     "assistant_note_targets, assistant_syslog_signatures, assistant_snmp_walks, "
     "revoked_sessions, "  # [1.4.1]
-    "user_sessions"  # [premium] signed-in browsers (migration 0014)
+    "user_sessions, "  # [premium] signed-in browsers (migration 0014)
+    # [profiles] connection profiles (assignments also cascade with groups / devices)
+    "connection_profile_assignments, connection_profiles"
 )
 
 

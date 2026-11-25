@@ -38,6 +38,8 @@ class Sim:
     exec_fail: set[str] = field(default_factory=set)  # exec commands that exit 1
     server: Any = None
     port: int = 0
+    host: str = "127.0.0.1"  # [profiles] discovery tests bind their own loopback address
+    logins: list[str] = field(default_factory=list)  # [profiles] every password attempt (user)
 
     async def start(self) -> Sim:
         if self.host_key is None:
@@ -52,12 +54,13 @@ class Sim:
                 return True
 
             def validate_password(self, username: str, password: str) -> bool:
+                sim.logins.append(username)
                 return username == sim.username and password == sim.password
 
         self.server = await asyncssh.create_server(
             _Server,
-            "127.0.0.1",
-            0,
+            self.host,
+            self.port,
             server_host_keys=[self.host_key],
             process_factory=self._handle,
             encoding="utf-8",
