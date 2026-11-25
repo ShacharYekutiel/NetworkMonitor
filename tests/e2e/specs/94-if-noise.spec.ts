@@ -333,7 +333,8 @@ test('overrides: sensor / device / group, quick action, bulk; a change releases 
   // 1) sensor form: debounce OFF for this sensor only (the global switch stays ON)
   for (const lang of ['en', 'he'] as const) {
     const page = await shotPage(browser, lang, `/sensors/${s2.id}`);
-    await expect(page.getByTestId('noise-override-card')).toHaveCount(0); // everything from Settings
+    // before the en save everything comes from Settings; the he pass sees the saved override
+    await expect(page.getByTestId('noise-override-card')).toHaveCount(lang === 'en' ? 0 : 1);
     await page.getByRole('button', { name: T('common.edit', {}, lang) }).click();
     const dlg = page.getByRole('dialog');
     const fields = dlg.getByTestId('noise-override');
@@ -416,6 +417,17 @@ test('overrides: sensor / device / group, quick action, bulk; a change releases 
   await api.patch(`/api/groups/${grp.id}`, { event_noise: { debounce: 'inherit' } });
 
   // 4) "Noisiest sensors": quick action sets the sensor back to inherit (debounce ON again via Settings)
+  // the card lists the 20 noisiest sensors: in a full run other specs' sensors change more, so make this one
+  // noisier than the 20th (its debounce is OFF and the device's flapping collapse is OFF: one row per change)
+  const top = (await api.get('/api/events/noisy-sensors?hours=24&limit=20')).items;
+  const need = (top.length >= 20 ? top[19].changes : 0) + 2;
+  let mine = top.find((x: any) => x.sensor_id === s2.id)?.changes ?? 3;
+  // alternate down / up; stop after an up (the steps below start from up)
+  for (let up = false; mine < need || up; mine++) {
+    await setTarget(up);
+    await run2();
+    up = !up;
+  }
   for (const lang of ['en', 'he'] as const) {
     const page = await shotPage(browser, lang, `/events?sensor_id=${s2.id}`);
     await page.getByLabel(T('noisy.show', {}, lang)).check();
