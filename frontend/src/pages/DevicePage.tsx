@@ -1,4 +1,5 @@
 import { originText } from '../lib/credentials';
+import { useSnmpOriginVersion } from '../hooks/snmpOriginVersion';
 import { useState } from 'react';
 import { useNavigate, useParams, useSearchParams } from 'react-router';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
@@ -289,6 +290,11 @@ export function DevicePage() {
       navigate(device.data ? `/groups/${device.data.group_id}` : '/');
     },
   });
+  // [profiles] hooks before the early returns
+  const snmpVersion = useSnmpOriginVersion(
+    device.data?.effective_snmp,
+    device.data?.snmp_credentials,
+  );
 
   if (device.isLoading) return <Loading />;
   if (device.error || !device.data) return <ErrorBox error={device.error} />;
@@ -408,10 +414,10 @@ export function DevicePage() {
           {!d.enabled && <span className="text-ink-muted">{t('devices.disabledNote')}</span>}
           <StatusCountPills counts={d.status_counts} />
           <NewDevicesBadge device={d} />
-          {/* [profiles] where the effective credentials come from (names only, no profile data) */}
+          {/* [profiles] where the effective credentials come from, with the SNMP version when known */}
           <span className="text-xs text-ink-muted" data-testid="device-snmp-origin">
             {t('snmp.label')}: <bdi>{originText(d.effective_snmp, t)}</bdi>
-            {d.snmp_credentials && ` (${d.snmp_credentials.version})`}
+            {snmpVersion && ` (${snmpVersion})`}
           </span>
           <span className="text-xs text-ink-muted" data-testid="device-ssh-origin">
             SSH: <bdi>{originText(d.effective_ssh, t)}</bdi>

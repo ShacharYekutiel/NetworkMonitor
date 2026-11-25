@@ -170,3 +170,29 @@ export function originText(origin: CredentialOrigin | null | undefined, t: TFunc
         : t('credMode.origin.groupManual', { group: origin.group_name ?? '' });
   }
 }
+
+/** Where the SNMP version of an origin line can be read (api.md § Groups and devices). */
+export type SnmpVersionSource =
+  | { from: 'own' }
+  | { from: 'group'; groupId: number }
+  | { from: 'profile'; profileId: number }
+  | null;
+
+/**
+ * Which record holds the effective SNMP version: the node's own manual data, the deciding group's
+ * manual data, or the profile (admins only: a viewer never sees a profile's data). The built-in
+ * default already names its version in the text.
+ */
+export function snmpVersionSource(
+  origin: CredentialOrigin | null | undefined,
+  isAdmin: boolean,
+): SnmpVersionSource {
+  if (!origin || (origin.source !== 'self' && origin.source !== 'group')) return null;
+  if (origin.mode === 'profile')
+    return isAdmin && origin.profile_id !== null
+      ? { from: 'profile', profileId: origin.profile_id }
+      : null;
+  if (origin.mode !== 'manual') return null;
+  if (origin.source === 'self') return { from: 'own' };
+  return origin.group_id !== null ? { from: 'group', groupId: origin.group_id } : null;
+}

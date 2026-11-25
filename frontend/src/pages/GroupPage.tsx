@@ -1,4 +1,5 @@
 import { originText } from '../lib/credentials';
+import { useSnmpOriginVersion } from '../hooks/snmpOriginVersion';
 import { useEffect, useState } from 'react';
 import { Link, useNavigate, useParams } from 'react-router';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
@@ -71,6 +72,10 @@ export function GroupPage() {
   const toast = useToast();
   const schedule = useScheduleText();
   const group = useQuery({ queryKey: qk.group(id), queryFn: () => endpoints.group(id) });
+  const snmpVersion = useSnmpOriginVersion(
+    group.data?.effective_snmp,
+    group.data?.snmp_credentials,
+  );
   const devices = useQuery({
     queryKey: qk.devices({ group_id: id }),
     queryFn: () => endpoints.devices({ group_id: id }),
@@ -330,10 +335,10 @@ export function GroupPage() {
                   '—'
                 ),
               },
-              // [profiles] origin of the effective credentials (names only)
+              // [profiles] origin of the effective credentials, with the SNMP version when known
               {
                 k: t('snmp.label'),
-                v: originText(g.effective_snmp, t),
+                v: originText(g.effective_snmp, t) + (snmpVersion ? ` (${snmpVersion})` : ''),
                 testId: 'group-snmp-origin',
               },
               { k: 'SSH', v: originText(g.effective_ssh, t), testId: 'group-ssh-origin' },

@@ -11,6 +11,7 @@ import {
   needsDiscardConfirm,
   nodeMode,
   originText,
+  snmpVersionSource,
   type PatchArgs,
 } from './credentials';
 
@@ -217,5 +218,24 @@ describe('originText', () => {
     expect(originText(o({ source: 'default' }), t)).toBe('credMode.origin.default');
     expect(originText(o({ source: 'none' }), t)).toBe('credMode.origin.none');
     expect(originText(undefined, t)).toBe('credMode.origin.unknown');
+  });
+
+  it('knows where the SNMP version of every origin is read', () => {
+    expect(snmpVersionSource(o({ mode: 'manual' }), false)).toEqual({ from: 'own' });
+    expect(snmpVersionSource(o({ source: 'group', group_id: 7, mode: 'manual' }), false)).toEqual({
+      from: 'group',
+      groupId: 7,
+    });
+    const viaProfile = o({ source: 'group', group_id: 7, mode: 'profile', profile_id: 3 });
+    expect(snmpVersionSource(viaProfile, true)).toEqual({ from: 'profile', profileId: 3 });
+    expect(snmpVersionSource(o({ mode: 'profile', profile_id: 3 }), true)).toEqual({
+      from: 'profile',
+      profileId: 3,
+    });
+    // a viewer never reads a profile's data
+    expect(snmpVersionSource(viaProfile, false)).toBeNull();
+    // the built-in default names its version in the text
+    expect(snmpVersionSource(o({ source: 'default' }), true)).toBeNull();
+    expect(snmpVersionSource(undefined, true)).toBeNull();
   });
 });
