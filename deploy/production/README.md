@@ -254,6 +254,14 @@ sudo ./ops/restore.sh --dump /var/backups/netmon/daily/netmon-db-<time>.dump \
 מריצה migrations קדימה; גרסה ישנה לא יודעת לקרוא schema חדש). לכן ב-rollback אחרי migration:
 קודם merge של ה-revert של `release.env`, ואז שחזור ה-`pre-deploy` dump שנלקח לפני השדרוג.
 
+**‏[1.5.1] גרסת TimescaleDB:** ‏`restore.sh` קורא מה-dump באיזו גרסת הרחבה הוא נכתב, יוצר את המסד בגרסה **הזאת**
+(`CREATE EXTENSION timescaledb VERSION '...'`), משחזר, ורק אז מעדכן (`ALTER EXTENSION timescaledb UPDATE`) לגרסה של
+ה-image. image חדש כולל גם את הגרסאות הקודמות, ולכן dump של 2.31.0 משוחזר תחת 2.32.1. אם ה-image של `compose.yaml`
+**לא** כולל את הגרסה של ה-dump (dump חדש תחת image ישן), הסקריפט נעצר **לפני** שהוא נוגע במשהו ומציין את ה-tag
+המתאים (`timescale/timescaledb:<גרסה>-pg16`). את עדכון ההרחבה אי אפשר לבטל: image ישן לא פותח מסד שעודכן. לכן
+`sync.sh` מסרב (מסמן bad) ל-deploy שמחזיר את ה-db ל-image שלא יודע לטעון את הגרסה שבמסד, וב-rollback אוטומטי
+משאיר את ה-db על ה-image החדש. פרטים ופקודות: [docs/production.md](../../docs/production.md) ("[1.5.1] Upgrade and rollback").
+
 **שרת חדש (Disaster Recovery):** מריצים את שלבים 1-3 עם `NETMON_NO_DEPLOY=1` (בלי deploy ראשון),
 ואז `restore.sh` עם `--dump` ו-`--data`, ואז:
 
