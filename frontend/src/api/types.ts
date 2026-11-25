@@ -128,6 +128,31 @@ export type SnmpCredentialsInput = Partial<
   >
 > & { community?: string | null; v3_auth_key?: string | null; v3_priv_key?: string | null };
 
+/** [if-noise] per-sensor / device / group override of a protection: inherit = the next level decides */
+export type NoiseMode = 'inherit' | 'on' | 'off';
+export const NOISE_MODES: NoiseMode[] = ['inherit', 'on', 'off'];
+/** [if-noise] `event_noise` of a sensor / device / group (values: null = inherit) */
+export type EventNoiseOverride = {
+  debounce: NoiseMode;
+  flap: NoiseMode;
+  debounce_polls: number | null;
+  debounce_min_s: number | null;
+};
+export type NoiseSource = 'sensor' | 'device' | 'group' | 'global';
+export type NoiseResolved<T> = {
+  value: T;
+  source: NoiseSource;
+  source_id: number | null;
+  source_name: string | null;
+};
+/** [if-noise] what applies, and which level decided */
+export type EffectiveEventNoise = {
+  debounce: NoiseResolved<boolean>;
+  flap: NoiseResolved<boolean>;
+  debounce_polls: NoiseResolved<number>;
+  debounce_min_s: NoiseResolved<number>;
+};
+
 export type Group = {
   id: number;
   parent_id: number | null;
@@ -141,6 +166,9 @@ export type Group = {
   dependency: Dependency;
   /** [3] */
   ssh_credentials?: SshCredentials | null;
+  /** [if-noise] */
+  event_noise?: EventNoiseOverride;
+  effective_event_noise?: EffectiveEventNoise | null;
   created_at: string;
   updated_at: string;
 };
@@ -184,6 +212,9 @@ export type Device = {
   config_backup_driver?: string | null;
   /** [3] new-device alerts: ifIndexes excluded from detection */
   newdev_excluded_ports?: number[];
+  /** [if-noise] */
+  event_noise?: EventNoiseOverride;
+  effective_event_noise?: EffectiveEventNoise | null;
   created_at: string;
   updated_at: string;
 };
@@ -278,6 +309,9 @@ export type Sensor = {
   /** [severity] overrides (null: the event rule / mapping decides) */
   severity_down?: Severity | null;
   severity_warning?: Severity | null;
+  /** [if-noise] own overrides; the effective values (null where the server does not resolve them) */
+  event_noise?: EventNoiseOverride;
+  effective_event_noise?: EffectiveEventNoise | null;
   created_at: string;
   updated_at: string;
 };
@@ -352,6 +386,9 @@ export type NoisySensor = {
   hidden: number;
   last_change: string | null;
   flapping: boolean;
+  /** [if-noise] the sensor's own overrides and what applies */
+  event_noise?: EventNoiseOverride;
+  effective_event_noise?: EffectiveEventNoise | null;
 };
 export type NoisySensorsResponse = { hours: number; total_changes: number; items: NoisySensor[] };
 

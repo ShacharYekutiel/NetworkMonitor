@@ -13,7 +13,11 @@ from netmon.auth.ldap_config import LdapSettingsIn
 from netmon.flows.settings import FlowSettingsMixin
 from netmon.schemas.assistant import Phase3bSettingsMixin
 from netmon.schemas.ingest import IngestSettingsMixin, source_addresses
-from netmon.schemas.noise import NoiseSettingsMixin
+from netmon.schemas.noise import (  # noqa: F401 - re-exported
+    BulkEventNoiseIn,
+    EventNoiseIn,
+    NoiseSettingsMixin,
+)
 from netmon.schemas.phase3 import (
     ConfigBackupSettingsMixin,
     NewdevSettingsMixin,
@@ -193,6 +197,7 @@ class GroupCreate(_In):
     sort_order: int = 0
     dependency: DependencyIn | None = None
     ssh_credentials: SshCredentialsIn | None = None  # [3]
+    event_noise: EventNoiseIn | None = None  # [if-noise] overrides (omitted = unchanged)
 
 
 class GroupPatch(_In):
@@ -203,6 +208,7 @@ class GroupPatch(_In):
     sort_order: int | None = None
     dependency: DependencyIn | None = None
     ssh_credentials: SshCredentialsIn | None = None  # [3] null = inherit
+    event_noise: EventNoiseIn | None = None  # [if-noise] overrides (omitted = unchanged)
 
 
 def validate_http_url(v: str) -> str:
@@ -263,6 +269,7 @@ class DeviceCreate(_In):
     config_backup: InventoryMode = "auto"
     config_backup_driver: str | None = Field(default=None, max_length=64)
     newdev_excluded_ports: list[int] = Field(default_factory=list, max_length=256)
+    event_noise: EventNoiseIn | None = None  # [if-noise] overrides (omitted = unchanged)
 
     _h = field_validator("host")(lambda cls, v: _host(v))
     _sa = field_validator("source_addresses")(lambda cls, v: source_addresses(v))
@@ -286,6 +293,7 @@ class DevicePatch(_In):
     config_backup: InventoryMode | None = None
     config_backup_driver: str | None = Field(default=None, max_length=64)  # null = auto
     newdev_excluded_ports: list[int] | None = Field(default=None, max_length=256)
+    event_noise: EventNoiseIn | None = None  # [if-noise] overrides (omitted = unchanged)
 
     _sa = field_validator("source_addresses")(lambda cls, v: source_addresses(v))
     _nex = field_validator("newdev_excluded_ports")(lambda cls, v: _if_indexes(v))
@@ -319,6 +327,7 @@ class SensorCreate(_In):
     # [severity] optional overrides (null = the mapping / event rule decides)
     severity_down: Severity | None = None
     severity_warning: Severity | None = None
+    event_noise: EventNoiseIn | None = None  # [if-noise] overrides (omitted = unchanged)
 
 
 class SensorPatch(_In):
@@ -332,6 +341,7 @@ class SensorPatch(_In):
     impact: Impact | None = None  # [1.3]
     severity_down: Severity | None = None  # [severity] null clears the override
     severity_warning: Severity | None = None
+    event_noise: EventNoiseIn | None = None  # [if-noise] overrides (omitted = unchanged)
 
 
 class BulkImpactIn(_In):

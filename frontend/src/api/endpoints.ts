@@ -76,6 +76,7 @@ import type {
   Language,
   NmEvent,
   NoisySensorsResponse,
+  EventNoiseOverride,
   NotificationChannel,
   Page,
   Port,
@@ -167,6 +168,8 @@ export type GroupInput = {
   dependency?: DependencyInput;
   /** [3] null = inherit */
   ssh_credentials?: SshCredentialsInput | null;
+  /** [if-noise] omitted keys are unchanged */
+  event_noise?: Partial<EventNoiseOverride>;
 };
 
 export type DeviceInput = {
@@ -190,6 +193,8 @@ export type DeviceInput = {
   config_backup?: BackupMode;
   config_backup_driver?: string | null;
   newdev_excluded_ports?: number[];
+  /** [if-noise] omitted keys are unchanged */
+  event_noise?: Partial<EventNoiseOverride>;
 };
 
 export type SensorInput = {
@@ -206,6 +211,8 @@ export type SensorInput = {
   /** [severity] overrides (null clears) */
   severity_down?: Severity | null;
   severity_warning?: Severity | null;
+  /** [if-noise] omitted keys are unchanged */
+  event_noise?: Partial<EventNoiseOverride>;
 };
 
 export type EventQuery = {
@@ -457,6 +464,8 @@ export const endpoints = {
   // events
   events: (q: EventQuery) => api.get<Page<NmEvent>>('/events', q),
   /** [if-noise] sensors with the most status changes */
+  bulkEventNoise: (sensor_ids: number[], event_noise: Partial<EventNoiseOverride>) =>
+    api.post<{ updated: number }>('/sensors/bulk-event-noise', { sensor_ids, event_noise }),
   noisySensors: (hours: number) =>
     api.get<NoisySensorsResponse>('/events/noisy-sensors', { hours, limit: 20 }),
   /** [if-noise] true / false = the user's choice, null = back to the criteria */

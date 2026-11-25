@@ -22,7 +22,14 @@ and broadcast in real time. What changes is whether the row is *shown*:
   shown one, the last hidden change is shown so the log ends in the sensor's real status.
 
 Transitions from `unknown` / `paused` / no status (first check, resume, restart) are never
-debounced or counted. Both switches OFF: rows are written and shown exactly as before."""
+debounced or counted. Both switches OFF: rows are written and shown exactly as before.
+
+**Overrides** (migration 0020): each protection is `inherit` / `on` / `off` per sensor, device and
+group, and the debounce values (polls, min seconds) can be set at each level too (NULL =
+inherit). The first level that decides wins: sensor -> device -> its group -> parent groups ->
+the global settings key (pure `resolve`). Every decision of the write path uses the sensor's
+effective values; a change of any level (or of the global keys, or a move in the tree) runs
+`release()`, which shows / settles at once what a protection that is now OFF was holding back."""
 
 from __future__ import annotations
 
@@ -37,6 +44,7 @@ from sqlalchemy import select, text
 
 from netmon.ingest.flapping import FlapTracker
 from netmon.models import Event
+from netmon.services.noise_override import Effective, resolve, sensor_levels
 from netmon.services.serialize import event_out
 
 if TYPE_CHECKING:
@@ -109,6 +117,22 @@ class EventNoise:
         self._wake = asyncio.Event()
         self._sweeps = 0
 
+    # ------------------------------------------------------------------ overrides
+    def global_values(self) -> dict[str, Any]:
+        return {
+            "debounce": self.debounce,
+            "flap": self.flap,
+            "debounce_polls": self.polls,
+            "debounce_min_s": self.min_s,
+        }
+
+    async def effective(self, session: Any, sensor_ids: list[int]) -> dict[int, Effective]:
+        glob = self.global_values()
+        return {
+            sid: resolve(levels, glob)
+            for sid, levels in (await sensor_levels(session, sensor_ids)).items()
+        }
+
     # ------------------------------------------------------------------ lifecycle
     def configure(self, cfg: dict[str, Any]) -> None:
         self.debounce = bool(cfg.get("sensor_event_debounce_enabled", True))
@@ -129,12 +153,8 @@ class EventNoise:
 
     async def start(self) -> None:
         await self.load()
-        if self.flap:
-            await self._restore()
-        else:
-            await self.end_all_flapping()
-        if not self.debounce:
-            await self.show_all_pending()
+        await self._restore()
+        await self.release()  # a protection that is OFF for a sensor holds nothing back
         if self._task is None:
             self._task = asyncio.create_task(self._loop(), name="netmon-event-noise")
 
@@ -155,14 +175,62 @@ class EventNoise:
         self.configure(settings_svc.defaults())
 
     async def reload(self) -> None:
-        """Settings changed: turning a protection OFF shows what it was holding back now."""
-        was_debounce, was_flap = self.debounce, self.flap
+        """Settings changed: turning a protection OFF shows what it was holding back now (for
+        every sensor whose effective value is now OFF; a sensor / device / group override `on`
+        keeps it)."""
         await self.load()
-        if was_debounce and not self.debounce:
-            await self.show_all_pending()
-        if was_flap and not self.flap:
-            await self.end_all_flapping()
+        await self.release()
         self._wake.set()
+
+    async def release(self) -> None:
+        """Called after any change that can turn a protection OFF for a sensor (global keys,
+        a sensor / device / group override, a device or group moved in the tree): the pending
+        rows of sensors whose debounce is now OFF are shown, the open episodes of sensors whose
+        flapping collapse is now OFF are settled (as when the global switch is turned OFF).
+        Only sensors with something held back are resolved."""
+        async with self.rt.sessionmaker() as session:
+            cand = {
+                int(r[0])
+                for r in await session.execute(
+                    text(  # each arm uses its partial index
+                        "SELECT sensor_id FROM events WHERE noise = 'pending' "
+                        "AND sensor_id IS NOT NULL UNION "
+                        "SELECT sensor_id FROM events WHERE kind = 'sensor_flapping' "
+                        "AND flap_end IS NULL AND sensor_id IS NOT NULL"
+                    )
+                )
+            }
+            cand |= set(self._pending)
+            cand |= {int(k[0]) for k in self.tracker.ports()}
+            eff = await self.effective(session, sorted(cand)) if cand else {}
+        gone = cand - set(eff)  # deleted sensors: their rows are gone with them
+        no_debounce = sorted(
+            {sid for sid, e in eff.items() if not e.debounce.value} | (gone & set(self._pending))
+        )
+        no_flap = sorted({sid for sid, e in eff.items() if not e.flap.value} | gone)
+        if no_debounce:
+            await self._show_due(None, sensor_ids=no_debounce)
+            for sid in no_debounce:
+                self._pending.pop(sid, None)
+        if no_flap:
+            async with self.rt.sessionmaker() as session:
+                open_ = {
+                    int(r[0])
+                    for r in await session.execute(
+                        text(
+                            "SELECT DISTINCT sensor_id FROM events WHERE kind = 'sensor_flapping' "
+                            "AND flap_end IS NULL AND sensor_id = ANY(:ids)"
+                        ),
+                        {"ids": no_flap},
+                    )
+                }
+            now = self.rt.clock.now()
+            for sid in no_flap:
+                if sid in open_:
+                    await self._end_episode(sid, now)
+                else:
+                    self._counts.pop(sid, None)
+                    self.tracker.forget((sid, 0))
 
     async def _restore(self) -> None:
         """Open episodes (rows without `flap_end`) keep suppressing after a restart; pending rows
@@ -192,19 +260,22 @@ class EventNoise:
         """Called by the poller (`persist`) in the transaction that wrote `event` (the sensor row
         is locked). Sets `event.noise` and writes the related rows; never delays alerts."""
         d = Decision()
-        if not (self.debounce or self.flap) or event.old_status in EXEMPT_FROM:
-            return d
-        if event.new_status in EXEMPT_FROM:
+        if event.old_status in EXEMPT_FROM or event.new_status in EXEMPT_FROM:
             return d
         sid = int(sensor.id)
+        eff = (await self.effective(session, [sid])).get(sid)
+        if eff is None or not (eff.debounce.value or eff.flap.value):
+            return d
         key = (sid, 0)
-        if self.flap:
+        if eff.flap.value:
             change = self.tracker.add(key, str(event.new_status), t.timestamp())
             if self.tracker.is_flapping(key):
                 await self._flapping(session, sensor, event, t, change, d)
                 return d
-        if self.debounce:
-            hold = hold_seconds(sensor.interval_s, self.polls, self.min_s)
+        if eff.debounce.value:
+            hold = hold_seconds(
+                sensor.interval_s, eff.debounce_polls.value, eff.debounce_min_s.value
+            )
             pending = (
                 await session.execute(
                     select(Event)
@@ -243,12 +314,15 @@ class EventNoise:
         sid = int(sensor.id)
         if sid not in self._pending:
             return []
-        if not self.debounce:
+        eff = (await self.effective(session, [sid])).get(sid)
+        if eff is None:
             self._pending.pop(sid, None)
             return []
+        debounce = bool(eff.debounce.value)
+        polls, min_s = int(eff.debounce_polls.value), int(eff.debounce_min_s.value)
         conf = self._pending[sid] + 1
         self._pending[sid] = conf
-        if conf < self.polls:
+        if debounce and conf < polls:
             return []
         row = (
             await session.execute(
@@ -262,8 +336,8 @@ class EventNoise:
         if row is None:
             self._pending.pop(sid, None)
             return []
-        if (t - row.time).total_seconds() < self.min_s:
-            return []
+        if debounce and (t - row.time).total_seconds() < min_s:
+            return []  # (debounce now OFF for the sensor: a row left pending is shown now)
         row.noise = None
         row.noise_until = None
         self._pending.pop(sid, None)
@@ -387,8 +461,14 @@ class EventNoise:
             end = datetime.fromtimestamp(ch.at, tz=now.tzinfo)
             await self._end_episode(int(ch.port[0]), min(end, now))
 
-    async def _show_due(self, now: datetime | None) -> list[Event]:
+    async def _show_due(
+        self, now: datetime | None, sensor_ids: list[int] | None = None
+    ) -> list[Event]:
         cond = "noise = 'pending'" + (" AND noise_until <= :now" if now is not None else "")
+        params: dict[str, Any] = {"now": now} if now is not None else {}
+        if sensor_ids is not None:
+            cond += " AND sensor_id = ANY(:sids)"
+            params["sids"] = sensor_ids
         async with self.rt.sessionmaker() as session:
             ids = [
                 int(r[0])
@@ -397,7 +477,7 @@ class EventNoise:
                         f"UPDATE events SET noise = NULL, noise_until = NULL WHERE {cond} "  # noqa: S608
                         "RETURNING id, sensor_id"
                     ),
-                    {"now": now} if now is not None else {},
+                    params,
                 )
             ]
             rows = (
@@ -435,23 +515,6 @@ class EventNoise:
 
     async def show_all_pending(self) -> list[Event]:
         return await self._show_due(None)
-
-    async def end_all_flapping(self) -> None:
-        async with self.rt.sessionmaker() as session:
-            ids = [
-                int(r[0])
-                for r in await session.execute(
-                    text(
-                        "SELECT DISTINCT sensor_id FROM events WHERE kind = 'sensor_flapping' "
-                        "AND flap_end IS NULL AND sensor_id IS NOT NULL"
-                    )
-                )
-            ]
-        now = self.rt.clock.now()
-        for sid in ids:
-            await self._end_episode(sid, now)
-        self.tracker.clear()
-        self._counts.clear()
 
     async def _end_episode(self, sensor_id: int, end: datetime) -> None:
         from netmon.models import Sensor
@@ -531,4 +594,5 @@ class EventNoise:
         return [hidden]
 
     def is_flapping(self, sensor_id: int) -> bool:
-        return self.flap and self.tracker.is_flapping((int(sensor_id), 0))
+        # the tracker only holds sensors whose effective flapping collapse is on (`release`)
+        return self.tracker.is_flapping((int(sensor_id), 0))

@@ -29,6 +29,8 @@ import { SensorConfigFields } from './SensorConfigFields';
 import { ImpactField } from './SensorImpact';
 import { useFeature } from '../hooks/features';
 import { SeverityOverrideFields, type SeverityChoice } from './severity/Severity';
+import { NoiseOverrideFields } from './noise/NoiseOverride';
+import { noiseFormErrors, noiseFormFrom, noiseFormToInput } from '../lib/noiseOverride';
 import { useToast } from './toast';
 import {
   Button,
@@ -460,9 +462,12 @@ export function EditSensorModal({
   const [sevWarn, setSevWarn] = useState<SeverityChoice>(sensor.severity_warning ?? '');
   const [raw, setRaw] = useState<RawConfig>({});
   const [errors, setErrors] = useState<ConfigErrors>({});
+  // [if-noise] event-log noise protection override (polled sensors)
+  const [noise, setNoise] = useState(noiseFormFrom(sensor.event_noise));
 
   useEffect(() => {
     if (!open) return;
+    setNoise(noiseFormFrom(sensor.event_noise));
     setName(sensor.name);
     setImpact(sensor.impact ?? 'critical');
     setSevDown(sensor.severity_down ?? '');
@@ -503,6 +508,9 @@ export function EditSensorModal({
     const { config, errors: errs } = buildSensorConfig(sensor.type, def.config_fields, raw);
     setErrors(errs);
     if (Object.keys(errs).length) return;
+    const noiseErr = noiseFormErrors(noise);
+    if (noiseErr.polls || noiseErr.minS) return;
+    const eventNoise = noiseFormToInput(noise, sensor.event_noise); // only what changed
     m.mutate({
       name: name.trim(),
       interval_s: intervalVal,
@@ -510,6 +518,7 @@ export function EditSensorModal({
       config,
       impact,
       ...severity,
+      ...(eventNoise ? { event_noise: eventNoise } : {}),
     });
   };
 
@@ -582,6 +591,15 @@ export function EditSensorModal({
             onChange={setRaw}
             errors={errors}
           />
+          {!passive && (
+            <NoiseOverrideFields
+              value={noise}
+              onChange={setNoise}
+              level="sensor"
+              selfId={sensor.id}
+              effective={sensor.effective_event_noise}
+            />
+          )}
           <ErrorBox error={m.error} />
           <div className="flex justify-end gap-2">
             <Button onClick={onClose}>{t('common.cancel')}</Button>

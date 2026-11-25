@@ -6,6 +6,7 @@ import { endpoints, qk } from '../api/endpoints';
 import type { StatusCounts, TreeGroup } from '../api/types';
 import { Breadcrumbs } from '../components/Breadcrumbs';
 import { DeviceFormModal, GroupFormModal } from '../components/EntityForms';
+import { NoiseOverrideCard } from '../components/noise/NoiseOverride';
 import { EditIcon, FolderIcon, MoveIcon, PlusIcon, TrashIcon, XIcon } from '../components/icons';
 import { CHECKBOX, DeviceTileIcon, EmptyState } from '../components/kit';
 import { StatusBadge, StatusDot } from '../components/Status';
@@ -299,43 +300,56 @@ export function GroupPage() {
           </section>
         </div>
 
-        <Card
-          title={t('dependency.title')}
-          className="xl:mt-[50px]"
-          actions={
-            isAdmin && (
-              <Button size="sm" onClick={() => setEditing(true)}>
-                <EditIcon size={13} /> {t('groups.editDependency')}
-              </Button>
-            )
-          }
-        >
-          <p className="m-0 mb-4 text-[13.5px] text-ink-muted">{t('dependency.groupHint')}</p>
-          <KeyValue
-            items={[
-              { k: t('groups.dependsOn'), v: dependsOn, testId: 'group-dependency' },
-              ...(dep?.mode === 'device'
-                ? [{ k: t('dependency.sensor'), v: dep.sensor_name ?? t('dependency.sensorAuto') }]
-                : []),
-              {
-                k: t('groups.maintenance'),
-                v: ownWindows.length ? (
-                  <span className="grid gap-1">
-                    {ownWindows.map((w) => (
-                      <span key={w.id}>{schedule(w)}</span>
-                    ))}
-                  </span>
-                ) : (
-                  '—'
-                ),
-              },
-              {
-                k: t('snmp.label'),
-                v: g.snmp_credentials ? g.snmp_credentials.version : t('snmp.inherited'),
-              },
-            ]}
+        <div className="grid min-w-0 gap-4 xl:mt-[50px]">
+          <Card
+            title={t('dependency.title')}
+            actions={
+              isAdmin && (
+                <Button size="sm" onClick={() => setEditing(true)}>
+                  <EditIcon size={13} /> {t('groups.editDependency')}
+                </Button>
+              )
+            }
+          >
+            <p className="m-0 mb-4 text-[13.5px] text-ink-muted">{t('dependency.groupHint')}</p>
+            <KeyValue
+              items={[
+                { k: t('groups.dependsOn'), v: dependsOn, testId: 'group-dependency' },
+                ...(dep?.mode === 'device'
+                  ? [
+                      {
+                        k: t('dependency.sensor'),
+                        v: dep.sensor_name ?? t('dependency.sensorAuto'),
+                      },
+                    ]
+                  : []),
+                {
+                  k: t('groups.maintenance'),
+                  v: ownWindows.length ? (
+                    <span className="grid gap-1">
+                      {ownWindows.map((w) => (
+                        <span key={w.id}>{schedule(w)}</span>
+                      ))}
+                    </span>
+                  ) : (
+                    '—'
+                  ),
+                },
+                {
+                  k: t('snmp.label'),
+                  v: g.snmp_credentials ? g.snmp_credentials.version : t('snmp.inherited'),
+                },
+              ]}
+            />
+          </Card>
+          {/* [if-noise] a group-level override of the event-log noise protection */}
+          <NoiseOverrideCard
+            effective={g.effective_event_noise}
+            level="group"
+            selfId={g.id}
+            onEdit={isAdmin ? () => setEditing(true) : undefined}
           />
-        </Card>
+        </div>
       </div>
 
       <GroupFormModal open={editing} onClose={() => setEditing(false)} group={g} />

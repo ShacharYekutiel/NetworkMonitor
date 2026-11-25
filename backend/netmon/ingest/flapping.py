@@ -51,6 +51,10 @@ class FlapTracker:
         s = self._ports.get(port)
         return bool(s and s.flapping)
 
+    def ports(self) -> list[Port]:
+        """Every tracked key (flapping or still counting)."""
+        return list(self._ports)
+
     def clear(self) -> None:
         self._ports.clear()
 

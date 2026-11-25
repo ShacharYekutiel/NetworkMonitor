@@ -43,6 +43,7 @@ import type { DeviceIdentity, Sensor } from '../api/types';
 import { BulkImpactModal } from '../components/SensorImpact';
 import { BulkDeleteModal } from '../components/SensorBulkDelete';
 import { BulkSeverityModal } from '../components/severity/BulkSeverity';
+import { BulkNoiseModal, NoiseOverrideCard } from '../components/noise/NoiseOverride';
 import { useEntityMenu } from '../components/treemenu/TreeContextMenu';
 import { l10n } from '../lib/templates';
 import { PortsTab } from '../components/ports/PortsTab';
@@ -117,6 +118,7 @@ export function DeviceSensorsCard({
   const [bulk, setBulk] = useState(false);
   const [bulkDelete, setBulkDelete] = useState(false);
   const [bulkSeverity, setBulkSeverity] = useState(false);
+  const [bulkNoise, setBulkNoise] = useState(false); // [if-noise]
   const severityOn = useFeature('alert_severity'); // [severity]
   // Only sensors still in the list count (sensors may be deleted while selected).
   const pickedSensors = (sensors ?? []).filter((s) => picked.has(s.id));
@@ -182,6 +184,14 @@ export function DeviceSensorsCard({
           )}
           <button
             type="button"
+            onClick={() => setBulkNoise(true)}
+            data-testid="sensor-bulk-noise"
+            className="h-[34px] rounded-full bg-accent-on px-3.5 text-[13.5px] font-medium text-accent"
+          >
+            {t('noiseOv.bulk.action')}
+          </button>
+          <button
+            type="button"
             onClick={() => setBulkDelete(true)}
             data-testid="sensor-bulk-delete"
             className="inline-flex h-[34px] items-center gap-1.5 rounded-full bg-status-down px-3.5 text-[13.5px] font-medium text-on-status"
@@ -211,6 +221,15 @@ export function DeviceSensorsCard({
         <BulkSeverityModal
           open={bulkSeverity}
           onClose={() => setBulkSeverity(false)}
+          sensorIds={ids}
+          deviceId={deviceId}
+          onDone={() => setPicked(new Set())}
+        />
+      )}
+      {isAdmin && (
+        <BulkNoiseModal
+          open={bulkNoise}
+          onClose={() => setBulkNoise(false)}
           sensorIds={ids}
           deviceId={deviceId}
           onDone={() => setPicked(new Set())}
@@ -418,6 +437,13 @@ export function DevicePage() {
           <EffectiveDependencyText effective={d.effective_dependency ?? null} bare />
         </p>
       </Card>
+      {/* [if-noise] the device (or its groups) override the event-log noise protection */}
+      <NoiseOverrideCard
+        effective={d.effective_event_noise}
+        level="device"
+        selfId={d.id}
+        onEdit={isAdmin ? () => setEditing(true) : undefined}
+      />
       {(identity || identify.isPending) && (
         <Card
           title={t('identify.title')}

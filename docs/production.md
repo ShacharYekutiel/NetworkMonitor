@@ -169,6 +169,13 @@ Migration `0019` adds five NULL columns to `events` (no rewrite), two empty part
 on the migrated database (hidden rows show as ordinary rows there); `netmon migrate --to 0018` removes everything
 (flapping rows deleted).
 
+**Per sensor / device / group (migration `0020`).** Each protection can also be set to *Inherit* / *On* / *Off* for a
+single sensor, a device or a group (sensor and device forms, group form, *Noisiest sensors → Protection…*, the
+sensor bulk bar), and the debounce values too; the first level that decides wins (sensor → device → group → parent
+groups → *Settings*). The sensor / device / group page shows the effective value and where it comes from when it is
+not the global setting. Migration `0020` adds four columns to `groups`, `devices` and `sensors` (`inherit` / NULL:
+no rewrite, every sensor keeps following *Settings* after the upgrade); `netmon migrate --to 0019` removes them.
+
 ## Phase 3: flows, config backup, SSO, reports, chat acknowledge
 
 Everything new is **off** after the upgrade and is turned on in *Settings → Features*. The only server-side items are

@@ -3414,7 +3414,48 @@ a rule's own delay (and the port-flapping hold-down of 2b-3) is what keeps short
 
 Turning `sensor_event_debounce_enabled` OFF shows every row still in its hold at once (`event.created` each);
 turning `sensor_event_flap_enabled` OFF closes every open flapping episode (as when it settles). Both OFF: rows are
-written and shown exactly as before. Changes are audited as `settings.update`.
+written and shown exactly as before. Changes are audited as `settings.update`. These are the **global** values: a
+sensor, device or group override (next section) wins over them, so a sensor whose override says `on` keeps its held
+rows when the global switch is turned OFF.
+
+### Overrides per sensor / device / group (migration `0020`)
+Each protection is `inherit` / `on` / `off` per **sensor**, **device** and **group**, and the two debounce values can
+be overridden at each level too. The **first level that decides wins**: sensor → its device → the device's group →
+the parent groups (nearest first) → the global settings key above. `off` for a sensor means its changes are never
+pending / debounced / collapsed even while the global switch is ON; `on` means it is protected even while the global
+switch is OFF. Event sensors (trap / syslog / port_flap / config_backup / new_mac) are never affected.
+
+```ts
+type EventNoiseOverride = {           // stored on the item itself
+  debounce: "inherit" | "on" | "off"; // sensor_event_debounce_enabled
+  flap: "inherit" | "on" | "off";     // sensor_event_flap_enabled
+  debounce_polls: number | null;      // 1–10, null = inherit (sensor_event_debounce_polls)
+  debounce_min_s: number | null };    // 0–3600, null = inherit (sensor_event_debounce_min_s)
+type Resolved<T> = { value: T; source: "sensor" | "device" | "group" | "global";
+  source_id: number | null;           // the deciding sensor / device / group (null for global)
+  source_name: string | null };
+type EffectiveEventNoise = { debounce: Resolved<boolean>; flap: Resolved<boolean>;
+  debounce_polls: Resolved<number>; debounce_min_s: Resolved<number> };
+```
+- `Sensor`, `Device`, `Group` gain `event_noise: EventNoiseOverride` (default all `inherit` / null) and
+  `effective_event_noise: EffectiveEventNoise | null`. `effective_event_noise` is set by the sensor endpoints
+  (`GET /api/sensors`, `GET/POST/PATCH /api/sensors/{id}`, acknowledge), the device endpoints (`GET /api/devices`,
+  `GET/POST/PATCH /api/devices/{id}`) and the group endpoints (`GET /api/groups`, `GET/POST/PATCH /api/groups/{id}`);
+  it is `null` where a sensor is embedded elsewhere (dashboard, ports, ingest, chat acknowledge).
+- **Write**: `event_noise` in `POST`/`PATCH /api/sensors`, `/api/devices`, `/api/groups` — an object with any of the
+  four keys; an omitted key keeps the stored value; `debounce` / `flap` null or another value → 422; the values
+  outside their range → 422; unknown keys → 422. Event sensors ignore it (as their other polled-only fields). Audited
+  in `sensor.update` / `device.update` / `group.update` as `noise_debounce`, `noise_flap`, `noise_debounce_polls`,
+  `noise_debounce_min_s`.
+- `POST /api/sensors/bulk-event-noise` (admin) — `{"sensor_ids": [..1000], "event_noise": {…at least one key}}`;
+  omitted keys keep each sensor's value; event sensors are skipped; unknown ids → 422 (nothing changed). Returns
+  `{"updated": n}` (sensors that changed); one `sensor.update` audit row per changed sensor.
+- `GET /api/events/noisy-sensors` items gain `event_noise` (the sensor's own) and `effective_event_noise`.
+- **Takes effect at once**: every status change resolves the sensor's effective values. A change of an override, of a
+  device's group, of a group's parent (also `POST /api/tree/move`) or of the global keys releases at once what a
+  protection that is now OFF for a sensor was holding back — its `pending` rows are shown (`event.created` each), its
+  open flapping episode is settled — exactly as turning the global switch OFF does. Turning a protection ON never
+  hides rows that are already shown. Stored in the database: survives a restart.
 
 ### Events
 `Event` gains (`GET /api/events`, `GET /api/sensors/{id}/events`, WebSocket):
@@ -3441,7 +3482,10 @@ value → 422.
 ```json
 {"hours": 24, "total_changes": 18140, "items": [{"sensor_id": 7, "sensor_name": "GE1/0/12", "sensor_type":
  "snmp_interface", "status": "up", "device_id": 3, "device_name": "sw-floor2", "changes": 412, "shown": 6,
- "hidden": 406, "last_change": "2026-11-24T10:02:00Z", "flapping": true}]}
+ "hidden": 406, "last_change": "2026-11-24T10:02:00Z", "flapping": true,
+ "event_noise": {"debounce": "inherit", "flap": "inherit", "debounce_polls": null, "debounce_min_s": null},
+ "effective_event_noise": {"debounce": {"value": true, "source": "global", "source_id": null, "source_name": null},
+  "flap": {…}, "debounce_polls": {…}, "debounce_min_s": {…}}}]}
 ```
 The sensors with the most `status_change` rows in the period (shown and hidden), noisiest first; `hidden` counts
 `debounced` + `flapping`; `flapping` = an open episode.

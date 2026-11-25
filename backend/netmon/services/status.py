@@ -9,6 +9,7 @@ from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from netmon.poller.types import SEVERITY, worst
+from netmon.services.noise_override import override_of
 
 STATUSES = ("up", "warning", "down", "paused", "unknown", "unreachable")
 
@@ -193,7 +194,8 @@ async def load_inventory(session: AsyncSession) -> Inventory:
     for row in await session.execute(
         text(
             "SELECT id, parent_id, name, snmp_credentials, sort_order, dependency_mode, "
-            "dependency_device_id, dependency_sensor_id, ssh_credentials FROM groups"
+            "dependency_device_id, dependency_sensor_id, ssh_credentials, noise_debounce, "
+            "noise_flap, noise_debounce_polls, noise_debounce_min_s FROM groups"
         )
     ):
         inv.groups[row.id] = {
@@ -205,11 +207,13 @@ async def load_inventory(session: AsyncSession) -> Inventory:
             "dependency_device_id": row.dependency_device_id,
             "dependency_sensor_id": row.dependency_sensor_id,
             "ssh_credentials": row.ssh_credentials,  # [3]
+            "noise": override_of(row._mapping),  # [if-noise] event noise overrides
         }
     for row in await session.execute(
         text(
             "SELECT id, group_id, name, host, enabled, snmp_credentials, dependency_mode, "
-            "dependency_device_id, dependency_sensor_id, source_addresses, ssh_credentials "
+            "dependency_device_id, dependency_sensor_id, source_addresses, ssh_credentials, "
+            "noise_debounce, noise_flap, noise_debounce_polls, noise_debounce_min_s "
             "FROM devices"
         )
     ):
@@ -224,6 +228,7 @@ async def load_inventory(session: AsyncSession) -> Inventory:
             "dependency_sensor_id": row.dependency_sensor_id,
             "source_addresses": [str(a) for a in row.source_addresses or []],  # [2b-3]
             "ssh_credentials": row.ssh_credentials,  # [3]
+            "noise": override_of(row._mapping),  # [if-noise]
         }
     for row in await session.execute(
         text(

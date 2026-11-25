@@ -305,3 +305,171 @@ test('device page: the SNMP source names the group (link); the built-in default 
   await raw(api, 'DELETE', `/api/groups/${parent.id}`);
   await raw(api, 'DELETE', `/api/groups/${bare.id}`);
 });
+
+// [if-noise] per-sensor / per-device / per-group override of the two protections ("always give the user the choice"):
+// inherit / on / off at each level, the effective value and its source on the sensor / device / group pages, the
+// sensor and device forms, the "Noisiest sensors" quick action, the sensor bulk action, and an override change
+// releasing at once what a protection that is now OFF was holding back. Screenshots prefixed `override-`.
+test('overrides: sensor / device / group, quick action, bulk; a change releases at once', async ({ browser }) => {
+  test.setTimeout(600_000);
+  await api.put('/api/settings', DEFAULTS);
+  const gid = await ensureGroup(api, 'QA if-noise');
+  const grp = await api.post('/api/groups', { name: uid('qa94-ov-group'), parent_id: gid });
+  const dev2 = await api.post('/api/devices', { group_id: grp.id, name: uid('qa94-ov-dev'), host: HOST, auto_sensors: [] });
+  created.push(dev2.id);
+  const mk = (name: string) => api.post('/api/sensors', { device_id: dev2.id, type: 'http', name, interval_s: 60, config: { url: `http://${HOST}:${PORT}/` } });
+  const s2 = await mk('qa94 ov port');
+  const s3 = await mk('qa94 ov uplink');
+  expect(s2.event_noise).toEqual({ debounce: 'inherit', flap: 'inherit', debounce_polls: null, debounce_min_s: null });
+  expect(s2.effective_event_noise.debounce).toMatchObject({ value: true, source: 'global' });
+  await setTarget(true);
+  await waitForSensor(api, s2.id, (x) => x.last_check_at !== null && x.status === 'up', 60_000);
+  const run2 = async () => {
+    await api.post(`/api/sensors/${s2.id}/run`);
+  };
+  const ev2 = async (noise?: 'include') =>
+    trans((await api.get(`/api/events?sensor_id=${s2.id}&kind=status_change,sensor_flapping&page_size=200${noise ? `&noise=${noise}` : ''}`)).items);
+
+  // 1) sensor form: debounce OFF for this sensor only (the global switch stays ON)
+  for (const lang of ['en', 'he'] as const) {
+    const page = await shotPage(browser, lang, `/sensors/${s2.id}`);
+    await expect(page.getByTestId('noise-override-card')).toHaveCount(0); // everything from Settings
+    await page.getByRole('button', { name: T('common.edit', {}, lang) }).click();
+    const dlg = page.getByRole('dialog');
+    const fields = dlg.getByTestId('noise-override');
+    await expect(fields).toBeVisible();
+    await expect(fields).toContainText(T('noiseOv.now', { value: T('noiseOv.value.on', {}, lang), source: T('noiseOv.source.global', {}, lang) }, lang));
+    await dlg.getByTestId('noise-override-debounce').selectOption('off');
+    await fields.scrollIntoViewIfNeeded();
+    await shot(page, `override-sensor-form-${lang}`, dlg);
+    if (lang === 'en') {
+      await dlg.getByRole('button', { name: T('common.save') }).click();
+      await expect(dlg).toBeHidden();
+    } else {
+      await dlg.getByRole('button', { name: T('common.cancel', {}, 'he') }).click();
+    }
+    await page.context().close();
+  }
+  expect((await api.get(`/api/sensors/${s2.id}`)).event_noise.debounce).toBe('off');
+  await setTarget(false);
+  await run2();
+  expect(await ev2('include'), 'shown at once, never pending').toEqual(['unknown>up', 'up>down']);
+  await setTarget(true);
+  await run2();
+  expect(await ev2(), 'a blip is a row each, as without the protection').toEqual(['unknown>up', 'up>down', 'down>up']);
+  // the neighbour without an override is still protected
+  await waitForSensor(api, s3.id, (x) => x.last_check_at !== null, 60_000);
+  for (const lang of ['en', 'he'] as const) {
+    const page = await shotPage(browser, lang, `/sensors/${s2.id}`);
+    const card = page.getByTestId('noise-override-card');
+    await expect(card.getByTestId('noise-override-debounce')).toContainText(T('noiseOv.value.off', {}, lang));
+    await expect(card.getByTestId('noise-override-debounce')).toContainText(T('noiseOv.source.self.sensor', {}, lang));
+    await expect(card.getByTestId('noise-override-flap')).toContainText(T('noiseOv.source.global', {}, lang));
+    await card.scrollIntoViewIfNeeded();
+    await shot(page, `override-sensor-page-${lang}`, card.locator('xpath=ancestor::section[1]'));
+    await page.context().close();
+  }
+
+  // 2) device form: flapping collapse OFF for the device; its sensors inherit it, the page shows where from
+  {
+    const page = await shotPage(browser, 'en', `/devices/${dev2.id}`);
+    await page.getByRole('button', { name: T('common.edit') }).first().click();
+    const dlg = page.getByRole('dialog');
+    await dlg.getByTestId('noise-override-flap').selectOption('off');
+    await dlg.getByTestId('noise-override-min-s').fill('120');
+    await dlg.getByRole('button', { name: T('common.save') }).click();
+    await expect(dlg).toBeHidden();
+    await page.context().close();
+  }
+  const d2 = await api.get(`/api/devices/${dev2.id}`);
+  expect(d2.event_noise).toMatchObject({ flap: 'off', debounce_min_s: 120 });
+  const e3 = (await api.get(`/api/sensors/${s3.id}`)).effective_event_noise;
+  expect(e3.flap).toMatchObject({ value: false, source: 'device', source_id: dev2.id });
+  expect(e3.debounce_min_s).toMatchObject({ value: 120, source: 'device' });
+  for (const lang of ['en', 'he'] as const) {
+    const page = await shotPage(browser, lang, `/devices/${dev2.id}`);
+    const card = page.getByTestId('noise-override-card');
+    await expect(card.getByTestId('noise-override-flap')).toContainText(T('noiseOv.source.self.device', {}, lang));
+    await shot(page, `override-device-page-${lang}`, card.locator('xpath=ancestor::section[1]'));
+    await page.getByTestId('noise-override-edit').click();
+    const dlg = page.getByRole('dialog');
+    const fields = dlg.getByTestId('noise-override');
+    await fields.scrollIntoViewIfNeeded();
+    await shot(page, `override-device-form-${lang}`, fields);
+    await dlg.getByRole('button', { name: T('common.cancel', {}, lang) }).click();
+    // the sensor page names the device as the source
+    await page.goto(`/sensors/${s3.id}`);
+    await expect(page.getByTestId('noise-override-flap')).toContainText(T('noiseOv.source.device', { name: `\u2068${dev2.name}\u2069` }, lang));
+    await page.context().close();
+  }
+
+  // 3) group level: debounce OFF on the group reaches the sensor that inherits
+  await api.patch(`/api/groups/${grp.id}`, { event_noise: { debounce: 'off' } });
+  expect((await api.get(`/api/sensors/${s3.id}`)).effective_event_noise.debounce).toMatchObject({ value: false, source: 'group', source_id: grp.id });
+  for (const lang of ['en', 'he'] as const) {
+    const page = await shotPage(browser, lang, `/groups/${grp.id}`);
+    const card = page.getByTestId('noise-override-card');
+    await expect(card.getByTestId('noise-override-debounce')).toContainText(T('noiseOv.source.self.group', {}, lang));
+    await shot(page, `override-group-page-${lang}`, card.locator('xpath=ancestor::section[1]'));
+    await page.context().close();
+  }
+  await api.patch(`/api/groups/${grp.id}`, { event_noise: { debounce: 'inherit' } });
+
+  // 4) "Noisiest sensors": quick action sets the sensor back to inherit (debounce ON again via Settings)
+  for (const lang of ['en', 'he'] as const) {
+    const page = await shotPage(browser, lang, `/events?sensor_id=${s2.id}`);
+    await page.getByLabel(T('noisy.show', {}, lang)).check();
+    const card = page.getByTestId('noisy-sensors');
+    const row = card.getByTestId('noisy-row').filter({ hasText: 'qa94 ov port' });
+    await expect(row.getByTestId('noise-override-tag')).toBeVisible();
+    await shot(page, `override-noisiest-${lang}`, card.locator('xpath=ancestor::section[1]'));
+    await row.getByTestId('noisy-protection').click();
+    const dlg = page.getByTestId('sensor-noise-modal');
+    await expect(dlg.getByTestId('noise-override-debounce')).toHaveValue('off');
+    await shot(page, `override-quick-action-${lang}`, dlg);
+    if (lang === 'he') {
+      await dlg.getByTestId('noise-override-debounce').selectOption('inherit');
+      await dlg.getByRole('button', { name: T('common.save', {}, 'he') }).click();
+      await expect(dlg).toBeHidden();
+      await expect(row.getByTestId('noise-override-tag')).toHaveCount(0);
+    } else {
+      await dlg.getByRole('button', { name: T('common.cancel') }).click();
+    }
+    await page.context().close();
+  }
+  expect((await api.get(`/api/sensors/${s2.id}`)).effective_event_noise.debounce).toMatchObject({ value: true, source: 'global' });
+
+  // 5) immediate release: a pending change is shown as soon as the sensor's debounce is set OFF
+  await setTarget(false);
+  await run2();
+  expect((await ev2('include')).slice(-1)).toEqual(['up>down:pending']);
+  await api.patch(`/api/sensors/${s2.id}`, { event_noise: { debounce: 'off' } });
+  expect((await ev2()).slice(-1), 'shown without waiting for another check').toEqual(['up>down']);
+  await setTarget(true);
+  await run2();
+
+  // 6) bulk: the sensor bulk bar of the device page
+  for (const lang of ['en', 'he'] as const) {
+    const page = await shotPage(browser, lang, `/devices/${dev2.id}`);
+    await page.getByTestId('sensor-select-all').check();
+    await page.getByTestId('sensor-bulk-noise').click();
+    const dlg = page.getByTestId('bulk-noise');
+    await dlg.getByTestId('bulk-noise-debounce').selectOption('inherit');
+    await dlg.getByTestId('bulk-noise-flap').selectOption('on');
+    await shot(page, `override-bulk-${lang}`, dlg);
+    if (lang === 'en') {
+      await dlg.getByRole('button', { name: T('impact.apply') }).click();
+      await expect(dlg).toBeHidden();
+    } else {
+      await dlg.getByRole('button', { name: T('common.cancel', {}, 'he') }).click();
+    }
+    await page.context().close();
+  }
+  for (const s of [s2, s3]) {
+    const x = await api.get(`/api/sensors/${s.id}`);
+    expect(x.event_noise).toMatchObject({ debounce: 'inherit', flap: 'on' });
+    expect(x.effective_event_noise.flap).toMatchObject({ value: true, source: 'sensor' });
+  }
+  await raw(api, 'DELETE', `/api/devices/${dev2.id}`);
+  await raw(api, 'DELETE', `/api/groups/${grp.id}`);
+});

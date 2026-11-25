@@ -19,6 +19,8 @@ import {
   dependencyToInput,
   useDeviceNames,
 } from './Dependency';
+import { NoiseOverrideFields } from './noise/NoiseOverride';
+import { noiseFormErrors, noiseFormFrom, noiseFormToInput } from '../lib/noiseOverride';
 import { useToast } from './toast';
 import { Button, Checkbox, ErrorBox, Field, Input, Modal, Select, Textarea } from './ui';
 
@@ -77,10 +79,13 @@ export function GroupFormModal({
   const [snmp, setSnmp] = useState(snmpFormFrom(null));
   const [dep, setDep] = useState<DependencyInput>(dependencyInputFrom(null));
   const [ssh, setSsh] = useState(sshFormFrom(null));
+  const [noise, setNoise] = useState(noiseFormFrom(null)); // [if-noise]
+  const noiseErr = noiseFormErrors(noise);
   const deviceName = useDeviceNames();
 
   useEffect(() => {
     if (!open) return;
+    setNoise(noiseFormFrom(group?.event_noise));
     setSsh(sshFormFrom(group?.ssh_credentials));
     setDep(dependencyInputFrom(group?.dependency));
     setName(group?.name ?? '');
@@ -121,6 +126,9 @@ export function GroupFormModal({
     };
     // [3] sent when set or when an existing value is removed (inherit)
     if (ssh.own || group?.ssh_credentials) body.ssh_credentials = sshFormToInput(ssh);
+    if (noiseErr.polls || noiseErr.minS) return;
+    const eventNoise = noiseFormToInput(noise, group?.event_noise); // [if-noise] only changes
+    if (eventNoise) body.event_noise = eventNoise;
     m.mutate(body);
   };
 
@@ -169,6 +177,13 @@ export function GroupFormModal({
           inheritLabel={t('ssh.inheritParent')}
         />
         <DependencyEditor value={dep} onChange={setDep} forGroup />
+        <NoiseOverrideFields
+          value={noise}
+          onChange={setNoise}
+          level="group"
+          selfId={group?.id}
+          effective={group?.effective_event_noise}
+        />
         <ErrorBox error={m.error} context={{ deviceName }} />
         <div className="flex justify-end gap-2">
           <Button onClick={onClose}>{t('common.cancel')}</Button>
@@ -176,7 +191,9 @@ export function GroupFormModal({
             type="submit"
             variant="primary"
             busy={m.isPending}
-            disabled={dep.mode === 'device' && dep.device_id === null}
+            disabled={
+              (dep.mode === 'device' && dep.device_id === null) || noiseErr.polls || noiseErr.minS
+            }
           >
             {t('common.save')}
           </Button>
@@ -223,6 +240,8 @@ export function DeviceFormModal({
   const [ssh, setSsh] = useState(sshFormFrom(null));
   const [backupMode, setBackupMode] = useState<BackupMode>('auto');
   const [driver, setDriver] = useState('');
+  const [noise, setNoise] = useState(noiseFormFrom(null)); // [if-noise]
+  const noiseErr = noiseFormErrors(noise);
   const { features } = useFeatures();
   const showSources = features.traps || features.syslog;
   const srcList = parseList(sources);
@@ -246,6 +265,7 @@ export function DeviceFormModal({
     setSsh(sshFormFrom(device?.ssh_credentials));
     setBackupMode(device?.config_backup ?? 'auto');
     setDriver(device?.config_backup_driver ?? '');
+    setNoise(noiseFormFrom(device?.event_noise));
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open, device, groupId]);
 
@@ -286,6 +306,10 @@ export function DeviceFormModal({
     if (backupMode !== (device?.config_backup ?? 'auto')) body.config_backup = backupMode;
     if ((driver || null) !== (device?.config_backup_driver ?? null))
       body.config_backup_driver = driver || null;
+    // [if-noise] event-log noise protection: only the keys that changed
+    if (noiseErr.polls || noiseErr.minS) return;
+    const eventNoise = noiseFormToInput(noise, device?.event_noise);
+    if (eventNoise) body.event_noise = eventNoise;
     // [2b-3] sent only while traps/syslog are on (the field is hidden otherwise)
     if (showSources) {
       if (srcErr) return;
@@ -391,6 +415,13 @@ export function DeviceFormModal({
             ))}
           </ul>
         )}
+        <NoiseOverrideFields
+          value={noise}
+          onChange={setNoise}
+          level="device"
+          selfId={device?.id}
+          effective={device?.effective_event_noise}
+        />
         <InventoryFields
           device={device}
           portInventory={portInv}
@@ -425,7 +456,9 @@ export function DeviceFormModal({
             disabled={
               group === null ||
               (dep.mode === 'device' && dep.device_id === null) ||
-              (showSources && srcErr)
+              (showSources && srcErr) ||
+              noiseErr.polls ||
+              noiseErr.minS
             }
           >
             {t('common.save')}

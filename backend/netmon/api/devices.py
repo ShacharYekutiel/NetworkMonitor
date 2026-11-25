@@ -16,6 +16,7 @@ from netmon.schemas import DependencyBulkIn, DeviceCreate, DevicePatch
 from netmon.services import audit, secretbox
 from netmon.services import dependencies as deps
 from netmon.services import events as events_svc
+from netmon.services import noise_override as noise_ov
 from netmon.services import settings as settings_svc
 from netmon.services.retention import delete_sensor_measurements
 from netmon.services.sensors import (
@@ -60,6 +61,11 @@ DEVICE_AUDIT_FIELDS = (
     "config_backup",
     "config_backup_driver",
     "newdev_excluded_ports",
+    # [if-noise] event noise overrides
+    "noise_debounce",
+    "noise_flap",
+    "noise_debounce_polls",
+    "noise_debounce_min_s",
 )
 
 
@@ -102,7 +108,10 @@ async def list_devices(
         rows = [d for d in rows if inv.device_status.get(d.id) in statuses]
     total = len(rows)
     sliced = rows[pg.offset : pg.offset + pg.page_size]
-    return page([device_out(d, inv, rt.maintenance) for d in sliced], total, pg.page, pg.page_size)
+    glob = noise_ov.glob_of(rt)
+    return page(
+        [device_out(d, inv, rt.maintenance, glob) for d in sliced], total, pg.page, pg.page_size
+    )
 
 
 @router.post("/api/devices", status_code=201)
@@ -139,6 +148,8 @@ async def create_device(body: DeviceCreate, _: Admin, rt: RT, session: DB, ctx: 
     )
     snmp_plain = merge_snmp(body.snmp_credentials, None) if body.snmp_credentials else None
     deps.apply_dependency(d, dep)
+    if body.event_noise is not None:  # [if-noise]
+        noise_ov.apply(d, body.event_noise.changes())
     session.add(d)
     await session.flush()
     if snmp_plain is not None:
@@ -181,7 +192,7 @@ async def create_device(body: DeviceCreate, _: Admin, rt: RT, session: DB, ctx: 
     rt.config_changed("device", d.id, "created")
     for s in created:
         rt.config_changed("sensor", s.id, "created")
-    return device_out(d, await load_inventory(session), rt.maintenance)
+    return device_out(d, await load_inventory(session), rt.maintenance, noise_ov.glob_of(rt))
 
 
 @router.get("/api/devices/{device_id}")
@@ -189,7 +200,7 @@ async def get_device(device_id: int, _: Viewer, rt: RT, session: DB) -> dict:
     d = await session.get(Device, device_id)
     if d is None:
         raise not_found("Device")
-    return device_out(d, await load_inventory(session), rt.maintenance)
+    return device_out(d, await load_inventory(session), rt.maintenance, noise_ov.glob_of(rt))
 
 
 @router.patch("/api/devices/{device_id}")
@@ -202,6 +213,7 @@ async def patch_device(
     before = device_audit_values(d)
     fields = body.model_fields_set
     check_cycle = False
+    moved = False  # [if-noise] another group: the sensors may inherit other overrides
     identity_changed = False  # [2b-2] host / credentials: class detection must run again
     flags_changed = False
     if "group_id" in fields and body.group_id is not None and body.group_id != d.group_id:
@@ -209,6 +221,7 @@ async def patch_device(
             raise validation_error(["body", "group_id"], "group does not exist")
         d.group_id = body.group_id
         check_cycle = True
+        moved = True
     if "dependency" in fields and body.dependency is not None:
         deps.apply_dependency(
             d, await deps.validated_dependency(session, body.dependency, ["body", "dependency"])
@@ -254,6 +267,10 @@ async def patch_device(
         d.config_backup_driver = check_driver(body.config_backup_driver)
     if "newdev_excluded_ports" in fields and body.newdev_excluded_ports is not None:
         d.newdev_excluded_ports = list(body.newdev_excluded_ports)
+    # [if-noise] overrides; a move to another group changes what the sensors inherit
+    noise_changed = moved
+    if "event_noise" in fields and body.event_noise is not None:
+        noise_changed = noise_ov.apply(d, body.event_noise.changes()) or noise_changed
     for key in ("port_inventory", "arp_collect"):  # [2b-2]
         value = getattr(body, key)
         if key in fields and value is not None and value != getattr(d, key):
@@ -286,8 +303,10 @@ async def patch_device(
         await rt.scheduler.reload_device(d.id)
     if (flags_changed or identity_changed or enabled_changed) and rt.ports is not None:
         rt.ports.mark_due(d.id)
+    if noise_changed and rt.event_noise is not None:
+        await rt.event_noise.release()  # [if-noise] an override now OFF holds nothing back
     rt.config_changed("device", d.id, "updated")
-    return device_out(d, await load_inventory(session), rt.maintenance)
+    return device_out(d, await load_inventory(session), rt.maintenance, noise_ov.glob_of(rt))
 
 
 @router.post("/api/devices/dependencies")

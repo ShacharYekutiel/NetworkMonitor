@@ -16,6 +16,7 @@ from netmon.poller.sensor_types import SENSOR_TYPES
 from netmon.schemas import GroupCreate, GroupPatch, TreeMoveIn
 from netmon.services import audit, secretbox
 from netmon.services import dependencies as deps
+from netmon.services import noise_override as noise_ov
 from netmon.services.retention import delete_sensor_measurements
 from netmon.services.serialize import group_out, iso, page
 from netmon.services.status import load_inventory
@@ -33,6 +34,11 @@ GROUP_AUDIT_FIELDS = (
     "dependency_device_id",
     "dependency_sensor_id",
     "ssh_credentials",  # [3] (encrypted fields are redacted by the audit)
+    # [if-noise] event noise overrides
+    "noise_debounce",
+    "noise_flap",
+    "noise_debounce_polls",
+    "noise_debounce_min_s",
 )
 
 
@@ -60,7 +66,7 @@ async def _check_unique(session: DB, parent_id: int | None, name: str, exclude: 
 
 @router.get("/api/groups")
 async def list_groups(
-    _: Viewer, session: DB, pg: Page, parent_id: str | None = Query(default=None)
+    _: Viewer, rt: RT, session: DB, pg: Page, parent_id: str | None = Query(default=None)
 ) -> dict:
     q = select(Group)
     if parent_id is not None:
@@ -84,7 +90,8 @@ async def list_groups(
         .all()
     )
     inv = await load_inventory(session)
-    return page([group_out(g, inv) for g in rows], total, pg.page, pg.page_size)
+    glob = noise_ov.glob_of(rt)
+    return page([group_out(g, inv, glob) for g in rows], total, pg.page, pg.page_size)
 
 
 @router.post("/api/groups", status_code=201)
@@ -107,6 +114,8 @@ async def create_group(body: GroupCreate, _: Admin, rt: RT, session: DB, ctx: Au
     )
     snmp_plain = merge_snmp(body.snmp_credentials, None) if body.snmp_credentials else None
     deps.apply_dependency(g, dep)
+    if body.event_noise is not None:  # [if-noise]
+        noise_ov.apply(g, body.event_noise.changes())
     session.add(g)
     await deps.check_no_cycle(session)
     await flush_or_conflict(session)
@@ -116,15 +125,15 @@ async def create_group(body: GroupCreate, _: Admin, rt: RT, session: DB, ctx: Au
     await commit_or_conflict(session)
     await session.refresh(g)
     rt.config_changed("group", g.id, "created")
-    return group_out(g, await load_inventory(session))
+    return group_out(g, await load_inventory(session), noise_ov.glob_of(rt))
 
 
 @router.get("/api/groups/{group_id}")
-async def get_group(group_id: int, _: Viewer, session: DB) -> dict:
+async def get_group(group_id: int, _: Viewer, rt: RT, session: DB) -> dict:
     g = await session.get(Group, group_id)
     if g is None:
         raise not_found("Group")
-    return group_out(g, await load_inventory(session))
+    return group_out(g, await load_inventory(session), noise_ov.glob_of(rt))
 
 
 @router.patch("/api/groups/{group_id}")
@@ -168,6 +177,10 @@ async def patch_group(
         if new_ssh != g.ssh_credentials:
             g.ssh_credentials = new_ssh
     check_cycle = "parent_id" in fields  # a move changes what devices inherit
+    # [if-noise] overrides; a move changes what the sensors below inherit
+    noise_changed = new_parent != before.get("parent_id")
+    if "event_noise" in fields and body.event_noise is not None:
+        noise_changed = noise_ov.apply(g, body.event_noise.changes()) or noise_changed
     if "dependency" in fields and body.dependency is not None:
         deps.apply_dependency(
             g, await deps.validated_dependency(session, body.dependency, ["body", "dependency"])
@@ -180,8 +193,10 @@ async def patch_group(
         await audit.record(session, ctx, "group.update", _entity(g), changes)
     await commit_or_conflict(session)
     await session.refresh(g)
+    if noise_changed and rt.event_noise is not None:
+        await rt.event_noise.release()  # [if-noise] an override now OFF holds nothing back
     rt.config_changed("group", g.id, "updated")
-    return group_out(g, await load_inventory(session))
+    return group_out(g, await load_inventory(session), noise_ov.glob_of(rt))
 
 
 @router.delete("/api/groups/{group_id}", status_code=204)
@@ -344,6 +359,8 @@ async def tree_move(body: TreeMoveIn, _: Admin, rt: RT, session: DB, ctx: Audit)
     if rt.scheduler:
         for did, _old in plan.devices:
             await rt.scheduler.reload_device(did)
+    if (plan.devices or plan.groups) and rt.event_noise is not None:
+        await rt.event_noise.release()  # [if-noise] the sensors may inherit other overrides
     for gid, _old in plan.groups:
         rt.config_changed("group", gid, "updated")
     for did, _old in plan.devices:

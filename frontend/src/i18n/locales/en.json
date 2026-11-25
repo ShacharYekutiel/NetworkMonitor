@@ -4717,6 +4717,65 @@
     "status": "Status",
     "flapping": "Flapping"
   },
+  "noiseOv": {
+    "title": "Event log noise protection",
+    "intro": {
+      "sensor": "Override the global setting for this sensor only. “Inherit” follows the device, then its groups, then Settings.",
+      "device": "Applies to all sensors of this device that inherit. “Inherit” follows the group, its parent groups, then Settings.",
+      "group": "Applies to the devices and subgroups below that inherit. “Inherit” follows the parent groups, then Settings."
+    },
+    "mode": {
+      "inherit": "Inherit",
+      "on": "On",
+      "off": "Off"
+    },
+    "value": {
+      "on": "On",
+      "off": "Off"
+    },
+    "seconds_one": "{{count}} second",
+    "seconds_other": "{{count}} seconds",
+    "inheritValue": "Inherit ({{value}})",
+    "valueHint": "Empty = inherit.",
+    "now": "Now: {{value}} · {{source}}",
+    "source": {
+      "global": "global setting",
+      "sensor": "from sensor “{{name}}”",
+      "device": "from device “{{name}}”",
+      "group": "from group “{{name}}”",
+      "self": {
+        "sensor": "set on this sensor",
+        "device": "set on this device",
+        "group": "set on this group"
+      }
+    },
+    "key": {
+      "debounce": "Wait until a change holds",
+      "flap": "Collapse flapping",
+      "polls": "Checks to wait",
+      "minS": "Minimum hold"
+    },
+    "cardTitle": "Event log noise protection",
+    "cardHint": "A custom setting applies here instead of the global one (Settings › General › Sensor event noise).",
+    "edit": "Change…",
+    "tag": "Custom",
+    "column": "Protection",
+    "customTitle": "Debounce: {{debounce}} · Collapse flapping: {{flap}}",
+    "quick": "Protection…",
+    "quickLabel": "Noise protection for {{name}}",
+    "modalTitle": "Noise protection · {{name}}",
+    "bulk": {
+      "action": "Noise protection…",
+      "title_one": "Noise protection for 1 sensor",
+      "title_other": "Noise protection for {{count}} sensors",
+      "leave": "Leave unchanged",
+      "set": "Custom value",
+      "hint": "Event sensors (traps, syslog…) are skipped: the protection applies to polled sensors only.",
+      "pickOne": "Change at least one setting.",
+      "done_one": "Noise protection updated for 1 sensor.",
+      "done_other": "Noise protection updated for {{count}} sensors."
+    }
+  },
   "importantPorts": {
     "title": "Important ports",
     "intro": "Important ports get link-down and flapping alerts when “Important ports only” is chosen, and are selected by default when a template creates interface sensors. Having an interface sensor no longer makes a port important by itself.",

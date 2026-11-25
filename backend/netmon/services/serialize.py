@@ -85,7 +85,9 @@ def snmp_out(
     }
 
 
-def group_out(g: Any, inv: Inventory | None) -> dict[str, Any]:
+def group_out(
+    g: Any, inv: Inventory | None, noise_glob: dict[str, Any] | None = None
+) -> dict[str, Any]:
     from netmon.services.dependencies import dependency_out
 
     return {
@@ -101,12 +103,15 @@ def group_out(g: Any, inv: Inventory | None) -> dict[str, Any]:
         if inv
         else empty_counts(),
         "dependency": dependency_out(inv or Inventory(), g),
+        **noise_out(g, inv, noise_glob, group_id=g.id),
         "created_at": iso(g.created_at),
         "updated_at": iso(g.updated_at),
     }
 
 
-def device_out(d: Any, inv: Inventory, maint: Any = None) -> dict[str, Any]:
+def device_out(
+    d: Any, inv: Inventory, maint: Any = None, noise_glob: dict[str, Any] | None = None
+) -> dict[str, Any]:
     from netmon.services.dependencies import dependency_out, effective_dependency_out
 
     source, gid = inv.effective_snmp(d.id) if d.id in inv.devices else ("default", None)
@@ -134,9 +139,31 @@ def device_out(d: Any, inv: Inventory, maint: Any = None) -> dict[str, Any]:
         **inventory_flags_out(d, inv),
         **source_addresses_out(d, inv),
         **phase3_device_out(d, inv),
+        **noise_out(d, inv, noise_glob, device_id=d.id),
         "created_at": iso(d.created_at),
         "updated_at": iso(d.updated_at),
     }
+
+
+def noise_out(
+    obj: Any,
+    inv: Inventory | None,
+    glob: dict[str, Any] | None,
+    *,
+    device_id: int | None = None,
+    group_id: int | None = None,
+) -> dict[str, Any]:
+    """[if-noise] `event_noise` (the row's own overrides) and `effective_event_noise` (what
+    applies and which level decided; null without the global values or the inventory)."""
+    from netmon.services.noise_override import inv_levels, override_of, resolve
+
+    eff = None
+    if glob is not None and inv is not None:
+        if device_id is not None and device_id in inv.devices:
+            eff = resolve(inv_levels(inv, device_id=device_id), glob).out()
+        elif group_id is not None and group_id in inv.groups:
+            eff = resolve(inv_levels(inv, group_id=group_id), glob).out()
+    return {"event_noise": override_of(obj), "effective_event_noise": eff}
 
 
 def _ssh_out(stored: Any) -> dict[str, Any] | None:
@@ -240,7 +267,10 @@ def sensor_out(
     group_id: int,
     reveal_secrets: bool = True,
     in_maintenance: bool = False,
+    effective_noise: Any = None,
 ) -> dict[str, Any]:
+    from netmon.services.noise_override import override_of
+
     tdef = SENSOR_TYPES.get(s.type)
     return {
         "id": s.id,
@@ -266,6 +296,9 @@ def sensor_out(
         "severity": getattr(s, "severity", None),
         "severity_down": getattr(s, "severity_down", None),
         "severity_warning": getattr(s, "severity_warning", None),
+        # [if-noise] own overrides and (sensor endpoints) the effective values with their source
+        "event_noise": override_of(s),
+        "effective_event_noise": effective_noise.out() if effective_noise is not None else None,
         "created_at": iso(s.created_at),
         "updated_at": iso(s.updated_at),
     }

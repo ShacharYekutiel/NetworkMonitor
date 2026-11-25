@@ -29,6 +29,7 @@ from netmon.poller.types import SEVERITY, CheckContext, evaluate
 from netmon.schemas import (
     AcknowledgeIn,
     BulkDeleteIn,
+    BulkEventNoiseIn,
     BulkImpactIn,
     BulkSeverityIn,
     SensorCreate,
@@ -38,6 +39,7 @@ from netmon.schemas import (
 from netmon.services import audit, secretbox
 from netmon.services import events as events_svc
 from netmon.services import history as history_svc
+from netmon.services import noise_override as noise_ov
 from netmon.services import settings as settings_svc
 from netmon.services import severity as severity_svc
 from netmon.services.retention import delete_sensor_measurements
@@ -75,14 +77,25 @@ async def _sensor_full(session: DB, sensor_id: int) -> tuple[Sensor, Device]:
     return s, d
 
 
-def _out(s: Sensor, d: Device, reveal: bool = True, maint: Any = None) -> dict:
+def _out(s: Sensor, d: Device, reveal: bool = True, maint: Any = None, eff: Any = None) -> dict:
     return sensor_out(
         s,
         d.name,
         d.group_id,
         reveal_secrets=reveal,
         in_maintenance=bool(maint is not None and maint.in_maintenance(d.id)),
+        effective_noise=eff,
     )
+
+
+async def _effective(rt: Any, session: Any, ids: list[int]) -> dict[int, Any]:
+    """[if-noise] effective event noise values of the sensors (one batch)."""
+    return await noise_ov.effective_for_sensors(session, ids, noise_ov.glob_of(rt))
+
+
+async def _out1(rt: Any, session: Any, s: Sensor, d: Device, reveal: bool = True) -> dict:
+    eff = (await _effective(rt, session, [s.id])).get(s.id)
+    return _out(s, d, reveal, rt.maintenance, eff)
 
 
 @router.get("/api/sensors")
@@ -114,6 +127,7 @@ async def list_sensors(
         maint=rt.maintenance,
         severities=severity_svc.parse_levels(csv_list(severity), ["query", "severity"]),
         sort=sort,
+        noise_glob=noise_ov.glob_of(rt),
     )
 
 
@@ -132,6 +146,7 @@ async def sensors_page(
     maint: Any = None,
     severities: list[str] | None = None,
     sort: str | None = None,
+    noise_glob: dict[str, Any] | None = None,
 ) -> dict:
     stmt = select(Sensor, Device).join(Device, Device.id == Sensor.device_id)
     if severities:
@@ -175,7 +190,12 @@ async def sensors_page(
     else:
         stmt = stmt.order_by(Device.name, Sensor.sort_order, Sensor.name, Sensor.id)
     rows = (await session.execute(stmt.offset((page_no - 1) * page_size).limit(page_size))).all()
-    return page([_out(s, d, reveal, maint) for s, d in rows], total, page_no, page_size)
+    eff: dict[int, Any] = {}
+    if noise_glob is not None and rows:  # [if-noise]
+        eff = await noise_ov.effective_for_sensors(session, [s.id for s, _ in rows], noise_glob)
+    return page(
+        [_out(s, d, reveal, maint, eff.get(s.id)) for s, d in rows], total, page_no, page_size
+    )
 
 
 SENSOR_AUDIT_FIELDS = (
@@ -189,6 +209,11 @@ SENSOR_AUDIT_FIELDS = (
     "impact",  # [1.3]
     "severity_down",  # [severity]
     "severity_warning",
+    # [if-noise] event noise overrides
+    "noise_debounce",
+    "noise_flap",
+    "noise_debounce_polls",
+    "noise_debounce_min_s",
 )
 
 
@@ -278,6 +303,8 @@ async def create_sensor(body: SensorCreate, _: Admin, rt: RT, session: DB, ctx: 
         channels=build_channels(tdef.type, overrides, cfg),
         origin="manual",  # [template-switch]
     )
+    if body.event_noise is not None and not passive:  # [if-noise] polled sensors only
+        noise_ov.apply(s, body.event_noise.changes())
     if passive:
         for ch in s.channels:
             ch.last_value, ch.status = 0.0, s.status if s.status == "up" else "unknown"
@@ -291,13 +318,13 @@ async def create_sensor(body: SensorCreate, _: Admin, rt: RT, session: DB, ctx: 
     if rt.scheduler:
         await rt.scheduler.upsert(s.id)
     rt.config_changed("sensor", s.id, "created")
-    return _out(s, device, maint=rt.maintenance)
+    return await _out1(rt, session, s, device)
 
 
 @router.get("/api/sensors/{sensor_id}")
 async def get_sensor(sensor_id: int, user: Viewer, rt: RT, session: DB) -> dict:
     s, d = await _sensor_full(session, sensor_id)
-    return _out(s, d, user.role == "admin", rt.maintenance)
+    return await _out1(rt, session, s, d, user.role == "admin")
 
 
 @router.patch("/api/sensors/{sensor_id}")
@@ -347,6 +374,9 @@ async def patch_sensor(
     for key in ("severity_down", "severity_warning"):  # [severity] null clears
         if key in fields:
             setattr(s, key, getattr(body, key))
+    noise_changed = False  # [if-noise] overrides (polled sensors; ignored for event sensors)
+    if "event_noise" in fields and body.event_noise is not None:
+        noise_changed = noise_ov.apply(s, body.event_noise.changes())
     evs = []
     if "enabled" in fields and body.enabled is not None and body.enabled != s.enabled:
         s.enabled = body.enabled
@@ -374,11 +404,13 @@ async def patch_sensor(
     if {"impact", "severity_down", "severity_warning"} & set(changes):
         await severity_svc.reresolve_now(rt, ctx, sensor_ids=[s.id], reason=_reason(changes))
         await session.refresh(s)
+    if noise_changed and rt.event_noise is not None:
+        await rt.event_noise.release()  # [if-noise] OFF now: shown / settled at once
     s, d = await _sensor_full(session, sensor_id)
     if rt.scheduler:
         await rt.scheduler.upsert(s.id)
     rt.config_changed("sensor", s.id, "updated")
-    return _out(s, d, maint=rt.maintenance)
+    return await _out1(rt, session, s, d)
 
 
 # ---------------------------------------------------------------- [1.3] bulk impact
@@ -461,6 +493,49 @@ async def bulk_severity(body: BulkSeverityIn, _: Admin, rt: RT, session: DB, ctx
         rt.config_changed("device", device_id, "updated")
     if changed:
         await severity_svc.reresolve_now(rt, ctx, sensor_ids=changed, reason="override")
+    return {"updated": len(changed)}
+
+
+# ---------------------------------------------------------------- [if-noise] bulk overrides
+@router.post("/api/sensors/bulk-event-noise")
+async def bulk_event_noise(
+    body: BulkEventNoiseIn, _: Admin, rt: RT, session: DB, ctx: Audit
+) -> dict:
+    """Set the event noise overrides of up to 1000 sensors (omitted keys keep each sensor's
+    value; one `sensor.update` audit row per changed sensor). Event sensors (trap / syslog /
+    ...) are skipped: the protections only apply to polled sensors. Unknown ids -> 422."""
+    ids = sorted(set(body.sensor_ids))
+    rows = (
+        (await session.execute(select(Sensor).where(Sensor.id.in_(ids)).with_for_update()))
+        .scalars()
+        .all()
+    )
+    missing = sorted(set(ids) - {s.id for s in rows})
+    if missing:
+        raise validation_error(["body", "sensor_ids"], f"unknown sensor ids: {missing[:20]}")
+    changes = body.event_noise.changes()
+    changed: list[int] = []
+    devices: set[int] = set()
+    for s in rows:
+        if is_passive(s.type):
+            continue
+        before = noise_ov.audit_values(s)
+        if not noise_ov.apply(s, changes):
+            continue
+        await audit.record(
+            session,
+            ctx,
+            "sensor.update",
+            sensor_entity(s),
+            audit.diff(before, noise_ov.audit_values(s)),
+        )
+        changed.append(s.id)
+        devices.add(s.device_id)
+    await session.commit()
+    if changed and rt.event_noise is not None:
+        await rt.event_noise.release()
+    for device_id in sorted(devices):
+        rt.config_changed("device", device_id, "updated")
     return {"updated": len(changed)}
 
 
@@ -562,7 +637,7 @@ async def acknowledge(
     if rt.alerts is not None:
         rt.alerts.request_acknowledged(s.id)
     rt.request_rollup()
-    return _out(s, d, maint=rt.maintenance)
+    return await _out1(rt, session, s, d)
 
 
 @router.delete("/api/sensors/{sensor_id}/acknowledge")
@@ -575,7 +650,7 @@ async def unacknowledge(sensor_id: int, user: Admin, rt: RT, session: DB, ctx: A
     d = await session.get(Device, s.device_id)
     assert d is not None
     if s.ack_at is None:
-        return _out(s, d, maint=rt.maintenance)
+        return await _out1(rt, session, s, d)
     events_svc.clear_ack(s)
     ev = await events_svc.add_event(
         session,
@@ -597,7 +672,7 @@ async def unacknowledge(sensor_id: int, user: Admin, rt: RT, session: DB, ctx: A
     if rt.alerts is not None:
         rt.alerts.request_unacknowledged(s.id)
     rt.request_rollup()
-    return _out(s, d, maint=rt.maintenance)
+    return await _out1(rt, session, s, d)
 
 
 @router.delete("/api/sensors/{sensor_id}", status_code=204)

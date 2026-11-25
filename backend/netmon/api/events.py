@@ -6,7 +6,7 @@ from fastapi import APIRouter, Query
 from sqlalchemy import case, func, select
 
 from netmon.api.common import csv_list
-from netmon.api.deps import DB, Page, Paging, Viewer
+from netmon.api.deps import DB, RT, Page, Paging, Viewer
 from netmon.api.errors import validation_error
 from netmon.models import Event
 from netmon.services import severity as severity_svc
@@ -117,6 +117,7 @@ async def list_events(
 @router.get("/api/events/noisy-sensors")
 async def noisy_sensors(
     _: Viewer,
+    rt: RT,
     session: DB,
     hours: int = Query(default=24, ge=1, le=720),
     limit: int = Query(default=20, ge=1, le=100),
@@ -136,6 +137,8 @@ async def noisy_sensors(
                        count(*) FILTER (WHERE e.noise IN ('debounced','flapping')) AS hidden,
                        max(e.time) AS last_change,
                        s.name AS sensor_name, s.type AS sensor_type, s.status,
+                       s.noise_debounce, s.noise_flap, s.noise_debounce_polls,
+                       s.noise_debounce_min_s,
                        d.id AS device_id, d.name AS device_name,
                        EXISTS (SELECT 1 FROM events f WHERE f.sensor_id = e.sensor_id
                                AND f.kind = 'sensor_flapping' AND f.flap_end IS NULL)
@@ -144,7 +147,7 @@ async def noisy_sensors(
                 JOIN sensors s ON s.id = e.sensor_id
                 JOIN devices d ON d.id = s.device_id
                 WHERE e.kind = 'status_change' AND e.time >= now() - make_interval(hours => :h)
-                GROUP BY e.sensor_id, s.name, s.type, s.status, d.id, d.name
+                GROUP BY e.sensor_id, s.id, d.id
                 ORDER BY changes DESC, e.sensor_id
                 LIMIT :n
                 """
@@ -161,6 +164,11 @@ async def noisy_sensors(
             {"h": hours},
         )
     ).scalar_one()
+    from netmon.services import noise_override as noise_ov
+
+    eff = await noise_ov.effective_for_sensors(
+        session, [int(r.sensor_id) for r in rows], noise_ov.glob_of(rt)
+    )
     return {
         "hours": hours,
         "total_changes": int(total),
@@ -177,6 +185,9 @@ async def noisy_sensors(
                 "hidden": int(r.hidden),
                 "last_change": iso(r.last_change),
                 "flapping": bool(r.flapping),
+                # [if-noise] the sensor's own overrides and what applies (quick action)
+                "event_noise": noise_ov.override_of(r._mapping),
+                "effective_event_noise": eff[r.sensor_id].out() if r.sensor_id in eff else None,
             }
             for r in rows
         ],

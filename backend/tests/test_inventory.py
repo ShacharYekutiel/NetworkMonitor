@@ -19,6 +19,8 @@ GROUP_KEYS = {
     "updated_at",
     "dependency",
     "ssh_credentials",  # [3]
+    "event_noise",  # [if-noise] overrides
+    "effective_event_noise",
 }
 DEVICE_KEYS = {
     "id",
@@ -57,6 +59,8 @@ DEVICE_KEYS = {
     "config_backup",
     "config_backup_driver",
     "newdev_excluded_ports",
+    "event_noise",  # [if-noise] overrides
+    "effective_event_noise",
 }
 SENSOR_KEYS = {
     "id",
@@ -83,6 +87,8 @@ SENSOR_KEYS = {
     "severity",  # [severity] (null while the feature is off)
     "severity_down",
     "severity_warning",
+    "event_noise",  # [if-noise] overrides
+    "effective_event_noise",
 }
 
 

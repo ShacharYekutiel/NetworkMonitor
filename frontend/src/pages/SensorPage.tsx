@@ -44,6 +44,7 @@ import {
 import { useAuth } from '../hooks/auth';
 import { AckAction, AckBadge, AckDetails } from '../components/Acknowledge';
 import { StatusMessage } from '../components/Dependency';
+import { NoiseOverrideCard, SensorNoiseModal } from '../components/noise/NoiseOverride';
 import { MaintenanceBadge } from '../components/Maintenance';
 import { effectiveValueMapRows, mapEnumValue } from '../lib/sensorConfig';
 import { namedValueMap, pickLang } from '../lib/valueMaps';
@@ -69,6 +70,7 @@ export function SensorPage() {
   const [channel, setChannel] = useState<string | null>(null);
   const [editing, setEditing] = useState(false);
   const [deleting, setDeleting] = useState(false);
+  const [noiseEdit, setNoiseEdit] = useState(false); // [if-noise]
   const [lastRun, setLastRun] = useState<CheckResult | null>(null);
 
   const sensor = useQuery({ queryKey: qk.sensor(id), queryFn: () => endpoints.sensor(id) });
@@ -362,6 +364,16 @@ export function SensorPage() {
 
           <ImpactCard sensor={s} readOnly={!isAdmin} />
 
+          {/* [if-noise] an override (this sensor, its device or groups) of the noise protection */}
+          {!passive && (
+            <NoiseOverrideCard
+              effective={s.effective_event_noise}
+              level="sensor"
+              selfId={s.id}
+              onEdit={isAdmin ? () => setNoiseEdit(true) : undefined}
+            />
+          )}
+
           <Card title={t('sensors.settings')}>
             <dl className="m-0 grid grid-cols-[max-content_minmax(0,1fr)] gap-x-[18px] gap-y-2.5 text-[14px]">
               {!passive && (
@@ -407,6 +419,9 @@ export function SensorPage() {
       </div>
 
       {isAdmin && <EditSensorModal open={editing} onClose={() => setEditing(false)} sensor={s} />}
+      {isAdmin && !passive && (
+        <SensorNoiseModal open={noiseEdit} onClose={() => setNoiseEdit(false)} sensor={s} />
+      )}
       <ConfirmDialog
         open={deleting}
         title={t('sensors.deleteTitle')}

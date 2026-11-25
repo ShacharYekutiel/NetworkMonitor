@@ -4181,6 +4181,15 @@ The flapping collapse uses the same `FlapTracker` class and keys as port flappin
 instance keyed by sensor, because it must work while the `flapping` feature is OFF and covers every polled sensor
 type, not only ports.
 
+### 17.2a Overrides per sensor / device / group (migration 0020)
+Each protection is `inherit` / `on` / `off` (and the debounce values NULL / a value) on `sensors`, `devices` and
+`groups`; the first level that decides wins (sensor → device → group → parent groups → global key), the same
+inheritance walk as SNMP / SSH credentials and the dependency `inherit`. The write path resolves the sensor's
+effective values per status change with two small indexed queries (`services/noise_override.py`; nothing cached, so
+no invalidation can go stale: moves in the tree take effect on the next change). `EventNoise.release()` runs after
+any change that can turn a protection OFF for a sensor (override, move, global key, start) and only resolves sensors
+that hold something back, so its cost does not grow with the inventory.
+
 ### 17.3 Readers
 The event log readers show `noise IS NULL` rows only (API default `noise=hide`; dashboard, device timeline, NOC).
 Reports, availability, the assistant / correlation and `GET /api/events?noise=include` see everything. The Events

@@ -41,6 +41,15 @@ class Group(TimestampMixin, Base):
     )
     # [3] config backup (secret fields AES-GCM encrypted, netmon.configbackup.credentials)
     ssh_credentials: Mapped[dict[str, Any] | None] = mapped_column(JSONB(none_as_null=True))
+    # [if-noise] event noise overrides: inherit | on | off; values NULL = inherit (migration 0020)
+    noise_debounce: Mapped[str] = mapped_column(
+        Text, nullable=False, default="inherit", server_default="inherit"
+    )
+    noise_flap: Mapped[str] = mapped_column(
+        Text, nullable=False, default="inherit", server_default="inherit"
+    )
+    noise_debounce_polls: Mapped[int | None] = mapped_column(Integer)
+    noise_debounce_min_s: Mapped[int | None] = mapped_column(Integer)
 
 
 class Device(TimestampMixin, Base):
@@ -85,6 +94,15 @@ class Device(TimestampMixin, Base):
     newdev_excluded_ports: Mapped[list[int]] = mapped_column(
         ARRAY(Integer), nullable=False, default=list, server_default="{}"
     )
+    # [if-noise] event noise overrides: inherit | on | off; values NULL = inherit (migration 0020)
+    noise_debounce: Mapped[str] = mapped_column(
+        Text, nullable=False, default="inherit", server_default="inherit"
+    )
+    noise_flap: Mapped[str] = mapped_column(
+        Text, nullable=False, default="inherit", server_default="inherit"
+    )
+    noise_debounce_polls: Mapped[int | None] = mapped_column(Integer)
+    noise_debounce_min_s: Mapped[int | None] = mapped_column(Integer)
 
 
 class Sensor(TimestampMixin, Base):
@@ -122,6 +140,15 @@ class Sensor(TimestampMixin, Base):
     severity_warning: Mapped[str | None] = mapped_column(Text)
     # [template-switch] manual | auto | template:<id>; NULL = created before migration 0016
     origin: Mapped[str | None] = mapped_column(Text, nullable=True)
+    # [if-noise] event noise overrides: inherit | on | off; values NULL = inherit (migration 0020)
+    noise_debounce: Mapped[str] = mapped_column(
+        Text, nullable=False, default="inherit", server_default="inherit"
+    )
+    noise_flap: Mapped[str] = mapped_column(
+        Text, nullable=False, default="inherit", server_default="inherit"
+    )
+    noise_debounce_polls: Mapped[int | None] = mapped_column(Integer)
+    noise_debounce_min_s: Mapped[int | None] = mapped_column(Integer)
 
     channels: Mapped[list[SensorChannel]] = relationship(
         back_populates="sensor",

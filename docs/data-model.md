@@ -22,7 +22,8 @@ Sections marked **[1.3.1]** (IRF ports are important, named value maps, IRF role
 Sections marked **[severity]** (alert severity: levels, mapping, overrides, rule severities) are in
 [§ Alert severity](#severity-alert-severity), migration `0015`.
 Sections marked **[if-noise]** (sensor event debounce / flapping, important-port criteria and overrides) are in
-[§ Interface sensor event noise](#if-noise-interface-sensor-event-noise), migration `0019`.
+[§ Interface sensor event noise](#if-noise-interface-sensor-event-noise), migrations `0019` and `0020` (per sensor /
+device / group overrides of the two protections).
 
 PostgreSQL ≥ 14 holds the data, and TimescaleDB is optional (see [architecture.md §6](architecture.md)). Alembic
 migrations own the schema.
@@ -4701,7 +4702,8 @@ above (also debounced ones) is fed in, before the debounce.
   sensor's status. If the newest **shown** `status_change` of the sensor does not end in its current status, the
   newest hidden (`flapping` / `debounced`) change to that status is shown, so the log always ends in the real state.
 - Restart: open rows (`flap_end` NULL) are restored into the tracker (`mark_flapping` at `flap_last`).
-- `sensor_event_flap_enabled` OFF: open episodes are settled at once; nothing is collapsed afterwards.
+- `sensor_event_flap_enabled` OFF: open episodes are settled at once; nothing is collapsed afterwards (both only for
+  sensors without an override `on`; see Overrides).
 
 ## [if-noise] Important-port criteria (`netmon.ports.importance`)
 `port_reasons` adds two reasons: **`description`** (`switch_ports.alias` matches
@@ -4738,8 +4740,46 @@ shows a notice to clear `critical_sensor`. A fresh install uses the code default
 | `important_port_criteria` | list | `["uplink","lag","trunk","irf"]` | subset of `uplink`, `lag`, `trunk`, `irf`, `critical_sensor`; an upgraded install gets `critical_sensor` added by migration `0019` |
 | `important_port_description_pattern` | str | `""` | ≤ 200, RE2 |
 
-A change of the first four re-reads `rt.event_noise` (OFF shows the pending rows / settles the episodes); a change
-of the last two drops the ingest's cached important-port sets.
+A change of the first four re-reads `rt.event_noise` (OFF shows the pending rows / settles the episodes of every
+sensor whose effective value is now OFF — an override `on` keeps it; see Overrides); a change of the last two drops
+the ingest's cached important-port sets. The first four are the global values of the per-sensor / device / group
+overrides below.
+
+## [if-noise] Overrides (`groups`, `devices`, `sensors`; migration `0020`)
+| Column (on each of the three tables) | Type | Meaning |
+|---|---|---|
+| `noise_debounce` | text NOT NULL DEFAULT `'inherit'` CHECK IN (`inherit`,`on`,`off`) | debounce of the sensor's event-log rows |
+| `noise_flap` | text NOT NULL DEFAULT `'inherit'` CHECK IN (`inherit`,`on`,`off`) | flapping collapse |
+| `noise_debounce_polls` | integer NULL CHECK 1–10 | NULL = inherit |
+| `noise_debounce_min_s` | integer NULL CHECK 0–3600 | NULL = inherit |
+
+**Resolution** (pure `netmon.services.noise_override.resolve`): levels most specific first — the sensor, its device,
+the device's group, the parent groups (`groups.parent_id` chain, nearest first, the same walk as the inherited SNMP /
+SSH credentials and the dependency `inherit`) — then the global settings key. A mode key is decided by the first
+level that says `on` / `off`; a value key by the first non-NULL value. Each key is resolved on its own (e.g. the
+device may decide `flap` while a group decides `debounce_polls`). Loading: `sensor_levels` (sensors ⋈ devices for
+any set of ids, then one `WITH RECURSIVE` over the groups they need); the inventory (`load_inventory`) carries the
+group / device overrides for `device_out` / `group_out`.
+
+**Write path.** `EventNoise.on_change` resolves the sensor's effective values (two small queries per status change;
+transitions exempt from the protections cost none) and applies the debounce / flapping rules above with the
+sensor's `polls` / `min_s`; a sensor whose flapping collapse is OFF is not fed into the tracker. `on_same` resolves
+only for a sensor with a pending row (in memory, as before); a sensor whose debounce became OFF shows such a row on
+its next check.
+
+**Release** (`EventNoise.release()`): called after an override change (sensor / device / group PATCH, create, bulk),
+a device moved to another group, a group's parent changed, `POST /api/tree/move`, a change of the global keys
+(`reload`) and at start. It resolves only the sensors with something held back (pending rows, open
+`sensor_flapping` rows, tracker entries): debounce OFF → their `pending` rows are shown (`event.created`); flapping
+OFF → the open episode is settled (`flap_end`, reconcile) and the tracker forgets the sensor. Deleted sensors are
+dropped from memory. The overrides live in the tables, so a restart applies them as before it.
+
+## [if-noise] Migration (`0020`)
+File `backend/netmon/migrations/versions/0020_noise_overrides.py`, `revision = "0020"`, `down_revision = "0019"`.
+`upgrade()` adds the four columns with their CHECK constraints to `groups`, `devices` and `sensors` (constant
+default / NULL: catalog only, no rewrite; none of the three is a hypertable, identical in TimescaleDB and plain
+PostgreSQL mode); idempotent. `downgrade()` drops them (every sensor follows the global settings again). Existing rows
+get `inherit`, so nothing changes until an override is set.
 
 ## [if-noise] Migration (`0019`)
 File `backend/netmon/migrations/versions/0019_event_noise.py`, `revision = "0019"`, `down_revision = "0018"`. Plain
