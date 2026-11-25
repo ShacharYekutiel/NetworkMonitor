@@ -277,6 +277,23 @@ def _severity_on(ctx: ToolCtx) -> bool:
     return ctx.gate.on("alert_severity")
 
 
+# Production finding (1.5.0): asked "how many sensors are in fault now?" the model counted the
+# listed items and answered "39 sensors in fault" = 25 down + 14 warning. The output therefore
+# carries exact per-status counts (all matching sensors, not only the listed ones) under names
+# that say what they are, and no grand total that invites adding warnings to faults.
+PROBLEMS_NOTE = (
+    "down_count = sensors in fault (down); warning_count and unreachable_count are separate "
+    "states, not faults. Report each status separately and never add warnings to the fault "
+    "count. Counts cover every matching sensor, also those beyond `limit`."
+)
+
+
+def problem_counts(raw: dict[str, int], statuses: list[str]) -> dict[str, int]:
+    """`{"down_count", "warning_count", "unreachable_count"}` for the requested statuses (0 when
+    none), in that fixed order; statuses not requested are left out."""
+    return {f"{st}_count": int(raw.get(st, 0)) for st in PROBLEM if st in statuses}
+
+
 async def list_problems(ctx: ToolCtx, a: ListProblemsArgs) -> ToolOutput:
     statuses = list(a.statuses or PROBLEM)
     conds = ["s.status = ANY(:st)", "s.enabled", "d.enabled"]
@@ -295,6 +312,19 @@ async def list_problems(ctx: ToolCtx, a: ListProblemsArgs) -> ToolOutput:
         p["scope"] = await group_scope(ctx.session, a.group_id)
     if not a.include_acknowledged:
         conds.append("s.ack_at IS NULL")
+    raw_counts = {
+        str(st): int(n)
+        for st, n in (
+            await ctx.session.execute(
+                text(
+                    "SELECT s.status, count(*) FROM sensors s "  # noqa: S608
+                    "JOIN devices d ON d.id = s.device_id "
+                    f"WHERE {' AND '.join(conds)} GROUP BY s.status"
+                ),
+                p,
+            )
+        ).all()
+    }
     rows = (
         (
             await ctx.session.execute(
@@ -330,7 +360,12 @@ async def list_problems(ctx: ToolCtx, a: ListProblemsArgs) -> ToolOutput:
         }
         for r in rows[: a.limit]
     ]
-    return ToolOutput({"items": items}, len(items), truncated=len(rows) > a.limit)
+    return ToolOutput(
+        {"counts": problem_counts(raw_counts, statuses), "items": items},
+        len(items),
+        truncated=len(rows) > a.limit,
+        note=PROBLEMS_NOTE,
+    )
 
 
 # --------------------------------------------------------------------------- search_sensors
@@ -1035,7 +1070,10 @@ register(
 register(
     ToolDef(
         "list_problems",
-        "Current problems: sensors that are down, warning or unreachable, with acknowledgement.",
+        "Current problems: sensors that are down, warning or unreachable, with acknowledgement. "
+        "`counts` gives exact per-status totals (down_count = sensors in fault; warning_count "
+        "and unreachable_count are separate states): use them for 'how many' questions and "
+        "never add warnings to the number of faults.",
         ListProblemsArgs,
         list_problems,
         untrusted=("message", "ack_comment"),

@@ -15,6 +15,7 @@ import {
   rangeOf,
   syslogQuery,
   withCursor,
+  withRepeat,
   type LogFilter,
 } from '../../lib/logs';
 import { DetailRows, Drawer } from '../Drawer';
@@ -237,8 +238,7 @@ export function SyslogView({ deviceId }: { deviceId?: number }) {
     refetchInterval: live && canLive ? 60_000 : false,
   });
   const repeats = useRepeats(live && canLive);
-  const withRepeats = (m: SyslogMessage): SyslogMessage =>
-    repeats[m.id] ? { ...m, ...repeats[m.id] } : m;
+  const withRepeats = (m: SyslogMessage): SyslogMessage => withRepeat(m, repeats[m.id]);
   const series = useMemo(
     () => (stats.data ? severitySeries(stats.data.buckets, (s) => t(`syslogSeverity.${s}`)) : []),
     [stats.data, t],

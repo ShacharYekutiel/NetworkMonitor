@@ -16,6 +16,8 @@ import { useAuth } from './auth';
 
 const Ctx = createContext<WsState>('closed');
 const SocketCtx = createContext<LiveSocket | null>(null);
+/** Tests: provide a socket and a connection state without a real WebSocket. */
+export { Ctx as WsStateContext, SocketCtx as LiveSocketContext };
 
 export function LiveProvider({ children }: { children: ReactNode }) {
   const qc = useQueryClient();
