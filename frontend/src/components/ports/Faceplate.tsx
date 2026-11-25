@@ -1,4 +1,4 @@
-import { Fragment, useMemo } from 'react';
+import { Fragment, useMemo, type JSX } from 'react';
 import { useTranslation } from 'react-i18next';
 import type { Port } from '../../api/types';
 import {
