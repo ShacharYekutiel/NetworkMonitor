@@ -4654,7 +4654,7 @@ Every group and device chooses, **per kind**, one of three **modes**:
 | Mode | Stored as | Meaning |
 |---|---|---|
 | `inherit` | no assignment row and `<kind>_credentials` NULL | as before 1.7.0: take the parent's |
-| `profile` | a `connection_profile_assignments` row for (node, kind); `<kind>_credentials` NULL | a **reference**: the profile's current data is used, so editing the profile takes effect everywhere at once |
+| `profile` | a `connection_profile_assignments` row for (node, kind); `<kind>_credentials` NULL **or the node's earlier manual data, kept dormant** | a **reference**: the profile's current data is used, so editing the profile takes effect everywhere at once. Dormant manual data is never used while the reference exists; it comes back when the node leaves the profile for manual (owner decision Q2) |
 | `manual` | `<kind>_credentials` NOT NULL (the existing jsonb, unchanged form); no assignment row | as before 1.7.0: the node's own data |
 
 A profile reference inherits down the tree exactly like manual data: a group in mode `profile` gives that profile
@@ -4725,9 +4725,19 @@ One row per (node, kind) in mode `profile`.
   node and kind (NULLs are distinct, so the two constraints do not collide).
 - Deleting a group or device deletes its rows (cascade, also for whole subtrees).
 
-**Invariant** (kept by every API write in the same transaction): per (node, kind) at most one of
-{assignment row, `<kind>_credentials` NOT NULL}. Setting a profile sets the node column to NULL; setting manual
-data or inherit deletes the assignment row.
+**Dormant manual data** (owner decision Q2, changed after the first contract): choosing a profile on a node in
+mode `manual` **keeps** its `<kind>_credentials` unchanged (dormant, still encrypted as before, covered by
+`secrets rekey` and `transform_all` like any node column). An assignment row therefore decides the mode, whatever
+the column holds. Writes (every API write, same transaction):
+
+- set a profile → insert / update the assignment row; the column is left as it is (dormant), unless the request
+  also says `K_credentials: null`, which clears it;
+- leave the profile for manual **restoring** the dormant data → delete the assignment row (the column becomes
+  active again);
+- set new manual data → write the column, delete the assignment row;
+- inherit → delete the assignment row **and** set the column to NULL (dormant data is discarded);
+- copy into manual (`copy-from-profile`) → the column is overwritten with a copy of the profile, the assignment
+  row deleted.
 
 ## [profiles] Resolution (pure `netmon.services.conn_profiles.resolve(kind, chain, profiles)`)
 `chain` = the device, then its group, its parent group, … up to the root (the group chain is walked at most 100
@@ -4735,19 +4745,18 @@ deep, as today; a group's own effective value starts the chain at that group). E
 `<kind>_credentials` (stored form) and its assignment's `profile_id` (or NULL).
 
 1. Walk the chain from the device upward. At each node:
-   1. `<kind>_credentials` NOT NULL → **manual wins**: use it (decrypted with the node's owner); source = this node,
-      mode `manual`. Stop.
-   2. else an assignment row exists → use the profile's current `data` (decrypted with the profile's owner);
-      source = this node, mode `profile`, `profile_id`. Stop.
+   1. an assignment row exists → use the profile's current `data` (decrypted with the profile's owner);
+      source = this node, mode `profile`, `profile_id`. Stop. (The node's column, if set, is dormant manual data
+      and is not used.)
+   2. else `<kind>_credentials` NOT NULL → use it (decrypted with the node's owner); source = this node, mode
+      `manual`. Stop.
    3. else (mode `inherit`) → go to the parent.
 2. Nothing found → the kind's fallback (SNMP: built-in default, source `default`; SSH: none, source `none`).
 3. SNMP result as today: `{**DEFAULT_SNMP, **data}`, always plaintext, used only in memory.
 
-**Both present on one node** (only possible when something bypassed the API: an older release running on the
-migrated database after a container rollback, a hand-edited row): rule 1.1 makes manual data win — it is the more
-specific and, after a rollback, the newer intent. At every start the server repairs such rows: the assignment row
-is deleted, one audit row `connection_profile.unlink` (actor `system`, `reason: "manual_present"`) is written per
-row and one WARNING is logged. The API therefore never shows both.
+**Both present on one node** is a normal state: mode `profile` with dormant manual data (rule 1.1). There is no
+start-up repair. Readers that collect "every credential object" (the trap receiver's known communities and v3
+users) ignore dormant data: only active data (manual nodes and profiles) counts.
 
 **Origin** (what the UI shows, computed with the same walk, `netmon.services.conn_profiles.origin`): the deciding
 node (`self` / an ancestor group / `default` / `none`), its mode and its profile id and name (API field
@@ -4764,7 +4773,7 @@ the same pass (one query each), never per device.
 
 ## [profiles] Deleting a profile
 A profile is **in use** while any of these reference it: an assignment row (group or device, direct reference),
-or a saved discovery profile whose `options.snmp_profile_ids` contains its id. A profile in use cannot be deleted
+or a saved discovery profile whose `options.snmp_profile_ids` or `options.ssh_profile_ids` contains its id. A profile in use cannot be deleted
 (`409 profile_in_use`, with the counts); the "used by" list is `GET /api/connection-profiles/{id}/usage`.
 Devices that only **inherit** the profile through a group are not direct uses (removing the group's reference
 removes theirs) but are counted (`devices_effective`) so the UI can say how many devices an edit affects.
@@ -4773,7 +4782,7 @@ Not a use: a finished or running discovery scan (it keeps its own sealed snapsho
 (they hold the name as text).
 
 Race-free check: `DELETE` locks the profile row (`SELECT … FOR UPDATE`), counts the uses, then deletes; every write
-that adds a use (assignment, discovery profile `snmp_profile_ids`) first takes `SELECT … FOR SHARE` on the profile
+that adds a use (assignment, discovery profile `snmp_profile_ids` / `ssh_profile_ids`) first takes `SELECT … FOR SHARE` on the profile
 row. The foreign key `fk_cpa_profile_kind` (RESTRICT) is the last safety net for assignments.
 
 ## [profiles] Discovery
@@ -4801,8 +4810,38 @@ row. The foreign key `fk_cpa_profile_kind` (RESTRICT) is the last safety net for
      device → `P`. **This is the "linked to the profile that worked".**
   4. Otherwise → mode `manual`, a copy of `C` with `timeout_s = 2`, `retries = 1` (the 2a rule; covers a deleted
      profile and a port override).
-- SSH is not probed by discovery, so an imported device's SSH mode is `inherit` (it takes the SSH profile or
-  credentials of its group).
+- **SSH login check (owner decision Q3, opt-in).** Scan options gain `ssh_profile_ids` (int[], default `[]`, 0–3
+  distinct ids of profiles of kind `ssh`) and `ssh_credentials` (typed SSH credentials for this scan / discovery
+  profile, the [3] input object; default none). A scan with neither behaves exactly as before. Otherwise, for every
+  **found** host, after the probes and before the result is stored:
+  - candidates in order: each profile of `ssh_profile_ids`, then the typed credentials; at most 4;
+  - a candidate is tried only when its own port is among the host's `open_ports` of this scan (so TCP probing must
+    be on and its port in `tcp_ports`; 22 is a default port); otherwise it is skipped (not an attempt);
+  - **one** login attempt per candidate, stop at the first success; each attempt is the session engine's
+    connect → host key → auth, then disconnect (`run_session(driver=None, commands=False)`): no shell, no prompt,
+    **no command** of any kind; at most 20 s per attempt; at most 4 hosts in SSH at a time per scan;
+  - host keys: every presented key is accepted for this check and **nothing is stored or pinned** (discovered
+    hosts are usually not devices yet). The existing config-backup flow pins the key at a device's first backup or
+    device SSH test (TOFU), as before;
+  - snapshot: the candidates are copied into `discovery_scans.ssh_candidates` (jsonb list, internal, never
+    returned) **once when the scan starts**: `{"_profile_id": int | null, "_origin": "profile" | "typed", ...the
+    [3] stored form}` (secrets stay encrypted with the [3] AAD `ssh.<field>`; covered by `netmon secrets rekey`).
+  - **Operational risk:** a failed SSH login can lock an account or raise a security alert on the device. Hence
+    opt-in, at most 4 candidates, one attempt each, only on hosts whose SSH port is open; the UI shows a warning.
+- **`discovery_results` gains** `ssh_attempted boolean NOT NULL DEFAULT false` (at least one candidate was tried),
+  `ssh_ok boolean NOT NULL DEFAULT false`, `ssh_credential text NULL` (`profile` | `typed`, the candidate that
+  logged in) and `ssh_profile_id integer NULL` (no FK, snapshot). Never a secret.
+- **Saved discovery profiles:** `options.ssh_profile_ids` is stored as is (ids); `options.ssh_credentials` in the
+  [3] stored form (encrypted; covered by `netmon secrets rekey`). Listing an SSH profile makes it "in use", like
+  `snmp_profile_ids`.
+- **Import of SSH** (pure decision `netmon.discovery.importer.ssh_choice(save, ssh_ok, candidate, G_origin,
+  profile_now)`): `save` = the item's `save_ssh`, else the request's `save_ssh`, else `ssh_ok` (default on when a
+  login succeeded). Not saved, or no login succeeded → `inherit` (as before). Else, with `C` the candidate that
+  logged in and `P` its `_profile_id`:
+  1. `P` set and the import group's effective SSH already comes from profile `P` → `inherit`;
+  2. `P` set and profile `P` still exists with kind `ssh` → mode `profile` (assignment device → `P`);
+  3. otherwise (typed credentials, or the profile was deleted since) → mode `manual`, a copy of `C`'s stored form.
+  Each SSH assignment / manual save is audited (`device.update`, `reason: "discovery_import"`).
 
 ## [profiles] Secrets tooling, backup and restore
 - `pg_dump` / `ops/restore.sh` / the daily backup cover the two tables like any other. A restore on a server with a
@@ -4827,14 +4866,20 @@ re-added).
 - `upgrade()`: `CREATE TABLE connection_profiles` (+ `uq_connection_profiles_id_kind`,
   `ux_connection_profiles_name`, the kind check); `CREATE TABLE connection_profile_assignments` (+ the FKs, checks,
   unique constraints, `ix_cpa_profile`); `ALTER TABLE discovery_results ADD COLUMN IF NOT EXISTS snmp_profile_id
-  integer NULL`. **No data is changed**: every existing group and device stays `manual` (credentials set) or
+  integer NULL`; `discovery_results.ssh_attempted` / `ssh_ok` (boolean NOT NULL DEFAULT false), `ssh_credential`
+  (text NULL), `ssh_profile_id` (integer NULL); `discovery_scans.ssh_candidates` (jsonb NOT NULL DEFAULT '[]').
+  **No data is changed**: every existing group and device stays `manual` (credentials set) or
   `inherit` (NULL), and every effective credential is byte-identical.
-- `downgrade()`: needs `secret.key` (passed like 0012) only when an assignment exists. For every assignment row
-  whose node column is NULL, the profile's data is **materialised** into the node's column (SNMP re-sealed for the
-  node owner in the current secrets form; SSH copied as is), so the node keeps working credentials as `manual`;
+- `downgrade()`: needs `secret.key` (passed like 0012) only when an assignment exists. For every assignment row the
+  profile's data (the node's effective value) is **materialised** into the node's column, overwriting dormant
+  manual data there (SNMP re-sealed for the node owner in the current secrets form; SSH copied as is), so the node
+  keeps working credentials as `manual`;
   then the column, the assignments and the profiles are dropped. A profile secret that cannot be decrypted stops the
-  downgrade with an error, nothing changed. Discovery profiles lose `snmp_profile_ids` (the 1.6 options model
-  rejects unknown keys, so the key is removed from `discovery_profiles.options` and `discovery_scans.options`).
-- **Container rollback without downgrade** (an older image on the migrated database): the older release ignores
-  both tables, so a node in mode `profile` behaves as `inherit` there. See open question Q1 in
-  [connection-profiles.md](connection-profiles.md#open-questions-for-the-owner).
+  downgrade with an error, nothing changed. Discovery profiles lose `snmp_profile_ids`, `ssh_profile_ids` and
+  `ssh_credentials` (the 1.6 options model rejects unknown keys, so the keys are removed from
+  `discovery_profiles.options` and `discovery_scans.options`); the new result / scan columns are dropped.
+- **Container rollback without downgrade** (an older image on the migrated database; owner decision Q1: accepted,
+  documented): the older release ignores both tables, so a node in mode `profile` behaves there as its column
+  says: with dormant manual data it uses that data (the node's settings before the profile was chosen), without
+  it as `inherit`. When 1.7 is back, the reference decides again (an edit of the manual data made by the older
+  release stays dormant). See [connection-profiles.md](connection-profiles.md#owner-decisions).

@@ -3399,13 +3399,14 @@ gain keys.
 ### [profiles] Permissions
 | Who | Sees | Can |
 |---|---|---|
-| admin (session or admin token) | profiles with their non-secret fields, `*_set` flags, usage | create, edit, delete, test, assign, copy into manual |
+| admin (session or admin token) | profiles with their non-secret fields, `*_set` flags, usage | create, edit, delete, test, assign, restore saved manual settings, copy into manual |
 | viewer (session or viewer token) | **only the profile id and name**, embedded in `Group` / `Device` (`snmp_profile_name`, `effective_snmp.profile_name`, …). Every `/api/connection-profiles*` endpoint → `403 forbidden` | nothing |
 
 There is no operator role (roles are `admin` and `viewer`); every non-admin follows the viewer rule. Secrets are
 write-only for **every** role, admins included ([Secret fields](#secret-fields)). A node in mode `profile` has
-`snmp_credentials` / `ssh_credentials` = `null`, so a viewer sees no field of the profile's data at all (a
-viewer still sees the non-secret fields of **manual** credentials, as before).
+`snmp_credentials` / `ssh_credentials` = `null` (also when it keeps dormant manual data, see below), so a
+viewer sees no field of the profile's data and nothing of the dormant data (a viewer still sees the non-secret
+fields of **manual** credentials, as before).
 
 ### [profiles] Errors
 | HTTP | code | When |
@@ -3458,12 +3459,16 @@ type ProfileTestResult =
 ```ts
   snmp_mode: CredentialMode; snmp_profile_id: number | null; snmp_profile_name: string | null;
   ssh_mode: CredentialMode;  ssh_profile_id: number | null;  ssh_profile_name: string | null;
+  snmp_has_saved_manual: boolean; ssh_has_saved_manual: boolean;   // Q2: dormant manual data
   effective_snmp: CredentialOrigin; effective_ssh: CredentialOrigin;
 ```
 
 - `*_profile_id` / `*_profile_name`: this node's **own** reference (null unless mode = `profile`).
 - `snmp_credentials` / `ssh_credentials`: this node's **manual** data, exactly as before; `null` in modes `inherit`
   **and** `profile` (old clients therefore show a profile node as "inherit" — see the compatibility notes).
+- `snmp_has_saved_manual` / `ssh_has_saved_manual` (owner decision Q2): `true` only in mode `profile` when the node
+  keeps its earlier manual data dormant behind the reference (nothing of it is returned). The UI offers "switch back
+  to the saved manual settings" (request `{"K_profile_id": null}`, below). `false` in the other modes.
 - `effective_snmp` / `effective_ssh` drive the UI line "Inherited from group *X* · profile *Y*" / "Profile *Y*" /
   "Manual" / "Built-in default (v2c, public)" / "No SSH credentials". For a group, `source: "self"` means the group
   itself decides; the walk starts at the group.
@@ -3481,7 +3486,7 @@ type ProfileTestResult =
 | `GET /api/connection-profiles/{id}/usage` | — | `ProfileUsage` ("used by") |
 | `POST /api/connection-profiles/{id}/test` | `{"device_id": 3}` **or** `{"host": "10.0.0.5"}`; optional `"credentials": <partial>` (merged over the stored profile, nothing saved — tests unsaved edits); SSH only: optional `"driver": "<id>" \| null` | `200 ProfileTestResult`; `502 snmp_error` / `ssh_error`. Audit `connection_profile.test` |
 | `POST /api/connection-profiles/test` | `{"kind": "snmp", "credentials": {…}, "device_id" \| "host": …, "driver"?: …}` — a profile not saved yet | same |
-| `POST /api/groups/{id}/credentials/{kind}/copy-from-profile` | `{"profile_id": 5}` or `{}` (= the group's own current profile) | `200 Group` in mode `manual` with a copy of the profile's data (secrets included, re-encrypted for the group); the reference is removed. `422` when `{}` and the group is not in mode `profile`; `profile_kind_mismatch`. Audit `group.update` with `reason: "copy_from_profile"` |
+| `POST /api/groups/{id}/credentials/{kind}/copy-from-profile` | `{"profile_id": 5}` or `{}` (= the group's own current profile) | `200 Group` in mode `manual` with a copy of the profile's data (secrets included, re-encrypted for the group); the reference is removed and dormant manual data overwritten. `422` when `{}` and the group is not in mode `profile`; `profile_kind_mismatch`. Audit `group.update` with `reason: "copy_from_profile"` |
 | `POST /api/devices/{id}/credentials/{kind}/copy-from-profile` | same | `200 Device`; same rules. Audit `device.update` with `reason: "copy_from_profile"` |
 
 `{kind}` in a path is a registered kind (`snmp`, `ssh`), else `404 not_found`.
@@ -3507,13 +3512,16 @@ type ProfileTestResult =
 | Request contains | Result |
 |---|---|
 | neither field | PATCH: unchanged. POST: `inherit` |
-| `K_profile_id: <id>` (and `K_credentials` absent or `null`) | `profile` → that profile (must exist: `422 validation_error`; must be of kind K: `422 profile_kind_mismatch`); the node's manual data is **discarded** (audited) |
+| `K_profile_id: <id>` (no `K_credentials`) | `profile` → that profile (must exist: `422 validation_error`; must be of kind K: `422 profile_kind_mismatch`). The node's manual data, if any, is **kept dormant** (`K_has_saved_manual: true`); nothing of it is used while the reference exists |
+| `K_profile_id: <id>` and `K_credentials: null` | `profile` as above, and the node's manual / dormant data is **discarded** |
 | `K_profile_id: <id>` and a non-null `K_credentials` | `422 validation_error` (contradiction) |
-| `K_credentials: {…}` (no `K_profile_id`, or `K_profile_id: null`) | `manual`, **exactly as before** (merged over the stored manual data; from `profile` or `inherit` it is a new object: a new SNMP object without `community` gets `"public"`). A reference is removed |
-| `K_credentials: null` (no `K_profile_id`, or `K_profile_id: null`) | `inherit`, **exactly as before**; a reference is removed |
-| `K_profile_id: null` only | from `profile` → `inherit`; from `manual` or `inherit` → unchanged (never deletes manual data) |
+| `K_credentials: {…}` (no `K_profile_id`, or `K_profile_id: null`) | `manual`. From `manual`: merged over the stored manual data, **exactly as before**. From `profile` or `inherit`: a new object (a new SNMP object without `community` gets `"public"`; secrets not sent are not taken from dormant data). The reference and any dormant data are replaced |
+| `K_credentials: null` (no `K_profile_id`, or `K_profile_id: null`) | `inherit`, **exactly as before**: the reference is removed **and** dormant manual data is discarded (the UI confirms when `K_has_saved_manual`) |
+| `K_profile_id: null` only | from `profile` with dormant data → `manual` with that data restored ("switch back to the saved manual settings"); from `profile` without dormant data → `inherit`; from `manual` or `inherit` → unchanged (never deletes manual data) |
 
-To keep a profile's secrets while switching to manual, use `copy-from-profile` (the client never has the secrets).
+To keep a profile's secrets while switching to manual, use `copy-from-profile` (the client never has the secrets);
+it overwrites dormant data. Every mode switch is audited (change keys below; a discarded or restored secret appears
+only as `"***"` in `K_credentials` changes).
 
 **Compatibility notes for existing clients.** A request without the new fields behaves as before on every node;
 on a node in mode `profile` it can only do what it could do before: set manual data or inherit (both drop the
@@ -3538,6 +3546,42 @@ discarded or copied manual secrets appear only as `"***"` as before.
 - Import response `created[]` items gain `snmp_mode: "inherit" | "profile" | "manual" | null` (null when SNMP did not
   answer) and `snmp_profile_id: number | null`.
 
+**SSH login check (owner decision Q3: opt-in, 1.7.0).** Rules, order, host-key behaviour and the operational risk:
+[data-model.md § Discovery](data-model.md#profiles-discovery). In short: only found hosts whose candidate port is
+open in this scan, one login attempt per candidate, stop at the first success, **log in and disconnect only — no
+command is ever sent**, nothing is pinned or stored about the host key. Failed logins can lock accounts or raise
+security alerts on devices: the UI shows a warning next to the SSH section.
+
+- `ScanOptions` (request and response) gains:
+  ```ts
+  ssh_profile_ids: number[];          // default []; 0–3 distinct ids of profiles of kind "ssh"
+                                      // (unknown → 422 validation_error at ["body","options","ssh_profile_ids",i];
+                                      //  an SNMP profile → 422 profile_kind_mismatch)
+  ssh_credentials: SshCredentials | null;   // request: typed credentials for the scan (the [3] SshCredentials
+                                      // input; username + password or private key required). Omitted = keep the
+                                      // stored value (discovery profile PATCH) / none; null = remove; an object
+                                      // replaces (secret rules of [3]: omitted / null keep, "" clears).
+                                      // Response: always null (write-only)
+  ssh_credentials_set: boolean;       // response only: typed SSH credentials are stored (ignored on input)
+  ssh_username: string | null;        // response only: their username (not a secret; ignored on input)
+  ```
+  SSH is attempted only when `ssh_profile_ids` is not empty or `ssh_credentials` is set; a scan without them
+  behaves exactly as before 1.7.0. A saved discovery profile listing an SSH connection profile makes it "in use"
+  (`409 profile_in_use` counts it in `discovery_profiles`).
+- `DiscoveryResult` gains `ssh_attempted: boolean`, `ssh_ok: boolean`, `ssh_credential: "profile" | "typed" | null`
+  (what logged in), `ssh_profile_id: number | null`, `ssh_profile_name: string | null` (current name, null when
+  deleted since). Never a secret.
+- `ImportRequest` gains `save_ssh: boolean | null` (default for every item, optional) and each `ImportItem` gains
+  `save_ssh: boolean | null` (optional). Effective choice = item's value, else the request's, else `ssh_ok`
+  (default **on** when an SSH login succeeded). Saved: the profile that logged in is assigned (mode `profile`), or
+  `inherit` when the import group already inherits that very profile; typed credentials (or a profile deleted since
+  the scan) are saved as the device's **manual** SSH credentials. Not saved / no login → `inherit` (as before).
+- Import response `created[]` items gain `ssh_mode: "inherit" | "profile" | "manual" | null` (null when no SSH login
+  succeeded) and `ssh_profile_id: number | null`.
+- Audit: `discovery_scan.ssh` when a scan with SSH starts (`changes`: `ssh_profile_ids` `[null, [ids]]`,
+  `ssh_typed` `[null, true|false]`); for each imported device whose SSH settings were saved, `device.update` with
+  `ssh_mode` / `ssh_profile` (or `ssh_credentials` `"***"`) and `reason: "discovery_import"`.
+
 ### [profiles] Tree move preview
 `effects[].before` / `after` of settings `snmp` and `ssh` gain `profile_id` and `profile_name` (null when the deciding
 node is manual, or for `default` / `none`). A move that changes only the profile (both groups decide by different
@@ -3547,8 +3591,9 @@ profiles) is listed as a change.
 `connection_profile.create`, `connection_profile.update` (`changes` per field; `name` `[old, new]` on a rename;
 a changed secret `["***", "***"]`; never a value), `connection_profile.delete`, `connection_profile.test`
 (`changes: {"target": [null, "device:3" | "host:10.0.0.5"], "ok": [null, true]}`; for an unsaved profile
-`entity_id` is null), `connection_profile.unlink` (actor `system`, `reason: "manual_present"`, start-up repair);
-group and device changes as above. Entity type `connection_profile`, entity name = the profile name.
+`entity_id` is null); group and device changes as above (a node switched to a profile with dormant data shows
+`K_mode: ["manual", "profile"]` and no `K_credentials` change; restoring shows `K_mode: ["profile", "manual"]`).
+There is no start-up repair (dormant data behind a reference is a normal state since owner decision Q2). Entity type `connection_profile`, entity name = the profile name.
 
 ### [profiles] WebSocket
 `config.changed` `{"entity": "connection_profile", "id": 5, "action": "created" | "updated" | "deleted"}` to every
