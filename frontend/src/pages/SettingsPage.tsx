@@ -43,6 +43,7 @@ import { NocTab } from '../components/features/NocSettings';
 import { cardAnchor } from '../lib/settingsIndex';
 import { AssistantSettingsTab } from '../components/assistant/AssistantSettingsTab';
 import { SeverityMappingEditor } from '../components/severity/Severity';
+import { ConnectionProfilesTab } from '../components/profiles/ConnectionProfilesTab';
 
 function SmtpCard({ settings }: { settings: Settings }) {
   const { t } = useTranslation();
@@ -500,6 +501,7 @@ export function SettingsPage() {
       {q.data && tab === 'siem' && <SiemTab settings={q.data} />}
       {q.data && tab === 'ldap' && <LdapTab settings={q.data} />}
       {q.data && tab === 'sso' && <SsoTab settings={q.data} />}
+      {tab === 'connectionProfiles' && <ConnectionProfilesTab />}
       {q.data && tab === 'backup' && <BackupSettingsTab settings={q.data} />}
       {q.data && tab === 'flows' && <FlowSettingsTab settings={q.data} />}
       {q.data && tab === 'newDevices' && <NewDeviceSettingsTab settings={q.data} />}

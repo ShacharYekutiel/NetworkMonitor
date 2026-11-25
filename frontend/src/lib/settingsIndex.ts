@@ -329,6 +329,19 @@ export const SETTINGS_CARDS: SettingsCardDef[] = [
     ],
   },
   // --- Backups
+  // --- [profiles] Connection profiles (no feature toggle)
+  {
+    id: 'connectionProfiles',
+    tab: 'connectionProfiles',
+    titleKey: 'profiles.title',
+    hintKey: 'profiles.intro',
+    terms: ['snmp', 'ssh', 'credentials', 'community', 'v3', 'password', 'profile'],
+    fields: [
+      { labelKey: 'profiles.add' },
+      { labelKey: 'profiles.test', hintKey: 'profiles.snmpTestHint' },
+      { labelKey: 'profiles.usedBy' },
+    ],
+  },
   {
     id: 'backup',
     tab: 'backup',

@@ -249,7 +249,8 @@
       "group": "inherited from a group",
       "default": "built-in default (v2c, public)"
     },
-    "communityDefaultHint": "Empty = \"public\""
+    "communityDefaultHint": "Empty = \"public\"",
+    "unreadable": "Stored credentials cannot be decrypted — enter them again."
   },
   "secret": {
     "stored": "•••••• (stored)",
@@ -530,7 +531,8 @@
       "reports": "Reports",
       "noc": "NOC screens",
       "chatAck": "Chat acknowledge",
-      "assistant": "Assistant (AI)"
+      "assistant": "Assistant (AI)",
+      "connectionProfiles": "Connection profiles"
     }
   },
   "users": {
@@ -704,7 +706,11 @@
     "walk_running": "A walk of this device is already running.",
     "template_exists": "A user template with this ID already exists.",
     "invalid_template": "The template YAML fails validation.",
-    "stream_interrupted": "The connection to the answer was lost."
+    "stream_interrupted": "The connection to the answer was lost.",
+    "profile_in_use": "This connection profile is in use and cannot be deleted.",
+    "profile_in_use_counts": "This connection profile is in use ({{groups}} groups, {{devices}} devices, {{discovery}} discovery profiles) and cannot be deleted.",
+    "profile_kind_mismatch": "The connection profile is of the wrong kind.",
+    "profile_kind_mismatch_named": "Choose a {{expected}} connection profile."
   },
   "sensorType": {
     "ping": "Ping",
@@ -1054,7 +1060,11 @@
       "communities": "Up to 5 communities of at most 64 characters.",
       "v3": "Up to 3 v3 users, each with a username.",
       "hours": "Between 1 and 720 hours.",
-      "fingerprintTimeout": "500 to 5000 ms."
+      "fingerprintTimeout": "500 to 5000 ms.",
+      "connProfiles": "Up to 8 different connection profiles.",
+      "sshProfiles": "Up to 3 different SSH connection profiles.",
+      "sshCandidates": "Choose an SSH connection profile or enter SSH credentials, or turn the SSH check off.",
+      "sshTcp": "The SSH check needs the TCP probe, with the SSH port (22) in its port list."
     },
     "saveAsProfile": "Save as profile",
     "profileName": "Profile name",
@@ -1164,7 +1174,52 @@
     "notifyTo": "alerts to {{list}}",
     "noNotify": "no alerts",
     "scanning": "Scanning…",
-    "startedAt": "started {{time}}"
+    "startedAt": "started {{time}}",
+    "connProfiles": "SNMP connection profiles",
+    "connProfilesHint": "Tried in this order after the group's credentials and before the credentials typed below. Up to 8.",
+    "addConnProfile": "Add a connection profile",
+    "noConnProfiles": "No SNMP connection profiles yet (Settings → Connection profiles).",
+    "moveUp": "Move {{name}} up",
+    "moveDown": "Move {{name}} down",
+    "removeConnProfile": "Remove {{name}}",
+    "deletedProfile": "Deleted profile #{{id}}",
+    "answeredProfile": "Answered with connection profile {{name}}",
+    "importSnmp": {
+      "profile": "SNMP: linked to profile {{name}}",
+      "manual": "SNMP: own copy of the credentials",
+      "inherit": "SNMP: inherited from the group"
+    },
+    "noSshProfiles": "No SSH connection profiles yet (Settings → Connection profiles).",
+    "sshCheck": "SSH login check (optional)",
+    "sshCheckOn": "Try to log in with SSH on the hosts found",
+    "sshCheckHint": "Off by default. When on, the import can save the SSH settings that worked on each device.",
+    "sshWarning": "Failed SSH logins may lock accounts or raise security alerts on the devices. The check only logs in and disconnects: it sends no command and never changes a device's configuration. Only hosts whose SSH port was found open are tried, once per credential.",
+    "sshProfiles": "SSH connection profiles",
+    "sshProfilesHint": "Tried in this order, before the typed credentials. Up to 3.",
+    "sshTyped": "Also try typed SSH credentials",
+    "sshStored": "Typed credentials are stored for this profile; leave the secret fields empty to keep them.",
+    "sshTypedShort": "typed credentials",
+    "sshOkTitle": "SSH login succeeded with {{what}}",
+    "sshFailedTitle": "No SSH login succeeded",
+    "sshFailed": "failed",
+    "sshNotTriedTitle": "SSH was not tried (port not open)",
+    "sshNotTried": "not tried",
+    "save": {
+      "snmp": "Save SNMP",
+      "ssh": "Save SSH",
+      "snmpFor": "Save the SNMP settings that worked on {{ip}}",
+      "sshFor": "Save the SSH settings that worked on {{ip}}",
+      "snmpNone": "SNMP did not answer",
+      "sshNone": "No SSH login succeeded",
+      "snmpAll": "Save the SNMP settings that worked (all)",
+      "sshAll": "Save the SSH settings that worked (all)",
+      "snmpOffHint": "Without saved SNMP settings a device inherits them from the group; it may not answer if the group's settings differ."
+    },
+    "importSsh": {
+      "profile": "SSH: linked to profile {{name}}",
+      "manual": "SSH: own copy of the credentials",
+      "inherit": "SSH: inherited from the group"
+    }
   },
   "ack": {
     "acknowledged": "Acknowledged",
@@ -2530,7 +2585,8 @@
       "chatack": "Chat acknowledge",
       "channel": "Channels",
       "assistant": "AI assistant",
-      "syslog_filter": "Syslog filter rules"
+      "syslog_filter": "Syslog filter rules",
+      "connection_profile": "Connection profiles"
     },
     "entityType": {
       "device": "Device",
@@ -2546,7 +2602,8 @@
       "api_token": "API token",
       "assistant_conversation": "Assistant conversation",
       "assistant_message": "Assistant answer",
-      "syslog_filter": "Syslog filter rule"
+      "syslog_filter": "Syslog filter rule",
+      "connection_profile": "Connection profile"
     },
     "subtitle": "Every change and every sign-in · kept {{days}} days",
     "noneHint": "Nothing matches these filters. Widen the time range or clear a filter.",
@@ -4341,7 +4398,9 @@
       "dependsOn": "depends on {{name}}",
       "none": "No inherited setting changes for the devices that move.",
       "snmpSensors_one": "({{count}} SNMP sensor)",
-      "snmpSensors_other": "({{count}} SNMP sensors)"
+      "snmpSensors_other": "({{count}} SNMP sensors)",
+      "groupProfile": "inherited from group {{name}} · profile {{profile}}",
+      "ownProfile": "profile {{profile}}"
     }
   },
   "settingsSearch": {
@@ -4663,5 +4722,115 @@
       "confirm": "Delete these rows",
       "done": "Cleanup finished. Rows deleted: {{n}}."
     }
+  },
+  "credMode": {
+    "label": "Credentials",
+    "groupLabel": "{{kind}} credentials of this group",
+    "deviceLabel": "{{kind}} credentials of this device",
+    "inherit": "Inherit",
+    "profile": "Profile",
+    "manual": "Manual",
+    "inheritHintGroup": "Use the parent group's settings, as they are now and after any change.",
+    "inheritHintDevice": "Use the group's settings, as they are now and after any change.",
+    "inEffect": "In effect now",
+    "origin": {
+      "unknown": "Not known yet",
+      "default": "Built-in default (v2c, public)",
+      "none": "No SSH credentials",
+      "selfProfile": "Profile {{profile}}",
+      "selfManual": "Manual",
+      "groupProfile": "Inherited from group {{group}} · profile {{profile}}",
+      "groupManual": "Inherited from group {{group}} · manual"
+    },
+    "profileLabel": "Connection profile",
+    "chooseProfile": "Choose a profile…",
+    "profileRequired": "Choose a connection profile, or pick Inherit or Manual.",
+    "noProfiles": "There are no {{kind}} connection profiles yet.",
+    "manageProfiles": "Manage connection profiles",
+    "profileHint": "A reference: later changes to the profile apply here at once.",
+    "unreadable": "cannot be decrypted",
+    "keptNote": "The manual settings stored here are kept and come back if you switch to Manual later.",
+    "restoreSaved": "Restore the saved manual settings",
+    "enterNew": "Enter new manual settings",
+    "restoreHint": "The manual settings saved before the profile was chosen are used again, secrets included.",
+    "inheritConfirmTitle": "Delete the manual settings?",
+    "inheritConfirm": "Switching to Inherit deletes the {{kind}} credentials stored on {{name}}, including manual settings kept under a profile. They are deleted when you save.",
+    "inheritConfirmAction": "Switch to Inherit",
+    "copy": "Copy into manual",
+    "copyHint": "Saves at once: a copy of the profile's settings, secrets included, becomes this item's own manual settings; later profile changes no longer apply here.",
+    "copyConfirmTitle": "Replace the manual settings?",
+    "copyConfirm": "The manual {{kind}} settings stored on {{name}} are replaced by a copy of profile {{profile}}.",
+    "copyConfirmAction": "Copy and replace",
+    "copyDone": "Copied from profile {{profile}}",
+    "newNodeCopyHint": "Copy into manual is available after the first save."
+  },
+  "profiles": {
+    "title": "Connection profiles",
+    "intro": "Named SNMP and SSH credential sets. A group or device can use a profile instead of its own credentials; a change to the profile applies everywhere it is used, at the next check.",
+    "kind": {
+      "snmp": "SNMP",
+      "ssh": "SSH"
+    },
+    "kindLabel": "Kind",
+    "allKinds": "All",
+    "add": "Add profile",
+    "addTitle": "New connection profile",
+    "editTitle": "Edit connection profile",
+    "name": "Name",
+    "description": "Description",
+    "usedBy": "Used by",
+    "usedByText": "{{groups}} groups · {{devices}} devices · {{discovery}} discovery profiles",
+    "unused": "Not used",
+    "devicesAffected": "Devices affected",
+    "actions": "Actions",
+    "search": "Find a profile",
+    "none": "No connection profiles yet.",
+    "noneHint": "Add one, then choose it on a group or a device.",
+    "noMatch": "No profile matches the filter.",
+    "kindFixed": "The kind cannot be changed after the profile is created.",
+    "credentials": "Credentials",
+    "affects_one": "Saving applies at once to {{count}} device that uses this profile.",
+    "affects_two": "Saving applies at once to {{count}} devices that use this profile.",
+    "affects_other": "Saving applies at once to {{count}} devices that use this profile.",
+    "unreadable": "Stored secrets cannot be decrypted — enter them again.",
+    "saved": "Connection profile saved",
+    "deleted": "Connection profile deleted",
+    "deleteTitle": "Delete profile {{name}}?",
+    "deleteConfirm": "The profile is not used anywhere. Deleting it cannot be undone.",
+    "inUseTitle": "{{name}} is in use",
+    "inUseText": "A profile in use cannot be deleted. Remove it from these groups, devices and discovery profiles first.",
+    "usageTitle": "Where {{name}} is used",
+    "groups": "Groups",
+    "devices": "Devices",
+    "discoveryProfiles": "Discovery profiles",
+    "truncated": "Only the first 1000 entries of each list are shown.",
+    "noUsage": "Not used anywhere.",
+    "effective_one": "{{count}} device gets its credentials from this profile (directly or through a group).",
+    "effective_two": "{{count}} devices get their credentials from this profile (directly or through a group).",
+    "effective_other": "{{count}} devices get their credentials from this profile (directly or through a group).",
+    "showUsage": "Show where {{name}} is used",
+    "test": "Test connection",
+    "testTitle": "Test {{name}}",
+    "testUnsaved": "Test these settings",
+    "testUnsavedHint": "Tests the values in the form, including unsaved changes; nothing is saved.",
+    "target": "Target",
+    "targetDevice": "A device",
+    "targetHost": "An address",
+    "device": "Device",
+    "host": "Address",
+    "hostHint": "One IPv4 or IPv6 address, or a host name.",
+    "driver": "Driver",
+    "runTest": "Run test",
+    "testOk": "Connection OK · {{ms}} ms",
+    "snmpTestHint": "Read-only: one SNMP GET of sysName, sysDescr and sysObjectID. Nothing is stored.",
+    "sshTestHint": "Connects and logs in; no backup or other command is sent and no host key is pinned.",
+    "sysName": "sysName",
+    "sysDescr": "sysDescr",
+    "sysObjectId": "sysObjectID",
+    "version": "Version",
+    "moreActions": "Actions for {{name}}",
+    "edit": "Edit {{name}}",
+    "delete": "Delete {{name}}",
+    "testOne": "Test {{name}}"
   }
 }

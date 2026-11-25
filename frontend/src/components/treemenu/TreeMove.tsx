@@ -443,9 +443,16 @@ function sideLabel(t: TFunction, setting: TreeMoveEffect['setting'], s: TreeMove
     return s.device_name
       ? t('treeMove.effect.dependsOn', { name: s.device_name })
       : t('treeMove.effect.noneValue');
-  if (s.source === 'group') return t('treeMove.effect.group', { name: s.group_name ?? '' });
+  // [profiles] the deciding node's profile, when it decides by a profile
+  if (s.source === 'group')
+    return s.profile_name
+      ? t('treeMove.effect.groupProfile', { name: s.group_name ?? '', profile: s.profile_name })
+      : t('treeMove.effect.group', { name: s.group_name ?? '' });
   if (s.source === 'default') return t('treeMove.effect.snmpDefault');
-  if (s.source === 'device') return t('treeMove.effect.own');
+  if (s.source === 'device')
+    return s.profile_name
+      ? t('treeMove.effect.ownProfile', { profile: s.profile_name })
+      : t('treeMove.effect.own');
   return t('treeMove.effect.noneValue');
 }
 

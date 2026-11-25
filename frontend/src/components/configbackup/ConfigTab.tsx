@@ -1,3 +1,4 @@
+import { originText } from '../../lib/credentials';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { keepPreviousData, useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useTranslation } from 'react-i18next';
@@ -672,7 +673,9 @@ export function ConfigTab({ device }: { device: Device }) {
                   ],
                   [
                     t('ssh.credentialsSource'),
-                    t(`ssh.source.${device.effective_ssh_source ?? 'none'}`),
+                    device.effective_ssh
+                      ? originText(device.effective_ssh, t)
+                      : t(`ssh.source.${device.effective_ssh_source ?? 'none'}`),
                   ],
                   [t('configBackup.mode'), t(`configBackup.modes.${s.mode}`)],
                   [t('configBackup.versions'), String(s.versions)],

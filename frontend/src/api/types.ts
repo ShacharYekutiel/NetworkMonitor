@@ -9,6 +9,7 @@ import type {
   ReportRun,
   Settings3,
   SshCredentials,
+  SshCredentialsInput,
 } from './types3';
 export * from './types3';
 export * from './types3b';
@@ -55,6 +56,13 @@ export type ApiErrorDetail = {
   device_id?: number;
   /** [2b-3] feature_disabled */
   feature?: string;
+  /** [profiles] profile_in_use: direct references */
+  groups?: number;
+  devices?: number;
+  discovery_profiles?: number;
+  /** [profiles] profile_kind_mismatch */
+  expected?: string;
+  actual?: string;
   /** [3] config backup not eligible (`no_credentials`, …) */
   reason?: string;
   /** [3] ssh_error */
@@ -113,6 +121,8 @@ export type SnmpCredentials = {
   v3_priv_protocol: SnmpPrivProtocol | null;
   v3_priv_key: null;
   v3_priv_key_set: boolean;
+  /** [1.4.2] a stored secret cannot be decrypted (another secret.key) */
+  credentials_unreadable?: boolean;
 };
 
 /** Request form of SNMP credentials: secrets may be strings; *_set keys are not sent. */
@@ -143,7 +153,7 @@ export type Group = {
   ssh_credentials?: SshCredentials | null;
   created_at: string;
   updated_at: string;
-};
+} & NodeCredentialRefs;
 
 export type Device = {
   id: number;
@@ -186,7 +196,95 @@ export type Device = {
   newdev_excluded_ports?: number[];
   created_at: string;
   updated_at: string;
+} & NodeCredentialRefs;
+
+// ---------------------------------------------------------------------------
+// [profiles] Connection profiles (api.md § Connection profiles)
+
+export type CredentialKind = 'snmp' | 'ssh';
+export const CREDENTIAL_KINDS: CredentialKind[] = ['snmp', 'ssh'];
+export type CredentialMode = 'inherit' | 'profile' | 'manual';
+export const CREDENTIAL_MODES: CredentialMode[] = ['inherit', 'profile', 'manual'];
+
+/** Where the effective value of one kind comes from. */
+export type CredentialOrigin = {
+  /** self = this group/device decides itself; default = built-in SNMP default; none = no SSH */
+  source: 'self' | 'group' | 'default' | 'none';
+  group_id: number | null;
+  group_name: string | null;
+  mode: 'profile' | 'manual' | null;
+  profile_id: number | null;
+  profile_name: string | null;
 };
+
+/** Keys every Group and Device carries since 1.7.0. */
+export type NodeCredentialRefs = {
+  snmp_mode: CredentialMode;
+  snmp_profile_id: number | null;
+  snmp_profile_name: string | null;
+  ssh_mode: CredentialMode;
+  ssh_profile_id: number | null;
+  ssh_profile_name: string | null;
+  effective_snmp: CredentialOrigin;
+  effective_ssh: CredentialOrigin;
+  /** Q2: `true` only in mode `profile` when earlier manual data is kept dormant */
+  snmp_has_saved_manual: boolean;
+  ssh_has_saved_manual: boolean;
+};
+
+export type ProfileUsageCounts = {
+  groups: number;
+  devices: number;
+  discovery_profiles: number;
+  /** devices whose effective credentials come from it (direct or inherited) */
+  devices_effective: number;
+};
+
+type ConnectionProfileBase = {
+  id: number;
+  name: string;
+  description: string;
+  usage: ProfileUsageCounts;
+  created_at: string;
+  updated_at: string;
+};
+export type ConnectionProfile =
+  | (ConnectionProfileBase & { kind: 'snmp'; credentials: SnmpCredentials })
+  | (ConnectionProfileBase & { kind: 'ssh'; credentials: SshCredentials });
+
+export type ProfileUsage = {
+  groups: { id: number; name: string; path: string[] }[];
+  devices: { id: number; name: string; host: string; group_id: number; group_name: string }[];
+  discovery_profiles: { id: number; name: string }[];
+  devices_effective: number;
+  truncated: boolean;
+};
+
+export type ProfileTestStep = {
+  step: 'connect' | 'host_key' | 'auth' | 'prompt' | 'setup';
+  ok: boolean;
+  detail: string;
+  ms: number;
+};
+export type ProfileTestResult =
+  | {
+      ok: true;
+      kind: 'snmp';
+      host: string;
+      ms: number;
+      version: SnmpVersion;
+      sys_name: string | null;
+      sys_descr: string | null;
+      sys_object_id: string | null;
+    }
+  | {
+      ok: true;
+      kind: 'ssh';
+      host: string;
+      ms: number;
+      steps: ProfileTestStep[];
+      driver: string | null;
+    };
 
 /** [2b-2] */
 export type InventoryMode = 'auto' | 'on' | 'off';
@@ -415,6 +513,9 @@ export type TreeMoveSide = {
   source: string;
   group_id: number | null;
   group_name: string | null;
+  /** [profiles] snmp / ssh: the deciding node's profile (null when manual, default or none) */
+  profile_id?: number | null;
+  profile_name?: string | null;
   /** dependency only: the effective parent device */
   device_id?: number | null;
   device_name?: string | null;
@@ -723,7 +824,8 @@ export type WsMessage =
           | 'kiosk_screen'
           | 'flow_exporter'
           | 'mac_allowlist'
-          | 'config_backup';
+          | 'config_backup'
+          | 'connection_profile'; // [profiles]
         id: number;
         action: 'created' | 'updated' | 'deleted';
       };
@@ -860,6 +962,14 @@ export type ScanOptions = {
   fingerprint: boolean;
   /** [2b-1] 500–5000, default 2000 */
   fingerprint_timeout_ms: number;
+  /** [profiles] SNMP connection profiles to try, in order (0–8) */
+  snmp_profile_ids: number[];
+  /** [profiles] opt-in SSH login check: SSH connection profiles (0–3), in order */
+  ssh_profile_ids: number[];
+  /** write-only (always null in responses) */
+  ssh_credentials: null;
+  ssh_credentials_set: boolean;
+  ssh_username: string | null;
 };
 
 /** Request form: every key optional; secrets are real values. */
@@ -885,6 +995,11 @@ export type ScanOptionsInput = Partial<{
   dns: boolean;
   fingerprint: boolean;
   fingerprint_timeout_ms: number;
+  /** [profiles] */
+  snmp_profile_ids: number[];
+  ssh_profile_ids: number[];
+  /** omitted = keep / none; null = remove; object replaces (secret rules of [3]) */
+  ssh_credentials: SshCredentialsInput | null;
 }>;
 
 export type DiscoveryProfile = {
@@ -933,7 +1048,17 @@ export type DiscoveryResult = {
   ping_rtt_ms: number | null;
   snmp_ok: boolean;
   snmp_version: SnmpVersion | null;
-  snmp_credential: 'group' | 'extra' | null;
+  /** [profiles] 'profile' = a profile of snmp_profile_ids answered */
+  snmp_credential: 'group' | 'extra' | 'profile' | null;
+  /** [profiles] the profile of the credential that answered (also for 'group'); current name */
+  snmp_profile_id?: number | null;
+  snmp_profile_name?: string | null;
+  /** [profiles] opt-in SSH login check */
+  ssh_attempted?: boolean;
+  ssh_ok?: boolean;
+  ssh_credential?: 'profile' | 'typed' | null;
+  ssh_profile_id?: number | null;
+  ssh_profile_name?: string | null;
   sys_name: string | null;
   sys_descr: string | null;
   sys_object_id: string | null;
@@ -1137,7 +1262,15 @@ export type ApplyInterface = {
 };
 export type ApplyInterfacesResponse = { items: ApplyInterface[]; inventory: 'ok' | 'missing' };
 
-export type ImportItem = { result_id: number; template_id: string; name?: string | null };
+export type ImportItem = {
+  result_id: number;
+  template_id: string;
+  name?: string | null;
+  /** [profiles] omitted / null = true when SNMP answered; false = inherit from the group */
+  save_snmp?: boolean | null;
+  /** [profiles] omitted / null = true when an SSH login succeeded */
+  save_ssh?: boolean | null;
+};
 export type ImportRequest = { group_id?: number | null; items: ImportItem[] };
 export type ImportErrorCode = 'not_found' | 'device_exists' | 'internal_error';
 export type ImportResponse = {
@@ -1148,6 +1281,11 @@ export type ImportResponse = {
     template_id: string;
     sensors_created: number;
     sensors_skipped: SkippedSensor[];
+    /** [profiles] null when SNMP did not answer */
+    snmp_mode?: CredentialMode | null;
+    snmp_profile_id?: number | null;
+    ssh_mode?: CredentialMode | null;
+    ssh_profile_id?: number | null;
   }[];
   errors: { result_id: number; code: ImportErrorCode; message: string; device_id: number | null }[];
 };

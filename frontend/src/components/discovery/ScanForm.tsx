@@ -1,9 +1,12 @@
 import { useMemo, useState } from 'react';
 import { Trans, useTranslation } from 'react-i18next';
+import type { SshCredentials } from '../../api/types3';
 import type { SnmpAuthProtocol, SnmpPrivProtocol, SnmpSecurityLevel } from '../../api/types';
 import {
   DEFAULT_TCP_PORTS,
   MAX_EXTRA_COMMUNITIES,
+  MAX_SNMP_PROFILES,
+  MAX_SSH_PROFILES,
   newExtraV3,
   type OptionsErrors,
   type ScanOptionsForm,
@@ -12,7 +15,21 @@ import { formatNumber } from '../../lib/format';
 import { MAX_HOSTS, MAX_TARGETS, summarizeTargets, type TargetsSummary } from '../../lib/targets';
 import { PlusIcon, TrashIcon } from '../icons';
 import { ToggleChip } from '../kit';
-import { Button, Checkbox, cx, Field, FieldGroup, Input, Ltr, Select, Textarea } from '../ui';
+import {
+  Button,
+  Checkbox,
+  cx,
+  Field,
+  FieldGroup,
+  Input,
+  Ltr,
+  Notice,
+  Select,
+  Textarea,
+} from '../ui';
+import { AlertIcon } from '../icons';
+import { SshFields } from '../configbackup/SshEditor';
+import { ProfileListPicker } from './ProfileListPicker';
 
 export function useTargetsSummary(text: string): TargetsSummary {
   return useMemo(() => summarizeTargets(text), [text]);
@@ -277,6 +294,19 @@ export function ScanOptionsEditor({
             {t('discovery.extraCreds')}
           </legend>
           <p className="mb-2 text-xs text-ink-muted">{t('discovery.extraCredsHint')}</p>
+          {/* [profiles] SNMP connection profiles, then the typed credentials below */}
+          <div className="mb-3">
+            <ProfileListPicker
+              kind="snmp"
+              value={value.snmp_profile_ids}
+              onChange={(v) => set('snmp_profile_ids', v)}
+              max={MAX_SNMP_PROFILES}
+              label={t('discovery.connProfiles')}
+              hint={t('discovery.connProfilesHint')}
+              error={errors.snmp_profile_ids}
+              testId="scan-snmp-profiles"
+            />
+          </div>
           {editingProfile && (
             <div className="mb-2 space-y-1 text-xs text-ink-muted">
               <div>
@@ -415,6 +445,8 @@ export function ScanOptionsEditor({
         </fieldset>
       )}
 
+      <SshCheckSection value={value} onChange={onChange} errors={errors} />
+
       <div>
         <button
           type="button"
@@ -504,5 +536,86 @@ export function ScanOptionsEditor({
         )}
       </div>
     </div>
+  );
+}
+
+/**
+ * [profiles] Opt-in SSH login check (off by default; off = the scan is unchanged). Profiles
+ * and / or typed credentials, both always offered; a clear warning about failed logins.
+ */
+export function SshCheckSection({
+  value,
+  onChange,
+  errors,
+}: {
+  value: ScanOptionsForm;
+  onChange: (v: ScanOptionsForm) => void;
+  errors: OptionsErrors;
+}) {
+  const { t } = useTranslation();
+  const set = <K extends keyof ScanOptionsForm>(k: K, v: ScanOptionsForm[K]) =>
+    onChange({ ...value, [k]: v });
+  return (
+    <fieldset className="min-w-0 rounded-[18px] bg-surface-sunken p-4" data-testid="scan-ssh-check">
+      <legend className="float-start mb-2 w-full p-0 text-[13.5px] font-semibold text-ink">
+        {t('discovery.sshCheck')}
+      </legend>
+      <Checkbox
+        label={t('discovery.sshCheckOn')}
+        checked={value.ssh_check}
+        onChange={(v) => set('ssh_check', v)}
+      />
+      <p className="mb-0 mt-1 text-xs text-ink-muted">{t('discovery.sshCheckHint')}</p>
+      {value.ssh_check && (
+        <div className="mt-3 space-y-3">
+          <Notice tone="warning" className="flex gap-2 text-[13px]">
+            <AlertIcon
+              size={15}
+              className="mt-0.5 shrink-0 text-status-warning"
+              aria-hidden="true"
+            />
+            <span data-testid="scan-ssh-warning">{t('discovery.sshWarning')}</span>
+          </Notice>
+          {errors.ssh_tcp && <p className="m-0 text-xs text-status-down">{t(errors.ssh_tcp)}</p>}
+          <ProfileListPicker
+            kind="ssh"
+            value={value.ssh_profile_ids}
+            onChange={(v) => set('ssh_profile_ids', v)}
+            max={MAX_SSH_PROFILES}
+            label={t('discovery.sshProfiles')}
+            hint={t('discovery.sshProfilesHint')}
+            error={errors.ssh_profile_ids}
+            testId="scan-ssh-profiles"
+          />
+          <div className="space-y-2">
+            <Checkbox
+              label={t('discovery.sshTyped')}
+              checked={value.ssh_typed}
+              onChange={(v) => set('ssh_typed', v)}
+            />
+            {value.ssh_typed && (
+              <>
+                {value.stored_ssh && !value.ssh_touched && (
+                  <p className="m-0 text-xs text-ink-muted">{t('discovery.sshStored')}</p>
+                )}
+                <SshFields
+                  value={value.ssh}
+                  onChange={(v) => onChange({ ...value, ssh: v, ssh_touched: true })}
+                  existing={
+                    value.stored_ssh
+                      ? // the stored secrets are not known one by one: "a secret is stored"
+                        ({ password_set: true, private_key_set: false } as SshCredentials)
+                      : null
+                  }
+                />
+              </>
+            )}
+          </div>
+          {errors.ssh_candidates && (
+            <p className="m-0 text-xs text-status-down">{t(errors.ssh_candidates)}</p>
+          )}
+        </div>
+      )}
+    </fieldset>
   );
 }

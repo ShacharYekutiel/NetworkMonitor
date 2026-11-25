@@ -258,7 +258,8 @@
       "group": "בירושה מקבוצה",
       "default": "ברירת המחדל המובנית (v2c, public)"
     },
-    "communityDefaultHint": "ריק = \"public\""
+    "communityDefaultHint": "ריק = \"public\"",
+    "unreadable": "לא ניתן לפענח את הפרטים השמורים — הזינו אותם מחדש."
   },
   "secret": {
     "stored": "•••••• (שמור)",
@@ -540,7 +541,8 @@
       "reports": "דוחות",
       "noc": "מסכי NOC",
       "chatAck": "אישור מהצ'אט",
-      "assistant": "עוזר (AI)"
+      "assistant": "עוזר (AI)",
+      "connectionProfiles": "פרופילי חיבור"
     }
   },
   "users": {
@@ -721,7 +723,11 @@
     "walk_running": "כבר רצה סריקה של התקן זה.",
     "template_exists": "כבר קיימת תבנית משתמש עם מזהה זה.",
     "invalid_template": "ה-YAML של התבנית אינו עובר בדיקה.",
-    "stream_interrupted": "החיבור לתשובה נותק."
+    "stream_interrupted": "החיבור לתשובה נותק.",
+    "profile_in_use": "פרופיל החיבור בשימוש ואי אפשר למחוק אותו.",
+    "profile_in_use_counts": "פרופיל החיבור בשימוש ({{groups}} קבוצות, {{devices}} התקנים, {{discovery}} פרופילי גילוי) ואי אפשר למחוק אותו.",
+    "profile_kind_mismatch": "פרופיל החיבור הוא מסוג אחר.",
+    "profile_kind_mismatch_named": "בחרו פרופיל חיבור מסוג {{expected}}."
   },
   "sensorType": {
     "ping": "Ping",
@@ -1075,7 +1081,11 @@
       "communities": "עד 5 קהילות של עד 64 תווים.",
       "v3": "עד 3 משתמשי v3, לכל אחד שם משתמש.",
       "hours": "בין 1 ל-720 שעות.",
-      "fingerprintTimeout": "500 עד 5000 ms."
+      "fingerprintTimeout": "500 עד 5000 ms.",
+      "connProfiles": "עד 8 פרופילי חיבור שונים.",
+      "sshProfiles": "עד 3 פרופילי חיבור SSH שונים.",
+      "sshCandidates": "בחרו פרופיל חיבור SSH או הזינו פרטי SSH, או כבו את בדיקת ה-SSH.",
+      "sshTcp": "בדיקת ה-SSH דורשת את בדיקת ה-TCP, עם פורט ה-SSH ‏(22) ברשימת הפורטים."
     },
     "saveAsProfile": "שמירה כפרופיל",
     "profileName": "שם הפרופיל",
@@ -1187,7 +1197,52 @@
     "notifyTo": "התראה ל-{{list}}",
     "noNotify": "ללא התראה",
     "scanning": "סורק…",
-    "startedAt": "התחילה {{time}}"
+    "startedAt": "התחילה {{time}}",
+    "connProfiles": "פרופילי חיבור SNMP",
+    "connProfilesHint": "נבדקים בסדר הזה אחרי פרטי הקבוצה ולפני הפרטים שמוקלדים למטה. עד 8.",
+    "addConnProfile": "הוספת פרופיל חיבור",
+    "noConnProfiles": "עדיין אין פרופילי חיבור SNMP (הגדרות ← פרופילי חיבור).",
+    "moveUp": "הזזת {{name}} למעלה",
+    "moveDown": "הזזת {{name}} למטה",
+    "removeConnProfile": "הסרת {{name}}",
+    "deletedProfile": "פרופיל שנמחק #{{id}}",
+    "answeredProfile": "ענה עם פרופיל החיבור {{name}}",
+    "importSnmp": {
+      "profile": "SNMP: מקושר לפרופיל {{name}}",
+      "manual": "SNMP: עותק משלו של פרטי ההתחברות",
+      "inherit": "SNMP: בירושה מהקבוצה"
+    },
+    "noSshProfiles": "עדיין אין פרופילי חיבור SSH (הגדרות ← פרופילי חיבור).",
+    "sshCheck": "בדיקת כניסה ב-SSH (רשות)",
+    "sshCheckOn": "ניסיון כניסה ב-SSH למארחים שנמצאו",
+    "sshCheckHint": "כבוי כברירת מחדל. כשהוא פעיל, הייבוא יכול לשמור בכל התקן את הגדרות ה-SSH שעבדו.",
+    "sshWarning": "כניסות SSH שנכשלו עלולות לנעול חשבונות או להפעיל התרעות אבטחה בהתקנים. הבדיקה רק נכנסת ומתנתקת: היא לא שולחת אף פקודה ולעולם לא משנה את תצורת ההתקן. נבדקים רק מארחים שפורט ה-SSH שלהם נמצא פתוח, פעם אחת לכל סט פרטים.",
+    "sshProfiles": "פרופילי חיבור SSH",
+    "sshProfilesHint": "נבדקים בסדר הזה, לפני הפרטים המוקלדים. עד 3.",
+    "sshTyped": "ניסיון גם עם פרטי SSH מוקלדים",
+    "sshStored": "לפרופיל הזה שמורים פרטים מוקלדים; השאירו את שדות הסודות ריקים כדי לשמור עליהם.",
+    "sshTypedShort": "פרטים מוקלדים",
+    "sshOkTitle": "הכניסה ב-SSH הצליחה עם {{what}}",
+    "sshFailedTitle": "אף כניסה ב-SSH לא הצליחה",
+    "sshFailed": "נכשל",
+    "sshNotTriedTitle": "לא נוסתה כניסה ב-SSH (הפורט לא פתוח)",
+    "sshNotTried": "לא נוסה",
+    "save": {
+      "snmp": "שמירת SNMP",
+      "ssh": "שמירת SSH",
+      "snmpFor": "שמירת הגדרות ה-SNMP שעבדו ב-{{ip}}",
+      "sshFor": "שמירת הגדרות ה-SSH שעבדו ב-{{ip}}",
+      "snmpNone": "SNMP לא ענה",
+      "sshNone": "אף כניסה ב-SSH לא הצליחה",
+      "snmpAll": "שמירת הגדרות ה-SNMP שעבדו (הכול)",
+      "sshAll": "שמירת הגדרות ה-SSH שעבדו (הכול)",
+      "snmpOffHint": "בלי הגדרות SNMP שמורות ההתקן יורש אותן מהקבוצה; ייתכן שלא יענה אם הגדרות הקבוצה שונות."
+    },
+    "importSsh": {
+      "profile": "SSH: מקושר לפרופיל {{name}}",
+      "manual": "SSH: עותק משלו של פרטי ההתחברות",
+      "inherit": "SSH: בירושה מהקבוצה"
+    }
   },
   "ack": {
     "acknowledged": "אושר",
@@ -2566,7 +2621,8 @@
       "chatack": "אישור מהצ'אט",
       "channel": "ערוצים",
       "assistant": "עוזר AI",
-      "syslog_filter": "כללי סינון Syslog"
+      "syslog_filter": "כללי סינון Syslog",
+      "connection_profile": "פרופילי חיבור"
     },
     "entityType": {
       "device": "התקן",
@@ -2582,7 +2638,8 @@
       "api_token": "אסימון API",
       "assistant_conversation": "שיחה עם העוזר",
       "assistant_message": "תשובת העוזר",
-      "syslog_filter": "כלל סינון Syslog"
+      "syslog_filter": "כלל סינון Syslog",
+      "connection_profile": "פרופיל חיבור"
     },
     "subtitle": "כל שינוי וכל כניסה · נשמר {{days}} יום",
     "noneHint": "אין רשומות שמתאימות לסינון. הרחיבו את טווח הזמן או נקו מסנן.",
@@ -4401,7 +4458,9 @@
       "none": "אף הגדרה שעוברת בירושה לא משתנה עבור ההתקנים שמועברים.",
       "snmpSensors_one": "(חיישן SNMP אחד)",
       "snmpSensors_two": "(שני חיישני SNMP)",
-      "snmpSensors_other": "({{count}} חיישני SNMP)"
+      "snmpSensors_other": "({{count}} חיישני SNMP)",
+      "groupProfile": "בירושה מהקבוצה {{name}} · פרופיל {{profile}}",
+      "ownProfile": "פרופיל {{profile}}"
     }
   },
   "settingsSearch": {
@@ -4736,5 +4795,115 @@
       "confirm": "למחוק את השורות",
       "done": "הניקוי הסתיים. שורות שנמחקו: {{n}}."
     }
+  },
+  "credMode": {
+    "label": "פרטי התחברות",
+    "groupLabel": "פרטי {{kind}} של הקבוצה",
+    "deviceLabel": "פרטי {{kind}} של ההתקן",
+    "inherit": "ירושה",
+    "profile": "פרופיל",
+    "manual": "ידני",
+    "inheritHintGroup": "שימוש בהגדרות של קבוצת האב, כפי שהן עכשיו ואחרי כל שינוי.",
+    "inheritHintDevice": "שימוש בהגדרות של הקבוצה, כפי שהן עכשיו ואחרי כל שינוי.",
+    "inEffect": "בתוקף עכשיו",
+    "origin": {
+      "unknown": "עדיין לא ידוע",
+      "default": "ברירת המחדל המובנית (v2c, public)",
+      "none": "אין פרטי SSH",
+      "selfProfile": "פרופיל {{profile}}",
+      "selfManual": "ידני",
+      "groupProfile": "בירושה מהקבוצה {{group}} · פרופיל {{profile}}",
+      "groupManual": "בירושה מהקבוצה {{group}} · ידני"
+    },
+    "profileLabel": "פרופיל חיבור",
+    "chooseProfile": "בחרו פרופיל…",
+    "profileRequired": "בחרו פרופיל חיבור, או בחרו ירושה או ידני.",
+    "noProfiles": "עדיין אין פרופילי חיבור מסוג {{kind}}.",
+    "manageProfiles": "ניהול פרופילי חיבור",
+    "profileHint": "הפניה: שינויים בפרופיל חלים כאן מיד.",
+    "unreadable": "לא ניתן לפענוח",
+    "keptNote": "ההגדרות הידניות השמורות כאן נשמרות, ויחזרו אם תעברו שוב למצב ידני.",
+    "restoreSaved": "שחזור ההגדרות הידניות השמורות",
+    "enterNew": "הזנת הגדרות ידניות חדשות",
+    "restoreHint": "ההגדרות הידניות שנשמרו לפני בחירת הפרופיל ישמשו שוב, כולל הסודות.",
+    "inheritConfirmTitle": "למחוק את ההגדרות הידניות?",
+    "inheritConfirm": "מעבר לירושה מוחק את פרטי ה-{{kind}} השמורים ב-{{name}}, כולל הגדרות ידניות שנשמרו מתחת לפרופיל. המחיקה מתבצעת בשמירה.",
+    "inheritConfirmAction": "מעבר לירושה",
+    "copy": "העתקה להגדרות ידניות",
+    "copyHint": "נשמר מיד: עותק של הגדרות הפרופיל, כולל הסודות, הופך להגדרות הידניות של הפריט; שינויים עתידיים בפרופיל לא יחולו כאן.",
+    "copyConfirmTitle": "להחליף את ההגדרות הידניות?",
+    "copyConfirm": "הגדרות ה-{{kind}} הידניות השמורות ב-{{name}} יוחלפו בעותק של הפרופיל {{profile}}.",
+    "copyConfirmAction": "העתקה והחלפה",
+    "copyDone": "הועתק מהפרופיל {{profile}}",
+    "newNodeCopyHint": "העתקה להגדרות ידניות זמינה אחרי השמירה הראשונה."
+  },
+  "profiles": {
+    "title": "פרופילי חיבור",
+    "intro": "סטים בעלי שם של פרטי התחברות SNMP ו-SSH. קבוצה או התקן יכולים להשתמש בפרופיל במקום בפרטים משלהם; שינוי בפרופיל חל בכל מקום שבו הוא בשימוש, בבדיקה הבאה.",
+    "kind": {
+      "snmp": "SNMP",
+      "ssh": "SSH"
+    },
+    "kindLabel": "סוג",
+    "allKinds": "הכול",
+    "add": "הוספת פרופיל",
+    "addTitle": "פרופיל חיבור חדש",
+    "editTitle": "עריכת פרופיל חיבור",
+    "name": "שם",
+    "description": "תיאור",
+    "usedBy": "בשימוש אצל",
+    "usedByText": "{{groups}} קבוצות · {{devices}} התקנים · {{discovery}} פרופילי גילוי",
+    "unused": "לא בשימוש",
+    "devicesAffected": "התקנים מושפעים",
+    "actions": "פעולות",
+    "search": "חיפוש פרופיל",
+    "none": "עדיין אין פרופילי חיבור.",
+    "noneHint": "הוסיפו פרופיל, ואז בחרו אותו בקבוצה או בהתקן.",
+    "noMatch": "אף פרופיל לא מתאים לסינון.",
+    "kindFixed": "אי אפשר לשנות את הסוג אחרי יצירת הפרופיל.",
+    "credentials": "פרטי התחברות",
+    "affects_one": "השמירה חלה מיד על התקן אחד שמשתמש בפרופיל.",
+    "affects_two": "השמירה חלה מיד על {{count}} התקנים שמשתמשים בפרופיל.",
+    "affects_other": "השמירה חלה מיד על {{count}} התקנים שמשתמשים בפרופיל.",
+    "unreadable": "לא ניתן לפענח את הסודות השמורים — הזינו אותם מחדש.",
+    "saved": "פרופיל החיבור נשמר",
+    "deleted": "פרופיל החיבור נמחק",
+    "deleteTitle": "למחוק את הפרופיל {{name}}?",
+    "deleteConfirm": "הפרופיל אינו בשימוש. אי אפשר לבטל את המחיקה.",
+    "inUseTitle": "{{name}} בשימוש",
+    "inUseText": "אי אפשר למחוק פרופיל שנמצא בשימוש. הסירו אותו קודם מהקבוצות, מההתקנים ומפרופילי הגילוי האלה.",
+    "usageTitle": "איפה {{name}} בשימוש",
+    "groups": "קבוצות",
+    "devices": "התקנים",
+    "discoveryProfiles": "פרופילי גילוי",
+    "truncated": "מוצגות רק 1000 הרשומות הראשונות בכל רשימה.",
+    "noUsage": "לא בשימוש בשום מקום.",
+    "effective_one": "התקן אחד מקבל את פרטי ההתחברות מהפרופיל (ישירות או דרך קבוצה).",
+    "effective_two": "{{count}} התקנים מקבלים את פרטי ההתחברות מהפרופיל (ישירות או דרך קבוצה).",
+    "effective_other": "{{count}} התקנים מקבלים את פרטי ההתחברות מהפרופיל (ישירות או דרך קבוצה).",
+    "showUsage": "הצגת השימושים של {{name}}",
+    "test": "בדיקת חיבור",
+    "testTitle": "בדיקת {{name}}",
+    "testUnsaved": "בדיקת ההגדרות האלה",
+    "testUnsavedHint": "בודק את הערכים שבטופס, כולל שינויים שלא נשמרו; דבר לא נשמר.",
+    "target": "יעד",
+    "targetDevice": "התקן",
+    "targetHost": "כתובת",
+    "device": "התקן",
+    "host": "כתובת",
+    "hostHint": "כתובת IPv4 או IPv6 אחת, או שם מארח.",
+    "driver": "מנהל התקן",
+    "runTest": "הרצת בדיקה",
+    "testOk": "החיבור תקין · {{ms}} ms",
+    "snmpTestHint": "קריאה בלבד: בקשת SNMP GET אחת של sysName, sysDescr ו-sysObjectID. דבר לא נשמר.",
+    "sshTestHint": "מתחבר ונכנס; לא נשלחת פקודת גיבוי או פקודה אחרת, ומפתח ההתקן אינו נשמר.",
+    "sysName": "sysName",
+    "sysDescr": "sysDescr",
+    "sysObjectId": "sysObjectID",
+    "version": "גרסה",
+    "moreActions": "פעולות עבור {{name}}",
+    "edit": "עריכת {{name}}",
+    "delete": "מחיקת {{name}}",
+    "testOne": "בדיקת {{name}}"
   }
 }

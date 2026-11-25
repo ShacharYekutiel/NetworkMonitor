@@ -252,6 +252,7 @@ export const SETTINGS_TABS = [
   'siem',
   'ldap',
   'sso', // [3]
+  'connectionProfiles', // [profiles] always present (no feature toggle)
   'backup',
   'flows',
   'newDevices',

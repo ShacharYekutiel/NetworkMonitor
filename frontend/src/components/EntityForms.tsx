@@ -7,11 +7,14 @@ import { endpoints, qk, type DeviceInput, type GroupInput } from '../api/endpoin
 import { INVENTORY_MODES } from '../api/types';
 import type { Device, DependencyInput, Group, InventoryMode, SensorType } from '../api/types';
 import { useTree } from '../hooks/queries';
-import { snmpFormFrom, snmpFormToInput } from '../lib/snmp';
 import { descendantGroupIds, findGroup, flattenGroups } from '../lib/tree';
-import { SnmpEditor } from './SnmpEditor';
-import { SshEditor } from './configbackup/SshEditor';
-import { sshFormErrors, sshFormFrom, sshFormToInput } from '../lib/configBackup';
+import { SshSection } from './configbackup/SshEditor';
+import { sshFormToInput } from '../lib/configBackup';
+import {
+  SnmpCredentialsSection,
+  SshCredentialsPicker,
+  useNodeCredentials,
+} from './NodeCredentials';
 import type { BackupMode } from '../api/types3';
 import {
   DependencyEditor,
@@ -74,20 +77,17 @@ export function GroupFormModal({
   const [parent, setParent] = useState<number | null>(null);
   const [description, setDescription] = useState('');
   const [sortOrder, setSortOrder] = useState('0');
-  const [snmp, setSnmp] = useState(snmpFormFrom(null));
   const [dep, setDep] = useState<DependencyInput>(dependencyInputFrom(null));
-  const [ssh, setSsh] = useState(sshFormFrom(null));
+  const creds = useNodeCredentials(group, open);
   const deviceName = useDeviceNames();
 
   useEffect(() => {
     if (!open) return;
-    setSsh(sshFormFrom(group?.ssh_credentials));
     setDep(dependencyInputFrom(group?.dependency));
     setName(group?.name ?? '');
     setParent(group ? group.parent_id : (parentId ?? null));
     setDescription(group?.description ?? '');
     setSortOrder(String(group?.sort_order ?? 0));
-    setSnmp(snmpFormFrom(group?.snmp_credentials ?? null));
   }, [open, group, parentId]);
 
   const exclude = useMemo(() => {
@@ -98,7 +98,7 @@ export function GroupFormModal({
 
   const m = useMutation({
     mutationFn: (body: GroupInput) =>
-      group ? endpoints.updateGroup(group.id, body) : endpoints.createGroup(body),
+      creds.saved ? endpoints.updateGroup(creds.saved.id, body) : endpoints.createGroup(body),
     onSuccess: (g) => {
       qc.setQueryData(qk.group(g.id), g);
       void qc.invalidateQueries({ queryKey: qk.tree });
@@ -110,17 +110,16 @@ export function GroupFormModal({
 
   const submit = (e: FormEvent) => {
     e.preventDefault();
-    if (sshFormErrors(ssh, group?.ssh_credentials).length) return;
+    if (!creds.valid) return;
     const body: GroupInput = {
       name: name.trim(),
       parent_id: parent,
       description,
       sort_order: Number(sortOrder) || 0,
-      snmp_credentials: snmpFormToInput(snmp),
       dependency: dependencyToInput(dep),
+      // [profiles] a kind is sent only when the user changed it (api.md § Groups and devices)
+      ...creds.patch(),
     };
-    // [3] sent when set or when an existing value is removed (inherit)
-    if (ssh.own || group?.ssh_credentials) body.ssh_credentials = sshFormToInput(ssh);
     m.mutate(body);
   };
 
@@ -156,18 +155,10 @@ export function GroupFormModal({
             />
           </Field>
         </div>
-        <SnmpEditor
-          value={snmp}
-          onChange={setSnmp}
-          existing={group?.snmp_credentials ?? null}
-          inheritLabel={t('snmp.inheritParent')}
-        />
-        <SshEditor
-          value={ssh}
-          onChange={setSsh}
-          existing={group?.ssh_credentials}
-          inheritLabel={t('ssh.inheritParent')}
-        />
+        <SnmpCredentialsSection state={creds} forGroup nodeName={group?.name ?? name} />
+        <SshSection startOpen={creds.sshChoice.mode !== 'inherit'}>
+          <SshCredentialsPicker state={creds} forGroup nodeName={group?.name ?? name} />
+        </SshSection>
         <DependencyEditor value={dep} onChange={setDep} forGroup />
         <ErrorBox error={m.error} context={{ deviceName }} />
         <div className="flex justify-end gap-2">
@@ -176,7 +167,7 @@ export function GroupFormModal({
             type="submit"
             variant="primary"
             busy={m.isPending}
-            disabled={dep.mode === 'device' && dep.device_id === null}
+            disabled={(dep.mode === 'device' && dep.device_id === null) || !creds.valid}
           >
             {t('common.save')}
           </Button>
@@ -214,13 +205,12 @@ export function DeviceFormModal({
   const [description, setDescription] = useState('');
   const [enabled, setEnabled] = useState(true);
   const [sortOrder, setSortOrder] = useState('0');
-  const [snmp, setSnmp] = useState(snmpFormFrom(null));
+  const creds = useNodeCredentials(device, open);
   const [auto, setAuto] = useState<SensorType[]>(['ping']);
   const [dep, setDep] = useState<DependencyInput>(dependencyInputFrom(null));
   const [portInv, setPortInv] = useState<InventoryMode>('auto');
   const [arp, setArp] = useState<InventoryMode>('auto');
   const [sources, setSources] = useState('');
-  const [ssh, setSsh] = useState(sshFormFrom(null));
   const [backupMode, setBackupMode] = useState<BackupMode>('auto');
   const [driver, setDriver] = useState('');
   const { features } = useFeatures();
@@ -238,12 +228,10 @@ export function DeviceFormModal({
     setDep(dependencyInputFrom(device?.dependency));
     setEnabled(device?.enabled ?? true);
     setSortOrder(String(device?.sort_order ?? 0));
-    setSnmp(snmpFormFrom(device?.snmp_credentials ?? null));
     setAuto(['ping']);
     setPortInv(device?.port_inventory ?? 'auto');
     setArp(device?.arp_collect ?? 'auto');
     setSources((device?.source_addresses ?? []).join('\n'));
-    setSsh(sshFormFrom(device?.ssh_credentials));
     setBackupMode(device?.config_backup ?? 'auto');
     setDriver(device?.config_backup_driver ?? '');
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -251,7 +239,7 @@ export function DeviceFormModal({
 
   const m = useMutation({
     mutationFn: (body: DeviceInput) =>
-      device ? endpoints.updateDevice(device.id, body) : endpoints.createDevice(body),
+      creds.saved ? endpoints.updateDevice(creds.saved.id, body) : endpoints.createDevice(body),
     onSuccess: (d) => {
       qc.setQueryData(qk.device(d.id), d);
       void qc.invalidateQueries({ queryKey: qk.tree });
@@ -273,7 +261,6 @@ export function DeviceFormModal({
       description,
       enabled,
       sort_order: Number(sortOrder) || 0,
-      snmp_credentials: snmpFormToInput(snmp),
       dependency: dependencyToInput(dep),
     };
     // [2b-2] Sent only when changed (a change makes the device due for a port run at once).
@@ -281,8 +268,9 @@ export function DeviceFormModal({
     if (arp !== (device?.arp_collect ?? 'auto')) body.arp_collect = arp;
     if (!device) body.auto_sensors = auto;
     // [3] SSH credentials / backup mode / driver: sent only when set or changed
-    if (sshFormErrors(ssh, device?.ssh_credentials).length) return;
-    if (ssh.own || device?.ssh_credentials) body.ssh_credentials = sshFormToInput(ssh);
+    // [profiles] SNMP / SSH: a kind is sent only when the user changed it
+    if (!creds.valid) return;
+    Object.assign(body, creds.patch());
     if (backupMode !== (device?.config_backup ?? 'auto')) body.config_backup = backupMode;
     if ((driver || null) !== (device?.config_backup_driver ?? null))
       body.config_backup_driver = driver || null;
@@ -338,23 +326,23 @@ export function DeviceFormModal({
             <Checkbox label={t('devices.enabled')} checked={enabled} onChange={setEnabled} />
           </div>
         </div>
-        <SnmpEditor
-          value={snmp}
-          onChange={setSnmp}
-          existing={device?.snmp_credentials ?? null}
-          inheritLabel={t('snmp.inheritGroup')}
-        />
-        <SshEditor
-          value={ssh}
-          onChange={setSsh}
-          existing={device?.ssh_credentials}
-          inheritLabel={t('ssh.inheritGroup')}
+        <SnmpCredentialsSection state={creds} forGroup={false} nodeName={device?.name ?? name} />
+        <SshSection
+          startOpen={creds.sshChoice.mode !== 'inherit'}
           deviceId={device?.id}
+          testCredentials={
+            creds.sshManualActive && creds.sshChoice.manualTouched
+              ? (sshFormToInput({ ...creds.ssh, own: true }) ?? undefined)
+              : undefined
+          }
+          testDisabled={creds.sshManualActive && !creds.valid}
           mode={backupMode}
           onMode={setBackupMode}
           driver={driver}
           onDriver={setDriver}
-        />
+        >
+          <SshCredentialsPicker state={creds} forGroup={false} nodeName={device?.name ?? name} />
+        </SshSection>
         <DependencyEditor
           value={dep}
           onChange={setDep}
@@ -425,7 +413,8 @@ export function DeviceFormModal({
             disabled={
               group === null ||
               (dep.mode === 'device' && dep.device_id === null) ||
-              (showSources && srcErr)
+              (showSources && srcErr) ||
+              !creds.valid
             }
           >
             {t('common.save')}

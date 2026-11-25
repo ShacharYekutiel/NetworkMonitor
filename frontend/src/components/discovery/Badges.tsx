@@ -79,7 +79,7 @@ function Chip({
   wrap,
 }: {
   children: React.ReactNode;
-  tone: 'ok' | 'muted' | 'info';
+  tone: 'ok' | 'muted' | 'info' | 'bad';
   wrap?: boolean;
 }) {
   return (
@@ -90,6 +90,7 @@ function Chip({
         tone === 'ok' && 'bg-status-up-soft text-status-up',
         tone === 'info' && 'bg-accent-soft text-accent-ink',
         tone === 'muted' && 'border border-line bg-surface-sunken text-ink-muted',
+        tone === 'bad' && 'bg-status-down-soft text-status-down',
       )}
     >
       {children}
@@ -98,7 +99,14 @@ function Chip({
 }
 
 /** ICMP / SNMP / open ports chips of a result. */
-export function ReachabilityChips({ r }: { r: DiscoveryResult }) {
+export function ReachabilityChips({
+  r,
+  sshChecked,
+}: {
+  r: DiscoveryResult;
+  /** [profiles] the scan ran the SSH login check (else no SSH badge) */
+  sshChecked?: boolean;
+}) {
   const { t } = useTranslation();
   return (
     <span dir="ltr" className="inline-flex flex-wrap gap-1">
@@ -118,11 +126,53 @@ export function ReachabilityChips({ r }: { r: DiscoveryResult }) {
           </span>
         </Chip>
       )}
+      {/* [profiles] the connection profile whose credentials answered */}
+      {r.snmp_ok && r.snmp_profile_name && (
+        <span
+          className="inline-flex min-h-[20px] items-center rounded-sm bg-accent-soft px-1.5 text-[11px] font-medium text-accent-ink"
+          title={t('discovery.answeredProfile', { name: r.snmp_profile_name })}
+          data-testid="result-snmp-profile"
+        >
+          <bdi>{r.snmp_profile_name}</bdi>
+        </span>
+      )}
+      {sshChecked && <SshBadge r={r} />}
       {r.open_ports.length > 0 && (
         <Chip tone="muted" wrap>
           <span title={t('discovery.openPorts')}>TCP {r.open_ports.join(' ')}</span>
         </Chip>
       )}
+    </span>
+  );
+}
+
+/** [profiles] Result of the opt-in SSH login check: not tried / failed / logged in (with what). */
+export function SshBadge({ r }: { r: DiscoveryResult }) {
+  const { t } = useTranslation();
+  const what =
+    r.ssh_credential === 'profile'
+      ? (r.ssh_profile_name ?? t('discovery.deletedProfile', { id: r.ssh_profile_id ?? 0 }))
+      : t('discovery.sshTypedShort');
+  if (r.ssh_ok)
+    return (
+      <span data-testid="result-ssh" title={t('discovery.sshOkTitle', { what })}>
+        <Chip tone="ok">
+          SSH ✓
+          <span className="ms-1 font-sans">
+            <bdi>{what}</bdi>
+          </span>
+        </Chip>
+      </span>
+    );
+  if (r.ssh_attempted)
+    return (
+      <span data-testid="result-ssh" title={t('discovery.sshFailedTitle')}>
+        <Chip tone="bad">SSH ✗ {t('discovery.sshFailed')}</Chip>
+      </span>
+    );
+  return (
+    <span data-testid="result-ssh" title={t('discovery.sshNotTriedTitle')}>
+      <Chip tone="muted">SSH {t('discovery.sshNotTried')}</Chip>
     </span>
   );
 }

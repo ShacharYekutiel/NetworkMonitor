@@ -165,6 +165,9 @@ export type GroupInput = {
   dependency?: DependencyInput;
   /** [3] null = inherit */
   ssh_credentials?: SshCredentialsInput | null;
+  /** [profiles] see api.md § Groups and devices (mode table) */
+  snmp_profile_id?: number | null;
+  ssh_profile_id?: number | null;
 };
 
 export type DeviceInput = {
@@ -188,6 +191,9 @@ export type DeviceInput = {
   config_backup?: BackupMode;
   config_backup_driver?: string | null;
   newdev_excluded_ports?: number[];
+  /** [profiles] */
+  snmp_profile_id?: number | null;
+  ssh_profile_id?: number | null;
 };
 
 export type SensorInput = {

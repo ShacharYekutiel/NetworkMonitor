@@ -1,3 +1,4 @@
+import { originText } from '../lib/credentials';
 import { useEffect, useState } from 'react';
 import { Link, useNavigate, useParams } from 'react-router';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
@@ -329,10 +330,13 @@ export function GroupPage() {
                   '—'
                 ),
               },
+              // [profiles] origin of the effective credentials (names only)
               {
                 k: t('snmp.label'),
-                v: g.snmp_credentials ? g.snmp_credentials.version : t('snmp.inherited'),
+                v: originText(g.effective_snmp, t),
+                testId: 'group-snmp-origin',
               },
+              { k: 'SSH', v: originText(g.effective_ssh, t), testId: 'group-ssh-origin' },
             ]}
           />
         </Card>

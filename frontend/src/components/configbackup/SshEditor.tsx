@@ -1,20 +1,20 @@
-import { useState } from 'react';
+import { useState, type ReactNode } from 'react';
 import { useMutation, useQuery } from '@tanstack/react-query';
 import { useTranslation } from 'react-i18next';
 import { endpoints3, qk3 } from '../../api/endpoints3';
-import type { BackupMode, SshCredentials, SshTestResult } from '../../api/types3';
+import type {
+  BackupMode,
+  SshCredentials,
+  SshCredentialsInput,
+  SshTestResult,
+} from '../../api/types3';
 import { BACKUP_MODES } from '../../api/types3';
 import { useFeatures } from '../../hooks/features';
-import {
-  sshFormErrors,
-  sshFormToInput,
-  type SecretState,
-  type SshForm,
-} from '../../lib/configBackup';
+import { sshFormErrors, type SecretState, type SshForm } from '../../lib/configBackup';
 import { CheckIcon, XIcon } from '../icons';
 import { Button, Checkbox, ErrorBox, Field, Input, Select, Textarea } from '../ui';
 
-function Secret({
+export function Secret({
   label,
   state,
   isSet,
@@ -68,7 +68,12 @@ function Secret({
   );
 }
 
-export function SshTestView({ r }: { r: SshTestResult }) {
+/** Steps of an SSH test (device test or connection profile test). */
+export function SshTestView({
+  r,
+}: {
+  r: Pick<SshTestResult, 'steps' | 'driver'> & { output_preview?: string | null };
+}) {
   const { t } = useTranslation();
   return (
     <div className="space-y-2 text-sm" data-testid="ssh-test-result">
@@ -106,25 +111,113 @@ export function SshTestView({ r }: { r: SshTestResult }) {
 }
 
 /**
- * [3] SSH credentials (groups and devices; inheritance like SNMP) with, for saved devices, the
- * backup mode, driver override and a connection test (no version is stored).
+ * [3] SSH credential fields (no inherit choice, no submit logic): the manual mode of groups and
+ * devices and the connection profile form.
  */
-export function SshEditor({
+export function SshFields({
   value,
   onChange,
   existing,
-  inheritLabel,
+}: {
+  value: SshForm;
+  onChange: (f: SshForm) => void;
+  existing: SshCredentials | null | undefined;
+}) {
+  const { t } = useTranslation();
+  const set = <K extends keyof SshForm>(k: K, v: SshForm[K]) => onChange({ ...value, [k]: v });
+  const errs = sshFormErrors({ ...value, own: true }, existing);
+  return (
+    <div className="grid grid-cols-1 gap-3 sm:grid-cols-2" data-testid="ssh-fields">
+      {existing?.credentials_unreadable && (
+        <p className="text-xs text-status-down sm:col-span-2">{t('ssh.unreadable')}</p>
+      )}
+      <Field label={t('ssh.username')} required>
+        <Input
+          value={value.username}
+          onChange={(e) => set('username', e.target.value)}
+          maxLength={64}
+          dir="ltr"
+          autoComplete="off"
+        />
+      </Field>
+      <Field label={t('ssh.port')}>
+        <Input
+          type="number"
+          min={1}
+          max={65535}
+          value={value.port}
+          onChange={(e) => set('port', e.target.value)}
+          dir="ltr"
+        />
+      </Field>
+      <Secret
+        label={t('ssh.password')}
+        state={value.password}
+        isSet={!!existing?.password_set}
+        onChange={(s) => set('password', s)}
+      />
+      <Secret
+        label={t('ssh.enablePassword')}
+        state={value.enable_password}
+        isSet={!!existing?.enable_password_set}
+        onChange={(s) => set('enable_password', s)}
+      />
+      <div className="sm:col-span-2">
+        <Secret
+          label={t('ssh.privateKey')}
+          state={value.private_key}
+          isSet={!!existing?.private_key_set}
+          onChange={(s) => set('private_key', s)}
+          multiline
+        />
+      </div>
+      <Secret
+        label={t('ssh.passphrase')}
+        state={value.passphrase}
+        isSet={!!existing?.passphrase_set}
+        onChange={(s) => set('passphrase', s)}
+      />
+      <div className="flex items-end pb-1.5">
+        <Checkbox
+          label={t('ssh.legacy')}
+          checked={value.legacy_algorithms}
+          onChange={(v) => set('legacy_algorithms', v)}
+        />
+      </div>
+      <p className="text-xs text-ink-muted sm:col-span-2">{t('ssh.legacyHint')}</p>
+      {errs.length > 0 && (
+        <ul className="text-xs text-status-down sm:col-span-2">
+          {errs.map((e) => (
+            <li key={e}>{t(e)}</li>
+          ))}
+        </ul>
+      )}
+    </div>
+  );
+}
+
+/**
+ * [3] The SSH section of the group / device forms: the credential choice (`children`, the
+ * connection-profile picker) plus, for devices, the backup mode, driver override and a
+ * connection test (no version is stored).
+ */
+export function SshSection({
+  children,
+  startOpen,
   deviceId,
+  testCredentials,
+  testDisabled,
   mode,
   onMode,
   driver,
   onDriver,
 }: {
-  value: SshForm;
-  onChange: (f: SshForm) => void;
-  existing: SshCredentials | null | undefined;
-  inheritLabel: string;
+  children: ReactNode;
+  startOpen: boolean;
   deviceId?: number;
+  /** the unsaved manual credentials to test with (merged over the effective ones) */
+  testCredentials?: SshCredentialsInput;
+  testDisabled?: boolean;
   mode?: BackupMode;
   onMode?: (m: BackupMode) => void;
   driver?: string;
@@ -132,9 +225,7 @@ export function SshEditor({
 }) {
   const { t } = useTranslation();
   const { features } = useFeatures();
-  const [open, setOpen] = useState(!!existing || (mode !== undefined && mode !== 'auto'));
-  const set = <K extends keyof SshForm>(k: K, v: SshForm[K]) => onChange({ ...value, [k]: v });
-  const errs = sshFormErrors(value, existing);
+  const [open, setOpen] = useState(startOpen || (mode !== undefined && mode !== 'auto'));
   const runner = useQuery({
     queryKey: qk3.backupRunner,
     queryFn: endpoints3.backupRunner,
@@ -145,7 +236,7 @@ export function SshEditor({
   const test = useMutation({
     mutationFn: () =>
       endpoints3.sshTest(deviceId as number, {
-        ...(value.own ? { ssh_credentials: sshFormToInput(value) ?? undefined } : {}),
+        ...(testCredentials ? { ssh_credentials: testCredentials } : {}),
         driver: driver || null,
       }),
     onMutate: () => setResult(null),
@@ -161,80 +252,12 @@ export function SshEditor({
     >
       <summary className="cursor-pointer text-xs font-semibold text-ink-muted">
         {t('ssh.title')}
-        {existing?.credentials_unreadable && (
-          <span className="ms-2 text-status-down">{t('ssh.unreadable')}</span>
-        )}
       </summary>
       <div className="mt-3 space-y-3">
         {!features.config_backup && (
           <p className="text-xs text-ink-muted">{t('ssh.prepareHint')}</p>
         )}
-        <Checkbox label={inheritLabel} checked={!value.own} onChange={(v) => set('own', !v)} />
-        {value.own && (
-          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-            <Field label={t('ssh.username')} required>
-              <Input
-                value={value.username}
-                onChange={(e) => set('username', e.target.value)}
-                maxLength={64}
-                dir="ltr"
-                autoComplete="off"
-              />
-            </Field>
-            <Field label={t('ssh.port')}>
-              <Input
-                type="number"
-                min={1}
-                max={65535}
-                value={value.port}
-                onChange={(e) => set('port', e.target.value)}
-                dir="ltr"
-              />
-            </Field>
-            <Secret
-              label={t('ssh.password')}
-              state={value.password}
-              isSet={!!existing?.password_set}
-              onChange={(s) => set('password', s)}
-            />
-            <Secret
-              label={t('ssh.enablePassword')}
-              state={value.enable_password}
-              isSet={!!existing?.enable_password_set}
-              onChange={(s) => set('enable_password', s)}
-            />
-            <div className="sm:col-span-2">
-              <Secret
-                label={t('ssh.privateKey')}
-                state={value.private_key}
-                isSet={!!existing?.private_key_set}
-                onChange={(s) => set('private_key', s)}
-                multiline
-              />
-            </div>
-            <Secret
-              label={t('ssh.passphrase')}
-              state={value.passphrase}
-              isSet={!!existing?.passphrase_set}
-              onChange={(s) => set('passphrase', s)}
-            />
-            <div className="flex items-end pb-1.5">
-              <Checkbox
-                label={t('ssh.legacy')}
-                checked={value.legacy_algorithms}
-                onChange={(v) => set('legacy_algorithms', v)}
-              />
-            </div>
-            <p className="text-xs text-ink-muted sm:col-span-2">{t('ssh.legacyHint')}</p>
-            {errs.length > 0 && (
-              <ul className="text-xs text-status-down sm:col-span-2">
-                {errs.map((e) => (
-                  <li key={e}>{t(e)}</li>
-                ))}
-              </ul>
-            )}
-          </div>
-        )}
+        {children}
         {mode !== undefined && onMode && (
           <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
             <Field label={t('configBackup.mode')} hint={t(`configBackup.modeHint.${mode}`)}>
@@ -248,35 +271,18 @@ export function SshEditor({
             </Field>
             {onDriver && (
               <Field label={t('driver.override')} hint={t('driver.overrideHint')}>
-                {drivers.length ? (
-                  <Select value={driver ?? ''} onChange={(e) => onDriver(e.target.value)}>
-                    <option value="">{t('driver.auto')}</option>
-                    {drivers.map((d) => (
-                      <option key={d.id} value={d.id}>
-                        {d.name}
-                        {d.confidence === 'unverified' ? ` (${t('driver.unverified')})` : ''}
-                      </option>
-                    ))}
-                  </Select>
-                ) : (
-                  <Input
-                    value={driver ?? ''}
-                    onChange={(e) => onDriver(e.target.value.trim())}
-                    placeholder={t('driver.auto')}
-                    dir="ltr"
-                  />
-                )}
+                <DriverSelect drivers={drivers} value={driver ?? ''} onChange={onDriver} />
               </Field>
             )}
           </div>
         )}
         {deviceId !== undefined && (
           <div className="space-y-2">
-            <div className="flex items-center gap-2">
+            <div className="flex flex-wrap items-center gap-2">
               <Button
                 size="sm"
                 busy={test.isPending}
-                disabled={value.own && errs.length > 0}
+                disabled={testDisabled}
                 onClick={() => test.mutate()}
               >
                 {t('ssh.test')}
@@ -289,5 +295,39 @@ export function SshEditor({
         )}
       </div>
     </details>
+  );
+}
+
+/** Driver override: a select of the known drivers, or a free text field when none are listed. */
+export function DriverSelect({
+  drivers,
+  value,
+  onChange,
+  ariaLabel,
+}: {
+  drivers: { id: string; name: string; confidence?: string }[];
+  value: string;
+  onChange: (d: string) => void;
+  ariaLabel?: string;
+}) {
+  const { t } = useTranslation();
+  return drivers.length ? (
+    <Select value={value} onChange={(e) => onChange(e.target.value)} aria-label={ariaLabel}>
+      <option value="">{t('driver.auto')}</option>
+      {drivers.map((d) => (
+        <option key={d.id} value={d.id}>
+          {d.name}
+          {d.confidence === 'unverified' ? ` (${t('driver.unverified')})` : ''}
+        </option>
+      ))}
+    </Select>
+  ) : (
+    <Input
+      value={value}
+      onChange={(e) => onChange(e.target.value.trim())}
+      placeholder={t('driver.auto')}
+      aria-label={ariaLabel}
+      dir="ltr"
+    />
   );
 }

@@ -1,6 +1,7 @@
 import type { QueryClient, QueryKey } from '@tanstack/react-query';
 import { qk } from '../api/endpoints';
 import { qk3 } from '../api/endpoints3';
+import { qkp } from '../api/profiles';
 import type { Severity } from '../api/severity';
 import type {
   Dashboard,
@@ -335,6 +336,19 @@ export function applyLiveMessage(
           break;
         case 'discovery_profile':
           batch.add(qk.discoveryProfiles);
+          // [profiles] a saved discovery profile counts as a use of a connection profile
+          batch.add(qkp.all);
+          batch.add(['connectionProfileUsage']);
+          break;
+        case 'connection_profile':
+          // [profiles] names and origins shown on group / device pages change on rename/delete
+          batch.add(qkp.all);
+          batch.add(['connectionProfile']);
+          batch.add(['connectionProfileUsage']);
+          batch.add(['group']);
+          batch.add(['groups']);
+          batch.add(['device']);
+          batch.add(['devices']);
           break;
         case 'maintenance_window':
           batch.add(['maintenanceWindows']);
@@ -349,6 +363,9 @@ export function applyLiveMessage(
       }
       // Device/group changes can move dependencies, names and the topology graph.
       if (entity === 'device' || entity === 'group') {
+        // [profiles] assignments change the "used by" counts
+        batch.add(qkp.all);
+        batch.add(['connectionProfileUsage']);
         batch.add(['topology']);
         batch.add(['dependencySuggestions']);
       }

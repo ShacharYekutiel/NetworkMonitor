@@ -1,3 +1,4 @@
+import { originText } from '../lib/credentials';
 import { useState } from 'react';
 import { useNavigate, useParams, useSearchParams } from 'react-router';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
@@ -407,9 +408,13 @@ export function DevicePage() {
           {!d.enabled && <span className="text-ink-muted">{t('devices.disabledNote')}</span>}
           <StatusCountPills counts={d.status_counts} />
           <NewDevicesBadge device={d} />
-          <span className="text-xs text-ink-muted">
-            {t('snmp.label')}: {t(`snmp.source.${d.effective_snmp_source}`)}
+          {/* [profiles] where the effective credentials come from (names only, no profile data) */}
+          <span className="text-xs text-ink-muted" data-testid="device-snmp-origin">
+            {t('snmp.label')}: <bdi>{originText(d.effective_snmp, t)}</bdi>
             {d.snmp_credentials && ` (${d.snmp_credentials.version})`}
+          </span>
+          <span className="text-xs text-ink-muted" data-testid="device-ssh-origin">
+            SSH: <bdi>{originText(d.effective_ssh, t)}</bdi>
           </span>
         </div>
         <div className="mt-3">
