@@ -12,7 +12,8 @@
 #   NETMON_TEST_MODE is always 1 here (PUT /api/test/clock, docs/api.md [2b-1] Test clock).
 #   NETMON_TEST_PTR_FILE=tests/sim/ports/ptr.json ([2b-2] reverse DNS test hook, no DNS stub needed).
 #   Specs can restart the backend with $BACKEND_RESTART (same DB, data dir, port and env; waits for
-#   /api/health) and control single lab components with "$LAB_SH swap|kill|revive NAME" (LAB_DIR exported).
+#   /api/health; "$BACKEND_RESTART --to REV" also runs "netmon migrate --to REV" while the server is stopped)
+#   and control single lab components with "$LAB_SH swap|kill|revive NAME" (LAB_DIR exported).
 #   [2b-3] (docs/architecture.md §12.14) receivers listen on free ports: NETMON_TRAP_PORT=$TRAP_PORT (udp),
 #   NETMON_SYSLOG_PORT=$SYSLOG_PORT (udp+tcp), NETMON_INGEST_HOST=127.0.0.1. Simulators: fake AD
 #   (tests/sim/ldap/fake_ad.py: LDAPS $LDAP_LDAPS_PORT, StartTLS $LDAP_PLAIN_PORT, control $LDAP_CONTROL_URL; a
@@ -235,7 +236,8 @@ unset AWS_ACCESS_KEY_ID AWS_SECRET_ACCESS_KEY AWS_SESSION_TOKEN AWS_PROFILE AWS_
   AWS_EC2_METADATA_DISABLED
 $P3_ENV
 $P3B_ENV
-exec "$NETMON" serve >>"$LOGS/backend.log" 2>&1
+# [profiles] with arguments it runs that netmon command instead (e.g. "migrate --to 0018") with the same env
+exec "$NETMON" "\${@:-serve}" >>"$LOGS/backend.log" 2>&1
 BACKEND_EOF
 cat >"$WORK/restart_backend.sh" <<RESTART_EOF
 #!/usr/bin/env bash
@@ -248,6 +250,12 @@ if [ -n "\$pid" ]; then
   kill -KILL "\$pid" 2>/dev/null || true
 fi
 echo "=== e2e: backend restart \$(date -u +%FT%TZ) ===" >>"$LOGS/backend.log"
+# [profiles] optional: "restart_backend.sh --to REV" runs "netmon migrate --to REV" while the server is stopped
+# (spec 98: downgrade, then the restart upgrades to head again, as an operator's upgrade does)
+if [ \$# -gt 0 ]; then
+  echo "=== e2e: netmon migrate \$* ===" >>"$LOGS/backend.log"
+  bash "$WORK/backend.sh" migrate "\$@" </dev/null || { echo "netmon migrate \$* failed" >&2; exit 1; }
+fi
 bash "$WORK/backend.sh" </dev/null >/dev/null 2>&1 &
 echo \$! >"$WORK/backend.pid"
 for _ in \$(seq 1 120); do
