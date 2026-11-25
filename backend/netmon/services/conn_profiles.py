@@ -725,7 +725,8 @@ async def usage(session: AsyncSession, profile_id: int) -> dict[str, Any]:
             break
         if gid not in inv.groups:
             continue
-        path = [str(inv.groups[a]["name"]) for a in reversed(inv.ancestors(gid))]
+        # api.md: ancestor names, root first - the group itself excluded ([] at the top level)
+        path = [str(inv.groups[a]["name"]) for a in reversed(inv.ancestors(gid)[1:])]
         groups_out.append({"id": gid, "name": inv.groups[gid]["name"], "path": path})
     for did in device_ids:
         if len(devices_out) >= USAGE_LIST_LIMIT:

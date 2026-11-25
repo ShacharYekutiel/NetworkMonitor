@@ -459,7 +459,7 @@ async def test_delete_usage_cascade(
     u = (await admin.get(f"/api/connection-profiles/{p['id']}/usage")).json()
     root = (await admin.get(f"/api/groups/{await default_group_id(admin)}")).json()["name"]
     assert u == {
-        "groups": [{"id": g["id"], "name": "UG", "path": [root, "UG"]}],
+        "groups": [{"id": g["id"], "name": "UG", "path": [root]}],
         "devices": [{"id": d1["id"], "name": "d1", "host": "127.0.0.1",
                      "group_id": sub["id"], "group_name": "Sub"}],
         "discovery_profiles": [{"id": dp.json()["id"], "name": "DP"}],
@@ -486,6 +486,23 @@ async def test_delete_usage_cascade(
 
 
 # ------------------------------------------------------------------ request-mode table
+async def test_usage_group_path_excludes_the_group(admin: httpx.AsyncClient) -> None:
+    """api.md `ProfileUsage.groups[].path`: ancestor names, root first, without the group
+    itself (the UI prints `path / name`); [] for a top-level group."""
+    p = await profile(admin, "snmp", "PathP", snmp_creds())
+    root_id = await default_group_id(admin)
+    root = (await admin.get(f"/api/groups/{root_id}")).json()["name"]
+    a = await group(admin, "PA")
+    b = await group(admin, "PB", a["id"], snmp_profile_id=p["id"])
+    r = await admin.patch(f"/api/groups/{root_id}", json={"snmp_profile_id": p["id"]})
+    assert r.status_code == 200, r.text
+    u = (await admin.get(f"/api/connection-profiles/{p['id']}/usage")).json()
+    assert u["groups"] == [
+        {"id": root_id, "name": root, "path": []},
+        {"id": b["id"], "name": "PB", "path": [root, "PA"]},
+    ]
+
+
 async def test_backward_compatibility_and_modes(rt: Runtime, admin: httpx.AsyncClient) -> None:
     await features(admin, audit=True)
     p = await profile(admin, "snmp", "BC", snmp_creds())
