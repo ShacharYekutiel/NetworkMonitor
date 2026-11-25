@@ -238,6 +238,12 @@ function FilterBar({
 
 type RowEdit = { template?: string; name?: string };
 
+// [profiles] the "save SNMP" / "save SSH" columns stay narrow: the header label wraps above its
+// select-all box (the full wording is the box's accessible name and the label's tooltip), so the
+// results table fits a 1280 px window without sideways scrolling.
+const SAVE_TH = cx(th, 'w-[4.75rem] text-center align-bottom');
+const SAVE_TD = cx(td, 'w-[4.75rem] text-center');
+
 function StateCell({ r }: { r: DiscoveryResult }) {
   const { t } = useTranslation();
   const deviceId = r.imported_device_id ?? r.existing_device_id;
@@ -327,7 +333,7 @@ function ResultRow({
             </button>
           )}
         </td>
-        <td className={`${td} w-[15rem] min-w-[9rem] max-w-[15rem]`}>
+        <td className={`${td} w-[12rem] min-w-[9rem] max-w-[12rem]`}>
           {existing ? (
             <bdi dir="auto" className="font-medium">
               {resultDisplayName(r)}
@@ -345,7 +351,7 @@ function ResultRow({
           )}
           {r.sys_descr ? (
             <TruncLtr
-              className="mt-0.5 max-w-[15rem] text-[11px] text-ink-muted"
+              className="mt-0.5 max-w-[12rem] text-[11px] text-ink-muted"
               title={r.sys_descr}
             >
               {r.sys_descr}
@@ -354,7 +360,7 @@ function ResultRow({
             summary && (
               <div
                 dir="auto"
-                className="mt-0.5 max-w-[15rem] truncate text-[11px] text-ink-muted"
+                className="mt-0.5 max-w-[12rem] truncate text-[11px] text-ink-muted"
                 title={summary}
               >
                 {summary}
@@ -380,7 +386,7 @@ function ResultRow({
         <td className={td}>
           <StateCell r={r} />
         </td>
-        <td className={`${td} min-w-[12rem]`}>
+        <td className={`${td} min-w-[10.5rem]`}>
           {existing ? (
             <span className="text-xs">—</span>
           ) : (
@@ -394,13 +400,13 @@ function ResultRow({
             />
           )}
         </td>
-        <td className={`${td} text-center`}>
+        <td className={SAVE_TD}>
           {!existing && (
             <SaveCheckbox r={r} kind="snmp" save={save} onSave={onSave} disabled={disabled} />
           )}
         </td>
         {sshChecked && (
-          <td className={`${td} text-center`}>
+          <td className={SAVE_TD}>
             {!existing && (
               <SaveCheckbox r={r} kind="ssh" save={save} onSave={onSave} disabled={disabled} />
             )}
@@ -875,7 +881,7 @@ export function ScanPage() {
                     <th className={th}>{t('discovery.reachability')}</th>
                     <th className={th}>{t('common.status')}</th>
                     <th className={th}>{t('templates.template')}</th>
-                    <th className={th}>
+                    <th className={SAVE_TH}>
                       <SaveHeaderCheckbox
                         rows={selectable}
                         kind="snmp"
@@ -885,7 +891,7 @@ export function ScanPage() {
                       />
                     </th>
                     {sshChecked && (
-                      <th className={th}>
+                      <th className={SAVE_TH}>
                         <SaveHeaderCheckbox
                           rows={selectable}
                           kind="ssh"

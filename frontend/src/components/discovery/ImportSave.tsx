@@ -83,22 +83,33 @@ export function SaveHeaderCheckbox({
     if (ref.current) ref.current.indeterminate = state === 'mixed';
   }, [state]);
   const label = t(`discovery.save.${kind}All`);
+  const box = (
+    <input
+      ref={ref}
+      type="checkbox"
+      className={BOX}
+      aria-label={withLabel ? undefined : label}
+      checked={state === 'all'}
+      aria-checked={state === 'mixed' ? 'mixed' : state === 'all'}
+      disabled={state === 'disabled' || disabled}
+      onChange={() => onChange(setAll(save, rows, kind, headerToggle(state)))}
+      data-testid={`save-${kind}-all`}
+    />
+  );
+  if (withLabel)
+    return (
+      <label className="inline-flex cursor-pointer items-center gap-2 whitespace-nowrap">
+        {box}
+        <span className="text-[13px]">{label}</span>
+      </label>
+    );
+  // table header: the short label wraps above the box in a narrow column
   return (
-    <label className="inline-flex cursor-pointer items-center gap-2 whitespace-nowrap">
-      <input
-        ref={ref}
-        type="checkbox"
-        className={BOX}
-        aria-label={withLabel ? undefined : label}
-        checked={state === 'all'}
-        aria-checked={state === 'mixed' ? 'mixed' : state === 'all'}
-        disabled={state === 'disabled' || disabled}
-        onChange={() => onChange(setAll(save, rows, kind, headerToggle(state)))}
-        data-testid={`save-${kind}-all`}
-      />
-      <span className={withLabel ? 'text-[13px]' : undefined}>
-        {withLabel ? label : t(`discovery.save.${kind}`)}
+    <label className="inline-flex cursor-pointer flex-col items-center gap-1.5" title={label}>
+      <span className="whitespace-normal text-center leading-tight">
+        {t(`discovery.save.${kind}`)}
       </span>
+      {box}
     </label>
   );
 }
