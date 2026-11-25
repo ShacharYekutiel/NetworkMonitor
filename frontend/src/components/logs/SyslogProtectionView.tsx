@@ -183,7 +183,10 @@ function ProtectionSummary({
         </Link>
       }
     >
-      <div className="grid gap-4" data-testid="protection-summary">
+      {/* grid-cols-1 = minmax(0, 1fr): an implicit `auto` track grew to the "by source" table's
+          width at narrow widths and the card clipped the tiles and counters (production finding,
+          1.5.0, ~590px Hebrew); now the table scrolls inside its own container. */}
+      <div className="grid grid-cols-1 gap-4" data-testid="protection-summary">
         <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
           {tiles.map((x) => (
             <div key={x.k} className="rounded-lg bg-surface-sunken px-4 py-3">
