@@ -11,6 +11,7 @@ from __future__ import annotations
 import logging
 import secrets
 from collections.abc import AsyncIterator
+from pathlib import Path
 
 import asyncpg
 import pytest
@@ -172,7 +173,7 @@ async def test_update_extension_not_owner_warns(
 
 @requires_db
 async def test_runtime_start_updates_and_keeps_lock(
-    old_ts_db: tuple[str, str, str], tmp_path: pytest.TempPathFactory
+    old_ts_db: tuple[str, str, str], tmp_path: Path
 ) -> None:
     """Server start on a database with an older extension: updated before the migrations,
     and the single-instance lock is held on a session that survives the update (the server
@@ -181,7 +182,8 @@ async def test_runtime_start_updates_and_keeps_lock(
     from tests.conftest import ingest_ports, make_settings
 
     url, _old, new = old_ts_db
-    settings = make_settings(url, tmp_path, **ingest_ports())  # type: ignore[arg-type]
+    # this test is about the Timescale path even when the suite runs in fallback mode
+    settings = make_settings(url, tmp_path, NETMON_DISABLE_TIMESCALE="false", **ingest_ports())
     runtime = Runtime(settings)
     await runtime.start(run_poller=False, maintenance=False)
     try:
