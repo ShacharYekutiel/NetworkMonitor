@@ -836,13 +836,11 @@ async def lock_discovery_ids(
 
 
 # ====================================================================== copy into manual
-def copy_value(kind: str, profile: Profile, node_type: str, node_id: int) -> Any:
+def copy_value(kind: str, profile: Profile, node_type: str, node_id: int, secret_key: str) -> Any:
     """The node column value of a manual copy of `profile` (secrets re-encrypted for the
     node). Raises ValueError when a secret of the profile cannot be decrypted."""
     sp = KINDS[kind]
-    from netmon.configbackup.credentials import _SECRET_KEY
-
-    if sp.unreadable(profile.data, profile.id, _SECRET_KEY or ""):
+    if sp.unreadable(profile.data, profile.id, secret_key):
         raise ValueError("unreadable")
     return sp.to_node(profile.data, profile.id, node_type, node_id)
 

@@ -290,7 +290,7 @@ async def _run_test(
         if kind == "snmp":
             out = await _snmp_test(rt, host, stored, profile_id)
         else:
-            out = await _ssh_test(host, stored, driver, host_key)
+            out = await _ssh_test(host, stored, driver, host_key, rt.secret_key)
         ok = True
         return out
     finally:
@@ -366,13 +366,13 @@ def _ssh_error(
 
 
 async def _ssh_test(
-    host: str, stored: Any, driver: Any, host_key: dict[str, Any] | None
+    host: str, stored: Any, driver: Any, host_key: dict[str, Any] | None, secret_key: str
 ) -> dict[str, Any]:
     from netmon.configbackup import credentials, normalize
     from netmon.configbackup.session import HostKeyInfo, SessionError, run_session
 
     try:
-        creds = credentials.decrypt(stored or {}, credentials._SECRET_KEY or "")  # noqa: SLF001
+        creds = credentials.decrypt(stored or {}, secret_key)
     except credentials.CredentialsUnreadable:
         raise _ssh_error(
             "no_credentials", "The SSH credentials cannot be decrypted", "auth"

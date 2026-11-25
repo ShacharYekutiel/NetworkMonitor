@@ -204,7 +204,7 @@ async def group_copy_from_profile(
     if g is None:
         raise not_found("Group")
     before = await _audit_values(session, g)
-    await copy_from_profile(session, kind, body, g, "group")
+    await copy_from_profile(session, kind, body, g, "group", rt.secret_key)
     await audit.record(
         session,
         ctx,
@@ -220,7 +220,7 @@ async def group_copy_from_profile(
 
 
 async def copy_from_profile(
-    session: DB, kind: str, body: CopyFromProfileIn, node: Any, node_type: str
+    session: DB, kind: str, body: CopyFromProfileIn, node: Any, node_type: str, secret_key: str
 ) -> None:
     """[profiles] Shared by groups and devices: the profile (`profile_id`, else the node's
     own current profile) copied into the node column (secrets re-encrypted for the node,
@@ -234,7 +234,7 @@ async def copy_from_profile(
         raise validation_error(["body", "profile_id"], "the node is not in mode profile")
     profile = await conn_profiles.lock_profile_for_use(session, kind, pid, ["body", "profile_id"])
     try:
-        value = conn_profiles.copy_value(kind, profile, node_type, node.id)
+        value = conn_profiles.copy_value(kind, profile, node_type, node.id, secret_key)
     except ValueError:
         raise ApiError(
             422,

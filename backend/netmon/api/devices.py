@@ -291,7 +291,7 @@ async def device_copy_from_profile(
     if d is None:
         raise not_found("Device")
     before = await device_audit_full(session, d)
-    await copy_from_profile(session, kind, body, d, "device")
+    await copy_from_profile(session, kind, body, d, "device", rt.secret_key)
     await audit.record(
         session,
         ctx,
