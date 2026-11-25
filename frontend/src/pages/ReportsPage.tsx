@@ -2,6 +2,7 @@ import { useAiFeature } from '../components/assistant/common';
 import { useEffect, useMemo, useState, type FormEvent } from 'react';
 import { keepPreviousData, useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Link, useNavigate } from 'react-router';
+import type { TFunction } from 'i18next';
 import { useTranslation } from 'react-i18next';
 import { endpoints, qk } from '../api/endpoints';
 import { endpoints3, qk3 } from '../api/endpoints3';
@@ -76,7 +77,7 @@ export function RunStatusBadge({ status }: { status: ReportRunStatus }) {
   );
 }
 
-function scheduleText(t: (k: string, o?: Record<string, unknown>) => string, r: Report): string {
+function scheduleText(t: TFunction, r: Report): string {
   if (r.schedule === 'weekly')
     return t('reports.scheduleWeekly', {
       day: t(`reports.weekday.${r.weekday ?? 1}`),

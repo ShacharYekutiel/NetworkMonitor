@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import { Link } from 'react-router';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import type { TFunction } from 'i18next';
 import { useTranslation } from 'react-i18next';
 import { endpoints, qk } from '../../api/endpoints';
 import type {
@@ -51,7 +52,7 @@ import {
 import { SeverityBadge, SourceCell } from './common';
 
 /** "Info and less important": the rule matches this severity and every less important one. */
-function severityLabel(t: (k: string, o?: Record<string, unknown>) => string, s: number) {
+function severityLabel(t: TFunction, s: number) {
   return t('syslogFilters.sevAndLess', { sev: t(`syslogSeverity.${s}`) });
 }
 

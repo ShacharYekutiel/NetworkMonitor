@@ -2,6 +2,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import { Link, useNavigate } from 'react-router';
 import { keepPreviousData, useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import type { TFunction } from 'i18next';
 import { useTranslation } from 'react-i18next';
 import { endpoints, qk } from '../api/endpoints';
 import type {
@@ -559,11 +560,7 @@ function AddLinkModal({
   );
 }
 
-function currentText(
-  t: (k: string, o?: Record<string, unknown>) => string,
-  c: Dependency,
-  effName: string | null,
-): string {
+function currentText(t: TFunction, c: Dependency, effName: string | null): string {
   if (c.mode === 'device') return c.device_name ?? `#${c.device_id}`;
   if (c.mode === 'none') return t('dependency.modes.none');
   return effName
