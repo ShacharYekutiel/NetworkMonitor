@@ -241,6 +241,41 @@ describe('Tree move (drag and drop, selection, Move to…)', () => {
     await waitFor(() => expect(moves).toHaveLength(1));
   });
 
+  it('[profiles] the preview names the profiles of both groups', async () => {
+    effects = [
+      {
+        setting: 'ssh',
+        before: {
+          source: 'group',
+          group_id: 1,
+          group_name: 'Root',
+          profile_id: 4,
+          profile_name: 'Backup A',
+        },
+        after: {
+          source: 'group',
+          group_id: 2,
+          group_name: 'Branch',
+          profile_id: 5,
+          profile_name: 'Backup B',
+        },
+        devices: [{ id: 3, name: 'core-sw' }],
+      },
+    ];
+    render(wrap(<TreeNav />));
+    const src = await row('core-sw');
+    await waitFor(() => expect(src).toHaveAttribute('draggable', 'true'));
+    const dt = dataTransfer();
+    fireEvent.dragStart(src, { dataTransfer: dt });
+    const target = dropTarget(await row('Branch'));
+    fireEvent.dragOver(target, { dataTransfer: dt });
+    fireEvent.drop(target, { dataTransfer: dt });
+    const dlg = await screen.findByTestId('move-confirm');
+    expect(await within(dlg).findByTestId('move-effect-ssh')).toHaveTextContent(
+      'now: inherited from group Root · profile Backup A; after the move: inherited from group Branch · profile Backup B.',
+    );
+  });
+
   it('cancel moves nothing', async () => {
     render(wrap(<TreeNav />));
     const src = await row('edge-sw');
