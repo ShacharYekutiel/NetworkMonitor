@@ -584,13 +584,20 @@ async def test_migration_0018_up_down_up(mode: str, rt: Runtime) -> None:
         await timescale.bootstrap_ingest(engine, enabled, 30, 30)
         c = await asyncpg.connect(url)
         try:
+            # "timescale" mode yields a hypertable only where the server ships the extension
+            # (CI's plain postgres:16 job does not; bootstrap must then fall back cleanly)
+            offered = await c.fetchval(
+                "SELECT count(*) FROM pg_available_extensions WHERE name = 'timescaledb'"
+            )
+            expect_hyper = mode == "timescale" and bool(offered)
+            assert enabled == expect_hyper
             hyper = await c.fetchval(
                 "SELECT count(*) FROM pg_extension WHERE extname = 'timescaledb'"
             ) and await c.fetchval(
                 "SELECT count(*) FROM timescaledb_information.hypertables "
                 "WHERE hypertable_name = 'syslog_messages'"
             )
-            assert bool(hyper) == (mode == "timescale")
+            assert bool(hyper) == expect_hyper
             await c.execute(
                 "INSERT INTO syslog_messages (time, source_ip, transport, format, facility, "
                 "severity, message) VALUES (now() - interval '3 days', '10.0.0.1', 'udp', "

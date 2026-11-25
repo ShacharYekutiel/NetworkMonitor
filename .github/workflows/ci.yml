@@ -337,7 +337,6 @@ jobs:
           B="https://$FQDN"
           curl -fsS --cacert ca.pem "$B/api/health" | tee health.json; echo
           python3 -c 'import json; h = json.load(open("health.json")); assert h == {"status": "ok"}, h'
-          test "$(curl -s --cacert ca.pem -o /dev/null -w '%{http_code}' "$B/api/health/details")" = 401
           # security headers through Caddy, 80 -> 443, Caddy admin API off
           curl -fsS --cacert ca.pem -D headers.txt -o /dev/null "$B/"
           cat headers.txt
@@ -357,6 +356,8 @@ jobs:
           curl -fsS --cacert ca.pem -c cookies.txt -X POST -H 'Content-Type: application/json' \
             -d '{"username":"admin","password":"ci-Secret-123","email":null,"language":"en"}' \
             "$B/api/setup" >/dev/null
+          # details need a session; before setup every /api/* answers 403 setup_required instead
+          test "$(curl -s --cacert ca.pem -o /dev/null -w '%{http_code}' "$B/api/health/details")" = 401
           curl -fsS --cacert ca.pem -b cookies.txt -X POST -H 'Content-Type: application/json' \
             -d '{"host":"127.0.0.1","type":"ping","config":{}}' "$B/api/sensors/test" | tee ping.json; echo
           python3 -c 'import json; r = json.load(open("ping.json")); assert r["ok"] is True, r'
