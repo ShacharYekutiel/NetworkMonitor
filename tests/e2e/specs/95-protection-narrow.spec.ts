@@ -4,14 +4,14 @@ import { horizontalOverflow } from '../lib/lab';
 import { setLang } from '../lib/lab2b2';
 import { SRC, featureOn, marker, sendSyslog, waitReceivers } from '../lib/lab2b3';
 
-// [1.5.1] 94 — production finding: Logs → Flood protection at ~590 px in Hebrew had its counter
+// [1.5.1] 95 — production finding: Logs → Flood protection at ~590 px in Hebrew had its counter
 // cards and the "by source" table cut off on the left (the summary grid's implicit track grew to
 // the table's width inside an overflow-hidden card). Down to 360 px nothing may stick out of its
 // card, the page must not scroll horizontally and the wide table scrolls inside its own container.
 test.describe.configure({ mode: 'default' });
 
 let admin: Api;
-const M = marker('qa94');
+const M = marker('qa95');
 
 test.beforeAll(async () => {
   admin = await apiAs();

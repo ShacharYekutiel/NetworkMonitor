@@ -2751,7 +2751,8 @@ Condition `expires_at` = `last_at + clear_after_min` (rule) or `last_at + flap_q
 `last_value` = active conditions; its `status` = the sensor status. Default names: `SNMP traps`, `Syslog`,
 `Port flapping`. Unique index `ux_sensors_event_type (device_id, type) WHERE type IN
 ('trap','syslog','port_flap')`. `alert_state` gains `flap_suppressed boolean NOT NULL DEFAULT false`
-(architecture § 12.4).
+(architecture § 12.4). **[1.5.1]** A new problem on the same `(rule_id, sensor_id)` resets `flap_suppressed` to `false`
+together with the other per-problem fields, so the next message is not labelled as held by flapping.
 
 ## [2b-3] Port flapping
 Settings `flap_threshold` (int, 3–50, default 5), `flap_window_min` (1–120, default 10), `flap_quiet_min`
