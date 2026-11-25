@@ -513,6 +513,26 @@ minor > warning > info:
 
 Contract: [api.md § Alert severity](api.md#severity-alert-severity).
 
+## [1.7.0] Upgrade and rollback (connection profiles)
+
+**What changes on upgrade.** Nothing to do before deploying. Migration `0021` only adds the tables
+`connection_profiles` / `connection_profile_assignments` and a few discovery columns; it changes no stored value, so
+every group and device keeps exactly its SNMP / SSH credentials ("Manual" or "Inherit"), and every poll is unchanged.
+Connection profiles have no feature toggle; only admins see *Settings → Connection profiles*.
+
+**Operational note: SSH in discovery is opt-in.** A scan only tries SSH logins when SSH profiles or typed SSH
+credentials are selected for it, only on hosts whose SSH port is open, one attempt per candidate (at most 4), and it
+only logs in and disconnects. Failed logins can still lock accounts or raise security alerts on devices: choose
+candidates deliberately.
+
+**Rollback** (owner decision Q1). The supported ways back are (a) restoring the `pre-deploy-<rev>-<ts>.dump` with
+`ops/restore.sh`, or (b) `netmon migrate --to <previous head>` *before* starting the older image: its downgrade copies
+every profile into the groups' / devices' own credentials (needs `secret.key`; it stops with an error and changes
+nothing when a profile secret cannot be decrypted), so every device keeps working credentials. An image-only
+rollback (older image on the 1.7.0 database) ignores the new tables: a group / device that uses a profile behaves
+there as it did before the profile was chosen when it kept its earlier manual credentials (they are stored dormant),
+otherwise as "Inherit" — devices may then fall back to their group's or the built-in credentials until 1.7.0 is back.
+
 ## [1.5.0] Upgrade and rollback (read before deploying)
 
 **What changes on upgrade.** Nothing to do before deploying. At the first start 1.5.0 runs migrations 0013–0016 and

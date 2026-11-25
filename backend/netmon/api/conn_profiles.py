@@ -354,7 +354,9 @@ async def _ssh_prepare(
     return (drivers.get(driver_id) if driver_id else None), host_key
 
 
-def _ssh_error(code: str, message: str, step: str, steps: list[dict[str, Any]] | None = None) -> ApiError:
+def _ssh_error(
+    code: str, message: str, step: str, steps: list[dict[str, Any]] | None = None
+) -> ApiError:
     return ApiError(
         502,
         "ssh_error",

@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import secrets
 from datetime import UTC, datetime, timedelta
+from typing import Any
 from urllib.parse import urlsplit, urlunsplit
 
 import asyncpg
@@ -614,6 +615,206 @@ async def test_migration_premium_up_down_up(mode: str, rt) -> None:  # type: ign
         finally:
             await conn.close()
     finally:
+        await engine.dispose()
+        await admin.execute(f'DROP DATABASE IF EXISTS "{name}" WITH (FORCE)')
+        await admin.close()
+
+
+# ------------------------------------------------------------------ [profiles] 0021
+@pytest.mark.parametrize("mode", ["timescale", "fallback"])
+async def test_migration_0021_connection_profiles(mode: str, rt) -> None:  # type: ignore[no-untyped-def]
+    """Upgrade changes no effective credential; downgrade materialises every reference into
+    the node's column (overwriting dormant manual data), removes the discovery option keys,
+    and stops on an unreadable profile secret without changing anything."""
+    import json
+
+    from netmon.configbackup import credentials as ssh_credentials
+    from netmon.poller.snmp_client import resolve_credentials
+    from netmon.services import crypto, secretbox
+
+    assert TEST_DATABASE_URL
+    if mode == "timescale" and rt.settings.netmon_disable_timescale:
+        pytest.skip("suite runs in forced fallback mode")
+    key = secrets.token_urlsafe(48)
+    name = f"netmon_test_m21_{secrets.token_hex(3)}"
+    admin = await asyncpg.connect(_plain(TEST_DATABASE_URL))
+    await admin.execute(f'CREATE DATABASE "{name}"')
+    engine = make_engine(db_url_for(name).replace("postgresql://", "postgresql+asyncpg://"))
+    url = db_url_for(name)
+    saved = secretbox.state()
+    secretbox.configure(key, plaintext_copy=True)
+    try:
+        await run_migrations(engine, secret_key=key, target="0018")
+        enabled = await timescale.bootstrap(engine, 90, disabled=(mode == "fallback"))
+        if mode == "timescale" and not enabled:
+            pytest.skip("TimescaleDB not available")
+        conn = await asyncpg.connect(_plain(url))
+        try:
+            g = await conn.fetchval(
+                "INSERT INTO groups (name, snmp_credentials) VALUES ('g', NULL) RETURNING id"
+            )
+            await conn.execute(
+                "UPDATE groups SET snmp_credentials = $1::jsonb WHERE id = $2",
+                json.dumps(secretbox.seal_snmp({"version": "v2c", "community": "gc"}, "group", g)),
+                g,
+            )
+            d1 = await conn.fetchval(
+                "INSERT INTO devices (group_id, name, host) VALUES ($1, 'd1', 'h1') RETURNING id", g
+            )
+            d2 = await conn.fetchval(
+                "INSERT INTO devices (group_id, name, host) VALUES ($1, 'd2', 'h2') RETURNING id", g
+            )
+            await conn.execute(
+                "UPDATE devices SET snmp_credentials = $1::jsonb WHERE id = $2",
+                json.dumps(
+                    secretbox.seal_snmp({"version": "v2c", "community": "own"}, "device", d2)
+                ),
+                d2,
+            )
+            dp = await conn.fetchval(
+                "INSERT INTO discovery_profiles (name, targets, group_id, options) "
+                "VALUES ('dp', '{h}', $1, '{\"ping\": true}') RETURNING id",
+                g,
+            )
+
+            async def snapshot() -> list[Any]:
+                return [
+                    tuple(r)
+                    for r in await conn.fetch(
+                        "SELECT 'g', id, snmp_credentials::text, ssh_credentials::text FROM groups "
+                        "UNION ALL SELECT 'd', id, snmp_credentials::text, ssh_credentials::text "
+                        "FROM devices ORDER BY 1, 2"
+                    )
+                ]
+
+            def effective(rows: list[Any], did: int) -> dict[str, Any]:
+                by = {(t, i): s for t, i, s, _ in rows}
+                dev = by[("d", did)]
+                grp = by[("g", g)]
+                return resolve_credentials(
+                    json.loads(dev) if dev else None, [(g, json.loads(grp) if grp else None)], did
+                )[0]
+
+            before = await snapshot()
+        finally:
+            await conn.close()
+        await run_migrations(engine, secret_key=key)  # 0018 -> head
+        conn = await asyncpg.connect(_plain(url))
+        try:
+            assert await conn.fetchval("SELECT version_num FROM alembic_version") == HEAD
+            after = await snapshot()
+            assert after == before  # no data changed: every effective credential identical
+            assert effective(after, d1) == effective(before, d1)
+            assert effective(after, d1)["community"] == "gc"
+            assert effective(after, d2)["community"] == "own"
+            # profiles: d1 references an SNMP profile; d2 keeps its manual data dormant behind
+            # one; the group references an SSH profile; the discovery profile lists both
+            sp = await conn.fetchval(
+                "INSERT INTO connection_profiles (kind, name, data) VALUES ('snmp', 'p', '{}') "
+                "RETURNING id"
+            )
+            await conn.execute(
+                "UPDATE connection_profiles SET data = $1::jsonb WHERE id = $2",
+                json.dumps(
+                    secretbox.seal_with(
+                        key, {"version": "v2c", "community": "pc", "port": 1161},
+                        secretbox.SNMP_FIELDS, secretbox.conn_profile_owner(sp), False,
+                    )
+                ),
+                sp,
+            )  # fmt: skip
+            hp = await conn.fetchval(
+                "INSERT INTO connection_profiles (kind, name, data) VALUES ('ssh', 'h', $1::jsonb) "
+                "RETURNING id",
+                json.dumps(
+                    {"username": "su", "port": 22,
+                     "password_enc": crypto.encrypt(key, "spw", b"ssh.password")}
+                ),
+            )  # fmt: skip
+            refs = [("snmp", sp, "device_id", d1), ("snmp", sp, "device_id", d2),
+                    ("ssh", hp, "group_id", g)]  # fmt: skip
+            for kind, pid, col, node in refs:
+                await conn.execute(
+                    f"INSERT INTO connection_profile_assignments (kind, profile_id, {col}) "
+                    "VALUES ($1, $2, $3)",
+                    kind,
+                    pid,
+                    node,
+                )
+            await conn.execute(
+                "UPDATE discovery_profiles SET options = options || $1::jsonb WHERE id = $2",
+                json.dumps({"snmp_profile_ids": [sp], "ssh_profile_ids": [hp],
+                            "ssh_credentials": {"username": "t"}}),
+                dp,
+            )  # fmt: skip
+            with_refs = await snapshot()
+        finally:
+            await conn.close()
+        # an unreadable profile secret stops the downgrade, nothing changed
+        conn = await asyncpg.connect(_plain(url))
+        try:
+            good = await conn.fetchval("SELECT data FROM connection_profiles WHERE id = $1", sp)
+            await conn.execute(
+                "UPDATE connection_profiles SET data = $1::jsonb WHERE id = $2",
+                json.dumps(secretbox.seal_with(
+                    secrets.token_urlsafe(48), {"community": "x"}, secretbox.SNMP_FIELDS,
+                    secretbox.conn_profile_owner(sp), False,
+                )),
+                sp,
+            )  # fmt: skip
+        finally:
+            await conn.close()
+        with pytest.raises(RuntimeError, match="cannot be decrypted"):
+            await run_migrations(engine, secret_key=key, target="0018")
+        conn = await asyncpg.connect(_plain(url))
+        try:
+            assert await conn.fetchval("SELECT version_num FROM alembic_version") == HEAD
+            assert await snapshot() == with_refs
+            assert await conn.fetchval("SELECT count(*) FROM connection_profile_assignments") == 3
+            await conn.execute(
+                "UPDATE connection_profiles SET data = $1::jsonb WHERE id = $2", good, sp
+            )
+        finally:
+            await conn.close()
+        # downgrade: materialised into the node columns (the profile value wins over dormant)
+        await run_migrations(engine, secret_key=key, target="0018")
+        conn = await asyncpg.connect(_plain(url))
+        try:
+            assert await conn.fetchval("SELECT version_num FROM alembic_version") == "0018"
+            tables = await _tables(url)
+            assert "connection_profiles" not in tables
+            assert "connection_profile_assignments" not in tables
+            cols = {
+                r["column_name"]
+                for r in await conn.fetch(
+                    "SELECT column_name FROM information_schema.columns "
+                    "WHERE table_name IN ('discovery_results', 'discovery_scans')"
+                )
+            }
+            assert not cols & {"snmp_profile_id", "ssh_ok", "ssh_attempted", "ssh_candidates"}
+            opts = json.loads(
+                await conn.fetchval("SELECT options FROM discovery_profiles WHERE id = $1", dp)
+            )
+            assert opts == {"ping": True}
+            rows = await snapshot()
+            for did in (d1, d2):  # 1.6 polls (the 0018 resolver) use the profile's values
+                creds = effective(rows, did)
+                assert (creds["community"], creds["port"]) == ("pc", 1161)
+            stored = json.loads(
+                await conn.fetchval("SELECT ssh_credentials FROM groups WHERE id = $1", g)
+            )
+            assert ssh_credentials.decrypt(stored, key).password == "spw"
+        finally:
+            await conn.close()
+        await run_migrations(engine, secret_key=key)  # up again
+        conn = await asyncpg.connect(_plain(url))
+        try:
+            assert await conn.fetchval("SELECT version_num FROM alembic_version") == HEAD
+            assert await conn.fetchval("SELECT count(*) FROM connection_profiles") == 0
+        finally:
+            await conn.close()
+    finally:
+        secretbox.restore(saved)
         await engine.dispose()
         await admin.execute(f'DROP DATABASE IF EXISTS "{name}" WITH (FORCE)')
         await admin.close()
