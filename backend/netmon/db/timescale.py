@@ -19,6 +19,78 @@ class TimescaleStatus:
     retention_policy: bool = False
 
 
+def _version_tuple(v: str | None) -> tuple[int, ...]:
+    out: list[int] = []
+    for part in (v or "").split("."):
+        digits = "".join(ch for ch in part if ch.isdigit())
+        if not digits:
+            break
+        out.append(int(digits))
+    return tuple(out)
+
+
+async def update_extension(engine: AsyncEngine, disabled: bool = False) -> str | None:
+    """[1.5.0] `ALTER EXTENSION timescaledb UPDATE` when the server ships a newer TimescaleDB
+    than the one installed in this database (e.g. after the DB image moved to a newer
+    timescale/timescaledb tag). Until then the database keeps running the old extension
+    library, whose background jobs (retention, compression, continuous-aggregate refresh)
+    can fail on newer PostgreSQL minor releases (TimescaleDB 2.31.1 / 2.32.1 release notes).
+
+    TimescaleDB only allows the update as the FIRST statement of a fresh session, so it runs
+    on a dedicated asyncpg connection; sessions that loaded the old version are restarted by
+    the server, so the pool is disposed afterwards. Call it while this instance holds the
+    single-instance lock, before other work. Needs the extension owner (the DB superuser in
+    the Docker deployment); otherwise a WARNING with the manual command is logged and the app
+    carries on with the installed version. Returns the new version, or None when nothing
+    was updated."""
+    if disabled:
+        return None
+    async with engine.connect() as conn:
+        row = (
+            await conn.execute(
+                text(
+                    "SELECT installed_version, default_version FROM pg_available_extensions "
+                    "WHERE name = 'timescaledb'"
+                )
+            )
+        ).first()
+    if row is None or row[0] is None or row[1] is None:
+        return None
+    installed, available = str(row[0]), str(row[1])
+    if _version_tuple(installed) >= _version_tuple(available):
+        return None
+    # A pooled session has the old library loaded now (any statement loads it): drop them.
+    await engine.dispose()
+    import asyncpg
+
+    url = engine.url.set(drivername="postgresql").render_as_string(hide_password=False)
+    try:
+        conn2 = await asyncpg.connect(
+            url, server_settings={"application_name": "netmon-timescale-update"}, timeout=30
+        )
+        try:
+            await conn2.execute("ALTER EXTENSION timescaledb UPDATE")
+            new = await conn2.fetchval(
+                "SELECT extversion FROM pg_extension WHERE extname = 'timescaledb'"
+            )
+        finally:
+            await conn2.close()
+    except Exception as exc:  # noqa: BLE001
+        log.warning(
+            "TimescaleDB %s is installed in this database but the server provides %s, and the "
+            "automatic update failed (%s). Run as the database superuser: "
+            'psql -X -d <database> -c "ALTER EXTENSION timescaledb UPDATE"',
+            installed,
+            available,
+            _short(exc),
+        )
+        return None
+    finally:
+        await engine.dispose()
+    log.info("TimescaleDB extension updated from %s to %s", installed, new)
+    return str(new)
+
+
 async def bootstrap(engine: AsyncEngine, retention_days: int, disabled: bool = False) -> bool:
     """Returns True when TimescaleDB is enabled for `measurements`."""
     return (await bootstrap_status(engine, retention_days, disabled)).enabled

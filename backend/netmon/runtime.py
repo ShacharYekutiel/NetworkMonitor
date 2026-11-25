@@ -157,6 +157,18 @@ class Runtime:
             await self._acquire_lock()
             self._tasks.append(asyncio.create_task(self._lock_watch_loop(), name="netmon-lock"))
         if migrate:
+            # [1.5.0] a newer TimescaleDB in the DB image is applied to this database first
+            # (needs a fresh session; we hold the single-instance lock here)
+            updated = await timescale.update_extension(
+                self.engine, disabled=s.netmon_disable_timescale
+            )
+            if updated and self._lock_conn is not None:
+                # the server restarts every session that loaded the old library, the lock
+                # connection included: take the lock again on a fresh session
+                old_conn, self._lock_conn = self._lock_conn, None
+                with contextlib.suppress(Exception):
+                    await old_conn.close()
+                await self._acquire_lock()
             await run_migrations(self.engine, secret_key=self.secret_key)
         await self._secrets_at_rest()
         from netmon.services import security as security_svc
