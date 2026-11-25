@@ -133,6 +133,12 @@ export function TopologyChart({
     px: [number, number];
     pos: [number, number] | null;
   } | null>(null);
+  /** A node is held (drag in progress). Re-applying the series now would put the node back to
+   * its stored position and end the drag (a live update — any sensor result changes the tree —
+   * lands mid-drag on a busy system), so option updates wait until the pointer is released. */
+  const heldRef = useRef(false);
+  const deferredRef = useRef(false);
+  const [releaseTick, setReleaseTick] = useState(0);
   const cb = useRef({
     onPositions,
     onSave,
@@ -200,7 +206,23 @@ export function TopologyChart({
         px: [params.event.offsetX, params.event.offsetY],
         pos: readPositions(c, idsRef.current)[id] ?? null,
       };
+      heldRef.current = true;
     });
+    // The release (anywhere, also outside the canvas) ends the hold once the chart's own mouseup
+    // handler below has run (same input task), then applies the updates that waited.
+    const release = () => {
+      if (!heldRef.current) return;
+      setTimeout(() => {
+        heldRef.current = false;
+        downRef.current = null;
+        if (deferredRef.current) {
+          deferredRef.current = false;
+          setReleaseTick((x) => x + 1);
+        }
+      });
+    };
+    window.addEventListener('pointerup', release);
+    window.addEventListener('pointercancel', release);
     // Dragging ends on mouseup: keep the node where it was dropped, and save it (admins only).
     // A plain click (≤ 3 px of pointer movement, or no layout change) never saves.
     c.on('mouseup', (p) => {
@@ -233,6 +255,8 @@ export function TopologyChart({
       return { zoom, tile: 56 * zoom, nodes };
     };
     return () => {
+      window.removeEventListener('pointerup', release);
+      window.removeEventListener('pointercancel', release);
       ro.disconnect();
       c.dispose();
       chart.current = null;
@@ -243,6 +267,10 @@ export function TopologyChart({
   useEffect(() => {
     const c = chart.current;
     if (!c) return;
+    if (heldRef.current) {
+      deferredRef.current = true;
+      return;
+    }
     const tk = chartTokens(dark);
     const measure = canvasLabelMeasurer(tk.fontDisplay);
     const keys = new Set(graph.nodes.map((n) => n.key));
@@ -421,7 +449,19 @@ export function TopologyChart({
       },
       { replaceMerge: ['series'] },
     );
-  }, [graph, dark, showTraffic, positions, resetToken, fitToken, groups, selected, zoomStep, t]);
+  }, [
+    graph,
+    dark,
+    showTraffic,
+    positions,
+    resetToken,
+    fitToken,
+    groups,
+    selected,
+    zoomStep,
+    t,
+    releaseTick,
+  ]);
 
   // The canvas is never mirrored: coordinates are absolute (architecture.md § 10.3 RTL).
   return (
