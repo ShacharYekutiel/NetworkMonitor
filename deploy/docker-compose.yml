@@ -106,7 +106,7 @@ services:
       dockerfile: Dockerfile
       args:
         NODE_IMAGE: ${NETMON_NODE_IMAGE:-node:22-slim}
-        PYTHON_IMAGE: ${NETMON_PYTHON_IMAGE:-python:3.12-slim}
+        PYTHON_IMAGE: ${NETMON_PYTHON_IMAGE:-python:3.14-slim}
     image: ${NETMON_IMAGE:-networkmonitor:local}
     restart: unless-stopped
     # [1.4.2] non-root (uid 10001) with NO capability: unprivileged ICMP sockets (sysctl

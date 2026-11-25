@@ -5,7 +5,7 @@
 # Base images are build arguments, so a registry mirror can be used when Docker Hub
 # rate-limits pulls, e.g.:
 #   docker build --build-arg NODE_IMAGE=mirror.gcr.io/library/node:22-slim \
-#                --build-arg PYTHON_IMAGE=mirror.gcr.io/library/python:3.12-slim .
+#                --build-arg PYTHON_IMAGE=mirror.gcr.io/library/python:3.14-slim .
 #
 # Runtime contract (docs/architecture.md §8):
 #   - entrypoint `netmon serve` (migrations run automatically at startup)
@@ -47,7 +47,9 @@
 # which carries cap_net_raw as a file capability).
 
 ARG NODE_IMAGE=node:22-slim
-ARG PYTHON_IMAGE=python:3.12-slim
+# [1.5.0] Python 3.14, not 3.15: google-re2 publishes no cp315 wheels yet (building it would
+# need libre2/abseil/pybind11 in the image). The code still supports Python >= 3.12.
+ARG PYTHON_IMAGE=python:3.14-slim
 
 # ---------------------------------------------------------------------------
 # Stage 0: Python base with the corporate CAs (deploy/certs) in the OS trust store.
