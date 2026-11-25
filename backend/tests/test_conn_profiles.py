@@ -966,23 +966,43 @@ async def test_ws_and_logs_never_carry_secrets(
 
 
 async def test_device_list_does_not_query_per_device(admin: httpx.AsyncClient, rt: Runtime) -> None:
-    """Inventory loads assignments and profiles in one query each."""
+    """Inventory loads assignments and profiles in one query each.
+
+    Only the request's own statements are counted: the listener is engine-wide, and the
+    runtime's background rollup task (`Runtime._rollup_loop`, woken 0.2 s after each device
+    write) runs `load_inventory` on the same engine, so it used to land inside the window
+    now and then (2 counted instead of 1). A context variable set here is inherited by the
+    request's tasks (and SQLAlchemy's greenlets) but not by tasks created earlier."""
+    import contextvars
+
+    from sqlalchemy import event
+
     p = await profile(admin, "snmp", "Many", snmp_creds())
     for i in range(5):
         await make_device(admin, name=f"m{i}", snmp_profile_id=p["id"] if i % 2 else None)
-    from sqlalchemy import event
 
+    in_request: contextvars.ContextVar[bool] = contextvars.ContextVar("in_request", default=False)
     statements: list[str] = []
+    background: list[str] = []
 
     def count(*args: Any) -> None:
-        statements.append(str(args[2]))
+        (statements if in_request.get() else background).append(str(args[2]))
 
+    # a background inventory load overlapping the request, in a context without the marker
+    # (as the rollup task's): it must reach the listener but not be counted
+    bg = asyncio.create_task(rt.publish_rollup_changes(), context=contextvars.Context())
     engine = rt.engine.sync_engine  # type: ignore[union-attr]
     event.listen(engine, "before_cursor_execute", count)
     try:
-        r = await admin.get("/api/devices")
+        token = in_request.set(True)
+        try:
+            r = await admin.get("/api/devices")
+        finally:
+            in_request.reset(token)
+        await bg
     finally:
         event.remove(engine, "before_cursor_execute", count)
+    assert any("connection_profile_assignments" in s for s in background)
     assert r.json()["total"] == 5
     assert sum("connection_profile_assignments" in s for s in statements) == 1
     assert sum("FROM connection_profiles" in s for s in statements) == 1
