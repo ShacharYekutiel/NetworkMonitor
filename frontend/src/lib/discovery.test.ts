@@ -59,6 +59,10 @@ const opts: ScanOptions = {
   fingerprint: true,
   fingerprint_timeout_ms: 2000,
   snmp_profile_ids: [],
+  ssh_profile_ids: [],
+  ssh_credentials: null,
+  ssh_credentials_set: false,
+  ssh_username: null,
 };
 
 function scan(p: Partial<DiscoveryScan> = {}): DiscoveryScan {
@@ -815,6 +819,66 @@ describe('fix round', () => {
     expect(rows[2]).toMatchObject({ kind: 'error', retry: false });
     expect(retryIds(rows)).toEqual([1, 2, 4]);
     expect(i18n.getFixedT('he')('discovery.notImportedRetry')).toBe('לא יובא — נסו שוב');
+  });
+
+  it('[profiles] connection profiles and the opt-in SSH check', () => {
+    const f = scanOptionsForm();
+    expect(f.ssh_check).toBe(false);
+    const off = scanOptionsToInput({ ...f, snmp_profile_ids: [3, 1, 3] }).options;
+    expect(off.snmp_profile_ids).toEqual([3, 1]);
+    expect(off.ssh_profile_ids).toEqual([]);
+    expect('ssh_credentials' in off).toBe(false);
+    expect(
+      scanOptionsToInput({ ...f, snmp_profile_ids: [1, 2, 3, 4, 5, 6, 7, 8, 9] }).errors
+        .snmp_profile_ids,
+    ).toBe('discovery.err.connProfiles');
+    // on without a candidate
+    expect(scanOptionsToInput({ ...f, ssh_check: true }).errors.ssh_candidates).toBe(
+      'discovery.err.sshCandidates',
+    );
+    // needs TCP probing
+    expect(
+      scanOptionsToInput({ ...f, ssh_check: true, ssh_profile_ids: [5], tcp: false }).errors
+        .ssh_tcp,
+    ).toBe('discovery.err.sshTcp');
+    const typed = scanOptionsToInput({
+      ...f,
+      ssh_check: true,
+      ssh_profile_ids: [5, 6],
+      ssh_typed: true,
+      ssh: { ...f.ssh, username: 'ops', password: { value: 'pw', clear: false } },
+    });
+    expect(typed.errors).toEqual({});
+    expect(typed.options.ssh_profile_ids).toEqual([5, 6]);
+    expect(typed.options.ssh_credentials).toMatchObject({ username: 'ops', password: 'pw' });
+    expect(
+      scanOptionsToInput({ ...f, ssh_check: true, ssh_profile_ids: [1, 2, 3, 4] }).errors
+        .ssh_profile_ids,
+    ).toBe('discovery.err.sshProfiles');
+  });
+
+  it('[profiles] stored typed SSH credentials: kept, or removed when the check is off', () => {
+    const f = scanOptionsForm({
+      ...opts,
+      ssh_profile_ids: [],
+      ssh_credentials_set: true,
+      ssh_username: 'ops',
+    });
+    expect(f.ssh_check).toBe(true);
+    expect(f.ssh_typed).toBe(true);
+    expect(f.ssh.username).toBe('ops');
+    const kept = scanOptionsToInput(f);
+    expect(kept.errors).toEqual({});
+    expect('ssh_credentials' in kept.options).toBe(false);
+    expect(scanOptionsToInput({ ...f, ssh_check: false }).options.ssh_credentials).toBeNull();
+    expect(
+      scanOptionsToInput({ ...f, ssh_typed: false, ssh_profile_ids: [2] }).options.ssh_credentials,
+    ).toBeNull();
+    // edited: merged over the stored object (no secret needed)
+    expect(
+      scanOptionsToInput({ ...f, ssh_touched: true, ssh: { ...f.ssh, username: 'root' } }).options
+        .ssh_credentials,
+    ).toMatchObject({ username: 'root' });
   });
 
   it('extra communities are a list of rows', () => {

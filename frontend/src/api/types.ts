@@ -9,6 +9,7 @@ import type {
   ReportRun,
   Settings3,
   SshCredentials,
+  SshCredentialsInput,
 } from './types3';
 export * from './types3';
 export * from './types3b';
@@ -963,6 +964,12 @@ export type ScanOptions = {
   fingerprint_timeout_ms: number;
   /** [profiles] SNMP connection profiles to try, in order (0–8) */
   snmp_profile_ids: number[];
+  /** [profiles] opt-in SSH login check: SSH connection profiles (0–3), in order */
+  ssh_profile_ids: number[];
+  /** write-only (always null in responses) */
+  ssh_credentials: null;
+  ssh_credentials_set: boolean;
+  ssh_username: string | null;
 };
 
 /** Request form: every key optional; secrets are real values. */
@@ -990,6 +997,9 @@ export type ScanOptionsInput = Partial<{
   fingerprint_timeout_ms: number;
   /** [profiles] */
   snmp_profile_ids: number[];
+  ssh_profile_ids: number[];
+  /** omitted = keep / none; null = remove; object replaces (secret rules of [3]) */
+  ssh_credentials: SshCredentialsInput | null;
 }>;
 
 export type DiscoveryProfile = {
@@ -1043,6 +1053,12 @@ export type DiscoveryResult = {
   /** [profiles] the profile of the credential that answered (also for 'group'); current name */
   snmp_profile_id?: number | null;
   snmp_profile_name?: string | null;
+  /** [profiles] opt-in SSH login check */
+  ssh_attempted?: boolean;
+  ssh_ok?: boolean;
+  ssh_credential?: 'profile' | 'typed' | null;
+  ssh_profile_id?: number | null;
+  ssh_profile_name?: string | null;
   sys_name: string | null;
   sys_descr: string | null;
   sys_object_id: string | null;
@@ -1246,7 +1262,15 @@ export type ApplyInterface = {
 };
 export type ApplyInterfacesResponse = { items: ApplyInterface[]; inventory: 'ok' | 'missing' };
 
-export type ImportItem = { result_id: number; template_id: string; name?: string | null };
+export type ImportItem = {
+  result_id: number;
+  template_id: string;
+  name?: string | null;
+  /** [profiles] omitted / null = true when SNMP answered; false = inherit from the group */
+  save_snmp?: boolean | null;
+  /** [profiles] omitted / null = true when an SSH login succeeded */
+  save_ssh?: boolean | null;
+};
 export type ImportRequest = { group_id?: number | null; items: ImportItem[] };
 export type ImportErrorCode = 'not_found' | 'device_exists' | 'internal_error';
 export type ImportResponse = {
@@ -1260,6 +1284,8 @@ export type ImportResponse = {
     /** [profiles] null when SNMP did not answer */
     snmp_mode?: CredentialMode | null;
     snmp_profile_id?: number | null;
+    ssh_mode?: CredentialMode | null;
+    ssh_profile_id?: number | null;
   }[];
   errors: { result_id: number; code: ImportErrorCode; message: string; device_id: number | null }[];
 };

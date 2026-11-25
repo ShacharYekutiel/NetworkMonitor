@@ -71,6 +71,16 @@ import {
 import { errorMessage } from '../lib/errors';
 import { formatDateTime, formatNumber, formatRelative } from '../lib/format';
 import { importRows, retryIds, templateName, type ImportRow } from '../lib/templates';
+import {
+  canSave,
+  isSaved,
+  NO_SAVE_OFF,
+  saveFields,
+  setOne,
+  type SaveKind,
+  type SaveOff,
+} from '../lib/importSave';
+import { SaveCheckbox, SaveHeaderCheckbox } from '../components/discovery/ImportSave';
 
 const POLL_MS = 2000;
 
@@ -257,6 +267,9 @@ function ResultRow({
   edit,
   onEdit,
   disabled,
+  sshChecked,
+  save,
+  onSave,
 }: {
   r: DiscoveryResult;
   templates: DeviceTemplate[];
@@ -265,6 +278,10 @@ function ResultRow({
   edit: RowEdit;
   onEdit: (e: RowEdit) => void;
   disabled: boolean;
+  /** [profiles] */
+  sshChecked: boolean;
+  save: SaveOff;
+  onSave: (kind: SaveKind, on: boolean) => void;
 }) {
   const { t } = useTranslation();
   const existing = isExisting(r);
@@ -358,7 +375,7 @@ function ResultRow({
           </div>
         </td>
         <td className={`${td} min-w-[10rem]`}>
-          <ReachabilityChips r={r} />
+          <ReachabilityChips r={r} sshChecked={sshChecked} />
         </td>
         <td className={td}>
           <StateCell r={r} />
@@ -377,11 +394,23 @@ function ResultRow({
             />
           )}
         </td>
+        <td className={`${td} text-center`}>
+          {!existing && (
+            <SaveCheckbox r={r} kind="snmp" save={save} onSave={onSave} disabled={disabled} />
+          )}
+        </td>
+        {sshChecked && (
+          <td className={`${td} text-center`}>
+            {!existing && (
+              <SaveCheckbox r={r} kind="ssh" save={save} onSave={onSave} disabled={disabled} />
+            )}
+          </td>
+        )}
       </tr>
       {fp && fpOpen && (
         <tr className={cx(selected && 'bg-accent-soft')}>
           <td className={td} />
-          <td className={td} colSpan={6}>
+          <td className={td} colSpan={sshChecked ? 8 : 7}>
             <FingerprintView fp={fp} />
           </td>
         </tr>
@@ -399,6 +428,9 @@ function ResultCard({
   edit,
   onEdit,
   disabled,
+  sshChecked,
+  save,
+  onSave,
 }: Parameters<typeof ResultRow>[0]) {
   const { t } = useTranslation();
   const existing = isExisting(r);
@@ -432,7 +464,7 @@ function ResultCard({
               </span>
             )}
             <ConfidenceChip confidence={r.confidence} by={r.classified_by} />
-            <ReachabilityChips r={r} />
+            <ReachabilityChips r={r} sshChecked={sshChecked} />
           </div>
           {hasFingerprint(r.fingerprint) && (
             <details className="mt-1.5 min-w-0">
@@ -470,18 +502,71 @@ function ResultCard({
             dir="auto"
             aria-label={t('discovery.deviceName', { ip: r.ip })}
           />
+          <div className="flex flex-wrap gap-x-4 gap-y-1">
+            <SaveCheckbox
+              r={r}
+              kind="snmp"
+              save={save}
+              onSave={onSave}
+              disabled={disabled}
+              withLabel
+            />
+            {sshChecked && (
+              <SaveCheckbox
+                r={r}
+                kind="ssh"
+                save={save}
+                onSave={onSave}
+                disabled={disabled}
+                withLabel
+              />
+            )}
+          </div>
         </div>
       )}
     </li>
   );
 }
 
+/** [profiles] What the import stored for SNMP / SSH on a created device. */
+function CredSaved({
+  row,
+  results,
+}: {
+  row: Extract<ImportRow, { kind: 'created' }>;
+  results: DiscoveryResult[];
+}) {
+  const { t } = useTranslation();
+  const r = results.find((x) => x.id === row.result_id);
+  const parts: string[] = [];
+  if (row.snmp_mode)
+    parts.push(
+      t(`discovery.importSnmp.${row.snmp_mode}`, {
+        name: r?.snmp_profile_name ?? `#${row.snmp_profile_id ?? ''}`,
+      }),
+    );
+  if (row.ssh_mode)
+    parts.push(
+      t(`discovery.importSsh.${row.ssh_mode}`, {
+        name: r?.ssh_profile_name ?? `#${row.ssh_profile_id ?? ''}`,
+      }),
+    );
+  if (!parts.length) return null;
+  return (
+    <span className="basis-full text-xs text-ink-muted" data-testid="import-cred-saved">
+      <bdi>{parts.join(' · ')}</bdi>
+    </span>
+  );
+}
+
 function ImportSummary({
   rows,
   templates,
+  results,
 }: {
   rows: ImportRow[];
   templates: DeviceTemplate[] | undefined;
+  results: DiscoveryResult[];
 }) {
   const { t, i18n } = useTranslation();
   const created = rows.filter((r) => r.kind === 'created').length;
@@ -518,6 +603,7 @@ function ImportSummary({
                       {templateName(templates, row.template_id, i18n.language)} ·{' '}
                       {t('discovery.sensorsCreated', { count: row.sensors_created })}
                     </span>
+                    <CredSaved row={row} results={results} />
                   </>
                 )}
                 {row.kind === 'error' && row.retry && (
@@ -587,6 +673,8 @@ export function ScanPage() {
   const [edits, setEdits] = useState<Record<number, RowEdit>>({});
   const [groupId, setGroupId] = useState<number | null>(null);
   const [summary, setSummary] = useState<ImportRow[] | null>(null);
+  // [profiles] hosts whose working SNMP / SSH settings are NOT saved on import
+  const [saveOff, setSaveOff] = useState<SaveOff>(NO_SAVE_OFF);
   const [importFailed, setImportFailed] = useState<unknown>(null);
   const [cancelAsk, setCancelAsk] = useState(false);
   const [deleteAsk, setDeleteAsk] = useState(false);
@@ -665,6 +753,8 @@ export function ScanPage() {
   if (scan.isLoading) return <Loading />;
   if (scan.error || !scan.data) return <ErrorBox error={scan.error} />;
   const s = scan.data;
+  const sshChecked = !!(s.options.ssh_profile_ids?.length || s.options.ssh_credentials_set);
+  const snmpOffChosen = chosen.some((r) => canSave(r, 'snmp') && !isSaved(saveOff, r, 'snmp'));
 
   const startImport = () =>
     doImport.mutate(
@@ -672,6 +762,7 @@ export function ScanPage() {
         result_id: r.id,
         template_id: edits[r.id]?.template ?? r.suggested_template,
         name: edits[r.id]?.name?.trim() || null,
+        ...saveFields(saveOff, r),
       })),
     );
   const setRowSelected = (rid: number, v: boolean) =>
@@ -689,6 +780,9 @@ export function ScanPage() {
     edit: edits[r.id] ?? {},
     onEdit: (e: RowEdit) => setEdits((x) => ({ ...x, [r.id]: e })),
     disabled: doImport.isPending,
+    sshChecked,
+    save: saveOff,
+    onSave: (kind: SaveKind, on: boolean) => setSaveOff((o) => setOne(o, r.id, kind, on)),
   });
 
   return (
@@ -781,6 +875,26 @@ export function ScanPage() {
                     <th className={th}>{t('discovery.reachability')}</th>
                     <th className={th}>{t('common.status')}</th>
                     <th className={th}>{t('templates.template')}</th>
+                    <th className={th}>
+                      <SaveHeaderCheckbox
+                        rows={selectable}
+                        kind="snmp"
+                        save={saveOff}
+                        onChange={setSaveOff}
+                        disabled={doImport.isPending}
+                      />
+                    </th>
+                    {sshChecked && (
+                      <th className={th}>
+                        <SaveHeaderCheckbox
+                          rows={selectable}
+                          kind="ssh"
+                          save={saveOff}
+                          onChange={setSaveOff}
+                          disabled={doImport.isPending}
+                        />
+                      </th>
+                    )}
                   </tr>
                 </thead>
                 <tbody>
@@ -808,6 +922,26 @@ export function ScanPage() {
                     })
                   }
                 />
+                <div className="mt-1 flex flex-wrap gap-x-4 gap-y-1">
+                  <SaveHeaderCheckbox
+                    rows={selectable}
+                    kind="snmp"
+                    save={saveOff}
+                    onChange={setSaveOff}
+                    disabled={doImport.isPending}
+                    withLabel
+                  />
+                  {sshChecked && (
+                    <SaveHeaderCheckbox
+                      rows={selectable}
+                      kind="ssh"
+                      save={saveOff}
+                      onChange={setSaveOff}
+                      disabled={doImport.isPending}
+                      withLabel
+                    />
+                  )}
+                </div>
               </div>
               <ul className="divide-y divide-line">
                 {visible.map((r) => (
@@ -825,6 +959,11 @@ export function ScanPage() {
             <div className="flex flex-1 flex-wrap items-center justify-end gap-2">
               {running && (
                 <span className="text-xs text-ink-muted">{t('discovery.importAfterScan')}</span>
+              )}
+              {snmpOffChosen && (
+                <span className="text-xs text-status-warning" data-testid="save-snmp-off-hint">
+                  {t('discovery.save.snmpOffHint')}
+                </span>
               )}
               <Button
                 variant="primary"
@@ -856,7 +995,7 @@ export function ScanPage() {
           </Button>
         }
       >
-        {summary && <ImportSummary rows={summary} templates={templates.data} />}
+        {summary && <ImportSummary rows={summary} templates={templates.data} results={all} />}
       </Modal>
       <ConfirmDialog
         open={cancelAsk}

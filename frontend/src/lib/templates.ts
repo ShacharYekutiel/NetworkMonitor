@@ -1,6 +1,7 @@
 import type { TFunction } from 'i18next';
 import { SKIP_REASONS } from '../api/types';
 import type {
+  CredentialMode,
   Confidence,
   SkipReason,
   TemplateFilter,
@@ -179,6 +180,11 @@ export type ImportRow =
       template_id: string;
       sensors_created: number;
       sensors_skipped: SkippedSensor[];
+      /** [profiles] what was stored for SNMP / SSH (null: nothing answered) */
+      snmp_mode?: CredentialMode | null;
+      snmp_profile_id?: number | null;
+      ssh_mode?: CredentialMode | null;
+      ssh_profile_id?: number | null;
     }
   | {
       kind: 'error';

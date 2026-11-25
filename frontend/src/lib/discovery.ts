@@ -1,3 +1,5 @@
+import { sshFormErrors, sshFormFrom, sshFormToInput, type SshForm } from './configBackup';
+import type { SshCredentials } from '../api/types3';
 import type {
   DeviceClass,
   DiscoveryFinished,
@@ -192,7 +194,22 @@ export type ScanOptionsForm = {
   /** [2b-1] */
   fingerprint: boolean;
   fingerprint_timeout_ms: string;
+  /** [profiles] SNMP connection profiles, in the order they are tried */
+  snmp_profile_ids: number[];
+  /** [profiles] opt-in SSH login check (off = the scan is as before 1.7.0) */
+  ssh_check: boolean;
+  ssh_profile_ids: number[];
+  /** typed SSH credentials are used */
+  ssh_typed: boolean;
+  ssh: SshForm;
+  /** the typed SSH fields were edited (else stored ones are kept) */
+  ssh_touched: boolean;
+  /** stored typed SSH credentials (editing a discovery profile) */
+  stored_ssh: boolean;
 };
+
+export const MAX_SNMP_PROFILES = 8;
+export const MAX_SSH_PROFILES = 3;
 
 export function newExtraV3(): ExtraV3Form {
   return {
@@ -224,6 +241,13 @@ export function scanOptionsForm(o?: ScanOptions | null): ScanOptionsForm {
     dns: o?.dns ?? true,
     fingerprint: o?.fingerprint ?? true,
     fingerprint_timeout_ms: String(o?.fingerprint_timeout_ms ?? 2000),
+    snmp_profile_ids: o?.snmp_profile_ids ?? [],
+    ssh_check: !!(o?.ssh_profile_ids?.length || o?.ssh_credentials_set),
+    ssh_profile_ids: o?.ssh_profile_ids ?? [],
+    ssh_typed: !!o?.ssh_credentials_set,
+    ssh: { ...sshFormFrom(null), own: true, username: o?.ssh_username ?? '' },
+    ssh_touched: false,
+    stored_ssh: !!o?.ssh_credentials_set,
   };
 }
 
@@ -237,7 +261,12 @@ export type OptionsErrors = Partial<
     | 'extra_v3'
     | 'tcp_ports'
     | 'tcp_timeout_ms'
-    | 'fingerprint_timeout_ms',
+    | 'fingerprint_timeout_ms'
+    | 'snmp_profile_ids'
+    | 'ssh_profile_ids'
+    | 'ssh_candidates'
+    | 'ssh_tcp'
+    | 'ssh_credentials',
     string
   >
 >;
@@ -308,6 +337,32 @@ export function scanOptionsToInput(f: ScanOptionsForm): {
   if (!ports || ports.length > 32) {
     if (f.tcp) errors.tcp_ports = 'discovery.err.ports';
   } else options.tcp_ports = ports;
+
+  // [profiles] SNMP connection profiles: always sent (a profile PATCH replaces the list)
+  const snmpIds = [...new Set(f.snmp_profile_ids)];
+  if (snmpIds.length > MAX_SNMP_PROFILES) errors.snmp_profile_ids = 'discovery.err.connProfiles';
+  else options.snmp_profile_ids = snmpIds;
+
+  // [profiles] opt-in SSH login check
+  if (!f.ssh_check) {
+    options.ssh_profile_ids = [];
+    if (f.stored_ssh) options.ssh_credentials = null;
+  } else {
+    const sshIds = [...new Set(f.ssh_profile_ids)];
+    if (sshIds.length > MAX_SSH_PROFILES) errors.ssh_profile_ids = 'discovery.err.sshProfiles';
+    else options.ssh_profile_ids = sshIds;
+    if (!sshIds.length && !f.ssh_typed) errors.ssh_candidates = 'discovery.err.sshCandidates';
+    // a candidate is tried only when its port was found open: TCP probing must be on
+    if (!f.tcp) errors.ssh_tcp = 'discovery.err.sshTcp';
+    if (f.ssh_typed) {
+      if (f.ssh_touched || !f.stored_ssh) {
+        const stored = f.stored_ssh ? { password_set: true, private_key_set: false } : null;
+        const errs = sshFormErrors({ ...f.ssh, own: true }, stored as SshCredentials | null);
+        if (errs.length) errors.ssh_credentials = errs[0];
+        else options.ssh_credentials = sshFormToInput({ ...f.ssh, own: true });
+      }
+    } else if (f.stored_ssh) options.ssh_credentials = null;
+  }
 
   if (f.replace_secrets) {
     const communities = f.extra_communities.map((x) => x.trim()).filter(Boolean);

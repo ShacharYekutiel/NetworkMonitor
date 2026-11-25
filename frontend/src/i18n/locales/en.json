@@ -1061,7 +1061,10 @@
       "v3": "Up to 3 v3 users, each with a username.",
       "hours": "Between 1 and 720 hours.",
       "fingerprintTimeout": "500 to 5000 ms.",
-      "connProfiles": "Up to 8 different connection profiles."
+      "connProfiles": "Up to 8 different connection profiles.",
+      "sshProfiles": "Up to 3 different SSH connection profiles.",
+      "sshCandidates": "Choose an SSH connection profile or enter SSH credentials, or turn the SSH check off.",
+      "sshTcp": "The SSH check needs the TCP probe, with the SSH port (22) in its port list."
     },
     "saveAsProfile": "Save as profile",
     "profileName": "Profile name",
@@ -1185,6 +1188,37 @@
       "profile": "SNMP: linked to profile {{name}}",
       "manual": "SNMP: own copy of the credentials",
       "inherit": "SNMP: inherited from the group"
+    },
+    "noSshProfiles": "No SSH connection profiles yet (Settings → Connection profiles).",
+    "sshCheck": "SSH login check (optional)",
+    "sshCheckOn": "Try to log in with SSH on the hosts found",
+    "sshCheckHint": "Off by default. When on, the import can save the SSH settings that worked on each device.",
+    "sshWarning": "Failed SSH logins may lock accounts or raise security alerts on the devices. The check only logs in and disconnects: it sends no command and never changes a device's configuration. Only hosts whose SSH port was found open are tried, once per credential.",
+    "sshProfiles": "SSH connection profiles",
+    "sshProfilesHint": "Tried in this order, before the typed credentials. Up to 3.",
+    "sshTyped": "Also try typed SSH credentials",
+    "sshStored": "Typed credentials are stored for this profile; leave the secret fields empty to keep them.",
+    "sshTypedShort": "typed credentials",
+    "sshOkTitle": "SSH login succeeded with {{what}}",
+    "sshFailedTitle": "No SSH login succeeded",
+    "sshFailed": "failed",
+    "sshNotTriedTitle": "SSH was not tried (port not open)",
+    "sshNotTried": "not tried",
+    "save": {
+      "snmp": "Save SNMP",
+      "ssh": "Save SSH",
+      "snmpFor": "Save the SNMP settings that worked on {{ip}}",
+      "sshFor": "Save the SSH settings that worked on {{ip}}",
+      "snmpNone": "SNMP did not answer",
+      "sshNone": "No SSH login succeeded",
+      "snmpAll": "Save the SNMP settings that worked (all)",
+      "sshAll": "Save the SSH settings that worked (all)",
+      "snmpOffHint": "Without saved SNMP settings a device inherits them from the group; it may not answer if the group's settings differ."
+    },
+    "importSsh": {
+      "profile": "SSH: linked to profile {{name}}",
+      "manual": "SSH: own copy of the credentials",
+      "inherit": "SSH: inherited from the group"
     }
   },
   "ack": {
