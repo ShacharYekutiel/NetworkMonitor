@@ -2,6 +2,7 @@
 // whether the service is up, nothing else. The runtime details (version, uptime, scheduler,
 // receivers, Kerberos, assistant, test mode) are at GET /api/health/details for any signed-in user
 // or API token; the Settings page subtitle still shows them; the login page needs none of them.
+import { randomUUID } from 'node:crypto';
 import { expect, request as pwRequest, test } from '@playwright/test';
 import { Api, BASE_URL, apiAs, loginViaApi, uid } from '../lib/helpers';
 
@@ -24,7 +25,7 @@ const DETAIL_KEYS = [
 ];
 
 let admin: Api;
-const viewer = { username: uid('hv'), password: 'Viewer-pass-92' };
+const viewer = { username: `hv${randomUUID().replace(/-/g, '').slice(0, 12)}`, password: 'Viewer-pass-92' };
 let viewerId = 0;
 let tokenId = 0;
 
