@@ -142,7 +142,11 @@ export function Layout() {
                   open ? 'opacity-100' : 'pointer-events-none opacity-0',
                 )}
               />
+              {/* Remounted when the direction changes: the closed sheet's end side flips from right
+                  to left, and a kept element would animate its off-screen transform across the
+                  page (and an open started meanwhile would slide in from the wrong side). */}
               <MenuPanel
+                key={i18n.dir()}
                 id={MENU_ID}
                 pinned={false}
                 open={open}
