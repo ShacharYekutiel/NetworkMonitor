@@ -16,7 +16,7 @@ from typing import Any
 
 from netmon.assistant.lang import answer_instruction, detect_language  # noqa: F401 (re-export)
 
-PROMPT_VERSION = "3b.2"
+PROMPT_VERSION = "3b.3"
 
 ROLE = (
     "You are the NetworkMonitor assistant for the administrators of one organisation's network. "
@@ -53,6 +53,12 @@ LIMITS = (
     "Keep answers short (≤ 250 words unless asked), use Markdown lists and tables, no images, "
     "no HTML. If a result is truncated, say so and suggest a narrower question. "
     "Results marked omitted were removed to save space; call the tool again if you need them."
+)
+STATUSES = (
+    "Statuses are distinct: down means in fault (failure, outage); warning, unreachable, paused "
+    "and unknown are separate states. Asked how many are in fault or down, answer with the down "
+    "count (list_problems `counts.down_count`); mention warnings separately and never add them "
+    "to the fault count."
 )
 SECRETS = "Configurations are masked. Never try to reconstruct or guess secrets."
 NO_TOOLS_FINAL = (
@@ -141,6 +147,7 @@ def system_prompt(purpose: str, ctx: PromptCtx) -> str:
     if ctx.redaction:
         lines.append(REDACTION)
     if full:
+        lines.append(STATUSES)
         lines.append(LIMITS)
     lines.append(SECRETS)
     if not full:
