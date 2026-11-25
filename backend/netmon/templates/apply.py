@@ -881,36 +881,61 @@ async def _apply_template(
         # [1.3] remove the interface sensors that are not selected (only with a known
         # selection: an explicit list, "none", or a successful enumeration)
         removed: list[dict[str, Any]] = []
+        remove_ids: list[int] = []
         sel_set = selection.selected
         if remove_unselected and sel_set is not None:
             known = isinstance(interfaces, list) or interfaces == "none"
             known = known or (iface_entries > 0 and not iface_failed)
             if known:
-                for row in (
-                    (
-                        await session.execute(
-                            select(Sensor)
-                            .where(Sensor.device_id == device_id, Sensor.type == "snmp_interface")
-                            .order_by(Sensor.id)
-                        )
+                rows = (
+                    await session.execute(
+                        select(Sensor.id, Sensor.type, Sensor.config)
+                        .where(Sensor.device_id == device_id, Sensor.type == "snmp_interface")
+                        .order_by(Sensor.id)
                     )
-                    .scalars()
-                    .all()
-                ):
-                    if row in new_sensors:
+                ).all()
+                new_ids = {s.id for s in new_sensors}  # flushed (ids set) by the query above
+                for r in rows:
+                    if r.id in new_ids:
                         continue
-                    key = identity(row.type, row.config)
+                    key = identity(r.type, r.config)
                     if key is None or key[1] in sel_set:
                         continue
-                    removed.append({"sensor_id": row.id, "name": row.name})
-                    await session.delete(row)
+                    remove_ids.append(r.id)
+        # Lock order: every sensor row to delete is locked (ascending id) before anything of
+        # it is deleted. Deleting a loaded Sensor flushes `DELETE FROM sensor_channels` (the
+        # loaded channels, delete cascade) before `DELETE FROM sensors`, whereas the poller's
+        # result writer (poller.processor.persist) locks the sensor row first and then updates
+        # its channels: without these locks the two transactions can deadlock.
+        locked: dict[int, Sensor] = {}
+        if remove_ids or replace_ids:
+            for row in (
+                (
+                    await session.execute(
+                        select(Sensor)
+                        .where(Sensor.id.in_(sorted(set(remove_ids) | set(replace_ids or []))))
+                        .order_by(Sensor.id)
+                        .with_for_update(of=Sensor)
+                        .execution_options(populate_existing=True)
+                    )
+                )
+                .scalars()
+                .all()
+            ):
+                locked[row.id] = row
+        for sensor_id in remove_ids:
+            row = locked.get(sensor_id)
+            if row is None or row.device_id != device_id:
+                continue  # deleted meanwhile
+            removed.append({"sensor_id": row.id, "name": row.name})
+            await session.delete(row)
         # [template-switch] the sensors this template replaces that the user ticked (validated
         # in apply_template), deleted as DELETE /api/sensors/{id} does (audit row per sensor)
         replaced: list[dict[str, Any]] = []
         for sensor_id in replace_ids or []:
-            row = await session.get(Sensor, sensor_id, with_for_update=True)
-            if row is None or row.device_id != device_id:
-                continue  # deleted meanwhile
+            row = locked.get(sensor_id)
+            if row is None or row.device_id != device_id or sensor_id in remove_ids:
+                continue  # deleted meanwhile (or already removed above)
             if audit_ctx is not None and audit_ctx.enabled:
                 from netmon.api.sensors import sensor_audit_values, sensor_entity
                 from netmon.services import audit
