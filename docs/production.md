@@ -513,6 +513,35 @@ minor > warning > info:
 
 Contract: [api.md § Alert severity](api.md#severity-alert-severity).
 
+## [1.5.0] Upgrade and rollback (read before deploying)
+
+**What changes on upgrade.** Nothing to do before deploying. At the first start 1.5.0 runs migrations 0013–0016 and
+0018 (there is no 0017). The gitops deploy takes its `pg_dump` first, as for every image change.
+
+**What operators notice afterwards.**
+- **New look.** The web UI is redesigned (navigation, device tree, tables, right-click menus). No setting is lost.
+- **`GET /api/health` is minimal** (see "Health endpoint"): the public body is only `{"status": "ok"}`, or
+  `{"status": "fail"}` with HTTP 503 when the database is unreachable (it used to be 200 "degraded"). External
+  monitoring that read the old body must use the HTTP status, or call `/api/health/details` with a viewer token.
+  `ops/status.sh` prints the details only when `/etc/netmon-gitops/status-token` exists.
+- **Syslog flood protection is active at once** (see "[syslog-protection]" above): identical messages within 60 s
+  become one row with a repeat count, and one source is capped at 3000 stored rows per minute. Both have an off
+  switch in *Settings → Traps & syslog*. Filter rules start empty.
+- **Trap authentication warning.** *Settings → Traps & syslog* shows a warning while the mode is "Accept any
+  community". The mode itself is not changed by the upgrade.
+- **Notifications.** When no enabled rule sends to an enabled channel, the Notifications page says so and offers a
+  default rule. Existing rules are untouched.
+- **Alert severity** stays a feature that is off until an admin turns it on (see "Alert severity").
+- **Moving devices and groups** (drag and drop, multi-select, "Move to…") is available to admins. A move that makes
+  devices lose inherited SNMP settings is shown as a warning before it is confirmed.
+
+**The plaintext secret copies are still kept.** 1.5.0 does not remove them (the "[1.4.2] Upgrade and rollback"
+section below still applies); `netmon secrets remove-plaintext` remains the operator's choice.
+
+**Rollback to 1.4.2.** The container rollback works on the migrated database (an older image starts without
+migrating). Rows written by 1.5.0 features (severity values, syslog repeat counts, filter rules) are ignored by
+1.4.2. To go back to the pre-upgrade data, restore the `pre-deploy-<rev>-<ts>.dump` with `ops/restore.sh`.
+
 ## [1.4.2] Upgrade and rollback (read before deploying)
 
 **What changes on upgrade.** Nothing to do. At the first start 1.4.2 runs migration 0012: every stored SNMP
