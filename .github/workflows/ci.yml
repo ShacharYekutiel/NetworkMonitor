@@ -80,7 +80,7 @@ jobs:
           # [3b] botocore is a TEST-ONLY dependency: the Bedrock mock (tests/sim/bedrock) checks
           # every request with botocore's SigV4Auth as an independent implementation. The app
           # itself signs with its own SigV4 code (httpx) and the image never contains botocore.
-          pip install "botocore>=1.34"
+          pip install "botocore>=1.44.11"
           python -c "import botocore; print('botocore', botocore.__version__, '(tests only)')"
 
       # [2b-3] The syslog/trap text search uses pg_trgm (contrib). Both service images ship
