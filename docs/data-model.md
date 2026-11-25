@@ -4800,7 +4800,8 @@ row. The foreign key `fk_cpa_profile_kind` (RESTRICT) is the last safety net for
 - **`discovery_results` gains** `snmp_profile_id integer NULL` (no FK: a snapshot; the profile may be deleted
   later): the `_profile_id` of the credential that answered.
 - **Import** (`netmon.discovery.importer`, pure decision `snmp_choice(C, index, G, G_origin, profile_now,
-  port_used)`), for an item whose SNMP answered. `C` = the credential that answered, `P` = its `_profile_id`,
+  port_used)`), for an item whose SNMP answered and whose `save_snmp` is not `false` (owner addition: per item,
+  omitted = true; `false` → `inherit`, nothing stored, the device may then not answer SNMP). `C` = the credential that answered, `P` = its `_profile_id`,
   `G` = the import group's current effective credentials and `G_origin` their origin:
   1. `index = 0` and `C` equals `G` (the 2a comparison: every field except `timeout_s` / `retries`) → `inherit`
      (unchanged 2a rule).
@@ -4835,8 +4836,7 @@ row. The foreign key `fk_cpa_profile_kind` (RESTRICT) is the last safety net for
   [3] stored form (encrypted; covered by `netmon secrets rekey`). Listing an SSH profile makes it "in use", like
   `snmp_profile_ids`.
 - **Import of SSH** (pure decision `netmon.discovery.importer.ssh_choice(save, ssh_ok, candidate, G_origin,
-  profile_now)`): `save` = the item's `save_ssh`, else the request's `save_ssh`, else `ssh_ok` (default on when a
-  login succeeded). Not saved, or no login succeeded → `inherit` (as before). Else, with `C` the candidate that
+  profile_now)`): `save` = the item's `save_ssh`, else `ssh_ok` (default on when a login succeeded). Not saved, or no login succeeded → `inherit` (as before). Else, with `C` the candidate that
   logged in and `P` its `_profile_id`:
   1. `P` set and the import group's effective SSH already comes from profile `P` → `inherit`;
   2. `P` set and profile `P` still exists with kind `ssh` → mode `profile` (assignment device → `P`);

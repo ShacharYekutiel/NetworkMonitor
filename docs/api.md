@@ -3543,6 +3543,12 @@ discarded or copied manual secrets appear only as `"***"` as before.
   0 stays `"group"` even when the group's credentials come from a profile), and `DiscoveryResult` gains
   `snmp_profile_id: number | null` and `snmp_profile_name: string | null` (the profile of the credential that answered,
   also for `"group"`; the name is the current one, `null` when the profile was deleted since).
+- Each `ImportItem` gains `save_snmp: boolean | null` (owner addition; optional; omitted / null = **true when SNMP
+  answered**, which is exactly the import of earlier releases, so old clients keep their behaviour). `true`: the
+  import rules of [data-model.md § Discovery](data-model.md#profiles-discovery) (a profile that answered is linked;
+  typed / group credentials as in 2a: inherit or a manual copy). `false`: nothing is stored on the device, it
+  inherits SNMP from the import group — **the device may then not answer SNMP** when the group's effective
+  credentials differ from the ones that answered (the UI says so).
 - Import response `created[]` items gain `snmp_mode: "inherit" | "profile" | "manual" | null` (null when SNMP did not
   answer) and `snmp_profile_id: number | null`.
 
@@ -3571,11 +3577,11 @@ security alerts on devices: the UI shows a warning next to the SSH section.
 - `DiscoveryResult` gains `ssh_attempted: boolean`, `ssh_ok: boolean`, `ssh_credential: "profile" | "typed" | null`
   (what logged in), `ssh_profile_id: number | null`, `ssh_profile_name: string | null` (current name, null when
   deleted since). Never a secret.
-- `ImportRequest` gains `save_ssh: boolean | null` (default for every item, optional) and each `ImportItem` gains
-  `save_ssh: boolean | null` (optional). Effective choice = item's value, else the request's, else `ssh_ok`
-  (default **on** when an SSH login succeeded). Saved: the profile that logged in is assigned (mode `profile`), or
-  `inherit` when the import group already inherits that very profile; typed credentials (or a profile deleted since
-  the scan) are saved as the device's **manual** SSH credentials. Not saved / no login → `inherit` (as before).
+- Each `ImportItem` gains `save_ssh: boolean | null` (optional; omitted / null = **true when an SSH login
+  succeeded**). Saved: the profile that logged in is assigned (mode `profile`), or `inherit` when the import group
+  already inherits that very profile; typed credentials (or a profile deleted since the scan) are saved as the
+  device's **manual** SSH credentials. `false` / no login → `inherit` (as before). "Select all" is a UI matter: the
+  request carries the value per item.
 - Import response `created[]` items gain `ssh_mode: "inherit" | "profile" | "manual" | null` (null when no SSH login
   succeeded) and `ssh_profile_id: number | null`.
 - Audit: `discovery_scan.ssh` when a scan with SSH starts (`changes`: `ssh_profile_ids` `[null, [ids]]`,
