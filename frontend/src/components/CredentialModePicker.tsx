@@ -47,12 +47,15 @@ export function ModeRadios<T extends string>({
   options,
   onChange,
   testId,
+  wrap,
 }: {
   label: string;
   value: T;
   options: { value: T; label: string }[];
   onChange: (v: T) => void;
   testId?: string;
+  /** long labels: options wrap instead of scrolling (narrow screens) */
+  wrap?: boolean;
 }) {
   const refs = useRef<(HTMLButtonElement | null)[]>([]);
   const onKey = (e: KeyboardEvent<HTMLButtonElement>, i: number) => {
@@ -67,7 +70,12 @@ export function ModeRadios<T extends string>({
     onChange(options[j].value);
   };
   return (
-    <div role="radiogroup" aria-label={label} className={SEG_TRACK} data-testid={testId}>
+    <div
+      role="radiogroup"
+      aria-label={label}
+      className={cx(SEG_TRACK, wrap && 'flex-wrap')}
+      data-testid={testId}
+    >
       {options.map((o, i) => (
         <button
           key={o.value}
@@ -82,6 +90,7 @@ export function ModeRadios<T extends string>({
           onKeyDown={(e) => onKey(e, i)}
           className={cx(
             segClass(value === o.value),
+            wrap && 'h-auto min-h-7 whitespace-normal py-1 text-start',
             'focus:outline-none focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-focus',
           )}
         >
@@ -286,6 +295,7 @@ export function CredentialModePicker({
                 { value: 'new', label: t('credMode.enterNew') },
               ]}
               testId={`cred-restore-${kind}`}
+              wrap
             />
           )}
           {fromProfileWithSaved && value.restore ? (
