@@ -21,6 +21,8 @@ Sections marked **[1.3.1]** (IRF ports are important, named value maps, IRF role
 [§ Release 1.3.1](#131-release-131-additions), migration `0009`.
 Sections marked **[severity]** (alert severity: levels, mapping, overrides, rule severities) are in
 [§ Alert severity](#severity-alert-severity), migration `0015`.
+Sections marked **[profiles]** (release 1.7.0: connection profiles for SNMP and SSH credentials) are in
+[§ Connection profiles](#profiles-connection-profiles-release-170), migration `0021`.
 
 PostgreSQL ≥ 14 holds the data, and TimescaleDB is optional (see [architecture.md §6](architecture.md)). Alembic
 migrations own the schema.
@@ -4638,3 +4640,201 @@ repeat_count integer NOT NULL DEFAULT 1, last_seen timestamptz NULL, filter_rule
 defaults: catalog only, no rewrite of the existing rows); the partial index. `downgrade()`: drops the index, the
 three columns (repeat counts are lost, every row stays) and the table. An older release on the upgraded database
 keeps working: its INSERT leaves the new columns at their defaults.
+
+# **[profiles]** Connection profiles (release 1.7.0)
+
+API: [api.md § Connection profiles](api.md#profiles-connection-profiles). Work split, edge cases and open questions:
+[connection-profiles.md](connection-profiles.md). UI name: "Connection profiles" / "פרופילי חיבור" (never "templates":
+that word belongs to the sensor/device templates). No feature toggle (owner decision). Code:
+`netmon.services.conn_profiles`.
+
+A **connection profile** is a named, globally defined credential set of one **kind** (`snmp` or `ssh` in 1.7.0).
+Every group and device chooses, **per kind**, one of three **modes**:
+
+| Mode | Stored as | Meaning |
+|---|---|---|
+| `inherit` | no assignment row and `<kind>_credentials` NULL | as before 1.7.0: take the parent's |
+| `profile` | a `connection_profile_assignments` row for (node, kind); `<kind>_credentials` NULL | a **reference**: the profile's current data is used, so editing the profile takes effect everywhere at once |
+| `manual` | `<kind>_credentials` NOT NULL (the existing jsonb, unchanged form); no assignment row | as before 1.7.0: the node's own data |
+
+A profile reference inherits down the tree exactly like manual data: a group in mode `profile` gives that profile
+to every descendant group and device that is in mode `inherit`.
+
+## [profiles] Kinds (code registry, not a table)
+`netmon.services.conn_profiles.KINDS` maps a kind to: the API input model, the stored form (merge / seal / open),
+the response serializer, the node column (`groups.<column>` / `devices.<column>`), the "nothing found" fallback and
+the connection test. 1.7.0 registers:
+
+| kind | Node column | Credential shape (stored form and validation unchanged) | Fallback at the end of the chain |
+|---|---|---|---|
+| `snmp` | `snmp_credentials` | [SNMP credentials](#snmp-credentials-jsonb-in-groupssnmp_credentials--devicessnmp_credentials) | the built-in default (`v2c`, community `public`), source `default` |
+| `ssh` | `ssh_credentials` | [[3] SSH credentials](#3-ssh-credentials-jsonb-in-groupsssh_credentials--devicesssh_credentials) | none (source `none`) |
+
+A future kind (e.g. `wmi`, `http_auth`) is added by registering it in `KINDS` (plus its own node column for the
+manual mode, as every credential kind has today). The two profile tables below need **no** change: `kind` is
+checked by format in the database and by the registry in the API.
+
+## [profiles] `connection_profiles`
+| Column | Type | Constraints |
+|---|---|---|
+| id | integer | identity PK |
+| kind | text | NOT NULL, `CHECK (kind ~ '^[a-z][a-z0-9_]{1,31}$')`. The API accepts only registered kinds. **Immutable** after create. |
+| name | varchar(128) | NOT NULL (trimmed, 1–128). Unique index `ux_connection_profiles_name (kind, lower(name))`: unique **per kind**, case-insensitive (an SNMP and an SSH profile may both be called "Core") |
+| description | text | NOT NULL DEFAULT '' (≤ 1000 characters, API-checked) |
+| data | jsonb | NOT NULL. The credential object in the stored form of its kind (below) |
+| created_at, updated_at | timestamptz | NOT NULL DEFAULT now() |
+
+`UNIQUE (id, kind)` (constraint `uq_connection_profiles_id_kind`): the target of the composite foreign key below.
+
+**Stored form of `data`** — "encrypted the same way as today", with the same helpers as the node columns:
+
+- `snmp`: the [1.4.2] storage form (`netmon.services.secretbox`, `seal_snmp` / `open_snmp`) with owner
+  `conn_profile:<id>` (AAD `netmon/secret/conn_profile:<id>/<field>`). **Encrypted copies only, never a plaintext
+  copy**, whatever `secrets_plaintext_removed` says: no older release reads this table, so the 1.4.2 plaintext
+  transition does not apply. As for every sealed row, the row is inserted without secrets and sealed after the
+  flush (the id is part of the AAD).
+- `ssh`: the [3] form exactly (`username`, `port`, `legacy_algorithms`, `password_enc`, `private_key_enc`,
+  `passphrase_enc`, `enable_password_enc`; AAD `b"ssh.<field>"`), written by `configbackup.credentials.merge`, so
+  the config-backup code decrypts profile and manual SSH data with one function.
+- Validation of a profile's credentials is exactly the validation of the manual credentials of that kind
+  (SNMP: `api/common.py` v3 rules, a new object without `community` gets `"public"`; SSH: username required, a
+  password or a private key required, the key must parse).
+- A secret that cannot be decrypted (database restored on a server with another `secret.key`) reads as not set,
+  as for manual credentials: the profile reports `credentials_unreadable: true`; devices using it **do not** fall
+  back to the default community (same rule as [1.4.2]); SSH devices using it are not eligible for config backup
+  (`no_credentials`). Re-entering the secret in the profile repairs every device that uses it.
+
+## [profiles] `connection_profile_assignments`
+One row per (node, kind) in mode `profile`.
+
+| Column | Type | Constraints |
+|---|---|---|
+| id | integer | identity PK |
+| kind | text | NOT NULL |
+| profile_id | integer | NOT NULL, index `ix_cpa_profile (profile_id)` |
+| group_id | integer | NULL, FK `groups.id` ON DELETE CASCADE |
+| device_id | integer | NULL, FK `devices.id` ON DELETE CASCADE |
+| created_at | timestamptz | NOT NULL DEFAULT now() |
+
+- `CHECK (num_nonnulls(group_id, device_id) = 1)` (`ck_cpa_one_owner`).
+- `FOREIGN KEY (profile_id, kind) REFERENCES connection_profiles (id, kind) ON DELETE RESTRICT`
+  (`fk_cpa_profile_kind`): a node can never reference a profile of another kind (**kind mismatch is impossible
+  in the database**, the API answers `422 profile_kind_mismatch` before that), and a referenced profile can never
+  be deleted (the API answers `409 profile_in_use` before that).
+- `UNIQUE (group_id, kind)` (`ux_cpa_group`) and `UNIQUE (device_id, kind)` (`ux_cpa_device`): one reference per
+  node and kind (NULLs are distinct, so the two constraints do not collide).
+- Deleting a group or device deletes its rows (cascade, also for whole subtrees).
+
+**Invariant** (kept by every API write in the same transaction): per (node, kind) at most one of
+{assignment row, `<kind>_credentials` NOT NULL}. Setting a profile sets the node column to NULL; setting manual
+data or inherit deletes the assignment row.
+
+## [profiles] Resolution (pure `netmon.services.conn_profiles.resolve(kind, chain, profiles)`)
+`chain` = the device, then its group, its parent group, … up to the root (the group chain is walked at most 100
+deep, as today; a group's own effective value starts the chain at that group). Each element carries the node's
+`<kind>_credentials` (stored form) and its assignment's `profile_id` (or NULL).
+
+1. Walk the chain from the device upward. At each node:
+   1. `<kind>_credentials` NOT NULL → **manual wins**: use it (decrypted with the node's owner); source = this node,
+      mode `manual`. Stop.
+   2. else an assignment row exists → use the profile's current `data` (decrypted with the profile's owner);
+      source = this node, mode `profile`, `profile_id`. Stop.
+   3. else (mode `inherit`) → go to the parent.
+2. Nothing found → the kind's fallback (SNMP: built-in default, source `default`; SSH: none, source `none`).
+3. SNMP result as today: `{**DEFAULT_SNMP, **data}`, always plaintext, used only in memory.
+
+**Both present on one node** (only possible when something bypassed the API: an older release running on the
+migrated database after a container rollback, a hand-edited row): rule 1.1 makes manual data win — it is the more
+specific and, after a rollback, the newer intent. At every start the server repairs such rows: the assignment row
+is deleted, one audit row `connection_profile.unlink` (actor `system`, `reason: "manual_present"`) is written per
+row and one WARNING is logged. The API therefore never shows both.
+
+**Origin** (what the UI shows, computed with the same walk, `netmon.services.conn_profiles.origin`): the deciding
+node (`self` / an ancestor group / `default` / `none`), its mode and its profile id and name (API field
+`effective_snmp` / `effective_ssh`, see api.md). The existing `Device.effective_snmp_source` / `effective_ssh_source`
+keep their meaning: `device` = the device decides itself (manual **or** profile), `group` = an ancestor decides.
+
+Every reader of credentials goes through this one function: the poller (`services.sensors.effective_credentials`
+→ `build_context`), SNMP interface enumeration, template apply and interface selection, port inventory
+(`ports/runner`), topology refresh, the config-backup sysObjectID probe and `configbackup.service.load_contexts`,
+the trap receiver's v3 users and known communities (`ingest.pipeline.rebuild_sources`), discovery (group
+credentials) and import, the tree-move preview, the assistant's template-draft walk. A reader that resolves from a
+preloaded inventory (`services.status.Inventory`, topology, ingest) loads the assignment rows and the profiles in
+the same pass (one query each), never per device.
+
+## [profiles] Deleting a profile
+A profile is **in use** while any of these reference it: an assignment row (group or device, direct reference),
+or a saved discovery profile whose `options.snmp_profile_ids` contains its id. A profile in use cannot be deleted
+(`409 profile_in_use`, with the counts); the "used by" list is `GET /api/connection-profiles/{id}/usage`.
+Devices that only **inherit** the profile through a group are not direct uses (removing the group's reference
+removes theirs) but are counted (`devices_effective`) so the UI can say how many devices an edit affects.
+
+Not a use: a finished or running discovery scan (it keeps its own sealed snapshot of the credentials), audit rows
+(they hold the name as text).
+
+Race-free check: `DELETE` locks the profile row (`SELECT … FOR UPDATE`), counts the uses, then deletes; every write
+that adds a use (assignment, discovery profile `snmp_profile_ids`) first takes `SELECT … FOR SHARE` on the profile
+row. The foreign key `fk_cpa_profile_kind` (RESTRICT) is the last safety net for assignments.
+
+## [profiles] Discovery
+- **Scan options** gain `snmp_profile_ids` (int[], default `[]`, 0–8 distinct ids, each an existing profile of
+  kind `snmp`). Stored in `discovery_profiles.options` and in `discovery_scans.options` (ids only, no secrets).
+- **Credential order** (replaces the 2a order; stops at the first that answers): 1) the target group's effective
+  SNMP credentials (now profile-aware), 2) each profile of `snmp_profile_ids` in the given order — skipped when it
+  is the profile that already supplied 1) —, 3) each `extra_communities` entry (v2c), 4) each `extra_v3` entry.
+  All attempts use `snmp_port` when set (else the credential's own port), `timeout_s = snmp_timeout_s`,
+  `retries = 0`. At most 17 attempts per host (1 + 8 + 5 + 3), still within the 25 s SNMP budget per host.
+- **Snapshot:** each entry of `discovery_scans.credentials` (internal, sealed as today) gains `"_profile_id"`
+  (int | null; for entry 0 the profile the group's effective credentials came from, if any) and `"_origin"`
+  (`group` | `profile` | `extra`). Profiles are read **once when the scan starts**; editing or deleting a profile
+  later does not change a running scan.
+- **`discovery_results` gains** `snmp_profile_id integer NULL` (no FK: a snapshot; the profile may be deleted
+  later): the `_profile_id` of the credential that answered.
+- **Import** (`netmon.discovery.importer`, pure decision `snmp_choice(C, index, G, G_origin, profile_now,
+  port_used)`), for an item whose SNMP answered. `C` = the credential that answered, `P` = its `_profile_id`,
+  `G` = the import group's current effective credentials and `G_origin` their origin:
+  1. `index = 0` and `C` equals `G` (the 2a comparison: every field except `timeout_s` / `retries`) → `inherit`
+     (unchanged 2a rule).
+  2. `P` is not NULL and `G_origin` is profile `P` (the import group already inherits that profile) → `inherit`.
+  3. `P` is not NULL, profile `P` still exists with kind `snmp`, and the port used for `C` equals the profile's
+     current port (no `snmp_port` override, or an override equal to it) → mode `profile`, an assignment row
+     device → `P`. **This is the "linked to the profile that worked".**
+  4. Otherwise → mode `manual`, a copy of `C` with `timeout_s = 2`, `retries = 1` (the 2a rule; covers a deleted
+     profile and a port override).
+- SSH is not probed by discovery, so an imported device's SSH mode is `inherit` (it takes the SSH profile or
+  credentials of its group).
+
+## [profiles] Secrets tooling, backup and restore
+- `pg_dump` / `ops/restore.sh` / the daily backup cover the two tables like any other. A restore on a server with a
+  different `secret.key` behaves as described above (`credentials_unreadable`).
+- `netmon secrets rekey` (`services/rekey.py`) re-encrypts `connection_profiles.data` (SNMP owner
+  `conn_profile:<id>`, SSH `ssh.<field>`).
+- `secretbox.transform_all` (start-up, `remove-plaintext`, `restore-plaintext`, the 0012 downgrade): profile rows
+  are always kept **encrypted-only**; `keep_plaintext=None` (the 1.4.1 form) leaves them untouched (1.4.1 has no
+  such table).
+- The audit log never contains a profile secret: the secret fields are masked by the existing
+  `services.audit.redact` (`community`, `v3_*_key`, `*_enc`, …); profile audits record the non-secret fields and
+  `"***"` for a changed secret.
+
+## [profiles] Migration (`0021`)
+File `backend/netmon/migrations/versions/0021_connection_profiles.py`, `revision = "0021"`,
+**`down_revision = "0018"` for now. Merge note: release 1.6.0 (branch `if-noise`) adds `0019` and `0020`; when it
+lands on `main`, `down_revision` here must become `"0020"`** (the id is written only in that file; tests read the
+head and the down revision from the scripts). Plain DDL, identical in TimescaleDB and plain PostgreSQL mode (no
+hypertable is touched; `discovery_results` is a plain table), idempotent (`IF NOT EXISTS`, constraints dropped and
+re-added).
+
+- `upgrade()`: `CREATE TABLE connection_profiles` (+ `uq_connection_profiles_id_kind`,
+  `ux_connection_profiles_name`, the kind check); `CREATE TABLE connection_profile_assignments` (+ the FKs, checks,
+  unique constraints, `ix_cpa_profile`); `ALTER TABLE discovery_results ADD COLUMN IF NOT EXISTS snmp_profile_id
+  integer NULL`. **No data is changed**: every existing group and device stays `manual` (credentials set) or
+  `inherit` (NULL), and every effective credential is byte-identical.
+- `downgrade()`: needs `secret.key` (passed like 0012) only when an assignment exists. For every assignment row
+  whose node column is NULL, the profile's data is **materialised** into the node's column (SNMP re-sealed for the
+  node owner in the current secrets form; SSH copied as is), so the node keeps working credentials as `manual`;
+  then the column, the assignments and the profiles are dropped. A profile secret that cannot be decrypted stops the
+  downgrade with an error, nothing changed. Discovery profiles lose `snmp_profile_ids` (the 1.6 options model
+  rejects unknown keys, so the key is removed from `discovery_profiles.options` and `discovery_scans.options`).
+- **Container rollback without downgrade** (an older image on the migrated database): the older release ignores
+  both tables, so a node in mode `profile` behaves as `inherit` there. See open question Q1 in
+  [connection-profiles.md](connection-profiles.md#open-questions-for-the-owner).

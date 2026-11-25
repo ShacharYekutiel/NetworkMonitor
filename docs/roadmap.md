@@ -225,6 +225,15 @@ Owner decisions for 3b (architecture § 14.13): `us-east-1` + `us.` inference pr
 redaction off in the app, on in Telegram; Roles Anywhere recommended (UI upload or server-side CSR, trust anchor
 Example-PKI-SERV-CA); Knowledge Base implemented, OFF.
 
+## Release 1.7.0: connection profiles (branch `conn-profiles`)
+Globally defined, named SNMP and SSH credential sets ("Connection profiles" / "פרופילי חיבור"; not "templates") under
+Settings. Every group and device chooses per kind: inherit, a profile (a reference that inherits down the tree), or
+manual. "Copy from profile into manual"; a profile in use cannot be deleted ("used by"); discovery can try profiles
+and links imported devices to the profile that answered; read-only connection test against a device or an address.
+Admin only; secrets encrypted as today and write-only; viewers see profile names only; every change audited. No
+feature toggle; the upgrade changes nothing (migration `0021`, after 1.6.0's `0020`). Contract, work split, edge
+cases and open questions: [connection-profiles.md](connection-profiles.md).
+
 ## Later / ideas
 - Per-port PoE status table.
 - Template editor in the UI.

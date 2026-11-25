@@ -277,3 +277,22 @@ both Timescale mode and fallback mode, and on Windows paths (no POSIX-only calls
   (28 names), `AlertRule`/`Report`/`ReportRun`/`ReportData`/channel-config shape tests (new keys), audit `source`
   values, `test_audit` (turning `audit` OFF while `assistant` is ON is refused). Any other failing existing test is a
   regression.
+
+## Release 1.7.0 notes (connection profiles, [profiles])
+- No feature toggle. Contract: data-model.md / api.md § Connection profiles; work split and test lists:
+  [connection-profiles.md](connection-profiles.md).
+- Every credential reader uses `netmon.services.conn_profiles.resolve` (no second inheritance walk anywhere); readers
+  that work from a preloaded inventory load assignments and profiles in one query each, never per device.
+- Keep pure and exhaustively unit-tested: `conn_profiles.resolve` / `origin`, the request-mode table (group/device
+  create/PATCH), `discovery.importer.snmp_choice`, the discovery credential order; frontend `lib/credentials.ts`.
+- Profile secrets: SNMP via `secretbox` with owner `conn_profile:<id>`, encrypted-only; SSH via
+  `configbackup.credentials` ([3] form). Never log or audit a value; tests seed secret markers and assert they appear
+  in no response, audit row, WS message or log line.
+- Pydantic models (`extra="forbid"`): `ConnectionProfileIn`, `ConnectionProfilePatch`, `ProfileTestIn`,
+  `ProfileTestNewIn`, `CopyFromProfileIn`; group/device create/PATCH gain `snmp_profile_id`, `ssh_profile_id`;
+  `ScanOptions` gains `snmp_profile_ids`.
+- Migration `0021`: `down_revision = "0018"` on this branch; re-point to `"0020"` when 1.6.0 (`if-noise`) is merged.
+- Existing test changes allowed in 1.7.0 (contract changes on purpose): `test_migrations.py` (head `0021`),
+  `Group` / `Device` shape tests (new keys), `DiscoveryResult` / `ScanOptions` / import-response shape tests (new
+  keys, `snmp_credential` value `"profile"`), tree-move preview shape (`profile_id` / `profile_name`), audit action
+  lists. Any other failing existing test is a regression.

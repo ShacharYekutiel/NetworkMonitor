@@ -17,6 +17,8 @@ Items marked **[severity]** (alert severity: levels, mapping, overrides, filters
 specified in [§ Alert severity](#severity-alert-severity).
 Items marked **[tree-move]** (moving devices and groups between groups, single and bulk) are specified in
 [§ Moving devices and groups](#tree-move-moving-devices-and-groups).
+Items marked **[profiles]** (release 1.7.0: connection profiles for SNMP and SSH credentials) are specified in
+[§ Connection profiles](#profiles-connection-profiles).
 
 This file is the contract between the backend (`backend/netmon/schemas`) and the frontend
 (`frontend/src/api/types.ts`). **Field names are exact.** For the table semantics see
@@ -3383,3 +3385,173 @@ top level) and `device.move` (entity = the device with `device_id`, `changes: {"
 
 **WebSocket**: `config.changed` `{entity: "group" | "device", id, action: "updated"}` for every moved item, as for
 the single edits.
+
+## [profiles] Connection profiles
+
+Release 1.7.0. Table semantics, resolution order and the migration: [data-model.md § Connection profiles](data-model.md#profiles-connection-profiles-release-170).
+Work split and open questions: [connection-profiles.md](connection-profiles.md). Always available (no feature
+toggle). UI name "Connection profiles" / "פרופילי חיבור".
+
+**Backward compatibility rule.** Every change below is additive. A request that does not use the new fields
+behaves exactly as before 1.7.0 (details in [Groups and devices](#profiles-groups-and-devices)); responses only
+gain keys.
+
+### [profiles] Permissions
+| Who | Sees | Can |
+|---|---|---|
+| admin (session or admin token) | profiles with their non-secret fields, `*_set` flags, usage | create, edit, delete, test, assign, copy into manual |
+| viewer (session or viewer token) | **only the profile id and name**, embedded in `Group` / `Device` (`snmp_profile_name`, `effective_snmp.profile_name`, …). Every `/api/connection-profiles*` endpoint → `403 forbidden` | nothing |
+
+There is no operator role (roles are `admin` and `viewer`); every non-admin follows the viewer rule. Secrets are
+write-only for **every** role, admins included ([Secret fields](#secret-fields)). A node in mode `profile` has
+`snmp_credentials` / `ssh_credentials` = `null`, so a viewer sees no field of the profile's data at all (a
+viewer still sees the non-secret fields of **manual** credentials, as before).
+
+### [profiles] Errors
+| HTTP | code | When |
+|---|---|---|
+| 409 | `conflict` | a profile of the same kind already has this name, case-insensitive (`details`: `[{"field": "name"}]`) |
+| 409 | `profile_in_use` | `DELETE` of a referenced profile (`details`: `[{"groups": 2, "devices": 14, "discovery_profiles": 1}]`) |
+| 422 | `profile_kind_mismatch` | a profile of the wrong kind is given (`details`: `[{"loc": ["body", "ssh_profile_id"], "expected": "ssh", "actual": "snmp"}]`) |
+| 422 | `validation_error` | unknown profile id (`loc` of the field, `msg` `"unknown profile"`); `snmp_profile_id` together with a non-null `snmp_credentials` (same for ssh); `kind` changed on PATCH; credential validation as for the manual credentials |
+| 422 | `invalid_private_key` | SSH profile key cannot be read ([3]) |
+| 502 | `snmp_error` / `ssh_error` | a profile test failed (as the device tests; `message` never contains a secret) |
+
+### [profiles] Types
+```ts
+type CredentialKind = "snmp" | "ssh";                    // future kinds are added here
+type CredentialMode = "inherit" | "profile" | "manual";
+
+type ConnectionProfile = {
+  id: number; kind: CredentialKind; name: string; description: string;
+  credentials: SnmpCredentials | SshCredentials;         // shape of `kind`; secrets null + *_set (write-only),
+                                                         // credentials_unreadable as for manual credentials
+  usage: { groups: number; devices: number; discovery_profiles: number;   // direct references
+           devices_effective: number };                  // devices whose effective credentials come from it
+                                                         // (direct or inherited through a group)
+  created_at: string; updated_at: string };
+
+type CredentialOrigin = {                                // where the effective value of one kind comes from
+  source: "self" | "group" | "default" | "none";         // self = this group/device decides itself;
+                                                         // default = built-in SNMP default; none = no SSH credentials
+  group_id: number | null; group_name: string | null;    // the ancestor that decides (source = "group")
+  mode: "profile" | "manual" | null;                     // how the deciding node defines it (null for default/none)
+  profile_id: number | null; profile_name: string | null };  // set when mode = "profile"
+
+type ProfileUsage = {
+  groups:  { id: number; name: string; path: string[] }[];         // path = ancestor names, root first
+  devices: { id: number; name: string; host: string; group_id: number; group_name: string }[];
+  discovery_profiles: { id: number; name: string }[];
+  devices_effective: number;
+  truncated: boolean };                                  // each list is cut at 1000 entries (counts in ConnectionProfile.usage)
+
+type ProfileTestResult =
+  | { ok: true; kind: "snmp"; host: string; ms: number; version: "v1" | "v2c" | "v3";
+      sys_name: string | null; sys_descr: string | null; sys_object_id: string | null }   // sys_descr ≤ 300 chars
+  | { ok: true; kind: "ssh"; host: string; ms: number;
+      steps: { step: "connect" | "host_key" | "auth" | "prompt" | "setup"; ok: boolean; detail: string; ms: number }[];
+      driver: string | null };
+```
+
+`Group` and `Device` gain (always present):
+
+```ts
+  snmp_mode: CredentialMode; snmp_profile_id: number | null; snmp_profile_name: string | null;
+  ssh_mode: CredentialMode;  ssh_profile_id: number | null;  ssh_profile_name: string | null;
+  effective_snmp: CredentialOrigin; effective_ssh: CredentialOrigin;
+```
+
+- `*_profile_id` / `*_profile_name`: this node's **own** reference (null unless mode = `profile`).
+- `snmp_credentials` / `ssh_credentials`: this node's **manual** data, exactly as before; `null` in modes `inherit`
+  **and** `profile` (old clients therefore show a profile node as "inherit" — see the compatibility notes).
+- `effective_snmp` / `effective_ssh` drive the UI line "Inherited from group *X* · profile *Y*" / "Profile *Y*" /
+  "Manual" / "Built-in default (v2c, public)" / "No SSH credentials". For a group, `source: "self"` means the group
+  itself decides; the walk starts at the group.
+- `Device.effective_snmp_source` / `effective_snmp_group_id` / `effective_ssh_source` / `effective_ssh_group_id`
+  keep their meaning (`device` = the device decides itself, manual **or** profile).
+
+### [profiles] Endpoints (admin; a viewer gets `403 forbidden`)
+| Method & path | Request | Response |
+|---|---|---|
+| `GET /api/connection-profiles` | Query `kind` (optional), `q` (case-insensitive literal substring of the name), `page`, `page_size` | Page of `ConnectionProfile`, sorted by `kind, lower(name)` |
+| `POST /api/connection-profiles` | `{"kind": "snmp", "name": "Core v3", "description": "", "credentials": {…}}` (`kind`, `name`, `credentials` required) | `201 ConnectionProfile`. `409 conflict`; `422`. Audit `connection_profile.create` |
+| `GET /api/connection-profiles/{id}` | — | `ConnectionProfile` |
+| `PATCH /api/connection-profiles/{id}` | subset of `name`, `description`, `credentials` (`kind` may be sent only with the current value, else `422`) | `ConnectionProfile`. `credentials` is merged over the stored object with the secret rules of its kind (omitted/null keep, `""` clears, string replaces). Takes effect for every user of the profile at its next use (no restart, no cache to clear — see the edge cases). Audit `connection_profile.update` |
+| `DELETE /api/connection-profiles/{id}` | — | `204`; `409 profile_in_use`. Audit `connection_profile.delete` |
+| `GET /api/connection-profiles/{id}/usage` | — | `ProfileUsage` ("used by") |
+| `POST /api/connection-profiles/{id}/test` | `{"device_id": 3}` **or** `{"host": "10.0.0.5"}`; optional `"credentials": <partial>` (merged over the stored profile, nothing saved — tests unsaved edits); SSH only: optional `"driver": "<id>" \| null` | `200 ProfileTestResult`; `502 snmp_error` / `ssh_error`. Audit `connection_profile.test` |
+| `POST /api/connection-profiles/test` | `{"kind": "snmp", "credentials": {…}, "device_id" \| "host": …, "driver"?: …}` — a profile not saved yet | same |
+| `POST /api/groups/{id}/credentials/{kind}/copy-from-profile` | `{"profile_id": 5}` or `{}` (= the group's own current profile) | `200 Group` in mode `manual` with a copy of the profile's data (secrets included, re-encrypted for the group); the reference is removed. `422` when `{}` and the group is not in mode `profile`; `profile_kind_mismatch`. Audit `group.update` with `reason: "copy_from_profile"` |
+| `POST /api/devices/{id}/credentials/{kind}/copy-from-profile` | same | `200 Device`; same rules. Audit `device.update` with `reason: "copy_from_profile"` |
+
+`{kind}` in a path is a registered kind (`snmp`, `ssh`), else `404 not_found`.
+
+**Connection test — read-only probing only.** The system never changes a device's configuration.
+
+- Target: `device_id` (its `host`; `404` unknown) or `host` (one IPv4 / IPv6 address or hostname, the single-host
+  rules of [Scan targets](data-model.md#scan-targets); a range or CIDR → `422`). Both or neither → `422`.
+- SNMP: one GET of `sysDescr.0`, `sysObjectID.0`, `sysName.0` with the profile's credentials (its port, timeout,
+  retries; at most 30 s in total). `502 snmp_error` with the reason (timeout, authentication / decryption error,
+  `noSuchName`).
+- SSH: steps `connect`, `host_key`, `auth`, then — only when a driver is known (the device's matched driver, or
+  `driver`) — `prompt` and `setup` (the driver's session-only paging / privilege commands, e.g. `enable` with the
+  profile's enable password). **No backup or other command is sent.** Host key: against a device with a pinned key
+  the pin is enforced (a mismatch fails the step `host_key`); otherwise the fingerprint is only reported. A profile
+  test **never pins** a key. Allowed whatever the state of the `config_backup` feature. `502 ssh_error` as [3].
+- Nothing is stored (no sensor result, no host key, no config version).
+
+### [profiles] Groups and devices
+`POST` / `PATCH` of `/api/groups` and `/api/devices` accept, per kind K ∈ {`snmp`, `ssh`}, the existing
+`K_credentials` and the new `K_profile_id` (int | null). The resulting mode:
+
+| Request contains | Result |
+|---|---|
+| neither field | PATCH: unchanged. POST: `inherit` |
+| `K_profile_id: <id>` (and `K_credentials` absent or `null`) | `profile` → that profile (must exist: `422 validation_error`; must be of kind K: `422 profile_kind_mismatch`); the node's manual data is **discarded** (audited) |
+| `K_profile_id: <id>` and a non-null `K_credentials` | `422 validation_error` (contradiction) |
+| `K_credentials: {…}` (no `K_profile_id`, or `K_profile_id: null`) | `manual`, **exactly as before** (merged over the stored manual data; from `profile` or `inherit` it is a new object: a new SNMP object without `community` gets `"public"`). A reference is removed |
+| `K_credentials: null` (no `K_profile_id`, or `K_profile_id: null`) | `inherit`, **exactly as before**; a reference is removed |
+| `K_profile_id: null` only | from `profile` → `inherit`; from `manual` or `inherit` → unchanged (never deletes manual data) |
+
+To keep a profile's secrets while switching to manual, use `copy-from-profile` (the client never has the secrets).
+
+**Compatibility notes for existing clients.** A request without the new fields behaves as before on every node;
+on a node in mode `profile` it can only do what it could do before: set manual data or inherit (both drop the
+reference). A client that always sends `snmp_credentials` (the 1.6 web UI did) turns a profile node into
+`inherit` / `manual` when it saves; the 1.7 web UI sends `K_credentials` only when the user changed that kind.
+Old clients read a profile node as `snmp_credentials: null` (inherit); new clients read `snmp_mode`.
+
+**Audit** (feature `audit`, same transaction): `group.create|update`, `device.create|update` gain the change keys
+`snmp_mode`, `snmp_profile`, `ssh_mode`, `ssh_profile` (`[old, new]`; profiles by **name**, `null` = none). The
+discarded or copied manual secrets appear only as `"***"` as before.
+
+### [profiles] Discovery
+- `ScanOptions` gains `snmp_profile_ids: number[]` (request and response; default `[]`; 0–8 distinct ids of
+  profiles of kind `snmp`; an unknown id → `422 validation_error` at `["body", "options", "snmp_profile_ids", i]`,
+  an SSH profile → `422 profile_kind_mismatch`). Profile PATCH of `options` replaces the list when the key is given.
+  A saved discovery profile that lists a connection profile makes it "in use".
+- Credential order and import rules: [data-model.md § Discovery](data-model.md#profiles-discovery).
+- `DiscoveryResult.snmp_credential` gains the value `"profile"` (a profile from `snmp_profile_ids` answered; credential
+  0 stays `"group"` even when the group's credentials come from a profile), and `DiscoveryResult` gains
+  `snmp_profile_id: number | null` and `snmp_profile_name: string | null` (the profile of the credential that answered,
+  also for `"group"`; the name is the current one, `null` when the profile was deleted since).
+- Import response `created[]` items gain `snmp_mode: "inherit" | "profile" | "manual" | null` (null when SNMP did not
+  answer) and `snmp_profile_id: number | null`.
+
+### [profiles] Tree move preview
+`effects[].before` / `after` of settings `snmp` and `ssh` gain `profile_id` and `profile_name` (null when the deciding
+node is manual, or for `default` / `none`). A move that changes only the profile (both groups decide by different
+profiles) is listed as a change.
+
+### [profiles] Audit actions (feature `audit`)
+`connection_profile.create`, `connection_profile.update` (`changes` per field; `name` `[old, new]` on a rename;
+a changed secret `["***", "***"]`; never a value), `connection_profile.delete`, `connection_profile.test`
+(`changes: {"target": [null, "device:3" | "host:10.0.0.5"], "ok": [null, true]}`; for an unsaved profile
+`entity_id` is null), `connection_profile.unlink` (actor `system`, `reason: "manual_present"`, start-up repair);
+group and device changes as above. Entity type `connection_profile`, entity name = the profile name.
+
+### [profiles] WebSocket
+`config.changed` `{"entity": "connection_profile", "id": 5, "action": "created" | "updated" | "deleted"}` to every
+socket (it carries no data). The client invalidates the profile queries **and** the group, device and tree
+queries (names and origins shown on group / device pages change on a rename or delete). Assigning a profile
+broadcasts `config.changed` for that group / device as for any edit.
