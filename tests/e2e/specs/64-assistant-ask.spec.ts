@@ -24,6 +24,10 @@ test.beforeAll(async () => {
   test.setTimeout(180_000);
   api = await apiAs();
   await ensureAssistant(api);
+  // This spec checks the plain (unredacted) answers, `redaction: false` in the SSE start event. IP redaction is
+  // ON by default ([1.4.0] pentest finding B); set it off here instead of relying on spec 63 having done so.
+  // Left off afterwards, as spec 63 and 67 leave it (redaction itself is covered by spec 67).
+  expect((await raw(api, 'PUT', '/api/assistant/settings', { redact_internal_ips: false })).status).toBe(200);
   await mock.clearModes();
   p = await problem(api, '127.0.0.136', 'qa3b-ask-web');
   await p.down();
