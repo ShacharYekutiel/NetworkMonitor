@@ -71,7 +71,7 @@ md.core.ruler.push('nm_links', (state) => {
     const stack: boolean[] = [];
     for (const tok of kids) {
       if (tok.type === 'link_open') {
-        const href = tok.attrGet('href') ?? '';
+        const href = String(tok.attrGet('href') ?? '');
         const tgt = resolveNmLink(href, { allowedRefs: env.allowedRefs, sources: env.sources });
         if (!tgt) {
           tok.type = 'text';
