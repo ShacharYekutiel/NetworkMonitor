@@ -250,12 +250,17 @@ export function ApplyTemplateModal({
   const [removeUnselected, setRemoveUnselected] = useState(false);
   // [template-switch] sensors this template replaces, ticked for deletion
   const [replacePick, setReplacePick] = useState<Set<number> | null>(null);
-  useEffect(() => {
+  // A new template (or reopening) resets the per-template choices. This is done while
+  // rendering, not in an effect: an effect runs only after the commit that already shows
+  // the new template's Ports section, so a click on it in between was silently undone.
+  const [choicesFor, setChoicesFor] = useState({ id, open });
+  if (choicesFor.id !== id || choicesFor.open !== open) {
+    setChoicesFor({ id, open });
     setChoice('important');
     setPicked(null);
     setRemoveUnselected(false);
     setReplacePick(null);
-  }, [id, open]);
+  }
 
   useEffect(() => {
     if (!open) return;
