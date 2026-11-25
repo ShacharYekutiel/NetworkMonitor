@@ -15,7 +15,7 @@ setup wizard creates the admin user.
 | | Docker (recommended) | Native Linux | Native Windows |
 |---|---|---|---|
 | Command | `docker compose -f deploy/docker-compose.yml up -d` | `sudo ./deploy/linux/install.sh` | `powershell -ExecutionPolicy Bypass -File .\deploy\windows\install.ps1` |
-| Database | TimescaleDB 2.31 / PostgreSQL 16 container | distro PostgreSQL ≥ 14 (+ TimescaleDB when available) | PostgreSQL 16 via winget (TimescaleDB attempted) |
+| Database | TimescaleDB 2.32 / PostgreSQL 16 container | distro PostgreSQL ≥ 14 (+ TimescaleDB when available) | PostgreSQL 16 via winget (TimescaleDB attempted) |
 | Data | volumes `netmon_netmon-data`, `netmon_netmon-db` | `/var/lib/netmon` + PostgreSQL | `%ProgramData%\NetworkMonitor` + PostgreSQL |
 | Service | `restart: unless-stopped` | systemd `netmon.service` | Windows service `NetworkMonitor` (NSSM) |
 | Logs | `docker compose -f deploy/docker-compose.yml logs -f netmon` | `journalctl -u netmon -f` | `%ProgramData%\NetworkMonitor\logs\` |
@@ -226,6 +226,16 @@ harmless: the custom-format dump restores cleanly with the steps above. Restore 
 TimescaleDB, or a newer one. A dump taken in plain PostgreSQL mode restores
 into either mode.
 
+### TimescaleDB updates [1.5.0]
+
+A newer `timescale/timescaledb` image (same PostgreSQL major) leaves the extension in an existing database at its
+old version. At startup the app runs `ALTER EXTENSION timescaledb UPDATE` itself when the server provides a newer
+version (logged as `TimescaleDB extension updated from X to Y`). That needs the owner of the extension: in Docker the
+app's database user is it. Native installs create the extension as `postgres`, so after an OS package update of
+TimescaleDB the app logs a warning instead; then run, as `postgres`, with NetworkMonitor stopped:
+`psql -X -d netmon -c "ALTER EXTENSION timescaledb UPDATE"`. A PostgreSQL MAJOR upgrade (e.g. 16 to 17) is a
+separate data-directory migration and is never done automatically.
+
 ### Prebuilt image (no build on the host)
 
 Every push to `main` (and `phase*` branches) publishes a ready image to GitHub Container
@@ -276,7 +286,7 @@ registry.npmjs.org (corporate proxy, firewall, TLS inspection). With TLS inspect
 `Exit handler never called!`: see the certificate section above first. The Dockerfile already
 retries with conservative settings. If it still fails:
 
-- Check access from a container: `docker run --rm node:22-slim npm view react version`.
+- Check access from a container: `docker run --rm node:26-slim npm view react version`.
 - Behind an HTTP proxy, configure it in Docker Desktop (Settings → Resources → Proxies) so builds use it.
 - With a corporate npm mirror (Nexus, Artifactory):
   `docker compose -f deploy/docker-compose.yml build --build-arg NPM_REGISTRY=https://<mirror>/repository/npm/`
@@ -309,7 +319,7 @@ retries with conservative settings. If it still fails:
 | | Docker (מומלץ) | לינוקס (מקומית) | Windows (מקומית) |
 |---|---|---|---|
 | התקנה | <span dir="ltr">`docker compose -f deploy/docker-compose.yml up -d`</span> | <span dir="ltr">`sudo ./deploy/linux/install.sh`</span> | <span dir="ltr">`powershell -ExecutionPolicy Bypass -File .\deploy\windows\install.ps1`</span> |
-| מסד נתונים | קונטיינר TimescaleDB 2.31 / PostgreSQL 16 | PostgreSQL ≥ 14 מההפצה (+TimescaleDB אם זמין) | PostgreSQL 16 דרך winget (ניסיון להתקין TimescaleDB) |
+| מסד נתונים | קונטיינר TimescaleDB 2.32 / PostgreSQL 16 | PostgreSQL ≥ 14 מההפצה (+TimescaleDB אם זמין) | PostgreSQL 16 דרך winget (ניסיון להתקין TimescaleDB) |
 | נתונים | הווליומים `netmon_netmon-data`, `netmon_netmon-db` | <span dir="ltr">`/var/lib/netmon`</span> + PostgreSQL | <span dir="ltr">`%ProgramData%\NetworkMonitor`</span> + PostgreSQL |
 | שירות | <span dir="ltr">`restart: unless-stopped`</span> | שירות systemd בשם `netmon` | שירות Windows בשם `NetworkMonitor` (NSSM) |
 | הסרה | <span dir="ltr">`docker compose -f deploy/docker-compose.yml down`</span> (עם `-v` גם הנתונים נמחקים) | <span dir="ltr">`sudo ./deploy/linux/uninstall.sh [--purge]`</span> | <span dir="ltr">`.\deploy\windows\uninstall.ps1 [-Purge]`</span> |
@@ -439,6 +449,15 @@ docker compose -f deploy/docker-compose.yml exec -T db pg_dump -U netmon -Fc net
 
 </div>
 
+### עדכוני TimescaleDB ‏[1.5.0]
+
+image חדש יותר של `timescale/timescaledb` (אותה גרסה ראשית של PostgreSQL) משאיר את ההרחבה במסד קיים בגרסה הישנה.
+בעלייה, האפליקציה מריצה בעצמה `ALTER EXTENSION timescaledb UPDATE` כשהשרת מספק גרסה חדשה יותר (ביומן:
+`TimescaleDB extension updated from X to Y`). זה דורש את בעל ההרחבה: ב-Docker זה משתמש המסד של האפליקציה. בהתקנה
+מקומית ההרחבה נוצרת כ-`postgres`, ולכן אחרי עדכון חבילת TimescaleDB של מערכת ההפעלה האפליקציה רושמת אזהרה; אז הריצו
+כ-`postgres`, כש-NetworkMonitor עצור: `psql -X -d netmon -c "ALTER EXTENSION timescaledb UPDATE"`. שדרוג גרסה
+ראשית של PostgreSQL (למשל 16 ל-17) הוא הסבת תיקיית נתונים נפרדת ולעולם לא מתבצע אוטומטית.
+
 ### image מוכן (בלי בנייה במחשב)
 
 כל דחיפה ל-`main` (ול-branches בשם `phase*`) מפרסמת image מוכן ב-GitHub Container Registry,
@@ -491,7 +510,7 @@ pip ו-apt בזמן הבנייה ועל האפליקציה בזמן ריצה. ה
 בדיקת SSL). עם בדיקת SSL ייתכן ש-`npm ci` ידפיס רק `Exit handler never called!`: בדקו קודם את סעיף שגיאות
 התעודה למעלה. ה-Dockerfile כבר מנסה שוב עם הגדרות זהירות. אם זה עדיין נכשל:
 
-- בדיקת גישה מתוך קונטיינר: `docker run --rm node:22-slim npm view react version`.
+- בדיקת גישה מתוך קונטיינר: `docker run --rm node:26-slim npm view react version`.
 - מאחורי proxy: מגדירים אותו ב-Docker Desktop‏ (Settings → Resources → Proxies).
 - עם mirror ארגוני של npm‏ (Nexus,‏ Artifactory):
   `docker compose -f deploy/docker-compose.yml build --build-arg NPM_REGISTRY=https://<mirror>/repository/npm/`

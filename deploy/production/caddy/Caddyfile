@@ -16,6 +16,10 @@
 	servers {
 		# HTTP/3 would need UDP 443 published as well; TCP only is enough here.
 		protocols h1 h2
+		# [1.5.0] Caddy >= 2.11.6 caps request headers at 16 KiB (431 above it). Kerberos SSO
+		# `Authorization: Negotiate` tokens of users in many AD groups are 10-40 KB, so allow
+		# the same 64 KiB as the app itself (H11_MAX_HEADER_BYTES in backend/netmon/cli.py).
+		max_header_size 64KiB
 	}
 }
 

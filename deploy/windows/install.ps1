@@ -97,7 +97,7 @@ param(
     [string]$SourceDir = '',
     [string]$PostgresSuperPassword = '',
     [switch]$SkipTimescale,
-    [string]$TimescaleVersion = '2.31.0',
+    [string]$TimescaleVersion = '2.32.1',
     [string]$NssmPath = '',
     [string[]]$IngestRemoteAddress = @('Any'),
     [switch]$DisableWindowsSnmpTrap,
