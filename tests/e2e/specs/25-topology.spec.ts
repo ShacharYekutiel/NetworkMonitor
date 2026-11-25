@@ -28,8 +28,15 @@ const linkKey = (l: any) => [l.a, l.b].map((e: any) => `${e.device_id ?? 'n' + e
 const devLinks = (g: any) => g.links.filter((l: any) => l.a.device_id && l.b.device_id && l.source !== 'manual');
 const mine = (g: any, ids: number[]) => g.links.filter((l: any) => ids.includes(l.a.device_id) || ids.includes(l.b.device_id));
 
+let refreshMinBefore: number | null = null;
+
 test.beforeAll(async () => {
   api = await apiAs();
+  // The tests count manual refreshes (refresh ids, missed_refreshes 1..3). The scheduled refresh (first run 2 min
+  // after startup, then every topology_refresh_min) must not run in between: it made refreshTopology() time out
+  // waiting for its own refresh id when this spec ran right after a backend start (targeted runs).
+  refreshMinBefore ??= (await api.get('/api/settings')).topology_refresh_min;
+  await api.put('/api/settings', { topology_refresh_min: 0 });
   labSwap('snmp-access-2', 'access2'); // known state
   const g = await ensureGroup(api, 'QA topology');
   dev.core = await ensureSnmpDevice('127.0.0.51', 'core-sw', g);
@@ -47,6 +54,7 @@ test.beforeAll(async () => {
 
 test.afterAll(async () => {
   labSwap('snmp-access-2', 'access2');
+  if (refreshMinBefore !== null) await api.put('/api/settings', { topology_refresh_min: refreshMinBefore });
 });
 
 test('refresh: 3 device-device links (deduplicated, correct ifIndexes on both families) + 1 neighbour', async () => {
