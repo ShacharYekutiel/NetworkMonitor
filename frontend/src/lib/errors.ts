@@ -69,6 +69,25 @@ export function errorMessage(t: TFunction, e: unknown, ctx: ErrorContext = {}): 
         return t('errors.too_many_hosts_count', { hosts: d.count, max: d.max ?? 4096 });
       return base;
     }
+    // [profiles]
+    if (e.code === 'profile_in_use') {
+      const d = e.details?.[0];
+      if (d && (d.groups !== undefined || d.devices !== undefined))
+        return t('errors.profile_in_use_counts', {
+          groups: d.groups ?? 0,
+          devices: d.devices ?? 0,
+          discovery: d.discovery_profiles ?? 0,
+        });
+      return base;
+    }
+    if (e.code === 'profile_kind_mismatch') {
+      const d = e.details?.[0];
+      if (d?.expected)
+        return t('errors.profile_kind_mismatch_named', {
+          expected: t(`profiles.kind.${d.expected}`, { defaultValue: d.expected }),
+        });
+      return base;
+    }
     if (e.code === 'dependency_cycle') {
       const ids = e.details?.find((d) => Array.isArray(d.device_ids))?.device_ids;
       if (ids?.length) {

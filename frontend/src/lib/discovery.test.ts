@@ -58,6 +58,7 @@ const opts: ScanOptions = {
   dns: true,
   fingerprint: true,
   fingerprint_timeout_ms: 2000,
+  snmp_profile_ids: [],
 };
 
 function scan(p: Partial<DiscoveryScan> = {}): DiscoveryScan {

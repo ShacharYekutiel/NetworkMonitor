@@ -301,6 +301,9 @@ export function Empty({ children }: { children: ReactNode }) {
   return <div className="p-8 text-center text-[14.5px] text-ink-muted">{children}</div>;
 }
 
+/** Open dialogs, innermost last: only the top one handles Escape / Tab (nested confirmations). */
+const MODAL_STACK: object[] = [];
+
 const FOCUSABLE =
   'a[href], button:not([disabled]), input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])';
 
@@ -348,7 +351,10 @@ export function Modal({
       const body = dialog.querySelector<HTMLElement>(`[data-modal-body] :is(${FOCUSABLE})`);
       (body ?? dialog).focus();
     }
+    const token = {};
+    MODAL_STACK.push(token);
     const onKey = (e: KeyboardEvent) => {
+      if (MODAL_STACK[MODAL_STACK.length - 1] !== token) return;
       if (e.key === 'Escape') {
         e.stopPropagation();
         onCloseRef.current();
@@ -372,6 +378,8 @@ export function Modal({
     document.addEventListener('keydown', onKey);
     return () => {
       document.removeEventListener('keydown', onKey);
+      const at = MODAL_STACK.indexOf(token);
+      if (at >= 0) MODAL_STACK.splice(at, 1);
       if (previous && document.contains(previous)) previous.focus();
     };
   }, [open]);
