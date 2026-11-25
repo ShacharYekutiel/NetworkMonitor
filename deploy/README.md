@@ -286,7 +286,7 @@ registry.npmjs.org (corporate proxy, firewall, TLS inspection). With TLS inspect
 `Exit handler never called!`: see the certificate section above first. The Dockerfile already
 retries with conservative settings. If it still fails:
 
-- Check access from a container: `docker run --rm node:22-slim npm view react version`.
+- Check access from a container: `docker run --rm node:26-slim npm view react version`.
 - Behind an HTTP proxy, configure it in Docker Desktop (Settings → Resources → Proxies) so builds use it.
 - With a corporate npm mirror (Nexus, Artifactory):
   `docker compose -f deploy/docker-compose.yml build --build-arg NPM_REGISTRY=https://<mirror>/repository/npm/`
@@ -510,7 +510,7 @@ pip ו-apt בזמן הבנייה ועל האפליקציה בזמן ריצה. ה
 בדיקת SSL). עם בדיקת SSL ייתכן ש-`npm ci` ידפיס רק `Exit handler never called!`: בדקו קודם את סעיף שגיאות
 התעודה למעלה. ה-Dockerfile כבר מנסה שוב עם הגדרות זהירות. אם זה עדיין נכשל:
 
-- בדיקת גישה מתוך קונטיינר: `docker run --rm node:22-slim npm view react version`.
+- בדיקת גישה מתוך קונטיינר: `docker run --rm node:26-slim npm view react version`.
 - מאחורי proxy: מגדירים אותו ב-Docker Desktop‏ (Settings → Resources → Proxies).
 - עם mirror ארגוני של npm‏ (Nexus,‏ Artifactory):
   `docker compose -f deploy/docker-compose.yml build --build-arg NPM_REGISTRY=https://<mirror>/repository/npm/`

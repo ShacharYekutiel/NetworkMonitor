@@ -105,7 +105,7 @@ services:
       context: ..
       dockerfile: Dockerfile
       args:
-        NODE_IMAGE: ${NETMON_NODE_IMAGE:-node:22-slim}
+        NODE_IMAGE: ${NETMON_NODE_IMAGE:-node:26-slim}
         PYTHON_IMAGE: ${NETMON_PYTHON_IMAGE:-python:3.14-slim}
     image: ${NETMON_IMAGE:-networkmonitor:local}
     restart: unless-stopped
