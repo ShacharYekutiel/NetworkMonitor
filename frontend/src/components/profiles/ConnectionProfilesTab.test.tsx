@@ -75,7 +75,11 @@ function routes(
       return {
         status: 200,
         body: {
-          groups: [{ id: 4, name: 'Core', path: ['HQ', 'Network'] }],
+          // path = ancestor names, root first, without the group itself (empty at the top level)
+          groups: [
+            { id: 4, name: 'Core', path: ['HQ', 'Network'] },
+            { id: 6, name: 'Lab', path: [] },
+          ],
           devices: [{ id: 9, name: 'sw1', host: '10.0.0.9', group_id: 5, group_name: 'Edge' }],
           discovery_profiles: [{ id: 3, name: 'Nightly' }],
           devices_effective: 14,
@@ -116,7 +120,7 @@ describe('ConnectionProfilesTab', () => {
     expect(row).toHaveTextContent('Core v3');
     expect(row).toHaveTextContent('Core switches');
     expect(row).toHaveTextContent('SNMP');
-    expect(row).toHaveTextContent('2 groups · 1 devices · 1 discovery profiles');
+    expect(row).toHaveTextContent('2 groups · 1 device · 1 discovery profile');
     expect(row).toHaveTextContent('14');
     expect(screen.getByTestId('profile-row-2')).toHaveTextContent('Not used');
   });
@@ -135,6 +139,13 @@ describe('ConnectionProfilesTab', () => {
     await waitFor(() => expect(dlg).toHaveTextContent('HQ / Network / Core'));
     expect(within(dlg).getByRole('link', { name: 'sw1' })).toHaveAttribute('href', '/devices/9');
     expect(within(dlg).getByRole('link', { name: 'Core' })).toHaveAttribute('href', '/groups/4');
+    // a top-level group: its name alone, no leading separator
+    const lab = within(dlg).getByRole('link', { name: 'Lab' });
+    expect(lab).toHaveAttribute('href', '/groups/6');
+    expect(lab.closest('li')!.textContent).toBe('Lab');
+    expect(within(dlg).getByRole('link', { name: 'Core' }).closest('li')!.textContent).toBe(
+      'HQ / Network / Core',
+    );
     expect(dlg).toHaveTextContent('Nightly');
     expect(calls.some((c) => c.method === 'DELETE')).toBe(false);
   });
@@ -207,5 +218,27 @@ describe('ConnectionProfilesTab', () => {
       name: 'Core v3',
       description: 'x',
     });
+  });
+});
+
+describe('"used by" counts', () => {
+  const text = () =>
+    i18n.t('profiles.usedByText', {
+      groups: i18n.t('profiles.usedGroups', { count: 1 }),
+      devices: i18n.t('profiles.usedDevices', { count: 2 }),
+      discovery: i18n.t('profiles.usedDiscovery', { count: 5 }),
+    });
+  afterEach(async () => {
+    await i18n.changeLanguage('en');
+  });
+  it('pluralises every count (en one/other, he one/two/other)', async () => {
+    await i18n.changeLanguage('en');
+    expect(text()).toBe('1 group · 2 devices · 5 discovery profiles');
+    expect(i18n.t('profiles.usedDiscovery', { count: 1 })).toBe('1 discovery profile');
+    expect(i18n.t('profiles.usedGroups', { count: 0 })).toBe('0 groups');
+    await i18n.changeLanguage('he');
+    expect(text()).toBe('קבוצה אחת · 2 התקנים · 5 פרופילי גילוי');
+    expect(i18n.t('profiles.usedDiscovery', { count: 1 })).toBe('פרופיל גילוי אחד');
+    expect(i18n.t('profiles.usedGroups', { count: 2 })).toBe('2 קבוצות');
   });
 });

@@ -56,9 +56,9 @@ function UsedBy({ p, onOpen }: { p: ConnectionProfile; onOpen: () => void }) {
       aria-label={t('profiles.showUsage', { name: p.name })}
     >
       {t('profiles.usedByText', {
-        groups: p.usage.groups,
-        devices: p.usage.devices,
-        discovery: p.usage.discovery_profiles,
+        groups: t('profiles.usedGroups', { count: p.usage.groups }),
+        devices: t('profiles.usedDevices', { count: p.usage.devices }),
+        discovery: t('profiles.usedDiscovery', { count: p.usage.discovery_profiles }),
       })}
     </button>
   );

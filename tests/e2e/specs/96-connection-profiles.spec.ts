@@ -294,11 +294,14 @@ test('5: an in-use profile cannot be deleted: "used by" lists the group, the dev
       error: { code: 'profile_in_use', details: [{ groups: 1, devices: 1, discovery_profiles: 1 }] },
     });
     await loginViaApi(page, undefined, '/settings?tab=connectionProfiles');
-    await expect(profileRow(page, name)).toContainText('1 groups · 1 devices · 1 discovery profiles');
+    await expect(profileRow(page, name)).toContainText('1 group · 1 device · 1 discovery profile');
     await page.getByRole('button', { name: `Delete ${name}` }).click();
     const dlg = page.getByRole('dialog').filter({ hasText: `${name} is in use` });
     await expect(dlg).toContainText('A profile in use cannot be deleted.');
     await expect(dlg.getByRole('link', { name: `${tag} Del group` })).toHaveAttribute('href', `/groups/${G.del}`);
+    // a top-level group: path = ancestors only (empty), so the line is the name alone, no " / "
+    await expect(dlg.getByRole('listitem').filter({ has: page.getByRole('link', { name: `${tag} Del group` }) }))
+      .toHaveText(`${tag} Del group`);
     await expect(dlg.getByRole('link', { name: `${tag}-ref` })).toHaveAttribute('href', `/devices/${D.ref}`);
     await expect(dlg).toContainText(`${tag} disc`);
     await shot(page, '96-05-delete-blocked-en');
