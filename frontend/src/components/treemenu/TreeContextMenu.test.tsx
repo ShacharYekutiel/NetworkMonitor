@@ -205,6 +205,7 @@ describe('Tree context menu', () => {
       'Explain with AI',
       'Copy IP address',
       'Copy name',
+      'Move to…',
       'Edit…',
       'Delete…',
     ]);

@@ -61,7 +61,7 @@ test('receivers listen on the three UDP ports while ON; status counters', async 
   expect(ports).toEqual([NETFLOW_PORT, IPFIX_PORT, SFLOW_PORT].sort());
   expect(s.budget_per_s).toBe(10_000);
   expect(['cagg', 'table']).toContain(s.rollup);
-  const h = await api.get('/api/health');
+  const h = await api.get('/api/health/details');
   expect(['cagg', 'table']).toContain(h.flows_rollup);
 });
 

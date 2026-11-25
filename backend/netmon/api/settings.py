@@ -139,6 +139,10 @@ INGEST_PLAIN_KEYS = (
     "trap_collapse_enabled",
     "trap_collapse_oids",
     "trap_collapse_keep",
+    "syslog_dedup_enabled",  # [syslog-protection]
+    "syslog_dedup_window_s",
+    "syslog_rate_limit_enabled",
+    "syslog_rate_limit_per_min",
     "trap_retention_days",
     "syslog_retention_days",
     "trap_community_check",
@@ -315,6 +319,10 @@ async def _apply_2b3_ingest(rt: RT, before: dict, after: dict) -> None:
             "trap_collapse_enabled",
             "trap_collapse_oids",
             "trap_collapse_keep",
+            "syslog_dedup_enabled",  # [syslog-protection]
+            "syslog_dedup_window_s",
+            "syslog_rate_limit_enabled",
+            "syslog_rate_limit_per_min",
             "event_linkdown_scope",
             "trunk_min_tagged_vlans",  # [1.3]
             "event_linkdown_include_trunks",

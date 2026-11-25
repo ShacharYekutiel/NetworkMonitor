@@ -69,7 +69,7 @@ for (const [mode, code, text] of [
     expect(r.message.status).toBe('error');
     expect(r.message.error.code).toBe(code);
     if (['bedrock_access_denied', 'bedrock_model_access', 'bedrock_model_invalid', 'aws_auth_failed', 'aws_token_expired', 'aws_clock_skew'].includes(code)) {
-      expect((await api.get('/api/health')).assistant).toBe('error');
+      expect((await api.get('/api/health/details')).assistant).toBe('error');
       const st = await api.get('/api/assistant/status');
       expect(st.state_error.code).toBe(code);
     }
@@ -77,7 +77,7 @@ for (const [mode, code, text] of [
     // an error state does not block questions: the next one succeeds and the state recovers
     const ok = await ask(api, Q);
     expect(ok.message.status).toBe('complete');
-    expect((await api.get('/api/health')).assistant).toMatch(/^(ready|degraded)$/);
+    expect((await api.get('/api/health/details')).assistant).toMatch(/^(ready|degraded)$/);
   });
 }
 

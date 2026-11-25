@@ -200,7 +200,7 @@ native installers) → defaults. **The end user never edits any of these.** Inst
 | **[2a]** `NETMON_DISCOVERY_CONCURRENCY` | `64` | Hosts probed in parallel by a discovery scan (1–256) |
 | **[2a]** `NETMON_DISCOVERY_RATE` | `100` | Max new hosts started per second by a scan (1–1000) |
 | **[2b-1]** `TZ` | unset | Only used as the default of the `timezone` setting when it is a valid IANA name |
-| **[2b-1]** `NETMON_TEST_MODE` | `0` | `1` enables `PUT /api/test/clock` (QA only; never set by installers/compose). When on: startup `WARNING` log + `system` event, and `/api/health` reports `"test_mode": true`. |
+| **[2b-1]** `NETMON_TEST_MODE` | `0` | `1` enables `PUT /api/test/clock` (QA only; never set by installers/compose). When on: startup `WARNING` log + `system` event, and `/api/health/details` reports `"test_mode": true`. |
 | **[2b-3]** `NETMON_TRAP_PORT` | `162` (Docker image: `1162`) | UDP port of the SNMP trap receiver (only opened while the `traps` feature is ON); `0` = never |
 | **[2b-3]** `NETMON_SYSLOG_PORT` | `514` (Docker image: `1514`) | UDP syslog port (feature `syslog`); `0` = never |
 | **[2b-3]** `NETMON_SYSLOG_TCP_PORT` | = `NETMON_SYSLOG_PORT` | TCP syslog port; `0` = never |
@@ -249,7 +249,7 @@ schema in **plain SQL only**. `measurements` is created as an ordinary table. Ti
 5. Optional: enable compression on chunks older than 7 days (`segmentby = 'sensor_id, channel'`). If that fails,
    the app ignores it.
 
-The result is stored in the process-wide flag `timescale_enabled: bool` and reported by `/api/health`.
+The result is stored in the process-wide flag `timescale_enabled: bool` and reported by `/api/health/details` (signed-in).
 
 | Concern | Timescale mode | Fallback mode |
 |---|---|---|
@@ -508,6 +508,11 @@ Backend, frontend and QA can implement in parallel against those two files.
    the bot is not in that chat; "Unauthorized" = wrong token; "Forbidden: bot was blocked by the user" = press
    Start again).
 4. Add the channel to an alert rule (and/or to a discovery profile's new-host notifications).
+   NetworkMonitor never creates an alert rule by itself. While no alert rule exists, the Add channel dialog
+   offers *Create a default alert rule* (checked): every sensor, Down and its recovery (Up), every severity, no
+   delay, to the new channel. When channels exist but no enabled rule sends to an enabled channel, the
+   Notifications page warns "No alert will be sent" and creates the same rule for every enabled channel in one
+   click. Either way it is an ordinary rule.
 The server needs outbound HTTPS to `api.telegram.org` (Docker Desktop has it by default).
 
 #### Enabling SNMP on the owner's devices (for discovery)
@@ -2206,7 +2211,7 @@ Each row has `bytes`, `packets`, `flows` (records counted). Top-N by bytes, ties
   EXCLUDED.bytes, …` for the last 3 complete hours (idempotent), then deletes expired rows in batches of 50 000;
   the current hour is served from the 1-minute tables (the query layer unions it).
 - The migration creates only the 1-minute tables; the hourly objects are bootstrap-created (like the 2b-3
-  trigram indexes) and the mode is reported as `flows_rollup: "cagg" | "table" | null` in `/api/health`.
+  trigram indexes) and the mode is reported as `flows_rollup: "cagg" | "table" | null` in `/api/health/details`.
 - **Query layer:** ranges ≤ 48 h use the 1-minute tables (buckets auto-sized to ≈ 120 points: 1, 5, 15, 30 or
   60 min), longer ranges the hourly objects (max range 31 days). Conversations: ≤ 24 h only.
 
@@ -3004,7 +3009,7 @@ HTTP status; inside a stream from the `:exception-type` header. Mapping (codes a
 | connect / TLS / proxy / DNS errors | `aws_network` | 1 retry | the exception class and text (e.g. "proxy 403", "certificate verify failed: …") |
 | our timeouts | `assistant_timeout` | no | "The answer took too long." |
 
-Every mapped error also updates the assistant state (`GET /api/health` `assistant`, status line on the Features
+Every mapped error also updates the assistant state (`GET /api/health/details` `assistant`, status line on the Features
 page). A `system` event is written when the state changes between `ready` and `error` (at most once per hour per
 code).
 
@@ -3012,7 +3017,7 @@ code).
 `state` ∈ `disabled` (feature OFF) · `unconfigured` (ON but required fields missing — cannot normally happen
 because enabling needs a test) · `ready` (last call succeeded or no call yet since start) · `degraded` (monthly cap
 ≥ background stop threshold, throttling in the last 5 min, or certificate expiring in < 30 days) · `error` (last
-call failed with a non-transient code: access/model/auth/network/Roles Anywhere). `GET /api/health` gains
+call failed with a non-transient code: access/model/auth/network/Roles Anywhere). `GET /api/health/details` gains
 `"assistant": <state>` (string only; public endpoint); `GET /api/assistant/status` (admin) has the details.
 
 #### 14.2.6 Test connection and the bottom switch

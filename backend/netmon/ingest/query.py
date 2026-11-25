@@ -116,6 +116,9 @@ def syslog_out(r: Any) -> dict[str, Any]:
         "message": r["message"],
         "truncated": bool(r["truncated"]),
         "matched_rule_ids": list(r["matched_rule_ids"] or []),
+        # [syslog-protection] identical messages folded into this row (time = first seen)
+        "repeat_count": int(r.get("repeat_count") or 1),
+        "last_seen": iso(r.get("last_seen")),
     }
 
 
@@ -267,20 +270,25 @@ async def stats(session: AsyncSession, flt: Filter) -> dict[str, Any]:
         ]
         total = sum(counts.values())
     else:
+        # [syslog-protection] messages, not rows: a deduplicated row counts `repeat_count`
         sev: dict[int, list[int]] = {}
+        rows_total = 0
         for r in await session.execute(
             text(
-                f"SELECT {bucket_sql} AS bk, x.severity AS sev, count(*) AS cnt "  # noqa: S608
+                f"SELECT {bucket_sql} AS bk, x.severity AS sev, "  # noqa: S608
+                "sum(x.repeat_count) AS cnt, count(*) AS nrows "
                 f"FROM {tbl} x WHERE {where} GROUP BY 1, 2"
             ),
             p,
         ):
             sev.setdefault(int(r.bk), [0] * 8)[int(r.sev)] += int(r.cnt)
+            rows_total += int(r.nrows)
         buckets = [
             {"t": iso(datetime.fromtimestamp(k, UTC)), "counts": sev.get(k, [0] * 8)} for k in keys
         ]
         by_severity = [sum(v[i] for v in sev.values()) for i in range(8)]
         total = sum(by_severity)
+    n_expr = "count(*)" if flt.kind == "trap" else "sum(x.repeat_count)"
     top_sources = [
         {
             "device_id": r.device_id,
@@ -290,7 +298,7 @@ async def stats(session: AsyncSession, flt: Filter) -> dict[str, Any]:
         }
         for r in await session.execute(
             text(
-                f"SELECT x.device_id, d.name AS device_name, x.source_ip, count(*) AS n "  # noqa: S608
+                f"SELECT x.device_id, d.name AS device_name, x.source_ip, {n_expr} AS n "  # noqa: S608
                 f"FROM {tbl} x LEFT JOIN devices d ON d.id = x.device_id WHERE {where} "
                 "GROUP BY x.device_id, d.name, x.source_ip ORDER BY n DESC, x.source_ip LIMIT 10"
             ),
@@ -319,12 +327,13 @@ async def stats(session: AsyncSession, flt: Filter) -> dict[str, Any]:
         ]
     else:
         out["by_severity"] = by_severity
+        out["rows"] = rows_total  # [syslog-protection] stored rows (<= total)
         out["top_sources"] = top_sources
         out["top_programs"] = [
             {"program": r.program, "count": int(r.n)}
             for r in await session.execute(
                 text(
-                    f"SELECT x.program, count(*) AS n FROM {tbl} x "  # noqa: S608
+                    f"SELECT x.program, {n_expr} AS n FROM {tbl} x "  # noqa: S608
                     f"WHERE {where} GROUP BY x.program ORDER BY n DESC, x.program LIMIT 10"
                 ),
                 p,

@@ -71,14 +71,14 @@ async def test_flows_off_by_default_409_and_closed(rt: Runtime, admin: httpx.Asy
         r = await admin.get(path)
         assert r.status_code == 409, path
         assert r.json()["error"]["code"] == "feature_disabled"
-    h = (await admin.get("/api/health")).json()
+    h = (await admin.get("/api/health/details")).json()
     assert h["flows_rollup"] in ("cagg", "table")
     assert h["flows_rollup"] == ("cagg" if rt.timescale_enabled else "table")
     assert {h["ingest"][k] for k in ("netflow", "ipfix", "sflow")} == {"disabled"}
     assert all(not r.listening for r in rt.flows.receivers)
 
     await features(admin, flows=True)
-    h = (await admin.get("/api/health")).json()
+    h = (await admin.get("/api/health/details")).json()
     assert {h["ingest"][k] for k in ("netflow", "ipfix", "sflow")} == {"listening"}
     st = (await admin.get("/api/flows/status")).json()
     assert {r["kind"] for r in st["receivers"]} == {"netflow", "ipfix", "sflow"}
@@ -578,7 +578,7 @@ async def test_bind_error_state_event_and_garbage(rt: Runtime, admin: httpx.Asyn
         st = {r["kind"]: r for r in (await admin.get("/api/flows/status")).json()["receivers"]}
         assert st["ipfix"]["state"] == "error" and st["ipfix"]["error"]
         assert st["netflow"]["state"] == "listening"
-        assert (await admin.get("/api/health")).json()["ingest"]["ipfix"] == "error"
+        assert (await admin.get("/api/health/details")).json()["ingest"]["ipfix"] == "error"
         async with rt.sessionmaker() as s:
             msgs = [
                 r[0]

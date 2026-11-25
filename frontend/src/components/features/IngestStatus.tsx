@@ -136,6 +136,18 @@ function Counters({ title, c }: { title: string; c: IngestCounters }) {
         <dd className="tabular-nums">{formatNumber(c.stored, 0)}</dd>
         <dt className="text-ink-muted">{t('ingest.forwarded')}</dt>
         <dd className="tabular-nums">{formatNumber(c.forwarded, 0)}</dd>
+        {(c.deduplicated ?? 0) > 0 && (
+          <>
+            <dt className="text-ink-muted">{t('ingest.deduplicated')}</dt>
+            <dd className="tabular-nums">{formatNumber(c.deduplicated, 0)}</dd>
+          </>
+        )}
+        {(c.pruned ?? 0) > 0 && (
+          <>
+            <dt className="text-ink-muted">{t('ingest.pruned')}</dt>
+            <dd className="tabular-nums">{formatNumber(c.pruned, 0)}</dd>
+          </>
+        )}
         <dt className="text-ink-muted">{t('ingest.dropped')}</dt>
         <dd className={cx('tabular-nums', total > 0 && 'font-semibold text-status-warning')}>
           {formatNumber(total, 0)}

@@ -18,8 +18,13 @@ import type {
   PublicSettings,
   RuleTestResult,
   SiemTarget,
+  SyslogCleanupJob,
+  SyslogCleanupPreview,
+  SyslogFilter,
+  SyslogFilterInput,
   SyslogMessage,
   SyslogStats,
+  TopTalkers,
   TimelineItem,
   TimelineKind,
   Trap,
@@ -82,6 +87,9 @@ import type {
   SnmpInterface,
   TestResult,
   Tree,
+  TreeMoveInput,
+  TreeMovePreview,
+  TreeMoveResult,
   User,
 } from './types';
 
@@ -137,6 +145,8 @@ export const qk = {
   ingestStatus: ['ingest-status'] as const,
   unknownSources: (days: number) => ['unknown-sources', days] as const,
   eventRules: (kind?: EventRuleKind) => ['event-rules', kind ?? 'all'] as const,
+  syslogFilters: ['syslog-filters'] as const, // [syslog-protection]
+  topTalkers: (hours: number) => ['syslog-top-talkers', hours] as const,
   conditions: (sensorId: number) => ['conditions', sensorId] as const,
   tokens: (all: boolean) => ['tokens', all] as const,
   audit: (q: object) => ['audit', q] as const,
@@ -383,7 +393,8 @@ export const endpoints = {
   // tree / dashboard
   tree: () => api.get<Tree>('/tree'),
   dashboard: () => api.get<Dashboard>('/dashboard'),
-  health: () => api.get<import('./types').Health>('/health'),
+  /** [security] runtime details need a signed-in user; public `/health` is only `{status}`. */
+  health: () => api.get<import('./types').Health>('/health/details'),
 
   // groups
   groups: (params?: { parent_id?: number | 'root' }) =>
@@ -392,6 +403,10 @@ export const endpoints = {
   createGroup: (body: GroupInput) => api.post<Group>('/groups', body),
   updateGroup: (id: number, body: GroupInput) => api.patch<Group>(`/groups/${id}`, body),
   deleteGroup: (id: number) => api.del(`/groups/${id}`),
+  /** [tree-move] all-or-nothing move of devices and groups (docs/api.md § Moving devices and groups) */
+  treeMove: (body: TreeMoveInput) => api.post<TreeMoveResult>('/tree/move', body),
+  /** [tree-move] dry run: same checks, plus what changes for the devices it touches */
+  treeMovePreview: (body: TreeMoveInput) => api.post<TreeMovePreview>('/tree/move/preview', body),
 
   // devices
   devices: (params?: { group_id?: number; status?: string; q?: string }) =>
@@ -579,6 +594,23 @@ export const endpoints = {
     ),
   testForwarder: (body: { target_id: string } | { target: SiemTarget }) =>
     api.post<{ ok: boolean; message: string }>('/ingest/forwarders/test', body),
+
+  // [syslog-protection] filter rules, cleanup of stored rows, top talkers
+  syslogFilters: () =>
+    api.get<{ items: SyslogFilter[]; cleanup: SyslogCleanupJob | null }>('/syslog-filters'),
+  createSyslogFilter: (body: SyslogFilterInput) => api.post<SyslogFilter>('/syslog-filters', body),
+  updateSyslogFilter: (id: number, body: SyslogFilterInput) =>
+    api.patch<SyslogFilter>(`/syslog-filters/${id}`, body),
+  deleteSyslogFilter: (id: number) => api.del(`/syslog-filters/${id}`),
+  orderSyslogFilters: (ids: number[]) =>
+    api.put<{ items: SyslogFilter[] }>('/syslog-filters/order', { ids }),
+  syslogCleanupPreview: (id: number) =>
+    api.post<SyslogCleanupPreview>(`/syslog-filters/${id}/cleanup-preview`),
+  syslogCleanup: (id: number, until: string, expected: number) =>
+    api.post<SyslogCleanupJob>(`/syslog-filters/${id}/cleanup`, { until, expected }),
+  syslogCleanupStatus: () =>
+    api.get<{ cleanup: SyslogCleanupJob | null }>('/syslog-filters/cleanup'),
+  topTalkers: (hours = 24) => api.get<TopTalkers>('/syslog/top-talkers', { hours }),
 
   // [2b-3] event rules and event sensors
   eventRules: (kind?: EventRuleKind) =>

@@ -48,6 +48,7 @@ from netmon.ingest.limits import (
 )
 from netmon.ingest.query import syslog_out, trap_out
 from netmon.ingest.syslog_parse import parse_syslog
+from netmon.ingest.syslog_protect import SyslogProtection
 from netmon.ingest.syslog_receiver import SyslogTcp
 from netmon.ingest.trap_receiver import UdpReceiver, V3Engine, snmp_creds_to_user
 from netmon.services.serialize import iso, now_utc
@@ -65,6 +66,8 @@ FLUSH_ON_STOP_S = 5.0
 RESOLVE_TIMEOUT_S = 2.0
 RESOLVE_PARALLEL = 8
 DB_WARN_EVERY_S = 60.0
+PROTECT_FLUSH_S = 2.0  # [syslog-protection] repeat counts -> DB
+HITS_FLUSH_S = 10.0  # [syslog-protection] filter-rule hit counters -> DB
 
 
 class Counters:
@@ -72,6 +75,8 @@ class Counters:
         self.received = 0
         self.stored = 0
         self.forwarded = 0
+        self.deduplicated = 0  # [syslog-protection] folded into an earlier identical row
+        self.pruned = 0  # [syslog-protection] removed by a "keep newest N" filter rule
         self.dropped = dict.fromkeys(DROP_REASONS, 0)
         self._minutes: deque[tuple[int, int]] = deque(maxlen=6)
 
@@ -95,6 +100,8 @@ class Counters:
             "received": self.received,
             "stored": self.stored,
             "forwarded": self.forwarded,
+            "deduplicated": self.deduplicated,
+            "pruned": self.pruned,
             "dropped": dict(self.dropped),
         }
 
@@ -148,6 +155,8 @@ class Ingest:
         self.collapse_on = False
         self.collapse_oids: list[str] = []
         self.collapse_keep = 10
+        self.protect = SyslogProtection()  # [syslog-protection]
+        self.cleanup: dict[str, Any] | None = None  # [syslog-protection] the running/last job
         self._trap_settings: dict[str, list[Any]] = {"communities": [], "v3_users": []}
         self._tz: str | None = None
         self.forwarders: dict[str, Forwarder] = {}
@@ -252,6 +261,10 @@ class Ingest:
             asyncio.create_task(self._worker(kind), name=f"netmon-ingest-{kind}-worker"),
             asyncio.create_task(self._writer(kind), name=f"netmon-ingest-{kind}-writer"),
         ]
+        if kind == "syslog":
+            self._tasks[kind].append(
+                asyncio.create_task(self._protect_loop(), name="netmon-ingest-syslog-protect")
+            )
 
     async def _stop_pipeline(self, kind: str) -> None:
         if kind not in self.on:
@@ -269,6 +282,9 @@ class Ingest:
             with contextlib.suppress(BaseException):
                 await t
         self._tasks[kind] = []
+        if kind == "syslog":  # [syslog-protection] last repeat counts and hit counters
+            with contextlib.suppress(Exception):
+                await self.flush_protection(final=True)
         left = self.raw[kind].qsize() + self.write[kind].qsize()
         if left:
             self.counters[kind].drop("queue_full", left)
@@ -344,6 +360,8 @@ class Ingest:
         }
         self._drop_events.clear()
         self._drop_window.clear()
+        self.protect.reset()
+        self.cleanup = None
         for k in KINDS:
             self.live[k].clear()
         self.flapping.tracker.clear()
@@ -377,12 +395,30 @@ class Ingest:
         self.collapse_keep = int(cfg.get("trap_collapse_keep") or 10)
         if self.collapse_on and was != (True, self.collapse_oids, self.collapse_keep):
             self.rt.spawn(collapse.prune_all(self.rt, self.collapse_oids, self.collapse_keep))
+        # [syslog-protection] dedup / rate limit (ON by default) and the filter rules
+        self.protect.configure(
+            dedup_on=bool(cfg.get("syslog_dedup_enabled", True)),
+            window_s=int(cfg.get("syslog_dedup_window_s") or 60),
+            rate_on=bool(cfg.get("syslog_rate_limit_enabled", True)),
+            per_min=int(cfg.get("syslog_rate_limit_per_min") or 3000),
+        )
+        await self.reload_syslog_filters()
         self._tz = cfg.get("timezone")
         self._trap_settings = {
             "communities": list(cfg.get("trap_communities") or []),
             "v3_users": list(cfg.get("trap_v3_users") or []),
         }
         self.rt.spawn(self.flapping.configure())
+
+    async def reload_syslog_filters(self) -> None:
+        """[syslog-protection] Compile the enabled filter rules (called on every change)."""
+        async with self.rt.sessionmaker() as session:
+            rows = (
+                (await session.execute(text("SELECT * FROM syslog_filters ORDER BY position, id")))
+                .mappings()
+                .all()
+            )
+        self.protect.set_rules(list(rows))
 
     def mark_sources_dirty(self) -> None:
         self._sources_dirty.set()
@@ -543,9 +579,9 @@ class Ingest:
             except TimeoutError:
                 c.drop("queue_full")
 
-    def _rate_event(self, kind: str, ip: str) -> None:
+    def _rate_event(self, kind: str, ip: str, per_min: int | None = None) -> None:
         now = time.monotonic()
-        key = f"{kind}:{ip}"
+        key = f"{kind}:{ip}" if per_min is None else f"rows:{ip}"
         last = self._drop_events.get(key)
         if last is not None and now - last < 3600:
             return
@@ -560,11 +596,13 @@ class Ingest:
         from netmon.services import events as events_svc
 
         what = "traps" if kind == "trap" else "syslog"
-        self.rt.spawn(
-            events_svc.write_system_event(
-                self.rt, f"Dropping {what} from {ip}: rate limit exceeded"
+        msg = f"Dropping {what} from {ip}: rate limit exceeded"
+        if per_min is not None:  # [syslog-protection] the storage rate limit
+            msg = (
+                f"Syslog from {ip} exceeds {per_min} rows per minute: the excess is not stored "
+                "(Settings, syslog flood protection)"
             )
-        )
+        self.rt.spawn(events_svc.write_system_event(self.rt, msg))
 
     # ---------------------------------------------------------------- decode workers
     async def _worker(self, kind: str) -> None:
@@ -693,6 +731,8 @@ class Ingest:
             "truncated": rec.truncated,
             "matched_rule_ids": [],
             "raised_status": None,
+            "repeat_count": 1,
+            "last_seen": None,
         }
         await self._finish(record, None)
 
@@ -750,11 +790,34 @@ class Ingest:
                 sent = f.offer(record) or sent
             if sent:
                 self.counters[kind].forwarded += 1
+        if kind == "syslog" and not self._protect_admits(record, outcome):
+            return
         try:
             self.write[kind].put_nowait((record, outcome))
             self.counters[kind].accepted()
         except asyncio.QueueFull:
             self.counters[kind].drop("queue_full")
+
+    def _protect_admits(self, record: dict[str, Any], outcome: Any) -> bool:
+        """[syslog-protection] Filter rules, dedup and the storage rate limit (after event
+        rules, backup triggers and forwarding, which see every message). A message that is
+        not stored but changed an event sensor still reaches the writer (marked `_skip`) so
+        its raise / clear is applied in the writer's transaction."""
+        c = self.counters["syslog"]
+        reason = self.protect.check(record)
+        if reason is None:
+            return True
+        if reason == "deduplicated":
+            c.deduplicated += 1
+        else:
+            c.drop(reason)
+            if reason == "source_rate_limit":
+                self._rate_event("syslog", str(record["source_ip"]), self.protect.per_min)
+        if outcome is not None and outcome.matched_rule_ids:
+            record["_skip"] = True
+            with contextlib.suppress(asyncio.QueueFull):  # the message itself is counted
+                self.write["syslog"].put_nowait((record, outcome))
+        return False
 
     def _important_fn(self, info: PortInfo | None) -> Any:
         if self.linkdown_scope == "all" or info is None:
@@ -800,7 +863,12 @@ class Ingest:
             await self._flush(kind, batch)
 
     async def _flush(self, kind: str, batch: list[tuple[dict[str, Any], Any]]) -> None:
+        skipped = [(r, o) for r, o in batch if r.get("_skip")]
+        batch = [(r, o) for r, o in batch if not r.get("_skip")]
         records = [r for r, _ in batch]
+        if not records:
+            await self._apply_items(kind, [], skipped)
+            return
         ids: list[int] | None = None
         for attempt in range(2):
             try:
@@ -818,8 +886,15 @@ class Ingest:
                     log.warning("Cannot store %d %s record(s): %s", len(records), kind, exc)
         if ids is None:
             self.counters[kind].drop("db_error", len(records))
+            if kind == "syslog":
+                for r in records:
+                    self.protect.not_stored(r)
             return
         self.counters[kind].stored += len(ids)
+        if kind == "syslog":
+            for r, id_ in zip(records, ids, strict=False):
+                self.protect.stored(r, id_)
+            await self._prune_kept(records)
         if kind == "trap" and self.collapse_on and self.collapse_oids:
             groups = [
                 (str(r["source_ip"]), collapse.normalize_oid(r["trap_oid"]))
@@ -833,17 +908,29 @@ class Ingest:
                     raise
                 except Exception as exc:  # noqa: BLE001
                     log.warning("Cannot prune repetitive traps: %s", exc)
-        items: list[Item] = []
-        for (rec, outcome), id_ in zip(batch, ids, strict=False):
+        for (rec, _), id_ in zip(batch, ids, strict=False):
             rec["id"] = id_
             self.live[kind].append(rec)
+        await self._apply_items(kind, batch, skipped)
+
+    async def _apply_items(
+        self,
+        kind: str,
+        stored: list[tuple[dict[str, Any], Any]],
+        skipped: list[tuple[dict[str, Any], Any]],
+    ) -> None:
+        """Event-sensor effects of a flush: the stored records and the [syslog-protection]
+        ones that were not stored but matched an event rule (ref = the dedup row, if any)."""
+        items: list[Item] = []
+        for rec, outcome in [*stored, *skipped]:
             if rec["device_id"] is None:
                 continue
             dev = self.smap.device(rec["device_id"])
             if dev is None or not dev.get("enabled", True):
                 continue
+            ref = rec.get("id") if not rec.get("_skip") else rec.get("_dedup_ref")
             txt = rec["summary"] if kind == "trap" else rec["message"]
-            items.append(Item(rec["device_id"], kind, id_, str(txt)[:500], outcome))
+            items.append(Item(rec["device_id"], kind, ref, str(txt)[:500], outcome))
         if items and self.alerts_on:
             try:
                 await self.events.apply_items(items, alerts_on=True)
@@ -851,6 +938,99 @@ class Ingest:
                 raise
             except Exception:  # noqa: BLE001
                 log.exception("Applying event conditions failed")
+
+    # ---------------------------------------------------------------- [syslog-protection]
+    async def _prune_kept(self, records: list[dict[str, Any]]) -> None:
+        """ "Keep newest N" filter rules: prune each (rule, source) written in this batch."""
+        groups = {
+            (int(r["filter_rule_id"]), str(r["source_ip"]))
+            for r in records
+            if r.get("filter_rule_id") is not None
+        }
+        if not groups:
+            return
+        keep = {r.id: r.keep_n for r in self.protect.rules if r.action == "keep"}
+        try:
+            async with self.rt.sessionmaker() as session:
+                for rid, ip in sorted(groups):
+                    if rid not in keep:
+                        continue
+                    res = await session.execute(_PRUNE_KEPT, {"r": rid, "s": ip, "n": keep[rid]})
+                    n = int(res.rowcount or 0)
+                    self.counters["syslog"].pruned += n
+                    self.protect.count_pruned(ip, n)
+                await session.commit()
+        except asyncio.CancelledError:
+            raise
+        except Exception as exc:  # noqa: BLE001
+            log.warning("Cannot prune syslog kept by a filter rule: %s", exc)
+
+    async def _protect_loop(self) -> None:
+        last_hits = time.monotonic()
+        while True:
+            await asyncio.sleep(PROTECT_FLUSH_S)
+            try:
+                hits = time.monotonic() - last_hits >= HITS_FLUSH_S
+                if hits:
+                    last_hits = time.monotonic()
+                await self.flush_protection(hits=hits)
+            except asyncio.CancelledError:
+                raise
+            except Exception as exc:  # noqa: BLE001
+                log.warning("Cannot store syslog repeat counts: %s", exc)
+
+    async def flush_protection(self, *, hits: bool = True, final: bool = False) -> int:
+        """Write the dirty dedup repeat counts (and the filter-rule hit counters); returns the
+        number of rows updated. `final`: every open dedup window is closed first."""
+        p = self.protect
+        if final:
+            p.close_all()
+        else:
+            p.expire(self.rt.clock.now().timestamp())
+        ups = p.repeat_updates()
+        n = 0
+        if ups:
+            async with self.rt.sessionmaker() as session:
+                res = await session.execute(
+                    _REPEAT_UPDATE,
+                    {
+                        "i": [u.id for u in ups],
+                        "t": [u.time for u in ups],
+                        "c": [u.count for u in ups],
+                        "ls": [u.last_seen for u in ups],
+                    },
+                )
+                await session.commit()
+            n = int(res.rowcount or 0)
+            if self.rt.hub.has_subscribers("syslog"):
+                self.rt.hub.broadcast_topic(
+                    "syslog",
+                    "syslog.repeats",
+                    {
+                        "items": [
+                            {"id": u.id, "repeat_count": u.count, "last_seen": iso(u.last_seen)}
+                            for u in ups[-LIVE_MAX:]
+                        ]
+                    },
+                )
+        if hits:
+            pending = p.take_hits()
+            if pending:
+                try:
+                    async with self.rt.sessionmaker() as session:
+                        await session.execute(
+                            _HITS_UPDATE,
+                            {
+                                "i": list(pending),
+                                "n": [v[0] for v in pending.values()],
+                                "t": [v[1] for v in pending.values()],
+                            },
+                        )
+                        await session.commit()
+                except Exception:
+                    p.give_back_hits(pending)
+                    raise
+        return n
 
     # ---------------------------------------------------------------- live
     async def _live_loop(self) -> None:
@@ -902,6 +1082,22 @@ class Ingest:
             "forwarders": [f.status() for f in self.forwarders.values()] if admin else [],
             "trgm": bool(getattr(self.rt, "trgm_enabled", False)),
             "timescale": bool(self.rt.timescale_enabled),
+            "syslog_protection": self.protection_status(),
+        }
+
+    def protection_status(self) -> dict[str, Any]:
+        """[syslog-protection] current settings, per-source suppression counters (since
+        `counters_since`), the filter-rule hits since boot and the bounded state sizes."""
+        p = self.protect
+        return {
+            "dedup_enabled": p.dedup_on,
+            "dedup_window_s": int(p.window_s),
+            "rate_limit_enabled": p.rate_on,
+            "rate_limit_per_min": p.per_min,
+            "filter_rules": len(p.rules),
+            "rule_hits": {str(k): v for k, v in p.rule_hits.items()},
+            "top_sources": p.top_sources(),
+            **p.state_size(),
         }
 
 
@@ -978,19 +1174,45 @@ _SYSLOG_INSERT = text(
     """
     INSERT INTO syslog_messages (time, device_time, source_ip, device_id, transport, format,
         facility, severity, hostname, program, pid, msgid, structured_data, message, truncated,
-        matched_rule_ids)
+        matched_rule_ids, filter_rule_id)
     SELECT x.t, x.dt, CAST(x.s AS inet), x.d, x.tr, x.f, x.fa, x.se, x.h, x.pr, x.pi, x.mi,
-           x.sd, x.m, x.tc, CAST(x.r AS integer[])
+           x.sd, x.m, x.tc, CAST(x.r AS integer[]), x.fr
     FROM unnest(CAST(:t AS timestamptz[]), CAST(:dt AS timestamptz[]), CAST(:s AS text[]),
                 CAST(:d AS integer[]), CAST(:tr AS text[]), CAST(:f AS text[]),
                 CAST(:fa AS smallint[]), CAST(:se AS smallint[]), CAST(:h AS text[]),
                 CAST(:pr AS text[]), CAST(:pi AS text[]), CAST(:mi AS text[]),
                 CAST(:sd AS text[]), CAST(:m AS text[]), CAST(:tc AS boolean[]),
-                CAST(:r AS text[]))
-         WITH ORDINALITY AS x(t, dt, s, d, tr, f, fa, se, h, pr, pi, mi, sd, m, tc, r, ord)
+                CAST(:r AS text[]), CAST(:fr AS integer[]))
+         WITH ORDINALITY AS x(t, dt, s, d, tr, f, fa, se, h, pr, pi, mi, sd, m, tc, r, fr, ord)
     ORDER BY x.ord
     RETURNING id
     """
+)
+# [syslog-protection] dedup repeat counts (absolute values; (id, time) = the hypertable key)
+_REPEAT_UPDATE = text(
+    """
+    UPDATE syslog_messages m SET repeat_count = x.c, last_seen = x.ls
+    FROM unnest(CAST(:i AS bigint[]), CAST(:t AS timestamptz[]), CAST(:c AS integer[]),
+                CAST(:ls AS timestamptz[])) AS x(i, t, c, ls)
+    WHERE m.id = x.i AND m.time = x.t
+    """
+)
+_HITS_UPDATE = text(
+    """
+    UPDATE syslog_filters f SET hits = f.hits + x.n,
+        last_hit_at = GREATEST(f.last_hit_at, x.t)
+    FROM unnest(CAST(:i AS integer[]), CAST(:n AS bigint[]), CAST(:t AS timestamptz[]))
+        AS x(i, n, t)
+    WHERE f.id = x.i
+    """
+)
+# "keep newest N" of a filter rule per source: only the rows stored under that rule (partial
+# index ix_syslog_filter_rule), so the work is O(N) per write
+_PRUNE_KEPT = text(
+    "DELETE FROM syslog_messages t USING ("
+    "  SELECT id, time FROM syslog_messages WHERE filter_rule_id = :r"
+    "  AND source_ip = CAST(:s AS inet) ORDER BY time DESC, id DESC OFFSET :n"
+    ") old WHERE t.id = old.id AND t.time = old.time"
 )
 
 
@@ -1034,6 +1256,7 @@ async def insert_records(rt: Any, kind: str, records: list[dict[str, Any]]) -> l
             "m": [r["message"] for r in records],
             "tc": [r["truncated"] for r in records],
             "r": [_int_array(r["matched_rule_ids"]) for r in records],
+            "fr": [r.get("filter_rule_id") for r in records],
         }
         stmt = _SYSLOG_INSERT
     async with rt.sessionmaker() as session:

@@ -105,7 +105,7 @@ test('OFF: endpoints answer 409 feature_disabled (with the documented exceptions
 });
 
 test('OFF: no listener on the trap/syslog ports; health reports receivers disabled', async () => {
-  const h = await admin.get('/api/health');
+  const h = await admin.get('/api/health/details');
   // [3] ingest also reports the flow receivers (api.md [3] Type changes)
   expect.soft(h.ingest).toEqual({ trap: 'disabled', syslog_udp: 'disabled', syslog_tcp: 'disabled', netflow: 'disabled', ipfix: 'disabled', sflow: 'disabled' });
   expect.soft(typeof h.trgm).toBe('boolean');
@@ -203,7 +203,7 @@ test('port in use (e.g. the Windows SNMPTRAP service holds UDP 162): toggle stay
     const rec = st.receivers.find((r: any) => r.kind === 'trap');
     // §12.2.1: the state carries the OS message ("[Errno 98] Address already in use"; Windows: WinError 10048)
     expect.soft(rec.error, 'receiver error includes the OS reason').toMatch(/in use|Errno 98|10048/i);
-    expect((await admin.get('/api/health')).ingest.trap).toBe('error');
+    expect((await admin.get('/api/health/details')).ingest.trap).toBe('error');
     const ev = await admin.get('/api/events?kind=system&page_size=20');
     expect(ev.items.some((e: any) => /cannot listen on UDP/i.test(e.message))).toBe(true);
   } finally {

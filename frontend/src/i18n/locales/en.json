@@ -441,7 +441,19 @@
     "aiNoteHint": "After the first alert notification, a short AI note is added (Telegram edit, Teams follow-up, email reply). The notification is never delayed.",
     "addFirst": "Add a rule",
     "noneHint": "A rule decides which alerts are sent to which channels, and when.",
-    "enabledLabel": "{{name}} enabled"
+    "enabledLabel": "{{name}} enabled",
+    "defaultRule": {
+      "name": "Default: every sensor that goes down or recovers",
+      "create": "Create a default alert rule",
+      "createHint": "Alerts this channel when a sensor goes down and again when it recovers. The rule can be edited or deleted later.",
+      "created": "Default alert rule created",
+      "createFailed": "The channel was saved, but the default rule was not created: {{error}}",
+      "bannerTitle": "No alert will be sent: there is no active alert rule",
+      "bannerHint": "The default rule alerts when a sensor goes down and when it recovers, and sends to: <list/>.",
+      "bannerChannelsOff": "The enabled rules send only to channels that are turned off.",
+      "bannerNoChannel": "Turn on a notification channel first, then create a rule.",
+      "bannerButton": "Create default rule"
+    }
   },
   "settings": {
     "title": "Settings",
@@ -1961,7 +1973,8 @@
       "traps": "Traps",
       "unknown": "Unknown sources",
       "rules": "Rules",
-      "digest": "Digest"
+      "digest": "Digest",
+      "protection": "Flood protection"
     },
     "range": "Time range",
     "preset": {
@@ -2024,7 +2037,11 @@
     "structuredData": "Structured data",
     "matchedRules": "Matched rules",
     "truncated": "The message was truncated (too long).",
-    "createRule": "Create rule from this message"
+    "createRule": "Create rule from this message",
+    "repeats": "Repeats",
+    "repeatsValue": "×{{n}} identical messages · first {{first}} · last {{last}}",
+    "repeatTitle": "{{n}} identical messages in this row · last {{time}}",
+    "rowsStored": "{{n}} rows stored"
   },
   "traps": {
     "title": "Traps",
@@ -2246,7 +2263,9 @@
       "bad_community": "bad community",
       "v3_auth": "v3 authentication",
       "unsupported": "unsupported",
-      "db_error": "database error"
+      "db_error": "database error",
+      "filter_rule": "filter rule",
+      "source_rate_limit": "per-source limit"
     },
     "rateSyslog": "Syslog / min",
     "rateTrap": "Traps / min",
@@ -2260,7 +2279,9 @@
       "ok": "Receivers listening",
       "error": "Receiver error",
       "off": "Receivers off"
-    }
+    },
+    "deduplicated": "Folded into repeats",
+    "pruned": "Pruned (keep newest)"
   },
   "ingestSettings": {
     "title": "Traps & syslog",
@@ -2287,6 +2308,9 @@
       "known": "v1/v2c traps with another community are dropped."
     },
     "knownNeedsList": "Add at least one community first.",
+    "anyWarning": "Traps are accepted with any community. Anyone who can reach the trap port can send traps that will be stored.",
+    "anyHowTo": "To accept known communities only: tick “Replace the stored list”, enter your communities (one per line), choose “Only known communities” under Community check, then Save — both are saved together. Communities from device and group SNMP credentials, and “public”, always count as known.",
+    "knownEmptyWarning": "“Only known communities” is on, but no trap communities are stored: every v1/v2c trap is dropped unless its community is “public” or one from a device or group SNMP credential. Add your communities with “Replace the stored list”.",
     "communities": "Trap communities",
     "communitiesStored": "Stored communities: {{n}} (never shown)",
     "replaceCommunities": "Replace the stored list",
@@ -2505,7 +2529,8 @@
       "kiosk_screen": "NOC screens",
       "chatack": "Chat acknowledge",
       "channel": "Channels",
-      "assistant": "AI assistant"
+      "assistant": "AI assistant",
+      "syslog_filter": "Syslog filter rules"
     },
     "entityType": {
       "device": "Device",
@@ -2520,7 +2545,8 @@
       "user": "User",
       "api_token": "API token",
       "assistant_conversation": "Assistant conversation",
-      "assistant_message": "Assistant answer"
+      "assistant_message": "Assistant answer",
+      "syslog_filter": "Syslog filter rule"
     },
     "subtitle": "Every change and every sign-in · kept {{days}} days",
     "noneHint": "Nothing matches these filters. Widen the time range or clear a filter.",
@@ -2560,7 +2586,9 @@
       "incident_summary": "incident summary",
       "kb_test": "knowledge base test",
       "report_summary": "report summary",
-      "tool_call": "lookup"
+      "tool_call": "lookup",
+      "reorder": "reordered",
+      "cleanup": "stored rows deleted"
     },
     "authVerb": {
       "login": "Signed in",
@@ -4244,6 +4272,9 @@
       "copyName": "Copy name",
       "runNow": "Run now",
       "acknowledge": "Acknowledge…",
+      "moveTo": "Move to…",
+      "moveSelected_one": "Move the selected item to…",
+      "moveSelected_other": "Move {{count}} selected items to…",
       "edit": "Edit…",
       "delete": "Delete…"
     },
@@ -4261,6 +4292,56 @@
       "discovery": "Discovery started",
       "copied": "Copied to clipboard",
       "copyFailed": "Could not copy to the clipboard"
+    }
+  },
+  "treeMove": {
+    "devices_one": "{{count}} device",
+    "devices_other": "{{count}} devices",
+    "groups_one": "{{count}} group",
+    "groups_other": "{{count}} groups",
+    "and": "{{a}} and {{b}}",
+    "andNum": "{{a}} and {{b}}",
+    "andMore_one": "and {{count}} more",
+    "andMore_other": "and {{count}} more",
+    "topLevel": "Top level",
+    "topLevelTarget": "the top level",
+    "pickTitle": "Move {{what}} to…",
+    "confirmTitle": "Move {{what}} to {{target}}?",
+    "inheritHint": "Settings inherited from the group (SNMP and SSH credentials, dependency, maintenance windows) will come from the new group; settings set on the items themselves stay as they are.",
+    "move": "Move",
+    "next": "Next",
+    "findGroup": "Find a group",
+    "targetGroup": "Target group",
+    "note": {
+      "same": "current location",
+      "inside": "inside what you move"
+    },
+    "done": "Moved to {{target}}",
+    "errors": {
+      "nameTaken": "There is already a group named {{name}} there.",
+      "changed": "The tree changed in the meantime; refresh and try again."
+    },
+    "selected_one": "{{count}} selected",
+    "selected_other": "{{count}} selected",
+    "selection": "Selected items",
+    "clearSelection": "Clear selection",
+    "dropTopLevel": "Drop here to move to the top level",
+    "selectItem": "Select {{name}}",
+    "selectionHint": "Ctrl/⌘-click or Shift-click to select several; drag onto a group to move.",
+    "checking": "Checking what changes…",
+    "effect": {
+      "snmpLose": "{{what}} will lose the SNMP settings inherited from group {{group}} and fall back to the built-in default (v2c, community public). Their SNMP sensors may go down.",
+      "snmp": "SNMP settings of {{what}} — now: {{from}}; after the move: {{to}}. Their SNMP sensors may go down.",
+      "ssh": "SSH credentials of {{what}} — now: {{from}}; after the move: {{to}}. Configuration backups may fail.",
+      "dependency": "Dependency of {{what}} — now: {{from}}; after the move: {{to}}.",
+      "group": "inherited from group {{name}}",
+      "snmpDefault": "the built-in default (v2c, public)",
+      "own": "its own settings",
+      "noneValue": "none",
+      "dependsOn": "depends on {{name}}",
+      "none": "No inherited setting changes for the devices that move.",
+      "snmpSensors_one": "({{count}} SNMP sensor)",
+      "snmpSensors_other": "({{count}} SNMP sensors)"
     }
   },
   "settingsSearch": {
@@ -4455,6 +4536,132 @@
       "done_one": "Severity updated for {{count}} sensor.",
       "done_other": "Severity updated for {{count}} sensors.",
       "pickOne": "Change at least one of the two."
+    }
+  },
+  "syslogProtection": {
+    "title": "Syslog flood protection",
+    "intro": "Protects the database from devices that send too much syslog. Both protections are on by default; turning one off restores the old behaviour. Event rules and SIEM forwarding still see every message.",
+    "dedup": "Fold identical messages into one row",
+    "dedupHint": "The same message (same source, program, MSGID, severity and text) within {{n}} seconds of the first one is stored once, with a repeat count (×37 in the logs). Lines that differ even by a sequence number are not identical — use a filter rule for those.",
+    "window": "Window (seconds)",
+    "windowHint": "5–3600 · default 60",
+    "windowErr": "Enter 5–3600.",
+    "rate": "Limit the rows stored per source",
+    "rateHint": "A storm guard: above {{n}} new rows per minute from one source, the excess is not stored and is counted (a system event says so once an hour). A healthy device never comes close.",
+    "perMin": "Rows per minute per source",
+    "perMinHint": "10–100,000 · default 3,000",
+    "perMinErr": "Enter 10–100,000.",
+    "rulesHint": "To drop or thin out a specific noisy program or device, add a filter rule:",
+    "rulesLink": "Logs → Flood protection"
+  },
+  "syslogFilters": {
+    "title": "Filter rules",
+    "intro": "Checked in order for every syslog message; the first enabled rule that matches decides. Event rules and SIEM forwarding see the message before these rules.",
+    "add": "Add rule",
+    "none": "No filter rules — every message is stored. Start from the busiest sources below.",
+    "addTitle": "New filter rule",
+    "editTitle": "Edit filter rule",
+    "editorIntro": "A message matches when it meets every condition you fill in. Leave a condition empty to ignore it.",
+    "name": "Name",
+    "nameErr": "Enter a name (up to 100 characters).",
+    "conditions": "Conditions",
+    "device": "Device",
+    "anyDevice": "Any device",
+    "sourceHint": "The device or the addresses below (either one matches).",
+    "sources": "Source addresses",
+    "sourcesHint": "IP addresses or networks (CIDR), one per line.",
+    "sourcesErr": "Not an IP address or network: {{list}}",
+    "program": "Program",
+    "programHint": "The syslog program (tag), case-insensitive.",
+    "programMatch": "How to compare the program",
+    "match": {
+      "exact": "exactly",
+      "prefix": "starts with"
+    },
+    "msgid": "MSGID",
+    "msgidHint": "RFC 5424 MSGID, exact (case-insensitive).",
+    "severity": "Severity",
+    "severityHint": "This severity and every less important one.",
+    "anySeverity": "Any severity",
+    "sevAndLess": "{{sev}} and less important",
+    "contains": "Message contains",
+    "containsHint": "Text anywhere in the message, case-insensitive.",
+    "noCondition": "Fill in at least one condition — a rule without conditions would match every message.",
+    "actionLabel": "What to do with matching messages",
+    "action": {
+      "drop": "Drop",
+      "keepN": "Keep newest {{n}}",
+      "dropLong": "Do not store them",
+      "dropHint": "Counted on the rule and in the ingest counters, never stored.",
+      "keepLong": "Keep only the newest ones per source",
+      "keepHint": "Like repetitive traps: older matching rows of the same source are removed after each write."
+    },
+    "keepN": "Rows to keep per source",
+    "keepNHint": "1–100,000",
+    "keepNErr": "Enter 1–100,000.",
+    "enabled": "Rule enabled",
+    "enableNamed": "Rule {{name}} enabled",
+    "moveUp": "Move {{name}} up",
+    "moveDown": "Move {{name}} down",
+    "col": {
+      "order": "Order",
+      "rule": "Rule",
+      "action": "Action",
+      "hits": "Hits",
+      "lastHit": "Last hit",
+      "source": "Source",
+      "rows": "Rows",
+      "share": "Share",
+      "lastSeen": "Last seen"
+    },
+    "hitsSince": "Since {{time}} (reset when the conditions change)",
+    "never": "Never",
+    "sum": {
+      "from": "from",
+      "program": "program",
+      "programPrefix": "program starts with",
+      "contains": "message contains"
+    },
+    "cleanupBtn": "Clean up stored",
+    "deleteTitle": "Delete filter rule",
+    "deleteBody": "Delete the rule “{{name}}”? Messages it dropped stay dropped; new ones are stored again.",
+    "summaryTitle": "Protection status",
+    "changeInSettings": "Change in Settings",
+    "dedup": "Deduplication",
+    "dedupValue": "window {{n}} s",
+    "dedupShort": "identical messages become one row with a repeat count",
+    "rate": "Per-source rate limit",
+    "rateValue": "{{n}} rows per minute",
+    "rateShort": "a storm guard: the excess is counted, not stored",
+    "on": "On",
+    "off": "Off",
+    "offHint": "off",
+    "bySource": "By source",
+    "reason": {
+      "filter_rule": "Dropped by rules",
+      "deduplicated": "Folded as repeats",
+      "source_rate_limit": "Over the rate limit",
+      "pruned": "Pruned (keep newest)"
+    },
+    "talkersTitle": "Top talkers · last 24 hours",
+    "talkersIntro": "The busiest source, program and severity combinations: {{rows}} rows stored ({{messages}} messages).",
+    "talkersHint": "The busiest source, program and severity combinations.",
+    "talkersNone": "No syslog in the last 24 hours.",
+    "createFromTalker": "Create rule",
+    "talkerName": "{{program}} {{sev}} from {{source}}",
+    "cleanup": {
+      "title": "Clean up stored messages?",
+      "note": "Counted up to {{time}}; messages stored later are not touched. Deleting cannot be undone.",
+      "keep": "Keep them",
+      "nothing": "No stored rows match this rule.",
+      "running": "Deleting stored rows of “{{name}}”",
+      "failed": "The cleanup stopped: {{error}}",
+      "failedTitle": "The last cleanup stopped",
+      "matchDrop": "Stored rows that match “{{name}}”",
+      "matchKeep": "Stored rows of “{{name}}” beyond the newest {{keep}} of each source",
+      "question": "Delete them as well? The rule already handles new messages; this only cleans up what was stored before.",
+      "confirm": "Delete these rows",
+      "done": "Cleanup finished. Rows deleted: {{n}}."
     }
   }
 }

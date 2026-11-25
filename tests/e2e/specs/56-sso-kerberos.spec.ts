@@ -77,7 +77,7 @@ test('enabling needs a keytab; upload shows principals/etypes (no key material);
   await setFeatures(api, { sso_kerberos: true });
   expect((await api.get('/api/settings/public')).sso.kerberos).toEqual({ auto_login: true });
   await expect.poll(async () => (await api.get('/api/sso/kerberos')).state, { timeout: 10_000 }).toBe('ready');
-  expect((await api.get('/api/health')).kerberos).toBe('ready');
+  expect((await api.get('/api/health/details')).kerberos).toBe('ready');
 });
 
 test('API: challenge, valid ticket -> viewer jdoe / admin asmith, NTLM refused, wrong realm, 48 KB header', async () => {

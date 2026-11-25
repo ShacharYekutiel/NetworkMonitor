@@ -31,6 +31,9 @@ export type TreeMenuAction =
   | 'copyName'
   | 'runNow'
   | 'acknowledge'
+  // [tree-move] "Move to…" (this item) / "Move N selected items to…" (the tree selection)
+  | 'moveTo'
+  | 'moveSelected'
   | 'edit'
   | 'delete';
 
@@ -43,8 +46,8 @@ export type TreeMenuItem = {
   disabled?: boolean;
   /** discovery: the profile to run; explain: the sensor to explain */
   arg?: number;
-  /** label interpolation (discovery: the profile name) */
-  vars?: Record<string, string>;
+  /** label interpolation (discovery: the profile name; moveSelected: the count) */
+  vars?: Record<string, string | number>;
 };
 export type TreeMenuEntry = TreeMenuItem | { type: 'separator'; key: string };
 
@@ -57,7 +60,18 @@ export type TreeMenuContext = {
   isPassive: (type: string) => boolean;
   /** Discovery profiles whose target group is the group of the menu (admins). */
   discoveryProfiles?: { id: number; name: string }[];
+  /** [tree-move] the user may move groups / devices (admins) */
+  canMove?: boolean;
+  /** [tree-move] the item is part of a tree selection of this many items (> 1) */
+  selectedCount?: number;
 };
+
+/** [tree-move] "Move to…", or "Move N selected items to…" when the item is in a multi-selection. */
+function moveItem(ctx: TreeMenuContext): TreeMenuItem | false {
+  if (!ctx.canMove) return false;
+  const n = ctx.selectedCount ?? 0;
+  return n > 1 ? item('moveSelected', { vars: { count: n } }) : item('moveTo');
+}
 
 /** Statuses worth an AI explanation (same as the Explain button of the sensor page). */
 export function explainable(s: Status): boolean {
@@ -123,7 +137,7 @@ export function treeMenuItems(target: TreeMenuTarget, ctx: TreeMenuContext): Tre
             ),
           ]
         : [],
-      admin ? [item('edit'), item('delete', { danger: true })] : [],
+      admin ? [moveItem(ctx), item('edit'), item('delete', { danger: true })] : [],
     );
   }
   if (target.kind === 'device') {
@@ -148,7 +162,7 @@ export function treeMenuItems(target: TreeMenuTarget, ctx: TreeMenuContext): Tre
         : [],
       [explain && item('explain', { arg: explain.id })],
       [item('copyIp'), item('copyName')],
-      admin ? [item('edit'), item('delete', { danger: true })] : [],
+      admin ? [moveItem(ctx), item('edit'), item('delete', { danger: true })] : [],
     );
   }
   const s = target.sensor;

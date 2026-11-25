@@ -84,6 +84,9 @@ test('create a webhook channel and send a test notification', async ({ page }) =
   await dlg.getByLabel('Type').selectOption('webhook');
   await dlg.getByLabel(/^URL/).fill(`${WEBHOOK_URL}/hook`);
   await dlg.getByLabel(/^Headers/).fill('X-Netmon-Test: e2e');
+  // [default-rule] no rule exists yet, so the dialog offers a default rule (spec 90); this spec makes its own
+  const defaultRule = dlg.getByRole('checkbox', { name: 'Create a default alert rule' });
+  if (await defaultRule.count()) await defaultRule.uncheck();
   await dlg.getByRole('button', { name: 'Save' }).click();
   await expect(dlg).toBeHidden();
 

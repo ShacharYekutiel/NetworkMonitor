@@ -80,7 +80,7 @@ migrations own the schema.
 | created_at, updated_at | timestamptz | |
 
 The API layer prevents cycles: if `parent_id` would make the group its own ancestor, the API returns
-`400 group_cycle`.
+`400 group_cycle` (also for the bulk `POST /api/tree/move`, [tree-move] in api.md).
 
 ### `devices`
 | Column | Type | Constraints |
@@ -2572,7 +2572,7 @@ column. `pg_trgm` is a contrib extension shipped with PostgreSQL packages (Docke
 images, Debian/Ubuntu, the EDB Windows installer) and is **trusted** since PG 13 (the DB owner may create it).
 Bootstrap (`netmon.db.extensions.ensure_trgm()` after migrations, in a savepoint): `CREATE EXTENSION IF NOT
 EXISTS pg_trgm`, then `CREATE INDEX IF NOT EXISTS` the two trigram indexes. On failure: WARNING, flag
-`rt.trgm_enabled = false` (reported by `/api/health`); text search still works (sequential scan bounded by the
+`rt.trgm_enabled = false` (reported by `/api/health/details`); text search still works (sequential scan bounded by the
 time range). Queries: `message ILIKE '%' || :q || '%'` with `\`, `%`, `_` escaped in `:q`.
 
 ## [2b-3] Syslog parsing (pure `netmon.ingest.syslog_parse.parse_syslog`)
@@ -2918,6 +2918,10 @@ Expired/revoked tokens are deleted 30 days after expiry/revocation by the daily 
 | `trap_collapse_enabled` | bool | false | **[1.2.1]** keep only the newest traps of `trap_collapse_oids` per source IP and OID (pruned after each write and once when turned on; event rules still see every trap) |
 | `trap_collapse_oids` | str[] | hh3cPeriodicalTrap, syslogMsgNotification | ≤ 64 numeric OIDs (leading dot stripped) |
 | `trap_collapse_keep` | int | 10 | 1–1000 |
+| `syslog_dedup_enabled` | bool | **true** | **[syslog-protection]** identical syslog messages within the window are one row with `repeat_count` (ON by default, also after an upgrade) |
+| `syslog_dedup_window_s` | int | 60 | 5–3600, from the first message of the row |
+| `syslog_rate_limit_enabled` | bool | **true** | **[syslog-protection]** per-source storage rate limit (ON by default) |
+| `syslog_rate_limit_per_min` | int | 3000 | 10–100 000 new rows per source and minute; the excess is counted, not stored |
 | `trap_names_version` | str | "" | internal: OID name table version the stored `traps.trap_name` values were last updated to (startup backfill) |
 | `flap_threshold`, `flap_window_min`, `flap_quiet_min` | int | 5, 10, 15 | § Port flapping |
 | `event_linkdown_scope` | `"important"` \| `"all"` | `"important"` | link-down / flapping alert scope (architecture § 12.3, § 12.4); other values → 422 |
@@ -4553,3 +4557,84 @@ Plain DDL (`events` is a plain table in both modes), identical in TimescaleDB an
 (`ADD COLUMN IF NOT EXISTS`, constraints dropped and re-added). `upgrade()`: the columns, checks and index above;
 existing rows NULL / `{}`. `downgrade()`: drops them and deletes the settings rows `severity_mapping`, `severity_in_subject` and
 `feature_alert_severity_enabled` (the stored severities, overrides, rule filters, mapping and option are lost).
+
+## [syslog-protection] Syslog flood protection
+
+Owner's finding: one device that logs every SNMP GET wrote 85 075 syslog rows in 24 h, 99.7 % program `SNMP`,
+severity info, three lines per request (`seqNO=…`, `PART=1`, `PART=2`) — ~6.2 million rows at 30-day retention.
+`netmon.ingest.syslog_protect` (in memory, O(rules) per message) after event rules, config-backup triggers and
+SIEM forwarding, which see every message:
+
+1. **Filter rules** (`syslog_filters`, ordered, first enabled match wins; empty by default): `drop` → not stored
+   (`dropped.filter_rule`); `keep` → stored with `filter_rule_id`, then `DELETE … WHERE filter_rule_id = R AND
+   source_ip = S ORDER BY time DESC, id DESC OFFSET keep_n` for each (rule, source) of the batch (partial index:
+   O(keep_n) per write). Hit counters are kept in memory and added to `syslog_filters.hits` every 10 s.
+2. **Deduplication** (`syslog_dedup_enabled`, ON): key = BLAKE2b-128 of (source IP, program, MSGID, severity,
+   message). Within `syslog_dedup_window_s` of the first message the repeat is folded: the row's `repeat_count` /
+   `last_seen` are written every 2 s (`UPDATE … FROM unnest(...) WHERE id = x.i AND time = x.t`, absolute values).
+   At most 20 000 open entries (FIFO eviction; an evicted entry's next repeat starts a new row). Lines that differ
+   by a sequence number (the owner's device) are **not** identical: dedup alone does not collapse them — a filter
+   rule does.
+3. **Per-source rate limit** (`syslog_rate_limit_enabled`, ON, `syslog_rate_limit_per_min` 3000): new rows per
+   source IP and calendar minute (deduplicated repeats do not count); the excess → `dropped.source_rate_limit`.
+   3000/min (50/s) is ~50× the owner's noisiest device (~59 rows/min) and far above a healthy device even during a
+   reboot or a link flap (a few hundred lines); it is a storm guard (loops, a device logging every packet), below
+   the receiver's own token bucket (200/s per source, `rate_limited`). State for at most 4096 sources (LRU).
+
+Per-source counters (filter_rule, deduplicated, source_rate_limit, pruned; 4096 sources LRU) and rule hits since
+boot are in `GET /api/ingest/status` → `syslog_protection`.
+
+### `syslog_filters`
+| Column | Type | Constraints / meaning |
+|---|---|---|
+| id | integer | identity PK |
+| name | varchar(100) | NOT NULL |
+| enabled | boolean | NOT NULL DEFAULT true |
+| position | integer | NOT NULL DEFAULT 0 — order (1 = first) |
+| sources | text[] | NOT NULL DEFAULT '{}' — CIDRs |
+| device_ids | integer[] | NOT NULL DEFAULT '{}' (no FK; a deleted device simply never matches) |
+| program | varchar(128) | NOT NULL DEFAULT '' |
+| program_match | text | NOT NULL DEFAULT 'exact' CHECK in (exact, prefix) |
+| msgid | varchar(64) | NOT NULL DEFAULT '' |
+| severity_min | smallint | NULL CHECK 0–7 — matches severity ≥ n ("this severity and less important") |
+| message_contains | varchar(200) | NOT NULL DEFAULT '' |
+| action | text | NOT NULL DEFAULT 'drop' CHECK in (drop, keep) |
+| keep_n | integer | NOT NULL DEFAULT 100 CHECK 1–100 000 |
+| hits | bigint | NOT NULL DEFAULT 0 |
+| last_hit_at | timestamptz | NULL |
+| hits_since | timestamptz | NOT NULL DEFAULT now() — reset with `hits` when the conditions / action change |
+| created_at, updated_at | timestamptz | NOT NULL DEFAULT now() |
+
+### `syslog_messages` additions
+| Column | Type | Meaning |
+|---|---|---|
+| repeat_count | integer | NOT NULL DEFAULT 1 — messages folded into this row |
+| last_seen | timestamptz | NULL — the newest folded message (NULL = not deduplicated) |
+| filter_rule_id | integer | NULL, no FK — the `keep` rule the row was stored under (or tagged by its cleanup) |
+
+Index `ix_syslog_filter_rule (filter_rule_id, source_ip, time DESC) WHERE filter_rule_id IS NOT NULL`.
+`/api/syslog/stats` counts messages (`sum(repeat_count)`) and also returns `rows`; other readers (assistant
+tools, digest, unknown sources, timeline) still count rows.
+
+**TimescaleDB.** `syslog_messages` is a hypertable **without compression** (rows are updated by "assign", device
+delete and now the repeat count), so ADD/DROP COLUMN, the repeat-count UPDATE and the cleanup DELETE are plain
+DML on uncompressed chunks. Tested anyway on a manually compressed chunk (TimescaleDB 2.31): ADD COLUMN with a
+constant default, the UPDATE and the DELETE work (DML on compressed chunks, ≥ 2.11).
+
+### Cleaning what is stored (offered, never automatic)
+`netmon.ingest.syslog_cleanup`: the preview counts the matching rows stored up to `until` (for `keep`: the rows
+beyond the newest `keep_n` per source); the cleanup deletes exactly those, walking `time` in one-hour slices
+(`ix_syslog_time` / chunk exclusion) with `DELETE … WHERE (id, time) IN (SELECT … LIMIT 5000)` per transaction
+and a short pause between statements, so the ingest writer keeps going and no long table lock is taken in either
+mode. `keep` cutoffs: the `keep_n`-th newest row per source (`row_number()`), then the rows that stay are tagged
+with the rule so the per-write prune keeps the total at `keep_n`.
+
+## [syslog-protection] Migration (`0018`)
+File `backend/netmon/migrations/versions/0018_syslog_protection.py`, `revision = "0018"`, `down_revision = "0016"`
+(**merge note:** another branch may add `0017`; when both are merged `down_revision` here becomes `"0017"` — the id
+is written only in that file, tests read the head from the scripts). Plain DDL, identical in TimescaleDB and plain
+PostgreSQL mode, idempotent. `upgrade()`: `CREATE TABLE syslog_filters`; `ALTER TABLE syslog_messages ADD COLUMN
+repeat_count integer NOT NULL DEFAULT 1, last_seen timestamptz NULL, filter_rule_id integer NULL` (constant
+defaults: catalog only, no rewrite of the existing rows); the partial index. `downgrade()`: drops the index, the
+three columns (repeat counts are lost, every row stays) and the table. An older release on the upgraded database
+keeps working: its INSERT leaves the new columns at their defaults.

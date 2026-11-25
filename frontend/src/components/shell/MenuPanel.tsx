@@ -100,6 +100,8 @@ export function MenuPanel({
     first?.scrollIntoView({ block: 'nearest' });
     const onKey = (e: KeyboardEvent) => {
       if (e.key === 'Escape') {
+        // a dialog opened from the menu (e.g. a move confirmation) closes first, not the menu
+        if (document.querySelector('[role="dialog"][aria-modal="true"]')) return;
         e.stopPropagation();
         onClose();
       }

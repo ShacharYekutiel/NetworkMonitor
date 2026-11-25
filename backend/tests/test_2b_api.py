@@ -317,12 +317,12 @@ async def test_setup_ignores_invalid_timezone(client: httpx.AsyncClient) -> None
     assert r.status_code == 422
 
 
-async def test_health_test_mode_flag(rt: Runtime, client: httpx.AsyncClient) -> None:
-    """L4: /api/health reports test mode."""
-    assert (await client.get("/api/health")).json()["test_mode"] is False
+async def test_health_test_mode_flag(rt: Runtime, admin: httpx.AsyncClient) -> None:
+    """L4: /api/health/details reports test mode (signed-in callers only)."""
+    assert (await admin.get("/api/health/details")).json()["test_mode"] is False
     rt.settings.netmon_test_mode = True
     try:
-        assert (await client.get("/api/health")).json()["test_mode"] is True
+        assert (await admin.get("/api/health/details")).json()["test_mode"] is True
     finally:
         rt.settings.netmon_test_mode = False
 

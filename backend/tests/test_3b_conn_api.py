@@ -151,7 +151,7 @@ async def test_feature_registration_and_dependencies(rt: Runtime, env: httpx.Asy
     with pytest.raises(ApiError) as e:
         require_ai(rt, "ai_explain_alert")
     assert e.value.code == "feature_idle" and e.value.details[0]["needs"] == ["assistant"]
-    assert (await c.get("/api/health")).json()["assistant"] == "disabled"
+    assert (await c.get("/api/health/details")).json()["assistant"] == "disabled"
 
 
 async def test_access_control(app: Any, env: httpx.AsyncClient, viewer: httpx.AsyncClient) -> None:
@@ -256,7 +256,7 @@ async def test_access_key_test_and_enable(
     )
     assert r.status_code == 200 and r.json()["enabled"] is True and r.json()["state"] == "ready"
     assert rt.features.enabled("assistant")
-    assert (await c.get("/api/health")).json()["assistant"] == "ready"
+    assert (await c.get("/api/health/details")).json()["assistant"] == "ready"
     st = (await c.get("/api/assistant/status")).json()
     assert st["state"] == "ready" and st["me"]["daily_limit"] == 50
     assert {f["name"] for f in st["features"]} >= {"ai_explain_alert", "ai_knowledge"}
@@ -284,7 +284,7 @@ async def test_access_key_test_and_enable(
     assert r.status_code == 422 and r.json()["error"]["code"] == "feature_dependency"
     out = await feats(c, assistant=False, audit=False)
     assert out["feature_assistant_enabled"] is False
-    assert (await c.get("/api/health")).json()["assistant"] == "disabled"
+    assert (await c.get("/api/health/details")).json()["assistant"] == "disabled"
     with pytest.raises(AssistantError):
         _ = rt.assistant.client
 
@@ -350,11 +350,11 @@ async def test_live_errors_update_health(rt: Runtime, env: httpx.AsyncClient, mo
     with pytest.raises(AssistantError) as e:
         await rt.assistant.client.converse(req)
     assert e.value.code == "bedrock_access_denied"
-    assert (await env.get("/api/health")).json()["assistant"] == "error"
+    assert (await env.get("/api/health/details")).json()["assistant"] == "error"
     st = (await env.get("/api/assistant/settings")).json()
     assert st["state"] == "error" and st["state_error"]["code"] == "bedrock_access_denied"
     await rt.assistant.client.converse(req)  # works again
-    assert (await env.get("/api/health")).json()["assistant"] == "ready"
+    assert (await env.get("/api/health/details")).json()["assistant"] == "ready"
     mock.mode("throttle", "converse", times=1)
     out = await rt.assistant.client.converse(req)  # retried
     assert out["_meta"]["retries"] == ["bedrock_throttled"]

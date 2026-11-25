@@ -15,6 +15,8 @@ Items marked **[premium]** (connected device kind per port, home network map, si
 [§ Premium UI additions](#premium-premium-ui-additions).
 Items marked **[severity]** (alert severity: levels, mapping, overrides, filters, notification rule severities) are
 specified in [§ Alert severity](#severity-alert-severity).
+Items marked **[tree-move]** (moving devices and groups between groups, single and bulk) are specified in
+[§ Moving devices and groups](#tree-move-moving-devices-and-groups).
 
 This file is the contract between the backend (`backend/netmon/schemas`) and the frontend
 (`frontend/src/api/types.ts`). **Field names are exact.** For the table semantics see
@@ -201,17 +203,33 @@ translates channel names with the i18n key `channel.<key>`.
 
 ### Health
 
-**`GET /api/health`** (public). Always 200 while the process is alive. `status` is `"degraded"` when the DB is
-unreachable.
+**`GET /api/health`** (public, also before setup) — liveness/readiness only. **[security] changed:** the
+answer has exactly one key, so an anonymous caller learns only whether the service is up:
+
+- `200 {"status": "ok"}` — the process answers and the database is reachable;
+- `503 {"status": "fail"}` — the database is unreachable (not ready). Being a non-2xx code, `curl -f`, the
+  Docker/compose healthchecks (`urlopen`), the installers and the production `wait_healthy` treat it as not
+  healthy (before this change it was `200` with `"status": "degraded"` and the full body).
+
+**`GET /api/health/details`** (any signed-in user or API token, any role; `401 unauthenticated` otherwise)
+— the runtime details that `/api/health` used to return publicly. Used by the Settings page subtitle
+(version · database · mode · poller · sensors scheduled), `ops/status.sh` (optional token file), CI and E2E.
+`status` here is still `"ok"` | `"degraded"`.
 
 ```json
 { "status": "ok", "version": "0.1.0", "database": "ok", "timescale": true, "poller": "running",
-  "sensors_scheduled": 42, "uptime_s": 3600 }
+  "sensors_scheduled": 42, "uptime_s": 3600, "test_mode": false, "trgm": true,
+  "ingest": {"trap": "disabled", "syslog_udp": "disabled", "syslog_tcp": "disabled",
+             "netflow": "disabled", "ipfix": "disabled", "sflow": "disabled"},
+  "flows_rollup": "cagg", "kerberos": "disabled", "assistant": "disabled" }
 ```
 
 - `database`: `"ok"` | `"error"`.
 - `poller`: `"running"` | `"stopped"`.
 - **[2b-1]** `test_mode`: `true` only when `NETMON_TEST_MODE=1` (the test clock is enabled), else `false`.
+- `trgm`, `ingest` ([2b-3]), `flows_rollup`, `kerberos` ([3]), `assistant` ([3b]): see the release sections
+  below (they were added to `/api/health` then and now live here).
+- The version is also sent to signed-in users in the WebSocket `hello`; it is never public.
 
 ### Setup
 
@@ -275,6 +293,9 @@ sets the session cookie. Response `201`: `{"user": User}`.
 ```
 
 The top-level `groups` holds the root groups (`parent_id = null`).
+
+**[tree-move]** `POST /api/tree/move` (admin) moves devices and groups into another group in one all-or-nothing
+call; see [§ Moving devices and groups](#tree-move-moving-devices-and-groups).
 
 ### Groups
 
@@ -1224,7 +1245,7 @@ With env **`NETMON_TEST_MODE=1`** only (otherwise the routes answer `404 not_fou
 written by those two components) and wakes both loops. `offset_s` −31536000…31536000; `0` resets. The poller,
 JWT expiry and DB `now()` are not affected. Never enabled by installers or compose. When enabled, the server
 logs a `WARNING` at startup ("NETMON_TEST_MODE is enabled: PUT /api/test/clock is available — never use this
-in production"), writes the same text as a `system` event, and `GET /api/health` reports `"test_mode": true`.
+in production"), writes the same text as a `system` event, and `GET /api/health/details` reports `"test_mode": true`.
 
 ### [2b-1] WebSocket additions
 
@@ -1534,7 +1555,7 @@ type User = { /* Phase 1 fields */ source: "local" | "ldap"; display_name: strin
   SourceState` and the status gains `lag_mib: "ieee8023" | "if_stack" | "both" | null`; `MacLocation` gains
   `lag_members: string[]`.
 - `AlertPayload` (webhook/Telegram/email/Teams) gains `"after_flapping": boolean` (like `after_maintenance`).
-- `GET /api/health` gains `"trgm": bool` and `"ingest": {"trap": ReceiverState, "syslog_udp": ReceiverState,
+- `GET /api/health` (now `/api/health/details`) gains `"trgm": bool` and `"ingest": {"trap": ReceiverState, "syslog_udp": ReceiverState,
   "syslog_tcp": ReceiverState}` with `ReceiverState = "listening" | "disabled" | "error"`.
 
 ### [2b-3] Feature toggles and settings
@@ -1879,7 +1900,7 @@ type SshCredentials = { username: string; port: number;
   number[]`. Create/PATCH accept them (secret rules as `snmp_credentials`).
 - `GET /api/settings/public` `features` gains the 8 names; gains `sso: {"kerberos": {"auto_login": true} | null,
   "oidc": {"button_label": "Sign in with Microsoft"} | null}` (null while the feature is OFF).
-- `GET /api/health` gains `"flows_rollup": "cagg" | "table" | null` and `ingest` gains `"netflow"`, `"ipfix"`,
+- `GET /api/health` (now `/api/health/details`) gains `"flows_rollup": "cagg" | "table" | null` and `ingest` gains `"netflow"`, `"ipfix"`,
   `"sflow"` receiver states; `"kerberos": "ready" | "unavailable" | "disabled" | "error"`.
 - `Settings` gains every key of data-model § [3] Settings keys (secret rules: `kerberos.keytab` is uploaded through
   its own endpoint, never in `PUT /api/settings`; `oidc.client_secret` write-only with `client_secret_set`).
@@ -2227,7 +2248,7 @@ type TelegramChannelConfig = { /* … */ ai_ask: boolean };
 type EmailChannelConfig = { /* … */ ai_note_email: boolean };
 type AssistantState = "disabled" | "unconfigured" | "ready" | "degraded" | "error";
 ```
-- `GET /api/health` gains `"assistant": AssistantState`.
+- `GET /api/health` (now `/api/health/details`) gains `"assistant": AssistantState`.
 - `GET /api/settings/public` `features` gains the 11 names (viewers see them too; all 3b UI is admin-only anyway).
 - `GET /api/settings` gains the 3b scalar keys of data-model § [3b] Settings (except `assistant`, `assistant_kb`,
   which are only in `/api/assistant/settings` and `/api/assistant/knowledge`); `PUT /api/settings` accepts the
@@ -3199,3 +3220,166 @@ a `severity` key — the tool schemas and results are exactly as before.
 | `sensor.severity` | `{"id": 7, "device_id": 3, "severity": "major"}` | an active problem's severity changed by re-resolution or the feature being turned on; all |
 | `event.created` | `Event` now with `severity` | as today. A `status_change` event to down / warning carries the sensor's new `Sensor.severity`; to any other status the sensor's `severity` becomes `null`. `sensor.update` is unchanged (no severity key) |
 | `features.changed` | gains `alert_severity` | as 2b-3 |
+
+## [syslog-protection] Syslog flood protection
+
+Traps have "Repetitive traps"; syslog gets the same kind of protection. Order for every parsed, attributed
+syslog message: ignore list / unknown-source policy → **event rules and config-backup triggers → SIEM
+forwarding** → filter rules → deduplication → per-source rate limit → write. Event rules and SIEM forwarding
+therefore still see every message (the trap-collapse principle); the protections only decide what is **stored**.
+A message that is not stored but matched an event rule still raises / clears its event condition (the condition's
+`last_ref_id` is the row it was folded into, or null).
+
+### Settings keys (`GET/PUT /api/settings`, admin; ON by default — an upgrade changes behaviour)
+| Key | Type | Default | Meaning |
+|---|---|---|---|
+| `syslog_dedup_enabled` | bool | **true** | identical messages (same source IP, program, MSGID, severity and message text) within the window are stored as **one row** (`time` = first seen) with `repeat_count` / `last_seen` |
+| `syslog_dedup_window_s` | int 5–3600 | 60 | measured from the first message of the row; the next identical message after it starts a new row |
+| `syslog_rate_limit_enabled` | bool | **true** | per-source storage guard |
+| `syslog_rate_limit_per_min` | int 10–100 000 | 3000 | new rows per source IP and calendar minute; the excess is dropped (`source_rate_limit`), and a system event "Syslog from X exceeds N rows per minute …" is written at most once an hour per source |
+
+These sit next to the trap keys (`trap_collapse_*`), not in the features list (the trap protection is not a
+feature either). Changes are audited as `settings.update`.
+
+### Types
+```ts
+type SyslogMessage = { /* as [2b-3] */ repeat_count: number;      // 1 = not deduplicated
+  last_seen: string | null };                                      // the newest folded message
+type SyslogStats = { /* as [2b-3] */ total: number;               // MESSAGES: sum(repeat_count)
+  rows: number };                                                  // stored rows (<= total)
+// top_sources / top_programs / buckets / by_severity also count messages
+type IngestCounters = { /* as [2b-3] */ deduplicated: number;      // folded into an earlier row
+  pruned: number;                                                  // removed by "keep newest N"
+  dropped: { /* as [2b-3] */ filter_rule: number; source_rate_limit: number } };
+type IngestStatus = { /* as [2b-3] */ syslog_protection: {
+  dedup_enabled: boolean; dedup_window_s: number; rate_limit_enabled: boolean; rate_limit_per_min: number;
+  filter_rules: number;                                            // enabled rules
+  rule_hits: Record<string, number>;                               // rule id -> hits since boot
+  top_sources: { source_ip: string; filter_rule: number; deduplicated: number; source_rate_limit: number;
+    pruned: number; total: number }[];                             // <= 20, since counters_since
+  dedup_entries: number; rate_sources: number } };                 // bounded in-memory state
+type SyslogFilter = { id: number; name: string; enabled: boolean; position: number;   // 1 = checked first
+  sources: string[];                       // CIDRs ("10.0.0.9/32")
+  device_ids: number[]; devices: { id: number; name: string }[];
+  program: string; program_match: "exact" | "prefix";               // case-insensitive
+  msgid: string;                                                   // exact, case-insensitive
+  severity_min: number | null;             // this severity and less important (severity >= n)
+  message_contains: string;                // substring, case-insensitive
+  action: "drop" | "keep"; keep_n: number; // keep: the newest keep_n rows per source IP
+  hits: number; last_hit_at: string | null; hits_since: string;   // reset when the conditions change
+  created_at: string; updated_at: string };
+type SyslogCleanupJob = { rule_id: number; rule_name: string; action: "drop" | "keep"; keep_n: number;
+  state: "running" | "done" | "failed"; expected: number; deleted: number; until: string;
+  started_at: string; finished_at: string | null; error: string | null };
+type TopTalker = { source_ip: string; device_id: number | null; device_name: string | null; program: string;
+  severity: number; rows: number; messages: number; last_seen: string | null };
+```
+A message matches a rule when it meets **every** condition that is set; the source condition is met by the IP
+being in `sources` **or** the attributed device being in `device_ids`. A rule needs at least one condition.
+Rules are checked in `position` order; the first **enabled** match decides (`drop`: not stored, counted;
+`keep`: stored tagged with the rule, then the rows of that rule and source beyond the newest `keep_n` are deleted
+after each write — like `trap_collapse`). At most 200 rules.
+
+### Endpoints (feature `syslog`; 409 `feature_disabled` while off; admin only, a viewer gets 403)
+| Method & path | Request | Response |
+|---|---|---|
+| `GET /api/syslog-filters` | — | `{"items": SyslogFilter[], "cleanup": SyslogCleanupJob \| null}` (the running or last cleanup since start) |
+| `POST /api/syslog-filters` | `name` (required) + any of the fields above | `201 SyslogFilter` (appended last); `422` no condition / bad CIDR / unknown device. Audit `syslog_filter.create` |
+| `PATCH /api/syslog-filters/{id}` | any fields (`severity_min: null` clears) | `SyslogFilter`; a change of the conditions or the action resets `hits` and un-tags the rows kept under the old definition. Audit `syslog_filter.update` |
+| `DELETE /api/syslog-filters/{id}` | — | `204`. Audit `syslog_filter.delete` |
+| `PUT /api/syslog-filters/order` | `{"ids": [3, 1, 2]}` (every rule once) | `{"items": SyslogFilter[]}`. Audit `syslog_filter.reorder` |
+| `POST /api/syslog-filters/{id}/cleanup-preview` | — | `{"rule_id", "action", "keep_n", "count", "until", "running"}`: the stored rows the rule matches (`drop`) or the rows beyond the newest `keep_n` per source (`keep`), stored up to `until` (now) |
+| `POST /api/syslog-filters/{id}/cleanup` | `{"until": "<preview until>", "expected": <preview count>}` | `202 SyslogCleanupJob` (runs in the background); `409 cleanup_running`; `422` `until` in the future. Deletes only rows stored up to `until`, in time slices of one hour and batches of 5000 rows per transaction (no long lock, either DB mode); a `keep` cleanup then tags the rows that stay. Audit `syslog_filter.cleanup` (`rows`, `until`) |
+| `GET /api/syslog-filters/cleanup` | — | `{"cleanup": SyslogCleanupJob \| null}` |
+| `GET /api/syslog/top-talkers` (**viewer**) | `hours` 1–168 (24), `limit` 1–100 (20) | `{"since", "hours", "total_rows", "total_messages", "items": TopTalker[]}` — the busiest (source, device, program, severity) by stored rows |
+
+The cleanup is **offered** by the UI after a rule is created or its conditions change (and from the rule's
+"Clean up stored" action); it is never automatic.
+
+### WebSocket
+| type | data | When / who |
+|---|---|---|
+| `syslog.repeats` | `{"items": [{"id": 812, "repeat_count": 37, "last_seen": "…"}]}` | the repeat counts written in the last flush (every 2 s); sockets subscribed to topic `syslog` |
+
+## [tree-move] Moving devices and groups
+
+Drag and drop in the device tree, multi-select and "Move to…" all use one endpoint. It does exactly what the single
+edits do (`PATCH /api/devices/{id}` with `group_id`, `PATCH /api/groups/{id}` with `parent_id`), for many items at
+once and atomically. Always available (no feature toggle).
+
+**`POST /api/tree/move`** (admin; a viewer, or a token whose effective role is viewer, gets `403 forbidden`)
+
+```json
+{ "device_ids": [3, 4], "group_ids": [7], "target_group_id": 2 }
+```
+
+- `device_ids` (≤ 5000) and `group_ids` (≤ 1000) default to `[]`; at least one id is required. Duplicates are ignored.
+- `target_group_id` is **required**; `null` = the top level. Only groups can go to the top level: devices always
+  belong to a group (`devices.group_id` is NOT NULL), so `null` with any device id → `422`.
+- A moved group takes its whole subtree (subgroups, devices, sensors) with it. Items that are inside a group that
+  is moved in the same request, and items that are already in the target, are not changed and are listed under
+  `skipped`.
+- **All or nothing** — nothing is changed and no audit row is written when any check fails:
+
+| HTTP | code | When |
+|---|---|---|
+| 422 | `validation_error` | nothing to move; an unknown device / group id (`details`: one `{loc: ["body", "device_ids", i], msg}` per unknown id); unknown `target_group_id`; devices to the top level |
+| 400 | `group_cycle` | a group would go into itself or one of its own descendants (`details`: `[{"group_id": 7}]`) |
+| 409 | `conflict` | the target already has a subgroup with the same name (case-insensitive), or two moved groups share a name (`details`: `[{"field": "name", "group_id": 7}]`) |
+| 400 | `dependency_cycle` | a moved device inherits a dependency that would close a dependency loop (as for the single edits) |
+
+Response `200`:
+
+```json
+{ "target_group_id": 2,
+  "moved":   { "device_ids": [3, 4], "group_ids": [7] },
+  "skipped": { "device_ids": [], "group_ids": [] } }
+```
+
+**`POST /api/tree/move/preview`** (admin): a dry run with the same body. It runs the same checks and returns the
+same errors, changes nothing and writes no audit row. The UI calls it when the confirmation opens and shows the
+result before anything moves (the user may still confirm: it is a warning, not a block).
+
+```json
+{ "target_group_id": 2,
+  "moved":   { "device_ids": [], "group_ids": [7] },
+  "skipped": { "device_ids": [], "group_ids": [] },
+  "devices_affected": 14,
+  "effects": [
+    { "setting": "snmp",
+      "before": { "source": "group", "group_id": 5, "group_name": "Core" },
+      "after":  { "source": "default", "group_id": null, "group_name": null },
+      "devices": [ { "id": 31, "name": "sw-31", "snmp_sensors": 6 } ] },
+    { "setting": "ssh",
+      "before": { "source": "group", "group_id": 5, "group_name": "Core" },
+      "after":  { "source": "none", "group_id": null, "group_name": null },
+      "devices": [ { "id": 31, "name": "sw-31" } ] },
+    { "setting": "dependency",
+      "before": { "source": "group", "group_id": 5, "group_name": "Core", "device_id": 3, "device_name": "core-sw" },
+      "after":  { "source": "none", "group_id": null, "group_name": null, "device_id": null, "device_name": null },
+      "devices": [ { "id": 31, "name": "sw-31" } ] } ] }
+```
+
+- `devices_affected`: the moved devices plus every device inside a moved group (their group chain changes).
+- `effects`: for each of those devices, the effective inherited value before and after the move, computed by the
+  server with the same rules the poller uses (`Device.effective_snmp_source` / `effective_ssh_source` /
+  `effective_dependency`). Only real changes are listed, grouped by `(setting, before, after)`, in the order
+  `snmp`, `ssh`, `dependency`. `snmp.source` is `device` | `group` | `default` (the built-in default: v2c, community `public`);
+  `ssh.source` is `device` | `group` | `none`; `dependency.source` is `device` | `group` | `none`. A device with its
+  own setting never appears for that setting. `snmp_sensors` counts the device's sensors that use SNMP (they may go
+  down when the credentials change).
+
+**What a move changes.** Nothing is copied onto the moved items, and settings set on an item itself stay as they
+are. Everything a device inherits from its groups is always resolved from its current ancestors, so it follows the
+new place at once: SNMP and SSH credentials left on "inherit", a dependency on "inherit" (checked for loops), group
+maintenance windows, and the home map's group scope. Sensor intervals, alert rules and topology map positions do not
+depend on the group and are unchanged. Permissions are role based (admin / viewer) and do not depend on the group,
+so a move changes no one's access.
+
+**Audit** (feature `audit`): one row per moved item, in the same transaction —
+`group.move` (entity = the group, `changes: {"parent_id": [old, new], "parent": [old name, new name]}`, `null` =
+top level) and `device.move` (entity = the device with `device_id`, `changes: {"group_id": [old, new], "group":
+[old name, new name]}`). Items under a moved group are not listed separately (as for `group.update`).
+
+**WebSocket**: `config.changed` `{entity: "group" | "device", id, action: "updated"}` for every moved item, as for
+the single edits.

@@ -205,6 +205,20 @@ sudo /opt/netmon/deploy/production/ops/status.sh
 `status.sh` מציג: הגרסה שרצה מול `origin/main` (ואם יש שינוי ממתין או שינוי שסומן "רע"),
 גרסת התמונה, מצב הקונטיינרים, `/api/health`, הגיבוי האחרון ותוקף התעודה.
 
+**בדיקת תקינות (שינוי אבטחה):** `/api/health` ציבורי ומחזיר **רק** `{"status": "ok"}` ‏(200) או
+`{"status": "fail"}` ‏(503, אין חיבור למסד הנתונים). הפרטים (גרסה, uptime, poller, מצב ה-receivers, ‏Kerberos,
+העוזר) נמצאים ב-`/api/health/details` ודורשים משתמש מחובר או API token. כדי ש-`status.sh` יציג גם אותם (וגם את
+מצב העוזר), יוצרים בממשק API token בתפקיד **Viewer** (עם תוקף) ושומרים אותו בשרת בקובץ של root בלבד:
+
+```bash
+sudo install -m 0600 /dev/stdin /etc/netmon-gitops/status-token   # מדביקים את ה-token ואז Ctrl-D
+```
+
+ה-token נשלח ל-curl דרך stdin ולא בשורת הפקודה. בלי הקובץ הסקריפט מציג רק את הסטטוס הציבורי.
+ניטור חיצוני שקרא שדות מהתשובה הישנה (`version`, `database`, `ingest`…) צריך לבדוק רק את קוד ה-HTTP / `status`,
+או לקרוא ל-`/api/health/details` עם `Authorization: Bearer <token>`. ניטור שחיפש `"degraded"` צריך כעת לזהות
+503 / `"fail"`.
+
 ---
 
 ## גיבויים
@@ -273,6 +287,7 @@ NOTIFY_ON_SUCCESS=0       # 1 = גם הודעה על deploy מוצלח
 | `/etc/netmon-gitops/ca/` | תעודות CA שהאפליקציה סומכת עליהן (מועתקות מ-`/usr/local/share/ca-certificates`) |
 | `/etc/netmon-gitops/aws/` | ‏(3b, אופציונלי) תעודה ומפתח ל-IAM Roles Anywhere אם בוחרים בקבצים בשרת במקום העלאה בממשק; מופיע בקונטיינר כ-`/etc/netmon/aws` |
 | `/etc/netmon-gitops/notify.env` | webhook להתראות (אופציונלי) |
+| `/etc/netmon-gitops/status-token` | API token בתפקיד Viewer עבור `status.sh` ‏(אופציונלי, root, 0600) |
 | `/etc/netmon-gitops/ingest-allow.conf` | הרשתות שרשאיות לשלוח traps/syslog/flows (אופציונלי, `ingest-firewall.sh`) |
 | `/var/lib/netmon-gitops/` | `deployed_rev`, ‏`bad_trees`, ‏`history.log` |
 | `/usr/local/lib/netmon-gitops/` | העותק המותקן של `ops/` (ה-timer מריץ אותו; מתעדכן אחרי deploy תקין) |
@@ -380,6 +395,23 @@ sudo ss -ltnp  '( sport = :514 )'
 
 המכשיר צריך לשלוח מהכתובת שבה הוא מנוטר. אחרת מוסיפים את הכתובת הנוספת בטופס המכשיר (*Additional source
 addresses*) או משתמשים ב-"Assign to device" בלשונית *Unknown sources* בדף הלוגים.
+
+### הגנה מהצפת Syslog — שימו לב בשדרוג
+
+מהגרסה הזו שתי הגנות פועלות **כברירת מחדל, גם אחרי שדרוג** (*הגדרות ← Traps ו-Syslog ← הגנה מהצפת Syslog*):
+
+- **איחוד כפילויות**: הודעה זהה (אותו מקור, תוכנה, MSGID, חומרה וטקסט) שמגיעה בתוך 60 שניות מהראשונה נשמרת
+  כשורה אחת עם מונה חזרות — בדף הלוגים רואים `×37` ליד ההודעה, ובפרטים את הזמן הראשון והאחרון. הגרפים והסיכומים
+  סופרים הודעות, לא שורות. מי שקורא את `syslog_messages` ישירות (דוח חיצוני, SIEM שמושך מה-DB) צריך לקחת בחשבון
+  את `repeat_count`.
+- **מגבלת קצב לכל מקור**: מעבר ל-3,000 שורות חדשות בדקה ממקור אחד, העודף לא נשמר אלא נספר, ואירוע מערכת מדווח
+  על כך פעם בשעה. התקן תקין לא מתקרב לזה (ההתקן הרועש ביותר שמצאנו שלח ~59 שורות בדקה); זה בלם לסערות.
+
+אפשר לכבות כל אחת מהן או לשנות את הערך באותו כרטיס; כיבוי מחזיר את ההתנהגות הקודמת. **כללי סינון** (זריקה או
+"לשמור רק את N האחרונות" לפי מקור, תוכנה, MSGID, חומרה וטקסט) ריקים אחרי השדרוג ולא משנים כלום עד שמוסיפים
+כלל — *יומנים ← הגנה מהצפה*. שם גם המקורות הפעלתניים של 24 השעות האחרונות עם "יצירת כלל" בלחיצה, והמונים לפי סיבה
+ולפי מקור. אחרי שמירת כלל מוצעת מחיקה של השורות שכבר שמורות ומתאימות לו (עם המספר המדויק ובאישור מפורש בלבד).
+כללי האירועים וההעברה ל-SIEM עדיין רואים כל הודעה. כדאי עדיין להוריד את רמת ה-syslog במכשיר עצמו כשאפשר.
 
 ### Active Directory ‏(LDAPS)
 
@@ -513,7 +545,7 @@ NO_PROXY=localhost,127.0.0.1,::1,db,netmon,proxy,.example.net,<internal webhook 
 | קובץ | תפקיד |
 |---|---|
 | `ops/assistant-net.sh` | ‏`check`: לכל כתובת של Bedrock / ‏Roles Anywhere / ‏KB ‏(ולכל שם של VPC endpoint) — ‏DNS, כתובת פרטית/ציבורית, האם האפליקציה תצא **ישירות** או **דרך ה-proxy** (אותם כללי `NO_PROXY` כמו באפליקציה), והאם יש מענה. ‏`no-proxy`: מוסיף ל-`NO_PROXY` ב-`app.env` ‏(פעם אחת). |
-| `ops/status.sh` | סעיף חדש *Assistant*: המצב מ-`/api/health`, ה-proxy והאם `*.vpce.amazonaws.com` עוקף אותו, קבצי תעודה בשרת (אם נבחרו). |
+| `ops/status.sh` | סעיף חדש *Assistant*: המצב מ-`/api/health/details` (דורש `status-token`), ה-proxy והאם `*.vpce.amazonaws.com` עוקף אותו, קבצי תעודה בשרת (אם נבחרו). |
 | `aws/*.json` | תבניות IAM עם placeholders: ‏policy ל-Bedrock, ‏policy ל-KB ‏(רק אם יש KB), ‏policy לכפתור *List models* ‏(אופציונלי), ‏trust policy ל-Roles Anywhere, ‏policy ל-VPC endpoint. |
 | `aws/render-policies.py` | ממלא את התבניות (Python בלבד, רץ גם במחשב Windows של מנהל ה-AWS). |
 
