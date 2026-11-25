@@ -162,9 +162,13 @@ export function WizardSteps({
   );
 }
 
-/** 20px checkbox (prototype .cb): native input, ink fill when checked. */
+/**
+ * 20px checkbox (prototype .cb): native input, ink fill when checked. A tri-state "select all" in
+ * the mixed state (`input.indeterminate`) shows a dash on the same fill (the indeterminate
+ * variants come after `checked:` in Tailwind's order, so they win when both apply).
+ */
 export const CHECKBOX =
-  'h-5 w-5 shrink-0 cursor-pointer appearance-none rounded-[6px] border-[1.6px] border-line-strong bg-transparent bg-center bg-no-repeat transition-colors checked:border-accent checked:bg-accent checked:bg-[image:var(--nm-check)] checked:bg-[length:12px]';
+  'h-5 w-5 shrink-0 cursor-pointer appearance-none rounded-[6px] border-[1.6px] border-line-strong bg-transparent bg-center bg-no-repeat transition-colors checked:border-accent checked:bg-accent checked:bg-[image:var(--nm-check)] checked:bg-[length:12px] indeterminate:border-accent indeterminate:bg-accent indeterminate:bg-[image:var(--nm-dash)] indeterminate:bg-[length:12px]';
 /** 20px radio (prototype .radio): a thick ink ring when checked. */
 export const RADIO =
   'h-5 w-5 shrink-0 cursor-pointer appearance-none rounded-full border-[1.6px] border-line-strong transition-[border] checked:border-[6px] checked:border-accent';
