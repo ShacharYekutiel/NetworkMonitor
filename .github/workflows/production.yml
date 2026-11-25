@@ -3,7 +3,9 @@ name: Production config
 # Validates deploy/production/ (the GitOps folder the production server deploys from):
 # shellcheck, release.env format + version/image consistency (never :latest), compose
 # config, Caddyfile, systemd units, the sync.sh decision logic (fake docker), [3b] the
-# assistant network helper and the IAM policy templates in aws/.
+# assistant network helper and the IAM policy templates in aws/. [1.5.1] Jobs restore-xver and
+# app-on-new-db run the real timescale/timescaledb images: ops/restore.sh across extension
+# versions, and the pinned app on the new db image after the extension update.
 # Every PR (no path filter): `validate` is a required status check in the main ruleset, and a
 # required check that never runs blocks the merge. It takes about a minute.
 on:
@@ -95,3 +97,133 @@ jobs:
           for f in aws/*.json; do python3 -m json.tool "$f" >/dev/null || { echo "::error file=deploy/production/$f::invalid JSON"; exit 1; }; done
           python3 -m py_compile aws/render-policies.py
           tests/test-assistant-net.sh
+
+  # [1.5.1] ops/restore.sh across TimescaleDB versions with the REAL images: a dump written by
+  # the previous production db image (OLD_DB_IMAGE) is restored under the db image of
+  # compose.yaml (create the extension at the dump's version, restore, update; data,
+  # compression, continuous aggregate and policy jobs compared, every job run), plus the
+  # refusal paths. Then proves what sync.sh guards against: the old image cannot open a
+  # database whose extension was updated. Bump OLD_DB_IMAGE to the db image of the release
+  # before when compose.yaml moves to a newer TimescaleDB.
+  restore-xver:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      OLD_DB_IMAGE: timescale/timescaledb:2.31.0-pg16
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Start the old and the new db image
+        run: |
+          new="$(NETMON_ETC_DIR=/x docker compose -f deploy/production/compose.yaml --env-file deploy/production/release.env config --images db)"
+          [[ $new == timescale/timescaledb:* ]] || { echo "::error::compose config --images db printed '$new'"; exit 1; }
+          echo "NEW_DB_IMAGE=$new" >>"$GITHUB_ENV"
+          echo "old: $OLD_DB_IMAGE  new: $new"
+          for spec in "old=$OLD_DB_IMAGE" "new=$new"; do
+            docker run -d --name "ts-${spec%%=*}" -e POSTGRES_USER=netmon -e POSTGRES_DB=netmon \
+              -e POSTGRES_PASSWORD=ci -e TIMESCALEDB_TELEMETRY=off "${spec#*=}"
+          done
+          for c in ts-old ts-new; do
+            # -h 127.0.0.1: the entrypoint's temporary init server listens on the socket only
+            for _ in $(seq 90); do docker exec "$c" pg_isready -q -h 127.0.0.1 -U netmon -d netmon && break; sleep 2; done
+            docker exec "$c" psql -XAt -U netmon -d netmon -c "SELECT 'ready ' || extversion FROM pg_extension WHERE extname = 'timescaledb'"
+          done
+
+      - name: What the images ship (ts_probe)
+        run: |
+          . deploy/production/ops/lib.sh
+          po="$(ts_probe "$OLD_DB_IMAGE")"
+          pn="$(ts_probe "$NEW_DB_IMAGE")"
+          old="$(sed -n 's/^default=//p' <<<"$po")"
+          new="$(sed -n 's/^default=//p' <<<"$pn")"
+          echo "old image default $old, new image default $new; new image can create: $(sed -n 's/^have=//p' <<<"$pn" | sort -V | tail -n 4 | xargs)"
+          grep -qx "have=$old" <<<"$pn" || { echo "::error::$NEW_DB_IMAGE cannot create TimescaleDB $old"; exit 1; }
+          if grep -qx "lib=$new" <<<"$po"; then echo "::error::unexpected: $OLD_DB_IMAGE ships $new"; exit 1; fi
+          echo "new image can create $old; old image cannot load $new"
+
+      - name: restore.sh, old dump under the new image (tests/test-restore.sh)
+        run: SRC_CONTAINER=ts-old TGT_CONTAINER=ts-new TGT_IMAGE="$NEW_DB_IMAGE" deploy/production/tests/test-restore.sh
+
+      - name: The old image cannot open the updated database (why sync.sh refuses / keeps db)
+        run: |
+          docker stop ts-new
+          docker run -d --name ts-back --volumes-from ts-new -e TIMESCALEDB_TELEMETRY=off "$OLD_DB_IMAGE"
+          for _ in $(seq 60); do docker exec ts-back pg_isready -q -h 127.0.0.1 -U netmon -d netmon && break; sleep 2; done
+          if out="$(docker exec ts-back psql -XAt -U netmon -d netmon -c 'SELECT count(*) FROM measurements' 2>&1)"; then
+            echo "::error::$OLD_DB_IMAGE opened a database updated past its version: $out"
+            exit 1
+          fi
+          echo "expected failure: $out"
+
+      - name: Container logs
+        if: failure()
+        run: |
+          for c in ts-old ts-new ts-back; do docker logs --tail 50 "$c" 2>&1 | sed "s/^/$c: /" || true; done
+
+  # [1.5.1] Rollback option (a): the app image pinned in release.env (before the bump PR: the
+  # previous release) runs on the NEW db image after the extension update, as it does when only
+  # release.env is reverted. Stack from deploy/docker-compose.yml: start on OLD_DB_IMAGE, set up,
+  # switch db to the compose.yaml image, ALTER EXTENSION timescaledb UPDATE (what >= 1.5.1 does
+  # at start), start the pinned app again: healthy, TimescaleDB on, every policy job runs.
+  app-on-new-db:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    permissions:
+      contents: read
+      packages: read
+    env:
+      OLD_DB_IMAGE: timescale/timescaledb:2.31.0-pg16
+      COMPOSE: docker compose -p netmon-xver -f deploy/docker-compose.yml
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Images
+        run: |
+          app="$(sed -n 's/^NETMON_IMAGE=//p' deploy/production/release.env)"
+          new="$(NETMON_ETC_DIR=/x docker compose -f deploy/production/compose.yaml --env-file deploy/production/release.env config --images db)"
+          echo "NETMON_IMAGE=$app" >>"$GITHUB_ENV"
+          echo "NEW_DB_IMAGE=$new" >>"$GITHUB_ENV"
+          echo "app $app; db $OLD_DB_IMAGE -> $new"
+          echo "${{ secrets.GITHUB_TOKEN }}" | docker login ghcr.io -u "${{ github.actor }}" --password-stdin
+          docker pull -q "$app"
+
+      - name: Pinned app on the old db image (setup + health)
+        run: |
+          NETMON_DB_IMAGE="$OLD_DB_IMAGE" $COMPOSE up -d --no-build
+          for _ in $(seq 90); do curl -fsS http://localhost:8080/api/health >/dev/null 2>&1 && break; sleep 2; done
+          curl -fsS -c cookies.txt -X POST -H 'Content-Type: application/json' \
+            -d '{"username":"admin","password":"ci-Secret-123","email":null,"language":"en"}' \
+            http://localhost:8080/api/setup >/dev/null
+          curl -fsS -b cookies.txt http://localhost:8080/api/health/details | tee h.json; echo
+          python3 -c 'import json; h = json.load(open("h.json")); assert h["timescale"] is True, h'
+          $COMPOSE exec -T db psql -XAt -U netmon -d netmon -c "SELECT 'extension ' || extversion FROM pg_extension WHERE extname = 'timescaledb'"
+
+      - name: db to the new image, extension update, pinned app again
+        run: |
+          $COMPOSE stop netmon
+          NETMON_DB_IMAGE="$NEW_DB_IMAGE" $COMPOSE up -d --no-build db
+          for _ in $(seq 60); do $COMPOSE exec -T db pg_isready -q -h 127.0.0.1 -U netmon -d netmon && break; sleep 2; done
+          $COMPOSE exec -T db psql -X -U netmon -d netmon -c 'ALTER EXTENSION timescaledb UPDATE'
+          v="$($COMPOSE exec -T db psql -XAt -U netmon -d netmon -c "SELECT extversion || ' / ' || default_version FROM pg_extension, pg_available_extensions WHERE extname = 'timescaledb' AND name = 'timescaledb'")"
+          echo "installed / available: $v"
+          [[ ${v% / *} == "${v#* / }" ]] || { echo "::error::extension not updated: $v"; exit 1; }
+          NETMON_DB_IMAGE="$NEW_DB_IMAGE" $COMPOSE up -d --no-build
+          for _ in $(seq 90); do curl -fsS http://localhost:8080/api/health >/dev/null 2>&1 && break; sleep 2; done
+          curl -fsS -b cookies.txt http://localhost:8080/api/health/details | tee h.json; echo
+          python3 -c 'import json; h = json.load(open("h.json")); assert h["database"] == "ok" and h["timescale"] is True, h'
+
+      - name: Every TimescaleDB policy job runs on the updated extension
+        run: |
+          q() { $COMPOSE exec -T db psql -X -A -t -v ON_ERROR_STOP=1 -U netmon -d netmon -c "$1"; }
+          q "SELECT job_id, proc_name, hypertable_name FROM timescaledb_information.jobs WHERE job_id >= 1000 ORDER BY 1"
+          n=0
+          for j in $(q "SELECT job_id FROM timescaledb_information.jobs WHERE job_id >= 1000 ORDER BY 1"); do
+            q "CALL run_job($j)" >/dev/null
+            n=$((n + 1))
+          done
+          [[ $n -ge 1 ]] || { echo "::error::no policy jobs"; exit 1; }
+          echo "$n policy jobs ran"
+
+      - name: Logs
+        if: failure()
+        run: $COMPOSE logs --tail 80

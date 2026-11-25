@@ -4,7 +4,8 @@
 #   netmon-data-<ts>.tar.gz    the app data volume (db_password, secret.key, templates, ...)
 #                              without run/ ([3] materialised Kerberos keytab, krb5.conf, replay
 #                              cache: recreated at start; the keytab is encrypted in the DB)
-#   netmon-meta-<ts>.txt       deployed revision + image (which app version wrote the dump)
+#   netmon-meta-<ts>.txt       deployed revision + image (which app version wrote the dump),
+#                              db image and TimescaleDB extension version
 # Keeps NETMON_BACKUP_KEEP_DAYS (default 14) days. Backups contain secrets: root-only.
 # Restore: ops/restore.sh (manual, never automatic).
 #
@@ -55,6 +56,9 @@ log "data volume archived: $DIR/netmon-data-$TS.tar.gz"
   echo "deployed_rev=$(cat "$NETMON_STATE_DIR/deployed_rev" 2>/dev/null || true)"
   echo "release_image=$(env_get "$NETMON_PROD_DIR/release.env" NETMON_IMAGE)"
   echo "running_image=$(running_image netmon || true)"
+  # [1.5.1] restore.sh recreates the extension at the version that wrote the dump
+  echo "db_image=$(running_image db || true)"
+  echo "timescaledb_version=$(db_ts_version)"
 } >"$DIR/netmon-meta-$TS.txt"
 chmod 0600 "$DIR"/*"-$TS".*
 

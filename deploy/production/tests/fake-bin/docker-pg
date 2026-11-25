@@ -1,0 +1,97 @@
+#!/usr/bin/env bash
+# `docker` for tests/test-restore.sh: `docker compose` is faked (every service "healthy"), the
+# database commands are real. Two modes:
+#   FAKE_PG_CONTAINER=<name>  exec / cp / run go to the real docker (a timescale/timescaledb
+#                             container started by the test; CI)
+#   unset                     exec / run run the command on this machine against a local
+#                             PostgreSQL with TimescaleDB (PGHOST, PGUSER, PGPASSWORD set by
+#                             the test); cp copies into $FAKE_STATE/ctmp
+# FAKE_DB_IMAGE: what `compose config --images db` prints (the image ts_probe inspects).
+set -euo pipefail
+S="${FAKE_STATE:?}"
+mkdir -p "$S/ctmp"
+echo "docker $*" >>"$S/calls"
+REAL="${REAL_DOCKER:-docker}"
+
+ctmp() { # map a container /tmp path to the local stand-in
+  local a out=()
+  for a in "$@"; do
+    if [[ $a == /tmp/netmon-restore.dump ]]; then out+=("$S/ctmp/netmon-restore.dump"); else out+=("$a"); fi
+  done
+  printf '%s\0' "${out[@]}"
+}
+
+if [[ $1 == compose ]]; then
+  shift
+  while (($#)); do
+    case "$1" in
+      --project-directory | -f | --env-file) shift 2 ;;
+      *) break ;;
+    esac
+  done
+  sub="$1"
+  shift
+  case "$sub" in
+    config)
+      if [[ " $* " == *" --services "* ]]; then printf '%s\n' init db netmon proxy
+      elif [[ " $* " == *" --images db "* ]]; then echo "${FAKE_DB_IMAGE:?}"; fi
+      ;;
+    ps) [[ " $* " == *" -q "* ]] && echo "cid-${*: -1}" ;;
+    stop | up | logs | pull) : ;;
+    *) echo "docker-pg: unsupported compose $sub" >&2; exit 2 ;;
+  esac
+  exit 0
+fi
+
+case "$1" in
+  inspect)
+    case "$3" in
+      *Health*) echo healthy ;;
+      *Running*) echo true ;;
+      *Config.Image*) [[ $4 == cid-db ]] && echo "${FAKE_DB_IMAGE:?}" ;;
+    esac
+    ;;
+  volume) echo netmon_netmon-db ;;
+  exec)
+    shift
+    envs=()
+    while [[ $1 == -* ]]; do
+      case "$1" in
+        -e) envs+=("$2"); shift 2 ;;
+        *) shift ;;
+      esac
+    done
+    shift # container id
+    if [[ -n ${FAKE_PG_CONTAINER:-} ]]; then
+      eargs=()
+      for e in "${envs[@]}"; do eargs+=(-e "$e"); done
+      exec "$REAL" exec -i "${eargs[@]}" "$FAKE_PG_CONTAINER" "$@"
+    fi
+    mapfile -d '' -t args < <(ctmp "$@")
+    # The container's superuser is "netmon"; locally it is $PGUSER.
+    for i in "${!args[@]}"; do
+      [[ ${args[$i]} == -U && $((i + 1)) -lt ${#args[@]} ]] && args[i + 1]="$PGUSER"
+      [[ ${args[$i]} == --role=* ]] && args[i]="--role=$PGUSER"
+    done
+    exec env "${envs[@]}" "${args[@]}"
+    ;;
+  cp)
+    if [[ -n ${FAKE_PG_CONTAINER:-} ]]; then exec "$REAL" cp "$2" "$FAKE_PG_CONTAINER:${3#*:}"; fi
+    cp "$2" "$S/ctmp/$(basename "${3#*:}")"
+    ;;
+  run)
+    if [[ -n ${FAKE_PG_CONTAINER:-} ]]; then shift; exec "$REAL" run "$@"; fi
+    shift
+    ep=""
+    while [[ $1 == -* ]]; do
+      case "$1" in
+        --entrypoint) ep="$2"; shift 2 ;;
+        --network | --user | -u) shift 2 ;;
+        *) shift ;;
+      esac
+    done
+    shift # image
+    exec "$ep" "$@"
+    ;;
+  *) echo "docker-pg: unsupported $1" >&2; exit 2 ;;
+esac

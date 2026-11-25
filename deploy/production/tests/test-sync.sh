@@ -2,8 +2,10 @@
 # Exercise ops/sync.sh without Docker: a local bare "origin", a clone, fake docker/curl
 # (tests/fake-bin). Covers: first deploy, no-op runs, code-only commits never deploying,
 # a failing release (pre-deploy dump, rollback, bad mark, no retry, single notification),
-# a fixed release, drift repair, invalid release.env, revert, --force, pull failure and
-# the flock guard.
+# a fixed release, drift repair, invalid release.env, revert, --force, pull failure, the
+# flock guard and [1.5.1] the db image vs the TimescaleDB version in the database (refusal of
+# an image that cannot load it, pre-deploy dump on a db image change, rollback/drift repair
+# keeping db on the image that can load it).
 #
 #   deploy/production/tests/test-sync.sh        (needs bash, git, flock)
 set -euo pipefail
@@ -194,5 +196,64 @@ grep -q "skipping" "$T/out" || fail "lock not honoured"
 called "compose" && fail "ran docker while locked"
 wait
 ok "concurrent run skipped (flock)"
+
+# 11. [1.5.1] TimescaleDB: the db image of compose.yaml vs the extension version in the database
+set_db_image() { # tag [message]
+  sed -i "/^  db:/,/^    image:/ s#^    image: .*#    image: timescale/timescaledb:$1#" "$T/work/deploy/production/compose.yaml"
+  git -C "$T/work" commit -qam "${2:-db image $1}"
+  git -C "$T/work" push -q origin main 2>/dev/null
+}
+dbimg() { cat "$FAKE_STATE/db_image"; }
+grep -q 'image: timescale/timescaledb:2.32.1-pg16' "$PROD_SRC/compose.yaml" || fail "test assumes db 2.32.1"
+[[ "$(dbimg)" == timescale/timescaledb:2.32.1-pg16 ]] || fail "db image: $(dbimg)"
+echo 2.32.1 >"$FAKE_STATE/ts_version"            # the app has updated the extension
+printf '2.31.0\n2.32.0\n2.32.1\n' >"$FAKE_STATE/older_libs"
+n0="$(nnotify)"
+set_db_image 2.31.0-pg16 "revert the db image bump"
+run 1
+called "up -d" && fail "an older db image that cannot load the extension was started"
+called "pg_dump" && fail "dumped before refusing"
+[[ "$(dbimg)" == timescale/timescaledb:2.32.1-pg16 ]] || fail "db image changed: $(dbimg)"
+grep -q "cannot load TimescaleDB 2.32.1" "$NETMON_STATE_DIR/bad_trees" || fail "not marked bad"
+[[ "$(nnotify)" == $((n0 + 1)) ]] || fail "no single refusal notification"
+tail -n1 "$FAKE_STATE/notifications" | grep -q "refused" || fail "notification does not say refused"
+[[ "$(git -C "$NETMON_REPO_DIR" rev-parse HEAD)" == "$(cat "$NETMON_STATE_DIR/deployed_rev")" ]] || fail "checkout not restored"
+ok "db image that cannot load the database's TimescaleDB version: refused before touching anything"
+
+set_db_image 2.33.0-pg16 "db image 2.33.0"
+run 0
+called "pg_dump" || fail "no pre-deploy dump for a db image change"
+[[ "$(dbimg)" == timescale/timescaledb:2.33.0-pg16 && "$(img)" == "$IMG:1.3.0" ]] || fail "db image not deployed"
+ok "db image change alone (same app image): pre-deploy dump, then deployed"
+
+export FAKE_PROBE_FAIL=1
+set_db_image 2.33.1-pg16 "db image 2.33.1"
+run 1
+called "up -d" && fail "deployed without inspecting the new db image"
+grep -q "$(git -C "$T/work" rev-parse HEAD:deploy/production)" "$NETMON_STATE_DIR/bad_trees" && fail "probe failure marked bad"
+unset FAKE_PROBE_FAIL
+run 0
+[[ "$(dbimg)" == timescale/timescaledb:2.33.1-pg16 ]] || fail "not deployed after the probe worked"
+ok "db image that cannot be inspected: waits (not marked bad), deploys once it can"
+
+# A release whose new db image + app update the extension, then fails its health check: the
+# rollback must not put db back on an image that cannot load the updated extension.
+export FAKE_UPDATE_EXT=1 FAKE_BAD_IMAGE="$IMG:1.4.0"
+sed -i "/^  db:/,/^    image:/ s#^    image: .*#    image: timescale/timescaledb:2.34.0-pg16#" "$T/work/deploy/production/compose.yaml"
+set_release 1.4.0
+run 1
+[[ "$(cat "$FAKE_STATE/ts_version")" == 2.34.0 ]] || fail "fake: extension not updated"
+[[ "$(img)" == "$IMG:1.3.0" ]] || fail "app not rolled back: $(img)"
+[[ "$(dbimg)" == timescale/timescaledb:2.34.0-pg16 ]] || fail "db put back on an image that cannot load 2.34.0: $(dbimg)"
+called "up -d --no-deps --remove-orphans init netmon proxy" || fail "rollback did not keep db"
+tail -n1 "$FAKE_STATE/notifications" | grep -q "stays on timescale/timescaledb:2.34.0-pg16" || fail "notification lacks the kept db image"
+unset FAKE_UPDATE_EXT FAKE_BAD_IMAGE
+run 0
+called "up -d" && fail "check re-applied the stack without drift"
+rm -f "$FAKE_STATE/run/proxy"
+run 0
+called "up -d --no-deps" || fail "drift repair did not keep db"
+[[ "$(dbimg)" == timescale/timescaledb:2.34.0-pg16 && -f $FAKE_STATE/run/proxy ]] || fail "drift repair"
+ok "rollback / drift repair after an extension update keep db on the image that can load it"
 
 echo "all $pass checks passed"
