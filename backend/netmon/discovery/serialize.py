@@ -23,12 +23,25 @@ def _get(row: Any, key: str) -> Any:
     return getattr(row, key)
 
 
-def result_out(row: Any, existing_device_id: int | None = None) -> dict[str, Any]:
+def result_out(
+    row: Any,
+    existing_device_id: int | None = None,
+    profile_names: dict[int, str] | None = None,
+) -> dict[str, Any]:
+    """`profile_names`: current connection profile names (id -> name) for
+    `snmp_profile_name` / `ssh_profile_name` (null when unknown / deleted)."""
     idx = _get(row, "snmp_credential_index")
     snmp_ok = bool(_get(row, "snmp_ok"))
+    snmp_pid = _opt(row, "snmp_profile_id") if snmp_ok else None
+    ssh_ok = bool(_opt(row, "ssh_ok"))
+    ssh_pid = _opt(row, "ssh_profile_id") if ssh_ok else None
+    names = profile_names or {}
     cred = None
     if snmp_ok and idx is not None:
-        cred = "group" if int(idx) == 0 else "extra"
+        if int(idx) == 0:
+            cred = "group"
+        else:
+            cred = "profile" if snmp_pid is not None else "extra"
     if existing_device_id is None:
         try:
             existing_device_id = _get(row, "existing_device_id")
@@ -60,7 +73,25 @@ def result_out(row: Any, existing_device_id: int | None = None) -> dict[str, Any
         "model": _opt(row, "model"),
         "classified_by": _opt(row, "classified_by") or "ports",
         "confidence": _opt(row, "confidence") or "low",
+        # [profiles]
+        "snmp_profile_id": snmp_pid,
+        "snmp_profile_name": names.get(snmp_pid) if snmp_pid is not None else None,
+        "ssh_attempted": bool(_opt(row, "ssh_attempted")),
+        "ssh_ok": ssh_ok,
+        "ssh_credential": _opt(row, "ssh_credential") if ssh_ok else None,
+        "ssh_profile_id": ssh_pid,
+        "ssh_profile_name": names.get(ssh_pid) if ssh_pid is not None else None,
     }
+
+
+def result_profile_ids(rows: list[Any]) -> set[int]:
+    out: set[int] = set()
+    for r in rows:
+        for key in ("snmp_profile_id", "ssh_profile_id"):
+            v = _opt(r, key)
+            if v is not None:
+                out.add(int(v))
+    return out
 
 
 def _opt(row: Any, key: str) -> Any:

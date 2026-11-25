@@ -613,13 +613,17 @@ class Runtime:
         if entity == "notification_channel" and self.telegram_pollers is not None:
             self.telegram_pollers.channels_changed()  # [3] chat_ack: pollers follow channels
         self.request_rollup()
-        if entity in ("device", "group", "sensor", "event_rule") and self.ingest is not None:
-            self.ingest.mark_sources_dirty()  # [2b-3] attribution / rule cache
+        creds = ("device", "group", "connection_profile")  # [profiles] credentials may change
+        if (
+            entity in ("device", "group", "sensor", "event_rule", "connection_profile")
+            and self.ingest is not None
+        ):
+            self.ingest.mark_sources_dirty()  # [2b-3] attribution / rule cache, trap v3 users
         if entity == "device" and self.flows is not None:
             self.flows.mark_sources_dirty()  # [3] exporter attribution
-        if entity in ("device", "group") and self.configbackup is not None:
+        if entity in creds and self.configbackup is not None:
             self.configbackup.mark_dirty()  # [3] config_backup sensors of new eligible devices
-        if entity in ("device", "group") and self.newdev is not None:
+        if entity in creds and self.newdev is not None:
             self.newdev.mark_dirty()  # [3] new_mac sensors of new in-scope switches
         if entity in ("device", "group"):
             self.cascade.invalidate()  # dependencies may have changed

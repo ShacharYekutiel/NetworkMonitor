@@ -192,6 +192,8 @@ class GroupCreate(_In):
     sort_order: int = 0
     dependency: DependencyIn | None = None
     ssh_credentials: SshCredentialsIn | None = None  # [3]
+    snmp_profile_id: int | None = None  # [profiles]
+    ssh_profile_id: int | None = None  # [profiles]
 
 
 class GroupPatch(_In):
@@ -202,6 +204,8 @@ class GroupPatch(_In):
     sort_order: int | None = None
     dependency: DependencyIn | None = None
     ssh_credentials: SshCredentialsIn | None = None  # [3] null = inherit
+    snmp_profile_id: int | None = None  # [profiles] (api.md request-mode table)
+    ssh_profile_id: int | None = None  # [profiles]
 
 
 def validate_http_url(v: str) -> str:
@@ -262,6 +266,8 @@ class DeviceCreate(_In):
     config_backup: InventoryMode = "auto"
     config_backup_driver: str | None = Field(default=None, max_length=64)
     newdev_excluded_ports: list[int] = Field(default_factory=list, max_length=256)
+    snmp_profile_id: int | None = None  # [profiles]
+    ssh_profile_id: int | None = None  # [profiles]
 
     _h = field_validator("host")(lambda cls, v: _host(v))
     _sa = field_validator("source_addresses")(lambda cls, v: source_addresses(v))
@@ -285,6 +291,8 @@ class DevicePatch(_In):
     config_backup: InventoryMode | None = None
     config_backup_driver: str | None = Field(default=None, max_length=64)  # null = auto
     newdev_excluded_ports: list[int] | None = Field(default=None, max_length=256)
+    snmp_profile_id: int | None = None  # [profiles] (api.md request-mode table)
+    ssh_profile_id: int | None = None  # [profiles]
 
     _sa = field_validator("source_addresses")(lambda cls, v: source_addresses(v))
     _nex = field_validator("newdev_excluded_ports")(lambda cls, v: _if_indexes(v))
@@ -737,6 +745,22 @@ class ScanOptionsIn(BaseModel):
     dns: bool | None = None
     fingerprint: bool | None = None  # [2b-1]
     fingerprint_timeout_ms: int | None = Field(default=None, ge=500, le=5000)  # [2b-1]
+    # [profiles] connection profiles tried after the group's credentials (ordered, distinct)
+    snmp_profile_ids: list[int] | None = Field(default=None, max_length=8)
+    # [profiles] opt-in SSH login check (owner decision Q3)
+    ssh_profile_ids: list[int] | None = Field(default=None, max_length=3)
+    ssh_credentials: SshCredentialsIn | None = None  # write-only; null = remove
+    ssh_credentials_set: bool | None = None  # ignored on input
+    ssh_username: str | None = None  # ignored on input
+
+    @field_validator("snmp_profile_ids", "ssh_profile_ids")
+    @classmethod
+    def _profile_ids(cls, v: list[int] | None) -> list[int] | None:
+        if v is None:
+            return v
+        if len(set(v)) != len(v):
+            raise ValueError("profile ids must be distinct")
+        return v
 
     @field_validator("extra_communities")
     @classmethod
@@ -765,11 +789,18 @@ class ScanOptionsIn(BaseModel):
         entries normalized to their stored form."""
         out: dict[str, Any] = {}
         for key in self.model_fields_set:
-            if key in ("extra_communities_count", "extra_v3_count"):
+            if key in (
+                "extra_communities_count",
+                "extra_v3_count",
+                "ssh_credentials_set",
+                "ssh_username",
+            ):
                 continue
             value = getattr(self, key)
             if key == "extra_v3" and value is not None:
                 value = [e.stored() for e in value]
+            elif key == "ssh_credentials":
+                pass  # kept as the input model (merged with the [3] rules by the API)
             elif value is None and key not in ("snmp_port", "extra_communities", "extra_v3"):
                 continue  # null for a non-nullable option = keep
             out[key] = value
@@ -808,6 +839,9 @@ class ImportItem(_In):
     result_id: int
     template_id: str
     name: str | None = Field(default=None, min_length=1, max_length=128)
+    # [profiles] save the credentials that worked (null / omitted = yes when they worked)
+    save_snmp: bool | None = None
+    save_ssh: bool | None = None
 
 
 class ImportRequest(_In):
@@ -842,3 +876,62 @@ class ApplyTemplateRequest(_In):
                 raise ValueError("ifIndexes must be 1-2147483647")
             return sorted(set(v))
         return v
+
+
+# ---------------------------------------------------------------- [profiles] connection profiles
+class ConnectionProfileIn(BaseModel):
+    """`POST /api/connection-profiles` (credentials validated by the kind's input model)."""
+
+    model_config = ConfigDict(extra="forbid")
+    kind: str = Field(min_length=1, max_length=32)
+    name: str = Field(min_length=1, max_length=128)
+    description: str = Field(default="", max_length=1000)
+    credentials: dict[str, Any]
+
+    @field_validator("name")
+    @classmethod
+    def _name(cls, v: str) -> str:
+        v = v.strip()
+        if not 1 <= len(v) <= 128:
+            raise ValueError("1-128 characters")
+        return v
+
+
+class ConnectionProfilePatch(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    kind: str | None = Field(default=None, max_length=32)
+    name: str | None = Field(default=None, min_length=1, max_length=128)
+    description: str | None = Field(default=None, max_length=1000)
+    credentials: dict[str, Any] | None = None
+
+    @field_validator("name")
+    @classmethod
+    def _name(cls, v: str | None) -> str | None:
+        if v is None:
+            return v
+        v = v.strip()
+        if not 1 <= len(v) <= 128:
+            raise ValueError("1-128 characters")
+        return v
+
+
+class ProfileTestIn(BaseModel):
+    """`POST /api/connection-profiles/{id}/test`: `device_id` or `host` (one of them)."""
+
+    model_config = ConfigDict(extra="forbid")
+    device_id: int | None = None
+    host: str | None = Field(default=None, max_length=255)
+    credentials: dict[str, Any] | None = None  # partial, merged over the stored profile
+    driver: str | None = Field(default=None, max_length=64)  # SSH only
+
+
+class ProfileTestNewIn(ProfileTestIn):
+    """`POST /api/connection-profiles/test`: a profile not saved yet."""
+
+    kind: str = Field(min_length=1, max_length=32)
+    credentials: dict[str, Any]  # type: ignore[assignment]
+
+
+class CopyFromProfileIn(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    profile_id: int | None = None

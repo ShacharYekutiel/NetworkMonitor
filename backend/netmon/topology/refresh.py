@@ -13,7 +13,7 @@ from sqlalchemy import text
 from sqlalchemy.exc import IntegrityError
 
 from netmon.poller.sensor_types import SENSOR_TYPES
-from netmon.poller.snmp_client import resolve_credentials
+from netmon.services import conn_profiles
 from netmon.services.serialize import iso
 from netmon.topology.collect import (
     DeviceData,
@@ -285,10 +285,10 @@ class TopologyRunner:
             )
         targets = []
         for r in rows:
-            if not r.enabled or r.id not in snmp_devices:
+            if not r.enabled or r.id not in snmp_devices or r.id not in inv.devices:
                 continue
-            chain = [(g, inv.groups[g]["snmp_credentials"]) for g in inv.ancestors(r.group_id)]
-            creds, _, _ = resolve_credentials(r.snmp_credentials, chain, r.id)
+            # [profiles] the one resolver over the preloaded inventory (profiles included)
+            creds = conn_profiles.effective(inv.resolution("snmp", device_id=r.id))
             targets.append((r, creds))
         stats["devices_total"] = len(targets)
         sem = asyncio.Semaphore(CONCURRENCY)

@@ -87,6 +87,9 @@ class Inventory:
     group_counts: dict[int, dict[str, int]] = field(default_factory=dict)
     group_has_members: dict[int, bool] = field(default_factory=dict)
     detected_class: dict[int, str | None] = field(default_factory=dict)  # [2b-2]
+    # [profiles] (kind, "group" | "device", node id) -> profile id; profile id -> Profile
+    assignments: dict[tuple[str, str, int], int] = field(default_factory=dict)
+    profiles: dict[int, Any] = field(default_factory=dict)
 
     def ancestors(self, group_id: int) -> list[int]:
         """[group_id, parent, grandparent, ...]"""
@@ -107,24 +110,64 @@ class Inventory:
             i += 1
         return out
 
+    def chain(
+        self, kind: str, device_id: int | None = None, group_id: int | None = None
+    ) -> list[Any]:
+        """[profiles] The resolution chain (conn_profiles.ChainNode) of a device, or of a group
+        (starting at the group), from the preloaded rows."""
+        from netmon.services.conn_profiles import KINDS, ChainNode
+
+        col = KINDS[kind].column
+        nodes: list[Any] = []
+        gid = group_id
+        if device_id is not None:
+            d = self.devices[device_id]
+            nodes.append(
+                ChainNode(
+                    "device",
+                    device_id,
+                    d.get(col),
+                    self.assignments.get((kind, "device", device_id)),
+                    d.get("name"),
+                )
+            )
+            gid = d["group_id"]
+        if gid is not None:
+            for g in self.ancestors(gid):
+                nodes.append(
+                    ChainNode(
+                        "group",
+                        g,
+                        self.groups[g].get(col),
+                        self.assignments.get((kind, "group", g)),
+                        self.groups[g].get("name"),
+                    )
+                )
+        return nodes
+
+    def resolution(
+        self, kind: str, device_id: int | None = None, group_id: int | None = None
+    ) -> Any:
+        """[profiles] conn_profiles.resolve over the preloaded inventory."""
+        from netmon.services.conn_profiles import resolve
+
+        return resolve(kind, self.chain(kind, device_id, group_id), self.profiles)
+
+    def origin(self, kind: str, device_id: int | None = None, group_id: int | None = None) -> Any:
+        """[profiles] api.md `CredentialOrigin` (effective_snmp / effective_ssh)."""
+        from netmon.services.conn_profiles import origin
+
+        return origin(kind, self.chain(kind, device_id, group_id), self.profiles)
+
     def effective_snmp(self, device_id: int) -> tuple[str, int | None]:
-        d = self.devices[device_id]
-        if d["snmp_credentials"] is not None:
-            return "device", None
-        for gid in self.ancestors(d["group_id"]):
-            if self.groups[gid]["snmp_credentials"] is not None:
-                return "group", gid
-        return "default", None
+        """ "device" | "group" | "default" and the group that decides (manual or profile)."""
+        res = self.resolution("snmp", device_id=device_id)
+        return res.source, res.group_id
 
     def effective_ssh(self, device_id: int) -> tuple[str, int | None]:
-        """[3] "device" | "group" | "none" and the group that provides the credentials."""
-        d = self.devices[device_id]
-        if d.get("ssh_credentials") is not None:
-            return "device", None
-        for gid in self.ancestors(d["group_id"]):
-            if self.groups[gid].get("ssh_credentials") is not None:
-                return "group", gid
-        return "none", None
+        """[3] "device" | "group" | "none" and the group that decides (manual or profile)."""
+        res = self.resolution("ssh", device_id=device_id)
+        return res.source, res.group_id
 
     def compute(self) -> None:
         for gid in self.groups:
@@ -246,6 +289,10 @@ async def load_inventory(session: AsyncSession) -> Inventory:
         text("SELECT device_id, detected_class FROM port_inventory_status")
     ):
         inv.detected_class[row.device_id] = row.detected_class
+    from netmon.services import conn_profiles  # [profiles] one query each
+
+    inv.assignments = await conn_profiles.load_assignments(session)
+    inv.profiles = await conn_profiles.load_profiles(session)
     inv.compute()
     return inv
 

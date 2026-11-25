@@ -20,6 +20,20 @@ GROUP_KEYS = {
     "dependency",
     "ssh_credentials",  # [3]
 }
+# [profiles] Group and Device gain the connection-profile keys (contract change, 1.7.0)
+PROFILE_KEYS = {
+    "snmp_mode",
+    "snmp_profile_id",
+    "snmp_profile_name",
+    "ssh_mode",
+    "ssh_profile_id",
+    "ssh_profile_name",
+    "snmp_has_saved_manual",
+    "ssh_has_saved_manual",
+    "effective_snmp",
+    "effective_ssh",
+}
+GROUP_KEYS |= PROFILE_KEYS
 DEVICE_KEYS = {
     "id",
     "group_id",
@@ -57,7 +71,7 @@ DEVICE_KEYS = {
     "config_backup",
     "config_backup_driver",
     "newdev_excluded_ports",
-}
+} | PROFILE_KEYS
 SENSOR_KEYS = {
     "id",
     "device_id",

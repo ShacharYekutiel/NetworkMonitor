@@ -269,6 +269,14 @@ async def test_scan_import_end_to_end(rt, admin: httpx.AsyncClient, lab: Lab) ->
         "model",
         "classified_by",
         "confidence",
+        # [profiles] (1.7.0 contract change)
+        "snmp_profile_id",
+        "snmp_profile_name",
+        "ssh_attempted",
+        "ssh_ok",
+        "ssh_credential",
+        "ssh_profile_id",
+        "ssh_profile_name",
     }
     # filters
     assert [i["ip"] for i in await results(admin, scan["id"], device_class="printer,router")] == [

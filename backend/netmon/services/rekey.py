@@ -99,13 +99,56 @@ def rekey_all(conn: Any, old: str, new: str) -> int:
                     new_ssh,
                     i=r.id,
                 )  # noqa: S608, E501
+    # [profiles] connection profiles: SNMP (owner conn_profile:<id>), SSH ([3] form, ssh.<field>)
+    if conn.execute(text("SELECT to_regclass('public.connection_profiles') IS NOT NULL")).scalar():
+        for r in conn.execute(text("SELECT id, kind, data FROM connection_profiles")).all():
+            if r.kind == "snmp":
+                owner = secretbox.conn_profile_owner(r.id)
+                v = _box(old, new, r.data, secretbox.SNMP_FIELDS, owner)
+            else:
+                pairs = [(f"{f}_enc", f"ssh.{f}".encode()) for f in SSH_FIELDS]
+                v = _fields(old, new, r.data, pairs, f"conn_profile:{r.id}:ssh")
+            if v is not None:
+                upd(
+                    "UPDATE connection_profiles SET data = CAST(:v AS jsonb) WHERE id = :i",
+                    v,
+                    i=r.id,
+                )
+    ssh_pairs = [(f"{f}_enc", f"ssh.{f}".encode()) for f in SSH_FIELDS]
     for r in conn.execute(text("SELECT id, options FROM discovery_profiles")).all():
         owner = secretbox.profile_owner(r.id)
         v = _box(old, new, r.options, secretbox.DISCOVERY_OPTION_FIELDS, owner)
+        # [profiles] typed SSH credentials of the opt-in SSH login check ([3] form)
+        base = v if v is not None else r.options
+        ssh = base.get("ssh_credentials") if isinstance(base, dict) else None
+        new_ssh = _fields(old, new, ssh, ssh_pairs, f"{owner}:ssh") if ssh else None
+        if new_ssh is not None:
+            v = {**base, "ssh_credentials": new_ssh}
         if v is not None:
             upd(
                 "UPDATE discovery_profiles SET options = CAST(:v AS jsonb) WHERE id = :i", v, i=r.id
             )  # noqa: E501
+    # [profiles] SSH login candidates of discovery scans ([3] form)
+    if conn.execute(
+        text(
+            "SELECT 1 FROM information_schema.columns WHERE table_name = 'discovery_scans' "
+            "AND column_name = 'ssh_candidates'"
+        )
+    ).first():
+        for r in conn.execute(
+            text("SELECT id, ssh_candidates FROM discovery_scans WHERE ssh_candidates <> '[]'")
+        ).all():
+            cands, changed = [], False
+            for cand in r.ssh_candidates or []:
+                nc = _fields(old, new, cand, ssh_pairs, f"{secretbox.scan_owner(r.id)}:ssh")
+                changed = changed or nc is not None
+                cands.append(nc if nc is not None else cand)
+            if changed:
+                upd(
+                    "UPDATE discovery_scans SET ssh_candidates = CAST(:v AS jsonb) WHERE id = :i",
+                    cands,
+                    i=r.id,
+                )
     for r in conn.execute(text("SELECT id, credentials FROM discovery_scans")).all():
         c = r.credentials
         if isinstance(c, list) and len(c) == 1:

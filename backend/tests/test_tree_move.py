@@ -301,8 +301,21 @@ async def test_preview_snmp_fallback_listed_own_settings_not(
     assert body["effects"] == [
         {
             "setting": "snmp",
-            "before": {"source": "group", "group_id": layout["a"], "group_name": "A"},
-            "after": {"source": "default", "group_id": None, "group_name": None},
+            # [profiles] profile_id / profile_name (1.7.0 contract change)
+            "before": {
+                "source": "group",
+                "group_id": layout["a"],
+                "group_name": "A",
+                "profile_id": None,
+                "profile_name": None,
+            },
+            "after": {
+                "source": "default",
+                "group_id": None,
+                "group_name": None,
+                "profile_id": None,
+                "profile_name": None,
+            },
             "devices": [{"id": layout["a1d"], "name": "a1d", "snmp_sensors": 1}],
         }
     ]
@@ -346,6 +359,8 @@ async def test_preview_no_change_and_other_settings(
         "source": "group",
         "group_id": layout["b"],
         "group_name": "B",
+        "profile_id": None,  # [profiles]
+        "profile_name": None,
     }
     assert effects["dependency"]["after"]["device_id"] == gw
     assert effects["dependency"]["after"]["device_name"] == "gw"

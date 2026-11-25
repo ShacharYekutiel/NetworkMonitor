@@ -85,6 +85,51 @@ def snmp_out(
     }
 
 
+def credential_modes_out(node_type: str, node: Any, inv: Inventory | None) -> dict[str, Any]:
+    """[profiles] `<kind>_mode`, `<kind>_profile_id` / `_profile_name` (the node's own
+    reference), `<kind>_has_saved_manual` (dormant manual data, Q2) and `effective_<kind>`
+    (api.md `CredentialOrigin`). Nothing of a profile's data or of dormant data."""
+    from netmon.services import conn_profiles
+
+    inv = inv or Inventory()
+    out: dict[str, Any] = {}
+    for kind, sp in conn_profiles.KINDS.items():
+        pid = inv.assignments.get((kind, node_type, node.id))
+        creds = getattr(node, sp.column, None)
+        prof = inv.profiles.get(pid) if pid is not None else None
+        out[f"{kind}_mode"] = conn_profiles.node_mode(creds, pid)
+        out[f"{kind}_profile_id"] = pid
+        out[f"{kind}_profile_name"] = prof.name if prof is not None else None
+        out[f"{kind}_has_saved_manual"] = conn_profiles.has_saved_manual(creds, pid)
+        known = node.id in (inv.devices if node_type == "device" else inv.groups)
+        if known:
+            out[f"effective_{kind}"] = (
+                inv.origin(kind, device_id=node.id)
+                if node_type == "device"
+                else inv.origin(kind, group_id=node.id)
+            )
+        else:
+            out[f"effective_{kind}"] = conn_profiles.origin(
+                kind,
+                [
+                    conn_profiles.ChainNode(
+                        node_type, node.id, creds, pid, getattr(node, "name", None)
+                    )
+                ],
+                inv.profiles,
+            )
+    return out
+
+
+def _own_creds(kind: str, node_type: str, node: Any, inv: Inventory | None) -> Any:
+    """The node's manual data as stored; None in mode `profile` (dormant data never leaves)."""
+    from netmon.services.conn_profiles import KINDS
+
+    if inv is not None and (kind, node_type, node.id) in inv.assignments:
+        return None
+    return getattr(node, KINDS[kind].column, None)
+
+
 def group_out(g: Any, inv: Inventory | None) -> dict[str, Any]:
     from netmon.services.dependencies import dependency_out
 
@@ -93,8 +138,9 @@ def group_out(g: Any, inv: Inventory | None) -> dict[str, Any]:
         "parent_id": g.parent_id,
         "name": g.name,
         "description": g.description,
-        "snmp_credentials": snmp_out(g.snmp_credentials, "group", g.id),
-        "ssh_credentials": _ssh_out(getattr(g, "ssh_credentials", None)),  # [3]
+        "snmp_credentials": snmp_out(_own_creds("snmp", "group", g, inv), "group", g.id),
+        "ssh_credentials": _ssh_out(_own_creds("ssh", "group", g, inv)),  # [3]
+        **credential_modes_out("group", g, inv),  # [profiles]
         "sort_order": g.sort_order,
         "status": inv.group_status.get(g.id, "unknown") if inv else "unknown",
         "status_counts": dict(inv.group_counts.get(g.id, empty_counts()))
@@ -118,7 +164,8 @@ def device_out(d: Any, inv: Inventory, maint: Any = None) -> dict[str, Any]:
         "host": d.host,
         "description": d.description,
         "enabled": d.enabled,
-        "snmp_credentials": snmp_out(d.snmp_credentials, "device", d.id),
+        "snmp_credentials": snmp_out(_own_creds("snmp", "device", d, inv), "device", d.id),
+        **credential_modes_out("device", d, inv),  # [profiles]
         "effective_snmp_source": source,
         "effective_snmp_group_id": gid,
         "sort_order": d.sort_order,
@@ -150,7 +197,7 @@ def phase3_device_out(d: Any, inv: Inventory) -> dict[str, Any]:
     new-device excluded ports."""
     source, gid = inv.effective_ssh(d.id) if d.id in inv.devices else ("none", None)
     return {
-        "ssh_credentials": _ssh_out(getattr(d, "ssh_credentials", None)),
+        "ssh_credentials": _ssh_out(_own_creds("ssh", "device", d, inv)),
         "effective_ssh_source": source,
         "effective_ssh_group_id": gid,
         "config_backup": getattr(d, "config_backup", "auto") or "auto",

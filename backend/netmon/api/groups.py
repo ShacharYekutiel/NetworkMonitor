@@ -7,14 +7,13 @@ from typing import Any
 from fastapi import APIRouter, Query, Response
 from sqlalchemy import func, select, text
 
-from netmon.api.common import commit_or_conflict, flush_or_conflict, merge_snmp
+from netmon.api.common import apply_credentials, commit_or_conflict, flush_or_conflict
 from netmon.api.deps import DB, RT, Admin, Audit, Page, Viewer
 from netmon.api.errors import ApiError, conflict, not_found, validation_error
-from netmon.configbackup.credentials import merge as ssh_merge
 from netmon.models import Device, Group, Sensor
 from netmon.poller.sensor_types import SENSOR_TYPES
-from netmon.schemas import GroupCreate, GroupPatch, TreeMoveIn
-from netmon.services import audit, secretbox
+from netmon.schemas import CopyFromProfileIn, GroupCreate, GroupPatch, TreeMoveIn
+from netmon.services import audit, conn_profiles, secretbox
 from netmon.services import dependencies as deps
 from netmon.services.retention import delete_sensor_measurements
 from netmon.services.serialize import group_out, iso, page
@@ -41,6 +40,12 @@ def _values(g: Group) -> dict:
     if out.get("snmp_credentials") is not None:  # [1.4.2] plaintext for the (masked) audit
         out["snmp_credentials"] = secretbox.open_snmp(out["snmp_credentials"], "group", g.id)
     return out
+
+
+async def _audit_values(session: DB, g: Group) -> dict:
+    """[profiles] the audited fields plus `<kind>_mode` / `<kind>_profile`."""
+    state = await conn_profiles.node_state(session, "group", g.id)
+    return {**_values(g), **conn_profiles.audit_modes(g, state)}
 
 
 def _entity(g: Group) -> audit.Entity:
@@ -101,18 +106,17 @@ async def create_group(body: GroupCreate, _: Admin, rt: RT, session: DB, ctx: Au
         description=body.description,
         snmp_credentials=None,  # [1.4.2] set after the flush: the row id is part of the AAD
         sort_order=body.sort_order,
-        ssh_credentials=ssh_merge(body.ssh_credentials, None, rt.secret_key)  # [3]
-        if body.ssh_credentials is not None
-        else None,
+        ssh_credentials=None,
     )
-    snmp_plain = merge_snmp(body.snmp_credentials, None) if body.snmp_credentials else None
     deps.apply_dependency(g, dep)
     session.add(g)
     await deps.check_no_cycle(session)
     await flush_or_conflict(session)
-    if snmp_plain is not None:
-        g.snmp_credentials = secretbox.seal_snmp(snmp_plain, "group", g.id)
-    await audit.record(session, ctx, "group.create", _entity(g), audit.created(_values(g)))
+    # [profiles] manual / profile / inherit per kind (api.md request-mode table)
+    await apply_credentials(session, body, g, "group", rt.secret_key, create=True)
+    await audit.record(
+        session, ctx, "group.create", _entity(g), audit.created(await _audit_values(session, g))
+    )
     await commit_or_conflict(session)
     await session.refresh(g)
     rt.config_changed("group", g.id, "created")
@@ -134,7 +138,7 @@ async def patch_group(
     g = await session.get(Group, group_id)
     if g is None:
         raise not_found("Group")
-    before = _values(g)
+    before = await _audit_values(session, g)
     fields = body.model_fields_set
     new_parent = body.parent_id if "parent_id" in fields else g.parent_id
     new_name = body.name.strip() if "name" in fields and body.name else g.name
@@ -152,21 +156,8 @@ async def patch_group(
         g.description = body.description
     if "sort_order" in fields and body.sort_order is not None:
         g.sort_order = body.sort_order
-    if "snmp_credentials" in fields:
-        stored = secretbox.open_snmp(g.snmp_credentials, "group", g.id)
-        new_creds = (
-            merge_snmp(body.snmp_credentials, stored) if body.snmp_credentials is not None else None
-        )
-        if new_creds != stored:
-            g.snmp_credentials = secretbox.seal_snmp(new_creds, "group", g.id)
-    if "ssh_credentials" in fields:  # [3] null = inherit
-        new_ssh = (
-            ssh_merge(body.ssh_credentials, g.ssh_credentials, rt.secret_key)
-            if body.ssh_credentials is not None
-            else None
-        )
-        if new_ssh != g.ssh_credentials:
-            g.ssh_credentials = new_ssh
+    # [profiles] SNMP / SSH: manual, profile or inherit (api.md request-mode table)
+    await apply_credentials(session, body, g, "group", rt.secret_key, create=False)
     check_cycle = "parent_id" in fields  # a move changes what devices inherit
     if "dependency" in fields and body.dependency is not None:
         deps.apply_dependency(
@@ -175,7 +166,7 @@ async def patch_group(
         check_cycle = True
     if check_cycle:
         await deps.check_no_cycle(session)
-    changes = audit.diff(before, _values(g))
+    changes = audit.diff(before, await _audit_values(session, g))
     if changes:
         await audit.record(session, ctx, "group.update", _entity(g), changes)
     await commit_or_conflict(session)
@@ -202,6 +193,58 @@ async def delete_group(group_id: int, _: Admin, rt: RT, session: DB, ctx: Audit)
     rt.spawn(delete_sensor_measurements(rt, sensor_ids))
     rt.config_changed("group", group_id, "deleted")
     return Response(status_code=204)
+
+
+@router.post("/api/groups/{group_id}/credentials/{kind}/copy-from-profile")
+async def group_copy_from_profile(
+    group_id: int, kind: str, body: CopyFromProfileIn, _: Admin, rt: RT, session: DB, ctx: Audit
+) -> dict:
+    """[profiles] The group becomes `manual` with a copy of the profile's data."""
+    g = await session.get(Group, group_id)
+    if g is None:
+        raise not_found("Group")
+    before = await _audit_values(session, g)
+    await copy_from_profile(session, kind, body, g, "group")
+    await audit.record(
+        session,
+        ctx,
+        "group.update",
+        _entity(g),
+        audit.diff(before, await _audit_values(session, g)),
+        reason="copy_from_profile",
+    )
+    await commit_or_conflict(session)
+    await session.refresh(g)
+    rt.config_changed("group", g.id, "updated")
+    return group_out(g, await load_inventory(session))
+
+
+async def copy_from_profile(
+    session: DB, kind: str, body: CopyFromProfileIn, node: Any, node_type: str
+) -> None:
+    """[profiles] Shared by groups and devices: the profile (`profile_id`, else the node's
+    own current profile) copied into the node column (secrets re-encrypted for the node,
+    dormant data overwritten); the reference is removed."""
+    if kind not in conn_profiles.KINDS:
+        raise not_found("Credential kind")
+    state = await conn_profiles.node_state(session, node_type, node.id)
+    current = state.get(kind, (None, None))[0]
+    pid = body.profile_id if body.profile_id is not None else current
+    if pid is None:
+        raise validation_error(["body", "profile_id"], "the node is not in mode profile")
+    profile = await conn_profiles.lock_profile_for_use(session, kind, pid, ["body", "profile_id"])
+    try:
+        value = conn_profiles.copy_value(kind, profile, node_type, node.id)
+    except ValueError:
+        raise ApiError(
+            422,
+            "validation_error",
+            "The profile's secrets cannot be decrypted; enter them in the profile again",
+            [{"loc": ["body", "profile_id"], "msg": "credentials unreadable"}],
+        ) from None
+    setattr(node, conn_profiles.KINDS[kind].column, value)
+    if current is not None:
+        await conn_profiles.unassign(session, kind, node_type, node.id)
 
 
 @router.get("/api/tree")

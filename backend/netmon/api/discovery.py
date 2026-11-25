@@ -62,10 +62,38 @@ def _check_targets(targets: list[str]) -> None:
         ) from None
 
 
-def _options(incoming: ScanOptionsIn | None, base: dict[str, Any] | None) -> dict[str, Any]:
-    out = opts_mod.merge_options(incoming.given() if incoming is not None else None, base)
+async def _options(
+    session: DB,
+    secret_key: str,
+    incoming: ScanOptionsIn | None,
+    base: dict[str, Any] | None,
+) -> dict[str, Any]:
+    """Merged options. [profiles] `snmp_profile_ids` / `ssh_profile_ids`: existing profiles
+    of the right kind (`FOR SHARE`: a saved discovery profile adds uses); `ssh_credentials`:
+    omitted keeps, null removes, an object is merged with the [3] rules (stored encrypted)."""
+    from netmon.configbackup.credentials import merge as ssh_merge
+    from netmon.services import conn_profiles
+
+    given = incoming.given() if incoming is not None else None
+    if given is not None and "ssh_credentials" in given:
+        model = given["ssh_credentials"]
+        stored = (base or {}).get("ssh_credentials")
+        given["ssh_credentials"] = (
+            None
+            if model is None
+            else ssh_merge(
+                model,
+                stored if isinstance(stored, dict) else None,
+                secret_key,
+                loc=("body", "options", "ssh_credentials"),
+            )
+        )
+    out = opts_mod.merge_options(given, base)
     if not (out["ping"] or out["snmp"] or out["tcp"]):
         raise validation_error(["body", "options"], "at least one of ping, snmp, tcp must be on")
+    for key, kind in (("snmp_profile_ids", "snmp"), ("ssh_profile_ids", "ssh")):
+        ids = [int(i) for i in out.get(key) or []]
+        await conn_profiles.lock_discovery_ids(session, ids, ["body", "options", key], kind)
     return out
 
 
@@ -184,7 +212,7 @@ async def create_profile(
     await _check_group(session, body.group_id)
     channel_ids = list(dict.fromkeys(body.notify_channel_ids))
     await _check_channels(session, channel_ids)
-    options = _options(body.options, None)
+    options = await _options(session, rt.secret_key, body.options, None)
     name = body.name.strip()
     await _unique_profile_name(session, name)
     p = DiscoveryProfile(
@@ -249,7 +277,7 @@ async def patch_profile(
         p.notify_new_hosts = body.notify_new_hosts
     if "options" in fields and body.options is not None:
         stored = secretbox.open_profile_options(p.id, p.options)
-        new_options = _options(body.options, stored)
+        new_options = await _options(session, rt.secret_key, body.options, stored)
         if new_options != stored:
             p.options = secretbox.seal_profile_options(p.id, new_options)
     was_enabled, old_every = p.schedule_enabled, p.schedule_every_hours
@@ -289,7 +317,7 @@ async def delete_profile(profile_id: int, _: Admin, rt: RT, session: DB, ctx: Au
 
 
 @router.post("/api/discovery/profiles/{profile_id}/run", status_code=202)
-async def run_profile(profile_id: int, user: Admin, rt: RT, session: DB) -> dict:
+async def run_profile(profile_id: int, user: Admin, rt: RT, session: DB, ctx: Audit) -> dict:
     p = await session.get(DiscoveryProfile, profile_id)
     if p is None:
         raise not_found("Discovery profile")
@@ -306,6 +334,7 @@ async def run_profile(profile_id: int, user: Admin, rt: RT, session: DB) -> dict
             profile_id=profile_id,
             profile_name=name,
             created_by=user.id,
+            audit_ctx=ctx,
         )
     except ScanRunningError as exc:
         raise _scan_running(exc.scan_id) from None
@@ -320,13 +349,15 @@ async def run_profile(profile_id: int, user: Admin, rt: RT, session: DB) -> dict
 
 # ---------------------------------------------------------------- scans
 @router.post("/api/discovery/scans", status_code=202)
-async def create_scan(body: DiscoveryScanCreate, user: Admin, rt: RT, session: DB) -> dict:
+async def create_scan(
+    body: DiscoveryScanCreate, user: Admin, rt: RT, session: DB, ctx: Audit
+) -> dict:
     runner = _runner(rt)
     if runner.busy:
         raise _scan_running(runner.running_scan_id)
     _check_targets(body.targets)
     await _check_group(session, body.group_id)
-    options = _options(body.options, None)
+    options = await _options(session, rt.secret_key, body.options, None)
     await session.commit()
     try:
         scan_id = await runner.start(
@@ -335,6 +366,7 @@ async def create_scan(body: DiscoveryScanCreate, user: Admin, rt: RT, session: D
             options=options,
             trigger="manual",
             created_by=user.id,
+            audit_ctx=ctx,
         )
     except ScanRunningError as exc:
         raise _scan_running(exc.scan_id) from None
@@ -433,7 +465,14 @@ async def list_results(
             {**params, "limit": pg.page_size, "offset": pg.offset},
         )
     ).all()
-    return page([result_out(r) for r in rows], total, pg.page, pg.page_size)
+    from netmon.discovery.serialize import result_profile_ids
+    from netmon.services import conn_profiles
+
+    names = {
+        pid: p.name
+        for pid, p in (await conn_profiles.load_profiles(session, result_profile_ids(rows))).items()
+    }
+    return page([result_out(r, None, names) for r in rows], total, pg.page, pg.page_size)
 
 
 @router.post("/api/discovery/scans/{scan_id}/import")
@@ -456,7 +495,7 @@ async def import_scan(
     lang = user.language
     await session.commit()
     items = [i.model_dump() for i in body.items]
-    result = await import_results(rt, scan, group_id, items, lang)
+    result = await import_results(rt, scan, group_id, items, lang, audit_ctx=ctx)
     # [2b-3] the import creates devices in its own transactions: one summary record after it
     await audit.record_now(
         rt,

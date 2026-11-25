@@ -25,6 +25,7 @@ from netmon.api import (  # [3]
     auth,
     chatack,
     configbackup,
+    conn_profiles,  # [profiles]
     dashboard,
     devices,
     discovery,
@@ -240,6 +241,7 @@ def create_app(
         alerting.router,
         settings_api.router,
         discovery.router,
+        conn_profiles.router,  # [profiles] admin only
         templates.router,
         maintenance.router,
         topology.router,

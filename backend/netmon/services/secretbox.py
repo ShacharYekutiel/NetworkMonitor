@@ -255,6 +255,30 @@ def snmp_unreadable(creds: Any, kind: str, row_id: int | None) -> bool:
     return open_with(_KEY, creds, SNMP_FIELDS, snmp_owner(kind, row_id))[1]
 
 
+# ---------------------------------------------------------------- [profiles] connection profiles
+CONN_PROFILE = "conn_profile"
+
+
+def conn_profile_owner(profile_id: int | None) -> str:
+    return snmp_owner(CONN_PROFILE, profile_id)
+
+
+def seal_conn_profile_snmp(creds: dict[str, Any], profile_id: int) -> dict[str, Any]:
+    """[profiles] SNMP profile data: **encrypted copies only**, whatever the plaintext-copy
+    mode says (no older release reads `connection_profiles`). Never stores plaintext: without
+    a configured key this raises."""
+    if not _KEY:
+        raise RuntimeError("secret.key is not configured")
+    out: dict[str, Any] = seal_with(
+        _KEY, creds, SNMP_FIELDS, conn_profile_owner(profile_id), keep_plaintext=False
+    )
+    return out
+
+
+def open_conn_profile_snmp(data: Any, profile_id: int | None) -> Any:
+    return open(data, SNMP_FIELDS, conn_profile_owner(profile_id))
+
+
 def channel_owner(channel_id: int | None) -> str:
     return f"channel:{channel_id}"
 
@@ -460,6 +484,27 @@ def transform_all(
                     r.id,
                 )
                 counts["snmp"] += 1
+    # [profiles] SNMP connection profiles are always encrypted-only; the 1.4.1 form
+    # (keep_plaintext None) leaves them untouched (1.4.1 has no such table)
+    if keep_plaintext is not None and _rows(
+        conn, "SELECT 1 WHERE to_regclass('public.connection_profiles') IS NOT NULL"
+    ):
+        for r in _rows(conn, "SELECT id, data FROM connection_profiles WHERE kind = 'snmp'"):
+            if not has_secret(r.data, SNMP_FIELDS):
+                continue
+            owner = conn_profile_owner(r.id)
+            if in_form(k(), r.data, SNMP_FIELDS, owner, False):
+                continue
+            plain, unreadable = open_with(k(), r.data, SNMP_FIELDS, owner)
+            if unreadable:
+                bad.append(owner)
+                continue
+            update(
+                "UPDATE connection_profiles SET data = CAST(:v AS jsonb) WHERE id = :i",
+                seal_with(k(), plain, SNMP_FIELDS, owner, False),
+                r.id,
+            )
+            counts["snmp"] += 1
     for r in _rows(conn, "SELECT id, options FROM discovery_profiles"):
         new = conv(r.options, DISCOVERY_OPTION_FIELDS, profile_owner(r.id))
         if new is not None:

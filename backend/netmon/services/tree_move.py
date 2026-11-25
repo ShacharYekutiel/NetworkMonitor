@@ -146,11 +146,17 @@ def affected_devices(inv: Inventory, plan: MovePlan) -> list[int]:
     return list(dict.fromkeys(out))
 
 
-def _cred_side(inv: Inventory, source: str, gid: int | None) -> dict[str, Any]:
+def _cred_side(inv: Inventory, kind: str, did: int) -> dict[str, Any]:
+    """[profiles] also the profile that decides (null for manual / default / none)."""
+    res = inv.resolution(kind, device_id=did)
+    gid = res.group_id
+    prof = res.mode == "profile"
     return {
-        "source": source,
+        "source": res.source,
         "group_id": gid,
         "group_name": str(inv.groups[gid]["name"]) if gid is not None else None,
+        "profile_id": res.profile_id if prof else None,
+        "profile_name": (res.profile.name if res.profile is not None else None) if prof else None,
     }
 
 
@@ -205,14 +211,14 @@ def preview_effects(inv: Inventory, plan: MovePlan) -> dict[str, Any]:
     for did in devices:
         add(
             "snmp",
-            _cred_side(inv, *inv.effective_snmp(did)),
-            _cred_side(after_inv, *after_inv.effective_snmp(did)),
+            _cred_side(inv, "snmp", did),
+            _cred_side(after_inv, "snmp", did),
             did,
         )
         add(
             "ssh",
-            _cred_side(inv, *inv.effective_ssh(did)),
-            _cred_side(after_inv, *after_inv.effective_ssh(did)),
+            _cred_side(inv, "ssh", did),
+            _cred_side(after_inv, "ssh", did),
             did,
         )
         add("dependency", _dep_side(inv, did), _dep_side(after_inv, did), did)

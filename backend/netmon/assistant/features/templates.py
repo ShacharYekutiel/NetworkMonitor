@@ -320,11 +320,12 @@ class TemplateDrafts:
                         }
                     ],
                 )
-            from netmon.poller.snmp_client import resolve_credentials
-            from netmon.services.sensors import group_chain
+            from netmon.services import conn_profiles
 
-            chain = await group_chain(session, dev.group_id)
-            creds, _, _ = resolve_credentials(dev.snmp_credentials, chain, dev.id)
+            # [profiles] the one resolver (manual / profile / inherited / default)
+            creds = conn_profiles.effective(
+                await conn_profiles.resolve_device(session, "snmp", dev)
+            )
             row = (
                 await session.execute(
                     text(

@@ -13,9 +13,8 @@ from netmon.discovery.identify import identity_from_result
 from netmon.discovery.runner import EXISTING_DEVICE_SQL
 from netmon.discovery.serialize import ip_text
 from netmon.models import Device
-from netmon.poller.snmp_client import DEFAULT_SNMP, resolve_credentials
-from netmon.services import secretbox
-from netmon.services.sensors import group_chain
+from netmon.poller.snmp_client import DEFAULT_SNMP
+from netmon.services import conn_profiles, secretbox
 from netmon.services.serialize import SNMP_FIELDS
 from netmon.templates.apply import apply_template
 from netmon.templates.builtin import get_template
@@ -60,6 +59,68 @@ def device_credentials(
     return creds
 
 
+def snmp_choice(
+    cred: dict[str, Any],
+    index: int,
+    group_effective: dict[str, Any],
+    group_profile_id: int | None,
+    profile_now: conn_profiles.Profile | None,
+    port_used: int,
+) -> tuple[str, int | None]:
+    """[profiles] Pure import decision for an item whose SNMP answered (data-model
+    "[profiles] Discovery"). `cred` = the credential that answered (scan snapshot, with
+    `_profile_id`), `group_profile_id` = the profile the import group's effective SNMP comes
+    from (or None), `profile_now` = that `_profile_id`'s profile as it is now (None =
+    deleted). Returns ("inherit" | "profile" | "manual", profile id)."""
+    pid = cred.get("_profile_id")
+    # 1. credential 0 equal to the group's current effective credentials (the 2a rule)
+    if index == 0 and _comparable(cred) == _comparable(group_effective):
+        return "inherit", None
+    if pid is not None:
+        # 2. the import group already inherits that very profile
+        if group_profile_id == pid:
+            return "inherit", None
+        # 3. the profile still exists and answered on its own port
+        if profile_now is not None and profile_now.kind == "snmp":
+            data = secretbox.open_conn_profile_snmp(profile_now.data, profile_now.id) or {}
+            if int(port_used) == int(data.get("port") or 161):
+                return "profile", int(pid)
+    # 4. a copy of what answered
+    return "manual", None
+
+
+def ssh_choice(
+    save: bool,
+    ssh_ok: bool,
+    candidate: dict[str, Any] | None,
+    group_profile_id: int | None,
+    profile_now: conn_profiles.Profile | None,
+) -> tuple[str, int | None]:
+    """[profiles] Pure SSH import decision (owner decision Q3). Returns ("inherit" |
+    "profile" | "manual", profile id)."""
+    if not save or not ssh_ok or candidate is None:
+        return "inherit", None
+    pid = candidate.get("_profile_id")
+    if pid is not None:
+        if group_profile_id == pid:
+            return "inherit", None
+        if profile_now is not None and profile_now.kind == "ssh":
+            return "profile", int(pid)
+    return "manual", None
+
+
+def ssh_candidate(scan: Any, row: Any) -> dict[str, Any] | None:
+    """The scan snapshot candidate that logged in for a result row (None: no login)."""
+    if not getattr(row, "ssh_ok", False):
+        return None
+    origin = getattr(row, "ssh_credential", None)
+    pid = getattr(row, "ssh_profile_id", None)
+    for cand in list(getattr(scan, "ssh_candidates", None) or []):
+        if cand.get("_origin") == origin and cand.get("_profile_id") == pid:
+            return dict(cand)
+    return None
+
+
 def _error(rid: int, code: str, message: str, device_id: int | None = None) -> dict[str, Any]:
     return {"result_id": rid, "code": code, "message": message, "device_id": device_id}
 
@@ -71,12 +132,19 @@ async def import_results(
     items: list[dict[str, Any]],
     lang: str,
     budget_s: float | None = None,
+    audit_ctx: Any = None,
 ) -> dict[str, Any]:
     loop = asyncio.get_running_loop()
     deadline = loop.time() + (IMPORT_BUDGET_S if budget_s is None else budget_s)
     async with rt.sessionmaker() as session:
-        chain = await group_chain(session, group_id)
-    group_creds, _, _ = resolve_credentials(None, chain)
+        # [profiles] the import group's effective SNMP / SSH (profile-aware) and their origin
+        gres = await conn_profiles.resolve_group(session, "snmp", group_id)
+        sres = await conn_profiles.resolve_group(session, "ssh", group_id)
+    group_creds = conn_profiles.effective(gres)
+    group_pids = {
+        "snmp": gres.profile_id if gres.mode == "profile" else None,
+        "ssh": sres.profile_id if sres.mode == "profile" else None,
+    }
     credentials = secretbox.open_scan_credentials(scan.id, scan.credentials)  # [1.4.2]
     sem = asyncio.Semaphore(CONCURRENCY)
 
@@ -98,6 +166,9 @@ async def import_results(
                     group_creds,
                     min(APPLY_BUDGET_S, remaining),
                     info,
+                    scan=scan,
+                    group_pids=group_pids,
+                    audit_ctx=audit_ctx,
                 )
             except Exception as exc:  # noqa: BLE001
                 # type and host only: messages may carry statement details
@@ -126,6 +197,10 @@ async def _import_one(
     group_creds: dict[str, Any],
     apply_budget_s: float,
     info: dict[str, Any],
+    *,
+    scan: Any = None,
+    group_pids: dict[str, int | None] | None = None,
+    audit_ctx: Any = None,
 ) -> tuple[str, dict[str, Any]]:
     rid = item["result_id"]
     async with rt.sessionmaker() as session:
@@ -165,8 +240,16 @@ async def _import_one(
         session.add(device)
         await session.flush()
         device_id = device.id
-        device.snmp_credentials = secretbox.seal_snmp(
-            device_credentials(row, credentials, group_creds), "device", device_id
+        modes = await _store_credentials(
+            session,
+            device,
+            row,
+            item,
+            credentials,
+            group_creds,
+            group_pids or {},
+            scan,
+            audit_ctx,
         )
         # same transaction: a retry after any later failure sees device_exists
         await session.execute(
@@ -198,4 +281,118 @@ async def _import_one(
         "template_id": item["template_id"],
         "sensors_created": len(result["created"]),
         "sensors_skipped": result["skipped"],
+        **modes,  # [profiles] snmp_mode / snmp_profile_id / ssh_mode / ssh_profile_id
     }
+
+
+async def _store_credentials(
+    session: Any,
+    device: Device,
+    row: Any,
+    item: dict[str, Any],
+    credentials: list[dict[str, Any]],
+    group_creds: dict[str, Any],
+    group_pids: dict[str, int | None],
+    scan: Any,
+    audit_ctx: Any,
+) -> dict[str, Any]:
+    """[profiles] SNMP and SSH of an imported device (same transaction): what worked is
+    linked (profile), inherited or copied (manual), unless the item says `save_snmp` /
+    `save_ssh` false (then the device inherits from the import group)."""
+    out: dict[str, Any] = {
+        "snmp_mode": None,
+        "snmp_profile_id": None,
+        "ssh_mode": None,
+        "ssh_profile_id": None,
+    }
+    # ---- SNMP
+    idx = row.snmp_credential_index
+    if row.snmp_ok and idx is not None and 0 <= idx < len(credentials):
+        cred = credentials[idx]
+        if item.get("save_snmp") is False:
+            mode, pid = "inherit", None
+        else:
+            pid0 = cred.get("_profile_id")
+            now = (await conn_profiles.load_profiles(session, [pid0])).get(pid0) if pid0 else None
+            mode, pid = snmp_choice(
+                cred, idx, group_creds, group_pids.get("snmp"), now, int(cred.get("port") or 161)
+            )
+        if mode == "profile" and pid is not None:
+            if await _try_assign(session, "snmp", device.id, pid):
+                device.snmp_credentials = None
+            else:  # deleted meanwhile: a copy of what answered
+                mode, pid = "manual", None
+        if mode == "manual":
+            device.snmp_credentials = secretbox.seal_snmp(_copy(cred), "device", device.id)
+        out["snmp_mode"], out["snmp_profile_id"] = mode, pid
+        if mode == "profile" and pid is not None:
+            from netmon.services import audit
+
+            await audit.record(
+                session,
+                audit_ctx,
+                "device.update",
+                audit.entity("device", device.id, device.name, device_id=device.id),
+                {
+                    "snmp_mode": ["inherit", "profile"],
+                    "snmp_profile": [None, now.name if now else None],
+                },
+                reason="discovery_import",
+            )
+    # ---- SSH (owner decision Q3)
+    cand = ssh_candidate(scan, row) if scan is not None else None
+    if cand is not None:
+        save = item.get("save_ssh")
+        save = bool(row.ssh_ok) if save is None else bool(save)
+        pid0 = cand.get("_profile_id")
+        now = (await conn_profiles.load_profiles(session, [pid0])).get(pid0) if pid0 else None
+        mode, pid = ssh_choice(save, bool(row.ssh_ok), cand, group_pids.get("ssh"), now)
+        if (
+            mode == "profile"
+            and pid is not None
+            and not await _try_assign(session, "ssh", device.id, pid)
+        ):
+            mode, pid = "manual", None
+        if mode == "manual":
+            device.ssh_credentials = {k: v for k, v in cand.items() if not k.startswith("_")}
+        out["ssh_mode"], out["ssh_profile_id"] = mode, pid
+        if save and mode != "inherit":
+            from netmon.services import audit
+
+            name = now.name if (now is not None and mode == "profile") else None
+            await audit.record(
+                session,
+                audit_ctx,
+                "device.update",
+                audit.entity("device", device.id, device.name, device_id=device.id),
+                {
+                    "ssh_mode": ["inherit", mode],
+                    "ssh_profile": [None, name],
+                    **(
+                        {"ssh_credentials": [None, device.ssh_credentials]}
+                        if mode == "manual"
+                        else {}
+                    ),
+                },
+                reason="discovery_import",
+            )
+    return out
+
+
+def _copy(cred: dict[str, Any]) -> dict[str, Any]:
+    creds = {k: cred.get(k) for k in SNMP_FIELDS}
+    creds["timeout_s"] = 2
+    creds["retries"] = 1
+    return creds
+
+
+async def _try_assign(session: Any, kind: str, device_id: int, profile_id: int) -> bool:
+    """Assign when the profile still exists with this kind (`FOR SHARE`); False otherwise."""
+    from netmon.api.errors import ApiError
+
+    try:
+        await conn_profiles.lock_profile_for_use(session, kind, profile_id, ["profile_id"])
+    except ApiError:
+        return False
+    await conn_profiles.assign(session, kind, "device", device_id, profile_id)
+    return True

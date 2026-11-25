@@ -48,6 +48,10 @@ class DiscoveryScan(Base):
     targets: Mapped[list[str]] = mapped_column(ARRAY(Text), nullable=False)
     options: Mapped[dict[str, Any]] = mapped_column(JSONB, nullable=False, default=dict)
     credentials: Mapped[list[dict[str, Any]]] = mapped_column(JSONB, nullable=False, default=list)
+    # [profiles] SSH login candidates (internal snapshot, [3] encrypted form; never returned)
+    ssh_candidates: Mapped[list[dict[str, Any]]] = mapped_column(
+        JSONB, nullable=False, default=list, server_default="[]"
+    )
     total_hosts: Mapped[int] = mapped_column(Integer, nullable=False)
     scanned_hosts: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     found_hosts: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
@@ -93,6 +97,13 @@ class DiscoveryResult(Base):
     model: Mapped[str | None] = mapped_column(String(64))
     classified_by: Mapped[str] = mapped_column(Text, nullable=False, default="ports")
     confidence: Mapped[str] = mapped_column(Text, nullable=False, default="low")
+    # [profiles] the connection profile of the credential that answered (snapshot, no FK)
+    snmp_profile_id: Mapped[int | None] = mapped_column(Integer)
+    # [profiles] opt-in SSH login check (owner decision Q3)
+    ssh_attempted: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    ssh_ok: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    ssh_credential: Mapped[str | None] = mapped_column(Text)
+    ssh_profile_id: Mapped[int | None] = mapped_column(Integer)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), nullable=False, server_default=func.now()
     )

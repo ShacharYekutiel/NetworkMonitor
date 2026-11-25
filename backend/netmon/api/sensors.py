@@ -642,11 +642,19 @@ async def test_sensor(body: SensorTestIn, _: Admin, rt: RT, session: DB) -> dict
         host = device.host
         if tdef.requires_snmp:
             if body.snmp_credentials is not None:
+                from netmon.services import conn_profiles
+
+                # [profiles] merged over the device's own manual data only (never over the
+                # dormant data of a device in mode profile)
+                own = (
+                    None
+                    if "snmp" in await conn_profiles.node_state(session, "device", device.id)
+                    else device.snmp_credentials
+                )
                 creds = {
                     **DEFAULT_SNMP,
                     **merge_snmp(
-                        body.snmp_credentials,
-                        secretbox.open_snmp(device.snmp_credentials, "device", device.id),
+                        body.snmp_credentials, secretbox.open_snmp(own, "device", device.id)
                     ),
                 }
             else:

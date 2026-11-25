@@ -23,7 +23,15 @@ DEFAULT_OPTIONS: dict[str, Any] = {
     # [2b-1]
     "fingerprint": True,
     "fingerprint_timeout_ms": 2000,
+    # [profiles] SNMP connection profiles tried after the group's credentials
+    "snmp_profile_ids": [],
+    # [profiles] opt-in SSH login check (owner decision Q3): SSH connection profiles and typed
+    # SSH credentials (the [3] stored form, secrets encrypted); none = no SSH at all
+    "ssh_profile_ids": [],
+    "ssh_credentials": None,
 }
+MAX_SNMP_CREDENTIALS = 17  # 1 group + 8 profiles + 5 communities + 3 v3
+MAX_SSH_CANDIDATES = 4  # 3 profiles + the typed credentials
 V3_FIELDS = (
     "v3_username",
     "v3_security_level",
@@ -69,9 +77,20 @@ def _v3_out(entry: dict[str, Any]) -> dict[str, Any]:
     }
 
 
+def ssh_enabled(opts: dict[str, Any]) -> bool:
+    """[profiles] SSH is attempted only with SSH profiles or typed SSH credentials."""
+    return bool(opts.get("ssh_profile_ids")) or bool(opts.get("ssh_credentials"))
+
+
 def public_options(opts: dict[str, Any]) -> dict[str, Any]:
     """The API `ScanOptions` shape: secrets replaced by counts and *_set flags."""
     full = merge_options(None, opts)
+    ssh = full.get("ssh_credentials") if isinstance(full.get("ssh_credentials"), dict) else None
+    ssh_set = opts.get("ssh_credentials_set")
+    ssh_user = opts.get("ssh_username")
+    if ssh_set is None:
+        ssh_set = ssh is not None
+        ssh_user = (ssh or {}).get("username")
     comm_count = opts.get("extra_communities_count")
     if comm_count is None:
         comm_count = len(full["extra_communities"] or [])
@@ -92,6 +111,11 @@ def public_options(opts: dict[str, Any]) -> dict[str, Any]:
         "dns": bool(full["dns"]),
         "fingerprint": bool(full["fingerprint"]),
         "fingerprint_timeout_ms": full["fingerprint_timeout_ms"],
+        "snmp_profile_ids": [int(i) for i in full.get("snmp_profile_ids") or []],
+        "ssh_profile_ids": [int(i) for i in full.get("ssh_profile_ids") or []],
+        "ssh_credentials": None,  # write-only
+        "ssh_credentials_set": bool(ssh_set),
+        "ssh_username": ssh_user if ssh_set else None,
     }
 
 
@@ -116,21 +140,78 @@ def scan_snapshot(opts: dict[str, Any]) -> dict[str, Any]:
     full["extra_v3_count"] = len(v3)
     full["extra_communities"] = []
     full["extra_v3"] = v3
+    ssh = full.get("ssh_credentials") if isinstance(full.get("ssh_credentials"), dict) else None
+    full["ssh_credentials"] = (
+        None  # [profiles] the candidates live in discovery_scans.ssh_candidates
+    )
+    full["ssh_credentials_set"] = ssh is not None
+    full["ssh_username"] = (ssh or {}).get("username")
     return full
 
 
-def build_credentials(group_creds: dict[str, Any], opts: dict[str, Any]) -> list[dict[str, Any]]:
-    """Ordered credential list: group effective credentials, extra communities (v2c), extra v3.
-    All use snmp_port when set, timeout_s = snmp_timeout_s and retries = 0. Max 9."""
+def build_credentials(
+    group_creds: dict[str, Any],
+    opts: dict[str, Any],
+    group_profile_id: int | None = None,
+    profiles: list[tuple[int, dict[str, Any]]] | None = None,
+) -> list[dict[str, Any]]:
+    """Ordered credential list (data-model "[profiles] Discovery"): 0) the group's effective
+    credentials, then each SNMP connection profile of `snmp_profile_ids` in the given order
+    (`profiles`: [(id, plaintext data)]; skipped when it is the profile that already supplied
+    entry 0), then extra communities (v2c), then extra v3. All use snmp_port when set (else
+    the credential's own port; extras the group's), timeout_s = snmp_timeout_s and
+    retries = 0. Max 17. Each entry carries `_profile_id` and `_origin`
+    (`group` | `profile` | `extra`)."""
     full = merge_options(None, opts)
     port = full["snmp_port"] or int(group_creds.get("port") or 161)
-    common = {"port": int(port), "timeout_s": int(full["snmp_timeout_s"]), "retries": 0}
-    out = [{**DEFAULT_SNMP, **group_creds, **common}]
+    timing = {"timeout_s": int(full["snmp_timeout_s"]), "retries": 0}
+    common = {"port": int(port), **timing}
+    out = [
+        {
+            **DEFAULT_SNMP,
+            **group_creds,
+            **common,
+            "_profile_id": group_profile_id,
+            "_origin": "group",
+        }
+    ]
+    for pid, data in profiles or []:
+        if pid == group_profile_id:
+            continue
+        own_port = full["snmp_port"] or int(data.get("port") or 161)
+        out.append(
+            {
+                **DEFAULT_SNMP,
+                **data,
+                **timing,
+                "port": int(own_port),
+                "_profile_id": pid,
+                "_origin": "profile",
+            }
+        )
+    extra = {"_profile_id": None, "_origin": "extra"}
     for community in full["extra_communities"] or []:
-        out.append({**DEFAULT_SNMP, "version": "v2c", "community": community, **common})
+        out.append({**DEFAULT_SNMP, "version": "v2c", "community": community, **common, **extra})
     for e in full["extra_v3"] or []:
-        entry = {**DEFAULT_SNMP, "version": "v3", "community": None, **common}
+        entry = {**DEFAULT_SNMP, "version": "v3", "community": None, **common, **extra}
         for k in V3_FIELDS:
             entry[k] = e.get(k)
         out.append(entry)
-    return out[:9]
+    return out[:MAX_SNMP_CREDENTIALS]
+
+
+def probe_view(cred: dict[str, Any]) -> dict[str, Any]:
+    """A credential entry without the snapshot keys (`_profile_id`, `_origin`)."""
+    return {k: v for k, v in cred.items() if not k.startswith("_")}
+
+
+def build_ssh_candidates(
+    profiles: list[tuple[int, dict[str, Any]]], typed: dict[str, Any] | None
+) -> list[dict[str, Any]]:
+    """[profiles] SSH login candidates in order: the SSH profiles of `ssh_profile_ids`, then
+    the typed credentials. Each is the [3] stored form plus `_profile_id` and `_origin`
+    (`profile` | `typed`). Max 4."""
+    out = [{**data, "_profile_id": pid, "_origin": "profile"} for pid, data in profiles]
+    if typed:
+        out.append({**typed, "_profile_id": None, "_origin": "typed"})
+    return out[:MAX_SSH_CANDIDATES]

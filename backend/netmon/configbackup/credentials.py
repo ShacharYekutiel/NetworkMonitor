@@ -205,13 +205,14 @@ def resolve(
 ) -> tuple[dict[str, Any] | None, str, int | None]:
     """Effective stored credentials: device -> its group -> parent groups -> none.
     `chain`: [(group id, ssh_credentials)] from the device's group upwards.
-    Returns (stored, source "device" | "group" | "none", group id)."""
-    if device_creds is not None:
-        return device_creds, "device", None
-    for gid, creds in chain:
-        if creds is not None:
-            return creds, "group", gid
-    return None, "none", None
+    Returns (stored, source "device" | "group" | "none", group id). [profiles] A thin wrapper
+    over the one resolver (`conn_profiles.resolve`) for chains without profile references."""
+    from netmon.services import conn_profiles
+
+    nodes = [conn_profiles.ChainNode("device", 0, device_creds)]
+    nodes += [conn_profiles.ChainNode("group", gid, creds) for gid, creds in chain]
+    res = conn_profiles.resolve("ssh", nodes, {})
+    return conn_profiles.effective(res), res.source, res.group_id
 
 
 def audit_view(stored: dict[str, Any] | None) -> dict[str, Any] | None:

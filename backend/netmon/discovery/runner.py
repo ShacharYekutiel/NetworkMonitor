@@ -23,11 +23,9 @@ from netmon.discovery.fingerprint import FINGERPRINT_PORTS, fingerprint_host
 from netmon.discovery.probe import HOST_TIMEOUT_S, ProbeResult, probe_host, resolve_hostname
 from netmon.discovery.serialize import ip_text, result_out
 from netmon.discovery.targets import HostTarget, expand_targets, rejected_reason
-from netmon.poller.snmp_client import resolve_credentials
+from netmon.services import conn_profiles, secretbox
 from netmon.services import events as events_svc
-from netmon.services import secretbox
 from netmon.services import settings as settings_svc
-from netmon.services.sensors import group_chain
 from netmon.services.serialize import iso, now_utc
 
 if TYPE_CHECKING:
@@ -37,6 +35,8 @@ log = logging.getLogger("netmon.discovery")
 
 KEEP_SCANS = 20
 FINGERPRINT_BACKSTOP_S = 30.0
+SSH_ATTEMPT_S = 20.0  # [profiles] one SSH login attempt (connect, host key, auth)
+SSH_CONCURRENCY = 4  # [profiles] hosts in an SSH login check at a time, per scan
 CANCEL_WAIT_S = 4.5  # the API answers within 5 s
 MAX_NOTIFY_HOSTS = 50
 EXISTING_DEVICE_SQL = (
@@ -70,6 +70,11 @@ class _Scan:
     probes: set[asyncio.Task[Any]] = field(default_factory=set)
     task: asyncio.Task[None] | None = None
     flushed: tuple[int, int, int, int] | None = None
+    # [profiles] SSH login candidates ([3] stored form + _profile_id / _origin) and the
+    # connection profile names known at the start (result broadcasts)
+    ssh_candidates: list[dict[str, Any]] = field(default_factory=list)
+    profile_names: dict[int, str] = field(default_factory=dict)
+    ssh_sem: asyncio.Semaphore = field(default_factory=lambda: asyncio.Semaphore(SSH_CONCURRENCY))
 
     def counters(self) -> dict[str, int]:
         return {
@@ -136,6 +141,7 @@ class ScanRunner:
         profile_name: str | None = None,
         created_by: int | None = None,
         baseline: bool = False,
+        audit_ctx: Any = None,
     ) -> int:
         """Create the scan row (`running`) and start the task. Raises ScanRunningError, or
         TargetError / TooManyHostsError for invalid targets."""
@@ -145,9 +151,43 @@ class ScanRunner:
             hosts = expand_targets(targets)
             full = opts_mod.merge_options(None, options)
             async with self.rt.sessionmaker() as session:
-                chain = await group_chain(session, group_id)
-                group_creds, _, _ = resolve_credentials(None, chain)
-                credentials = opts_mod.build_credentials(group_creds, full) if full["snmp"] else []
+                # [profiles] credential 0: the group's effective credentials (profile-aware);
+                # connection profiles are read once here (a later edit does not change the scan)
+                gres = await conn_profiles.resolve_group(session, "snmp", group_id)
+                group_creds = conn_profiles.effective(gres)
+                group_pid = gres.profile_id if gres.mode == "profile" else None
+                snmp_ids = [int(i) for i in full.get("snmp_profile_ids") or []]
+                ssh_ids = [int(i) for i in full.get("ssh_profile_ids") or []]
+                profs = await conn_profiles.load_profiles(session, [*snmp_ids, *ssh_ids])
+                snmp_profiles = [
+                    (pid, dict(secretbox.open_conn_profile_snmp(profs[pid].data, pid) or {}))
+                    for pid in snmp_ids
+                    if pid in profs and profs[pid].kind == "snmp"
+                ]
+                credentials = (
+                    opts_mod.build_credentials(group_creds, full, group_pid, snmp_profiles)
+                    if full["snmp"]
+                    else []
+                )
+                typed = full.get("ssh_credentials")
+                ssh_candidates = opts_mod.build_ssh_candidates(
+                    [
+                        (pid, dict(profs[pid].data or {}))
+                        for pid in ssh_ids
+                        if pid in profs and profs[pid].kind == "ssh"
+                    ],
+                    typed if isinstance(typed, dict) else None,
+                )
+                names = {pid: p.name for pid, p in profs.items()}
+                if group_pid is not None:
+                    names.update(
+                        {
+                            k: v.name
+                            for k, v in (
+                                await conn_profiles.load_profiles(session, [group_pid])
+                            ).items()
+                        }
+                    )
                 try:
                     row = (
                         await session.execute(
@@ -192,6 +232,26 @@ class ScanRunner:
                                 "i": scan_id,
                             },
                         )
+                    if ssh_candidates:  # [profiles] internal snapshot, never returned
+                        await session.execute(
+                            text(
+                                "UPDATE discovery_scans SET ssh_candidates = CAST(:c AS jsonb) "
+                                "WHERE id = :i"
+                            ),
+                            {"c": _json(ssh_candidates), "i": scan_id},
+                        )
+                        from netmon.services import audit
+
+                        await audit.record(
+                            session,
+                            audit_ctx or audit.AuditCtx.system(self.rt),
+                            "discovery_scan.ssh",
+                            audit.entity("discovery_scan", int(scan_id), profile_name),
+                            {
+                                "ssh_profile_ids": [None, ssh_ids],
+                                "ssh_typed": [None, isinstance(typed, dict)],
+                            },
+                        )
                     if profile_id is not None:
                         await session.execute(
                             text(
@@ -217,6 +277,8 @@ class ScanRunner:
                 group_id=group_id,
                 baseline=baseline,
                 total=len(hosts),
+                ssh_candidates=ssh_candidates,
+                profile_names=names,
             )
             self._current = scan
             self.last_started = row  # the row as created (status running), for the 202 response
@@ -338,8 +400,53 @@ class ScanRunner:
         # probes already found (ping / TCP / SNMP identity)
         holder["res"] = ProbeResult(ip=ip, hostname=host.hostname, target_hostname=host.hostname)
         return await probe_host(
-            ip, scan.options, scan.credentials, hostname=host.hostname, result=holder["res"]
+            ip,
+            scan.options,
+            [opts_mod.probe_view(c) for c in scan.credentials],
+            hostname=host.hostname,
+            result=holder["res"],
         )
+
+    async def _ssh_check(
+        self, scan: _Scan, res: ProbeResult
+    ) -> tuple[bool, bool, str | None, int | None]:
+        """[profiles] Opt-in SSH login check of a found host: candidates in order, only
+        where the candidate's port is open, one attempt each, stop at the first success.
+        Login and disconnect only (no shell, no command); every host key is accepted for
+        this check and nothing is pinned or stored. Returns (attempted, ok, origin,
+        profile id). Never logs a credential."""
+        from netmon.configbackup import credentials
+        from netmon.configbackup.session import run_session
+
+        attempted = False
+        for cand in scan.ssh_candidates:
+            if scan.cancel:
+                break
+            port = int(cand.get("port") or 22)
+            if port not in res.open_ports:
+                continue
+            try:
+                creds = credentials.decrypt(cand, self.rt.secret_key)
+            except credentials.CredentialsUnreadable:
+                continue
+            attempted = True
+            try:
+                async with scan.ssh_sem:
+                    await run_session(
+                        res.ip,
+                        creds,
+                        None,
+                        lambda _info: True,
+                        total_timeout=SSH_ATTEMPT_S,
+                        commands=False,
+                    )
+            except asyncio.CancelledError:
+                raise
+            except Exception as exc:  # noqa: BLE001 - SessionError or anything else: next one
+                log.debug("SSH login check of %s: %s", res.ip, type(exc).__name__)
+                continue
+            return True, True, str(cand.get("_origin")), cand.get("_profile_id")
+        return attempted, False, None, None
 
     async def _one_host(self, scan: _Scan, host: HostTarget) -> None:
         if scan.cancel:
@@ -401,6 +508,16 @@ class ScanRunner:
             fp,
         )
         device_class, vendor = c.device_class, c.vendor
+        ssh_attempted, ssh_ok, ssh_origin, ssh_pid = False, False, None, None
+        if scan.ssh_candidates and res.open_ports:
+            try:
+                ssh_attempted, ssh_ok, ssh_origin, ssh_pid = await self._ssh_check(scan, res)
+            except Exception:  # noqa: BLE001
+                log.exception("SSH login check of %s failed", res.ip)
+        snmp_pid = None
+        idx = res.snmp_credential_index
+        if res.snmp_ok and idx is not None and 0 <= idx < len(scan.credentials):
+            snmp_pid = scan.credentials[idx].get("_profile_id")
         template = suggest_template(
             {
                 "device_class": device_class,
@@ -432,12 +549,14 @@ class ScanRunner:
                             ping_rtt_ms, snmp_ok, snmp_version, snmp_credential_index, sys_name,
                             sys_descr, sys_object_id, open_ports, device_class, vendor,
                             suggested_template, is_new, fingerprint, model, classified_by,
-                            confidence)
+                            confidence, snmp_profile_id, ssh_attempted, ssh_ok, ssh_credential,
+                            ssh_profile_id)
                         VALUES (:scan_id, CAST(:ip AS inet), :hostname, :mac, :ping_ok,
                             :ping_rtt_ms, :snmp_ok, :snmp_version, :cred_idx, :sys_name,
                             :sys_descr, :sys_object_id, :open_ports, :device_class, :vendor,
                             :template, :is_new, CAST(:fingerprint AS jsonb), :model,
-                            :classified_by, :confidence)
+                            :classified_by, :confidence, :snmp_pid, :ssh_attempted, :ssh_ok,
+                            :ssh_cred, :ssh_pid)
                         ON CONFLICT (scan_id, ip) DO NOTHING
                         RETURNING *
                         """
@@ -464,6 +583,11 @@ class ScanRunner:
                         "model": c.model,
                         "classified_by": c.classified_by,
                         "confidence": c.confidence,
+                        "snmp_pid": snmp_pid,
+                        "ssh_attempted": ssh_attempted,
+                        "ssh_ok": ssh_ok,
+                        "ssh_cred": ssh_origin if ssh_ok else None,
+                        "ssh_pid": ssh_pid if ssh_ok else None,
                     },
                 )
             ).first()
@@ -475,7 +599,7 @@ class ScanRunner:
             scan.new += 1
         self.rt.hub.broadcast(
             "discovery.result",
-            {"scan_id": scan.id, "result": result_out(row, pre.existing)},
+            {"scan_id": scan.id, "result": result_out(row, pre.existing, scan.profile_names)},
             admin_only=True,
         )
 

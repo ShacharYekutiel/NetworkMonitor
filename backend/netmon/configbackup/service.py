@@ -83,10 +83,15 @@ async def load_contexts(
     *,
     with_status: bool = True,
 ) -> list[DeviceCtx]:
+    from netmon.services import conn_profiles
+
     groups = {
         r.id: (r.parent_id, r.ssh_credentials)
         for r in await session.execute(text("SELECT id, parent_id, ssh_credentials FROM groups"))
     }
+    # [profiles] one load of the assignments and of the SSH profiles
+    assignments = await conn_profiles.load_assignments(session)
+    profiles = await conn_profiles.load_profiles(session, kind="ssh")
     where = "" if device_ids is None else "WHERE id = ANY(:ids)"
     rows = (
         await session.execute(
@@ -102,9 +107,16 @@ async def load_contexts(
     for r in rows:
         ident = r.identity or {}
         templates = [ident["suggested_template"]] if ident.get("suggested_template") else []
-        stored, source, gid = credentials.resolve(
-            r.ssh_credentials, group_chain(groups, r.group_id)
-        )
+        chain = [
+            conn_profiles.ChainNode(
+                "device", r.id, r.ssh_credentials, assignments.get(("ssh", "device", r.id))
+            )
+        ] + [
+            conn_profiles.ChainNode("group", g, creds, assignments.get(("ssh", "group", g)))
+            for g, creds in group_chain(groups, r.group_id)
+        ]
+        res = conn_profiles.resolve("ssh", chain, profiles)
+        stored, source, gid = conn_profiles.effective(res), res.source, res.group_id
         ctx = DeviceCtx(
             id=r.id,
             name=r.name,

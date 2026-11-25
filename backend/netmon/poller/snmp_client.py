@@ -336,19 +336,15 @@ def resolve_credentials(
     objects may be encrypted ([1.4.2] netmon.services.secretbox: `device_id` is part of the
     device credentials' AAD); the result is always plaintext.
 
-    Returns (credentials, source, group_id)."""
-    from netmon.services import secretbox
+    Returns (credentials, source, group_id). [profiles] A thin wrapper over the one resolver
+    (`conn_profiles.resolve`) for chains without profile references."""
+    from netmon.services import conn_profiles
 
-    if device_creds is not None:
-        return (
-            {**DEFAULT_SNMP, **secretbox.open_snmp(device_creds, "device", device_id)},
-            "device",
-            None,
-        )
-    for gid, creds in group_chain:
-        if creds is not None:
-            return {**DEFAULT_SNMP, **secretbox.open_snmp(creds, "group", gid)}, "group", gid
-    return dict(DEFAULT_SNMP), "default", None
+    # the device id is part of the device credentials' AAD (None as before for no device)
+    nodes = [conn_profiles.ChainNode("device", device_id, device_creds)]  # type: ignore[arg-type]
+    nodes += [conn_profiles.ChainNode("group", gid, creds) for gid, creds in group_chain]
+    res = conn_profiles.resolve("snmp", nodes, {})
+    return conn_profiles.effective(res), res.source, res.group_id
 
 
 MISSING_TYPES = ("NoSuchObject", "NoSuchInstance", "EndOfMibView", "noSuchName")

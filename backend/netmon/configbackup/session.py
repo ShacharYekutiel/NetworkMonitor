@@ -187,8 +187,10 @@ class _Shell:
                     )
 
     async def run(
-        self, creds: SshCreds, *, command_limit: int | None = None
+        self, creds: SshCreds, *, command_limit: int | None = None, commands: bool = True
     ) -> list[tuple[str, str]]:
+        """`commands=False` ([profiles] connection test): only the prompt, the enable step and
+        the driver's session-only setup commands; no backup command."""
         d = self.driver
         buf, _ = await self.read_until([self.prompt], d.prompt_s, answer_pre=True)
         if d.enable is not None:
@@ -209,6 +211,12 @@ class _Shell:
         if d.session_setup:
             self.steps.mark("setup", True, ", ".join(d.session_setup))
         outputs: list[tuple[str, str]] = []
+        if not commands:
+            try:
+                self.proc.stdin.write("exit\n")
+            except Exception:  # noqa: BLE001
+                pass
+            return outputs
         for c in d.commands[:command_limit]:
             self.proc.stdin.write(c.command + "\n")
             out, _ = await self.read_until([self.prompt], d.command_s, step="command")
@@ -283,17 +291,25 @@ async def _exec_mode(
 async def run_session(
     host: str,
     creds: SshCreds,
-    driver: Driver,
+    driver: Driver | None,
     host_key_check: HostKeyCheck,
     *,
     total_timeout: float = 120.0,
     command_limit: int | None = None,
+    commands: bool = True,
 ) -> SessionResult:
-    """Connect, check the host key, authenticate, run the driver. Raises SessionError."""
+    """Connect, check the host key, authenticate, run the driver. Raises SessionError.
+
+    [profiles] `commands=False` (connection test of a profile): no backup command is sent;
+    with a driver the session stops after its prompt / enable / session-only setup, without
+    a driver right after authentication."""
     steps = _Steps()
+    if driver is None and commands:
+        raise ValueError("a driver is required to run commands")
     try:
         return await asyncio.wait_for(
-            _run(host, creds, driver, host_key_check, steps, command_limit), total_timeout
+            _run(host, creds, driver, host_key_check, steps, command_limit, commands),
+            total_timeout,
         )
     except TimeoutError:
         last = steps.items[-1]["step"] if steps.items else "connect"
@@ -310,10 +326,11 @@ async def run_session(
 async def _run(
     host: str,
     creds: SshCreds,
-    driver: Driver,
+    driver: Driver | None,
     host_key_check: HostKeyCheck,
     steps: _Steps,
     command_limit: int | None,
+    commands: bool = True,
 ) -> SessionResult:
     import asyncssh
 
@@ -425,9 +442,12 @@ async def _run(
     result.host_key = seen.get("key")
     try:
         async with conn:
-            if driver.mode == "exec":
+            if driver is None:
+                pass  # [profiles] connection test without a known driver: login only
+            elif driver.mode == "exec":
                 steps.mark("prompt", True, "exec mode")
-                result.outputs = await _exec_mode(conn, driver, steps, command_limit)
+                if commands:
+                    result.outputs = await _exec_mode(conn, driver, steps, command_limit)
             else:
                 proc = await conn.create_process(
                     term_type="vt100",
@@ -437,7 +457,9 @@ async def _run(
                 )
                 try:
                     shell = _Shell(proc, driver, steps)
-                    result.outputs = await shell.run(creds, command_limit=command_limit)
+                    result.outputs = await shell.run(
+                        creds, command_limit=command_limit, commands=commands
+                    )
                 finally:
                     proc.close()
     except SessionError as exc:

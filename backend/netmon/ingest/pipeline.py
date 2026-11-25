@@ -51,6 +51,7 @@ from netmon.ingest.syslog_parse import parse_syslog
 from netmon.ingest.syslog_protect import SyslogProtection
 from netmon.ingest.syslog_receiver import SyslogTcp
 from netmon.ingest.trap_receiver import UdpReceiver, V3Engine, snmp_creds_to_user
+from netmon.services import conn_profiles
 from netmon.services.serialize import iso, now_utc
 
 if TYPE_CHECKING:
@@ -446,13 +447,25 @@ class Ingest:
                     )
                 ).mappings()
             ]
+            # [profiles] one query each: the references and the SNMP profiles
+            assignments = await conn_profiles.load_assignments(session)
+            profiles = await conn_profiles.load_profiles(session, kind="snmp")
         from netmon.services import secretbox
 
+        stored_dev = {d["id"]: d["snmp_credentials"] for d in devices}
+        stored_grp = {g["id"]: g["snmp_credentials"] for g in groups}
         for d in devices:
             d["source_addresses"] = [str(a) for a in d.get("source_addresses") or []]
-            d["snmp_credentials"] = secretbox.open_snmp(d["snmp_credentials"], "device", d["id"])
+            # active manual data only: dormant data behind a profile reference is unused
+            active = ("snmp", "device", d["id"]) not in assignments
+            d["snmp_credentials"] = (
+                secretbox.open_snmp(d["snmp_credentials"], "device", d["id"]) if active else None
+            )
         for g in groups:
-            g["snmp_credentials"] = secretbox.open_snmp(g["snmp_credentials"], "group", g["id"])
+            active = ("snmp", "group", g["id"]) not in assignments
+            g["snmp_credentials"] = (
+                secretbox.open_snmp(g["snmp_credentials"], "group", g["id"]) if active else None
+            )
         names = sorted(
             {
                 str(d["host"]).strip().lower()
@@ -481,20 +494,43 @@ class Ingest:
             u = snmp_creds_to_user(c)
             if u is not None:
                 cred_users.append(u)
-        # effective credentials per device (own, else nearest group) for the source-IP choice
+        # [profiles] every SNMP profile's community and v3 user
+        for p in profiles.values():
+            c = secretbox.open_conn_profile_snmp(p.data, p.id) or {}
+            if c.get("community"):
+                comms.add(str(c["community"]))
+            u = snmp_creds_to_user(c)
+            if u is not None:
+                cred_users.append(u)
+        # effective credentials per device (the one resolver: own, profile, nearest group) for
+        # the source-IP choice
         by_group = {g["id"]: g for g in groups}
-        for d in devices:
-            c = d.get("snmp_credentials")
-            gid = d.get("group_id")
-            seen: set[int] = set()
-            while c is None and gid is not None and gid not in seen:
+
+        def chain_of(d: dict[str, Any]) -> list[conn_profiles.ChainNode]:
+            nodes = [
+                conn_profiles.ChainNode(
+                    "device",
+                    d["id"],
+                    stored_dev[d["id"]],
+                    assignments.get(("snmp", "device", d["id"])),
+                )
+            ]
+            gid, seen = d.get("group_id"), set()
+            while gid is not None and gid in by_group and gid not in seen:
                 seen.add(gid)
-                g = by_group.get(gid)
-                if g is None:
-                    break
-                c = g.get("snmp_credentials")
-                gid = g.get("parent_id")
-            u = snmp_creds_to_user(c or {})
+                nodes.append(
+                    conn_profiles.ChainNode(
+                        "group", gid, stored_grp[gid], assignments.get(("snmp", "group", gid))
+                    )
+                )
+                gid = by_group[gid].get("parent_id")
+            return nodes
+
+        for d in devices:
+            res = conn_profiles.resolve("snmp", chain_of(d), profiles)
+            if res.mode is None:
+                continue  # the built-in default (v2c): no v3 user
+            u = snmp_creds_to_user(conn_profiles.effective(res))
             if u is not None:
                 device_users[int(d["id"])] = u
         comms.add("public")  # the default community of devices without credentials

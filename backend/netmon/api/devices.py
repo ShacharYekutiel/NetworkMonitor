@@ -5,15 +5,14 @@ from __future__ import annotations
 from fastapi import APIRouter, Query, Response
 from sqlalchemy import or_, select, text, update
 
-from netmon.api.common import commit_or_conflict, csv_list, merge_snmp
+from netmon.api.common import apply_credentials, commit_or_conflict, csv_list
 from netmon.api.deps import DB, RT, Admin, Audit, Page, Viewer
 from netmon.api.errors import ApiError, not_found, validation_error
-from netmon.configbackup.credentials import merge as ssh_merge
 from netmon.models import Device, Group, Sensor
 from netmon.poller.sensor_types import AUTO_SENSOR_TYPES, default_sensor_name, validate_config
 from netmon.poller.snmp_client import SnmpError
-from netmon.schemas import DependencyBulkIn, DeviceCreate, DevicePatch
-from netmon.services import audit, secretbox
+from netmon.schemas import CopyFromProfileIn, DependencyBulkIn, DeviceCreate, DevicePatch
+from netmon.services import audit, conn_profiles, secretbox
 from netmon.services import dependencies as deps
 from netmon.services import events as events_svc
 from netmon.services import settings as settings_svc
@@ -75,6 +74,12 @@ def device_audit_values(d: Device) -> dict:
     return out
 
 
+async def device_audit_full(session: DB, d: Device) -> dict:
+    """[profiles] device_audit_values plus `<kind>_mode` / `<kind>_profile`."""
+    state = await conn_profiles.node_state(session, "device", d.id)
+    return {**device_audit_values(d), **conn_profiles.audit_modes(d, state)}
+
+
 def device_entity(d: Device) -> audit.Entity:
     return audit.entity("device", d.id, d.name, device_id=d.id)
 
@@ -129,20 +134,15 @@ async def create_device(body: DeviceCreate, _: Admin, rt: RT, session: DB, ctx: 
         port_inventory=body.port_inventory,
         arp_collect=body.arp_collect,
         source_addresses=list(body.source_addresses),  # [2b-3]
-        # [3]
-        ssh_credentials=ssh_merge(body.ssh_credentials, None, rt.secret_key)
-        if body.ssh_credentials is not None
-        else None,
+        ssh_credentials=None,  # [3] / [profiles] set below (api.md request-mode table)
         config_backup=body.config_backup,
         config_backup_driver=check_driver(body.config_backup_driver),
         newdev_excluded_ports=list(body.newdev_excluded_ports),
     )
-    snmp_plain = merge_snmp(body.snmp_credentials, None) if body.snmp_credentials else None
     deps.apply_dependency(d, dep)
     session.add(d)
     await session.flush()
-    if snmp_plain is not None:
-        d.snmp_credentials = secretbox.seal_snmp(snmp_plain, "device", d.id)
+    await apply_credentials(session, body, d, "device", rt.secret_key, create=True)
     await deps.check_no_cycle(session)
     interval = int(await settings_svc.get(session, "default_interval_s"))
     created: list[Sensor] = []
@@ -170,7 +170,10 @@ async def create_device(body: DeviceCreate, _: Admin, rt: RT, session: DB, ctx: 
         "device.create",
         device_entity(d),
         audit.created(
-            {**device_audit_values(d), "auto_sensors": list(dict.fromkeys(body.auto_sensors))}
+            {
+                **(await device_audit_full(session, d)),
+                "auto_sensors": list(dict.fromkeys(body.auto_sensors)),
+            }
         ),
     )
     await commit_or_conflict(session)
@@ -199,7 +202,7 @@ async def patch_device(
     d = await session.get(Device, device_id)
     if d is None:
         raise not_found("Device")
-    before = device_audit_values(d)
+    before = await device_audit_full(session, d)
     fields = body.model_fields_set
     check_cycle = False
     identity_changed = False  # [2b-2] host / credentials: class detection must run again
@@ -229,25 +232,12 @@ async def patch_device(
         d.description = body.description
     if "sort_order" in fields and body.sort_order is not None:
         d.sort_order = body.sort_order
-    if "snmp_credentials" in fields:
-        stored = secretbox.open_snmp(d.snmp_credentials, "device", d.id)
-        new_creds = (
-            merge_snmp(body.snmp_credentials, stored) if body.snmp_credentials is not None else None
-        )
-        if new_creds != stored:  # unchanged credentials re-sent by a form: no-op
-            d.snmp_credentials = secretbox.seal_snmp(new_creds, "device", d.id)
-            identity_changed = True
+    # [profiles] SNMP / SSH: manual, profile or inherit (api.md request-mode table)
+    if "snmp" in await apply_credentials(session, body, d, "device", rt.secret_key, create=False):
+        identity_changed = True
     if "source_addresses" in fields and body.source_addresses is not None:  # [2b-3]
         d.source_addresses = list(body.source_addresses)
     # [3] config backup / new-device alerts
-    if "ssh_credentials" in fields:
-        new_ssh = (
-            ssh_merge(body.ssh_credentials, d.ssh_credentials, rt.secret_key)
-            if body.ssh_credentials is not None
-            else None
-        )
-        if new_ssh != d.ssh_credentials:
-            d.ssh_credentials = new_ssh
     if "config_backup" in fields and body.config_backup is not None:
         d.config_backup = body.config_backup
     if "config_backup_driver" in fields:
@@ -276,7 +266,7 @@ async def patch_device(
             d,
             in_maintenance=rt.maintenance is not None and rt.maintenance.in_maintenance(d.id),
         )
-    changes = audit.diff(before, device_audit_values(d))
+    changes = audit.diff(before, await device_audit_full(session, d))
     if changes:
         await audit.record(session, ctx, "device.update", device_entity(d), changes)
     await commit_or_conflict(session)
@@ -286,6 +276,34 @@ async def patch_device(
         await rt.scheduler.reload_device(d.id)
     if (flags_changed or identity_changed or enabled_changed) and rt.ports is not None:
         rt.ports.mark_due(d.id)
+    rt.config_changed("device", d.id, "updated")
+    return device_out(d, await load_inventory(session), rt.maintenance)
+
+
+@router.post("/api/devices/{device_id}/credentials/{kind}/copy-from-profile")
+async def device_copy_from_profile(
+    device_id: int, kind: str, body: CopyFromProfileIn, _: Admin, rt: RT, session: DB, ctx: Audit
+) -> dict:
+    """[profiles] The device becomes `manual` with a copy of the profile's data."""
+    from netmon.api.groups import copy_from_profile
+
+    d = await session.get(Device, device_id)
+    if d is None:
+        raise not_found("Device")
+    before = await device_audit_full(session, d)
+    await copy_from_profile(session, kind, body, d, "device")
+    await audit.record(
+        session,
+        ctx,
+        "device.update",
+        device_entity(d),
+        audit.diff(before, await device_audit_full(session, d)),
+        reason="copy_from_profile",
+    )
+    await commit_or_conflict(session)
+    await session.refresh(d)
+    if rt.scheduler:
+        await rt.scheduler.reload_device(d.id)
     rt.config_changed("device", d.id, "updated")
     return device_out(d, await load_inventory(session), rt.maintenance)
 

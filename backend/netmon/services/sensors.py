@@ -9,7 +9,6 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from netmon.models import Device, Event, Sensor, SensorChannel
 from netmon.poller.sensor_types import PASSIVE_TYPES, THRESHOLD_KEYS, channel_unit, get_type
-from netmon.poller.snmp_client import resolve_credentials
 from netmon.poller.types import CheckContext
 from netmon.services import events as events_svc
 from netmon.services.serialize import now_utc
@@ -81,28 +80,25 @@ def default_thresholds(
     return out
 
 
-async def group_chain(session: AsyncSession, group_id: int) -> list[tuple[int, Any]]:
-    rows = await session.execute(
-        text(
-            """
-            WITH RECURSIVE chain(id, parent_id, snmp_credentials, depth) AS (
-                SELECT id, parent_id, snmp_credentials, 0 FROM groups WHERE id = :gid
-                UNION ALL
-                SELECT g.id, g.parent_id, g.snmp_credentials, c.depth + 1
-                FROM groups g JOIN chain c ON g.id = c.parent_id WHERE c.depth < 100
-            )
-            SELECT id, snmp_credentials FROM chain ORDER BY depth
-            """
-        ),
-        {"gid": group_id},
-    )
-    return [(r.id, r.snmp_credentials) for r in rows]
-
-
 async def effective_credentials(session: AsyncSession, device: Device) -> dict[str, Any]:
-    chain = await group_chain(session, device.group_id)
-    creds, _, _ = resolve_credentials(device.snmp_credentials, chain, device.id)
-    return creds
+    """[profiles] The device's effective SNMP credentials (plaintext, in memory only) through
+    the one resolver (`conn_profiles.resolve`): manual / profile / inherited / default. No
+    cache: a profile edit applies at the next call."""
+    from netmon.services import conn_profiles
+
+    res = await conn_profiles.resolve_device(session, "snmp", device)
+    out: dict[str, Any] = conn_profiles.effective(res)
+    return out
+
+
+async def effective_group_credentials(session: AsyncSession, group_id: int) -> dict[str, Any]:
+    """[profiles] A group's effective SNMP credentials (discovery credential 0, import)."""
+    from netmon.services import conn_profiles
+
+    out: dict[str, Any] = conn_profiles.effective(
+        await conn_profiles.resolve_group(session, "snmp", group_id)
+    )
+    return out
 
 
 async def build_context(session: AsyncSession, sensor: Sensor, device: Device) -> CheckContext:
