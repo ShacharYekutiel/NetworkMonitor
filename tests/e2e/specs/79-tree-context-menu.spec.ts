@@ -234,7 +234,12 @@ test('Device page: right click a sensor row opens the sensor menu; Pause works; 
 });
 
 test('Home: right click a map node opens its menu', async ({ page }) => {
+  // The menu needs the group tree (GET /api/tree): until it is loaded a right click keeps the browser's own menu
+  // (TreeContextMenu: "not known yet"). With ~80 devices the map can be drawn first, and the click came too early
+  // (seen in the 1.6.0 full run). Wait for the tree as a user's click would land after it.
+  const treeLoaded = page.waitForResponse((r) => new URL(r.url()).pathname === '/api/tree' && r.ok());
   await loginViaApi(page, undefined, '/');
+  await treeLoaded;
   const node = page.locator('a[data-node]').first();
   await expect(node).toBeVisible();
   await node.click({ button: 'right' });
