@@ -301,7 +301,7 @@ async def test_preview_snmp_fallback_listed_own_settings_not(
     assert body["effects"] == [
         {
             "setting": "snmp",
-            # [profiles] profile_id / profile_name (1.7.0 contract change)
+            # [profiles] profile_id / profile_name (1.6.0 contract change)
             "before": {
                 "source": "group",
                 "group_id": layout["a"],

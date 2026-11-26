@@ -1,4 +1,4 @@
-"""[profiles] Connection profiles for SNMP and SSH credentials (release 1.7.0).
+"""[profiles] Connection profiles for SNMP and SSH credentials (release 1.6.0).
 
 - `connection_profiles`: named, globally defined credential sets of one kind (`snmp`, `ssh`;
   the kind is checked by format here and by the code registry `conn_profiles.KINDS`).
@@ -19,13 +19,18 @@ idempotent (`IF NOT EXISTS`, constraints dropped and re-added).
 for the node owner in the current secrets form, SSH copied as is): the profile's data is the
 node's effective value, so it overwrites dormant manual data kept behind the reference. The
 node keeps working credentials as `manual` in the older release. Then it removes
-`snmp_profile_ids`, `ssh_profile_ids` and `ssh_credentials` from the discovery options (the 1.6
+`snmp_profile_ids`, `ssh_profile_ids` and `ssh_credentials` from the discovery options (the 1.5
 options model rejects unknown keys) and drops the new columns and both
 tables. A profile secret that cannot be decrypted stops the downgrade with an error and
 nothing is changed. `secret.key` is needed only when an assignment exists.
 
-Revision ID: 0021 (data-model "[profiles] Migration (`0021`)").
-Revises: 0018 -- MERGE NOTE: when release 1.6.0 (0019, 0020) lands on main this becomes "0020".
+Revision ID: 0019 (data-model "[profiles] Migration (`0019`)").
+Revises: 0018 (head of release 1.5.x).
+
+Release order note: connection profiles ship as 1.6.0 directly on top of 1.5.1. The
+interface-noise migrations (previously planned as 0019/0020 on branch rel-1.6.0) follow
+this one in a later release and must be renumbered to come after 0019 (their first one
+gets `down_revision = "0019"`).
 Create Date: 2026-11-25
 """
 
@@ -37,7 +42,7 @@ from typing import Any
 
 from alembic import op
 
-revision = "0021"
+revision = "0019"
 down_revision = "0018"
 branch_labels = None
 depends_on = None
@@ -138,7 +143,7 @@ def _secret_key() -> str:
         value = path.read_text(encoding="utf-8").strip()
         if value:
             return value
-    raise RuntimeError(f"migration 0021 downgrade needs the server's secret.key ({path} not found)")
+    raise RuntimeError(f"migration 0019 downgrade needs the server's secret.key ({path} not found)")
 
 
 def materialise(conn: Any, key_source: Any) -> int:
@@ -221,7 +226,7 @@ def downgrade() -> None:
     ).scalar()
     if exists:
         n = materialise(bind, _secret_key)
-        log.info("Migration 0021 downgrade: %d profile reference(s) copied into nodes", n)
+        log.info("Migration 0019 downgrade: %d profile reference(s) copied into nodes", n)
     for table in ("discovery_profiles", "discovery_scans"):
         op.execute(
             f"UPDATE {table} SET options = options - "  # noqa: S608

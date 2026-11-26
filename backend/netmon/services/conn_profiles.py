@@ -35,7 +35,7 @@ if TYPE_CHECKING:
 
 log = logging.getLogger("netmon.conn_profiles")
 
-MAX_GROUP_DEPTH = 100  # the group chain is walked at most 100 deep (as before 1.7.0)
+MAX_GROUP_DEPTH = 100  # the group chain is walked at most 100 deep (as before 1.6.0)
 USAGE_LIST_LIMIT = 1000
 MAX_DISCOVERY_PROFILE_IDS = 8
 MODES = ("inherit", "profile", "manual")

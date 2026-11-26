@@ -20,7 +20,7 @@ GROUP_KEYS = {
     "dependency",
     "ssh_credentials",  # [3]
 }
-# [profiles] Group and Device gain the connection-profile keys (contract change, 1.7.0)
+# [profiles] Group and Device gain the connection-profile keys (contract change, 1.6.0)
 PROFILE_KEYS = {
     "snmp_mode",
     "snmp_profile_id",

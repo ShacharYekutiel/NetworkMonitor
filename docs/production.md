@@ -514,25 +514,55 @@ minor > warning > info:
 
 Contract: [api.md § Alert severity](api.md#severity-alert-severity).
 
-## [1.7.0] Upgrade and rollback (connection profiles)
+## [1.6.0] Upgrade and rollback (connection profiles)
 
-**What changes on upgrade.** Nothing to do before deploying. Migration `0021` only adds the tables
-`connection_profiles` / `connection_profile_assignments` and a few discovery columns; it changes no stored value, so
-every group and device keeps exactly its SNMP / SSH credentials ("Manual" or "Inherit"), and every poll is unchanged.
-Connection profiles have no feature toggle; only admins see *Settings → Connection profiles*.
+1.6.0 is deployed on top of 1.5.1 with the TimescaleDB 2.32.1 database image (the production state since the db
+image change below). It changes neither the db image nor the TimescaleDB extension.
+
+**What changes on upgrade.** Nothing to do before deploying. The app image changes, so `sync.sh` takes
+`/var/backups/netmon/pre-deploy-<rev>-<ts>.dump` first (extension 2.32.1, restorable with the installed
+`ops/restore.sh` without an image change). At its first start 1.6.0 runs one migration, `0018` → `0019`: it only
+adds the tables `connection_profiles` / `connection_profile_assignments` and a few discovery columns; it changes no
+stored value, so every group and device keeps exactly its SNMP / SSH credentials ("Manual" or "Inherit"), and every
+poll is unchanged. Connection profiles have no feature toggle; only admins see *Settings → Connection profiles*.
+
+**Verify** (`cd /opt/netmon/deploy/production` on the server): `sudo ./ops/status.sh` (1.6.0, healthy) and
+```bash
+sudo docker compose --env-file release.env exec -T db psql -X -U netmon -d netmon -Atc 'SELECT version_num FROM alembic_version'   # 0019
+```
+
+**After the upgrade: devices without working SNMP settings.** Create one SNMP profile (*Settings → Connection
+profiles*), use *Test connection* against one of the devices, then choose it on the top-level group (*SNMP:
+Profile*). Every device below that group that is on "Inherit" polls with it from its next poll; nothing has to be
+restarted (step by step: [connection-profiles.md § How-to](connection-profiles.md#how-to-one-snmp-profile-for-a-group)).
 
 **Operational note: SSH in discovery is opt-in.** A scan only tries SSH logins when SSH profiles or typed SSH
 credentials are selected for it, only on hosts whose SSH port is open, one attempt per candidate (at most 4), and it
 only logs in and disconnects. Failed logins can still lock accounts or raise security alerts on devices: choose
 candidates deliberately.
 
-**Rollback** (owner decision Q1). The supported ways back are (a) restoring the `pre-deploy-<rev>-<ts>.dump` with
-`ops/restore.sh`, or (b) `netmon migrate --to <previous head>` *before* starting the older image: its downgrade copies
-every profile into the groups' / devices' own credentials (needs `secret.key`; it stops with an error and changes
-nothing when a profile secret cannot be decrypted), so every device keeps working credentials. An image-only
-rollback (older image on the 1.7.0 database) ignores the new tables: a group / device that uses a profile behaves
-there as it did before the profile was chosen when it kept its earlier manual credentials (they are stored dormant),
-otherwise as "Inherit" — devices may then fall back to their group's or the built-in credentials until 1.7.0 is back.
+**Rollback to 1.5.1** (owner decision Q1). Three ways, from the cleanest:
+- **(a) Downgrade the schema, then revert `release.env`.** The downgrade copies every profile into the groups' /
+  devices' own credentials (as "Manual"), so every device keeps working credentials under 1.5.1. It needs
+  `/data/secret.key` (in the data volume, the container has it); it stops with an error and changes nothing when a
+  profile secret cannot be decrypted.
+  ```bash
+  cd /opt/netmon/deploy/production
+  sudo systemctl stop netmon-gitops.timer                    # no deploy in between
+  sudo docker compose --env-file release.env stop netmon     # the server must be stopped
+  sudo docker compose --env-file release.env run --rm --no-deps netmon migrate --to 0018   # 1.6.0 image
+  # PR: git revert -m 1 <merge commit of "Deploy v1.6.0 to production">   (touches release.env only), merge
+  sudo systemctl start netmon-gitops.timer                   # deploys 1.5.1 within ~2 minutes
+  ```
+- **(b) Revert only `release.env`** (as for 1.5.1). 1.5.1 starts on the `0019` database without migrating (log
+  WARNING "…migrated by a newer release. Starting without migrating…") and ignores the new tables: a group / device
+  that uses a profile behaves there as it did before the profile was chosen when it kept its earlier manual
+  credentials (they are stored dormant), otherwise as "Inherit" — devices may then fall back to their group's or the
+  built-in credentials (the devices that got their SNMP settings only from a profile stop polling) until 1.6.0 is
+  back. Deploying 1.6.0 again restores every assignment. This is also what the automatic rollback of a failed
+  1.6.0 deploy does (no profile exists yet at that moment, so nothing changes for any device).
+- **(c) Restore the `pre-deploy-<rev>-<ts>.dump`** with `ops/restore.sh` (everything written since is lost), then
+  revert `release.env`.
 
 ## [1.5.1] Upgrade and rollback (read before deploying)
 

@@ -1,4 +1,4 @@
-// [profiles] Connection profiles (release 1.7.0) E2E helpers: private simulators on their own loopback
+// [profiles] Connection profiles (release 1.6.0) E2E helpers: private simulators on their own loopback
 // addresses (127.0.0.241-.244, not used by the shared lab), so specs 96-98 neither depend on nor disturb the
 // discovery lab / SSH lab state of other specs.
 //

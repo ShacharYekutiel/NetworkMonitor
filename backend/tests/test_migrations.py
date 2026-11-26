@@ -620,9 +620,9 @@ async def test_migration_premium_up_down_up(mode: str, rt) -> None:  # type: ign
         await admin.close()
 
 
-# ------------------------------------------------------------------ [profiles] 0021
+# ------------------------------------------------------------------ [profiles] 0019
 @pytest.mark.parametrize("mode", ["timescale", "fallback"])
-async def test_migration_0021_connection_profiles(mode: str, rt) -> None:  # type: ignore[no-untyped-def]
+async def test_migration_0019_connection_profiles(mode: str, rt) -> None:  # type: ignore[no-untyped-def]
     """Upgrade changes no effective credential; downgrade materialises every reference into
     the node's column (overwriting dormant manual data), removes the discovery option keys,
     and stops on an unreadable profile secret without changing anything."""
@@ -797,7 +797,7 @@ async def test_migration_0021_connection_profiles(mode: str, rt) -> None:  # typ
             )
             assert opts == {"ping": True}
             rows = await snapshot()
-            for did in (d1, d2):  # 1.6 polls (the 0018 resolver) use the profile's values
+            for did in (d1, d2):  # 1.5 polls (the 0018 resolver) use the profile's values
                 creds = effective(rows, did)
                 assert (creds["community"], creds["port"]) == ("pc", 1161)
             stored = json.loads(

@@ -1,6 +1,6 @@
-// [profiles] Upgrade check for release 1.7.0 (docs/connection-profiles.md § QA scenario 11 and the downgrade
-// materialisation; data-model.md § [profiles] Migration 0021). The running database is taken DOWN to the 1.6
-// head (0018: `netmon migrate --to 0018` with the server stopped) and the restart upgrades it to 0021 again,
+// [profiles] Upgrade check for release 1.6.0 (docs/connection-profiles.md § QA scenario 11 and the downgrade
+// materialisation; data-model.md § [profiles] Migration 0019). The running database is taken DOWN to the 1.5
+// head (0018: `netmon migrate --to 0018` with the server stopped) and the restart upgrades it to 0019 again,
 // exactly as an operator's upgrade does. Existing manual and inherited credentials must behave the same afterwards
 // (a device polled through its group's manual SNMP still polls), and nodes that referenced a profile before the
 // downgrade keep working credentials as "manual" (the profile's value wins over dormant manual data).
@@ -55,14 +55,14 @@ test.afterAll(async () => {
   stopProfSims(sims);
 });
 
-test('11: manual / inherited credentials and profile references survive the 0021 downgrade + upgrade', async ({ page }) => {
+test('11: manual / inherited credentials and profile references survive the 0019 downgrade + upgrade', async ({ page }) => {
   test.setTimeout(240_000);
-  // 1.6-shaped data: a group with manual SNMP + SSH, a device inheriting both, a device with its own manual SNMP
+  // 1.5-shaped data: a group with manual SNMP + SSH, a device inheriting both, a device with its own manual SNMP
   G.man = (await admin.post('/api/groups', { name: `${tag} Manual`, parent_id: null, snmp_credentials: manualSnmp, ssh_credentials: manualSsh })).id;
   G.sub = (await admin.post('/api/groups', { name: `${tag} Inherit`, parent_id: G.man })).id;
   D.inh = (await admin.post('/api/devices', { group_id: G.sub, name: `${tag}-inh`, host: PROF_HOSTS[0], auto_sensors: [] })).id;
   D.man = (await admin.post('/api/devices', { group_id: G.sub, name: `${tag}-man`, host: PROF_HOSTS[1], snmp_credentials: manualSnmp, auto_sensors: [] })).id;
-  // 1.7 data: a device referencing a profile, and one whose (non-working) manual data is dormant behind a profile
+  // 1.6 data: a device referencing a profile, and one whose (non-working) manual data is dormant behind a profile
   const prof = await admin.post('/api/connection-profiles', { kind: 'snmp', name: `${tag} profile`, credentials: snmpProfileCreds() });
   G.top2 = (await admin.post('/api/groups', { name: `${tag} Refs`, parent_id: null, snmp_credentials: { ...manualSnmp, community: 'qa98-wrong' } })).id;
   D.ref = (await admin.post('/api/devices', { group_id: G.top2, name: `${tag}-ref`, host: PROF_HOSTS[0], snmp_profile_id: prof.id, auto_sensors: [] })).id;
@@ -79,7 +79,7 @@ test('11: manual / inherited credentials and profile references survive the 0021
   for (const k of ['man', 'sub']) before[`g${k}`] = credView(await admin.get(`/api/groups/${G[k]}`));
   expect(before.inh.effective_snmp).toMatchObject({ source: 'group', group_id: G.man, mode: 'manual' });
 
-  // down to the 1.6 head, then the restart upgrades again (serve runs the migrations)
+  // down to the 1.5 head, then the restart upgrades again (serve runs the migrations)
   const { execFileSync } = await import('node:child_process');
   execFileSync(RESTART, ['--to', '0018'], { stdio: 'pipe', timeout: 120_000 });
   admin = await apiAs();

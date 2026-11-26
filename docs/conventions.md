@@ -278,7 +278,7 @@ both Timescale mode and fallback mode, and on Windows paths (no POSIX-only calls
   values, `test_audit` (turning `audit` OFF while `assistant` is ON is refused). Any other failing existing test is a
   regression.
 
-## Release 1.7.0 notes (connection profiles, [profiles])
+## Release 1.6.0 notes (connection profiles, [profiles])
 - No feature toggle. Contract: data-model.md / api.md § Connection profiles; work split and test lists:
   [connection-profiles.md](connection-profiles.md).
 - Every credential reader uses `netmon.services.conn_profiles.resolve` (no second inheritance walk anywhere); readers
@@ -291,8 +291,8 @@ both Timescale mode and fallback mode, and on Windows paths (no POSIX-only calls
 - Pydantic models (`extra="forbid"`): `ConnectionProfileIn`, `ConnectionProfilePatch`, `ProfileTestIn`,
   `ProfileTestNewIn`, `CopyFromProfileIn`; group/device create/PATCH gain `snmp_profile_id`, `ssh_profile_id`;
   `ScanOptions` gains `snmp_profile_ids`.
-- Migration `0021`: `down_revision = "0018"` on this branch; re-point to `"0020"` when 1.6.0 (`if-noise`) is merged.
-- Existing test changes allowed in 1.7.0 (contract changes on purpose): `test_migrations.py` (head `0021`),
+- Migration `0019`: `down_revision = "0018"` (1.6.0 ships directly on 1.5.1; the interface-noise migrations follow it later and are renumbered after `0019`).
+- Existing test changes allowed in 1.6.0 (contract changes on purpose): `test_migrations.py` (head `0019`),
   `Group` / `Device` shape tests (new keys), `DiscoveryResult` / `ScanOptions` / import-response shape tests (new
   keys, `snmp_credential` value `"profile"`), tree-move preview shape (`profile_id` / `profile_name`), audit action
   lists. Any other failing existing test is a regression.

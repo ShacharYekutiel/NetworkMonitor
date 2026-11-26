@@ -196,7 +196,7 @@ export type ScanOptionsForm = {
   fingerprint_timeout_ms: string;
   /** [profiles] SNMP connection profiles, in the order they are tried */
   snmp_profile_ids: number[];
-  /** [profiles] opt-in SSH login check (off = the scan is as before 1.7.0) */
+  /** [profiles] opt-in SSH login check (off = the scan is as before 1.6.0) */
   ssh_check: boolean;
   ssh_profile_ids: number[];
   /** typed SSH credentials are used */

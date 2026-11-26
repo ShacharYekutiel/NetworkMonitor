@@ -38,7 +38,7 @@ test('add an SNMP v2c device with device-level credentials', async ({ page }) =>
   const dlg = page.getByRole('dialog');
   await dlg.getByLabel(/^Name/).fill(deviceName);
   await dlg.getByLabel(/^Host/).fill('127.0.0.1');
-  // [profiles] 1.7.0: the credential mode is a segmented Inherit / Profile / Manual choice (was a checkbox)
+  // [profiles] 1.6.0: the credential mode is a segmented Inherit / Profile / Manual choice (was a checkbox)
   await dlg.getByTestId('cred-mode-snmp').getByText('Manual', { exact: true }).click();
   await expect(dlg.getByLabel('Version')).toHaveValue('v2c');
   await dlg.getByLabel('Port', { exact: true }).fill(String(SNMP_PORT));
@@ -52,7 +52,7 @@ test('add an SNMP v2c device with device-level credentials', async ({ page }) =>
 
   await expect(page).toHaveURL(/\/devices\/\d+$/);
   deviceId = Number(page.url().split('/').pop());
-  // [profiles] 1.7.0 origin line ("Manual"; was "set on the device (v2c)")
+  // [profiles] 1.6.0 origin line ("Manual"; was "set on the device (v2c)")
   await expect(page.locator('main')).toContainText('SNMP: Manual');
   const d = await api.get(`/api/devices/${deviceId}`);
   expect(d.effective_snmp_source).toBe('device');

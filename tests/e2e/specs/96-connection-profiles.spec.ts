@@ -1,4 +1,4 @@
-// [profiles] Connection profiles, release 1.7.0 (docs/connection-profiles.md § QA scenarios 1-7, 10, 12, 13;
+// [profiles] Connection profiles, release 1.6.0 (docs/connection-profiles.md § QA scenarios 1-7, 10, 12, 13;
 // api.md § Connection profiles): profiles in Settings (Hebrew RTL), reference semantics on groups and devices
 // (inherit / profile / manual, the origin line, dormant manual data restored, the inherit confirmation, copy into
 // manual), "used by" and the blocked delete, connection tests (SNMP + SSH, read-only, no host key pinned), the
@@ -198,7 +198,7 @@ test('2: a profile on a group reaches a device two levels below ("Inherited from
   await expect(picker(page, 'snmp')).toContainText('A reference: later changes to the profile apply here at once.');
   const body = await saveForm(page, `/api/groups/${G.top}`);
   expect(body.snmp_profile_id).toBe(P.v2c.id);
-  expect(body).not.toHaveProperty('snmp_credentials'); // the 1.7 UI sends credentials only for a changed kind
+  expect(body).not.toHaveProperty('snmp_credentials'); // the 1.6 UI sends credentials only for a changed kind
   expect(body).not.toHaveProperty('ssh_credentials');
   expect(body).not.toHaveProperty('ssh_profile_id');
 
