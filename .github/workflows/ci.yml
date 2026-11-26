@@ -311,6 +311,46 @@ jobs:
           # [3] Same for the flow receivers.
           python3 .github/scripts/ingest-check.py flows-listening
 
+      # [1.5.1] A db image change with `up -d` recreates only db (deploy/docker-compose.yml has
+      # no `depends_on: db: restart: true`, which breaks `restart netmon` on Compose
+      # 2.19.0-2.20.2). The RUNNING app must update the extension after it reconnects (lock
+      # watchdog, 30 s), without being restarted; `restart netmon` must keep working.
+      - name: db image change while the app keeps running (extension update on reconnect)
+        env:
+          NEW_DB_IMAGE: timescale/timescaledb:2.32.1-pg16
+        run: |
+          set -eu
+          q() { $COMPOSE exec -T db psql -XAt -U netmon -d netmon -c "$1"; }
+          before="$(q "SELECT extversion FROM pg_extension WHERE extname = 'timescaledb'")"
+          app="$($COMPOSE ps -q netmon)"
+          started="$(docker inspect -f '{{.State.StartedAt}}' "$app")"
+          export NETMON_DB_IMAGE="$NEW_DB_IMAGE"
+          echo "NETMON_DB_IMAGE=$NEW_DB_IMAGE" >>"$GITHUB_ENV"  # later $COMPOSE calls: same db
+          $COMPOSE up -d --wait --wait-timeout 300 --no-build  # recreates db only
+          test "$($COMPOSE ps -q netmon)" = "$app"
+          test "$(docker inspect -f '{{.State.StartedAt}}' "$app")" = "$started"
+          # the image's default version, then wait for the running app to install it
+          want="$(q "SELECT default_version FROM pg_available_extensions WHERE name = 'timescaledb'")"
+          test "$want" != "$before"
+          now=""
+          for _ in $(seq 1 60); do
+            now="$(q "SELECT extversion FROM pg_extension WHERE extname = 'timescaledb'" 2>/dev/null || true)"
+            [ "$now" = "$want" ] && break
+            sleep 2
+          done
+          echo "extension $before -> $now (image default $want)"
+          if [ "$now" != "$want" ]; then
+            echo "::error::the running app did not update the extension"; exit 1
+          fi
+          test "$(docker inspect -f '{{.State.StartedAt}}' "$app")" = "$started"  # not restarted
+          $COMPOSE logs netmon | grep 'TimescaleDB extension updated from'
+          curl -fsS --retry 30 --retry-delay 2 --retry-all-errors http://localhost:8080/api/health
+          for j in $(q "SELECT job_id FROM timescaledb_information.jobs WHERE job_id >= 1000"); do q "CALL run_job($j)" >/dev/null; done
+          # the single-service command that `depends_on: restart: true` broke on Compose 2.19-2.20.2
+          $COMPOSE restart netmon
+          curl -fsS --retry 30 --retry-delay 2 --retry-all-errors http://localhost:8080/api/health
+          $COMPOSE up -d --wait --no-build
+
       # [1.4.2] The PRODUCTION compose file (deploy/production/compose.yaml: Caddy in front,
       # standard ports, hardened services) with the image built above and a throwaway
       # certificate laid out as on the server (root-owned, key 0600).

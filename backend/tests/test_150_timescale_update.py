@@ -12,14 +12,19 @@ import logging
 import secrets
 from collections.abc import AsyncIterator
 from pathlib import Path
+from typing import TYPE_CHECKING
 
 import asyncpg
 import pytest
+from sqlalchemy import text
 from sqlalchemy.engine import make_url
 
 from netmon.db import timescale
 from netmon.db.engine import make_engine
 from tests.conftest import TEST_DATABASE_URL, _plain, db_url_for, requires_db
+
+if TYPE_CHECKING:
+    from netmon.runtime import Runtime
 
 
 def test_version_tuple() -> None:
@@ -195,5 +200,123 @@ async def test_runtime_start_updates_and_keeps_lock(
         assert await _ext_version(url) == new
         assert await runtime._lock_conn.fetchval("SELECT count(*) FROM measurements") == 0
         assert await runtime.check_lock() is True
+    finally:
+        await runtime.stop()
+
+
+# ---------------------------------------------------------------- [1.5.1] after a DB restart
+async def _kill_lock_backend(url: str) -> None:
+    """Terminates the lock session, as a PostgreSQL restart (a recreated db container) does."""
+    from netmon.runtime import ADVISORY_LOCK_ID
+
+    c = await asyncpg.connect(url)
+    try:
+        await c.execute(
+            "SELECT pg_terminate_backend(pid) FROM pg_locks WHERE locktype = 'advisory' "
+            "AND objid = $1",
+            ADVISORY_LOCK_ID,
+        )
+    finally:
+        await c.close()
+
+
+async def _start_without_update(
+    url: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, **start: bool
+) -> Runtime:
+    """A runtime started while the server had no newer TimescaleDB than the database (the
+    startup update is a no-op), i.e. before `docker compose up -d` moved db to a newer image
+    without restarting the app container."""
+    from netmon.runtime import Runtime
+    from tests.conftest import ingest_ports, make_settings
+
+    settings = make_settings(url, tmp_path, NETMON_DISABLE_TIMESCALE="false", **ingest_ports())
+    runtime = Runtime(settings)
+    real = timescale.update_extension
+
+    async def no_newer_version(*_a: object, **_k: object) -> None:
+        return None
+
+    monkeypatch.setattr(timescale, "update_extension", no_newer_version)
+    try:
+        await runtime.start(run_poller=False, maintenance=False, **start)
+    finally:
+        monkeypatch.setattr(timescale, "update_extension", real)
+    return runtime
+
+
+@requires_db
+async def test_reconnect_after_db_restart_updates_extension(
+    old_ts_db: tuple[str, str, str], tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """[1.5.1] The db container was recreated on a newer image, the app container kept
+    running: the lock watchdog re-acquires the lock and applies the newer extension, and the
+    lock stays held on a session that survives the update."""
+    from netmon.cli import lock_available
+
+    url, old, new = old_ts_db
+    runtime = await _start_without_update(url, tmp_path, monkeypatch)
+    try:
+        assert await _ext_version(url) == old
+        assert await runtime.check_lock() is True  # lock held: nothing to do
+        assert await _ext_version(url) == old
+        await _kill_lock_backend(url)
+        assert await runtime.check_lock() is True
+        assert await _ext_version(url) == new
+        assert await runtime.check_lock() is True  # the new lock session survived the update
+        assert await lock_available(runtime.settings.async_database_url) is False
+        async with runtime.sessionmaker() as session:  # the app's pool works on the new version
+            assert (await session.execute(text("SELECT count(*) FROM measurements"))).scalar() == 0
+    finally:
+        await runtime.stop()
+
+
+@requires_db
+async def test_reconnect_update_retried_until_it_ran(
+    old_ts_db: tuple[str, str, str], tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A failed extension check right after the re-acquire (the database still starting)
+    is retried on the next watchdog tick, although the lock is held by then."""
+    url, old, new = old_ts_db
+    runtime = await _start_without_update(url, tmp_path, monkeypatch)
+    real = timescale.update_extension
+    calls: list[int] = []
+
+    async def flaky(*a: object, **k: object) -> str | None:
+        calls.append(1)
+        if len(calls) == 1:
+            raise OSError("the database system is starting up")
+        return await real(*a, **k)  # type: ignore[arg-type]
+
+    try:
+        await _kill_lock_backend(url)
+        monkeypatch.setattr(timescale, "update_extension", flaky)
+        assert await runtime.check_lock() is False
+        assert await _ext_version(url) == old
+        assert await runtime.check_lock() is True
+        assert await _ext_version(url) == new
+        assert await runtime.check_lock() is True
+        assert len(calls) == 2  # no further check while the lock stays held
+    finally:
+        await runtime.stop()
+
+
+@requires_db
+async def test_reconnect_without_migrate_leaves_extension(
+    old_ts_db: tuple[str, str, str], tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A runtime started with migrate=False (tools, tests) never touches the extension."""
+    url, old, _new = old_ts_db
+    from netmon.db.migrate import run_migrations
+
+    engine = make_engine(_async_url(url))
+    try:
+        await run_migrations(engine)
+    finally:
+        await engine.dispose()
+    runtime = await _start_without_update(url, tmp_path, monkeypatch, migrate=False)
+    try:
+        await _kill_lock_backend(url)
+        assert await runtime.check_lock() is True
+        assert await _ext_version(url) == old
     finally:
         await runtime.stop()

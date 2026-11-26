@@ -528,7 +528,10 @@ afterwards in a separate one-line PR ("The database image change after 1.5.1" be
 - **The app updates the TimescaleDB extension by itself** when the db image provides a newer version: at startup,
   before its migrations, it runs `ALTER EXTENSION timescaledb UPDATE` and logs
   `TimescaleDB extension updated from X to Y` (`backend/netmon/db/timescale.py`, `update_extension`, called from
-  `Runtime.start`). With the unchanged image there is nothing to update.
+  `Runtime.start`). The running app does the same after a database restart: the lock watchdog
+  (`Runtime.check_lock`, every 30 s) re-acquires the single-instance lock on the restarted server and then runs the
+  same check, so a recreated `db` container on a newer image needs no app restart. With the unchanged image there is
+  nothing to update.
 - **Fixed ops scripts**, installed on the server by this deploy (`install_ops` in `ops/sync.sh` runs after the deploy
   is healthy; the timer runs the installed copies):
   - `ops/sync.sh` refuses a `deploy/production` change whose db image cannot load the extension version in the
@@ -600,14 +603,24 @@ PR moves the defaults of `deploy/docker-compose.yml`, `deploy/docker-compose.dev
 3. `sync.sh` sees the db image changed while the `netmon` container was not recreated, waits for `db` to be healthy and
    runs `docker compose up -d --no-deps --force-recreate netmon`. The app (1.5.1) starts, `Runtime.start` calls
    `update_extension`, which runs `ALTER EXTENSION timescaledb UPDATE` (2.31.0 → 2.32.1) before anything else.
-   Nothing else updates the extension: the running app only reconnects after the db restart, it does not re-run its
-   startup.
+   The running 1.5.1 app would also update it by itself within ~30 s of the db restart (lock watchdog, see "What
+   changes in 1.5.1"); `sync.sh` still recreates `netmon` because that does not depend on the running app's version
+   (1.5.0, rollback option (a) below, updates only at startup) and the extension is then updated before the health
+   check runs. Compose stops the old container before it starts the new one, so the two never run
+   the update at the same time (and `ALTER EXTENSION` is transactional: one interrupted by the stop is rolled back).
 4. Health check, as for every deploy. If it fails, the automatic rollback to the 1.5.1 revision keeps `db` on 2.32.1
    when the extension was already updated (notification "…The db container stays on
    timescale/timescaledb:2.32.1-pg16…"), and the change is marked bad.
 
-For the plain Docker install (`deploy/docker-compose.yml`) the `netmon` service has `depends_on: db: restart: true`,
-so `docker compose up -d` restarts the app after recreating `db` and the app updates the extension the same way.
+For the plain Docker install (`deploy/docker-compose.yml`) `docker compose up -d` recreates only `db`; the running
+app (1.5.1 or later) notices the database restart within ~30 s and updates the extension (log:
+`Advisory lock re-acquired`, then `TimescaleDB extension updated from 2.31.0 to 2.32.1`). The file deliberately has
+no `depends_on: db: restart: true`: with it, Docker Compose 2.19.0–2.20.2 fail `docker compose restart netmon`
+("service db is required by netmon but is disabled. Can be enabled by profiles []", docker/compose#10892, fixed in
+2.20.3) and Compose 2.16 and older reject the file ("Additional property restart is not allowed"). It would not
+even have helped there: before Compose 2.29.4, `up` never restarts the dependents of a recreated service (`restart:
+true` only affected `docker compose restart`), so on such a version the app was not restarted either. The app-side
+update works with every Compose version.
 
 **Verify after the image change** (`cd /opt/netmon/deploy/production` on the server):
 ```bash

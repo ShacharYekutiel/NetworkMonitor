@@ -266,10 +266,12 @@ restores into either mode.
 
 A newer `timescale/timescaledb` image (same PostgreSQL major) leaves the extension in an existing database at its
 old version. At startup the app runs `ALTER EXTENSION timescaledb UPDATE` itself when the server provides a newer
-version (logged as `TimescaleDB extension updated from X to Y`). It does this only at startup: with Docker,
-`docker compose up -d` after a db image change recreates `db` and, because the `netmon` service has
-`depends_on: db: restart: true` [1.5.1], restarts the app with it (the production GitOps server: `ops/sync.sh`
-recreates `netmon`, see docs/production.md "[1.5.1] Upgrade and rollback"). That needs the owner of the extension: in
+version (logged as `TimescaleDB extension updated from X to Y`). [1.5.1] The running app also does it after a
+database restart, within ~30 s: with Docker, `docker compose up -d` after a db image change recreates only `db`, the
+app keeps running, re-connects (log: `Advisory lock re-acquired`) and updates the extension; no app restart and no
+extra command (the production GitOps server: `ops/sync.sh` also recreates `netmon`, see docs/production.md
+"[1.5.1] Upgrade and rollback"). To check: `docker compose -f deploy/docker-compose.yml logs netmon | grep TimescaleDB`.
+That needs the owner of the extension: in
 Docker the app's database user is it. Native installs create the extension as `postgres`, so after an OS package update of
 TimescaleDB the app logs a warning instead; then run, as `postgres`, with NetworkMonitor stopped:
 `psql -X -d netmon -c "ALTER EXTENSION timescaledb UPDATE"`. A PostgreSQL MAJOR upgrade (e.g. 16 to 17) is a
@@ -505,9 +507,12 @@ docker compose -f deploy/docker-compose.yml exec -T db pg_dump -U netmon -Fc net
 
 image חדש יותר של `timescale/timescaledb` (אותה גרסה ראשית של PostgreSQL) משאיר את ההרחבה במסד קיים בגרסה הישנה.
 בעלייה, האפליקציה מריצה בעצמה `ALTER EXTENSION timescaledb UPDATE` כשהשרת מספק גרסה חדשה יותר (ביומן:
-`TimescaleDB extension updated from X to Y`). זה קורה רק בעליית האפליקציה: ב-Docker, ‏`docker compose up -d` אחרי
-החלפת image של ה-db יוצר מחדש את `db`, ובזכות `depends_on: db: restart: true` של השירות `netmon` ‏[1.5.1] מפעיל
-מחדש גם את האפליקציה (בשרת הייצור `ops/sync.sh` יוצר מחדש את `netmon`). זה דורש את בעל ההרחבה: ב-Docker זה משתמש המסד של האפליקציה. בהתקנה
+`TimescaleDB extension updated from X to Y`). ‏[1.5.1] האפליקציה הרצה עושה זאת גם אחרי הפעלה מחדש של המסד, תוך
+כ-30 שניות: ב-Docker, ‏`docker compose up -d` אחרי החלפת image של ה-db יוצר מחדש רק את `db`, האפליקציה ממשיכה לרוץ,
+מתחברת מחדש (ביומן: `Advisory lock re-acquired`) ומעדכנת את ההרחבה; בלי הפעלה מחדש של האפליקציה ובלי פקודה נוספת
+(בשרת הייצור `ops/sync.sh` גם יוצר מחדש את `netmon`). לבדיקה:
+<span dir="ltr">`docker compose -f deploy/docker-compose.yml logs netmon | grep TimescaleDB`</span>.
+זה דורש את בעל ההרחבה: ב-Docker זה משתמש המסד של האפליקציה. בהתקנה
 מקומית ההרחבה נוצרת כ-`postgres`, ולכן אחרי עדכון חבילת TimescaleDB של מערכת ההפעלה האפליקציה רושמת אזהרה; אז הריצו
 כ-`postgres`, כש-NetworkMonitor עצור: `psql -X -d netmon -c "ALTER EXTENSION timescaledb UPDATE"`. שדרוג גרסה
 ראשית של PostgreSQL (למשל 16 ל-17) הוא הסבת תיקיית נתונים נפרדת ולעולם לא מתבצע אוטומטית.

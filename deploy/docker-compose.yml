@@ -121,10 +121,12 @@ services:
         condition: service_completed_successfully
       db:
         condition: service_healthy
-        # [1.5.1] `up -d` after a db image change recreates db only; restart the app with it,
-        # because the app applies a newer TimescaleDB (ALTER EXTENSION timescaledb UPDATE)
-        # only at startup.
-        restart: true
+        # [1.5.1] No `restart: true` here on purpose: Compose 2.19.0-2.20.2 then fail
+        # `docker compose restart netmon` ("service db is required by netmon but is
+        # disabled"), Compose <= 2.16 reject the whole file, and before 2.29.4 `up` ignores it
+        # (no restart of dependents at all). `up -d` after a db image
+        # change recreates db only; the running app notices the database restart (lock
+        # watchdog, <= 30 s) and runs ALTER EXTENSION timescaledb UPDATE itself.
     environment:
       DATABASE_URL: postgresql://netmon@db:5432/netmon
       NETMON_DB_PASSWORD_FILE: /data/db_password
