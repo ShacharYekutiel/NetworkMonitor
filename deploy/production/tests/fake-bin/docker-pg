@@ -6,7 +6,7 @@
 #   unset                     exec / run run the command on this machine against a local
 #                             PostgreSQL with TimescaleDB (PGHOST, PGUSER, PGPASSWORD set by
 #                             the test); cp copies into $FAKE_STATE/ctmp
-# FAKE_DB_IMAGE: what `compose config --images db` prints (the image ts_probe inspects).
+# FAKE_DB_IMAGE: the db image of `compose config` (the image ts_probe inspects).
 set -euo pipefail
 S="${FAKE_STATE:?}"
 mkdir -p "$S/ctmp"
@@ -34,7 +34,11 @@ if [[ $1 == compose ]]; then
   case "$sub" in
     config)
       if [[ " $* " == *" --services "* ]]; then printf '%s\n' init db netmon proxy
-      elif [[ " $* " == *" --images db "* ]]; then echo "${FAKE_DB_IMAGE:?}"; fi
+      # like Compose: db's dependencies too, in no fixed order
+      elif [[ " $* " == *" --images db "* ]]; then printf 'busybox:1.38\n%s\n' "${FAKE_DB_IMAGE:?}"
+      elif [[ " $* " != *" -q "* ]]; then
+        printf 'name: netmon\nservices:\n  db:\n    depends_on:\n      init:\n        condition: service_completed_successfully\n    image: %s\n  init:\n    image: busybox:1.38\n' "${FAKE_DB_IMAGE:?}"
+      fi
       ;;
     ps) [[ " $* " == *" -q "* ]] && echo "cid-${*: -1}" ;;
     stop | up | logs | pull) : ;;

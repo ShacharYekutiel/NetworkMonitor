@@ -119,7 +119,9 @@ jobs:
 
       - name: compose.yaml pins the old or the new db image
         run: |
-          cur="$(NETMON_ETC_DIR=/x docker compose -f deploy/production/compose.yaml --env-file deploy/production/release.env config --images db)"
+          export NETMON_REPO_DIR="$PWD" NETMON_ETC_DIR=/x
+          . deploy/production/ops/lib.sh
+          cur="$(compose_db_image)"   # what sync.sh / restore.sh read
           echo "compose.yaml: $cur  old: $OLD_DB_IMAGE  new: $NEW_DB_IMAGE"
           [[ $cur == "$OLD_DB_IMAGE" || $cur == "$NEW_DB_IMAGE" ]] ||
             { echo "::error file=deploy/production/compose.yaml::db image $cur is neither OLD_DB_IMAGE nor NEW_DB_IMAGE of this job: update them"; exit 1; }

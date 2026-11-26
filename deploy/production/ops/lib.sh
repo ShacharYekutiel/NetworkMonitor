@@ -236,8 +236,17 @@ db_dump() {
 # cannot load a database whose extension was updated past its own version, and an extension
 # update cannot be undone (Timescale supports a downgrade script for one step only).
 
-# The db image the checked-out compose.yaml asks for.
-compose_db_image() { compose config --images db 2>/dev/null | head -n1; }
+# The db image the checked-out compose.yaml asks for: `image:` of services.db in the normalized
+# `compose config` output. (Not `config --images db`: it also prints the images of db's
+# dependencies (init: busybox), in no fixed order.)
+compose_db_image() {
+  compose config 2>/dev/null | awk '
+    /^services:/ { s = 1; next }
+    s && /^[^ ]/ { s = 0 }
+    s && /^  db:$/ { d = 1; next }
+    d && /^  [^ ]/ { d = 0 }
+    d && /^    image: / { print $2; exit }'
+}
 
 # The timescaledb version installed in the application database of the running db container
 # (empty: no extension, or the database cannot be read).

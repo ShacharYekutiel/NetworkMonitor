@@ -57,8 +57,11 @@ if [[ $1 == compose ]]; then
   case "$sub" in
     config)
       [[ " $* " == *" --services "* ]] && { printf '%s\n' init db netmon proxy; exit 0; }
-      [[ " $* " == *" --images db "* ]] && { db_image_of "$cf"; exit 0; }
+      # like Compose: db's dependencies too, in no fixed order
+      [[ " $* " == *" --images db "* ]] && { echo busybox:1.38; db_image_of "$cf"; exit 0; }
       grep -q '^NETMON_IMAGE=' "$envf"
+      # the normalized model (only what the scripts read): the compose file itself
+      [[ " $* " == *" -q "* ]] || cat "$cf"
       ;;
     ps)
       if [[ " $* " == *" -q "* ]]; then

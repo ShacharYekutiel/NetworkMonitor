@@ -67,7 +67,7 @@ fi
 # [1.5.1] Which TimescaleDB version wrote the dump, and can the db image create it? Checked
 # before anything is stopped or dropped.
 DB_IMAGE="$(compose_db_image)"
-[[ -n $DB_IMAGE ]] || die "cannot read the db image from compose.yaml (docker compose config --images db)"
+[[ -n $DB_IMAGE ]] || die "cannot read the db image from compose.yaml (docker compose config: services.db.image)"
 probe="$(ts_probe "$DB_IMAGE" "$DUMP")" || die "could not inspect $DUMP with $DB_IMAGE (image pull failed?)"
 grep -qx 'dump_error=1' <<<"$probe" && die "$DUMP is not a pg_dump custom-format file that $DB_IMAGE can read"
 ts_default="$(sed -n 's/^default=//p' <<<"$probe" | head -n1)"
