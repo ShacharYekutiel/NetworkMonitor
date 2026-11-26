@@ -490,9 +490,139 @@ export function DataTable<R>({
   rowKey,
   rowProps,
   testId,
+  cardsWhenNarrow,
 }: {
   layout: ColumnLayout;
   /** the visible columns in order (`layout.columns` of `useDataTable`) */
+  columns: DataColumn<R>[];
+  rows: R[];
+  rowKey: (row: R) => string | number;
+  rowProps?: (row: R) => React.HTMLAttributes<HTMLTableRowElement> & Record<string, unknown>;
+  testId?: string;
+  /**
+   * Below the table's own minimum width (its container is narrower than the columns need) each
+   * row is shown as a card: every visible field with its label, the pinned actions at the bottom.
+   * The table is only shown when it fits, so it never scrolls sideways under its sticky actions
+   * column and no field is hidden behind the container's edge.
+   */
+  cardsWhenNarrow?: boolean;
+}) {
+  const boxRef = useRef<HTMLDivElement>(null);
+  const width = useBoxWidth(boxRef, !!cardsWhenNarrow);
+  const widths: Record<string, number> = {};
+  for (const c of columns) {
+    const w = layout.widthOf(c.id);
+    if (w !== undefined) widths[c.id] = w;
+  }
+  // 0 = not measured (first render, jsdom): the table.
+  const cards = !!cardsWhenNarrow && width > 0 && width < tableMinWidth(columns, widths);
+  if (cardsWhenNarrow)
+    return (
+      <div ref={boxRef} data-layout={cards ? 'cards' : 'table'}>
+        {cards ? (
+          <DataCards columns={columns} rows={rows} rowKey={rowKey} testId={testId} />
+        ) : (
+          <DataTableBody
+            layout={layout}
+            columns={columns}
+            rows={rows}
+            rowKey={rowKey}
+            rowProps={rowProps}
+            testId={testId}
+          />
+        )}
+      </div>
+    );
+  return (
+    <DataTableBody
+      layout={layout}
+      columns={columns}
+      rows={rows}
+      rowKey={rowKey}
+      rowProps={rowProps}
+      testId={testId}
+    />
+  );
+}
+
+/** Width of an element, followed while it changes (0 until measured or when `on` is false). */
+function useBoxWidth(ref: React.RefObject<HTMLElement | null>, on: boolean): number {
+  const [w, setW] = useState(0);
+  useLayoutEffect(() => {
+    const el = ref.current;
+    if (!on || !el) return;
+    setW(el.clientWidth);
+    if (typeof ResizeObserver === 'undefined') return;
+    const ro = new ResizeObserver(() => setW(el.clientWidth));
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, [ref, on]);
+  return w;
+}
+
+/** DataTable rows as cards (narrow containers): label / value pairs, the actions below. */
+function DataCards<R>({
+  columns,
+  rows,
+  rowKey,
+  testId,
+}: {
+  columns: DataColumn<R>[];
+  rows: R[];
+  rowKey: (row: R) => string | number;
+  testId?: string;
+}) {
+  const fields = columns.filter((c) => c.pin !== 'end');
+  const actions = columns.filter((c) => c.pin === 'end');
+  return (
+    <ul
+      className="m-0 list-none divide-y divide-line p-0"
+      data-testid={testId && `${testId}-cards`}
+    >
+      {rows.map((r) => (
+        <li
+          key={rowKey(r)}
+          className="space-y-2.5 px-5 py-3"
+          data-testid={testId && `${testId}-card`}
+        >
+          <dl className="m-0 grid grid-cols-[auto_minmax(0,1fr)] items-center gap-x-4 gap-y-1.5 text-sm">
+            {fields.map((c) => (
+              <div key={c.id} className="contents" data-col={c.id}>
+                <dt className="text-[12.5px] text-ink-muted">{c.label}</dt>
+                <dd
+                  className={cx('m-0 min-w-0 break-words', c.numeric && 'num tabular-nums')}
+                  dir={c.dir}
+                  title={c.title?.(r)}
+                >
+                  {c.cell(r)}
+                </dd>
+              </div>
+            ))}
+          </dl>
+          {actions.length > 0 && (
+            <div className="flex flex-wrap justify-end gap-2" data-col="actions">
+              {actions.map((c) => (
+                <div key={c.id} className="contents">
+                  {c.cell(r)}
+                </div>
+              ))}
+            </div>
+          )}
+        </li>
+      ))}
+    </ul>
+  );
+}
+
+function DataTableBody<R>({
+  layout,
+  columns,
+  rows,
+  rowKey,
+  rowProps,
+  testId,
+}: {
+  layout: ColumnLayout;
   columns: DataColumn<R>[];
   rows: R[];
   rowKey: (row: R) => string | number;
