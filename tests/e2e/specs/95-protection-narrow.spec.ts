@@ -20,6 +20,7 @@ test.describe.configure({ mode: 'default' });
 let admin: Api;
 const M = marker('qa95');
 const PROGRAM = 'qa95prog';
+const TALKER_ROWS = 26;
 
 test.beforeAll(async () => {
   admin = await apiAs();
@@ -27,20 +28,27 @@ test.beforeAll(async () => {
   await waitReceivers(admin, ['syslog_udp'], 'listening');
   // duplicates -> the per-source counters ("by source" table) have a row
   sendSyslog({ from: SRC.aos, count: 4, messages: [`<188>Nov 25 12:00:00 sw fan: ${M} fan speed low`] });
-  // an unknown sender with its own program -> a top-talkers row with the "unknown" badge
-  sendSyslog({ from: SRC.unknown, messages: [`<187>Nov 25 12:00:01 stray ${PROGRAM}: ${M} link flap`] });
+  // an unknown sender with its own program -> a top-talkers row with the "unknown" badge. The page shows the 20
+  // busiest combinations (rows desc, then source address): after a full suite run dozens of earlier one-row
+  // combinations tie and sort before 127.0.0.99, so a single row fell out of the list (seen in the 1.6.0 full run).
+  // TALKER_ROWS distinct messages (identical ones would be folded by dedup) put it among the busiest.
+  const kinds = ['link flap', 'fan speed', 'psu alarm', 'stp change', 'login fail', 'temp high'];
+  sendSyslog({
+    from: SRC.unknown,
+    messages: Array.from({ length: TALKER_ROWS }, (_, i) => `<187>Nov 25 12:00:01 stray ${PROGRAM}: ${M} ${kinds[i % kinds.length]} ${String.fromCharCode(97 + i)}`),
+  });
   await expect
     .poll(async () => (await admin.get('/api/ingest/status')).syslog_protection.top_sources.length, { timeout: 20_000 })
     .toBeGreaterThan(0);
   await expect
     .poll(
       async () =>
-        (await admin.get('/api/syslog/top-talkers?hours=24&limit=100')).items.filter(
-          (x: any) => x.source_ip === SRC.unknown && x.program === PROGRAM,
+        (await admin.get('/api/syslog/top-talkers?hours=24')).items.filter(
+          (x: any) => x.source_ip === SRC.unknown && x.program === PROGRAM && x.rows >= TALKER_ROWS,
         ).length,
       { timeout: 20_000 },
     )
-    .toBe(1);
+    .toBe(1); // in the default (UI) list of 20
 });
 
 type Box = { left: number; right: number; top: number; bottom: number };
