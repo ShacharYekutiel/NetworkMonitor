@@ -63,7 +63,11 @@ async def old_ts_db() -> AsyncIterator[tuple[str, str, str]]:
         if versions is None:
             pytest.skip("no older TimescaleDB version installable on this server")
         old, new = versions
-        await admin.execute(f'CREATE DATABASE "{name}"')
+        # template0, not the default template1: the timescale/timescaledb image's init script
+        # (000_install_timescaledb.sh) installs the extension, at the default version, into
+        # template1, so a copy of it already has timescaledb and the old version cannot be
+        # installed ("extension already exists", CI run 45776086774).
+        await admin.execute(f'CREATE DATABASE "{name}" TEMPLATE template0')
     finally:
         await admin.close()
     url = db_url_for(name)
