@@ -352,7 +352,7 @@ function ScansList() {
   );
 }
 
-function ProfileModal({
+export function ProfileModal({
   open,
   onClose,
   profile,
@@ -396,6 +396,12 @@ function ProfileModal({
     m.reset();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open, profile]);
+  // The dialog can open before the tree has loaded: the select then shows the first group while
+  // the state stayed null, and Save did nothing (seen as an E2E spec 15 failure). Take the first
+  // group once it is there, as the "New scan" card does.
+  useEffect(() => {
+    if (open && groupId === null && tree.data?.groups.length) setGroupId(tree.data.groups[0].id);
+  }, [open, groupId, tree.data]);
 
   const m = useMutation({
     mutationFn: (body: DiscoveryProfileInput) =>
@@ -468,7 +474,9 @@ function ProfileModal({
           <legend className="float-start mb-2 w-full p-0 text-[13.5px] font-semibold text-ink">
             {t('discovery.schedule')}
           </legend>
-          <div className="space-y-3">
+          {/* clear the floated legend: the grid below is its own formatting context and would
+              otherwise be laid out beside the full-width float, squeezed to a sliver */}
+          <div className="clear-both space-y-3">
             <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
               <Field label={t('discovery.runs')} hint={t('discovery.scheduleHint')}>
                 <Select
