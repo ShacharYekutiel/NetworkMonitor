@@ -158,6 +158,23 @@ _LINK = re.compile(r"\[([^\]\n]{0,300})\]\(\s*<?([^)\s>]{0,2000})>?(?:\s+\"[^\"\
 _REF_DEF = re.compile(r"(?m)^[ ]{0,3}\[[^\]\n]{1,300}\]:[ \t]*\S+.*$\n?")
 _AUTOLINK = re.compile(r"<((?:https?|ftp|mailto|javascript|data|file):[^>\s]{0,2000})>", re.I)
 _PLACEHOLDERS = ("<secret removed>", "<hash removed>", "<pem removed>")
+# [1.6.0] a citation "marker" whose label only names its own (invalid) target, e.g.
+# ` [counts](nm:counts)` or `[down_count](nm:counts.down_count)`: removed with the space before
+# it, never kept as a stray word in the sentence (prompt CITATIONS says such facts get no link).
+_MARKER_LINK = re.compile(r"[ \t]*\[([^\]\n]{1,100})\]\(\s*nm:([^)\s]{1,300})\s*\)")
+_IDENT = re.compile(r"[A-Za-z_][A-Za-z0-9_.]{0,63}")
+_REF_PARTS = re.compile(r"[./#:\-]")
+
+
+def _is_marker(label: str, ref: str) -> bool:
+    """`[label](nm:ref)` with an invalid ref whose label is just (a part of) the ref."""
+    lab = label.strip()
+    if is_ref(ref) or not _IDENT.fullmatch(lab):
+        return False
+    parts = {p for p in _REF_PARTS.split(ref.lower()) if p}
+    return lab.lower() == ref.lower() or lab.lower() in parts
+
+
 _TAG = re.compile(r"</?[A-Za-z][A-Za-z0-9:-]{0,40}(?:\s[^<>]{0,500})?/?>")
 _COMMENT = re.compile(r"<!--.*?(?:-->|\Z)", re.DOTALL)
 
@@ -225,6 +242,12 @@ def sanitize_answer(
         dropped["images"] += 1
         return m.group(1)
 
+    def marker(m: re.Match[str]) -> str:
+        if _is_marker(m.group(1), m.group(2)):
+            dropped["links"] += 1
+            return ""
+        return m.group(0)
+
     def link(m: re.Match[str]) -> str:
         label, target = m.group(1), m.group(2)
         if target.startswith("nm:"):
@@ -252,6 +275,7 @@ def sanitize_answer(
         c = _IMAGE.sub(image, chunk)
         c = _IMAGE_REF.sub(image, c)
         c = _REF_DEF.sub("", c)
+        c = _MARKER_LINK.sub(marker, c)
         c = _LINK.sub(link, c)
         c = _AUTOLINK.sub(lambda m: m.group(1), c)
         c = _strip_tags(c)

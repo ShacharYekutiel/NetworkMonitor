@@ -113,6 +113,41 @@ def test_ref_grammar_and_routes() -> None:
     assert ref == "flows/tab=talkers&device_id=3" and links.is_ref(ref)
 
 
+def test_sanitize_answer_drops_citation_markers_of_fields() -> None:
+    """[1.6.0] Production (1.5.1, Hebrew): "…במצב תקלה (down) counts." — the model cited the
+    list_problems `counts` field as a link; an unknown link used to become its label. A marker
+    whose label only names its own invalid target is removed with the space before it; real
+    prose labels of unknown links are still kept as text, valid refs still link."""
+    he = "יש 3 חיישנים במצב תקלה (down) [counts](nm:counts). ו-2 באזהרה [counts](nm:counts)."
+    out = links.sanitize_answer(he, ["sensor/7"])
+    assert out.text == "יש 3 חיישנים במצב תקלה (down). ו-2 באזהרה."
+    assert out.dropped_links == 2 and out.sources == []
+    for marker in (
+        "[counts](nm:list_problems.counts)",
+        "[down_count](nm:counts.down_count)",
+        "[list_problems](nm:list_problems)",
+    ):
+        assert links.sanitize_answer(f"3 down {marker}.", []).text == "3 down.", marker
+    # not markers: prose label of an unknown link, a forged but well-formed ref, a known ref
+    assert links.sanitize_answer("see [the core switch](nm:counts).", []).text == (
+        "see the core switch."
+    )
+    assert links.sanitize_answer("[sensor](nm:sensor/99) down", []).text == "sensor down"
+    kept = links.sanitize_answer("[Ping](nm:sensor/7) down", ["sensor/7"])
+    assert kept.text == "[Ping](nm:sensor/7) down" and kept.dropped_links == 0
+
+
+def test_prompt_counts_get_no_citation() -> None:
+    """[1.6.0] The root of the stray "counts": the citation rule told the model to link every
+    fact, also numbers without a ref."""
+    from netmon.assistant import prompt
+
+    assert prompt.PROMPT_VERSION == "3b.4"
+    assert "never link to a field name or a tool name" in prompt.CITATIONS
+    assert "`counts`) get no link" in prompt.CITATIONS
+    assert "Cite every fact" not in prompt.CITATIONS
+
+
 def test_sanitize_answer_keeps_only_known_refs() -> None:
     text = (
         "Two sensors: [core-sw / Ping](nm:sensor/7) and [x](nm:sensor/99) "
