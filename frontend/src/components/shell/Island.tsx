@@ -80,13 +80,17 @@ export function Island() {
       data-state={state}
       className={cx(
         'flex items-center justify-center gap-2.5 overflow-hidden whitespace-nowrap rounded-full bg-island px-4 text-[13.5px] font-medium text-island-ink shadow-island transition-[min-width,height] duration-[600ms] ease-premium',
+        // phone: as wide as the room between the logo and the tools (the text ends in "…")
+        'max-sm:min-w-0 max-sm:max-w-full max-sm:justify-self-center max-sm:gap-2 max-sm:px-3',
         state === 'alert' ? 'h-11 min-w-[300px]' : 'h-9 min-w-[150px]',
       )}
     >
       <span aria-hidden="true" className={cx('h-2 w-2 shrink-0 rounded-full', dot)} />
-      <span aria-hidden="true">{text}</span>
+      <span aria-hidden="true" className="min-w-0 truncate">
+        {text}
+      </span>
       {extra && (
-        <span aria-hidden="true" className="num text-xs font-medium opacity-60">
+        <span aria-hidden="true" className="num text-xs font-medium opacity-60 max-sm:hidden">
           {extra}
         </span>
       )}
