@@ -1,9 +1,10 @@
 import { useEffect, useMemo, useState } from 'react';
 import { Link, useNavigate, useParams } from 'react-router';
-import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { keepPreviousData, useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useTranslation } from 'react-i18next';
 import { endpoints, qk } from '../api/endpoints';
 import type {
+  CredentialOrigin,
   DeviceClass,
   DeviceTemplate,
   DiscoveryResult,
@@ -19,6 +20,7 @@ import {
 } from '../components/discovery/Badges';
 import { GroupSelect } from '../components/EntityForms';
 import {
+  AlertIcon,
   CheckIcon,
   ChevronIcon,
   SearchIcon,
@@ -72,14 +74,18 @@ import { errorMessage } from '../lib/errors';
 import { formatDateTime, formatNumber, formatRelative } from '../lib/format';
 import { importRows, retryIds, templateName, type ImportRow } from '../lib/templates';
 import {
-  canSave,
-  isSaved,
-  NO_SAVE_OFF,
+  inheritCounts,
+  inheritHint,
+  inheritIndex,
+  NO_SAVE,
   saveFields,
+  saveWhereNeeded,
   setOne,
+  type InheritIndex,
   type SaveKind,
-  type SaveOff,
+  type SaveOn,
 } from '../lib/importSave';
+import { originText } from '../lib/credentials';
 import { SaveCheckbox, SaveHeaderCheckbox } from '../components/discovery/ImportSave';
 
 const POLL_MS = 2000;
@@ -276,6 +282,7 @@ function ResultRow({
   sshChecked,
   save,
   onSave,
+  inherit,
 }: {
   r: DiscoveryResult;
   templates: DeviceTemplate[];
@@ -286,8 +293,10 @@ function ResultRow({
   disabled: boolean;
   /** [profiles] */
   sshChecked: boolean;
-  save: SaveOff;
+  save: SaveOn;
   onSave: (kind: SaveKind, on: boolean) => void;
+  /** server verdicts: does inheriting from the import group give what worked? */
+  inherit: InheritIndex;
 }) {
   const { t } = useTranslation();
   const existing = isExisting(r);
@@ -402,13 +411,27 @@ function ResultRow({
         </td>
         <td className={SAVE_TD}>
           {!existing && (
-            <SaveCheckbox r={r} kind="snmp" save={save} onSave={onSave} disabled={disabled} />
+            <SaveCheckbox
+              r={r}
+              kind="snmp"
+              save={save}
+              onSave={onSave}
+              disabled={disabled}
+              hint={inheritHint(save, r, 'snmp', inherit)}
+            />
           )}
         </td>
         {sshChecked && (
           <td className={SAVE_TD}>
             {!existing && (
-              <SaveCheckbox r={r} kind="ssh" save={save} onSave={onSave} disabled={disabled} />
+              <SaveCheckbox
+                r={r}
+                kind="ssh"
+                save={save}
+                onSave={onSave}
+                disabled={disabled}
+                hint={inheritHint(save, r, 'ssh', inherit)}
+              />
             )}
           </td>
         )}
@@ -437,6 +460,7 @@ function ResultCard({
   sshChecked,
   save,
   onSave,
+  inherit,
 }: Parameters<typeof ResultRow>[0]) {
   const { t } = useTranslation();
   const existing = isExisting(r);
@@ -516,6 +540,7 @@ function ResultCard({
               onSave={onSave}
               disabled={disabled}
               withLabel
+              hint={inheritHint(save, r, 'snmp', inherit)}
             />
             {sshChecked && (
               <SaveCheckbox
@@ -525,6 +550,7 @@ function ResultCard({
                 onSave={onSave}
                 disabled={disabled}
                 withLabel
+                hint={inheritHint(save, r, 'ssh', inherit)}
               />
             )}
           </div>
@@ -562,6 +588,84 @@ function CredSaved({
     <span className="basis-full text-xs text-ink-muted" data-testid="import-cred-saved">
       <bdi>{parts.join(' · ')}</bdi>
     </span>
+  );
+}
+
+/**
+ * [profiles] Before the import: per kind, how many selected hosts will NOT get the credential
+ * that worked through the import group's inheritance (unticked box, server verdict "differs"),
+ * with a one-click "save for these hosts", and how many need nothing (verdict "same").
+ */
+function InheritSummary({
+  chosen,
+  save,
+  inherit,
+  origins,
+  sshChecked,
+  onChange,
+  disabled,
+}: {
+  chosen: DiscoveryResult[];
+  save: SaveOn;
+  inherit: InheritIndex;
+  origins: Record<SaveKind, CredentialOrigin> | null;
+  sshChecked: boolean;
+  onChange: (next: SaveOn) => void;
+  disabled: boolean;
+}) {
+  const { t } = useTranslation();
+  const kinds: SaveKind[] = sshChecked ? ['snmp', 'ssh'] : ['snmp'];
+  const lines = kinds.flatMap((kind) => {
+    const K = kind === 'snmp' ? 'Snmp' : 'Ssh';
+    const c = inheritCounts(save, chosen, kind, inherit);
+    const origin = origins ? originText(origins[kind], t) : '';
+    const out = [];
+    if (c.risk)
+      out.push(
+        <li
+          key={`${kind}-risk`}
+          className="flex flex-wrap items-center gap-x-2 gap-y-1 text-status-warning"
+          data-testid={`inherit-summary-${kind}-risk`}
+        >
+          <AlertIcon size={14} className="shrink-0" />
+          <span className="font-medium">
+            {t(`discovery.inherit.risk${K}`, { count: c.risk })}{' '}
+            <span className="font-normal">{t('discovery.inherit.groupGives', { origin })}</span>
+          </span>
+          <Button
+            size="sm"
+            onClick={() => onChange(saveWhereNeeded(save, chosen, kind, inherit))}
+            disabled={disabled}
+            data-testid={`inherit-save-needed-${kind}`}
+          >
+            {t(`discovery.inherit.saveNeeded${K}`, { count: c.risk })}
+          </Button>
+        </li>,
+      );
+    if (c.same)
+      out.push(
+        <li
+          key={`${kind}-same`}
+          className="flex items-center gap-2 text-ink-muted"
+          data-testid={`inherit-summary-${kind}-same`}
+        >
+          <CheckIcon size={14} className="shrink-0" />
+          {t(`discovery.inherit.same${K}`, { count: c.same })}
+        </li>,
+      );
+    if (c.unknown && !c.risk && !c.same)
+      out.push(
+        <li key={`${kind}-unknown`} className="text-ink-muted">
+          {t(`discovery.inherit.unknown${K}`)}
+        </li>,
+      );
+    return out;
+  });
+  if (!lines.length) return null;
+  return (
+    <ul className="w-full space-y-1 text-xs" data-testid="inherit-summary" aria-live="polite">
+      {lines}
+    </ul>
   );
 }
 
@@ -679,8 +783,8 @@ export function ScanPage() {
   const [edits, setEdits] = useState<Record<number, RowEdit>>({});
   const [groupId, setGroupId] = useState<number | null>(null);
   const [summary, setSummary] = useState<ImportRow[] | null>(null);
-  // [profiles] hosts whose working SNMP / SSH settings are NOT saved on import
-  const [saveOff, setSaveOff] = useState<SaveOff>(NO_SAVE_OFF);
+  // [profiles] hosts whose working SNMP / SSH settings ARE saved on import (none by default)
+  const [saveOn, setSaveOn] = useState<SaveOn>(NO_SAVE);
   const [importFailed, setImportFailed] = useState<unknown>(null);
   const [cancelAsk, setCancelAsk] = useState(false);
   const [deleteAsk, setDeleteAsk] = useState(false);
@@ -700,6 +804,21 @@ export function ScanPage() {
   const allSelected = selectable.length > 0 && selectable.every((r) => selected.has(r.id));
   // Drop selections that became non-selectable (e.g. imported meanwhile).
   const chosen = all.filter((r) => selected.has(r.id) && !isExisting(r));
+  // [profiles] does the import group's inheritance give what worked? (server-side comparison)
+  const inheritQ = useQuery({
+    queryKey: qk.scanInheritance(id, groupId, all.length),
+    queryFn: () => endpoints.scanInheritance(id, groupId as number),
+    enabled: groupId !== null && all.some((r) => r.snmp_ok || r.ssh_ok),
+    placeholderData: keepPreviousData,
+  });
+  const inherit = useMemo(
+    () => inheritIndex(inheritQ.data?.group_id === groupId ? inheritQ.data : undefined),
+    [inheritQ.data, groupId],
+  );
+  const origins =
+    inheritQ.data && inheritQ.data.group_id === groupId
+      ? { snmp: inheritQ.data.snmp_origin, ssh: inheritQ.data.ssh_origin }
+      : null;
 
   const cancel = useMutation({
     mutationFn: () => endpoints.cancelScan(id),
@@ -760,7 +879,6 @@ export function ScanPage() {
   if (scan.error || !scan.data) return <ErrorBox error={scan.error} />;
   const s = scan.data;
   const sshChecked = !!(s.options.ssh_profile_ids?.length || s.options.ssh_credentials_set);
-  const snmpOffChosen = chosen.some((r) => canSave(r, 'snmp') && !isSaved(saveOff, r, 'snmp'));
 
   const startImport = () =>
     doImport.mutate(
@@ -768,7 +886,7 @@ export function ScanPage() {
         result_id: r.id,
         template_id: edits[r.id]?.template ?? r.suggested_template,
         name: edits[r.id]?.name?.trim() || null,
-        ...saveFields(saveOff, r),
+        ...saveFields(saveOn, r),
       })),
     );
   const setRowSelected = (rid: number, v: boolean) =>
@@ -787,8 +905,9 @@ export function ScanPage() {
     onEdit: (e: RowEdit) => setEdits((x) => ({ ...x, [r.id]: e })),
     disabled: doImport.isPending,
     sshChecked,
-    save: saveOff,
-    onSave: (kind: SaveKind, on: boolean) => setSaveOff((o) => setOne(o, r.id, kind, on)),
+    save: saveOn,
+    onSave: (kind: SaveKind, on: boolean) => setSaveOn((o) => setOne(o, r.id, kind, on)),
+    inherit,
   });
 
   return (
@@ -885,8 +1004,8 @@ export function ScanPage() {
                       <SaveHeaderCheckbox
                         rows={selectable}
                         kind="snmp"
-                        save={saveOff}
-                        onChange={setSaveOff}
+                        save={saveOn}
+                        onChange={setSaveOn}
                         disabled={doImport.isPending}
                       />
                     </th>
@@ -895,8 +1014,8 @@ export function ScanPage() {
                         <SaveHeaderCheckbox
                           rows={selectable}
                           kind="ssh"
-                          save={saveOff}
-                          onChange={setSaveOff}
+                          save={saveOn}
+                          onChange={setSaveOn}
                           disabled={doImport.isPending}
                         />
                       </th>
@@ -932,8 +1051,8 @@ export function ScanPage() {
                   <SaveHeaderCheckbox
                     rows={selectable}
                     kind="snmp"
-                    save={saveOff}
-                    onChange={setSaveOff}
+                    save={saveOn}
+                    onChange={setSaveOn}
                     disabled={doImport.isPending}
                     withLabel
                   />
@@ -941,8 +1060,8 @@ export function ScanPage() {
                     <SaveHeaderCheckbox
                       rows={selectable}
                       kind="ssh"
-                      save={saveOff}
-                      onChange={setSaveOff}
+                      save={saveOn}
+                      onChange={setSaveOn}
                       disabled={doImport.isPending}
                       withLabel
                     />
@@ -959,17 +1078,23 @@ export function ScanPage() {
         )}
         {all.length > 0 && (
           <div className="sticky bottom-0 flex flex-wrap items-end gap-3 border-t border-line bg-surface px-5 py-4">
+            {chosen.length > 0 && (
+              <InheritSummary
+                chosen={chosen}
+                save={saveOn}
+                inherit={inherit}
+                origins={origins}
+                sshChecked={sshChecked}
+                onChange={setSaveOn}
+                disabled={doImport.isPending}
+              />
+            )}
             <Field label={t('discovery.importGroup')} className="w-full sm:w-64">
               <GroupSelect value={groupId} onChange={setGroupId} />
             </Field>
             <div className="flex flex-1 flex-wrap items-center justify-end gap-2">
               {running && (
                 <span className="text-xs text-ink-muted">{t('discovery.importAfterScan')}</span>
-              )}
-              {snmpOffChosen && (
-                <span className="text-xs text-status-warning" data-testid="save-snmp-off-hint">
-                  {t('discovery.save.snmpOffHint')}
-                </span>
               )}
               <Button
                 variant="primary"

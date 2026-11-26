@@ -17,7 +17,7 @@ Items marked **[severity]** (alert severity: levels, mapping, overrides, filters
 specified in [§ Alert severity](#severity-alert-severity).
 Items marked **[tree-move]** (moving devices and groups between groups, single and bulk) are specified in
 [§ Moving devices and groups](#tree-move-moving-devices-and-groups).
-Items marked **[profiles]** (release 1.7.0: connection profiles for SNMP and SSH credentials) are specified in
+Items marked **[profiles]** (release 1.6.0: connection profiles for SNMP and SSH credentials) are specified in
 [§ Connection profiles](#profiles-connection-profiles).
 
 This file is the contract between the backend (`backend/netmon/schemas`) and the frontend
@@ -923,6 +923,8 @@ Request:
     `snmp_credentials = null` (inherit). Otherwise the device gets its own copy of `C` with `timeout_s = 2`,
     `retries = 1`. So importing into a different group than the scan's, or after the group's credentials
     changed, or with an `snmp_port` override, gives the device its own (working) credentials.
+    **[profiles] 1.6.0:** this rule (and the profile link) applies only to items with `save_snmp: true`;
+    omitted / `false` → `snmp_credentials = null` (inherit), see [§ \[profiles\] Discovery](#profiles-discovery).
   - Apply the template (same code as apply-template; ping is never probed).
   - Set `discovery_results.imported_device_id`.
   - Broadcast one `config.changed` `{"entity":"device","action":"created"}` per device.
@@ -3388,12 +3390,12 @@ the single edits.
 
 ## [profiles] Connection profiles
 
-Release 1.7.0. Table semantics, resolution order and the migration: [data-model.md § Connection profiles](data-model.md#profiles-connection-profiles-release-170).
+Release 1.6.0. Table semantics, resolution order and the migration: [data-model.md § Connection profiles](data-model.md#profiles-connection-profiles-release-160).
 Work split and open questions: [connection-profiles.md](connection-profiles.md). Always available (no feature
 toggle). UI name "Connection profiles" / "פרופילי חיבור".
 
 **Backward compatibility rule.** Every change below is additive. A request that does not use the new fields
-behaves exactly as before 1.7.0 (details in [Groups and devices](#profiles-groups-and-devices)); responses only
+behaves exactly as before 1.6.0 (details in [Groups and devices](#profiles-groups-and-devices)); responses only
 gain keys.
 
 ### [profiles] Permissions
@@ -3525,8 +3527,8 @@ only as `"***"` in `K_credentials` changes).
 
 **Compatibility notes for existing clients.** A request without the new fields behaves as before on every node;
 on a node in mode `profile` it can only do what it could do before: set manual data or inherit (both drop the
-reference). A client that always sends `snmp_credentials` (the 1.6 web UI did) turns a profile node into
-`inherit` / `manual` when it saves; the 1.7 web UI sends `K_credentials` only when the user changed that kind.
+reference). A client that always sends `snmp_credentials` (the 1.5 web UI did) turns a profile node into
+`inherit` / `manual` when it saves; the 1.6 web UI sends `K_credentials` only when the user changed that kind.
 Old clients read a profile node as `snmp_credentials: null` (inherit); new clients read `snmp_mode`.
 
 **Audit** (feature `audit`, same transaction): `group.create|update`, `device.create|update` gain the change keys
@@ -3543,16 +3545,18 @@ discarded or copied manual secrets appear only as `"***"` as before.
   0 stays `"group"` even when the group's credentials come from a profile), and `DiscoveryResult` gains
   `snmp_profile_id: number | null` and `snmp_profile_name: string | null` (the profile of the credential that answered,
   also for `"group"`; the name is the current one, `null` when the profile was deleted since).
-- Each `ImportItem` gains `save_snmp: boolean | null` (owner addition; optional; omitted / null = **true when SNMP
-  answered**, which is exactly the import of earlier releases, so old clients keep their behaviour). `true`: the
-  import rules of [data-model.md § Discovery](data-model.md#profiles-discovery) (a profile that answered is linked;
-  typed / group credentials as in 2a: inherit or a manual copy). `false`: nothing is stored on the device, it
-  inherits SNMP from the import group — **the device may then not answer SNMP** when the group's effective
-  credentials differ from the ones that answered (the UI says so).
+- Each `ImportItem` gains `save_snmp: boolean | null` (owner decision; optional; omitted / null / `false` = **not
+  saved**: nothing is stored on the device, it inherits SNMP from the import group, so an import never overrides
+  the group's inheritance unless asked). **Contract change:** earlier releases always stored the credentials that
+  answered (2a rules); a client that wants that must now send `true`. `true`: the import rules of
+  [data-model.md § Discovery](data-model.md#profiles-discovery) (a profile that answered is linked; typed / group
+  credentials as in 2a: inherit or a manual copy). Not saved: **the device may then not answer SNMP** (and the
+  template's SNMP sensors are not created at import) when the group's effective credentials differ from the ones
+  that answered — `GET …/inheritance` below tells, and the UI shows it per host and before the import.
 - Import response `created[]` items gain `snmp_mode: "inherit" | "profile" | "manual" | null` (null when SNMP did not
   answer) and `snmp_profile_id: number | null`.
 
-**SSH login check (owner decision Q3: opt-in, 1.7.0).** Rules, order, host-key behaviour and the operational risk:
+**SSH login check (owner decision Q3: opt-in, 1.6.0).** Rules, order, host-key behaviour and the operational risk:
 [data-model.md § Discovery](data-model.md#profiles-discovery). In short: only found hosts whose candidate port is
 open in this scan, one login attempt per candidate, stop at the first success, **log in and disconnect only — no
 command is ever sent**, nothing is pinned or stored about the host key. Failed logins can lock accounts or raise
@@ -3572,21 +3576,44 @@ security alerts on devices: the UI shows a warning next to the SSH section.
   ssh_username: string | null;        // response only: their username (not a secret; ignored on input)
   ```
   SSH is attempted only when `ssh_profile_ids` is not empty or `ssh_credentials` is set; a scan without them
-  behaves exactly as before 1.7.0. A saved discovery profile listing an SSH connection profile makes it "in use"
+  behaves exactly as before 1.6.0. A saved discovery profile listing an SSH connection profile makes it "in use"
   (`409 profile_in_use` counts it in `discovery_profiles`).
 - `DiscoveryResult` gains `ssh_attempted: boolean`, `ssh_ok: boolean`, `ssh_credential: "profile" | "typed" | null`
   (what logged in), `ssh_profile_id: number | null`, `ssh_profile_name: string | null` (current name, null when
   deleted since). Never a secret.
-- Each `ImportItem` gains `save_ssh: boolean | null` (optional; omitted / null = **true when an SSH login
-  succeeded**). Saved: the profile that logged in is assigned (mode `profile`), or `inherit` when the import group
+- Each `ImportItem` gains `save_ssh: boolean | null` (optional; omitted / null / `false` = **not saved**, the
+  device inherits SSH from the import group; owner decision as for `save_snmp`). Saved (`true`): the profile that logged in is assigned (mode `profile`), or `inherit` when the import group
   already inherits that very profile; typed credentials (or a profile deleted since the scan) are saved as the
-  device's **manual** SSH credentials. `false` / no login → `inherit` (as before). "Select all" is a UI matter: the
+  device's **manual** SSH credentials. Not saved / no login → `inherit` (as before). "Select all" is a UI matter: the
   request carries the value per item.
 - Import response `created[]` items gain `ssh_mode: "inherit" | "profile" | "manual" | null` (null when no SSH login
   succeeded) and `ssh_profile_id: number | null`.
 - Audit: `discovery_scan.ssh` when a scan with SSH starts (`changes`: `ssh_profile_ids` `[null, [ids]]`,
   `ssh_typed` `[null, true|false]`); for each imported device whose SSH settings were saved, `device.update` with
   `ssh_mode` / `ssh_profile` (or `ssh_credentials` `"***"`) and `reason: "discovery_import"`.
+
+#### `GET /api/discovery/scans/{scan_id}/inheritance?group_id=G` [profiles] (admin)
+Would a device imported into group `G` **without** saving its credentials (the import default) get the SNMP / SSH
+credential that worked in the scan? Computed server-side; never returns a secret. `group_id` is required (an unknown
+group → `422 validation_error` at `["query", "group_id"]`; unknown scan → 404). Works while the scan runs (results so
+far).
+```ts
+{
+  group_id: number;
+  snmp_origin: CredentialOrigin;   // where G's effective SNMP comes from ("self" = set on G itself)
+  ssh_origin: CredentialOrigin;    // same for SSH (source "none" when nothing in the chain has SSH)
+  items: {                         // only results with a working SNMP credential or SSH login, ordered by ip
+    result_id: number;
+    snmp: "same" | "differs" | null;   // null: SNMP did not answer
+    ssh: "same" | "differs" | null;    // null: no SSH login succeeded
+  }[];
+}
+```
+`same`: inheritance from `G` gives the device that very credential — the same connection profile (by id), or the
+same resolved credential (SNMP: every field except `timeout_s` / `retries`, port included, as the 2a comparison;
+SSH: the decrypted login — username, port, password / key / passphrase, enable password, legacy algorithms).
+Nothing needs saving. `differs`: inheritance gives something else (or nothing, or an unreadable profile): without
+`save_snmp` / `save_ssh` the device will probably not be reachable with that protocol.
 
 ### [profiles] Tree move preview
 `effects[].before` / `after` of settings `snmp` and `ssh` gain `profile_id` and `profile_name` (null when the deciding

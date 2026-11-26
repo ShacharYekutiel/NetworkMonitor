@@ -269,7 +269,7 @@ async def test_scan_import_end_to_end(rt, admin: httpx.AsyncClient, lab: Lab) ->
         "model",
         "classified_by",
         "confidence",
-        # [profiles] (1.7.0 contract change)
+        # [profiles] (1.6.0 contract change)
         "snmp_profile_id",
         "snmp_profile_name",
         "ssh_attempted",
@@ -308,13 +308,19 @@ async def test_scan_import_end_to_end(rt, admin: httpx.AsyncClient, lab: Lab) ->
     assert r.json()["error"]["details"][0]["loc"] == ["body", "items", 0, "template_id"]
     r = await admin.post(
         f"/api/discovery/scans/{scan['id']}/import",
+        # [1.6.0] save_snmp: the import stores the credentials that answered only when asked
         json={
             "items": [
-                {"result_id": ids[22], "template_id": "unifi_ap"},
-                {"result_id": ids[23], "template_id": "printer"},
-                {"result_id": ids[21], "template_id": "opnsense", "name": "Firewall"},
-                {"result_id": ids[24], "template_id": "generic_snmp"},
-                {"result_id": ids[25], "template_id": "http_server"},
+                {"result_id": ids[22], "template_id": "unifi_ap", "save_snmp": True},
+                {"result_id": ids[23], "template_id": "printer", "save_snmp": True},
+                {
+                    "result_id": ids[21],
+                    "template_id": "opnsense",
+                    "name": "Firewall",
+                    "save_snmp": True,
+                },
+                {"result_id": ids[24], "template_id": "generic_snmp", "save_snmp": True},
+                {"result_id": ids[25], "template_id": "http_server", "save_snmp": True},
                 {"result_id": 999999, "template_id": "generic_ping"},
             ]
         },

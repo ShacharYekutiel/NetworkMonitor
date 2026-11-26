@@ -5,10 +5,10 @@ import { fireEvent, render, screen, waitFor, within } from '@testing-library/rea
 import i18n from '../../i18n';
 import type { DiscoveryResult } from '../../api/types';
 import { scanOptionsForm, type ScanOptionsForm } from '../../lib/discovery';
-import { NO_SAVE_OFF, type SaveOff } from '../../lib/importSave';
+import { NO_SAVE, type SaveOn } from '../../lib/importSave';
 import { authRoutes, mockFetch, Wrap } from '../../test/v13';
 import { ReachabilityChips } from './Badges';
-import { SaveCheckbox, SaveHeaderCheckbox } from './ImportSave';
+import { InheritMark, SaveCheckbox, SaveHeaderCheckbox } from './ImportSave';
 import { moveItem } from './ProfileListPicker';
 import { ScanOptionsEditor } from './ScanForm';
 
@@ -152,28 +152,28 @@ describe('discovery with connection profiles', () => {
     expect(screen.queryByTestId('result-ssh')).toBeNull();
   });
 
-  it('save toggles: per host and a tri-state column header', () => {
+  it('save toggles: unticked by default, per host and a tri-state column header', () => {
     const rows = [
       result({ id: 1, ssh_ok: true }),
       result({ id: 2, ip: '10.0.0.2' }),
       result({ id: 3, ip: '10.0.0.3', snmp_ok: false }),
     ];
     function T() {
-      const [off, setOff] = useState<SaveOff>(NO_SAVE_OFF);
+      const [on, setOn] = useState<SaveOn>(NO_SAVE);
       return (
         <div>
-          <SaveHeaderCheckbox rows={rows} kind="snmp" save={off} onChange={setOff} />
+          <SaveHeaderCheckbox rows={rows} kind="snmp" save={on} onChange={setOn} />
           {rows.map((r) => (
             <SaveCheckbox
               key={r.id}
               r={r}
               kind="snmp"
-              save={off}
-              onSave={(_k, on) =>
-                setOff((o) => {
+              save={on}
+              onSave={(_k, v) =>
+                setOn((o) => {
                   const s = new Set(o.snmp);
-                  if (on) s.delete(r.id);
-                  else s.add(r.id);
+                  if (v) s.add(r.id);
+                  else s.delete(r.id);
                   return { ...o, snmp: s };
                 })
               }
@@ -190,19 +190,37 @@ describe('discovery with connection profiles', () => {
     const none = screen.getByRole('checkbox', {
       name: 'Save the SNMP settings that worked on 10.0.0.3',
     });
-    expect(head).toBeChecked();
-    expect(one).toBeChecked();
+    expect(head).not.toBeChecked(); // owner decision 1.6.0: nothing saved by default
+    expect(one).not.toBeChecked();
     expect(none).toBeDisabled();
     expect(none).not.toBeChecked();
     fireEvent.click(one);
+    expect(one).toBeChecked();
     expect(head).not.toBeChecked();
     expect((head as HTMLInputElement).indeterminate).toBe(true);
     fireEvent.click(head); // mixed → all
     expect(one).toBeChecked();
+    expect(
+      screen.getByRole('checkbox', { name: 'Save the SNMP settings that worked on 10.0.0.2' }),
+    ).toBeChecked();
     fireEvent.click(head); // all → none
     expect(one).not.toBeChecked();
     expect(
       screen.getByRole('checkbox', { name: 'Save the SNMP settings that worked on 10.0.0.2' }),
     ).not.toBeChecked();
+  });
+
+  it('inheritance mark: risk and same, short in the table, the full sentence in cards', () => {
+    const { rerender } = render(<InheritMark kind="snmp" hint="risk" id={4} />);
+    const m = screen.getByTestId('inherit-snmp-4');
+    expect(m).toHaveAttribute('data-hint', 'risk');
+    expect(m).toHaveTextContent('Group differs');
+    expect(m).toHaveAttribute('title', expect.stringContaining('probably not answer SNMP'));
+    rerender(<InheritMark kind="ssh" hint="same" id={4} long />);
+    expect(screen.getByTestId('inherit-ssh-4')).toHaveTextContent(
+      'The import group already gives the SSH login that worked: nothing needs saving.',
+    );
+    rerender(<InheritMark kind="snmp" hint="saved" id={4} />);
+    expect(screen.queryByTestId('inherit-snmp-4')).toBeNull();
   });
 });

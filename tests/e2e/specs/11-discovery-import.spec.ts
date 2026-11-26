@@ -77,6 +77,11 @@ test('import 4 selected hosts into a group from the results page', async ({ page
   await row('127.0.0.22').getByRole('textbox', { name: 'Device name for 127.0.0.22' }).fill(apName);
 
   await page.getByLabel('Import into group').selectOption({ label: groupName });
+  // [1.6.0] "save SNMP" is unticked by default (owner decision): the printer answered an extra community, which
+  // the group does not give -> warned per host; ticking the column saves what answered (the 2a import below).
+  await expect(page.getByTestId(`inherit-snmp-${results['127.0.0.23'].id}`).filter({ visible: true })).toHaveAttribute('data-hint', 'risk');
+  await page.getByTestId('save-snmp-all').filter({ visible: true }).check();
+  await expect(page.getByTestId('inherit-summary-snmp-risk')).toHaveCount(0);
   await page.getByRole('button', { name: 'Import selected (4)' }).click();
   const dlg = page.getByRole('dialog');
   await expect(dlg).toBeVisible({ timeout: 120_000 });

@@ -21,8 +21,8 @@ Sections marked **[1.3.1]** (IRF ports are important, named value maps, IRF role
 [§ Release 1.3.1](#131-release-131-additions), migration `0009`.
 Sections marked **[severity]** (alert severity: levels, mapping, overrides, rule severities) are in
 [§ Alert severity](#severity-alert-severity), migration `0015`.
-Sections marked **[profiles]** (release 1.7.0: connection profiles for SNMP and SSH credentials) are in
-[§ Connection profiles](#profiles-connection-profiles-release-170), migration `0021`.
+Sections marked **[profiles]** (release 1.6.0: connection profiles for SNMP and SSH credentials) are in
+[§ Connection profiles](#profiles-connection-profiles-release-160), migration `0019`.
 
 PostgreSQL ≥ 14 holds the data, and TimescaleDB is optional (see [architecture.md §6](architecture.md)). Alembic
 migrations own the schema.
@@ -2325,7 +2325,7 @@ Match: `requires_snmp`, `enterprises [12356]`. FORTINET-FORTIGATE-MIB `1.3.6.1.4
 | 3 | `CPU` (gauge, probe) | fgSysCpuUsage `1.3.6.1.4.1.12356.101.4.1.3.0`, `%`, 80/95 | high |
 | 4 | `Memory` (gauge, probe) | fgSysMemUsage `…101.4.1.4.0`, `%`, 85/95 | high |
 | 5 | `Sessions` (gauge, probe) | fgSysSesCount `…101.4.1.8.0`, unit `sessions` | high |
-| 6 | `Disk` (gauge, probe) | fgSysDiskUsage `…101.4.1.6.0` `percent_of_oid` fgSysDiskCapacity `…101.4.1.7.0`, `%`, 85/95 (capacity 0 → no value) | high |
+| 6 | `Disk` (gauge, probe) | fgSysDiskUsage `…101.4.1.6.0` `percent_of_oid` fgSysDiskCapacity `…101.4.1.6.0`, `%`, 85/95 (capacity 0 → no value) | high |
 | 7 | `HA mode` (enum, probe) | fgHaSystemMode `1.3.6.1.4.1.12356.101.13.1.1.0`, `{1 up standalone, 2 up active-active, 3 up active-passive}` | high |
 | 8 | `HA sync {label}` (`snmp_table`) | walk fgHaStatsSyncStatus `1.3.6.1.4.1.12356.101.13.2.1.1.12`, label fgHaStatsHostname `…13.2.1.1.11`, enum `{0 warning unsynchronized, 1 up synchronized}`, max 8 | medium |
 | 9 | `VPN tunnels up` (`snmp_walk_count`, probe) | fgVpnTunEntStatus `1.3.6.1.4.1.12356.101.12.2.2.1.20`, `count_values [2]` (down(1), up(2)), `unmatched` warning_max 0 | medium |
@@ -4644,21 +4644,21 @@ defaults: catalog only, no rewrite of the existing rows); the partial index. `do
 three columns (repeat counts are lost, every row stays) and the table. An older release on the upgraded database
 keeps working: its INSERT leaves the new columns at their defaults.
 
-# **[profiles]** Connection profiles (release 1.7.0)
+# **[profiles]** Connection profiles (release 1.6.0)
 
 API: [api.md § Connection profiles](api.md#profiles-connection-profiles). Work split, edge cases and open questions:
 [connection-profiles.md](connection-profiles.md). UI name: "Connection profiles" / "פרופילי חיבור" (never "templates":
 that word belongs to the sensor/device templates). No feature toggle (owner decision). Code:
 `netmon.services.conn_profiles`.
 
-A **connection profile** is a named, globally defined credential set of one **kind** (`snmp` or `ssh` in 1.7.0).
+A **connection profile** is a named, globally defined credential set of one **kind** (`snmp` or `ssh` in 1.6.0).
 Every group and device chooses, **per kind**, one of three **modes**:
 
 | Mode | Stored as | Meaning |
 |---|---|---|
-| `inherit` | no assignment row and `<kind>_credentials` NULL | as before 1.7.0: take the parent's |
+| `inherit` | no assignment row and `<kind>_credentials` NULL | as before 1.6.0: take the parent's |
 | `profile` | a `connection_profile_assignments` row for (node, kind); `<kind>_credentials` NULL **or the node's earlier manual data, kept dormant** | a **reference**: the profile's current data is used, so editing the profile takes effect everywhere at once. Dormant manual data is never used while the reference exists; it comes back when the node leaves the profile for manual (owner decision Q2) |
-| `manual` | `<kind>_credentials` NOT NULL (the existing jsonb, unchanged form); no assignment row | as before 1.7.0: the node's own data |
+| `manual` | `<kind>_credentials` NOT NULL (the existing jsonb, unchanged form); no assignment row | as before 1.6.0: the node's own data |
 
 A profile reference inherits down the tree exactly like manual data: a group in mode `profile` gives that profile
 to every descendant group and device that is in mode `inherit`.
@@ -4666,7 +4666,7 @@ to every descendant group and device that is in mode `inherit`.
 ## [profiles] Kinds (code registry, not a table)
 `netmon.services.conn_profiles.KINDS` maps a kind to: the API input model, the stored form (merge / seal / open),
 the response serializer, the node column (`groups.<column>` / `devices.<column>`), the "nothing found" fallback and
-the connection test. 1.7.0 registers:
+the connection test. 1.6.0 registers:
 
 | kind | Node column | Credential shape (stored form and validation unchanged) | Fallback at the end of the chain |
 |---|---|---|---|
@@ -4803,8 +4803,9 @@ row. The foreign key `fk_cpa_profile_kind` (RESTRICT) is the last safety net for
 - **`discovery_results` gains** `snmp_profile_id integer NULL` (no FK: a snapshot; the profile may be deleted
   later): the `_profile_id` of the credential that answered.
 - **Import** (`netmon.discovery.importer`, pure decision `snmp_choice(C, index, G, G_origin, profile_now,
-  port_used)`), for an item whose SNMP answered and whose `save_snmp` is not `false` (owner addition: per item,
-  omitted = true; `false` → `inherit`, nothing stored, the device may then not answer SNMP). `C` = the credential that answered, `P` = its `_profile_id`,
+  port_used)`), for an item whose SNMP answered and whose `save_snmp` is `true` (owner decision for 1.6.0: per
+  item, omitted / null / `false` → `inherit`, nothing stored, the device may then not answer SNMP; whether it would
+  is reported by `inheritance()` below). `C` = the credential that answered, `P` = its `_profile_id`,
   `G` = the import group's current effective credentials and `G_origin` their origin:
   1. `index = 0` and `C` equals `G` (the 2a comparison: every field except `timeout_s` / `retries`) → `inherit`
      (unchanged 2a rule).
@@ -4839,12 +4840,16 @@ row. The foreign key `fk_cpa_profile_kind` (RESTRICT) is the last safety net for
   [3] stored form (encrypted; covered by `netmon secrets rekey`). Listing an SSH profile makes it "in use", like
   `snmp_profile_ids`.
 - **Import of SSH** (pure decision `netmon.discovery.importer.ssh_choice(save, ssh_ok, candidate, G_origin,
-  profile_now)`): `save` = the item's `save_ssh`, else `ssh_ok` (default on when a login succeeded). Not saved, or no login succeeded → `inherit` (as before). Else, with `C` the candidate that
+  profile_now)`): `save` = the item's `save_ssh` (omitted / null = false, owner decision for 1.6.0). Not saved, or no login succeeded → `inherit` (as before). Else, with `C` the candidate that
   logged in and `P` its `_profile_id`:
   1. `P` set and the import group's effective SSH already comes from profile `P` → `inherit`;
   2. `P` set and profile `P` still exists with kind `ssh` → mode `profile` (assignment device → `P`);
   3. otherwise (typed credentials, or the profile was deleted since) → mode `manual`, a copy of `C`'s stored form.
   Each SSH assignment / manual save is audited (`device.update`, `reason: "discovery_import"`).
+- **Inheritance check** (`netmon.discovery.importer.inheritance(scan, group)`, api.md `GET …/inheritance`; pure
+  helpers `snmp_inherits_same` / `ssh_inherits_same`): per result, `same` when the import group's effective
+  credential comes from the profile that worked (`_profile_id`) or equals the credential that worked (SNMP: the 2a
+  comparison; SSH: the decrypted login), else `differs`. Read-only.
 
 ## [profiles] Secrets tooling, backup and restore
 - `pg_dump` / `ops/restore.sh` / the daily backup cover the two tables like any other. A restore on a server with a
@@ -4858,11 +4863,10 @@ row. The foreign key `fk_cpa_profile_kind` (RESTRICT) is the last safety net for
   `services.audit.redact` (`community`, `v3_*_key`, `*_enc`, …); profile audits record the non-secret fields and
   `"***"` for a changed secret.
 
-## [profiles] Migration (`0021`)
-File `backend/netmon/migrations/versions/0021_connection_profiles.py`, `revision = "0021"`,
-**`down_revision = "0018"` for now. Merge note: release 1.6.0 (branch `if-noise`) adds `0019` and `0020`; when it
-lands on `main`, `down_revision` here must become `"0020"`** (the id is written only in that file; tests read the
-head and the down revision from the scripts). Plain DDL, identical in TimescaleDB and plain PostgreSQL mode (no
+## [profiles] Migration (`0019`)
+File `backend/netmon/migrations/versions/0019_connection_profiles.py`, `revision = "0019"`,
+`down_revision = "0018"` (release 1.6.0 ships directly on 1.5.1; the interface-noise migrations follow it in a later
+release and are numbered after `0019`). Tests read the head and the down revision from the scripts. Plain DDL, identical in TimescaleDB and plain PostgreSQL mode (no
 hypertable is touched; `discovery_results` is a plain table), idempotent (`IF NOT EXISTS`, constraints dropped and
 re-added).
 
@@ -4879,10 +4883,10 @@ re-added).
   keeps working credentials as `manual`;
   then the column, the assignments and the profiles are dropped. A profile secret that cannot be decrypted stops the
   downgrade with an error, nothing changed. Discovery profiles lose `snmp_profile_ids`, `ssh_profile_ids` and
-  `ssh_credentials` (the 1.6 options model rejects unknown keys, so the keys are removed from
+  `ssh_credentials` (the 1.5 options model rejects unknown keys, so the keys are removed from
   `discovery_profiles.options` and `discovery_scans.options`); the new result / scan columns are dropped.
 - **Container rollback without downgrade** (an older image on the migrated database; owner decision Q1: accepted,
   documented): the older release ignores both tables, so a node in mode `profile` behaves there as its column
   says: with dormant manual data it uses that data (the node's settings before the profile was chosen), without
-  it as `inherit`. When 1.7 is back, the reference decides again (an edit of the manual data made by the older
+  it as `inherit`. When 1.6 is back, the reference decides again (an edit of the manual data made by the older
   release stays dormant). See [connection-profiles.md](connection-profiles.md#owner-decisions).

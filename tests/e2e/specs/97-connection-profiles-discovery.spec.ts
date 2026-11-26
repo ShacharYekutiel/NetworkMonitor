@@ -1,7 +1,8 @@
 // [profiles] Connection profiles in discovery and config backup (docs/connection-profiles.md § QA scenarios 8 and 9,
 // owner decision Q3; api.md § [profiles] Discovery): a scan with an SNMP profile (the group's own credentials do not
 // answer) and the opt-in SSH login check (an SSH profile and typed credentials), the result badges, the import with
-// the per-host "save SNMP" / "save SSH" columns and their select-all headers, the device modes after the import, the
+// the per-host "save SNMP" / "save SSH" columns (unticked by default, owner decision 1.6.0), their select-all headers
+// and the server-side inheritance hint per host and in the summary before the import, the device modes after the import, the
 // read-only guarantee of the SSH check (login and disconnect only, from the simulator's log), and a config backup
 // that runs with an SSH profile assigned to the group. Own simulators on 127.0.0.241-.244 (lib/profiles.ts).
 import { mkdirSync } from 'node:fs';
@@ -143,6 +144,8 @@ test('8a: scan options: SNMP profile, opt-in SSH check (warning, SSH profile, ty
 });
 
 test('8b: import with "save SNMP" / "save SSH" per host and select-all; the devices get profile / inherit / manual', async ({ page }) => {
+  // a group that inherits the SNMP profile that answered: importing into it needs nothing saved
+  G.viaProfile = (await admin.post('/api/groups', { name: `${tag} Via profile`, parent_id: null, snmp_profile_id: P.snmp.id })).id;
   await loginViaApi(page, undefined, `/discovery/scans/${scanId}`);
   await expect(row(page, H3)).toBeVisible();
   await page.getByRole('checkbox', { name: 'Select all' }).check();
@@ -150,26 +153,54 @@ test('8b: import with "save SNMP" / "save SSH" per host and select-all; the devi
   const rid = (ip: string) => r1.find((r: any) => r.ip === ip).id;
   const snmpAll = vis(page, 'save-snmp-all');
   const sshAll = vis(page, 'save-ssh-all');
-  // defaults: on where a credential worked, disabled where none did
-  await expect(snmpAll).toBeChecked();
+  const hint = (kind: string, ip: string) => vis(page, `inherit-${kind}-${rid(ip)}`);
+  const importGroup = page.getByLabel('Import into group');
+  await importGroup.selectOption(String(G.disc));
+  // defaults (owner decision 1.6.0): nothing ticked; disabled where nothing worked
+  await expect(snmpAll).not.toBeChecked();
+  await expect(sshAll).not.toBeChecked();
+  for (const ip of [H1, H2]) await expect(vis(page, `save-snmp-${rid(ip)}`)).not.toBeChecked();
   await expect(vis(page, `save-snmp-${rid(H3)}`)).toBeDisabled();
-  await expect(vis(page, `save-ssh-${rid(H3)}`)).toBeChecked();
-  // clear all SNMP, then re-check H1 only: the header becomes mixed and the hint explains inheriting
-  await snmpAll.click();
-  await expect(vis(page, `save-snmp-${rid(H1)}`)).not.toBeChecked();
-  await expect(vis(page, `save-snmp-${rid(H2)}`)).not.toBeChecked();
-  await vis(page, `save-snmp-${rid(H1)}`).check();
+  await expect(vis(page, `save-ssh-${rid(H3)}`)).not.toBeChecked();
+  // the scan group's own SNMP ("qa97-nope") and its missing SSH are not what worked: every host is at risk
+  for (const ip of [H1, H2]) await expect(hint('snmp', ip)).toHaveAttribute('data-hint', 'risk');
+  for (const ip of [H1, H2, H3]) await expect(hint('ssh', ip)).toHaveAttribute('data-hint', 'risk');
+  await expect(hint('snmp', H1)).toHaveAttribute('title', /probably not answer SNMP/);
+  await expect(vis(page, 'inherit-summary-snmp-risk')).toContainText('2 selected hosts will not get the SNMP settings that worked');
+  await expect(vis(page, 'inherit-summary-snmp-risk')).toContainText('The group gives: Manual.');
+  await expect(vis(page, 'inherit-summary-ssh-risk')).toContainText('3 selected hosts will not get the SSH login that worked');
+  await expect(vis(page, 'inherit-summary-ssh-risk')).toContainText('The group gives: No SSH credentials.');
+  await shot(page, '97-08-import-inherit-risk-en');
+  // importing into the group that inherits the profile: SNMP needs nothing ("same"), SSH still differs
+  await importGroup.selectOption(String(G.viaProfile));
+  for (const ip of [H1, H2]) await expect(hint('snmp', ip)).toHaveAttribute('data-hint', 'same');
+  await expect(vis(page, 'inherit-summary-snmp-same')).toContainText('2 selected hosts get the same SNMP settings from the group');
+  await expect(vis(page, 'inherit-summary-snmp-risk')).toHaveCount(0);
+  await expect(vis(page, 'inherit-summary-ssh-risk')).toBeVisible();
+  // back to the scan group: "save where needed" ticks exactly the hosts at risk
+  await importGroup.selectOption(String(G.disc));
+  await vis(page, 'inherit-save-needed-snmp').click();
+  await expect(snmpAll).toBeChecked();
+  for (const ip of [H1, H2]) {
+    await expect(vis(page, `save-snmp-${rid(ip)}`)).toBeChecked();
+    await expect(hint('snmp', ip)).toHaveCount(0); // saved: no hint
+  }
+  await expect(vis(page, 'inherit-summary-snmp-risk')).toHaveCount(0);
+  // H2 unticked again: the header is mixed and the warning is back for one host
+  await vis(page, `save-snmp-${rid(H2)}`).uncheck();
   expect(await snmpAll.evaluate((e: HTMLInputElement) => e.indeterminate)).toBe(true);
-  await expect(vis(page, 'save-snmp-off-hint')).toContainText('inherits them from the group');
-  // SSH select-all off then on again: every eligible host back on
+  await expect(vis(page, 'inherit-summary-snmp-risk')).toContainText('1 selected host will not get the SNMP settings');
+  // SSH select-all on then off then on: every eligible host follows
+  await sshAll.click();
+  await expect(vis(page, `save-ssh-${rid(H1)}`)).toBeChecked();
   await sshAll.click();
   await expect(vis(page, `save-ssh-${rid(H1)}`)).not.toBeChecked();
   await sshAll.click();
-  await expect(vis(page, `save-ssh-${rid(H1)}`)).toBeChecked();
+  await expect(vis(page, `save-ssh-${rid(H3)}`)).toBeChecked();
   await vis(page, `save-ssh-${rid(H2)}`).uncheck();
+  await expect(vis(page, 'inherit-summary-ssh-risk')).toContainText('1 selected host will not get the SSH login');
   await shot(page, '97-08-import-columns-en');
 
-  await page.getByLabel('Import into group').selectOption({ label: `${tag} Discovery` });
   const req = page.waitForRequest((r) => r.url().endsWith(`/api/discovery/scans/${scanId}/import`));
   await page.getByRole('button', { name: /^Import selected/ }).click();
   const body = (await req).postDataJSON();

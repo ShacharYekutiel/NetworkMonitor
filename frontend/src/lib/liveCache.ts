@@ -349,6 +349,7 @@ export function applyLiveMessage(
           batch.add(['groups']);
           batch.add(['device']);
           batch.add(['devices']);
+          batch.add(['scanInheritance']); // a profile edit can change "same" / "differs"
           break;
         case 'maintenance_window':
           batch.add(['maintenanceWindows']);
@@ -363,8 +364,9 @@ export function applyLiveMessage(
       }
       // Device/group changes can move dependencies, names and the topology graph.
       if (entity === 'device' || entity === 'group') {
-        // [profiles] assignments change the "used by" counts
+        // [profiles] assignments change the "used by" counts and the import inheritance hint
         batch.add(qkp.all);
+        batch.add(['scanInheritance']);
         batch.add(['connectionProfileUsage']);
         batch.add(['topology']);
         batch.add(['dependencySuggestions']);

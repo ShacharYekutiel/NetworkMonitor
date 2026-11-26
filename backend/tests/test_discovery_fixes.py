@@ -116,7 +116,8 @@ async def test_import_into_other_group_gets_own_credentials(
     scan = await wait_scan(admin, r.json()["id"])
     [res] = await results(admin, scan["id"])
     assert res["snmp_ok"] and res["snmp_credential"] == "group"
-    item = {"items": [{"result_id": res["id"], "template_id": "generic_ping"}]}
+    # [1.6.0] save_snmp: stored only when asked (omitted = inherit)
+    item = {"items": [{"result_id": res["id"], "template_id": "generic_ping", "save_snmp": True}]}
     r = await admin.post(
         f"/api/discovery/scans/{scan['id']}/import", json={**item, "group_id": b["id"]}
     )

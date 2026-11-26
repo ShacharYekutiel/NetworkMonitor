@@ -12,7 +12,7 @@ from netmon.api.common import commit_or_conflict, csv_list, flush_or_conflict
 from netmon.api.deps import DB, RT, Admin, Audit, Page
 from netmon.api.errors import ApiError, conflict, not_found, validation_error
 from netmon.discovery import options as opts_mod
-from netmon.discovery.importer import import_results
+from netmon.discovery.importer import import_results, inheritance
 from netmon.discovery.runner import EXISTING_DEVICE_SQL, ScanRunningError
 from netmon.discovery.serialize import profile_out, result_out, scan_out
 from netmon.discovery.targets import TargetError, TooManyHostsError, validate_targets
@@ -473,6 +473,17 @@ async def list_results(
         for pid, p in (await conn_profiles.load_profiles(session, result_profile_ids(rows))).items()
     }
     return page([result_out(r, None, names) for r in rows], total, pg.page, pg.page_size)
+
+
+@router.get("/api/discovery/scans/{scan_id}/inheritance")
+async def scan_inheritance(scan_id: int, group_id: int, _: Admin, rt: RT, session: DB) -> dict:
+    """[profiles] Per result: would the device get the working SNMP / SSH credential by
+    inheritance from `group_id` (import without saving)?"""
+    scan = await _get_scan(session, scan_id)
+    if await session.get(Group, group_id) is None:
+        raise validation_error(["query", "group_id"], "group does not exist")
+    await session.commit()
+    return await inheritance(rt, scan, group_id)
 
 
 @router.post("/api/discovery/scans/{scan_id}/import")

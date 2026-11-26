@@ -63,6 +63,7 @@ import type {
   DiscoveryScan,
   ImportRequest,
   ImportResponse,
+  ScanInheritance,
   ScanOptionsInput,
   SnmpStorage,
   TelegramChannelConfigInput,
@@ -122,6 +123,9 @@ export const qk = {
   discoveryScan: (id: number) => ['discoveryScan', id] as const,
   /** All results of a scan (unfiltered; filters are applied client-side so WS rows merge in). */
   discoveryResults: (scanId: number) => ['discoveryResults', scanId] as const,
+  /** [profiles] keyed by the results count too: new results (WS) need a verdict */
+  scanInheritance: (scanId: number, groupId: number | null, n: number) =>
+    ['scanInheritance', scanId, groupId, n] as const,
   // [2b-1]
   maintenanceWindows: (params?: object) => ['maintenanceWindows', params ?? {}] as const,
   maintenanceWindow: (id: number) => ['maintenanceWindow', id] as const,
@@ -522,6 +526,9 @@ export const endpoints = {
   discoveryResults: allResults,
   importResults: (scanId: number, body: ImportRequest) =>
     api.post<ImportResponse>(`/discovery/scans/${scanId}/import`, body),
+  /** [profiles] per result: does the import group's inheritance give the working credential? */
+  scanInheritance: (scanId: number, groupId: number) =>
+    api.get<ScanInheritance>(`/discovery/scans/${scanId}/inheritance`, { group_id: groupId }),
 
   // settings
   settings: () => api.get<Settings>('/settings'),

@@ -79,6 +79,8 @@ test('import both with their templates from the results page', async ({ page }) 
     await expect(row(ip).getByRole('combobox', { name: `Template for ${ip}` })).toHaveValue(tpl);
   }
   await page.getByLabel('Import into group').selectOption({ label: 'QA HPE' });
+  // [1.6.0] save the SNMP settings that answered (unticked by default, owner decision), as the import did before
+  await page.getByTestId('save-snmp-all').filter({ visible: true }).check();
   const respP = page.waitForResponse((r) => r.url().includes(`/api/discovery/scans/${scanId}/import`), { timeout: 120_000 });
   await page.getByRole('button', { name: 'Import selected (2)' }).click();
   importResp = await (await respP).json();

@@ -105,6 +105,12 @@ async def do_import(
     return created
 
 
+async def inherit_check(c: httpx.AsyncClient, scan_id: int, gid: int) -> dict[str, Any]:
+    r = await c.get(f"/api/discovery/scans/{scan_id}/inheritance", params={"group_id": gid})
+    assert r.status_code == 200, r.text
+    return r.json()
+
+
 async def device_creds(rt: Runtime, did: int) -> dict[str, Any]:
     from netmon.models import Device
     from netmon.services.sensors import effective_credentials
@@ -139,8 +145,17 @@ async def test_scan_with_snmp_profiles_and_import_rules(
                                  "discovery_results WHERE id = :i"), {"i": res["id"]})
         ).one()  # fmt: skip
     assert tuple(row) == (2, good["id"])  # group 0, Bad 1, Good 2
-    # import: linked to the profile that answered
+    # [1.6.0] inheritance check: the group's own credentials are not what answered
+    chk = await inherit_check(admin, done["id"], gid)
+    assert chk["items"] == [{"result_id": res["id"], "snmp": "differs", "ssh": None}]
+    assert chk["snmp_origin"]["source"] == "self" and chk["snmp_origin"]["mode"] == "manual"
+    assert "grp" not in json.dumps(chk) and PROF_COMM not in json.dumps(chk)  # no secret
+    # [1.6.0] save_snmp omitted = not saved (owner decision): the device inherits
     created = await do_import(admin, done["id"], res["id"])
+    assert created["snmp_mode"] == "inherit" and created["snmp_profile_id"] is None
+    await admin.delete(f"/api/devices/{created['device_id']}")
+    # save_snmp true: linked to the profile that answered
+    created = await do_import(admin, done["id"], res["id"], save_snmp=True)
     assert created["snmp_mode"] == "profile" and created["snmp_profile_id"] == good["id"]
     assert created["ssh_mode"] is None
     dev = (await admin.get(f"/api/devices/{created['device_id']}")).json()
@@ -160,13 +175,43 @@ async def test_scan_with_snmp_profiles_and_import_rules(
             json={"name": "UsesGood", "parent_id": gid, "snmp_profile_id": good["id"]},
         )
     ).json()
-    created = await do_import(admin, done["id"], res["id"], gid=sub["id"])
+    chk = await inherit_check(admin, done["id"], sub["id"])
+    assert chk["items"][0]["snmp"] == "same"  # the group already gives that very profile
+    assert chk["snmp_origin"]["profile_name"] == "Good" and chk["snmp_origin"]["source"] == "self"
+    created = await do_import(admin, done["id"], res["id"], gid=sub["id"], save_snmp=True)
     assert created["snmp_mode"] == "inherit"
+    await admin.delete(f"/api/devices/{created['device_id']}")
+    # a child of that group inherits it: "same", origin = inherited from UsesGood
+    child = (await admin.post("/api/groups", json={"name": "Child", "parent_id": sub["id"]})).json()
+    chk = await inherit_check(admin, done["id"], child["id"])
+    assert chk["items"][0]["snmp"] == "same"
+    assert (
+        chk["snmp_origin"]["source"] == "group" and chk["snmp_origin"]["group_name"] == "UsesGood"
+    )
+    await admin.delete(f"/api/groups/{child['id']}")
+    # same by value: manual credentials equal to what answered (port included)
+    val = (
+        await admin.post(
+            "/api/groups",
+            json={"name": "SameValue", "parent_id": gid,
+                  "snmp_credentials": {"community": PROF_COMM, "port": PORT}},
+        )
+    ).json()  # fmt: skip
+    assert (await inherit_check(admin, done["id"], val["id"]))["items"][0]["snmp"] == "same"
+    await admin.patch(
+        f"/api/groups/{val['id']}", json={"snmp_credentials": {"community": PROF_COMM}}
+    )  # port 161: would not answer
+    assert (await inherit_check(admin, done["id"], val["id"]))["items"][0]["snmp"] == "differs"
+    await admin.delete(f"/api/groups/{val['id']}")
+    r = await admin.get(
+        f"/api/discovery/scans/{done['id']}/inheritance", params={"group_id": 999999}
+    )
+    assert r.status_code == 422
     await admin.delete(f"/api/devices/{created['device_id']}")
     await admin.delete(f"/api/groups/{sub['id']}")
     # the profile deleted between scan and import -> a manual copy of what answered
     assert (await admin.delete(f"/api/connection-profiles/{good['id']}")).status_code == 204
-    created = await do_import(admin, done["id"], res["id"])
+    created = await do_import(admin, done["id"], res["id"], save_snmp=True)
     assert created["snmp_mode"] == "manual" and created["snmp_profile_id"] is None
     assert (await device_creds(rt, created["device_id"]))["community"] == PROF_COMM
     res = (await results(admin, done["id"]))[0]
@@ -183,7 +228,7 @@ async def test_port_override_gives_manual_copy(
     )
     (res,) = await results(admin, done["id"])
     assert res["snmp_credential"] == "profile" and res["snmp_profile_id"] == other_port["id"]
-    created = await do_import(admin, done["id"], res["id"])
+    created = await do_import(admin, done["id"], res["id"], save_snmp=True)
     assert created["snmp_mode"] == "manual"  # the profile's own port would not work
     creds = await device_creds(rt, created["device_id"])
     assert creds["port"] == PORT and creds["community"] == PROF_COMM
@@ -242,8 +287,34 @@ async def test_ssh_order_stop_no_command_and_import(
     assert [c["_origin"] for c in snap.ssh_candidates] == ["profile"] * 3 + ["typed"]
     assert SSH_PW not in json.dumps(snap.ssh_candidates)  # encrypted ([3] form)
     assert SSH_PW not in json.dumps(snap.options)
-    # import: the profile that logged in is assigned
+    # [1.6.0] inheritance check: the default group has no SSH -> differs; a group using
+    # "Right" -> same; manual credentials equal to the login -> same; another password -> differs
+    chk = await inherit_check(admin, done["id"], gid)
+    assert chk["items"] == [{"result_id": res["id"], "snmp": None, "ssh": "differs"}]
+    assert chk["ssh_origin"]["mode"] is None and chk["ssh_origin"]["source"] == "none"
+    g2 = (
+        await admin.post(
+            "/api/groups",
+            json={"name": "SshRight", "parent_id": gid, "ssh_profile_id": right["id"]},
+        )
+    ).json()
+    assert (await inherit_check(admin, done["id"], g2["id"]))["items"][0]["ssh"] == "same"
+    await admin.patch(
+        f"/api/groups/{g2['id']}", json={"ssh_profile_id": None, "ssh_credentials": good}
+    )
+    chk = await inherit_check(admin, done["id"], g2["id"])
+    assert chk["items"][0]["ssh"] == "same" and SSH_PW not in json.dumps(chk)
+    await admin.patch(
+        f"/api/groups/{g2['id']}", json={"ssh_credentials": {**good, "password": "other"}}
+    )
+    assert (await inherit_check(admin, done["id"], g2["id"]))["items"][0]["ssh"] == "differs"
+    await admin.delete(f"/api/groups/{g2['id']}")
+    # [1.6.0] save_ssh omitted = not saved: inherit
     created = await do_import(admin, done["id"], res["id"])
+    assert created["ssh_mode"] == "inherit"
+    await admin.delete(f"/api/devices/{created['device_id']}")
+    # import with save_ssh: the profile that logged in is assigned
+    created = await do_import(admin, done["id"], res["id"], save_ssh=True)
     assert created["ssh_mode"] == "profile" and created["ssh_profile_id"] == right["id"]
     dev = (await admin.get(f"/api/devices/{created['device_id']}")).json()
     assert dev["ssh_mode"] == "profile" and dev["ssh_profile_name"] == "Right"
@@ -279,7 +350,7 @@ async def test_ssh_typed_saved_as_manual_and_validation(
     (res,) = await results(admin, done["id"])
     assert res["ssh_ok"] and res["ssh_credential"] == "typed" and res["ssh_profile_id"] is None
     assert ssh_host.commands == []
-    created = await do_import(admin, done["id"], res["id"])
+    created = await do_import(admin, done["id"], res["id"], save_ssh=True)
     assert created["ssh_mode"] == "manual" and created["ssh_profile_id"] is None
     dev = (await admin.get(f"/api/devices/{created['device_id']}")).json()
     assert dev["ssh_mode"] == "manual" and dev["ssh_credentials"]["username"] == "netmon"

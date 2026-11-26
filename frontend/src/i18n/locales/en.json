@@ -1212,8 +1212,30 @@
       "snmpNone": "SNMP did not answer",
       "sshNone": "No SSH login succeeded",
       "snmpAll": "Save the SNMP settings that worked (all)",
-      "sshAll": "Save the SSH settings that worked (all)",
-      "snmpOffHint": "Without saved SNMP settings a device inherits them from the group; it may not answer if the group's settings differ."
+      "sshAll": "Save the SSH settings that worked (all)"
+    },
+    "inherit": {
+      "riskShort": "Group differs",
+      "sameShort": "Inherited",
+      "riskHostSnmp": "The import group gives other SNMP settings: unless you save them, this device will probably not answer SNMP.",
+      "sameHostSnmp": "The import group already gives the SNMP settings that worked: nothing needs saving.",
+      "riskHostSsh": "The import group gives other SSH settings: unless you save them, SSH (config backup) will not log in on this device.",
+      "sameHostSsh": "The import group already gives the SSH login that worked: nothing needs saving.",
+      "riskSnmp_one": "{{count}} selected host will not get the SNMP settings that worked through the group and will probably not answer SNMP.",
+      "riskSnmp_other": "{{count}} selected hosts will not get the SNMP settings that worked through the group and will probably not answer SNMP.",
+      "riskSsh_one": "{{count}} selected host will not get the SSH login that worked through the group.",
+      "riskSsh_other": "{{count}} selected hosts will not get the SSH login that worked through the group.",
+      "groupGives": "The group gives: {{origin}}. Save the settings for these hosts, or assign a connection profile to the group.",
+      "saveNeededSnmp_one": "Save SNMP for this host",
+      "saveNeededSnmp_other": "Save SNMP for these {{count}} hosts",
+      "saveNeededSsh_one": "Save SSH for this host",
+      "saveNeededSsh_other": "Save SSH for these {{count}} hosts",
+      "sameSnmp_one": "{{count}} selected host gets the same SNMP settings from the group: nothing needs saving.",
+      "sameSnmp_other": "{{count}} selected hosts get the same SNMP settings from the group: nothing needs saving.",
+      "sameSsh_one": "{{count}} selected host gets the same SSH login from the group: nothing needs saving.",
+      "sameSsh_other": "{{count}} selected hosts get the same SSH login from the group: nothing needs saving.",
+      "unknownSnmp": "Checking whether the group gives the SNMP settings that worked…",
+      "unknownSsh": "Checking whether the group gives the SSH login that worked…"
     },
     "importSsh": {
       "profile": "SSH: linked to profile {{name}}",

@@ -1,9 +1,9 @@
-# Connection profiles (release 1.7.0) — design notes and work split
+# Connection profiles (release 1.6.0) — design notes and work split
 
 "Connection profiles" / "פרופילי חיבור". Never call them "templates" (UI, code, i18n keys, docs): that word belongs
 to the sensor/device templates.
 
-The contract is in [data-model.md § Connection profiles](data-model.md#profiles-connection-profiles-release-170) and
+The contract is in [data-model.md § Connection profiles](data-model.md#profiles-connection-profiles-release-160) and
 [api.md § Connection profiles](api.md#profiles-connection-profiles). This file explains the decisions, splits the
 work so backend, frontend and QA can work in parallel against the contract, and lists the edge cases and the open
 questions. If the contract turns out wrong while implementing, report it to the architect (conventions).
@@ -34,20 +34,25 @@ questions. If the contract turns out wrong while implementing, report it to the 
    secrets, so it cannot copy them itself.
 9. **Discovery links by reference** only when the profile itself answered on its own port; otherwise it keeps the
    2a behaviour (inherit or a manual copy). The opt-in SSH login check (Q3) links the SSH profile that logged in,
-   or saves typed SSH credentials as manual, when the admin keeps "save SSH settings" on.
+   or saves typed SSH credentials as manual, when the admin ticks "save SSH settings".
+   **Owner decision (1.6.0): both "save SNMP" and "save SSH" are unticked by default** (and omitted = false in the
+   API): a default-ticked box would override the import group's inheritance on every imported device. The import
+   shows per host, and in a summary before the import, whether inheritance from the chosen group gives the
+   credential that worked (`GET /api/discovery/scans/{id}/inheritance`, computed server-side): "differs" → tick the
+   box for those hosts or assign a profile to the group; "same" → nothing needs saving.
 10. **Profile tests are read-only and never pin a host key**; SSH tests send no backup command.
 
 ## Work split
 
 Everyone: read both contract sections first. New user-visible strings need `en` and `he`. Commit style
-`area: summary`. Branch `conn-profiles` (from `main`); migration `0021` with `down_revision = "0018"` until 1.6.0
-lands, then `"0020"`.
+`area: summary`. Branch `conn-profiles` (from `main`); migration `0019` with `down_revision = "0018"`
+(release 1.6.0 ships directly on 1.5.1; the interface-noise migrations follow it in a later release).
 
 ### Backend developer (`backend/`)
 
 | File | Task |
 |---|---|
-| `netmon/migrations/versions/0021_connection_profiles.py` | New. upgrade / downgrade exactly as data-model § Migration (`0021`), including the downgrade materialisation and the removal of `snmp_profile_ids` from discovery options. Plain DDL, idempotent. |
+| `netmon/migrations/versions/0019_connection_profiles.py` | New. upgrade / downgrade exactly as data-model § Migration (`0019`), including the downgrade materialisation and the removal of `snmp_profile_ids` from discovery options. Plain DDL, idempotent. |
 | `netmon/models/profiles.py`, `netmon/models/__init__.py` | New ORM models `ConnectionProfile`, `ConnectionProfileAssignment`; `DiscoveryResult.snmp_profile_id` in `models/discovery.py`. |
 | `netmon/services/conn_profiles.py` | New. `KINDS` registry; **pure** `resolve(kind, chain, profiles)` and `origin(...)`; `usage(session, id)` and the counts; `assign` / `unassign` (with `FOR SHARE` on the profile row); `delete` (with `FOR UPDATE` + count); `copy_to_manual`; `reconcile_on_start` (manual-wins repair + audit); loader helpers that fetch all assignments and profiles in one query each. |
 | `netmon/schemas/__init__.py` (or a new `schemas/profiles.py`) | `ConnectionProfileIn`, `ConnectionProfilePatch`, `ProfileTestIn`, `ProfileTestNewIn`, `CopyFromProfileIn` (all `extra="forbid"`); group/device create/PATCH gain `snmp_profile_id`, `ssh_profile_id`; `ScanOptions` gains `snmp_profile_ids`; response models gain the fields of api.md § Types. |
@@ -61,7 +66,7 @@ lands, then `"0020"`.
 | `netmon/configbackup/service.py`, `netmon/configbackup/credentials.py` | `load_contexts` resolves SSH through profiles (one load of groups, assignments and SSH profiles); `unreadable()` for profile data; `ssh/test` merges over the profile-aware effective credentials. |
 | `netmon/services/secretbox.py`, `netmon/services/rekey.py` | Owner `conn_profile:<id>`; encrypted-only form for profile rows in every `transform_all` mode (untouched in the 1.4.1 form); `rekey` covers `connection_profiles.data`. |
 | `netmon/runtime.py` | `config_changed("connection_profile", …)` also marks ingest sources dirty and config-backup / new-device runners dirty, like `device` / `group`. `reconcile_on_start` after migrations. |
-| `docs/production.md` | A `[1.7.0] Upgrade and rollback` paragraph (nothing to do on upgrade; rollback behaviour per Q1). |
+| `docs/production.md` | A `[1.6.0] Upgrade and rollback` paragraph (nothing to do on upgrade; rollback behaviour per Q1). |
 
 **Backend tests** (`backend/tests/test_conn_profiles_units.py`, `test_conn_profiles.py`, `test_conn_profiles_discovery.py`):
 
@@ -81,7 +86,7 @@ lands, then `"0020"`.
   deleting a group cascades its assignment, after which the profile can be deleted; `usage` lists and `truncated`.
 - Backward compatibility: PATCH without new fields keeps a profile; `snmp_credentials` object → manual, reference
   gone; `null` → inherit; `snmp_profile_id: null` on a manual node changes nothing; both fields → `422`; the full
-  pre-1.7 group/device test suite passes unchanged except for the new response keys.
+  pre-1.6 group/device test suite passes unchanged except for the new response keys.
 - Copy from profile: node becomes manual with the profile's secrets (an SNMP poll against snmpsim works), the
   ciphertext is re-sealed for the node owner, a later profile edit does not affect the node.
 - Tests of a profile: SNMP against snmpsim (ok; wrong community → `502 snmp_error`; v3 wrong key), SSH against
@@ -94,10 +99,11 @@ lands, then `"0020"`.
 - Discovery SSH (Q3): opt-in default off (no SSH without the options); stop at the first success; skipped when the
   port is not open; no command executed and no host key stored (against `tests/ssh_sim.py`); result recording
   (`ssh_attempted`, `ssh_ok`, `ssh_credential`, `ssh_profile_id`); import links the SSH profile / saves typed
-  credentials as manual; decline (`save_ssh: false`) → inherit; option validation (kind, existence, ≤ 3); an SSH
+  credentials as manual when `save_ssh: true`; omitted / `false` → inherit; option validation (kind, existence, ≤ 3); an SSH
   profile in a saved discovery profile is "in use"; typed SSH credentials never returned; `ssh_choice` table.
 - Discovery: scan with `snmp_profile_ids` (order, result `snmp_credential: "profile"`, `snmp_profile_id`), import
-  links the device to the profile; import with a different `snmp_port` → manual copy; import into a group that
+  links the device to the profile (`save_snmp: true`; omitted → inherit); import with a different `snmp_port` →
+  manual copy; inheritance check `same` / `differs` (profile id, value, port, child group, SSH by decrypted login); import into a group that
   inherits that profile → inherit; profile deleted between scan and import → manual copy; a saved discovery
   profile makes the profile "in use".
 - Dormant manual data (Q2): manual → profile keeps the column (`K_has_saved_manual: true`, `K_credentials: null`
@@ -106,7 +112,7 @@ lands, then `"0020"`.
   `K_credentials: null` discards; `copy-from-profile` overwrites; rekey re-encrypts dormant data; downgrade writes
   the profile value over dormant data.
 - `netmon secrets rekey` re-encrypts profiles; `transform_all` modes leave them encrypted-only.
-- Migrations (both DB modes, `test_migrations.py`): head `0021`; upgrade leaves every effective credential
+- Migrations (both DB modes, `test_migrations.py`): head `0019`; upgrade leaves every effective credential
   byte-identical; downgrade materialises references into manual columns (polls still work on 0018 data) and stops
   on an unreadable profile without changing anything.
 
@@ -123,7 +129,7 @@ lands, then `"0020"`.
 | `src/pages/DevicePage.tsx`, `src/pages/GroupPage.tsx` | Show mode / origin for both kinds (viewer: names only, never a field of profile data). |
 | `src/components/profiles/ConnectionProfilesTab.tsx`, `ProfileForm.tsx`, `ProfileUsageDialog.tsx`, `ProfileTestDialog.tsx` (new) | Settings tab "Connection profiles": table (name, kind, description, used by, devices affected), create / edit (editing a used profile shows "affects N devices"), delete (blocked → "used by" dialog with links), test (device picker or address; SNMP shows sysName/sysDescr, SSH shows steps). |
 | `src/lib/features.ts`, `src/pages/SettingsPage.tsx`, `src/components/SettingsSearch.tsx` | `SETTINGS_TABS` gains `connectionProfiles` (always present, admin only, no toggle); search entries. |
-| `src/components/discovery/ScanForm.tsx`, `src/pages/ScanPage.tsx`, `src/pages/DiscoveryPage.tsx` | Profile multi-select (SNMP profiles, ordered) next to extra communities / v3; opt-in SSH section (SSH profiles ≤ 3, ordered, and/or typed SSH credentials) with the lockout warning; result columns show the SNMP profile and the SSH login result; import dialog has "save SSH settings that worked" (per row and for all, default on when `ssh_ok`); import result shows the links. |
+| `src/components/discovery/ScanForm.tsx`, `src/pages/ScanPage.tsx`, `src/pages/DiscoveryPage.tsx` | Profile multi-select (SNMP profiles, ordered) next to extra communities / v3; opt-in SSH section (SSH profiles ≤ 3, ordered, and/or typed SSH credentials) with the lockout warning; result columns show the SNMP profile and the SSH login result; import has "save SNMP / SSH settings that worked" (per row and a tri-state per column, **unticked by default**) with the per-host and summary inheritance hint; import result shows the links. |
 | Tree-move confirmation (`src/components/treemenu/…`) | Show profile names in the before/after effects. |
 | `src/i18n/locales/en.json`, `he.json` | `profiles.*`, `credMode.*`, `errors.profile_in_use`, `errors.profile_kind_mismatch`, audit action names. Hebrew: "פרופיל חיבור" / "פרופילי חיבור"; modes "ירושה" / "פרופיל" / "ידני". |
 
@@ -153,7 +159,7 @@ E2E (`tests/e2e/specs/94-connection-profiles.spec.ts`, `95-connection-profiles-d
    the device is in mode "profile" with that profile.
 9. Config backup: an SSH profile on a group makes its devices eligible; a backup runs with it.
 10. Viewer: no Connection profiles tab; group/device pages show only the profile name; direct API calls get 403.
-11. Upgrade check (integration, `tests/integration`): on a database with 1.6 data, after the upgrade every group /
+11. Upgrade check (integration, `tests/integration`): on a database with 1.5 data, after the upgrade every group /
     device shows "Manual" or "Inherit" exactly as before, and polls are unchanged.
 12. Tree move between groups with different profiles: the preview names both profiles.
 13. Mobile width and RTL layout of the profiles tab and the picker.
@@ -196,11 +202,11 @@ QA also reviews the backend test list above for gaps and adds `tests/integration
 - **Profile edited between scan and import:** the device is still linked (reference semantics: the admin's latest
   profile values apply); only a deleted profile falls back to a manual copy of what answered.
 - **Old clients** that always send `snmp_credentials` turn a profile node into inherit/manual on save (api.md
-  compatibility notes); the 1.7 UI sends a kind's credentials only when the user changed it.
+  compatibility notes); the 1.6 UI sends a kind's credentials only when the user changed it.
 
 ## Owner decisions
 
-- **Q1 — Container rollback to 1.6 without downgrading the database: option (a), accepted.** The supported rollback
+- **Q1 — Container rollback to 1.5 without downgrading the database: option (a), accepted.** The supported rollback
   after profiles are in use is the pre-deploy dump restore or `netmon migrate` down to the previous head, whose
   downgrade copies every profile into manual credentials. An image-only rollback ignores the new tables: a node in
   mode `profile` behaves there as its column says — with dormant manual data (Q2) it uses that data, without it as
@@ -212,7 +218,7 @@ QA also reviews the backend test list above for gaps and adds `tests/integration
   carry `K_has_saved_manual`. Every switch is audited.
 - **Q3 — Discovery: SNMP profiles and typed SNMP credentials as designed (both always available); plus an opt-in
   SSH login check** (reverses the recommendation): `ssh_profile_ids` (≤ 3) and typed `ssh_credentials` in the scan
-  options; login and disconnect only; import offers "save the SSH settings that worked" (default on after a
-  successful login), assigning the profile or saving typed credentials as manual. No SSH profile is assigned to a
+  options; login and disconnect only; import offers "save the SSH settings that worked" (unticked by default
+  since the 1.6.0 owner decision; see Key decisions 9), assigning the profile or saving typed credentials as manual. No SSH profile is assigned to a
   group by discovery. Operational risk (account lockout / security alerts after failed logins) documented and
   shown in the UI.

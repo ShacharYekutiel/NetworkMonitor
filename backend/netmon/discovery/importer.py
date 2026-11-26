@@ -109,6 +109,86 @@ def ssh_choice(
     return "manual", None
 
 
+def snmp_inherits_same(
+    cred: dict[str, Any], group_effective: dict[str, Any], group_profile_id: int | None
+) -> bool:
+    """[profiles] Would a device imported into the group (SNMP "inherit") get the credential
+    that answered in the scan? The same profile (by id), or the same resolved credential
+    (every field except timeout_s / retries, port included). Pure; plaintext in, bool out."""
+    pid = cred.get("_profile_id")
+    if pid is not None and group_profile_id is not None and int(pid) == int(group_profile_id):
+        return True
+    return _comparable(cred) == _comparable(group_effective)
+
+
+def ssh_inherits_same(
+    cand: dict[str, Any],
+    group_stored: dict[str, Any] | None,
+    group_profile_id: int | None,
+    secret_key: str,
+) -> bool:
+    """[profiles] The SSH counterpart: the same profile (by id), or the group's effective
+    stored credentials decrypt to the very login that worked (username, port, secrets,
+    legacy algorithms). Unreadable / incomplete credentials never count as the same."""
+    from netmon.configbackup import credentials as ssh_creds
+
+    pid = cand.get("_profile_id")
+    if pid is not None and group_profile_id is not None and int(pid) == int(group_profile_id):
+        return True
+    if not group_stored:
+        return False
+    plain = {k: v for k, v in cand.items() if not k.startswith("_")}
+    try:
+        return ssh_creds.decrypt(plain, secret_key) == ssh_creds.decrypt(group_stored, secret_key)
+    except ssh_creds.CredentialsUnreadable:
+        return False
+
+
+async def inheritance(rt: Runtime, scan: Any, group_id: int) -> dict[str, Any]:
+    """[profiles] For each result with a working SNMP / SSH credential: does importing it into
+    `group_id` WITHOUT saving that credential (the default: the device inherits) give the
+    device the same credential? "same" | "differs" per kind, null = nothing worked. Plus the
+    group's effective origins (api.md `CredentialOrigin`). Never a secret."""
+    async with rt.sessionmaker() as session:
+        gres = await conn_profiles.resolve_group(session, "snmp", group_id)
+        sres = await conn_profiles.resolve_group(session, "ssh", group_id)
+        rows = (
+            await session.execute(
+                text(
+                    "SELECT id, snmp_ok, snmp_credential_index, ssh_ok, ssh_credential, "
+                    "ssh_profile_id FROM discovery_results WHERE scan_id = :s ORDER BY ip"
+                ),
+                {"s": scan.id},
+            )
+        ).all()
+    first = conn_profiles.ChainNode("group", group_id, None)
+    group_snmp = conn_profiles.effective(gres)
+    group_ssh = conn_profiles.effective(sres)
+    snmp_pid = gres.profile_id if gres.mode == "profile" else None
+    ssh_pid = sres.profile_id if sres.mode == "profile" else None
+    credentials = secretbox.open_scan_credentials(scan.id, scan.credentials)
+    items: list[dict[str, Any]] = []
+    for row in rows:
+        snmp: str | None = None
+        idx = row.snmp_credential_index
+        if row.snmp_ok and idx is not None and 0 <= idx < len(credentials):
+            same = snmp_inherits_same(credentials[idx], group_snmp, snmp_pid)
+            snmp = "same" if same else "differs"
+        ssh: str | None = None
+        cand = ssh_candidate(scan, row)
+        if cand is not None:
+            same = ssh_inherits_same(cand, group_ssh, ssh_pid, rt.secret_key)
+            ssh = "same" if same else "differs"
+        if snmp is not None or ssh is not None:
+            items.append({"result_id": row.id, "snmp": snmp, "ssh": ssh})
+    return {
+        "group_id": group_id,
+        "snmp_origin": conn_profiles.origin_of(gres, first),
+        "ssh_origin": conn_profiles.origin_of(sres, first),
+        "items": items,
+    }
+
+
 def ssh_candidate(scan: Any, row: Any) -> dict[str, Any] | None:
     """The scan snapshot candidate that logged in for a result row (None: no login)."""
     if not getattr(row, "ssh_ok", False):
@@ -297,8 +377,9 @@ async def _store_credentials(
     audit_ctx: Any,
 ) -> dict[str, Any]:
     """[profiles] SNMP and SSH of an imported device (same transaction): what worked is
-    linked (profile), inherited or copied (manual), unless the item says `save_snmp` /
-    `save_ssh` false (then the device inherits from the import group)."""
+    linked (profile), inherited or copied (manual) only when the item says `save_snmp` /
+    `save_ssh` true; omitted / null / false = the device inherits from the import group
+    (owner decision for 1.6.0: an import never overrides inheritance unless asked)."""
     out: dict[str, Any] = {
         "snmp_mode": None,
         "snmp_profile_id": None,
@@ -309,7 +390,7 @@ async def _store_credentials(
     idx = row.snmp_credential_index
     if row.snmp_ok and idx is not None and 0 <= idx < len(credentials):
         cred = credentials[idx]
-        if item.get("save_snmp") is False:
+        if not item.get("save_snmp"):
             mode, pid = "inherit", None
         else:
             pid0 = cred.get("_profile_id")
@@ -342,8 +423,7 @@ async def _store_credentials(
     # ---- SSH (owner decision Q3)
     cand = ssh_candidate(scan, row) if scan is not None else None
     if cand is not None:
-        save = item.get("save_ssh")
-        save = bool(row.ssh_ok) if save is None else bool(save)
+        save = bool(item.get("save_ssh"))
         pid0 = cand.get("_profile_id")
         now = (await conn_profiles.load_profiles(session, [pid0])).get(pid0) if pid0 else None
         mode, pid = ssh_choice(save, bool(row.ssh_ok), cand, group_pids.get("ssh"), now)

@@ -839,7 +839,8 @@ class ImportItem(_In):
     result_id: int
     template_id: str
     name: str | None = Field(default=None, min_length=1, max_length=128)
-    # [profiles] save the credentials that worked (null / omitted = yes when they worked)
+    # [profiles] save the credentials that worked on the device (null / omitted = no: the
+    # device inherits from the import group; owner decision for 1.6.0)
     save_snmp: bool | None = None
     save_ssh: bool | None = None
 

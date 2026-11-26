@@ -217,7 +217,7 @@ export type CredentialOrigin = {
   profile_name: string | null;
 };
 
-/** Keys every Group and Device carries since 1.7.0. */
+/** Keys every Group and Device carries since 1.6.0. */
 export type NodeCredentialRefs = {
   snmp_mode: CredentialMode;
   snmp_profile_id: number | null;
@@ -1266,10 +1266,19 @@ export type ImportItem = {
   result_id: number;
   template_id: string;
   name?: string | null;
-  /** [profiles] omitted / null = true when SNMP answered; false = inherit from the group */
+  /** [profiles] true = store what answered; omitted / null / false = inherit from the group (1.6.0) */
   save_snmp?: boolean | null;
-  /** [profiles] omitted / null = true when an SSH login succeeded */
+  /** [profiles] true = store the SSH login that worked; omitted / null / false = inherit */
   save_ssh?: boolean | null;
+};
+/** [profiles] GET /discovery/scans/{id}/inheritance: does inheriting from the group give the
+ * credential that worked? (server-side comparison, never a secret) */
+export type InheritVerdict = 'same' | 'differs' | null;
+export type ScanInheritance = {
+  group_id: number;
+  snmp_origin: CredentialOrigin;
+  ssh_origin: CredentialOrigin;
+  items: { result_id: number; snmp: InheritVerdict; ssh: InheritVerdict }[];
 };
 export type ImportRequest = { group_id?: number | null; items: ImportItem[] };
 export type ImportErrorCode = 'not_found' | 'device_exists' | 'internal_error';

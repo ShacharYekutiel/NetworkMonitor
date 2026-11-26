@@ -1,4 +1,5 @@
-// [profiles] Import: per-host "save the SNMP / SSH settings that worked" and the column toggles.
+// [profiles] Import: per-host "save the SNMP / SSH settings that worked" (unticked by default,
+// owner decision 1.6.0), the column toggles and the inheritance hint per host.
 import { useEffect, useRef } from 'react';
 import { useTranslation } from 'react-i18next';
 import type { DiscoveryResult } from '../../api/types';
@@ -8,9 +9,11 @@ import {
   headerToggle,
   isSaved,
   setAll,
+  type InheritHint,
   type SaveKind,
-  type SaveOff,
+  type SaveOn,
 } from '../../lib/importSave';
+import { AlertIcon, CheckIcon } from '../icons';
 import { CHECKBOX } from '../kit';
 import { cx } from '../ui';
 
@@ -23,17 +26,21 @@ export function SaveCheckbox({
   onSave,
   disabled,
   withLabel,
+  hint,
 }: {
   r: DiscoveryResult;
   kind: SaveKind;
-  save: SaveOff;
+  save: SaveOn;
   onSave: (kind: SaveKind, on: boolean) => void;
   disabled?: boolean;
   /** show the label next to the box (cards); the table relies on the column header */
   withLabel?: boolean;
+  /** what inheriting from the import group gives when the box stays unticked */
+  hint?: InheritHint;
 }) {
   const { t } = useTranslation();
   const can = canSave(r, kind);
+  const mark = hint ? <InheritMark kind={kind} hint={hint} id={r.id} long={withLabel} /> : null;
   const box = (
     <input
       type="checkbox"
@@ -46,17 +53,74 @@ export function SaveCheckbox({
       data-testid={`save-${kind}-${r.id}`}
     />
   );
-  if (!withLabel) return box;
+  if (!withLabel)
+    return (
+      <span className="inline-flex flex-col items-center gap-0.5">
+        {box}
+        {mark}
+      </span>
+    );
   return (
-    <label
+    <span className="inline-flex flex-col gap-0.5">
+      <label
+        className={cx(
+          'inline-flex items-center gap-2 text-[13px]',
+          can ? 'cursor-pointer' : 'text-ink-subtle',
+        )}
+      >
+        {box}
+        {t(`discovery.save.${kind}`)}
+      </label>
+      {mark}
+    </span>
+  );
+}
+
+/**
+ * The per-host inheritance hint under an unticked box: "risk" (the group gives other settings:
+ * the device will probably not answer) in warning colour, "same" (nothing needs saving) muted.
+ * Short in the narrow table column (icon + a word, full text as title and for screen readers),
+ * the full sentence in cards.
+ */
+export function InheritMark({
+  kind,
+  hint,
+  id,
+  long,
+}: {
+  kind: SaveKind;
+  hint: InheritHint;
+  id: number;
+  long?: boolean;
+}) {
+  const { t } = useTranslation();
+  if (hint !== 'risk' && hint !== 'same') return null;
+  const full = t(`discovery.inherit.${hint}Host${kind === 'snmp' ? 'Snmp' : 'Ssh'}`);
+  const risk = hint === 'risk';
+  return (
+    <span
       className={cx(
-        'inline-flex items-center gap-2 text-[13px]',
-        can ? 'cursor-pointer' : 'text-ink-subtle',
+        'inline-flex items-center gap-1 text-[11px] leading-tight',
+        risk ? 'font-medium text-status-warning' : 'text-ink-muted',
       )}
+      title={long ? undefined : full}
+      data-testid={`inherit-${kind}-${id}`}
+      data-hint={hint}
     >
-      {box}
-      {t(`discovery.save.${kind}`)}
-    </label>
+      {risk ? (
+        <AlertIcon size={12} className="shrink-0" />
+      ) : (
+        <CheckIcon size={12} className="shrink-0" />
+      )}
+      {long ? (
+        full
+      ) : (
+        <>
+          <span aria-hidden>{t(`discovery.inherit.${hint}Short`)}</span>
+          <span className="sr-only">{full}</span>
+        </>
+      )}
+    </span>
   );
 }
 
@@ -71,8 +135,8 @@ export function SaveHeaderCheckbox({
 }: {
   rows: DiscoveryResult[];
   kind: SaveKind;
-  save: SaveOff;
-  onChange: (next: SaveOff) => void;
+  save: SaveOn;
+  onChange: (next: SaveOn) => void;
   disabled?: boolean;
   withLabel?: boolean;
 }) {
