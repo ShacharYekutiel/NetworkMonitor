@@ -1119,7 +1119,8 @@ async def apply_event(
                             primary_sent_at = NULL,
                             escalation_due_at = EXCLUDED.escalation_due_at,
                             escalated_at = NULL, next_reminder_at = NULL, reminders_sent = 0,
-                            maintenance_suppressed = false, updated_at = now()
+                            maintenance_suppressed = false, flap_suppressed = false,
+                            updated_at = now()
                         """
                     ),
                     {

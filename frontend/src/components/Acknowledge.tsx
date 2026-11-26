@@ -1,6 +1,7 @@
 // [2b-1] Acknowledge: badge, acknowledge dialog, unacknowledge (admin only).
 import { useState } from 'react';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
+import type { TFunction } from 'i18next';
 import { useTranslation } from 'react-i18next';
 import { endpoints, qk } from '../api/endpoints';
 import type { Acknowledgement, Dashboard, Sensor } from '../api/types';
@@ -13,10 +14,7 @@ import { CheckIcon, XIcon } from './icons';
 import { useToast } from './toast';
 import { Button, ErrorBox, Field, Modal, Textarea } from './ui';
 
-export function ackTooltip(
-  t: (k: string, o?: Record<string, unknown>) => string,
-  a: Acknowledgement,
-): string {
+export function ackTooltip(t: TFunction, a: Acknowledgement): string {
   const base = t('ack.tooltip', { by: a.by ?? t('ack.unknownUser'), at: formatDateTime(a.at) });
   return a.comment ? `${base}: ${a.comment}` : base;
 }

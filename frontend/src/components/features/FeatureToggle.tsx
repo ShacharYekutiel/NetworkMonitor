@@ -39,7 +39,7 @@ function Lines({ lines }: { lines: StatusLine[] }) {
             l.tone === 'muted' && 'text-ink-muted',
           )}
         >
-          {t(l.key, l.params)}
+          {t(l.key, l.params ?? {})}
         </p>
       ))}
     </>

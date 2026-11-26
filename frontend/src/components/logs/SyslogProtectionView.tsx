@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import { Link } from 'react-router';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import type { TFunction } from 'i18next';
 import { useTranslation } from 'react-i18next';
 import { endpoints, qk } from '../../api/endpoints';
 import type {
@@ -51,7 +52,7 @@ import {
 import { SeverityBadge, SourceCell } from './common';
 
 /** "Info and less important": the rule matches this severity and every less important one. */
-function severityLabel(t: (k: string, o?: Record<string, unknown>) => string, s: number) {
+function severityLabel(t: TFunction, s: number) {
   return t('syslogFilters.sevAndLess', { sev: t(`syslogSeverity.${s}`) });
 }
 
@@ -183,7 +184,10 @@ function ProtectionSummary({
         </Link>
       }
     >
-      <div className="grid gap-4" data-testid="protection-summary">
+      {/* grid-cols-1 = minmax(0, 1fr): an implicit `auto` track grew to the "by source" table's
+          width at narrow widths and the card clipped the tiles and counters (production finding,
+          1.5.0, ~590px Hebrew); now the table scrolls inside its own container. */}
+      <div className="grid grid-cols-1 gap-4" data-testid="protection-summary">
         <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
           {tiles.map((x) => (
             <div key={x.k} className="rounded-lg bg-surface-sunken px-4 py-3">
@@ -535,7 +539,8 @@ function TopTalkersCard({ onCreate }: { onCreate: (x: TopTalker) => void }) {
     {
       id: 'source',
       label: t('syslogFilters.col.source'),
-      minWidth: 140,
+      // an IP and the "unknown" badge side by side, never cut
+      minWidth: 210,
       cell: (x) => <SourceCell r={x} />,
     },
     {
@@ -613,6 +618,7 @@ function TopTalkersCard({ onCreate }: { onCreate: (x: TopTalker) => void }) {
           rows={q.data.items}
           rowKey={(x) => `${x.source_ip}|${x.device_id}|${x.program}|${x.severity}`}
           testId="top-talkers"
+          cardsWhenNarrow
         />
       )}
     </Card>

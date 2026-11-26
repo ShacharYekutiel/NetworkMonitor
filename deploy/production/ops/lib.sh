@@ -20,6 +20,9 @@ NETMON_SYSTEMD_DIR="${NETMON_SYSTEMD_DIR:-/etc/systemd/system}"
 NETMON_HEALTH_TIMEOUT="${NETMON_HEALTH_TIMEOUT:-300}"
 NETMON_HEALTH_POLL="${NETMON_HEALTH_POLL:-5}"
 DOCKER="${DOCKER:-docker}"
+# The application database and its role (the POSTGRES_USER of the db service, a superuser).
+NETMON_DB_NAME="${NETMON_DB_NAME:-netmon}"
+NETMON_DB_USER="${NETMON_DB_USER:-netmon}"
 CURL="${CURL:-curl}"
 CONNTRACK="${CONNTRACK:-conntrack}"
 export NETMON_ETC_DIR
@@ -211,7 +214,7 @@ db_dump() {
   chmod 0700 "$(dirname "$dest")" 2>/dev/null || true
   (
     umask 077
-    "$DOCKER" exec "$cid" pg_dump -U netmon -d netmon -Fc >"$tmp"
+    "$DOCKER" exec "$cid" pg_dump -U "$NETMON_DB_USER" -d "$NETMON_DB_NAME" -Fc >"$tmp"
   ) || {
     rm -f "$tmp"
     err "pg_dump failed"
@@ -224,6 +227,101 @@ db_dump() {
   fi
   mv "$tmp" "$dest"
   log "database dump written: $dest ($(du -h "$dest" | cut -f1))"
+}
+
+# ------------------------------------------------------------------ [1.5.1] TimescaleDB versions
+# A newer timescale/timescaledb image ships the libraries and install scripts of the earlier
+# releases too (it is built FROM the previous image), so it can load a database that is still
+# on an older extension version and can CREATE EXTENSION ... VERSION '<older>'. An OLDER image
+# cannot load a database whose extension was updated past its own version, and an extension
+# update cannot be undone (Timescale supports a downgrade script for one step only).
+
+# The db image the checked-out compose.yaml asks for: `image:` of services.db in the normalized
+# `compose config` output. (Not `config --images db`: it also prints the images of db's
+# dependencies (init: busybox), in no fixed order.)
+compose_db_image() {
+  compose config 2>/dev/null | awk '
+    /^services:/ { s = 1; next }
+    s && /^[^ ]/ { s = 0 }
+    s && /^  db:$/ { d = 1; next }
+    d && /^  [^ ]/ { d = 0 }
+    d && /^    image: / { print $2; exit }'
+}
+
+# The timescaledb version installed in the application database of the running db container
+# (empty: no extension, or the database cannot be read).
+db_ts_version() {
+  local cid
+  cid="$(service_cid db)"
+  [[ -n $cid ]] || return 0
+  "$DOCKER" exec "$cid" psql -X -A -t -q -U "$NETMON_DB_USER" -d "$NETMON_DB_NAME" \
+    -c "SELECT extversion FROM pg_extension WHERE extname = 'timescaledb'" 2>/dev/null | tr -d '[:space:]' || true
+}
+
+# What a db image ships, without starting PostgreSQL; with a dump file, also which timescaledb
+# version wrote it (read from the dumped _timescaledb_catalog.metadata row
+# "timescaledb_version", which TimescaleDB keeps equal to the installed version). One line each:
+#   default=<v>  the version CREATE EXTENSION / ALTER EXTENSION ... UPDATE installs
+#   lib=<v>      a version whose library is present (a database on <v> can be opened)
+#   have=<v>     a version that can be created (library + install script)
+#   dump_ts=1    the dump contains TimescaleDB catalog data;  dump=<v>  its version
+# Exit status != 0 when the image could not be run (e.g. pull failed).
+ts_probe() { # image [dump]
+  local img=$1 dump=${2:-}
+  # shellcheck disable=SC2016 # expanded by the container's sh
+  local script='
+    if [ "$1" = 1 ]; then
+      out="$(pg_restore -a -n _timescaledb_catalog -t metadata -f - 2>/dev/null)" || echo dump_error=1
+      case "$out" in *"COPY _timescaledb_catalog.metadata"*) echo dump_ts=1 ;; esac
+      printf "%s\n" "$out" | awk -F "\t" "\$1 == \"timescaledb_version\" { print \"dump=\" \$2 }"
+    fi
+    lib="$(pg_config --pkglibdir)"; ext="$(pg_config --sharedir)/extension"
+    sed -n "s/^default_version *= *.\([0-9.]*\).*/default=\1/p" "$ext/timescaledb.control"
+    for f in "$lib"/timescaledb-[0-9]*.so; do
+      [ -e "$f" ] || continue
+      v="${f##*/timescaledb-}"; v="${v%.so}"
+      echo "lib=$v"
+      if [ -f "$ext/timescaledb--$v.sql" ]; then echo "have=$v"; fi
+    done'
+  if [[ -n $dump ]]; then
+    "$DOCKER" run --rm -i --network none --entrypoint sh "$img" -c "$script" sh 1 <"$dump"
+  else
+    "$DOCKER" run --rm --network none --entrypoint sh "$img" -c "$script" sh 0 </dev/null
+  fi
+}
+
+# "timescale/timescaledb:2.31.0-pg16" for version 2.31.0, keeping the PostgreSQL major of $2.
+ts_image_for() { # version current-image
+  local pg="pg16"
+  [[ $2 =~ -(pg[0-9]+)$ ]] && pg="${BASH_REMATCH[1]}"
+  printf 'timescale/timescaledb:%s-%s' "$1" "$pg"
+}
+
+# `compose up -d --remove-orphans`, except that the db container stays on the image it runs
+# when the checked-out compose.yaml asks for a db image that cannot load the TimescaleDB
+# version the database already uses (a rollback/drift repair to a revision with an older db
+# image after the extension was updated: recreating db would make the database unusable).
+# Returns 0 after a normal up, 1 when up failed; sets DB_KEPT to the kept image (else empty).
+DB_KEPT=""
+compose_up_guarded() {
+  local want have v probe svcs=()
+  DB_KEPT=""
+  want="$(compose_db_image)"
+  have="$(running_image db || true)"
+  if [[ -n $want && -n $have && $want != "$have" ]] && service_running db; then
+    v="$(db_ts_version)"
+    # An image that cannot be inspected (pull failed) counts as "cannot load": keep db.
+    [[ -z $v ]] || probe="$(ts_probe "$want" 2>/dev/null)" || probe=""
+    if [[ -n $v ]] && ! grep -qx "lib=$v" <<<"${probe:-}"; then
+      warn "compose.yaml asks for db image $want, which cannot load TimescaleDB $v (the version in the database); keeping db on $have"
+      # shellcheck disable=SC2034 # read by sync.sh
+      DB_KEPT="$have"
+      mapfile -t svcs < <(compose config --services | grep -vx db)
+      compose up -d --no-deps --remove-orphans "${svcs[@]}"
+      return
+    fi
+  fi
+  compose up -d --remove-orphans
 }
 
 # ------------------------------------------------------------------ notification

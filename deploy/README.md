@@ -179,6 +179,16 @@ and the firewall, not from every access switch (≈ 0.4 GB of database per busy 
 The data is in PostgreSQL. Back it up with `pg_dump` in custom format. The data directory holds `secret.key` (if it
 is lost, users only have to log in again) and the DB password (Docker) or `netmon.env` (native).
 
+**Restore = same TimescaleDB version first, then update [1.5.1].** A dump must be restored into the TimescaleDB
+extension version that wrote it, and the extension updated afterwards (Timescale's troubleshooting guide, "Version
+mismatch when dumping and restoring"). A plain `CREATE EXTENSION timescaledb` creates the server's newest version, and
+`timescaledb_post_restore()` then stops with `catalog version mismatch, expected "2.32.1" seen "2.31.0"`, leaving the
+database in restore mode (background jobs off). So the steps below read the version from the dump, create exactly
+that version, restore, and run `ALTER EXTENSION timescaledb UPDATE`. The server must still ship the dump's version:
+`timescale/timescaledb` images and the Linux `timescaledb-2-postgresql-16` packages keep the earlier releases (the
+2.32.1 image can create 2.31.0); an older server cannot restore a dump from a newer extension. Use a newer server, or an
+image tag of the dump's version (`timescale/timescaledb:<version>-pg16`).
+
 **Docker**
 
 ```bash
@@ -186,27 +196,44 @@ C="docker compose -f deploy/docker-compose.yml"
 # backup
 $C exec -T db pg_dump -U netmon -Fc netmon > netmon-$(date +%F).dump
 # restore (replaces the current database)
+F=netmon-YYYY-MM-DD.dump
+# 1. the TimescaleDB version that wrote the dump, and check this server can create it (must print it back)
+V=$($C exec -T db pg_restore -a -n _timescaledb_catalog -t metadata -f - < "$F" | awk -F'\t' '$1 == "timescaledb_version" {print $2}')
+echo "dump written by TimescaleDB $V"
+$C exec -T db psql -XAt -U netmon -d postgres -c "SELECT version FROM pg_available_extension_versions WHERE name = 'timescaledb' AND version = '$V'"
+# 2. replace the database (template0: template1 of the image already holds the extension)
 $C stop netmon
-$C exec -T db psql -U netmon -d postgres -c 'DROP DATABASE IF EXISTS netmon WITH (FORCE)' -c 'CREATE DATABASE netmon'
-$C exec -T db psql -U netmon -d netmon -c 'CREATE EXTENSION IF NOT EXISTS timescaledb' -c 'SELECT timescaledb_pre_restore()'
-$C exec -T db pg_restore -U netmon -d netmon --no-owner < netmon-YYYY-MM-DD.dump
-$C exec -T db psql -U netmon -d netmon -c 'SELECT timescaledb_post_restore()'
+$C exec -T db psql -X -U netmon -d postgres -c 'DROP DATABASE IF EXISTS netmon WITH (FORCE)' -c 'CREATE DATABASE netmon TEMPLATE template0'
+$C exec -T db psql -X -U netmon -d netmon -c "CREATE EXTENSION timescaledb VERSION '$V'" -c 'SELECT timescaledb_pre_restore()'
+$C exec -T db pg_restore -U netmon -d netmon --no-owner < "$F"
+$C exec -T db psql -X -U netmon -d netmon -c 'SELECT timescaledb_post_restore()'
+# 3. update to the server's version (a separate psql -X call: it must be the first statement of a session)
+$C exec -T db psql -X -U netmon -d netmon -c 'ALTER EXTENSION timescaledb UPDATE'
 $C start netmon
 # optional: the data volume (DB password, secret.key)
 docker run --rm -v netmon_netmon-data:/data -v "$PWD":/backup busybox tar czf /backup/netmon-data.tgz -C /data .
 ```
+
+If step 1 prints nothing, this image cannot create that version: set `NETMON_DB_IMAGE=timescale/timescaledb:<V>-pg16`
+(or a newer tag) in `deploy/.env`, `$C up -d db`, and restore again. A dump without TimescaleDB (plain PostgreSQL
+mode, `V` empty) restores with `CREATE EXTENSION IF NOT EXISTS timescaledb` in step 2 and no step 3. The production
+(GitOps) server does all of this in `ops/restore.sh`.
 
 **Linux (native)**
 
 ```bash
 sudo runuser -u postgres -- pg_dump -Fc netmon > netmon-$(date +%F).dump
 # restore
+F=netmon-YYYY-MM-DD.dump
+V=$(pg_restore -a -n _timescaledb_catalog -t metadata -f - < "$F" | awk -F'\t' '$1 == "timescaledb_version" {print $2}')
+sudo runuser -u postgres -- psql -XAt -c "SELECT version FROM pg_available_extension_versions WHERE name = 'timescaledb' AND version = '$V'"
 sudo systemctl stop netmon
-sudo runuser -u postgres -- psql -c 'DROP DATABASE IF EXISTS netmon WITH (FORCE)' -c 'CREATE DATABASE netmon OWNER netmon'
-# TimescaleDB only: run the next line, and the post_restore line after pg_restore
-sudo runuser -u postgres -- psql -d netmon -c 'CREATE EXTENSION IF NOT EXISTS timescaledb' -c 'SELECT timescaledb_pre_restore()'
-sudo runuser -u postgres -- pg_restore -d netmon --no-owner --role=netmon < netmon-YYYY-MM-DD.dump
-sudo runuser -u postgres -- psql -d netmon -c 'SELECT timescaledb_post_restore()'
+sudo runuser -u postgres -- psql -X -c 'DROP DATABASE IF EXISTS netmon WITH (FORCE)' -c 'CREATE DATABASE netmon OWNER netmon TEMPLATE template0'
+# TimescaleDB only (V not empty): the next line, and the post_restore and UPDATE lines after pg_restore
+sudo runuser -u postgres -- psql -X -d netmon -c "CREATE EXTENSION timescaledb VERSION '$V'" -c 'SELECT timescaledb_pre_restore()'
+sudo runuser -u postgres -- pg_restore -d netmon --no-owner --role=netmon < "$F"
+sudo runuser -u postgres -- psql -X -d netmon -c 'SELECT timescaledb_post_restore()'
+sudo runuser -u postgres -- psql -X -d netmon -c 'ALTER EXTENSION timescaledb UPDATE'
 sudo systemctl start netmon
 ```
 
@@ -217,14 +244,42 @@ $pg = 'C:\Program Files\PostgreSQL\16\bin'
 # the password is in DATABASE_URL in C:\ProgramData\NetworkMonitor\netmon.env
 $env:PGPASSWORD = '<password from netmon.env>'
 & "$pg\pg_dump.exe" -h 127.0.0.1 -U netmon -Fc -f "netmon-$(Get-Date -Format yyyy-MM-dd).dump" netmon
-# restore: Stop-Service NetworkMonitor, then drop and recreate the database and run pg_restore,
-# as in the Linux steps (connect as postgres), then Start-Service NetworkMonitor
+# restore: the TimescaleDB version that wrote the dump
+& "$pg\pg_restore.exe" -a -n _timescaledb_catalog -t metadata -f - netmon-YYYY-MM-DD.dump | Select-String '^timescaledb_version\t'
+# then Stop-Service NetworkMonitor and run the Linux steps with psql.exe / pg_restore.exe as postgres
+# (-h 127.0.0.1 -U postgres; password from the PostgreSQL installation), then Start-Service NetworkMonitor
 ```
 
+The Windows release zip of TimescaleDB holds ONE version (e.g. the 2.32.1 zip: `timescaledb-2.32.1.dll`,
+`timescaledb-tsl-2.32.1.dll`, the loader `timescaledb.dll`), unlike the Docker images and Linux packages; versions
+installed earlier stay because the installer only copies files. If `pg_available_extension_versions` does not list the
+dump's version `V`, download `https://github.com/timescale/timescaledb/releases/download/<V>/timescaledb-postgresql-16-windows-amd64.zip`
+and copy only `timescaledb-<V>.dll` and `timescaledb-tsl-<V>.dll` to `C:\Program Files\PostgreSQL\16\lib` and
+`timescaledb--<V>.sql` to `...\16\share\extension` (NOT `timescaledb.dll` or `timescaledb.control`: they belong to the
+newer version), then restore.
+
 With TimescaleDB, `pg_dump` prints a warning about circular foreign keys in `continuous_agg`. That warning is
-harmless: the custom-format dump restores cleanly with the steps above. Restore into the same major version of
-TimescaleDB, or a newer one. A dump taken in plain PostgreSQL mode restores
-into either mode.
+harmless: the custom-format dump restores cleanly with the steps above. A dump taken in plain PostgreSQL mode
+restores into either mode.
+
+### TimescaleDB updates [1.5.0]
+
+A newer `timescale/timescaledb` image (same PostgreSQL major) leaves the extension in an existing database at its
+old version. At startup the app runs `ALTER EXTENSION timescaledb UPDATE` itself when the server provides a newer
+version (logged as `TimescaleDB extension updated from X to Y`). [1.5.1] The running app also does it after a
+database restart, within ~30 s: with Docker, `docker compose up -d` after a db image change recreates only `db`, the
+app keeps running, re-connects (log: `Advisory lock re-acquired`) and updates the extension; no app restart and no
+extra command (the production GitOps server: `ops/sync.sh` also recreates `netmon`, see docs/production.md
+"[1.5.1] Upgrade and rollback"). To check: `docker compose -f deploy/docker-compose.yml logs netmon | grep TimescaleDB`.
+That needs the owner of the extension: in
+Docker the app's database user is it. Native installs create the extension as `postgres`, so after an OS package update of
+TimescaleDB the app logs a warning instead; then run, as `postgres`, with NetworkMonitor stopped:
+`psql -X -d netmon -c "ALTER EXTENSION timescaledb UPDATE"`. A PostgreSQL MAJOR upgrade (e.g. 16 to 17) is a
+separate data-directory migration and is never done automatically.
+
+The update cannot be undone: after it, an OLDER `timescale/timescaledb` image (or package) cannot open the database
+(`could not access file "$libdir/timescaledb-<version>"`). Take a `pg_dump` before moving to a newer image; going back
+means restoring that dump (see "Backup and restore") under the old image, or keeping the new image.
 
 ### Prebuilt image (no build on the host)
 
@@ -276,7 +331,7 @@ registry.npmjs.org (corporate proxy, firewall, TLS inspection). With TLS inspect
 `Exit handler never called!`: see the certificate section above first. The Dockerfile already
 retries with conservative settings. If it still fails:
 
-- Check access from a container: `docker run --rm node:22-slim npm view react version`.
+- Check access from a container: `docker run --rm node:26-slim npm view react version`.
 - Behind an HTTP proxy, configure it in Docker Desktop (Settings → Resources → Proxies) so builds use it.
 - With a corporate npm mirror (Nexus, Artifactory):
   `docker compose -f deploy/docker-compose.yml build --build-arg NPM_REGISTRY=https://<mirror>/repository/npm/`
@@ -437,7 +492,34 @@ docker compose -f deploy/docker-compose.yml exec -T db pg_dump -U netmon -Fc net
 לפני שחזור, עצרו את שירות `netmon`. כש-TimescaleDB פעיל, הריצו `timescaledb_pre_restore()` לפני השחזור
 ו-`timescaledb_post_restore()` אחריו. אם הקובץ `secret.key` אובד, המשתמשים רק יצטרכו להתחבר מחדש.
 
+**‏[1.5.1] גרסת TimescaleDB בשחזור.** משחזרים dump **לאותה גרסה** של הרחבת TimescaleDB שכתבה אותו, ורק אחר כך
+מעדכנים (`ALTER EXTENSION timescaledb UPDATE`). `CREATE EXTENSION timescaledb` רגיל יוצר את הגרסה החדשה ביותר בשרת,
+ואז `timescaledb_post_restore()` נכשל ב-`catalog version mismatch` והמסד נשאר במצב שחזור (משימות הרקע כבויות).
+לכן: קוראים את הגרסה מה-dump, יוצרים את המסד מ-`template0`, מריצים `CREATE EXTENSION timescaledb VERSION '<גרסה>'`,
+משחזרים, ואז מעדכנים. השרת חייב לכלול את הגרסה של ה-dump: ה-images של `timescale/timescaledb` וחבילות הלינוקס
+כוללים גם גרסאות קודמות (‏2.32.1 יודע ליצור 2.31.0); שרת **ישן** יותר לא יכול לשחזר dump של הרחבה חדשה יותר. ב-Windows
+ה-zip כולל גרסה אחת בלבד. הפקודות המדויקות: בחלק האנגלי ([Backup and restore](#backup-and-restore)). בשרת הייצור
+(GitOps) ‏`ops/restore.sh` עושה את כל זה לבד.
+
 </div>
+
+### עדכוני TimescaleDB ‏[1.5.0]
+
+image חדש יותר של `timescale/timescaledb` (אותה גרסה ראשית של PostgreSQL) משאיר את ההרחבה במסד קיים בגרסה הישנה.
+בעלייה, האפליקציה מריצה בעצמה `ALTER EXTENSION timescaledb UPDATE` כשהשרת מספק גרסה חדשה יותר (ביומן:
+`TimescaleDB extension updated from X to Y`). ‏[1.5.1] האפליקציה הרצה עושה זאת גם אחרי הפעלה מחדש של המסד, תוך
+כ-30 שניות: ב-Docker, ‏`docker compose up -d` אחרי החלפת image של ה-db יוצר מחדש רק את `db`, האפליקציה ממשיכה לרוץ,
+מתחברת מחדש (ביומן: `Advisory lock re-acquired`) ומעדכנת את ההרחבה; בלי הפעלה מחדש של האפליקציה ובלי פקודה נוספת
+(בשרת הייצור `ops/sync.sh` גם יוצר מחדש את `netmon`). לבדיקה:
+<span dir="ltr">`docker compose -f deploy/docker-compose.yml logs netmon | grep TimescaleDB`</span>.
+זה דורש את בעל ההרחבה: ב-Docker זה משתמש המסד של האפליקציה. בהתקנה
+מקומית ההרחבה נוצרת כ-`postgres`, ולכן אחרי עדכון חבילת TimescaleDB של מערכת ההפעלה האפליקציה רושמת אזהרה; אז הריצו
+כ-`postgres`, כש-NetworkMonitor עצור: `psql -X -d netmon -c "ALTER EXTENSION timescaledb UPDATE"`. שדרוג גרסה
+ראשית של PostgreSQL (למשל 16 ל-17) הוא הסבת תיקיית נתונים נפרדת ולעולם לא מתבצע אוטומטית.
+
+את העדכון אי אפשר לבטל: אחריו image (או חבילה) **ישן** יותר של TimescaleDB לא יכול לפתוח את המסד
+(`could not access file "$libdir/timescaledb-<version>"`). קחו `pg_dump` לפני מעבר ל-image חדש; חזרה אחורה = שחזור
+ה-dump הזה (ראו "גיבוי ושחזור") עם ה-image הישן, או השארת ה-image החדש.
 
 ### image מוכן (בלי בנייה במחשב)
 
@@ -491,7 +573,7 @@ pip ו-apt בזמן הבנייה ועל האפליקציה בזמן ריצה. ה
 בדיקת SSL). עם בדיקת SSL ייתכן ש-`npm ci` ידפיס רק `Exit handler never called!`: בדקו קודם את סעיף שגיאות
 התעודה למעלה. ה-Dockerfile כבר מנסה שוב עם הגדרות זהירות. אם זה עדיין נכשל:
 
-- בדיקת גישה מתוך קונטיינר: `docker run --rm node:22-slim npm view react version`.
+- בדיקת גישה מתוך קונטיינר: `docker run --rm node:26-slim npm view react version`.
 - מאחורי proxy: מגדירים אותו ב-Docker Desktop‏ (Settings → Resources → Proxies).
 - עם mirror ארגוני של npm‏ (Nexus,‏ Artifactory):
   `docker compose -f deploy/docker-compose.yml build --build-arg NPM_REGISTRY=https://<mirror>/repository/npm/`

@@ -183,6 +183,16 @@ export function collectWsFrames(page: Page): { types: string[]; frames: any[] } 
   return out;
 }
 
+/**
+ * Waits until the page's socket is registered with the server's hub, i.e. receives broadcasts. The
+ * server sends `hello` as the first frame when it registers the socket, which happens after the
+ * session check; the client's "Live" indicator turns on earlier, at the WebSocket open. A broadcast
+ * triggered (e.g. by an API call) before `hello` can be missed.
+ */
+export async function wsRegistered(ws: { types: string[] }): Promise<void> {
+  await expect.poll(() => ws.types.includes('hello'), { message: 'WebSocket hello frame' }).toBe(true);
+}
+
 /** No horizontal page overflow (mobile check). Returns the offending widths for the message. */
 export async function horizontalOverflow(page: Page): Promise<{ scrollWidth: number; clientWidth: number }> {
   return page.evaluate(() => ({

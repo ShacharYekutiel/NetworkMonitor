@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState, type FormEvent } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import type { TFunction } from 'i18next';
 import { useTranslation } from 'react-i18next';
 import { endpoints, qk, type SensorInput } from '../api/endpoints';
 import type {
@@ -614,7 +615,7 @@ export function useSensorActions() {
 
 /** Localized default name, like the backend's defaults (label / "Disk <descr>"). */
 export function defaultSensorName(
-  t: (k: string, o?: Record<string, unknown>) => string,
+  t: TFunction,
   type: SensorType,
   name: string,
   nameTouched: boolean,

@@ -4420,7 +4420,8 @@
       "showInternetHint": "A top node that stands for the internet providers",
       "notSet": "The map is not set up yet",
       "notSetText": "The main groups are shown for now. Choose the backbone devices to see the path from the internet to every group.",
-      "setup": "Set up the map"
+      "setup": "Set up the map",
+      "internet": "Internet"
     }
   },
   "kit": {

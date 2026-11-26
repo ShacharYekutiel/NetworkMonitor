@@ -24,6 +24,7 @@ SOFTWARE_LOOPBACK = 24
 SCHEMA_VERSION = 1
 MAX_FILES = 200
 MAX_FILE_BYTES = 256 * 1024
+MAX_NESTING = 32  # dict/list levels; the deepest built-in template uses 6
 EXTENSIONS = (".yaml", ".yml", ".json")
 ID_RE = re.compile(r"^[a-z][a-z0-9_]{1,31}$")
 OID_RE = re.compile(r"^\.?[0-2](\.\d+){1,127}$")
@@ -594,20 +595,50 @@ def validate_template(data: Any, stem: str) -> dict[str, Any]:
 
 
 # ------------------------------------------------------------------ files
-def parse_text(text: str, suffix: str) -> Any:
-    """Parse file text (YAML with safe_load, or JSON). Raises TemplateError on syntax errors."""
-    if suffix == ".json":
-        try:
-            return json.loads(text)
-        except json.JSONDecodeError as exc:
-            raise TemplateError("", f"invalid JSON: {exc}") from None
-    import yaml
+def _too_deep(data: Any, limit: int) -> bool:
+    """Whether `data` nests dicts/lists more than `limit` levels (iterative: no recursion)."""
+    stack: list[tuple[Any, int]] = [(data, 1)]
+    while stack:
+        node, depth = stack.pop()
+        if isinstance(node, dict):
+            children: Any = node.values()
+        elif isinstance(node, list):
+            children = node
+        else:
+            continue
+        if depth > limit:
+            return True
+        stack.extend((c, depth + 1) for c in children)
+    return False
 
+
+def parse_text(text: str, suffix: str) -> Any:
+    """Parse file text (YAML with safe_load, or JSON). Raises TemplateError on syntax errors and
+    on nesting deeper than MAX_NESTING.
+
+    The depth cap is explicit because a parser's own recursion guard is not deterministic: from
+    Python 3.14 the C JSON decoder is bounded by the thread's stack size (not the 1000-frame
+    recursion limit), so with a large stack 100000 nested arrays parse successfully."""
+    kind = "JSON" if suffix == ".json" else "YAML"
     try:
-        return yaml.safe_load(text)
-    except yaml.YAMLError as exc:
-        msg = " ".join(str(exc).split())
-        raise TemplateError("", f"invalid YAML: {msg}") from None
+        if suffix == ".json":
+            try:
+                data = json.loads(text)
+            except json.JSONDecodeError as exc:
+                raise TemplateError("", f"invalid JSON: {exc}") from None
+        else:
+            import yaml
+
+            try:
+                data = yaml.safe_load(text)
+            except yaml.YAMLError as exc:
+                msg = " ".join(str(exc).split())
+                raise TemplateError("", f"invalid YAML: {msg}") from None
+    except RecursionError:
+        raise TemplateError("", f"invalid {kind}: nesting too deep") from None
+    if _too_deep(data, MAX_NESTING):
+        raise TemplateError("", f"invalid {kind}: nesting too deep")
+    return data
 
 
 def _error(source: str, file: str, tid: str | None, path: str, message: str) -> dict[str, Any]:

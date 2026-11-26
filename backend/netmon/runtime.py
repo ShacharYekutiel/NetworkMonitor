@@ -111,6 +111,10 @@ class Runtime:
         # a dedicated asyncpg connection outside the SQLAlchemy pool holds the session-level
         # advisory lock; the watchdog checks that same connection
         self._lock_conn: Any = None
+        # [1.5.1] set by start(migrate=True): check_lock applies a newer TimescaleDB after
+        # it re-acquired the lock on a restarted database
+        self._update_extension_on_reconnect = False
+        self._extension_check_pending = False
         self._has_users = False
         self._tasks: list[asyncio.Task[Any]] = []
         self._rollup_event = asyncio.Event()
@@ -157,6 +161,12 @@ class Runtime:
             await self._acquire_lock()
             self._tasks.append(asyncio.create_task(self._lock_watch_loop(), name="netmon-lock"))
         if migrate:
+            # [1.5.0] a newer TimescaleDB in the DB image is applied to this database first
+            # (needs a fresh session; we hold the single-instance lock here)
+            await self._update_timescale_extension()
+            # [1.5.1] ... and again whenever the lock watchdog finds the database restarted
+            # (check_lock): a db image change recreates only the db container
+            self._update_extension_on_reconnect = True
             await run_migrations(self.engine, secret_key=self.secret_key)
         await self._secrets_at_rest()
         from netmon.services import security as security_svc
@@ -427,7 +437,8 @@ class Runtime:
 
     async def check_lock(self) -> bool:
         """Verify we still hold the advisory lock (it is lost when PostgreSQL restarts);
-        re-acquire it, or exit when another instance has taken it."""
+        re-acquire it, or exit when another instance has taken it. [1.5.1] After a
+        re-acquire, apply a newer TimescaleDB the restarted server may provide."""
         held = False
         reason = "no lock connection"
         if self._lock_conn is not None:
@@ -449,26 +460,57 @@ class Runtime:
             except Exception as exc:  # noqa: BLE001
                 held = False
                 reason = f"the lock connection failed: {type(exc).__name__}: {exc}"
-        if held:
-            return True
-        log.error("Lost the single-instance advisory lock (%s); re-acquiring", reason)
-        if self._lock_conn is not None:
-            with contextlib.suppress(Exception):
-                await self._lock_conn.close()
-            self._lock_conn = None
-        try:
-            await self._acquire_lock()
-        except LockHeldError:
-            log.critical(
-                "Another NetworkMonitor instance now holds the database lock; shutting down"
-            )
-            self.on_lock_lost()
-            return False
-        except Exception as exc:  # noqa: BLE001
-            log.error("Cannot re-acquire the advisory lock yet: %s", exc)
-            return False
-        log.warning("Advisory lock re-acquired")
+        if not held:
+            log.error("Lost the single-instance advisory lock (%s); re-acquiring", reason)
+            if self._lock_conn is not None:
+                with contextlib.suppress(Exception):
+                    await self._lock_conn.close()
+                self._lock_conn = None
+            try:
+                await self._acquire_lock()
+            except LockHeldError:
+                self._lock_taken_over()
+                return False
+            except Exception as exc:  # noqa: BLE001
+                log.error("Cannot re-acquire the advisory lock yet: %s", exc)
+                return False
+            log.warning("Advisory lock re-acquired")
+            # [1.5.1] The lock is lost when PostgreSQL restarts, e.g. when `docker compose
+            # up -d` recreated the db container on a newer TimescaleDB image while this
+            # container kept running: apply the newer extension now, as start() does,
+            # instead of depending on an app restart (deploy/README.md, "TimescaleDB").
+            self._extension_check_pending = self._update_extension_on_reconnect
+        if self._extension_check_pending:
+            try:
+                await self._update_timescale_extension()
+            except LockHeldError:
+                self._lock_taken_over()
+                return False
+            except Exception as exc:  # noqa: BLE001 - the next check tries again
+                log.error("TimescaleDB extension check after the reconnect failed: %s", exc)
+                return False
+            self._extension_check_pending = False
         return True
+
+    def _lock_taken_over(self) -> None:
+        log.critical("Another NetworkMonitor instance now holds the database lock; shutting down")
+        self.on_lock_lost()
+
+    async def _update_timescale_extension(self) -> str | None:
+        """`ALTER EXTENSION timescaledb UPDATE` when the server provides a newer TimescaleDB
+        than this database has installed (timescale.update_extension); a no-op otherwise.
+        Call it while holding the single-instance lock."""
+        updated = await timescale.update_extension(
+            self.engine, disabled=self.settings.netmon_disable_timescale
+        )
+        if updated and self._lock_conn is not None:
+            # the server restarts every session that loaded the old library, the lock
+            # connection included: take the lock again on a fresh session
+            old_conn, self._lock_conn = self._lock_conn, None
+            with contextlib.suppress(Exception):
+                await old_conn.close()
+            await self._acquire_lock()
+        return updated
 
     async def _lock_watch_loop(self, interval_s: float = 30.0) -> None:
         while True:

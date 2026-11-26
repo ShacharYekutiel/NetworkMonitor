@@ -123,6 +123,31 @@ test('drag a device -> saved (PUT layout) -> reload keeps the position', async (
   await expect.poll(async () => (await probe(page))?.nodes.find((x) => x.key === n.key)?.pos).toEqual(moved.pos);
 });
 
+// Regression (full-suite flake of the test above): on a busy system every sensor result changes the
+// tree, and re-applying the chart mid-drag put the node back, so nothing was saved. Here a live
+// change (a group renamed -> the tree is fetched again) lands while the node is held.
+test('a live update while a node is held does not cancel the drag: it is saved', async ({ page }) => {
+  await openMap(page);
+  const p = (await probe(page))!;
+  const n = p.nodes.find((x) => x.key === unlinked[3])!;
+  const box = await chartBox(page);
+  const put = page.waitForResponse((r) => r.url().endsWith('/api/topology/layout') && r.request().method() === 'PUT');
+  await page.mouse.move(box.x + n.x, box.y + n.y);
+  await page.mouse.down();
+  await page.mouse.move(box.x + n.x + 20, box.y + n.y + 30, { steps: 4 });
+  const tree = page.waitForResponse((r) => r.url().endsWith('/api/tree') && r.request().method() === 'GET');
+  await api.patch(`/api/groups/${subGroups[0]}`, { name: uid('Floor A') });
+  await tree;
+  // let React render the new tree before the drag goes on
+  await page.evaluate(() => new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r))));
+  await page.mouse.move(box.x + n.x + 40, box.y + n.y + 60, { steps: 4 });
+  await page.mouse.up();
+  expect((await put).status()).toBe(204);
+  const moved = (await probe(page))!.nodes.find((x) => x.key === n.key)!;
+  expect(Math.hypot(moved.pos[0] - n.pos[0], moved.pos[1] - n.pos[1])).toBeGreaterThan(30);
+  await expect.poll(async () => (await savedPositions())[n.key]).toEqual(moved.pos);
+});
+
 test('viewer: drags move the node in their view only (nothing saved); the hint says so', async ({ page }) => {
   const before = await savedPositions();
   await openMap(page, VIEWER);

@@ -2,6 +2,7 @@ import { useEffect, useMemo, useRef, useState, type ComponentType } from 'react'
 import { Link } from 'react-router';
 import { useEntityMenu } from '../treemenu/TreeContextMenu';
 import { useTranslation } from 'react-i18next';
+import type { TFunction } from 'i18next';
 import type { MapStatus, OverviewMap, OverviewMapNode } from '../../api/premium';
 import { layoutMap, MAP_TILE, mapIcon, type MapIconKey } from '../../lib/homeMap';
 import {
@@ -64,13 +65,28 @@ function useWidth<T extends HTMLElement>() {
   return [ref, w] as const;
 }
 
+/**
+ * The words of a node in the UI language. The server writes a group's "14 devices" and the
+ * Internet node's name in the user's language at request time, and the map stays in the query
+ * cache: after a language switch those words stayed in the old language until a reload. Group
+ * subtitles are rebuilt from `counts.devices` (the same number) and the Internet node is named
+ * here, so every word on a tile follows the language at render time.
+ */
+export function nodeWords(n: OverviewMapNode, t: TFunction): { name: string; subtitle: string } {
+  if (n.kind === 'internet') return { name: t('home.map.internet'), subtitle: n.subtitle };
+  // The virtual root of the whole network has no name: the client labels it.
+  const name = n.name || t('home.network');
+  if (n.kind === 'group' && typeof n.counts?.devices === 'number')
+    return { name, subtitle: t('dashboard.deviceCount', { count: n.counts.devices }) };
+  return { name, subtitle: n.subtitle };
+}
+
 function NodeTile({ n, x, y }: { n: OverviewMapNode; x: number; y: number }) {
   const { t } = useTranslation();
   const menu = useEntityMenu();
   const Icon = ICON[mapIcon(n)];
   const bad = n.status !== 'up' && n.status !== 'unknown' && !!n.problem;
-  // The virtual root of the whole network has no name: the client labels it.
-  const name = n.name || t('home.network');
+  const { name, subtitle } = nodeWords(n, t);
   const latin = !/[\u0590-\u05FF]/.test(name);
   const body = (
     <>
@@ -101,14 +117,14 @@ function NodeTile({ n, x, y }: { n: OverviewMapNode; x: number; y: number }) {
           />
         )}
         <span className="truncate" dir="auto">
-          {bad ? n.problem : n.subtitle}
+          {bad ? n.problem : subtitle}
         </span>
       </small>
     </>
   );
   const cls =
     'group absolute grid -translate-x-1/2 justify-items-center gap-[3px] text-ink no-underline focus-visible:outline-offset-4';
-  const label = `${name}: ${(bad ? n.problem : n.subtitle) || ''} (${t(`status.${n.status}`)})`;
+  const label = `${name}: ${(bad ? n.problem : subtitle) || ''} (${t(`status.${n.status}`)})`;
   const style = { left: x, top: y - MAP_TILE / 2 };
   if (n.ref)
     return (

@@ -456,7 +456,7 @@ function TreeMenuProviderInner({ children }: { children: ReactNode }) {
           : {
               type: 'item',
               key: e.key,
-              label: t(treeMenuLabelKey(e.action), e.vars),
+              label: t(treeMenuLabelKey(e.action), e.vars ?? {}),
               icon: ICONS[e.action],
               danger: e.danger,
               disabled: e.disabled,

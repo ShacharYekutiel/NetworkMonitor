@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { keepPreviousData, useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import type { TFunction } from 'i18next';
 import { useTranslation } from 'react-i18next';
 import { useSearchParams } from 'react-router';
 import { isApiError } from '../../api/client';
@@ -216,7 +217,7 @@ function SideDiff({ rows }: { rows: DiffRow[] }) {
   );
 }
 
-function versionLabel(t: (k: string, o?: Record<string, unknown>) => string, v: ConfigVersion) {
+function versionLabel(t: TFunction, v: ConfigVersion) {
   return `${t('configBackup.versionNo', { n: v.version_no })} · ${formatDateTime(v.collected_at)}`;
 }
 

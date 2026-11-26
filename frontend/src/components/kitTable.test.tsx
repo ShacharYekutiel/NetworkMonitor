@@ -1,5 +1,5 @@
 import { afterEach, beforeAll, beforeEach, describe, expect, it } from 'vitest';
-import { act, fireEvent, render, screen, within } from '@testing-library/react';
+import { act, cleanup, fireEvent, render, screen, within } from '@testing-library/react';
 import i18n from '../i18n';
 import { ColumnsMenu, DataTable, labelOf, useDataTable, type DataColumn } from './kitTable';
 
@@ -192,5 +192,74 @@ describe('kit table columns', () => {
     expect(stored()).toBeNull();
     // the actions column is not listed (not movable)
     expect(within(menu).queryByText('Actions')).toBeNull();
+  });
+});
+
+describe('[1.5.1] DataTable cardsWhenNarrow', () => {
+  function Cards() {
+    const cols: DataColumn<Row>[] = [
+      { id: 'name', label: 'Name', width: 150, cell: (r) => r.name },
+      { id: 'msg', label: 'Message', minWidth: 200, cell: (r) => r.msg },
+      {
+        id: 'actions',
+        label: 'Actions',
+        pin: 'end',
+        fixed: true,
+        width: 100,
+        cell: (r) => <button type="button">Run {r.name}</button>,
+      },
+    ];
+    const layout = useDataTable('unit-cards', cols);
+    return (
+      <DataTable
+        layout={layout}
+        columns={layout.columns}
+        rows={rows}
+        rowKey={(r) => r.id}
+        testId="t"
+        cardsWhenNarrow
+      />
+    );
+  }
+  let width = 0;
+  beforeEach(() => {
+    Object.defineProperty(HTMLElement.prototype, 'clientWidth', {
+      configurable: true,
+      get: () => width,
+    });
+  });
+  afterEach(() => {
+    cleanup();
+    // back to jsdom's own (Element.prototype) getter
+    delete (HTMLElement.prototype as { clientWidth?: number }).clientWidth;
+  });
+
+  it('a container narrower than the columns need shows each row as a card', () => {
+    width = 390; // < 150 + 200 + 100
+    render(<Cards />);
+    expect(screen.queryByTestId('t')).toBeNull();
+    const cards = screen.getAllByTestId('t-card');
+    expect(cards).toHaveLength(2);
+    const first = within(cards[0]);
+    // every field with its label, the action below
+    expect(first.getByText('Name').tagName).toBe('DT');
+    expect(first.getByText('Message').tagName).toBe('DT');
+    expect(first.getByText('Ping').tagName).toBe('DD');
+    expect(first.getByText('ok').tagName).toBe('DD');
+    expect(first.getByRole('button', { name: 'Run Ping' })).toBeInTheDocument();
+    expect(first.queryByText('Actions')).toBeNull();
+  });
+
+  it('the table where it fits (never scrolling under the sticky actions column)', () => {
+    width = 460; // >= 450
+    render(<Cards />);
+    expect(screen.getByTestId('t').tagName).toBe('TABLE');
+    expect(screen.queryByTestId('t-cards')).toBeNull();
+  });
+
+  it('unmeasured (0) keeps the table', () => {
+    width = 0;
+    render(<Cards />);
+    expect(screen.getByTestId('t').tagName).toBe('TABLE');
   });
 });

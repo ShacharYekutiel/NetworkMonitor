@@ -42,20 +42,40 @@ PY="${PY:-$ROOT/backend/.venv/bin/python}"
 NETMON="${NETMON:-$ROOT/backend/.venv/bin/netmon}"
 PG_ADMIN_URL="${PG_ADMIN_URL:-postgresql://postgres:postgres@localhost:5432/postgres}"
 
-free_port() { "$PY" -c 'import socket,sys; t=socket.SOCK_DGRAM if sys.argv[1]=="udp" else socket.SOCK_STREAM; s=socket.socket(socket.AF_INET,t); s.bind(("127.0.0.1",0)); print(s.getsockname()[1])' "$1"; }
-# a port number free for both UDP and TCP (syslog listens on both with one number)
-free_port_both() { "$PY" -c '
-import socket
+# Free ports for the simulators and the backend. They are picked BELOW the ephemeral range (32768-60999):
+# a port the kernel handed out for bind(0) and released again can be taken by any outgoing connection
+# (Postgres, SNMP, DNS, HTTP clients) before the simulator binds it, which made e.g. the OIDC mock (started
+# late) fail with "address in use". Picks are remembered in $WORK/ports so no two components get the same
+# port. Kind: tcp, udp, or both (syslog listens on UDP and TCP with one number).
+free_port() { "$PY" - "$1" "$WORK/ports" <<'EOF'
+import random, socket, sys
+kind, used_file = sys.argv[1], sys.argv[2]
+try:
+    used = set(open(used_file).read().split())
+except FileNotFoundError:
+    used = set()
+types = {"tcp": [socket.SOCK_STREAM], "udp": [socket.SOCK_DGRAM], "both": [socket.SOCK_STREAM, socket.SOCK_DGRAM]}[kind]
 while True:
-    t = socket.socket(); t.bind(("127.0.0.1", 0)); p = t.getsockname()[1]
-    u = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+    p = random.randint(20000, 32000)
+    if str(p) in used:
+        continue
+    socks = []
     try:
-        u.bind(("127.0.0.1", p)); print(p); break
+        for t in types:
+            s = socket.socket(socket.AF_INET, t)
+            socks.append(s)
+            s.bind(("127.0.0.1", p))
     except OSError:
-        pass
+        continue
     finally:
-        u.close(); t.close()
-'; }
+        for s in socks:
+            s.close()
+    with open(used_file, "a") as f:
+        f.write(f"{p}\n")
+    print(p)
+    break
+EOF
+}
 
 TAG="$(date +%s)_$$"
 DB="netmon_e2e_${TAG}"
@@ -69,7 +89,7 @@ SNMP_PORT="$(free_port udp)"
 TELEGRAM_PORT="$(free_port tcp)"
 # [2b-3]
 TRAP_PORT="$(free_port udp)"
-SYSLOG_PORT="$(free_port_both)"
+SYSLOG_PORT="$(free_port both)"
 LDAP_LDAPS_PORT="$(free_port tcp)"; LDAP_PLAIN_PORT="$(free_port tcp)"; LDAP_CONTROL_PORT="$(free_port tcp)"
 LDAP_WRONG_PORT="$(free_port tcp)"; LDAP_DEAD_PORT="$(free_port tcp)"
 SIEM_UDP_PORT="$(free_port udp)"; SIEM_TCP_PORT="$(free_port tcp)"; SIEM_TLS_PORT="$(free_port tcp)"
@@ -78,21 +98,9 @@ CERTS_DIR="$WORK/certs"
 LAB_DIR="$WORK/lab"
 E2E_PHASE3="${E2E_PHASE3:-1}"
 if [ "$E2E_PHASE3" = "1" ]; then
-  # flow sockets open only when the feature is turned on (minutes later): pick ports BELOW the ephemeral range
-  # (32768-60999) so outgoing SNMP/DNS sockets cannot grab them in the meantime
-  read -r NETFLOW_PORT IPFIX_PORT SFLOW_PORT < <("$PY" -c '
-import random, socket
-out = []
-while len(out) < 3:
-    p = random.randint(20000, 32000)
-    s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-    try:
-        s.bind(("127.0.0.1", p)); out.append(p) if p not in out else None
-    except OSError:
-        pass
-    finally:
-        s.close()
-print(*out)')
+  # flow sockets open only when the feature is turned on (minutes later); free_port keeps them out of the
+  # ephemeral range, so outgoing SNMP/DNS sockets cannot grab them in the meantime
+  NETFLOW_PORT="$(free_port udp)"; IPFIX_PORT="$(free_port udp)"; SFLOW_PORT="$(free_port udp)"
   SSH_CTL_PORT="$(free_port tcp)"; SMTP_PORT="$(free_port tcp)"; SMTP_HTTP_PORT="$(free_port tcp)"
   OIDC_PORT="$(free_port tcp)"
 fi
