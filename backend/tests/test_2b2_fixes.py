@@ -121,9 +121,53 @@ def test_deeply_nested_files_are_rejected_per_file(tmp_path: Path) -> None:
     templates, errors = load_dir(tmp_path, "user")
     assert [t["id"] for t in templates] == ["good_one"]
     by = {e["file"]: e["message"] for e in errors}
-    assert by["b/deep.yaml"].startswith("invalid YAML: ")
-    assert by["b/deep_json.json"].startswith("invalid JSON: ")
+    assert by["b/deep.yaml"] == "invalid YAML: nesting too deep"
+    assert by["b/deep_json.json"] == "invalid JSON: nesting too deep"
     assert by["b/huge.yaml"] == "file too large (max 256 KiB)"
+
+
+def test_deep_json_rejected_even_with_a_large_stack(tmp_path: Path) -> None:
+    """From Python 3.14 the C JSON decoder's recursion guard is bounded by the thread's stack
+    size, not the recursion limit: on a runner with a large stack 100000 nested arrays parse
+    fine (CI run 45776086774 then reported "missing key: schema"). Load in a thread with a
+    256 MiB stack so the parser itself does not overflow; the depth cap must still reject."""
+    (tmp_path / "deep_json.json").write_text('{"x": ' + "[" * 100000 + "]" * 100000 + "}")
+    (tmp_path / "deep.yaml").write_text("x: " + "[" * 50000 + "]" * 50000 + "\n")
+    result: dict[str, Any] = {}
+
+    def run() -> None:
+        result["out"] = load_dir(tmp_path, "user")
+
+    old = threading.stack_size(256 * 1024 * 1024)
+    try:
+        t = threading.Thread(target=run)
+        t.start()
+    finally:
+        threading.stack_size(old)
+    t.join()
+    templates, errors = result["out"]
+    assert templates == []
+    assert {e["file"]: e["message"] for e in errors} == {
+        "deep.yaml": "invalid YAML: nesting too deep",
+        "deep_json.json": "invalid JSON: nesting too deep",
+    }
+
+
+def test_nesting_cap_boundary() -> None:
+    from netmon.templates.library import MAX_NESTING, TemplateError, parse_text
+
+    ok = "[" * MAX_NESTING + "]" * MAX_NESTING
+    assert parse_text(ok, ".json") is not None
+    assert parse_text(ok, ".yaml") is not None
+    deep = "[" * (MAX_NESTING + 1) + "]" * (MAX_NESTING + 1)
+    for suffix, kind in ((".json", "JSON"), (".yaml", "YAML")):
+        with pytest.raises(TemplateError) as exc:
+            parse_text(deep, suffix)
+        assert exc.value.message == f"invalid {kind}: nesting too deep"
+    # dicts count as levels too
+    nested_dict = '{"a": ' * (MAX_NESTING + 1) + "1" + "}" * (MAX_NESTING + 1)
+    with pytest.raises(TemplateError):
+        parse_text(nested_dict, ".json")
 
 
 @requires_db
