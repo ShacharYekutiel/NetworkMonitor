@@ -162,6 +162,12 @@ jobs:
             test "$(ls /usr/local/share/ca-certificates/netmon | wc -l)" -eq 2
             openssl verify -CAfile /etc/ssl/certs/ca-certificates.crt /ca.pem'
 
+      # The stack starts on the PREVIOUS db image, whatever deploy/docker-compose.yml pins, so the
+      # step "db image change while the app keeps running" below always has a real update to do
+      # (it switches every later $COMPOSE call to NEW_DB_IMAGE).
+      - name: Start on the previous db image
+        run: echo "NETMON_DB_IMAGE=timescale/timescaledb:2.31.0-pg16" >>"$GITHUB_ENV"
+
       - name: Start stack (the documented single step)
         run: $COMPOSE up -d
 
