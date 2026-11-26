@@ -173,12 +173,19 @@ GOT="$(fingerprint tgt_fp)"
 [[ "$(tgt_sql "SELECT current_setting('timescaledb.restoring', true)")" != on ]] || fail "still in restoring mode"
 ok "dump on $OLD restored under $DEFAULT_TS: created at $OLD, restored, updated to $DEFAULT_TS; data/compression/cagg/jobs identical ($GOT)"
 
-# 4. the background jobs work after the update (retention, compression, continuous aggregate)
+# 4. the background jobs work after the update (retention, compression, continuous aggregate).
+# The new row goes in BEFORE the jobs run: the continuous aggregate policy must materialize it,
+# and the database is then a fixed point of every policy, so step 6 can compare against it
+# while the TimescaleDB scheduler of the restored stack runs the same jobs on its own (it did
+# in CI: a refresh after step 6's restore turned 1443 aggregate rows into 1444 when the row was
+# added after the jobs).
+tgt_sql "INSERT INTO measurements VALUES (now() - INTERVAL '2 hours', 9, 1, 1)" >/dev/null
 for j in $(tgt_sql "SELECT job_id FROM timescaledb_information.jobs WHERE job_id >= 1000 ORDER BY 1"); do
   tgt_sql "CALL run_job($j)" >/dev/null || fail "job $j failed"
 done
-tgt_sql "INSERT INTO measurements VALUES (now() - INTERVAL '2 hours', 9, 1, 1)" >/dev/null
-ok "every policy job runs after the restore (CALL run_job)"
+[[ "$(tgt_sql "SELECT count(*) FROM measurements_hourly WHERE sensor_id = 9")" == 1 ]] ||
+  fail "the continuous aggregate policy did not materialize the new row"
+ok "every policy job runs after the restore (CALL run_job); the aggregate policy materializes new data"
 
 BEFORE5="$(fingerprint tgt_fp)" # incl. the row step 4 added; step 5's safety dump holds this
 # 5. idempotent: restoring the same dump again gives the same result
