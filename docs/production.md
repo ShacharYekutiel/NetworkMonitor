@@ -536,6 +536,12 @@ profiles*), use *Test connection* against one of the devices, then choose it on 
 Profile*). Every device below that group that is on "Inherit" polls with it from its next poll; nothing has to be
 restarted (step by step: [connection-profiles.md § How-to](connection-profiles.md#how-to-one-snmp-profile-for-a-group)).
 
+**Behaviour change: discovery import saves no credentials by default.** The import's "save SNMP" / "save SSH" boxes
+start unticked (owner decision), and an API client that omits `save_snmp` / `save_ssh` now gets "inherit from the
+import group" (before 1.6.0 the SNMP credentials that answered were always stored on the device). The import page
+says per host, and in a summary, when the group's inherited settings are not the ones that worked; scripts that
+import through the API and relied on the old default must send `"save_snmp": true`.
+
 **Operational note: SSH in discovery is opt-in.** A scan only tries SSH logins when SSH profiles or typed SSH
 credentials are selected for it, only on hosts whose SSH port is open, one attempt per candidate (at most 4), and it
 only logs in and disconnects. Failed logins can still lock accounts or raise security alerts on devices: choose
