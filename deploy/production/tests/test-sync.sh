@@ -5,7 +5,8 @@
 # a fixed release, drift repair, invalid release.env, revert, --force, pull failure, the
 # flock guard and [1.5.1] the db image vs the TimescaleDB version in the database (refusal of
 # an image that cannot load it, pre-deploy dump on a db image change, rollback/drift repair
-# keeping db on the image that can load it).
+# keeping db on the image that can load it, netmon recreated after a db-only image change so
+# the app updates the extension).
 #
 #   deploy/production/tests/test-sync.sh        (needs bash, git, flock)
 set -euo pipefail
@@ -33,7 +34,12 @@ git init -q --bare -b main "$T/origin.git"
 git clone -q "$T/origin.git" "$T/work" 2>/dev/null
 mkdir -p "$T/work/deploy" "$T/work/src"
 cp -a "$PROD_SRC" "$T/work/deploy/production"
-# a fixed starting release, independent of the real (digest-pinned) release.env
+# a fixed starting release, independent of the real (digest-pinned) release.env, and a fixed
+# db image, independent of the one compose.yaml pins today (section 11 relies on it)
+sed -i "/^  db:/,/^    image:/ s#^    image: .*#    image: timescale/timescaledb:2.32.1-pg16#" \
+  "$T/work/deploy/production/compose.yaml"
+grep -q '^    image: timescale/timescaledb:2.32.1-pg16$' "$T/work/deploy/production/compose.yaml" ||
+  { echo "FAIL - could not set the db image of the test copy of compose.yaml" >&2; exit 1; }
 printf 'NETMON_VERSION=1.0.0\nNETMON_IMAGE=ghcr.io/shacharyekutiel/networkmonitor:1.0.0\n' \
   >"$T/work/deploy/production/release.env"
 echo v1 >"$T/work/src/app.py"
@@ -204,8 +210,7 @@ set_db_image() { # tag [message]
   git -C "$T/work" push -q origin main 2>/dev/null
 }
 dbimg() { cat "$FAKE_STATE/db_image"; }
-grep -q 'image: timescale/timescaledb:2.32.1-pg16' "$PROD_SRC/compose.yaml" || fail "test assumes db 2.32.1"
-[[ "$(dbimg)" == timescale/timescaledb:2.32.1-pg16 ]] || fail "db image: $(dbimg)"
+[[ "$(dbimg)" == timescale/timescaledb:2.32.1-pg16 ]] || fail "db image: $(dbimg)" # set at the top
 echo 2.32.1 >"$FAKE_STATE/ts_version"            # the app has updated the extension
 printf '2.31.0\n2.32.0\n2.32.1\n' >"$FAKE_STATE/older_libs"
 n0="$(nnotify)"
@@ -220,11 +225,20 @@ tail -n1 "$FAKE_STATE/notifications" | grep -q "refused" || fail "notification d
 [[ "$(git -C "$NETMON_REPO_DIR" rev-parse HEAD)" == "$(cat "$NETMON_STATE_DIR/deployed_rev")" ]] || fail "checkout not restored"
 ok "db image that cannot load the database's TimescaleDB version: refused before touching anything"
 
+# The app updates the extension only when it starts (FAKE_UPDATE_EXT); compose recreates db
+# alone on a db image change (the fake, like Compose without `restart: true`, leaves netmon).
+export FAKE_UPDATE_EXT=1
+cid_before="$(cat "$FAKE_STATE/gen-netmon")"
 set_db_image 2.33.0-pg16 "db image 2.33.0"
 run 0
 called "pg_dump" || fail "no pre-deploy dump for a db image change"
 [[ "$(dbimg)" == timescale/timescaledb:2.33.0-pg16 && "$(img)" == "$IMG:1.3.0" ]] || fail "db image not deployed"
-ok "db image change alone (same app image): pre-deploy dump, then deployed"
+called "up -d --no-deps --force-recreate netmon" || fail "netmon not recreated after the db image change"
+[[ "$(cat "$FAKE_STATE/gen-netmon")" == $((cid_before + 1)) ]] || fail "netmon recreated $(($(cat "$FAKE_STATE/gen-netmon") - cid_before)) times"
+[[ "$(cat "$FAKE_STATE/ts_version")" == 2.33.0 ]] || fail "extension not updated: $(cat "$FAKE_STATE/ts_version")"
+unset FAKE_UPDATE_EXT
+echo 2.33.0 >>"$FAKE_STATE/older_libs" # newer images ship 2.33.0 too
+ok "db image change alone (same app image): pre-deploy dump, deployed, netmon recreated so the app updates the extension"
 
 export FAKE_PROBE_FAIL=1
 set_db_image 2.33.1-pg16 "db image 2.33.1"
@@ -246,6 +260,7 @@ run 1
 [[ "$(img)" == "$IMG:1.3.0" ]] || fail "app not rolled back: $(img)"
 [[ "$(dbimg)" == timescale/timescaledb:2.34.0-pg16 ]] || fail "db put back on an image that cannot load 2.34.0: $(dbimg)"
 called "up -d --no-deps --remove-orphans init netmon proxy" || fail "rollback did not keep db"
+called "force-recreate" && fail "netmon force-recreated although the app image changed too"
 tail -n1 "$FAKE_STATE/notifications" | grep -q "stays on timescale/timescaledb:2.34.0-pg16" || fail "notification lacks the kept db image"
 unset FAKE_UPDATE_EXT FAKE_BAD_IMAGE
 run 0

@@ -10,9 +10,10 @@
 # Deploy: checkout -> validate (check-release.sh, compose config) -> [1.5.1] refuse a db image
 # that cannot load the TimescaleDB version the database already uses -> pg_dump BEFORE the
 # netmon or the db image changes (/var/backups/netmon/pre-deploy-<rev>-<ts>.dump) -> pull -> up -d
-# --remove-orphans -> wait for health (containers + https://<fqdn>/api/health) -> clear
-# stale UDP conntrack entries for traps/syslog/flows (162/514/2055/4739/6343) when netmon
-# was recreated.
+# --remove-orphans -> [1.5.1] db image changed but netmon not recreated: recreate netmon (the app
+# updates the TimescaleDB extension at startup) -> wait for health (containers +
+# https://<fqdn>/api/health) -> clear stale UDP conntrack entries for traps/syslog/flows
+# (162/514/2055/4739/6343) when netmon was recreated.
 # On failure: the deploy/production tree is marked bad (not retried until a NEW change
 # lands under deploy/production) and the previous good revision is redeployed.
 # The database is NEVER restored automatically (migrations are forward-only); see
@@ -37,7 +38,7 @@ for a in "$@"; do
     --dry-run | --check) DRY_RUN=1 ;;
     --force) FORCE=1 ;;
     -h | --help)
-      sed -n '2,25p' "$0"
+      sed -n '2,27p' "$0"
       exit 0
       ;;
     *) die "unknown argument: $a" ;;
@@ -154,16 +155,21 @@ db_volume_exists() {
     --filter label=com.docker.compose.volume=netmon-db 2>/dev/null)" ]]
 }
 
-ensure_db_up() {
-  service_running db && [[ "$(service_state db)" == healthy ]] && return 0
-  log "starting db for the pre-deploy backup"
-  compose up -d db || return 1
+wait_db_healthy() {
   local deadline=$((SECONDS + 180))
   while ((SECONDS < deadline)); do
     [[ "$(service_state db)" == healthy ]] && return 0
     sleep "$NETMON_HEALTH_POLL"
   done
+  err "db not healthy after 180s"
   return 1
+}
+
+ensure_db_up() {
+  service_running db && [[ "$(service_state db)" == healthy ]] && return 0
+  log "starting db for the pre-deploy backup"
+  compose up -d db || return 1
+  wait_db_healthy
 }
 
 pre_deploy_backup() { # rev -> echoes the dump path
@@ -316,6 +322,17 @@ deploy() { # rev tree
   if ! compose up -d --remove-orphans; then
     rollback "$rev" "$tree" "docker compose up failed" "$dump"
     return 1
+  fi
+  # [1.5.1] A db image change with the same app image: compose recreates db but leaves the
+  # running netmon container alone (its depends_on has no `restart: true`), and the app applies
+  # a newer TimescaleDB (ALTER EXTENSION timescaledb UPDATE) only at startup. Recreate netmon
+  # once db is healthy, so the extension is updated now and not at some later app restart.
+  if ((db_changes)) && [[ -n $old_cid && "$(service_cid netmon)" == "$old_cid" ]]; then
+    log "db image changed ($cur_db -> $new_db), netmon was not recreated: recreating it so the app updates the TimescaleDB extension"
+    if ! wait_db_healthy || ! compose up -d --no-deps --force-recreate netmon; then
+      rollback "$rev" "$tree" "recreating netmon after the db image change failed" "$dump"
+      return 1
+    fi
   fi
   if ! wait_healthy; then
     rollback "$rev" "$tree" "not healthy within ${NETMON_HEALTH_TIMEOUT}s" "$dump"

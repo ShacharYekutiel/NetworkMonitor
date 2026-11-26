@@ -15,7 +15,7 @@ setup wizard creates the admin user.
 | | Docker (recommended) | Native Linux | Native Windows |
 |---|---|---|---|
 | Command | `docker compose -f deploy/docker-compose.yml up -d` | `sudo ./deploy/linux/install.sh` | `powershell -ExecutionPolicy Bypass -File .\deploy\windows\install.ps1` |
-| Database | TimescaleDB 2.32 / PostgreSQL 16 container | distro PostgreSQL ≥ 14 (+ TimescaleDB when available) | PostgreSQL 16 via winget (TimescaleDB attempted) |
+| Database | TimescaleDB 2.31 / PostgreSQL 16 container | distro PostgreSQL ≥ 14 (+ TimescaleDB when available) | PostgreSQL 16 via winget (TimescaleDB attempted) |
 | Data | volumes `netmon_netmon-data`, `netmon_netmon-db` | `/var/lib/netmon` + PostgreSQL | `%ProgramData%\NetworkMonitor` + PostgreSQL |
 | Service | `restart: unless-stopped` | systemd `netmon.service` | Windows service `NetworkMonitor` (NSSM) |
 | Logs | `docker compose -f deploy/docker-compose.yml logs -f netmon` | `journalctl -u netmon -f` | `%ProgramData%\NetworkMonitor\logs\` |
@@ -250,7 +250,7 @@ $env:PGPASSWORD = '<password from netmon.env>'
 # (-h 127.0.0.1 -U postgres; password from the PostgreSQL installation), then Start-Service NetworkMonitor
 ```
 
-The Windows release zip of TimescaleDB holds ONE version (2.32.1 zip: `timescaledb-2.32.1.dll`,
+The Windows release zip of TimescaleDB holds ONE version (e.g. the 2.32.1 zip: `timescaledb-2.32.1.dll`,
 `timescaledb-tsl-2.32.1.dll`, the loader `timescaledb.dll`), unlike the Docker images and Linux packages; versions
 installed earlier stay because the installer only copies files. If `pg_available_extension_versions` does not list the
 dump's version `V`, download `https://github.com/timescale/timescaledb/releases/download/<V>/timescaledb-postgresql-16-windows-amd64.zip`
@@ -266,8 +266,11 @@ restores into either mode.
 
 A newer `timescale/timescaledb` image (same PostgreSQL major) leaves the extension in an existing database at its
 old version. At startup the app runs `ALTER EXTENSION timescaledb UPDATE` itself when the server provides a newer
-version (logged as `TimescaleDB extension updated from X to Y`). That needs the owner of the extension: in Docker the
-app's database user is it. Native installs create the extension as `postgres`, so after an OS package update of
+version (logged as `TimescaleDB extension updated from X to Y`). It does this only at startup: with Docker,
+`docker compose up -d` after a db image change recreates `db` and, because the `netmon` service has
+`depends_on: db: restart: true` [1.5.1], restarts the app with it (the production GitOps server: `ops/sync.sh`
+recreates `netmon`, see docs/production.md "[1.5.1] Upgrade and rollback"). That needs the owner of the extension: in
+Docker the app's database user is it. Native installs create the extension as `postgres`, so after an OS package update of
 TimescaleDB the app logs a warning instead; then run, as `postgres`, with NetworkMonitor stopped:
 `psql -X -d netmon -c "ALTER EXTENSION timescaledb UPDATE"`. A PostgreSQL MAJOR upgrade (e.g. 16 to 17) is a
 separate data-directory migration and is never done automatically.
@@ -359,7 +362,7 @@ retries with conservative settings. If it still fails:
 | | Docker (מומלץ) | לינוקס (מקומית) | Windows (מקומית) |
 |---|---|---|---|
 | התקנה | <span dir="ltr">`docker compose -f deploy/docker-compose.yml up -d`</span> | <span dir="ltr">`sudo ./deploy/linux/install.sh`</span> | <span dir="ltr">`powershell -ExecutionPolicy Bypass -File .\deploy\windows\install.ps1`</span> |
-| מסד נתונים | קונטיינר TimescaleDB 2.32 / PostgreSQL 16 | PostgreSQL ≥ 14 מההפצה (+TimescaleDB אם זמין) | PostgreSQL 16 דרך winget (ניסיון להתקין TimescaleDB) |
+| מסד נתונים | קונטיינר TimescaleDB 2.31 / PostgreSQL 16 | PostgreSQL ≥ 14 מההפצה (+TimescaleDB אם זמין) | PostgreSQL 16 דרך winget (ניסיון להתקין TimescaleDB) |
 | נתונים | הווליומים `netmon_netmon-data`, `netmon_netmon-db` | <span dir="ltr">`/var/lib/netmon`</span> + PostgreSQL | <span dir="ltr">`%ProgramData%\NetworkMonitor`</span> + PostgreSQL |
 | שירות | <span dir="ltr">`restart: unless-stopped`</span> | שירות systemd בשם `netmon` | שירות Windows בשם `NetworkMonitor` (NSSM) |
 | הסרה | <span dir="ltr">`docker compose -f deploy/docker-compose.yml down`</span> (עם `-v` גם הנתונים נמחקים) | <span dir="ltr">`sudo ./deploy/linux/uninstall.sh [--purge]`</span> | <span dir="ltr">`.\deploy\windows\uninstall.ps1 [-Purge]`</span> |
@@ -502,7 +505,9 @@ docker compose -f deploy/docker-compose.yml exec -T db pg_dump -U netmon -Fc net
 
 image חדש יותר של `timescale/timescaledb` (אותה גרסה ראשית של PostgreSQL) משאיר את ההרחבה במסד קיים בגרסה הישנה.
 בעלייה, האפליקציה מריצה בעצמה `ALTER EXTENSION timescaledb UPDATE` כשהשרת מספק גרסה חדשה יותר (ביומן:
-`TimescaleDB extension updated from X to Y`). זה דורש את בעל ההרחבה: ב-Docker זה משתמש המסד של האפליקציה. בהתקנה
+`TimescaleDB extension updated from X to Y`). זה קורה רק בעליית האפליקציה: ב-Docker, ‏`docker compose up -d` אחרי
+החלפת image של ה-db יוצר מחדש את `db`, ובזכות `depends_on: db: restart: true` של השירות `netmon` ‏[1.5.1] מפעיל
+מחדש גם את האפליקציה (בשרת הייצור `ops/sync.sh` יוצר מחדש את `netmon`). זה דורש את בעל ההרחבה: ב-Docker זה משתמש המסד של האפליקציה. בהתקנה
 מקומית ההרחבה נוצרת כ-`postgres`, ולכן אחרי עדכון חבילת TimescaleDB של מערכת ההפעלה האפליקציה רושמת אזהרה; אז הריצו
 כ-`postgres`, כש-NetworkMonitor עצור: `psql -X -d netmon -c "ALTER EXTENSION timescaledb UPDATE"`. שדרוג גרסה
 ראשית של PostgreSQL (למשל 16 ל-17) הוא הסבת תיקיית נתונים נפרדת ולעולם לא מתבצע אוטומטית.

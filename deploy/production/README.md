@@ -262,6 +262,15 @@ sudo ./ops/restore.sh --dump /var/backups/netmon/daily/netmon-db-<time>.dump \
 `sync.sh` מסרב (מסמן bad) ל-deploy שמחזיר את ה-db ל-image שלא יודע לטעון את הגרסה שבמסד, וב-rollback אוטומטי
 משאיר את ה-db על ה-image החדש. פרטים ופקודות: [docs/production.md](../../docs/production.md) ("[1.5.1] Upgrade and rollback").
 
+**‏[1.5.1] סדר השדרוג של TimescaleDB:** גרסה 1.5.1 עולה **בלי** לשנות את ה-image של ה-db
+(`timescale/timescaledb:2.31.0-pg16`), ולכן היא הפיכה לגמרי (rollback = revert של `release.env` בלבד) ואין צורך
+בגיבוי ידני לפני ה-merge. ה-deploy שלה מתקין בשרת (`install_ops`) את `sync.sh`, `backup.sh`, `restore.sh` ו-`lib.sh`
+המתוקנים, והאפליקציה כבר יודעת לעדכן את ההרחבה בעלייה. רק **אחרי** ש-1.5.1 רצה תקין ממזגים PR נפרד של שורה אחת
+שמעביר את ה-db ל-`2.32.1-pg16`. אז `sync.sh` המותקן לוקח `pre-deploy` dump (כי ה-image של ה-db משתנה), ה-db עולה
+מחדש על 2.32.1, ו-`sync.sh` יוצר מחדש את קונטיינר `netmon` (Compose לבדו לא מפעיל אותו מחדש), כך שהאפליקציה עולה
+ומריצה `ALTER EXTENSION timescaledb UPDATE`. מרגע זה image ישן לא יכול לפתוח את המסד: הדרך היחידה חזרה ל-2.31.0 היא
+שחזור ה-`pre-deploy` dump עם `restore.sh` המתוקן.
+
 **שרת חדש (Disaster Recovery):** מריצים את שלבים 1-3 עם `NETMON_NO_DEPLOY=1` (בלי deploy ראשון),
 ואז `restore.sh` עם `--dump` ו-`--data`, ואז:
 

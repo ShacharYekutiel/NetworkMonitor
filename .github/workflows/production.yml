@@ -99,27 +99,34 @@ jobs:
           tests/test-assistant-net.sh
 
   # [1.5.1] ops/restore.sh across TimescaleDB versions with the REAL images: a dump written by
-  # the previous production db image (OLD_DB_IMAGE) is restored under the db image of
-  # compose.yaml (create the extension at the dump's version, restore, update; data,
-  # compression, continuous aggregate and policy jobs compared, every job run), plus the
-  # refusal paths. Then proves what sync.sh guards against: the old image cannot open a
-  # database whose extension was updated. Bump OLD_DB_IMAGE to the db image of the release
-  # before when compose.yaml moves to a newer TimescaleDB.
+  # the older db image (OLD_DB_IMAGE) is restored under the newer one (NEW_DB_IMAGE) (create
+  # the extension at the dump's version, restore, update; data, compression, continuous
+  # aggregate and policy jobs compared, every job run), plus the refusal paths. Then proves
+  # what sync.sh guards against: the old image cannot open a database whose extension was
+  # updated. Both images are explicit here, NOT read from compose.yaml: the scripts must be
+  # proven on the upgrade path BEFORE compose.yaml moves to NEW_DB_IMAGE (release 1.5.1 keeps
+  # OLD_DB_IMAGE; the one-line db image PR follows). compose.yaml must pin one of the two.
+  # When compose.yaml is on NEW_DB_IMAGE and the next TimescaleDB bump is planned, move both
+  # up (OLD = the pinned image, NEW = the candidate).
   restore-xver:
     runs-on: ubuntu-latest
     timeout-minutes: 20
     env:
       OLD_DB_IMAGE: timescale/timescaledb:2.31.0-pg16
+      NEW_DB_IMAGE: timescale/timescaledb:2.32.1-pg16
     steps:
       - uses: actions/checkout@v7
 
+      - name: compose.yaml pins the old or the new db image
+        run: |
+          cur="$(NETMON_ETC_DIR=/x docker compose -f deploy/production/compose.yaml --env-file deploy/production/release.env config --images db)"
+          echo "compose.yaml: $cur  old: $OLD_DB_IMAGE  new: $NEW_DB_IMAGE"
+          [[ $cur == "$OLD_DB_IMAGE" || $cur == "$NEW_DB_IMAGE" ]] ||
+            { echo "::error file=deploy/production/compose.yaml::db image $cur is neither OLD_DB_IMAGE nor NEW_DB_IMAGE of this job: update them"; exit 1; }
+
       - name: Start the old and the new db image
         run: |
-          new="$(NETMON_ETC_DIR=/x docker compose -f deploy/production/compose.yaml --env-file deploy/production/release.env config --images db)"
-          [[ $new == timescale/timescaledb:* ]] || { echo "::error::compose config --images db printed '$new'"; exit 1; }
-          echo "NEW_DB_IMAGE=$new" >>"$GITHUB_ENV"
-          echo "old: $OLD_DB_IMAGE  new: $new"
-          for spec in "old=$OLD_DB_IMAGE" "new=$new"; do
+          for spec in "old=$OLD_DB_IMAGE" "new=$NEW_DB_IMAGE"; do
             docker run -d --name "ts-${spec%%=*}" -e POSTGRES_USER=netmon -e POSTGRES_DB=netmon \
               -e POSTGRES_PASSWORD=ci -e TIMESCALEDB_TELEMETRY=off "${spec#*=}"
           done
@@ -160,11 +167,12 @@ jobs:
         run: |
           for c in ts-old ts-new ts-back; do docker logs --tail 50 "$c" 2>&1 | sed "s/^/$c: /" || true; done
 
-  # [1.5.1] Rollback option (a): the app image pinned in release.env (before the bump PR: the
-  # previous release) runs on the NEW db image after the extension update, as it does when only
-  # release.env is reverted. Stack from deploy/docker-compose.yml: start on OLD_DB_IMAGE, set up,
-  # switch db to the compose.yaml image, ALTER EXTENSION timescaledb UPDATE (what >= 1.5.1 does
-  # at start), start the pinned app again: healthy, TimescaleDB on, every policy job runs.
+  # [1.5.1] The app image pinned in release.env runs on the NEW db image after the extension
+  # update: before the 1.5.1 bump PR that is 1.5.0 (rollback option (a) after the db image
+  # change), after it 1.5.1. Stack from deploy/docker-compose.yml: start on OLD_DB_IMAGE, set
+  # up, switch db to NEW_DB_IMAGE, ALTER EXTENSION timescaledb UPDATE (what >= 1.5.1 does at
+  # start), start the pinned app again: healthy, TimescaleDB on, every policy job runs. The
+  # images are explicit (not read from compose.yaml), as in restore-xver.
   app-on-new-db:
     runs-on: ubuntu-latest
     timeout-minutes: 20
@@ -173,6 +181,7 @@ jobs:
       packages: read
     env:
       OLD_DB_IMAGE: timescale/timescaledb:2.31.0-pg16
+      NEW_DB_IMAGE: timescale/timescaledb:2.32.1-pg16
       COMPOSE: docker compose -p netmon-xver -f deploy/docker-compose.yml
     steps:
       - uses: actions/checkout@v7
@@ -180,10 +189,8 @@ jobs:
       - name: Images
         run: |
           app="$(sed -n 's/^NETMON_IMAGE=//p' deploy/production/release.env)"
-          new="$(NETMON_ETC_DIR=/x docker compose -f deploy/production/compose.yaml --env-file deploy/production/release.env config --images db)"
           echo "NETMON_IMAGE=$app" >>"$GITHUB_ENV"
-          echo "NEW_DB_IMAGE=$new" >>"$GITHUB_ENV"
-          echo "app $app; db $OLD_DB_IMAGE -> $new"
+          echo "app $app; db $OLD_DB_IMAGE -> $NEW_DB_IMAGE"
           echo "${{ secrets.GITHUB_TOKEN }}" | docker login ghcr.io -u "${{ github.actor }}" --password-stdin
           docker pull -q "$app"
 

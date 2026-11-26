@@ -54,7 +54,7 @@ One Ubuntu server, Docker, no Kubernetes. The server's desired state is the fold
 4. Review and merge the PR. The server deploys within ~2 minutes; follow it with
    `journalctl -u netmon-gitops -f` or `ops/status.sh`.
 5. Rollback: `git revert` the bump commit (PR + merge). If the new version already migrated the
-   database, also restore the `pre-deploy-<rev>-<ts>.dump` with `ops/restore.sh`. A release that moves the db image
+   database, also restore the `pre-deploy-<rev>-<ts>.dump` with `ops/restore.sh`. A change that moves the db image
    (TimescaleDB) has its own steps: see "[1.5.1] Upgrade and rollback".
 
 Changes to `compose.yaml`, `config/`, `caddy/` or `ops/` follow the same path (PR → merge →
@@ -516,15 +516,71 @@ Contract: [api.md § Alert severity](api.md#severity-alert-severity).
 
 ## [1.5.1] Upgrade and rollback (read before deploying)
 
-**What changes.**
-- **Database image** `timescale/timescaledb:2.31.0-pg16` → `2.32.1-pg16` (`deploy/production/compose.yaml`; PostgreSQL
-  16.15 → 16.16 inside the image). Same data directory, no PostgreSQL major upgrade.
-- **Automatic extension update at the first start of 1.5.1.** Before its migrations the app runs
-  `ALTER EXTENSION timescaledb UPDATE` on the `netmon` database (2.31.0 → 2.32.1) and logs
-  `TimescaleDB extension updated from 2.31.0 to 2.32.1`. 1.5.1 has **no** schema migrations.
-- **App image** on Python 3.14 (`python:3.14-slim`; the SPA is built with Node 26). No setting changes.
+The TimescaleDB image upgrade is **not** part of 1.5.1. 1.5.1 installs the tools that make it safe; the image moves
+afterwards in a separate one-line PR ("The database image change after 1.5.1" below).
+
+**What changes in 1.5.1.**
+- **App image** on Python 3.14 (`python:3.14-slim`; the SPA is built with Node 26). No setting changes, **no** schema
+  migrations.
 - **Caddy** 2.10.2 → 2.11.9 with `max_header_size 64KiB` in `caddy/Caddyfile` (2.11.6 lowered the default to 16 KiB;
   Kerberos `Authorization: Negotiate` headers of users in many AD groups need more). busybox (init) 1.37 → 1.38.
+- **Database image unchanged**: `timescale/timescaledb:2.31.0-pg16` (`deploy/production/compose.yaml`).
+- **The app updates the TimescaleDB extension by itself** when the db image provides a newer version: at startup,
+  before its migrations, it runs `ALTER EXTENSION timescaledb UPDATE` and logs
+  `TimescaleDB extension updated from X to Y` (`backend/netmon/db/timescale.py`, `update_extension`, called from
+  `Runtime.start`). With the unchanged image there is nothing to update.
+- **Fixed ops scripts**, installed on the server by this deploy (`install_ops` in `ops/sync.sh` runs after the deploy
+  is healthy; the timer runs the installed copies):
+  - `ops/sync.sh` refuses a `deploy/production` change whose db image cannot load the extension version in the
+    database, before anything is touched (marked bad, notification "…refused…cannot load TimescaleDB…"); an automatic
+    rollback or drift repair to such a revision keeps `db` on the image it runs (notification "…The db container
+    stays on …"); a db image change takes the pre-deploy `pg_dump` like an app image change; and after a db image
+    change with the same app image it recreates the `netmon` container once `db` is healthy, so the app starts again
+    and updates the extension (Compose itself recreates only `db`).
+  - `ops/restore.sh` restores a dump at the extension version that wrote it, then updates (see rollback (b) below).
+  - `ops/backup.sh`, `ops/lib.sh`: the shared dump / version helpers.
+
+**Deploy.** Tag `v1.5.1` and merge the PR "Deploy v1.5.1 to production". No backup by hand: the app image changes, so
+the `sync.sh` installed today takes `/var/backups/netmon/pre-deploy-<rev>-<ts>.dump` first. The database and its
+extension are not touched, so the background jobs keep running as before.
+
+**Verify** (`cd /opt/netmon/deploy/production` on the server): `sudo ./ops/status.sh` (1.5.1, healthy), and that the
+new scripts are installed: `journalctl -u netmon-gitops | grep 'installed /usr/local/lib/netmon-gitops'` (or compare
+`ops/sync.sh` with the installed copy: `sudo cmp ops/sync.sh /usr/local/lib/netmon-gitops/sync.sh`).
+
+**Rollback: fully reversible.** Revert **only** `release.env` (the app goes back to 1.5.0; 1.5.1 has no migrations and
+did not change the extension):
+```bash
+git switch -c rollback-1.5.0 origin/main
+git revert -m 1 <merge commit of "Deploy v1.5.1 to production">   # touches release.env only
+git push -u origin rollback-1.5.0                                # PR, merge
+```
+The server redeploys 1.5.0 within ~2 minutes. Do not revert the whole release merge (that also brings back the old
+`ops/` scripts, which the database image change below relies on).
+
+**Native installs (Linux, Windows).** 1.5.1 does not change TimescaleDB there (Linux: the OS package; Windows:
+`install.ps1` installs TimescaleDB (`-TimescaleVersion`) only when it is missing). The automatic update needs the extension owner;
+native installs create the extension as `postgres`, so after an OS package update of TimescaleDB the app logs a
+WARNING with the command instead. Then:
+```bash
+sudo runuser -u postgres -- pg_dump -Fc netmon > netmon-before-update.dump      # first: the only way back
+sudo systemctl stop netmon
+sudo runuser -u postgres -- psql -X -d netmon -c 'ALTER EXTENSION timescaledb UPDATE'
+sudo runuser -u postgres -- psql -X -d netmon -c "SELECT default_version, installed_version FROM pg_available_extensions WHERE name = 'timescaledb'"
+sudo systemctl start netmon
+```
+(Windows: `Stop-Service NetworkMonitor`, the same SQL with `& 'C:\Program Files\PostgreSQL\16\bin\psql.exe' -X -h
+127.0.0.1 -U postgres -d netmon -c ...`, `Start-Service NetworkMonitor`.) The job checks below work the same with
+`psql -X -d netmon` as `postgres`. Restoring a dump: the version-aware steps in
+[deploy/README.md](../deploy/README.md#backup-and-restore) ("Restore = same TimescaleDB version first, then update");
+the Debian/RPM packages keep earlier versions, the Windows zip holds only one (copy the older DLLs as described there).
+
+### The database image change after 1.5.1 (TimescaleDB 2.31.0 → 2.32.1)
+
+A separate PR changes one line of `deploy/production/compose.yaml`: `timescale/timescaledb:2.31.0-pg16` →
+`2.32.1-pg16` (PostgreSQL 16.15 → 16.16 inside the image; same data directory, no PostgreSQL major upgrade). The same
+PR moves the defaults of `deploy/docker-compose.yml`, `deploy/docker-compose.dev.yml`, `deploy/.env.example` and
+`install.ps1 -TimescaleVersion`. Merge it **only after 1.5.1 runs healthy** (so the fixed scripts are installed).
 
 **What is irreversible: the extension update.** Facts (checked against the published images and Timescale's docs):
 - The 2.32.1-pg16 image ships the libraries and install scripts of the earlier releases (it is built `FROM` the
@@ -534,35 +590,32 @@ Contract: [api.md § Alert severity](api.md#severity-alert-severity).
   (`could not access file "$libdir/timescaledb-2.32.1"`; Timescale troubleshooting). Timescale supports a downgrade
   script for one step only (2.32.1 → 2.32.0), not back to 2.31.0: do not use it.
 - Under PostgreSQL 16.16 the 2.31.0 library fails every background job (retention, compression, continuous-aggregate
-  refresh; TimescaleDB 2.31.1/2.32.1 release notes, fix #11015). So a database must not stay on 2.31.0 under the new
-  image.
+  refresh; TimescaleDB 2.31.1/2.32.1 release notes, fix #11015). So the database must not stay on 2.31.0 under the
+  new image: the extension has to be updated right after `db` moves.
 
-`ops/sync.sh` (installed by the first deploy below) enforces this: a `deploy/production` change whose db image cannot
-load the extension version in the database is **refused** before anything is touched (marked bad, notification
-"…refused…cannot load TimescaleDB…"); an automatic rollback or drift repair to such a revision keeps `db` on the image
-it runs (notification "…The db container stays on …"). A db image change now also takes the pre-deploy `pg_dump`.
+**What happens when the PR is merged** (the `sync.sh` installed by 1.5.1):
+1. The db image changes, so it takes `/var/backups/netmon/pre-deploy-<rev>-<ts>.dump` (extension 2.31.0) first.
+2. `docker compose up -d --remove-orphans` recreates `db` on 2.32.1 (extension still 2.31.0). It does **not** restart
+   `netmon`: the app image is unchanged and its `depends_on: db` has no `restart: true`.
+3. `sync.sh` sees the db image changed while the `netmon` container was not recreated, waits for `db` to be healthy and
+   runs `docker compose up -d --no-deps --force-recreate netmon`. The app (1.5.1) starts, `Runtime.start` calls
+   `update_extension`, which runs `ALTER EXTENSION timescaledb UPDATE` (2.31.0 → 2.32.1) before anything else.
+   Nothing else updates the extension: the running app only reconnects after the db restart, it does not re-run its
+   startup.
+4. Health check, as for every deploy. If it fails, the automatic rollback to the 1.5.1 revision keeps `db` on 2.32.1
+   when the extension was already updated (notification "…The db container stays on
+   timescale/timescaledb:2.32.1-pg16…"), and the change is marked bad.
 
-**Deploy (two steps, keep them close together).**
-1. **Before merging the release to `main`**, take a backup by hand. Merging deploys the new `compose.yaml` and
-   `Caddyfile` with the app still on 1.5.0, and the `sync.sh` installed on the server today takes its pre-deploy dump
-   only when the *app* image changes:
-   ```bash
-   sudo systemctl start netmon-backup.service
-   sudo ls -l /var/backups/netmon/daily/ | tail -n 3      # netmon-db-<ts>.dump, netmon-data-<ts>.tar.gz, netmon-meta-<ts>.txt
-   ```
-   After this deploy `db` runs 2.32.1 with the extension still on 2.31.0, whose background jobs fail under
-   PostgreSQL 16.16: go on with step 2 at once.
-2. Tag `v1.5.1` and merge the PR "Deploy v1.5.1 to production". The new `sync.sh` takes
-   `/var/backups/netmon/pre-deploy-<rev>-<ts>.dump` (extension 2.31.0), then 1.5.1 starts and updates the extension.
-   If this deploy fails its health check, the automatic rollback goes to step 1's revision: app 1.5.0 on the 2.32.1
-   image, i.e. option (a) below, and works whether or not the extension was already updated.
+For the plain Docker install (`deploy/docker-compose.yml`) the `netmon` service has `depends_on: db: restart: true`,
+so `docker compose up -d` restarts the app after recreating `db` and the app updates the extension the same way.
 
-**Verify after the upgrade** (`cd /opt/netmon/deploy/production` on the server):
+**Verify after the image change** (`cd /opt/netmon/deploy/production` on the server):
 ```bash
 P='sudo docker compose --env-file release.env exec -T db psql -X -U netmon -d netmon'
 # installed vs available extension version: both 2.32.1
 $P -c "SELECT default_version AS available, installed_version FROM pg_available_extensions WHERE name = 'timescaledb'"
 sudo docker compose --env-file release.env logs netmon | grep 'TimescaleDB extension updated'
+journalctl -u netmon-gitops | grep 'recreating it so the app updates the TimescaleDB extension'
 # background jobs: last_run_status Success, total_failures not growing, next_start in the future
 $P -c "SELECT j.job_id, j.proc_name, j.hypertable_name, s.last_run_status, s.last_successful_finish,
              s.total_runs, s.total_failures, s.next_start
@@ -576,40 +629,35 @@ sudo ./ops/status.sh
 ```
 The jobs are the retention policies (`measurements`, `traps`, `syslog_messages`, flow tables), the compression
 policy of `measurements` and, with the Flows feature, the continuous-aggregate refresh policies of the hourly flow
-views. Several run only every 12–24 h, so right after the upgrade `last_run_status` can still be empty: use
-`CALL run_job(<id>)`.
+views. Several run only every 12–24 h, so right after the change `last_run_status` can still be empty: use
+`CALL run_job(<id>)`. If the installed version is still 2.31.0 (the app could not update it: a WARNING with the
+command is in its log), restart the app: `sudo docker compose --env-file release.env restart netmon`.
 
-**Rollback (a): app back to 1.5.0, keep the 2.32.1 database image (recommended).** Supported: 1.5.1 has no
-migrations, 1.5.0 never touches the extension version, and TimescaleDB 2.32.0/2.32.1 list no backward-incompatible
-change or removed function among those the app uses (`create_hypertable`, retention/compression policies,
-`drop_chunks`, `timescaledb_information`). CI job `app-on-new-db` (`.github/workflows/production.yml`) runs the app
-image pinned in `release.env` on the updated extension: healthy, TimescaleDB on, every policy job runs. Revert
-**only** `release.env`:
-```bash
-git switch -c rollback-1.5.0 origin/main
-git revert -m 1 <merge commit of "Deploy v1.5.1 to production">   # touches release.env only
-git push -u origin rollback-1.5.0                                # PR, merge
-```
-The server redeploys 1.5.0 within ~2 minutes; the data written by 1.5.1 stays. Do **not** revert the db image line of
-`compose.yaml` (the server would refuse it, see above) and do not revert the whole release merge (that also brings
-back the old `ops/` scripts).
+**Rollback after the image change.** Reverting the db image line is **refused** by `sync.sh` once the extension is on
+2.32.1 (marked bad, nothing touched). The ways back:
 
-**Rollback (b): the pre-upgrade data from the pre-deploy dump.** Everything written since the dump is lost.
-`ops/restore.sh` reads the dump's extension version, recreates the database from `template0`, creates the extension at
-**that** version, restores (`timescaledb_pre_restore` / `post_restore`), then runs `ALTER EXTENSION timescaledb UPDATE`
-to the image's version. If the db image does not ship the dump's version it stops **before** touching anything and
-names the tag to use (`timescale/timescaledb:<version>-pg16`).
-- **(b1) keep the 2.32.1 image** (simplest): first rollback (a), then on the server
+**(a) App back to 1.5.0, keep the 2.32.1 database image.** Supported: 1.5.1 has no migrations, 1.5.0 never touches
+the extension version, and TimescaleDB 2.32.0/2.32.1 list no backward-incompatible change or removed function among
+those the app uses (`create_hypertable`, retention/compression policies, `drop_chunks`, `timescaledb_information`).
+CI job `app-on-new-db` (`.github/workflows/production.yml`) runs the app image pinned in `release.env` on the updated
+extension: healthy, TimescaleDB on, every policy job runs. Revert only `release.env` as in the 1.5.1 rollback above.
+
+**(b) The pre-change data from the pre-deploy dump.** Everything written since the dump is lost. `ops/restore.sh`
+(installed by 1.5.1) reads the dump's extension version, recreates the database from `template0`, creates the
+extension at **that** version, restores (`timescaledb_pre_restore` / `post_restore`), then runs
+`ALTER EXTENSION timescaledb UPDATE` to the image's version. If the db image does not ship the dump's version it stops
+**before** touching anything and names the tag to use (`timescale/timescaledb:<version>-pg16`).
+- **(b1) keep the 2.32.1 image** (simplest):
   ```bash
   cd /opt/netmon/deploy/production
-  ls -lt /var/backups/netmon/pre-deploy-*.dump | head        # the one taken before the 1.5.1 deploy
+  ls -lt /var/backups/netmon/pre-deploy-*.dump | head        # the one taken before the db image change
   sudo ./ops/restore.sh --dump /var/backups/netmon/pre-deploy-<rev>-<ts>.dump
   # shows "DB: timescale/timescaledb:2.32.1-pg16 (TimescaleDB 2.32.1); dump on 2.31.0 -> create 2.31.0, restore,
   # update to 2.32.1"; type RESTORE. The current database is dumped first to /var/backups/netmon/pre-restore-<ts>.dump.
   ```
-- **(b2) back to the 2.31.0 image as well.** A PR that reverts `release.env` (as in (a)) and sets the db image line of
-  `deploy/production/compose.yaml` back to `timescale/timescaledb:2.31.0-pg16`. `sync.sh` refuses that change while
-  the database is on 2.32.1 (marked bad), so apply it by hand together with the restore:
+- **(b2) back to the 2.31.0 image as well.** A PR that reverts the db image PR (`compose.yaml` back to
+  `timescale/timescaledb:2.31.0-pg16`). `sync.sh` refuses it while the database is on 2.32.1 (marked bad), so apply
+  it by hand together with the restore:
   ```bash
   sudo systemctl stop netmon-gitops.timer
   cd /opt/netmon && sudo git fetch origin && sudo git checkout --detach origin/main
@@ -618,27 +666,9 @@ names the tag to use (`timescale/timescaledb:<version>-pg16`).
   sudo ./ops/sync.sh --force          # clears the bad mark, records the revision (healthy)
   sudo systemctl start netmon-gitops.timer
   ```
-  A dump written **after** the upgrade (a daily `netmon-db-<ts>.dump` on 2.32.1) cannot be restored under 2.31.0:
+  A dump written **after** the change (a daily `netmon-db-<ts>.dump` on 2.32.1) cannot be restored under 2.31.0:
   `restore.sh` stops with "…written by TimescaleDB 2.32.1, but timescale/timescaledb:2.31.0-pg16 (compose.yaml)
   cannot create that version…". Use (b1) for those.
-
-**Native installs (Linux, Windows) — by hand.** 1.5.1 does not change TimescaleDB there (Linux: the OS package;
-Windows: `install.ps1` installs TimescaleDB only when it is missing). The automatic update needs the extension owner;
-native installs create the extension as `postgres`, so after an OS package update the app logs a WARNING with the
-command instead. Then:
-```bash
-sudo runuser -u postgres -- pg_dump -Fc netmon > netmon-before-update.dump      # first: the only way back
-sudo systemctl stop netmon
-sudo runuser -u postgres -- psql -X -d netmon -c 'ALTER EXTENSION timescaledb UPDATE'
-sudo runuser -u postgres -- psql -X -d netmon -c "SELECT default_version, installed_version FROM pg_available_extensions WHERE name = 'timescaledb'"
-sudo systemctl start netmon
-```
-(Windows: `Stop-Service NetworkMonitor`, the same SQL with `& 'C:\Program Files\PostgreSQL\16\bin\psql.exe' -X -h
-127.0.0.1 -U postgres -d netmon -c ...`, `Start-Service NetworkMonitor`.) The job checks above work the same with
-`psql -X -d netmon` as `postgres`. Going back to the 1.5.0 app needs no database change (install 1.5.0 the way 1.5.1
-was installed). Restoring a dump: the version-aware steps in [deploy/README.md](../deploy/README.md#backup-and-restore)
-("Restore = same TimescaleDB version first, then update"); the Debian/RPM packages keep earlier versions, the Windows
-zip holds only one (copy the older DLLs as described there).
 
 ## [1.5.0] Upgrade and rollback (read before deploying)
 

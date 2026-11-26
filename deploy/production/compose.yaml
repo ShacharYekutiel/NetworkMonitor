@@ -78,7 +78,7 @@ services:
     logging: *logging
 
   db:
-    image: timescale/timescaledb:2.32.1-pg16
+    image: timescale/timescaledb:2.31.0-pg16
     restart: unless-stopped
     # [1.4.2] runs directly as the image's postgres user (uid/gid 70, the owner of the data
     # directory) instead of starting as root and switching: no capability needed at all.
