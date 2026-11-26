@@ -564,6 +564,12 @@ candidates deliberately.
 - **(c) Restore the `pre-deploy-<rev>-<ts>.dump`** with `ops/restore.sh` (everything written since is lost), then
   revert `release.env`.
 
+**`secret.key` and profiles.** Profile secrets are stored encrypted only (no plaintext copy, unlike the 1.4.2 copies
+of group / device credentials). A database restored next to a different `/data/secret.key` shows the profile in
+*Settings → Connection profiles* with "the stored secrets cannot be decrypted — enter them again", and every device
+that gets its SNMP / SSH from it fails (SNMP: timeout) until the secret is entered again in the profile (one edit
+repairs all of them; checked in QA). Keep `secret.key` with the backups ([1.4.2] `secret.key` below).
+
 ## [1.5.1] Upgrade and rollback (read before deploying)
 
 The TimescaleDB image upgrade is **not** part of 1.5.1. 1.5.1 installs the tools that make it safe; the image moves

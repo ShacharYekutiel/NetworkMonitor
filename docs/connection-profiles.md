@@ -167,6 +167,34 @@ E2E (`tests/e2e/specs/94-connection-profiles.spec.ts`, `95-connection-profiles-d
 QA also reviews the backend test list above for gaps and adds `tests/integration` checks for the downgrade
 (`netmon migrate` to the previous head) materialisation.
 
+## How-to: one SNMP profile for a group
+
+(For the owner / network engineer, in Hebrew. Checked on 1.6.0 against simulated switches whose SNMP sensors were
+down with "No SNMP response received before timeout" because the built-in default `v2c / public / 161` did not fit.)
+
+<div dir="rtl">
+
+**הגדרת פרופיל SNMP אחד לקבוצה (לכל ההתקנים שמתחתיה)**
+
+1. **הגדרות ← פרופילי חיבור ← "הוספת פרופיל".** סוג: SNMP. שם ברור (למשל "SNMP סניפים"), גרסה, Community (או
+   משתמש v3 עם מפתחות האימות/הצפנה), פורט (בדרך כלל 161). הסודות נשמרים מוצפנים ולא מוצגים שוב ("שמור").
+2. **"בדיקת חיבור"** (כפתור ההפעלה בשורת הפרופיל): בוחרים אחד מההתקנים ← "הרצת בדיקה". בדיקה לקריאה בלבד
+   (GET אחד של sysName / sysDescr / sysObjectID); "החיבור תקין" עם שם ההתקן מאשר שהפרטים נכונים. לא נשמר דבר.
+3. **פותחים את הקבוצה העליונה ← "עריכה" ← באזור SNMP בוחרים "פרופיל"** ובוחרים את הפרופיל ← "שמירה".
+   אין צורך לגעת בהתקנים: כל התקן שמתחת לקבוצה (גם בתתי-קבוצות) שמוגדר "ירושה" מקבל את הפרופיל.
+   התקן או תת-קבוצה עם הגדרה "ידני" או פרופיל משלהם ממשיכים להשתמש בהגדרה שלהם.
+4. **בדיקה:** בדף של התקן שמתחת לקבוצה מופיעה השורה
+   "SNMP: בירושה מהקבוצה ‹שם הקבוצה› · פרופיל ‹שם הפרופיל› (v2c)". בהגדרות ← פרופילי חיבור, בעמודה
+   "התקנים מושפעים", מופיע מספר ההתקנים שמקבלים את הפרופיל.
+5. **מתי החיישנים חוזרים לתקין:** אין צורך באתחול. כל חיישן משתמש בפרטים החדשים בבדיקה המתוזמנת הבאה שלו,
+   כלומר תוך מרווח הבדיקה של החיישן (בדרך כלל 60 שניות; חיישני סטטוס של תבניות עד 300 שניות). כדי לא לחכות:
+   בעץ או ברשימת ההתקנים, קליק ימני על התקן ← "הרצת כל החיישנים עכשיו", או בחיישן בודד "הרצה עכשיו".
+   (אין עדיין פעולה כזו לקבוצה שלמה.)
+6. **שינוי מאוחר יותר:** עריכת הפרופיל (למשל Community חדש) חלה מיד על כל ההתקנים שמשתמשים בו, בבדיקה הבאה.
+   פרופיל שנמצא בשימוש אי אפשר למחוק; "בשימוש אצל" מראה איפה.
+
+</div>
+
 ## Edge cases
 
 - **Poller cache invalidation.** The poller has no credential cache: `build_context` resolves credentials from the
