@@ -36,28 +36,58 @@ def _free_udp_port(ip: str) -> int:
 
 
 # ------------------------------------------------------------------ HIGH-1 PTR executor
-async def test_slow_ptr_lookups_do_not_block_getaddrinfo(monkeypatch) -> None:  # type: ignore[no-untyped-def]
-    active = {"now": 0, "max": 0}
-    lock = threading.Lock()
+class _HeldPtr:
+    """`socket.getnameinfo` stand-in that holds its thread until `release` is set.
 
-    def slow(addr: tuple[str, int], flags: int) -> tuple[str, str]:
-        with lock:
-            active["now"] += 1
-            active["max"] = max(active["max"], active["now"])
-        time.sleep(0.6)
-        with lock:
-            active["now"] -= 1
+    The tests below hold every PTR thread while the resolver call / SNMP GET runs, so if PTR
+    lookups shared the default executor that the resolver uses, the call could not finish
+    before its timeout however fast the machine is: no wall-clock bound on a loaded runner
+    stands in for "was not delayed" (a 0.8 s bound against 1.0 s sleeps failed at 0.875 s
+    under CPU load)."""
+
+    def __init__(self) -> None:
+        self.release = threading.Event()
+        self.lock = threading.Lock()
+        self.now = 0
+        self.max = 0
+        self.threads: set[str] = set()
+
+    def __call__(self, addr: tuple[str, int], flags: int) -> tuple[str, str]:
+        with self.lock:
+            self.now += 1
+            self.max = max(self.max, self.now)
+            self.threads.add(threading.current_thread().name)
+        try:
+            self.release.wait(30)
+        finally:
+            with self.lock:
+                self.now -= 1
         return (f"host-{addr[0]}.lan.", "0")
 
-    monkeypatch.setattr(dns.socket, "getnameinfo", slow)
+    async def wait_all_held(self) -> None:
+        deadline = time.monotonic() + 10
+        while self.now < dns.CONCURRENCY:
+            assert time.monotonic() < deadline, f"only {self.now} PTR threads started"
+            await asyncio.sleep(0.01)
+
+
+async def test_slow_ptr_lookups_do_not_block_getaddrinfo(monkeypatch) -> None:  # type: ignore[no-untyped-def]
+    ptr = _HeldPtr()
+    monkeypatch.setattr(dns.socket, "getnameinfo", ptr)
+    monkeypatch.setattr(dns, "LOOKUP_TIMEOUT_S", 30.0)  # the held lookups must not time out
     loop = asyncio.get_running_loop()
-    lookups = asyncio.gather(*(dns.lookup(f"10.0.0.{i}") for i in range(20)))
-    await asyncio.sleep(0.05)
-    t0 = time.monotonic()
-    await asyncio.wait_for(loop.getaddrinfo("127.0.0.1", 161), 5)  # what pysnmp targets use
-    assert time.monotonic() - t0 < 0.3
+    lookups = asyncio.ensure_future(asyncio.gather(*(dns.lookup(f"10.0.0.{i}") for i in range(20))))
+    try:
+        await ptr.wait_all_held()
+        # what pysnmp targets use; completes while every PTR thread is still held
+        await asyncio.wait_for(loop.getaddrinfo("127.0.0.1", 161), 10)
+        assert ptr.now == dns.CONCURRENCY
+    finally:
+        ptr.release.set()
     names = await lookups
-    assert names[3] == "host-10.0.0.3.lan" and active["max"] <= 8
+    assert names[3] == "host-10.0.0.3.lan" and ptr.max == dns.CONCURRENCY
+    # PTR lookups ran in their own pool, never in the default executor ("asyncio_N")
+    assert ptr.threads and all(n.startswith("ptr") for n in ptr.threads), ptr.threads
 
 
 @requires_db
@@ -70,20 +100,23 @@ async def test_slow_ptr_lookups_do_not_delay_snmp_get(monkeypatch) -> None:  # t
     )
     if agent is None:
         pytest.skip("snmpsim not available")
+    ptr = _HeldPtr()
+    lookups = None
     try:
-        monkeypatch.setattr(
-            dns.socket, "getnameinfo", lambda a, f: (time.sleep(1.0), ("h", "0"))[1]
+        monkeypatch.setattr(dns.socket, "getnameinfo", ptr)
+        lookups = asyncio.ensure_future(
+            asyncio.gather(*(dns.lookup(f"10.1.0.{i}") for i in range(20)))
         )
-        lookups = asyncio.gather(*(dns.lookup(f"10.1.0.{i}") for i in range(20)))
-        await asyncio.sleep(0.05)
-        t0 = time.monotonic()
+        await ptr.wait_all_held()
         res = await snmp_get(
-            SW_IP, {"port": port, "timeout_s": 2, "retries": 0}, ["1.3.6.1.2.1.1.5.0"]
+            SW_IP, {"port": port, "timeout_s": 5, "retries": 0}, ["1.3.6.1.2.1.1.5.0"]
         )
         assert res["1.3.6.1.2.1.1.5.0"] == b"x"
-        assert time.monotonic() - t0 < 0.8
-        await lookups
+        assert ptr.now == dns.CONCURRENCY  # the GET finished while every PTR thread was held
     finally:
+        ptr.release.set()
+        if lookups is not None:
+            await lookups
         await asyncio.to_thread(agent.stop)
 
 
@@ -121,9 +154,53 @@ def test_deeply_nested_files_are_rejected_per_file(tmp_path: Path) -> None:
     templates, errors = load_dir(tmp_path, "user")
     assert [t["id"] for t in templates] == ["good_one"]
     by = {e["file"]: e["message"] for e in errors}
-    assert by["b/deep.yaml"].startswith("invalid YAML: ")
-    assert by["b/deep_json.json"].startswith("invalid JSON: ")
+    assert by["b/deep.yaml"] == "invalid YAML: nesting too deep"
+    assert by["b/deep_json.json"] == "invalid JSON: nesting too deep"
     assert by["b/huge.yaml"] == "file too large (max 256 KiB)"
+
+
+def test_deep_json_rejected_even_with_a_large_stack(tmp_path: Path) -> None:
+    """From Python 3.14 the C JSON decoder's recursion guard is bounded by the thread's stack
+    size, not the recursion limit: on a runner with a large stack 100000 nested arrays parse
+    fine (CI run 45776086774 then reported "missing key: schema"). Load in a thread with a
+    256 MiB stack so the parser itself does not overflow; the depth cap must still reject."""
+    (tmp_path / "deep_json.json").write_text('{"x": ' + "[" * 100000 + "]" * 100000 + "}")
+    (tmp_path / "deep.yaml").write_text("x: " + "[" * 50000 + "]" * 50000 + "\n")
+    result: dict[str, Any] = {}
+
+    def run() -> None:
+        result["out"] = load_dir(tmp_path, "user")
+
+    old = threading.stack_size(256 * 1024 * 1024)
+    try:
+        t = threading.Thread(target=run)
+        t.start()
+    finally:
+        threading.stack_size(old)
+    t.join()
+    templates, errors = result["out"]
+    assert templates == []
+    assert {e["file"]: e["message"] for e in errors} == {
+        "deep.yaml": "invalid YAML: nesting too deep",
+        "deep_json.json": "invalid JSON: nesting too deep",
+    }
+
+
+def test_nesting_cap_boundary() -> None:
+    from netmon.templates.library import MAX_NESTING, TemplateError, parse_text
+
+    ok = "[" * MAX_NESTING + "]" * MAX_NESTING
+    assert parse_text(ok, ".json") is not None
+    assert parse_text(ok, ".yaml") is not None
+    deep = "[" * (MAX_NESTING + 1) + "]" * (MAX_NESTING + 1)
+    for suffix, kind in ((".json", "JSON"), (".yaml", "YAML")):
+        with pytest.raises(TemplateError) as exc:
+            parse_text(deep, suffix)
+        assert exc.value.message == f"invalid {kind}: nesting too deep"
+    # dicts count as levels too
+    nested_dict = '{"a": ' * (MAX_NESTING + 1) + "1" + "}" * (MAX_NESTING + 1)
+    with pytest.raises(TemplateError):
+        parse_text(nested_dict, ".json")
 
 
 @requires_db

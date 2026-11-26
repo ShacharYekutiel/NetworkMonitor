@@ -3,6 +3,13 @@
 # `docker inspect/exec/volume` for ops/sync.sh. State lives in $FAKE_STATE.
 #   FAKE_BAD_IMAGE   netmon reports "unhealthy" while running this image
 #   FAKE_PULL_FAIL   `compose pull` fails
+#   FAKE_UPDATE_EXT  netmon (re)starting sets the database's TimescaleDB version to the db
+#                    image's (what the app does at start since 1.5.1)
+# [1.5.1] TimescaleDB: $S/db_image (image db runs), $S/ts_version (extension version in the
+# database), $S/older_libs (versions every image newer than them ships besides its own).
+# Container ids are cid-<service>-<generation>; `up` recreates a container (new generation)
+# like Compose does: when its image changed, with --force-recreate, or when it never existed;
+# a stopped one is started. A recreated db does NOT restart netmon (no `restart: true`).
 set -euo pipefail
 S="${FAKE_STATE:?}"
 mkdir -p "$S/run"
@@ -10,13 +17,37 @@ echo "docker $*" >>"$S/calls"
 
 img_of_env() { sed -n 's/^NETMON_IMAGE=//p' "$1"; }
 running() { [[ -f $S/run/$1 ]]; }
+db_image_of() { awk '/^  db:/ { f = 1; next } f && /^    image:/ { print $2; exit }' "$1"; }
+tag_version() { local t="${1##*:}"; printf '%s\n' "${t%%-*}"; }
+gen() { cat "$S/gen-$1" 2>/dev/null || echo 0; }
+# bring_up service wanted-image force(0/1): create / recreate / start like `compose up`
+bring_up() {
+  local svc=$1 want=$2 force=$3 have="" started=0
+  [[ $svc == netmon && -f $S/netmon_image ]] && have="$(cat "$S/netmon_image")"
+  [[ $svc == db && -f $S/db_image ]] && have="$(cat "$S/db_image")"
+  if [[ $force == 1 || ! -e $S/created-$svc || ( -n $want && $want != "$have" ) ]]; then
+    echo $(($(gen "$svc") + 1)) >"$S/gen-$svc"
+    touch "$S/created-$svc"
+    started=1
+  elif [[ ! -f $S/run/$svc ]]; then
+    started=1
+  fi
+  touch "$S/run/$svc"
+  [[ $svc == netmon && -n $want ]] && echo "$want" >"$S/netmon_image"
+  [[ $svc == db && -n $want ]] && echo "$want" >"$S/db_image"
+  if [[ $svc == netmon && $started == 1 && -n ${FAKE_UPDATE_EXT:-} && -f $S/db_image ]]; then
+    tag_version "$(cat "$S/db_image")" >"$S/ts_version"
+  fi
+  return 0
+}
 
 if [[ $1 == compose ]]; then
   shift
-  envf=""
+  envf="" cf=""
   while (($#)); do
     case "$1" in
-      --project-directory | -f) shift 2 ;;
+      --project-directory) shift 2 ;;
+      -f) cf="$2"; shift 2 ;;
       --env-file) envf="$2"; shift 2 ;;
       *) break ;;
     esac
@@ -26,24 +57,41 @@ if [[ $1 == compose ]]; then
   case "$sub" in
     config)
       [[ " $* " == *" --services "* ]] && { printf '%s\n' init db netmon proxy; exit 0; }
+      # like Compose: db's dependencies too, in no fixed order
+      [[ " $* " == *" --images db "* ]] && { echo busybox:1.38; db_image_of "$cf"; exit 0; }
       grep -q '^NETMON_IMAGE=' "$envf"
+      # the normalized model (only what the scripts read): the compose file itself
+      [[ " $* " == *" -q "* ]] || cat "$cf"
       ;;
     ps)
       if [[ " $* " == *" -q "* ]]; then
         svc="${*: -1}"
-        [[ -e $S/run/$svc || -e $S/created-$svc ]] && echo "cid-$svc"
+        [[ -e $S/run/$svc || -e $S/created-$svc ]] && echo "cid-$svc-$(gen "$svc")"
       else
         ls "$S/run"
       fi
       ;;
     pull) [[ -z ${FAKE_PULL_FAIL:-} ]] || exit 1 ;;
     up)
-      if [[ " $* " == *" --remove-orphans "* ]]; then
-        for s in db netmon proxy; do touch "$S/run/$s" "$S/created-$s"; done
-        img_of_env "$envf" >"$S/netmon_image"
+      force=0
+      [[ " $* " == *" --force-recreate "* ]] && force=1
+      if [[ " $* " == *" --no-deps "* ]]; then
+        for a in "$@"; do
+          case "$a" in
+            -*) ;;
+            netmon) bring_up netmon "$(img_of_env "$envf")" "$force" ;;
+            proxy) bring_up proxy "" "$force" ;;
+            db) echo "fake docker: --no-deps up must not include db" >&2; exit 2 ;;
+          esac
+        done
+      elif [[ " $* " == *" --remove-orphans "* ]]; then
+        bring_up db "$(db_image_of "$cf")" "$force"
+        bring_up netmon "$(img_of_env "$envf")" "$force"
+        bring_up proxy "" "$force"
         touch "$S/db_volume"
       else
-        touch "$S/run/db" "$S/created-db" "$S/db_volume"
+        bring_up db "" 0
+        touch "$S/db_volume"
       fi
       ;;
     stop) for s in "$@"; do rm -f "$S/run/$s"; done ;;
@@ -56,6 +104,7 @@ fi
 case "$1" in
   inspect)
     fmt="$3" cid="$4" svc="${4#cid-}"
+    svc="${svc%-*}"
     case "$fmt" in
       *Health*)
         if ! running "$svc"; then echo exited
@@ -63,12 +112,31 @@ case "$1" in
         else echo healthy; fi
         ;;
       *Running*) running "$svc" && echo true || echo false ;;
-      *Config.Image*) [[ $svc == netmon ]] && cat "$S/netmon_image" ;;
+      *Config.Image*)
+        [[ $svc == netmon ]] && cat "$S/netmon_image"
+        [[ $svc == db && -f $S/db_image ]] && cat "$S/db_image"
+        ;;
     esac
     : "$cid"
     ;;
   exec)
-    if [[ " $* " == *" pg_dump "* ]]; then echo "PGDMP-fake-dump"; else cat >/dev/null; fi
+    if [[ " $* " == *" pg_dump "* ]]; then echo "PGDMP-fake-dump"
+    elif [[ "$*" == *"extversion"* ]]; then cat "$S/ts_version" 2>/dev/null || true
+    else cat >/dev/null; fi
+    ;;
+  run)
+    # ts_probe: what the image ships (its own version + the older ones in $S/older_libs).
+    img="" prev="" prev2=""
+    for a in "$@"; do
+      [[ $prev2 == sh && $a == -c ]] && { img="$prev"; break; }
+      prev2="$prev" prev="$a"
+    done
+    [[ ${FAKE_PROBE_FAIL:-} != 1 ]] || exit 1
+    v="$(tag_version "$img")"
+    echo "default=$v"
+    { cat "$S/older_libs" 2>/dev/null || true; echo "$v"; } | sort -uV | while read -r o; do
+      if [[ "$(printf '%s\n%s\n' "$o" "$v" | sort -V | tail -n1)" == "$v" ]]; then printf 'lib=%s\nhave=%s\n' "$o" "$o"; fi
+    done
     ;;
   volume) if [[ -f $S/db_volume ]]; then echo netmon_netmon-db; fi ;;
   *) echo "fake docker: unsupported $1" >&2; exit 2 ;;

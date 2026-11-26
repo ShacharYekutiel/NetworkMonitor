@@ -106,12 +106,13 @@ test('ArubaOS-Switch sensors and values', async () => {
   expect(Object.keys(s).some((n) => /Redundant/.test(n))).toBe(false); // notPresent skipped
   expect(s['Power Supply Sensor'].interval_s).toBe(300);
   expect(s['PoE 1 budget'].interval_s).toBe(3600);
-  // Wait for the first values (status sensors interval 300 s run once right after creation).
+  // Wait for the first values (status sensors interval 300 s run once right after creation) of every sensor
+  // asserted below (Over-temperature was missing: its status was read while still 'unknown').
   await expect
     .poll(async () => {
       s = await sensorsByName(D.aruba.id);
       await interfaceSensorsOnImportantPortsOnly('127.0.0.51', D.aruba.id, s);
-      return ['CPU', 'Memory 1', 'Power Supply Sensor', 'Fan Sensor', 'PoE 1 usage', 'PoE 1 power', 'PoE 1 budget'].filter((n) => s[n] && s[n].status === 'unknown');
+      return ['CPU', 'Memory 1', 'Power Supply Sensor', 'Fan Sensor', 'Over-temperature Sensor', 'PoE 1 usage', 'PoE 1 power', 'PoE 1 budget'].filter((n) => s[n] && s[n].status === 'unknown');
     }, { timeout: 90_000, intervals: [2000, 5000] })
     .toEqual([]);
   expect(s['Power Supply Sensor'].status).toBe('down');

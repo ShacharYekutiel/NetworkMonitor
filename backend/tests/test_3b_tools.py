@@ -13,6 +13,7 @@ import httpx
 from sqlalchemy import text
 
 from netmon.assistant import redact, tools
+from netmon.assistant.tools_core import PROBLEM
 from tests.conftest import make_device, make_sensor, requires_db
 from tests.fixtures_3b_agent import seed
 
@@ -239,6 +240,12 @@ async def test_every_tool_runs_and_cites(rt: Any, admin: httpx.AsyncClient, asst
     dev = r["get_device"].envelope["data"]
     assert dev["vendor"] == "HPE" and dev["problems"][0]["ref"] == f"sensor/{sid}"
     assert r["list_problems"].envelope["data"]["items"][0]["message"] == "Request timed out"
+    # exact per-status counts over every matching sensor (never one total of down + warning)
+    probs = r["list_problems"].envelope["data"]
+    by_status = {st: sum(i["status"] == st for i in probs["items"]) for st in PROBLEM}
+    assert probs["counts"] == {f"{st}_count": n for st, n in by_status.items()}
+    assert probs["counts"]["down_count"] >= 1
+    assert "never add warnings" in r["list_problems"].envelope["note"]
     assert r["list_maintenance"].rows == 1
     assert r["list_maintenance"].envelope["data"]["items"][0]["target_ref"] == f"device/{acc}"
     nb = r["topology_neighbors"].envelope["data"]["items"][0]

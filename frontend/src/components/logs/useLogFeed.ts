@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useInfiniteQuery } from '@tanstack/react-query';
 import type { CursorPage, WsMessage } from '../../api/types';
-import { useLiveMessages } from '../../hooks/live';
+import { useLiveMessages, useLiveState } from '../../hooks/live';
 import { mergeNewest } from '../../lib/logs';
 
 const LIVE_MAX = 2000;
@@ -10,6 +10,11 @@ const LIVE_MAX = 2000;
  * [2b-3] Cursor-paged records ("Load more" = next_cursor) plus an optional live tail: records
  * from `syslog.batch` / `trap.batch` that match the filter are prepended; while the list is
  * scrolled away from the top they are held back ("N new — show").
+ *
+ * Whenever the live tail (re)connects — Live switched on, or the socket came back after a drop —
+ * the loaded pages are fetched again: frames sent while it was not connected (new records and,
+ * for syslog, the `syslog.repeats` counts of rows already on screen) are not replayed, so without
+ * this a row stayed at "×1" although the server had folded more messages into it.
  */
 export function useLogFeed<T extends { id: number; time: string }>(opts: {
   queryKey: readonly unknown[];
@@ -55,6 +60,17 @@ export function useLogFeed<T extends { id: number; time: string }>(opts: {
     onMsg,
     live && enabled ? topic : null,
   );
+
+  const wsState = useLiveState();
+  const connected = live && enabled && wsState === 'open';
+  const wasConnected = useRef(connected);
+  const hasData = !!q.data;
+  const { refetch } = q;
+  useEffect(() => {
+    const was = wasConnected.current;
+    wasConnected.current = connected;
+    if (connected && !was && hasData) void refetch();
+  }, [connected, hasData, refetch]);
 
   const showPending = useCallback(() => {
     setLiveItems((prev) => mergeNewest(pending, prev, LIVE_MAX));

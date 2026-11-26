@@ -284,6 +284,18 @@ export function mergeNewest<T extends { id: number; time: string }>(
   return [...fresh, ...existing].slice(0, max);
 }
 
+/**
+ * [syslog-protection] A live repeat count (`syslog.repeats`) over a row as fetched. The count of a
+ * row only grows, so the larger one wins: a live value received earlier never hides a newer count
+ * that a reload of the list brought.
+ */
+export function withRepeat<T extends Pick<SyslogMessage, 'repeat_count' | 'last_seen'>>(
+  m: T,
+  live: { repeat_count: number; last_seen: string } | undefined,
+): T {
+  return live && live.repeat_count > m.repeat_count ? { ...m, ...live } : m;
+}
+
 /** sysUpTime ticks (1/100 s) → seconds. */
 export function ticksToSeconds(ticks: number | null): number | null {
   return ticks === null ? null : Math.floor(ticks / 100);

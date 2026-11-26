@@ -7,11 +7,13 @@
 #    deploy/production`). Code-only merges never deploy.
 # 3. Otherwise check for drift (a service not running, wrong netmon image) and repair it.
 #
-# Deploy: checkout -> validate (check-release.sh, compose config) -> pg_dump BEFORE the
-# netmon image changes (/var/backups/netmon/pre-deploy-<rev>-<ts>.dump) -> pull -> up -d
-# --remove-orphans -> wait for health (containers + https://<fqdn>/api/health) -> clear
-# stale UDP conntrack entries for traps/syslog/flows (162/514/2055/4739/6343) when netmon
-# was recreated.
+# Deploy: checkout -> validate (check-release.sh, compose config) -> [1.5.1] refuse a db image
+# that cannot load the TimescaleDB version the database already uses -> pg_dump BEFORE the
+# netmon or the db image changes (/var/backups/netmon/pre-deploy-<rev>-<ts>.dump) -> pull -> up -d
+# --remove-orphans -> [1.5.1] db image changed but netmon not recreated: recreate netmon (the app
+# updates the TimescaleDB extension at startup) -> wait for health (containers +
+# https://<fqdn>/api/health) -> clear stale UDP conntrack entries for traps/syslog/flows
+# (162/514/2055/4739/6343) when netmon was recreated.
 # On failure: the deploy/production tree is marked bad (not retried until a NEW change
 # lands under deploy/production) and the previous good revision is redeployed.
 # The database is NEVER restored automatically (migrations are forward-only); see
@@ -36,7 +38,7 @@ for a in "$@"; do
     --dry-run | --check) DRY_RUN=1 ;;
     --force) FORCE=1 ;;
     -h | --help)
-      sed -n '2,25p' "$0"
+      sed -n '2,27p' "$0"
       exit 0
       ;;
     *) die "unknown argument: $a" ;;
@@ -153,16 +155,21 @@ db_volume_exists() {
     --filter label=com.docker.compose.volume=netmon-db 2>/dev/null)" ]]
 }
 
-ensure_db_up() {
-  service_running db && [[ "$(service_state db)" == healthy ]] && return 0
-  log "starting db for the pre-deploy backup"
-  compose up -d db || return 1
+wait_db_healthy() {
   local deadline=$((SECONDS + 180))
   while ((SECONDS < deadline)); do
     [[ "$(service_state db)" == healthy ]] && return 0
     sleep "$NETMON_HEALTH_POLL"
   done
+  err "db not healthy after 180s"
   return 1
+}
+
+ensure_db_up() {
+  service_running db && [[ "$(service_state db)" == healthy ]] && return 0
+  log "starting db for the pre-deploy backup"
+  compose up -d db || return 1
+  wait_db_healthy
 }
 
 pre_deploy_backup() { # rev -> echoes the dump path
@@ -222,8 +229,11 @@ rollback() { # rev tree why dump
   if [[ -n $deployed_rev && $deployed_rev != "$rev" ]]; then
     log "rolling back to the previous good revision $(short "$deployed_rev")"
     checkout "$deployed_rev"
-    if compose up -d --remove-orphans && wait_healthy; then
-      hist "ROLLBACK ok rev=$deployed_rev"
+    # [1.5.1] The new version may already have updated the TimescaleDB extension, which the
+    # previous revision's db image may not be able to load: then db stays on its new image.
+    if compose_up_guarded && wait_healthy; then
+      hist "ROLLBACK ok rev=$deployed_rev${DB_KEPT:+ db_kept=$DB_KEPT}"
+      [[ -n $DB_KEPT ]] && msg+=" The db container stays on $DB_KEPT: the database's TimescaleDB extension was already updated and the previous db image cannot load it."
       notify "$msg Rolled back to $(short "$deployed_rev"): healthy. The database was NOT restored."
     else
       hist "ROLLBACK FAILED rev=$deployed_rev"
@@ -257,8 +267,32 @@ deploy() { # rev tree
 
   new_image="$(env_get "$NETMON_PROD_DIR/release.env" NETMON_IMAGE)"
   cur_image="$(running_image netmon || true)"
-  if [[ $cur_image != "$new_image" ]] && db_volume_exists; then
-    log "netmon image changes (${cur_image:-none} -> $new_image): taking a pre-deploy backup"
+
+  # [1.5.1] A db image change. An extension update cannot be undone, so a db image that cannot
+  # load the TimescaleDB version the database is on (an older image after an update, e.g. a
+  # revert of a db image bump) would leave the database unusable: refuse it before touching
+  # anything. The image is inspected without starting it (pulled if needed).
+  local new_db cur_db db_changes=0 tsv probe
+  new_db="$(compose_db_image)"
+  cur_db="$(running_image db || true)"
+  [[ -n $new_db && -n $cur_db && $new_db != "$cur_db" ]] && db_changes=1
+  if ((db_changes)) && service_running db && tsv="$(db_ts_version)" && [[ -n $tsv ]]; then
+    if ! probe="$(ts_probe "$new_db")" || ! grep -q '^default=' <<<"$probe"; then
+      [[ -n $deployed_rev ]] && checkout "$deployed_rev"
+      notify_once "dbprobe-$tree" "Deploy of $(short "$rev") waiting: cannot inspect the new db image $new_db (pull failed?). Retrying every run."
+      return 1
+    fi
+    if ! grep -qx "lib=$tsv" <<<"$probe"; then
+      mark_bad "$tree" "$rev" "db image $new_db cannot load TimescaleDB $tsv"
+      hist "REFUSED rev=$rev tree=$tree db_image=$new_db timescaledb=$tsv"
+      [[ -n $deployed_rev ]] && checkout "$deployed_rev"
+      notify "Deploy of $(short "$rev") refused (marked bad): its db image $new_db cannot load TimescaleDB $tsv, which the database already uses (an extension update cannot be undone). Keep a db image that ships $tsv (now: $cur_db), or restore a dump with ops/restore.sh - see docs/production.md \"[1.5.1] Upgrade and rollback\"."
+      return 1
+    fi
+  fi
+
+  if [[ $cur_image != "$new_image" || $db_changes == 1 ]] && db_volume_exists; then
+    log "netmon image (${cur_image:-none} -> $new_image) or db image (${cur_db:-none} -> ${new_db:-?}) changes: taking a pre-deploy backup"
     if ! dump="$(pre_deploy_backup "$rev")"; then
       [[ -n $deployed_rev ]] && checkout "$deployed_rev"
       notify_once "backup-$tree" "Deploy of $(short "$rev") postponed: the pre-deploy backup failed. Will retry."
@@ -288,6 +322,18 @@ deploy() { # rev tree
   if ! compose up -d --remove-orphans; then
     rollback "$rev" "$tree" "docker compose up failed" "$dump"
     return 1
+  fi
+  # [1.5.1] A db image change with the same app image: compose recreates db but leaves the
+  # running netmon container alone (its depends_on has no `restart: true`). App >= 1.5.1 also
+  # updates the extension after it reconnected (lock watchdog, <= 30 s), but 1.5.0 (a rollback
+  # target) does so only at startup: recreate netmon once db is healthy, so the extension is
+  # updated now, whatever app version runs, before the health check below.
+  if ((db_changes)) && [[ -n $old_cid && "$(service_cid netmon)" == "$old_cid" ]]; then
+    log "db image changed ($cur_db -> $new_db), netmon was not recreated: recreating it so the app updates the TimescaleDB extension"
+    if ! wait_db_healthy || ! compose up -d --no-deps --force-recreate netmon; then
+      rollback "$rev" "$tree" "recreating netmon after the db image change failed" "$dump"
+      return 1
+    fi
   fi
   if ! wait_healthy; then
     rollback "$rev" "$tree" "not healthy within ${NETMON_HEALTH_TIMEOUT}s" "$dump"
@@ -334,7 +380,7 @@ check() {
   preflight || return 1
   local old_cid
   old_cid="$(service_cid netmon)"
-  if compose up -d --remove-orphans && wait_healthy; then
+  if compose_up_guarded && wait_healthy; then
     flush_ingest_conntrack "$old_cid"
     hist "DRIFT repaired (${drift[*]}) rev=$deployed_rev"
     log "drift repaired"

@@ -31,7 +31,7 @@ x-hardening: &hardening
 services:
   # One-shot: create the shared data volume layout and a random DB password if absent.
   init:
-    image: ${NETMON_INIT_IMAGE:-busybox:1.37}
+    image: ${NETMON_INIT_IMAGE:-busybox:1.38}
     restart: "no"
     network_mode: none
     <<: *hardening
@@ -67,7 +67,7 @@ services:
         chmod 0640 /data/db_password
 
   db:
-    image: ${NETMON_DB_IMAGE:-timescale/timescaledb:2.31.0-pg16}
+    image: ${NETMON_DB_IMAGE:-timescale/timescaledb:2.32.1-pg16}
     restart: unless-stopped
     # [1.4.2] runs directly as the image's postgres user (alpine images: 70:70, the owner of
     # the data directory): no capability needed. A Debian-based PostgreSQL image uses
@@ -105,8 +105,8 @@ services:
       context: ..
       dockerfile: Dockerfile
       args:
-        NODE_IMAGE: ${NETMON_NODE_IMAGE:-node:22-slim}
-        PYTHON_IMAGE: ${NETMON_PYTHON_IMAGE:-python:3.12-slim}
+        NODE_IMAGE: ${NETMON_NODE_IMAGE:-node:26-slim}
+        PYTHON_IMAGE: ${NETMON_PYTHON_IMAGE:-python:3.14-slim}
     image: ${NETMON_IMAGE:-networkmonitor:local}
     restart: unless-stopped
     # [1.4.2] non-root (uid 10001) with NO capability: unprivileged ICMP sockets (sysctl
@@ -121,6 +121,12 @@ services:
         condition: service_completed_successfully
       db:
         condition: service_healthy
+        # [1.5.1] No `restart: true` here on purpose: Compose 2.19.0-2.20.2 then fail
+        # `docker compose restart netmon` ("service db is required by netmon but is
+        # disabled"), Compose <= 2.16 reject the whole file, and before 2.29.4 `up` ignores it
+        # (no restart of dependents at all). `up -d` after a db image
+        # change recreates db only; the running app notices the database restart (lock
+        # watchdog, <= 30 s) and runs ALTER EXTENSION timescaledb UPDATE itself.
     environment:
       DATABASE_URL: postgresql://netmon@db:5432/netmon
       NETMON_DB_PASSWORD_FILE: /data/db_password

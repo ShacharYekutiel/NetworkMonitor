@@ -250,23 +250,35 @@ export function ApplyTemplateModal({
   const [removeUnselected, setRemoveUnselected] = useState(false);
   // [template-switch] sensors this template replaces, ticked for deletion
   const [replacePick, setReplacePick] = useState<Set<number> | null>(null);
-  useEffect(() => {
+  // A new template (or reopening) resets the per-template choices. This is done while
+  // rendering, not in an effect: an effect runs only after the commit that already shows
+  // the new template's Ports section, so a click on it in between was silently undone.
+  const [choicesFor, setChoicesFor] = useState({ id, open });
+  if (choicesFor.id !== id || choicesFor.open !== open) {
+    setChoicesFor({ id, open });
     setChoice('important');
     setPicked(null);
     setRemoveUnselected(false);
     setReplacePick(null);
-  }, [id, open]);
+  }
 
+  // The device's identity suggestion (Identify / discovery), when the list has it.
+  const suggestion = device.identity?.suggested_template || undefined;
   useEffect(() => {
     if (!open) return;
     setResult(null);
-    if (initialTemplate) setId(initialTemplate);
+    // Each opening starts from the caller's template, else the suggestion / first (below).
+    setId(initialTemplate ?? '');
     apply.reset();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open]);
   useEffect(() => {
-    if (!id && templates.data?.length) setId(templates.data[0].id);
-  }, [templates.data, id]);
+    if (id || !templates.data?.length) return;
+    // Opened without a template (the device page's "Apply template", the tree menu): the
+    // suggested template when there is one, not just the first of the list.
+    const suggested = templates.data.find((x) => x.id === suggestion);
+    setId((suggested ?? templates.data[0]).id);
+  }, [templates.data, id, suggestion]);
 
   const apply = useMutation({
     mutationFn: () => {
@@ -323,7 +335,12 @@ export function ApplyTemplateModal({
           <ErrorBox error={templates.error} />
           {templates.data && (
             <Field label={t('templates.template')}>
-              <TemplateSelect templates={templates.data} value={id} onChange={setId} />
+              <TemplateSelect
+                templates={templates.data}
+                value={id}
+                onChange={setId}
+                suggested={suggestion}
+              />
             </Field>
           )}
           {tpl && (

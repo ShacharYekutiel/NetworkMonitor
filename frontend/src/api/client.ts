@@ -51,7 +51,7 @@ export function buildUrl(path: string, query?: Query): string {
 
 /** Parses an error envelope from a failed response; never throws. */
 export async function parseError(res: Response): Promise<ApiError> {
-  let body: unknown = null;
+  let body: unknown;
   try {
     const text = await res.text();
     body = text ? JSON.parse(text) : null;

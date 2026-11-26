@@ -466,3 +466,35 @@ def test_estimate_stream_usage() -> None:
     assert u["output_tokens"] == 20 and 200 <= u["input_tokens"] <= 260
     assert u["cache_read_tokens"] == 0 and u["cache_write_tokens"] == 0
     assert agent.estimate_stream_usage({}, "", asm)["input_tokens"] == 0
+
+
+# --------------------------------------------------------------------------- list_problems counts
+def test_list_problems_counts_are_per_status_never_summed() -> None:
+    """Production finding (1.5.0): "how many sensors are in fault?" was answered "39" = 25 down +
+    14 warning. list_problems carries exact per-status counts named for what they are, and no
+    total that mixes faults with warnings; the tool description and the chat prompt say so."""
+    from netmon.assistant import tools_core
+
+    raw = {"down": 25, "warning": 14}
+    counts = tools_core.problem_counts(raw, ["down", "warning", "unreachable"])
+    assert counts == {"down_count": 25, "warning_count": 14, "unreachable_count": 0}
+    assert list(counts) == ["down_count", "warning_count", "unreachable_count"]
+    assert not any("total" in k or k in ("count", "problems") for k in counts)
+    # only the statuses asked for (statuses=["down"] → no warning number to add)
+    assert tools_core.problem_counts(raw, ["down"]) == {"down_count": 25}
+    assert tools_core.problem_counts({}, ["warning"]) == {"warning_count": 0}
+    # the counts survive the envelope cap even when the item list is cut
+    env = {"ok": True, "rows": 300, "truncated": False,
+           "data": {"counts": counts,
+                    "items": [{"message": "x" * 200, "i": i} for i in range(300)]}}  # fmt: skip
+    out = tools.cap_envelope(env)
+    assert out["truncated"] and out["data"]["counts"] == counts
+    assert len(out["data"]["items"]) < 300
+    tools.ensure_loaded()
+    desc = tools.REGISTRY["list_problems"].spec()["toolSpec"]["description"]
+    assert "down_count = sensors in fault" in desc and "never add warnings" in desc
+    assert "never add warnings to the fault" in tools_core.PROBLEMS_NOTE
+    ctx = prompt.PromptCtx(now=datetime(2026, 11, 25, 12, tzinfo=UTC))
+    for purpose in ("ask", "chat_ask", "explain"):
+        assert prompt.STATUSES in prompt.system_prompt(purpose, ctx)
+    assert prompt.STATUSES not in prompt.system_prompt("alert_note", ctx)

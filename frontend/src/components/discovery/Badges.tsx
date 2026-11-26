@@ -1,3 +1,4 @@
+import type { JSX } from 'react';
 import { useTranslation } from 'react-i18next';
 import type { DeviceClass, DiscoveryResult, ScanStatus } from '../../api/types';
 import { formatNumber } from '../../lib/format';

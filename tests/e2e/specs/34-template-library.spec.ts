@@ -2,7 +2,7 @@ import { expect, test, type Page } from '@playwright/test';
 import { existsSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { Api, VIEWER, apiAs, loginViaApi } from '../lib/helpers';
-import { DISCOVERY_SNMP_PORT, collectWsFrames, ensureGroup, ensureViewer, raw, scanResults, startScan, waitForScan } from '../lib/lab';
+import { DISCOVERY_SNMP_PORT, collectWsFrames, ensureGroup, ensureViewer, raw, scanResults, startScan, waitForScan, wsRegistered } from '../lib/lab';
 import { findDevice } from '../lib/lab2b';
 import { E2E_DATA_DIR, T, clearUserTemplates, installUserTemplates, removeUserTemplate, shot2b2, userTemplateDir } from '../lib/lab2b2';
 
@@ -107,6 +107,7 @@ test('user directory: 10 files -> 3 user templates, 1 override, 7 errors; reload
   expect(files).toHaveLength(10);
   const ws = collectWsFrames(page);
   await loginViaApi(page, undefined, '/templates');
+  await wsRegistered(ws); // the templates.reloaded broadcast of the reload below must reach this page
   const lib = await api.post('/api/device-templates/reload');
   expect(lib).toMatchObject({ builtin_count: 19, user_count: 3, overridden: ['hpe_comware'], user_dir: userTemplateDir() });
   const errs = lib.errors.map((e: any) => ({ file: e.file, id: e.template_id, path: e.path, msg: e.message, source: e.source }));

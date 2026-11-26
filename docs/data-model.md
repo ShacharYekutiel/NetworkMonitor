@@ -2113,8 +2113,10 @@ filled with their defaults, so every key is always present.
 
 ### Load errors
 Pure `netmon.templates.library.load_dir(root, source) -> (templates, errors)`; any error rejects the **whole
-file** (other files still load). The per-file handler also catches `RecursionError` (deeply nested YAML/JSON →
-`invalid YAML: nesting too deep` / `invalid JSON: nesting too deep`) and, as a safety net, any other exception
+file** (other files still load). **[1.5.1]** Nesting deeper than 32 levels is rejected explicitly (`invalid YAML: nesting
+too deep` / `invalid JSON: nesting too deep`; the deepest built-in template uses 6), because from Python 3.14 the
+JSON parser's own depth guard depends on the thread's stack size. The per-file handler also catches `RecursionError`
+(same message) and, as a safety net, any other exception
 (`invalid value: <exception text>`), so no file can make a reload fail or drop the other user templates. The
 size cap (`file too large`, 256 KiB) is checked before reading.
 
@@ -2753,7 +2755,8 @@ Condition `expires_at` = `last_at + clear_after_min` (rule) or `last_at + flap_q
 `last_value` = active conditions; its `status` = the sensor status. Default names: `SNMP traps`, `Syslog`,
 `Port flapping`. Unique index `ux_sensors_event_type (device_id, type) WHERE type IN
 ('trap','syslog','port_flap')`. `alert_state` gains `flap_suppressed boolean NOT NULL DEFAULT false`
-(architecture § 12.4).
+(architecture § 12.4). **[1.5.1]** A new problem on the same `(rule_id, sensor_id)` resets `flap_suppressed` to `false`
+together with the other per-problem fields, so the next message is not labelled as held by flapping.
 
 ## [2b-3] Port flapping
 Settings `flap_threshold` (int, 3–50, default 5), `flap_window_min` (1–120, default 10), `flap_quiet_min`
