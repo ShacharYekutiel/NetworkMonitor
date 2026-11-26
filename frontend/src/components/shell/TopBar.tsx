@@ -127,7 +127,7 @@ function UserMenu() {
   const item =
     'flex w-full items-center gap-2.5 rounded-[10px] px-3 py-2 text-start text-sm text-ink no-underline hover:bg-surface-hover';
   return (
-    <div className="relative ms-1.5" ref={ref}>
+    <div className="relative ms-0.5 shrink-0 sm:ms-1.5" ref={ref}>
       <button
         type="button"
         onClick={() => setOpen((o) => !o)}
@@ -180,7 +180,10 @@ function UserMenu() {
 
 /**
  * Top bar (64px, translucent with a blur, content scrolls under it): logo at the start, the
- * Dynamic Island in the middle, search / language / theme / ☰ / avatar at the end.
+ * Dynamic Island in the middle, search / language / theme / ☰ / avatar at the end. On a phone
+ * (below `sm`) the island takes only the room left between the logo and the tools, so the tools
+ * and the avatar always stay inside the screen (the centred 1fr / auto / 1fr grid pushed the
+ * avatar half off the end edge at 390 px).
  */
 export function TopBar({
   menuId,
@@ -193,7 +196,7 @@ export function TopBar({
 }) {
   const { t } = useTranslation();
   return (
-    <header className="absolute inset-x-0 top-0 z-30 grid h-header grid-cols-[1fr_auto_1fr] items-center bg-[color-mix(in_srgb,var(--chrome)_78%,transparent)] px-6 text-chrome-ink backdrop-blur-[20px] backdrop-saturate-[1.8] print:hidden">
+    <header className="absolute inset-x-0 top-0 z-30 grid h-header grid-cols-[auto_minmax(0,1fr)_auto] items-center gap-2 bg-[color-mix(in_srgb,var(--chrome)_78%,transparent)] px-4 text-chrome-ink sm:grid-cols-[1fr_auto_1fr] sm:gap-0 sm:px-6 backdrop-blur-[20px] backdrop-saturate-[1.8] print:hidden">
       <Link
         to="/"
         dir="ltr"
@@ -204,7 +207,7 @@ export function TopBar({
         <span className="hidden sm:inline">Network Monitor</span>
       </Link>
       <Island />
-      <div className="flex items-center gap-1.5 justify-self-end">
+      <div className="flex items-center gap-0.5 justify-self-end sm:gap-1.5">
         <QuickSearch />
         <LanguageSwitcher compact />
         <ThemeToggle />

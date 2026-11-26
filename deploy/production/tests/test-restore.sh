@@ -82,7 +82,14 @@ echo "# mode=$MODE dump written by TimescaleDB $OLD, target default $DEFAULT_TS"
 [[ -n $OLD && $OLD != "$DEFAULT_TS" ]] || fail "the source must be on an older TimescaleDB than the target ($OLD vs $DEFAULT_TS)"
 
 # --- a source database shaped like NetworkMonitor's (hypertable, compression, retention,
-# continuous aggregate, policies, compressed chunks)
+# continuous aggregate, policies, compressed chunks).
+# TimescaleDB's scheduler runs a policy as soon as it is added (CI run 45775398244: the
+# compression policy compressed _hyper_1_10_chunk under the fixture's own compress_chunk ->
+# "is already compressed"). So the data is put into the state the policies would produce
+# (aggregate fully refreshed, every chunk older than the 7-day compression lag compressed,
+# nothing older than 30 days) BEFORE the policies exist, and the policies are added last in
+# one transaction: whenever the scheduler of the source or of a restored target runs them,
+# they change nothing this test compares (fingerprint below).
 src_sql "$SRC" >/dev/null <<'SQL'
 SET client_min_messages = error;
 CREATE TABLE measurements (time timestamptz NOT NULL, sensor_id int NOT NULL, channel int NOT NULL, value float8);
@@ -91,15 +98,17 @@ INSERT INTO measurements
   SELECT t, s, 1, s * 10 + extract(epoch FROM t)::bigint % 7
   FROM generate_series(now() - INTERVAL '20 days', now(), INTERVAL '5 minutes') t, generate_series(1, 3) s;
 ALTER TABLE measurements SET (timescaledb.compress, timescaledb.compress_segmentby = 'sensor_id, channel');
-SELECT add_compression_policy('measurements', INTERVAL '7 days');
-SELECT add_retention_policy('measurements', INTERVAL '30 days');
 CREATE MATERIALIZED VIEW measurements_hourly WITH (timescaledb.continuous) AS
   SELECT time_bucket('1 hour', time) AS bucket, sensor_id, avg(value) AS avg_value
   FROM measurements GROUP BY 1, 2 WITH NO DATA;
+CALL refresh_continuous_aggregate('measurements_hourly', NULL, NULL);
+SELECT count(compress_chunk(c)) FROM show_chunks('measurements', older_than => INTERVAL '7 days') c;
+BEGIN;
+SELECT add_compression_policy('measurements', INTERVAL '7 days');
+SELECT add_retention_policy('measurements', INTERVAL '30 days');
 SELECT add_continuous_aggregate_policy('measurements_hourly', start_offset => INTERVAL '3 days',
   end_offset => INTERVAL '1 hour', schedule_interval => INTERVAL '1 hour');
-CALL refresh_continuous_aggregate('measurements_hourly', NULL, NULL);
-SELECT count(compress_chunk(c)) FROM show_chunks('measurements', older_than => INTERVAL '8 days') c;
+COMMIT;
 SQL
 fingerprint() { # sql-runner db -> rows|sum|compressed chunks|cagg rows|policy jobs
   "$@" "SELECT (SELECT count(*) || '|' || round(sum(value)) FROM measurements) || '|' ||
@@ -173,12 +182,33 @@ GOT="$(fingerprint tgt_fp)"
 [[ "$(tgt_sql "SELECT current_setting('timescaledb.restoring', true)")" != on ]] || fail "still in restoring mode"
 ok "dump on $OLD restored under $DEFAULT_TS: created at $OLD, restored, updated to $DEFAULT_TS; data/compression/cagg/jobs identical ($GOT)"
 
-# 4. the background jobs work after the update (retention, compression, continuous aggregate)
+# 4. the background jobs work after the update (retention, compression, continuous aggregate).
+# The scheduler of the target is stopped while the test runs the jobs itself (and waited
+# for: no TimescaleDB worker left in the database), so the scheduler cannot race with
+# run_job; each job gets work whose result is checked: a new row for the aggregate policy, a
+# decompressed old chunk for the compression policy. Afterwards the database is again a
+# fixed point of every policy, so step 6 can compare against it with the scheduler running.
+tgt_sql "SELECT _timescaledb_functions.stop_background_workers()" >/dev/null
+for _ in $(seq 60); do
+  busy="$(tgt_sql "SELECT count(*) FROM pg_stat_activity WHERE datname = current_database() AND pid <> pg_backend_pid()
+    AND backend_type NOT IN ('client backend', 'autovacuum worker', 'parallel worker')")"
+  [[ $busy == 0 ]] && break
+  sleep 1
+done
+[[ $busy == 0 ]] || fail "TimescaleDB workers still running in the target after stop_background_workers ($busy)"
+compressed="$(tgt_sql "SELECT count(*) FROM timescaledb_information.chunks WHERE hypertable_name = 'measurements' AND is_compressed")"
+tgt_sql "SELECT decompress_chunk(format('%I.%I', chunk_schema, chunk_name)::regclass) FROM timescaledb_information.chunks
+  WHERE hypertable_name = 'measurements' AND is_compressed ORDER BY range_end DESC LIMIT 1" >/dev/null
+tgt_sql "INSERT INTO measurements VALUES (now() - INTERVAL '2 hours', 9, 1, 1)" >/dev/null
 for j in $(tgt_sql "SELECT job_id FROM timescaledb_information.jobs WHERE job_id >= 1000 ORDER BY 1"); do
   tgt_sql "CALL run_job($j)" >/dev/null || fail "job $j failed"
 done
-tgt_sql "INSERT INTO measurements VALUES (now() - INTERVAL '2 hours', 9, 1, 1)" >/dev/null
-ok "every policy job runs after the restore (CALL run_job)"
+[[ "$(tgt_sql "SELECT count(*) FROM timescaledb_information.chunks WHERE hypertable_name = 'measurements' AND is_compressed")" == "$compressed" ]] ||
+  fail "the compression policy did not compress the decompressed chunk again"
+[[ "$(tgt_sql "SELECT count(*) FROM measurements_hourly WHERE sensor_id = 9")" == 1 ]] ||
+  fail "the continuous aggregate policy did not materialize the new row"
+tgt_sql "SELECT _timescaledb_functions.restart_background_workers()" >/dev/null
+ok "every policy job runs after the restore (CALL run_job, scheduler stopped): chunk compressed again, new row aggregated"
 
 BEFORE5="$(fingerprint tgt_fp)" # incl. the row step 4 added; step 5's safety dump holds this
 # 5. idempotent: restoring the same dump again gives the same result

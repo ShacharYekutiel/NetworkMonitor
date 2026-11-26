@@ -324,9 +324,10 @@ deploy() { # rev tree
     return 1
   fi
   # [1.5.1] A db image change with the same app image: compose recreates db but leaves the
-  # running netmon container alone (its depends_on has no `restart: true`), and the app applies
-  # a newer TimescaleDB (ALTER EXTENSION timescaledb UPDATE) only at startup. Recreate netmon
-  # once db is healthy, so the extension is updated now and not at some later app restart.
+  # running netmon container alone (its depends_on has no `restart: true`). App >= 1.5.1 also
+  # updates the extension after it reconnected (lock watchdog, <= 30 s), but 1.5.0 (a rollback
+  # target) does so only at startup: recreate netmon once db is healthy, so the extension is
+  # updated now, whatever app version runs, before the health check below.
   if ((db_changes)) && [[ -n $old_cid && "$(service_cid netmon)" == "$old_cid" ]]; then
     log "db image changed ($cur_db -> $new_db), netmon was not recreated: recreating it so the app updates the TimescaleDB extension"
     if ! wait_db_healthy || ! compose up -d --no-deps --force-recreate netmon; then

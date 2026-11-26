@@ -2111,8 +2111,10 @@ filled with their defaults, so every key is always present.
 
 ### Load errors
 Pure `netmon.templates.library.load_dir(root, source) -> (templates, errors)`; any error rejects the **whole
-file** (other files still load). The per-file handler also catches `RecursionError` (deeply nested YAML/JSON →
-`invalid YAML: nesting too deep` / `invalid JSON: nesting too deep`) and, as a safety net, any other exception
+file** (other files still load). **[1.5.1]** Nesting deeper than 32 levels is rejected explicitly (`invalid YAML: nesting
+too deep` / `invalid JSON: nesting too deep`; the deepest built-in template uses 6), because from Python 3.14 the
+JSON parser's own depth guard depends on the thread's stack size. The per-file handler also catches `RecursionError`
+(same message) and, as a safety net, any other exception
 (`invalid value: <exception text>`), so no file can make a reload fail or drop the other user templates. The
 size cap (`file too large`, 256 KiB) is checked before reading.
 

@@ -539,7 +539,8 @@ function TopTalkersCard({ onCreate }: { onCreate: (x: TopTalker) => void }) {
     {
       id: 'source',
       label: t('syslogFilters.col.source'),
-      minWidth: 140,
+      // an IP and the "unknown" badge side by side, never cut
+      minWidth: 210,
       cell: (x) => <SourceCell r={x} />,
     },
     {
@@ -617,6 +618,7 @@ function TopTalkersCard({ onCreate }: { onCreate: (x: TopTalker) => void }) {
           rows={q.data.items}
           rowKey={(x) => `${x.source_ip}|${x.device_id}|${x.program}|${x.severity}`}
           testId="top-talkers"
+          cardsWhenNarrow
         />
       )}
     </Card>
