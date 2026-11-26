@@ -1,4 +1,5 @@
 import { useEffect, useId, useRef, useState } from 'react';
+import { useQueryClient } from '@tanstack/react-query';
 import { useTranslation } from 'react-i18next';
 import type { Language } from '../api/types';
 import { endpoints } from '../api/endpoints';
@@ -14,6 +15,9 @@ const LANGUAGES: { code: Language; label: string }[] = [
   { code: 'he', label: 'עברית' },
 ];
 
+/** Query key roots whose responses hold text in the request user's language (docs/api.md). */
+const SERVER_LANGUAGE_QUERIES = ['overview-map', 'event-rules'] as const;
+
 export function LanguageSwitcher({
   className,
   compact,
@@ -24,6 +28,7 @@ export function LanguageSwitcher({
 }) {
   const { t, i18n } = useTranslation();
   const { user, setUser } = useAuth();
+  const qc = useQueryClient();
   const current = (i18n.language === 'he' ? 'he' : 'en') as Language;
   const [open, setOpen] = useState(false);
   const rootRef = useRef<HTMLDivElement>(null);
@@ -57,7 +62,12 @@ export function LanguageSwitcher({
     if (user && user.language !== lang) {
       endpoints
         .updateMe({ language: lang })
-        .then((r) => setUser(r.user))
+        .then((r) => {
+          setUser(r.user);
+          // Words the server writes in the user's stored language (the home map's group
+          // subtitles, built-in event rule names) follow once the server has the new one.
+          for (const key of SERVER_LANGUAGE_QUERIES) void qc.invalidateQueries({ queryKey: [key] });
+        })
         .catch(() => undefined);
     }
   };
