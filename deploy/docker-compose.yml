@@ -67,7 +67,7 @@ services:
         chmod 0640 /data/db_password
 
   db:
-    image: ${NETMON_DB_IMAGE:-timescale/timescaledb:2.31.0-pg16}
+    image: ${NETMON_DB_IMAGE:-timescale/timescaledb:2.32.1-pg16}
     restart: unless-stopped
     # [1.4.2] runs directly as the image's postgres user (alpine images: 70:70, the owner of
     # the data directory): no capability needed. A Debian-based PostgreSQL image uses
