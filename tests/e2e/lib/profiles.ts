@@ -67,6 +67,29 @@ export async function startProfSims(snmpHosts: readonly string[] = PROF_HOSTS): 
   return { snmp, ssh, sshUrl: `http://127.0.0.1:${m[1]}`, stateDir };
 }
 
+/** [1.6.0] An extra snmpsim agent with an SNMPv3 authPriv (SHA / AES-128) user (v1/v2c "public" still answers). */
+export const PROF_V3_HOST = '127.0.0.245';
+export const PROF_V3 = { user: 'qa-v3-user', auth: 'qa-v3-Auth-key-1', priv: 'qa-v3-Priv-key-1' } as const;
+export async function startV3Agent(): Promise<ChildProcess> {
+  const py = existsSync(PY) ? PY : 'python3';
+  const c = spawn(
+    py,
+    [join(SIM_DIR, 'snmp_agent.py'), '--host', PROF_V3_HOST, '--port', String(PROF_SNMP_PORT),
+      '--v3-user', PROF_V3.user, '--v3-auth-proto', 'SHA', '--v3-auth-key', PROF_V3.auth,
+      '--v3-priv-proto', 'AES', '--v3-priv-key', PROF_V3.priv],
+    { stdio: ['ignore', 'pipe', 'pipe'] },
+  );
+  await waitLine(c, /READY/, `snmp v3 agent ${PROF_V3_HOST}`);
+  return c;
+}
+export function v3ProfileCreds(extra: Record<string, unknown> = {}) {
+  return {
+    version: 'v3', port: PROF_SNMP_PORT, timeout_s: 1, retries: 0, v3_username: PROF_V3.user,
+    v3_security_level: 'authPriv', v3_auth_protocol: 'SHA', v3_auth_key: PROF_V3.auth,
+    v3_priv_protocol: 'AES128', v3_priv_key: PROF_V3.priv, ...extra,
+  };
+}
+
 export function stopProfSims(s: ProfSims | undefined): void {
   if (!s) return;
   for (const c of [...s.snmp, s.ssh]) if (c && c.exitCode === null) c.kill('SIGTERM');

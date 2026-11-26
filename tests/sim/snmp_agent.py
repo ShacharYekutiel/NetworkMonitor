@@ -6,6 +6,7 @@
         --data tests/sim/discovery/opnsense            # Phase 2a discovery lab (see tests/sim/lab.sh)
     backend/.venv/bin/python tests/sim/snmp_agent.py --host 127.0.0.155 --port 1161 \
         --v3-user netmon --v3-auth-key NetmonAuth2026  # + an SNMPv3 authNoPriv (SHA) user
+        [--v3-priv-key NetmonPriv2026 --v3-priv-proto AES128]   # [1.6.0] authPriv instead
 
 Default: community `public` (v1/v2c), data tests/sim/snmp. The device "netmon-sim" exposes:
   - SNMPv2-MIB system (sysUpTime grows in real time)
@@ -67,6 +68,9 @@ def main() -> int:
     p.add_argument("--v3-user", default=None, help="SNMPv3 user (with --v3-auth-key)")
     p.add_argument("--v3-auth-proto", default="SHA", help="MD5, SHA, SHA256, ...")
     p.add_argument("--v3-auth-key", default=None)
+    # [1.6.0] optional privacy (authPriv); snmpsim's names: DES, 3DES, AES (= AES128), AES192, AES256
+    p.add_argument("--v3-priv-proto", default="AES", help="DES, AES, AES192, AES256, ...")
+    p.add_argument("--v3-priv-key", default=None)
     a = p.parse_args()
 
     exe = shutil.which("snmpsim-command-responder") or str(
@@ -86,12 +90,32 @@ def main() -> int:
         f"--cache-dir={cache}",
         f"--agent-udpv4-endpoint={a.host}:{a.port}",
     ]
+    community = a.community or sorted(data.glob("*.snmprec"))[0].stem
     if a.v3_user:
         args += [f"--v3-user={a.v3_user}", f"--v3-auth-proto={a.v3_auth_proto}", f"--v3-auth-key={a.v3_auth_key}"]
+        if a.v3_priv_key:
+            args += [f"--v3-priv-proto={a.v3_priv_proto}", f"--v3-priv-key={a.v3_priv_key}"]
+        # [1.6.0] NetworkMonitor sends SNMPv3 requests with the empty context name; snmpsim maps that
+        # to the data file "self" (its own engine ID). Without it every v3 GET was refused ("LCD access
+        # denied"), so only wrong-key cases could be tested. Serve the community's data there too.
+        own = data / "self.snmprec"
+        if not own.exists():
+            shutil.copyfile(data / f"{community}.snmprec", own)
+            own.chmod(0o644)
     if hasattr(os, "geteuid") and os.geteuid() == 0:
         shutil.chown(cache, "nobody")
         args += ["--process-user=nobody", "--process-group=nogroup"]
-    community = a.community or sorted(data.glob("*.snmprec"))[0].stem
+        # [1.6.0] pysnmp imports the cryptography backend lazily, at the first SNMPv3 privacy
+        # (AES / DES) packet, i.e. after snmpsim dropped to nobody, who may not be able to read this
+        # venv: preload it in the same process before the drop.
+        args = [
+            sys.executable,
+            "-c",
+            "import sys; import cryptography.hazmat.backends.openssl, "
+            "cryptography.hazmat.primitives.ciphers; "
+            "from snmpsim.commands.responder import main; sys.argv[0] = 'snmpsim'; sys.exit(main())",
+            *args[1:],
+        ]
     proc = subprocess.Popen(args)
 
     def stop(*_: object) -> None:

@@ -8,11 +8,11 @@ import { mkdirSync } from 'node:fs';
 import { join } from 'node:path';
 import { expect, test, type Page } from '@playwright/test';
 import { SCREENSHOT_DIR, VIEWER, apiAs, loginViaApi, uid, type Api } from '../lib/helpers';
-import { ensureViewer, horizontalOverflow, raw } from '../lib/lab';
+import { collectWsFrames, ensureViewer, horizontalOverflow, raw, wsRegistered } from '../lib/lab';
 import { features, setFeatures } from '../lib/lab3';
 import {
-  PROF_HOSTS, SSH_PASS, checkNow, clearSimLog, simCommands, simLog, snmpProfileCreds,
-  startProfSims, stopProfSims, type ProfSims,
+  PROF_HOSTS, PROF_V3_HOST, SSH_PASS, checkNow, clearSimLog, simCommands, simLog, snmpProfileCreds,
+  startProfSims, startV3Agent, stopProfSims, v3ProfileCreds, type ProfSims,
 } from '../lib/profiles';
 
 test.describe.configure({ mode: 'serial' });
@@ -95,7 +95,7 @@ test.afterAll(async () => {
   if (admin) {
     await setLang(admin, 'en').catch(() => undefined);
     await setFeatures(admin, { config_backup: backupWasOn }).catch(() => undefined);
-    for (const g of [G.top, G.moveA, G.moveB, G.del]) if (g) await raw(admin, 'DELETE', `/api/groups/${g}`);
+    for (const g of [G.top, G.moveA, G.moveB, G.del, G.v3]) if (g) await raw(admin, 'DELETE', `/api/groups/${g}`);
     if (D.ref) await raw(admin, 'DELETE', `/api/devices/${D.ref}`);
     for (const p of Object.values(P)) await raw(admin, 'DELETE', `/api/connection-profiles/${p.id}`);
   }
@@ -223,6 +223,60 @@ test('3: editing the profile changes the device at its next check, with no devic
   await admin.patch(`/api/connection-profiles/${P.v2c.id}`, { credentials: { community: 'public' } });
   await expectSensor(S.sw, 'up');
   expect((await admin.get(`/api/devices/${D.sw}`)).snmp_mode).toBe('inherit'); // the device was never edited
+});
+
+test('3b: polling with an SNMP v3 (authPriv, SHA / AES-128) profile inherited from a top-level group; wrong privacy key -> down, fixed -> up', async ({ page }) => {
+  // [1.6.0] QA could not verify v3 polling before: the simulator now has a v3 user (tests/sim/snmp_agent.py)
+  const agent = await startV3Agent();
+  try {
+    P.v3live = await admin.post('/api/connection-profiles', { kind: 'snmp', name: `${tag} v3 live`, credentials: v3ProfileCreds() });
+    G.v3 = (await admin.post('/api/groups', { name: `${tag} V3 site`, parent_id: null, snmp_profile_id: P.v3live.id })).id;
+    const sub = (await admin.post('/api/groups', { name: `${tag} V3 floor`, parent_id: G.v3 })).id;
+    const d = await admin.post('/api/devices', { group_id: sub, name: `${tag}-v3`, host: PROF_V3_HOST, auto_sensors: [] });
+    const sid = await snmpSensor(d.id);
+    await expectSensor(sid, 'up');
+    const s = await admin.get(`/api/sensors/${sid}`);
+    expect(s.status_message ?? '').not.toMatch(/timeout|auth/i);
+    await loginViaApi(page, undefined, `/devices/${d.id}`);
+    await expect(page.locator('main')).toContainText(`SNMP: Inherited from group ${tag} V3 site · profile ${P.v3live.name}`);
+    await expect(page.locator('main')).toContainText('v3');
+    // a wrong privacy key in the profile: down at the next check (reference semantics, no device edit) ...
+    await admin.patch(`/api/connection-profiles/${P.v3live.id}`, { credentials: { v3_priv_key: 'qa-v3-Wrong-priv-1' } });
+    await expectSensor(sid, 'down');
+    // ... and up again with the right one
+    await admin.patch(`/api/connection-profiles/${P.v3live.id}`, { credentials: { v3_priv_key: v3ProfileCreds().v3_priv_key } });
+    await expectSensor(sid, 'up');
+    const prof = await admin.get(`/api/connection-profiles/${P.v3live.id}`);
+    expect(prof.credentials).toMatchObject({ version: 'v3', v3_security_level: 'authPriv', v3_priv_protocol: 'AES128', v3_priv_key: null, v3_priv_key_set: true });
+  } finally {
+    agent.kill('SIGTERM');
+  }
+});
+
+test('3c: a profile rename reaches open pages live (WebSocket invalidation, no reload)', async ({ page, browser }) => {
+  // [1.6.0] not verified before: the device page (origin line) and Settings in another tab follow a rename
+  const ws = collectWsFrames(page);
+  await loginViaApi(page, undefined, `/devices/${D.sw}`);
+  await expect(page.locator('main')).toContainText(`SNMP: Inherited from group ${tag} Site · profile ${P.v2c.name}`);
+  await wsRegistered(ws);
+  const ctx2 = await browser.newContext({ storageState: await page.context().storageState() });
+  const settings = await ctx2.newPage();
+  const ws2 = collectWsFrames(settings);
+  await settings.goto('/settings?tab=connectionProfiles');
+  await expect(settings.getByTestId('profiles-table')).toContainText(P.v2c.name);
+  await wsRegistered(ws2);
+  const old = P.v2c.name;
+  const renamed = `${old} renamed`;
+  try {
+    await admin.patch(`/api/connection-profiles/${P.v2c.id}`, { name: renamed });
+    await expect(page.locator('main')).toContainText(`SNMP: Inherited from group ${tag} Site · profile ${renamed}`);
+    await expect(settings.getByTestId('profiles-table')).toContainText(renamed);
+    expect(ws.frames.some((f) => f.type === 'config.changed' && f.data?.entity === 'connection_profile')).toBe(true);
+  } finally {
+    await admin.patch(`/api/connection-profiles/${P.v2c.id}`, { name: old });
+    await ctx2.close();
+  }
+  await expect(page.locator('main')).toContainText(`profile ${old}`);
 });
 
 test('4: device overrides: manual wins, another profile, dormant manual restored, inherit asks first', async ({ page }) => {
