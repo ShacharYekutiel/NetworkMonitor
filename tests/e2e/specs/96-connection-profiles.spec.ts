@@ -436,7 +436,7 @@ test('10: viewer: no Connection profiles tab, profile names only, every profile 
       await page.goto(path);
       await expect(page.locator('main')).toContainText('You do not have permission for this action.');
       await expect(page.locator('main')).not.toContainText('Connection profiles');
-      await expect(page.getByTestId('profiles-table').or(page.getByTestId('profiles-list'))).toHaveCount(0);
+      await expect(page.getByTestId('profiles-table').or(page.getByTestId('profiles-table-cards'))).toHaveCount(0);
     }
     const calls: [string, string, unknown?][] = [
       ['GET', '/api/connection-profiles'],
@@ -490,7 +490,7 @@ test('13: Hebrew RTL at 390 px: the profiles tab and the credential picker fit, 
     await page.setViewportSize({ width: 390, height: 844 });
     await loginViaApi(page, undefined, '/settings?tab=connectionProfiles');
     await expect(page.locator('html')).toHaveAttribute('dir', 'rtl');
-    const list = page.getByTestId('profiles-list');
+    const list = page.getByTestId('profiles-table-cards'); // the shared table's cards at 390 px (cardsWhenNarrow)
     await expect(list).toContainText(P.v2c.name);
     await list.scrollIntoViewIfNeeded();
     let o = await horizontalOverflow(page);

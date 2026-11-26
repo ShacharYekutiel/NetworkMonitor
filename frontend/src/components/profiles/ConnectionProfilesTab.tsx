@@ -8,20 +8,10 @@ import type { ConnectionProfile, CredentialKind } from '../../api/types';
 import { CREDENTIAL_KINDS } from '../../api/types';
 import { cardAnchor } from '../../lib/settingsIndex';
 import { ModeRadios } from '../CredentialModePicker';
+import { ColumnsMenu, DataTable, labelOf, useDataTable, type DataColumn } from '../kitTable';
 import { EditIcon, PlayIcon, PlusIcon, TrashIcon } from '../icons';
 import { useToast } from '../toast';
-import {
-  Button,
-  Card,
-  ConfirmDialog,
-  Empty,
-  ErrorBox,
-  ICON_BUTTON,
-  Input,
-  Loading,
-  td,
-  th,
-} from '../ui';
+import { Button, Card, ConfirmDialog, Empty, ErrorBox, ICON_BUTTON, Input, Loading } from '../ui';
 import { ProfileForm } from './ProfileForm';
 import { ProfileTestDialog } from './ProfileTestDialog';
 import { ProfileUsageDialog } from './ProfileUsageDialog';
@@ -151,14 +141,76 @@ export function ConnectionProfilesTab() {
   };
 
   const all = list.data?.items ?? [];
+  const cols: DataColumn<ConnectionProfile>[] = [
+    {
+      id: 'name',
+      label: t('profiles.name'),
+      minWidth: 200,
+      wrap: true,
+      cell: (p) => (
+        <>
+          <div className="font-medium">
+            <bdi>{p.name}</bdi>
+          </div>
+          {p.description && (
+            <div className="mt-0.5 max-w-[28rem] text-xs text-ink-muted" dir="auto">
+              {p.description}
+            </div>
+          )}
+          {p.credentials.credentials_unreadable && (
+            <div className="mt-0.5 text-xs text-status-down">{t('profiles.unreadable')}</div>
+          )}
+        </>
+      ),
+    },
+    {
+      id: 'kind',
+      label: t('profiles.kindLabel'),
+      width: 90,
+      cell: (p) => t(`profiles.kind.${p.kind}`),
+    },
+    {
+      id: 'usedBy',
+      label: t('profiles.usedBy'),
+      minWidth: 220,
+      wrap: true,
+      cell: (p) => <UsedBy p={p} onOpen={() => setUsage({ p, blocked: false })} />,
+    },
+    {
+      id: 'devices',
+      label: t('profiles.devicesAffected'),
+      numeric: true,
+      width: 150,
+      cell: (p) => p.usage.devices_effective,
+    },
+    {
+      id: 'actions',
+      label: t('profiles.actions'),
+      pin: 'end',
+      fixed: true,
+      width: 130,
+      cell: (p) => (
+        <RowActions
+          p={p}
+          onTest={() => setTesting(p)}
+          onEdit={() => setEditing(p)}
+          onDelete={() => askDelete(p)}
+        />
+      ),
+    },
+  ];
+  const layout = useDataTable('connection-profiles', cols);
   return (
     <Card
       title={t('profiles.title')}
       anchor={cardAnchor('connectionProfiles')}
       actions={
-        <Button variant="primary" size="sm" onClick={() => setEditing('new')}>
-          <PlusIcon size={14} /> {t('profiles.add')}
-        </Button>
+        <>
+          <ColumnsMenu layout={layout} labelOf={(id) => labelOf(cols, id)} />
+          <Button variant="primary" size="sm" onClick={() => setEditing('new')}>
+            <PlusIcon size={14} /> {t('profiles.add')}
+          </Button>
+        </>
       }
     >
       <p className="m-0 mb-4 text-[13.5px] text-ink-muted">{t('profiles.intro')}</p>
@@ -195,96 +247,18 @@ export function ConnectionProfilesTab() {
       {list.isSuccess && all.length > 0 && !items.length && <Empty>{t('profiles.noMatch')}</Empty>}
       {items.length > 0 && (
         <>
-          {/* wide screens: a table */}
-          <div className="-mx-[22px] hidden overflow-x-auto md:block">
-            <table className="w-full text-sm" data-testid="profiles-table">
-              <thead>
-                <tr>
-                  <th className={th}>{t('profiles.name')}</th>
-                  <th className={th}>{t('profiles.kindLabel')}</th>
-                  <th className={th}>{t('profiles.usedBy')}</th>
-                  <th className={`${th} text-end`}>{t('profiles.devicesAffected')}</th>
-                  <th className={`${th} text-end`}>
-                    <span className="sr-only">{t('profiles.actions')}</span>
-                  </th>
-                </tr>
-              </thead>
-              <tbody>
-                {items.map((p) => (
-                  <tr key={p.id} data-testid={`profile-row-${p.id}`}>
-                    <td className={td}>
-                      <div className="font-medium">
-                        <bdi>{p.name}</bdi>
-                      </div>
-                      {p.description && (
-                        <div className="mt-0.5 max-w-[28rem] text-xs text-ink-muted" dir="auto">
-                          {p.description}
-                        </div>
-                      )}
-                      {p.credentials.credentials_unreadable && (
-                        <div className="mt-0.5 text-xs text-status-down">
-                          {t('profiles.unreadable')}
-                        </div>
-                      )}
-                    </td>
-                    <td className={td}>{t(`profiles.kind.${p.kind}`)}</td>
-                    <td className={td}>
-                      <UsedBy p={p} onOpen={() => setUsage({ p, blocked: false })} />
-                    </td>
-                    <td className={`${td} text-end tabular-nums`}>{p.usage.devices_effective}</td>
-                    <td className={td}>
-                      <RowActions
-                        p={p}
-                        onTest={() => setTesting(p)}
-                        onEdit={() => setEditing(p)}
-                        onDelete={() => askDelete(p)}
-                      />
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
+          {/* 1.5.1 convention: the shared table, one card per profile when it does not fit */}
+          <div className="-mx-[22px]">
+            <DataTable
+              layout={layout}
+              columns={layout.columns}
+              rows={items}
+              rowKey={(p) => p.id}
+              rowProps={(p) => ({ 'data-testid': `profile-row-${p.id}` })}
+              testId="profiles-table"
+              cardsWhenNarrow
+            />
           </div>
-          {/* narrow screens: one card per profile (no horizontal scrolling) */}
-          <ul
-            className="m-0 list-none divide-y divide-line p-0 md:hidden"
-            data-testid="profiles-list"
-          >
-            {items.map((p) => (
-              <li key={p.id} className="space-y-1 py-3">
-                <div className="flex items-start justify-between gap-2">
-                  <div className="min-w-0">
-                    <div className="break-words font-medium">
-                      <bdi>{p.name}</bdi>{' '}
-                      <span className="text-xs font-normal text-ink-muted">
-                        · {t(`profiles.kind.${p.kind}`)}
-                      </span>
-                    </div>
-                    {p.description && (
-                      <div className="text-xs text-ink-muted" dir="auto">
-                        {p.description}
-                      </div>
-                    )}
-                  </div>
-                  <RowActions
-                    p={p}
-                    onTest={() => setTesting(p)}
-                    onEdit={() => setEditing(p)}
-                    onDelete={() => askDelete(p)}
-                  />
-                </div>
-                {p.credentials.credentials_unreadable && (
-                  <div className="text-xs text-status-down">{t('profiles.unreadable')}</div>
-                )}
-                <div className="text-xs">
-                  <UsedBy p={p} onOpen={() => setUsage({ p, blocked: false })} />
-                </div>
-                <div className="text-xs text-ink-muted">
-                  {t('profiles.devicesAffected')}: {p.usage.devices_effective}
-                </div>
-              </li>
-            ))}
-          </ul>
         </>
       )}
 
